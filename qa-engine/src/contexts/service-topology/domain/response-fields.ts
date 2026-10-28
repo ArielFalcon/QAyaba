@@ -1,62 +1,33 @@
 /*
- * The fields an OpenAPI document declares for the items an operation's successful JSON response returns: the properties of the
- * schema of a 2xx response, through local references and `allOf`/`anyOf`/`oneOf`. The items are those the capture reads at runtime
- * (the elements of the array a response holds, else the response itself), so a schema is read the same way: an array's `items`, else
- * the one array-of-objects property of an object (or of an object property of it), else the object. A response with several such
- * arrays cannot be told from the document alone and declares nothing, as does a reference to another file, an operation the
- * document does not have and a schema with no properties. Pure: it takes the parsed document; reading it is the caller's.
+ * The names of the fields an OpenAPI document declares anywhere in an operation's successful JSON response: the properties of the
+ * schema of a 2xx response and of every schema it holds (properties, array items, additional properties, `allOf`/`anyOf`/`oneOf`),
+ * through local references. The capture reads the names of the whole answer at every depth, so the document is read the same way.
+ * A reference to another file, an operation the document does not have and a schema with no properties declare nothing, which is
+ * not the same as declaring that a field is absent. Pure: it takes the parsed document; reading it is the caller's.
  */
 import { requestServesOperation } from "./operation-url-pattern.ts";
 import { resolveLocalReferences } from "./operation-diff.ts";
 
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 
-/* The deepest allOf/anyOf/oneOf nesting followed: a document is data the repository holds, and a response schema nests a few levels at most. */
-const MAX_SCHEMA_DEPTH = 8;
+/* The deepest schema nesting followed and the most names kept: a document is data the repository holds, and a response schema nests a few levels at most. */
+const MAX_SCHEMA_DEPTH = 16;
+const MAX_DECLARED_NAMES = 2_000;
 
-function propertyNames(schema: unknown, depth = 0): Set<string> {
-  const names = new Set<string>();
-  if (!isRecord(schema) || depth > MAX_SCHEMA_DEPTH) return names;
-  if (isRecord(schema["properties"])) for (const name of Object.keys(schema["properties"])) names.add(name);
+function collectNames(schema: unknown, names: Set<string>, depth: number): void {
+  if (!isRecord(schema) || depth > MAX_SCHEMA_DEPTH || names.size >= MAX_DECLARED_NAMES) return;
+  if (isRecord(schema["properties"])) {
+    for (const [name, child] of Object.entries(schema["properties"])) {
+      names.add(name);
+      collectNames(child, names, depth + 1);
+    }
+  }
+  collectNames(schema["items"], names, depth + 1);
+  collectNames(schema["additionalProperties"], names, depth + 1);
   for (const keyword of ["allOf", "anyOf", "oneOf"]) {
     const parts = schema[keyword];
-    if (Array.isArray(parts)) for (const part of parts) for (const name of propertyNames(part, depth + 1)) names.add(name);
+    if (Array.isArray(parts)) for (const part of parts) collectNames(part, names, depth + 1);
   }
-  return names;
-}
-
-/* The properties of a schema (allOf and the like merged) as schemas of their own. */
-function propertySchemas(schema: unknown, depth = 0): Record<string, unknown> {
-  const out: Record<string, unknown> = {};
-  if (!isRecord(schema) || depth > MAX_SCHEMA_DEPTH) return out;
-  if (isRecord(schema["properties"])) Object.assign(out, schema["properties"]);
-  for (const keyword of ["allOf", "anyOf", "oneOf"]) {
-    const parts = schema[keyword];
-    if (Array.isArray(parts)) for (const part of parts) Object.assign(out, propertySchemas(part, depth + 1));
-  }
-  return out;
-}
-
-/* The schema of the items an array schema holds, when its items are objects with properties. */
-function arrayItems(schema: unknown): unknown {
-  if (!isRecord(schema) || !isRecord(schema["items"])) return undefined;
-  return propertyNames(schema["items"]).size > 0 ? schema["items"] : undefined;
-}
-
-/* The schemas of the arrays of objects a schema's properties are, or those of its object properties' properties when it has none of its own. */
-function collectionSchemas(schema: unknown): unknown[] {
-  const own = Object.values(propertySchemas(schema)).map(arrayItems).filter((items) => items !== undefined);
-  if (own.length > 0) return own;
-  return Object.values(propertySchemas(schema)).flatMap((inner) => Object.values(propertySchemas(inner)).map(arrayItems).filter((items) => items !== undefined));
-}
-
-/* The schema of the items a response schema returns, or undefined when the document cannot say. */
-function itemSchema(schema: unknown): unknown {
-  if (!isRecord(schema)) return undefined;
-  if (schema["type"] === "array" || isRecord(schema["items"])) return arrayItems(schema);
-  const collections = collectionSchemas(schema);
-  if (collections.length > 1) return undefined;
-  return collections[0] ?? schema;
 }
 
 /* The schema of the successful JSON response of an operation, as the document gives it. */
@@ -76,10 +47,10 @@ function successSchema(responses: unknown): unknown {
 const literalSegments = (path: string): number => path.split("/").filter((segment) => segment !== "" && !/^\{.*\}$/.test(segment) && !segment.startsWith(":")).length;
 
 /*
- * The names of the fields the document declares for the items the operation `method` + `requestPath` returns, or undefined. The
- * operation is the one of the document that serves the path, the one with the most literal segments when several do.
+ * The names of the fields the document declares anywhere in the successful response of the operation `method` + `requestPath`, or
+ * undefined. The operation is the one of the document that serves the path, the one with the most literal segments when several do.
  */
-export function responseItemFields(document: unknown, method: string, requestPath: string): ReadonlySet<string> | undefined {
+export function responseFieldNames(document: unknown, method: string, requestPath: string): ReadonlySet<string> | undefined {
   if (!isRecord(document) || !isRecord(document["paths"])) return undefined;
   const verb = method.toLowerCase();
   const served = Object.keys(document["paths"])
@@ -89,6 +60,7 @@ export function responseItemFields(document: unknown, method: string, requestPat
   if (path === undefined) return undefined;
   const operation = (document["paths"] as Record<string, Record<string, unknown>>)[path]![verb] as Record<string, unknown>;
   const responses = resolveLocalReferences(document, operation["responses"]);
-  const names = propertyNames(itemSchema(successSchema(responses)));
+  const names = new Set<string>();
+  collectNames(successSchema(responses), names, 0);
   return names.size > 0 ? names : undefined;
 }

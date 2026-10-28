@@ -35,6 +35,7 @@ export function loadConsumerExpectations(opts: { mirrorDir: string; links?: read
     if (text !== undefined) files.set(rel, text);
   }
   reader.warn("consumer expectations");
+  if (![...files.keys()].some((file) => LanguageRegistry.expectationSyntaxFor(file) !== null)) return undefined;
   const isTestFile = (file: string): boolean => LanguageRegistry.isTestFile(file);
   const links = expectationLinks(opts.links);
   const typescript = createTypeScriptExpectations({ files, isTestFile, links });

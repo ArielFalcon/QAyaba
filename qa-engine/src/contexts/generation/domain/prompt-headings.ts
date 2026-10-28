@@ -50,7 +50,7 @@ export const PACK_HEADINGS = {
   changedValues: "Changed values",
   /* The data requests each captured page made while it was captured. */
   requests: "Requests the pages made",
-  /* The data sources of one captured page that disagree on what their items carry. */
+  /* The fields the consumer's code expects of an answer that the captured pages' answers lack. */
   contradictions: "Possible data contradictions",
 } as const;
 

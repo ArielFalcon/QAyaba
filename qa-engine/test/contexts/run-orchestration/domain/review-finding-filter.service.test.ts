@@ -8,6 +8,7 @@ import {
   type ReviewScope,
 } from "@contexts/run-orchestration/domain/review-finding-filter.service.ts";
 import { dataContradictionRefs } from "@kernel/data-contradiction.ts";
+import { contradictionFact } from "../../../support/data-contradiction.ts";
 
 const SPEC_DIR = "e2e";
 const scope: ReviewScope = {
@@ -216,7 +217,7 @@ test("an availability citation blocks only when it names a route the run classif
   assert.deepEqual(filterReviewFindings([finding({ text: "no facts", citation: { kind: "availability", ref: "/upload-menu/preview" } })], scope).blocking, []);
 });
 
-const contradiction = { route: "/browse", template: "/browse/:region", key: "category", carriedBy: { operation: "GET https://app.example/api/items", items: 40 }, missingFrom: { operation: "GET https://app.example/api/items/by-region/ES", items: 12 }, schemaBacked: false };
+const contradiction = contradictionFact({ template: "/browse/:region" });
 
 test("a finding that cites a data contradiction the run recorded is a verified finding against the adaptive assertion, in any spelling of its page", () => {
   const recorded: ReviewScope = { ...scope, contradictionRefs: dataContradictionRefs([contradiction]) };

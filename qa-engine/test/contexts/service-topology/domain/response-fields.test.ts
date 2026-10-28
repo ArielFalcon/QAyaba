@@ -1,12 +1,12 @@
-/* The fields an OpenAPI document declares for the items an operation's successful JSON response returns. */
+/* The field names an OpenAPI document declares anywhere in an operation's successful JSON response. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { parse } from "yaml";
-import { responseItemFields } from "@contexts/service-topology/domain/response-fields.ts";
+import { responseFieldNames } from "@contexts/service-topology/domain/response-fields.ts";
 
 const doc = (yaml: string): unknown => parse(yaml);
 const fieldsOf = (d: unknown, path: string, method = "GET"): string[] | undefined => {
-  const fields = responseItemFields(d, method, path);
+  const fields = responseFieldNames(d, method, path);
   return fields === undefined ? undefined : [...fields].sort();
 };
 
@@ -72,20 +72,46 @@ components:
               $ref: "#/components/schemas/Item"
 `);
 
-test("the fields of the items a list operation returns are those of the schema its array holds, references and allOf resolved", () => {
+test("the names a list operation's response declares are those of every schema it holds, at every depth, references and allOf resolved and a cycle cut", () => {
   assert.deepEqual(fieldsOf(SPEC, "/items"), ["id", "name", "parent", "price"]);
 });
 
-test("a wrapper object's array of objects is the items, and the wrapper's own fields are not", () => {
-  assert.deepEqual(fieldsOf(SPEC, "/items/by-region/ES"), ["category", "id", "name"]);
+test("a wrapper object's own fields are declared as well as those of the items it holds", () => {
+  assert.deepEqual(fieldsOf(SPEC, "/items/by-region/ES"), ["category", "id", "name", "results", "total"]);
 });
 
 test("an operation that answers one object declares that object's fields", () => {
   assert.deepEqual(fieldsOf(SPEC, "/items/17"), ["id", "name"]);
 });
 
+test("a field nested in an object property, in an array of arrays and in additional properties is declared", () => {
+  const nested = doc(`
+paths:
+  /nest:
+    get:
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  properties:
+                    type: object
+                    properties:
+                      deep: { type: string }
+                  rows:
+                    type: array
+                    items: { type: array, items: { type: object, properties: { cell: {} } } }
+                  extra:
+                    type: object
+                    additionalProperties: { type: object, properties: { more: {} } }
+`);
+  assert.deepEqual(fieldsOf(nested, "/nest"), ["cell", "deep", "extra", "more", "properties", "rows"]);
+});
+
 test("of the operations a path could belong to, the one with the most literal segments is chosen", () => {
-  assert.deepEqual(fieldsOf(SPEC, "/items/by-region/ES"), ["category", "id", "name"]);
+  assert.deepEqual(fieldsOf(SPEC, "/items/by-region/ES"), ["category", "id", "name", "results", "total"]);
 });
 
 test("a gateway prefix before the documented path does not hide the operation", () => {
@@ -98,25 +124,13 @@ test("nothing is declared for a method the path has no operation for, a path the
   assert.equal(fieldsOf(SPEC, "/items/17", "DELETE"), undefined);
 });
 
-test("a reference to another file, an ambiguous wrapper and a schema with no properties declare nothing", () => {
+test("a reference to another file and a schema with no properties declare nothing", () => {
   const remote = doc(`
 paths:
   /a: { get: { responses: { "200": { content: { application/json: { schema: { $ref: "other.yaml#/Item" } } } } } } }
-  /b:
-    get:
-      responses:
-        "200":
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  left: { type: array, items: { type: object, properties: { x: {} } } }
-                  right: { type: array, items: { type: object, properties: { y: {} } } }
   /c: { get: { responses: { "200": { content: { application/json: { schema: { type: object } } } } } } }
 `);
   assert.equal(fieldsOf(remote, "/a"), undefined);
-  assert.equal(fieldsOf(remote, "/b"), undefined);
   assert.equal(fieldsOf(remote, "/c"), undefined);
 });
 

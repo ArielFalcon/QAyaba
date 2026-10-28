@@ -26,6 +26,6 @@ export interface GroundingResult {
   changedDecisions?: DecisionListing;
   /** Why each captured route the pack could not show at its own address was not, and how many routes the capture read. Absent when the pack did not classify. */
   routeAvailability?: { read: number; facts: RouteAvailabilityFact[] };
-  /** The data sources of one captured page that disagree on what their items carry, and how many pages had a response shape to read. Absent when no page did. */
+  /** The fields the consumer's code expects of an answer that the captured pages' answers lack, and how many pages had a response shape to read. Absent when no page did. */
   dataContradictions?: { read: number; facts: DataContradiction[] };
 }

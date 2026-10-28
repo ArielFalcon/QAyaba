@@ -92,7 +92,7 @@ export interface ReviewInput {
   untakenArms?: { file: string; line: number; kind: string; arm: string }[];
   /* Why the routes the run's capture could not show at their own address were not. Absent when it classified none. */
   routeAvailability?: readonly RouteAvailabilityFact[];
-  /* The data sources of one captured page that disagreed on what their items carry: the facts a `contradiction` citation names. Absent when the run recorded none. */
+  /* The fields the consumer's code expects of an answer that the captured pages' answers lacked: the facts a `contradiction` citation names. Absent when the run recorded none. */
   dataContradictions?: readonly DataContradiction[];
   /* The step limit the runtime enforces for the reviewer's session. Absent = the runtime enforces none or could not be read, and no prompt states one. */
   stepLimit?: number;

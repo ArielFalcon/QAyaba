@@ -22,7 +22,8 @@ import { classifyPackAvailability, type PackAvailabilityInput } from "./pack-ava
 import { availabilitySectionLines } from "../domain/route-availability-section.ts";
 import { requestsSectionLines, REQUESTS_SECTION_INTRO } from "../domain/pack-requests.ts";
 import { contradictionsSectionLines, CONTRADICTIONS_SECTION_INTRO } from "../domain/pack-contradictions.ts";
-import { findDataContradictions, type ResponseFieldsOf } from "../domain/data-contradictions.ts";
+import { findExpectationGaps, type ResponseFieldsOf } from "../domain/expectation-gaps.ts";
+import type { ConsumerExpectationsOf } from "../domain/consumer-expectation.ts";
 import type { DataContradiction } from "@kernel/data-contradiction.ts";
 export { PACK_HEADINGS };
 
@@ -82,8 +83,11 @@ export interface ContextPackInput {
   /* Classify why a captured route was not available at its own address. Absent → no classification and no availability section. */
   availability?: PackAvailabilityInput;
 
-  /* The fields the app's OpenAPI documents declare for the items an operation returns: what backs a possible data contradiction. Absent → no fact is backed by a schema and none is removed by one. */
+  /* The field names the provider's OpenAPI documents declare anywhere in an operation's response: what classifies a possible data contradiction. Absent → no contract is known for any operation. */
   responseFields?: ResponseFieldsOf;
+
+  /* What the consumer's own code expects of the answer to a request (the type it declares, the fields it reads and never writes). Absent → no field is expected and no contradiction is found. */
+  consumerExpectations?: ConsumerExpectationsOf;
 }
 
 /* What the pack was made from, for the trace: nothing here reaches the agent or the verdict. */
@@ -539,9 +543,9 @@ export async function buildContextPack(
   );
   const requestsSection = requestLines.length > 0 ? sanitizeText([`### ${PACK_HEADINGS.requests} ${REQUESTS_SECTION_INTRO}`, ...requestLines].join("\n"), "model").text : "";
 
-  /* The data sources of one page that disagree on what their items carry (key names and counts read from the answers the page received), as facts of the page: a possible defect of the app's data that a test must not be written around. A signal; the same pattern redaction. */
+  /* The fields the consumer's code expects of an operation that no answer the page received carries (names and counts read from the answers, the expectation from the consumer's source), as facts of the page: a possible defect of the app's data that a test must not be written around. A signal; the same pattern redaction. */
   const shapePages = [...pages.values()].flatMap((page) => (page.shapes !== undefined && reportedRoutes.has(page.route) ? [{ route: page.route, ...(page.template !== undefined ? { template: page.template } : {}), shapes: page.shapes }] : []));
-  const found = findDataContradictions(shapePages, input.responseFields);
+  const found = findExpectationGaps(shapePages, { ...(input.consumerExpectations ? { expectationsOf: input.consumerExpectations } : {}), ...(input.responseFields ? { fieldsOf: input.responseFields } : {}) });
   if (found.omitted > 0) log(`[qa] WARNING: ${found.omitted} possible data contradiction(s) were not listed, past the bound of one page (non-blocking).`);
   const dataContradictions = found.pages > 0 ? { read: found.pages, facts: found.facts } : undefined;
   const contradictionLines = contradictionsSectionLines(found.facts);

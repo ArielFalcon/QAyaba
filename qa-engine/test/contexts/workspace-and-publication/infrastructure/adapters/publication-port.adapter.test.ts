@@ -21,6 +21,7 @@ class PublicationPortAdapter extends RegistryBoundAdapter {
 import { ShadowLogAdapter } from "@contexts/workspace-and-publication/infrastructure/shadow-log.adapter.ts";
 import { renderIssue, renderPrBody } from "@contexts/workspace-and-publication/domain/render-publication.ts";
 import { SecretLeakError } from "@kernel/ports/redaction.port.ts";
+import type { DataContradiction } from "@kernel/data-contradiction.ts";
 
 /* fail-closed posture as `sanitize`) — every construction in this file wires one. Tests that only
    exercise ROUTING (which side effect fires, in what order, with what repo/branch) use this trivial
@@ -928,11 +929,11 @@ test("publish() puts the data contradictions of the run's pages into the PR body
   const adapter = new PublicationPortAdapter({ decide: new PublishDecisionService(), pr, issue, shadowLog: new ShadowLogAdapter(() => {}), sanitize: identitySanitize, vcsWrite: fakeVcsWrite([]), render: realRender() }, {
     repo: "org/app", branch: "qa-bot/abc1234", reviewerApproved: true, coverageBlocks: false, shadow: false, e2eChanged: true,
   });
-  const dataContradictions = [{ route: "/browse", key: "category", carriedBy: { operation: "GET https://app.example/api/items", items: 40 }, missingFrom: { operation: "GET https://app.example/api/items/by-region/ES", items: 12 }, schemaBacked: false }];
+  const dataContradictions: DataContradiction[] = [{ route: "/browse", key: "category", operation: "GET https://app.example/api/items/by-region/ES", items: 12, provider: "provider-undeclared", consumer: { callSite: "src/api.ts:12", callSites: 1, declaredType: "Item[]", reads: ["src/list.ts:4"], readCount: 1 } }];
 
   await adapter.publish({ verdict: "pass", cases: [], logs: "", workspace: handle(), dataContradictions });
   await adapter.publish({ verdict: "fail", cases: [{ name: "checkout", status: "fail" }], logs: "", dataContradictions });
 
   assert.equal(bodies.length, 2);
-  for (const body of bodies) assert.match(body, /Possible data contradictions[\s\S]*none with "category"/);
+  for (const body of bodies) assert.match(body, /Possible data contradictions[\s\S]*none carrying "category"/);
 });

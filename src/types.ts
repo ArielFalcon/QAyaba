@@ -282,7 +282,7 @@ export interface RunOutcome {
     routeAvailability?: RouteAvailabilityGateSignal;
     /* The delivered tests that fulfil a stated response instead of reading DEV, and the guards they broke. Absent when there were none. Persist-only, never a gate. */
     stubbedState?: { specFiles: number; tests: number; violations?: Array<{ file: string; kind: string }> };
-    /* Which data sources of one captured page disagreed on what their items carry. Persist-only, never a gate. */
+    /* Which fields the consumer's code expects of an answer that no response of the captured pages carries (older runs: which data sources of one page disagreed on what their items carry). Persist-only, never a gate. */
     dataContradictions?: DataContradictionGateSignal;
     /* How the run's regeneration acceptance spent its proof ledger. Persist-only. */
     integrity?: { acceptances: number; rejected: number; proofReused: number; capHit: boolean };

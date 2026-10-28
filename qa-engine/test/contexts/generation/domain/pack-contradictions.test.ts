@@ -1,4 +1,4 @@
-/* The Context Pack lists, per captured page, the data contradictions its sources show; a flow is handed those of its pages. */
+/* The Context Pack lists, per captured page, the fields the consumer's code expects that its answers lack; a flow is handed those of its pages. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { packPagesFor } from "@contexts/generation/domain/pack-pages.ts";
@@ -6,23 +6,18 @@ import { CONTRADICTIONS_SECTION_INTRO, contradictionsSectionLines } from "@conte
 import { pagesDegrade } from "@contexts/generation/domain/window-fit-references.ts";
 import { PACK_HEADINGS } from "@contexts/generation/domain/prompt-headings.ts";
 import type { DataContradiction } from "@kernel/data-contradiction.ts";
+import { contradictionFact } from "../../../support/data-contradiction.ts";
 
-const fact = (route: string, key: string, extra: Partial<DataContradiction> = {}): DataContradiction => ({
-  route,
-  key,
-  carriedBy: { operation: "GET https://app.example/api/items", items: 40 },
-  missingFrom: { operation: "GET https://app.example/api/items/by-region/ES", items: 12 },
-  schemaBacked: false,
-  ...extra,
-});
+const fact = (route: string, key: string, extra: Partial<DataContradiction> = {}): DataContradiction => contradictionFact({ route, key, ...extra });
 
-test("each fact names its page, the source that lacks the key and the one that carries it, and whether the app's schema backs it", () => {
-  const lines = contradictionsSectionLines([fact("/browse", "category", { schemaBacked: true }), fact("/shops/es", "zone", { template: "/shops/:region" })]);
+test("each fact names its page, the operation whose answers lack the field, where the consumer declares and reads it, and what the provider's contract says", () => {
+  const lines = contradictionsSectionLines([fact("/browse", "category", { provider: "provider-declared-absent" }), fact("/shops/es", "zone", { template: "/shops/:region" })]);
   assert.equal(lines.length, 2);
-  assert.ok(lines[0]!.startsWith("- /browse: GET https://app.example/api/items/by-region/ES returned 12 items, none with \"category\""));
-  assert.match(lines[0]!, /OpenAPI response schema/);
+  assert.ok(lines[0]!.startsWith("- /browse: GET https://app.example/api/items/by-region/ES returned 12 items, none carrying \"category\" at any depth"));
+  assert.match(lines[0]!, /src\/api\.ts:12 declares Item\[\] for the answer, src\/list\.ts:4 reads it and nothing writes it/);
+  assert.match(lines[0]!, /schema declares it \(provider-declared-absent\)/);
   assert.ok(lines[1]!.startsWith("- /shops/es (instance of /shops/:region): "));
-  assert.doesNotMatch(lines[1]!, /OpenAPI response schema/);
+  assert.match(lines[1]!, /schema does not declare it \(provider-undeclared\)/);
 });
 
 test("no contradiction, no line", () => {
@@ -42,8 +37,8 @@ const pack = [
 test("a flow's pages come with the contradictions of those pages and no other page's", () => {
   const slice = packPagesFor(pack, ["/browse"])!;
   assert.ok(slice.includes(`### ${PACK_HEADINGS.contradictions}`));
-  assert.ok(slice.includes("none with \"category\""));
-  assert.equal(slice.includes("none with \"total\""), false);
+  assert.ok(slice.includes("none carrying \"category\""));
+  assert.equal(slice.includes("none carrying \"total\""), false);
 });
 
 test("a flow whose pages show no contradiction gets its pages with no such section", () => {
@@ -67,14 +62,14 @@ test("over the window, a flow's pages give way first, then its requests, and its
 
   const someRequests = degrade(pages + 1)!.content;
   assert.match(someRequests, /\(1 more request\(s\) are not shown here, to fit the window\)/);
-  assert.ok(someRequests.includes("none with \"category\""), "the contradiction is still shown");
+  assert.ok(someRequests.includes("none carrying \"category\""), "the contradiction is still shown");
 
   const noRequests = degrade(pages + requests)!.content;
   assert.match(noRequests, /\(2 more request\(s\)/);
-  assert.ok(noRequests.includes("none with \"category\""), "the contradiction outlasts every request");
+  assert.ok(noRequests.includes("none carrying \"category\""), "the contradiction outlasts every request");
 
   const none = degrade(pages + requests + 1)!;
   assert.match(none.content, /\(1 more contradiction\(s\) are not shown here, to fit the window\)/);
-  assert.equal(none.content.includes("none with \"category\""), false);
+  assert.equal(none.content.includes("none carrying \"category\""), false);
   assert.equal(degrade(pages + requests + 2), undefined);
 });

@@ -9,6 +9,7 @@ import type { OpencodeRunInput } from "@contexts/generation/domain/opencode-run-
 import { CONTRADICTIONS_SECTION_INTRO, contradictionsSectionLines } from "@contexts/generation/domain/pack-contradictions.ts";
 import { REQUESTS_SECTION_INTRO, requestsSectionLines } from "@contexts/generation/domain/pack-requests.ts";
 import { PACK_HEADINGS } from "@contexts/generation/domain/prompt-headings.ts";
+import { contradictionFact } from "../../../../support/data-contradiction.ts";
 import type { PromptFit } from "@contexts/generation/infrastructure/prompt-builders/generator-context.ts";
 
 const windowOf = (bytes: number): PromptFit => ({ bytes: size }) => (size <= bytes ? "fits" : "over");
@@ -16,13 +17,7 @@ const roomy = windowOf(10_000_000);
 const bytesOf = (text: string): number => Buffer.byteLength(text, "utf8");
 
 const REQUESTS = Array.from({ length: 30 }, (_, i) => ({ method: "GET", url: `https://api.example/v${i}/resource`, count: 1 }));
-const FACTS = ["category", "zone"].map((key) => ({
-  route: "/cart",
-  key,
-  carriedBy: { operation: "GET https://api.example/items", items: 9 },
-  missingFrom: { operation: "GET https://api.example/items/by-region/ES", items: 3 },
-  schemaBacked: false,
-}));
+const FACTS = ["category", "zone"].map((key) => contradictionFact({ route: "/cart", key, operation: "GET https://api.example/items/by-region/ES", items: 3, alsoCarriedBy: ["GET https://api.example/items"] }));
 const page = (route: string, count: number): string[] => [`route ${route}:`, ...Array.from({ length: count }, (_, i) => `  button: ${route.slice(1)} action ${i}`)];
 const pack = [
   `## ${PACK_HEADINGS.pack} (pushed by the orchestrator before the first write)`,
@@ -57,7 +52,7 @@ const generator = (over: Partial<OpencodeRunInput> = {}): OpencodeRunInput => ({
 
 test("the author receives every contradiction the pack recorded while its window holds the pack", () => {
   const prompt = buildPromptAssembled(generator({ contextPack: pack }), { fit: roomy });
-  for (const fact of FACTS) assert.ok(prompt.text.includes(`none with "${fact.key}"`), fact.key);
+  for (const fact of FACTS) assert.ok(prompt.text.includes(`none carrying "${fact.key}"`), fact.key);
   assert.doesNotMatch(prompt.text, /more contradiction\(s\) are not shown here/);
 });
 
@@ -73,7 +68,7 @@ test("over the author's window the contradictions outlast the page, the requests
   assert.match(tight.text, /route \/cart:\n {2}\(this page's 40 line\(s\) are not shown here, to fit the window\)/, "the page gave way first");
   assert.match(tight.text, /\(\d+ more request\(s\) are not shown here, to fit the window\)/);
   assert.equal(tight.text.includes("getCart"), false, "the contracts gave way");
-  assert.ok(tight.text.includes(`none with "${FACTS[0]!.key}"`), "the first contradiction stayed");
+  assert.ok(tight.text.includes(`none carrying "${FACTS[0]!.key}"`), "the first contradiction stayed");
 
   const tightest = buildPromptAssembled(generator({ contextPack: pack }), { fit: windowOf(bytesOf(whole.text) - (pageBytes + requestBytes + contractBytes + factBytes)) });
   assert.match(tightest.text, /\(2 more contradiction\(s\) are not shown here, to fit the window\)/);

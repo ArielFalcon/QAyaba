@@ -415,7 +415,7 @@ test("a page opened from a route template is named by the template, in its eleme
 
 test("the context pack span carries the number of data contradictions its pages showed, and none when no response shape was read", () => {
   const trace = { rankedRoutes: [], capturablePages: 0, pages: [], pageDeliveries: [], changedTestIds: [], contractIds: [], omittedLines: 0 };
-  const fact = { route: "/browse", key: "category", carriedBy: { operation: "GET https://app.example/api/items", items: 40 }, missingFrom: { operation: "GET https://app.example/api/items/by-region/ES", items: 12 }, schemaBacked: false };
+  const fact = { route: "/browse", key: "category", operation: "GET https://app.example/api/items/by-region/ES", items: 12, provider: "provider-undeclared" as const, consumer: { callSite: "src/api.ts:12", callSites: 1, declaredType: "Item[]", reads: ["src/list.ts:4"], readCount: 1 } };
   const spanAttr = (dataContradictions?: { read: number; facts: (typeof fact)[] }) => {
     const h = traceHarness();
     inPhase(h, () => telemetryGroundingTrace(h.telemetry).pack?.({ text: "pack", domBytes: 1, contractBytes: 0, trace, ...(dataContradictions ? { dataContradictions } : {}) }));

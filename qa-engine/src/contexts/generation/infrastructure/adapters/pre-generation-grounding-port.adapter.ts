@@ -25,7 +25,9 @@ import { filesLinkedToPages, rankRoutesWithRelevance } from "@contexts/generatio
 import type { PackAvailabilityInput } from "../pack-availability.ts";
 import { routeChangeEvidence } from "./route-change-evidence.ts";
 import { loadResponseFields } from "../openapi-response-fields.source.ts";
-import type { ResponseFieldsOf } from "../../domain/data-contradictions.ts";
+import type { ResponseFieldsOf } from "../../domain/expectation-gaps.ts";
+import type { ConsumerExpectationsOf } from "../../domain/consumer-expectation.ts";
+import { loadConsumerExpectations } from "../consumer-expectation/consumer-expectations.source.ts";
 const diffParser = new DiffParserService();
 
 export interface PreGenerationGroundingStaticContext {
@@ -259,7 +261,7 @@ export class PreGenerationGroundingPortAdapter implements PreGenerationGrounding
     private readonly collaborators: PreGenerationGroundingCollaborators = {},
   ) {}
 
-  /* The fields the working copy's OpenAPI documents declare for an operation's items, read once per run: what backs a possible data contradiction. Absent without a working copy or a document; a document that cannot be read costs the backing, never the pack. */
+  /* The field names the working copy's OpenAPI documents declare in an operation's response, read once per run: what classifies a possible data contradiction. Absent without a working copy or a document; a document that cannot be read costs the class, never the pack. */
   private responseFieldsRead = false;
   private responseFieldsOf: ResponseFieldsOf | undefined;
   private responseFields(): ResponseFieldsOf | undefined {
@@ -274,6 +276,23 @@ export class PreGenerationGroundingPortAdapter implements PreGenerationGrounding
       }
     }
     return this.responseFieldsOf;
+  }
+
+  /* What the consumer's sources in the working copy expect of the answer to a request, read once per run (the links the run resolved tie a request to the function that issues it): what a possible data contradiction is a gap against. Absent without a working copy or a source of a declared language; sources that cannot be read cost the contradictions, never the pack. */
+  private consumerExpectationsRead = false;
+  private consumerExpectationsOf: ConsumerExpectationsOf | undefined;
+  private consumerExpectations(change: GroundingChange | undefined): ConsumerExpectationsOf | undefined {
+    if (!this.consumerExpectationsRead) {
+      this.consumerExpectationsRead = true;
+      if (this.ctx.mirrorDir) {
+        try {
+          this.consumerExpectationsOf = loadConsumerExpectations({ mirrorDir: this.ctx.mirrorDir, excludeDir: this.ctx.e2eDir, ...(change?.serviceLinks?.length ? { links: change.serviceLinks } : {}) });
+        } catch (err) {
+          engineLog.warn(`[qa] WARNING: the consumer's expectations were not read (non-blocking): ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }
+    }
+    return this.consumerExpectationsOf;
   }
 
   /* The observer is told in passing: its fault never changes what grounding returns. */
@@ -403,6 +422,7 @@ export class PreGenerationGroundingPortAdapter implements PreGenerationGrounding
           ...(labels?.literals.length ? { changedLiterals: labels.literals } : {}),
           ...(domPack ? { availability: this.availabilityInput(diff, change) } : {}),
           ...(domPack && this.responseFields() !== undefined ? { responseFields: this.responseFields()! } : {}),
+          ...(domPack && this.consumerExpectations(change) !== undefined ? { consumerExpectations: this.consumerExpectations(change)! } : {}),
         },
         deps,
       );

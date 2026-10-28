@@ -5,14 +5,9 @@ import type { PublicationPort } from "@contexts/workspace-and-publication/applic
 import type { ReviewPort } from "@contexts/generation/application/index.ts";
 import type { DataContradiction } from "@kernel/data-contradiction.ts";
 import { dispose, newRig, observe } from "./run-flow/run-end-rig.ts";
+import { contradictionFact } from "../../../support/data-contradiction.ts";
 
-const FACT: DataContradiction = {
-  route: "/browse",
-  key: "category",
-  carriedBy: { operation: "GET https://app.example/api/items", items: 40 },
-  missingFrom: { operation: "GET https://app.example/api/items/by-region/ES", items: 12 },
-  schemaBacked: false,
-};
+const FACT: DataContradiction = contradictionFact();
 
 async function run(opts: { facts?: DataContradiction[]; review?: ReviewPort["review"] } = {}) {
   const rig = newRig();

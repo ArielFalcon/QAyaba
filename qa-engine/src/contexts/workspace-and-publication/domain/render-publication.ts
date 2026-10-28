@@ -31,7 +31,8 @@ const CAP_CAUSE = 200;
 const CAP_FLOW = 120;
 const CAP_OBJECTIVE = 300;
 /* A data contradiction names two operations by their address and says what each returned: longer than an objective. */
-const CAP_CONTRADICTION = 600;
+const CAP_CONTRADICTION = 900;
+const MAX_STUBS_PER_GAP = 3;
 
 const cap = (v: string, max: number): string =>
   v.length <= max ? v : v.slice(0, max).trimEnd() + ` …(+${v.length - max} chars)`;
@@ -100,7 +101,7 @@ function renderReviewerNoteSection(note: string): string {
 
 /* The tests that fulfil a stated response instead of reading DEV, and the guards they broke, as the run recorded them. */
 export interface StubbedStateView {
-  tests: ReadonlyArray<{ file: string; name: string; response?: string; routes: readonly string[] }>;
+  tests: ReadonlyArray<{ file: string; name: string; response?: string; routes: readonly string[]; fulfils?: readonly string[] }>;
   violations?: ReadonlyArray<{ file: string; kind: string; test?: string }>;
 }
 
@@ -152,7 +153,7 @@ export interface RenderIssueInput {
   routeAvailability?: readonly RouteAvailabilityFact[];
   /* The delivered tests that fulfil a stated response instead of reading DEV, and the guards they broke. */
   stubbedState?: StubbedStateView;
-  /* The data sources of one page that disagree on what their items carry, from the response shapes the run's capture read. */
+  /* The fields the consumer's code expects of an answer that the run's captured pages' answers lack, from the response shapes the capture read. */
   dataContradictions?: readonly DataContradiction[];
 }
 
@@ -182,14 +183,23 @@ function renderAvailabilitySection(facts: readonly RouteAvailabilityFact[] | und
   return blocks.join("\n\n");
 }
 
-/* The data contradictions of the run's pages: two data sources of one page that disagree on what their items carry. A possible defect of the app's data, which a test written around it would hide; a record for the reader, never a gate. */
-function renderDataContradictionsSection(facts: readonly DataContradiction[] | undefined): string {
+/* The stubbed tests that fulfil a field a gap lacks, as lines under the gap: a test that states a response carrying the field the live answers do not corroborates the gap, but it is a test of the stated response, not of DEV. A test whose body the spec does not state is linked to none. */
+function corroboratingStubs(fact: DataContradiction, state: StubbedStateView | undefined): string[] {
+  return (state?.tests ?? [])
+    .filter((t) => t.fulfils?.includes(fact.key))
+    .slice(0, MAX_STUBS_PER_GAP)
+    .map((t) => `  - also tested against a stated response that fulfils "${cap(fact.key, CAP_NAME)}": \`${cap(t.file, CAP_FLOW)}\` › ${cap(t.response !== undefined ? t.name.replace(STUB_MARKER_PREFIX, "") : t.name, CAP_NAME)}`);
+}
+
+/* The data contradictions of the run's pages: a field the consumer's own code expects of an answer that no response of the operation carries. A possible defect of the app's data (or of the provider's contract), which a test written around it would hide; a record for the reader, never a gate. */
+function renderDataContradictionsSection(facts: readonly DataContradiction[] | undefined, stubbed: StubbedStateView | undefined): string {
   const shown = (facts ?? []).slice(0, MAX_ITEMS);
   if (shown.length === 0) return "";
   const page = (fact: DataContradiction): string => (fact.template === undefined ? `\`${cap(fact.route, CAP_FLOW)}\`` : `\`${cap(fact.route, CAP_FLOW)}\` (instance of \`${cap(fact.template, CAP_FLOW)}\`)`);
   const more = (facts ?? []).length - shown.length;
   const omitted = more > 0 ? `\n_…and ${more} more omitted._` : "";
-  return `**Possible data contradictions** (two data sources of one page disagree on what their items carry, read from the answers the page received; they may be a defect of the app's data, not of the tests; a signal, not a gate):\n${shown.map((fact) => `- ${page(fact)}: ${cap(dataContradictionStatement(fact), CAP_CONTRADICTION)}`).join("\n")}${omitted}`;
+  const lines = shown.flatMap((fact) => [`- ${page(fact)}: ${cap(dataContradictionStatement(fact), CAP_CONTRADICTION)}`, ...corroboratingStubs(fact, stubbed)]);
+  return `**Possible data contradictions** (a field the consumer's own code expects of an answer, that its declared type holds and its code reads and never writes, is absent from every response the page received; it may be a defect of the app's data or of the provider's contract, not of the tests; a signal, not a gate):\n${lines.join("\n")}${omitted}`;
 }
 
 export function renderIssue(input: RenderIssueInput): string {
@@ -231,7 +241,7 @@ export function renderIssue(input: RenderIssueInput): string {
   if (availability) blocks.push(availability);
   const stubbed = renderStubbedSection(input.stubbedState);
   if (stubbed) blocks.push(stubbed);
-  const contradictions = renderDataContradictionsSection(input.dataContradictions);
+  const contradictions = renderDataContradictionsSection(input.dataContradictions, input.stubbedState);
   if (contradictions) blocks.push(contradictions);
 
   const head = blocks.join("\n\n");
@@ -250,7 +260,7 @@ export interface RenderPrBodyInput {
   routeAvailability?: readonly RouteAvailabilityFact[];
   /* The delivered tests that fulfil a stated response instead of reading DEV, and the guards they broke. */
   stubbedState?: StubbedStateView;
-  /* The data sources of one page that disagree on what their items carry, from the response shapes the run's capture read. */
+  /* The fields the consumer's code expects of an answer that the run's captured pages' answers lack, from the response shapes the capture read. */
   dataContradictions?: readonly DataContradiction[];
 }
 
@@ -276,7 +286,7 @@ export function renderPrBody(input: RenderPrBodyInput): string {
   if (availability) blocks.push(availability);
   const stubbed = renderStubbedSection(input.stubbedState);
   if (stubbed) blocks.push(stubbed);
-  const contradictions = renderDataContradictionsSection(input.dataContradictions);
+  const contradictions = renderDataContradictionsSection(input.dataContradictions, input.stubbedState);
   if (contradictions) blocks.push(contradictions);
 
   if (input.parentRunId) blocks.push(`> ⛓️ Continuation of ${input.parentRunId}`);

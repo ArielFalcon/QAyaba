@@ -208,16 +208,16 @@ function renderRouteAvailability({ input }: ReviewerContext): SectionRender {
   };
 }
 
-/* The run's data contradictions: two data sources of one captured page that disagree on what their items carry, read from the answers the page received. A finding that a spec adapts to one (an expected value read from the state it checks, a check skipped when that state is empty) can cite it. */
+/* The run's data contradictions: a field the consumer's own code expects of an answer that the answers the captured page received do not carry at any depth. A finding that a spec adapts to one (an expected value read from the state it checks, a check skipped when that state is empty) can cite it. */
 function renderDataContradictions({ input }: ReviewerContext): SectionRender {
   const facts = input.dataContradictions ?? [];
   const head = [
-    `## Possible data contradictions — read by the orchestrator from the answers this run's pages received`,
+    `## Possible data contradictions — fields the consumer's code expects that the answers this run's pages received do not carry, read by the orchestrator`,
     `A finding that a spec passes by adapting to one of these (an expected value derived from the state it checks, or a check guarded by that state) may cite "citation":{"kind":"contradiction","ref":"<ref>"} with the ref as listed.`,
   ];
   const line = (fact: DataContradiction): string => sanitizeText(`- ${dataContradictionRef(fact)}: ${dataContradictionStatement(fact)}`, "model").text;
   /* Over the window: the refs a citation names, then how many there are. */
-  const asRefs = [...head, `What each source returned is ${NOT_SHOWN}; the refs:`, ...facts.map((fact) => sanitizeText(`- ${dataContradictionRef(fact)}`, "model").text)].join("\n");
+  const asRefs = [...head, `What each answer carried and the consumer's code expects is ${NOT_SHOWN}; the refs:`, ...facts.map((fact) => sanitizeText(`- ${dataContradictionRef(fact)}`, "model").text)].join("\n");
   const asCount = [...head, `The ${facts.length} contradiction(s) are ${NOT_SHOWN}.`].join("\n");
   return {
     content: [...head, ...facts.map(line)].join("\n"),

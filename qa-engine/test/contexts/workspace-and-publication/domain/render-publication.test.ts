@@ -3,6 +3,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { renderIssue, renderPrBody } from "@contexts/workspace-and-publication/domain/render-publication.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
+import type { DataContradiction } from "@kernel/data-contradiction.ts";
 
 function failCase(overrides: Partial<QaCase> = {}): QaCase {
   return { name: "checkout flow", status: "fail", detail: "expect(locator).toBeVisible() failed\nTimeout 5000ms exceeded", ...overrides };
@@ -240,22 +241,42 @@ test("a body with no stubbed test says nothing about stubs, and a violation alon
   assert.match(pr, /Guards these tests broke[^\n]*\n- `a\.spec\.ts`[^\n]*har-replay/);
 });
 
-/* ── Data contradictions: possible defects of the app's data, published beside the possible regressions ── */
+/* ── Data contradictions: fields the consumer expects that the page's answers lack, published beside the possible regressions ── */
 
-const CONTRADICTION = {
+const CONTRADICTION: DataContradiction = {
   route: "/browse",
   key: "category",
-  carriedBy: { operation: "GET https://app.example/api/items", items: 40 },
-  missingFrom: { operation: "GET https://app.example/api/items/by-region/ES", items: 12 },
-  schemaBacked: true,
+  operation: "GET https://app.example/api/items/by-region/ES",
+  items: 12,
+  provider: "provider-declared-absent",
+  consumer: { callSite: "src/api.ts:12", callSites: 1, declaredType: "Item[]", reads: ["src/list.ts:4", "src/card.ts:9"], readCount: 2 },
+  alsoCarriedBy: ["GET https://app.example/api/items"],
 };
 
-test("a PR body and an Issue list the data contradictions of the run's pages as possible defects, beside the possible regressions", () => {
-  const pr = renderPrBody({ isCode: false, dataContradictions: [CONTRADICTION, { ...CONTRADICTION, route: "/shops", template: "/shops/:region", key: "zone", schemaBacked: false }] });
-  assert.match(pr, /Possible data contradictions[^\n]*\n- `\/browse`: GET https:\/\/app\.example\/api\/items\/by-region\/ES returned 12 items, none with "category"/);
-  assert.match(pr, /OpenAPI response schema/);
-  assert.match(pr, /- `\/shops` \(instance of `\/shops\/:region`\): .*none with "zone"/);
+test("a PR body and an Issue list the fields the consumer expects that the run's pages' answers lack as possible defects, with the consumer's read sites, beside the possible regressions", () => {
+  const pr = renderPrBody({ isCode: false, dataContradictions: [CONTRADICTION, { ...CONTRADICTION, route: "/shops", template: "/shops/:region", key: "zone", provider: "provider-undeclared" }] });
+  assert.match(pr, /Possible data contradictions[^\n]*\n- `\/browse`: GET https:\/\/app\.example\/api\/items\/by-region\/ES returned 12 items, none carrying "category" at any depth/);
+  assert.match(pr, /src\/api\.ts:12 declares Item\[\] for the answer, src\/list\.ts:4, src\/card\.ts:9 read it and nothing writes it/);
+  assert.match(pr, /schema declares it \(provider-declared-absent\)/);
+  assert.match(pr, /- `\/shops` \(instance of `\/shops\/:region`\): .*none carrying "zone"/);
   assert.match(renderIssue({ verdict: "fail", cases: [failCase()], dataContradictions: [CONTRADICTION] }), /Possible data contradictions/);
+});
+
+test("a stubbed test that fulfils the field a gap lacks is listed under that gap, and a stubbed test that fulfils none of the gaps stays only in its own section", () => {
+  const stubbedState = {
+    tests: [
+      { file: "e2e/flows/cuisine.spec.ts", name: "[stubbed: response without category] greys out", response: "response without category", routes: ["**/by-region/**"], fulfils: ["category", "items"] },
+      { file: "e2e/flows/other.spec.ts", name: "[stubbed: empty] shows the empty state", response: "empty", routes: ["**/other/**"], fulfils: ["items"] },
+      { file: "e2e/flows/helper.spec.ts", name: "[stubbed: helper] a helper", routes: [] },
+    ],
+  };
+  for (const body of [renderPrBody({ isCode: false, dataContradictions: [CONTRADICTION], stubbedState }), renderIssue({ verdict: "fail", cases: [failCase()], dataContradictions: [CONTRADICTION], stubbedState })]) {
+    assert.match(body, /Possible data contradictions[^\n]*\n- `\/browse`:[^\n]*\n {2}- also tested against a stated response that fulfils "category": `e2e\/flows\/cuisine\.spec\.ts` › greys out/);
+    const gap = body.slice(body.indexOf("**Possible data contradictions**"));
+    assert.equal(gap.includes("shows the empty state"), false);
+    assert.equal(gap.includes("a helper"), false);
+    assert.match(body, /Tested against a stated response, not DEV[\s\S]*shows the empty state/);
+  }
 });
 
 test("a run with no data contradiction renders its PR body and Issue as before", () => {
@@ -265,7 +286,7 @@ test("a run with no data contradiction renders its PR body and Issue as before",
 });
 
 test("more data contradictions than the list holds are counted, not dropped silently", () => {
-  const many = Array.from({ length: 80 }, (_, i) => ({ ...CONTRADICTION, key: `k${i}` }));
+  const many: DataContradiction[] = Array.from({ length: 80 }, (_, i) => ({ ...CONTRADICTION, key: `k${i}` }));
   const pr = renderPrBody({ isCode: false, dataContradictions: many });
   assert.match(pr, /and \d+ more/);
   assert.equal(pr.includes('"k79"'), false);

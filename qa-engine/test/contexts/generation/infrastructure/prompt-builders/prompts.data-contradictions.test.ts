@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import { buildReviewerPromptAssembled, type AssembledPrompt } from "@contexts/generation/infrastructure/prompt-builders/prompts.ts";
 import type { ReviewInput } from "@contexts/generation/domain/generation-input.ts";
 import { dataContradictionRef, type DataContradiction } from "@kernel/data-contradiction.ts";
+import { contradictionFact } from "../../../../support/data-contradiction.ts";
 
 function mkReview(overrides: Partial<ReviewInput> = {}): ReviewInput {
   return {
@@ -29,15 +30,15 @@ function sectionText(a: AssembledPrompt, id: string): string {
 
 const SECTION = "reviewer-data-contradictions";
 const FACTS: DataContradiction[] = [
-  { route: "/browse", key: "category", carriedBy: { operation: "GET https://app.example/api/items", items: 40 }, missingFrom: { operation: "GET https://app.example/api/items/by-region/ES", items: 12 }, schemaBacked: true },
-  { route: "/shops/es", template: "/shops/:region", key: "zone", carriedBy: { operation: "GET https://app.example/api/shops", items: 9 }, missingFrom: { operation: "GET https://app.example/api/shops/by-region/ES", items: 3 }, schemaBacked: false },
+  contradictionFact({ provider: "provider-declared-absent" }),
+  contradictionFact({ route: "/shops/es", template: "/shops/:region", key: "zone", operation: "GET https://app.example/api/shops/by-region/ES", items: 3, alsoCarriedBy: ["GET https://app.example/api/shops"] }),
 ];
 
 test("the reviewer receives the data contradictions in a section of their own, each with the ref that cites it, and the citation that names one", () => {
   const text = sectionText(buildReviewerPromptAssembled(mkReview({ dataContradictions: FACTS })), SECTION);
   for (const fact of FACTS) {
     assert.ok(text.includes(dataContradictionRef(fact)), dataContradictionRef(fact));
-    assert.ok(text.includes(fact.missingFrom.operation) && text.includes(fact.carriedBy.operation), fact.key);
+    assert.ok(text.includes(fact.operation) && text.includes(fact.alsoCarriedBy![0]!), fact.key);
   }
   assert.ok(text.includes('"kind":"contradiction"'), "it says how a contradiction is cited");
 });
@@ -49,7 +50,7 @@ test("without a recorded contradiction the reviewer prompt has no such section",
 
 test("a secret in an operation's address is taken out of the reviewer's section", () => {
   const token = "sk-abcdefghijklmnopqrstuvwxyz0123456789";
-  const leaky: DataContradiction = { ...FACTS[0]!, missingFrom: { operation: `GET https://app.example/api/${token}/items`, items: 12 } };
+  const leaky: DataContradiction = { ...FACTS[0]!, operation: `GET https://app.example/api/${token}/items` };
   const a = buildReviewerPromptAssembled(mkReview({ dataContradictions: [leaky] }));
   assert.equal(sectionText(a, SECTION).includes(token), false);
 });

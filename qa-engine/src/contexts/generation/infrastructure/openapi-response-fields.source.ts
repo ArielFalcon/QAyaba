@@ -1,16 +1,16 @@
 /*
- * The fields the app's own OpenAPI documents declare for the items an operation returns, read from the working copy: the documents its
+ * The field names the app's own OpenAPI documents declare anywhere in an operation's response, read from the working copy: the documents its
  * `openapi` hint names (globs, as the app config declares them), or, with no hint, files named like one (`openapi*`, `swagger*`,
  * `api-definition*`, yaml or json). They are read once through the confined reader (a mirror is a directory the agent writes into:
  * no link followed, bounded files and bytes), parsed, and consulted per response. What cannot be read or parsed is skipped and said
- * once; the lookup is then silent for what it cannot answer. Used to tell whether a possible data contradiction is backed by the
- * contract (`findDataContradictions`), never to decide one.
+ * once; the lookup is then silent for what it cannot answer. Used to classify an expectation gap by what the provider's contract
+ * says of the field (`findExpectationGaps`), never to decide one.
  */
 import { matchesGlob } from "node:path";
 import { parse as parseYaml } from "yaml";
 import { RepoReader } from "../../../shared-infrastructure/repo-reader.ts";
-import { responseItemFields } from "@contexts/service-topology/application/index.ts";
-import type { ResponseFieldsOf } from "../domain/data-contradictions.ts";
+import { responseFieldNames } from "@contexts/service-topology/application/index.ts";
+import type { ResponseFieldsOf } from "../domain/expectation-gaps.ts";
 
 /* One OpenAPI document, and the documents of one working copy: far beyond what a person writes by hand, and than any repository holds. */
 export const MAX_OPENAPI_DOCUMENT_BYTES = 16 * 1024 * 1024;
@@ -43,7 +43,7 @@ export function loadResponseFields(opts: { mirrorDir: string; openapi?: string |
       return undefined;
     }
     for (const document of documents) {
-      const fields = responseItemFields(document, method, path);
+      const fields = responseFieldNames(document, method, path);
       if (fields !== undefined) return fields;
     }
     return undefined;
