@@ -863,8 +863,7 @@ that catches nothing. The objective signal that breaks the circle is **change-co
 - **Survivor closure** (signal, never a gate): a surviving mutant routed to a coverage or branch-case
   regeneration is, once that regeneration is accepted, applied again to the specs it changed and judged
   against the cases their accepted bytes passed (`closeSurvivors`, `survivor-closure.ts`): a regenerated test counts as
-  answering its survivor only when that mutant now fails it. Only specs executed on their accepted bytes are
-  judged (`GapRegeneration.measuredSpecFiles`), never against the cases of bytes that are gone. The mutant as it ran (served script, edit)
+  answering its survivor only when that mutant now fails it. The mutant as it ran (served script, edit)
   stays with the orchestrator and never reaches an agent or the record. `gateSignals.survivorClosure
   { routed, judged, closed, open[] }`; a survivor still open never changes the decision.
 - **Branch cases** (never a gate; `qa.changeCoverage.branchCases`, default `regenerate`): a green diff run
@@ -872,22 +871,21 @@ that catches nothing. The objective signal that breaks the circle is **change-co
   step `regenerate-for-branch-cases`) with those arms as the cases still missing (a blocking enforce
   measurement regenerates for coverage instead, with the same arms in its gap). It goes through acceptance
   like any regeneration; an accepted one is recounted from the dumps on disk (the first run's minus
-  those of the re-run spec files, plus the acceptance's), never by re-running the whole suite. A spec file the
-  acceptance took on its `run_spec` proof left no cases or dumps of its accepted bytes, so it is executed once
-  to be measured (namespace `<acceptance namespace>-measure`, retries 0, one execution of the run's acceptance
-  cap, only while the run has time left): its cases, new and renamed tests included, replace that file's, and
-  its dumps join the recount. A measurement that cannot start or does not pass is logged, the bytes stand on
-  their proof, nothing is recounted and the coverage stays not current (`armsAfter` absent, `coverage.stale`).
+  those of the re-run spec files, plus the acceptance's), never by re-running the whole suite. A gap regeneration
+  (coverage, branch cases, flaky) never reuses a `run_spec` proof: a proof says the bytes passed, not which tests
+  they hold nor what they ran, so its acceptance executes every spec file it changed, and that one execution
+  supplies the kept files' cases (new and renamed tests included), the dumps of the recount and the survivor
+  closure's baseline. A file that fails it gets its prior bytes, cases and delivery back by the per-file rule
+  below; at the acceptance cap the regeneration is capped and the first measurement stands.
   `gateSignals.branchCases { outcome, armsBefore, armsAfter?, kept?, restored? }`.
 - **Per-file acceptance**: a regeneration (gap, flaky or review correction) that changed spec files only is
   accepted file by file (`RegenerationAcceptance`, `independentSpecs`): when its acceptance run fails, every
-  spec file whose cases all passed (or whose bytes already hold a `run_spec` proof) stands, and every other
+  spec file whose cases all passed (or, outside a gap regeneration, whose bytes already hold a `run_spec` proof) stands, and every other
   changed file gets its prior bytes, cases and delivery back. Only the kept files get a proof, so the bytes on
   disk are still the last that ran green, file by file, and the suite store captures only those; survivor
   closure is judged on the kept files. With none kept, or a changed file the specs import, it is accepted or
-  rejected whole. The recount reads the kept files from the acceptance's dumps, or from their measurement when their
-  proof was reused (a re-run's namespace is read for its own spec files only), and the restored files from the dumps of
-  the bytes they were given back.
+  rejected whole. The recount reads the kept files from the acceptance's dumps (a re-run's namespace is read for
+  its own spec files only) and the restored files from the dumps of the bytes they were given back.
   `kept`/`restored` are counted on the regeneration's gate signal and its `regeneration_acceptance` span event.
   The fix loop's iterative rounds adopt a failing execution whole, as before. A run deadline spent during it is the
   run's degrade (`deadline-after-proof`), as for the coverage regeneration.

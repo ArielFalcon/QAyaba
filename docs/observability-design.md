@@ -296,10 +296,9 @@ Rules, from the brief §2.1 and the OTel spec:
   `review`), `.kept_files` (the changed spec files whose new bytes stand) and `.restored_files` (those given
   their prior bytes back, a created one removed). A regeneration that changed spec files only is accepted file
   by file, so a failing acceptance run can keep some files and restore others; one that changed a file the
-  specs import, or kept none, is accepted or rejected whole. A gap or flaky regeneration whose kept files were
-  accepted on their `run_spec` proof executes them once more under `<acceptance namespace>-measure`, so the
-  recount and the survivor closure read the accepted bytes' own dumps and cases; when that execution cannot
-  start or does not pass, a warning says so and the coverage stays stale.
+  specs import, or kept none, is accepted or rejected whole. A gap or flaky regeneration never reuses a
+  `run_spec` proof: its acceptance executes every spec file it changed, so the recount and the survivor closure
+  read the accepted bytes' own dumps and cases.
 - **Phase outcome.** `qayaba.phase.outcome` records how a phase that makes a decision ended. The fix
   loop adds `qayaba.fix_loop.rounds`, `.failing_before`, `.failing_after`, `.absent_selectors` (first
   round), `.specs_changed` and `.spec_sha_before`/`.spec_sha_after` (sha256 over the sorted spec set,
