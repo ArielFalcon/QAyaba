@@ -845,10 +845,13 @@ that catches nothing. The objective signal that breaks the circle is **change-co
   that knows only the line cannot write the assertion that kills it. Each mutant's re-run is observed (`PW_OBSERVE=1`: the capture block of the seed's
   `fixtures.ts` records, per test that ran, the requests its page depended on by method + origin + pathname with a count, never the query, fragment,
   body, headers or cookies, at most 100 distinct, and the accessible tree it ended on, in `observed-*.json` of the failure-capture directory), and the
-  survivors are compared with TWO unmutated re-runs of their spec files, observed the same way (namespaces `<ns>-obs` and `<ns>-obs2`, retries 0, run
-  beside the mutants' re-runs, nothing else added; unmutated re-runs of the same tests instead of the suite's own execution because the app's state
-  differs between executions and only the paired runs differ in the mutation alone). What the two unmutated re-runs disagree on is the noise floor
-  (a refreshed token, a tile, a chunk or a value DEV changed between runs) and is never reported: a request or a tree line moved only when neither
+  survivors are compared with TWO unmutated re-runs, observed the same way, that bracket the mutants' re-runs: `<ns>-obs` before the first mutant
+  runs, over every mutant's spec files and tests (the survivors are not known yet), and `<ns>-obs2` after the last, over the survivors' spec files and
+  tests (retries 0, nothing else added; unmutated re-runs of the same tests instead of the suite's own execution because the app's state differs
+  between executions and only the paired runs differ in the mutation alone). The tests are the ones the mutants named, passed to the seed's mutation
+  fixture as an edit that names no script, so it skips every other test and touches no response; when a mutant named none, every test of the spec
+  files runs. What the two unmutated re-runs disagree on is the noise floor (a refreshed token, a tile, a chunk, a value DEV changed between runs or
+  drifted while the mutants ran) and is never reported: a request or a tree line moved only when neither
   unmutated run showed it and the mutated run did, or both showed it and the mutated run did not (`observed-difference.ts`); without both unmutated
   observations nothing is said. Only tests that passed in all three runs are compared; how many times a request was made is not compared.
   `survived[].moved` is `{ kind: "moved", requests: { added, removed }, dom: { added, removed }, tests, omitted? }` (at most 10 items a list,

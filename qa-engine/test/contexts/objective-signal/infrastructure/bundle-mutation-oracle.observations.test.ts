@@ -1,4 +1,4 @@
-/* What a surviving mutant moved. When the oracle is asked to observe, each mutant's re-run records the pages of its tests; a survivor is then compared with the unmutated re-run of the same spec files, and the difference is handed to the regeneration that answers it. Unasked, the oracle does what it always did. */
+/* What a surviving mutant moved. When the oracle is asked to observe, each mutant's re-run records the pages of its tests; a survivor is then compared with two unmutated re-runs of the same tests, one before the first mutant and one after the last, and the difference is handed to the regeneration that answers it. Unasked, the oracle does what it always did. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { BundleMutationOracleAdapter } from "@contexts/objective-signal/infrastructure/bundle-mutation-oracle.adapter.ts";
@@ -10,7 +10,7 @@ const SCRIPT_URL = "https://dev.example/main.js";
 const SCRIPT_SHA = "abc123def";
 const EDIT = "!(theme === 'dark')";
 
-const mutant = (line: number, specFiles = ["flows/map.spec.ts"]): MutantRun => ({
+const mutant = (line: number, specFiles = ["flows/map.spec.ts"], tests?: string[]): MutantRun => ({
   site: {
     file: "src/map-shell.ts",
     line,
@@ -22,6 +22,7 @@ const mutant = (line: number, specFiles = ["flows/map.spec.ts"]): MutantRun => (
     ranIn: ["flows-map-spec-ts-x-0-0.json"],
   },
   specFiles,
+  ...(tests ? { tests } : {}),
 });
 
 const pass = (name: string): QaCase => ({ name, status: "pass" });
@@ -31,6 +32,14 @@ const page = (name: string, style: string): ObservedPage => ({ name, requests: [
 
 interface Call { namespace: string; mutant: string | undefined; specFiles: string[]; observe: boolean | undefined }
 
+/* What the seed's mutation fixture reads from a re-run's mutant: the script it edits (none when the edit names no script, so no response is touched) and the tests it lets run. */
+const selection = (m: string | undefined): { editsScript: boolean; tests?: unknown } => {
+  if (m === undefined) return { editsScript: false };
+  const parsed = JSON.parse(m) as { url: string; sha256: string; tests?: unknown };
+  return { editsScript: parsed.url !== "" && parsed.sha256 !== "", ...(parsed.tests !== undefined ? { tests: parsed.tests } : {}) };
+};
+const isUnmutated = (m: string | undefined): boolean => !selection(m).editsScript;
+
 /* A fake re-run: the mutated one shows `mutated` pages, the first unmutated one `plain` and the second `plain2` (`plain` when unset); either may be an infra error or throw. */
 function fakeRuns(opts: { mutated?: ObservedPage[] | undefined; plain?: ObservedPage[] | undefined; plain2?: ObservedPage[] | undefined; plainVerdict?: string; plainCases?: QaCase[]; plainThrows?: boolean; mutatedCases?: QaCase[] }): { calls: Call[]; run: ConstructorParameters<typeof BundleMutationOracleAdapter>[0] } {
   const calls: Call[] = [];
@@ -39,7 +48,7 @@ function fakeRuns(opts: { mutated?: ObservedPage[] | undefined; plain?: Observed
     calls,
     run: async ({ namespace, mutant: m, specFiles, observe }) => {
       calls.push({ namespace, mutant: m, specFiles, observe });
-      if (m === undefined) {
+      if (isUnmutated(m)) {
         if (opts.plainThrows) throw new Error("the runner broke");
         const pages = unmutated++ === 0 || !("plain2" in opts) ? opts.plain : opts.plain2;
         return { verdict: opts.plainVerdict ?? "pass", cases: opts.plainCases ?? [pass(TEST)], ...(pages ? { observations: pages } : {}) };
@@ -63,11 +72,11 @@ test("a survivor whose re-run requested a different pathname than the unmutated 
     tests: [TEST],
   });
   assert.equal(result?.survived[0]?.movedBySpec, undefined, "a test no spec file is known for is told over all the survivor's tests only");
-  assert.deepEqual(calls.map((c) => [c.namespace, c.observe, c.mutant === undefined, c.specFiles]), [
-    ["run-1-mut0", true, false, ["flows/map.spec.ts"]],
+  assert.deepEqual(calls.map((c) => [c.namespace, c.observe, isUnmutated(c.mutant), c.specFiles]), [
     ["run-1-obs", true, true, ["flows/map.spec.ts"]],
+    ["run-1-mut0", true, false, ["flows/map.spec.ts"]],
     ["run-1-obs2", true, true, ["flows/map.spec.ts"]],
-  ], "the mutant's re-run observes, then two unmutated re-runs of the survivors' spec files, whose own differences are the noise floor");
+  ], "an unmutated re-run before the first mutant and one after the last bracket the mutants' re-runs, so what drifts over the pass is noise too");
 });
 
 test("what differs between the two unmutated re-runs is noise: a survivor is told only what neither showed and the mutation did, or both showed and the mutation did not", async () => {
@@ -106,7 +115,7 @@ test("a survivor is told what moved per spec file, each over its own tests, besi
 test("a second unmutated re-run that could not run leaves no noise floor: the survivor is unobserved", async () => {
   let unmutated = 0;
   const run: ConstructorParameters<typeof BundleMutationOracleAdapter>[0] = async ({ mutant: m }) => {
-    if (m !== undefined) return { verdict: "pass", cases: [pass(TEST)], observations: [page(TEST, "dark")] };
+    if (!isUnmutated(m)) return { verdict: "pass", cases: [pass(TEST)], observations: [page(TEST, "dark")] };
     return unmutated++ === 0 ? { verdict: "pass", cases: [pass(TEST)], observations: [page(TEST, "light")] } : { verdict: "infra-error", cases: [] };
   };
   const result = await measure(new BundleMutationOracleAdapter(run, () => 1, "https://dev.example"));
@@ -119,15 +128,44 @@ test("a survivor whose pages are the same with and without the mutation is state
   assert.deepEqual(result?.survived[0]?.moved, { kind: "unmoved", tests: 1 });
 });
 
-test("the two unmutated re-runs are made once for all the survivors, over the union of their spec files, and not at all when nothing survived", async () => {
+test("the unmutated re-run before the mutants covers every mutant's spec files, the one after them the survivors', and none follows when nothing survived", async () => {
   const both = fakeRuns({ mutated: [page(TEST, "dark")], plain: [page(TEST, "light")] });
   await measure(new BundleMutationOracleAdapter(both.run, () => 1, "https://dev.example"), [mutant(67), mutant(70, ["flows/map.spec.ts", "flows/list.spec.ts"])]);
-  assert.deepEqual(both.calls.filter((c) => c.mutant === undefined).map((c) => c.specFiles), [["flows/list.spec.ts", "flows/map.spec.ts"], ["flows/list.spec.ts", "flows/map.spec.ts"]]);
+  assert.deepEqual(both.calls.filter((c) => isUnmutated(c.mutant)).map((c) => [c.namespace, c.specFiles]), [
+    ["run-1-obs", ["flows/list.spec.ts", "flows/map.spec.ts"]],
+    ["run-1-obs2", ["flows/list.spec.ts", "flows/map.spec.ts"]],
+  ]);
 
   const killed = fakeRuns({ mutatedCases: [fail(TEST)], mutated: [page(TEST, "dark")] });
   const result = await measure(new BundleMutationOracleAdapter(killed.run, () => 1, "https://dev.example"));
   assert.equal(result?.killed, 1);
-  assert.equal(killed.calls.length, 1, "no survivor, no unmutated re-run");
+  assert.deepEqual(killed.calls.map((c) => c.namespace), ["run-1-obs", "run-1-mut0"], "no survivor, no unmutated re-run after the mutants");
+});
+
+test("the unmutated re-runs run the tests the mutants ran, and edit no script: before the mutants every mutant's tests, after them the survivors'", async () => {
+  const mapTest = "flows-map-spec-ts-applies-the-theme";
+  const listTest = "flows-list-spec-ts-rows";
+  let mutants = 0;
+  const calls: Call[] = [];
+  const run: ConstructorParameters<typeof BundleMutationOracleAdapter>[0] = async ({ namespace, mutant: m, specFiles, observe }) => {
+    calls.push({ namespace, mutant: m, specFiles, observe });
+    if (isUnmutated(m)) return { verdict: "pass", cases: [pass(TEST)], observations: [page(TEST, "light")] };
+    /* The first mutant is killed, the second survives. */
+    return { verdict: "pass", cases: [mutants++ === 0 ? fail(TEST) : pass(TEST)], observations: [page(TEST, "dark")] };
+  };
+
+  await measure(new BundleMutationOracleAdapter(run, () => 1, "https://dev.example"), [mutant(67, ["flows/list.spec.ts"], [listTest]), mutant(70, ["flows/map.spec.ts"], [mapTest])]);
+
+  assert.deepEqual(calls.filter((c) => isUnmutated(c.mutant)).map((c) => [c.namespace, c.specFiles, selection(c.mutant)]), [
+    ["run-1-obs", ["flows/list.spec.ts", "flows/map.spec.ts"], { editsScript: false, tests: [listTest, mapTest] }],
+    ["run-1-obs2", ["flows/map.spec.ts"], { editsScript: false, tests: [mapTest] }],
+  ]);
+});
+
+test("a mutant that names no tests ran every test of its spec files, so the unmutated re-runs run them all too", async () => {
+  const { calls, run } = fakeRuns({ mutated: [page(TEST, "dark")], plain: [page(TEST, "light")] });
+  await measure(new BundleMutationOracleAdapter(run, () => 1, "https://dev.example"), [mutant(67, ["flows/map.spec.ts"], ["flows-map-spec-ts-x"]), mutant(70)]);
+  assert.deepEqual(calls.filter((c) => isUnmutated(c.mutant)).map((c) => c.mutant), [undefined, undefined]);
 });
 
 test("a re-run that left no observation, an unmutated re-run that could not run and one that broke leave the survivor unobserved without changing what was judged", async () => {
