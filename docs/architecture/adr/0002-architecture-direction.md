@@ -1,6 +1,6 @@
 # ADR-0002: Architecture direction
 
-- Status: Accepted, 2026-10-28, owner. Decided: Decisions 1, 2 and 4, and the owner's agreement to the eight additions (Decision 3). Not decided: which additions are scheduled (Decision 3), Decision 5 and the Open questions.
+- Status: Accepted, 2026-10-28, owner. Decided: Decisions 1, 2 and 4, and the owner's agreement to the eight additions (Decision 3). Decided as recommended on 2026-10-28 ([ADR-0013](0013-owner-decisions-remaining-questions.md)): which additions are scheduled (Decision 3), Decision 5 and the Open questions.
 - Decision source:
   - The platform plan as the base, the Command pattern dropped, the eight additions agreed: owner, 2026-10-28 13:36Z (quoted below, translated).
   - The work order: owner, 13:08Z (start from the plan) and 13:58Z (the order). No patches on main: owner, 2026-10-28 15:04Z.
@@ -69,6 +69,8 @@ One rule holds throughout. The owner, 2026-10-28 15:04Z: "Do not add more patche
 
 ### 3. The eight additions: agreed; which are scheduled is not decided
 
+Decided 2026-10-28 ([ADR-0013](0013-owner-decisions-remaining-questions.md)): none is scheduled ahead of evidence (Open question 6, option A).
+
 The owner, 13:36Z: "Regarding the 8 points you mentioned as missing, I agree" (translated). On 13:08Z the owner had said to "apply all the structural improvements that we debate and approve" (translated). That is all the owner decided about the additions: agreement, with no condition and no schedule.
 
 This record's reading, not a decision: the owner's criterion that every decision be grounded (ADR-0001 P7) means an addition earns its place through a failure family that shows the need, and the table names that evidence, or says none exists. The approved order (Decision 2) has a slot for confirmed families only. It has no slot for an addition without one. D12 is about fixes and family slices; it is cited here by analogy only. Whether to schedule any addition ahead of evidence is Open question 6.
@@ -99,6 +101,8 @@ The owner, 13:36Z: "Regarding the Command pattern, if it brings no real value, d
 The owner had proposed it on 13:08Z for reversible state transitions and for actions across domains. No hypothesis shows a reversible transition or a cross-domain action failing for want of it (reading of the 27 titles). It can come back only with a failure family that shows the need, under ADR-0001 P7.
 
 ### 5. A single source of truth behind a facade: under debate, not decided
+
+Decided 2026-10-28 ([ADR-0013](0013-owner-decisions-remaining-questions.md)): option B of Open question 1, one owner per evidenced fact, held by an ownership fitness function; option A is revisited after the three slices.
 
 The owner, 13:08Z (translated): "A pattern I see is that the Single Source of Truth (SSOT) rule is constantly violated: an architecture where the state and the actions to perform are centralized in their corresponding domain and protected by a facade service that encapsulates the internal logic, so that the consumer does not hold the logic of how to update a state, it only asks for it to be updated. [...] This is my idea of how it should be; it does not mean it is correct. I want you to analyze it and we debate it."
 
@@ -163,7 +167,7 @@ No decision is recorded. Open question 1 asks for it.
 | 3. Additions grounded in a family (this record's reading) | Review under ADR-0001 P7. | Not enforced. |
 | 3. Ownership fitness functions | Precedents listed in the table, for imports and capabilities. | The function for each new use is named by the RFC that applies it, with the step that adds it: RFC-0005 (one writer of the suite store), RFC-0004 (log level from the outcome). |
 | 4. No Command pattern | Nothing to enforce. | |
-| 5. Single source of truth | Not decided. | |
+| 5. Single source of truth | The ownership fitness functions of row 3, one per evidenced fact (option B, [ADR-0013](0013-owner-decisions-remaining-questions.md)). | Option A is revisited after the three slices. |
 
 ## Alternatives considered
 
@@ -175,7 +179,7 @@ No decision is recorded. Open question 1 asks for it.
 
 ## Open questions
 
-Not decided here.
+Decided 2026-10-28: each recommended answer below is accepted ([ADR-0013](0013-owner-decisions-remaining-questions.md)).
 
 1. **A single source of truth behind a facade: a general rule, or an owner per evidenced fact?**
    - A: a general rule. Every domain's state and actions sit behind a facade and a state machine. Cost: a large change before the evidence supports it as the cause of most families.

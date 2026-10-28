@@ -62,7 +62,7 @@ One campaign qualifies, at a code version that is no longer main, and the baseli
 
 Moving an app stays the owner's act on its configuration. This record sets the condition and moves nothing.
 
-**Not decided here** (each is an open owner question; the recommended answer follows it):
+**Not decided here** (each was an open owner question, decided 2026-10-28 as recommended, [ADR-0013](0013-owner-decisions-remaining-questions.md); the recommended answer follows it):
 
 1. Does the new condition replace all of L7, or only part (b), so that part (a), "a local-frontend run with source maps", still stands? Recommended: it replaces L7 as a whole. Replicates measured on DEV count, as 18 outcomes show DEV can be measured.
 2. What makes replicates "consecutive"? Recommended: replicates of one campaign case (one input), in order, at one qayaba commit. A replicate that fails the trust test, or a new qayaba commit, restarts the count. The table above shows why: the qualifying campaign ran at a version main has left.

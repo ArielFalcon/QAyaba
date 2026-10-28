@@ -101,6 +101,8 @@ This table is not exhaustive either: the search named under the code table cover
 
 ### Not decided here
 
+Decided 2026-10-28: each recommended answer below is accepted ([ADR-0013](0013-owner-decisions-remaining-questions.md)).
+
 | Point | The question | Recommended answer |
 |---|---|---|
 | A | Do the incident store, the `/api/maintainer/*` routes and the `qa maintainer` commands leave with the maintainer, with each producer's signal becoming a log line? | Yes. Nothing but the maintainer's own routes and commands reads the store, those routes are not in the public contract, and the log is where the loud-failure invariant already sends a failure. |

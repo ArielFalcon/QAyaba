@@ -48,7 +48,7 @@ What follows from it, each point checked at 4105c582:
 
 The version source is a change in the product, which only its owner can make. qayaba's side is the port, the declaration and the record.
 
-**Not decided here** (left to the RFCs named, each an owner decision when it lands):
+**Not decided here** (left to the RFCs named; decided 2026-10-28 as recommended, [ADR-0013](0013-owner-decisions-remaining-questions.md)):
 
 - The closed set of states and the field that records them, for example whether a known version that differs from the run's sha is a state of its own (RFC-0001).
 - Whether the learning precondition applies per run or per app (ADR-0003, RFC-0001).

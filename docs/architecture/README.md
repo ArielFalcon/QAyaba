@@ -98,8 +98,8 @@ Decisions (ADR):
 
 | Id | Title | Status | Decision or hypothesis |
 |---|---|---|---|
-| [ADR-0001](adr/0001-design-pillars.md) | Design pillars | Accepted for the pillars (the owner's quoted words). The P1-P7 numbering, the review questions and the review procedure are Proposed | The owner's statements of 2026-10-28 13:36Z; no D# |
-| [ADR-0002](adr/0002-architecture-direction.md) | Architecture direction | Accepted: Decisions 1, 2 and 4 and the agreement to the eight additions. Which additions are scheduled, Decision 5 and the open questions are not decided | Owner, 13:08Z, 13:36Z, 13:58Z, 15:04Z; D12 cited by analogy |
+| [ADR-0001](adr/0001-design-pillars.md) | Design pillars | Accepted; the P1-P7 numbering, the review questions, the review procedure and the open questions as proposed (ADR-0013) | The owner's statements of 2026-10-28 13:36Z; no D# |
+| [ADR-0002](adr/0002-architecture-direction.md) | Architecture direction | Accepted; which additions are scheduled, Decision 5 and the open questions as recommended (ADR-0013) | Owner, 13:08Z, 13:36Z, 13:58Z, 15:04Z; D12 cited by analogy |
 | [ADR-0003](adr/0003-learning-layer-rebuild.md) | Learning layer: delete and rebuild one lesson kind | Accepted | D1, D2, D3, D4, D14 |
 | [ADR-0004](adr/0004-response-value-oracle-removal.md) | Remove the response value oracle | Accepted | D5 |
 | [ADR-0005](adr/0005-coverage-enforce-activation.md) | When change coverage moves to enforce | Accepted | D6 |
@@ -110,12 +110,13 @@ Decisions (ADR):
 | [ADR-0010](adr/0010-maintainer-removal.md) | Remove the self-maintainer | Accepted | D11 |
 | [ADR-0011](adr/0011-root-cause-fix-policy.md) | Root-cause fix policy and measurement conditions | Accepted | D12, D13 |
 | [ADR-0012](adr/0012-owner-decisions-rfc-0002-0010.md) | Owner decisions on RFC-0002 to RFC-0010 | Accepted | The 56 open questions of RFC-0002 to RFC-0010 |
+| [ADR-0013](adr/0013-owner-decisions-remaining-questions.md) | Owner decisions on the remaining open questions | Accepted | RFC-0001 OD-1 to OD-20, the open points of ADR-0001 to ADR-0011, the README's open questions |
 
 Proposals (RFC):
 
 | Id | Title | Status | Decision or hypothesis |
 |---|---|---|---|
-| [RFC-0001](rfc/0001-dormant-features.md) | Dormant features: keep, redesign or delete | Partially decided: D1-D14 recorded in ADR-0003 to ADR-0011; OD-1 to OD-20 open | The audit of 46 dormant members; D1-D14 |
+| [RFC-0001](rfc/0001-dormant-features.md) | Dormant features: keep, redesign or delete | Accepted: D1-D14 recorded in ADR-0003 to ADR-0011; OD-1 to OD-20 (ADR-0013) | The audit of 46 dormant members; D1-D14 |
 | [RFC-0002](rfc/0002-platform-steps-0-1.md) | Platform steps 0-1: encode the target, delete what is dead | Accepted (ADR-0012) | The work order (ADR-0002); D1, D2, D5, D8, D11 |
 | [RFC-0003](rfc/0003-coverage-dump-harvest.md) | Harvest coverage dumps off the event loop (H06) | Accepted (ADR-0012) | H06, confirmed |
 | [RFC-0004](rfc/0004-log-level-from-outcome.md) | Derive the log level from the typed outcome (H11) | Accepted (ADR-0012) | H11, confirmed (narrow form) |
@@ -130,7 +131,7 @@ Other:
 
 | Page | What it holds | Hypotheses |
 |---|---|---|
-| [Rejected explanations](rejected-explanations.md) | The seven refuted hypotheses and the run index | H03, H05, H10, H13, H14, H26, H27; later N03, N07, Q02, Q03, Q05, Q06, Q07 |
+| [Rejected explanations](rejected-explanations.md) | The refuted hypotheses and the run index | H03, H05, H10, H13, H14, H26, H27; later N03, N07, Q02, Q03, Q05, Q06, Q07 |
 
 Records numbered above RFC-0005 are added to these tables by the change that adds them.
 
@@ -145,21 +146,21 @@ Documents outside this folder that the records build on:
 
 | Record | Section | Numbering |
 |---|---|---|
-| ADR-0001, ADR-0002 | Open questions | 1, 2, 3, ... |
-| ADR-0003, ADR-0008, ADR-0009, ADR-0011 | Not decided here | bullets |
-| ADR-0004, ADR-0005, ADR-0006 | Not decided here | 1, 2, ... |
-| ADR-0007, ADR-0010 | Not decided here | points A, B, C, D |
-| RFC-0001 | Owner decisions needed | OD-1 to OD-20 |
+| ADR-0001, ADR-0002 | Open questions | 1, 2, 3, ... (decided: ADR-0013) |
+| ADR-0003, ADR-0008, ADR-0009, ADR-0011 | Not decided here | bullets (decided: ADR-0013) |
+| ADR-0004, ADR-0005, ADR-0006 | Not decided here | 1, 2, ... (decided: ADR-0013) |
+| ADR-0007, ADR-0010 | Not decided here | points A, B, C, D (decided: ADR-0013) |
+| RFC-0001 | Owner decisions needed | OD-1 to OD-20 (decided: ADR-0013) |
 | RFC-0002 | Owner decisions needed | Q1 to Q15, then the points inherited from the ADRs (decided: ADR-0012) |
 | RFC-0003 | Owner decisions needed | 1 to 5 (decided: ADR-0012) |
 | RFC-0004, RFC-0005 | Owner decisions needed | F1 to F5 in each (decided: ADR-0012) |
 | RFC-0006 to RFC-0010 | Owner decisions needed | F1, N1, ... in each (decided: ADR-0012) |
 
-Each question carries its recommended answer. None is a decision until the owner answers it and an ADR records the answer.
+Each question carries its recommended answer. The owner answered all of them on 2026-10-28, as recommended: [ADR-0012](adr/0012-owner-decisions-rfc-0002-0010.md) and [ADR-0013](adr/0013-owner-decisions-remaining-questions.md) record the answers.
 
 ## Open questions
 
-Questions about this index. Not decided here.
+Questions about this index. Decided 2026-10-28 ([ADR-0013](adr/0013-owner-decisions-remaining-questions.md)): 1 as option B (commit G1), 2 by narrowing the ignore rule to everything but the records (commit `aff06b95`), 3 as recommended (option A).
 
 ### 1. How does a record keep citing code that a later step deletes?
 

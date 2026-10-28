@@ -57,7 +57,7 @@ The window is one app and mostly one commit, so the counts alone say little abou
 - Stays: the counter reader and the `_mutate` fixture. Bundle mutation counts its mutated responses through them (`run-engine-factory.ts:1003`, `fixtures.ts:360`).
 - The code target's oracle (Stryker, `stryker-mutation-oracle.adapter.ts:268`) is the only other producer of `valueScore`. It goes with the code target ([ADR-0007](0007-code-target-removal.md)).
 
-**Not decided here** (each is an open owner question; the recommended answer follows it):
+**Not decided here** (each was an open owner question, decided 2026-10-28 as recommended, [ADR-0013](0013-owner-decisions-remaining-questions.md); the recommended answer follows it):
 
 1. Do `valueScore`, `valueByCandidate`, `valueStats`, `mutantCount`, `killedCount` and the oracle series leave the persisted and wire contract in step 1, or stay as nulls until a later contract change? Recommended: they leave, with the contract regenerated in the same step. Old rows stay readable.
 2. What does "service-triggered runs work" mean, so the gap has a moment to be looked at again? Recommended: at least one completed run triggered by a service repository, with its verdict and coverage reason recorded, and at least one backend-change case among the stored plans.

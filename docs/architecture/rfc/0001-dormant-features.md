@@ -1,6 +1,6 @@
 # RFC-0001: Dormant features: keep, redesign or delete
 
-- Status: Partially decided, 2026-10-28. The owner decided D1-D14, recorded in [ADR-0003](../adr/0003-learning-layer-rebuild.md), [ADR-0004](../adr/0004-response-value-oracle-removal.md), [ADR-0005](../adr/0005-coverage-enforce-activation.md), [ADR-0006](../adr/0006-bundle-mutation-switch.md), [ADR-0007](../adr/0007-code-target-removal.md), [ADR-0008](../adr/0008-product-version-source.md), [ADR-0009](../adr/0009-campaign-freeze-on-server.md), [ADR-0010](../adr/0010-maintainer-removal.md) and [ADR-0011](../adr/0011-root-cause-fix-policy.md). Everything else is proposed here and listed under "Owner decisions needed".
+- Status: Accepted, 2026-10-28: OD-1 to OD-20 as recommended ([ADR-0013](../adr/0013-owner-decisions-remaining-questions.md)). Decided before: D1-D14, recorded in [ADR-0003](../adr/0003-learning-layer-rebuild.md), [ADR-0004](../adr/0004-response-value-oracle-removal.md), [ADR-0005](../adr/0005-coverage-enforce-activation.md), [ADR-0006](../adr/0006-bundle-mutation-switch.md), [ADR-0007](../adr/0007-code-target-removal.md), [ADR-0008](../adr/0008-product-version-source.md), [ADR-0009](../adr/0009-campaign-freeze-on-server.md), [ADR-0010](../adr/0010-maintainer-removal.md) and [ADR-0011](../adr/0011-root-cause-fix-policy.md).
 - Code references at 4105c582: `src/settings/registry.ts:74`, `qa-engine/src/contexts/cross-run-learning/domain/rule-fold.ts:28`, `qa-engine/src/contexts/coordination/application/coordination-context.ts:1`, `qa-engine/src/contexts/cross-run-learning/domain/curriculum.ts:76`, `src/server/run-engine-factory.ts:366-371`, `src/server/run-engine-factory.ts:988-1005`, `src/server/run-engine-factory.ts:1428-1432`, `qa-engine/src/contexts/run-orchestration/application/run-qa.use-case.ts:64`, `scripts/campaign.ts:264-267`, `src/orchestrator/schemas.ts:440-445`, `qa-engine/src/contexts/coordination/application/explore-request.ts:12`, `odd/tasks/lead-review-loop.md:22`
 - Related: [ADR-0001](../adr/0001-design-pillars.md), [ADR-0002](../adr/0002-architecture-direction.md), [RFC-0002](0002-platform-steps-0-1.md) (orders the step 1 deletions), [RFC-0004](0004-log-level-from-outcome.md), [rejected-explanations](../rejected-explanations.md), [README](../README.md), the platform plan `docs/engine-platform-architecture.md`
 
@@ -287,7 +287,7 @@ Run quality is unproven by design for this RFC.
 
 ## Owner decisions needed
 
-Recommended answers are mine. OD-1 to OD-9 cover members no decision settles; OD-10 onward are forks of redesigned members, the contract batch and the placement rules. None is a decision until the owner answers it.
+Recommended answers are mine. OD-1 to OD-9 cover members no decision settles; OD-10 onward are forks of redesigned members, the contract batch and the placement rules. The owner accepted every recommended answer on 2026-10-28 ([ADR-0013](../adr/0013-owner-decisions-remaining-questions.md)).
 
 | OD | Members | Decision | Recommended answer | Evidence |
 |---|---|---|---|---|

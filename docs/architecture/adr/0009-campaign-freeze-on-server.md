@@ -62,7 +62,7 @@ Group (b) acts in the runner's queue path, outside the per-run composition: both
 | 2 | A learning experiment declares its learning arm explicitly in the run request. Without the declaration the run is frozen. |
 | 3 | The decision is the server's, so every door gets it: the campaign script, a hand-written launcher, a direct API call. The client-side check stops being the only guard. |
 
-**Not decided here** (left to the change that implements it):
+**Not decided here** (left to the change that implements it; decided 2026-10-28 as recommended, [ADR-0013](0013-owner-decisions-remaining-questions.md)):
 
 - How the learning arm is spelled. Recommended: one more explicit request lever beside the existing ones.
 - Whether the declaration lifts the whole freeze or only the lesson state. Today's freeze bundles two things: learning state (rules, curriculum, reflector, process audit) and replicate isolation (suite store read-only, no context-map heal inside the run, and the runner's two pre-run steps: no automatic login bootstrap and no context-map rebuild executed ahead of the run, group (b) above). Whichever it lifts, a per-request decision has to reach the pre-run steps too, because they are decided at boot, outside the factory.

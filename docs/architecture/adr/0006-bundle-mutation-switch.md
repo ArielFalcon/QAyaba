@@ -45,7 +45,7 @@ With 0.904 of the changed lines executed, two of the three mutants went unnotice
 | 2 | The switch defaults to on for every e2e app, shadow or not. |
 | 3 | This is a configuration-format change. |
 
-**Not decided here** (each is an open owner question; the recommended answer follows it):
+**Not decided here** (each was an open owner question, decided 2026-10-28 as recommended, [ADR-0013](0013-owner-decisions-remaining-questions.md); the recommended answer follows it):
 
 1. What is the key, where does it live, and when does it land? Recommended: `qa.changeCoverage.bundleMutation`, with the values of its neighbours (`signal | off`, default `signal`), beside `branchCases` (`schemas.ts:236-237`), because it consumes the same measurement. It lands in step 1 together with [ADR-0004](0004-response-value-oracle-removal.md), so the owner's configurations change once and not twice.
 2. How are retired and unknown keys under `qa` handled? Recommended: warn at load, naming the key and, for `valueOracle`, the replacement; make it an error once the owner has cleaned the configurations. That is the step 1 warning and step 6 strict schema of the dormant-features audit ([RFC-0001](../rfc/0001-dormant-features.md)). Either way the owner moves portfolio's `off` to the new key when the change lands, or bundle mutation turns on there. The blast radius of an error at load (one app or the whole process) is not verified.

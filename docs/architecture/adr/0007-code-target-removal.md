@@ -98,6 +98,8 @@ Not exhaustive: this table lists the files opened. The step 1 commit searches th
 
 ### Not decided here
 
+Decided 2026-10-28: each recommended answer below is accepted ([ADR-0013](0013-owner-decisions-remaining-questions.md)).
+
 | Point | The question | Recommended answer |
 |---|---|---|
 | A | Does the `target` field stay in the contract with the single value `"e2e"`, or leave? | Keep it with one value in step 1 (the smaller change; no client breaks) and drop it at the next contract revision. Not checked: whether any client outside this repository sends it. |

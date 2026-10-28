@@ -146,6 +146,8 @@ Approved text: "Learning gates keyed per lesson kind on the facts it reads, not 
 
 ### Not decided here
 
+Decided 2026-10-28: each recommended answer below is accepted ([ADR-0013](0013-owner-decisions-remaining-questions.md)).
+
 - The lesson entity (kind, scope, anchor, evidence references, actor), its storage, and whether it reuses `learning_rules`.
 - Whether the no-op repository and `LearningPort` survive step 1, or the lesson store replaces them. The no-op `StubLearningRepository` (`LEARN/infrastructure/stub-learning-repository.adapter.ts:8`) implements the rule-loop port that D1 deletes (`LEARN/application/ports/learning-repository.port.ts:6-13`: `save`, `topRules`, `applyOutcome`, `incrementUsage`, `listAll`), and `LEARN/composition/build-cross-run-learning.ts:26` uses it only as the default repository of `LearningPortAdapter`. [RFC-0002](../rfc/0002-platform-steps-0-1.md) fixes this.
 - The vehicle for D3 (`knownFacts` or a new brief section), the `EvidenceKind` a lesson fact would carry (see D3), and the fate of the comment at `coordination-context.ts:1`.

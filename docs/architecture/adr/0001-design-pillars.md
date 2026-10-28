@@ -1,6 +1,6 @@
 # ADR-0001: Design pillars
 
-- Status: Accepted, 2026-10-28, owner, for the pillars (the owner's quoted words). Proposed, not accepted: the numbering P1-P7, the review questions and the review procedure (see Decision and Open questions).
+- Status: Accepted, 2026-10-28, owner, for the pillars (the owner's quoted words). Accepted as proposed on 2026-10-28 ([ADR-0013](0013-owner-decisions-remaining-questions.md)): the numbering P1-P7, the review questions, the review procedure and the recommended answers to the Open questions.
 - Decision source: no D#. The pillars are the owner's own statements of 2026-10-28 13:36Z, quoted below (translated).
 - Code references at 4105c582:
   - `AGENTS.md:3-22` (golden rule: project-agnostic, model-agnostic, root-cause fixes)
@@ -10,7 +10,7 @@
   - `docs/engine-platform-architecture.md:67-68` (the line the platform plan draws)
 - Related: [ADR-0002](0002-architecture-direction.md), [ADR-0011](0011-root-cause-fix-policy.md), [RFC-0001](../rfc/0001-dormant-features.md), [README](../README.md)
 
-**In short:** seven pillars, taken from the owner's own words, are the criteria for every design in this repository. The split into P1-P7, the question a review may ask of each, and how an RFC answers it are the assistant's proposal; the owner has not approved them (Open question 1).
+**In short:** seven pillars, taken from the owner's own words, are the criteria for every design in this repository. The split into P1-P7, the question a review may ask of each, and how an RFC answers it are the assistant's proposal; the owner accepted them as proposed on 2026-10-28 ([ADR-0013](0013-owner-decisions-remaining-questions.md)).
 
 ## Context
 
@@ -74,7 +74,7 @@ Platform step 0 (RFC-0002) puts rules into `AGENTS.md`. Whether it also points t
 
 ## Open questions
 
-Not decided here. The owner settles each.
+Decided 2026-10-28: each recommended answer below is accepted ([ADR-0013](0013-owner-decisions-remaining-questions.md)).
 
 1. **Must an RFC carry an answer to the seven questions?** The numbering, the questions and the procedure are the assistant's proposal. A: no checklist, the pillars stay a reference a reviewer reads. B: a checklist inside the existing Recommendation section, one line per pillar with evidence or "not affected". C: a separate section in every RFC, which changes the fixed RFC template. Recommended: B. Cost: one more block to keep honest in every RFC; a line that only says "not affected" must still be checked by the reviewer.
 2. **Is the MVP-restraint statement of 14:14Z an eighth pillar?** Recommended: no. P7 already asks that added complexity be justified, and the statement is the basis of ADR-0003 and RFC-0001 as it stands. Revisit if the owner wants it to bind every new feature explicitly.
