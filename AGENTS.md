@@ -781,7 +781,7 @@ that catches nothing. The objective signal that breaks the circle is **change-co
   script maps is not loaded: the statement syntax its language declares in the language registry (`statementSyntaxForFile`,
   read from the working copy) says which of its changed lines are no code (an import, a re-export or export list, a type-only
   declaration, a comment, a blank line), left out like the lines no map reaches, and its other non-blank added lines count as
-  uncovered (`notLoadedFiles`); one whose every changed line is no code leaves the measurement (`noCodeFiles`, span
+  uncovered (`notLoadedFiles`); one whose every changed line is no code leaves the measurement, recorded apart (`noCodeFiles`, span
   `qayaba.coverage.no_code_files`), and a change left with no line of code is `no-changed-lines`, never `deletion-only`. A language
   that declares no statement syntax, or a source that cannot be read or parsed, counts every non-blank added line. A file no script can hold
   (neither a declared language nor a kind of file the run's maps reach, such as a document or a style sheet) is not changed code. Native reports keep

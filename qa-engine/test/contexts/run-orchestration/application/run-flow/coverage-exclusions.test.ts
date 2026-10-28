@@ -163,6 +163,23 @@ test("the first measurement hands the exclusions to the port, records them besid
   assert.deepEqual((recounted[0] as { exclusions: CoverageExclusions }).exclusions, expected, "a recount leaves out the same files");
 });
 
+test("the run records apart the unloaded changed files the measurement left out because none of their changed lines is code", async () => {
+  const { ctx } = ctxOf({ importersOf: async () => ok(importers([])) });
+  const measure = ctx.deps.objectiveSignal.measure;
+  (ctx.deps.objectiveSignal as { measure: unknown }).measure = async (...args: Parameters<typeof measure>) => {
+    const signal = await measure(...args);
+    return { ...signal, measurement: { ...signal.measurement!, notExecutableLines: 1, noCodeFiles: ["src/app/shared/index.ts"] } };
+  };
+  const state = stateOf({ facts: [] });
+  state.execution = { ...state.execution, run: { verdict: "pass", cases: [], logs: "" } } as RunState["execution"];
+
+  const out = await measureCoverage(state, ctx);
+  const coverage = (out as { update: { coverage: RunState["coverage"] } }).update.coverage;
+
+  assert.deepEqual(coverage.changeCoverage?.noCodeFiles, ["src/app/shared/index.ts"]);
+  assert.equal(coverage.changeCoverage?.notExecutableLines, 1);
+});
+
 test("a run with nothing to leave out measures as before: the port is handed no exclusions", async () => {
   const { ctx, measured } = ctxOf({ importersOf: async () => ok(importers([])) });
   const state = stateOf({ facts: [] });

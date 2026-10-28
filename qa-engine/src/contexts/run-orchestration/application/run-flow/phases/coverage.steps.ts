@@ -31,6 +31,7 @@ export function changeCoverageOf(m: CoverageMeasurement | undefined): CoverageOu
     executableLines: m.changedLines,
     ...(m.notExecutableLines !== undefined ? { notExecutableLines: m.notExecutableLines } : {}),
     ...(m.notLoadedFiles ? { notLoadedFiles: m.notLoadedFiles } : {}),
+    ...(m.noCodeFiles ? { noCodeFiles: m.noCodeFiles } : {}),
     ...(m.unreachableByDesign ? { unreachableByDesign: m.unreachableByDesign } : {}),
     ...(m.testSupportFiles ? { testSupportFiles: m.testSupportFiles } : {}),
     ...(m.coveredByExecution !== undefined ? { coveredByExecution: m.coveredByExecution } : {}),
