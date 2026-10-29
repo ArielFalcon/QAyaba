@@ -1152,8 +1152,8 @@ the contract above is unaffected:
       "campaignFreeze": true,
       "runtime": "opencode",
       "agents": {
-        "qa-author": { "provider": "opencode-go", "model": "glm-5.3-flash", "reasoningEffort": "low", "stepLimit": 50 },
-        "qa-reviewer":  { "provider": "opencode-go", "model": "minimax-m3", "reasoningEffort": null, "stepLimit": 25 }
+        "qa-author": { "provider": "opencode-go", "model": "<the model the runtime resolved>", "reasoningEffort": "low", "stepLimit": 50 },
+        "qa-reviewer":  { "provider": "opencode-go", "model": "<the model the runtime resolved>", "reasoningEffort": null, "stepLimit": 25 }
       },
       "prompt": { "staticHash": "sha256:…" },
       "grounding": { "stitcher": "signal", "domPack": true },

@@ -641,7 +641,7 @@
     if (has('pr', 'merge', 'issue', 'decision', 'outcome', 'result')) return 'Decision: ' + run.decision + '. ' + (run.verdict === 'pass' ? 'Green + reviewer-approved → PR with auto-merge.' : run.verdict === 'fail' ? 'A real failure → GitHub Issue, never a silent skip.' : '');
     if (has('rerun', 're-run', 'again', 'reproduce')) return 'I can re-run ' + run.sha + ' in ' + run.mode + ' mode — runs are deterministic, so a clean re-run of the same SHA should reproduce ' + run.verdict + '.';
     if (has('spec', 'test', 'generate', 'wrote')) return (run.newSpecs && run.newSpecs.length)
-      ? 'I wrote ' + run.specs + ' spec' + (run.specs > 1 ? 's' : '') + ' for the blast radius: ' + run.newSpecs.map((s) => s.file.split('/').pop()).join(', ') + '. The reviewer (minimax-m3) approved them.'
+      ? 'I wrote ' + run.specs + ' spec' + (run.specs > 1 ? 's' : '') + ' for the blast radius: ' + run.newSpecs.map((s) => s.file.split('/').pop()).join(', ') + '. The reviewer approved them.'
       : 'No specs were written — the commit was classified as ' + (run.verdict === 'skipped' ? 'style/docs with no logic change, a valid no-op' : 'non-testable') + '.';
     return 'Run ' + run.id + ' (' + run.sha + ') on ' + run.app + ' resolved ' + run.verdict + ' — ' + run.decision + '. Ask me why, about coverage, the oracle, or what I learned.';
   }

@@ -4,7 +4,7 @@
    model — see API.md for how each field maps to the /api/v1/* server contract.
  */
 window.QayabaMockData = (function () {
-  const models = { generator: 'deepseek-v4-pro', reviewer: 'minimax-m3' };
+  const models = { generator: 'generator model', reviewer: 'reviewer model' }; /* role names; the live console shows the model the API reports */
 
   const apps = [
     {
@@ -80,7 +80,7 @@ window.QayabaMockData = (function () {
     plan: [
       { t: 'Classify commit · feat → targeted generation', s: 'done' },
       { t: 'Map blast radius · search.component.ts → /search', s: 'done' },
-      { t: 'Generate 3 specs · reviewer (minimax-m3) approved', s: 'done' },
+      { t: 'Generate 3 specs · reviewer approved', s: 'done' },
       { t: 'Static gate · tsc · lint · manifest', s: 'done' },
       { t: 'Execute suite against DEV', s: 'active' },
       { t: 'Oracle · mutation / fault-injection', s: 'pending' },
