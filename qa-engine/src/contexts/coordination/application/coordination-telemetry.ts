@@ -78,8 +78,6 @@ export interface CoordinationTelemetryEvent {
   readonly reviewOutcome?: "approved" | "rejected" | "skipped" | "n/a";
   /** Quality sampled at outcome time (deterministic ports — never invented). */
   readonly coverageRatio?: number | null;
-  /** Escalation events observed in this process window before this record. */
-  readonly escalations?: number;
 }
 
 export interface CoordinationTelemetryPort {

@@ -451,7 +451,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Multi-agent coordination audit: lead proposals, sidekick delegations, escalations, outcomes (read-only) */
+        /** Multi-agent coordination audit: lead proposals, sidekick delegations, outcomes (read-only) */
         get: operations["getCoordinationEvents"];
         put?: never;
         post?: never;
@@ -1079,7 +1079,6 @@ export interface components {
                 measured: boolean;
                 totalRuns: number;
                 delegateRuns: number;
-                escalationRate: number | null;
                 contractFailureRate: number | null;
                 avgDelegationMs: number | null;
             };
@@ -1100,7 +1099,6 @@ export interface components {
             finalOutcome?: string;
             reviewOutcome?: string;
             coverageRatio?: number | null;
-            escalations?: number;
             at: number;
         };
         CoordinationEventsView: {

@@ -138,7 +138,6 @@ async function recordCoordinationOutcome(state: Readonly<RunState>, ctx: Workspa
     reviewOutcome,
     /* Quality sampled at the same instant the outcome is stamped. */
     ...(coverageRatio !== undefined ? { coverageRatio } : {}),
-    escalations: coordinationSignal.incomplete,
     durationMs: Date.now() - startedAt,
     at: Date.now(),
   });

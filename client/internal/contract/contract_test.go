@@ -278,7 +278,7 @@ func TestSignalsViewDecodesCoordinationFromServerJSON(t *testing.T) {
 		"coverage":{"measured":true,"avgRatio":0.75,"measuredRuns":10,"totalRuns":20},
 		"coordination":{
 			"measured":true,"totalRuns":20,"delegateRuns":8,
-			"escalationRate":0.25,"contractFailureRate":0.125,"avgDelegationMs":1500
+			"contractFailureRate":0.125,"avgDelegationMs":1500
 		}
 	}`
 	var v SignalsView
@@ -291,9 +291,6 @@ func TestSignalsViewDecodesCoordinationFromServerJSON(t *testing.T) {
 	co := v.Coordination
 	if !co.Measured || co.TotalRuns != 20 || co.DelegateRuns != 8 {
 		t.Fatalf("coordination header fields: %+v", co)
-	}
-	if co.EscalationRate == nil || *co.EscalationRate != 0.25 {
-		t.Fatalf("escalationRate not decoded: %v", co.EscalationRate)
 	}
 	if co.ContractFailureRate == nil || *co.ContractFailureRate != 0.125 {
 		t.Fatalf("contractFailureRate not decoded: %v", co.ContractFailureRate)

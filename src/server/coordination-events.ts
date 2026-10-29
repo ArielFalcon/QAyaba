@@ -96,7 +96,6 @@ function coerce(o: Record<string, unknown>): CoordinationEvent {
     ...(o.coverageRatio === null || typeof o.coverageRatio === "number"
       ? { coverageRatio: o.coverageRatio as number | null }
       : {}),
-    escalations: optInt(o.escalations),
   };
 }
 
@@ -116,11 +115,6 @@ export function toCoordinationSignals(events: readonly CoordinationEvent[]): Coo
   const outcomes = events.filter((e) => e.kind === "outcome");
   const runIds = new Set(outcomes.map((e) => e.runId));
   const delegateRunIds = new Set(outcomes.filter((e) => e.action === "delegate").map((e) => e.runId));
-  const escalations = new Set(
-    events
-      .filter((e) => e.kind === "escalation" && typeof e.escalations === "number")
-      .map((e) => `${e.runId}:${e.escalations}`),
-  );
   /*
    * A delegation contract failure is read from the typed failureClass field (set by
    * classifyDelegationFailure in qa-engine — "failed" | "blocked" | "claimed-files-missing"), never
@@ -140,9 +134,6 @@ export function toCoordinationSignals(events: readonly CoordinationEvent[]): Coo
     measured: outcomes.length > 0,
     totalRuns,
     delegateRuns,
-    escalationRate: delegateRuns > 0
-      ? round4(escalations.size / delegateRuns)
-      : null,
     contractFailureRate: delegationEvents.length > 0
       ? round4(failures / delegationEvents.length)
       : null,

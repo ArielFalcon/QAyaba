@@ -1333,7 +1333,7 @@
     "/api/v1/coordination-events": {
       "get": {
         "operationId": "getCoordinationEvents",
-        "summary": "Multi-agent coordination audit: lead proposals, sidekick delegations, escalations, outcomes (read-only)",
+        "summary": "Multi-agent coordination audit: lead proposals, sidekick delegations, outcomes (read-only)",
         "parameters": [
           {
             "name": "runId",
@@ -3745,10 +3745,6 @@
                 "minimum": 0,
                 "maximum": 9007199254740991
               },
-              "escalationRate": {
-                "nullable": true,
-                "type": "number"
-              },
               "contractFailureRate": {
                 "nullable": true,
                 "type": "number"
@@ -3762,7 +3758,6 @@
               "measured",
               "totalRuns",
               "delegateRuns",
-              "escalationRate",
               "contractFailureRate",
               "avgDelegationMs"
             ],
@@ -3832,11 +3827,6 @@
           "coverageRatio": {
             "nullable": true,
             "type": "number"
-          },
-          "escalations": {
-            "type": "integer",
-            "minimum": 0,
-            "maximum": 9007199254740991
           },
           "at": {
             "type": "integer",

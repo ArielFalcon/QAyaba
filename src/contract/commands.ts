@@ -739,7 +739,6 @@ export const CoordinationSignalsSchema = z.object({
   measured: z.boolean(),
   totalRuns: z.number().int().nonnegative(),
   delegateRuns: z.number().int().nonnegative(),
-  escalationRate: z.number().nullable(),
   contractFailureRate: z.number().nullable(),
   avgDelegationMs: z.number().nullable(),
 });
@@ -779,7 +778,6 @@ export const CoordinationEventSchema = z.object({
   finalOutcome: z.string().optional(),
   reviewOutcome: z.string().optional(),
   coverageRatio: z.number().nullable().optional(),
-  escalations: z.number().int().nonnegative().optional(),
   at: z.number().int().nonnegative(),
 });
 

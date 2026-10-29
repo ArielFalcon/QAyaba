@@ -15,8 +15,8 @@ const raw = [
   JSON.stringify({ runId: "r1", kind: "proposal", action: "delegate", sidekickKind: "author", tier: "standard", reason: "big", at: 1 }),
   JSON.stringify({ runId: "r1", kind: "delegation", action: "delegate", sidekickKind: "author", tier: "standard", reason: "sidekick status=failed", failureClass: "failed", delegationId: "d1", attempt: 1, durationMs: 1000, at: 2 }),
   JSON.stringify({ runId: "r1", kind: "delegation", reason: "sidekick status=completed-with-concerns", delegationId: "d2", attempt: 2, durationMs: 2000, at: 3 }),
-  JSON.stringify({ runId: "r1", kind: "escalation", reason: "no progress", escalations: 1, at: 4 }),
-  JSON.stringify({ runId: "r1", kind: "outcome", action: "delegate", reason: "pipeline verdict=pass", finalOutcome: "pass", reviewOutcome: "approved", escalations: 1, coverageRatio: 0.9, durationMs: 42000, at: 5 }),
+  JSON.stringify({ runId: "r1", kind: "escalation", reason: "no progress", at: 4 }),
+  JSON.stringify({ runId: "r1", kind: "outcome", action: "delegate", reason: "pipeline verdict=pass", finalOutcome: "pass", reviewOutcome: "approved", coverageRatio: 0.9, durationMs: 42000, at: 5 }),
   /* Non-JSON noise must be skipped, malformed kinds dropped — never 500 the audit read. */
   "{ line corrupt",
   JSON.stringify({ runId: "r0", kind: "bogus-kind", reason: "x", at: 9 }),
@@ -177,12 +177,12 @@ test("readCoordinationLedger: real file tail with run filter + limit", () => {
   }
 });
 
-test("toCoordinationSignals: delegate share, escalation rate, contract failures, delegation cost", () => {
+test("toCoordinationSignals: delegate share, contract failures, delegation cost, and no escalation rate", () => {
   const s = toCoordinationSignals(parseCoordinationLedger(raw).events);
+  assert.deepEqual(Object.keys(s).sort(), ["avgDelegationMs", "contractFailureRate", "delegateRuns", "measured", "totalRuns"]);
   assert.equal(s.measured, true);
   assert.equal(s.totalRuns, 2);
   assert.equal(s.delegateRuns, 1);
-  assert.equal(s.escalationRate, 1);
   assert.equal(s.contractFailureRate, 0.5); /* 1 failed of 2 delegations */
   assert.equal(s.avgDelegationMs, 1500);
 });
@@ -210,8 +210,8 @@ test("toCoordinationSignals ignores an older ledger's failureClass that is not a
       JSON.stringify({ runId: "r2", kind: "delegation", action: "delegate", sidekickKind: "author", tier: "standard", reason: "sidekick status=blocked", delegationId: "r2-pre-generate", attempt: 1, durationMs: 1000, failureClass: "blocked", at: 2 }),
       JSON.stringify({ runId: "r3", kind: "delegation", action: "delegate", sidekickKind: "author", tier: "standard", reason: "sidekick status=completed", delegationId: "r3-pre-generate", attempt: 1, durationMs: 1000, failureClass: "timeout", at: 5 }),
       JSON.stringify({ runId: "r4", kind: "delegation", action: "delegate", sidekickKind: "author", tier: "standard", reason: "sidekick status=completed", delegationId: "r4-pre-generate", attempt: 1, durationMs: 1000, failureClass: "claimed-files-missing", at: 6 }),
-      JSON.stringify({ runId: "r1", kind: "outcome", action: "delegate", reason: "pipeline verdict=pass", finalOutcome: "pass", escalations: 0, at: 3 }),
-      JSON.stringify({ runId: "r2", kind: "outcome", action: "delegate", reason: "pipeline verdict=pass", finalOutcome: "pass", escalations: 0, at: 4 }),
+      JSON.stringify({ runId: "r1", kind: "outcome", action: "delegate", reason: "pipeline verdict=pass", finalOutcome: "pass", at: 3 }),
+      JSON.stringify({ runId: "r2", kind: "outcome", action: "delegate", reason: "pipeline verdict=pass", finalOutcome: "pass", at: 4 }),
     ].join("\n"),
   ).events;
   const s = toCoordinationSignals(events);
@@ -222,10 +222,15 @@ test("toCoordinationSignals with an empty ledger reports unmeasured, not zero-pa
   const signals = toCoordinationSignals([]);
   assert.equal(signals.measured, false);
   assert.equal(signals.avgDelegationMs, null);
-  assert.equal(signals.escalationRate, null);
 });
 
 const line = (o: Record<string, unknown>) => JSON.stringify(o);
+
+test("a ledger line recorded with the retired escalations count reads without it", () => {
+  const [event] = parseCoordinationLedger(line({ runId: "r1", kind: "outcome", action: "delegate", reason: "x", escalations: 2, at: 1 })).events;
+  assert.equal(event?.runId, "r1");
+  assert.equal("escalations" in (event ?? {}), false);
+});
 
 test("a ledger line with the lead-decision kind is returned, with the pushback kind beside it", () => {
   const { events } = parseCoordinationLedger(
@@ -322,32 +327,13 @@ test("parseCoordinationLedger keeps a numeric or null coverageRatio and drops an
 test("toCoordinationSignals counts only runs with an outcome; a ledger without one is unmeasured", () => {
   const inProgress = [
     { runId: "r1", kind: "delegation" as const, reason: "x", at: 1, durationMs: 10 },
-    { runId: "r1", kind: "escalation" as const, reason: "x", at: 2, escalations: 1 },
+    { runId: "r1", kind: "escalation" as const, reason: "x", at: 2 },
   ];
   const s = toCoordinationSignals(inProgress);
   assert.equal(s.measured, false);
   assert.equal(s.totalRuns, 0);
   const withOutcome = toCoordinationSignals([...inProgress, { runId: "r2", kind: "outcome" as const, action: "direct", reason: "x", at: 3 }]);
   assert.equal(withOutcome.totalRuns, 1);
-});
-
-test("toCoordinationSignals: escalation rate is the distinct escalation steps with a count per delegating run", () => {
-  const events = parseCoordinationLedger(
-    [
-      line({ runId: "A", kind: "delegation", reason: "x", at: 1 }),
-      line({ runId: "A", kind: "escalation", reason: "x", escalations: 1, at: 2 }),
-      line({ runId: "A", kind: "escalation", reason: "x", escalations: 2, at: 3 }),
-      line({ runId: "A", kind: "escalation", reason: "no count recorded", at: 4 }),
-      line({ runId: "A", kind: "outcome", action: "delegate", reason: "x", escalations: 2, at: 5 }),
-      line({ runId: "B", kind: "escalation", reason: "x", escalations: 1, at: 6 }),
-      line({ runId: "B", kind: "outcome", action: "delegate", reason: "x", escalations: 1, at: 7 }),
-      line({ runId: "C", kind: "outcome", action: "direct", reason: "x", at: 8 }),
-    ].join("\n"),
-  ).events;
-  const s = toCoordinationSignals(events);
-  assert.equal(s.totalRuns, 3);
-  assert.equal(s.delegateRuns, 2);
-  assert.equal(s.escalationRate, 1.5, "three escalation steps (A:1, A:2, B:1) over two delegating runs");
 });
 
 test("toCoordinationSignals: average delegation cost only counts delegations that recorded a duration", () => {
@@ -380,11 +366,6 @@ test("readCoordinationLedger rethrows whatever the reader threw, even a non-Erro
   } finally {
     errorMock.mock.restore();
   }
-});
-
-test("toCoordinationSignals: a delegating run whose outcome records zero escalations has an escalation rate of 0", () => {
-  const s = toCoordinationSignals([{ runId: "r1", kind: "outcome", action: "delegate", reason: "x", escalations: 0, at: 1 }]);
-  assert.equal(s.escalationRate, 0);
 });
 
 test("readCoordinationLedger: a filtered read of a ledger larger than one window but smaller than the next still finds the run's first event", () => {

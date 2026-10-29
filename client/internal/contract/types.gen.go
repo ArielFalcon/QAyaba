@@ -1895,7 +1895,6 @@ type CoordinationEvent struct {
 	CoverageRatio       *float32              `json:"coverageRatio,omitempty"`
 	DelegationId        *string               `json:"delegationId,omitempty"`
 	DurationMs          *int                  `json:"durationMs,omitempty"`
-	Escalations         *int                  `json:"escalations,omitempty"`
 	FailureClass        *string               `json:"failureClass,omitempty"`
 	FinalOutcome        *string               `json:"finalOutcome,omitempty"`
 	Kind                CoordinationEventKind `json:"kind"`
@@ -2612,7 +2611,6 @@ type SignalsView struct {
 		AvgDelegationMs     *float32 `json:"avgDelegationMs"`
 		ContractFailureRate *float32 `json:"contractFailureRate"`
 		DelegateRuns        int      `json:"delegateRuns"`
-		EscalationRate      *float32 `json:"escalationRate"`
 		Measured            bool     `json:"measured"`
 		TotalRuns           int      `json:"totalRuns"`
 	} `json:"coordination,omitempty"`

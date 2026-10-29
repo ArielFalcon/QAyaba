@@ -239,12 +239,12 @@ window.QayabaMockData = (function () {
   const coordinationEvents = [
     { runId: 'r-1841', kind: 'proposal', action: 'delegate', capability: 'sidekick-standard', reason: 'change analysis suggests sidekick (fileThreshold=8)', at: Date.now() - 240000 },
     { runId: 'r-1841', kind: 'delegation', action: 'delegate', capability: 'sidekick-standard', reason: 'sidekick status=completed-with-concerns', delegationId: 'r-1841-pre-generate', attempt: 1, durationMs: 69000, at: Date.now() - 180000 },
-    { runId: 'r-1841', kind: 'outcome', action: 'delegate', capability: 'sidekick-standard', reason: 'pipeline verdict=pass', finalOutcome: 'pass', reviewOutcome: 'approved', escalations: 0, durationMs: 162000, at: Date.now() - 120000 },
+    { runId: 'r-1841', kind: 'outcome', action: 'delegate', capability: 'sidekick-standard', reason: 'pipeline verdict=pass', finalOutcome: 'pass', reviewOutcome: 'approved', durationMs: 162000, at: Date.now() - 120000 },
     { runId: 'r-1780', kind: 'delegation', action: 'retry-sidekick', capability: 'sidekick-standard', reason: 'fix-loop-regen sidekick status=failed', delegationId: 'r-1780-fix-loop-regen', attempt: 1, durationMs: 120000, failureClass: 'fail', at: Date.now() - 900000 },
   ];
   const coordinationSignals = {
     measured: true, totalRuns: 8, delegateRuns: 5,
-    escalationRate: 0.2, contractFailureRate: 0.2, avgDelegationMs: 96000,
+    contractFailureRate: 0.2, avgDelegationMs: 96000,
   };
 
   const live = {
