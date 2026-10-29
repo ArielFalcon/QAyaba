@@ -445,8 +445,6 @@ async function reviewerPrompts(subject: string): Promise<PromptText[]> {
     const variants: Array<[string, ReviewInput]> = [
       ["diff", review()],
       ["manual", review({ mode: "manual", guidance: "cover the coupon form" })],
-      ["complete", review({ mode: "complete" })],
-      ["exhaustive", review({ mode: "exhaustive" })],
       ["grounded", review(grounded)],
       ["diff with a step limit", review({ stepLimit: MATRIX_STEP_LIMIT })],
       ["grounded with a step limit", review({ ...grounded, stepLimit: MATRIX_STEP_LIMIT })],

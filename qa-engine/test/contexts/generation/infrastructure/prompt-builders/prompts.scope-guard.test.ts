@@ -186,8 +186,8 @@ test("with nothing supplied the lookup and the navigation directives are both pr
   assert.deepEqual(findingsOf(a, false), []);
 });
 
-test("the structural signal changes only the lookup of a diff first pass, never a complete, exhaustive or manual one", () => {
-  for (const mode of ["complete", "exhaustive", "manual"] as const) {
+test("the structural signal changes only the lookup of a diff first pass, never a manual one", () => {
+  for (const mode of ["manual"] as const) {
     const withSymbols = buildPromptAssembled(mkInput({ mode, guidance: "cover the cart", ...signalOf(SYMBOLS) }));
     const without = buildPromptAssembled(mkInput({ mode, guidance: "cover the cart" }));
     assert.equal(sendsToLookUpBlastRadius(withSymbols), sendsToLookUpBlastRadius(without), mode);
@@ -300,11 +300,9 @@ test("the effort line adds no claim and no directive word: the task declares and
   }
 });
 
-test("a complete, exhaustive, manual or context run and a regeneration state no effort tier, however large the diff", () => {
+test("a manual or context run and a regeneration state no effort tier, however large the diff", () => {
   const texts = DIFF_TIER_NAMES.map((tier) => EFFORT_BY_TIER[tier].text);
   const others: ReadonlyArray<[string, Partial<OpencodeRunInput>]> = [
-    ["complete", { mode: "complete" }],
-    ["exhaustive", { mode: "exhaustive" }],
     ["manual", { mode: "manual", guidance: "cover the cart" }],
     ["context", { mode: "context" }],
     ["e2e regeneration", FIX],
@@ -375,7 +373,7 @@ test("an empty listing supplies no suite: a diff first pass still reads the exis
 });
 
 test("no regeneration and no other mode gains a read of the existing specs from the diff first pass's scope budget", () => {
-  for (const [label, extra] of [["e2e regeneration", FIX], ["complete", { mode: "complete" as const }], ["exhaustive", { mode: "exhaustive" as const }]] as const) {
+  for (const [label, extra] of [["e2e regeneration", FIX]] as const) {
     assert.equal(directsRead(buildPromptAssembled(mkInput(extra)), "existing-suite"), false, label);
   }
 });

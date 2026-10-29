@@ -20,7 +20,7 @@ over HTTP. It provides a visual dashboard for launching and tracking QA runs.
 
 - \`qayaba\` — opens the home screen (interactive menu)
 - \`qayaba --help\` — shows all CLI commands
-- \`qayaba run [app] [--mode diff|complete|exhaustive|manual|context] [--guidance "..."] [-w|--watch]\` — trigger a run
+- \`qayaba run [app] [--mode diff|manual|context] [--guidance "..."] [-w|--watch]\` — trigger a run
 - \`qayaba status [app]\` — queue status or last run for an app
 - \`qayaba apps\` — list configured apps
 - \`qayaba logs <app> [--last N]\` — show run logs
@@ -36,8 +36,6 @@ The service must be running: \`docker compose up\` (or the orchestrator started 
 
 - **diff** (default) — test the blast radius of a single commit. Classifies Conventional Commits
   (feat→generate, fix→regression, refactor→regression, style→skip, docs→skip) before spending tokens.
-- **complete** — analyze the whole repo, estimate coverage, test uncovered important flows.
-- **exhaustive** — audit every existing test and regenerate the entire suite from scratch.
 - **manual** — focused generation guided by your natural-language prompt.
 - **context** — build or refresh the FE↔BE architecture map used by later E2E generation.
 

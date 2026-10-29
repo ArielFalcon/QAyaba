@@ -147,7 +147,7 @@ test("a host whose prompt deadline is not above the tier's time keeps its own de
 });
 
 test("every mode other than diff opens the generator's session with the host's default", async () => {
-  for (const mode of ["manual", "complete", "exhaustive"] as const) {
+  for (const mode of ["manual"] as const) {
     const { ports, seen } = build([{ output: "SPECS" }]);
     await new GenerateTestsUseCase(ports).author(baseInput({ mode, guidance: "g" }));
     assert.equal("timeoutMs" in (generatorOpen(seen)?.opts ?? {}), false, mode);

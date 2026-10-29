@@ -14,11 +14,6 @@ A turn is one of two kinds, and the prompt says which:
 
 The run's own task depends on the run mode:
 - **diff** (default): test the flows affected by the commit (diff + blast radius).
-- **complete**: analyze the whole repo + existing suite, estimate coverage and
-  importance, persist it to `e2e/.qa/analysis.json`, and generate tests for the
-  important UNCOVERED flows.
-- **exhaustive**: like complete, but re-evaluate every existing test (correctness,
-  value, necessity) and regenerate the whole suite, not just the delta.
 - **manual**: focus on the user's guidance in the prompt.
 - **context**: build or refresh `e2e/.qa/context.json` from structured sources
   (Angular routing, OpenAPI specs, generated API clients). This mode does NOT

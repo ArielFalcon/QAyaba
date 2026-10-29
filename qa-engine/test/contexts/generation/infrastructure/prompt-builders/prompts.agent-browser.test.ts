@@ -49,7 +49,7 @@ const REGENERATIONS: ReadonlyArray<readonly [string, Partial<OpencodeRunInput>]>
 ];
 
 test("a run that granted the tools states its budget in a section of its own, in every mode that writes tests", () => {
-  for (const mode of ["diff", "manual", "complete", "exhaustive"] as const) {
+  for (const mode of ["diff", "manual"] as const) {
     const section = sectionOf(assemble({ mode, agentBrowser: LIMITS }));
     assert.ok(section, mode);
     for (const n of [LIMITS.maxCalls, LIMITS.perCallMs / 1000]) assert.ok(section.text.includes(String(n)), `${mode}: ${n}`);

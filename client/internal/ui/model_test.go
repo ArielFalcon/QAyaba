@@ -93,7 +93,7 @@ func TestLauncherDiffCommitsAdjustableWithArrows(t *testing.T) {
 	if m.diffCommits != 4 {
 		t.Fatalf("after 3×right: diffCommits=%d want 4", m.diffCommits)
 	}
-	/* arrows only adjust on the diff option — move to 'complete' and → is a no-op */
+	/* arrows only adjust on the diff option — move to 'manual' and → is a no-op */
 	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown})
 	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRight})
 	if m.diffCommits != 4 {
@@ -133,9 +133,7 @@ func TestLauncherEscStepsBackThenLeaves(t *testing.T) {
 func TestLauncherManualCollectsGuidance(t *testing.T) {
 	m := newLauncherModel("portfolio")
 	enter := tea.KeyMsg{Type: tea.KeyEnter}
-	for i := 0; i < 3; i++ {
-		m, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown}) /* mode cursor → manual (index 3) */
-	}
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown}) /* mode cursor → manual (index 1) */
 	m, _ = m.Update(enter) /* select manual → enters the guidance step */
 	if m.step != stepGuidance {
 		t.Fatalf("manual mode must enter the guidance step, got step %d", m.step)

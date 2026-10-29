@@ -431,7 +431,7 @@ test("GET /api/runs/:id: a null/absent case detail does not 500 the contract (eg
      so the egress must OMIT it — else the run-status API 500s and the CLI/TUI loses sight of the run.
    */
   const record = {
-    id: "r1", app: "demo", sha: "abc", target: "e2e", mode: "exhaustive", status: "running", verdict: "pass",
+    id: "r1", app: "demo", sha: "abc", target: "e2e", mode: "manual", status: "running", verdict: "pass",
     cases: [{ name: "owners › list", status: "pass", detail: null }, { name: "vets › table", status: "fail", detail: "boom" }],
     logs: [], at: "t",
   } as unknown as RunRecord;

@@ -13,6 +13,8 @@ const RETIRED_SETTINGS: ReadonlyArray<{ readonly name: string; readonly gone: st
   { name: "LANGFUSE_PUBLIC_KEY", gone: "the Langfuse score sink was removed" },
   { name: "LANGFUSE_SECRET_KEY", gone: "the Langfuse score sink was removed" },
   { name: "LANGFUSE_ALLOW_EXTERNAL", gone: "the Langfuse score sink was removed" },
+  { name: "QA_RUN_TIME_BUDGET_MS_COMPLETE", gone: "the complete and exhaustive modes were removed" },
+  { name: "QA_RUN_TIME_BUDGET_MS_EXHAUSTIVE", gone: "the complete and exhaustive modes were removed" },
   { name: "COORDINATION_ESCALATED_MODEL", gone: "a replaced flow starts a fresh sidekick on the same model as the first" },
 ];
 

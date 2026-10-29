@@ -386,8 +386,7 @@ of their own. What the scan cannot vouch for is a finding of its own, and neithe
 gate is fail-closed, the agent can fix it (so it is not an infrastructure failure, and it goes to the repair
 loop with the other findings), and a spec that was not checked must not go on to be run. A `flows/` that is a
 link, a file or cannot be examined is a finding too, since nothing under it was checked; a link to a directory
-inside it is not a spec and is not walked. No orchestrator code opens `.qa/analysis.json` (only the
-generator's prompt names it), so there was no read to confine there. The fixtures reader gained the
+inside it is not a spec and is not walked. The fixtures reader gained the
 non-blocking flag. **Before** of this widening is its first run: 424 mutants, 200 killed, 3 timeouts and 5
 survivors, and they were real gaps. A spec that only imports or names `expect` was never shown not to count as
 an assertion, nor one that writes whitespace before its call to count as one; the finding about `flows/`

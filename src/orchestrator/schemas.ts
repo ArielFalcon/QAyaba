@@ -421,7 +421,7 @@ export type { ManifestEntry as ValidatedManifestEntry } from "../../qa-engine/sr
 export const WebhookPayloadSchema = z.object({
   repo: z.string().min(1),
   sha: z.string().min(7),
-  mode: z.enum(["diff", "complete", "exhaustive", "manual", "context"]).optional(),
+  mode: z.enum(["diff", "manual", "context"]).optional(),
   guidance: z.string().optional(),
 });
 

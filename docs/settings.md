@@ -98,8 +98,6 @@ The orchestrator reads its environment once, in `loadSettings(env)`. An empty va
 | `QA_RUN_TIME_BUDGET_MS_DIFF_FOCUSED` | - | integer | `2400000` | - | Wall time of a focused diff run, in milliseconds. |
 | `QA_RUN_TIME_BUDGET_MS_DIFF_BROAD` | - | integer | `3600000` | - | Wall time of a broad diff run, in milliseconds. |
 | `QA_RUN_TIME_BUDGET_MS_MANUAL` | - | integer | `2700000` | - | Wall time of a manual run, in milliseconds. |
-| `QA_RUN_TIME_BUDGET_MS_COMPLETE` | - | integer | `5400000` | - | Wall time of a complete run, in milliseconds. |
-| `QA_RUN_TIME_BUDGET_MS_EXHAUSTIVE` | - | integer | `9000000` | - | Wall time of an exhaustive run, in milliseconds. |
 | `QA_RUN_TIME_BUDGET_MS_CONTEXT` | - | integer | `3600000` | - | Wall time of a context-map run, in milliseconds. |
 | `QA_DIFF_TIME_BUDGET_MS_TINY` | - | integer | - | - | Time of the first generation pass of a tiny diff, in milliseconds. Unset, the tier's built-in value applies. |
 | `QA_DIFF_TIME_BUDGET_MS_FOCUSED` | - | integer | - | - | Time of the first generation pass of a focused diff, in milliseconds. Unset, the tier's built-in value applies. |

@@ -292,7 +292,7 @@ kind and added and removed lines; and, in full, every part of the diff no flow u
 delivered nothing owns, a hunk no candidate seeds, a deletion), under a heading saying no flow under review was assigned it, with
 app test files, generated and low-relevance files named as references. The arms no test ran reach it as before, so the
 missing-case and citation rules are unchanged. When no flow under review owns any hunk, or the run had no plan (code, manual,
-complete, exhaustive), it keeps the whole diff: it never sees less than the change. Nothing is cut silently: when the prompt does
+context), it keeps the whole diff: it never sees less than the change. Nothing is cut silently: when the prompt does
 not fit the reviewer's window (the run's `ContextBudget` fit: prompt plus the working room its turn needs), whole hunks become
 `path:start-end` references, non-code first, then the unassigned code, then each flow's code from its lowest rank; within the
 unassigned code the hunks holding a changed decision go last, and a flow's slice ranks its hunks holding one first, so they

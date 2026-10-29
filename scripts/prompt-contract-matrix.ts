@@ -76,7 +76,7 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 export const GLOBAL_USER_PROMPT_BASELINE_BYTES = 20_083;
 
 export const DIMENSIONS = {
-  mode: ["diff", "complete", "exhaustive", "manual", "context"],
+  mode: ["diff", "manual", "context"],
   phase: ["first", "regen-fix", "regen-review", "regen-coverage", "selector-fix"],
   tree: ["none", "failure", "live"],
   grounding: ["none", "pack"],
@@ -127,7 +127,7 @@ export function isValidSpec(spec: CellSpec): boolean {
   /* A pack without a DOM is the contracts alone, which the architecture map supplies. */
   if (spec.packDom === false && !(hasPack && spec.contextMap)) return false;
   if (spec.packRedirect && !(hasPack && spec.packDom)) return false;
-  /* A run lists the suite on a diff or a manual first pass and carries the specs it has delivered on every regeneration; a complete, exhaustive or context first pass lists none, so its only combinations are the listed ones. Having nothing to list bears on the task and the fix, not on the optional blocks, and meets every phase, tree and grounding of a run without them. */
+  /* A run lists the suite on a diff or a manual first pass and carries the specs it has delivered on every regeneration; a context first pass lists none, so its only combinations are the listed ones. Having nothing to list bears on the task and the fix, not on the optional blocks, and meets every phase, tree and grounding of a run without them. */
   if (spec.suite === "none") {
     const lists = spec.mode === "diff" || spec.mode === "manual" || spec.phase !== "first";
     if (!lists || spec.contextMap || spec.authSeedUnauthored || spec.serviceLinks || spec.harnessFacts || spec.service || spec.packRedirect) return false;
@@ -325,15 +325,10 @@ const SIGNAL_SHAPES = {
   },
 } as const;
 
-/* The specs a run has delivered by the time a regeneration is built: the lead's, with the flow and the objective it declared (it refreshes the suite's own line for the same file), and a sidekick's, by path alone. An exhaustive run has delivered many specs and leaves most of them alone, so its cells carry a long list of them. */
+/* The specs a run has delivered by the time a regeneration is built: the lead's, with the flow and the objective it declared (it refreshes the suite's own line for the same file), and a sidekick's, by path alone. */
 const DELIVERED_LEAD: DeliveredSpec = { file: "flows/cart.spec.ts", flow: "cart coupon", objective: "the discounted total shows after the cart re-queries" };
 const DELIVERED_SIDEKICK: DeliveredSpec = { file: "flows/checkout.spec.ts" };
-export const EXHAUSTIVE_EXTRA_DELIVERED = 35;
 
-function deliveredFor(spec: CellSpec): DeliveredSpec[] {
-  const extra = spec.mode === "exhaustive" ? Array.from({ length: EXHAUSTIVE_EXTRA_DELIVERED }, (_, index): DeliveredSpec => ({ file: `flows/suite-${String(index).padStart(2, "0")}.spec.ts` })) : [];
-  return [DELIVERED_LEAD, DELIVERED_SIDEKICK, ...extra];
-}
 
 /* The worst case of a listing: the specs a run delivered, and the lines its suite had, when each group is long. Every spec carries the flow and the objective its lead declared, at the length of a long, real one, so that the groups are the longest the section can really have. */
 const LARGE_DELIVERED_COUNT = 40;
@@ -361,7 +356,7 @@ function suiteLinesFor(spec: CellSpec): string[] | undefined {
 
 function deliveredSpecsFor(spec: CellSpec): DeliveredSpec[] | undefined {
   if (spec.suite === "large") return [...LARGE_DELIVERED];
-  return spec.suite === "listed" && spec.phase !== "first" ? deliveredFor(spec) : undefined;
+  return spec.suite === "listed" && spec.phase !== "first" ? [DELIVERED_LEAD, DELIVERED_SIDEKICK] : undefined;
 }
 
 /* The step limit a cell of the OpenCode layer is assembled with. That runtime caps an agent's steps and reports the cap. */
@@ -776,7 +771,7 @@ export async function matrixDigests(): Promise<DigestSet> {
   return set;
 }
 
-const REVIEW_MODES = ["diff", "complete", "exhaustive", "manual"] as const;
+const REVIEW_MODES = ["diff", "manual"] as const;
 
 /* A reviewer input whose spec contents are large (two specs of about 25 KB), written under `mirror`. */
 export function largeSpecsReviewerInput(mirror: string): ReviewInput {

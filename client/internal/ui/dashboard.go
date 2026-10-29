@@ -31,7 +31,7 @@ const (
 
 /* launchModes is the FLEET quick-launch cycle (← →). It mirrors the launcher wizard's
    modes; "manual" still routes through the wizard because it needs a guidance string. */
-var launchModes = []string{"diff", "complete", "exhaustive", "manual", "context"}
+var launchModes = []string{"diff", "manual", "context"}
 
 /* dashboardModel is the console's command center and landing screen: an ambient,
    always-current view of the fleet (per-app recent verdicts + trend), the active run,
@@ -459,11 +459,11 @@ func (m dashboardModel) launchSelected() (dashboardModel, tea.Cmd) {
 	return m, func() tea.Msg { return launchMsg{input: in} }
 }
 
-/* isHeavyMode flags the modes that regenerate/analyze the whole suite or repo — expensive
+/* isHeavyMode flags the modes that analyze the whole repo — expensive
    enough to deserve a confirmation before launching from the board. */
 func isHeavyMode(mode string) bool {
 	switch mode {
-	case "complete", "exhaustive", "context":
+	case "context":
 		return true
 	}
 	return false

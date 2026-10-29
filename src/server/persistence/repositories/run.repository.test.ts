@@ -39,7 +39,7 @@ test("two rapid createRecord calls for the same sha produce different ids", () =
 test("listRecords returns newest-first and respects the limit", () => {
   const app = "hist-b";
   const a = getHistory().runs.createRecord({ target: "e2e",  app, sha: "1111111", mode: "diff" });
-  const b = getHistory().runs.createRecord({ target: "e2e",  app, sha: "2222222", mode: "complete" });
+  const b = getHistory().runs.createRecord({ target: "e2e",  app, sha: "2222222", mode: "manual" });
   const list = getHistory().runs.listRecords(app, 10);
   assert.equal(list[0]!.id, b.id);
   assert.equal(list[1]!.id, a.id);
@@ -109,7 +109,7 @@ test("interruptedRecords returns running and enqueued records", () => {
 });
 
 test("appendActivity round-trips structured events (kind, status, text) newest-last", () => {
-  const r = getHistory().runs.createRecord({ target: "e2e", app: "hist-act", sha: "act0001", mode: "complete" });
+  const r = getHistory().runs.createRecord({ target: "e2e", app: "hist-act", sha: "act0001", mode: "manual" });
   getHistory().runs.appendActivity(r.id, { kind: "todo", text: "read existing suite", status: "in_progress" });
   getHistory().runs.appendActivity(r.id, { kind: "file", text: "checkout.spec.ts" });
   getHistory().runs.appendActivity(r.id, { kind: "command", text: "npx playwright test --list" });
@@ -122,7 +122,7 @@ test("appendActivity round-trips structured events (kind, status, text) newest-l
 });
 
 test("appendActivity caps the feed at 200 rows, keeping the newest", () => {
-  const r = getHistory().runs.createRecord({ target: "e2e", app: "hist-cap", sha: "cap0001", mode: "complete" });
+  const r = getHistory().runs.createRecord({ target: "e2e", app: "hist-cap", sha: "cap0001", mode: "manual" });
   for (let i = 0; i < 250; i++) getHistory().runs.appendActivity(r.id, { kind: "file", text: `spec-${i}.ts` });
   const a = getHistory().runs.getRecord(r.id)!.activity!;
   assert.equal(a.length, 200);

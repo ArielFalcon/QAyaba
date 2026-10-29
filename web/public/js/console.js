@@ -1166,14 +1166,14 @@
       '<span class="fbtitle">' + I('sliders-horizontal', 13) + 'filters</span>' +
       fbSelect('window', ['last 64 runs', 'last 7d', 'last 30d', 'date range']) +
       fbSelect('app', ['all apps'].concat(D.apps.map((a) => a.name))) +
-      fbSelect('mode', ['all', 'diff', 'complete', 'exhaustive', 'manual']) +
+      fbSelect('mode', ['all', 'diff', 'manual']) +
       fbSelect('verdict', ['all', 'pass', 'fail', 'flaky', 'invalid', 'infra-error', 'skipped']) +
       '<span class="fbprev">' + I('git-compare-arrows', 13) + 'vs previous window</span>' +
       '<button class="fbexport">' + I('download', 13) + 'CSV · JSON</button></div>';
   }
   function dialogHTML() {
     if (!state.dialog) return '';
-    const modes = ['diff', 'complete', 'exhaustive', 'manual'];
+    const modes = ['diff', 'manual'];
     const extras = F.triggerExtras(state.dialogMode);
     const appChips = '<div class="chipset">' + D.apps.map((a) => '<button type="button" class="chip-opt' + (a.name === state.dialogApp ? ' is-on' : '') + '" data-action="dialog-app" data-id="' + esc(a.name) + '">' + esc(a.name) + '</button>').join('') + '</div>';
     const modeChips = '<div class="chipset">' + modes.map((m) => '<button type="button" class="chip-opt mode' + (m === state.dialogMode ? ' is-on' : '') + '" data-action="dialog-mode" data-id="' + m + '">' + m + '</button>').join('') + '</div>';

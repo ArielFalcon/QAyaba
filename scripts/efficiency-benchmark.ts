@@ -56,7 +56,7 @@ export interface EfficiencyBenchmarkCase {
 /* The same commit-id rule the service applies to a run's sha and baseSha. */
 const HEX_COMMIT_ID = /^[0-9a-f]{7,40}$/i;
 
-const RUN_MODES: ReadonlySet<string> = new Set<RunMode>(["diff", "complete", "exhaustive", "manual", "context"]);
+const RUN_MODES: ReadonlySet<string> = new Set<RunMode>(["diff", "manual", "context"]);
 const TEST_TARGETS: ReadonlySet<string> = new Set<TestTarget>(["e2e"]);
 const SIZE_CLASSES: ReadonlySet<string> = new Set<string>(DIFF_TIER_NAMES);
 

@@ -188,21 +188,6 @@ test("B' buildPrompt (manual) carries the SAME acceptance criterion — manual i
   assert.match(p, /observable OUTCOME/);
 });
 
-test("buildPrompt complete mode: whole-repo analysis + persisted coverage", () => {
-  const p = buildPrompt({ ...input, mode: "complete", intent: undefined });
-  assert.match(p, /WHOLE repository/);
-  assert.match(p, /COVERAGE \+ IMPORTANCE map/);
-  assert.match(p, /analysis\.json/);
-  assert.match(p, /UNCOVERED flows/);
-  assert.doesNotMatch(p, /## Commit diff/); /* no diff for whole-repo mode */
-});
-
-test("buildPrompt exhaustive mode: re-evaluates the whole suite", () => {
-  const p = buildPrompt({ ...input, mode: "exhaustive", intent: undefined });
-  assert.match(p, /REGENERATE the entire E2E suite/);
-  assert.match(p, /Re-evaluate EVERY existing test/);
-});
-
 test("buildPrompt manual mode: includes the user guidance", () => {
   const p = buildPrompt({ ...input, mode: "manual", intent: undefined, guidance: "test the contact form validation" });
   assert.match(p, /FOCUSED on the following guidance/);
@@ -777,31 +762,6 @@ test("buildReviewerPrompt prior-corrections section appears AFTER specs in the a
     const priorIdx = p.indexOf("PRIOR_CORRECTION_MARKER");
     assert.ok(specIdx !== -1 && priorIdx !== -1, "both markers must appear in the prompt");
     assert.ok(specIdx < priorIdx, "spec content must appear BEFORE prior corrections");
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
-});
-
-test("complete/exhaustive buildReviewerPrompt works unchanged (no priorCorrections by default)", () => {
-  /* complete/exhaustive runs call buildReviewerPrompt with mode="complete" and no priorCorrections.
-     The existing behavior must be preserved: no prior-corrections section, no regressions.
-   */
-  const dir = mkdtempSync(join(tmpdir(), "qa-rev-complete-reg-"));
-  mkdirSync(join(dir, "e2e", "flows"), { recursive: true });
-  writeFileSync(join(dir, "e2e", "flows", "complete.spec.ts"), "// COMPLETE_SPEC_MARKER");
-  try {
-    const p = buildReviewerPrompt(makeReviewInput(dir, {
-      mode: "complete",
-      specs: ["flows/complete.spec.ts"],
-      guidance: undefined,
-    }));
-    assert.doesNotMatch(p, /Prior-round corrections/, "no prior corrections on first complete/exhaustive round");
-    assert.match(p, /COMPLETE_SPEC_MARKER/, "spec content inlined");
-    /* The whole-repo objective framing must appear (not the commit-diff framing). */
-    assert.match(p, /whole-repo complete run/, "complete mode uses whole-repo objective framing");
-    /* Severity contract must appear (both complete and diff share the reviewer role). */
-    assert.match(p, /blocking/, "severity blocking instruction in contract");
-    assert.match(p, /advisory/, "severity advisory instruction in contract");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

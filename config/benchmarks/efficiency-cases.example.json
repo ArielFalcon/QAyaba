@@ -28,9 +28,9 @@
     "guidance": "Name a change that has no user-visible behavior. The right outcome is no specs and a declared no-op with its reason (skipped), never a run that exhausts its steps."
   },
   {
-    "name": "example-app-b-complete",
+    "name": "example-app-b-context",
     "app": "example-app-b",
     "sha": "0000000000000000000000000000000000000f",
-    "mode": "complete"
+    "mode": "context"
   }
 ]

@@ -29,8 +29,6 @@ type option struct {
 var (
 	modeOptions = []option{
 		{"diff        — the blast radius of one commit", "diff"},
-		{"complete    — important uncovered flows", "complete"},
-		{"exhaustive  — re-evaluate the whole suite", "exhaustive"},
 		{"manual      — guided generation", "manual"},
 		{"context     — refresh the FE↔BE map", "context"},
 	}

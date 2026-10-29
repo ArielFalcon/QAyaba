@@ -140,7 +140,7 @@ test("a fix turn lists as editable only the specs its failing cases name: none t
     ["a static gate whose output names none", [staticGate("error TS2322: Type 'string' is not assignable to type 'number'.")], []],
   ];
   const everySpec = ["flows/a.spec.ts", "flows/b.spec.ts", "flows/c.spec.ts", "flows/d.spec.ts"];
-  for (const mode of ["diff", "manual", "exhaustive"] as const) {
+  for (const mode of ["diff", "manual"] as const) {
     for (const [what, fixCases, editable] of fixes) {
       const label = `${mode}, ${what}`;
       const a = buildPromptAssembled(mkInput({ mode, guidance: GUIDANCE, existingSpecFiles: [C_LINE], deliveredSpecs: [A, B, SIDEKICK], fixCases }));
@@ -182,17 +182,6 @@ test("a sidekick's spec is listed by its path alone, and a lead's keeps the flow
   assert.deepEqual(lines.filter((line) => line.includes(SIDEKICK.file)), [`- ${SIDEKICK.file}`]);
 });
 
-test("an exhaustive regeneration lists every do-not-rewrite entry and every editable entry, however many specs the run delivered", () => {
-  const total = 36;
-  const delivered = Array.from({ length: total }, (_, index): DeliveredSpec => ({ file: `flows/s${String(index).padStart(3, "0")}.spec.ts`, objective: "an objective" }));
-  const a = buildPromptAssembled(mkInput({ mode: "exhaustive", deliveredSpecs: delivered, fixCases: [failing("flows/s000.spec.ts"), failing("flows/s001.spec.ts")] }));
-  const section = sectionText(a, SUITE_ID);
-  assert.equal(editableIn(section).length, 2);
-  assert.equal(doNotRewriteIn(section).length, total - 2);
-  assert.equal(countOf(section, "more)"), 0, "nothing is counted as left out");
-  assert.deepEqual(findingsOf(a, true), []);
-});
-
 test("a turn with nothing editable keeps the plain list of the suite, the way the first pass writes it", () => {
   const lines = ["flows/cart.spec.ts", "flows/login.spec.ts — flow: login, objective: the user signs in"];
   const expected = [`## ${SUITE_ID} (2 spec file(s)${PLAIN_LISTING_NOTE})`, ...lines.map((line) => `- ${line}`)].join("\n");
@@ -211,11 +200,8 @@ test("a run that lists no spec renders no listing section, even on a regeneratio
   assert.ok(mentions(editableIn(sectionText(named, SUITE_ID)), "flows/a.spec.ts"));
 });
 
-test("complete and exhaustive first passes list no suite, and context mode never does, whatever the input carries", () => {
-  for (const mode of ["complete", "exhaustive", "context"] as const) {
-    const a = buildPromptAssembled(mkInput({ mode, existingSpecFiles: [C_LINE] }));
-    assert.equal(a.sectionSizes[SUITE_ID], undefined, mode);
-  }
+test("context mode lists no suite, whatever the input carries", () => {
+  assert.equal(buildPromptAssembled(mkInput({ mode: "context", existingSpecFiles: [C_LINE] })).sectionSizes[SUITE_ID], undefined);
   const context = buildPromptAssembled(mkInput({ mode: "context", existingSpecFiles: [C_LINE], deliveredSpecs: [A], fixCases: [failing("flows/a.spec.ts")] }));
   assert.equal(context.sectionSizes[SUITE_ID], undefined, "a context run, even handed the signals of a regeneration");
 });
@@ -341,15 +327,13 @@ test("the rule against weakening a test is on every turn that writes tests, once
   const first: Array<[string, Partial<OpencodeRunInput>, number]> = [
     ["a diff run", {}, 1],
     ["a manual run", { mode: "manual", guidance: GUIDANCE }, 1],
-    ["a complete run", { mode: "complete" }, 0],
-    ["an exhaustive run", { mode: "exhaustive" }, 0],
     ["a context run", { mode: "context" }, 0],
   ];
   for (const [what, extra, expected] of first) {
     const a = buildPromptAssembled(mkInput({ ...extra }));
     assert.equal(countOf(a.text, ANTI_WEAKENING_RULE), expected, `first pass of ${what}`);
   }
-  for (const mode of ["diff", "manual", "complete", "exhaustive"] as const) {
+  for (const mode of ["diff", "manual"] as const) {
     for (const [what, signal] of TURN_SIGNALS) {
       const a = buildPromptAssembled(mkInput({ mode, guidance: GUIDANCE, deliveredSpecs: [A], ...signal }));
       assert.equal(countOf(a.text, ANTI_WEAKENING_RULE), 1, `${mode} regeneration with ${what}`);
@@ -360,7 +344,7 @@ test("the rule against weakening a test is on every turn that writes tests, once
 
 test("the rule against weakening a test is on exactly the turns the domain says write tests, in every mode", () => {
   const signals: Array<Partial<OpencodeRunInput>> = [{}, ...TURN_SIGNALS.map(([, signal]) => signal)];
-  for (const mode of ["diff", "manual", "complete", "exhaustive", "context"] as const) {
+  for (const mode of ["diff", "manual", "context"] as const) {
     for (const signal of signals) {
       const input = mkInput({ mode, guidance: GUIDANCE, deliveredSpecs: [A], ...signal });
       const expected = isTestWritingTurn(input) ? 1 : 0;
@@ -369,12 +353,11 @@ test("the rule against weakening a test is on exactly the turns the domain says 
   }
 });
 
-test("the first pass of a diff or manual run asks for the outcome; the first pass of a complete or exhaustive run does not", () => {
+test("the first pass of a diff or manual run asks for the outcome; the first pass of a context run does not", () => {
   const asks: Array<[string, Partial<OpencodeRunInput>, boolean]> = [
     ["e2e diff", {}, true],
     ["e2e manual", { mode: "manual", guidance: GUIDANCE }, true],
-    ["e2e complete", { mode: "complete" }, false],
-    ["e2e exhaustive", { mode: "exhaustive" }, false],
+    ["e2e context", { mode: "context" }, false],
   ];
   for (const [what, extra, asked] of asks) {
     const a = buildPromptAssembled(mkInput(extra));
@@ -420,7 +403,7 @@ test("the rule against weakening a test is stated by the task alone: the fix sec
 /* ── the specs only the fallback made editable, and the allowance of a new spec ── */
 
 test("a coverage regeneration states once, in its listing, that a new spec is allowed for a flow nothing listed covers, and no other turn does", () => {
-  for (const mode of ["diff", "manual", "complete", "exhaustive"] as const) {
+  for (const mode of ["diff", "manual"] as const) {
     const a = buildPromptAssembled(mkInput({ mode, guidance: GUIDANCE, existingSpecFiles: [C_LINE], deliveredSpecs: [A, B], coverageGap: "src/cart.ts: lines 10-14" }));
     assert.equal(countOf(a.text, SUITE_LISTING_LABELS.newSpec), 1, `${mode}`);
     assert.equal(countOf(sectionText(a, SUITE_ID), SUITE_LISTING_LABELS.newSpec), 1, `${mode}: the listing owns it, so it goes with the listing`);

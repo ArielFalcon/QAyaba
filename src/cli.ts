@@ -2,7 +2,7 @@
  * Manual trigger. Routes through a sequential funnel (enqueueTrackedRun → JobQueue), so a
  * manual run is queued, recorded in history and addressable. It then drains the queue and
  * exits with the run's verdict.
- * npm run qa -- --app <app> --sha <sha> [--mode diff|complete|exhaustive|manual|context]
+ * npm run qa -- --app <app> --sha <sha> [--mode diff|manual|context]
  * [--guidance "..."] [--closed-loop on|off]
  * [--agent-browser on|off] [--dom-pack on|off]
  * IMPORTANT: this CLI uses its OWN in-process queue. If the long-lived service is also

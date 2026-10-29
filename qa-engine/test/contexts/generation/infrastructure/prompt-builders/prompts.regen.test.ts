@@ -61,8 +61,8 @@ test("each correction signal alone makes the turn a regeneration and a first pas
 
 /* ── a regeneration is not the first-pass whole-repository task ── */
 
-test("a regeneration triggered only by selector contradictions carries no whole-repository task in complete, exhaustive and manual mode", () => {
-  for (const mode of ["complete", "exhaustive", "manual"] as const) {
+test("a regeneration triggered only by selector contradictions carries no whole-repository task in manual mode", () => {
+  for (const mode of ["manual"] as const) {
     const first = buildPromptAssembled(mkInput({ mode, guidance: GUIDANCE }));
     const regen = buildPromptAssembled(mkInput({ mode, guidance: GUIDANCE, selectorContradictions: CONTRADICTIONS }));
     assert.ok(directs(first, "task", "analyze-repo"), `${mode}: the first pass analyzes the repository`);
@@ -72,7 +72,7 @@ test("a regeneration triggered only by selector contradictions carries no whole-
 });
 
 test("a regeneration keeps the acceptance-criterion instruction in every mode", () => {
-  for (const mode of ["diff", "complete", "exhaustive", "manual"] as const) {
+  for (const mode of ["diff", "manual"] as const) {
     const regen = buildPromptAssembled(mkInput({ mode, guidance: GUIDANCE, reviewCorrections: ["[other] fix it"] }));
     assert.ok(directs(regen, "task", "state-outcome"), mode);
   }

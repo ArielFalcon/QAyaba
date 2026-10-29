@@ -49,7 +49,7 @@ function sectionOf(assembled: AssembledPrompt): { id: string; text: string } | u
 }
 
 test("a planning turn carries the plan contract in a section of its own, in every mode that writes tests", () => {
-  for (const mode of ["diff", "manual", "complete", "exhaustive"] as const) {
+  for (const mode of ["diff", "manual"] as const) {
     const section = sectionOf(assemble({ mode, planning: PLANNING }));
     assert.ok(section, mode);
     assert.ok(section.text.includes(PROMPT_HEADINGS.leadPlan), mode);

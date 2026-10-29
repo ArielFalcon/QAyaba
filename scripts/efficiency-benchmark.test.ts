@@ -17,7 +17,7 @@ test("loadEfficiencyBenchmarkCases: the tracked example set is a well-formed ben
   assert.ok(cases.some((c) => c.guidance !== undefined), "one example shows guidance");
   assert.ok(cases.some((c) => c.name.includes("no-op")), "one example is a deliberate no-op, the case a step-exhausted run must never be mistaken for");
   assert.ok(cases.some((c) => c.tier !== undefined), "one example shows the optional tier");
-  assert.ok(cases.some((c) => c.mode === "complete"), "one example is a complete-mode case, the kind the operator note asks for besides the diff cases");
+  assert.ok(cases.some((c) => c.mode === "context"), "one example is a context-map case, the kind the operator note asks for besides the diff cases");
   for (const c of cases) assert.match(c.sha, /^[0-9a-f]{7,40}$/);
 });
 

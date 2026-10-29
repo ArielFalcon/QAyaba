@@ -24,17 +24,6 @@ export function reviewObjective(input: ReviewInput): { subject: string; heading:
       targetNoun: "the requested behavior",
     };
   }
-  if (input.mode === "complete" || input.mode === "exhaustive") {
-    return {
-      subject: `a whole-repo ${input.mode} run`,
-      heading: `## Objective — there is no single commit; judge each spec against its OWN stated objective`,
-      body: [
-        `Each spec declares the user flow it targets (in its header comment / the manifest). Judge`,
-        `whether it meaningfully exercises that flow, or could the flow break while the test stays green.`,
-      ],
-      targetNoun: "the targeted user flow",
-    };
-  }
   const commitDiffObjective = () => ({
     subject: "this commit",
     heading: COMMIT_DIFF_HEADING,

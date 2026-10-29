@@ -26,7 +26,7 @@ describe("active settings", () => {
   test("the agent timeouts come from the active settings", () => {
     installSettingsStore(createSettingsStore({ OPENCODE_TIMEOUT_MS: "120000", OPENCODE_REVIEWER_TIMEOUT_MS: "45000", OPENCODE_STALL_MS: "9000" }));
     assert.equal(agentTimeout("diff"), 120_000);
-    assert.equal(agentTimeout("exhaustive"), 120_000);
+    assert.equal(agentTimeout("manual"), 120_000);
     assert.equal(reviewerTimeoutMs(), 45_000);
     assert.equal(stallMs(), 9_000);
     assert.ok(agentPromptCapMs() >= 120_000, "the transport ceiling covers the generator's budget");
@@ -36,7 +36,7 @@ describe("active settings", () => {
     installSettingsStore(createSettingsStore({}));
     assert.equal(reviewerTimeoutMs(), DEFAULT_REVIEWER_TIMEOUT_MS);
     assert.equal(stallMs(), DEFAULT_STALL_MS);
-    assert.ok(agentTimeout("diff") < agentTimeout("exhaustive"), "each run mode keeps its own budget");
+    assert.ok(agentTimeout("diff") < agentTimeout("manual"), "each run mode keeps its own budget");
   });
 
   test("redaction by value follows the environment of the installed settings", () => {

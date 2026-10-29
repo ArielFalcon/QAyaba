@@ -164,8 +164,6 @@ function buildRegenTask(input: OpencodeRunInput, guards: TaskGuards): TaskParts 
           ``,
           sanitizeText(input.guidance ?? "(no guidance provided)").text,
         ]
-      : input.mode === "complete" || input.mode === "exhaustive"
-      ? [`Re-generation pass for the ${input.mode} E2E suite run of ${input.repo}.`]
       : [
           `Re-generation pass for the E2E tests of commit ${input.sha} of ${input.repo}.`,
           ``,
@@ -235,25 +233,6 @@ export function buildTask(input: OpencodeRunInput, guards: TaskGuards): TaskPart
     return { text: buildContextTask(input), claims: [claim.directs("analyze-repo"), ...(input.services?.length ? [claim.provides("staged-service-snapshot")] : [])] };
   }
   if (isReGenTurn(input)) return buildRegenTask(input, guards);
-  if (input.mode === "complete" || input.mode === "exhaustive") {
-    const text = [
-      input.mode === "exhaustive"
-        ? `Audit and REGENERATE the entire E2E suite of ${input.repo} from scratch.`
-        : `Analyze the WHOLE repository ${input.repo} and grow the E2E suite where it matters.`,
-      ``,
-      `1. Read the existing tests in ${input.e2eRelDir}/ and the app code (with ${CODE_TOOLS}) to`,
-      `   build a COVERAGE + IMPORTANCE map: which user flows already have tests and which`,
-      `   important/complex flows do NOT. Until real coverage instrumentation exists,`,
-      `   estimate coverage by reading the existing specs and the code.`,
-      `2. Persist this analysis in ${input.e2eRelDir}/.qa/analysis.json (flows, covered vs`,
-      `   uncovered, importance, lastSha:"${input.sha}") so it need not be redone from`,
-      `   scratch next time; if it already exists, update it incrementally.`,
-      input.mode === "exhaustive"
-        ? `3. Re-evaluate EVERY existing test for correctness, value and necessity (apply the test-value-review criteria): remove or rewrite tests that are trivial, false positives, redundant or obsolete. Ensure every important flow is covered — a fully re-evaluated suite, not a delta.`
-        : `3. Generate tests ONLY for the important UNCOVERED flows (the delta over the existing suite). Do not duplicate existing coverage.`,
-    ].join("\n");
-    return { text, claims: [claim.directs("analyze-repo")] };
-  }
   const objective = objectivePart(input, guards);
   if (input.mode === "manual") {
     const text = [

@@ -98,9 +98,10 @@ func TestDashboardEnterQuickLaunchesSelectedApp(t *testing.T) {
 
 func TestDashboardFleetCyclesMode(t *testing.T) {
 	m := dashWith([]contract.AppView{{Name: "portfolio"}})
-	/* → advances the mode (diff → complete). */
+	/* → advances the mode (diff → manual → context). */
 	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRight})
-	/* complete is a heavy mode → the first Enter arms a confirmation, the second launches. */
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRight})
+	/* context is a heavy mode → the first Enter arms a confirmation, the second launches. */
 	m, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	if cmd != nil || !m.launchArmed {
 		t.Fatalf("a heavy mode's first Enter must arm a confirm, not launch (armed=%v cmd=%v)", m.launchArmed, cmd)
@@ -110,7 +111,7 @@ func TestDashboardFleetCyclesMode(t *testing.T) {
 	if !ok {
 		t.Fatalf("the second Enter should launch, got %#v", cmd())
 	}
-	if string(msg.input.Mode) != "complete" {
+	if string(msg.input.Mode) != "context" {
 		t.Fatalf("← → must edit the launch config: %+v", msg.input)
 	}
 }
@@ -118,7 +119,7 @@ func TestDashboardFleetCyclesMode(t *testing.T) {
 /* A heavy mode must not launch on a single Enter, and any other key cancels the armed state. */
 func TestDashboardHeavyModeConfirmCancels(t *testing.T) {
 	m := dashWith([]contract.AppView{{Name: "portfolio"}})
-	m.launchMode = "exhaustive"
+	m.launchMode = "context"
 	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	if !m.launchArmed {
 		t.Fatal("first Enter on a heavy mode must arm the confirm")

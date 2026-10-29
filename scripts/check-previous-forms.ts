@@ -188,6 +188,11 @@ export const BANNED_RULES: BannedRule[] = [
     exemptPrefixes: [RECORDS_PREFIX],
   },
   {
+    id: "whole-repo-modes",
+    patterns: [/\.qa\/analysis\.json/, /\bEXHAUSTIVE_EXTRA_DELIVERED\b/, /--mode[ =](?:complete|exhaustive)\b/, /diff\|complete\|exhaustive/],
+    exemptPrefixes: [RECORDS_PREFIX],
+  },
+  {
     id: "langfuse-sink",
     patterns: [
       /\b(?:LangfuseScoreSink|LangfuseConfig|resolveLangfuseConfig|scoreSinkHealthOf|ScoreSinkHealth|scoreConfigsOfCatalog|langfuseScoreId|getRunIdByTraceId)\b/,

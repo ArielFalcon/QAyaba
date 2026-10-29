@@ -166,8 +166,6 @@ Beyond deciding pass/fail, qayaba classifies every run into an error class (E-ST
 | Mode | When to use |
 |---|---|
 | `diff` (default) | Webhook-triggered: tests the blast radius of a single commit |
-| `complete` | Fill coverage gaps: analyzes the whole repo and tests uncovered flows |
-| `exhaustive` | Full audit: re-evaluates every existing test and regenerates the suite |
 | `manual` | Focused: generation guided by a natural language prompt |
 
 </details>
@@ -382,12 +380,6 @@ npm run qa -- --app my-app --sha <commit-sha>
 <summary>Run in different modes</summary>
 
 ```bash
-# Fill coverage gaps across the whole repo
-npm run qa -- --app my-app --sha <commit-sha> --mode complete
-
-# Audit and regenerate the entire suite
-npm run qa -- --app my-app --sha <commit-sha> --mode exhaustive
-
 # Focus on a specific feature
 npm run qa -- --app my-app --sha <commit-sha> --mode manual --guidance "test the checkout flow with an empty cart"
 ```

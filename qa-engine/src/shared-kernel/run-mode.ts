@@ -7,18 +7,12 @@ export type TriggerSource = "webhook" | "manual";
  * diff       → test the change of the given commit (its blast radius). The
  * commit is classified (Conventional Commits) to decide whether to
  * generate, run regression only, or skip.
- * complete   → analyze the WHOLE repo + existing suite, estimate coverage and
- * importance, persist that analysis, and generate tests for the
- * important UNCOVERED flows (the delta over the existing suite).
- * exhaustive → like complete, but re-evaluate the WHOLE suite from scratch
- * (audit every existing test for correctness/value/necessity and
- * regenerate), not just the delta.
  * manual     → generation focused by user-provided `guidance`.
  * context    → build or refresh the FE↔BE architecture map (e2e/.qa/context.json)
  * from structured sources (routing, OpenAPI, generated clients).
  */
-export type RunMode = "diff" | "complete" | "exhaustive" | "manual" | "context";
-export const RUN_MODES: readonly RunMode[] = ["diff", "complete", "exhaustive", "manual", "context"] as const;
+export type RunMode = "diff" | "manual" | "context";
+export const RUN_MODES: readonly RunMode[] = ["diff", "manual", "context"] as const;
 
 /**
  * Why a run was started, when it is not a change to test. The mode says what the run does; a purpose says what it is for, and is

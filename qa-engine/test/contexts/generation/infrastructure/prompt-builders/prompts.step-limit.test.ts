@@ -176,7 +176,7 @@ test("a limited prompt names every section it has, the statement and the milesto
 test("the limit statement and the milestone close the prompt, in that order, after everything else", () => {
   const ids = Object.keys(assemble({}, LIMIT).sectionSizes);
   assert.deepEqual(ids.slice(-2), [STEP_LIMIT_SECTION_ID, STEP_MILESTONE_SECTION_ID]);
-  const idsWithoutMilestone = Object.keys(assemble({ mode: "complete" }, LIMIT).sectionSizes);
+  const idsWithoutMilestone = Object.keys(assemble({ mode: "context" }, LIMIT).sectionSizes);
   assert.equal(idsWithoutMilestone.at(-1), STEP_LIMIT_SECTION_ID, "a turn with no milestone ends with the limit");
 });
 
@@ -189,14 +189,10 @@ test("a turn that writes tests carries the milestone section, and every other tu
   }
 });
 
-test("the diff and manual first passes and every regeneration carry the milestone; the complete, exhaustive and context first passes do not", () => {
+test("the diff and manual first passes and every regeneration carry the milestone; the context first pass does not", () => {
   const has = (over: Partial<OpencodeRunInput>): boolean => assemble(over, LIMIT).sectionSizes[STEP_MILESTONE_SECTION_ID] !== undefined;
   assert.equal(has({ mode: "diff" }), true);
   assert.equal(has({ mode: "manual", guidance: "cover the coupon form" }), true);
-  assert.equal(has({ mode: "complete", ...FIX }), true, "a regeneration of a complete run writes tests");
-  assert.equal(has({ mode: "exhaustive", ...FIX }), true);
-  assert.equal(has({ mode: "complete" }), false);
-  assert.equal(has({ mode: "exhaustive" }), false);
   assert.equal(has({ mode: "context" }), false);
   assert.ok(assemble({ mode: "context" }, LIMIT).sectionSizes[STEP_LIMIT_SECTION_ID] !== undefined, "and each of them still states the limit");
 });

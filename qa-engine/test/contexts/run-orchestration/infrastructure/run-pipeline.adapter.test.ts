@@ -126,7 +126,7 @@ interface GoldenScenarioCase {
     waitUntilServing: DeployGatePort["waitUntilServing"];
   }>;
   config: { needsReview: boolean; shadow: boolean; onFailure: string; maxRetries: number };
-  input: Partial<{ mode: "diff" | "complete" | "exhaustive" | "manual" | "context"; target: "e2e" }>;
+  input: Partial<{ mode: "diff" | "manual" | "context"; target: "e2e" }>;
   expectedVerdict: string;
 }
 

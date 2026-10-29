@@ -34,7 +34,8 @@ test("parseWebhook reads mode and guidance", () => {
     baseSha: undefined,
   });
   assert.equal(parseWebhook({ repo: "a", sha: SHA, mode: "nope" })?.mode, "diff");
-  assert.equal(parseWebhook({ repo: "a", sha: SHA, mode: "complete" })?.mode, "complete");
+  assert.equal(parseWebhook({ repo: "a", sha: SHA, mode: "complete" })?.mode, "diff", "a retired mode reads as any unknown one");
+  assert.equal(parseWebhook({ repo: "a", sha: SHA, mode: "exhaustive" })?.mode, "diff");
   assert.equal(parseWebhook({ repo: "a", sha: SHA, mode: "context" })?.mode, "context");
 });
 

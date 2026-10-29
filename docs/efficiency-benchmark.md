@@ -66,7 +66,7 @@ change. After a pin moves, call `GET /agent` on the new server and compare the c
 | At least 2 apps, in shadow mode | cases for two apps; `qa.shadow: true` in each `config/apps/<app>.yaml`, so no PR or Issue is opened |
 | At least 3 tiny single-commit diffs | three `diff` cases, each with its own `sha`, no `baseSha`, and `"tier": "tiny"` |
 | The deliberate no-op | a `manual` case whose guidance names a change with no user-visible behavior; the right outcome is `skipped` |
-| One complete case | `"mode": "complete"` |
+| One context-map case | `"mode": "context"` |
 
 `name`, `app` and `sha` are required; `baseSha`, `mode`, `target`, `guidance` and `tier` are optional.
 `tier` is one of `tiny`, `focused`, `broad`: the size class **you declare** for the case's diff, using
@@ -162,8 +162,6 @@ published and nothing is learned. Set these on the orchestrator (`.env` or Doppl
 | `QA_RUN_TIME_BUDGET_MS_DIFF_FOCUSED` | diff run, focused change | 40 min |
 | `QA_RUN_TIME_BUDGET_MS_DIFF_BROAD` | diff run, broad change | 60 min |
 | `QA_RUN_TIME_BUDGET_MS_MANUAL` | manual run | 45 min |
-| `QA_RUN_TIME_BUDGET_MS_COMPLETE` | complete run | 90 min |
-| `QA_RUN_TIME_BUDGET_MS_EXHAUSTIVE` | exhaustive run | 150 min |
 | `QA_RUN_TIME_BUDGET_MS_CONTEXT` | context run | 60 min |
 
 Each accepts a positive whole number of milliseconds; blank or unset keeps the default, and anything else

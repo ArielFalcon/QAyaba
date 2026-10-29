@@ -7,7 +7,7 @@ import type { RunMode } from "@kernel/run-mode.ts";
 import { diffStat, diffTier, type DiffTier } from "@kernel/diff-stat.ts";
 
 /** The kinds of run that are bounded apart: a diff run by the size of its change, every other mode as itself. */
-export const RUN_TIME_BUDGET_KEYS = ["diff-tiny", "diff-focused", "diff-broad", "manual", "complete", "exhaustive", "context"] as const;
+export const RUN_TIME_BUDGET_KEYS = ["diff-tiny", "diff-focused", "diff-broad", "manual", "context"] as const;
 export type RunTimeBudgetKey = (typeof RUN_TIME_BUDGET_KEYS)[number];
 
 /** The wall time a whole run may take, in milliseconds, counted from the end of classification. Generous on purpose and finite for every kind: it exists to end a run that is no longer converging, not to shape one that is. */
@@ -16,8 +16,6 @@ export const RUN_TIME_BUDGET_MS: Readonly<Record<RunTimeBudgetKey, number>> = {
   "diff-focused": 40 * 60_000,
   "diff-broad": 60 * 60_000,
   manual: 45 * 60_000,
-  complete: 90 * 60_000,
-  exhaustive: 150 * 60_000,
   context: 60 * 60_000,
 };
 
@@ -27,8 +25,6 @@ export const RUN_TIME_BUDGET_ENV: Readonly<Record<RunTimeBudgetKey, string>> = {
   "diff-focused": "QA_RUN_TIME_BUDGET_MS_DIFF_FOCUSED",
   "diff-broad": "QA_RUN_TIME_BUDGET_MS_DIFF_BROAD",
   manual: "QA_RUN_TIME_BUDGET_MS_MANUAL",
-  complete: "QA_RUN_TIME_BUDGET_MS_COMPLETE",
-  exhaustive: "QA_RUN_TIME_BUDGET_MS_EXHAUSTIVE",
   context: "QA_RUN_TIME_BUDGET_MS_CONTEXT",
 };
 

@@ -723,7 +723,7 @@ interface GoldenScenarioCase {
     waitUntilServing: DeployGatePort["waitUntilServing"];
   }>;
   config: { needsReview: boolean; shadow: boolean; onFailure: string; maxRetries: number };
-  input: Partial<{ mode: "diff" | "complete" | "exhaustive" | "manual" | "context"; target: "e2e" }>;
+  input: Partial<{ mode: "diff" | "manual" | "context"; target: "e2e" }>;
   expectedVerdict: string;
   expectedSideEffect: string;
 }
@@ -1223,7 +1223,7 @@ test("dynamic diff: a non-diff mode (e.g. complete) never calls classify(), so g
   };
   const useCase = new RunQaUseCase({ ...ports, config: baseConfig });
 
-  await useCase.run({ ...baseInput, runId: "dynamic-diff-non-diff-mode-no-classify", mode: "complete" });
+  await useCase.run({ ...baseInput, runId: "dynamic-diff-non-diff-mode-no-classify", mode: "manual" });
 
   assert.equal(classifyCallCount, 0, "only diff mode runs classifyCommit — complete/exhaustive/manual/context always generate without classifying");
   assert.ok(capturedDiffs.length > 0, "generate() must still have been called");
@@ -2131,7 +2131,7 @@ test("SETUP: setup() is called on a non-diff mode too (which never classifies)",
   const { ports } = stubPorts({ setup: async () => { setupCalled = true; } });
   const useCase = new RunQaUseCase({ ...ports, config: baseConfig });
 
-  await useCase.run({ ...baseInput, runId: "setup-non-diff-mode", mode: "complete" });
+  await useCase.run({ ...baseInput, runId: "setup-non-diff-mode", mode: "manual" });
 
   assert.equal(setupCalled, true, "setup must run for whole-repo/guided modes too");
 });
@@ -3137,7 +3137,7 @@ test("KEYSTONE: a non-diff mode run never has a classificationDiff — measure()
   });
   const useCase = new RunQaUseCase({ ...ports, config: baseConfig });
 
-  await useCase.run({ ...baseInput, mode: "complete", runId: "keystone-non-diff-mode" });
+  await useCase.run({ ...baseInput, mode: "manual", runId: "keystone-non-diff-mode" });
 
   assert.equal(seenDiff, undefined, "classify() is only ever called in diff mode, so complete/exhaustive/manual/context must never fabricate a diff for measure()");
 });
@@ -3339,7 +3339,7 @@ test("ObserverPort: a non-diff-mode (complete) PASS run never emits a 'coverage'
   const { observer, steps } = fakeObserver();
   const useCase = new RunQaUseCase({ ...ports, config: baseConfig, observer });
 
-  const out = await useCase.run({ ...baseInput, runId: "coverage-step-non-diff-mode", mode: "complete" });
+  const out = await useCase.run({ ...baseInput, runId: "coverage-step-non-diff-mode", mode: "manual" });
 
   assert.equal(out.decision.verdict, "pass");
   assert.ok(!steps.some((s) => s.step === "coverage"), "a non-diff mode pass must never emit 'coverage'");
@@ -4244,7 +4244,7 @@ test("a non-diff mode never calls classify(), so generate() receives no intent (
   };
   const useCase = new RunQaUseCase({ ...ports, config: baseConfig });
 
-  await useCase.run({ ...baseInput, runId: "w2-f5-non-diff-mode-no-intent", mode: "complete" });
+  await useCase.run({ ...baseInput, runId: "w2-f5-non-diff-mode-no-intent", mode: "manual" });
 
   assert.equal(classifyCallCount, 0, "only diff mode runs classifyCommit");
   assert.ok(capturedIntents.length > 0, "generate() must still have been called");
@@ -4595,7 +4595,7 @@ test("a non-diff mode run leaves ground()'s diff arg absent (classificationDiff 
   });
   const useCase = new RunQaUseCase({ ...ports, config: baseConfig });
 
-  await useCase.run({ ...baseInput, mode: "complete", runId: "non-diff-mode" });
+  await useCase.run({ ...baseInput, mode: "manual", runId: "non-diff-mode" });
 
   assert.ok(groundCalled, "ground() must still be called in non-diff mode (grounding is not diff-gated)");
   assert.equal(capturedDiff, undefined, "non-diff modes never classify, so the diff arg must stay absent, never fabricated");
@@ -4748,7 +4748,7 @@ test("4b.5: a non-diff mode run (classificationIntent never populated) still cal
   };
   const useCase = new RunQaUseCase({ ...ports, structuralSignal, config: baseConfig });
 
-  await useCase.run({ ...baseInput, runId: "4b5-non-diff-mode-empty-blast-radius", mode: "complete" });
+  await useCase.run({ ...baseInput, runId: "4b5-non-diff-mode-empty-blast-radius", mode: "manual" });
 
   assert.equal(renderCallCount, 1, "render() is still invoked once per run regardless of mode (the adapter/port itself short-circuits an empty BlastRadius, not the use-case)");
   assert.equal(recordedChangedFiles?.length, 0, "outside diff mode, classificationIntent is never populated, so the BlastRadius passed to render() must be empty — this is correct, tested behavior, not a gap");
@@ -4934,7 +4934,7 @@ test("a present serviceLinks port is invoked exactly once EVEN in a non-diff gen
   };
   const useCase = new RunQaUseCase({ ...ports, serviceLinks, config: baseConfig });
 
-  await useCase.run({ ...baseInput, runId: "service-links-non-diff-mode", mode: "complete" });
+  await useCase.run({ ...baseInput, runId: "service-links-non-diff-mode", mode: "manual" });
 
   assert.equal(resolveCallCount, 1, "resolve() must be invoked once in complete/exhaustive/manual modes too — service links are app-static per SHA, not diff-derived (ADR-7), unlike structuralSignal's diff-only gate");
 });

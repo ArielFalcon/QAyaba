@@ -212,7 +212,7 @@ window.QayabaMockData = (function () {
       ],
     },
     {
-      id: 'r-1836', app: 'web-app', sha: 'feed123', verdict: 'pass', mode: 'complete',
+      id: 'r-1836', app: 'web-app', sha: 'feed123', verdict: 'pass', mode: 'manual',
       message: 'coverage sweep · uncovered flows', author: 'qayaba',
       time: '5h ago', specs: 7, reviewer: 'approved', decision: 'PR #180 · auto-merge',
       branch: 'DEV', duration: '6m 41s', coverage: 'covered',
@@ -223,7 +223,7 @@ window.QayabaMockData = (function () {
         { file: 'e2e/search/filters.spec.ts', status: 'pass', n: 4 },
       ],
       log: [
-        ['$', 'qayaba qa --app web-app --mode complete'],
+        ['$', 'qayaba qa --app web-app --mode manual'],
         ['›', 'analyze · 11 routes · 6 uncovered flows'],
         ['›', 'generate · wrote 7 specs · reviewer approved'],
         ['✓', 'verdict PASS → PR #180 opened'],
@@ -271,8 +271,6 @@ window.QayabaMockData = (function () {
 
   const modes = [
     { m: 'diff', n: 92, note: 'webhook · per commit' },
-    { m: 'complete', n: 21, note: 'coverage gaps' },
-    { m: 'exhaustive', n: 6, note: 'full audit' },
     { m: 'manual', n: 5, note: 'operator prompt' },
   ];
 

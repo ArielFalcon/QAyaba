@@ -37,7 +37,7 @@ Commands:
     --ref <ref>     Branch or tag to resolve to a SHA (default: main)
     --latest        Shorthand for --ref main
     --sha <sha>     Specific commit SHA (overrides --ref)
-    --mode <mode>   diff | complete | exhaustive | manual (default: diff)
+    --mode <mode>   diff | manual (default: diff)
     --guidance ".." Instructions for manual mode
     -w, --watch     Wait for completion and show a live dashboard
     -j, --json      Output raw JSON (for CI/scripts)
@@ -53,7 +53,7 @@ Commands:
 Env: QA_HOST (default localhost:458) · QA_API_TOKEN (if the service requires auth)
 
 Examples:
-  qa run portfolio --latest --mode complete --watch
+  qa run portfolio --latest --mode manual --guidance "test the contact form" --watch
   qa run portfolio --ref feature/x --watch
   qa status
   qa logs portfolio --last 2
@@ -112,7 +112,7 @@ cmd_run() {
     esac
   done
   [[ -n "$app" ]] || die "<app> is required (e.g. 'qa run portfolio --latest')"
-  case "$mode" in diff|complete|exhaustive|manual) ;; *) die "invalid --mode '$mode' (diff|complete|exhaustive|manual)" ;; esac
+  case "$mode" in diff|manual) ;; *) die "invalid --mode '$mode' (diff|manual)" ;; esac
   [[ -z "$sha" && -z "$ref" ]] && ref="main"
 
   local body

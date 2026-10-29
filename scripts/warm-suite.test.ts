@@ -153,7 +153,7 @@ test("a restore leaves the suite equal to the snapshot: extra specs, directories
   /* a case ran: it left a spec, a directory, state, a session, a changed login and a deleted config */
   s.put("flows/new-feature.spec.ts", "left by the previous case\n");
   s.put("scratch/notes.md", "notes\n");
-  s.put(".qa/analysis.json", "{}\n");
+  s.put(".qa/leftover.json", "{}\n");
   s.put(".qa/manifest.json", '{"specs":["new-feature"]}\n');
   s.put(".auth/user.json", "{}");
   s.put(AUTH_SETUP_FILE, "overwritten\n");
@@ -162,7 +162,7 @@ test("a restore leaves the suite equal to the snapshot: extra specs, directories
   const summary = restoreSuite(snapshot, { mirrorDir: s.mirrorDir, e2eDir: s.e2eDir });
   assert.deepEqual(summary.added, ["playwright.config.ts"]);
   assert.deepEqual(summary.changed, [".qa/manifest.json", AUTH_SETUP_FILE]);
-  assert.ok(["flows/new-feature.spec.ts", "scratch/", ".qa/analysis.json", ".auth/", ".qa/coverage/", ".qa/measured.json", "test-results/", "playwright-report/", ".env", "certs/", "run.log", "saved-login.json"].every((p) => summary.removed.includes(p)), `removed: ${summary.removed.join(", ")}`);
+  assert.ok(["flows/new-feature.spec.ts", "scratch/", ".qa/leftover.json", ".auth/", ".qa/coverage/", ".qa/measured.json", "test-results/", "playwright-report/", ".env", "certs/", "run.log", "saved-login.json"].every((p) => summary.removed.includes(p)), `removed: ${summary.removed.join(", ")}`);
   assert.equal(summary.keptNodeModules, true);
 
   assert.equal(s.read(AUTH_SETUP_FILE), APP_LOGIN);

@@ -23,8 +23,8 @@ test("every kind of run has a finite default and its own variable", () => {
 
 test("the longest a run can last is the largest of the budgets in force, an operator's override included", () => {
   assert.equal(longestRunTimeBudgetMs(resolveRunTimeBudgets({})), Math.max(...Object.values(RUN_TIME_BUDGET_MS)));
-  const raised = resolveRunTimeBudgets({ [RUN_TIME_BUDGET_ENV["diff-tiny"]]: String(10 * RUN_TIME_BUDGET_MS.exhaustive) });
-  assert.equal(longestRunTimeBudgetMs(raised), 10 * RUN_TIME_BUDGET_MS.exhaustive);
+  const raised = resolveRunTimeBudgets({ [RUN_TIME_BUDGET_ENV["diff-tiny"]]: String(10 * RUN_TIME_BUDGET_MS.context) });
+  assert.equal(longestRunTimeBudgetMs(raised), 10 * RUN_TIME_BUDGET_MS.context);
 });
 
 test("a bigger change is never given less time than a smaller one", () => {
@@ -36,7 +36,7 @@ test("a diff run is keyed by the size of its change and every other mode by itse
   assert.equal(runTimeBudgetKey({ mode: "diff", diff: "diff --git a/a b/a\n@@ -1 +1 @@\n-a\n+b\n" }), "diff-tiny");
   assert.equal(runTimeBudgetKey({ mode: "diff", diff: bigDiff }), "diff-focused");
   assert.equal(runTimeBudgetKey({ mode: "diff", diff: "", changedFiles: Array.from({ length: 30 }, (_, i) => `f${i}.ts`) }), "diff-broad");
-  for (const mode of ["manual", "complete", "exhaustive", "context"] as const) assert.equal(runTimeBudgetKey({ mode }), mode);
+  for (const mode of ["manual", "context"] as const) assert.equal(runTimeBudgetKey({ mode }), mode);
 });
 
 test("the defaults stand when no variable is set or a blank one is", () => {
@@ -47,12 +47,12 @@ test("the defaults stand when no variable is set or a blank one is", () => {
 test("a variable overrides only its own kind", () => {
   const budgets = resolveRunTimeBudgets({ [RUN_TIME_BUDGET_ENV.manual]: "90000" });
   assert.equal(budgets.manual, 90_000);
-  assert.equal(budgets.complete, RUN_TIME_BUDGET_MS.complete);
+  assert.equal(budgets.context, RUN_TIME_BUDGET_MS.context);
 });
 
 test("a value that is not a positive whole number of milliseconds fails loudly and names its variable, and 'none' is not a way out", () => {
   for (const bad of ["6min", "0", "-5", "1.5", "none", "1e6"]) {
-    assert.throws(() => resolveRunTimeBudgets({ [RUN_TIME_BUDGET_ENV.complete]: bad }), new RegExp(RUN_TIME_BUDGET_ENV.complete), bad);
+    assert.throws(() => resolveRunTimeBudgets({ [RUN_TIME_BUDGET_ENV.context]: bad }), new RegExp(RUN_TIME_BUDGET_ENV.context), bad);
   }
 });
 
@@ -77,12 +77,12 @@ test("an armed deadline counts down on its clock from the moment it was armed", 
 
 test("arming again restarts the countdown for the new scope", () => {
   let t = 0;
-  const deadline = new RunDeadline({ now: () => t, budgets: { ...RUN_TIME_BUDGET_MS, manual: 100, complete: 500 } });
+  const deadline = new RunDeadline({ now: () => t, budgets: { ...RUN_TIME_BUDGET_MS, manual: 100, context: 500 } });
   deadline.arm({ mode: "manual" });
   t = 80;
-  deadline.arm({ mode: "complete" });
+  deadline.arm({ mode: "context" });
   assert.equal(deadline.remainingMs(), 500);
-  assert.equal(deadline.describe()?.label, "complete");
+  assert.equal(deadline.describe()?.label, "context");
 });
 
 test("the note says what the budget was, where the run stopped and that it is not a finding about the app", () => {

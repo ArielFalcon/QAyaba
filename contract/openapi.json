@@ -1685,8 +1685,6 @@
                 "type": "string",
                 "enum": [
                   "diff",
-                  "complete",
-                  "exhaustive",
                   "manual",
                   "context"
                 ]
@@ -2137,8 +2135,6 @@
             "type": "string",
             "enum": [
               "diff",
-              "complete",
-              "exhaustive",
               "manual",
               "context"
             ]
@@ -2604,8 +2600,6 @@
             "type": "string",
             "enum": [
               "diff",
-              "complete",
-              "exhaustive",
               "manual",
               "context"
             ]
@@ -2719,8 +2713,6 @@
             "type": "string",
             "enum": [
               "diff",
-              "complete",
-              "exhaustive",
               "manual",
               "context"
             ]
@@ -5556,8 +5548,6 @@
             "type": "string",
             "enum": [
               "diff",
-              "complete",
-              "exhaustive",
               "manual",
               "context"
             ]

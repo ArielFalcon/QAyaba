@@ -104,8 +104,6 @@ export const SETTINGS_REGISTRY: readonly SettingDef[] = [
   entry({ env: "QA_RUN_TIME_BUDGET_MS_DIFF_FOCUSED", key: "-", group: "run", type: "integer", default: String(RUN_TIME_BUDGET_MS["diff-focused"]), description: "Wall time of a focused diff run, in milliseconds." }),
   entry({ env: "QA_RUN_TIME_BUDGET_MS_DIFF_BROAD", key: "-", group: "run", type: "integer", default: String(RUN_TIME_BUDGET_MS["diff-broad"]), description: "Wall time of a broad diff run, in milliseconds." }),
   entry({ env: "QA_RUN_TIME_BUDGET_MS_MANUAL", key: "-", group: "run", type: "integer", default: String(RUN_TIME_BUDGET_MS.manual), description: "Wall time of a manual run, in milliseconds." }),
-  entry({ env: "QA_RUN_TIME_BUDGET_MS_COMPLETE", key: "-", group: "run", type: "integer", default: String(RUN_TIME_BUDGET_MS.complete), description: "Wall time of a complete run, in milliseconds." }),
-  entry({ env: "QA_RUN_TIME_BUDGET_MS_EXHAUSTIVE", key: "-", group: "run", type: "integer", default: String(RUN_TIME_BUDGET_MS.exhaustive), description: "Wall time of an exhaustive run, in milliseconds." }),
   entry({ env: "QA_RUN_TIME_BUDGET_MS_CONTEXT", key: "-", group: "run", type: "integer", default: String(RUN_TIME_BUDGET_MS.context), description: "Wall time of a context-map run, in milliseconds." }),
   entry({ env: "QA_DIFF_TIME_BUDGET_MS_TINY", key: "-", group: "run", type: "integer", description: "Time of the first generation pass of a tiny diff, in milliseconds. Unset, the tier's built-in value applies." }),
   entry({ env: "QA_DIFF_TIME_BUDGET_MS_FOCUSED", key: "-", group: "run", type: "integer", description: "Time of the first generation pass of a focused diff, in milliseconds. Unset, the tier's built-in value applies." }),

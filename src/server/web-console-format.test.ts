@@ -137,8 +137,7 @@ test("triggerExtras shows SHA+delta only for diff, guidance only for manual", ()
   };
   assert.deepEqual(extras("diff"), { sha: true, delta: true, guidance: false });
   assert.deepEqual(extras("manual"), { sha: false, delta: false, guidance: true });
-  assert.deepEqual(extras("complete"), { sha: false, delta: false, guidance: false });
-  assert.deepEqual(extras("exhaustive"), { sha: false, delta: false, guidance: false });
+  assert.deepEqual(extras("context"), { sha: false, delta: false, guidance: false });
 });
 
 test("clampDiffCommits stays in the API 1–20 window", () => {
@@ -156,9 +155,9 @@ test("triggerPayload omits SHA/commits except in diff, and guidance except in ma
     const p = F.triggerPayload(input);
     return JSON.parse(JSON.stringify(p)) as Record<string, unknown>;
   };
-  assert.deepEqual(body({ app: "portfolio", mode: "complete", sha: "8d703ca", commits: 5, guidance: "x" }), {
+  assert.deepEqual(body({ app: "portfolio", mode: "context", sha: "8d703ca", commits: 5, guidance: "x" }), {
     app: "portfolio",
-    mode: "complete",
+    mode: "context",
   });
   assert.deepEqual(body({ app: "portfolio", mode: "diff", sha: "", commits: 1 }), {
     app: "portfolio",

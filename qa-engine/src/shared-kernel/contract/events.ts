@@ -3,7 +3,7 @@
 import { z } from "zod";
 
 export const TestTargetSchema = z.enum(["e2e"]);
-export const RunModeSchema = z.enum(["diff", "complete", "exhaustive", "manual", "context"]);
+export const RunModeSchema = z.enum(["diff", "manual", "context"]);
 export const RunVerdictSchema = z.enum(["pass", "fail", "flaky", "invalid", "infra-error", "skipped"]);
 /* success = the engine produced a trustworthy result and acted (green→PR, real bug→Issue, flaky→quarantine, skip→no-op); error = it could not run or could not produce runnable tests. Distinct from the verdict — a fail (real bug) is engineStatus=success. */
 export const RunEngineStatusSchema = z.enum(["success", "error"]);

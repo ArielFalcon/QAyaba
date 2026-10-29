@@ -16,13 +16,13 @@ test("delegateRun POSTs the run to the service, polls to completion, and returns
       auth: (init?.headers as Record<string, string> | undefined)?.Authorization,
     });
     if (method === "POST") {
-      return new Response(JSON.stringify({ id: "run-1", app: "demo", sha: "abc", target: "e2e", mode: "exhaustive", status: "enqueued" }), { status: 202 });
+      return new Response(JSON.stringify({ id: "run-1", app: "demo", sha: "abc", target: "e2e", mode: "manual", status: "enqueued" }), { status: 202 });
     }
     polls++;
     const done = polls >= 2;
     return new Response(
       JSON.stringify({
-        id: "run-1", app: "demo", sha: "abc", target: "e2e", mode: "exhaustive",
+        id: "run-1", app: "demo", sha: "abc", target: "e2e", mode: "manual",
         status: done ? "done" : "running", step: done ? "done" : "generate",
         verdict: done ? "pass" : undefined, passed: done ? 3 : 0, failed: 0, cases: [], logs: [], at: "t",
       }),
@@ -32,7 +32,7 @@ test("delegateRun POSTs the run to the service, polls to completion, and returns
 
   const seen: string[] = [];
   const result = await delegateRun(
-    { app: "demo", sha: "abc", target: "e2e", mode: "exhaustive" },
+    { app: "demo", sha: "abc", target: "e2e", mode: "manual" },
     { fetch: fetchStub, baseUrl: "http://localhost:8080", token: "secret", pollMs: 1, onUpdate: (r) => seen.push(r.status) },
   );
 
@@ -46,7 +46,7 @@ test("delegateRun POSTs the run to the service, polls to completion, and returns
   assert.equal(post!.url, "http://localhost:8080/api/v1/runs");
   assert.equal(post!.auth, "Bearer secret");
   assert.equal(post!.body!.app, "demo");
-  assert.equal(post!.body!.mode, "exhaustive");
+  assert.equal(post!.body!.mode, "manual");
   assert.ok(seen.includes("done"), "progress updates must reach onUpdate");
 });
 

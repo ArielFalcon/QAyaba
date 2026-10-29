@@ -43,7 +43,7 @@ function sectionOf(assembled: AssembledPrompt): string | undefined {
 }
 
 test("an app that declares a location states it on every e2e turn that writes tests", () => {
-  for (const mode of ["diff", "manual", "complete", "exhaustive"] as const) {
+  for (const mode of ["diff", "manual"] as const) {
     const section = sectionOf(buildPromptAssembled(mkInput({ mode, geolocation: FACTS })));
     assert.ok(section, mode);
     for (const datum of [FACTS.default.latitude, FACTS.default.longitude, FACTS.current.latitude, FACTS.current.longitude, ...Object.keys(FACTS.places)]) {

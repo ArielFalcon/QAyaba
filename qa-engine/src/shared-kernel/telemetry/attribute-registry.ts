@@ -33,7 +33,7 @@ export const ATTRIBUTES = {
   "qayaba.app": str("The watched app's configured name."),
   "qayaba.commit.sha": str("The commit under test.", "high"),
   "qayaba.trigger": str("What started the run: webhook, api, cli, campaign, continuation, context or login-bootstrap."),
-  "qayaba.mode": str("The run mode: diff, complete, exhaustive or manual."),
+  "qayaba.mode": str("The run mode: diff, manual or context."),
   "qayaba.target": str("The test target of the run (always e2e)."),
   "qayaba.parent_run.id": str("The run this one continues.", "high"),
   "qayaba.trigger_repo": str("The service repo whose deploy triggered a cross-repo run.", "high"),

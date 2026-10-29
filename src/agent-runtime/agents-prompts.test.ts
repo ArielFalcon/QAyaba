@@ -310,7 +310,7 @@ describe("agent prompt guard", () => {
     rule: string;
     pattern: RegExp;
     /* The assembled prompt the rule is counted in: an e2e diff run whose page the prompt supplies a tree for, or a pack with a live DOM; an e2e diff run of an app that declares an OpenAPI contract and supplies no tree; an e2e diff run whose change is broad; a regeneration of an e2e diff run; a complete run's first pass, which analyzes and writes no tests, or its regeneration, which writes them; or a context run, which maps the architecture. */
-    shape: "tree" | "pack" | "openapi" | "broad" | "regen" | "complete" | "complete-regen" | "context";
+    shape: "tree" | "pack" | "openapi" | "broad" | "regen" | "context";
     inStatic: number;
     /* Exactly this many statements in the assembled prompt of its shape, or at least this many. */
     inAssembled: { exactly: number } | { atLeast: number };
@@ -346,10 +346,10 @@ describe("agent prompt guard", () => {
   /* The words the builder renders the statement of the limit and each outcome of a milestone with, so the pins read the production table and re-type no wording. */
   const STEP_LIMIT_STATEMENT = new RegExp(`^## ${PROMPT_HEADINGS.stepLimit}$`, "gm");
   const outcomePattern = (outcome: MilestoneOutcome): RegExp => phrasePattern(MILESTONE_OUTCOME_PHRASES[outcome]);
-  /* The shapes by what their turn does: a diff first pass writes tests, a regeneration writes them, and a complete run's first pass and a context run write none. */
+  /* The shapes by what their turn does: a diff first pass writes tests, a regeneration writes them, and a context run writes none. */
   const FIRST_PASS_SHAPES = ["tree", "pack", "openapi", "broad"] as const;
-  const REGENERATION_SHAPES = ["regen", "complete-regen"] as const;
-  const WRITES_NONE_SHAPES = ["complete", "context"] as const;
+  const REGENERATION_SHAPES = ["regen"] as const;
+  const WRITES_NONE_SHAPES = ["context"] as const;
   /* One rule per shape: counted `counts.*` times in the prompt built with a limit, never in the one built without. */
   const limitRules = (rule: string, pattern: RegExp, counts: { firstPass: number; regeneration: number; writesNone: number }): OwnedRule[] => [
     ...FIRST_PASS_SHAPES.map((shape): OwnedRule => ({ rule, pattern, shape, inStatic: 0, inAssembled: { exactly: 0 }, withLimit: { exactly: counts.firstPass } })),
@@ -393,7 +393,7 @@ describe("agent prompt guard", () => {
     { rule: "never asserting a pre-existing element with the changed label", pattern: phrasePattern("Never assert a pre-existing element"), shape: "tree", inStatic: 1, inAssembled: { exactly: 0 } },
     /* The generator role owns the sentence that names the second reason of the no-op; the one place an assembled prompt offers the no-op (the effort of a diff's first pass) quotes it, and no other turn does. */
     ...(["tree", "pack", "openapi", "broad"] as const).map((shape): OwnedRule => ({ rule: `the no-op for a change DEV cannot show (a diff's first pass, ${shape})`, pattern: UNOBSERVABLE_NOOP_REASON, shape, inStatic: 1, inAssembled: { exactly: 1 } })),
-    ...(["regen", "complete", "complete-regen", "context"] as const).map((shape): OwnedRule => ({ rule: `the no-op for a change DEV cannot show (${shape}, which offers no effort)`, pattern: UNOBSERVABLE_NOOP_REASON, shape, inStatic: 1, inAssembled: { exactly: 0 } })),
+    ...(["regen", "context"] as const).map((shape): OwnedRule => ({ rule: `the no-op for a change DEV cannot show (${shape}, which offers no effort)`, pattern: UNOBSERVABLE_NOOP_REASON, shape, inStatic: 1, inAssembled: { exactly: 0 } })),
     { rule: "the generator naming the kind of its no-op in the verdict", pattern: phrasePattern("`noop.kind` names the one that holds"), shape: "tree", inStatic: 1, inAssembled: { exactly: 0 } },
     { rule: "an unobservable no-op naming the element and the evidence it relied on", pattern: phrasePattern("names the element and the evidence it relied on"), shape: "tree", inStatic: 1, inAssembled: { exactly: 0 } },
     { rule: "reading the existing spec of a flow before updating it", pattern: READ_BEFORE_UPDATE, shape: "tree", inStatic: 1, inAssembled: { exactly: 0 } },
@@ -485,7 +485,7 @@ describe("agent prompt guard", () => {
   /* One file past the largest change the focused tier admits, so the diff is broad. */
   const BROAD_DIFF = Array.from({ length: DIFF_TIERS.focused.maxFiles + 1 }, (_, i) => `diff --git a/f${i}.ts b/f${i}.ts\n+x\n`).join("");
   const PACK_WITH_LIVE_DOM = `## ${PACK_HEADINGS.pack}\n\n### ${PACK_HEADINGS.liveDom} (x)\n  heading: Cart`;
-  /* The shapes a turn that writes tests takes (a diff first pass, or a regeneration) and the two that do not (a complete run's first pass, which analyzes, and a context run, which maps the architecture). */
+  /* The shapes a turn that writes tests takes (a diff first pass, or a regeneration) and the one that does not (a context run, which maps the architecture). */
   const e2eInput = { ...assembledInput, target: "e2e", baseUrl: "http://localhost:3000" };
   const SHAPE_INPUTS: Record<OwnedRule["shape"], object> = {
     openapi: { ...e2eInput, openapi: "api-definition.yaml" },
@@ -493,8 +493,6 @@ describe("agent prompt guard", () => {
     broad: { ...e2eInput, diff: BROAD_DIFF },
     tree: { ...e2eInput, domSnapshot: "route /cart:\n  button: Apply coupon" },
     regen: { ...e2eInput, fixCases: [FAILING_CASE] },
-    complete: { ...e2eInput, mode: "complete" },
-    "complete-regen": { ...e2eInput, mode: "complete", fixCases: [FAILING_CASE] },
     context: { ...e2eInput, mode: "context" },
   };
   /* The cap a runtime that enforces one hands the generator's prompt. A rule has one owner whether or not the runtime states a cap, so every shape is built both ways and each pin is counted in both. */

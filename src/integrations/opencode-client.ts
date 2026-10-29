@@ -478,8 +478,6 @@ export function reviewerTimeoutMs(): number {
 
 const TIMEOUT_BY_MODE: Record<RunMode, number> = {
   diff: 5 * 60 * 1000,
-  complete: 15 * 60 * 1000,
-  exhaustive: 25 * 60 * 1000,
   manual: 10 * 60 * 1000,
   context: 10 * 60 * 1000,
 };

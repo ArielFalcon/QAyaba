@@ -46,8 +46,8 @@ test("a larger limit never has an earlier midpoint", () => {
 
 /* ── which turns write tests ── */
 
-test("a first pass writes tests in diff and manual mode, and in no other: complete, exhaustive and context first passes analyze", () => {
-  const writes: Record<RunMode, boolean> = { diff: true, manual: true, complete: false, exhaustive: false, context: false };
+test("a first pass writes tests in diff and manual mode, and in no other: a context first pass analyzes", () => {
+  const writes: Record<RunMode, boolean> = { diff: true, manual: true, context: false };
   for (const mode of RUN_MODES) assert.equal(isTestWritingTurn({ mode }), writes[mode], mode);
 });
 
@@ -67,8 +67,7 @@ test("a regeneration writes tests in every mode that writes any, whichever signa
 
 test("signals that are empty make no regeneration, so they make no test-writing turn where the first pass writes none", () => {
   const empty = { fixCases: [], reviewCorrections: [], coverageGap: "", selectorContradictions: [] };
-  assert.equal(isTestWritingTurn({ mode: "complete", ...empty }), false);
-  assert.equal(isTestWritingTurn({ mode: "exhaustive", ...empty }), false);
+  assert.equal(isTestWritingTurn({ mode: "context", ...empty }), false);
   assert.equal(isTestWritingTurn({ mode: "diff", ...empty }), true, "a diff first pass still writes");
 });
 
@@ -93,10 +92,8 @@ test("a regeneration asks for the first correction, or for the reason none appli
 });
 
 test("a turn that writes no tests has no milestone, whatever its limit", () => {
-  for (const mode of ["complete", "exhaustive", "context"] as const) {
-    assert.equal(stepMilestone({ mode }, 40), undefined, mode);
-    assert.equal(stepMilestone({ mode }, 1), undefined, mode);
-  }
+  assert.equal(stepMilestone({ mode: "context" }, 40), undefined);
+  assert.equal(stepMilestone({ mode: "context" }, 1), undefined);
   assert.equal(stepMilestone({ mode: "context", fixCases: [{ name: "cart total" }] }, 40), undefined, "a context run never regenerates");
 });
 

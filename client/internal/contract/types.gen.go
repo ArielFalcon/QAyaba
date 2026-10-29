@@ -422,23 +422,17 @@ func (e CreateRunInputCaptureMode) Valid() bool {
 
 // Defines values for CreateRunInputMode.
 const (
-	CreateRunInputModeComplete   CreateRunInputMode = "complete"
-	CreateRunInputModeContext    CreateRunInputMode = "context"
-	CreateRunInputModeDiff       CreateRunInputMode = "diff"
-	CreateRunInputModeExhaustive CreateRunInputMode = "exhaustive"
-	CreateRunInputModeManual     CreateRunInputMode = "manual"
+	CreateRunInputModeContext CreateRunInputMode = "context"
+	CreateRunInputModeDiff    CreateRunInputMode = "diff"
+	CreateRunInputModeManual  CreateRunInputMode = "manual"
 )
 
 // Valid indicates whether the value is a known member of the CreateRunInputMode enum.
 func (e CreateRunInputMode) Valid() bool {
 	switch e {
-	case CreateRunInputModeComplete:
-		return true
 	case CreateRunInputModeContext:
 		return true
 	case CreateRunInputModeDiff:
-		return true
-	case CreateRunInputModeExhaustive:
 		return true
 	case CreateRunInputModeManual:
 		return true
@@ -464,23 +458,17 @@ func (e CreateRunInputTarget) Valid() bool {
 
 // Defines values for CreateRunResultMode.
 const (
-	CreateRunResultModeComplete   CreateRunResultMode = "complete"
-	CreateRunResultModeContext    CreateRunResultMode = "context"
-	CreateRunResultModeDiff       CreateRunResultMode = "diff"
-	CreateRunResultModeExhaustive CreateRunResultMode = "exhaustive"
-	CreateRunResultModeManual     CreateRunResultMode = "manual"
+	CreateRunResultModeContext CreateRunResultMode = "context"
+	CreateRunResultModeDiff    CreateRunResultMode = "diff"
+	CreateRunResultModeManual  CreateRunResultMode = "manual"
 )
 
 // Valid indicates whether the value is a known member of the CreateRunResultMode enum.
 func (e CreateRunResultMode) Valid() bool {
 	switch e {
-	case CreateRunResultModeComplete:
-		return true
 	case CreateRunResultModeContext:
 		return true
 	case CreateRunResultModeDiff:
-		return true
-	case CreateRunResultModeExhaustive:
 		return true
 	case CreateRunResultModeManual:
 		return true
@@ -1082,23 +1070,17 @@ func (e RunDetailEngineStatus) Valid() bool {
 
 // Defines values for RunDetailMode.
 const (
-	RunDetailModeComplete   RunDetailMode = "complete"
-	RunDetailModeContext    RunDetailMode = "context"
-	RunDetailModeDiff       RunDetailMode = "diff"
-	RunDetailModeExhaustive RunDetailMode = "exhaustive"
-	RunDetailModeManual     RunDetailMode = "manual"
+	RunDetailModeContext RunDetailMode = "context"
+	RunDetailModeDiff    RunDetailMode = "diff"
+	RunDetailModeManual  RunDetailMode = "manual"
 )
 
 // Valid indicates whether the value is a known member of the RunDetailMode enum.
 func (e RunDetailMode) Valid() bool {
 	switch e {
-	case RunDetailModeComplete:
-		return true
 	case RunDetailModeContext:
 		return true
 	case RunDetailModeDiff:
-		return true
-	case RunDetailModeExhaustive:
 		return true
 	case RunDetailModeManual:
 		return true
@@ -1205,19 +1187,19 @@ func (e RunEvaluationSchemaVersion) Valid() bool {
 
 // Defines values for RunEvaluationStatus.
 const (
-	RunEvaluationStatusComplete RunEvaluationStatus = "complete"
-	RunEvaluationStatusFailed   RunEvaluationStatus = "failed"
-	RunEvaluationStatusPending  RunEvaluationStatus = "pending"
+	Complete RunEvaluationStatus = "complete"
+	Failed   RunEvaluationStatus = "failed"
+	Pending  RunEvaluationStatus = "pending"
 )
 
 // Valid indicates whether the value is a known member of the RunEvaluationStatus enum.
 func (e RunEvaluationStatus) Valid() bool {
 	switch e {
-	case RunEvaluationStatusComplete:
+	case Complete:
 		return true
-	case RunEvaluationStatusFailed:
+	case Failed:
 		return true
-	case RunEvaluationStatusPending:
+	case Pending:
 		return true
 	default:
 		return false
@@ -1262,23 +1244,17 @@ func (e RunRecordEngineStatus) Valid() bool {
 
 // Defines values for RunRecordMode.
 const (
-	RunRecordModeComplete   RunRecordMode = "complete"
-	RunRecordModeContext    RunRecordMode = "context"
-	RunRecordModeDiff       RunRecordMode = "diff"
-	RunRecordModeExhaustive RunRecordMode = "exhaustive"
-	RunRecordModeManual     RunRecordMode = "manual"
+	RunRecordModeContext RunRecordMode = "context"
+	RunRecordModeDiff    RunRecordMode = "diff"
+	RunRecordModeManual  RunRecordMode = "manual"
 )
 
 // Valid indicates whether the value is a known member of the RunRecordMode enum.
 func (e RunRecordMode) Valid() bool {
 	switch e {
-	case RunRecordModeComplete:
-		return true
 	case RunRecordModeContext:
 		return true
 	case RunRecordModeDiff:
-		return true
-	case RunRecordModeExhaustive:
 		return true
 	case RunRecordModeManual:
 		return true
@@ -1289,19 +1265,19 @@ func (e RunRecordMode) Valid() bool {
 
 // Defines values for RunRecordStatus.
 const (
-	RunRecordStatusDone     RunRecordStatus = "done"
-	RunRecordStatusEnqueued RunRecordStatus = "enqueued"
-	RunRecordStatusRunning  RunRecordStatus = "running"
+	Done     RunRecordStatus = "done"
+	Enqueued RunRecordStatus = "enqueued"
+	Running  RunRecordStatus = "running"
 )
 
 // Valid indicates whether the value is a known member of the RunRecordStatus enum.
 func (e RunRecordStatus) Valid() bool {
 	switch e {
-	case RunRecordStatusDone:
+	case Done:
 		return true
-	case RunRecordStatusEnqueued:
+	case Enqueued:
 		return true
-	case RunRecordStatusRunning:
+	case Running:
 		return true
 	default:
 		return false

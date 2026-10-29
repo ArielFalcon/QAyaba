@@ -242,7 +242,7 @@ test("a run lists its suite or lists none, and a run with nothing to list is a n
   const specs = noSuiteSpecs();
   assert.ok(specs.length > 0 && specs.length < allValidSpecs().filter((s) => s.suite === "listed").length / 10, "a few hundred shapes, not a second copy of the cross product");
   assert.ok(specs.every((s) => !s.contextMap && !s.authSeedUnauthored && !s.serviceLinks && !s.harnessFacts && !s.service && !s.packRedirect));
-  assert.ok(specs.every((s) => s.mode === "diff" || s.mode === "manual" || s.phase !== "first"), "a complete, exhaustive or context first pass lists no suite either way, so it has the listed shape alone");
+  assert.ok(specs.every((s) => s.mode === "diff" || s.mode === "manual" || s.phase !== "first"), "a context first pass lists no suite either way, so it has the listed shape alone");
   assert.deepEqual([...new Set(specs.map((s) => s.phase))].sort(), [...DIMENSIONS.phase].sort(), "a first pass and every regeneration phase");
 });
 
@@ -293,17 +293,6 @@ test("a regeneration that carries the run's specs lists them under the labels of
     assert.ok(section.text.includes(SUITE_LISTING_LABELS.editable), `${phase}: there is a spec to change`);
     assert.equal(section.text.split("\n").filter((line) => line.includes("flows/cart.spec.ts")).length, 1, `${phase}: the suite's line and the run's delivery of the same file are one entry`);
   }
-});
-
-test("an exhaustive regeneration carries many of the run's specs it leaves alone, and the listing names every one of them", async () => {
-  const spec = allValidSpecs().find((s) => s.mode === "exhaustive" && s.phase === "regen-fix" && s.suite === "listed" && s.grounding === "none" && s.tree === "none")!;
-  const section = splitAssembledSections(buildPromptAssembled(await buildInput(spec))).find((part) => part.id === "existing-suite-manifest")!;
-  const delivered = (await buildInput(spec)).deliveredSpecs ?? [];
-  const written = section.text.split("\n");
-  assert.ok(delivered.length - 1 > 30, "setup: many specs are left alone");
-  assert.equal(written.slice(written.indexOf(SUITE_LISTING_LABELS.doNotRewrite) + 1).filter((line) => line.startsWith("- ")).length, delivered.length - 1, "every spec left alone is listed");
-  assert.ok(!written.some((line) => line.startsWith("(+")), "no count of specs left out");
-  assert.equal(section.text.split(SUITE_LISTING_LABELS.doNotRewrite).length, 2);
 });
 
 /* ── the worst case of a listing ── */

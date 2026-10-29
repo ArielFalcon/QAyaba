@@ -44,17 +44,6 @@ const firstWithNoSuiteOfEachPhase = (all: readonly CellSpec[]): CellSpec[] => {
   });
 };
 
-/* The regeneration whose run has delivered more specs than the listing shows of those it leaves alone: an exhaustive one, for a fix and for a reviewer's correction. */
-const firstExhaustiveRegenerationOverTheCap = (all: readonly CellSpec[]): CellSpec[] => {
-  const seen = new Set<string>();
-  return all.filter((s) => {
-    const key = s.phase;
-    if (s.mode !== "exhaustive" || s.suite !== "listed" || (s.phase !== "regen-fix" && s.phase !== "regen-review") || seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
-};
-
 /* The worst case of a listing is a few dozen combinations the stride mostly skips: the first one of each phase keeps it in the sample, so that the size of its prompt and its lint are checked wherever the stride lands. */
 const firstWorstCaseListingOfEachPhase = (all: readonly CellSpec[]): CellSpec[] => {
   const seen = new Set<string>();
@@ -73,7 +62,6 @@ const sampleSpecs = (): CellSpec[] => {
     ...all.filter((_, i) => i % SAMPLE_STRIDE === 0),
     ...firstCoChangeOfEachPhase(all),
     ...firstWithNoSuiteOfEachPhase(all),
-    ...firstExhaustiveRegenerationOverTheCap(all),
     ...firstWorstCaseListingOfEachPhase(all),
   ]) {
     chosen.set(cellName(spec), spec);
@@ -116,11 +104,10 @@ test("the sample carries a signal of co-change files alone on a first pass and o
   for (const phase of DIMENSIONS.phase.filter((p) => p !== "first")) assert.ok(coChange.some((s) => s.phase === phase), `${phase} regeneration`);
 });
 
-test("the sample carries a diff first pass with no listing, a regeneration of every kind with no carried specs, and an exhaustive regeneration whose run delivered more than the listing shows", () => {
+test("the sample carries a diff first pass with no listing, and a regeneration of every kind with no carried specs", () => {
   const specs = sampleSpecs();
   assert.ok(specs.some((s) => s.suite === "none" && s.mode === "diff" && s.phase === "first"), "a diff first pass with no listing");
   for (const phase of DIMENSIONS.phase.filter((p) => p !== "first")) assert.ok(specs.some((s) => s.suite === "none" && s.phase === phase), `${phase} regeneration with no carried specs`);
-  assert.ok(specs.some((s) => s.suite === "listed" && s.mode === "exhaustive" && s.phase === "regen-fix"), "an exhaustive fix over the cap");
 });
 
 test("the sample carries the worst case of a listing for each regeneration that cannot say which spec to change", () => {

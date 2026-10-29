@@ -16,6 +16,6 @@ test("engineStatus: null/undefined is fail-safe ERROR (no verdict ⇒ did not su
   assert.equal(engineStatus(undefined), RUN_ENGINE_STATUSES.ERROR);
 });
 
-test("RUN_MODES lists exactly the five run modes", () => {
-  assert.deepEqual([...RUN_MODES], ["diff", "complete", "exhaustive", "manual", "context"]);
+test("RUN_MODES lists exactly the three run modes", () => {
+  assert.deepEqual([...RUN_MODES], ["diff", "manual", "context"]);
 });

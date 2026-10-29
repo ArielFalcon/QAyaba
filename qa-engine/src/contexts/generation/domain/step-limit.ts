@@ -29,7 +29,7 @@ export interface TurnShape extends RegenSignals {
   planning?: unknown;
 }
 
-/* Test-writing turns are the diff and manual first passes and every regeneration; a complete, exhaustive or context first pass analyzes, a first pass asked for a plan writes no file, and a context run never writes tests. */
+/* Test-writing turns are the diff and manual first passes and every regeneration; a context first pass analyzes, a first pass asked for a plan writes no file, and a context run never writes tests. */
 export function isTestWritingTurn(turn: TurnShape): boolean {
   if (turn.mode === "context") return false;
   if (isReGenTurn(turn)) return true;

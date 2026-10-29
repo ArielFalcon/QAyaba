@@ -12,7 +12,7 @@ import type { ServerToolCall, ToolAttemptDirectory } from "../../domain/tool-lin
 import type { AttemptEvent } from "../agent-transport-policy.ts";
 import type { TurnProbe } from "./turn-probe.ts";
 
-/* Longer than the longest run budget (the exhaustive row, 150 min) plus a margin: a session older than this has outlived any run that could own it. */
+/* Longer than the longest run budget (the default of the longest row is 60 min) plus a margin: a session older than this has outlived any run that could own it. */
 export const DEFAULT_TRACE_MAX_AGE_MS = 4 * 60 * 60 * 1000;
 
 interface SessionTurns {

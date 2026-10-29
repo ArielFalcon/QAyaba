@@ -591,7 +591,7 @@ export interface components {
             app: string;
             sha: string;
             /** @enum {string} */
-            mode: "diff" | "complete" | "exhaustive" | "manual" | "context";
+            mode: "diff" | "manual" | "context";
             /** @enum {string} */
             target: "e2e";
         } | {
@@ -686,7 +686,7 @@ export interface components {
             /** @enum {string} */
             target: "e2e";
             /** @enum {string} */
-            mode: "diff" | "complete" | "exhaustive" | "manual" | "context";
+            mode: "diff" | "manual" | "context";
             /** @enum {string} */
             status: "enqueued" | "running" | "done";
             step?: string;
@@ -797,7 +797,7 @@ export interface components {
             /** @enum {string} */
             target: "e2e";
             /** @enum {string} */
-            mode: "diff" | "complete" | "exhaustive" | "manual" | "context";
+            mode: "diff" | "manual" | "context";
             sha?: string;
             baseSha?: string;
             ref?: string;
@@ -829,7 +829,7 @@ export interface components {
             /** @enum {string} */
             target: "e2e";
             /** @enum {string} */
-            mode: "diff" | "complete" | "exhaustive" | "manual" | "context";
+            mode: "diff" | "manual" | "context";
             status: string;
         };
         AskRequest: {
@@ -1473,7 +1473,7 @@ export interface components {
             /** @enum {string} */
             target: "e2e";
             /** @enum {string} */
-            mode: "diff" | "complete" | "exhaustive" | "manual" | "context";
+            mode: "diff" | "manual" | "context";
             /** @enum {string} */
             status: "enqueued" | "running" | "done";
             step?: string;
