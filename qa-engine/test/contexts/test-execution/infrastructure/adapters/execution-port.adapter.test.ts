@@ -1,14 +1,13 @@
 /* test/contexts/run-orchestration/infrastructure/adapters/execution-port.adapter.test.ts
-   (E2eExecutionStrategy / CodeExecutionStrategy), both implementing ExecutionStrategyPort.run(req).
+   (E2eExecutionStrategy), implementing ExecutionStrategyPort.run(req).
    THIN — no new policy: this adapter only maps ExecutionPort.execute(specDir) onto the richer
-   ExecutionRequest shape (baseUrl/namespace held as static per-run context) and selects the
+   ExecutionRequest shape (baseUrl/namespace held as static per-run context) and runs the
    strategy.
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { ExecutionPortAdapter } from "@contexts/test-execution/infrastructure/adapters/execution-port.adapter.ts";
 import { E2eExecutionStrategy } from "@contexts/test-execution/infrastructure/e2e-execution.strategy.ts";
-import { CodeExecutionStrategy } from "@contexts/test-execution/infrastructure/code-execution.strategy.ts";
 import type { E2eExecuteOptions } from "@contexts/test-execution/infrastructure/e2e-execution.runner.ts";
 
 /* Exhaustiveness guard: E2eExecuteOptions no longer straddles the src/qa-engine boundary — both
@@ -37,14 +36,13 @@ test("E2eExecuteOptions' own field list matches the allowlist + ExecutionPortAda
   assert.deepEqual(accountedFor, allFieldNames, "every E2eExecuteOptions field must be either mapped by ExecutionPortAdapter or allowlisted with a reason");
 });
 
-test("execute() dispatches to E2eExecutionStrategy for target 'e2e' and forwards baseUrl/namespace", async () => {
+test("execute() dispatches to E2eExecutionStrategy and forwards baseUrl/namespace", async () => {
   let capturedOpts: unknown;
   const e2e = new E2eExecutionStrategy(async (specDir, opts) => {
     capturedOpts = opts;
     return { verdict: "pass", cases: [{ name: "checkout", status: "pass" }], logs: `ran ${specDir}` };
   });
-  const code = new CodeExecutionStrategy(async () => ({ verdict: "pass", cases: [], logs: "" }));
-  const adapter = new ExecutionPortAdapter({ e2e, code }, { target: "e2e", baseUrl: "https://dev.example.com", namespace: "qa-bot-abc1234" });
+  const adapter = new ExecutionPortAdapter({ e2e }, { baseUrl: "https://dev.example.com", namespace: "qa-bot-abc1234" });
 
   const result = await adapter.execute("/mirrors/org/app/e2e");
 
@@ -55,10 +53,7 @@ test("execute() dispatches to E2eExecutionStrategy for target 'e2e' and forwards
   assert.equal((capturedOpts as { namespace: string }).namespace, "qa-bot-abc1234");
 });
 
-/* already forward ExecutionRequest.signal into runE2E/runCodeTests's own opts.signal — this
-   adapter is the ONLY missing link. It must declare + forward the signal, or the queue's
-   AbortSignal is silently dropped before it ever reaches Playwright/the code runner.
- */
+/* The queue's AbortSignal must reach Playwright: the adapter declares and forwards it. */
 
 test("execute() forwards an AbortSignal into the e2e strategy's ExecutionRequest", async () => {
   const controller = new AbortController();
@@ -67,8 +62,7 @@ test("execute() forwards an AbortSignal into the e2e strategy's ExecutionRequest
     capturedSignal = opts.signal;
     return { verdict: "pass", cases: [], logs: "" };
   });
-  const code = new CodeExecutionStrategy(async () => ({ verdict: "pass", cases: [], logs: "" }));
-  const adapter = new ExecutionPortAdapter({ e2e, code }, { target: "e2e", baseUrl: "https://dev.example.com", namespace: "qa-bot-abc1234" });
+  const adapter = new ExecutionPortAdapter({ e2e }, { baseUrl: "https://dev.example.com", namespace: "qa-bot-abc1234" });
 
   await adapter.execute("/mirrors/org/app/e2e", controller.signal);
 
@@ -84,10 +78,9 @@ test("execute() forwards testIdAttribute from static context into the e2e strate
     capturedOpts = opts;
     return { verdict: "pass", cases: [], logs: "" };
   });
-  const code = new CodeExecutionStrategy(async () => ({ verdict: "pass", cases: [], logs: "" }));
   const adapter = new ExecutionPortAdapter(
-    { e2e, code },
-    { target: "e2e", baseUrl: "https://dev.example.com", namespace: "qa-bot-abc1234", testIdAttribute: "data-cy" },
+    { e2e },
+    { baseUrl: "https://dev.example.com", namespace: "qa-bot-abc1234", testIdAttribute: "data-cy" },
   );
 
   await adapter.execute("/mirrors/org/app/e2e");
@@ -101,8 +94,7 @@ test("execute() with no signal at all behaves exactly as before (no second-arg r
     capturedOpts = opts;
     return { verdict: "pass", cases: [], logs: "" };
   });
-  const code = new CodeExecutionStrategy(async () => ({ verdict: "pass", cases: [], logs: "" }));
-  const adapter = new ExecutionPortAdapter({ e2e, code }, { target: "e2e", baseUrl: "https://dev.example.com", namespace: "qa-bot-abc1234" });
+  const adapter = new ExecutionPortAdapter({ e2e }, { baseUrl: "https://dev.example.com", namespace: "qa-bot-abc1234" });
 
   const result = await adapter.execute("/mirrors/org/app/e2e");
 
@@ -121,8 +113,7 @@ test("execute() still accepts a bare AbortSignal as the 2nd arg (old 2-arg calle
     capturedOpts = opts;
     return { verdict: "pass", cases: [], logs: "" };
   });
-  const code = new CodeExecutionStrategy(async () => ({ verdict: "pass", cases: [], logs: "" }));
-  const adapter = new ExecutionPortAdapter({ e2e, code }, { target: "e2e", baseUrl: "https://dev.example.com", namespace: "qa-bot-abc1234" });
+  const adapter = new ExecutionPortAdapter({ e2e }, { baseUrl: "https://dev.example.com", namespace: "qa-bot-abc1234" });
 
   const result = await adapter.execute("/mirrors/org/app/e2e", controller.signal);
 
@@ -136,8 +127,7 @@ test("execute() forwards specFiles from the opts bag into the e2e strategy's Exe
     capturedOpts = opts;
     return { verdict: "pass", cases: [], logs: "" };
   });
-  const code = new CodeExecutionStrategy(async () => ({ verdict: "pass", cases: [], logs: "" }));
-  const adapter = new ExecutionPortAdapter({ e2e, code }, { target: "e2e", baseUrl: "https://dev.example.com", namespace: "qa-bot-abc1234" });
+  const adapter = new ExecutionPortAdapter({ e2e }, { baseUrl: "https://dev.example.com", namespace: "qa-bot-abc1234" });
 
   await adapter.execute("/mirrors/org/app/e2e", { specFiles: ["login.spec.ts", "checkout.spec.ts"] });
 
@@ -150,8 +140,7 @@ test("execute() forwards faultInject/project/timeoutMs from the opts bag into th
     capturedOpts = opts;
     return { verdict: "pass", cases: [], logs: "" };
   });
-  const code = new CodeExecutionStrategy(async () => ({ verdict: "pass", cases: [], logs: "" }));
-  const adapter = new ExecutionPortAdapter({ e2e, code }, { target: "e2e", baseUrl: "https://dev.example.com", namespace: "qa-bot-abc1234" });
+  const adapter = new ExecutionPortAdapter({ e2e }, { baseUrl: "https://dev.example.com", namespace: "qa-bot-abc1234" });
 
   await adapter.execute("/mirrors/org/app/e2e", { faultInject: true, project: "chromium", timeoutMs: 45000 });
 
@@ -167,8 +156,7 @@ test("execute() forwards onCase/onRunning/onDiscovered live-progress callbacks i
     capturedOpts = opts;
     return { verdict: "pass", cases: [], logs: "" };
   });
-  const code = new CodeExecutionStrategy(async () => ({ verdict: "pass", cases: [], logs: "" }));
-  const adapter = new ExecutionPortAdapter({ e2e, code }, { target: "e2e", baseUrl: "https://dev.example.com", namespace: "qa-bot-abc1234" });
+  const adapter = new ExecutionPortAdapter({ e2e }, { baseUrl: "https://dev.example.com", namespace: "qa-bot-abc1234" });
 
   const seenCases: unknown[] = [];
   const seenRunning: string[] = [];
@@ -205,8 +193,7 @@ test("execute() forwards opts.namespace to the e2e strategy, overriding ctx.name
     capturedOpts = opts;
     return { verdict: "pass", cases: [], logs: "" };
   });
-  const code = new CodeExecutionStrategy(async () => ({ verdict: "pass", cases: [], logs: "" }));
-  const adapter = new ExecutionPortAdapter({ e2e, code }, { target: "e2e", baseUrl: "https://dev.example.com", namespace: "qa-bot-abc1234" });
+  const adapter = new ExecutionPortAdapter({ e2e }, { baseUrl: "https://dev.example.com", namespace: "qa-bot-abc1234" });
 
   await adapter.execute("/mirrors/org/app/e2e", { namespace: "qa-bot-abc1234-coverage-regen" });
 
@@ -216,9 +203,8 @@ test("execute() forwards opts.namespace to the e2e strategy, overriding ctx.name
 test("execute() falls back to ctx.namespace when opts.namespace is absent (backward compatible)", async () => {
   let e2eOpts: unknown;
   const e2e = new E2eExecutionStrategy(async (_specDir, opts) => { e2eOpts = opts; return { verdict: "pass", cases: [], logs: "" }; });
-  const code = new CodeExecutionStrategy(async () => ({ verdict: "pass", cases: [], logs: "" }));
 
-  const e2eAdapter = new ExecutionPortAdapter({ e2e, code }, { target: "e2e", baseUrl: "https://dev.example.com", namespace: "qa-bot-abc1234" });
+  const e2eAdapter = new ExecutionPortAdapter({ e2e }, { baseUrl: "https://dev.example.com", namespace: "qa-bot-abc1234" });
   await e2eAdapter.execute("/mirrors/org/app/e2e");
   assert.equal((e2eOpts as { namespace: string }).namespace, "qa-bot-abc1234");
 });
@@ -229,7 +215,7 @@ test("execute() forwards a single-attempt, title-filtered run to the strategy an
     seen = { retries: opts.retries, grep: opts.grep, specFiles: opts.specFiles, countWrites: opts.countWrites };
     return { verdict: "pass", cases: [{ name: "t", status: "pass" }], logs: "", devWrites: 2 };
   });
-  const adapter = new ExecutionPortAdapter({ e2e, code: new CodeExecutionStrategy(async () => ({ verdict: "pass", cases: [], logs: "" })) }, { target: "e2e", baseUrl: "https://dev", namespace: "ns" });
+  const adapter = new ExecutionPortAdapter({ e2e }, { baseUrl: "https://dev", namespace: "ns" });
   const result = await adapter.execute("/m/e2e", { specFiles: ["a.spec.ts"], retries: 0, grep: "loads", countWrites: true });
   assert.deepEqual(seen, { retries: 0, grep: "loads", specFiles: ["a.spec.ts"], countWrites: true });
   assert.equal(result.devWrites, 2);
@@ -241,8 +227,7 @@ test("execute() forwards the operations a corrupting re-run may touch, and nothi
     seen.push((opts as { faultOperations?: unknown }).faultOperations);
     return { verdict: "pass", cases: [], logs: "" };
   });
-  const code = new CodeExecutionStrategy(async () => ({ verdict: "pass", cases: [], logs: "" }));
-  const adapter = new ExecutionPortAdapter({ e2e, code }, { target: "e2e", baseUrl: "https://dev.example.com", namespace: "ns" });
+  const adapter = new ExecutionPortAdapter({ e2e }, { baseUrl: "https://dev.example.com", namespace: "ns" });
   await adapter.execute("/m/e2e", { faultInject: true, faultOperations: [{ verb: "GET", pattern: "^/a$" }] });
   await adapter.execute("/m/e2e");
   assert.deepEqual(seen, [[{ verb: "GET", pattern: "^/a$" }], undefined]);

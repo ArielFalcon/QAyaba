@@ -156,8 +156,7 @@ export async function groundRepository(state: Readonly<RunState>, ctx: Workspace
 
 /*
  * Built from the classified intent's changed files. Empty outside diff mode.
- * The same BlastRadius is reused for measure() so the code-target oracle is
- * scoped to the diff; the e2e oracle ignores it.
+ * The same BlastRadius is reused for measure().
  * The structural signal is advisory only; a throw degrades to "" and never aborts.
  * It is queried against the classify-source repo so a cross-repo BlastRadius hits
  * the matching graph.

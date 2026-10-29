@@ -222,8 +222,8 @@ describe("seam-parity: COMPOSITION (EngineRootDeps vs buildEngineRootDeps)", () 
     testIdAttribute: "supplied ONLY when app.e2e?.testIdAttribute is present (asserted below as a present-when-given case) — deliberately NO 'data-testid' default applied here (the seed playwright.config.ts already defaults it); legitimately absent when the app declares none.",
     readSpecSource: "DELIBERATELY absent — the shell passes no spec reader. The composition root defaults to the confined reader (asserted below by reading real specs through the wired the authoring port), so FixLoop's Lever-2 selector-contradiction check still receives specSources on the real production path, and a path the agent reported is never read by a bare fs call that follows a symlink out of the spec directory.",
     stepLimitFor: "supplied ONLY when the host wires getAgentFacade: the per-run memo over the live runtime's step limits (asserted below as a present-when-given case that reaches the generation and review inputs). Legitimately absent when the host wires none: absent means no prompt of the run states a step limit, never a stand-in number.",
-    setupCollaborators: "IS supplied (e2e + code) — asserted below as a present case; listed here only because this describe-block enumerates the type's full optional-field set before splitting into present/allowlisted.",
-    cleanupCollaborators: "IS supplied (e2e only, matching engine-root.ts's own `!cfg.isCode` gate) — asserted below as a present case.",
+    setupCollaborators: "IS supplied — asserted below as a present case; listed here only because this describe-block enumerates the type's full optional-field set before splitting into present/allowlisted.",
+    cleanupCollaborators: "IS supplied — asserted below as a present case.",
     groundingCollaborators: "IS supplied ({} — resolves to the real production default per this factory's own header) — asserted below as a present case.",
     reviewDomGroundingCollaborators: "IS supplied ({}) — asserted below as a present case.",
     serviceTopology: "supplied ONLY when app.services?.length && app.boundaries?.length are both present (asserted below as a present-when-given case, ADR-6) — legitimately absent for single-repo apps or apps that never declared a cross-service boundary profile. Mirrors the 'observer' precedent immediately below: supplied only when the caller/config provides it.",
@@ -308,8 +308,8 @@ describe("seam-parity: COMPOSITION (EngineRootDeps vs buildEngineRootDeps)", () 
 
     /* Non-optional fields — every one MUST be present (undefined fails these asserts loudly). */
     const nonOptional: Array<keyof typeof cfg> = [
-      "repo", "appName", "mirrorDir", "e2eRelDir", "branch", "target", "mode", "needsReview",
-      "shadow", "onFailure", "maxRetries", "isCode", "coveragePolicyMode", "vcs", "generationUseCase",
+      "repo", "appName", "mirrorDir", "e2eRelDir", "branch", "mode", "needsReview",
+      "shadow", "onFailure", "maxRetries", "coveragePolicyMode", "vcs", "generationUseCase",
       "reviewRuntime", "validationStrategies", "executionStrategies", "objectiveSignal", "coveragePolicy",
       "githubPr", "githubIssue", "checkout",
     ];
@@ -321,7 +321,7 @@ describe("seam-parity: COMPOSITION (EngineRootDeps vs buildEngineRootDeps)", () 
     assert.equal(cfg.guidance, S("run.guidance"), `guidance dropped at ${dyingLayer}`);
     assert.equal(cfg.baseUrl, S("app.dev.baseUrl"), `baseUrl dropped at ${dyingLayer} (the CRITICAL live-crash fix this fn's own header documents)`);
     assert.equal(cfg.testIdAttribute, S("app.e2e.testIdAttribute"), `testIdAttribute dropped at ${dyingLayer} (worst leak in audit-2026-07-flaky-selector-leaks)`);
-    assert.ok(cfg.setupCollaborators?.e2e && cfg.setupCollaborators?.code, `setupCollaborators dropped at ${dyingLayer}`);
+    assert.ok(cfg.setupCollaborators?.e2e, `setupCollaborators dropped at ${dyingLayer}`);
     assert.ok(cfg.cleanupCollaborators?.e2e, `cleanupCollaborators dropped at ${dyingLayer}`);
     assert.notEqual(cfg.groundingCollaborators, undefined, `groundingCollaborators dropped at ${dyingLayer}`);
     assert.notEqual(cfg.reviewDomGroundingCollaborators, undefined, `reviewDomGroundingCollaborators dropped at ${dyingLayer}`);
@@ -574,7 +574,7 @@ describe("seam-parity: COMPOSITION (EngineRootDeps vs buildEngineRootDeps)", () 
     }
   });
 
-  test("buildEngineRootDeps throws when an e2e-target app omits dev.baseUrl (composition-time guard)", () => {
+  test("buildEngineRootDeps throws when an app omits dev.baseUrl (composition-time guard)", () => {
     assert.throws(
       () => buildEngineRootDeps(
         fakeAppConfig({ dev: undefined } as Partial<AppConfig>),
@@ -582,7 +582,7 @@ describe("seam-parity: COMPOSITION (EngineRootDeps vs buildEngineRootDeps)", () 
         S("namespace"),
         { mode: "diff" },
       ),
-      /target "e2e" but no dev\.baseUrl/,
+      /has no dev\.baseUrl configured/,
     );
   });
 });

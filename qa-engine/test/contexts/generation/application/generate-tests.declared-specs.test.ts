@@ -3,10 +3,8 @@ import assert from "node:assert/strict";
 import { GenerateTestsUseCase, type AuthoringPorts, type GenerationResult } from "@contexts/generation/application/generate-tests.use-case.ts";
 import type { GeneratorDeliverable } from "@contexts/generation/domain/manifest-repository.ts";
 import type { ManifestEntry } from "@kernel/manifest/manifest-entry.ts";
-import type { OpencodeRunInput } from "@contexts/generation/domain/opencode-run-input.ts";
 
 interface Options {
-  target?: OpencodeRunInput["target"];
   /** What the manifest keeps of the entries it is given; absent keeps them all. */
   reconcile?: (entries: ManifestEntry[]) => ManifestEntry[];
 }
@@ -36,7 +34,6 @@ function generate(deliverable: GeneratorDeliverable, options: Options = {}): Pro
     mirrorDir: "/m",
     e2eRelDir: "e2e",
     namespace: "ns",
-    target: options.target ?? "e2e",
     mode: "diff",
     appName: "a",
   });

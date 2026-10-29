@@ -1,4 +1,4 @@
-/* The coverage dumps and the native reports are written by a run of the tests, which executes code the agent wrote, and read back by the orchestrator: the agent can leave a named pipe, a link or a file of any size where one is expected. A reader that waited on the pipe would hold the whole orchestrator, one that followed the link would read, and put in the coverage signal, a file outside the mirror, and one that read the file whole would fill its memory. The readers go through the strict read of spec-path-confinement under a cap. A set of dumps, or of reports, is used whole or not at all: when any file of it cannot be used (refused, over a cap, unreadable, not what it should be), or the directory holds more entries than the reader looks at, none of it is used and the line that says so quotes nothing of it, because the coverage of the rest is a ratio the run never made, lower than the real one, and under enforce it would block a valid change. No dump is no measurement, which is "unknown", and unknown never blocks. Every case runs against real files, links and pipes under os.tmpdir(); the pipe cases run under the watch of test/support/named-pipe-watch.ts. */
+/* The coverage dumps are written by a run of the tests, which executes code the agent wrote, and read back by the orchestrator: the agent can leave a named pipe, a link or a file of any size where one is expected. A reader that waited on the pipe would hold the whole orchestrator, one that followed the link would read, and put in the coverage signal, a file outside the mirror, and one that read the file whole would fill its memory. The reader goes through the strict read of spec-path-confinement under a cap. A set of dumps is used whole or not at all: when any file of it cannot be used (refused, over a cap, unreadable, not what it should be), or the directory holds more entries than the reader looks at, none of it is used and the line that says so quotes nothing of it, because the coverage of the rest is a ratio the run never made, lower than the real one, and under enforce it would block a valid change. No dump is no measurement, which is "unknown", and unknown never blocks. Every case runs against real files, links and pipes under os.tmpdir(); the pipe cases run under the watch of test/support/named-pipe-watch.ts. */
 import { test, mock } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
@@ -7,9 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { MAX_V8_DUMP_BYTES, MAX_V8_DUMP_FILES, MAX_V8_DUMPS_TOTAL_BYTES } from "@contexts/objective-signal/domain/dump-sanitizers.ts";
 import {
-  MAX_COVERAGE_REPORT_BYTES,
   V8_DECODE_BUDGET_MS,
-  readNativeReports,
   readV8Coverage,
 } from "@contexts/objective-signal/infrastructure/coverage-dump-reader.ts";
 import { makeTargetCoverageCollector } from "@contexts/objective-signal/infrastructure/target-coverage-collector.ts";
@@ -30,7 +28,7 @@ const DUMP_TEXT = JSON.stringify([ENTRY]);
 const CHANGED = ["src/svc.ts"];
 const readV8Dumps = (e2e: string, namespace: string, limits?: Parameters<typeof readV8Coverage>[3]) => readV8Coverage(e2e, namespace, CHANGED, limits);
 
-/* <tmp>/e2e is where the tests ran (and the repository, for a code run); <tmp>/outside is what no read may reach. */
+/* <tmp>/e2e is where the tests ran; <tmp>/outside is what no read may reach. */
 interface Run {
   e2e: string;
   outside: string;
@@ -464,164 +462,6 @@ test("the limits on the dumps of a run keep a freeze to some seconds: the time t
   assert.ok(MAX_V8_DUMP_BYTES >= largestMeasured * 1.5 && MAX_V8_DUMP_BYTES <= 96 * MIB, `${MAX_V8_DUMP_BYTES} bytes`);
   /* The budget of a run's dumps together holds some forty of the largest measured, and the clock is what bounds the time they may take: a page of an unminified build is tens of megabytes, so the bytes a run may leave are counted in dumps of that size, not in the smallest ones. */
   assert.ok(MAX_V8_DUMPS_TOTAL_BYTES >= 20 * largestMeasured && MAX_V8_DUMPS_TOTAL_BYTES <= 1024 * MIB, `${MAX_V8_DUMPS_TOTAL_BYTES} bytes`);
-  assert.ok(MAX_COVERAGE_REPORT_BYTES <= 32 * MIB, `${MAX_COVERAGE_REPORT_BYTES} bytes`);
-});
-
-/* ── the native reports ────────────────────────────────────────────────────────────────────────── */
-
-type ReportReader = (repoDir: string) => Promise<Array<{ path: string }>>;
-
-/* The reports of one kind, as a run reads them: all the kinds a run can leave together. */
-const reportsOf = (kind: "lcov" | "istanbul" | "jacoco"): ReportReader => async (repoDir) => (await readNativeReports(repoDir))[kind];
-
-/* The reports a repository's tooling leaves, in the order a reader tries them. */
-const REPORTS: ReadonlyArray<{ reader: string; read: ReportReader; candidates: readonly [string, ...string[]]; text: string }> = [
-  { reader: "lcov", read: reportsOf("lcov"), candidates: ["coverage/lcov.info", "lcov.info", "coverage/lcov/lcov.info"], text: "SF:src/a.ts\nDA:1,1\nend_of_record\n" },
-  { reader: "istanbul", read: reportsOf("istanbul"), candidates: ["coverage/coverage-final.json"], text: JSON.stringify({ "/repo/src/a.ts": { path: "/repo/src/a.ts" } }) },
-  { reader: "jacoco", read: reportsOf("jacoco"), candidates: ["target/site/jacoco/jacoco.xml", "build/reports/jacoco/test/jacocoTestReport.xml", "target/jacoco.xml"], text: "<report></report>" },
-];
-
-for (const { reader, read, candidates, text } of REPORTS) {
-  const first = candidates[0];
-  const plant = (repo: string, rel: string, content: string): string => {
-    const path = join(repo, ...rel.split("/"));
-    mkdirSync(join(path, ".."), { recursive: true });
-    writeFileSync(path, content);
-    return path;
-  };
-
-  test(`${reader}: a report that is a named pipe yields nothing and is not waited on, said aloud`, { skip: NO_NAMED_PIPES }, async () => {
-    await withRun(async (r) => {
-      mkdirSync(join(r.e2e, first, ".."), { recursive: true });
-      execFileSync("mkfifo", [join(r.e2e, first)]);
-
-      const { value, warnings } = await withoutWaitingOnNamedPipe(join(r.e2e, first), () => capturing(() => read(r.e2e)));
-
-      assert.deepEqual(value, []);
-      assert.ok(warnings.some((w) => w.includes(first)), JSON.stringify(warnings));
-    });
-  });
-
-  test(`${reader}: a report that is a link yields nothing, whatever it points at, and nothing of the file behind it is quoted`, async () => {
-    await withRun(async (r) => {
-      writeFileSync(join(r.outside, "secret.txt"), `${SECRET_MARK}=hunter2`);
-      mkdirSync(join(r.e2e, first, ".."), { recursive: true });
-      symlinkSync(join(r.outside, "secret.txt"), join(r.e2e, first));
-
-      const { value, warnings } = await capturing(() => read(r.e2e));
-
-      assert.deepEqual(value, [], "the file outside the mirror is not in the signal");
-      assert.ok(warnings.some((w) => w.includes(first)), JSON.stringify(warnings));
-      assert.ok(!warnings.join("\n").includes(SECRET_MARK) && !warnings.join("\n").includes("hunter2"));
-    });
-  });
-
-  test(`${reader}: a directory in its place yields nothing and does not throw, which the reader's header promises`, async () => {
-    await withRun(async (r) => {
-      mkdirSync(join(r.e2e, first), { recursive: true });
-
-      const { value, warnings } = await capturing(() => read(r.e2e));
-
-      assert.deepEqual(value, []);
-      assert.ok(warnings.some((w) => w.includes(first)), JSON.stringify(warnings));
-    });
-  });
-
-  test(`${reader}: a directory above the report that is a link yields nothing, said aloud`, async () => {
-    const parent = first.split("/")[0]!;
-    await withRun(async (r) => {
-      plant(join(r.outside, "real"), first, text);
-      symlinkSync(join(r.outside, "real", parent), join(r.e2e, parent));
-
-      const { value, warnings } = await capturing(() => read(r.e2e));
-
-      assert.deepEqual(value, []);
-      assert.ok(warnings.some((w) => w.includes(first)), JSON.stringify(warnings));
-    });
-  });
-
-  test(`${reader}: a report is read whole, and one of more than the cap is left out, said aloud`, async () => {
-    await withRun(async (r) => {
-      const path = plant(r.e2e, first, text);
-
-      const small = await capturing(() => read(r.e2e));
-      assert.equal(small.value.length, 1);
-      assert.equal(small.value[0]!.path, path);
-      assert.deepEqual(small.warnings, []);
-
-      /* The same report padded with whitespace, which every format reads past: nothing but its size can keep it from being read. */
-      writeFileSync(path, text + " ".repeat(MAX_COVERAGE_REPORT_BYTES + 1 - text.length));
-      const over = await capturing(() => read(r.e2e));
-      assert.deepEqual(over.value, [], "one byte over the cap");
-      assert.ok(over.warnings.some((w) => w.includes(first)), JSON.stringify(over.warnings));
-    });
-  });
-
-  if (candidates.length > 1) {
-    test(`${reader}: the first report that is there decides: one it cannot use is not made up for by another further down the list`, async () => {
-      await withRun(async (r) => {
-        mkdirSync(join(r.e2e, first), { recursive: true });
-        plant(r.e2e, candidates[1]!, text);
-
-        const { value } = await capturing(() => read(r.e2e));
-
-        assert.deepEqual(value, [], "the report that was found and refused is the answer: nothing measured");
-      });
-    });
-  }
-
-  test(`${reader}: a report that cannot be read yields nothing, said aloud by the failure's code`, { skip: NO_MODE_RESTRICTIONS }, async () => {
-    await withRun(async (r) => {
-      const path = plant(r.e2e, first, text);
-      chmodSync(path, 0o000);
-      try {
-        const { value, warnings } = await capturing(() => read(r.e2e));
-
-        assert.deepEqual(value, []);
-        assert.ok(warnings.some((w) => w.includes(first) && w.includes("EACCES")), JSON.stringify(warnings));
-      } finally {
-        chmodSync(path, 0o644);
-      }
-    });
-  });
-}
-
-test("lcov: a report of exactly the cap is read, as the text it holds", async () => {
-  await withRun(async (r) => {
-    mkdirSync(join(r.e2e, "coverage"));
-    sparse(join(r.e2e, "coverage", "lcov.info"), MAX_COVERAGE_REPORT_BYTES);
-
-    const { value } = await capturing(() => readNativeReports(r.e2e));
-
-    assert.equal(value.lcov.length, 1);
-    assert.equal(value.lcov[0]!.text.length, MAX_COVERAGE_REPORT_BYTES);
-  });
-});
-
-/* One report of each kind a run can leave, each of which says something different about the change. */
-const LCOV_REPORT = "SF:src/checkout.ts\nDA:1,1\nDA:2,0\nend_of_record\n";
-const JACOCO_REPORT = '<package name="src"><sourcefile name="Other.java"><line nr="5" ci="1"/></sourcefile></package>';
-
-test("the reports of a run are used whole or not at all: one that cannot be used leaves the reports of every other kind unused", async () => {
-  await withRun(async (r) => {
-    const plant = (rel: string, content: string): void => {
-      mkdirSync(join(r.e2e, rel, ".."), { recursive: true });
-      writeFileSync(join(r.e2e, rel), content);
-    };
-    plant("coverage/lcov.info", LCOV_REPORT);
-    plant("target/site/jacoco/jacoco.xml", JACOCO_REPORT);
-    const whole = await capturing(() => readNativeReports(r.e2e));
-
-    plant("coverage/coverage-final.json", `${SECRET_MARK}=hunter2 { not json`);
-    const partial = await capturing(() => readNativeReports(r.e2e));
-
-    assert.deepEqual([whole.value.lcov.length, whole.value.istanbul.length, whole.value.jacoco.length], [1, 0, 1]);
-    assert.deepEqual(whole.warnings, []);
-    assert.deepEqual(partial.value, { lcov: [], istanbul: [], jacoco: [] }, "the lcov and the JaCoCo reports are not used beside an Istanbul report that cannot be");
-    assert.equal(partial.warnings.length, 1);
-    assert.ok(partial.warnings[0]!.includes("coverage-final.json"), "the warning names the report");
-    assert.ok(!partial.warnings[0]!.includes(SECRET_MARK) && !partial.warnings[0]!.includes("hunter2"), "and quotes nothing of it");
-  });
 });
 
 /* ── what it comes to for the change-coverage signal ───────────────────────────────────────────── */
@@ -634,7 +474,7 @@ const HALF_COVERING_DUMP = JSON.stringify([{ url: "https://dev/src/checkout.ts",
 
 /* The signal as the run builds it: the real collector over the real readers, the real assembler and the real decision, under a policy that blocks. */
 async function measureChangeCoverage(e2e: string, mode: "signal" | "enforce"): Promise<{ status: string; blocked: boolean }> {
-  const collector = makeTargetCoverageCollector({ target: "e2e", repoDir: e2e, e2eDir: e2e, changedFiles: [] });
+  const collector = makeTargetCoverageCollector([]);
   const port = new ObjectiveSignalPortAdapter(
     { collector, decide: new DecideCoverageService(), oracle: new NullValueOracleAdapter() },
     { policy: { mode, minRatio: 0.7 }, repoDir: e2e, assembleChangeCoverage, namespace: NS },
@@ -736,76 +576,5 @@ test("a dump that is a named pipe next to a dump that blocks under enforce leave
     const { value } = await withoutWaitingOnNamedPipe(join(dumpDirOf(r.e2e), "b-planted.json"), () => capturing(() => measureChangeCoverage(r.e2e, "enforce")));
 
     assert.deepEqual(value, { status: "unknown", blocked: false });
-  });
-});
-
-/* The same signal for a code run: the real collector over the reports the tooling leaves in the repository. */
-async function measureCodeChangeCoverage(repo: string, mode: "signal" | "enforce"): Promise<{ status: string; blocked: boolean }> {
-  const collector = makeTargetCoverageCollector({ target: "code", repoDir: repo, e2eDir: repo, changedFiles: ["src/checkout.ts"] });
-  const port = new ObjectiveSignalPortAdapter(
-    { collector, decide: new DecideCoverageService(), oracle: new NullValueOracleAdapter() },
-    { policy: { mode, minRatio: 0.7 }, repoDir: repo, assembleChangeCoverage, namespace: NS },
-  );
-  const result = await port.measure(BlastRadius.of(Sha.of("abc1234"), ["src/checkout.ts"]), repo, CHANGED_DIFF);
-  return { status: result.status, blocked: port.blocks(result.status) };
-}
-
-/* The ways a report is left out, each planted beside the lcov report that alone covers half of the change and so alone blocks under enforce. */
-const REPORTS_LEFT_OUT: ReadonlyArray<{ what: string; plant: (r: Run) => void }> = [
-  {
-    what: "a JaCoCo report over the cap",
-    plant: (r) => {
-      mkdirSync(join(r.e2e, "target", "site", "jacoco"), { recursive: true });
-      sparse(join(r.e2e, "target", "site", "jacoco", "jacoco.xml"), MAX_COVERAGE_REPORT_BYTES + 1);
-    },
-  },
-  { what: "an Istanbul report that is not JSON", plant: (r) => writeFileSync(join(r.e2e, "coverage", "coverage-final.json"), "{ not json") },
-  {
-    what: "a JaCoCo report that is a link",
-    plant: (r) => {
-      mkdirSync(join(r.e2e, "target", "site", "jacoco"), { recursive: true });
-      writeFileSync(join(r.outside, "jacoco.xml"), JACOCO_REPORT);
-      symlinkSync(join(r.outside, "jacoco.xml"), join(r.e2e, "target", "site", "jacoco", "jacoco.xml"));
-    },
-  },
-];
-
-for (const { what, plant } of REPORTS_LEFT_OUT) {
-  test(`${what} next to an lcov report that blocks under enforce leaves the change coverage of a code run unknown, not a failure`, async () => {
-    await withRun(async (r) => {
-      mkdirSync(join(r.e2e, "coverage"), { recursive: true });
-      writeFileSync(join(r.e2e, "coverage", "lcov.info"), LCOV_REPORT);
-      const alone = await capturing(() => measureCodeChangeCoverage(r.e2e, "enforce"));
-
-      plant(r);
-      const beside = await capturing(() => measureCodeChangeCoverage(r.e2e, "enforce"));
-
-      assert.deepEqual(alone.value, { status: "fail", blocked: true }, "the control: the lcov report alone blocks");
-      assert.deepEqual(beside.value, { status: "unknown", blocked: false });
-    });
-  });
-}
-
-test("an lcov report over the cap leaves the change coverage of a code run unknown, which never blocks, even under enforce", async () => {
-  await withRun(async (r) => {
-    mkdirSync(join(r.e2e, "coverage"), { recursive: true });
-    sparse(join(r.e2e, "coverage", "lcov.info"), MAX_COVERAGE_REPORT_BYTES + 1);
-
-    const { value } = await capturing(() => measureCodeChangeCoverage(r.e2e, "enforce"));
-
-    assert.deepEqual(value, { status: "unknown", blocked: false });
-  });
-});
-
-test("istanbul: a report that is not JSON yields nothing, said aloud, and nothing of it is quoted", async () => {
-  await withRun(async (r) => {
-    mkdirSync(join(r.e2e, "coverage"));
-    writeFileSync(join(r.e2e, "coverage", "coverage-final.json"), `${SECRET_MARK}=hunter2 { not json`);
-
-    const { value, warnings } = await capturing(() => readNativeReports(r.e2e));
-
-    assert.deepEqual(value.istanbul, []);
-    assert.ok(warnings.some((w) => w.includes("coverage-final.json")), JSON.stringify(warnings));
-    assert.ok(!warnings.join("\n").includes(SECRET_MARK) && !warnings.join("\n").includes("hunter2"));
   });
 });

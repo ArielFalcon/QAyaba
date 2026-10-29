@@ -93,7 +93,7 @@ module.exports = {
     {
       name: "no-child-process-outside-launchers",
       severity: "error",
-      comment: "Every child process that runs code an agent influenced (a spec, a login script, the e2e project's tsc/eslint/--list and installs, the watched repo's own test command) starts through the execution launcher, which owns the sandbox uid, the profile's environment, the work directory and the egress lease. A module that imports child_process can start a child as the orchestrator, with its environment and its network, so the allowlist is the launcher, the generic runner for trusted binaries (git), the git hardening, and the privilege-drop module (chown), the iptables applier of the egress filter, and, in the shell, the mirror's git runner, the engine factory's hardened git calls and the boot probe that runs as the sandbox uid. Type-only imports (ChildProcess) are not a way to start anything, and the shell's test files are not production code.",
+      comment: "Every child process that runs code an agent influenced (a spec, a login script, the e2e project's tsc/eslint/--list and installs) starts through the execution launcher, which owns the sandbox uid, the profile's environment, the work directory and the egress lease. A module that imports child_process can start a child as the orchestrator, with its environment and its network, so the allowlist is the launcher, the generic runner for trusted binaries (git), the git hardening, and the privilege-drop module (chown), the iptables applier of the egress filter, and, in the shell, the mirror's git runner, the engine factory's hardened git calls and the boot probe that runs as the sandbox uid. Type-only imports (ChildProcess) are not a way to start anything, and the shell's test files are not production code.",
       from: {
         path: "^(qa-engine/src|src)/",
         pathNot: [
@@ -102,7 +102,6 @@ module.exports = {
           "^qa-engine/src/shared-infrastructure/process-sandbox/git-hardening\\.ts$",
           "^qa-engine/src/shared-infrastructure/process-sandbox/sandbox\\.ts$",
           "^qa-engine/src/shared-infrastructure/egress/iptables-runner\\.ts$",
-          "^qa-engine/src/contexts/test-execution/infrastructure/code-execution\\.runner\\.ts$",
           "^src/integrations/repo-mirror\\.ts$",
           "^src/server/run-engine-factory\\.ts$",
           "^src/server/file-boundary-check\\.ts$",

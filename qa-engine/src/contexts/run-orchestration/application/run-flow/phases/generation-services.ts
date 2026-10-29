@@ -75,9 +75,9 @@ export async function closedLoopSignal(state: Readonly<RunState>, ctx: Workspace
 
 /* One regeneration by a fresh author sidekick over what the run has delivered so far; what it delivers joins that. */
 export async function regenerateByAuthor(state: Readonly<RunState>, ctx: WorkspaceRunContext, regenerationSignal: AbortSignal | undefined, enrichment: GenerationEnrichment): Promise<GenerationOutput> {
-  const { deps, workspace, cfg } = ctx;
+  const { deps, workspace } = ctx;
   const regenerated = await afterGeneration(ctx, await dispatchAuthor(deps.generation, {
-    target: authorTargetOf({ isCode: cfg.isCode, mode: ctx.input.mode }),
+    target: authorTargetOf({ mode: ctx.input.mode }),
     specDir: workspace.specDir,
     ...(regenerationSignal ? { signal: regenerationSignal } : {}),
     diff: state.classification.diff,

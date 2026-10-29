@@ -264,7 +264,6 @@ export async function runFixLoop(state: Readonly<RunState>, ctx: WorkspaceRunCon
   const specShaBefore = specSetDigest((file) => ctx.services.specFiles.read(fixLoopSpecRoot, file), initialRun.cases.map((c) => c.file).filter((f): f is string => !!f));
   const loopInput: FixLoopInput = {
     initialRun: { verdict: initialRun.verdict, cases: initialRun.cases },
-    isCode: cfg.isCode,
     generating,
     mode: input.mode,
     objectiveSource,

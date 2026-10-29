@@ -1,8 +1,7 @@
 # Lead and sidekicks
 
 How every e2e run generates: the lead plans a change's independent flows and sidekicks author them in
-parallel, each closing its own `run_spec` loop. There is no other way a run generates and nothing to turn on. Everything after generation (validation, execution, change-coverage, review, decide) is unchanged. A code run,
-a context run and a login still to be written do not coordinate: one author sidekick (`qa-author`) writes them in the run's working copy, with no plan and no `run_spec` budget, and the same author sidekick serves every correction and regeneration the run asks for after the first pass. When the plan is not admitted as a fan-out, no sidekick
+parallel, each closing its own `run_spec` loop. There is no other way a run generates and nothing to turn on. Everything after generation (validation, execution, change-coverage, review, decide) is unchanged. A context run and a login still to be written do not coordinate: one author sidekick (`qa-author`) writes them in the run's working copy, with no plan and no `run_spec` budget, and the same author sidekick serves every correction and regeneration the run asks for after the first pass. When the plan is not admitted as a fan-out, no sidekick
 can author, there is no time, or the coordination fails, the run ends `infra-error` `E-NO-AUTHOR`: the lead never writes the tests in the author's place. The reason code
 (`no-coordinator`, `coordination-failed`, `cannot-plan`, `no-author-grant`, `no-time`, `plan-timed-out`, `plan-rejected:<reason>`) is recorded in
 `gateSignals.coordination` (`refusal`) and in the probe report's "Coordination" section.

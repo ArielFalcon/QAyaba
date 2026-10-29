@@ -59,7 +59,7 @@ function rig(opts: { openThrows?: boolean; generateThrows?: boolean; closeThrows
           return handle;
         },
       },
-      config: { needsReview: true, shadow: false, onFailure: "github-issue", maxRetries: 2, isCode: false },
+      config: { needsReview: true, shadow: false, onFailure: "github-issue", maxRetries: 2, },
       ...rest,
     };
   };

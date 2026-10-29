@@ -9,8 +9,8 @@ const app = (over: Record<string, unknown> = {}, qa: Record<string, unknown> = {
 const env: RunConfigEnvironment = { runtime: () => null, staticPromptHash: () => null, toolsGranted: true, reflectorEnabled: false, campaignFrozen: false, maxCapture: "metadata" };
 
 test("the tools apply to a run of an app with a DEV address, and to nothing else", () => {
-  assert.equal(toolsApply("e2e", app()), true);
-  assert.equal(toolsApply("e2e", app({ dev: undefined })), false);
+  assert.equal(toolsApply(app()), true);
+  assert.equal(toolsApply(app({ dev: undefined })), false);
 });
 
 test("the run_spec loop and the authenticated browser are on for every app unless the app turns them off", () => {
@@ -20,9 +20,9 @@ test("the run_spec loop and the authenticated browser are on for every app unles
   assert.equal(agentBrowserEnabled(app({}, { agentBrowser: { denyRoutes: ["/admin/**"] } })), true);
   assert.equal(closedLoopEnabled(app({}, { closedLoop: { enabled: false } })), false);
   assert.equal(agentBrowserEnabled(app({}, { agentBrowser: { enabled: false } })), false);
-  const silent = resolveRunConfig(app(), "e2e", {}, "metadata", env).levers;
+  const silent = resolveRunConfig(app(), {}, "metadata", env).levers;
   assert.deepEqual([silent.closedLoop, silent.agentBrowser], [true, true]);
-  const optedOut = resolveRunConfig(app({}, { closedLoop: { enabled: false }, agentBrowser: { enabled: false } }), "e2e", {}, "metadata", env).levers;
+  const optedOut = resolveRunConfig(app({}, { closedLoop: { enabled: false }, agentBrowser: { enabled: false } }), {}, "metadata", env).levers;
   assert.deepEqual([optedOut.closedLoop, optedOut.agentBrowser], [false, false]);
 });
 
@@ -37,8 +37,8 @@ test("effectiveConfig reports exactly what the predicates wire, for every combin
   for (const dev of [true, false]) {
     for (const boundaries of [true, false]) {
       const a = app({ ...(dev ? {} : { dev: undefined }), services: [{ repo: "o/s" }], ...(boundaries ? { boundaries: [{}] } : {}) });
-      const c = resolveRunConfig(a, "e2e", { closedLoop: true, agentBrowser: true }, "metadata", env);
-      assert.equal(c.levers.closedLoop !== null, toolsApply("e2e", a));
+      const c = resolveRunConfig(a, { closedLoop: true, agentBrowser: true }, "metadata", env);
+      assert.equal(c.levers.closedLoop !== null, toolsApply(a));
       assert.equal(c.grounding.stitcher !== null, serviceTopologyWired(a));
     }
   }

@@ -78,7 +78,7 @@ function rig(opts: { openThrows?: boolean; executeThrows?: boolean; generateThro
       },
     },
     agentBrowser: { open: async (input) => { browserOpens.push(input); return undefined; } },
-    config: { needsReview: true, shadow: false, onFailure: "github-issue", maxRetries: 2, isCode: false },
+    config: { needsReview: true, shadow: false, onFailure: "github-issue", maxRetries: 2, },
     ...rest,
     };
   };

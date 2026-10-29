@@ -11,7 +11,6 @@
 import { createHash } from "node:crypto";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import type { TestTarget } from "@kernel/run-mode";
 import { isCaptureMode, type CaptureMode } from "@kernel/telemetry/capture-mode";
 import { agentBrowserEnabled, closedLoopEnabled, serviceTopologyWired, toolsApply } from "./run-config-gates";
 import type { AppConfig } from "../orchestrator/config-loader";
@@ -46,9 +45,9 @@ export interface RunConfigRequest {
 const DEFAULT_COVERAGE_MODE = "signal";
 const DEFAULT_COVERAGE_MIN_RATIO = 0.7;
 
-export function resolveRunConfig(app: AppConfig, target: TestTarget, request: RunConfigRequest, captureMode: CaptureMode, env: RunConfigEnvironment): StoredRunConfig {
+export function resolveRunConfig(app: AppConfig, request: RunConfigRequest, captureMode: CaptureMode, env: RunConfigEnvironment): StoredRunConfig {
   /* Same predicates as the engine factory's wiring (run-config-gates.ts). The tools also need the service token; otherwise the lever cannot take effect, whatever was asked. */
-  const tools = toolsApply(target, app);
+  const tools = toolsApply(app);
   const closedLoopAsked = request.closedLoop ?? closedLoopEnabled(app);
   const agentBrowserAsked = request.agentBrowser ?? agentBrowserEnabled(app);
   const stitched = serviceTopologyWired(app);

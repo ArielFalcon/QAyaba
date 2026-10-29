@@ -56,7 +56,6 @@ export interface PromptContext {
   /* The role the prompt is for: the lead on a planning turn, the author on any other. */
   readonly promptRole: "lead" | "author";
   readonly isGenerationMode: boolean;
-  readonly isCode: boolean;
   /* A re-generation turn (fix / reviewer-corrections / coverage-gap) has already distilled the blast radius — it must not trace it again or re-skim the repo. */
   readonly isReGen: boolean;
   readonly openapiHint: string | undefined;
@@ -93,7 +92,6 @@ export interface PromptContext {
 export function derivePromptContext(input: OpencodeRunInput, opts: BuildPromptAssembledOpts = {}): PromptContext {
   const isGenerationMode = input.mode !== "context";
   const openapiHint = Array.isArray(input.openapi) ? input.openapi.join(", ") : input.openapi;
-  const isCode = false;
   const isReGen = isGenerationMode && isReGenTurn(input);
 
   const sanitizedDomSnapshot = input.domSnapshot ? sanitizeText(input.domSnapshot, "model").text : undefined;
@@ -137,7 +135,7 @@ export function derivePromptContext(input: OpencodeRunInput, opts: BuildPromptAs
   );
   const listingContent = renderSuiteListing(listing);
   /* Only a signal that names symbols is an explored blast radius. One of co-change files alone says which files tend to move together, so it claims nothing explored; a signal that arrives without the flag cannot prove it names symbols and is read the same way. */
-  const planningTurn = isGenerationMode && input.target === "e2e" && Boolean(input.planning) && !isReGen;
+  const planningTurn = isGenerationMode && Boolean(input.planning) && !isReGen;
   const promptRole = planningTurn ? "lead" : "author";
   const planDiffSection = planningTurn && input.mode === "diff" ? new PlanDiffSection(planDiff(input.diff, input.planning?.candidates ?? [], { decisionRank: decisionRankOf(input.planning?.decisions ?? []) })) : undefined;
   const staticSignalHasSymbols = Boolean(input.staticSignal && isGenerationMode) && input.staticSignalHasSymbols === true;
@@ -146,7 +144,6 @@ export function derivePromptContext(input: OpencodeRunInput, opts: BuildPromptAs
     input,
     promptRole,
     isGenerationMode,
-    isCode,
     isReGen,
     openapiHint,
     sanitizedDomSnapshot,

@@ -1,4 +1,4 @@
-/* What a prompt says about the artifacts it carries matches what it carries: the pack is described by the sections it holds, and a code run is never sent to a browser. Asserted on the sections present and on tool identifiers, not on wording. */
+/* What a prompt says about the artifacts it carries matches what it carries: the pack is described by the sections it holds. Asserted on the sections present and on tool identifiers, not on wording. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
@@ -24,7 +24,6 @@ function mkInput(overrides: Partial<OpencodeRunInput> = {}): OpencodeRunInput {
     mirrorDir: "/mirrors/org__app",
     e2eRelDir: "e2e",
     namespace: "qa-bot-abc1234",
-    target: "e2e",
     mode: "diff",
     appName: "shop",
     baseUrl: "http://localhost:3000",

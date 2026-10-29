@@ -61,12 +61,11 @@ export interface RunEgressOrigins {
 
 const unique = (origins: readonly string[]): string[] => [...new Set(origins)];
 
-/* What a run's children may reach: a suite or a login reaches the app's own origin and the origins it declares; an install reaches the registries its target needs and the app's own extra ones. A code-mode app has no DEV site. */
-export function resolveRunOrigins(app: Pick<AppConfig, "dev" | "egress">, target: "e2e" | "code", registries: RegistryGroups): RunEgressOrigins {
+/* What a run's children may reach: a suite or a login reaches the app's own origin and the origins it declares; an install reaches the npm registries and the app's own extra ones. */
+export function resolveRunOrigins(app: Pick<AppConfig, "dev" | "egress">, registries: RegistryGroups): RunEgressOrigins {
   const own = app.dev?.baseUrl ? originOf(app.dev.baseUrl) : undefined;
-  const dev = target === "e2e" ? unique([...(own ? [own] : []), ...(app.dev?.allowedOrigins ?? [])]) : [];
-  const groups = target === "e2e" ? ["npm"] : Object.keys(registries);
-  const install = unique([...groups.flatMap((group) => registries[group] ?? []), ...(app.egress?.installOrigins ?? [])]);
+  const dev = unique([...(own ? [own] : []), ...(app.dev?.allowedOrigins ?? [])]);
+  const install = unique([...(registries["npm"] ?? []), ...(app.egress?.installOrigins ?? [])]);
   return { dev, install };
 }
 
@@ -108,11 +107,11 @@ export function egressGateFor(env: NodeJS.ProcessEnv, sandbox: Sandbox | null): 
 
 /* The origins an e2e run of the app would be held to, in the shape the operator scripts' scope takes: they run suites outside the queue and must be held to the same list as production, or their results would not be the pipeline's. */
 export function scriptOriginsFor(appName: string): { devOrigins: string[]; installOrigins: string[] } {
-  const origins = resolveRunOrigins(loadAppConfig(appName), "e2e", loadRegistryGroups(qayabaRoot()));
+  const origins = resolveRunOrigins(loadAppConfig(appName), loadRegistryGroups(qayabaRoot()));
   return { devOrigins: origins.dev, installOrigins: origins.install };
 }
 
 /* The registries an e2e install reaches, with no app's own: for a script step that sets a project up without knowing which app it is for. */
 export function scriptRegistryOrigins(): { installOrigins: string[] } {
-  return { installOrigins: resolveRunOrigins({}, "e2e", loadRegistryGroups(qayabaRoot())).install };
+  return { installOrigins: resolveRunOrigins({}, loadRegistryGroups(qayabaRoot())).install };
 }

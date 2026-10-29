@@ -27,7 +27,7 @@ export function resolveSandbox(
   const home = env.CODE_SANDBOX_HOME ?? "/home/sandbox";
   if (!Number.isInteger(uid) || uid <= 0 || !Number.isInteger(gid) || gid < 0) return null;
   if (!homeExists(home)) {
-    engineLog.warn(`[qa] code-mode sandbox DISABLED: home ${home} not found (image built without the sandbox user?). Untrusted code will run as the current user.`);
+    engineLog.warn(`[qa] sandbox DISABLED: home ${home} not found (image built without the sandbox user?). Untrusted code will run as the current user.`);
     return null;
   }
   return { uid, gid, home };

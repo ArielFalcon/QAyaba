@@ -7,7 +7,7 @@ const sha = "abc1234" as never;
 
 function deps(over: Partial<WorkspaceAndPublicationDeps> = {}, run: Partial<WorkspaceAndPublicationDeps["run"]> = {}): WorkspaceAndPublicationDeps {
   return {
-    run: { repo: "o/app", branch: "qa/x", target: "e2e", isCode: false, e2eRelDir: "e2e", shadow: true, ...run },
+    run: { repo: "o/app", branch: "qa/x", e2eRelDir: "e2e", shadow: true, ...run },
     checkout: async () => "/mirror",
     publication: {
       githubPr: { openPr: async () => { throw new Error("no pr in shadow"); } } as never,
@@ -46,7 +46,6 @@ test("the snapshot wrapper leaves the validation port as it is without a snapsho
   const validation = { validate: async () => ({ ok: true, errors: [], infra: false }) } as never;
   assert.equal(buildWorkspaceAndPublication(deps()).snapshotValidation(validation), validation);
   assert.notEqual(buildWorkspaceAndPublication(deps({ specSnapshots: {} as never })).snapshotValidation(validation), validation);
-  assert.equal(buildWorkspaceAndPublication(deps({ specSnapshots: {} as never }, { isCode: true })).snapshotValidation(validation), validation);
 });
 
 test("a build without the outbound sanitizer is refused", () => {

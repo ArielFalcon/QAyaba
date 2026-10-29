@@ -17,15 +17,14 @@ function recordingAuthor() {
   return { port, calls };
 }
 
-test("the run authors the repo's tests, the architecture map or specs according to its target and mode", () => {
-  assert.equal(authorTargetOf({ isCode: true, mode: "diff" }), AUTHOR_TARGET.CODE);
-  assert.equal(authorTargetOf({ isCode: false, mode: "context" }), AUTHOR_TARGET.CONTEXT);
-  assert.equal(authorTargetOf({ isCode: false, mode: "diff" }), AUTHOR_TARGET.E2E);
-  assert.equal(authorTargetOf({ isCode: false, mode: "manual" }), AUTHOR_TARGET.E2E);
+test("the run authors the architecture map or specs according to its mode", () => {
+  assert.equal(authorTargetOf({ mode: "context" }), AUTHOR_TARGET.CONTEXT);
+  assert.equal(authorTargetOf({ mode: "diff" }), AUTHOR_TARGET.E2E);
+  assert.equal(authorTargetOf({ mode: "manual" }), AUTHOR_TARGET.E2E);
 });
 
 test("every target the run authors for works in the run's working copy under the run's own deadline; a flow works in a private copy under its flow budget", () => {
-  for (const target of [AUTHOR_TARGET.E2E, AUTHOR_TARGET.CODE, AUTHOR_TARGET.CONTEXT]) {
+  for (const target of [AUTHOR_TARGET.E2E, AUTHOR_TARGET.CONTEXT]) {
     assert.deepEqual(authorTargetSpec(target), { workspace: SIDEKICK_WORKSPACE.WORKING_COPY, budget: SIDEKICK_BUDGET.RUN }, target);
   }
   assert.deepEqual(authorTargetSpec(AUTHOR_TARGET.FLOW), { workspace: SIDEKICK_WORKSPACE.ISOLATED_SPEC_FILE, budget: SIDEKICK_BUDGET.FLOW });
@@ -57,7 +56,7 @@ test("an author of the run's own authoring is told no run_spec budget: a loop be
 test("an author dispatched with no grounding is dispatched with none, and a refused target is an error", async () => {
   const { port, calls } = recordingAuthor();
 
-  await dispatchAuthor(port, { target: AUTHOR_TARGET.CODE, specDir: "/m/src" });
+  await dispatchAuthor(port, { target: AUTHOR_TARGET.CONTEXT, specDir: "/m/src" });
   assert.deepEqual(calls[0]!.enrichment, {});
 
   await assert.rejects(dispatchAuthor(port, { target: "unknown" as never, specDir: "/m/e2e" }), /no author target "unknown"/);

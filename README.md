@@ -110,16 +110,15 @@ Every run follows the same sequence, whether triggered by a webhook or manually:
 
 | Step | What happens |
 |---|---|
-| **1. Deploy gate** | Waits until DEV reports the right commit SHA and is healthy. Skipped if no health endpoint is configured, or in code mode. |
+| **1. Deploy gate** | Waits until DEV reports the right commit SHA and is healthy. Skipped if no health endpoint is configured. |
 | **2. Classification** | Reads the commit message and diff. Conventional Commits like `style:` with no logic changes are skipped before spending a single token. |
 | **3. Retrieval** | Loads learned rules, structural patterns, and proven scenario archetypes from past runs — injects them into the agent prompt. |
 | **4. Coordination** | The lead is asked for a plan of independent flows, the orchestrator admits it (or refuses the run with a recorded reason: `E-NO-AUTHOR`), and each flow is handed to an author sidekick. |
 | **5. Generation** | One author sidekick per flow, in parallel, reads the blast radius using semantic code navigation and writes tests into the repo; the lead reviews each flow and can send it back to the same sidekick or to a fresh one. |
 | **6. Static gate** | TypeScript compilation, ESLint, and Playwright's test list must pass. Invalid code is rejected before execution. |
-| **7. Execution** | Runs tests against the live DEV URL (e2e) or the repo's own test runner (code mode). Results are classified as pass, fail, or flaky. Repairs re-run inside the same fix loop, which owns retries, adjudication, and regression checks. |
-| **8. Oracle** | For code mode green runs: mutation testing via Stryker measures how many injected bugs the tests actually catch (valueScore). |
-| **9. Reflection** | On failed runs, an LLM reflects on the error and produces a preventive rule. The rule is distilled and stored for future runs. |
-| **10. Decision** | Green and approved: PR with auto-merge. Failures: GitHub Issue. Flaky: quarantined. DEV down: infrastructure error. Every coordination decision made along the way is appended to the telemetry ledger. |
+| **7. Execution** | Runs tests against the live DEV URL. Results are classified as pass, fail, or flaky. Repairs re-run inside the same fix loop, which owns retries, adjudication, and regression checks. |
+| **8. Reflection** | On failed runs, an LLM reflects on the error and produces a preventive rule. The rule is distilled and stored for future runs. |
+| **9. Decision** | Green and approved: PR with auto-merge. Failures: GitHub Issue. Flaky: quarantined. DEV down: infrastructure error. Every coordination decision made along the way is appended to the telemetry ledger. |
 
 > [!NOTE]
 > **Shadow mode** (`qa.shadow: true` in the app config) runs the full pipeline but does not publish PRs or open Issues. Use this when onboarding a repo for the first time.
@@ -168,7 +167,6 @@ Beyond deciding pass/fail, qayaba learns from every run to improve future ones:
 | Component | What it does |
 |---|---|
 | **Labeler** | Classifies every run into an error class (E-STATIC, E-EXEC-FAIL, E-FALSE-POSITIVE…) — zero LLM, purely from the gates and reviewer. |
-| **Oracle** | Measures test quality objectively. For code repos: mutation testing via Stryker — mutates source code, runs the test suite, and scores how many mutants were killed. |
 | **Reflector** | On failed runs, an LLM analyzes the error and produces a structured reflection anchored to real artifacts (assert output, uncovered lines, reviewer corrections). |
 | **Distiller** | Converts reflections into reusable rules — deduplicated, stored, and injected into future agent prompts so the same mistake isn't made twice. |
 | **Curriculum** | Tracks which scenario archetypes (invalid input, re-query-after-mutation, empty state, …) have caught real bugs. Only proven archetypes are fed to the agent. |
@@ -191,7 +189,6 @@ Or ask the TUI chat: *"¿qué reglas ha aprendido el sistema?"*
 | `complete` | Fill coverage gaps: analyzes the whole repo and tests uncovered flows |
 | `exhaustive` | Full audit: re-evaluates every existing test and regenerates the suite |
 | `manual` | Focused: generation guided by a natural language prompt |
-| `code` target | Source-code testing: runs the repo's own test suite, with mutation testing via Stryker (no browser, no DEV URL) |
 
 </details>
 
@@ -435,7 +432,7 @@ docker compose up --build
 <details>
 <summary>The execution sandbox (<code>QA_EXEC_SANDBOX</code>, <code>QA_EGRESS_MODE</code>)</summary>
 
-Everything that runs code an agent influenced (the generated specs, the e2e project's own `tsc`/`eslint`/`npm ci`, a login script, a code-mode app's install and test command) runs as the unprivileged `sandbox` user, with an environment built from an allowlist, in a per-run work directory, and with its network held to the origins the app declares. `docker-compose.yml` sets the two switches to their strict values; the container needs `NET_ADMIN` for the egress filter.
+Everything that runs code an agent influenced (the generated specs, the e2e project's own `tsc`/`eslint`/`npm ci`, or a login script) runs as the unprivileged `sandbox` user, with an environment built from an allowlist, in a per-run work directory, and with its network held to the origins the app declares. `docker-compose.yml` sets the two switches to their strict values; the container needs `NET_ADMIN` for the egress filter.
 
 | Env var | Default | Purpose |
 |---|---|---|

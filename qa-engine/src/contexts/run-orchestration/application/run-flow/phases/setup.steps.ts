@@ -17,10 +17,10 @@ type Result = Promise<StepOutcome<RunState>>;
  * run then captures nothing, since the working copy was never compared with the store.
  */
 export async function restoreAcceptedSuite(state: Readonly<RunState>, ctx: WorkspaceRunContext): Result {
-  const { deps, cfg, input, workspace } = ctx;
+  const { deps, input } = ctx;
   let suiteRestored = false;
   let storeRestoredLogin = false;
-  if (deps.suiteStore && !cfg.isCode && input.mode !== "context") {
+  if (deps.suiteStore && input.mode !== "context") {
     try {
       const restored = await deps.suiteStore.restore(ctx.services.specRoot);
       suiteRestored = true;
@@ -57,38 +57,36 @@ export async function setUpProject(_state: Readonly<RunState>, ctx: WorkspaceRun
 }
 
 export async function prepareLogin(state: Readonly<RunState>, ctx: WorkspaceRunContext): Result {
-  const { cfg, input, workspace, signal } = ctx;
+  const { input, workspace, signal } = ctx;
   const { generating } = state.classification;
   let authSeedUnauthored = false;
-  if (!cfg.isCode) {
-    let auth = await ctx.host.prepareAuth(workspace.specDir, "pre-generate", signal);
-    if ("failed" in auth && state.setup.storeRestoredLogin) {
-      /* The login the store brought back no longer signs in (the app changed since): the stock seed takes its place and the login is tried once more, which falls into discovery or the unauthored path. */
-      const healed = await ctx.host.replaceRestoredLogin(workspace, signal);
-      if (healed === "setup-failed") return end("auth-failed", { note: "setup failed while the app's stored login was replaced by the stock one" });
-      if (healed === "replaced") auth = await ctx.host.prepareAuth(workspace.specDir, "pre-generate", signal);
+  let auth = await ctx.host.prepareAuth(workspace.specDir, "pre-generate", signal);
+  if ("failed" in auth && state.setup.storeRestoredLogin) {
+    /* The login the store brought back no longer signs in (the app changed since): the stock seed takes its place and the login is tried once more, which falls into discovery or the unauthored path. */
+    const healed = await ctx.host.replaceRestoredLogin(workspace, signal);
+    if (healed === "setup-failed") return end("auth-failed", { note: "setup failed while the app's stored login was replaced by the stock one" });
+    if (healed === "replaced") auth = await ctx.host.prepareAuth(workspace.specDir, "pre-generate", signal);
+  }
+  if ("failed" in auth) return end("auth-failed", { note: auth.failed });
+  if ("precondition" in auth) {
+    const terminal = terminalForPrecondition(input.mode);
+    ctx.host.announcePrecondition(auth.precondition, terminal.action === "end");
+    if (terminal.action === "end") {
+      return end("login-precondition", { generating, note: ctx.host.preconditionNote(auth.precondition) });
     }
-    if ("failed" in auth) return end("auth-failed", { note: auth.failed });
-    if ("precondition" in auth) {
-      const terminal = terminalForPrecondition(input.mode);
-      ctx.host.announcePrecondition(auth.precondition, terminal.action === "end");
-      if (terminal.action === "end") {
-        return end("login-precondition", { generating, note: ctx.host.preconditionNote(auth.precondition) });
-      }
-    } else {
-      authSeedUnauthored = auth.unauthored;
-    }
+  } else {
+    authSeedUnauthored = auth.unauthored;
   }
   return { update: { setup: { ...state.setup, authSeedUnauthored } } };
 }
 
 /*
- * Orphan-data cleanup for a PRIOR interrupted run. e2e-only; requires
+ * Orphan-data cleanup for a PRIOR interrupted run. Requires
  * previousNamespace. Failure is logged and MUST NEVER alter this run's verdict.
  */
 export async function cleanPriorRun(_state: Readonly<RunState>, ctx: WorkspaceRunContext): Result {
-  const { deps, cfg, input, workspace, signal } = ctx;
-  if (deps.cleanup && input.previousNamespace && !cfg.isCode) {
+  const { deps, input, workspace, signal } = ctx;
+  if (deps.cleanup && input.previousNamespace) {
     deps.observer?.onStep("setup", "orphan-data cleanup (prior interrupted run)");
     try {
       await deps.cleanup.cleanup(workspace.specDir, {
@@ -103,7 +101,7 @@ export async function cleanPriorRun(_state: Readonly<RunState>, ctx: WorkspaceRu
 
 /* Whether the run authors e2e tests with a login the suite can use: the only runs that are granted the authoring handles. */
 function grantsAuthoringHandles(state: Readonly<RunState>, ctx: WorkspaceRunContext): boolean {
-  return state.classification.generating && !ctx.cfg.isCode && ctx.input.mode !== "context" && ctx.input.purpose !== RUN_PURPOSE.LOGIN_BOOTSTRAP && !state.setup.authSeedUnauthored;
+  return state.classification.generating && ctx.input.mode !== "context" && ctx.input.purpose !== RUN_PURPOSE.LOGIN_BOOTSTRAP && !state.setup.authSeedUnauthored;
 }
 
 /*

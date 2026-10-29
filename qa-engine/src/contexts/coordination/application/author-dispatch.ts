@@ -1,5 +1,5 @@
 /*
- * How a run's own authoring reaches an author sidekick: a login still to be written, the repo's own tests, the architecture map, and
+ * How a run's own authoring reaches an author sidekick: a login still to be written, the architecture map, and
  * every regeneration of what the run has delivered. One author works in the run's working copy under the run's deadline; the flows
  * of a plan are the fan-out's. Whatever the author writes is untrusted like any sidekick's: the caller confines the working copy
  * after the turn and the run's own checks decide what stands.
@@ -10,9 +10,8 @@ import { AUTHOR_TARGET, authorTargetSpec, type AuthorTarget } from "./sidekick-k
 
 export type RunAuthorTarget = Exclude<AuthorTarget, typeof AUTHOR_TARGET.FLOW>;
 
-/* What the run authors: the repo's own tests for a code run, the architecture map for a context run, specs otherwise. */
-export function authorTargetOf(run: { isCode: boolean; mode: RunMode }): RunAuthorTarget {
-  if (run.isCode) return AUTHOR_TARGET.CODE;
+/* What the run authors: the architecture map for a context run, specs otherwise. */
+export function authorTargetOf(run: { mode: RunMode }): RunAuthorTarget {
   return run.mode === "context" ? AUTHOR_TARGET.CONTEXT : AUTHOR_TARGET.E2E;
 }
 

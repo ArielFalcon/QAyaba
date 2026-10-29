@@ -7,7 +7,7 @@ import type { CrossRepoImpactPort, ProviderDocumentsPort, ServiceLinksPort } fro
 import type { ContextProvenance } from "@kernel/telemetry/context-provenance.ts";
 import type { TelemetryPort } from "@kernel/telemetry/telemetry.port.ts";
 import type { ContextBudget } from "@kernel/context-budget.ts";
-import type { RunMode, TestTarget } from "@kernel/run-mode.ts";
+import type { RunMode } from "@kernel/run-mode.ts";
 import { readConfinedSpecFile } from "../../../shared-infrastructure/spec-path-confinement.ts";
 import type { GenerateOpts, GenerationResult } from "../application/generate-tests.use-case.ts";
 import type { AuthorPort, LeadPort, PreExecGroundingPort, PreGenerationGroundingPort, ReviewDomGroundingPort, ReviewPort } from "../application/index.ts";
@@ -34,9 +34,7 @@ export interface GenerationDeps {
     e2eRelDir: string;
     /* The per-run namespace the generated specs are written under. */
     branch: string;
-    target: TestTarget;
     mode: RunMode;
-    isCode: boolean;
     diff?: string;
     guidance?: string;
     baseUrl?: string;
@@ -80,10 +78,9 @@ export interface GenerationApi {
   /* The run's context budget, as given. */
   contextBudget?: ContextBudget;
   review: ReviewPort;
-  /* Absent for a code run: nothing is grounded on a DEV page. */
-  preGenerationGrounding?: PreGenerationGroundingPort;
-  reviewDomGrounding?: ReviewDomGroundingPort;
-  preExecGrounding?: PreExecGroundingPort;
+  preGenerationGrounding: PreGenerationGroundingPort;
+  reviewDomGrounding: ReviewDomGroundingPort;
+  preExecGrounding: PreExecGroundingPort;
   /* Spans over the ports other contexts serve and a run consumes; each is the port itself when no telemetry is wired. */
   traced: {
     structuralSignal(port: StructuralSignalPort): StructuralSignalPort;
@@ -111,7 +108,6 @@ export function buildGeneration(deps: GenerationDeps): GenerationApi {
       mirrorDir: run.mirrorDir,
       e2eRelDir: run.e2eRelDir,
       namespace: run.branch,
-      target: run.target,
       mode: run.mode,
       diff: run.diff ?? "",
       ...(run.guidance ? { guidance: run.guidance } : {}),
@@ -132,7 +128,6 @@ export function buildGeneration(deps: GenerationDeps): GenerationApi {
       e2eRelDir: run.e2eRelDir,
       appName: run.appName,
       mode: run.mode,
-      target: run.target,
       ...(run.baseUrl ? { baseUrl: run.baseUrl } : {}),
       ...(run.guidance ? { guidance: run.guidance } : {}),
       ...(deps.review.timeoutMs !== undefined ? { timeoutMs: deps.review.timeoutMs } : {}),
@@ -143,32 +138,30 @@ export function buildGeneration(deps: GenerationDeps): GenerationApi {
   const e2eDir = join(run.mirrorDir, run.e2eRelDir);
   const location = { e2eDir, mirrorDir: run.mirrorDir, baseUrl: run.baseUrl, testIdAttribute: run.testIdAttribute };
   const groundingCollaborators: PreGenerationGroundingCollaborators = { ...grounding.collaborators, ...(grounding.providerDocuments ? { providerDocuments: grounding.providerDocuments } : {}) };
-  const preGenerationGrounding = !run.isCode
-    ? new PreGenerationGroundingPortAdapter(
-        {
-          ...location,
-          contextMap: grounding.contextMap,
-          ...(grounding.contextMapProvenance ? { contextMapProvenance: grounding.contextMapProvenance } : {}),
-          prChangedFiles: grounding.prChangedFiles,
-          domPack: grounding.domPack,
-          contextPack: grounding.contextPack,
-          ...(grounding.readAtRef ? { readAtRef: grounding.readAtRef } : {}),
-          ...(run.openapi ? { openapi: run.openapi } : {}),
-          ...(run.triggerService ? { stagedRoots: stagedRootsOf(run.mirrorDir, e2eDir, run.triggerService.mirrorDir) } : {}),
-        },
-        telemetry ? { ...groundingCollaborators, trace: telemetryGroundingTrace(telemetry, grounding.contextMapProvenance) } : groundingCollaborators,
-      )
-    : undefined;
-  const reviewDomGrounding = !run.isCode ? new ReviewDomGroundingPortAdapter({ e2eDir, mirrorDir: run.mirrorDir, baseUrl: run.baseUrl, testIdAttribute: run.testIdAttribute }, grounding.reviewDomCollaborators ?? {}) : undefined;
-  const preExecGrounding = !run.isCode ? new PreExecGroundingPortAdapter({ e2eDir, mirrorDir: run.mirrorDir, baseUrl: run.baseUrl, testIdAttribute: run.testIdAttribute }, grounding.preExecCollaborators ?? {}) : undefined;
+  const preGenerationGrounding = new PreGenerationGroundingPortAdapter(
+    {
+      ...location,
+      contextMap: grounding.contextMap,
+      ...(grounding.contextMapProvenance ? { contextMapProvenance: grounding.contextMapProvenance } : {}),
+      prChangedFiles: grounding.prChangedFiles,
+      domPack: grounding.domPack,
+      contextPack: grounding.contextPack,
+      ...(grounding.readAtRef ? { readAtRef: grounding.readAtRef } : {}),
+      ...(run.openapi ? { openapi: run.openapi } : {}),
+      ...(run.triggerService ? { stagedRoots: stagedRootsOf(run.mirrorDir, e2eDir, run.triggerService.mirrorDir) } : {}),
+    },
+    telemetry ? { ...groundingCollaborators, trace: telemetryGroundingTrace(telemetry, grounding.contextMapProvenance) } : groundingCollaborators,
+  );
+  const reviewDomGrounding = new ReviewDomGroundingPortAdapter({ e2eDir, mirrorDir: run.mirrorDir, baseUrl: run.baseUrl, testIdAttribute: run.testIdAttribute }, grounding.reviewDomCollaborators ?? {});
+  const preExecGrounding = new PreExecGroundingPortAdapter({ e2eDir, mirrorDir: run.mirrorDir, baseUrl: run.baseUrl, testIdAttribute: run.testIdAttribute }, grounding.preExecCollaborators ?? {});
 
   return {
     generation,
     review,
     ...(deps.contextBudget ? { contextBudget: deps.contextBudget } : {}),
-    ...(preGenerationGrounding ? { preGenerationGrounding } : {}),
-    ...(reviewDomGrounding ? { reviewDomGrounding } : {}),
-    ...(preExecGrounding ? { preExecGrounding } : {}),
+    preGenerationGrounding,
+    reviewDomGrounding,
+    preExecGrounding,
     traced: {
       structuralSignal: (port) => (telemetry ? new TracedStructuralSignalPort(port, telemetry) : port),
       serviceLinks: (port) => (telemetry ? new TracedServiceLinksPort(port, telemetry) : port),

@@ -21,11 +21,11 @@ function makeDeps(statusOut: string, gitCalls: Array<string[]>): WriteConfinemen
   };
 }
 
-test("Scenario: out-of-area write is reverted (e2e target)", async () => {
+test("Scenario: out-of-area write is reverted", async () => {
   const gitCalls: Array<string[]> = [];
   const deps = makeDeps("M  src/config.ts\n", gitCalls);
   const adapter = new WriteConfinementAdapter(deps);
-  const result = await adapter.enforce("/mirror", false);
+  const result = await adapter.enforce("/mirror");
 
   assert.equal(result.strays, 1);
   assert.equal(result.dangerous, 0);
@@ -39,18 +39,18 @@ test("Scenario: out-of-area write is reverted (e2e target)", async () => {
   assert.equal(gitCalls.find((a) => a[0] === "clean"), undefined);
 });
 
-test("Scenario: denylisted write is reverted (code target)", async () => {
+test("Scenario: a secret env file outside e2e/ is reverted and counted dangerous", async () => {
   const gitCalls: Array<string[]> = [];
   const deps = makeDeps("M  .env.local\n", gitCalls);
   const adapter = new WriteConfinementAdapter(deps);
-  const result = await adapter.enforce("/mirror", true);
+  const result = await adapter.enforce("/mirror");
 
-  assert.equal(result.strays, 1, ".env.local is denied on the code target");
+  assert.equal(result.strays, 1, ".env.local is outside e2e/");
   assert.equal(result.dangerous, 1, ".env.local is a dangerous (secret) path");
   assert.deepEqual(result.reverted, [".env.local"]);
 });
 
-test("Scenario: escaping symlink is reverted regardless of target (e2e target)", async () => {
+test("Scenario: escaping symlink is reverted", async () => {
   const mirrorDir = "/mirror";
   const gitCalls: Array<string[]> = [];
   const escapedReal = "/outside/the/mirror/target";
@@ -64,69 +64,30 @@ test("Scenario: escaping symlink is reverted regardless of target (e2e target)",
     isSymlink: (p) => p === join(mirrorDir, "e2e/link-out"),
   };
   const adapter = new WriteConfinementAdapter(deps);
-  const result = await adapter.enforce(mirrorDir, false);
+  const result = await adapter.enforce(mirrorDir);
 
   assert.equal(result.dangerous, 1, "an escaping symlink must be counted as dangerous");
   assert.ok(result.reverted.includes("e2e/link-out"));
-});
-
-test("Scenario: escaping symlink is reverted regardless of target (code target)", async () => {
-  const mirrorDir = "/mirror";
-  const gitCalls: Array<string[]> = [];
-  const deps: WriteConfinementAdapterDeps = {
-    git: async (args) => {
-      gitCalls.push(args);
-      if (args[0] === "status") return "M  src/link-out\n"; /* not denied by name — dangerous only by resolution */
-      return "";
-    },
-    realpath: (p) => (p === join(mirrorDir, "src/link-out") ? "/etc/passwd" : p),
-    isSymlink: (p) => p === join(mirrorDir, "src/link-out"),
-  };
-  const adapter = new WriteConfinementAdapter(deps);
-  const result = await adapter.enforce(mirrorDir, true);
-
-  assert.equal(result.dangerous, 1, "the escaping symlink must be dangerous on the code target too (publishCode stages '.')");
-  assert.ok(result.reverted.includes("src/link-out"));
 });
 
 test("Scenario (negative): legitimate e2e spec write survives", async () => {
   const gitCalls: Array<string[]> = [];
   const deps = makeDeps("M  e2e/checkout.spec.ts\n", gitCalls);
   const adapter = new WriteConfinementAdapter(deps);
-  const result = await adapter.enforce("/mirror", false);
+  const result = await adapter.enforce("/mirror");
 
-  assert.equal(result.strays, 0, "an e2e/-rooted path is never a stray on the e2e target");
+  assert.equal(result.strays, 0, "an e2e/-rooted path is never a stray");
   assert.deepEqual(result.reverted, []);
   assert.equal(gitCalls.find((a) => a[0] !== "status"), undefined, "no revert call for a legitimate write");
 });
 
-test("Scenario (negative): legitimate code-mode non-denylisted test file survives", async () => {
-  const gitCalls: Array<string[]> = [];
-  const deps = makeDeps("?? tests/new_order_test.go\n", gitCalls);
-  const adapter = new WriteConfinementAdapter(deps);
-  const result = await adapter.enforce("/mirror", true);
-
-  assert.equal(result.strays, 0, "a non-denylisted repo-root path is never a stray on the code target");
-  assert.deepEqual(result.reverted, []);
-});
-
-test("Scenario (negative): e2e/.qa/manifest.json survives on the e2e target", async () => {
+test("Scenario (negative): e2e/.qa/manifest.json survives", async () => {
   const gitCalls: Array<string[]> = [];
   const deps = makeDeps("M  e2e/.qa/manifest.json\n", gitCalls);
   const adapter = new WriteConfinementAdapter(deps);
-  const result = await adapter.enforce("/mirror", false);
+  const result = await adapter.enforce("/mirror");
 
   assert.equal(result.strays, 0);
-  assert.deepEqual(result.reverted, []);
-});
-
-test("Scenario (negative): e2e/.qa/manifest.json survives on the code target", async () => {
-  const gitCalls: Array<string[]> = [];
-  const deps = makeDeps("M  e2e/.qa/manifest.json\n", gitCalls);
-  const adapter = new WriteConfinementAdapter(deps);
-  const result = await adapter.enforce("/mirror", true);
-
-  assert.equal(result.strays, 0, "manifest.json matches no CONFINEMENT_DENYLIST entry");
   assert.deepEqual(result.reverted, []);
 });
 
@@ -134,7 +95,7 @@ test("clean working copy -> zero strays, no revert calls beyond status", async (
   const gitCalls: Array<string[]> = [];
   const deps = makeDeps("", gitCalls);
   const adapter = new WriteConfinementAdapter(deps);
-  const result = await adapter.enforce("/mirror", false);
+  const result = await adapter.enforce("/mirror");
 
   assert.equal(result.strays, 0);
   assert.equal(result.dangerous, 0);
@@ -155,7 +116,7 @@ test("a path that is BOTH a denied secret AND an escaping symlink counts dangero
     isSymlink: (p) => p === join(mirrorDir, ".env.local"),
   };
   const adapter = new WriteConfinementAdapter(deps);
-  const result = await adapter.enforce(mirrorDir, true);
+  const result = await adapter.enforce(mirrorDir);
 
   assert.equal(result.dangerous, 1, "must be deduped to 1, not 2");
   assert.equal(result.strays, 1);
@@ -166,7 +127,7 @@ test("untracked stray -> git clean called (not restore), dangerous counted for a
   const gitCalls: Array<string[]> = [];
   const deps = makeDeps("?? secret.env\n", gitCalls);
   const adapter = new WriteConfinementAdapter(deps);
-  const result = await adapter.enforce("/mirror", false);
+  const result = await adapter.enforce("/mirror");
 
   assert.equal(result.strays, 1);
   assert.equal(result.dangerous, 1);
@@ -182,7 +143,7 @@ test("an already-aborted signal short-circuits to a no-op result (no git calls a
   const controller = new AbortController();
   controller.abort();
 
-  const result = await adapter.enforce("/mirror", false, controller.signal);
+  const result = await adapter.enforce("/mirror", controller.signal);
 
   assert.deepEqual(result, { strays: 0, dangerous: 0, reverted: [] });
   assert.equal(gitCalls.length, 0, "an aborted signal must short-circuit before any git call");
@@ -199,7 +160,7 @@ test("a thrown git error (failed revert) is NOT swallowed by the adapter — it 
   };
   const adapter = new WriteConfinementAdapter(deps);
 
-  await assert.rejects(() => adapter.enforce("/mirror", false), /permission denied/);
+  await assert.rejects(() => adapter.enforce("/mirror"), /permission denied/);
 });
 
 /* ── real throwaway-git-fixture (matches run-engine-factory.publish-excludes.test.ts's harness) ── */
@@ -229,13 +190,13 @@ function realGitFn(repo: string): (args: string[], cwd?: string) => Promise<stri
   };
 }
 
-test("real git fixture: an out-of-area write is ACTUALLY reverted from disk (e2e target)", async () => {
+test("real git fixture: an out-of-area write is ACTUALLY reverted from disk", async () => {
   const repo = initRepo();
   try {
     writeFileSync(join(repo, "src.ts"), "export const leaked = true;\n");
     const adapter = new WriteConfinementAdapter({ git: realGitFn(repo), realpath: realpathSync, isSymlink: (p) => { try { return lstatSync(p).isSymbolicLink(); } catch { return false; } } });
 
-    const result = await adapter.enforce(repo, false);
+    const result = await adapter.enforce(repo);
 
     assert.equal(result.strays, 1);
     assert.deepEqual(result.reverted, ["src.ts"]);
@@ -246,13 +207,13 @@ test("real git fixture: an out-of-area write is ACTUALLY reverted from disk (e2e
   }
 });
 
-test("real git fixture: a denylisted write is ACTUALLY reverted from disk (code target)", async () => {
+test("real git fixture: a denylisted write is ACTUALLY reverted from disk", async () => {
   const repo = initRepo();
   try {
     writeFileSync(join(repo, "Dockerfile"), "FROM node:24\n");
     const adapter = new WriteConfinementAdapter({ git: realGitFn(repo), realpath: realpathSync, isSymlink: (p) => { try { return lstatSync(p).isSymbolicLink(); } catch { return false; } } });
 
-    const result = await adapter.enforce(repo, true);
+    const result = await adapter.enforce(repo);
 
     assert.equal(result.strays, 1);
     assert.deepEqual(result.reverted, ["Dockerfile"]);
@@ -269,13 +230,13 @@ test("real git fixture: a real escaping symlink is detected via realpathSync and
   try {
     const outsideTarget = join(outsideDir, "secret.txt");
     writeFileSync(outsideTarget, "outside\n");
-    symlinkSync(outsideTarget, join(repo, "src-link"));
+    symlinkSync(outsideTarget, join(repo, "e2e", "spec-link"));
     const adapter = new WriteConfinementAdapter({ git: realGitFn(repo), realpath: realpathSync, isSymlink: (p) => { try { return lstatSync(p).isSymbolicLink(); } catch { return false; } } });
 
-    const result = await adapter.enforce(repo, true);
+    const result = await adapter.enforce(repo);
 
     assert.equal(result.dangerous, 1, "a real symlink resolving outside the repo must be flagged dangerous");
-    assert.ok(result.reverted.includes("src-link"));
+    assert.ok(result.reverted.includes("e2e/spec-link"));
   } finally {
     rmSync(repo, { recursive: true, force: true });
     rmSync(outsideDir, { recursive: true, force: true });
@@ -290,7 +251,7 @@ test("real git fixture: legitimate writes (e2e spec + e2e/.qa/manifest.json) sur
     writeFileSync(join(repo, "e2e", ".qa", "manifest.json"), "{}\n");
     const adapter = new WriteConfinementAdapter({ git: realGitFn(repo), realpath: realpathSync, isSymlink: (p) => { try { return lstatSync(p).isSymbolicLink(); } catch { return false; } } });
 
-    const result = await adapter.enforce(repo, false);
+    const result = await adapter.enforce(repo);
 
     assert.equal(result.strays, 0);
     assert.deepEqual(result.reverted, []);
@@ -306,7 +267,7 @@ test("real git fixture: legitimate writes (e2e spec + e2e/.qa/manifest.json) sur
   }
 });
 
-test("real git fixture: staged rename out of e2e/ reverts BOTH sides — stray removed, legitimate origin restored intact (e2e target)", async () => {
+test("real git fixture: staged rename out of e2e/ reverts BOTH sides — stray removed, legitimate origin restored intact", async () => {
   const repo = initRepo();
   try {
     execFileSync("git", ["mv", "e2e/existing.spec.ts", "stray.spec.ts"], { cwd: repo });
@@ -324,7 +285,7 @@ test("real git fixture: staged rename out of e2e/ reverts BOTH sides — stray r
         }
       },
     });
-    const result = await adapter.enforce(repo, false);
+    const result = await adapter.enforce(repo);
 
     assert.deepEqual(result.reverted.slice().sort(), ["e2e/existing.spec.ts", "stray.spec.ts"]);
     const status = execFileSync("git", ["status", "--porcelain"], { cwd: repo, encoding: "utf8" });
@@ -356,7 +317,7 @@ test("real git fixture (negative): a rename fully INSIDE e2e/ is not a stray —
         }
       },
     });
-    const result = await adapter.enforce(repo, false);
+    const result = await adapter.enforce(repo);
 
     assert.equal(result.strays, 0, "a rename entirely within the allowed e2e/ area is a legitimate agent write, not a stray");
     assert.deepEqual(result.reverted, []);
@@ -375,7 +336,7 @@ test("real git fixture (negative): a rename fully INSIDE e2e/ is not a stray —
    closes, which this second code path must close too.
  */
 
-test("real git fixture: staged rename of an escaping symlink INSIDE e2e/ reverts BOTH sides — rename fully undone (e2e target)", async () => {
+test("real git fixture: staged rename of an escaping symlink INSIDE e2e/ reverts BOTH sides — rename fully undone", async () => {
   const repo = initRepo();
   const outsideDir = mkdtempSync(join(tmpdir(), "qa-confinement-outside-"));
   try {
@@ -400,7 +361,7 @@ test("real git fixture: staged rename of an escaping symlink INSIDE e2e/ reverts
         }
       },
     });
-    const result = await adapter.enforce(repo, false);
+    const result = await adapter.enforce(repo);
 
     assert.deepEqual(result.reverted.slice().sort(), ["e2e/link-new", "e2e/link-old"].sort());
     const status = execFileSync("git", ["status", "--porcelain"], { cwd: repo, encoding: "utf8" });
@@ -416,7 +377,7 @@ test("real git fixture: staged rename of an escaping symlink INSIDE e2e/ reverts
   }
 });
 
-test("real git fixture: staged rename of an escaping symlink reverts BOTH sides — rename fully undone (code target)", async () => {
+test("real git fixture: staged rename of an escaping symlink reverts BOTH sides — rename fully undone", async () => {
   const repo = initRepo();
   const outsideDir = mkdtempSync(join(tmpdir(), "qa-confinement-outside-"));
   try {
@@ -441,7 +402,7 @@ test("real git fixture: staged rename of an escaping symlink reverts BOTH sides 
         }
       },
     });
-    const result = await adapter.enforce(repo, true);
+    const result = await adapter.enforce(repo);
 
     assert.deepEqual(result.reverted.slice().sort(), ["link-new", "link-old"].sort());
     const status = execFileSync("git", ["status", "--porcelain"], { cwd: repo, encoding: "utf8" });
@@ -457,7 +418,7 @@ test("real git fixture: staged rename of an escaping symlink reverts BOTH sides 
   }
 });
 
-test("real git fixture: rename INTO a denylisted destination reverts BOTH sides — destination removed, legitimate origin restored (code target)", async () => {
+test("real git fixture: rename INTO a denylisted destination reverts BOTH sides — destination removed, legitimate origin restored", async () => {
   const repo = initRepo();
   try {
     mkdirSync(join(repo, "src"), { recursive: true });
@@ -478,7 +439,7 @@ test("real git fixture: rename INTO a denylisted destination reverts BOTH sides 
         }
       },
     });
-    const result = await adapter.enforce(repo, true);
+    const result = await adapter.enforce(repo);
 
     assert.deepEqual(result.reverted.slice().sort(), [".github/workflows/x.yml", "src/legit.ts"]);
     const status = execFileSync("git", ["status", "--porcelain"], { cwd: repo, encoding: "utf8" });
@@ -501,7 +462,7 @@ test("real git fixture: rename INTO a denylisted destination reverts BOTH sides 
    the parser in isolation.
  */
 
-test("real git fixture: staged rename OUT of e2e/ whose origin filename contains ' -> ' reverts BOTH sides intact (e2e target)", async () => {
+test("real git fixture: staged rename OUT of e2e/ whose origin filename contains ' -> ' reverts BOTH sides intact", async () => {
   const repo = initRepo();
   try {
     writeFileSync(join(repo, "e2e", "weird -> name.spec.ts"), "test('weird', () => {});\n");
@@ -524,7 +485,7 @@ test("real git fixture: staged rename OUT of e2e/ whose origin filename contains
         }
       },
     });
-    const result = await adapter.enforce(repo, false);
+    const result = await adapter.enforce(repo);
 
     assert.deepEqual(result.reverted.slice().sort(), ["e2e/weird -> name.spec.ts", "stray.spec.ts"]);
     const status = execFileSync("git", ["status", "--porcelain"], { cwd: repo, encoding: "utf8" });
@@ -548,7 +509,7 @@ test("real git fixture: staged rename OUT of e2e/ whose origin filename contains
    security-boundary bypass reachable with any accented filename under git's default config.
  */
 
-test("real git fixture: an untracked non-ASCII stray at repo root is ACTUALLY deleted from disk (e2e target)", async () => {
+test("real git fixture: an untracked non-ASCII stray at repo root is ACTUALLY deleted from disk", async () => {
   const repo = initRepo();
   try {
     writeFileSync(join(repo, "café-leak.ts"), "export const leaked = true;\n");
@@ -564,7 +525,7 @@ test("real git fixture: an untracked non-ASCII stray at repo root is ACTUALLY de
       },
     });
 
-    const result = await adapter.enforce(repo, false);
+    const result = await adapter.enforce(repo);
 
     assert.deepEqual(result.reverted, ["café-leak.ts"], "reverted[] must carry the decoded literal name, not the raw octal escape");
     assert.equal(existsSync(join(repo, "café-leak.ts")), false, "the non-ASCII stray must actually be gone from disk, not just reported as reverted");
@@ -575,7 +536,7 @@ test("real git fixture: an untracked non-ASCII stray at repo root is ACTUALLY de
   }
 });
 
-test("real git fixture: a tracked non-ASCII file inside e2e/ staged-renamed OUT of e2e/ reverts BOTH sides intact (e2e target)", async () => {
+test("real git fixture: a tracked non-ASCII file inside e2e/ staged-renamed OUT of e2e/ reverts BOTH sides intact", async () => {
   const repo = initRepo();
   try {
     writeFileSync(join(repo, "e2e", "café.spec.ts"), "test('café', () => {});\n");
@@ -598,7 +559,7 @@ test("real git fixture: a tracked non-ASCII file inside e2e/ staged-renamed OUT 
         }
       },
     });
-    const result = await adapter.enforce(repo, false);
+    const result = await adapter.enforce(repo);
 
     assert.deepEqual(result.reverted.slice().sort(), ["café-stray.spec.ts", "e2e/café.spec.ts"]);
     const status = execFileSync("git", ["status", "--porcelain"], { cwd: repo, encoding: "utf8" });
@@ -624,7 +585,7 @@ test("real git fixture: a tracked non-ASCII file inside e2e/ staged-renamed OUT 
    invalid standalone UTF-8 for a non-ASCII char — corrupting the decoded path so the revert
    pathspec matched nothing on disk, the same silent-bypass class as the octal-escape case.
  */
-test("real git fixture: an untracked stray needing quoting for an embedded space AND a literal non-ASCII char is ACTUALLY deleted from disk under core.quotePath=false (e2e target)", async () => {
+test("real git fixture: an untracked stray needing quoting for an embedded space AND a literal non-ASCII char is ACTUALLY deleted from disk under core.quotePath=false", async () => {
   const repo = initRepo();
   try {
     execFileSync("git", ["config", "core.quotePath", "false"], { cwd: repo });
@@ -646,7 +607,7 @@ test("real git fixture: an untracked stray needing quoting for an embedded space
       },
     });
 
-    const result = await adapter.enforce(repo, false);
+    const result = await adapter.enforce(repo);
 
     assert.deepEqual(result.reverted, [strayName], "reverted[] must carry the true decoded name, not a corrupted one");
     assert.equal(existsSync(join(repo, strayName)), false, "the stray must actually be gone from disk, not just reported as reverted");
@@ -657,7 +618,7 @@ test("real git fixture: an untracked stray needing quoting for an embedded space
   }
 });
 
-test("real git fixture: an untracked stray whose filename contains an embedded quote is ACTUALLY deleted from disk (e2e target)", async () => {
+test("real git fixture: an untracked stray whose filename contains an embedded quote is ACTUALLY deleted from disk", async () => {
   const repo = initRepo();
   try {
     const strayName = 'weird"quote-leak.ts';
@@ -677,7 +638,7 @@ test("real git fixture: an untracked stray whose filename contains an embedded q
       },
     });
 
-    const result = await adapter.enforce(repo, false);
+    const result = await adapter.enforce(repo);
 
     assert.deepEqual(result.reverted, [strayName], "reverted[] must carry the decoded literal name (a real embedded quote), not the escaped form");
     assert.equal(existsSync(join(repo, strayName)), false, "the stray must actually be gone from disk");
@@ -712,7 +673,7 @@ function realGitFnWithFailure(repo: string, failOn: (args: string[]) => boolean)
   };
 }
 
-test("real git fixture: an UNSTAGED fs-level rename OUT of e2e/ (mv done via fs.rename, no git access) is paired via git's own rename detection — BOTH sides reverted, origin restored intact (e2e target) — the Phase-1 known limitation, now fixed", async () => {
+test("real git fixture: an UNSTAGED fs-level rename OUT of e2e/ (mv done via fs.rename, no git access) is paired via git's own rename detection — BOTH sides reverted, origin restored intact — the Phase-1 known limitation, now fixed", async () => {
   const repo = initRepo();
   try {
     renameSync(join(repo, "e2e", "existing.spec.ts"), join(repo, "stray.spec.ts"));
@@ -731,7 +692,7 @@ test("real git fixture: an UNSTAGED fs-level rename OUT of e2e/ (mv done via fs.
         }
       },
     });
-    const result = await adapter.enforce(repo, false);
+    const result = await adapter.enforce(repo);
 
     assert.deepEqual(result.reverted.slice().sort(), ["e2e/existing.spec.ts", "stray.spec.ts"]);
     const status = execFileSync("git", ["status", "--porcelain"], { cwd: repo, encoding: "utf8" });
@@ -763,7 +724,7 @@ test("real git fixture (negative): a legitimate in-area unstaged deletion with N
         }
       },
     });
-    const result = await adapter.enforce(repo, false);
+    const result = await adapter.enforce(repo);
 
     assert.deepEqual(result.reverted, [], "the deletion must NOT be restored — over-revert is the failure mode the spec forbids");
     const status = execFileSync("git", ["status", "--porcelain"], { cwd: repo, encoding: "utf8" });
@@ -792,7 +753,7 @@ test("real git fixture (negative): an UNSTAGED fs-level rename fully INSIDE e2e/
         }
       },
     });
-    const result = await adapter.enforce(repo, false);
+    const result = await adapter.enforce(repo);
 
     assert.deepEqual(result.reverted, []);
     const status = execFileSync("git", ["status", "--porcelain"], { cwd: repo, encoding: "utf8" });
@@ -803,7 +764,7 @@ test("real git fixture (negative): an UNSTAGED fs-level rename fully INSIDE e2e/
   }
 });
 
-test("real git fixture: an UNSTAGED fs-level rename of a NON-ASCII filename OUT of e2e/ is paired and reverted — the Phase-1 C-style decode composes with the pairing diff parse (e2e target)", async () => {
+test("real git fixture: an UNSTAGED fs-level rename of a NON-ASCII filename OUT of e2e/ is paired and reverted — the Phase-1 C-style decode composes with the pairing diff parse", async () => {
   const repo = initRepo();
   try {
     writeFileSync(join(repo, "e2e", "café.spec.ts"), "test('café', () => {});\n");
@@ -825,7 +786,7 @@ test("real git fixture: an UNSTAGED fs-level rename of a NON-ASCII filename OUT 
         }
       },
     });
-    const result = await adapter.enforce(repo, false);
+    const result = await adapter.enforce(repo);
 
     assert.deepEqual(result.reverted.slice().sort(), ["café-stray.spec.ts", "e2e/café.spec.ts"]);
     const status = execFileSync("git", ["status", "--porcelain"], { cwd: repo, encoding: "utf8" });
@@ -841,7 +802,7 @@ test("real git fixture: an UNSTAGED fs-level rename of a NON-ASCII filename OUT 
   }
 });
 
-test("real git fixture: an UNSTAGED fs-level move of a legitimate code-target file INTO a denylisted destination is paired and reverted — the pairing generalizes beyond the e2e target (code target)", async () => {
+test("real git fixture: an UNSTAGED fs-level move of a file outside e2e/ INTO a denylisted destination is paired and reverted", async () => {
   const repo = initRepo();
   try {
     mkdirSync(join(repo, "src"), { recursive: true });
@@ -863,7 +824,7 @@ test("real git fixture: an UNSTAGED fs-level move of a legitimate code-target fi
         }
       },
     });
-    const result = await adapter.enforce(repo, true);
+    const result = await adapter.enforce(repo);
 
     assert.deepEqual(result.reverted.slice().sort(), [".github/workflows/x.yml", "src/legit.ts"]);
     const status = execFileSync("git", ["status", "--porcelain"], { cwd: repo, encoding: "utf8" });
@@ -896,7 +857,7 @@ test("real git fixture: a thrown error mid-pairing (git diff fails right after g
       },
     });
 
-    await assert.rejects(() => adapter.enforce(repo, false), /simulated failure: git diff/);
+    await assert.rejects(() => adapter.enforce(repo), /simulated failure: git diff/);
 
     const status = execFileSync("git", ["status", "--porcelain", "--untracked-files=all"], { cwd: repo, encoding: "utf8" });
     assert.ok(status.includes("?? stray.spec.ts"), "the stray must be back to untracked (??), not left staged as intent-to-add by a mid-sequence failure — the try/finally reset must always fire");
@@ -909,32 +870,30 @@ test("real git fixture: a thrown error mid-pairing (git diff fails right after g
 /* A committed gitlink's directory belongs to the sandbox, which can put a repository of its own there. Root git that
    enters it runs the filter that repository's config names, so the calls under test must not enter it. The git fn
    is plain git: the protection under test is the argv the adapter builds, not the hardening around it. */
-for (const isCode of [false, true]) {
-  test(`real git fixture: the status and rename detection never enter a submodule the sandbox populated, and a moved pointer is still reverted (${isCode ? "code" : "e2e"} target)`, async () => {
-    const root = mkdtempSync(join(tmpdir(), "qa-confinement-gitlink-"));
-    try {
-      const { marker, command } = writeMarkerCommand(root);
-      const fixture = makeGitlinkRepo(root);
-      const repo = fixture.repo;
-      plantNestedRepo(fixture, command, { movePointer: true });
-      /* A tracked file deleted and an untracked copy of it: the pair that makes the adapter ask git for rename detection. */
-      const kept = isCode ? "a.txt" : "e2e/spec.ts";
-      const moved = isCode ? "Dockerfile" : "moved-copy.txt";
-      writeFileSync(join(repo, moved), readFileSync(join(repo, kept)));
-      unlinkSync(join(repo, kept));
-      const adapter = new WriteConfinementAdapter({ git: realGitFn(repo), realpath: realpathSync, isSymlink: () => false });
+test("real git fixture: the status and rename detection never enter a submodule the sandbox populated, and a moved pointer is still reverted", async () => {
+  const root = mkdtempSync(join(tmpdir(), "qa-confinement-gitlink-"));
+  try {
+    const { marker, command } = writeMarkerCommand(root);
+    const fixture = makeGitlinkRepo(root);
+    const repo = fixture.repo;
+    plantNestedRepo(fixture, command, { movePointer: true });
+    /* A tracked file deleted and an untracked copy of it: the pair that makes the adapter ask git for rename detection. */
+    const kept = "e2e/spec.ts";
+    const moved = "moved-copy.txt";
+    writeFileSync(join(repo, moved), readFileSync(join(repo, kept)));
+    unlinkSync(join(repo, kept));
+    const adapter = new WriteConfinementAdapter({ git: realGitFn(repo), realpath: realpathSync, isSymlink: () => false });
 
-      await adapter.enforce(repo, isCode);
+    await adapter.enforce(repo);
 
-      assert.equal(ranPlantedCommand(marker), false, "no git call of the confinement pass ran the planted filter");
-      assert.ok(existsSync(join(repo, kept)), "the tracked file that was deleted is restored");
-    } finally {
-      rmSync(root, { recursive: true, force: true });
-    }
-  });
-}
+    assert.equal(ranPlantedCommand(marker), false, "no git call of the confinement pass ran the planted filter");
+    assert.ok(existsSync(join(repo, kept)), "the tracked file that was deleted is restored");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 
-test("real git fixture: a submodule pointer moved off its recorded commit is still reverted as a stray change (e2e target)", async () => {
+test("real git fixture: a submodule pointer moved off its recorded commit is still reverted as a stray change", async () => {
   const root = mkdtempSync(join(tmpdir(), "qa-confinement-gitlink-"));
   try {
     const { marker, command } = writeMarkerCommand(root);
@@ -942,7 +901,7 @@ test("real git fixture: a submodule pointer moved off its recorded commit is sti
     plantNestedRepo(fixture, command, { movePointer: true });
     const adapter = new WriteConfinementAdapter({ git: realGitFn(fixture.repo), realpath: realpathSync, isSymlink: () => false });
 
-    const result = await adapter.enforce(fixture.repo, false);
+    const result = await adapter.enforce(fixture.repo);
 
     assert.deepEqual(result.reverted, ["sub"]);
     assert.equal(ranPlantedCommand(marker), false);
@@ -957,27 +916,25 @@ test("real git fixture: a submodule pointer moved off its recorded commit is sti
 const removeDirectory = (path: string): void => rmSync(path, { recursive: true, force: true });
 const realFsDeps = (repo: string): WriteConfinementAdapterDeps => ({ git: realGitFn(repo), realpath: realpathSync, isSymlink: (p) => { try { return lstatSync(p).isSymbolicLink(); } catch { return false; } }, removeDirectory });
 
-for (const isCode of [false, true]) {
-  test(`real git fixture: an embedded repository is removed from disk and reported, and the legitimate spec survives (${isCode ? "code" : "e2e"} target)`, async () => {
-    const repo = initRepo();
-    try {
-      const nested = isCode ? "tmp-fixture-repo" : "e2e/fixture-repo";
-      makeEmbeddedRepo(join(repo, nested));
-      writeFileSync(join(repo, "e2e", "new.spec.ts"), "test('y', () => {});\n");
+test("real git fixture: an embedded repository is removed from disk and reported, and the legitimate spec survives", async () => {
+  const repo = initRepo();
+  try {
+    const nested = "e2e/fixture-repo";
+    makeEmbeddedRepo(join(repo, nested));
+    writeFileSync(join(repo, "e2e", "new.spec.ts"), "test('y', () => {});\n");
 
-      const result = await new WriteConfinementAdapter(realFsDeps(repo)).enforce(repo, isCode);
+    const result = await new WriteConfinementAdapter(realFsDeps(repo)).enforce(repo);
 
-      assert.equal(existsSync(join(repo, nested)), false, "the embedded repository was left in the working copy");
-      assert.ok(result.reverted.includes(`${nested}/`), `the removal is reported: ${JSON.stringify(result.reverted)}`);
-      assert.ok(result.strays >= 1);
-      assert.ok(existsSync(join(repo, "e2e", "new.spec.ts")), "a legitimate test file was removed with it");
-      execFileSync("git", hardenGitArgs(["add", "--", "."], repo), { cwd: repo, env: GIT_ENV, stdio: "ignore" });
-      assert.deepEqual(indexedGitlinks(repo), []);
-    } finally {
-      rmSync(repo, { recursive: true, force: true });
-    }
-  });
-}
+    assert.equal(existsSync(join(repo, nested)), false, "the embedded repository was left in the working copy");
+    assert.ok(result.reverted.includes(`${nested}/`), `the removal is reported: ${JSON.stringify(result.reverted)}`);
+    assert.ok(result.strays >= 1);
+    assert.ok(existsSync(join(repo, "e2e", "new.spec.ts")), "a legitimate test file was removed with it");
+    execFileSync("git", hardenGitArgs(["add", "--", "."], repo), { cwd: repo, env: GIT_ENV, stdio: "ignore" });
+    assert.deepEqual(indexedGitlinks(repo), []);
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+  }
+});
 
 test("real git fixture: removing an embedded repository never follows a link inside it", async () => {
   const repo = initRepo();
@@ -987,7 +944,7 @@ test("real git fixture: removing an embedded repository never follows a link ins
     makeEmbeddedRepo(join(repo, "tmp-fixture-repo"));
     symlinkSync(outside, join(repo, "tmp-fixture-repo", "link-out"));
 
-    await new WriteConfinementAdapter(realFsDeps(repo)).enforce(repo, true);
+    await new WriteConfinementAdapter(realFsDeps(repo)).enforce(repo);
 
     assert.equal(existsSync(join(repo, "tmp-fixture-repo")), false);
     assert.equal(readFileSync(join(outside, "precious.txt"), "utf8"), "keep\n", "the directory behind the link was deleted through it");
@@ -1003,7 +960,7 @@ test("real git fixture: an embedded repository that cannot be removed fails the 
     makeEmbeddedRepo(join(repo, "tmp-fixture-repo"));
     const { removeDirectory: _unwired, ...withoutRemoval } = realFsDeps(repo);
 
-    await assert.rejects(new WriteConfinementAdapter(withoutRemoval).enforce(repo, true), /tmp-fixture-repo/);
+    await assert.rejects(new WriteConfinementAdapter(withoutRemoval).enforce(repo), /tmp-fixture-repo/);
     assert.equal(existsSync(join(repo, "tmp-fixture-repo")), true);
   } finally {
     rmSync(repo, { recursive: true, force: true });

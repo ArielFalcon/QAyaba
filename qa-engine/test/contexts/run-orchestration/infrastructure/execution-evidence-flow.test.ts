@@ -11,7 +11,6 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { ExecutionPortAdapter } from "@contexts/test-execution/infrastructure/adapters/execution-port.adapter.ts";
 import { E2eExecutionStrategy } from "@contexts/test-execution/infrastructure/e2e-execution.strategy.ts";
-import { CodeExecutionStrategy } from "@contexts/test-execution/infrastructure/code-execution.strategy.ts";
 
 test("runtime evidence (httpStatus, runtimeErrors) crosses both the strategy and the ExecutionPort adapter boundary", async () => {
   const evidenceCase = {
@@ -28,10 +27,9 @@ test("runtime evidence (httpStatus, runtimeErrors) crosses both the strategy and
     cases: [evidenceCase],
     logs: "1 failed",
   }));
-  const code = new CodeExecutionStrategy(async () => ({ verdict: "pass", cases: [], logs: "" }));
   const adapter = new ExecutionPortAdapter(
-    { e2e, code },
-    { target: "e2e", baseUrl: "https://dev.example.com", namespace: "qa-bot-evidence1" },
+    { e2e },
+    { baseUrl: "https://dev.example.com", namespace: "qa-bot-evidence1" },
   );
 
   const result = await adapter.execute("/mirrors/org/app/e2e");

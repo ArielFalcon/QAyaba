@@ -57,7 +57,6 @@ export interface RunQaConfig {
   shadow: boolean;
   onFailure: string;
   maxRetries: number;
-  isCode: boolean;
   /**
    * The master switch of the review-loop integrity work: failure triage (C), the intent lock (A) and
    * the findings filter (D). Off (default) keeps the pre-change behavior; the acceptance correctness
@@ -117,7 +116,7 @@ export interface RunQaUseCaseDeps {
   workspace: WorkspacePort;
   /** The only way the flow reads or lists files below the spec directory. */
   specFiles: SpecFilesPort;
-  /** Absent for static sites and the code target. */
+  /** Absent for static sites. */
   deployGate?: DeployGatePort;
   /** The gate of each companion entry's repo (an entry other than the anchor), by repo. A repo with none is not awaited. */
   companionDeployGates?: ReadonlyMap<string, DeployGatePort>;
@@ -130,7 +129,7 @@ export interface RunQaUseCaseDeps {
   /** Absent: setup is skipped. A throw from setup() is infra-error, never a code verdict. */
   setup?: SetupPort;
   /**
-   * Absent: no browser session is prepared (public app, or code mode).
+   * Absent: no browser session is prepared (public app).
    * A throw is infra-error, same as setup(), except an AuthPreconditionError: a positively
    * evidenced login failure that ends the run as E-PRECONDITION. unauthored does not throw.
    */

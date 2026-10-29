@@ -87,7 +87,7 @@ export class AcceptDeliveredSpecsUseCase {
 
     if (input.specs.length === 0) return conclude("skipped", { validate: noValidation, runs: [], coverage: null, reviewer: null }, { generating: false });
 
-    const validated = await this.deps.validation.validate(input.specDir, [...input.changedFiles]);
+    const validated = await this.deps.validation.validate(input.specDir);
     const validate = { ok: validated.ok, infra: validated.infra === true, errors: validated.errors };
     if (!validated.ok) return conclude(validate.infra ? "infra-error" : "invalid", { validate, runs: [], coverage: null, reviewer: null });
 

@@ -11,7 +11,7 @@ const PASS: QaCase[] = [{ name: "flows/a.spec.ts › loads", status: "pass", fil
 const FAIL: QaCase[] = [{ name: "flows/a.spec.ts › loads", status: "fail", file: "flows/a.spec.ts", detail: "boom" }];
 
 interface Rig {
-  validated: Array<{ specDir: string; changedFiles?: string[] }>;
+  validated: Array<{ specDir: string }>;
   executed: Array<{ specDir: string; opts: ExecutionOpts }>;
   measured: Array<{ namespace?: string; baselineCases?: string[] }>;
   reviewed: number;
@@ -29,7 +29,7 @@ function rig(script: {
   const runs = script.runs ?? [{ verdict: "pass", cases: PASS }, { verdict: "pass", cases: PASS }];
   let call = 0;
   r.useCase = new AcceptDeliveredSpecsUseCase({
-    validation: { validate: async (specDir, changedFiles) => (r.validated.push({ specDir, ...(changedFiles ? { changedFiles } : {}) }), script.validate ?? { ok: true, errors: [] }) },
+    validation: { validate: async (specDir) => (r.validated.push({ specDir }), script.validate ?? { ok: true, errors: [] }) },
     execution: { execute: async (specDir, opts) => { r.executed.push({ specDir, opts: opts as ExecutionOpts }); const run = runs[Math.min(call++, runs.length - 1)]!; return { verdict: run.verdict, cases: run.cases, logs: "" }; } },
     objectiveSignal: {
       measure: async (_br, _dir, _diff, baselineCases, opts) => { r.measured.push({ ...(opts?.namespace ? { namespace: opts.namespace } : {}), ...(baselineCases ? { baselineCases } : {}) }); return script.coverage ?? { status: "pass", ratio: 0.9 }; },
@@ -52,7 +52,7 @@ test("delivered specs that validate, pass twice with no retry and are not held b
   assert.ok(report.runs.every((run) => run.ms >= 0 && Number.isFinite(run.ms)));
   assert.deepEqual(report.decision, { verdict: "pass", sideEffect: "pr" });
   assert.equal(report.reviewer, null, "no review was asked for");
-  assert.deepEqual(r.validated, [{ specDir: "/copy/e2e", changedFiles: ["src/x.ts"] }]);
+  assert.deepEqual(r.validated, [{ specDir: "/copy/e2e" }]);
 });
 
 test("each run executes the delivered specs alone, once, in a namespace of its own", async () => {

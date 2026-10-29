@@ -21,9 +21,9 @@ export function decidedOf(state: Readonly<RunState>): DecidedOutcome {
 /* The run's reviewer verdict for its outcome: the one the review step's dispatched review gave, absent when the run ended before any review ran. */
 export const reviewerApprovedForOutcomeOf = (state: Readonly<RunState>): boolean | undefined => state.review.reviewerApprovedForOutcome;
 
-/* A context run's pass is synthetic and a code-target run has no suite store: only a generated browser suite has proven bytes to guard. */
+/* A context run's pass is synthetic: only a generated browser suite has proven bytes to guard. */
 export const guardsFinalProof = (state: Readonly<RunState>, ctx: WorkspaceRunContext): boolean =>
-  runOf(state).verdict === "pass" && state.classification.generating && ctx.input.mode !== "context" && !ctx.cfg.isCode;
+  runOf(state).verdict === "pass" && state.classification.generating && ctx.input.mode !== "context";
 
 /*
  * The bytes on disk are the proof. Before the run decides, fingerprint the delivered specs once more and put back the proven

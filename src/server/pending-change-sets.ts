@@ -28,7 +28,7 @@ interface Queued {
 
 /*
  * Whether a request may share a run: an `e2e` diff run started by a webhook with nothing of its own to say. A manual,
- * continuation, guided, purposeful, commit-counted or per-run-overridden request, a campaign run and every code-target run
+ * continuation, guided, purposeful, commit-counted or per-run-overridden request, and a campaign run
  * stay a run of their own.
  */
 export function isCoalescible(req: RunRequest): boolean {
@@ -36,7 +36,6 @@ export function isCoalescible(req: RunRequest): boolean {
     (req.source ?? "webhook") === "webhook" &&
     (req.trigger === undefined || req.trigger === "webhook") &&
     req.mode === "diff" &&
-    req.target === "e2e" &&
     req.guidance === undefined &&
     req.parentRunId === undefined &&
     req.purpose === undefined &&

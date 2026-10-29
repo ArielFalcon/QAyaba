@@ -5,15 +5,12 @@ import { buildTestExecution, type TestExecutionDeps } from "@contexts/test-execu
 
 function deps(seen: string[]): TestExecutionDeps {
   return {
-    target: "e2e",
     namespace: "ns",
     validationStrategies: {
       e2e: { validateAll: async () => { seen.push("e2e-validate"); return { ok: true, errors: [], infra: false }; }, autofix: async () => { seen.push("e2e-autofix"); return ["a.spec.ts"]; } },
-      code: { validate: async () => { seen.push("code-validate"); return { ok: false, errors: ["boom"], infra: false }; } },
     },
     executionStrategies: {
       e2e: { run: async () => { seen.push("e2e-run"); return { status: "pass" } as never; } },
-      code: { run: async () => { seen.push("code-run"); return { status: "fail" } as never; } },
     },
   };
 }

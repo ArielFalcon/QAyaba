@@ -22,7 +22,7 @@ export interface RunOrchestrationDeps {
   /* Every port the other contexts serve and the optional collaborators of the flow; the deploy gate, the history and the config are this context's own. */
   ports: Omit<RunPipelineAdapterDeps, "deployGate" | "companionDeployGates" | "runHistory" | "config">;
   config: RunConfigDeps;
-  /* Absent versionUrl selects the gate that is always ready (static sites, the code target); present selects the poll loop. */
+  /* Absent versionUrl selects the gate that is always ready (static sites); present selects the poll loop. */
   deployGate: {
     versionUrl?: string;
     poll?: VersionPollFn;

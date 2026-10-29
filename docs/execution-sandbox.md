@@ -2,8 +2,8 @@
 
 Everything the pipeline runs that an agent influenced is untrusted code: the generated Playwright specs, the e2e
 project's own `tsc` / `eslint` / `playwright test --list` (they import the specs), its `npm ci` (lifecycle scripts come
-from an agent-editable `package.json`), the login scripts, the DOM capture (it loads a package from the project's
-`node_modules`), and a code-mode repo's own install and test command. The orchestrator runs as root with the API token,
+from an agent-editable `package.json`), the login scripts, and the DOM capture (it loads a package from the project's
+`node_modules`). The orchestrator runs as root with the API token,
 the saved sessions and the provider keys in reach, so this code must not run as the orchestrator, with its
 environment, or with open network. This document is how that is enforced and how to check it.
 
@@ -28,7 +28,7 @@ detached, as the sandbox uid and gid (`CODE_SANDBOX_UID`, `1002` in the image), 
 | `offline` | `tsc`, `eslint`, `playwright test --list` | nothing | none |
 | `suite` | the specs, the cleanup spec, the DOM capture | `PW_*` the caller names, `PW_DEV_ORIGINS` (the DEV origins of the run's egress lease, as a JSON list, set by the launcher over any the caller names), `PW_STORAGE_STATE` (a per-spawn copy), the client certificate (a copy) and its passphrase, `DEV_ENV_USER/PASS` (the DEV HTTP-Basic gate) | the app's origins |
 | `login` | the auth setup, the login discovery | the `suite` set without a session, plus **`DEV_TEST_USER/PASS` (the test account)** | the app's origins |
-| `install` | `npm ci`, a code-mode install / test / coverage, Stryker | the package-manager and toolchain variables (`npm_config_*`, `JAVA_HOME`, `GOPATH`, ...) rebased under the run's home | registries |
+| `install` | the e2e project's `npm ci` | the package-manager and toolchain variables (`npm_config_*`, `JAVA_HOME`, `GOPATH`, ...) rebased under the run's home | registries |
 | `graph` | the code-graph engine (`codegraph`, pinned in the image under `/opt/codegraph`) and its store reader, on the run's graph workspace | the engine's off switches: `DO_NOT_TRACK=1`, `CODEGRAPH_TELEMETRY=0`, `CODEGRAPH_NO_UPDATE_CHECK=1` | none |
 
 The environment is built from an allowlist per profile, not by removing known secrets from the orchestrator's: a secret
@@ -133,8 +133,7 @@ the run's work dir, and once the child is gone the links are removed and only wh
 (`run-dump-bridge.ts`): a file name pattern, a size cap, a parse and a rebuild field by field (a coverage dump keeps a script's
 url, source, executed ranges and the source map's sources, root and mappings; a counter keeps its count), written by the
 orchestrator as a plain file. The set is whole or nothing, as the readers take it: a set that is left out puts one plain file where the folder would be, which the readers refuse to follow and report as an unknown count, so a refused counter is never taken for a run that corrupted no response. The residual: a string field the readers do
-use (a script's source) can still carry a payload the writer chose, in bounded size. A code-mode repo is handed to the sandbox
-user entirely (a build writes into it), as before.
+use (a script's source) can still carry a payload the writer chose, in bounded size.
 
 `/proc/1/environ` (the service's environment, with every secret) is `0400 root` and so unreadable once a child dropped to the
 sandbox uid; the smoke test checks it.
@@ -169,7 +168,7 @@ declare wildcards only below names you own); no path, query or credentials; an I
 | Where | What it widens |
 |---|---|
 | `dev.baseUrl` (always) and `dev.allowedOrigins` in `config/apps/<app>.yaml` | `suite` and `login` children |
-| `config/egress/registries.yaml` (groups `npm`, `maven`, `gradle`, `pip`, `go`, `cargo`) | `install` children: the e2e target uses `npm`, the code target all groups |
+| `config/egress/registries.yaml` (groups `npm`, `maven`, `gradle`, `pip`, `go`, `cargo`) | `install` children: an install child reaches the `npm` group only; the other groups stay declared until the file is edited |
 | `egress.installOrigins` in the app config | `install` children: a private registry or mirror |
 | `dev.blockedOrigins` in the app config | nothing: origins left blocked on purpose (telemetry, analytics). The filter refuses them like any undeclared host; the only effect is that a refusal of one is never taken as the reason a login failed (`E-PRECONDITION`, kind `egress-denied`). An origin cannot be both allowed and blocked |
 

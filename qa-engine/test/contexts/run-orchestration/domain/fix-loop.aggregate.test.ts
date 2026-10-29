@@ -90,7 +90,6 @@ test("break-issue with runner_infra evidence -> infra-error, no regen call", asy
 
   const result = await loop.run({
     initialRun: { verdict: "fail", cases: [makeCase({ detail: "browserType.launch: Executable doesn't exist" })] },
-    isCode: false,
     generating: true,
     mode: "diff",
     objectiveSource: ["src/checkout.ts"],
@@ -125,7 +124,6 @@ test("break-issue with app_defect (real-bug) evidence -> realBugDetected=true, v
       verdict: "fail",
       cases: [makeCase({ detail: "expect(locator).toHaveText(expected) failed\nExpected: 'Paid'\nReceived: 'Pending'" })],
     },
-    isCode: false,
     generating: true,
     mode: "diff",
     objectiveSource: ["src/checkout.ts"],
@@ -158,7 +156,6 @@ test("loop condition — maxRetries=0 disables the fix-loop entirely (no regen, 
 
   const result = await loop.run({
     initialRun: { verdict: "fail", cases: [makeCase()] },
-    isCode: false,
     generating: true,
     mode: "diff",
     objectiveSource: ["src/checkout.ts"],
@@ -182,7 +179,6 @@ test("loop condition — verdict!=='fail' skips the loop entirely (already pass)
 
   const result = await loop.run({
     initialRun: { verdict: "pass", cases: [{ name: "login", status: "pass" }] },
-    isCode: false,
     generating: true,
     mode: "diff",
     objectiveSource: [],
@@ -205,7 +201,6 @@ test("loop condition — generating=false skips the loop entirely (regression-on
 
   const result = await loop.run({
     initialRun: { verdict: "fail", cases: [makeCase()] },
-    isCode: false,
     generating: false,
     mode: "diff",
     objectiveSource: [],
@@ -263,7 +258,6 @@ test("Lever-2 absentKeys short-circuit — regenerates WITHOUT re-executing, loo
 
   const result = await loop.run({
     initialRun: { verdict: "fail", cases: [makeCase({ detail: "getByRole resolved to 0 elements" })] },
-    isCode: false,
     generating: true,
     mode: "diff",
     objectiveSource: ["src/checkout.ts"],
@@ -299,7 +293,6 @@ async function regenInputFor(findings: Partial<SpecSelectorFindings> & { origins
   });
   await loop.run({
     initialRun: { verdict: "fail", cases: [makeCase({ detail: "getByRole resolved to 0 elements" })] },
-    isCode: false,
     generating: true,
     mode: "diff",
     objectiveSource: ["src/checkout.ts"],
@@ -353,7 +346,6 @@ test("filtered-retry — canFilter true (coverageWillMeasure=false, regen stayed
 
   await loop.run({
     initialRun: { verdict: "fail", cases: [makeCase({ file: "login.spec.ts" })] },
-    isCode: false,
     generating: true,
     mode: "diff",
     objectiveSource: ["src/checkout.ts"],
@@ -386,7 +378,6 @@ async function retryScopeFor(failingFile: string, regenSpecs: string[]): Promise
   const { cycleBudget, wallClockBudget } = budgets();
   await loop.run({
     initialRun: { verdict: "fail", cases: [makeCase({ file: failingFile })] },
-    isCode: false,
     generating: true,
     mode: "diff",
     objectiveSource: ["src/login.ts"],
@@ -440,7 +431,6 @@ test("filtered-retry — regen specs are ALL outside the failing set -> full re-
 
   await loop.run({
     initialRun: { verdict: "fail", cases: [makeCase({ file: "login.spec.ts" })] },
-    isCode: false,
     generating: true,
     mode: "diff",
     objectiveSource: ["src/checkout.ts"],
@@ -480,7 +470,6 @@ test("filtered-retry — canFilter false when coverageWillMeasure=true (never fi
 
   await loop.run({
     initialRun: { verdict: "fail", cases: [makeCase({ file: "login.spec.ts" })] },
-    isCode: false,
     generating: true,
     mode: "diff",
     objectiveSource: ["src/checkout.ts"],
@@ -537,7 +526,6 @@ test("bestRunSoFar regression guard — a worse terminal retry is discarded for 
         { name: "checkout", status: "fail", file: "checkout.spec.ts", detail: "getByRole resolved to 0 elements" },
       ],
     },
-    isCode: false,
     generating: true,
     mode: "diff",
     objectiveSource: ["src/checkout.ts"],
@@ -589,7 +577,6 @@ test("bestRunSoFar guard is SKIPPED when realBugDetected fired (the current fail
         { name: "checkout", status: "fail", file: "checkout.spec.ts", detail: "getByRole resolved to 0 elements" },
       ],
     },
-    isCode: false,
     generating: true,
     mode: "diff",
     objectiveSource: ["src/checkout.ts"],
@@ -634,7 +621,6 @@ test("an accepted round's execution replaces its changed file's cases, and the l
 
   const result = await loop.run({
     initialRun: twoFailures(),
-    isCode: false,
     generating: true,
     mode: "diff",
     objectiveSource: ["src/checkout.ts"],
@@ -676,7 +662,6 @@ test("a rejected acceptance keeps the prior run and stops without executing", as
 
   const result = await loop.run({
     initialRun: twoFailures(),
-    isCode: false,
     generating: true,
     mode: "diff",
     objectiveSource: ["src/checkout.ts"],
@@ -713,7 +698,6 @@ test("a capped acceptance keeps the prior run and stops without executing", asyn
 
   const result = await loop.run({
     initialRun: twoFailures(),
-    isCode: false,
     generating: true,
     mode: "diff",
     objectiveSource: ["src/checkout.ts"],
@@ -759,7 +743,6 @@ test("the best round's snapshot is restored when a later round regresses", async
 
   const result = await loop.run({
     initialRun: twoFailures(),
-    isCode: false,
     generating: true,
     mode: "diff",
     objectiveSource: ["src/checkout.ts"],
@@ -797,7 +780,6 @@ test("an accepted round names as re-run only the changed spec files its executio
 
   const result = await loop.run({
     initialRun: twoFailures(),
-    isCode: false,
     generating: true,
     mode: "diff",
     objectiveSource: ["src/checkout.ts"],
@@ -836,7 +818,6 @@ test("an accepted round keeps a case the run cannot attribute to a file", async 
         { name: "suite", status: "fail", detail: "the whole suite failed before a spec was named" },
       ],
     },
-    isCode: false,
     generating: true,
     mode: "diff",
     objectiveSource: ["src/checkout.ts"],
@@ -879,7 +860,6 @@ test("the initial run's own bytes are restored when the first accepted round is 
 
   const result = await loop.run({
     initialRun: oneFailure(),
-    isCode: false,
     generating: true,
     mode: "diff",
     objectiveSource: ["src/checkout.ts"],
@@ -919,7 +899,6 @@ test("an accepted round never hides a flaky spec it did not re-run", async () =>
         { name: "b", status: "flaky", file: "b.spec.ts" },
       ],
     },
-    isCode: false,
     generating: true,
     mode: "diff",
     objectiveSource: ["src/checkout.ts"],
@@ -949,7 +928,6 @@ test("DEV unhealthy before a round's acceptance skips it", async () => {
 
   const result = await loop.run({
     initialRun: oneFailure(),
-    isCode: false,
     generating: true,
     mode: "diff",
     objectiveSource: ["src/checkout.ts"],
@@ -987,7 +965,6 @@ test("a rejected fail round ends as infra-error when DEV went unhealthy during i
 
   const result = await loop.run({
     initialRun: oneFailure(),
-    isCode: false,
     generating: true,
     mode: "diff",
     objectiveSource: ["src/checkout.ts"],
@@ -1020,7 +997,6 @@ test("a validation rejection while DEV is down stays a validation rejection, not
 
   const result = await loop.run({
     initialRun: oneFailure(),
-    isCode: false,
     generating: true,
     mode: "diff",
     objectiveSource: ["src/checkout.ts"],
@@ -1057,7 +1033,6 @@ test("a rejected infra-error round ends the run as infra-error", async () => {
 
   const result = await loop.run({
     initialRun: twoFailures(),
-    isCode: false,
     generating: true,
     mode: "diff",
     objectiveSource: ["src/checkout.ts"],
@@ -1111,7 +1086,6 @@ test("reexploreNavigations thrash-stop — a heavy re-exploration round downgrad
 
   const result = await loop.run({
     initialRun: { verdict: "fail", cases: [{ name: "checkout", status: "fail", file: "checkout.spec.ts", detail: "getByRole resolved to 0 elements" }] },
-    isCode: false,
     generating: true,
     mode: "diff",
     objectiveSource: ["src/checkout.ts"],
@@ -1165,7 +1139,6 @@ test("mid-retry infra-error (DEV dies after a filtered retry-execute) discards c
 
   const result = await loop.run({
     initialRun: { verdict: "fail", cases: [{ name: "checkout", status: "fail", file: "checkout.spec.ts", detail: "getByRole resolved to 0 elements" }] },
-    isCode: false,
     generating: true,
     mode: "diff",
     objectiveSource: ["src/checkout.ts"],
@@ -1213,7 +1186,6 @@ test("the regen call threads cycleBudget/wallClockBudget to the the regeneration
 
   await loop.run({
     initialRun: { verdict: "fail", cases: [makeCase()] },
-    isCode: false,
     generating: true,
     mode: "diff",
     objectiveSource: ["src/checkout.ts"],
@@ -1254,7 +1226,6 @@ test("lastSpecMetas reflects the FINAL regen round's own specMetas once the loop
 
   const result = await loop.run({
     initialRun: { verdict: "fail", cases: [makeCase()] },
-    isCode: false,
     generating: true,
     mode: "diff",
     objectiveSource: ["src/checkout.ts"],
@@ -1289,7 +1260,6 @@ test("lastSpecMetas is undefined when the loop never regenerated (already passin
 
   const result = await loop.run({
     initialRun: { verdict: "pass", cases: [{ name: "checkout", status: "pass" }] },
-    isCode: false,
     generating: true,
     mode: "diff",
     objectiveSource: ["src/checkout.ts"],
@@ -1353,7 +1323,6 @@ function loopInput(overrides: Partial<FixLoopInput> = {}): FixLoopInput {
   const { cycleBudget, wallClockBudget } = budgets();
   return {
     initialRun: { verdict: "fail", cases: [makeCase({ file: "checkout.spec.ts" })] },
-    isCode: false,
     generating: true,
     mode: "diff",
     objectiveSource: ["src/checkout.ts"],
@@ -1516,16 +1485,10 @@ test("the selector check sees one tree per failing case that captured a failure 
   assert.deepEqual(rec.checks[0], { specSources: ["spec-source"], trees: [["button: Pay", "link: Home"]] });
 });
 
-test("without a captured failure DOM, or in code mode, the selector check gets no spec sources", async () => {
+test("without a captured failure DOM, the selector check gets no spec sources", async () => {
   const noDom = recordingLoop({ regen: noFix });
   await noDom.loop.run(loopInput({ initialSpecSources: ["spec-source"] }));
   assert.deepEqual(noDom.rec.checks[0], { specSources: [], trees: [] });
-
-  const code = recordingLoop({ regen: noFix });
-  await code.loop.run(
-    loopInput({ isCode: true, initialSpecSources: ["spec-source"], initialRun: { verdict: "fail", cases: [makeCase({ failureDom: "button: Pay" })] } }),
-  );
-  assert.deepEqual(code.rec.checks[0]?.specSources, []);
 });
 
 test("with a failure DOM but no known spec source, the selector check gets no spec sources", async () => {
@@ -1582,60 +1545,6 @@ test("DEV found down at the adjudication snapshot ends the loop as infra-error, 
   assert.equal(result.run.verdict, "infra-error");
   assert.equal(result.realBugDetected, false);
   assert.equal(rec.generates.length, 0);
-});
-
-test("code mode re-runs the repo's own suite under the run's namespace and keeps that namespace for coverage", async () => {
-  let began = 0;
-  const acceptance: FixLoopAcceptancePort = {
-    begin: async () => {
-      began += 1;
-      return { round: began };
-    },
-    accept: async () => {
-      throw new Error("code mode must not accept an e2e round");
-    },
-    restore: async () => {
-      throw new Error("code mode has no e2e bytes to restore");
-    },
-  };
-  const { loop, rec } = recordingLoop({ regen: () => ({ specs: ["test/cart.test.ts"], approved: true }), runs: [{ verdict: "pass", cases: [{ name: "cart", status: "pass" }] }], acceptance });
-  const result = await loop.run(loopInput({ isCode: true, initialRun: { verdict: "fail", cases: [makeCase({ name: "cart", detail: "AssertionError: expected 1 to equal 2" })] } }));
-  assert.deepEqual(rec.executes, [{ namespace: "qa-bot-run" }]);
-  assert.equal(began, 0, "a code-mode run has no suite snapshot to take");
-  assert.equal(result.run.verdict, "pass");
-  assert.equal(result.coverageNamespace, "qa-bot-run");
-});
-
-test("a code-mode retry that regresses never restores through the e2e acceptance port", async () => {
-  let began = 0;
-  const acceptance: FixLoopAcceptancePort = {
-    begin: async () => {
-      began += 1;
-      return { round: began };
-    },
-    accept: async () => {
-      throw new Error("code mode must not accept an e2e round");
-    },
-    restore: async () => {
-      throw new Error("code mode has no e2e bytes to restore");
-    },
-  };
-  const { loop } = recordingLoop({
-    regen: () => ({ specs: ["test/cart.test.ts"], approved: true }),
-    runs: [{ verdict: "fail", cases: [
-      { name: "cart", status: "fail", detail: "expected 1 to equal 2" },
-      { name: "total", status: "fail", detail: "expected 3 to equal 4" },
-    ] }],
-    acceptance,
-  });
-  const result = await loop.run(loopInput({
-    isCode: true,
-    initialRun: { verdict: "fail", cases: [makeCase({ name: "cart", detail: "AssertionError: expected 1 to equal 2" })] },
-  }));
-
-  assert.equal(began, 0);
-  assert.equal(result.run.cases.filter((c) => c.status === "fail").length, 1, "the best executed run is reported; code mode has no bytes to restore");
-  assert.equal(result.run.cases[0]?.name, "cart", "the initial run is still the best one");
 });
 
 test("DEV going down before the retry execution stops the loop without executing and keeps the failing run", async () => {

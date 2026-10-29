@@ -11,7 +11,7 @@ export interface DelegateRunInput {
   sha: string;
   /** Range start: the service's diff spans baseSha..sha (same meaning as the webhook and standalone paths). */
   baseSha?: string;
-  /** Absent means the service picks it from the app's config (code apps run in code mode). */
+  /** Absent means the service defaults it. */
   target?: TestTarget;
   mode: RunMode;
   guidance?: string;

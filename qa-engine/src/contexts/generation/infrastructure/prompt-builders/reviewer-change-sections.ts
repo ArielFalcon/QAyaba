@@ -36,7 +36,7 @@ const flowKey = (flow: number, index: number): string => `f${flow}:${index}`;
 const unassignedKey = (index: number): string => `u${index}`;
 const hunklessKey = (position: number): string => `h${position}`;
 
-const isCode = (kind: string): boolean => kind !== "other";
+const isCodeKind = (kind: string): boolean => kind !== "other";
 const DEGRADED_WHY = "over the reviewer's window";
 
 function hunkReference(hunk: DiffHunk, kind: string, why: string): string {
@@ -76,7 +76,7 @@ export function degradationOrder(view: ReviewChangeView): ChangeItem[] {
   const lastInDiffFirst = [...view.unassigned].reverse();
   const unassigned = [...lastInDiffFirst.filter((u) => decisionRank(u.hunk) !== 0), ...lastInDiffFirst.filter((u) => decisionRank(u.hunk) === 0)].map((u) => ({
     key: unassignedKey(u.index),
-    code: isCode(u.kind),
+    code: isCodeKind(u.kind),
     savingBytes: bytes(diffBlock([u.hunk])) - bytes(hunkReference(u.hunk, u.kind, DEGRADED_WHY)),
   }));
   const deepest = Math.max(0, ...view.flows.map((flow) => flow.owned.length));
@@ -84,7 +84,7 @@ export function degradationOrder(view: ReviewChangeView): ChangeItem[] {
   for (let rank = deepest - 1; rank >= 0; rank--) {
     view.flows.forEach((flow, f) => {
       const hunk = flow.owned[rank];
-      if (hunk) owned.push({ key: flowKey(f, hunk.index), code: isCode(hunk.kind), savingBytes: bytes(diffBlock([hunk.hunk])) - bytes(hunkReference(hunk.hunk, hunk.kind, DEGRADED_WHY)) });
+      if (hunk) owned.push({ key: flowKey(f, hunk.index), code: isCodeKind(hunk.kind), savingBytes: bytes(diffBlock([hunk.hunk])) - bytes(hunkReference(hunk.hunk, hunk.kind, DEGRADED_WHY)) });
     });
   }
   const unowned = [...hunklessItems, ...unassigned];

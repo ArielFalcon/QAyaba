@@ -21,7 +21,6 @@ export interface ReviewJudgment {
 
 export interface PromptSection { heading: string; body: string; }
 
-/** e2e: real grounding; code-mode: NullDomGroundingAdapter returns an empty context (code mode has no browser). */
 export interface DomGrounding { aria: string; routes: string[]; }
 
 export interface ContextPackResult { objective: Objective; sections: PromptSection[]; failureCases?: QaCase[]; }

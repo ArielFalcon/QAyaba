@@ -20,7 +20,7 @@ over HTTP. It provides a visual dashboard for launching and tracking QA runs.
 
 - \`qayaba\` — opens the home screen (interactive menu)
 - \`qayaba --help\` — shows all CLI commands
-- \`qayaba run [app] [--target e2e|code] [--mode diff|complete|exhaustive|manual|context] [--guidance "..."] [-w|--watch]\` — trigger a run
+- \`qayaba run [app] [--mode diff|complete|exhaustive|manual|context] [--guidance "..."] [-w|--watch]\` — trigger a run
 - \`qayaba status [app]\` — queue status or last run for an app
 - \`qayaba apps\` — list configured apps
 - \`qayaba logs <app> [--last N]\` — show run logs
@@ -52,18 +52,17 @@ The service must be running: \`docker compose up\` (or the orchestrator started 
 2. Enter the GitHub repo (org/name format, e.g. 'facebook/react')
 3. Provide the DEV base URL (e.g. https://dev.my-app.internal)
 4. Optionally set a version endpoint for deploy-gate health checks
-5. Choose test target: e2e (browser tests) or code (source tests)
-6. Enable/disable AI review and shadow mode
-7. Set a test data prefix (default: qa-bot)
-8. (e2e only) Optionally add microservice repos (services[]). Each entry: the
+5. Enable/disable AI review and shadow mode
+6. Set a test data prefix (default: qa-bot)
+7. Optionally add microservice repos (services[]). Each entry: the
    service repo (org/name), an optional OpenAPI glob, and an optional versionUrl.
    A webhook from a service repo triggers an e2e run of the app with the
    service commit as the blast radius.
-9. Optionally add env vars (KEY=value). They take effect in the running service immediately AND
+8. Optionally add env vars (KEY=value). They take effect in the running service immediately AND
    are persisted to .env on the orchestrator host (own line, no inline comments).
    Doppler users must also add them in Doppler — .env only covers local boots.
    The wizard masks values; they NEVER appear in API responses or the YAML preview.
-10. Review the server-rendered YAML preview and confirm — config is written to
+9. Review the server-rendered YAML preview and confirm — config is written to
     config/apps/<name>.yaml by the orchestrator (the TUI does not touch the FS).
 
 ## How to delete a project

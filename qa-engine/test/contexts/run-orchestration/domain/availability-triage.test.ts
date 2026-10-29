@@ -39,7 +39,6 @@ function input(facts: readonly RouteAvailabilityFact[], cases: QaCase[] = [faili
   const wallClockBudget = WallClockBudget.derive({ cycleBudget, agentTimeoutMs: 60_000 });
   return {
     initialRun: { verdict: "fail", cases },
-    isCode: false,
     generating: true,
     mode: "diff",
     objectiveSource: ["src/app.routes.ts"],

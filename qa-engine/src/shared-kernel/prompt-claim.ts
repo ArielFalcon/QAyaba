@@ -21,8 +21,6 @@ export type FactId =
   | "learned-rules"
   | "exemplars"
   | "diff"
-  /* The orchestrator, not the agent, compiles and runs what a code run writes. */
-  | "orchestrator-validation"
   /* A failure of the static gate (compile, lint), which nothing executed. */
   | "gate-failure"
   /* The bounded snapshot of a service's contracts a cross-repo run reads instead of the service's source. */

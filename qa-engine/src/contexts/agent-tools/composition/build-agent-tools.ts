@@ -25,7 +25,6 @@ export type GeolocationWiring = GeolocationPortAdapterDeps;
 
 export interface AgentToolsDeps {
   run: {
-    isCode: boolean;
     baseUrl?: string;
     /* The spec directory relative to the mirror. */
     specRelDir: string;
@@ -66,7 +65,7 @@ export function buildAgentTools(deps: AgentToolsDeps): AgentToolsApi {
   const authContext = deps.authSession && run.baseUrl ? { baseUrl: run.baseUrl, ...(run.auth ? { auth: run.auth } : {}) } : undefined;
 
   const closedLoop =
-    deps.closedLoop && !run.isCode
+    deps.closedLoop
       ? new ClosedLoopPortAdapter({
           ...deps.closedLoop,
           ...(trace ? { trace } : {}),
@@ -80,7 +79,7 @@ export function buildAgentTools(deps: AgentToolsDeps): AgentToolsApi {
   /* The browser reads DEV through the run's own session and origins; a spec is never run by it. */
   const baseUrl = run.baseUrl;
   const agentBrowser =
-    deps.agentBrowser && !run.isCode && baseUrl
+    deps.agentBrowser && baseUrl
       ? new AgentBrowserPortAdapter({
           ...deps.agentBrowser,
           ...(trace ? { trace } : {}),
@@ -92,12 +91,12 @@ export function buildAgentTools(deps: AgentToolsDeps): AgentToolsApi {
 
   /* The lead explores the index the index phase built for the run's repo; it names terms, never the repo, the workspace or the engine's options. */
   const codeGraphTools =
-    deps.codeGraphTools && deps.codeExplore && !run.isCode
+    deps.codeGraphTools && deps.codeExplore
       ? new CodeGraphToolsPortAdapter({ ...deps.codeGraphTools, explore: deps.codeExplore, repos: run.codeGraphRepos?.length ? run.codeGraphRepos : [{ repo: "", repoDir: run.codeGraphRepoDir }], ...(trace ? { trace } : {}) })
       : undefined;
 
   /* The app's declared position, the lead's value and one per flow: authoring context, never an input to the delivered suite. */
-  const geolocation = deps.geolocation && !run.isCode ? new GeolocationPortAdapter(deps.geolocation) : undefined;
+  const geolocation = deps.geolocation ? new GeolocationPortAdapter(deps.geolocation) : undefined;
 
   return {
     ...(closedLoop ? { closedLoop } : {}),

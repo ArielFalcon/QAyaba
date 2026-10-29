@@ -23,11 +23,11 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 /* Prime to the size of the dimensions' cycles, so the sample walks through every value of every dimension. The smallest prime whose sample, assembled once per layer for each combination, stays within the prompts a mutant run is sized for. */
 const SAMPLE_STRIDE = 53;
 
-/* A signal of co-change files alone is a few dozen combinations the stride mostly skips: the first one of each phase and target keeps the decision it bears on (is a blast radius explored?) in the sample, on a first pass and on every regeneration. */
-const firstCoChangeOfEachPhaseAndTarget = (all: readonly CellSpec[]): CellSpec[] => {
+/* A signal of co-change files alone is a few dozen combinations the stride mostly skips: the first one of each phase keeps the decision it bears on (is a blast radius explored?) in the sample, on a first pass and on every regeneration. */
+const firstCoChangeOfEachPhase = (all: readonly CellSpec[]): CellSpec[] => {
   const seen = new Set<string>();
   return all.filter((s) => {
-    const key = `${s.phase}/${s.target}`;
+    const key = s.phase;
     if (s.structuralSignal !== "co-change" || seen.has(key)) return false;
     seen.add(key);
     return true;
@@ -44,22 +44,22 @@ const firstWithNoSuiteOfEachPhase = (all: readonly CellSpec[]): CellSpec[] => {
   });
 };
 
-/* The regeneration whose run has delivered more specs than the listing shows of those it leaves alone: an exhaustive one, in both targets, for a fix and for a reviewer's correction. */
+/* The regeneration whose run has delivered more specs than the listing shows of those it leaves alone: an exhaustive one, for a fix and for a reviewer's correction. */
 const firstExhaustiveRegenerationOverTheCap = (all: readonly CellSpec[]): CellSpec[] => {
   const seen = new Set<string>();
   return all.filter((s) => {
-    const key = `${s.target}/${s.phase}`;
+    const key = s.phase;
     if (s.mode !== "exhaustive" || s.suite !== "listed" || (s.phase !== "regen-fix" && s.phase !== "regen-review") || seen.has(key)) return false;
     seen.add(key);
     return true;
   });
 };
 
-/* The worst case of a listing is a few dozen combinations the stride mostly skips: the first one of each phase and target keeps it in the sample, so that the size of its prompt and its lint are checked wherever the stride lands. */
-const firstWorstCaseListingOfEachPhaseAndTarget = (all: readonly CellSpec[]): CellSpec[] => {
+/* The worst case of a listing is a few dozen combinations the stride mostly skips: the first one of each phase keeps it in the sample, so that the size of its prompt and its lint are checked wherever the stride lands. */
+const firstWorstCaseListingOfEachPhase = (all: readonly CellSpec[]): CellSpec[] => {
   const seen = new Set<string>();
   return all.filter((s) => {
-    const key = `${s.phase}/${s.target}`;
+    const key = s.phase;
     if (s.suite !== "large" || seen.has(key)) return false;
     seen.add(key);
     return true;
@@ -71,10 +71,10 @@ const sampleSpecs = (): CellSpec[] => {
   const chosen = new Map<string, CellSpec>();
   for (const spec of [
     ...all.filter((_, i) => i % SAMPLE_STRIDE === 0),
-    ...firstCoChangeOfEachPhaseAndTarget(all),
+    ...firstCoChangeOfEachPhase(all),
     ...firstWithNoSuiteOfEachPhase(all),
     ...firstExhaustiveRegenerationOverTheCap(all),
-    ...firstWorstCaseListingOfEachPhaseAndTarget(all),
+    ...firstWorstCaseListingOfEachPhase(all),
   ]) {
     chosen.set(cellName(spec), spec);
   }
@@ -110,24 +110,23 @@ test("the sample assembles no more prompts than a mutant run is sized for, so ev
   assert.ok(cells.length <= MOST_PROMPTS_A_MUTANT_RUN_ASSEMBLES, `${cells.length} prompts are assembled, over the ${MOST_PROMPTS_A_MUTANT_RUN_ASSEMBLES} a mutant run is sized for`);
 });
 
-test("the sample carries a signal of co-change files alone on a first pass and on every kind of regeneration, in both targets", () => {
+test("the sample carries a signal of co-change files alone on a first pass and on every kind of regeneration", () => {
   const coChange = sampleSpecs().filter((s) => s.structuralSignal === "co-change");
   assert.ok(coChange.some((s) => s.phase === "first"), "a first pass");
   for (const phase of DIMENSIONS.phase.filter((p) => p !== "first")) assert.ok(coChange.some((s) => s.phase === phase), `${phase} regeneration`);
-  for (const target of DIMENSIONS.target) assert.ok(coChange.some((s) => s.target === target), target);
 });
 
 test("the sample carries a diff first pass with no listing, a regeneration of every kind with no carried specs, and an exhaustive regeneration whose run delivered more than the listing shows", () => {
   const specs = sampleSpecs();
   assert.ok(specs.some((s) => s.suite === "none" && s.mode === "diff" && s.phase === "first"), "a diff first pass with no listing");
   for (const phase of DIMENSIONS.phase.filter((p) => p !== "first")) assert.ok(specs.some((s) => s.suite === "none" && s.phase === phase), `${phase} regeneration with no carried specs`);
-  for (const target of DIMENSIONS.target) assert.ok(specs.some((s) => s.suite === "listed" && s.mode === "exhaustive" && s.phase === "regen-fix" && s.target === target), `${target}: an exhaustive fix over the cap`);
+  assert.ok(specs.some((s) => s.suite === "listed" && s.mode === "exhaustive" && s.phase === "regen-fix"), "an exhaustive fix over the cap");
 });
 
 test("the sample carries the worst case of a listing for each regeneration that cannot say which spec to change", () => {
   const worst = sampleSpecs().filter((s) => s.suite === "large");
-  for (const [phase, target] of [["regen-coverage", "e2e"], ["selector-fix", "e2e"]] as const) {
-    assert.ok(worst.some((s) => s.phase === phase && s.target === target), `${phase}, ${target}`);
+  for (const phase of ["regen-coverage", "selector-fix"] as const) {
+    assert.ok(worst.some((s) => s.phase === phase), phase);
   }
 });
 

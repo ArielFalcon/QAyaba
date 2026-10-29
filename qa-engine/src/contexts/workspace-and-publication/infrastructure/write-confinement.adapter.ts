@@ -1,4 +1,4 @@
-/* Tracked strays revert via staged-aware `git restore --staged --worktree --source=HEAD` (a plain checkout would leave a staged-new stray). Untracked strays: `git clean -f`. A symlink whose realpath escapes mirrorDir is dangerous and reverted in both targets (code-mode stages `.`). Git errors throw here; RunQaUseCase fail-opens around enforce(). */
+/* Tracked strays revert via staged-aware `git restore --staged --worktree --source=HEAD` (a plain checkout would leave a staged-new stray). Untracked strays: `git clean -f`. A symlink whose realpath escapes mirrorDir is dangerous and reverted. Git errors throw here; RunQaUseCase fail-opens around enforce(). */
 import { engineLog } from "@kernel/ports/process-logger.ts";
 import { dirname, isAbsolute, join, sep } from "node:path";
 import { WriteConfinementService, type GitRename } from "../domain/write-confinement.service.ts";
@@ -27,7 +27,7 @@ export class WriteConfinementAdapter {
 
   constructor(private readonly deps: WriteConfinementAdapterDeps) {}
 
-  async enforce(mirrorDir: string, isCode: boolean, signal?: AbortSignal): Promise<ConfinementResult> {
+  async enforce(mirrorDir: string, signal?: AbortSignal): Promise<ConfinementResult> {
     if (signal?.aborted) {
       return { strays: 0, dangerous: 0, reverted: [] };
     }
@@ -38,12 +38,12 @@ export class WriteConfinementAdapter {
     const embedded = parsed.filter((c) => c.xy === "??" && c.path.endsWith("/")).map((c) => c.path);
     this.removeEmbeddedRepositories(mirrorDir, embedded);
     const changes = parsed.filter((c) => !embedded.includes(c.path));
-    const { tracked, untracked, dangerousByPath } = this.classifier.classifyStrays(changes, isCode);
+    const { tracked, untracked, dangerousByPath } = this.classifier.classifyStrays(changes);
 
     const escapes: string[] = [];
     const mirrorReal = this.deps.realpath(mirrorDir) + sep;
     for (const { xy, path, renameCounterpart } of changes) {
-      if (!isCode && path !== "e2e" && !path.startsWith("e2e/")) continue;
+      if (path !== "e2e" && !path.startsWith("e2e/")) continue;
       let resolved: string;
       try {
         if (!this.deps.isSymlink(join(mirrorDir, path))) continue;
@@ -61,7 +61,7 @@ export class WriteConfinementAdapter {
       }
     }
 
-    const isConfined = (p: string): boolean => (isCode ? !this.classifier.isCodeDenied(p) : !this.classifier.isE2eStray(p));
+    const isConfined = (p: string): boolean => !this.classifier.isE2eStray(p);
     const candidateDeleted = changes
       .filter((c) => c.xy === " D" && c.renameCounterpart === undefined && isConfined(c.path))
       .map((c) => c.path);

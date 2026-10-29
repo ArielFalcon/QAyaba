@@ -245,13 +245,12 @@ function errorClassOf(terminal: TerminalShape, ctx: RunContext): string | null {
 
 /* The same learning gates as the decided end, at the terminal stage: a terminal outcome teaches only through a class that teaches. */
 async function learnFromTerminal(outcome: RunOutcome, terminal: TerminalShape, ctx: RunContext): Promise<void> {
-  const { deps, input, cfg } = ctx;
+  const { deps, input } = ctx;
   const learning = learningGates({
     stage: "terminal",
     mode: input.mode,
     verdict: terminal.verdict,
     errorClass: outcome.errorClass,
-    isCode: cfg.isCode,
     adjudicationClass: outcome.adjudication?.class,
   });
   if (learning.fold) await deps.learning.fold(outcome);

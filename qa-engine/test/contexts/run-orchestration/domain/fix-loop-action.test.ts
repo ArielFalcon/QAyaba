@@ -6,7 +6,7 @@ import { fixLoopAction, type FixLoopTransition } from "@contexts/run-orchestrati
 import { ADJ_ACTION } from "@contexts/run-orchestration/domain/adjudicate.service.ts";
 
 const start: FixLoopTransition = { after: "round-start", retry: 0, maxRetries: 2, verdict: "fail", generating: true };
-const regen = { after: "regeneration", claim: "none", delivered: 1, absentTargets: false, isCode: false, accepting: true } as const;
+const regen = { after: "regeneration", claim: "none", delivered: 1, absentTargets: false, accepting: true } as const;
 
 test("a failing run with a retry left and a generator goes to triage", () => {
   assert.deepEqual(fixLoopAction(start), { go: "triage" });
@@ -47,7 +47,6 @@ test("absent selectors regenerate again without executing", () => {
 test("an e2e round with an acceptance goes to accept, otherwise to re-execution", () => {
   assert.deepEqual(fixLoopAction(regen), { go: "accept" });
   assert.deepEqual(fixLoopAction({ ...regen, accepting: false }), { go: "reexecute" });
-  assert.deepEqual(fixLoopAction({ ...regen, isCode: true }), { go: "reexecute" });
 });
 test("an unhealthy DEV stops the loop before an execution", () => {
   assert.deepEqual(fixLoopAction({ after: "dev-check", healthy: false, then: "accept" }), { stop: "dev-unhealthy" });

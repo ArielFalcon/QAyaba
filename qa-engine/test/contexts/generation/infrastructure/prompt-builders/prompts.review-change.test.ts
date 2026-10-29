@@ -39,7 +39,7 @@ function view(): ReviewChangeView {
 }
 
 function mkReview(overrides: Partial<ReviewInput> = {}): ReviewInput {
-  return { diff: DIFF, specs: ["flows/cart.spec.ts"], mirrorDir: "/mirrors/org__app", e2eRelDir: "e2e", appName: "shop", mode: "diff", target: "e2e", ...overrides };
+  return { diff: DIFF, specs: ["flows/cart.spec.ts"], mirrorDir: "/mirrors/org__app", e2eRelDir: "e2e", appName: "shop", mode: "diff", ...overrides };
 }
 
 function sectionText(a: AssembledPrompt, id: string): string {

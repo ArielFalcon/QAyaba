@@ -1,9 +1,7 @@
 /* test/contexts/objective-signal/infrastructure/coverage-dump-reader.test.ts
-   missing `(specDir, namespace) => Promise<T[]>` closures the existing collector adapters declare
-   but never got a real default for — see F.2's GAP note (engram obs #914). Each reader is exercised
-   against a real temp-dir fixture (no FS mocking — the readers ARE the FS boundary), asserting the
-   exact injected-type shape each adapter expects (the covered lines of each dump / CoverageFile[] /
-   IstanbulFile[] / JacocoFile[]) and the fail-open contract (absent dir/files -> empty array, never throw).
+   The V8 dump reader is exercised against a real temp-dir fixture (no FS mocking — the reader IS the
+   FS boundary), asserting the covered lines of each dump and the fail-open contract (absent dir/files
+   -> empty array, never throw).
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -11,7 +9,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { MAX_V8_DUMPS_TOTAL_BYTES } from "@contexts/objective-signal/domain/dump-sanitizers.ts";
-import { V8_DUMP_LIMITS, readV8Coverage, readNativeReports } from "@contexts/objective-signal/infrastructure/coverage-dump-reader.ts";
+import { V8_DUMP_LIMITS, readV8Coverage } from "@contexts/objective-signal/infrastructure/coverage-dump-reader.ts";
 
 async function withTmpDir<T>(fn: (dir: string) => T | Promise<T>): Promise<T> {
   const dir = mkdtempSync(join(tmpdir(), "qa-engine-coverage-dump-reader-"));
@@ -126,128 +124,6 @@ test("readV8Coverage: a non-array JSON dump covers nothing (fail-open)", async (
     const dumps = await readV8Coverage(e2eDir, "qa-abc", ["src/svc.ts"]);
     assert.equal(dumps.length, 1);
     assert.equal(dumps[0]!.size, 0);
-  });
-});
-
-/* ── lcov: repoDir + conventional relative paths (no namespace — native reports are per-run-directory ──
-   ── scoped by the tool itself, not by our namespace convention) ──────────────────────────────────────
- */
-
-test("readNativeReports lcov: reads coverage/lcov.info when present", async () => {
-  await withTmpDir(async (repoDir) => {
-    mkdirSync(join(repoDir, "coverage"), { recursive: true });
-    const lcov = "SF:src/a.ts\nDA:1,2\nend_of_record\n";
-    writeFileSync(join(repoDir, "coverage", "lcov.info"), lcov);
-
-    const { lcov: files } = await readNativeReports(repoDir);
-    assert.equal(files.length, 1);
-    assert.equal(files[0]!.text, lcov);
-  });
-});
-
-test("readNativeReports lcov: falls back to lcov.info at repo root when coverage/lcov.info is absent", async () => {
-  await withTmpDir(async (repoDir) => {
-    const lcov = "SF:src/b.ts\nDA:5,1\nend_of_record\n";
-    writeFileSync(join(repoDir, "lcov.info"), lcov);
-
-    const { lcov: files } = await readNativeReports(repoDir);
-    assert.equal(files.length, 1);
-    assert.equal(files[0]!.text, lcov);
-  });
-});
-
-test("readNativeReports lcov: falls back to coverage/lcov/lcov.info as the third conventional path", async () => {
-  await withTmpDir(async (repoDir) => {
-    mkdirSync(join(repoDir, "coverage", "lcov"), { recursive: true });
-    const lcov = "SF:src/c.ts\nDA:9,4\nend_of_record\n";
-    writeFileSync(join(repoDir, "coverage", "lcov", "lcov.info"), lcov);
-
-    const { lcov: files } = await readNativeReports(repoDir);
-    assert.equal(files.length, 1);
-    assert.equal(files[0]!.text, lcov);
-  });
-});
-
-test("readNativeReports lcov: returns [] when no conventional lcov path exists (fail-open)", async () => {
-  await withTmpDir(async (repoDir) => {
-    const { lcov: files } = await readNativeReports(repoDir);
-    assert.deepEqual(files, []);
-  });
-});
-
-/* ── istanbul: repoDir/coverage/coverage-final.json ─────────────────────────────────── */
-
-test("readNativeReports istanbul: reads coverage/coverage-final.json when present", async () => {
-  await withTmpDir(async (repoDir) => {
-    mkdirSync(join(repoDir, "coverage"), { recursive: true });
-    const json = { "/repo/src/a.ts": { path: "/repo/src/a.ts", statementMap: {}, s: {} } };
-    writeFileSync(join(repoDir, "coverage", "coverage-final.json"), JSON.stringify(json));
-
-    const { istanbul: files } = await readNativeReports(repoDir);
-    assert.equal(files.length, 1);
-    assert.deepEqual(files[0]!.json, json);
-  });
-});
-
-test("readNativeReports istanbul: returns [] when coverage-final.json is absent (fail-open)", async () => {
-  await withTmpDir(async (repoDir) => {
-    const { istanbul: files } = await readNativeReports(repoDir);
-    assert.deepEqual(files, []);
-  });
-});
-
-test("readNativeReports istanbul: a corrupt coverage-final.json degrades to [] instead of throwing", async () => {
-  await withTmpDir(async (repoDir) => {
-    mkdirSync(join(repoDir, "coverage"), { recursive: true });
-    writeFileSync(join(repoDir, "coverage", "coverage-final.json"), "{not valid json");
-
-    const { istanbul: files } = await readNativeReports(repoDir);
-    assert.deepEqual(files, []);
-  });
-});
-
-/* ── jacoco: Maven/Gradle conventional JaCoCo XML report paths ───────────────────────── */
-
-test("readNativeReports jacoco: reads the Maven default report path", async () => {
-  await withTmpDir(async (repoDir) => {
-    mkdirSync(join(repoDir, "target", "site", "jacoco"), { recursive: true });
-    const xml = "<report></report>";
-    writeFileSync(join(repoDir, "target", "site", "jacoco", "jacoco.xml"), xml);
-
-    const { jacoco: files } = await readNativeReports(repoDir);
-    assert.equal(files.length, 1);
-    assert.equal(files[0]!.text, xml);
-  });
-});
-
-test("readNativeReports jacoco: reads the Gradle default report path", async () => {
-  await withTmpDir(async (repoDir) => {
-    mkdirSync(join(repoDir, "build", "reports", "jacoco", "test"), { recursive: true });
-    const xml = "<report gradle=\"true\"></report>";
-    writeFileSync(join(repoDir, "build", "reports", "jacoco", "test", "jacocoTestReport.xml"), xml);
-
-    const { jacoco: files } = await readNativeReports(repoDir);
-    assert.equal(files.length, 1);
-    assert.equal(files[0]!.text, xml);
-  });
-});
-
-test("readNativeReports jacoco: falls back to target/jacoco.xml as the third conventional path", async () => {
-  await withTmpDir(async (repoDir) => {
-    mkdirSync(join(repoDir, "target"), { recursive: true });
-    const xml = "<report fallback=\"true\"></report>";
-    writeFileSync(join(repoDir, "target", "jacoco.xml"), xml);
-
-    const { jacoco: files } = await readNativeReports(repoDir);
-    assert.equal(files.length, 1);
-    assert.equal(files[0]!.text, xml);
-  });
-});
-
-test("readNativeReports jacoco: returns [] when no conventional JaCoCo path exists (fail-open)", async () => {
-  await withTmpDir(async (repoDir) => {
-    const { jacoco: files } = await readNativeReports(repoDir);
-    assert.deepEqual(files, []);
   });
 });
 

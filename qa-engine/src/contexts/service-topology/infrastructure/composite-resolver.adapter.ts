@@ -1,4 +1,4 @@
-/* service-topology/infrastructure/composite-resolver.adapter.ts Composite ServiceBoundaryResolverPort: per-resolver timeout + error isolation + link dedup. Mirrors CoverageCollectorAdapter's fail-open pattern (coverage-collector.adapter.ts). */
+/* service-topology/infrastructure/composite-resolver.adapter.ts Composite ServiceBoundaryResolverPort: per-resolver timeout + error isolation + link dedup. */
 import { engineLog } from "@kernel/ports/process-logger.ts";
 import type { ServiceLink, ContractDrift } from "@kernel/service-links.ts";
 import type { ServiceBoundaryResolverPort } from "../application/ports/service-boundary-resolver.port.ts";

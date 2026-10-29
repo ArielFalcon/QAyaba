@@ -169,7 +169,7 @@ test("specs inside installed packages never make a bare name ambiguous", () => {
   assert.deepEqual(reportedPaths(["login.spec.ts"], ["flows/login.spec.ts", "node_modules/pkg/login.spec.ts"]).specs, ["flows/login.spec.ts"]);
 });
 
-test("without a spec dir (code target) reported names are kept as they are", () => {
+test("without a spec dir reported names are kept as they are", () => {
   assert.deepEqual(reportedPaths(["login.spec.ts"], undefined).specs, ["login.spec.ts"]);
 });
 

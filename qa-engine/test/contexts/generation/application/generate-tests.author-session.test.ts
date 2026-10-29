@@ -27,7 +27,7 @@ function author(): { turn(): Promise<unknown>; opened: Opened[]; disposed: () =>
   };
   const useCase = new GenerateTestsUseCase(ports);
   return {
-    turn: () => useCase.author({ repo: "org/demo", sha: "abc1234", diff: "d", mirrorDir: "/m", e2eRelDir: "e2e", namespace: "ns", target: "e2e", mode: "diff", appName: "a", runId: "run-1" }),
+    turn: () => useCase.author({ repo: "org/demo", sha: "abc1234", diff: "d", mirrorDir: "/m", e2eRelDir: "e2e", namespace: "ns", mode: "diff", appName: "a", runId: "run-1" }),
     opened,
     disposed: () => disposed,
   };

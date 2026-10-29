@@ -62,13 +62,11 @@ function fakeConfig(overrides: Partial<EngineRootDeps> = {}): EngineRootDeps {
     mirrorDir: MIRROR,
     e2eRelDir: "e2e",
     branch: "qa-bot/abc1234",
-    target: "e2e",
     mode: "diff",
     needsReview: false,
     shadow: false,
     onFailure: "github-issue",
     maxRetries: 2,
-    isCode: false,
     coveragePolicyMode: "signal",
 
     vcs: {
@@ -88,11 +86,9 @@ function fakeConfig(overrides: Partial<EngineRootDeps> = {}): EngineRootDeps {
     },
     validationStrategies: {
       e2e: { validateAll: async () => ({ ok: true, errors: [], infra: false }) },
-      code: { validate: async () => ({ ok: true, errors: [], infra: false }) },
     },
     executionStrategies: {
       e2e: { run: async () => ({ verdict: "pass", cases: [], logs: "" }) },
-      code: { run: async () => ({ verdict: "pass", cases: [], logs: "" }) },
     },
     objectiveSignal: {
       collector: { collect: async () => ({ covered: [] }) },
@@ -192,11 +188,11 @@ test("the pre-exec grounding reads the suite through the confined reader, anchor
 /*
  * The engine as the composition config wires it, for a run whose login is still to be written: one author sidekick authors it with
  * no plan, so the wired generation port's authoring turn is what these tests observe. A config that wires lead and sidekicks
- * (`delegation`) and a code run keep their own coordination.
+ * (`delegation`) keeps its own coordination.
  */
 function buildEngine(cfg: EngineRootDeps) {
   const wired = wireEngine(cfg);
-  return wired.leadSidekicks || cfg.isCode ? composeEngine(cfg) : new RunPipelineAdapter({ ...wired, ...loginToBeWritten() });
+  return wired.leadSidekicks ? composeEngine(cfg) : new RunPipelineAdapter({ ...wired, ...loginToBeWritten() });
 }
 
 test("buildEngine wires a pipeline from the composition config alone", () => {
@@ -231,7 +227,6 @@ test("buildEngine wires cfg.reflectorPort through to RunQaUseCase — a static-g
   const cfg = fakeConfig({
     validationStrategies: {
       e2e: { validateAll: async () => ({ ok: false, errors: ["[lint] no-wait-for-timeout"], infra: false }) },
-      code: { validate: async () => ({ ok: true, errors: [], infra: false }) },
     },
     reflectorPort: {
       reflect: async () => { reflectCallCount++; },
@@ -279,7 +274,6 @@ test("buildEngine wires cfg.processAudit through to RunQaUseCase — a static-ga
   const cfg = fakeConfig({
     validationStrategies: {
       e2e: { validateAll: async () => ({ ok: false, errors: ["[lint] no-wait-for-timeout"], infra: false }) },
-      code: { validate: async () => ({ ok: true, errors: [], infra: false }) },
     },
     processAudit: {
       audit: async () => { auditCallCount++; },
@@ -452,7 +446,6 @@ test("buildEngine threads testIdAttribute into the ExecutionPortAdapter", async 
           return { verdict: "pass", cases: [], logs: "" };
         },
       },
-      code: { run: async () => ({ verdict: "pass", cases: [], logs: "" }) },
     },
   });
   const port = buildEngine(cfg);
@@ -479,10 +472,8 @@ test("buildEngine threads testIdAttribute into the ExecutionPortAdapter", async 
 test("buildEngine wires setupCollaborators.e2e into the run when target is 'e2e'", async () => {
   let setupCalled = false;
   const cfg = fakeConfig({
-    target: "e2e",
     setupCollaborators: {
       e2e: async () => { setupCalled = true; },
-      code: async () => { throw new Error("must not be called for target 'e2e'"); },
     },
   });
   const port = buildEngine(cfg);
@@ -602,10 +593,8 @@ test("buildEngine hands cfg.reviewRuntime.repair to the reviewer: an answer with
 
 test("buildEngine surfaces infra-error when a wired setup collaborator throws", async () => {
   const cfg = fakeConfig({
-    target: "e2e",
     setupCollaborators: {
       e2e: async () => { throw new Error("npm ci in e2e failed (code 1)"); },
-      code: async () => {},
     },
   });
   const port = buildEngine(cfg);
@@ -667,8 +656,8 @@ test("buildEngine surfaces infra-error when the real deploy gate never serves", 
 });
 
 /* wiring proof. groundingCollaborators/reviewDomGroundingCollaborators (OPTIONAL on
-   EngineRootDeps) must reach the run() call when supplied, and stay a silent no-op (isCode OR
-   absent collaborators) otherwise — every fakeConfig() base case above never supplies them, which
+   EngineRootDeps) must reach the run() call when supplied, and stay a silent no-op (absent
+   collaborators) otherwise — every fakeConfig() base case above never supplies them, which
    already proves the absent-collaborator backward-compat path across the OTHER tests in this file.
  */
 
@@ -676,8 +665,6 @@ test("buildEngine wires groundingCollaborators.buildContextPack into the run whe
   let buildCalled = false;
   const seenContextPacks: Array<string | undefined> = [];
   const cfg = fakeConfig({
-    target: "e2e",
-    isCode: false,
     baseUrl: "https://dev.example.com",
     groundingCollaborators: {
       buildContextPack: async () => {
@@ -1173,7 +1160,7 @@ test("buildEngine leaves OpencodeRunInput.services entirely absent when cfg.serv
 });
 
 test("buildEngine runs without groundingCollaborators/reviewDomGroundingCollaborators (absent -> no-op, backward compatible)", async () => {
-  const cfg = fakeConfig({ target: "e2e", isCode: false }); /* fakeConfig()'s base never supplies either */
+  const cfg = fakeConfig({ }); /* fakeConfig()'s base never supplies either */
   const port = buildEngine(cfg);
 
   const outcome = await port.run({
@@ -1190,7 +1177,7 @@ test("buildEngine runs without groundingCollaborators/reviewDomGroundingCollabor
 });
 
 /* OPTIONAL on EngineRootDeps, absent -> the use-case's pre-exec grounding phase stays a no-op
-   (preExecAmbiguityCatches stays 0), and gated `!cfg.isCode` (isCode has no DOM/routes to ground).
+   (preExecAmbiguityCatches stays 0).
  */
 
 test("buildEngine wires preExecGrounding into the run when target is 'e2e' and a captureRouteTrees-shaped collaborator is supplied", async () => {
@@ -1206,8 +1193,6 @@ test("buildEngine wires preExecGrounding into the run when target is 'e2e' and a
     let captureCalled = false;
     /* The static mirrorDir is the directory checkout() returns, as in production: the adapter's confined reads are anchored on it. */
     const cfg = fakeConfig({
-      target: "e2e",
-      isCode: false,
       baseUrl: "https://dev.example.com",
       mirrorDir,
       checkout: async () => mirrorDir,
@@ -1238,7 +1223,7 @@ test("buildEngine wires preExecGrounding into the run when target is 'e2e' and a
 });
 
 test("buildEngine runs without preExecGroundingCollaborators (absent -> no-op, backward compatible)", async () => {
-  const cfg = fakeConfig({ target: "e2e", isCode: false }); /* fakeConfig()'s base never supplies it */
+  const cfg = fakeConfig({ }); /* fakeConfig()'s base never supplies it */
   const port = buildEngine(cfg);
 
   const outcome = await port.run({
@@ -1273,8 +1258,6 @@ test("buildEngine end-to-end: a duplicate page-rooted selector in the captured r
     );
 
     const cfg = fakeConfig({
-      target: "e2e",
-      isCode: false,
       baseUrl: "https://dev.example.com",
       mirrorDir,
       checkout: async () => mirrorDir,

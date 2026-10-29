@@ -1,4 +1,4 @@
-/* The one reader of what a run of the tests leaves in a directory the orchestrator reads back: the coverage dumps, the native coverage reports and the fault-injection counters under the spec directory, and the failure-capture dumps and the Playwright report in the temporary directories the e2e runner makes. The tests run code the agent wrote, so every one of these files is the agent's to shape: a named pipe where a file is expected would hold the whole single-threaded orchestrator for ever, a link would put a file outside the mirror in the signal, and a file or a directory as large as the disk allows would fill its memory or its time. Every read goes through the strict read of spec-path-confinement, under a cap, and never throws.
+/* The one reader of what a run of the tests leaves in a directory the orchestrator reads back: the coverage dumps and the fault-injection counters under the spec directory, and the failure-capture dumps and the Playwright report in the temporary directories the e2e runner makes. The tests run code the agent wrote, so every one of these files is the agent's to shape: a named pipe where a file is expected would hold the whole single-threaded orchestrator for ever, a link would put a file outside the mirror in the signal, and a file or a directory as large as the disk allows would fill its memory or its time. Every read goes through the strict read of spec-path-confinement, under a cap, and never throws.
    What it reads is a set, and what a missing part of the set does to the result is for the caller to say, in one of two ways. A set that measures a whole (a ratio of the change that the dumps cover, a count of the corrupted responses) is used whole or not at all (`readRunOutputDir`): when any file of it cannot be used (refused, over the cap, outside the budget, unreadable, or one `decode` throws on), or the directory holds more entries than are looked at, nothing of it is used and one line says so, in words that quote nothing it holds (the number of files and the reason of each, never a name, a path of the agent's, a parser's message or a byte of a file). The rest of the set measures a part of what the run did, and a ratio or a count of a part is one the run never made, lower than the real one: under enforce it would block a valid change. Nothing used is no measurement, which the keystone reads as "unknown", and unknown never blocks. A set whose files each stand alone (one failure dump grounds one case) is scanned (`scanRunOutputDir`), and the caller uses what could be used and says what could not. */
 
 import { engineLog } from "@kernel/ports/process-logger.ts";
@@ -116,24 +116,4 @@ export function readRunOutputDir<T>(
     return undefined;
   }
   return scan.files;
-}
-
-/* Decodes the first of the reports at `candidates` (paths below the root, in the order they are tried) that is there, as a list of one; none there is no output and nothing to say (an empty list). The first that is there decides: one that cannot be used (refused, over the cap, unreadable, or one `decode` throws on) is said and gives undefined, and another further down the list does not stand in for it. Never throws. */
-export function readFirstReport<T>(root: SpecRoot, candidates: readonly string[], maxBytes: number, decode: (path: string, bytes: Buffer) => T): T[] | undefined {
-  for (const rel of candidates) {
-    const read = readConfined(root, rel, maxBytes);
-    if ("absent" in read) continue;
-    const path = join(root.specDir, rel);
-    if ("reason" in read) {
-      warnUnread(path, read.reason);
-      return undefined;
-    }
-    try {
-      return [decode(path, read.bytes)];
-    } catch {
-      warnUnread(path, UNUSABLE);
-      return undefined;
-    }
-  }
-  return [];
 }

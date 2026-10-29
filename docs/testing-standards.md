@@ -170,7 +170,7 @@ only under load), 4 of write-confinement's are loops, and one — the `" -> "` l
 arrow check → `""` — survives when run directly: it is one of write-confinement's documented
 equivalents, so that preset really has 20 survivors. Runs used 4 workers (`--concurrency=4`),
 write-confinement its preset cap of 2. The coordination row is a full re-run after
-later changes. The write-confinement row is derived, not re-run: the `^` anchor of `isCodeDenied`'s
+later changes. The write-confinement row is derived, not re-run: the `^` anchor of the denylist check's
 leading-`./` strip was listed as an equivalent survivor, but a `./` past the start of a path is part
 of a directory name (`e2e/.env./secrets` loses its `.env.` segment without the anchor); a test now
 kills it, checked by applying the mutant by hand, which moves one survivor to killed.
@@ -415,8 +415,8 @@ fixtures file, the ignore file, the login setup, the Playwright config or the lo
 the fixtures file had the capture block (7,453 bytes onto a file of 9) appended to a file outside the project
 and one at the ignore file had `.auth/` appended; and a marker the orchestrator could not read (mode 000) made
 every later setup fail on the rewrite. The login's stock check of `auth.setup.ts`, asked after the agent has
-run, waited on a pipe the same way. What a run of the tests leaves was read bare: a pipe in a coverage dump,
-a native report or a fault-injection counter held the orchestrator (the counter through the real factory and
+run, waited on a pipe the same way. What a run of the tests leaves was read bare: a pipe in a coverage dump
+or a fault-injection counter held the orchestrator (the counter through the real factory and
 oracle), a link at the namespace directory or at a report put a file outside the mirror in the coverage
 signal, a 192 MiB report was read whole, and a directory where a file was expected threw out of readers whose
 header said they never throw. The zero-assertion scan skipped a link to a directory and a directory it could
@@ -427,8 +427,8 @@ Setup now reads and replaces every file of the project through the strict read a
 vouch for fails the setup, aloud, as an infra-error (the error names the file and the module's reason, never
 a byte of what the file holds), the lock is vetted before an install is started, and a marker that is only
 unreadable still means "install again", is said, and is replaced through a temporary file, which a mode on the
-old one cannot stop. The login's stock check reads strictly and fails the login the same way. The dumps, the
-native reports and the fault-injection counters go through one reader (`run-output-reader`, below), which the
+old one cannot stop. The login's stock check reads strictly and fails the login the same way. The dumps
+and the fault-injection counters go through one reader (`run-output-reader`, below), which the
 module's new `listOwnedSpecDir` serves, and which uses a set of them whole or not at all. `scanSpecTree` says
 what the walk of the specs could not walk, and the
 read gate makes each of those a finding of its own. `readFailureReason` tells a failed read by the
@@ -531,9 +531,8 @@ again on the final code.
 
 run-output-readers (2026-10-08, 3 workers, 162 mutants, 91 of them compile errors) is a new preset over what a
 run of the tests leaves for the orchestrator to read: the strict, capped read of a directory of output and of a
-native report (`run-output-reader`, which never waits on a pipe, never follows a link, never throws and says
-what it left out without naming or quoting it), the coverage dumps and the reports of a code run built on it (V8,
-lcov, Istanbul, JaCoCo) with the collector that reads the reports of every kind together, the fault-injection
+report (`run-output-reader`, which never waits on a pipe, never follows a link, never throws and says
+what it left out without naming or quoting it), the coverage dumps built on it (V8), the fault-injection
 counters and the lines of the oracle that read their count. It runs against the readers' own tests, the
 collector's, which drives the real readers, the oracle's, and a test of the counter through the factory that
 wires it, kept apart from the factory's whole test file because that file's many tests would each run once per
@@ -555,10 +554,7 @@ run the real collector, assembler and decision under `enforce`: a dump that bloc
 over the cap, one that is not JSON, a link, a named pipe, one that cannot be read, or more dumps than the reader
 looks at, must give `unknown` (each of them gave `fail` before the change). A set is used whole or not at all
 now: any file of a directory that cannot be used, or more entries than the cap, leaves the whole directory
-unused. The same holds where the parts are merged. The reports of a code run (lcov, Istanbul, JaCoCo) are read
-together, once per collection, and one that cannot be used empties them all, since a kind missing from the merge
-leaves the others measuring only what they cover (an lcov report that blocks beside a JaCoCo report over the
-cap, a link, or an Istanbul report that is not JSON gave `fail`, and gives `unknown`). The count of the
+unused. The count of the
 fault-injection counters is unknown when one of them cannot be used, a part of a count being no count, which
 the oracle reads as no score and says apart from "no response was there to corrupt": the preset took in the
 lines of the oracle that read the count, and the wiring of the collector. A warning names no file now, since
@@ -713,33 +709,6 @@ survived the first batch and each was real (the staging's bare `mkdir`, its bare
 to what it removes, the reason of a refusal and its read cap); each has a case now and died when its own
 mutant was run again. The whole set was not run again on the final code.
 
-code-run-reads (2026-10-09, 3 workers, 52 mutants, 33 of them compile errors) is a new preset over what a code run reads of its repository's working copy
-and writes into it, which the agent writes into: the manifest that names the test command (`package.json`
-and its kin), the config of the mutation oracle and the report it leaves. Before, the manifest was read bare
-(a named pipe held the orchestrator, reproduced), the oracle's config was written through whatever was planted
-at `stryker.conf.json` (a link made the write replace a file outside the mirror), and the report was read bare
-(a named pipe held the orchestrator). The manifest is read strictly and under a cap now, and one that cannot
-be used is no manifest, said with the module's reason and nothing the file held; the config is written
-through a temporary file renamed over the target, and a write the strict call refuses leaves the run
-unmeasured without starting Stryker; the report is read strictly and under a cap, and one that cannot be used
-is a run that produced none. The preset takes in only the lines that do this (the cap, the read of the
-manifest, the write of the config and the read of the report; what the config holds is other code),
-against their own tests and the existing ones of the runner and the oracle. **Before** is its first run: 76
-mutants, 9 killed, 1 timeout and 32 survivors, and they were gaps in what the tests required, not in the code:
-the words of the warnings, the reason of the refusal, the arithmetic of the report's cap, and a report that
-lacks a metric or holds one that is not a number. The words stay unpinned, so a warning says what it says
-through one helper and a test requires the reason it carries; a report that lacks a metric is none, and each
-metric is required to be a number; the config's literal (its keys and values) was taken out of the range, as
-other code. **After** is the re-run on the code of this commit: 52 mutants (the config's literal is out of the
-range), 13 killed, 6 timeouts and no survivors, so the table's row is it. The timeouts are the mutants of the
-check that each metric of the report is a number: with it weakened a report that lacks one gets through, the
-handler of the child's close then throws on it, and the measurement never settles. 7 mutants of what Stryker
-does not produce were broken by hand against an earlier state of the code, each in its own process group,
-with a control that changes nothing: the manifest read with no cap, a refusal of it not said, the manifest read
-bare, the oracle's config written bare through a link, its report read with no cap or bare, and a report that
-was refused not said. All 7 died at once (the bare reads die because the run hangs on the pipe, which the
-harness counts as killed), and the control survived; the whole set was not run again on the final code.
-
 prompt-contract (2026-09-30, 4 workers) is a new preset over the prompt-contract lint (its claims, its
 fourteen rules and its lexicons), the single regeneration predicate, the diff size, the harness-facts
 export scan and the reader that feeds it (`readFixtureFacts` and `readHarnessFacts`, a line range of the
@@ -843,8 +812,7 @@ files, the diff's lines, the changed lines or the file count; the read of the ex
 always dropped or inverted, and its claim ungated, dropped, inverted, aimed at another fact or turned
 into a consult; the bound to the affected pages dropped, gated by the map, the blast radius or the
 listing, reverted to a verb of exploration or given a navigate directive; the authoring-skill line
-restored; the conventions read of a code run taken always, never, or dropped by one regeneration signal
-only, with the framework detection dropped beside it; and the effort data (a zero or fractional ceiling,
+restored; and the effort data (a zero or fractional ceiling,
 a text with a figure, a directive word, a trust word or a minimum, a tier that does not admit the no-op,
 two tiers saying the same, the no-op clause or the ceiling's lead dropped or reworded, a claim declared
 for one tier only). The count is 49 because the first batch of 43 was followed by a second of six,
@@ -990,7 +958,7 @@ carrying more than the cap) and its sample a stride of 53, the next prime: 47 as
 a mutant run is sized for, which the bound test reported before the change. The question of the outcome and the
 rule against weakening a test, one sentence before, are two now: the rule is on every turn that writes tests,
 decided by the domain predicate, and the question only where the listing finds no supplied, undisputed objective
-(a first pass always asks, a code run's diff pass never has). The step of a fix that reads the test file went, the
+(a first pass always asks). The step of a fix that reads the test file went, the
 listing's label being the one place a regeneration is told to read what it changes, and the last step says to
 change only what is broken, the rule owning the rest. The preset: 556 killed, 2 timeouts, 5 survivors, the five
 fixtures-reader ones documented below, and none in the lint, in `step-limit.ts` or in the new module (29 killed,
@@ -1243,11 +1211,10 @@ The re-run: 307 killed, no timeout, none survived, 100%.
 | local-login | src/server/auth.ts (local-login policy range) | 63 / 2 / 4 — 94.2% (91.3%) | 59 / 0 / 0 — 100% (100%) | — |
 | write-confinement | write-confinement.service | 149 / 14 / 20 — 89.07% (81.42%) | 147 / 17 / 19 — 89.62% (80.33%) | — |
 | spec-path-confinement | spec-path-confinement (the reader of an agent-reported path, the strict read, listing, directory, write and removal of the orchestrator's own files, the walk of the specs and its cap, the walk of a repository's files), manifest-fs (file hash, load, read, write), the read gate's manifest check and zero-assertion scan, the context map, setup's reads, copies and replacements in the project and its removal of a refused marker, the login's stock check, the verdict parser's listing of the suite | 36 / 0 / 1 — 97.3% (97.3%) | 332 / 3 / 5 — 98.53% (97.65%), before this slice: not re-run on its code | — |
-| run-output-readers | run-output-reader (the strict, capped read of a directory of output and of a report, used whole or not at all, or scanned part by part), coverage-dump-reader (V8 dumps reduced as they are read, lcov, Istanbul, JaCoCo), target-coverage-collector, fault-injection-counter-reader, fault-injection-oracle (its reading of the count) | 55 / 0 / 26 — 67.9% (67.9%) | 71 / 0 / 0 — 100% (100%), before this slice: not re-run on its code | — |
+| run-output-readers | run-output-reader (the strict, capped read of a directory of output and of a report, used whole or not at all, or scanned part by part), coverage-dump-reader (V8 dumps reduced as they are read), target-coverage-collector, fault-injection-counter-reader, fault-injection-oracle (its reading of the count) | 55 / 0 / 26 — 67.9% (67.9%) | 71 / 0 / 0 — 100% (100%), before this slice: not re-run on its code | — |
 | e2e-run-reads | the lines of the e2e runner that read back the Playwright report and the failure-capture dumps (the caps, the strict read of each, what the runner does once the child is gone) | 29 / 3 / 10 — 76.19% (69.05%) | 35 / 2 / 0 — 100% (94.59%) | — |
 | v8-coverage-decode | v8-browser-coverage.adapter (the decoding of a V8 dump into the lines of the changed files, bounded by the dump's size; the adapter that adds up the dumps) | 140 / 31 / 41 — 80.66% (66.04%) | 142 / 31 / 0 — 100% (82.08%) | — |
 | repo-reads | repo-reader, repo-walk, the lines of the three boundary resolvers that read through them, the staging of a service's context (its listing, its strict read, the strict calls into the working copy) | 9 / 96 / 3 — 97.22% (8.33%), most timeouts from a loaded machine | not re-run on this code | — |
-| code-run-reads | the lines of the code runner that read the repository's manifest and of the mutation oracle that write its config and read its report | 9 / 1 / 32 — 23.81% (21.43%) | 13 / 6 / 0 — 100% (68.42%) | — |
 | run-decision | run-decision.service, run-decision | 31 / 0 / 2 — 93.94% (93.94%) | 27 / 0 / 0 — 100% (100%) | — |
 | agent-efficiency | tool-call-taxonomy, call-sequence, provided-context, step-exhaustion, coarse-run-efficiency, turn-efficiency-summary, call-efficiency-tracker, call-fingerprint | 226 / 7 / 55 — 80.9% (78.47%) | 306 / 14 / 0 — 100% (95.63%) | — |
 | generation-end | generation-end, generation-end-terminal, learning-gates | 68 / 0 / 11 — 86.08% (86.08%) | 73 / 0 / 0 — 100% (100%) | — |
@@ -1269,7 +1236,7 @@ letting a later caller in while the holder was still running (the aborted waiter
 literal is not asserted, by the rules above), the bookkeeping that removes an idle account's entry from the lock's map (it only bounds memory, nothing observes it), the anchors of two regular expressions whose
 `.*` makes the end anchor a no-op, the second of two checks that give the same refusal (an empty pattern is also not an absolute path), and the `trim` before `new URL`, which trims on its own.
 
-Change 13e (2026-10-09) did not finish its mutation records. v8-coverage-decode, code-run-reads and
+Change 13e (2026-10-09) did not finish its mutation records. v8-coverage-decode and
 e2e-run-reads were run to the end on the code of its commit and their rows are those runs. spec-path-confinement,
 run-output-readers and repo-reads were **not re-run** on it (a run was started and stopped, and the first run of
 the widened spec-path-confinement preset was cut at 84% with 19 survivors seen and not looked at), so their
@@ -1280,14 +1247,13 @@ test and died when its own mutant was run again, and the whole sets were not run
 Change 13f (2026-10-09), the follow-up that bounds what the size caps of 13e left open, **ran no mutation at all**:
 no Stryker preset and no hand mutant was run on its code, so the rows above say nothing of it. What it changes in
 the code the presets cover, and what holds it, is only its tests (strict test first, each shown red for its own
-reason before the change): the caps and budgets (the Playwright report and the oracle's report 16 MiB, the V8
-dump 32 MiB and the dumps of a run 1 GiB, the native coverage report 32 MiB, the failure dumps of a run 32 MiB, and
+reason before the change): the caps and budgets (the Playwright report 16 MiB, the V8
+dump 32 MiB and the dumps of a run 1 GiB, the failure dumps of a run 32 MiB, and
 a total of 256 MiB read of one repository by a `RepoReader`), the clock the decoding of the V8 dumps is asked
 about as it goes (`TimeSpent`, 4,096 segments between two looks; 10 s for each kind of dump of a run, coverage and fault-injection counters apart), the exit
 status of the Playwright child (a pass that the child did not exit 0 for is infrastructure), the report that is
 not read once the run is settled, `purgeRefusedDirectory` and its use on the coverage and fault-injection
-directories and the measured file in `.qa`, the package.json that is written last by the seed copy, and the
-manifest refusal of a code run. The line ranges of the presets that cover the changed files were moved to the
+directories and the measured file in `.qa`, the package.json that is written last by the seed copy. The line ranges of the presets that cover the changed files were moved to the
 code and are the ones to run first.
 
 ### Login discovery script (manual triangulation)

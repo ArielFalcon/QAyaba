@@ -87,8 +87,8 @@ export class SpecSnapshotValidationPort implements ValidationPort {
     private readonly deps: SpecSnapshotDeps,
   ) {}
 
-  async validate(specDir: string, changedFiles?: string[], run?: ValidationRunInfo): ReturnType<ValidationPort["validate"]> {
-    const result = await this.inner.validate(specDir, changedFiles, run);
+  async validate(specDir: string, run?: ValidationRunInfo): ReturnType<ValidationPort["validate"]> {
+    const result = await this.inner.validate(specDir, run);
     this.capture(specDir, run);
     return result;
   }

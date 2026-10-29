@@ -80,7 +80,7 @@ export async function measureCoverage(state: Readonly<RunState>, ctx: WorkspaceR
   const { deps, input, workspace } = ctx;
   const run = runOf(state);
   const { diff, intent } = state.classification;
-  /* The same BlastRadius the ground phase queried the structural signal with; measure() scopes the code-target oracle to it. */
+  /* The same BlastRadius the ground phase queried the structural signal with. */
   const runBlastRadius = BlastRadius.of(input.sha, intent?.changedFiles ?? []);
   /*
    * Change-coverage assembler runs only when a real per-commit diff is present.

@@ -121,7 +121,7 @@ test("a symlink to another file inside the spec directory resolves to the target
   });
 });
 
-test("a code run's root, where the spec directory is the mirror itself, confines the same way", () => {
+test("a root whose spec directory is the mirror itself confines the same way", () => {
   withFixture((f) => {
     writeFileSync(join(f.mirror, "unit.test.ts"), "// unit\n");
     const root = { mirrorDir: f.mirror, specDir: f.mirror };

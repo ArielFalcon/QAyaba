@@ -1,5 +1,5 @@
-/* The workspace handle is the only authority publication, confinement and gc act on: it names the spec directory and the kind and
-   nothing else, the mirror root, the commit and the target stay in the registry that issued it, and a handle no registry of this run
+/* The workspace handle is the only authority publication, confinement and gc act on: it names the spec directory and
+   nothing else, the mirror root and the commit stay in the registry that issued it, and a handle no registry of this run
    issued is refused before any git write is reached.
  */
 import { test } from "node:test";
@@ -15,10 +15,9 @@ import { PublishDecisionService } from "@contexts/workspace-and-publication/doma
 
 const MIRROR = "/mirrors/org/app";
 
-function rig(opts: { isCode?: boolean } = {}) {
+function rig() {
   const registry = new WorkspaceRegistry();
-  const isCode = opts.isCode ?? false;
-  const workspace = new WorkspacePortAdapter(async () => MIRROR, { specRelDir: isCode ? "" : "e2e", isCode }, registry);
+  const workspace = new WorkspacePortAdapter(async () => MIRROR, { specRelDir: "e2e" }, registry);
   const written: Array<{ mirrorDir: string; branch: string; sha: string }> = [];
   const opened: string[] = [];
   const publication = new PublicationPortAdapter(
@@ -39,21 +38,15 @@ function rig(opts: { isCode?: boolean } = {}) {
 
 const GREEN = { verdict: "pass", cases: [], logs: "" } as const;
 
-test("prepare() returns a handle whose keys are exactly specDir and kind, with no symbol or mirror path on it", async () => {
+test("prepare() returns a handle whose key is exactly specDir, with no symbol or mirror path on it", async () => {
   const { workspace } = rig();
 
   const handle = await workspace.prepare(Sha.of("abc1234"));
 
-  assert.deepEqual(Object.keys(handle).sort(), ["kind", "specDir"]);
+  assert.deepEqual(Object.keys(handle).sort(), ["specDir"]);
   assert.deepEqual(Object.getOwnPropertySymbols(handle), []);
   assert.equal(handle.specDir, `${MIRROR}/e2e`);
-  assert.equal(handle.kind, "e2e");
   assert.equal(JSON.stringify(handle).includes("mirrors/org/app\""), false, "the mirror root is not serialisable from the handle");
-});
-
-test("a code workspace is a code handle", async () => {
-  const { workspace } = rig({ isCode: true });
-  assert.equal((await workspace.prepare(Sha.of("abc1234"))).kind, "code");
 });
 
 test("publishing with the handle reaches the git write with the real mirror directory and this run's commit", async () => {
@@ -78,7 +71,7 @@ test("a handle from another run's registry is refused and nothing is written or 
 
 test("an object built by the caller is not a handle: it is refused on every route", async () => {
   const { publication, written } = rig();
-  const forged: WorkspaceHandle = { specDir: `${MIRROR}/e2e`, kind: "e2e" };
+  const forged: WorkspaceHandle = { specDir: `${MIRROR}/e2e` };
 
   await assert.rejects(() => publication.publish({ ...GREEN, workspace: forged }), /not issued by this registry/);
   await assert.rejects(() => publication.publish({ verdict: "invalid", cases: [], logs: "", workspace: forged }), /not issued by this registry/);
@@ -94,18 +87,18 @@ test("the 'pr' route without a workspace fails closed", async () => {
   assert.deepEqual(written, []);
 });
 
-test("confinement and gc act on the mirror and target the handle stands for", async () => {
-  const { registry, workspace } = rig({ isCode: true });
-  const enforced: Array<{ mirrorDir: string; isCode: boolean }> = [];
+test("confinement and gc act on the mirror the handle stands for", async () => {
+  const { registry, workspace } = rig();
+  const enforced: Array<{ mirrorDir: string }> = [];
   const pruned: string[] = [];
-  const confinement = new ConfinementPortAdapter(registry, { enforce: async (mirrorDir, isCode) => { enforced.push({ mirrorDir, isCode }); return { strays: 0, dangerous: 0, reverted: [] }; } });
+  const confinement = new ConfinementPortAdapter(registry, { enforce: async (mirrorDir) => { enforced.push({ mirrorDir }); return { strays: 0, dangerous: 0, reverted: [] }; } });
   const gc = new MirrorGcPortAdapter(registry, { prune: async (mirrorDir) => { pruned.push(mirrorDir); } });
   const handle = await workspace.prepare(Sha.of("abc1234"));
 
   await confinement.enforce(handle);
   await gc.prune(handle);
 
-  assert.deepEqual(enforced, [{ mirrorDir: MIRROR, isCode: true }]);
+  assert.deepEqual(enforced, [{ mirrorDir: MIRROR }]);
   assert.deepEqual(pruned, [MIRROR]);
 });
 

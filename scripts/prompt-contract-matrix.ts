@@ -7,7 +7,7 @@
  * The lint lives in qa-engine; this module lives in scripts/ because it also reads the static role layers and the baseline file.
  *
  * Every combination is budgeted: its user-prompt bytes and directive volume against the largest
- * recorded for its bucket (mode, target, phase, tree and grounding; a cell with a step limit has the
+ * recorded for its bucket (mode, phase, tree and grounding; a cell with a step limit has the
  * bucket of its twin without one, plus a suffix), and each static layer against its recorded size.
  * The baseline only tightens: recording refuses any raise over the committed one unless a reason is
  * given, and the reason is kept in the file.
@@ -82,7 +82,6 @@ export const DIMENSIONS = {
   phase: ["first", "regen-fix", "regen-review", "regen-coverage", "selector-fix"],
   tree: ["none", "failure", "live"],
   grounding: ["none", "pack"],
-  target: ["e2e"],
   contextMap: [false, true],
   /* What the structural signal holds: nothing, symbol blocks (impacted symbols and callers), or co-change files alone, which are no blast radius. */
   structuralSignal: ["none", "symbols", "co-change"],
@@ -208,7 +207,6 @@ export function cellName(spec: CellSpec): string {
   ].filter(Boolean);
   return [
     spec.mode,
-    spec.target,
     spec.phase,
     `tree-${spec.tree}`,
     spec.grounding,
@@ -394,7 +392,6 @@ export async function buildInput(spec: CellSpec, stepLimit?: number): Promise<Op
     mirrorDir: "/mirrors/org__app",
     e2eRelDir: "e2e",
     namespace: "qa-bot-abc1234",
-    target: spec.target,
     mode: spec.mode,
     appName: "shop",
     baseUrl: "http://localhost:3000",
@@ -528,7 +525,6 @@ function combinationBucket(spec: CellSpec): string {
   if (spec.packRedirect) return "redirect";
   return [
     spec.mode,
-    spec.target,
     spec.phase,
     `tree-${spec.tree}`,
     spec.grounding,
@@ -783,14 +779,13 @@ export async function matrixDigests(): Promise<DigestSet> {
 }
 
 const REVIEW_MODES = ["diff", "complete", "exhaustive", "manual"] as const;
-const REVIEW_TARGETS = ["e2e"] as const;
 
 /* A reviewer input whose spec contents are large (two specs of about 25 KB), written under `mirror`. */
 export function largeSpecsReviewerInput(mirror: string): ReviewInput {
   mkdirSync(join(mirror, "e2e", "flows"), { recursive: true });
   const specs = ["big-a.spec.ts", "big-b.spec.ts"].map((name) => `flows/${name}`);
   for (const spec of specs) writeFileSync(join(mirror, "e2e", spec), `import { test } from './fixtures';\n${"// padding line to grow the spec\n".repeat(700)}test('big', async () => {});\n`);
-  return { diff: "diff --git a/src/cart.ts b/src/cart.ts\n+export const total = 1;\n", specs, mirrorDir: mirror, e2eRelDir: "e2e", appName: "shop", mode: "diff", target: "e2e", baseUrl: "http://localhost:3000" };
+  return { diff: "diff --git a/src/cart.ts b/src/cart.ts\n+export const total = 1;\n", specs, mirrorDir: mirror, e2eRelDir: "e2e", appName: "shop", mode: "diff", baseUrl: "http://localhost:3000" };
 }
 
 /* A planned run's reviewer input: one flow under review owns part of the change, another file and an app test file are assigned to no flow. */
@@ -800,10 +795,10 @@ export function plannedReviewerInput(mirror: string): ReviewInput {
   const diff = file("src/cart.ts", 3, ["export const total = (n: number) => (n > 0 ? n : 0);"]) + file("src/cart.css", 1, [".cart-total { font-weight: bold; }"]) + file("src/shop.ts", 10, ["export const list = [];"]) + file("src/cart.test.ts", 1, ["test('total', () => {});"]);
   const candidate = { id: "uc-cart", entry: { kind: "page", repo: "org/web", route: "/cart" }, tier: "direct", basis: "implementation", evidence: ["page /cart"], seeds: [{ file: "src/cart.ts", symbol: "total", range: { start: 1, end: 6 } }, { file: "src/cart.css", symbol: "*" }], confidence: 1, reachability: "page", pages: ["/cart"], existingSpecs: [] } as UseCaseCandidate;
   const changeView = reviewChangeViewOf({ diff, candidates: [candidate], flows: [{ specFile: "flows/cart.spec.ts", candidates: ["uc-cart"] }], specsUnderReview: ["flows/cart.spec.ts"], specRelDir: "e2e" });
-  return { diff, specs: ["flows/cart.spec.ts"], mirrorDir: mirror, e2eRelDir: "e2e", appName: "shop", mode: "diff", target: "e2e", baseUrl: "http://localhost:3000", ...(changeView ? { changeView } : {}) };
+  return { diff, specs: ["flows/cart.spec.ts"], mirrorDir: mirror, e2eRelDir: "e2e", appName: "shop", mode: "diff", baseUrl: "http://localhost:3000", ...(changeView ? { changeView } : {}) };
 }
 
-/* The reviewer prompts over every mode, target and combination of its six optional inputs; the step limit alternates. */
+/* The reviewer prompts over every mode and combination of its six optional inputs; the step limit alternates. */
 export function reviewerDigests(): DigestSet {
   const mirror = mkdtempSync(join(tmpdir(), "prompt-digests-"));
   try {
@@ -811,7 +806,7 @@ export function reviewerDigests(): DigestSet {
     writeFileSync(join(mirror, "e2e", "flows", "cart.spec.ts"), "import { test } from './fixtures';\ntest('applies a coupon', async () => {});\n");
     const set: DigestSet = { keys: [], digests: [] };
     let index = 0;
-    for (const mode of REVIEW_MODES) for (const target of REVIEW_TARGETS) {
+    for (const mode of REVIEW_MODES) {
       for (let flags = 0; flags < 64; flags++, index++) {
         const has = (bit: number): boolean => (flags & (1 << bit)) !== 0;
         const input: ReviewInput = {
@@ -821,7 +816,6 @@ export function reviewerDigests(): DigestSet {
           e2eRelDir: "e2e",
           appName: "shop",
           mode,
-          target,
           baseUrl: "http://localhost:3000",
           intent: { type: "feat", breaking: false, message: "feat(cart): show the total", changedFiles: ["src/cart.ts"] },
           ...(mode === "manual" ? { guidance: "cover the coupon form" } : {}),
@@ -833,7 +827,7 @@ export function reviewerDigests(): DigestSet {
           ...(has(5) ? { existingSpecFiles: ["flows/other.spec.ts"] } : {}),
           ...(index % 2 === 0 ? { stepLimit: 30 } : {}),
         };
-        set.keys.push(`reviewer|${mode}|${target}|${flags}|${index % 2 === 0 ? "limit" : "no-limit"}`);
+        set.keys.push(`reviewer|${mode}|${flags}|${index % 2 === 0 ? "limit" : "no-limit"}`);
         set.digests.push(assemblyDigest(buildReviewerPromptAssembled(input, MATRIX_REVIEWER_WINDOW)));
       }
     }

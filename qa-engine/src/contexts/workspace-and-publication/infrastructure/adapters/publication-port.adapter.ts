@@ -69,7 +69,6 @@ export interface PublicationRenderCollaborator {
   }): string;
   prBody(input: {
     sha?: string;
-    isCode: boolean;
     tested?: { flow?: string; objective?: string }[];
     parentRunId?: string;
     missingCases?: readonly string[];
@@ -100,8 +99,6 @@ export interface PublicationPortStaticContext {
   coverageBlocks: boolean;
   shadow: boolean;
   e2eChanged: boolean;
-  /* Code vs e2e wording of a PR body. Absent renders e2e-flavored copy. */
-  isCode?: boolean;
 }
 
 /* Sanitize the verdict in the title the same way every other rendered field is sanitized. */
@@ -186,7 +183,6 @@ export class PublicationPortAdapter implements PublicationPort {
       sanitize(
         this.deps.render.prBody({
           ...(workspace ? { sha: workspace.sha } : {}),
-          isCode: workspace?.isCode ?? this.ctx.isCode ?? false,
           ...(decision.tested?.length ? { tested: decision.tested } : {}),
           ...(decision.parentRunId ? { parentRunId: decision.parentRunId } : {}),
           ...(decision.missingCases?.length ? { missingCases: decision.missingCases } : {}),

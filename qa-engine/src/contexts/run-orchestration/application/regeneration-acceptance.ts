@@ -129,7 +129,7 @@ export class RegenerationAcceptance {
     }
 
     /* 2. Validate. */
-    const validation = await input.validate(input.specDir, [...input.changedSpecFiles]);
+    const validation = await input.validate(input.specDir);
     if (!validation.ok) {
       await restore();
       return { kind: "rejected", reason: validation.errors.length > 0 ? validation.errors.join("; ") : "validation failed" };

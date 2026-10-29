@@ -40,7 +40,6 @@ test("a run that fails identically on every execution is retried once and ends a
 
   const result = await loop.run({
     initialRun: FAIL_RUN,
-    isCode: false,
     generating: true,
     mode: "diff",
     objectiveSource: ["src/x.ts"],
@@ -102,7 +101,6 @@ test("FixLoop's OWN retries counter reaches 2 under maxRetries=2 with a progress
 
   const result = await loop.run({
     initialRun: { verdict: "fail", cases: [{ name: "checkout", status: "fail", file: "checkout.spec.ts", detail: "getByRole resolved to 0 elements" }] },
-    isCode: false,
     generating: true,
     mode: "diff",
     objectiveSource: ["src/checkout.ts"],
@@ -178,7 +176,6 @@ test("failureTrees are re-derived per-round from the CURRENT run's failing cases
         },
       ],
     },
-    isCode: false,
     generating: true,
     mode: "diff",
     objectiveSource: ["src/checkout.ts"],

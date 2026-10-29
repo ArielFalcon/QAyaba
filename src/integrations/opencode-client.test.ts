@@ -73,7 +73,6 @@ const input: OpencodeRunInput = {
   mirrorDir: "/mirrors/org__demo",
   e2eRelDir: "e2e",
   namespace: "qa-bot-abc123",
-  target: "e2e",
   mode: "diff",
   appName: "demo-app",
   intent: { type: "feat", breaking: false, message: "feat: new screen", changedFiles: ["src/x.ts"] },
@@ -368,7 +367,6 @@ test("buildPrompt renders the cross-repo service section in diff mode", () => {
     mirrorDir: "/m/front",
     e2eRelDir: "e2e",
     namespace: "qa-1",
-    target: "e2e",
     mode: "diff",
     appName: "shop",
     baseUrl: "https://dev.shop.io",
@@ -383,7 +381,7 @@ test("buildPrompt renders the cross-repo service section in diff mode", () => {
 test("buildPrompt has no cross-repo section without a service", () => {
   const text = buildPrompt({
     repo: "org/shop-front", sha: "a1b2c3d", diff: "+ x", mirrorDir: "/m", e2eRelDir: "e2e",
-    namespace: "qa-1", target: "e2e", mode: "diff", appName: "shop",
+    namespace: "qa-1", mode: "diff", appName: "shop",
   });
   assert.doesNotMatch(text, /Cross-repo change/);
 });
@@ -391,7 +389,7 @@ test("buildPrompt has no cross-repo section without a service", () => {
 test("buildContextTask renders one extraction section per service", () => {
   const text = buildContextTask({
     repo: "org/shop-front", sha: "a1b2c3d", diff: "", mirrorDir: "/m/front", e2eRelDir: "e2e",
-    namespace: "qa-1", target: "e2e", mode: "context", appName: "shop",
+    namespace: "qa-1", mode: "context", appName: "shop",
     services: [
       { repo: "org/orders-svc", mirrorDir: "/m/orders", openapi: "api/*.yaml" },
       { repo: "org/payments-svc", mirrorDir: "/m/payments" },
@@ -410,7 +408,7 @@ test("buildContextTask renders one extraction section per service", () => {
 test("buildContextTask without services is unchanged (no microservice section)", () => {
   const text = buildContextTask({
     repo: "org/shop-front", sha: "a1b2c3d", diff: "", mirrorDir: "/m/front", e2eRelDir: "e2e",
-    namespace: "qa-1", target: "e2e", mode: "context", appName: "shop",
+    namespace: "qa-1", mode: "context", appName: "shop",
   });
   assert.doesNotMatch(text, /Microservice repos/);
 });
@@ -418,7 +416,7 @@ test("buildContextTask without services is unchanged (no microservice section)",
 test("buildContextTask asks the mapper for the files that implement each route, so a changed page file can be tied to its route", () => {
   const text = buildContextTask({
     repo: "org/shop-front", sha: "a1b2c3d", diff: "", mirrorDir: "/m/front", e2eRelDir: "e2e",
-    namespace: "qa-1", target: "e2e", mode: "context", appName: "shop",
+    namespace: "qa-1", mode: "context", appName: "shop",
   });
   assert.match(text, /implementationFiles/);
 });

@@ -1698,7 +1698,7 @@ test("POST /api/apps/:name/login-bootstrap enqueues the login run at the base br
   assert.deepEqual(bootstrapped, [["demo", "a".repeat(40)]]);
 });
 
-test("login-bootstrap refuses what has no login to bootstrap: an unknown app (404), a public app and a code app (409)", async () => {
+test("login-bootstrap refuses what has no login to bootstrap: an unknown app (404), and a public app (409)", async () => {
   let enqueued = 0;
   const over = { bootstrapLogin: () => { enqueued += 1; return "run-login-1"; } };
   const unknown = mkRes();

@@ -31,7 +31,6 @@ test("OpencodeRunInput accepts serviceLinks as an optional field", () => {
     mirrorDir: "/m",
     e2eRelDir: "e2e",
     namespace: "ns",
-    target: "e2e",
     mode: "diff",
     appName: "a",
     serviceLinks: [link],
@@ -49,7 +48,6 @@ test("OpencodeRunInput without serviceLinks is still valid (optional field)", ()
     mirrorDir: "/m",
     e2eRelDir: "e2e",
     namespace: "ns",
-    target: "e2e",
     mode: "diff",
     appName: "a",
   };
@@ -116,7 +114,6 @@ test("GenerateTestsUseCase propagates serviceLinks to renderMain intact when pre
     mirrorDir: "/m",
     e2eRelDir: "e2e",
     namespace: "ns",
-    target: "e2e",
     mode: "diff",
     appName: "a",
     serviceLinks: [link],
@@ -141,7 +138,6 @@ test("GenerateTestsUseCase passes serviceLinks as absent to renderMain when not 
     mirrorDir: "/m",
     e2eRelDir: "e2e",
     namespace: "ns",
-    target: "e2e",
     mode: "diff",
     appName: "a",
   });

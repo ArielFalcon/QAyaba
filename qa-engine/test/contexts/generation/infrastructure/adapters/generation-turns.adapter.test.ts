@@ -69,7 +69,7 @@ test("author() delegates to GenerateTestsUseCase and maps GenerationResult onto 
   const useCase = new GenerateTestsUseCase(ports);
   const adapter = new GenerationTurnsAdapter(useCase, {
     repo: "org/app", appName: "app", mirrorDir: "/mirrors/org/app", e2eRelDir: "e2e",
-    namespace: "qa-bot-abc1234", target: "e2e", mode: "diff", diff: "",
+    namespace: "qa-bot-abc1234", mode: "diff", diff: "",
   });
 
   const result = await adapter.author("/mirrors/org/app/e2e");
@@ -142,7 +142,7 @@ test("author() populates specSources from an injected file-read collaborator (ab
   };
   const adapter = new GenerationTurnsAdapter(
     useCase,
-    { repo: "org/app", appName: "app", mirrorDir: "/mirrors/org/app", e2eRelDir: "e2e", namespace: "qa-bot-abc1234", target: "e2e", mode: "diff", diff: "" },
+    { repo: "org/app", appName: "app", mirrorDir: "/mirrors/org/app", e2eRelDir: "e2e", namespace: "qa-bot-abc1234", mode: "diff", diff: "" },
     { readSpecSource },
   );
 
@@ -156,7 +156,7 @@ test("author() populates specSources from an injected file-read collaborator (ab
   ]);
 });
 
-test("author() roots the spec reads at the spec directory of the call, which for a code run is the mirror itself", async () => {
+test("author() roots the spec reads at the spec directory of the call", async () => {
   const roots: SpecRoot[] = [];
   const adapter = new GenerationTurnsAdapter(
     new GenerateTestsUseCase(fakeAuthoringPorts()),
@@ -223,7 +223,7 @@ test("author() omits specSources when no readSpecSource collaborator is injected
   const useCase = new GenerateTestsUseCase(ports);
   const adapter = new GenerationTurnsAdapter(useCase, {
     repo: "org/app", appName: "app", mirrorDir: "/mirrors/org/app", e2eRelDir: "e2e",
-    namespace: "qa-bot-abc1234", target: "e2e", mode: "diff", diff: "",
+    namespace: "qa-bot-abc1234", mode: "diff", diff: "",
   });
 
   const result = await adapter.author("/mirrors/org/app/e2e");
@@ -260,7 +260,7 @@ test("author() never reports re-exploration counts, however much navigation the 
   const useCase = new GenerateTestsUseCase({ ...fakeAuthoringPorts(), runtime });
   const adapter = new GenerationTurnsAdapter(useCase, {
     repo: "org/app", appName: "app", mirrorDir: "/mirrors/org/app", e2eRelDir: "e2e",
-    namespace: "qa-bot-abc1234", target: "e2e", mode: "diff", diff: "",
+    namespace: "qa-bot-abc1234", mode: "diff", diff: "",
   });
 
   const result = await adapter.author("/mirrors/org/app/e2e");
@@ -288,7 +288,7 @@ test("author() forwards an AbortSignal into GenerateTestsUseCase.author()'s Gene
   const useCase = new GenerateTestsUseCase(ports);
   const adapter = new GenerationTurnsAdapter(useCase, {
     repo: "org/app", appName: "app", mirrorDir: "/mirrors/org/app", e2eRelDir: "e2e",
-    namespace: "qa-bot-abc1234", target: "e2e", mode: "diff", diff: "",
+    namespace: "qa-bot-abc1234", mode: "diff", diff: "",
   });
 
   await adapter.author("/mirrors/org/app/e2e", controller.signal);
@@ -304,7 +304,7 @@ test("author() with no signal at all behaves exactly as before (no third-arg reg
   const useCase = new GenerateTestsUseCase(ports);
   const adapter = new GenerationTurnsAdapter(useCase, {
     repo: "org/app", appName: "app", mirrorDir: "/mirrors/org/app", e2eRelDir: "e2e",
-    namespace: "qa-bot-abc1234", target: "e2e", mode: "diff", diff: "",
+    namespace: "qa-bot-abc1234", mode: "diff", diff: "",
   });
 
   const result = await adapter.author("/mirrors/org/app/e2e");
@@ -331,7 +331,7 @@ test("author() PREFERS a dynamic diff argument over the static ctx.diff supplied
     const useCase = new GenerateTestsUseCase(ports);
     const adapter = new GenerationTurnsAdapter(useCase, {
       repo: "org/app", appName: "app", mirrorDir: "/mirrors/org/app", e2eRelDir: "e2e",
-      namespace: "qa-bot-abc1234", target: "e2e", mode: "diff", diff: "STALE-STATIC-DIFF",
+      namespace: "qa-bot-abc1234", mode: "diff", diff: "STALE-STATIC-DIFF",
     });
 
     await adapter.author("/mirrors/org/app/e2e", undefined, "REAL-DYNAMIC-DIFF");
@@ -354,7 +354,7 @@ test("author() FALLS BACK to the static ctx.diff when no dynamic diff argument i
     const useCase = new GenerateTestsUseCase(ports);
     const adapter = new GenerationTurnsAdapter(useCase, {
       repo: "org/app", appName: "app", mirrorDir: "/mirrors/org/app", e2eRelDir: "e2e",
-      namespace: "qa-bot-abc1234", target: "e2e", mode: "diff", diff: "OPERATOR-PRECOMPUTED-DIFF",
+      namespace: "qa-bot-abc1234", mode: "diff", diff: "OPERATOR-PRECOMPUTED-DIFF",
     });
 
     await adapter.author("/mirrors/org/app/e2e");
@@ -381,7 +381,7 @@ test("author() maps enrichment.reviewCorrections/fixCases/selectorContradictions
     const useCase = new GenerateTestsUseCase(ports);
     const adapter = new GenerationTurnsAdapter(useCase, {
       repo: "org/app", appName: "app", mirrorDir: "/mirrors/org/app", e2eRelDir: "e2e",
-      namespace: "qa-bot-abc1234", target: "e2e", mode: "diff", diff: "",
+      namespace: "qa-bot-abc1234", mode: "diff", diff: "",
     });
 
     await adapter.author("/mirrors/org/app/e2e", undefined, "the-diff", {
@@ -421,7 +421,7 @@ test("author() maps enrichment.contextPack/existingSpecFiles onto OpencodeRunInp
     const useCase = new GenerateTestsUseCase(ports);
     const adapter = new GenerationTurnsAdapter(useCase, {
       repo: "org/app", appName: "app", mirrorDir: "/mirrors/org/app", e2eRelDir: "e2e",
-      namespace: "qa-bot-abc1234", target: "e2e", mode: "diff", diff: "",
+      namespace: "qa-bot-abc1234", mode: "diff", diff: "",
     });
 
     await adapter.author("/mirrors/org/app/e2e", undefined, "the-diff", {
@@ -448,7 +448,7 @@ test("author() with absent enrichment.contextPack/existingSpecFiles omits both f
     const useCase = new GenerateTestsUseCase(ports);
     const adapter = new GenerationTurnsAdapter(useCase, {
       repo: "org/app", appName: "app", mirrorDir: "/mirrors/org/app", e2eRelDir: "e2e",
-      namespace: "qa-bot-abc1234", target: "e2e", mode: "diff", diff: "",
+      namespace: "qa-bot-abc1234", mode: "diff", diff: "",
     });
 
     await adapter.author("/mirrors/org/app/e2e", undefined, "the-diff", {});
@@ -482,7 +482,7 @@ test("author() maps enrichment.contextMap onto OpencodeRunInput", async () => {
     const useCase = new GenerateTestsUseCase(ports);
     const adapter = new GenerationTurnsAdapter(useCase, {
       repo: "org/app", appName: "app", mirrorDir: "/mirrors/org/app", e2eRelDir: "e2e",
-      namespace: "qa-bot-abc1234", target: "e2e", mode: "diff", diff: "",
+      namespace: "qa-bot-abc1234", mode: "diff", diff: "",
     });
 
     await adapter.author("/mirrors/org/app/e2e", undefined, "the-diff", {
@@ -509,7 +509,7 @@ test("author() maps enrichment.harnessFacts onto OpencodeRunInput and omits the 
     const useCase = new GenerateTestsUseCase(ports);
     const adapter = new GenerationTurnsAdapter(useCase, {
       repo: "org/app", appName: "app", mirrorDir: "/mirrors/org/app", e2eRelDir: "e2e",
-      namespace: "qa-bot-abc1234", target: "e2e", mode: "diff", diff: "",
+      namespace: "qa-bot-abc1234", mode: "diff", diff: "",
     });
     const harnessFacts = { testIdAttribute: "data-cy", fixtures: { file: "fixtures.ts", exports: ["test", "expect"] } };
 
@@ -535,7 +535,7 @@ test("author() with absent enrichment.contextMap omits it from OpencodeRunInput 
     const useCase = new GenerateTestsUseCase(ports);
     const adapter = new GenerationTurnsAdapter(useCase, {
       repo: "org/app", appName: "app", mirrorDir: "/mirrors/org/app", e2eRelDir: "e2e",
-      namespace: "qa-bot-abc1234", target: "e2e", mode: "diff", diff: "",
+      namespace: "qa-bot-abc1234", mode: "diff", diff: "",
     });
 
     await adapter.author("/mirrors/org/app/e2e", undefined, "the-diff", {
@@ -566,7 +566,7 @@ test("author() maps enrichment.sha onto OpencodeRunInput.sha", async () => {
     const useCase = new GenerateTestsUseCase(ports);
     const adapter = new GenerationTurnsAdapter(useCase, {
       repo: "org/app", appName: "app", mirrorDir: "/mirrors/org/app", e2eRelDir: "e2e",
-      namespace: "qa-bot-abc1234", target: "e2e", mode: "diff", diff: "",
+      namespace: "qa-bot-abc1234", mode: "diff", diff: "",
     });
 
     await adapter.author("/mirrors/org/app/e2e", undefined, "the-diff", { sha: "abc1234def" });
@@ -589,7 +589,7 @@ test("author() with no enrichment.sha falls back to empty string (today's behavi
     const useCase = new GenerateTestsUseCase(ports);
     const adapter = new GenerationTurnsAdapter(useCase, {
       repo: "org/app", appName: "app", mirrorDir: "/mirrors/org/app", e2eRelDir: "e2e",
-      namespace: "qa-bot-abc1234", target: "e2e", mode: "diff", diff: "",
+      namespace: "qa-bot-abc1234", mode: "diff", diff: "",
     });
 
     await adapter.author("/mirrors/org/app/e2e");
@@ -612,7 +612,7 @@ test("author() with no enrichment argument omits every enrichment field from Ope
     const useCase = new GenerateTestsUseCase(ports);
     const adapter = new GenerationTurnsAdapter(useCase, {
       repo: "org/app", appName: "app", mirrorDir: "/mirrors/org/app", e2eRelDir: "e2e",
-      namespace: "qa-bot-abc1234", target: "e2e", mode: "diff", diff: "",
+      namespace: "qa-bot-abc1234", mode: "diff", diff: "",
     });
 
     await adapter.author("/mirrors/org/app/e2e");
@@ -644,7 +644,7 @@ test("author() maps a non-empty enrichment.serviceLinks onto OpencodeRunInput.se
     const useCase = new GenerateTestsUseCase(ports);
     const adapter = new GenerationTurnsAdapter(useCase, {
       repo: "org/app", appName: "app", mirrorDir: "/mirrors/org/app", e2eRelDir: "e2e",
-      namespace: "qa-bot-abc1234", target: "e2e", mode: "diff", diff: "",
+      namespace: "qa-bot-abc1234", mode: "diff", diff: "",
     });
     const links = [
       {
@@ -677,7 +677,7 @@ test("author() with absent/empty enrichment.serviceLinks OMITS the key entirely 
     const useCase = new GenerateTestsUseCase(ports);
     const adapter = new GenerationTurnsAdapter(useCase, {
       repo: "org/app", appName: "app", mirrorDir: "/mirrors/org/app", e2eRelDir: "e2e",
-      namespace: "qa-bot-abc1234", target: "e2e", mode: "diff", diff: "",
+      namespace: "qa-bot-abc1234", mode: "diff", diff: "",
     });
 
     await adapter.author("/mirrors/org/app/e2e", undefined, "the-diff", { serviceLinks: [] });
@@ -702,7 +702,7 @@ test("author() maps a non-empty enrichment.contractDrift onto OpencodeRunInput.c
     const useCase = new GenerateTestsUseCase(ports);
     const adapter = new GenerationTurnsAdapter(useCase, {
       repo: "org/app", appName: "app", mirrorDir: "/mirrors/org/app", e2eRelDir: "e2e",
-      namespace: "qa-bot-abc1234", target: "e2e", mode: "diff", diff: "",
+      namespace: "qa-bot-abc1234", mode: "diff", diff: "",
     });
     const drift = [
       { from: { repo: "org/front", file: "src/api.ts", symbol: "getOrder" }, verb: "DELETE", path: "/orders/{id}" },
@@ -728,7 +728,7 @@ test("author() with absent/empty enrichment.contractDrift OMITS the key entirely
     const useCase = new GenerateTestsUseCase(ports);
     const adapter = new GenerationTurnsAdapter(useCase, {
       repo: "org/app", appName: "app", mirrorDir: "/mirrors/org/app", e2eRelDir: "e2e",
-      namespace: "qa-bot-abc1234", target: "e2e", mode: "diff", diff: "",
+      namespace: "qa-bot-abc1234", mode: "diff", diff: "",
     });
 
     await adapter.author("/mirrors/org/app/e2e", undefined, "the-diff", { contractDrift: [] });
@@ -755,7 +755,7 @@ test("author() maps the structural signal and its symbol flag onto OpencodeRunIn
     const useCase = new GenerateTestsUseCase(ports);
     const adapter = new GenerationTurnsAdapter(useCase, {
       repo: "org/app", appName: "app", mirrorDir: "/mirrors/org/app", e2eRelDir: "e2e",
-      namespace: "qa-bot-abc1234", target: "e2e", mode: "diff", diff: "",
+      namespace: "qa-bot-abc1234", mode: "diff", diff: "",
     });
 
     await adapter.author("/mirrors/org/app/e2e", undefined, "the-diff", { staticSignal: "## Structural blast radius\n- `save`", staticSignalHasSymbols: true });
@@ -799,7 +799,7 @@ test("author() maps ctx.service onto OpencodeRunInput.service when the run is cr
     const useCase = new GenerateTestsUseCase(ports);
     const adapter = new GenerationTurnsAdapter(useCase, {
       repo: "org/front", appName: "app", mirrorDir: "/mirrors/org/front", e2eRelDir: "e2e",
-      namespace: "qa-bot-abc1234", target: "e2e", mode: "diff", diff: "",
+      namespace: "qa-bot-abc1234", mode: "diff", diff: "",
       service: { repo: "org/orders-svc", mirrorDir: "/mirrors/org/orders-svc", openapi: "openapi.yaml" },
     });
 
@@ -824,7 +824,7 @@ test("author() with no ctx.service (same-repo run) OMITS the service key entirel
     const useCase = new GenerateTestsUseCase(ports);
     const adapter = new GenerationTurnsAdapter(useCase, {
       repo: "org/app", appName: "app", mirrorDir: "/mirrors/org/app", e2eRelDir: "e2e",
-      namespace: "qa-bot-abc1234", target: "e2e", mode: "diff", diff: "",
+      namespace: "qa-bot-abc1234", mode: "diff", diff: "",
     });
 
     await adapter.author("/mirrors/org/app/e2e");
@@ -855,7 +855,7 @@ test("author() maps ctx.services onto OpencodeRunInput.services (context mode, e
     const useCase = new GenerateTestsUseCase(ports);
     const adapter = new GenerationTurnsAdapter(useCase, {
       repo: "org/front", appName: "app", mirrorDir: "/mirrors/org/front", e2eRelDir: "e2e",
-      namespace: "qa-bot-abc1234", target: "e2e", mode: "context", diff: "",
+      namespace: "qa-bot-abc1234", mode: "context", diff: "",
       services: [
         { repo: "org/orders-svc", mirrorDir: "/mirrors/org/orders-svc", openapi: "openapi.yaml" },
         { repo: "org/payments-svc", mirrorDir: "/mirrors/org/payments-svc" },
@@ -886,7 +886,7 @@ test("author() with no ctx.services OMITS the services key entirely from Opencod
     const useCase = new GenerateTestsUseCase(ports);
     const adapter = new GenerationTurnsAdapter(useCase, {
       repo: "org/app", appName: "app", mirrorDir: "/mirrors/org/app", e2eRelDir: "e2e",
-      namespace: "qa-bot-abc1234", target: "e2e", mode: "diff", diff: "",
+      namespace: "qa-bot-abc1234", mode: "diff", diff: "",
     });
 
     await adapter.author("/mirrors/org/app/e2e");
@@ -933,7 +933,7 @@ async function generatorPromptWith(rules: readonly RetrievedRule[]): Promise<str
   });
   const adapter = new GenerationTurnsAdapter(useCase, {
     repo: "org/app", appName: "app", mirrorDir: "/nonexistent/mirror", e2eRelDir: "e2e",
-    namespace: "qa-bot-abc1234", target: "e2e", mode: "diff",
+    namespace: "qa-bot-abc1234", mode: "diff",
     diff: "diff --git a/src/owners.ts b/src/owners.ts\n+export const search = () => [];\n",
   });
   await adapter.author("/nonexistent/mirror/e2e", undefined, undefined, rules.length ? { learnedRules: rules } : undefined);
@@ -977,7 +977,7 @@ async function generatorPromptFor(
   });
   const adapter = new GenerationTurnsAdapter(useCase, {
     repo: "org/app", appName: "app", mirrorDir: run.mirrorDir ?? "/nonexistent/mirror", e2eRelDir: run.e2eRelDir,
-    namespace: "qa-bot-abc1234", target: run.target, mode: "diff", baseUrl: "https://dev",
+    namespace: "qa-bot-abc1234", mode: "diff", baseUrl: "https://dev",
     diff: "diff --git a/src/owners.ts b/src/owners.ts\n+export const search = () => [];\n",
   });
   await adapter.author(run.specDir ?? `/nonexistent/mirror/${run.e2eRelDir}`, undefined, undefined, enrichment);
@@ -1299,7 +1299,7 @@ test("author() hands the authenticated browser's limits to the prompt input when
   try {
     const adapter = new GenerationTurnsAdapter(new GenerateTestsUseCase(ports), {
       repo: "org/app", appName: "app", mirrorDir: "/mirrors/org/app", e2eRelDir: "e2e",
-      namespace: "qa-bot-abc1234", target: "e2e", mode: "diff", diff: "",
+      namespace: "qa-bot-abc1234", mode: "diff", diff: "",
     });
     const limits = { maxCalls: 12, perCallMs: 20_000, leaseWaitMs: 5_000 };
     await adapter.author("/mirrors/org/app/e2e", undefined, "the-diff", { agentBrowser: limits });

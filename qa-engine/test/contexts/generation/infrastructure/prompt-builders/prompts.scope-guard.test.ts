@@ -40,7 +40,6 @@ function mkInput(overrides: Partial<OpencodeRunInput> = {}): OpencodeRunInput {
     mirrorDir: "/mirrors/org__app",
     e2eRelDir: "e2e",
     namespace: "qa-bot-abc1234",
-    target: "e2e",
     mode: "diff",
     appName: "shop",
     baseUrl: "http://localhost:3000",
@@ -301,7 +300,7 @@ test("the effort line adds no claim and no directive word: the task declares and
   }
 });
 
-test("a complete, exhaustive, manual or context run, a code run and a regeneration state no effort tier, however large the diff", () => {
+test("a complete, exhaustive, manual or context run and a regeneration state no effort tier, however large the diff", () => {
   const texts = DIFF_TIER_NAMES.map((tier) => EFFORT_BY_TIER[tier].text);
   const others: ReadonlyArray<[string, Partial<OpencodeRunInput>]> = [
     ["complete", { mode: "complete" }],

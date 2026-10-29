@@ -216,8 +216,7 @@ test("a runner-signaled timeout (timedOut:true, never rejects per SandboxedRunRe
    cancel, mirroring its own timeout branch — see that module's header note). Without a consumer-
    level check, install() could not tell the two apart and always threw the generic "timed out
    after Xms — killed" message, masking the distinct operator-cancel message the deleted
-   src/qa/setup.ts original always threw for this path. Fixed at the consumer level (this method),
-   same pattern as stryker-mutation-oracle.adapter.ts's own signal check.
+   src/qa/setup.ts original always threw for this path. Fixed at the consumer level (this method).
  */
 test("a mid-install operator cancel (signal aborts DURING the run) throws the distinct operator-cancel message, not the generic timeout message", async () => {
   const controller = new AbortController();

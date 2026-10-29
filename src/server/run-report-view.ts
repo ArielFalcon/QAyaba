@@ -34,7 +34,7 @@ function suiteDurationMs(record: RunRecord): number | null {
 
 /*
  * Case counts by status, derived from the case list; falls back to the record's pass/fail tallies
- * when no per-case detail is present (e.g. a code-target run that only carries counts).
+ * when no per-case detail is present (e.g. a stored record that only carries counts).
  */
 function caseCounts(record: RunRecord): { pass: number; fail: number; flaky: number; total: number } {
   if (record.cases.length > 0) {

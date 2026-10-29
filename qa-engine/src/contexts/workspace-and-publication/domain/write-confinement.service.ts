@@ -10,8 +10,8 @@ const ENV_FILE_PATTERNS = [
 /* Build, CI and git-metadata files; confinement matches them from the repo root. */
 const ROOT_DENYLIST = [".github/", "Dockerfile", "docker-compose*", ".gitattributes", ".gitmodules"];
 
-/** Code-target denylist: paths (or glob patterns) the agent must NOT write. e2e-target uses an allowlist (only `e2e/` is permitted), not this list. `.git/` is intentionally NOT listed: git status never reports paths inside `.git/`, so a denylist entry for it would be dead — `.git/` is hardened separately via core.hooksPath. HONESTY: the `.env*` entries only catch a secret write that is NOT git-ignored — git status (the only input) omits git-ignored paths, and `.env*` is git-ignored in most repos. The publish exclude (CODE_EXCLUDES + e2e add, publish.ts) is the actual guard against committing a secret; these entries are defense-in-depth. See the module header. */
-export const CONFINEMENT_DENYLIST: string[] = [...ENV_FILE_PATTERNS, ...ROOT_DENYLIST];
+/** Paths (or glob patterns) a publication must not carry as a modification of a tracked file. Write confinement of the suite itself uses an allowlist (only `e2e/` is permitted), not this list. `.git/` is intentionally NOT listed: git status never reports paths inside `.git/`, so a denylist entry for it would be dead — `.git/` is hardened separately via core.hooksPath. The `.env*` entries only catch a secret write that is NOT git-ignored: git status (the only input) omits git-ignored paths, and `.env*` is git-ignored in most repos. They are defense-in-depth. */
+const CONFINEMENT_DENYLIST: string[] = [...ENV_FILE_PATTERNS, ...ROOT_DENYLIST];
 
 /* Whether one denylist entry denies a normalized, lowercased path. An env-file pattern holds for any
    path segment, gitignore-style; every other entry is matched from the repo root. */
@@ -149,13 +149,13 @@ export class WriteConfinementService {
     return path !== "e2e" && !path.startsWith("e2e/");
   }
 
-  isCodeDenied(path: string): boolean {
+  isDenylisted(path: string): boolean {
     /* The backslash→slash normalization is defensive-only: git status output (the only caller's input) is already forward-slashed, so it is a guard for non-git callers, never hit on-path. Lowercase BOTH sides: on a case-insensitive host (.ENV, DOCKERFILE, .GitHub/) the OS treats them as the same file, so the denylist must match them too — comparing raw would let them slip. */
     const f = path.replace(/^\.\//, "").replace(/\\/g, "/").toLowerCase();
     return CONFINEMENT_DENYLIST.some((entry) => deniedBy(entry, f));
   }
 
-  /* True when the path meets the dangerous tier: a secret-file write — any path segment named .env, .env.<anything> or <anything>.env, at any depth (so a nested packages/api/.env.local counts, and .env.example-style templates count everywhere as they do at the root). Applies regardless of run target. .git/ is not a case here — git status never surfaces paths inside .git/; hook RCE is hardened separately via core.hooksPath. */
+  /* True when the path meets the dangerous tier: a secret-file write — any path segment named .env, .env.<anything> or <anything>.env, at any depth (so a nested packages/api/.env.local counts, and .env.example-style templates count everywhere as they do at the root). .git/ is not a case here — git status never surfaces paths inside .git/; hook RCE is hardened separately via core.hooksPath. */
   isDangerousPath(path: string): boolean {
     const f = path.replace(/\\/g, "/").toLowerCase();
     return ENV_FILE_PATTERNS.some((entry) => deniedBy(entry, f));
@@ -165,8 +165,8 @@ export class WriteConfinementService {
     return renameCounterpart !== undefined ? [path, renameCounterpart] : [path];
   }
 
-  classifyStrays(changes: ParsedChange[], isCode: boolean): ClassifiedStrays {
-    const isStray = isCode ? this.isCodeDenied.bind(this) : this.isE2eStray.bind(this);
+  classifyStrays(changes: ParsedChange[]): ClassifiedStrays {
+    const isStray = this.isE2eStray.bind(this);
     const tracked: string[] = [];
     const untracked: string[] = [];
     const dangerousByPath: string[] = [];

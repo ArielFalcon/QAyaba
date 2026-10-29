@@ -88,14 +88,14 @@ function rig(opts: { authRestored?: boolean; restoreThrows?: Error; captureThrow
     runHistory: { save: async () => {} },
     setup: { setup: async () => void events.push("setup") },
     suiteStore: store,
-    config: { needsReview: true, shadow: false, onFailure: "github-issue", maxRetries: 2, isCode: false },
+    config: { needsReview: true, shadow: false, onFailure: "github-issue", maxRetries: 2, },
     ...rest,
     };
   };
   return { events, captured, demoted, store, ws, write: (file, text) => ws.write(file, text), deps };
 }
 
-const withConfig = (config: Partial<RunQaConfig>): Partial<RunQaUseCaseDeps> => ({ config: { needsReview: true, shadow: false, onFailure: "github-issue", maxRetries: 2, isCode: false, ...config } });
+const withConfig = (config: Partial<RunQaConfig>): Partial<RunQaUseCaseDeps> => ({ config: { needsReview: true, shadow: false, onFailure: "github-issue", maxRetries: 2, ...config } });
 
 test("the suite is restored after the checkout and before the project setup", async () => {
   const r = rig();

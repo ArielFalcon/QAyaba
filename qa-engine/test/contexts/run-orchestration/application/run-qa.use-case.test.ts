@@ -743,13 +743,13 @@ interface GoldenScenarioCase {
     measure: ObjectiveSignalPort["measure"];
     waitUntilServing: DeployGatePort["waitUntilServing"];
   }>;
-  config: { needsReview: boolean; shadow: boolean; onFailure: string; maxRetries: number; isCode: boolean };
+  config: { needsReview: boolean; shadow: boolean; onFailure: string; maxRetries: number };
   input: Partial<{ mode: "diff" | "complete" | "exhaustive" | "manual" | "context"; target: "e2e" }>;
   expectedVerdict: string;
   expectedSideEffect: string;
 }
 
-const baseConfig = { needsReview: true, shadow: false, onFailure: "github-issue", maxRetries: 2, isCode: false };
+const baseConfig = { needsReview: true, shadow: false, onFailure: "github-issue", maxRetries: 2 };
 
 const goldenScenarios: GoldenScenarioCase[] = [
   {
@@ -1763,7 +1763,7 @@ test("mainline fold — app_defect (via an attributed 5xx) suppresses learning.f
   let savedAdjudicationClass: string | undefined;
   const { ports } = stubPorts({
     /* Every execute() call (initial + every FixLoop retry) fails with a case carrying an attributed
-       5xx — adjudicate.service.ts Rule 2.5 fires on the FIRST fix-loop round (isCode:false), routing
+       5xx — adjudicate.service.ts Rule 2.5 fires on the FIRST fix-loop round routing
        to app_defect/break-issue: realBugDetected=true, run.verdict stays "fail".
      */
     execute: async () => ({
@@ -3219,7 +3219,7 @@ test("publish() is called with the handle WorkspacePort.prepare() issued on the 
   assert.equal(out.decision.sideEffect, "pr");
   assert.ok(publishedDecision?.workspace, "publication.publish() must have been called with the run's handle for the 'pr' side effect");
   assert.deepEqual(rootsOf(publishedDecision.workspace), { mirrorDir: ws.mirrorDir, specDir: ws.specDir }, "publish() must receive the handle of the REAL per-run working copy");
-  assert.deepEqual(Object.keys(publishedDecision.workspace).sort(), ["kind", "specDir"], "the handle carries no mirror path");
+  assert.deepEqual(Object.keys(publishedDecision.workspace).sort(), ["specDir"], "the handle carries no mirror path");
 });
 
 test("reviewerApproved on a genuine pass+review call still reflects the INDEPENDENT reviewer's verdict, not generation's", async () => {
@@ -3581,8 +3581,7 @@ test("KEYSTONE: the SAME diff-mode PASS run WITHOUT input.triggerRepo still thre
 /* coverage/oracle measurement and the enforce-mode coverage-regen re-measure) must thread the run's
    REAL BlastRadius (the same runBlastRadius built from classificationIntent.changedFiles that feeds
    structuralSignal) instead of the hardcoded BlastRadius.of(input.sha, []) placeholder. The mutation
-   oracle (StrykerMutationOracleAdapter, code target) forwards br.changedFiles into
-   selectMutateTargets — an empty literal meant code-mode's oracle NEVER scoped to the diff, running
+   oracle scopes itself by br.changedFiles; an empty literal meant it never scoped to the diff.
  */
 test("KEYSTONE: measure() receives the run's REAL BlastRadius (changedFiles from classificationIntent), not an empty placeholder", async () => {
   let seenChangedFiles: readonly string[] | undefined;
@@ -5752,7 +5751,7 @@ test("anti-inert: RunQaUseCase.run() end-to-end through the REAL GenerationTurns
   const generateTestsUseCase = new GenerateTestsUseCase(generationPorts);
   const generation = new GenerationTurnsAdapter(generateTestsUseCase, {
     repo: "org/front", appName: "app", mirrorDir: "/mirrors/org/front", e2eRelDir: "e2e",
-    namespace: "qa-bot-abc1234", target: "e2e", mode: "diff", diff: "",
+    namespace: "qa-bot-abc1234", mode: "diff", diff: "",
   });
 
   const link = {
@@ -5788,7 +5787,7 @@ test("anti-inert companion: with the serviceLinks collaborator OMITTED, the REAL
   const generateTestsUseCase = new GenerateTestsUseCase(generationPorts);
   const generation = new GenerationTurnsAdapter(generateTestsUseCase, {
     repo: "org/front", appName: "app", mirrorDir: "/mirrors/org/front", e2eRelDir: "e2e",
-    namespace: "qa-bot-abc1234", target: "e2e", mode: "diff", diff: "",
+    namespace: "qa-bot-abc1234", mode: "diff", diff: "",
   });
 
   const { ports } = stubPorts({});
@@ -6282,11 +6281,11 @@ test("no-op honored: a genuine agent no-op (parsed:true + approved + zero specs)
  */
 
 function makeFakeConfinement(
-  onEnforce: (mirrorDir: string, isCode: boolean) => { strays: number; dangerous: number; reverted: string[] } | Error,
+  onEnforce: (mirrorDir: string) => { strays: number; dangerous: number; reverted: string[] } | Error,
 ): ConfinementPort {
   return {
     enforce: async (workspace) => {
-      const result = onEnforce(rootsOf(workspace).mirrorDir, workspace.kind === "code");
+      const result = onEnforce(rootsOf(workspace).mirrorDir);
       if (result instanceof Error) throw result;
       return result;
     },
@@ -6294,10 +6293,10 @@ function makeFakeConfinement(
 }
 
 test("confinement wiring: green-pr — enforce() is called at least twice (after the initial generate() AND once more immediately before publish), not just once", async () => {
-  const calls: Array<{ mirrorDir: string; isCode: boolean }> = [];
+  const calls: Array<{ mirrorDir: string }> = [];
   const { ports, ws } = stubPorts();
-  const confinement = makeFakeConfinement((mirrorDir, isCode) => {
-    calls.push({ mirrorDir, isCode });
+  const confinement = makeFakeConfinement((mirrorDir) => {
+    calls.push({ mirrorDir });
     return { strays: 0, dangerous: 0, reverted: [] };
   });
   const useCase = new RunQaUseCase({ ...ports, confinement, config: baseConfig });
@@ -6308,7 +6307,6 @@ test("confinement wiring: green-pr — enforce() is called at least twice (after
   assert.ok(calls.length >= 2, `expected at least 2 enforce() calls (after generate + before publish), got ${calls.length}`);
   for (const call of calls) {
     assert.equal(call.mirrorDir, ws.mirrorDir, "enforce() must receive this run's REAL mirrorDir");
-    assert.equal(call.isCode, false, "enforce() must receive this run's REAL isCode target");
   }
 });
 
@@ -6324,7 +6322,7 @@ test("confinement wiring: [SWAP] absent — no collaborator wired means zero enf
 
 test("confinement wiring: FixLoop engagement — enforce() runs after EACH FixLoop regeneration round, not only once", async () => {
   let executeCalls = 0;
-  const calls: Array<{ mirrorDir: string; isCode: boolean }> = [];
+  const calls: Array<{ mirrorDir: string }> = [];
   const { ports } = stubPorts({
     execute: async () => {
       executeCalls++;
@@ -6337,8 +6335,8 @@ test("confinement wiring: FixLoop engagement — enforce() runs after EACH FixLo
       return { verdict: "pass", cases: [{ name: "owners", status: "pass" }], logs: "" };
     },
   });
-  const confinement = makeFakeConfinement((mirrorDir, isCode) => {
-    calls.push({ mirrorDir, isCode });
+  const confinement = makeFakeConfinement((mirrorDir) => {
+    calls.push({ mirrorDir });
     return { strays: 0, dangerous: 0, reverted: [] };
   });
   const useCase = new RunQaUseCase({ ...ports, confinement, config: baseConfig });
@@ -6521,12 +6519,12 @@ test("confinement wiring: publish() with no revertedDenylisted (the common case)
 });
 
 test("confinement wiring: a regression run (generating:false) makes no enforce() call for the (never-invoked) initial generate, but still enforces once before publish", async () => {
-  const calls: Array<{ mirrorDir: string; isCode: boolean }> = [];
+  const calls: Array<{ mirrorDir: string }> = [];
   const { ports } = stubPorts({
     classify: async () => ({ action: "regression", reason: "docs-only change", diff: "" }),
   });
-  const confinement = makeFakeConfinement((mirrorDir, isCode) => {
-    calls.push({ mirrorDir, isCode });
+  const confinement = makeFakeConfinement((mirrorDir) => {
+    calls.push({ mirrorDir });
     return { strays: 0, dangerous: 0, reverted: [] };
   });
   const useCase = new RunQaUseCase({ ...ports, confinement, config: baseConfig });
@@ -7215,7 +7213,7 @@ test("curriculum: the fold is NOT gated on shouldDistillLearning — an app_defe
   const folds: CurriculumFoldInput[] = [];
   /* Drives adjudicate()'s Rule 2.5 (an attributed 5xx) deterministically: a failure detail that is
      NOT a Playwright launcher signature (so Rule 1 cannot fire), the stubbed deploy gate serving
-     (so devHealthy is true and Rule 2 cannot fire), the e2e target (isCode false), and one failed
+     (so devHealthy is true and Rule 2 cannot fire), and one failed
      case carrying httpStatus 500 -> app_defect/high/break-issue at round 0 of the FixLoop.
    */
   const { ports, foldedOutcomes } = stubPorts({

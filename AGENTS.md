@@ -190,7 +190,7 @@ is the only engine; webhook (`src/server/webhook-handler.ts`, wired by `src/serv
    `config/e2e/` for whatever is still missing, install deps.
 4. **Ground** — assemble what the agent receives (see below).
 5. **Generate** — the lead plans and author sidekicks (`qa-author`) write/improve specs + `e2e/.qa/manifest.json`; an independent
-   reviewer judges. Authors for code, context and login-seed runs and for corrections are author sidekicks too, in the run's working copy, with no `run_spec` budget and no continuation session; an e2e run with no coordinator ends `E-NO-AUTHOR` (`no-coordinator`). Declared `noop` + zero specs → `skipped`. Zero specs without `noop`
+   reviewer judges. Authors for context and login-seed runs and for corrections are author sidekicks too, in the run's working copy, with no `run_spec` budget and no continuation session; an e2e run with no coordinator ends `E-NO-AUTHOR` (`no-coordinator`). Declared `noop` + zero specs → `skipped`. Zero specs without `noop`
    → `infra-error E-NO-DECISION`; no author sidekick able to run → `infra-error E-NO-AUTHOR`; step budget exhausted → `infra-error E-STEP-BUDGET`; a diff run's
    first pass stopped by its tier's time budget, or any agent turn of the run stopped by the run's
    wall-clock deadline (below) → `infra-error E-TIME-BUDGET`. With the closed loop on (below) the author of a flow may also
@@ -400,7 +400,7 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   of a `qa-lead` or `qa-explore` session the run did not grant hides the tools. Calls are spans (`qayaba.tool.codegraph`) and the run log
   counts them.
 - **Lead and sidekicks (`qa.coordination`)** — the only coordination: every e2e run that generates has the lead return a **plan**
-  instead of specs (`LeadPort.plan`, a read-only turn) and each flow authored by an author sidekick (`qa-author`) in parallel. A code run, a context run and a login still to be written never coordinate: one author sidekick writes them in the run's working copy (no plan, no `run_spec` budget); the lead never writes tests. `qa.coordination`
+  instead of specs (`LeadPort.plan`, a read-only turn) and each flow authored by an author sidekick (`qa-author`) in parallel. A context run and a login still to be written never coordinate: one author sidekick writes them in the run's working copy (no plan, no `run_spec` budget); the lead never writes tests. `qa.coordination`
   only sets the limits. The lead grounds deterministically (no agent turn), the plan turn's
   diff names the app's own test files instead of showing them (`LanguageRegistry.isTestFile`), it is the read-only `qa-lead` agent (no write, shell, fetch, `run_spec`, authenticated browser, location or Playwright tool, by its roster entry), and it explores with the code-graph tools. Before it plans it may ask once for exploration (at most 3 questions): read-only `qa-explore` sidekicks answer them in the run's working copy with the code graph and the authenticated browser, and the orchestrator labels every finding verified, contradicted or unverified from what it holds itself (the Context Pack, the browser's own ledger, the code graph) before the lead sees it; the lead then plans in the same session. The plan turn's `## Commit diff` is the change map (every changed file once: path,
   added and removed lines, kind, relevance class, test flag, the use cases it seeds) and then the hunks in rank order (code, other
@@ -711,8 +711,7 @@ test, and the verdict is its last action.
   into the agents container, or widen the tool beyond `qa-lead` and `qa-explore` (an explore session only with its delegation id and a share of the run's calls).
 - **Agent-influenced code runs only through the execution launcher**
   (`qa-engine/src/shared-infrastructure/process-sandbox/exec-sandbox.ts`, profiles `offline | suite | login | install`).
-  Specs, the e2e project's `tsc`/`eslint`/`playwright --list`/`npm ci`, the login scripts, the DOM capture, a code-mode
-  repo's install/test and the mutation oracle all start there: the sandbox uid, an environment built from an explicit
+  Specs, the e2e project's `tsc`/`eslint`/`playwright --list`/`npm ci`, the login scripts and the DOM capture all start there: the sandbox uid, an environment built from an explicit
   allowlist per profile (never `scrubEnv(process.env)`), a per-run work dir (`/tmp/qa-exec/<runId>`) for Playwright's
   output, report and dumps, read back through the strict readers. **Only the `login` profile carries the test account**
   (a suite gets it only for an app that sets `e2e.specCredentials: account`); a suite gets a per-spawn copy of the saved
@@ -916,8 +915,7 @@ that catches nothing. The objective signal that breaks the circle is **change-co
   uncovered (`notLoadedFiles`); one whose every changed line is no code leaves the measurement, recorded apart (`noCodeFiles`, span
   `qayaba.coverage.no_code_files`; a file already left out as no gap of the suite, below, is recorded there alone, never in both), and a change left with no line of code is `no-changed-lines`, never `deletion-only`. A language
   that declares no statement syntax, or a source that cannot be read or parsed, counts every non-blank added line. A file no script can hold
-  (neither a declared language nor a kind of file the run's maps reach, such as a document or a style sheet) is not changed code. Native reports keep
-  every added line. `gateSignals.changeCoverage` records these counts beside the ratio.
+  (neither a declared language nor a kind of file the run's maps reach, such as a document or a style sheet) is not changed code. `gateSignals.changeCoverage` records these counts beside the ratio.
 - **Changed files that are no gap of the suite** leave the measurement whole (their lines, branches, missing cases and mutants) and are recorded apart with why,
   decided once per run from its facts (`coverageExclusionsOf`, `objective-signal/domain/coverage-exclusions.ts`), never by a name pattern, and handed to every
   measurement and recount of the run (`opts.exclusions`): `unreachableByDesign` (a web run cannot load the file because the change made every route that reaches

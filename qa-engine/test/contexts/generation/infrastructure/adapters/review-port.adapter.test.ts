@@ -233,22 +233,6 @@ test("review() renders enrichment.learnedRules via the reviewer-specific (active
   assert.ok(seenInput?.learnedRules?.includes("Treat them as an extension of the anti-pattern catalog: if a spec violates one, REJECT."));
 });
 
-test("review() threads ctx.target:'e2e' unchanged (backward compatible default framing)", async () => {
-  let seenTarget: string | undefined;
-  const rendering: PromptRenderingPort = {
-    ...fakeRendering(),
-    renderReviewer: (input) => { seenTarget = (input as { target?: string }).target; return { text: "reviewer-prompt", sectionSizes: {} }; },
-  };
-  const verdicts = fakeVerdicts({ approved: true, corrections: [], parsed: true, valid: true, issues: [] });
-  const adapter = new ReviewPortAdapter({ runtime: fakeRuntime("verdict-json"), rendering, verdicts }, {
-    diff: "", mirrorDir: "/mirrors/org/app", e2eRelDir: "e2e", appName: "app", mode: "diff", target: "e2e",
-  });
-
-  await adapter.review("/mirrors/org/app/e2e", cases);
-
-  assert.equal(seenTarget, "e2e");
-});
-
 /* previously passed NO timeoutMs into openSession(), so the reviewer silently inherited the
    dispatcher's ~25.5min ceiling instead of the purpose-built REVIEWER_TIMEOUT_MS (6min) — a hung
    reviewer could hold the sequential queue 25-50min. ReviewPortStaticContext.timeoutMs (optional,

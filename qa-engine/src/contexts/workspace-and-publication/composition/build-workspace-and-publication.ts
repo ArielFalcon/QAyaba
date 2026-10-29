@@ -3,7 +3,7 @@
 import type { Sha } from "@kernel/sha.ts";
 import type { SpecSnapshotPort } from "@kernel/ports/spec-snapshot.port.ts";
 import type { SuiteStorePort } from "@kernel/ports/suite-store.port.ts";
-import type { RunMode, TestTarget } from "@kernel/run-mode.ts";
+import type { RunMode } from "@kernel/run-mode.ts";
 import type { TelemetryPort } from "@kernel/telemetry/telemetry.port.ts";
 import type { CleanupPort } from "../application/ports/cleanup.port.ts";
 import type { ConfinementPort } from "../application/ports/confinement.port.ts";
@@ -36,8 +36,8 @@ export interface PublishDeps {
 }
 
 /* The publish step of one run: the policy of its kind over the git-write seam. Only this context holds the seam. */
-export function buildPublishWorkspace(deps: PublishDeps & { isCode: boolean }): VcsPublishCollaborator {
-  return new PublishWorkspace(publishKindFor(deps.isCode, deps.mode), new VcsWriteAdapter(deps.git, deps.writeExcludes));
+export function buildPublishWorkspace(deps: PublishDeps): VcsPublishCollaborator {
+  return new PublishWorkspace(publishKindFor(deps.mode), new VcsWriteAdapter(deps.git, deps.writeExcludes));
 }
 
 export interface WorkspaceAndPublicationDeps {
@@ -45,8 +45,6 @@ export interface WorkspaceAndPublicationDeps {
   run: {
     repo: string;
     branch: string;
-    target: TestTarget;
-    isCode: boolean;
     e2eRelDir: string;
     baseUrl?: string;
     testIdAttribute?: string;
@@ -87,7 +85,7 @@ export interface WorkspaceAndPublicationApi {
   mirrorGc?: MirrorGcPort;
   publication: PublicationPort;
   suiteStore?: SuiteStorePort;
-  /* Wraps a validation port so the specs it validated are kept as they stood; the port itself when no snapshot store is wired or the run is a code run. */
+  /* Wraps a validation port so the specs it validated are kept as they stood; the port itself when no snapshot store is wired. */
   snapshotValidation(validation: ValidationPort): ValidationPort;
 }
 
@@ -99,12 +97,12 @@ export function buildWorkspaceAndPublication(deps: WorkspaceAndPublicationDeps):
   /* One registry per build: the handle the workspace port issues is the only key the publication, confinement and gc adapters accept. */
   const registry = new WorkspaceRegistry();
   const checkout: CheckoutFn = deps.checkout;
-  const workspace = new WorkspacePortAdapter(checkout, { specRelDir: run.isCode ? "" : run.e2eRelDir, isCode: run.isCode }, registry);
+  const workspace = new WorkspacePortAdapter(checkout, { specRelDir: run.e2eRelDir }, registry);
 
   return {
     workspace,
-    ...(deps.setup ? { setup: new SetupPortAdapter(deps.setup, { target: run.target }) } : {}),
-    ...(!run.isCode && deps.cleanup ? { cleanup: new CleanupPortAdapter(deps.cleanup, { baseUrl: run.baseUrl, testIdAttribute: run.testIdAttribute }) } : {}),
+    ...(deps.setup ? { setup: new SetupPortAdapter(deps.setup) } : {}),
+    ...(deps.cleanup ? { cleanup: new CleanupPortAdapter(deps.cleanup, { baseUrl: run.baseUrl, testIdAttribute: run.testIdAttribute }) } : {}),
     ...(deps.confinement ? { confinement: new ConfinementPortAdapter(registry, deps.confinement) } : {}),
     ...(deps.mirrorGc ? { mirrorGc: new MirrorGcPortAdapter(registry, deps.mirrorGc) } : {}),
     publication: new PublicationPortAdapter(
@@ -116,7 +114,7 @@ export function buildWorkspaceAndPublication(deps: WorkspaceAndPublicationDeps):
         sanitize: publication.sanitize,
         /* Pure Issue/PR renderers: not app-specific, so every build (shadow included) gets them. */
         render: { issue: renderIssue, prBody: renderPrBody },
-        ...(publication.publish ? { vcsWrite: buildPublishWorkspace({ isCode: run.isCode, ...publication.publish }) } : {}),
+        ...(publication.publish ? { vcsWrite: buildPublishWorkspace(publication.publish) } : {}),
         ...(publication.containsSecret ? { containsSecret: publication.containsSecret } : {}),
       },
       {
@@ -126,12 +124,11 @@ export function buildWorkspaceAndPublication(deps: WorkspaceAndPublicationDeps):
         coverageBlocks: publication.coverageBlocks ?? false,
         shadow: run.shadow,
         e2eChanged: publication.e2eChanged ?? true,
-        isCode: run.isCode,
       },
       registry,
     ),
     ...(deps.suiteStore ? { suiteStore: deps.telemetry ? new TracedSuiteStore(deps.suiteStore, deps.telemetry) : deps.suiteStore } : {}),
     snapshotValidation: (validation) =>
-      deps.specSnapshots && !run.isCode ? new SpecSnapshotValidationPort(validation, { port: deps.specSnapshots, sanitize: publication.sanitize }) : validation,
+      deps.specSnapshots ? new SpecSnapshotValidationPort(validation, { port: deps.specSnapshots, sanitize: publication.sanitize }) : validation,
   };
 }

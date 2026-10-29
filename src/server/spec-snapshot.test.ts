@@ -39,7 +39,7 @@ function validateIn(dir: string, runId: string, port: SpecSnapshotPort, sanitize
   secrets.addAccountSecrets([SECRET]);
   const adapter = adapterOf ?? new SpecSnapshotValidationPort(inner, { port, sanitize, now: () => 1_760_000_000_000 });
   const reported = delivered ?? scanSpecTree(dir).specs;
-  return withRunSecretScope(secrets, () => withExecScope(scopeFor(runId), () => adapter.validate(dir, undefined, { deliveredSpecs: reported })));
+  return withRunSecretScope(secrets, () => withExecScope(scopeFor(runId), () => adapter.validate(dir, { deliveredSpecs: reported })));
 }
 
 test("every spec of the suite directory is kept per run with the hash of its bytes, and the validation result is untouched", async () => {

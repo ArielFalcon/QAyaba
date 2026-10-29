@@ -1,23 +1,14 @@
-/* SetupPort → e2e/code setup dispatch. Thin: maps SetupPort.setup(specDir, signal?) onto the collaborator for the run's target. A throw from either collaborator propagates verbatim — a setup failure is infra-error, never a code verdict. */
+/* SetupPort → the e2e setup collaborator. Thin: maps SetupPort.setup(specDir, signal?) onto it. A throw from the collaborator propagates verbatim — a setup failure is infra-error, never a test verdict. */
 import type { SetupPort } from "../../application/ports/setup.port.ts";
-import type { TestTarget } from "@kernel/run-mode.ts";
 
 export type SetupFn = (dir: string, opts?: { signal?: AbortSignal }) => Promise<void>;
 
 export interface SetupPortCollaborators {
   e2e: SetupFn;
-  code: SetupFn;
-}
-
-export interface SetupPortStaticContext {
-  target: TestTarget;
 }
 
 export class SetupPortAdapter implements SetupPort {
-  constructor(
-    private readonly collaborators: SetupPortCollaborators,
-    private readonly ctx: SetupPortStaticContext,
-  ) {}
+  constructor(private readonly collaborators: SetupPortCollaborators) {}
 
   async setup(specDir: string, signal?: AbortSignal): Promise<void> {
     const fn = this.collaborators.e2e;

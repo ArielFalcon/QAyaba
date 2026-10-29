@@ -1,5 +1,5 @@
 /*
- * No fixed character count cuts the commit diff of a prompt: the author's diff section, the code run's task and the reviewer's
+ * No fixed character count cuts the commit diff of a prompt: the author's diff section and the reviewer's
  * objective carry it whole while the prompt fits its role's window, and over the window give hunks up as `path:start-end`
  * references, the lowest-ranked first, after naming every changed file. An unknown window cuts nothing.
  */
@@ -35,7 +35,6 @@ const generator = (over: Partial<OpencodeRunInput> = {}): OpencodeRunInput => ({
   mirrorDir: "/mirrors/org__app",
   e2eRelDir: "e2e",
   namespace: "qa-bot-abc1234",
-  target: "e2e",
   mode: "diff",
   appName: "shop",
   baseUrl: "http://localhost:3000",
@@ -43,7 +42,7 @@ const generator = (over: Partial<OpencodeRunInput> = {}): OpencodeRunInput => ({
   ...over,
 });
 
-const review = (over: Partial<ReviewInput> = {}): ReviewInput => ({ diff: bigDiff(), specs: [], mirrorDir: "/mirrors/org__app", e2eRelDir: "e2e", appName: "shop", mode: "diff", target: "e2e", ...over });
+const review = (over: Partial<ReviewInput> = {}): ReviewInput => ({ diff: bigDiff(), specs: [], mirrorDir: "/mirrors/org__app", e2eRelDir: "e2e", appName: "shop", mode: "diff", ...over });
 
 const lastLine = (file: number): string => `const line${file}_${LINES - 1} `;
 

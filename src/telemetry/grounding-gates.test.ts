@@ -72,7 +72,7 @@ test("a gate that found nothing says nothing", async () => {
 
 test("every validation is told which specs the run has delivered, as its generator reported them", async () => {
   const told: unknown[] = [];
-  await useCase(undefined, false, async (_dir, _files, run) => {
+  await useCase(undefined, false, async (_dir, run) => {
     told.push(run);
     return { ok: true, errors: [] };
   }).run(input);

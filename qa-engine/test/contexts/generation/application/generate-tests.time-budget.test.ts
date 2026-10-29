@@ -39,7 +39,7 @@ interface Harness {
 function baseInput(over: Partial<OpencodeRunInput> = {}): OpencodeRunInput {
   return {
     repo: "org/demo", sha: "abc", diff: TINY_DIFF, mirrorDir: "/m", e2eRelDir: "e2e", namespace: "ns",
-    target: "e2e", mode: "diff", appName: "a",
+    mode: "diff", appName: "a",
     ...over,
   };
 }

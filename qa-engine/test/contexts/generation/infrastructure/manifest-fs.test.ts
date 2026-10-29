@@ -19,7 +19,7 @@ function makeSpecDir(): string {
   return mkdtempSync(join(tmpdir(), "qa-engine-manifest-fs-"));
 }
 
-/* The behaviors below do not depend on where the mirror is, so their root is the spec directory itself, the root of a code run; the cases about the anchor build their own. */
+/* The behaviors below do not depend on where the mirror is, so their root is the spec directory itself; the cases about the anchor build their own. */
 function rootOf(specDir: string): SpecRoot {
   return { mirrorDir: specDir, specDir };
 }

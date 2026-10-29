@@ -39,7 +39,7 @@ export type FixLoopTransition =
    * the number of specs the turn returned; `absentTargets` is whether the failure-point trees miss the selectors; `accepting` is
    * whether the run has an acceptance for an e2e round.
    */
-  | { after: "regeneration"; claim: "verified" | "rejected" | "none"; delivered: number; absentTargets: boolean; isCode: boolean; accepting: boolean }
+  | { after: "regeneration"; claim: "verified" | "rejected" | "none"; delivered: number; absentTargets: boolean; accepting: boolean }
   /** DEV answered (or not) just before a round's execution; `then` is the step that execution belongs to. */
   | { after: "dev-check"; healthy: boolean; then: "accept" | "reexecute" }
   /** The pre-acceptance retry path: the gate on the regenerated specs. */
@@ -67,8 +67,8 @@ export function fixLoopAction(t: FixLoopTransition): FixLoopNext {
       if (t.claim === "rejected") return { go: "triage", again: true };
       if (t.delivered === 0) return { stop: "no-fix-delivered" };
       /* Absent selectors: regenerate without re-executing; the next round reads the failure again. */
-      if (!t.isCode && t.absentTargets) return { go: "triage", again: true };
-      return { go: !t.isCode && t.accepting ? "accept" : "reexecute" };
+      if (t.absentTargets) return { go: "triage", again: true };
+      return { go: t.accepting ? "accept" : "reexecute" };
     case "dev-check":
       return t.healthy ? { go: t.then } : { stop: "dev-unhealthy" };
     case "revalidation":

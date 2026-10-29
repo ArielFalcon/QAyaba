@@ -1,26 +1,16 @@
-/* ValidationPort → target-dispatched gates. e2e uses StaticGateAdapter.validateAll (full gate including the zero-assertion guard) — never the granular methods, which would skip that guard. Code uses CodeValidationStrategy (compile-feedback before execution). */
+/* ValidationPort → the e2e gate. StaticGateAdapter.validateAll is the full gate including the zero-assertion guard — never the granular methods, which would skip that guard. */
 import type { ValidationPort } from "../../application/ports/validation.port.ts";
 import type { ValidationRunInfo } from "../../domain/validation.ts";
 import type { StaticGateAdapter } from "@contexts/test-execution/infrastructure/static-gate.adapter.ts";
-import type { CodeValidationStrategy } from "@contexts/test-execution/infrastructure/code-validation.strategy.ts";
-import type { TestTarget } from "@kernel/run-mode.ts";
 
 export interface ValidationPortStrategies {
   e2e: Pick<StaticGateAdapter, "validateAll"> & Partial<Pick<StaticGateAdapter, "autofix">>;
-  code: CodeValidationStrategy;
-}
-
-export interface ValidationPortStaticContext {
-  target: TestTarget;
 }
 
 export class ValidationPortAdapter implements ValidationPort {
-  constructor(
-    private readonly strategies: ValidationPortStrategies,
-    private readonly ctx: ValidationPortStaticContext,
-  ) {}
+  constructor(private readonly strategies: ValidationPortStrategies) {}
 
-  async validate(specDir: string, changedFiles?: string[], _run?: ValidationRunInfo): Promise<{ ok: boolean; errors: string[]; infra?: boolean }> {
+  async validate(specDir: string, _run?: ValidationRunInfo): Promise<{ ok: boolean; errors: string[]; infra?: boolean }> {
     const result = await this.strategies.e2e.validateAll(specDir);
     return { ok: result.ok, errors: result.errors, infra: result.infra };
   }

@@ -33,7 +33,7 @@ function spyDeps(): MultiRepoCheckoutDeps & {
 test("same-repo checkout: ensures the primary at the event sha, stages every declared service", async () => {
   const deps = spyDeps();
   const adapter = new MultiRepoCheckoutAdapter(
-    { primaryRepo: "org/demo", baseBranch: "main", services: [{ repo: "org/orders-svc" }], isCode: false },
+    { primaryRepo: "org/demo", baseBranch: "main", services: [{ repo: "org/orders-svc" }], },
     deps,
   );
 
@@ -47,7 +47,7 @@ test("same-repo checkout: ensures the primary at the event sha, stages every dec
 
 test("same-repo checkout: no declared services never calls ensureMirrorAtBranch/stage", async () => {
   const deps = spyDeps();
-  const adapter = new MultiRepoCheckoutAdapter({ primaryRepo: "org/demo", baseBranch: "main", services: [], isCode: false }, deps);
+  const adapter = new MultiRepoCheckoutAdapter({ primaryRepo: "org/demo", baseBranch: "main", services: [], }, deps);
 
   await adapter.checkout(Sha.of("abc1234567"));
 
@@ -63,7 +63,6 @@ test("cross-repo checkout: ensures the SERVICE at the event sha, the primary at 
       baseBranch: "main",
       services: [{ repo: "org/orders-svc" }, { repo: "org/payments-svc", baseBranch: "develop" }],
       triggerService: { repo: "org/orders-svc" },
-      isCode: false,
     },
     deps,
   );
@@ -80,43 +79,6 @@ test("cross-repo checkout: ensures the SERVICE at the event sha, the primary at 
     { workingCopyDir: "/mirrors/org__demo", service: { repo: "org/orders-svc", mirrorDir: "/mirrors/org__orders-svc" }, sha: "def5678901" },
     { workingCopyDir: "/mirrors/org__demo", service: { repo: "org/payments-svc", mirrorDir: "/mirrors/org__payments-svc" } },
   ], "trigger is staged with the event sha; the sibling is contracts-only (no sha)");
-});
-
-test("code target, same-repo run: declared services are never mirrored or staged", async () => {
-  const deps = spyDeps();
-  const adapter = new MultiRepoCheckoutAdapter(
-    { primaryRepo: "org/demo", baseBranch: "main", services: [{ repo: "org/orders-svc" }], isCode: true },
-    deps,
-  );
-
-  await adapter.checkout(Sha.of("abc1234567"));
-
-  assert.deepEqual(deps.ensureMirrorAtBranchCalls, [], "code target must never mirror declared services (no e2e dir concept)");
-  assert.deepEqual(deps.stageCalls, []);
-});
-
-test("code target, service-triggered run: stages only the triggering service's change context, never sibling contracts", async () => {
-  const deps = spyDeps();
-  const adapter = new MultiRepoCheckoutAdapter(
-    {
-      primaryRepo: "org/demo",
-      baseBranch: "main",
-      services: [{ repo: "org/orders-svc" }, { repo: "org/payments-svc" }],
-      triggerService: { repo: "org/orders-svc" },
-      isCode: true,
-    },
-    deps,
-  );
-
-  await adapter.checkout(Sha.of("def5678901"));
-
-  const staged = deps.stageCalls.map((c) => ({ repo: c.service.repo, sha: c.sha }));
-  assert.deepEqual(staged, [{ repo: "org/orders-svc", sha: "def5678901" }], "the generator reads the changed service from its staged context; siblings are not staged");
-  assert.equal(
-    deps.ensureMirrorAtBranchCalls.some((c) => c.repo === "org/payments-svc"),
-    false,
-    "a sibling service is not even mirrored for a code target",
-  );
 });
 
 test("a failing service mirror rejects checkout only after every sibling's mirror and staging has settled", async () => {
@@ -139,7 +101,7 @@ test("a failing service mirror rejects checkout only after every sibling's mirro
     },
   };
   const adapter = new MultiRepoCheckoutAdapter(
-    { primaryRepo: "org/demo", baseBranch: "main", services: [{ repo: "org/svc-a" }, { repo: "org/svc-b" }], isCode: false },
+    { primaryRepo: "org/demo", baseBranch: "main", services: [{ repo: "org/svc-a" }, { repo: "org/svc-b" }], },
     deps,
   );
 
@@ -171,7 +133,7 @@ test("declared services are mirrored CONCURRENTLY, not one-at-a-time (a sequenti
     return `/mirrors/${repo.replaceAll("/", "__")}`;
   };
   const adapter = new MultiRepoCheckoutAdapter(
-    { primaryRepo: "org/demo", baseBranch: "main", services: [{ repo: "org/svc-a" }, { repo: "org/svc-b" }], isCode: false },
+    { primaryRepo: "org/demo", baseBranch: "main", services: [{ repo: "org/svc-a" }, { repo: "org/svc-b" }], },
     { ...deps, ensureMirrorAtBranch },
   );
 
@@ -198,7 +160,7 @@ test("when several service mirrors fail, checkout rejects with the first declare
     stageServiceContext: async () => {},
   };
   const adapter = new MultiRepoCheckoutAdapter(
-    { primaryRepo: "org/demo", baseBranch: "main", services: [{ repo: "org/svc-a" }, { repo: "org/svc-b" }], isCode: false },
+    { primaryRepo: "org/demo", baseBranch: "main", services: [{ repo: "org/svc-a" }, { repo: "org/svc-b" }], },
     deps,
   );
 
@@ -213,7 +175,6 @@ test("same-repo checkout of a run that also changed a service: that service is s
       baseBranch: "main",
       services: [{ repo: "org/orders-svc" }, { repo: "org/payments-svc" }],
       changedServices: [{ repo: "org/orders-svc", headSha: "def4567890" }],
-      isCode: false,
     },
     deps,
   );
@@ -236,7 +197,6 @@ test("cross-repo checkout of a run that changed a second service: the second is 
       services: [{ repo: "org/orders-svc" }, { repo: "org/payments-svc" }],
       triggerService: { repo: "org/orders-svc" },
       changedServices: [{ repo: "org/payments-svc", headSha: "def4567890" }],
-      isCode: false,
     },
     deps,
   );

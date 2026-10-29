@@ -1,4 +1,4 @@
-/* Writable-path confinement for sidekick pushback and executor (one semantics). "." / "./" means any relative path under cwd with no ".." or absolute escapes. */
+/* Writable-path confinement for sidekick pushback and executor (one semantics): a relative path with no ".." or absolute escape, inside one of the writable roots. */
 
 export function isPathWithinWritableRoots(
   filePath: string,
@@ -11,7 +11,6 @@ export function isPathWithinWritableRoots(
   }
   return writableRoots.some((root) => {
     const r = root.replace(/\\/g, "/");
-    if (r === "." || r === "./") return true;
     if (normalized === r || normalized === r.replace(/\/$/, "")) return true;
     const prefix = r.endsWith("/") ? r : `${r}/`;
     return normalized.startsWith(prefix);

@@ -163,7 +163,7 @@ export function renderRunReport(i: RunReportInput, opts: ReportOptions = {}): st
     const paint = s.coverageRatio >= 0.7 ? green : amber;
     row("change-cov", `${paint(pct(s.coverageRatio), on)}  ${dim(`${s.coveragePolicy ?? "signal"} · measured against the diff`, on)}`);
   } else {
-    row("change-cov", dim("not measured (unknown — never blocks; enable DEV source maps / JaCoCo to activate)", on));
+    row("change-cov", dim("not measured (unknown — never blocks; enable DEV source maps to activate)", on));
   }
 
   if (s.valueScore !== null) {

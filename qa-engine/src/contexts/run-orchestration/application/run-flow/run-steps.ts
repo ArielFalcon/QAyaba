@@ -57,7 +57,7 @@ export const IN_WORKSPACE: ReadonlyArray<FlowStep<RunState, WorkspaceRunContext>
   { id: "validate-statically", writes: ["execution"], phase: "validate", run: validateStatically },
   { id: "static-fix-round", writes: ["execution", "loops"], run: staticFixRound },
   { id: "check-health", writes: [], phase: "health", run: checkHealth },
-  { id: "prepare-execute-auth", writes: ["execution"], runs: (_state, ctx) => ctx.input.mode !== "context" && !ctx.cfg.isCode, run: prepareExecuteAuth },
+  { id: "prepare-execute-auth", writes: ["execution"], runs: (_state, ctx) => ctx.input.mode !== "context", run: prepareExecuteAuth },
   { id: "announce-execution", writes: [], phase: "execute", runs: (_state, ctx) => ctx.input.mode !== "context", run: announceExecution },
   { id: "execute-specs", writes: ["execution"], run: executeSpecs },
   { id: "run-fix-loop", writes: ["fixLoop", "loops"], phase: "fix_loop", runs: (state) => runOf(state).verdict === "fail", run: runFixLoop },

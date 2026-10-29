@@ -29,16 +29,16 @@ type Result = Promise<StepOutcome<RunState>>;
  * an end that names why nothing was finished. When no author sidekick can run (the plan was not admitted as a fan-out, the generation
  * cannot plan, no sidekick can author, there is no time, or coordination failed) the run ends `E-NO-AUTHOR` with the reason the
  * recorded signal carries; the lead never authors in the author's place.
- * A code run, a context run and a login still to be written never coordinate: one author sidekick authors them in the working copy (`authorFirstPass`).
+ * A context run and a login still to be written never coordinate: one author sidekick authors them in the working copy (`authorFirstPass`).
  */
 async function coordinateFirstPass(state: Readonly<RunState>, ctx: WorkspaceRunContext): Promise<{ generated?: GenerationOutput; leadReviewTurns?: number; flowCandidates?: FlowCandidates[] }> {
-  const { deps, input, cfg, workspace, signal } = ctx;
+  const { deps, input, workspace, signal } = ctx;
   const { closedLoop, agentBrowser, geolocation, codeGraphTools } = ctx.trail;
   const { generating, intent: classificationIntent, diff: classificationDiff } = state.classification;
   const { authSeedUnauthored } = state.setup;
   const { baseEnrichment } = state.grounding;
   const coordinationSettings = deps.coordinationSettings ?? DEFAULT_COORDINATION_SETTINGS;
-  if (!generating || cfg.isCode || input.mode === "context" || authSeedUnauthored) return {};
+  if (!generating || input.mode === "context" || authSeedUnauthored) return {};
   /* The coordinator is part of an e2e run's composition: without one nothing could author its flows. */
   if (!deps.leadSidekicks) {
     ctx.host.recordCoordination({ refusal: AUTHORING_REFUSAL.NO_COORDINATOR, flows: 0, delivered: 0, incomplete: 0 });
@@ -144,7 +144,7 @@ export async function generateFirstPass(state: Readonly<RunState>, ctx: Workspac
     throwIfAborted(signal);
     generated = coordinatedFirstPass
       ?? (await afterGeneration(ctx, await dispatchAuthor(deps.generation, {
-        target: authorTargetOf({ isCode: ctx.cfg.isCode, mode: ctx.input.mode }),
+        target: authorTargetOf({ mode: ctx.input.mode }),
         specDir: workspace.specDir,
         ...(signal ? { signal } : {}),
         diff: classificationDiff,

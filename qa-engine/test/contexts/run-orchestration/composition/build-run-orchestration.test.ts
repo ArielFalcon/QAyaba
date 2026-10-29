@@ -13,7 +13,6 @@ const CONFIG: RunOrchestrationDeps["config"] = {
   shadow: true,
   onFailure: "github-issue",
   maxRetries: 1,
-  isCode: false,
   reviewLoopIntegrity: true,
   coveragePolicyMode: "signal",
 };

@@ -11,8 +11,8 @@ export const STEP_INTENTS = ["write_spec", "auth", "run_spec", "explore", "revie
 export type StepIntent = (typeof STEP_INTENTS)[number];
 
 export interface StepIntentContext {
-  /* Where the agent's tests are written: a directory (an e2e suite), or anywhere (a code target writes tests in the repo's own layout). */
-  specTargets: { kind: "dir"; relDir: string } | { kind: "any-write" };
+  /* Where the agent's tests are written: the e2e suite's directory. */
+  specTargets: { kind: "dir"; relDir: string };
   /* Files that hold the app's login, relative to the working copy. */
   authFiles: readonly string[];
   /* Absolute addresses of the app's declared login page(s). */
@@ -86,7 +86,7 @@ export function classifyStepIntents(steps: readonly StepOfCalls[], ctx: StepInte
     const loginWork = calls.some((call) => (isNavigationCall(call.tool) ? call.target !== null && isLoginAddress(call.target, ctx) : startedOnLogin && isBrowserCall(call)));
     if (loginWork) return "auth";
     const writesSpec = calls.some(
-      (call) => call.bucket === CALL_BUCKETS.WRITE && (ctx.specTargets.kind === "any-write" || (call.relPath !== undefined && underDir(call.relPath, ctx.specTargets.relDir))),
+      (call) => call.bucket === CALL_BUCKETS.WRITE && call.relPath !== undefined && underDir(call.relPath, ctx.specTargets.relDir),
     );
     if (writesSpec) return "write_spec";
     if (reviewer && calls.length > 0) return "review";

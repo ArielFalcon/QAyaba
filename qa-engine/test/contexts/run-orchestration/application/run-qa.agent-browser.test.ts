@@ -66,7 +66,7 @@ function rig(opts: { openThrows?: boolean; grant?: boolean; executeThrows?: bool
         return opts.grant === false ? undefined : handle;
       },
     },
-    config: { needsReview: true, shadow: false, onFailure: "github-issue", maxRetries: 2, isCode: false },
+    config: { needsReview: true, shadow: false, onFailure: "github-issue", maxRetries: 2, },
     ...rest,
     };
   };

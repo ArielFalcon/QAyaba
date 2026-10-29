@@ -60,7 +60,7 @@ import type { ReviewPort } from "@contexts/generation/application/index.ts";
 import type { ExecutionPort, ValidationPort } from "@contexts/test-execution/application/index.ts";
 import type { ObjectiveSignalPort } from "@contexts/objective-signal/application/index.ts";
 import type { AgentRole } from "@kernel/agent-role";
-import type { RunMode, TestTarget } from "@kernel/run-mode";
+import type { RunMode } from "@kernel/run-mode";
 
 import { GitMirrorReadAdapter } from "@contexts/change-analysis/infrastructure/git-mirror-read.adapter";
 import type { ChangeSet, VcsReadPort } from "@contexts/change-analysis/application/index";
@@ -89,9 +89,6 @@ import { ManifestRepositoryAdapter } from "@contexts/generation/infrastructure/m
 import { readManifest, reconcileManifest } from "@contexts/generation/infrastructure/manifest-fs";
 import { StaticGateAdapter } from "@contexts/test-execution/infrastructure/static-gate.adapter";
 import { E2eExecutionStrategy } from "@contexts/test-execution/infrastructure/e2e-execution.strategy";
-import { CodeExecutionStrategy } from "@contexts/test-execution/infrastructure/code-execution.strategy";
-import { CodeValidationStrategy } from "@contexts/test-execution/infrastructure/code-validation.strategy";
-import { StrykerMutationOracleAdapter } from "@contexts/objective-signal/infrastructure/stryker-mutation-oracle.adapter";
 import { FaultInjectionOracleAdapter } from "@contexts/objective-signal/infrastructure/fault-injection-oracle.adapter";
 import { countInjectedResponses, readFaultCounters } from "@contexts/objective-signal/infrastructure/fault-injection-counter-reader";
 import { BundleMutationOracleAdapter } from "@contexts/objective-signal/infrastructure/bundle-mutation-oracle.adapter";
@@ -134,18 +131,9 @@ import {
 } from "../../qa-engine/src/contexts/test-execution/infrastructure/e2e-execution.runner";
 
 import {
-  runCodeTests,
-  createDefaultCodeExecuteDeps,
-  runCodeCoverage,
-  detectCodeProject,
-} from "../../qa-engine/src/contexts/test-execution/infrastructure/code-execution.runner";
-
-import {
   validateSpecs,
   createValidateDeps,
   fixLintedSpecs,
-  validateCodeProject,
-  createCodeValidateDeps,
 } from "../../qa-engine/src/contexts/test-execution/infrastructure/static-gate.checks";
 import { resolveSandbox, openInstallTree, sealInstallTree, type Sandbox } from "../../qa-engine/src/shared-infrastructure/process-sandbox/sandbox";
 import type { ExecSandboxPort } from "../../qa-engine/src/shared-infrastructure/process-sandbox/exec-sandbox";
@@ -153,7 +141,6 @@ import { createExecBinaryRunner } from "../../qa-engine/src/shared-infrastructur
 import { buildExecWiring, suiteAccountFor } from "./exec-sandbox-factory";
 import { blockedHostMatcher, egressGateFor, loadRegistryGroups, resolveRunOrigins } from "./egress-wiring";
 import { setSandboxGroup } from "../../qa-engine/src/shared-infrastructure/process-sandbox/git-hardening";
-import { setupCodeProject, createDefaultCodeSetupDeps } from "../../qa-engine/src/contexts/test-execution/infrastructure/code-setup";
 import type { EffectiveConfig, GroundingInput } from "../contract/commands";
 import { requireEnv } from "../util/env";
 import { RedactionPortAdapter, recordAudit, redactSourceForModel } from "../orchestrator/sanitizer";
@@ -611,7 +598,6 @@ export function buildAcceptanceHarness(input: AcceptanceHarnessInput): Acceptanc
   const { app, copyDir, exec } = input;
   if (!app.dev?.baseUrl) throw new Error(`App "${app.name}" has no dev.baseUrl: its specs cannot be accepted without a DEV site`);
   const e2eRelDir = "e2e";
-  const e2eDir = join(copyDir, e2eRelDir);
   const baseUrl = app.dev.baseUrl;
   const env = activeEnvironment();
 
@@ -624,10 +610,7 @@ export function buildAcceptanceHarness(input: AcceptanceHarnessInput): Acceptanc
     validateAll: (specDir) => validateSpecs(specDir, validateDeps),
     autofix: (specDir, specs) => fixLintedSpecs(specDir, specs, exec),
   });
-  const refuseCode = (): never => {
-    throw new Error("the acceptance harness has no code target");
-  };
-  const validation = new ValidationPortAdapter({ e2e: staticGate, code: { validate: async () => refuseCode() } as never }, { target: "e2e" });
+  const validation = new ValidationPortAdapter({ e2e: staticGate });
 
   const e2eExecuteDeps: E2eExecuteDeps = {
     ...createDefaultE2eExecuteDeps(new ProcessKillAdapter(), e2eTimeoutMs(env), exec, env.PW_ACTION_TIMEOUT_MS),
@@ -636,14 +619,14 @@ export function buildAcceptanceHarness(input: AcceptanceHarnessInput): Acceptanc
     recordAudit,
   };
   const execution = new ExecutionPortAdapter(
-    { e2e: new E2eExecutionStrategy((specDir, opts) => runE2E(specDir, opts, e2eExecuteDeps)), code: { run: async () => refuseCode() } as never },
-    { target: "e2e", namespace: `${app.qa.testDataPrefix}-acceptance`, baseUrl, ...(app.e2e?.testIdAttribute !== undefined ? { testIdAttribute: app.e2e.testIdAttribute } : {}) },
+    { e2e: new E2eExecutionStrategy((specDir, opts) => runE2E(specDir, opts, e2eExecuteDeps)) },
+    { namespace: `${app.qa.testDataPrefix}-acceptance`, baseUrl, ...(app.e2e?.testIdAttribute !== undefined ? { testIdAttribute: app.e2e.testIdAttribute } : {}) },
   );
 
   const policy = { mode: app.qa.changeCoverage?.mode ?? "signal", minRatio: app.qa.changeCoverage?.minRatio ?? 0.7 } as const;
   const objectiveSignal = new ObjectiveSignalPortAdapter(
     {
-      collector: makeTargetCoverageCollector({ target: "e2e", repoDir: copyDir, e2eDir, changedFiles: [] }),
+      collector: makeTargetCoverageCollector([]),
       decide: new DecideCoverageService(),
       oracle: new NullValueOracleAdapter(),
     },
@@ -663,7 +646,7 @@ export function buildAcceptanceHarness(input: AcceptanceHarnessInput): Acceptanc
           verdicts: new VerdictParserAdapter({ parseVerdict, parseReviewerVerdict }),
           repair: contractRepair,
         },
-        { diff: "", mirrorDir: copyDir, e2eRelDir, appName: app.name, mode: "diff", target: "e2e", baseUrl, timeoutMs: reviewerTimeoutMs() },
+        { diff: "", mirrorDir: copyDir, e2eRelDir, appName: app.name, mode: "diff", baseUrl, timeoutMs: reviewerTimeoutMs() },
       )
     : undefined;
 
@@ -674,24 +657,22 @@ export function buildEngineRootDeps(
   app: AppConfig,
   deps: RunEngineFactoryDeps,
   namespace: string,
-  run: { mode: RunMode; target?: TestTarget; guidance?: string; triggerRepo?: string; changeSet?: ChangeSet; sha?: string; runId?: string; grounding?: GroundingInput | EffectiveConfig["grounding"] },
+  run: { mode: RunMode; guidance?: string; triggerRepo?: string; changeSet?: ChangeSet; sha?: string; runId?: string; grounding?: GroundingInput | EffectiveConfig["grounding"] },
 
   observer?: ObserverPort,
 ): EngineRootDeps {
-  const target: TestTarget = run.target ?? "e2e";
-  const isCode = false;
   /* The pre-generation context pack's live-DOM arm (an A/B lever): the resolved effective config already carries it, so this is always a boolean here. */
   const domPack = run.grounding?.domPack ?? app.qa.domPack ?? true;
   if (domPack === false) {
     appLogger.warn(`[qa] grounding.domPack is OFF for ${app.name}: the pre-generation context pack carries no live DOM. The review, pre-exec and post-failure DOM seams are independent and unchanged; the authenticated-browser alternative is available only when the app and tools grant it.`);
   }
   /*
-   * An e2e-target run without a live DEV URL cannot be composed — fail loud here, before any
+   * A run without a live DEV URL cannot be composed — fail loud here, before any
    * git clone/agent session/Playwright spawn.
    */
-  if (!isCode && !app.dev?.baseUrl) {
+  if (!app.dev?.baseUrl) {
     throw new Error(
-      `App "${app.name}" has target "e2e" but no dev.baseUrl configured — set dev.baseUrl in config/apps/${app.name}.yaml.`,
+      `App "${app.name}" has no dev.baseUrl configured — set dev.baseUrl in config/apps/${app.name}.yaml.`,
     );
   }
   const e2eRelDir = "e2e";
@@ -713,7 +694,6 @@ export function buildEngineRootDeps(
    * An unmeasured/mismatched repoDir reads as "unknown", which never blocks publish.
    */
   const mirrorDir = join(mirrorRoot, app.repo.replaceAll("/", "__"));
-  const e2eDir = join(mirrorDir, e2eRelDir);
   /*
    * ONE resolver per run, shared by every session that states a limit: the generator and the reviewer
    * both run in the primary mirror (the working copy checkout(sha) returns is this same directory), so one read of it
@@ -733,7 +713,7 @@ export function buildEngineRootDeps(
   const authDir = appAuthDir(root, app.name);
   /*
    * The execution sandbox: every child that runs code an agent influenced (specs, the project's own tsc/eslint/--list and
-   * installs, a login script, the watched repo's test command) starts through `exec`, and each run opens its scope
+   * installs, a login script) starts through `exec`, and each run opens its scope
    * (work dir, auth copies, egress policy) in `execScope`.
    */
   const suiteAccount = suiteAccountFor(app, deps.env ?? activeEnvironment());
@@ -743,7 +723,7 @@ export function buildEngineRootDeps(
     sandbox: codeSandbox,
     authDir,
     mirrorRoot,
-    egressOrigins: resolveRunOrigins(app, target, loadRegistryGroups(root)),
+    egressOrigins: resolveRunOrigins(app, loadRegistryGroups(root)),
     ...(egressGate ? { egress: egressGate } : {}),
     ...(suiteAccount ? { suiteAccount } : {}),
     ...(deps.telemetry ? { telemetry: deps.telemetry } : {}),
@@ -784,12 +764,11 @@ export function buildEngineRootDeps(
   /*
    * The process-audit's context_stale flag (markContextStale, in processAudit's invalidateContext
    * below): a run that sees it skips the known-bad stored/disk map and requests a rebuild at its
-   * own sha. Only a primary-repo e2e run that is not itself the rebuild qualifies: `!isCode`
-   * (context maps are e2e-only), `run.mode !== "context"` (a context-mode run IS the rebuild) and
+   * own sha. Only a primary-repo run that is not itself the rebuild qualifies: `run.mode !== "context"` (a context-mode run IS the rebuild) and
    * `!triggerService` (a service-triggered run's sha belongs to the service repo, not the primary).
    */
   const contextHeal = new RequestContextHeal(deps.enqueueContextRun, { clear: (app) => getHistory().contexts.clearContextStale(app) });
-  const contextStale = !isCode && run.mode !== "context" && !triggerService && getHistory().contexts.isContextStale(app.name);
+  const contextStale = run.mode !== "context" && !triggerService && getHistory().contexts.isContextStale(app.name);
   if (contextStale && campaignFrozen) {
     /* A campaign's queue holds only its own runs: the rebuild is left for after it, and the flag stays as the campaign found it. */
     appLogger.info(`[qa] context map for ${app.name} was marked stale by the process audit — skipping the stored/disk map this run; the campaign freeze requests no rebuild.`);
@@ -865,7 +844,7 @@ export function buildEngineRootDeps(
   /* The run's code graph (one instance: the index phase builds it, the structural signal and the cross-repo impact read it). */
   const codeGraph = codeGraphFor({ exec, git: runner, dataDir, sandbox: codeSandbox, processKill: new ProcessKillAdapter() })(app.name, app.qa.structuralSignals?.exclude ?? []);
   const serviceTopologyOn = grounding?.stitcher === false || grounding?.stitcher === "off" ? false : serviceTopologyWired(app);
-  const toolsApplyToRun = toolsApply(target, app);
+  const toolsApplyToRun = toolsApply(app);
 
   /* What classifies this run's agent steps in its trace: the app's own configuration, never a name. */
   const turnTelemetry: TurnTelemetryContext = {
@@ -931,8 +910,6 @@ export function buildEngineRootDeps(
     validateAll: (specDir) => validateSpecs(specDir, validateDeps),
     autofix: (specDir, specs) => fixLintedSpecs(specDir, specs, exec),
   });
-  /* Code-target Filter B: compile-feedback before execution. */
-  const codeValidate = new CodeValidationStrategy((repoDir, opts) => validateCodeProject(repoDir, createCodeValidateDeps(exec), opts));
 
 
   const e2eExecuteDeps: E2eExecuteDeps = {
@@ -948,25 +925,12 @@ export function buildEngineRootDeps(
   const captureDomDeps = createCaptureDomDeps(exec, undefined, deps.telemetry ? domCaptureObserver(deps.telemetry) : undefined, app.dev?.geolocation, app.dev?.dataState);
   const e2e = new E2eExecutionStrategy((specDir, opts) => runE2E(specDir, opts, e2eExecuteDeps));
 
-  const codeExecuteDeps = { ...createDefaultCodeExecuteDeps(exec), recordAudit };
-  const codeSetupDeps = createDefaultCodeSetupDeps(codeSandbox, exec);
-  const code = new CodeExecutionStrategy((repoDir, opts) => runCodeTests(repoDir, opts, codeExecuteDeps));
-
   /*
    * changedFiles starts as [] — no per-run diff exists at composition time. measure() derives the
    * real list from the dynamic diff. repoDir/e2eDir stay primary-bound: browser coverage cannot map
    * service-repo lines, so cross-repo coverage is "unknown" (never blocks publish).
    */
-  const rawCollector = makeTargetCoverageCollector({ target, repoDir: mirrorDir, e2eDir, changedFiles: [] });
-
-  const collector: typeof rawCollector = isCode
-    ? {
-        collect: async (specDir, namespace, changedFiles) => {
-          await runCodeCoverage(mirrorDir, exec).catch(() => {});
-          return rawCollector.collect(specDir, namespace, changedFiles);
-        },
-      }
-    : rawCollector;
+  const collector = makeTargetCoverageCollector([]);
 
   const runCorruptedFaultInjection = ({ dir, baseUrl, namespace, operations }: { dir: string; baseUrl: string; namespace: string; operations: ReadonlyArray<{ verb: string; pattern: string }> }) =>
     /*
@@ -976,25 +940,20 @@ export function buildEngineRootDeps(
      */
     runE2E(dir, { baseUrl, namespace, faultInject: true, faultOperations: operations }, e2eExecuteDeps);
 
-  const mutationOracleDeps = { spawn: (cmd: string, args: string[], o: { cwd: string }) => exec.spawn(cmd, args, { cwd: o.cwd, profile: "install" }), detectCodeProject, processKill: new ProcessKillAdapter(), root: qayabaRoot() };
-
   /*
    * Honor YAML qa.valueOracle (and the shadow-aware default the CLI already reports).
-   * "off" → NullValueOracleAdapter (no DEV re-run, no Stryker). "signal" → the target-specific
-   * oracle (Stryker for code, fault-injection for e2e).
+   * "off" → NullValueOracleAdapter (no DEV re-run). "signal" → the fault-injection oracle.
    */
   const valueOraclePolicy = resolveValueOraclePolicy(app.qa);
   const oracle = valueOraclePolicy === "off"
     ? new NullValueOracleAdapter()
-    : isCode
-      ? new StrykerMutationOracleAdapter(mutationOracleDeps)
-      : new FaultInjectionOracleAdapter(runCorruptedFaultInjection, readFaultCounters, app.dev?.baseUrl ?? "");
+    : new FaultInjectionOracleAdapter(runCorruptedFaultInjection, readFaultCounters, app.dev?.baseUrl ?? "");
   /*
-   * The mutation pass: an e2e app whose value oracle is on re-runs, for each of a few mutants of the changed code in the served
+   * The mutation pass: an app whose value oracle is on re-runs, for each of a few mutants of the changed code in the served
    * script, the spec files that reached it, once (no retry: a mutant that fails a test once was noticed). Its counters sit beside
    * the response oracle's.
    */
-  const mutation = valueOraclePolicy === "off" || isCode
+  const mutation = valueOraclePolicy === "off"
     ? undefined
     : new BundleMutationOracleAdapter(
         ({ dir, baseUrl, namespace, mutant, specFiles, observe }) => runE2E(dir, { baseUrl, namespace, specFiles, retries: 0, ...(mutant !== undefined ? { mutant } : {}), ...(observe ? { observe: true } : {}) }, e2eExecuteDeps),
@@ -1015,7 +974,6 @@ export function buildEngineRootDeps(
       services: app.services ?? [],
       ...(triggerService ? { triggerService: { repo: triggerService.repo, ...(triggerService.openapi ? { openapi: triggerService.openapi } : {}) } } : {}),
       ...(companionServices.length > 0 ? { changedServices: companionServices.map((c) => ({ repo: c.service.repo, headSha: c.headSha })) } : {}),
-      isCode,
     },
     {
       ensureMirror: (repo, sha) => mirror.ensureMirror(repo, sha, defaultMirrorDeps),
@@ -1038,8 +996,6 @@ export function buildEngineRootDeps(
     mirrorDir,
     e2eRelDir,
     branch,
-    target,
-
     mode: run.mode,
     ...(run.guidance ? { guidance: run.guidance } : {}),
     needsReview: app.qa.needsReview,
@@ -1047,7 +1003,6 @@ export function buildEngineRootDeps(
     integrity: { reviewLoop: app.qa.reviewLoopIntegrity ?? true },
     onFailure: app.report.onFailure,
     maxRetries: app.qa.fixLoop?.maxRetries ?? 2,
-    isCode,
     domPack,
     /* The route table at the run's base, for the availability classification: read through the confined mirror reader. */
     readFileAtRef: (ref: string, file: string) => vcs.fileAt(ref, file),
@@ -1105,12 +1060,11 @@ export function buildEngineRootDeps(
       repair: contractRepair,
     },
     reviewTimeoutMs: reviewerTimeoutMs(),
-    validationStrategies: { e2e: staticGate, code: codeValidate },
-    executionStrategies: { e2e, code },
+    validationStrategies: { e2e: staticGate },
+    executionStrategies: { e2e },
 
     setupCollaborators: {
       e2e: (specDir, opts) => setupAdapter.setup(specDir, opts),
-      code: (specDir, opts) => setupCodeProject(specDir, codeSetupDeps, opts),
     },
 
     cleanupCollaborators: {
@@ -1228,14 +1182,10 @@ export function buildEngineRootDeps(
      * a session in; the runtime of the sidekick role is read as it is now (it is switchable), and a host that cannot say is not
      * assumed to be OpenCode: only OpenCode can call run_spec and the authenticated browser.
      */
-    ...(!isCode
-      ? {
-          delegation: {
-            workspaceRoot: join(mirrorRoot, DELEGATIONS_DIR),
-            deadline: runDeadline,
-          },
-        }
-      : {}),
+    delegation: {
+      workspaceRoot: join(mirrorRoot, DELEGATIONS_DIR),
+      deadline: runDeadline,
+    },
     /*
      * The run_spec loop: composed for an e2e app whenever the host has a registry; whether a run is granted it is the app's
      * qa.closedLoop (or the run's own choice), decided when the run opens it. The generator's role is read from the agent
@@ -1327,7 +1277,7 @@ export function buildEngineRootDeps(
         }
       : {}),
     ...(app.dev?.baseUrl ? { baseUrl: app.dev.baseUrl } : {}),
-    ...(!isCode && app.dev?.baseUrl
+    ...(app.dev?.baseUrl
       ? {
           authSession: {
             env: activeEnvironment(),
@@ -1400,7 +1350,7 @@ export function buildEngineRootDeps(
 
     githubPr: new GitHubPrAdapter(githubHttpDeps(), app.baseBranch ?? "main"),
     githubIssue: new GitHubIssueAdapter(githubHttpDeps()),
-    /* Stage/commit/push generated tests before opening the PR. e2e → e2e/; code → whole tree minus deps. */
+    /* Stage/commit/push generated tests before opening the PR. */
     publish: publishWiring(run.mode),
 
     confinement: buildConfinement(),
@@ -1504,13 +1454,11 @@ export function buildEngineRootDeps(
     /*
      * The accepted e2e suite of this app, in the qayaba-data volume (never mounted into the agents container). A checkout wipes every
      * untracked file of the mirror, and shadow mode never publishes: without the store every run would start cold, re-seed the
-     * stock login and ask the agent to author it again. E2e only; the code target keeps its tests in the repo's own framework.
+     * stock login and ask the agent to author it again.
      * Under QA_CAMPAIGN_FREEZE the store is read-only: the suite is cross-run state like the learning the freeze already withholds,
      * and a campaign seeds the store itself (scripts/warm-suite.ts seed-store) before each arm-run.
      */
-    ...(!isCode
-      ? { suiteStore: new SuiteStoreAdapter({ storeDir: appSuiteStoreDir(root, app.name), app: app.name, repo: app.repo, specRelDir: e2eRelDir, seedDir: join(qayabaRoot(), "config", "e2e"), listTracked: gitListTracked(runner), now: () => new Date(), readOnly: campaignFrozen }) }
-      : {}),
+    suiteStore: new SuiteStoreAdapter({ storeDir: appSuiteStoreDir(root, app.name), app: app.name, repo: app.repo, specRelDir: e2eRelDir, seedDir: join(qayabaRoot(), "config", "e2e"), listTracked: gitListTracked(runner), now: () => new Date(), readOnly: campaignFrozen }),
     ...(observer ? { observer } : {}),
   };
 }
@@ -1576,12 +1524,12 @@ function staticPromptDigest(): string | null {
 
 export function createRunEngineFactory(
   deps: RunEngineFactoryDeps,
-): (appConfig: AppConfig, namespace: string, run: { mode: RunMode; target?: TestTarget; guidance?: string; triggerRepo?: string; changeSet?: ChangeSet; sha?: string; runId?: string; grounding?: GroundingInput | EffectiveConfig["grounding"] }, observer?: ObserverPort, previousNamespace?: string) => RunPipelinePort {
+): (appConfig: AppConfig, namespace: string, run: { mode: RunMode; guidance?: string; triggerRepo?: string; changeSet?: ChangeSet; sha?: string; runId?: string; grounding?: GroundingInput | EffectiveConfig["grounding"] }, observer?: ObserverPort, previousNamespace?: string) => RunPipelinePort {
   const wrappedDeps: RunEngineFactoryDeps = {
     ...deps,
     getAgentDeps: (turn) => engineAgentDeps(deps, turn),
   };
-  return (appConfig: AppConfig, namespace: string, run: { mode: RunMode; target?: TestTarget; guidance?: string; triggerRepo?: string; changeSet?: ChangeSet; sha?: string; runId?: string; grounding?: GroundingInput | EffectiveConfig["grounding"] }, observer?: ObserverPort): RunPipelinePort => {
+  return (appConfig: AppConfig, namespace: string, run: { mode: RunMode; guidance?: string; triggerRepo?: string; changeSet?: ChangeSet; sha?: string; runId?: string; grounding?: GroundingInput | EffectiveConfig["grounding"] }, observer?: ObserverPort): RunPipelinePort => {
     const cfg = buildEngineRootDeps(appConfig, wrappedDeps, namespace, run, observer);
     return buildEngine(cfg);
   };

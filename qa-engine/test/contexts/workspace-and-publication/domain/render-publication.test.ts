@@ -118,8 +118,8 @@ test("renderIssue: a caller that omits tested completes without throwing and omi
 });
 
 test("renderPrBody: a caller that omits tested completes without throwing and omits the 'Covers:' section", () => {
-  assert.doesNotThrow(() => renderPrBody({ isCode: false }));
-  const body = renderPrBody({ isCode: false });
+  assert.doesNotThrow(() => renderPrBody({ }));
+  const body = renderPrBody({ });
   assert.ok(!body.includes("Covers:"));
   assert.match(body, /## What this PR adds/);
   assert.match(body, /\*\*Validation:\*\*/);
@@ -130,7 +130,6 @@ test("renderPrBody: a caller that omits tested completes without throwing and om
 test("renderPrBody: a green run with tested metadata present renders 'What this PR adds', a matching 'Covers:' list, and the validation statement", () => {
   const body = renderPrBody({
     sha: "abc1234",
-    isCode: false,
     tested: [{ flow: "Checkout", objective: "user can pay with a saved card" }, { flow: "Login", objective: "user can sign in" }],
   });
 
@@ -142,14 +141,8 @@ test("renderPrBody: a green run with tested metadata present renders 'What this 
   assert.match(body, /\*\*Validation:\*\* harness green/);
 });
 
-test("renderPrBody: a code-target run renders the code-flavored wording", () => {
-  const body = renderPrBody({ isCode: true, tested: [{ flow: "parseConfig", objective: "rejects malformed YAML" }] });
-  assert.match(body, /Source-code tests generated\/updated by qayaba\./);
-  assert.match(body, /\*\*Validation:\*\* the repo's own test suite passed \(exit code 0\)/);
-});
-
 test("renderPrBody: tested items missing flow or objective still render (partial metadata degrades gracefully)", () => {
-  const body = renderPrBody({ isCode: false, tested: [{ flow: "Checkout" }, { objective: "no flow name" }] });
+  const body = renderPrBody({ tested: [{ flow: "Checkout" }, { objective: "no flow name" }] });
   assert.match(body, /\*\*Checkout\*\*/);
   assert.match(body, /- no flow name/);
 });
@@ -157,12 +150,12 @@ test("renderPrBody: tested items missing flow or objective still render (partial
 /* ── Scenario: Continuation run shows provenance ─────────────────────────────────────────────────── */
 
 test("renderPrBody: a run carrying parentRunId includes a continuation reference", () => {
-  const body = renderPrBody({ isCode: false, parentRunId: "run-deadbeef" });
+  const body = renderPrBody({ parentRunId: "run-deadbeef" });
   assert.match(body, /Continuation of run-deadbeef/);
 });
 
 test("renderPrBody: omits the continuation reference entirely when parentRunId is absent", () => {
-  const body = renderPrBody({ isCode: false });
+  const body = renderPrBody({ });
   assert.ok(!body.includes("Continuation of"));
 });
 
@@ -193,13 +186,13 @@ test("renderIssue: the change-reach section lists at most the bounded number of 
 
 test("the reviewer's missing cases are listed in a PR body and an Issue, and nothing of them when there are none", () => {
   const missingCases = ["[missing-case] the empty search result is not tested", "[missing-case] a rejected coupon is not tested"];
-  const pr = renderPrBody({ isCode: false, missingCases });
+  const pr = renderPrBody({ missingCases });
   const issue = renderIssue({ verdict: "fail", cases: [{ name: "pays", status: "fail" }], missingCases });
   for (const text of missingCases) {
     assert.ok(pr.includes(text), `PR: ${text}`);
     assert.ok(issue.includes(text), `Issue: ${text}`);
   }
-  assert.equal(renderPrBody({ isCode: false }), renderPrBody({ isCode: false, missingCases: [] }));
+  assert.equal(renderPrBody({ }), renderPrBody({ missingCases: [] }));
 });
 
 test("a PR body lists every unavailability the change introduced and every possible regression, and nothing for the other classes", () => {
@@ -209,12 +202,12 @@ test("a PR body lists every unavailability the change introduced and every possi
     { route: "/orders", outcome: { kind: "http-error" as const, status: 500 }, basis: { class: "regression-candidate" as const, reach: "implements" as const, runtimeError: true as const } },
     { route: "/login", outcome: { kind: "redirected" as const, to: "/home", mechanism: "client" as const }, basis: { class: "pre-existing" as const, why: "session-consistent" as const } },
   ];
-  const pr = renderPrBody({ isCode: false, routeAvailability });
+  const pr = renderPrBody({ routeAvailability });
   assert.match(pr, /Routes this change makes unavailable[^\n]*\n- `\/upload-menu\/preview` ends on \/home \(client-side\): its route table entry changed at src\/app\/app\.routes\.ts:102\n- `\/upload-menu\/confirm` ends on \/home \(client-side\): a changed symbol reaches its guard src\/guards\/native\.ts::nativeOnlyGuard/);
   assert.match(pr, /Possible regressions[^\n]*\n- `\/orders` ends on HTTP 500: the change reaches the page and it logged a runtime error/);
   assert.doesNotMatch(pr, /\/login/);
   assert.match(renderIssue({ verdict: "fail", cases: [failCase()], routeAvailability }), /Routes this change makes unavailable/);
-  assert.equal(renderPrBody({ isCode: false }), renderPrBody({ isCode: false, routeAvailability: [routeAvailability[3]!] }));
+  assert.equal(renderPrBody({ }), renderPrBody({ routeAvailability: [routeAvailability[3]!] }));
 });
 
 /* ── Tests that fulfil a stated response: published apart, as tested against that response and not DEV ── */
@@ -227,7 +220,7 @@ test("a PR body and an Issue list the stubbed tests as tested against a stated r
     ],
     violations: [{ file: "flow/cuisines.spec.ts", kind: "fulfil-without-get-guard", test: "through a helper" }],
   };
-  const pr = renderPrBody({ isCode: false, stubbedState });
+  const pr = renderPrBody({ stubbedState });
   assert.match(pr, /Tested against a stated response, not DEV[^\n]*\n- `flow\/cuisines\.spec\.ts` › .*disables every chip — geo response without the cuisine field \(`\*\*\/geo\/\*\*`\)/);
   assert.match(pr, /- `flow\/cuisines\.spec\.ts` › through a helper — a helper it calls could not be read, so it is counted as stubbed/);
   assert.match(pr, /Guards these tests broke[^\n]*\n- `flow\/cuisines\.spec\.ts`[^\n]*through a helper[^\n]*fulfil-without-get-guard/);
@@ -235,8 +228,8 @@ test("a PR body and an Issue list the stubbed tests as tested against a stated r
 });
 
 test("a body with no stubbed test says nothing about stubs, and a violation alone is still listed", () => {
-  assert.equal(renderPrBody({ isCode: false }), renderPrBody({ isCode: false, stubbedState: { tests: [] } }));
-  const pr = renderPrBody({ isCode: false, stubbedState: { tests: [], violations: [{ file: "a.spec.ts", kind: "har-replay" }] } });
+  assert.equal(renderPrBody({ }), renderPrBody({ stubbedState: { tests: [] } }));
+  const pr = renderPrBody({ stubbedState: { tests: [], violations: [{ file: "a.spec.ts", kind: "har-replay" }] } });
   assert.doesNotMatch(pr, /Tested against a stated response/);
   assert.match(pr, /Guards these tests broke[^\n]*\n- `a\.spec\.ts`[^\n]*har-replay/);
 });
@@ -254,7 +247,7 @@ const CONTRADICTION: DataContradiction = {
 };
 
 test("a PR body and an Issue list the fields the consumer expects that the run's pages' answers lack as possible defects, with the consumer's read sites, beside the possible regressions", () => {
-  const pr = renderPrBody({ isCode: false, dataContradictions: [CONTRADICTION, { ...CONTRADICTION, route: "/shops", template: "/shops/:region", key: "zone", provider: "provider-undeclared" }] });
+  const pr = renderPrBody({ dataContradictions: [CONTRADICTION, { ...CONTRADICTION, route: "/shops", template: "/shops/:region", key: "zone", provider: "provider-undeclared" }] });
   assert.match(pr, /Possible data contradictions[^\n]*\n- `\/browse`: GET https:\/\/app\.example\/api\/items\/by-region\/ES returned 12 items, none carrying "category" at any depth/);
   assert.match(pr, /src\/api\.ts:12 declares Item\[\] for the answer, src\/list\.ts:4, src\/card\.ts:9 read it and nothing writes it/);
   assert.match(pr, /schema declares it \(provider-declared-absent\)/);
@@ -270,7 +263,7 @@ test("a stubbed test that fulfils the field a gap lacks is listed under that gap
       { file: "e2e/flows/helper.spec.ts", name: "[stubbed: helper] a helper", routes: [] },
     ],
   };
-  for (const body of [renderPrBody({ isCode: false, dataContradictions: [CONTRADICTION], stubbedState }), renderIssue({ verdict: "fail", cases: [failCase()], dataContradictions: [CONTRADICTION], stubbedState })]) {
+  for (const body of [renderPrBody({ dataContradictions: [CONTRADICTION], stubbedState }), renderIssue({ verdict: "fail", cases: [failCase()], dataContradictions: [CONTRADICTION], stubbedState })]) {
     assert.match(body, /Possible data contradictions[^\n]*\n- `\/browse`:[^\n]*\n {2}- also tested against a stated response that fulfils "category": `e2e\/flows\/cuisine\.spec\.ts` › greys out/);
     const gap = body.slice(body.indexOf("**Possible data contradictions**"));
     assert.equal(gap.includes("shows the empty state"), false);
@@ -280,14 +273,14 @@ test("a stubbed test that fulfils the field a gap lacks is listed under that gap
 });
 
 test("a run with no data contradiction renders its PR body and Issue as before", () => {
-  assert.equal(renderPrBody({ isCode: false }), renderPrBody({ isCode: false, dataContradictions: [] }));
+  assert.equal(renderPrBody({ }), renderPrBody({ dataContradictions: [] }));
   assert.equal(renderIssue({ verdict: "fail", cases: [failCase()] }), renderIssue({ verdict: "fail", cases: [failCase()], dataContradictions: [] }));
-  assert.doesNotMatch(renderPrBody({ isCode: false }), /Possible data contradictions/);
+  assert.doesNotMatch(renderPrBody({ }), /Possible data contradictions/);
 });
 
 test("more data contradictions than the list holds are counted, not dropped silently", () => {
   const many: DataContradiction[] = Array.from({ length: 80 }, (_, i) => ({ ...CONTRADICTION, key: `k${i}` }));
-  const pr = renderPrBody({ isCode: false, dataContradictions: many });
+  const pr = renderPrBody({ dataContradictions: many });
   assert.match(pr, /and \d+ more/);
   assert.equal(pr.includes('"k79"'), false);
 });

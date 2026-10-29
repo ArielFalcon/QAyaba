@@ -102,7 +102,7 @@ export interface RunnerDeps {
   engineFactory?: (
     appConfig: AppConfig,
     namespace: string,
-    run: { mode: RunMode; target?: TestTarget; guidance?: string; triggerRepo?: string; changeSet?: ChangeSet; sha?: string; runId?: string; grounding?: GroundingInput | StoredRunConfig["grounding"] },
+    run: { mode: RunMode; guidance?: string; triggerRepo?: string; changeSet?: ChangeSet; sha?: string; runId?: string; grounding?: GroundingInput | StoredRunConfig["grounding"] },
     observer?: ObserverPort,
     previousNamespace?: string,
   ) => RunPipelinePort;
@@ -318,13 +318,13 @@ const loginBootstrapAsked = new Set<string>();
 /*
  * An app onboarded before the suite store has no verified login, so its first runs start cold and author the login while they
  * do something else. When a run is enqueued for an e2e app that declares a login and the store holds none, the app's bootstrap
- * is queued first and the run follows it on the same sequential queue. Not for a run that is itself a bootstrap, a code run, a
+ * is queued first and the run follows it on the same sequential queue. Not for a run that is itself a bootstrap, a
  * context-map run (onboarding queues its own bootstrap after it), a cross-repo run (its sha belongs to the service repo) or a
  * continuation. Best effort: a question that cannot be answered says so and the run goes on.
  */
 function enqueueLoginBootstrapFirst(queue: JobQueue, req: RunRequest, deps: RunnerDeps): void {
   const holds = deps.suiteHoldsVerifiedLogin;
-  if (!holds || req.target !== "e2e" || req.mode === "context" || req.purpose !== undefined || req.triggerRepo !== undefined || req.parentRunId !== undefined) return;
+  if (!holds || req.mode === "context" || req.purpose !== undefined || req.triggerRepo !== undefined || req.parentRunId !== undefined) return;
   if (loginBootstrapAsked.has(req.app)) return;
   try {
     const app = (deps.loadApp ?? loadAppConfig)(req.app);
@@ -557,7 +557,7 @@ function trackRun(req: RunRequest, deps: RunnerDeps, captureMode: CaptureMode, w
           appConfig,
           runNamespace,
           {
-            mode: req.mode, target: req.target, runId: record.id,
+            mode: req.mode, runId: record.id,
             /* A run that other pushes joined is anchored on its primary entry, whichever push queued it. */
             sha: joined ? anchorProjection(joined).sha.toString() : req.sha,
             ...(req.guidance ? { guidance: req.guidance } : {}),
@@ -704,12 +704,12 @@ const contextMapRebuilt = new Set<string>();
  * The context map a run grounds on must describe its commit. When the injected question says the app's map does not (missing,
  * marked stale, or a file it names changed since it was built), a context run at the run's sha executes first, in this run's queue
  * turn and linked to it, so this run already reads the fresh map. Once per app and commit. Not for a run that cannot use a map: a
- * code run, a context run, a run with a purpose, a cross-repo run (its sha belongs to the service repo) or a continuation. A question
+ * context run, a run with a purpose, a cross-repo run (its sha belongs to the service repo) or a continuation. A question
  * that cannot be answered says so and the run goes on with what the map has.
  */
 async function rebuildContextMapFirst(req: RunRequest, runId: string, deps: RunnerDeps, signal: AbortSignal): Promise<void> {
   const needs = deps.contextMapNeedsRebuild;
-  if (!needs || req.target !== "e2e" || req.mode === "context" || req.purpose !== undefined || req.triggerRepo !== undefined || req.parentRunId !== undefined) return;
+  if (!needs || req.mode === "context" || req.purpose !== undefined || req.triggerRepo !== undefined || req.parentRunId !== undefined) return;
   const key = `${req.app}@${req.sha}`;
   if (contextMapRebuilt.has(key)) return;
   try {
@@ -731,7 +731,7 @@ async function rebuildContextMapFirst(req: RunRequest, runId: string, deps: Runn
  */
 function recordRunConfig(runId: string, app: AppConfig, req: RunRequest, captureMode: CaptureMode, env: RunConfigEnvironment, trace: RunTrace): StoredRunConfig | undefined {
   try {
-    const config = resolveRunConfig(app, req.target, req, captureMode, env);
+    const config = resolveRunConfig(app, req, captureMode, env);
     getHistory().runs.recordEffectiveConfig(runId, JSON.stringify(config));
     trace.configInEffect(configInEffect(config));
     return config;

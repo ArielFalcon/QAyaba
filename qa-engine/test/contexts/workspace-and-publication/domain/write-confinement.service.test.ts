@@ -108,11 +108,11 @@ test("isE2eStray flags anything outside e2e/", () => {
   assert.equal(svc.isE2eStray("e2e"), false);
 });
 
-test("isCodeDenied flags the denylist (.env, Dockerfile, .github/, docker-compose*)", () => {
-  assert.equal(svc.isCodeDenied(".env"), true);
-  assert.equal(svc.isCodeDenied(".env.local"), true);
-  assert.equal(svc.isCodeDenied("docker-compose.yml"), true);
-  assert.equal(svc.isCodeDenied("src/app.ts"), false);
+test("isDenylisted flags the denylist (.env, Dockerfile, .github/, docker-compose*)", () => {
+  assert.equal(svc.isDenylisted(".env"), true);
+  assert.equal(svc.isDenylisted(".env.local"), true);
+  assert.equal(svc.isDenylisted("docker-compose.yml"), true);
+  assert.equal(svc.isDenylisted("src/app.ts"), false);
 });
 
 test("isDangerousPath flags secret files regardless of target", () => {
@@ -121,9 +121,9 @@ test("isDangerousPath flags secret files regardless of target", () => {
   assert.equal(svc.isDangerousPath("e2e/a.spec.ts"), false);
 });
 
-test("classifyStrays: a rename out of the allowed area reverts BOTH sides as a unit (e2e target)", () => {
+test("classifyStrays: a rename out of the allowed area reverts BOTH sides as a unit", () => {
   const changes = svc.parseStatusOutput("R  e2e/existing.spec.ts -> stray.spec.ts");
-  const { tracked, untracked } = svc.classifyStrays(changes, false);
+  const { tracked, untracked } = svc.classifyStrays(changes);
 
   assert.deepEqual(tracked.slice().sort(), ["e2e/existing.spec.ts", "stray.spec.ts"]);
   assert.deepEqual(untracked, []);
@@ -131,17 +131,10 @@ test("classifyStrays: a rename out of the allowed area reverts BOTH sides as a u
 
 test("classifyStrays: a rename fully INSIDE the allowed area is not a stray — neither side reverted", () => {
   const changes = svc.parseStatusOutput("R  e2e/a.spec.ts -> e2e/b.spec.ts");
-  const { tracked, untracked } = svc.classifyStrays(changes, false);
+  const { tracked, untracked } = svc.classifyStrays(changes);
 
   assert.deepEqual(tracked, []);
   assert.deepEqual(untracked, []);
-});
-
-test("classifyStrays: a rename INTO a denylisted destination reverts BOTH sides (code target)", () => {
-  const changes = svc.parseStatusOutput("R  src/legit.ts -> .github/workflows/x.yml");
-  const { tracked } = svc.classifyStrays(changes, true);
-
-  assert.deepEqual(tracked.slice().sort(), [".github/workflows/x.yml", "src/legit.ts"]);
 });
 
 /* rename-pairing adapter code must decode `git diff --name-status` output through the SAME
@@ -191,11 +184,11 @@ test("pairUnstagedRenames: a git rename that references paths OUTSIDE both candi
   assert.deepEqual(result.restore, []);
 });
 
-test("isCodeDenied denies env files at any depth and under any prefix, and the git metadata files", () => {
-  assert.equal(svc.isCodeDenied("config/.env"), true);
-  assert.equal(svc.isCodeDenied("prod.env"), true);
-  assert.equal(svc.isCodeDenied(".gitattributes"), true);
-  assert.equal(svc.isCodeDenied(".gitmodules"), true);
+test("isDenylisted denies env files at any depth and under any prefix, and the git metadata files", () => {
+  assert.equal(svc.isDenylisted("config/.env"), true);
+  assert.equal(svc.isDenylisted("prod.env"), true);
+  assert.equal(svc.isDenylisted(".gitattributes"), true);
+  assert.equal(svc.isDenylisted(".gitmodules"), true);
 });
 
 test("an env file nested at any depth is denied and dangerous, exactly as at the root, templates included", () => {
@@ -208,39 +201,39 @@ test("an env file nested at any depth is denied and dangerous, exactly as at the
     "apps\\web\\.env.local",
     "apps/web/.env.d/keys.json",
   ]) {
-    assert.equal(svc.isCodeDenied(path), true, `${path} must be denied`);
+    assert.equal(svc.isDenylisted(path), true, `${path} must be denied`);
     assert.equal(svc.isDangerousPath(path), true, `${path} is a secret file`);
   }
 });
 
 test("a name that only resembles an env file is neither denied nor dangerous, at the root or nested", () => {
   for (const path of [".envrc", "packages/api/.envrc", ".env-sample", "packages/api/.env-sample", "packages/env/index.ts", "src/environment.ts"]) {
-    assert.equal(svc.isCodeDenied(path), false, `${path} stays writable`);
+    assert.equal(svc.isDenylisted(path), false, `${path} stays writable`);
     assert.equal(svc.isDangerousPath(path), false, `${path} is not a secret file`);
   }
 });
 
 test("classifyStrays reports a nested env file the agent wrote as a dangerous stray", () => {
-  const { untracked, dangerousByPath } = svc.classifyStrays(svc.parseStatusOutput("?? packages/api/.env.local"), true);
+  const { untracked, dangerousByPath } = svc.classifyStrays(svc.parseStatusOutput("?? packages/api/.env.local"));
   assert.deepEqual(untracked, ["packages/api/.env.local"]);
   assert.deepEqual(dangerousByPath, ["packages/api/.env.local"]);
 });
 
-test("isCodeDenied normalizes a leading ./ and backslash separators before matching (non-git callers)", () => {
-  assert.equal(svc.isCodeDenied("./Dockerfile"), true);
-  assert.equal(svc.isCodeDenied(".github\\workflows\\ci.yml"), true);
+test("isDenylisted normalizes a leading ./ and backslash separators before matching (non-git callers)", () => {
+  assert.equal(svc.isDenylisted("./Dockerfile"), true);
+  assert.equal(svc.isDenylisted(".github\\workflows\\ci.yml"), true);
 });
 
 /* Only a leading ./ is a spelling of the repo root; past the start it belongs to a segment's name. */
-test("isCodeDenied keeps a ./ past the start of a path: a file under a directory named .env. is denied", () => {
-  assert.equal(svc.isCodeDenied("e2e/.env./secrets"), true);
-  assert.equal(svc.isCodeDenied("./e2e/.env./secrets"), true);
+test("isDenylisted keeps a ./ past the start of a path: a file under a directory named .env. is denied", () => {
+  assert.equal(svc.isDenylisted("e2e/.env./secrets"), true);
+  assert.equal(svc.isDenylisted("./e2e/.env./secrets"), true);
 });
 
-test("isCodeDenied: an exact entry denies only that path and a wildcard entry only its own prefix", () => {
-  assert.equal(svc.isCodeDenied("Dockerfile"), true);
-  assert.equal(svc.isCodeDenied("dockerfiles/README.md"), false);
-  assert.equal(svc.isCodeDenied("docs/guide.md"), false);
+test("isDenylisted: an exact entry denies only that path and a wildcard entry only its own prefix", () => {
+  assert.equal(svc.isDenylisted("Dockerfile"), true);
+  assert.equal(svc.isDenylisted("dockerfiles/README.md"), false);
+  assert.equal(svc.isDenylisted("docs/guide.md"), false);
 });
 
 test("parseStatusOutput: a modified file whose name contains ' -> ' is one path, not a rename", () => {
@@ -281,7 +274,7 @@ test("pairUnstagedRenames: a rename restores the deletion only when its destinat
 
 test("classifyStrays: a reverted rename marks only its secret side as dangerous", () => {
   const changes = svc.parseStatusOutput("R  .env -> config.txt");
-  const { tracked, dangerousByPath } = svc.classifyStrays(changes, true);
+  const { tracked, dangerousByPath } = svc.classifyStrays(changes);
   assert.deepEqual(tracked.slice().sort(), [".env", "config.txt"]);
   assert.deepEqual(dangerousByPath, [".env"]);
 });

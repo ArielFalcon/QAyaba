@@ -105,7 +105,7 @@ const baseInput = {
   runId: "golden-green-pr",
 };
 
-const baseConfig = { needsReview: true, shadow: false, onFailure: "github-issue", maxRetries: 2, isCode: false };
+const baseConfig = { needsReview: true, shadow: false, onFailure: "github-issue", maxRetries: 2 };
 
 test("RunPipelineAdapter: green-pr — fully stubbed ports, returns RunOutcome verdict pass", async () => {
   const { ports } = stubPorts();
@@ -134,7 +134,7 @@ interface GoldenScenarioCase {
     measure: ObjectiveSignalPort["measure"];
     waitUntilServing: DeployGatePort["waitUntilServing"];
   }>;
-  config: { needsReview: boolean; shadow: boolean; onFailure: string; maxRetries: number; isCode: boolean };
+  config: { needsReview: boolean; shadow: boolean; onFailure: string; maxRetries: number };
   input: Partial<{ mode: "diff" | "complete" | "exhaustive" | "manual" | "context"; target: "e2e" }>;
   expectedVerdict: string;
 }

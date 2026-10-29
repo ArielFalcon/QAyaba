@@ -12,49 +12,49 @@ const app = (over: Record<string, unknown> = {}, qa: Record<string, unknown> = {
 
 test("the request's lever wins over the app's setting, and the app's setting decides when the request says nothing", () => {
   const configured = app({}, { closedLoop: { enabled: true }, agentBrowser: { enabled: false } });
-  assert.deepEqual(resolveRunConfig(configured, "e2e", {}, "metadata", env).levers, { closedLoop: true, agentBrowser: false, captureMode: "metadata" });
-  assert.deepEqual(resolveRunConfig(configured, "e2e", { closedLoop: false, agentBrowser: true }, "full", env).levers, { closedLoop: false, agentBrowser: true, captureMode: "full" });
+  assert.deepEqual(resolveRunConfig(configured, {}, "metadata", env).levers, { closedLoop: true, agentBrowser: false, captureMode: "metadata" });
+  assert.deepEqual(resolveRunConfig(configured, { closedLoop: false, agentBrowser: true }, "full", env).levers, { closedLoop: false, agentBrowser: true, captureMode: "full" });
 });
 
 test("a lever that cannot take effect is not reported as applied", () => {
   const asked = { closedLoop: true, agentBrowser: true };
-  assert.deepEqual(resolveRunConfig(app(), "e2e", asked, "metadata", { ...env, toolsGranted: false }).levers.closedLoop, false);
-  const noDev = resolveRunConfig(app({ dev: undefined }), "e2e", asked, "metadata", env).levers;
+  assert.deepEqual(resolveRunConfig(app(), asked, "metadata", { ...env, toolsGranted: false }).levers.closedLoop, false);
+  const noDev = resolveRunConfig(app({ dev: undefined }), asked, "metadata", env).levers;
   assert.deepEqual([noDev.closedLoop, noDev.agentBrowser], [null, null]);
 });
 
 test("grounding and policy are what the run's app declares, with the engine's defaults where it declares nothing", () => {
-  const plain = resolveRunConfig(app(), "e2e", {}, "metadata", env);
+  const plain = resolveRunConfig(app(), {}, "metadata", env);
   assert.deepEqual(plain.grounding, { stitcher: null, curriculum: "learning", domPack: true });
   assert.deepEqual(plain.coverage, { mode: "signal", minRatio: 0.7 });
   assert.equal(plain.reflector, true);
-  const stitched = resolveRunConfig(app({ services: [{ repo: "o/s" }], boundaries: [{}] }, { changeCoverage: { mode: "enforce", minRatio: 0.9 } }), "e2e", {}, "metadata", env);
+  const stitched = resolveRunConfig(app({ services: [{ repo: "o/s" }], boundaries: [{}] }, { changeCoverage: { mode: "enforce", minRatio: 0.9 } }), {}, "metadata", env);
   assert.deepEqual(stitched.grounding, { stitcher: "signal", curriculum: "learning", domPack: true });
   assert.deepEqual(stitched.coverage, { mode: "enforce", minRatio: 0.9 });
-  const withBoundaries = resolveRunConfig(app({ services: [{ repo: "o/s" }], boundaries: [{}] }), "e2e", {}, "metadata", env);
+  const withBoundaries = resolveRunConfig(app({ services: [{ repo: "o/s" }], boundaries: [{}] }), {}, "metadata", env);
   assert.equal(withBoundaries.grounding.stitcher, "signal");
 });
 
 test("a run's grounding lever wins over the app's setting and the freeze still wins over the curriculum lever", () => {
   const withServices = app({ services: [{ repo: "o/s" }], boundaries: [{}] });
-  const asked = resolveRunConfig(withServices, "e2e", { grounding: { stitcher: false, curriculum: false } }, "metadata", env);
+  const asked = resolveRunConfig(withServices, { grounding: { stitcher: false, curriculum: false } }, "metadata", env);
   assert.deepEqual(asked.grounding, { stitcher: "off", curriculum: "off", domPack: true });
-  const frozen = resolveRunConfig(withServices, "e2e", { grounding: { curriculum: true } }, "metadata", { ...env, campaignFrozen: true });
+  const frozen = resolveRunConfig(withServices, { grounding: { curriculum: true } }, "metadata", { ...env, campaignFrozen: true });
   assert.equal(frozen.grounding.curriculum, "frozen");
 });
 
 test("a campaign freeze freezes the curriculum and switches the reflector off whatever the reflector switch says", () => {
-  const frozen = resolveRunConfig(app(), "e2e", {}, "metadata", { ...env, campaignFrozen: true });
+  const frozen = resolveRunConfig(app(), {}, "metadata", { ...env, campaignFrozen: true });
   assert.equal(frozen.campaignFreeze, true);
   assert.equal(frozen.grounding.curriculum, "frozen");
   assert.equal(frozen.reflector, false);
 });
 
 test("domPack: the request wins over the app, the app applies when the request says nothing, and absent on both defaults to true", () => {
-  assert.equal(resolveRunConfig(app({}, { domPack: true }), "e2e", { grounding: { domPack: false } }, "metadata", env).grounding.domPack, false);
-  assert.equal(resolveRunConfig(app({}, { domPack: false }), "e2e", {}, "metadata", env).grounding.domPack, false);
-  assert.equal(resolveRunConfig(app(), "e2e", {}, "metadata", env).grounding.domPack, true);
-  assert.equal(resolveRunConfig(app(), "e2e", { grounding: { domPack: true } }, "metadata", env).grounding.domPack, true);
+  assert.equal(resolveRunConfig(app({}, { domPack: true }), { grounding: { domPack: false } }, "metadata", env).grounding.domPack, false);
+  assert.equal(resolveRunConfig(app({}, { domPack: false }), {}, "metadata", env).grounding.domPack, false);
+  assert.equal(resolveRunConfig(app(), {}, "metadata", env).grounding.domPack, true);
+  assert.equal(resolveRunConfig(app(), { grounding: { domPack: true } }, "metadata", env).grounding.domPack, true);
 });
 
 test("parseStoredRunConfig of an old record reads a missing domPack as null and leaves out a grounding key this version no longer records (kept parseable)", () => {
@@ -72,14 +72,14 @@ test("parseStoredRunConfig of an old record reads a missing domPack as null and 
 });
 
 test("a stored configuration round-trips, and malformed or missing storage reads as nothing recorded", () => {
-  const stored = resolveRunConfig(app(), "e2e", {}, "metadata", env);
+  const stored = resolveRunConfig(app(), {}, "metadata", env);
   assert.deepEqual(parseStoredRunConfig(JSON.stringify(stored)), stored);
   assert.equal(parseStoredRunConfig(null), undefined);
   assert.equal(parseStoredRunConfig("{nope"), undefined);
 });
 
 test("the coverage the engine reported at the end wins over the one the run started with, and the capture column fills a run that stored nothing", () => {
-  const stored = resolveRunConfig(app(), "e2e", {}, "metadata", env);
+  const stored = resolveRunConfig(app(), {}, "metadata", env);
   assert.deepEqual(buildEffectiveConfig(stored, [], { coverageMode: "enforce", coverageMinRatio: 0.5, captureMode: null }).coverage, { mode: "enforce", minRatio: 0.5 });
   assert.deepEqual(buildEffectiveConfig(stored, [], { coverageMode: null, coverageMinRatio: null, captureMode: null }).coverage, stored.coverage);
   assert.equal(buildEffectiveConfig(undefined, [], { coverageMode: null, coverageMinRatio: null, captureMode: "off" }).levers.captureMode, "off");
@@ -105,6 +105,6 @@ test("the static prompt hash covers AGENTS.md and every role file, in name order
 });
 
 test("the applied grounding records no structural-signal or dossier lever: the code graph is wired for every app", () => {
-  const recorded = resolveRunConfig(app(), "e2e", {}, "metadata", env).grounding;
+  const recorded = resolveRunConfig(app(), {}, "metadata", env).grounding;
   assert.deepEqual(Object.keys(recorded).sort(), ["curriculum", "domPack", "stitcher"]);
 });

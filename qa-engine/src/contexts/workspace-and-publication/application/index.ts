@@ -6,5 +6,5 @@ export type { MirrorGcPort } from "./ports/workspace-mirror-gc.port.ts";
 export type { PublicationPort } from "./ports/publication.port.ts";
 export type { SetupPort } from "./ports/setup.port.ts";
 export type { WorkspacePort } from "./ports/workspace.port.ts";
-export type { WorkspaceHandle, WorkspaceKind } from "../domain/workspace-handle.ts";
+export type { WorkspaceHandle } from "../domain/workspace-handle.ts";
 export type { ConfinementResult } from "../domain/confinement-result.ts";

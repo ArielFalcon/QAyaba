@@ -154,7 +154,7 @@ export class ObjectiveSignalPortAdapter implements ObjectiveSignalPort {
     if (this.ctx.policy.mode === "off") {
       return { status: this.deps.decide.decide(null, this.ctx.policy), ratio: null };
     }
-    /* The change is its own code: the repo's test files a commit carries are neither collected nor counted, or a suite would be measured against the unit tests it never runs (or, on the code target, credited with the lines those tests run of themselves). */
+    /* The change is its own code: the repo's test files a commit carries are neither collected nor counted, or a suite would be measured against the unit tests it never runs. */
     const changeDiff = changeDiffOf(diff, opts?.exclusions);
     /* Per-call changed files from the live diff. Composition-time collectors often hold a static empty list; absent diff → collector constructor value. */
     const changedFiles = changeDiff !== undefined ? [...parseDiffHunks(changeDiff).keys()] : undefined;

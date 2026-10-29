@@ -146,7 +146,6 @@ export interface FixLoopIntegrity {
 
 export interface FixLoopInput {
   initialRun: FixLoopRun;
-  isCode: boolean;
   generating: boolean;
   mode: RunMode;
   objectiveSource: string[];
@@ -466,7 +465,7 @@ export class FixLoop {
     const failedTrees = failed
       .map((c) => buildFailureDomLines(c.failureDom))
       .filter((t) => t.length > 0);
-    const haveTrees = !input.isCode && failedTrees.length > 0;
+    const haveTrees = failedTrees.length > 0;
     const specSources = haveTrees ? (state.lastRegenResult?.specSources ?? []) : [];
     const lever2 = this.deps.selectorCheck.check(specSources, failedTrees);
     const selectorContradictions = lever2.contradictions;
@@ -503,7 +502,7 @@ export class FixLoop {
       !selectorContradictions.some((c) => c.includes("MULTIPLE"));
 
     /* Fresh devHealthy() at this snapshot; a separate fresh call happens before retry-execute — never shared or memoized. */
-    const devHealthyNow = input.isCode ? true : await input.devHealthy();
+    const devHealthyNow = await input.devHealthy();
     /* A missing detail reads as "" — any placeholder text would classify the same ("other", not infra). */
     const failureDetails = failed.map((c) => c.detail ?? "");
     const failureClasses = failureDetails.map((detail) => classifyFailure(detail));
@@ -523,7 +522,7 @@ export class FixLoop {
      */
     let devNotRendered: AdjudicatorEvidence["devNotRendered"];
     /* A failure that ended where its route sends the run's client: the class of the route's fact decides, with no re-read. */
-    const availability = !input.isCode && input.routeAvailability ? availabilityDecision(await matchAvailability(failed, input.routeAvailability), failed.length) : undefined;
+    const availability = input.routeAvailability ? availabilityDecision(await matchAvailability(failed, input.routeAvailability), failed.length) : undefined;
     let availabilityVerdict: AdjudicatorVerdict | undefined;
     if (availability) {
       state.triage ??= { trigger: "availability", outcome: availability.kind === "correct" ? "corrected" : availability.kind, files: new Set(failed.map((c) => c.file)).size };
@@ -535,7 +534,6 @@ export class FixLoop {
       availabilityVerdict === undefined &&
       !state.triaged &&
       input.integrity &&
-      !input.isCode &&
       (absentKeys.size > 0 || packConflict) &&
       failureClasses.length > 0 &&
       /* A contradicted data state is the page's own reading, whatever the assertion that met it; an absent target stands only on a presence failure. */
@@ -613,7 +611,6 @@ export class FixLoop {
     const { input } = state;
     const round = this.roundOf(state);
     const evidence: AdjudicatorEvidence = {
-      isCode: input.isCode,
       allUnique: round.allUnique,
       failureDetails: round.failureDetails,
       failureClasses: round.failureClasses,
@@ -655,8 +652,8 @@ export class FixLoop {
      * and the first round's are the initial run's bytes if that run stays the best. The namespace is
      * unique per attempt so a retry cannot collide with its own prior attempt's test data.
      */
-    round.roundToken = !input.isCode && this.deps.acceptance ? await this.deps.acceptance.begin() : undefined;
-    if (!input.isCode && this.deps.acceptance && !state.hasBestToken) {
+    round.roundToken = this.deps.acceptance ? await this.deps.acceptance.begin() : undefined;
+    if (this.deps.acceptance && !state.hasBestToken) {
       state.bestToken = round.roundToken;
       state.hasBestToken = true;
     }
@@ -679,7 +676,7 @@ export class FixLoop {
      * repair and the claim is not counted as a fix. Bounded by the loop's retry cap.
      */
     const claim = result.specs.length === 0 && input.integrity ? result.testCorrect : undefined;
-    const transition = { after: "regeneration", delivered: result.specs.length, absentTargets: !input.isCode && round.absentKeys.size > 0, isCode: input.isCode, accepting: !!this.deps.acceptance } as const;
+    const transition = { after: "regeneration", delivered: result.specs.length, absentTargets: round.absentKeys.size > 0, accepting: !!this.deps.acceptance } as const;
     if (claim) {
       const verified = verifiedTestCorrectReason(claim, {
         fiveXx: round.fiveXx,
@@ -774,13 +771,6 @@ export class FixLoop {
     const { input } = state;
     const round = this.roundOf(state);
     const result = round.result;
-
-    if (input.isCode) {
-      /* Code mode: re-run the repo's own test suite directly — this branch never calls deps.revalidate (that seam is e2e-only, below). Code-mode pre-execution compile validation lives in the pipeline's validation phase (CodeValidationStrategy), not per-retry here; a code retry's compile failure surfaces through the execute() run itself (exit-code classification). */
-      state.run = await this.deps.execution.execute({ namespace: input.namespace });
-      this.recordBest(state);
-      return fixLoopAction({ after: "reexecution", failed: false, devHealthy: true });
-    }
 
     /* Pre-acceptance retry path, for a caller with no working copy (aggregate unit tests). The run always wires `acceptance`. */
     if (this.deps.revalidate) {

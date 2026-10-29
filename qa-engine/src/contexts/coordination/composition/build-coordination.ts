@@ -27,8 +27,7 @@ export interface DelegationWiring {
 }
 
 export interface CoordinationDeps {
-  isCode: boolean;
-  /* Present: the run is authored with sidekicks. Absent for a code run, which is not coordinated. */
+  /* Present: the run is authored with sidekicks. */
   delegation?: DelegationWiring;
   /* The runtime the sidekicks open their sessions on (the reviewer's, each with a session of its own). */
   runtime: Pick<AgentRuntimePort, "openSession">;
@@ -64,7 +63,7 @@ export function buildCoordination(deps: CoordinationDeps): CoordinationApi {
   const coordinationTelemetry = deps.telemetry ? new TracedCoordinationTelemetry(ledger, deps.telemetry) : ledger;
   const { delegation } = deps;
   const contextBudget = deps.contextBudget ? { contextBudget: deps.contextBudget } : {};
-  if (!delegation || deps.isCode) return { coordinationTelemetry, ...contextBudget };
+  if (!delegation) return { coordinationTelemetry, ...contextBudget };
   return {
     coordinationTelemetry,
     ...contextBudget,

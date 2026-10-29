@@ -1,6 +1,6 @@
 /* The engine root: the one module that calls every context's builder, in dependency order, and hands the ports they serve to the run-orchestration builder. It lives in the shell, so no engine module reaches the VCS write seam. A shadow composition (deps.shadow) publishes to the shadow log: no PR or Issue is opened on the watched repo. EngineRootDeps is the union of the builders' inputs: the shell fills it per run, each builder takes its own part. */
 
-import type { RunMode, TestTarget } from "@kernel/run-mode";
+import type { RunMode } from "@kernel/run-mode";
 import type { RunPipelinePort } from "../../qa-engine/src/contexts/run-orchestration/application/index";
 import type { ObserverPort } from "../../qa-engine/src/contexts/run-orchestration/application/index";
 import type { RunHistoryPort } from "../../qa-engine/src/contexts/run-orchestration/application/index";
@@ -61,8 +61,6 @@ import type { AgentRuntimePort } from "@kernel/ports/agent-runtime.port";
 import type { PromptRenderingPort, RepairPort, VerdictParserPort } from "@contexts/generation/application/index";
 import type { StaticGateAdapter } from "@contexts/test-execution/infrastructure/static-gate.adapter";
 import type { E2eExecutionStrategy } from "@contexts/test-execution/infrastructure/e2e-execution.strategy";
-import type { CodeExecutionStrategy } from "@contexts/test-execution/infrastructure/code-execution.strategy";
-import type { CodeValidationStrategy } from "@contexts/test-execution/infrastructure/code-validation.strategy";
 import type { CoveragePolicy, ChangeCoverage } from "@contexts/objective-signal/application/index";
 import type { BundleMutationPort, CoverageCollectorPort, ValueOraclePort } from "@contexts/objective-signal/application/index";
 import type { VcsReadPort } from "@contexts/change-analysis/application/index";
@@ -80,13 +78,11 @@ export interface EngineRootDeps {
   mirrorDir: string;
   e2eRelDir: string;
   branch: string;
-  target: TestTarget;
   mode: RunMode;
   needsReview: boolean;
   shadow: boolean;
   onFailure: string;
   maxRetries: number;
-  isCode: boolean;
   /* The review-loop integrity master switch (failure triage, intent lock, findings filter). Absent: off. */
   integrity?: { reviewLoop: boolean };
   coveragePolicyMode: "off" | "signal" | "enforce";
@@ -118,15 +114,15 @@ export interface EngineRootDeps {
   diff?: string;
   baseUrl?: string;
   openapi?: string | string[];
-  /** The auth session's adapter deps, for e2e apps that have a DEV url. Absent in code mode. */
+  /** The auth session's adapter deps, for e2e apps that have a DEV url. */
   authSession?: AppCatalogDeps["authSession"];
-  /** The run_spec loop. Optional, no stub: absent (or a code target) omits RunQaUseCaseDeps.closedLoop and no run grants the tool. */
+  /** The run_spec loop. Optional, no stub: absent omits RunQaUseCaseDeps.closedLoop and no run grants the tool. */
   closedLoop?: ClosedLoopWiring;
-  /** The authenticated agent browser. Optional, no stub: absent (or a code target, or an app with no DEV url) omits RunQaUseCaseDeps.agentBrowser and no run grants the tools. */
+  /** The authenticated agent browser. Optional, no stub: absent (or an app with no DEV url) omits RunQaUseCaseDeps.agentBrowser and no run grants the tools. */
   agentBrowser?: AgentBrowserWiring;
-  /** The lead's code-graph tools. Optional, no stub: absent (or a code target, or an app with no code graph) omits RunQaUseCaseDeps.codeGraphTools and no run grants them. */
+  /** The lead's code-graph tools. Optional, no stub: absent (or an app with no code graph) omits RunQaUseCaseDeps.codeGraphTools and no run grants them. */
   codeGraphTools?: CodeGraphToolsWiring;
-  /** The authoring location. Optional, no stub: absent (or a code target, or an app that declares none) omits RunQaUseCaseDeps.geolocation and no run carries one. */
+  /** The authoring location. Optional, no stub: absent (or an app that declares none) omits RunQaUseCaseDeps.geolocation and no run carries one. */
   geolocation?: GeolocationWiring;
   /** The sandbox scope each run runs agent-influenced code in; absent: none is opened (tests). */
   execScope?: ExecScopePort;
@@ -161,16 +157,14 @@ export interface EngineRootDeps {
 
   validationStrategies: {
     e2e: Pick<StaticGateAdapter, "validateAll"> & Partial<Pick<StaticGateAdapter, "autofix">>;
-    code: Pick<CodeValidationStrategy, "validate">;
   };
 
-  /* ExecutionPort collaborator — target-selected strategy dispatch. */
+  /* ExecutionPort collaborator. */
   executionStrategies: {
     e2e: Pick<E2eExecutionStrategy, "run">;
-    code: Pick<CodeExecutionStrategy, "run">;
   };
 
-  /* SetupPort collaborator — target-selected dispatch. Optional: absent → the use-case setup phase is a no-op. */
+  /* SetupPort collaborator. Optional: absent → the use-case setup phase is a no-op. */
   setupCollaborators?: SetupPortCollaborators;
 
   cleanupCollaborators?: CleanupPortCollaborators;
@@ -273,7 +267,7 @@ export interface EngineRootDeps {
   /* Resolves a Sha to its working-copy mirrorDir. Cross-repo routing stays opaque inside this fn. */
   checkout: CheckoutFn;
 
-  /* DeployGatePort collaborators — versionUrl absent selects NullDeployGateAdapter (static sites / code target); present selects the real poll-loop gate. */
+  /* DeployGatePort collaborators — versionUrl absent selects NullDeployGateAdapter (static sites); present selects the real poll-loop gate. */
   versionUrl?: string;
   versionPoll?: VersionPollFn;
   deployGateIntervalMs?: number;
@@ -295,7 +289,7 @@ export interface EngineRootDeps {
   coordinationTelemetryPath?: string;
   /* How the app's runs are coordinated (qa.coordination, limits defaulted). Absent: the defaults. */
   coordinationSettings?: CoordinationSettings;
-  /* What lead and sidekicks need from the shell. Optional, no stub: absent (or a code target) omits RunQaUseCaseDeps.leadSidekicks, and an e2e run that authors flows then ends `E-NO-AUTHOR`. */
+  /* What lead and sidekicks need from the shell. Optional, no stub: absent omits RunQaUseCaseDeps.leadSidekicks, and an e2e run that authors flows then ends `E-NO-AUTHOR`. */
   delegation?: DelegationWiring;
 }
 
@@ -321,14 +315,13 @@ function assemble(cfg: EngineRootDeps): RunOrchestrationApi {
           },
         }
       : {}),
-    ...(codeGraphPort && !cfg.isCode
+    ...(codeGraphPort
       ? { scope: { codeGraph: codeGraphPort, serves: routeServesOperation, ...(cfg.groundingCollaborators?.loadContextMap ? { loadMap: cfg.groundingCollaborators.loadContextMap } : {}) } }
       : {}),
   });
   const changeAnalysis = changeAnalysisApi.changeAnalysis;
 
   const testExecution = buildTestExecution({
-    target: cfg.target,
     validationStrategies: cfg.validationStrategies,
     executionStrategies: cfg.executionStrategies,
     namespace: cfg.branch,
@@ -338,7 +331,7 @@ function assemble(cfg: EngineRootDeps): RunOrchestrationApi {
   const execution = testExecution.execution;
 
   const workspaceAndPublication = buildWorkspaceAndPublication({
-    run: { repo: cfg.repo, branch: cfg.branch, target: cfg.target, isCode: cfg.isCode, e2eRelDir: cfg.e2eRelDir, shadow: cfg.shadow, ...(cfg.baseUrl ? { baseUrl: cfg.baseUrl } : {}), ...(cfg.testIdAttribute !== undefined ? { testIdAttribute: cfg.testIdAttribute } : {}) },
+    run: { repo: cfg.repo, branch: cfg.branch, e2eRelDir: cfg.e2eRelDir, shadow: cfg.shadow, ...(cfg.baseUrl ? { baseUrl: cfg.baseUrl } : {}), ...(cfg.testIdAttribute !== undefined ? { testIdAttribute: cfg.testIdAttribute } : {}) },
     checkout: cfg.checkout,
     ...(cfg.setupCollaborators ? { setup: cfg.setupCollaborators } : {}),
     ...(cfg.cleanupCollaborators ? { cleanup: cfg.cleanupCollaborators } : {}),
@@ -359,13 +352,13 @@ function assemble(cfg: EngineRootDeps): RunOrchestrationApi {
     ...(cfg.specSnapshots ? { specSnapshots: cfg.specSnapshots } : {}),
     ...(cfg.telemetry ? { telemetry: cfg.telemetry } : {}),
   });
-  /* The specs a run holds are kept as they stand at each validation (e2e only: a code run's spec directory is the whole repo). */
+  /* The specs a run holds are kept as they stand at each validation */
   const validation: ValidationPort = workspaceAndPublication.snapshotValidation(testExecution.validation);
   const { workspace, setup, cleanup, publication } = workspaceAndPublication;
 
   /* The tools run through the run's own execution and cleanup ports, so a spec they run is run exactly as the suite's are. */
   const agentTools = buildAgentTools({
-    run: { isCode: cfg.isCode, specRelDir: cfg.e2eRelDir, codeGraphRepoDir: cfg.codeGraphRepoDir ?? cfg.mirrorDir, ...(cfg.codeGraphRepos ? { codeGraphRepos: cfg.codeGraphRepos } : {}), ...(cfg.baseUrl ? { baseUrl: cfg.baseUrl } : {}), ...(cfg.auth ? { auth: cfg.auth } : {}) },
+    run: { specRelDir: cfg.e2eRelDir, codeGraphRepoDir: cfg.codeGraphRepoDir ?? cfg.mirrorDir, ...(cfg.codeGraphRepos ? { codeGraphRepos: cfg.codeGraphRepos } : {}), ...(cfg.baseUrl ? { baseUrl: cfg.baseUrl } : {}), ...(cfg.auth ? { auth: cfg.auth } : {}) },
     execution,
     ...(cleanup ? { cleanup } : {}),
     ...(authSession ? { authSession } : {}),
@@ -399,9 +392,7 @@ function assemble(cfg: EngineRootDeps): RunOrchestrationApi {
       mirrorDir: cfg.mirrorDir,
       e2eRelDir: cfg.e2eRelDir,
       branch: cfg.branch,
-      target: cfg.target,
       mode: cfg.mode,
-      isCode: cfg.isCode,
       ...(cfg.diff !== undefined ? { diff: cfg.diff } : {}),
       ...(cfg.guidance ? { guidance: cfg.guidance } : {}),
       ...(cfg.baseUrl ? { baseUrl: cfg.baseUrl } : {}),
@@ -464,7 +455,6 @@ function assemble(cfg: EngineRootDeps): RunOrchestrationApi {
   const learning: LearningPort = generationApi.traced.learning(plainLearning);
 
   const coordination = buildCoordination({
-    isCode: cfg.isCode,
     ...(cfg.delegation ? { delegation: cfg.delegation } : {}),
     runtime: cfg.reviewRuntime.runtime,
     redaction: patternRedaction,
@@ -548,7 +538,6 @@ function assemble(cfg: EngineRootDeps): RunOrchestrationApi {
       reviewLoopIntegrity: cfg.integrity?.reviewLoop ?? true,
       onFailure: cfg.onFailure,
       maxRetries: cfg.maxRetries,
-      isCode: cfg.isCode,
       coveragePolicyMode: cfg.coveragePolicyMode,
       ...(cfg.coverageMinRatio !== undefined ? { coverageMinRatio: cfg.coverageMinRatio } : {}),
       ...(cfg.coverageBranchCases !== undefined ? { coverageBranchCases: cfg.coverageBranchCases } : {}),

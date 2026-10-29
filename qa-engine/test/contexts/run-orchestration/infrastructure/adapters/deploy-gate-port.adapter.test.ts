@@ -1,7 +1,7 @@
 /* test/contexts/run-orchestration/infrastructure/adapters/deploy-gate-port.adapter.test.ts
    sibling adapter exists to wrap; this adapter IS the real implementation). Injects the HTTP fetch
    primitive (same DI pattern as every other adapter here) so the test needs no real network.
-   NullDeployGateAdapter always resolves ready immediately — for no-versionUrl/static/code targets.
+   NullDeployGateAdapter always resolves ready immediately — for apps with no versionUrl.
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -32,7 +32,7 @@ test("waitUntilServing() resolves an InfraError when the timeout elapses before 
   assert.ok(!isOk(result));
 });
 
-test("NullDeployGateAdapter.waitUntilServing() resolves ok(true) IMMEDIATELY — no versionUrl / static / code target", async () => {
+test("NullDeployGateAdapter.waitUntilServing() resolves ok(true) IMMEDIATELY — no versionUrl", async () => {
   const adapter = new NullDeployGateAdapter();
 
   const result = await adapter.waitUntilServing(Sha.of("abc1234"));

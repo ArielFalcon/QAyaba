@@ -56,8 +56,8 @@ export const executeAccepted = (ctx: WorkspaceRunContext): ExecutionPort["execut
   });
 
 /* The static gate an acceptance spends. */
-export const validateAccepted = (state: Readonly<RunState>, ctx: WorkspaceRunContext): ValidationPort["validate"] => (specDir, changedFiles) =>
-  ctx.deps.validation.validate(specDir, changedFiles, deliveredNow(state));
+export const validateAccepted = (state: Readonly<RunState>, ctx: WorkspaceRunContext): ValidationPort["validate"] => (specDir) =>
+  ctx.deps.validation.validate(specDir, deliveredNow(state));
 
 /* Mid-run DEV pre-flight, distinct from the entry gate. Absent DeployGatePort (static sites / code) defaults to always-healthy. The failure's message comes back with it. */
 export async function checkDevHealth(ctx: WorkspaceRunContext): Promise<{ healthy: true } | { healthy: false; reason: string }> {
@@ -103,16 +103,14 @@ async function preExecuteInfraError(state: Readonly<RunState>, ctx: WorkspaceRun
 
 /*
  * The static gate on what the run delivered so far, with the linter's own fixes applied first; what they leave goes to the repair
- * rounds that follow. Context-mode validate() failure does not persist (Issue only). changedFiles scopes the code-target compile
- * gate; ignored by e2e. Empty outside diff mode.
+ * rounds that follow. Context-mode validate() failure does not persist (Issue only).
  */
 export async function validateStatically(state: Readonly<RunState>, ctx: WorkspaceRunContext): Result {
   const { deps, workspace } = ctx;
   const { generating } = state.classification;
-  const validateChangedFiles = state.classification.intent?.changedFiles ?? [];
   deps.observer?.onStep("validate");
-  let validation = await deps.validation.validate(workspace.specDir, validateChangedFiles, deliveredNow(state));
-  if (generating) validation = await withLinterFixes(validation, state, ctx, validateChangedFiles);
+  let validation = await deps.validation.validate(workspace.specDir, deliveredNow(state));
+  if (generating) validation = await withLinterFixes(validation, state, ctx);
   const lastGenerated = state.generation.generated;
   if (!validation.ok && !validation.infra && generating && hasDeliveredSpecs(state, lastGenerated) && (await loopClosedNow(state, ctx))) {
     announceProvenSpecsRepair(ctx);
@@ -159,7 +157,6 @@ export async function staticFixRound(state: Readonly<RunState>, ctx: WorkspaceRu
       note: staticGateNote,
     });
   }
-  const validateChangedFiles = state.classification.intent?.changedFiles ?? [];
   const round = rounds + 1;
   /* mutation-scope:begin static-fix-round */
   deps.observer?.onStep("retry", `static-fix round ${round}/${MAX_STATIC_FIX_ROUNDS}`);
@@ -170,19 +167,19 @@ export async function staticFixRound(state: Readonly<RunState>, ctx: WorkspaceRu
     fixCases: [{ name: "static-gate", status: "fail", detail: staticGateErrorDetail }],
   }, CORRECTION_ORIGIN.STATIC_GATE, staticGateFindings(validation.errors.map(stripAnsi)));
   await ctx.services.confinement.enforce();
-  const revalidated = await withLinterFixes(await deps.validation.validate(workspace.specDir, validateChangedFiles, deliveredNow(state)), state, ctx, validateChangedFiles);
+  const revalidated = await withLinterFixes(await deps.validation.validate(workspace.specDir, deliveredNow(state)), state, ctx);
   return goto("static-fix-round", { execution: { ...addRetries(state.execution, 1), validation: revalidated, lastGenerated }, loops: { ...state.loops, staticFix: round, leadCorrections: state.loops.leadCorrections + leadCorrections } });
 }
 
 /* The linter's own fixes, applied to the delivered specs before an agent turn is spent on the static gate; the gate runs again on what they made, and only what they leave goes to a repair turn. */
-async function withLinterFixes(validation: Awaited<ReturnType<WorkspaceRunContext["deps"]["validation"]["validate"]>>, state: Readonly<RunState>, ctx: WorkspaceRunContext, changedFiles: string[]): Promise<typeof validation> {
+async function withLinterFixes(validation: Awaited<ReturnType<WorkspaceRunContext["deps"]["validation"]["validate"]>>, state: Readonly<RunState>, ctx: WorkspaceRunContext): Promise<typeof validation> {
   const { deps, workspace } = ctx;
   const run = deliveredNow(state);
   if (validation.ok || validation.infra || !deps.validation.autofix || run.deliveredSpecs.length === 0) return validation;
   const fixed = await deps.validation.autofix(workspace.specDir, run);
   if (fixed.length === 0) return validation;
   deps.observer?.onEvent({ type: "log.line", level: "info", text: `[qa] the linter fixed ${fixed.length} delivered spec(s); the static gate runs again on them` });
-  return await deps.validation.validate(workspace.specDir, changedFiles, run);
+  return await deps.validation.validate(workspace.specDir, run);
 }
 
 /* Mid-run DEV pre-flight: a DEV that is down ends the run before the specs run. */

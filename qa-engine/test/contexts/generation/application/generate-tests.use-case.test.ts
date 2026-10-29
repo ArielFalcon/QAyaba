@@ -59,7 +59,6 @@ test("renders → opens session → parses deliverable → reconciles manifest (
     mirrorDir: "/m",
     e2eRelDir: "e2e",
     namespace: "ns",
-    target: "e2e",
     mode: "diff",
     appName: "a",
   });
@@ -98,7 +97,7 @@ test("the files the rendered prompt already carries are handed to the session wi
   });
   const input: OpencodeRunInput = {
     repo: "org/demo", sha: "abc", diff: "d", mirrorDir: "/m", e2eRelDir: "e2e", namespace: "ns",
-    target: "e2e", mode: "diff", appName: "a",
+    mode: "diff", appName: "a",
   };
 
   await new GenerateTestsUseCase(build(["e2e/.qa/context.json"])).author(input);
@@ -162,7 +161,6 @@ test("fires exactly ONE bounded repair when checkGenerator returns valid:false",
     mirrorDir: "/m",
     e2eRelDir: "e2e",
     namespace: "ns",
-    target: "e2e",
     mode: "diff",
     appName: "a",
   }, { onRepair: () => { repairCount++; } });
@@ -209,7 +207,6 @@ test("parse miss → empty specs (fail-closed, no phantom spec names)", async ()
     mirrorDir: "/m",
     e2eRelDir: "e2e",
     namespace: "ns",
-    target: "e2e",
     mode: "diff",
     appName: "a",
   });
@@ -258,7 +255,6 @@ test("manifest.reconcile is called with [] when the deliverable carries specs bu
     mirrorDir: "/m",
     e2eRelDir: "e2e",
     namespace: "ns",
-    target: "e2e",
     mode: "diff",
     appName: "a",
   });
@@ -299,7 +295,7 @@ test("manifest.reconcile receives the run's spec root: the mirror, and the spec 
   const useCase = new GenerateTestsUseCase(ports);
 
   for (const [mirrorDir, e2eRelDir] of [["/m", "e2e"], ["/work/app", "tests"]] as const) {
-    await useCase.author({ repo: "r", sha: "s", diff: "d", mirrorDir, e2eRelDir, namespace: "ns", target: "e2e", mode: "diff", appName: "a" });
+    await useCase.author({ repo: "r", sha: "s", diff: "d", mirrorDir, e2eRelDir, namespace: "ns", mode: "diff", appName: "a" });
   }
 
   assert.deepEqual(roots, [
@@ -361,7 +357,6 @@ test("manifest entries are built from specMetas with objective/flow/targets + ch
     mirrorDir: "/m",
     e2eRelDir: "e2e",
     namespace: "ns",
-    target: "e2e",
     mode: "diff",
     appName: "a",
     intent: { type: "feat", breaking: false, message: "add checkout", changedFiles: ["src/checkout.ts"] },
@@ -418,7 +413,6 @@ test("manifest entry changeRef.type falls back to 'unknown' when input.intent is
     mirrorDir: "/m",
     e2eRelDir: "e2e",
     namespace: "ns",
-    target: "e2e",
     mode: "manual",
     appName: "a",
   });
@@ -474,7 +468,6 @@ test("a spec present in specs[] but ABSENT from specMetas[] gets NO manifest ent
     mirrorDir: "/m",
     e2eRelDir: "e2e",
     namespace: "ns",
-    target: "e2e",
     mode: "diff",
     appName: "a",
   });
@@ -545,7 +538,6 @@ test("follow-up #27: a malformed generator verdict triggers ONE bounded repair w
     mirrorDir: "/m",
     e2eRelDir: "e2e",
     namespace: "ns",
-    target: "e2e",
     mode: "diff",
     appName: "a",
   });
@@ -607,7 +599,6 @@ test("assembled manifest entries satisfy the real ManifestEntrySchema shape (obj
     mirrorDir: "/m",
     e2eRelDir: "e2e",
     namespace: "ns",
-    target: "e2e",
     mode: "diff",
     appName: "a",
     intent: { type: "fix", breaking: false, message: "fix checkout bug", changedFiles: ["src/checkout.ts"] },
@@ -647,7 +638,7 @@ async function reportedSpecs(): Promise<string[]> {
     };
     const out = await new GenerateTestsUseCase(ports).author({
       repo: "org/demo", sha: "abc", diff: "d", mirrorDir, e2eRelDir: "e2e", namespace: "ns",
-      target: "e2e", mode: "diff", appName: "a",
+      mode: "diff", appName: "a",
     });
     return out.specs;
   } finally {
@@ -697,7 +688,7 @@ async function optionsSentFor(input: Partial<OpencodeRunInput>, repairing?: "gen
   };
   await new GenerateTestsUseCase(ports).author({
     repo: "r", sha: "s", diff: "d", mirrorDir: "/m", e2eRelDir: "e2e", namespace: "ns",
-    target: "e2e", mode: "diff", appName: "a",
+    mode: "diff", appName: "a",
     ...input,
   });
   return { generator: sent["author"] ?? [] };
@@ -763,7 +754,7 @@ for (const mode of ["diff", "context"] as const) {
 
     const result = await new GenerateTestsUseCase(ports).author({
       repo: "r", sha: "s", diff: "", mirrorDir: "/m", e2eRelDir: "e2e", namespace: "ns",
-      target: "e2e", mode, appName: "a",
+      mode, appName: "a",
     });
 
     assert.equal(opened.includes("reviewer"), false, "no reviewer session was opened");

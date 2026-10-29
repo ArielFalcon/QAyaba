@@ -5,7 +5,7 @@ import { buildGeneration, type GenerationDeps } from "@contexts/generation/compo
 
 function deps(over: Partial<GenerationDeps> = {}, run: Partial<GenerationDeps["run"]> = {}): GenerationDeps {
   return {
-    run: { repo: "o/app", appName: "app", mirrorDir: "/mirrors/o/app", e2eRelDir: "e2e", branch: "qa/x", target: "e2e", mode: "diff", isCode: false, ...run },
+    run: { repo: "o/app", appName: "app", mirrorDir: "/mirrors/o/app", e2eRelDir: "e2e", branch: "qa/x", mode: "diff", ...run },
     generationUseCase: { author: async () => { throw new Error("unused"); } },
     review: { runtime: { runtime: { openSession: async () => { throw new Error("unused"); } }, rendering: {} as never, verdicts: {} as never } },
     grounding: {},

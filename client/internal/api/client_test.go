@@ -83,7 +83,7 @@ func TestListAppsDecodesArray(t *testing.T) {
 		if r.URL.Path != "/api/v1/apps" {
 			t.Errorf("path = %s", r.URL.Path)
 		}
-		_, _ = w.Write([]byte(`[{"name":"portfolio","repo":"o/r","baseUrl":"https://x","versionUrl":"","code":false,"shadow":true,"needsReview":false,"testDataPrefix":"qa_","services":[]}]`))
+		_, _ = w.Write([]byte(`[{"name":"portfolio","repo":"o/r","baseUrl":"https://x","versionUrl":"","shadow":true,"needsReview":false,"testDataPrefix":"qa_","services":[]}]`))
 	}))
 	defer srv.Close()
 
@@ -170,7 +170,7 @@ func TestAppOnboardingMethodsUseContractPaths(t *testing.T) {
 		seen = append(seen, seenRequest{method: r.Method, path: r.URL.Path, query: r.URL.RawQuery, body: string(data)})
 		switch {
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/apps/shop":
-			_, _ = w.Write([]byte(`{"name":"shop","repo":"org/shop","baseUrl":"https://dev","versionUrl":"","code":false,"shadow":true,"needsReview":true,"testDataPrefix":"qa","services":[]}`))
+			_, _ = w.Write([]byte(`{"name":"shop","repo":"org/shop","baseUrl":"https://dev","versionUrl":"","shadow":true,"needsReview":true,"testDataPrefix":"qa","services":[]}`))
 		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/apps":
 			_, _ = w.Write([]byte(`{"ok":true,"name":"shop","path":"/x/shop.yaml"}`))
 		case r.Method == http.MethodPut && r.URL.Path == "/api/v1/apps/shop":

@@ -69,16 +69,6 @@ const goldenCases: ScenarioCase[] = [
     expectedHarnessSideEffect: "none",
   },
   {
-    /* codeApp (needsReview:true), makeDeps({ isCodeMode: true }) → generated (approved:true),
-       passing(). Code mode reuses the SAME pass-path chain (report()/decide are verdict-shaped,
-       not e2e-vs-code-shaped).
-     */
-    scenario: "code-mode",
-    evidence: { verdict: "pass", generating: true, needsReview: true, reviewerApproved: true, blocksPublish: false, shadow: false, onFailure: "github-issue" },
-    expectedVerdict: "pass",
-    expectedHarnessSideEffect: "pr",
-  },
-  {
     /* crossApp (needsReview:false, shadow:false explicit), makeDeps({ isCrossRepo: true }) →
        generated (approved:true), passing().
      */
@@ -200,15 +190,6 @@ const goldenCasesB2: ScenarioCase[] = [
     expectedHarnessSideEffect: "issue",
   },
   {
-    /* codeApp; the compile gate reports infra:true (broken toolchain) → verdict becomes
-       "infra-error", no Issue, no execute.
-     */
-    scenario: "codemode-infra-toolchain",
-    evidence: { verdict: "infra-error", generating: true, needsReview: true, reviewerApproved: true, blocksPublish: false, shadow: false, onFailure: "github-issue" },
-    expectedVerdict: "infra-error",
-    expectedHarnessSideEffect: "none",
-  },
-  {
     /* scenarioApp; the agent builds a context map but it fails validateContextFn → context mode
        returns "invalid" and files an Issue — a distinct verdict from the clean-pass "context"
        golden above. verdict!=='pass' short-circuits.
@@ -252,7 +233,7 @@ const singleProviderCases: ScenarioCase[] = [
 const allCases: ScenarioCase[] = [...goldenCases, ...goldenCasesB2, ...singleProviderCases];
 
 test("the golden and single-provider scenario sets are non-trivial (guards against an accidentally-empty pin)", () => {
-  assert.equal(allCases.length, 23, "expected exactly 10 goldens + 11 B2 scenarios + 2 decide-relevant single-provider scenarios");
+  assert.equal(allCases.length, 21, "expected exactly 9 goldens + 10 B2 scenarios + 2 decide-relevant single-provider scenarios");
 });
 
 for (const c of allCases) {

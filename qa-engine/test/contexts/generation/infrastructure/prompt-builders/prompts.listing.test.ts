@@ -39,7 +39,6 @@ function mkInput(overrides: Partial<OpencodeRunInput> = {}): OpencodeRunInput {
     mirrorDir: "/mirrors/org__app",
     e2eRelDir: "e2e",
     namespace: "qa-bot-abc1234",
-    target: "e2e",
     mode: "diff",
     appName: "shop",
     baseUrl: "http://localhost:3000",
@@ -487,11 +486,6 @@ test("the steps of a fix are numbered from one without a gap, with or without th
       assert.equal(countOf(section, FIX_STEPS.readTestFile), variant === "editable" ? 0 : 1, `${what}, ${variant}: the read step is there when the listing does not carry the read`);
     }
   }
-});
-
-test("an e2e fix never reads code under test", () => {
-  const e2e = buildPromptAssembled(mkInput(FIX_WITH_EDITABLE));
-  assert.equal(countOf(e2e.text, FIX_STEPS.readCodeUnderTest), 0, "an e2e run reads no code under test");
 });
 
 /* ── a listing that does not fit the window gives way by reference, and is never lost ── */

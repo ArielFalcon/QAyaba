@@ -89,7 +89,6 @@ async function generate(turns: Turn[], options: { valid?: (text: string) => bool
     mirrorDir: "/m",
     e2eRelDir: "e2e",
     namespace: "ns",
-    target: "e2e",
     mode: "diff",
     appName: "a",
   });

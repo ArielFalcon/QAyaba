@@ -88,7 +88,6 @@ export function renderStepMilestone({ midpoint, outcomes }: StepMilestone): stri
 /* The steps of a fix the builder words itself. The step that reads the test file is there only where the listing does not tell the agent to read the specs it changes. */
 export const FIX_STEPS = {
   readTestFile: `Read the test file to understand what it asserts`,
-  readCodeUnderTest: `Read the code under test that the failure points at`,
   changeOnlyWhatIsBroken: `Change only what is broken.`,
 } as const;
 

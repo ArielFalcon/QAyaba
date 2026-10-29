@@ -1,6 +1,6 @@
 /* A WorkspacePort for tests: hands out a handle for a prepared working copy and resolves it back to its roots, the way the adapter does. */
 
-import type { WorkspaceHandle, WorkspaceKind, WorkspacePort } from "@contexts/workspace-and-publication/application/index.ts";
+import type { WorkspaceHandle, WorkspacePort } from "@contexts/workspace-and-publication/application/index.ts";
 
 export interface FakeRoots {
   mirrorDir: string;
@@ -10,8 +10,8 @@ export interface FakeRoots {
 const issued = new WeakMap<WorkspaceHandle, FakeRoots>();
 
 /* A handle for a working copy, as WorkspacePort.prepare would return it. */
-export function fakeHandle(roots: FakeRoots, kind: WorkspaceKind = "e2e"): WorkspaceHandle {
-  const handle: WorkspaceHandle = { specDir: roots.specDir, kind };
+export function fakeHandle(roots: FakeRoots): WorkspaceHandle {
+  const handle: WorkspaceHandle = { specDir: roots.specDir };
   issued.set(handle, { mirrorDir: roots.mirrorDir, specDir: roots.specDir });
   return handle;
 }
@@ -23,11 +23,11 @@ export function rootsOf(handle: WorkspaceHandle): FakeRoots {
   return roots;
 }
 
-export function fakeWorkspace(roots: FakeRoots, opts: { kind?: WorkspaceKind; before?: () => void | Promise<void> } = {}): WorkspacePort {
+export function fakeWorkspace(roots: FakeRoots, opts: { before?: () => void | Promise<void> } = {}): WorkspacePort {
   return {
     prepare: async () => {
       await opts.before?.();
-      return fakeHandle(roots, opts.kind);
+      return fakeHandle(roots);
     },
     readRoots: (workspace) => rootsOf(workspace),
   };

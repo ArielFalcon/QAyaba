@@ -15,7 +15,7 @@ baseBranch: "main"             # target branch for the QA pull requests
 #   - "**/src/main/resources/openapi/*.yaml"
 #   - "**/api-definition.yaml"
 
-# Optional (e2e apps only): the microservice repos that participate in this app's
+# Optional: the microservice repos that participate in this app's
 # flows. A webhook from one of these repos — sent by ITS CI/CD AFTER deploying to
 # DEV (deploy-event semantics) — triggers an e2e run of THIS app with the service
 # commit's diff as blast radius. versionUrl is an optional verification belt: when
@@ -28,7 +28,7 @@ baseBranch: "main"             # target branch for the QA pull requests
 #     versionUrl: "https://dev-api.example.internal/orders/version"
 #   - repo: "org/payments-svc"
 
-# Optional (e2e apps only): the qa-engine cross-repo boundary conventions — how THIS repo's
+# Optional: the qa-engine cross-repo boundary conventions — how THIS repo's
 # frontend calls its backends, and where each backend's OpenAPI contract lives. Complements
 # `services:` above (which lists the participating repos); `boundaries:` declares the CALL
 # CONVENTION between them so the qa-engine resolver can stitch frontend call-sites to backend
@@ -124,7 +124,7 @@ qa:
   # reviewLoopIntegrity: false
   testDataPrefix: "qa-bot"     # test entities namespaced per SHA
   # Change-coverage (the value keystone): does the suite actually exercise the lines the commit
-  # changed? Optional; defaults to mode "signal", minRatio 0.7. For an e2e app it needs the DEV
+  # changed? Optional; defaults to mode "signal", minRatio 0.7. It needs the DEV
   # build to SERVE source maps (a `sourceMappingURL` comment or `<script>.map`; a build that uploads
   # its maps elsewhere and deletes them measures nothing). The same maps give the branch coverage
   # of the changed code (recorded only, never a gate). branchCases: regenerate (default) gives a green

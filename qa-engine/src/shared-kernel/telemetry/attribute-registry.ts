@@ -34,7 +34,7 @@ export const ATTRIBUTES = {
   "qayaba.commit.sha": str("The commit under test.", "high"),
   "qayaba.trigger": str("What started the run: webhook, api, cli, campaign, continuation, context or login-bootstrap."),
   "qayaba.mode": str("The run mode: diff, complete, exhaustive or manual."),
-  "qayaba.target": str("The test target: e2e or code."),
+  "qayaba.target": str("The test target of the run (always e2e)."),
   "qayaba.parent_run.id": str("The run this one continues.", "high"),
   "qayaba.trigger_repo": str("The service repo whose deploy triggered a cross-repo run.", "high"),
   "qayaba.shadow": bool("Whether the run is in shadow mode (nothing is published)."),

@@ -1,5 +1,5 @@
 import type { ServiceLink, ContractDrift } from "@kernel/service-links.ts";
-import type { TestTarget, RunMode } from "@kernel/run-mode.ts";
+import type { RunMode } from "@kernel/run-mode.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 import type { DeliveredSpec } from "@kernel/delivered-spec.ts";
 import type { Omission } from "@kernel/telemetry/section-meta.ts";
@@ -17,7 +17,6 @@ export interface OpencodeRunInput {
   mirrorDir: string;
   e2eRelDir: string;
   namespace: string;
-  target: TestTarget;
   mode: RunMode;
   appName: string;
   baseUrl?: string;

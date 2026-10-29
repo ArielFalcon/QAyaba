@@ -66,7 +66,7 @@ function lintSectionsOf(assembled: AssembledPrompt): LintSection[] {
 function overCapReviewerInput(mirror: string): ReviewInput {
   const specs = ["flows/big-a.spec.ts", "flows/big-b.spec.ts"];
   for (const spec of specs) writeFileSync(join(mirror, "e2e", spec), KB(25));
-  return { diff: "+export const total = 1;\n", specs, mirrorDir: mirror, e2eRelDir: "e2e", appName: "shop", mode: "diff", target: "e2e", baseUrl: "http://localhost:3000" };
+  return { diff: "+export const total = 1;\n", specs, mirrorDir: mirror, e2eRelDir: "e2e", appName: "shop", mode: "diff", baseUrl: "http://localhost:3000" };
 }
 
 test("the reviewer lists each spec file once however many cases ran in it, and gets the contents inline", async () => {

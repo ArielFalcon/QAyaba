@@ -324,7 +324,7 @@ export async function runE2E(
   const counted = (result: E2eRunResult, tests: number, skipped = 0): E2eRunResult =>
     ledger === undefined || ledger.files + skipped < tests ? result : { ...result, devWrites: ledger.writes, ...(ledger.unfinished > 0 ? { unfinishedTests: ledger.unfinished } : {}), ...(ledger.requests.length > 0 ? { devWriteRequests: ledger.requests } : {}), ...(ledger.sessionRequests.length > 0 ? { sessionRequests: ledger.sessionRequests } : {}) };
 
-  /* Single sanitizeText pass: a separate containsSecrets() pre-check is redundant with this SAME detection result (mirrors code-execution.runner.ts's own AMENDMENT-1 simplification) — the warn fires under the exact same condition as before, just derived from one call instead of two. */
+  /* Single sanitizeText pass: a separate containsSecrets() pre-check is redundant with this SAME detection result — the warn fires under the exact same condition as before, just derived from one call instead of two. */
   const sanitized = sanitizeText(logs);
   if (sanitized.detection.redacted) {
     engineLog.warn("[sanitizer] Secrets detected in E2E execution logs — redacting before publish");

@@ -75,7 +75,13 @@ export const BANNED_RULES: BannedRule[] = [
   },
   {
     id: "code-target",
-    patterns: [/--target\s+["']?code\b/, /^\s*#?\s*code:\s*true\s*$/, /\bisCodeApp\b/],
+    patterns: [
+      /--target\s+["']?code\b/,
+      /^\s*#?\s*code:\s*true\s*$/,
+      /\bisCodeApp\b/,
+      /\b(?:CodeExecutionStrategy|CodeValidationStrategy|CodeSetup|CodeProject|isCodeDenied|StrykerMutationOracle|readNativeReports|NativeReports|CoverageCollectorAdapter|LcovCoverageAdapter|C8CoverageAdapter|JacocoCoverageAdapter|createCodeValidateDeps|validateCodeProject|detectCodeProject)\b/,
+      /\b(?:stryker-mutation-oracle|code-execution\.(?:runner|strategy)|code-setup|code-validation\.strategy|test-run-evidence|lcov-coverage|c8-coverage|jacoco-coverage|coverage-collector\.adapter|code-run-reads)\b/,
+    ],
     exemptPrefixes: [RECORDS_PREFIX],
   },
   { id: "shell-dead-run-types", patterns: [/\bAgentResult\b/], exemptPrefixes: [RECORDS_PREFIX] },

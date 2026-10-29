@@ -60,8 +60,8 @@ import type { LearningRepository } from "./persistence/repositories/learning.rep
 import { LEARNING_RULE_LEDGER_LIMIT } from "./persistence/repositories/learning.repository";
 
 /* The publish step of a run as the engine wires it: the context's policy over the shell's git wiring. */
-function publishStep(isCode: boolean, mode: RunMode, git?: (args: string[], cwd?: string) => Promise<string>, writeExcludesFn?: (dir: string, patterns: readonly string[]) => void) {
-  return buildPublishWorkspace({ isCode, ...publishWiring(mode, git, writeExcludesFn) });
+function publishStep(mode: RunMode, git?: (args: string[], cwd?: string) => Promise<string>, writeExcludesFn?: (dir: string, patterns: readonly string[]) => void) {
+  return buildPublishWorkspace({ ...publishWiring(mode, git, writeExcludesFn) });
 }
 
 
@@ -107,8 +107,6 @@ test("buildEngineRootDeps maps an e2e AppConfig into a complete EngineRootDeps",
   const config = buildEngineRootDeps(app, { getAgentDeps: stubAgentDeps, env: { [REFLECTOR_ENABLED_ENV]: "true" } }, "qa-bot-abc1234-run1", { mode: "diff" });
   assert.equal(config.repo, "org/demo");
   assert.equal(config.appName, "factory-e2e");
-  assert.equal(config.target, "e2e");
-  assert.equal(config.isCode, false);
   assert.equal(config.mode, "diff");
   assert.equal(config.needsReview, true);
   assert.equal(config.shadow, true); /* app.qa.shadow=true is honored, not forced */
@@ -118,11 +116,8 @@ test("buildEngineRootDeps maps an e2e AppConfig into a complete EngineRootDeps",
   assert.ok(config.generationUseCase, "generationUseCase collaborator must be wired");
   assert.match(config.reviewRuntime.repair?.instruction("reviewer", ["no verdict"]) ?? "", /reviewer verdict/, "the reviewer shares the author's contract repair");
   assert.ok(config.validationStrategies.e2e, "e2e validation (static gate) collaborator must be wired");
-  assert.ok(config.validationStrategies.code, "code validation (compile gate) collaborator must be wired");
   assert.ok(config.executionStrategies.e2e, "e2e execution strategy must be wired");
-  assert.ok(config.executionStrategies.code, "code execution strategy must be wired");
   assert.ok(config.setupCollaborators?.e2e, "SetupPort e2e collaborator must be wired");
-  assert.ok(config.setupCollaborators?.code, "SetupPort code collaborator must be wired");
   assert.ok(config.groundingCollaborators, "PreGenerationGroundingPort collaborators must be wired for an e2e app");
   assert.ok(config.reviewDomGroundingCollaborators, "ReviewDomGroundingPort collaborators must be wired for an e2e app");
   assert.ok(config.objectiveSignal.collector, "coverage collector must be wired");
@@ -687,7 +682,7 @@ for (const [label, enqueueContextRun] of [
   });
 }
 
-/* After a code-mode run the working copy belongs to the unprivileged sandbox user, so git run as the
+/* After a run the working copy belongs to the unprivileged sandbox user, so git run as the
    orchestrator judges it owned by someone else ("dubious ownership"). GIT_TEST_ASSUME_DIFFERENT_OWNER
    makes git apply that same check to a copy this test's own user created. */
 test("a context run that stores a new map is captured even when git judges the working copy owned by another user", async () => {
@@ -885,7 +880,6 @@ test("the composed RepairPort drives GenerateTestsUseCase's generator-contract-c
     mirrorDir: "/m",
     e2eRelDir: "e2e",
     namespace: "ns",
-    target: "e2e",
     mode: "diff",
     appName: app.name,
   });
@@ -1297,9 +1291,7 @@ test("buildEngineRootDeps honors per-run target e2e", () => {
     ...cfg("factory-run-target-e2e"),
     qa: { ...cfg("factory-run-target-e2e").qa, shadow: true, valueOracle: "signal" },
   };
-  const config = buildEngineRootDeps(app, { getAgentDeps: stubAgentDeps }, "qa-bot-tgte2e-run", { mode: "diff", target: "e2e" });
-  assert.equal(config.target, "e2e");
-  assert.equal(config.isCode, false);
+  const config = buildEngineRootDeps(app, { getAgentDeps: stubAgentDeps }, "qa-bot-tgte2e-run", { mode: "diff", });
   assert.equal(
     config.objectiveSignal.oracle.constructor.name,
     "FaultInjectionOracleAdapter",
@@ -1358,8 +1350,7 @@ test("the value oracle scores a suite whose Playwright config has no desktop pro
 });
 
 /* AppConfig.qa.valueOracle was schema-only — the factory always constructed
-   FaultInjectionOracleAdapter (e2e) / StrykerMutationOracleAdapter (code), so portfolio's
-   valueOracle:"off" still fault-injected on every green run.
+   FaultInjectionOracleAdapter, so valueOracle:"off" still fault-injected on every green run.
  */
 test("e2e + valueOracle off wires NullValueOracleAdapter (no fault-injection)", () => {
   const app: AppConfig = { ...cfg("factory-oracle-off"), qa: { ...cfg("factory-oracle-off").qa, valueOracle: "off" } };
@@ -1524,7 +1515,7 @@ async function withEnv(vars: Record<string, string | undefined>, body: () => Pro
 
 test("the publish step (e2e target): no changes under e2e/ -> reports changed:false and only queries status (skip-if-no-changes, no checkout/commit/push)", async () => {
   const { git, calls } = fakeGit("   \n  ");
-  const vcsWrite = publishStep(false, "diff", git, () => {});
+  const vcsWrite = publishStep("diff", git, () => {});
 
   const result = await vcsWrite.publish({ mirrorDir: "/mirrors/org/app", branch: "qa-bot/abc1234", sha: "abc1234" });
 
@@ -1534,7 +1525,7 @@ test("the publish step (e2e target): no changes under e2e/ -> reports changed:fa
 
 test("the publish step (e2e target): changes under e2e/ -> checkout -B, add, commit, push, in that order, scoped to the e2e/ pathspec", async () => {
   const { git, calls } = fakeGit(" M e2e/login.spec.ts");
-  const vcsWrite = publishStep(false, "diff", git, () => {});
+  const vcsWrite = publishStep("diff", git, () => {});
 
   const result = await vcsWrite.publish({ mirrorDir: "/mirrors/org/app", branch: "qa-bot/abc1234", sha: "abc1234" });
 
@@ -1547,14 +1538,14 @@ test("the publish step (e2e target): changes under e2e/ -> checkout -B, add, com
   assert.ok(calls[5]?.includes("--force-with-lease"), "push must force-with-lease (safe concurrent-push guard)");
 });
 
-/* (see its own header: "wired for EVERY target, not just isCode") — but every existing test above only
+/* The wiring has no branch on the mode, but every existing test above only
    ever exercises mode: "diff". Structurally guaranteed (the wiring has no branch on `mode`), but that
    guarantee was previously asserted only by inference, never pinned by a test that actually passes
    mode: "context". This closes that gap the same way the e2e-target test above pins it for "diff".
  */
-test("the publish step (context mode): the tracked-file denylist guard is ALSO wired for mode='context', not just diff/e2e/code", async () => {
+test("the publish step (context mode): the tracked-file denylist guard is ALSO wired for mode='context', not just diff/e2e", async () => {
   const { git, calls } = fakeGit(" M e2e/.qa/context.json");
-  const vcsWrite = publishStep(false, "context", git, () => {});
+  const vcsWrite = publishStep("context", git, () => {});
 
   const result = await vcsWrite.publish({ mirrorDir: "/mirrors/org/app", branch: "qa-bot/abc1234", sha: "abc1234" });
 
@@ -1562,7 +1553,7 @@ test("the publish step (context mode): the tracked-file denylist guard is ALSO w
   assert.deepEqual(
     calls.map(subcommandOf),
     ["status", "checkout", "add", "diff", "commit", "push"],
-    "context mode must ALSO issue the tracked-denylist diff step before committing, exactly like diff/e2e/code",
+    "context mode must ALSO issue the tracked-denylist diff step before committing, exactly like diff/e2e",
   );
   assert.deepEqual(calls[2], ["add", "--", "e2e/.qa/context.json"], "context mode stages ONLY the context artifact's exact pathspec");
 });
@@ -1580,7 +1571,7 @@ test("the publish step (context mode): the tracked-file denylist guard is ALSO w
 test("CRITICAL auth-on-push: the publish step's push carries authHeaderArgs() (-c url.insteadOf token rewrite) when GITHUB_TOKEN is set", async () => {
   await withEnv({ GITHUB_TOKEN: "testtoken123" }, async () => {
     const { git, calls } = fakeGit(" M e2e/login.spec.ts");
-    const vcsWrite = publishStep(false, "diff", git, () => {});
+    const vcsWrite = publishStep("diff", git, () => {});
 
     await vcsWrite.publish({ mirrorDir: "/mirrors/org/app", branch: "qa-bot/abc1234", sha: "abc1234" });
 
@@ -1604,7 +1595,7 @@ test("CRITICAL auth-on-push: the publish step's push carries authHeaderArgs() (-
 test("CRITICAL auth-on-push: without GITHUB_TOKEN the push argv has NO auth prefix", async () => {
   await withEnv({ GITHUB_TOKEN: undefined }, async () => {
     const { git, calls } = fakeGit(" M e2e/login.spec.ts");
-    const vcsWrite = publishStep(false, "diff", git, () => {});
+    const vcsWrite = publishStep("diff", git, () => {});
 
     await vcsWrite.publish({ mirrorDir: "/mirrors/org/app", branch: "qa-bot/abc1234", sha: "abc1234" });
 
@@ -1616,7 +1607,7 @@ test("CRITICAL auth-on-push: without GITHUB_TOKEN the push argv has NO auth pref
 test("a bare commit hard-fails 'Author identity unknown')", async () => {
   await withEnv({ GIT_AUTHOR_NAME: undefined, GIT_AUTHOR_EMAIL: undefined }, async () => {
     const { git, calls } = fakeGit(" M e2e/login.spec.ts");
-    const vcsWrite = publishStep(false, "diff", git, () => {});
+    const vcsWrite = publishStep("diff", git, () => {});
 
     await vcsWrite.publish({ mirrorDir: "/mirrors/org/app", branch: "qa-bot/abc1234", sha: "abc1234" });
 
@@ -1632,7 +1623,7 @@ test("a bare commit hard-fails 'Author identity unknown')", async () => {
 test("CRITICAL commit-identity: GIT_AUTHOR_NAME/GIT_AUTHOR_EMAIL override the fallbacks", async () => {
   await withEnv({ GIT_AUTHOR_NAME: "qa-ops", GIT_AUTHOR_EMAIL: "qa-ops@example.com" }, async () => {
     const { git, calls } = fakeGit(" M e2e/login.spec.ts");
-    const vcsWrite = publishStep(false, "diff", git, () => {});
+    const vcsWrite = publishStep("diff", git, () => {});
 
     await vcsWrite.publish({ mirrorDir: "/mirrors/org/app", branch: "qa-bot/abc1234", sha: "abc1234" });
 
@@ -1648,7 +1639,7 @@ test("CRITICAL commit-identity: GIT_AUTHOR_NAME/GIT_AUTHOR_EMAIL override the fa
 test("CRITICAL decorations are scoped: status/checkout/add stay UNDECORATED", async () => {
   await withEnv({ GITHUB_TOKEN: "testtoken123", GIT_AUTHOR_NAME: undefined, GIT_AUTHOR_EMAIL: undefined }, async () => {
     const { git, calls } = fakeGit(" M e2e/login.spec.ts");
-    const vcsWrite = publishStep(false, "diff", git, () => {});
+    const vcsWrite = publishStep("diff", git, () => {});
 
     await vcsWrite.publish({ mirrorDir: "/mirrors/org/app", branch: "qa-bot/abc1234", sha: "abc1234" });
 
@@ -1664,7 +1655,7 @@ test("CRITICAL decorations are scoped: status/checkout/add stay UNDECORATED", as
 test("the publish step writes gitignore-style excludes BEFORE checking for changes (so an ignored path like node_modules/ never fails `git add`)", async () => {
   const { git, calls } = fakeGit(" M e2e/login.spec.ts");
   const excludesWritten: { dir: string; patterns: readonly string[] }[] = [];
-  const vcsWrite = publishStep(false, "diff", git, (dir, patterns) => { excludesWritten.push({ dir, patterns }); });
+  const vcsWrite = publishStep("diff", git, (dir, patterns) => { excludesWritten.push({ dir, patterns }); });
 
   await vcsWrite.publish({ mirrorDir: "/mirrors/org/app", branch: "qa-bot/abc1234", sha: "abc1234" });
 
@@ -1683,7 +1674,7 @@ test("the publish step never writes its local excludes through a git dir the san
     mkdirSync(sandboxGit);
     symlinkSync(sandboxGit, join(mirror, ".git"));
     const { git, calls } = fakeGit(" M e2e/login.spec.ts");
-    const vcsWrite = publishStep(false, "diff", git);
+    const vcsWrite = publishStep("diff", git);
 
     await assert.rejects(vcsWrite.publish({ mirrorDir: mirror, branch: "qa-bot/abc1234", sha: "abc1234" }), UntrustedGitTreeError);
 
@@ -1831,7 +1822,6 @@ async function generateThroughTransport(
     mirrorDir: "/mirrors/org/app",
     e2eRelDir: "e2e",
     namespace: "ns",
-    target: "e2e",
     mode: "diff",
     appName: "factory-turn-stats",
     runId: "run-factory-stats",
@@ -1916,7 +1906,7 @@ async function generateOnAHungTransport(t: TestContext, diff: string, advanceMs:
   try {
     const generating = config.generationUseCase.author({
       repo: "org/demo", sha: "abc1234", diff, mirrorDir: "/mirrors/org/app", e2eRelDir: "e2e", namespace: "ns",
-      target: "e2e", mode: "diff", appName: "factory-time-budget", runId: "run-factory-time",
+      mode: "diff", appName: "factory-time-budget", runId: "run-factory-time",
     });
     /* Every wait is bounded and ends when the turn does, so a turn that fails before it prompts reaches the test as its own error. */
     let outcome: { result: Awaited<typeof generating> } | { error: unknown } | undefined;
@@ -2026,11 +2016,10 @@ test("engineFactory (real production factory) is invoked and drives the run to c
   assert.equal(factoryInvoked, true, "the real engineFactory must be invoked — it is the only engine");
 });
 
-/* ── THE VALUE KEYSTONE — assembleChangeCoverage wiring + code-mode coverage trigger ──────────────
+/* ── THE VALUE KEYSTONE — assembleChangeCoverage wiring ──────────────
    AGENTS.md "The value/trust risk": change-coverage measurement was always "unknown" because no
    assembler turned the collector's raw CoverageReport + the run's diff into the ChangeCoverage
-   read-model. This factory is the production seam that supplies the REAL assembler + (for code mode)
-   triggers the repo's own instrumented test run so a report exists to read in the first place.
+   read-model. This factory is the production seam that supplies the REAL assembler.
  */
 
 test("buildEngineRootDeps supplies a REAL assembleChangeCoverage (the value keystone, previously always absent)", () => {
@@ -2050,11 +2039,10 @@ test("buildEngineRootDeps supplies a REAL assembleChangeCoverage (the value keys
   assert.deepEqual(cc.uncovered, [{ file: "src/x.ts", lines: [2] }]);
 });
 
-test("buildEngineRootDeps's coverage collector for an e2e app does NOT trigger runCodeCoverage (code-only trigger)", async () => {
+test("buildEngineRootDeps's coverage collector for an e2e app reads V8 dumps only", async () => {
   const app = cfg("factory-e2e-no-codecov");
   const config = buildEngineRootDeps(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
-  /* Must resolve without throwing — an e2e app's collector is the plain V8-dump collector, untouched
-     by the code-mode wrapper; a nonexistent namespace dir degrades to an empty report (fail-open).
+  /* Must resolve without throwing — an e2e app's collector is the plain V8-dump collector, a nonexistent namespace dir degrades to an empty report (fail-open).
    */
   const report = await config.objectiveSignal.collector.collect("/tmp/does-not-exist/e2e", "qa-bot-abc1234-run1");
   assert.deepEqual(report.covered, []);

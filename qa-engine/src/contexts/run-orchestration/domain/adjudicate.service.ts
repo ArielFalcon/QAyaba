@@ -46,8 +46,6 @@ export type AdjFailureClass = ReturnType<typeof classifyFailure>;
 
 /* All fields are pre-computed by the caller. The function performs no I/O. */
 export interface AdjudicatorEvidence {
-  /** True for code-mode runs (no web env): skips app_defect and objective_gap rules. */
-  isCode: boolean;
   /** True when every proposed selector was present+unique in the failure-point snapshot. */
   allUnique: boolean;
   /** Failure detail strings from failed cases: `failed.map(c => c.detail ?? "")`. */
@@ -60,7 +58,7 @@ export interface AdjudicatorEvidence {
   gateSpend: boolean;
   /** Human-readable gate decision reason (carried into verdict.reason). */
   gateReason: string;
-  /** Pre-computed DEV health: true for code mode (no web env) or when DEV is responding. */
+  /** Pre-computed DEV health: true when DEV is responding. */
   devHealthy: boolean;
   /** Run mode. */
   mode: RunMode;
@@ -96,7 +94,6 @@ export interface AdjudicatorVerdict {
  */
 export function adjudicate(evidence: AdjudicatorEvidence): AdjudicatorVerdict {
   const {
-    isCode,
     allUnique,
     failureDetails,
     failureClasses,
@@ -132,9 +129,9 @@ export function adjudicate(evidence: AdjudicatorEvidence): AdjudicatorVerdict {
     };
   }
 
-  /* Rule 2.5: an attributed 5xx is the app's fault (4xx is ambiguous). Below runner_infra/dev_infra; above isLikelyRealBug. One 5xx is enough (.some, unlike Rule 1's .every) — co-failing cases still appear in the Issue. Not applicable in code mode. */
+  /* Rule 2.5: an attributed 5xx is the app's fault (4xx is ambiguous). Below runner_infra/dev_infra; above isLikelyRealBug. One 5xx is enough (.some, unlike Rule 1's .every) — co-failing cases still appear in the Issue. */
   const fiveXx = httpStatuses.filter((s): s is number => s !== undefined && s >= 500 && s <= 599);
-  if (!isCode && fiveXx.length > 0) {
+  if (fiveXx.length > 0) {
     const reported = fiveXx[fiveXx.length - 1]!; /* the last (most-recent) attributed 5xx */
     return {
       class: ADJ_CLASS.APP_DEFECT,
@@ -144,23 +141,21 @@ export function adjudicate(evidence: AdjudicatorEvidence): AdjudicatorVerdict {
     };
   }
 
-  /* Rule 2.6: a captured framework/uncaught runtime error is app evidence even when the failure detail is not a value-mismatch. Below infra/5xx; above isLikelyRealBug. One genuine case is enough. Adds a diagnostic only — never auto-pass or mask a generated-test defect. Empty/benign capture is a no-op. Not applicable in code mode. */
-  if (!isCode) {
-    for (const errs of runtimeErrorsByCase) {
-      const verdict = classifyRuntimeErrors(errs);
-      if (verdict.appDefect) {
-        return {
-          class: ADJ_CLASS.APP_DEFECT,
-          confidence: ADJ_CONFIDENCE.HIGH,
-          action: ADJ_ACTION.BREAK_ISSUE,
-          reason: `App defect detected: browser runtime error captured during the failing test (${verdict.reasons[0]}). ${gateReason}`,
-        };
-      }
+  /* Rule 2.6: a captured framework/uncaught runtime error is app evidence even when the failure detail is not a value-mismatch. Below infra/5xx; above isLikelyRealBug. One genuine case is enough. Adds a diagnostic only — never auto-pass or mask a generated-test defect. Empty/benign capture is a no-op. */
+  for (const errs of runtimeErrorsByCase) {
+    const verdict = classifyRuntimeErrors(errs);
+    if (verdict.appDefect) {
+      return {
+        class: ADJ_CLASS.APP_DEFECT,
+        confidence: ADJ_CONFIDENCE.HIGH,
+        action: ADJ_ACTION.BREAK_ISSUE,
+        reason: `App defect detected: browser runtime error captured during the failing test (${verdict.reasons[0]}). ${gateReason}`,
+      };
     }
   }
 
-  /* Rule 2.7: dev_not_rendered — the triage's own read of a failure whose target is absent from the failure-point DOM while its bytes have a green proof. A conclusive second read means the change is not on DEV (a precondition, not a test defect); an inconclusive one is surfaced as a possible environment cause, never regenerated. Below the app-evidence rules; above test-defect. Not applicable in code mode. */
-  if (!isCode && devNotRendered === "conclusive") {
+  /* Rule 2.7: dev_not_rendered — the triage's own read of a failure whose target is absent from the failure-point DOM while its bytes have a green proof. A conclusive second read means the change is not on DEV (a precondition, not a test defect); an inconclusive one is surfaced as a possible environment cause, never regenerated. Below the app-evidence rules; above test-defect. */
+  if (devNotRendered === "conclusive") {
     return {
       class: ADJ_CLASS.DEV_NOT_RENDERED,
       confidence: ADJ_CONFIDENCE.HIGH,
@@ -168,7 +163,7 @@ export function adjudicate(evidence: AdjudicatorEvidence): AdjudicatorVerdict {
       reason: "DEV did not render the change: the target is absent from the failure DOM and a second read reproduced the same absence, while these bytes have a green proof.",
     };
   }
-  if (!isCode && devNotRendered === "inconclusive") {
+  if (devNotRendered === "inconclusive") {
     return {
       class: ADJ_CLASS.DEV_NOT_RENDERED,
       confidence: ADJ_CONFIDENCE.MEDIUM,
@@ -177,8 +172,8 @@ export function adjudicate(evidence: AdjudicatorEvidence): AdjudicatorVerdict {
     };
   }
 
-  /* Rule 3: app_defect — same predicate as isLikelyRealBug. allUnique=true + every detail a value-mismatch → real bug. Not applicable in code mode. */
-  if (!isCode && isLikelyRealBug(allUnique, failureDetails)) {
+  /* Rule 3: app_defect — same predicate as isLikelyRealBug. allUnique=true + every detail a value-mismatch → real bug. */
+  if (isLikelyRealBug(allUnique, failureDetails)) {
     return {
       class: ADJ_CLASS.APP_DEFECT,
       confidence: ADJ_CONFIDENCE.HIGH,
@@ -187,9 +182,8 @@ export function adjudicate(evidence: AdjudicatorEvidence): AdjudicatorVerdict {
     };
   }
 
-  /* Rule 4: generated_test_defect/continue — clear test-side fault AND progress still possible (gateSpend=true). Only fires when not code mode (locators only apply to E2E). Does NOT fire when gateSpend=false → falls through to rule 5 (the asymmetric stop). */
+  /* Rule 4: generated_test_defect/continue — clear test-side fault AND progress still possible (gateSpend=true).  Does NOT fire when gateSpend=false → falls through to rule 5 (the asymmetric stop). */
   if (
-    !isCode &&
     (absentKeysCount > 0 || failureClasses.every((c) => c === "locator")) &&
     gateSpend === true
   ) {
@@ -215,7 +209,6 @@ export function adjudicate(evidence: AdjudicatorEvidence): AdjudicatorVerdict {
 
   /* Rule 6: objective_gap (inert) — diff mode, zero file-basename overlap between the failing test files and the changed files. Label only; action is always continue. Sits last so it can only attach a label to a verdict that would continue anyway. */
   if (
-    !isCode &&
     mode === "diff" &&
     objectiveSource.length > 0 &&
     failingFiles.length > 0 &&

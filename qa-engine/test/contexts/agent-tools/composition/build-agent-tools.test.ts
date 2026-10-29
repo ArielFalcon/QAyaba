@@ -10,7 +10,7 @@ import { CodeGraphToolRegistry } from "@contexts/agent-tools/infrastructure/code
 import { GeolocationRegistry } from "@contexts/agent-tools/infrastructure/geolocation-registry.ts";
 
 function deps(over: Partial<AgentToolsDeps> = {}, run: Partial<AgentToolsDeps["run"]> = {}): AgentToolsDeps {
-  return { run: { isCode: false, specRelDir: "e2e", codeGraphRepoDir: "/mirrors/org/app", ...run }, execution: { run: async () => { throw new Error("unused"); } } as never, ...over };
+  return { run: { specRelDir: "e2e", codeGraphRepoDir: "/mirrors/org/app", ...run }, execution: { run: async () => { throw new Error("unused"); } } as never, ...over };
 }
 
 const closedLoop = (registry = new ClosedLoopRegistry()) => ({
@@ -35,24 +35,6 @@ test("the run_spec loop is built from its wiring and opens a capability in its r
   assert.deepEqual(handle?.limits, { maxCalls: 3, perCallMs: 30_000, maxDevWrites: 5 });
   assert.equal(registry.size, 1);
   await handle?.close();
-});
-
-test("a code run is granted no tool whatever the wiring says", () => {
-  const explore = { explore: async () => ok({ text: "x", indexedSha: "abc1234" }) };
-  const api = buildAgentTools(
-    deps(
-      {
-        closedLoop: closedLoop(),
-        agentBrowser: { registry: new AgentBrowserRegistry(), setting: { enabled: true, denyRoutes: [], allowMutating: [] }, generatorRuntimeCanCall: () => true, launcher: {} as never, createHost: () => ({}) as never, account: "a", lock: new AccountLock(), redact: (t) => t },
-        codeGraphTools: { registry: new CodeGraphToolRegistry(), generatorRuntimeCanCall: () => true },
-        codeExplore: explore,
-        geolocation: { registry: new GeolocationRegistry(), setting: { default: { latitude: 1, longitude: 2 }, places: {} } },
-      },
-      { isCode: true, baseUrl: "https://dev.example.com" },
-    ),
-  );
-
-  assert.deepEqual(api, {});
 });
 
 test("the authenticated browser needs the run's DEV url, and the code-graph tool needs the explore port", () => {

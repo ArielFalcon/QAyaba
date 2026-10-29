@@ -84,7 +84,7 @@ async function main(): Promise<number> {
   const specFiles = readdirSync(SMOKE_SPEC_DIR).filter((f) => f.endsWith(".spec.ts")).sort();
   const expected = countSmokeCases(specFiles.map((f) => readFileSync(join(SMOKE_SPEC_DIR, f), "utf8")));
   const registries = loadRegistryGroups(qayabaRoot());
-  const runOrigins = resolveRunOrigins({ dev: { baseUrl: origin } }, "e2e", registries);
+  const runOrigins = resolveRunOrigins({ dev: { baseUrl: origin } }, registries);
   const wiring = buildExecWiring({ env, sandbox, authDir, mirrorRoot: mirrors, egressOrigins: runOrigins, ...(gate ? { egress: gate } : {}) });
   const saved = Object.fromEntries(Object.keys(CANARIES).map((k) => [k, env[k]]));
   Object.assign(env, CANARIES);

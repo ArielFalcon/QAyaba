@@ -42,7 +42,6 @@ const generator = (over: Partial<OpencodeRunInput> = {}): OpencodeRunInput => ({
   mirrorDir: "/mirrors/org__app",
   e2eRelDir: "e2e",
   namespace: "qa-bot-abc1234",
-  target: "e2e",
   mode: "diff",
   appName: "shop",
   baseUrl: "http://localhost:3000",

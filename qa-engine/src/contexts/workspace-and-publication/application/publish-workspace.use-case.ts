@@ -30,7 +30,7 @@ export class PublishWorkspace {
     const changed = await this.vcs.hasChanges(mirrorDir, pathspecs);
     if (!changed) return { changed: false };
     await this.vcs.checkoutBranch(mirrorDir, branch);
-    const { revertedDenylisted, revertedDangerous } = await this.vcs.commit(mirrorDir, commitMessageFor(this.kind), pathspecs, (path) => this.confinement.isCodeDenied(path));
+    const { revertedDenylisted, revertedDangerous } = await this.vcs.commit(mirrorDir, commitMessageFor(this.kind), pathspecs, (path) => this.confinement.isDenylisted(path));
     await this.vcs.push(mirrorDir, branch);
     return { changed: true, revertedDenylisted, revertedDangerous };
   }

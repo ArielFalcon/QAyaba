@@ -4,7 +4,7 @@ import type { AuthSessionPort } from "../application/index.ts";
 import { AuthSessionAdapter, type AuthSessionAdapterDeps } from "../infrastructure/auth-session.adapter.ts";
 
 export interface AppCatalogDeps {
-  /* Absent for a code target or an app with no DEV url: no session is served, never a stub. */
+  /* Absent for an app with no DEV url: no session is served, never a stub. */
   authSession?: AuthSessionAdapterDeps;
 }
 

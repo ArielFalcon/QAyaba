@@ -17,7 +17,6 @@ export interface LearningGateInput {
   /** A context run builds an architecture map, not tests, so nothing it ends with teaches the engine. */
   mode: RunMode;
   errorClass: string | null | undefined;
-  isCode: boolean;
   adjudicationClass?: string | undefined;
 }
 
@@ -30,13 +29,13 @@ export interface LearningGates {
 
 /**
  * The one place that decides what a run's outcome may teach. A context run never teaches; every
- * other run starts from `shouldDistillLearning` (a code-mode failure or an app defect never
+ * other run starts from `shouldDistillLearning` (an app defect never
  * teaches). A mainline run folds whatever its class, so a green pass still counts; a terminal
  * outcome folds only when its class teaches. The reflector is stricter: never for a flaky run, and
  * only for a real class that teaches, so a green pass cannot mint a reflection rule.
  */
 export function learningGates(input: LearningGateInput): LearningGates {
-  const distill = input.mode !== "context" && shouldDistillLearning(input.isCode, input.verdict, input.adjudicationClass);
+  const distill = input.mode !== "context" && shouldDistillLearning(input.adjudicationClass);
   const teaches = !!input.errorClass && !NON_LEARNING.has(input.errorClass);
   return {
     fold: distill && (input.stage === "mainline" || teaches),

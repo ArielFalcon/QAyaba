@@ -160,7 +160,7 @@ test("REAL merge commit: otherMessages() reaches the merged-branch commit (secon
   }
 });
 
-/* A code-mode run hands the working tree to the unprivileged sandbox user. The next run of the same
+/* A run hands the working tree to the unprivileged sandbox user. The next run of the same
    repo reads the diff as the orchestrator: git then judges the tree to belong to someone else
    ("dubious ownership") and refuses to read it unless the caller opts out. GIT_TEST_ASSUME_DIFFERENT_OWNER
    makes git apply that same check to a tree this test's own user created. */

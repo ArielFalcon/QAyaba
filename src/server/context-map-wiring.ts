@@ -29,8 +29,7 @@ const defaultDeps: ContextMapQuestionDeps = {
 
 /*
  * Whether an app's stored context map fails to describe a commit: there is none, the process audit marked it stale, or the files it
- * names changed in a way context-map-validity.ts does not keep (a commit pair that cannot be compared included). A code app has no
- * map. Undefined under QA_CAMPAIGN_FREEZE: a campaign keeps the map it started with.
+ * names changed in a way context-map-validity.ts does not keep (a commit pair that cannot be compared included). Undefined under QA_CAMPAIGN_FREEZE: a campaign keeps the map it started with.
  */
 export function contextMapNeedsRebuildFor(env: Record<string, string | undefined>, deps: ContextMapQuestionDeps = defaultDeps): ((app: string, sha: string) => Promise<boolean>) | undefined {
   if (resolveCampaignFreeze(env)) return undefined;

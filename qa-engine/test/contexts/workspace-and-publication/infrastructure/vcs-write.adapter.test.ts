@@ -100,7 +100,7 @@ function realGitFn(repo: string): (args: string[], cwd?: string) => Promise<stri
 }
 
 const classifier = new WriteConfinementService();
-const denyModifiedTracked = (path: string): boolean => classifier.isCodeDenied(path);
+const denyModifiedTracked = (path: string): boolean => classifier.isDenylisted(path);
 
 test("real git fixture: a DELETED tracked denylisted file (D status) is reverted, not committed as a deletion", async () => {
   const originalDockerfile = "FROM node:24\n";

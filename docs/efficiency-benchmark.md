@@ -287,8 +287,7 @@ docker compose exec orchestrator npm run warm-suite -- seed-store --app <app> --
 Under `QA_CAMPAIGN_FREEZE=1` the store is read-only (a run restores from it and captures nothing), so a campaign's
 runs leave no suite behind; the campaign seeds the store before every arm-run itself. Git stays the source of truth:
 a path the checked-out commit tracks with other content than the stored one belongs to git (the stored file is left
-out), and an unpublished change over an unchanged tracked file is put back over it. A service repo's mirror and
-code-target runs have no store.
+out), and an unpublished change over an unchanged tracked file is put back over it. A service repo's mirror has no store.
 
 Differences between the arms that the numbers do not hide:
 

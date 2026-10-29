@@ -270,7 +270,7 @@ test("the spec-path-confinement preset mutates the confined reader and the stric
   assert.equal(preset.thresholds.break, null, "a new preset starts in signal mode");
 });
 
-test("the run-output-readers preset mutates the strict capped readers of what a run of the tests leaves, the coverage dumps and reports and their collector, the fault-injection counters and the oracle's reading of the count, against their own tests and the factory's wiring of the counter", () => {
+test("the run-output-readers preset mutates the strict capped readers of what a run of the tests leaves, the coverage dumps and their collector, the fault-injection counters and the oracle's reading of the count, against their own tests and the factory's wiring of the counter", () => {
   const preset = PRESETS["run-output-readers"];
   assert.ok(preset, "the run-output-readers preset exists");
   assert.deepEqual(preset.mutate.map(sourcePathOf), [
@@ -340,26 +340,6 @@ test("the repo-reads preset mutates the reader of a repository's files, the line
     "infrastructure/openapi-http-resolver.adapter.test.ts",
     "server/service-context.confinement.test.ts",
     "server/service-context.test.ts",
-  ]) {
-    assert.ok(preset.tests.some((t) => t.endsWith(tests)), `${tests} runs against every mutant`);
-  }
-  assert.equal(preset.thresholds.break, null, "a new preset starts in signal mode");
-});
-
-test("the code-run-reads preset mutates only the lines of a code run's manifest read and of the mutation oracle's config write and report read, against their own tests", () => {
-  const preset = PRESETS["code-run-reads"];
-  assert.ok(preset, "the code-run-reads preset exists");
-  assert.deepEqual([...new Set(preset.mutate.map(sourcePathOf))], [
-    "qa-engine/src/contexts/test-execution/infrastructure/code-execution.runner.ts",
-    "qa-engine/src/contexts/test-execution/infrastructure/code-setup.ts",
-    "qa-engine/src/contexts/objective-signal/infrastructure/stryker-mutation-oracle.adapter.ts",
-  ]);
-  assert.ok(preset.mutate.every((entry) => sourcePathOf(entry) !== entry), "the rest of these files is other code, so every entry is narrowed");
-  for (const tests of [
-    "infrastructure/code-execution.detect.confinement.test.ts",
-    "infrastructure/code-execution.runner.test.ts",
-    "infrastructure/stryker-mutation-oracle.confinement.test.ts",
-    "infrastructure/stryker-mutation-oracle.adapter.test.ts",
   ]) {
     assert.ok(preset.tests.some((t) => t.endsWith(tests)), `${tests} runs against every mutant`);
   }

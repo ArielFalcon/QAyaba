@@ -11,7 +11,7 @@ import type { OpencodeRunInput, StepLimitFor, CommitIntent as GenerationCommitIn
 import { isReGenTurn } from "@contexts/generation/application/index.ts";
 import { suiteEntryFile } from "@contexts/generation/application/index.ts";
 import { GENERATION_END } from "@kernel/generation-end.ts";
-import type { RunMode, TestTarget } from "@kernel/run-mode.ts";
+import type { RunMode } from "@kernel/run-mode.ts";
 import { resolveConfinedSpecFile, type SpecRoot } from "../../../../shared-infrastructure/spec-path-confinement.ts";
 
 /* The kernel's CommitIntent (shared-kernel/commit-intent.ts) is kernel-resident/structural — `type` is a plain `string` there (this adapter, not the port, is where cross-context types are allowed). Generation's OWN CommitIntent narrows `type` to its CommitType union. The value ALWAYS originates from ChangeAnalysisPortAdapter's classifyCommit() call (commit-classification.ts's own CommitType union is structurally identical to generation's), so this is a same-shape re-assertion at the adapter boundary, never a fabricated narrowing. */
@@ -25,7 +25,6 @@ export interface GenerationTurnsContext {
   mirrorDir: string;
   e2eRelDir: string;
   namespace: string;
-  target: TestTarget;
   mode: RunMode;
   diff: string;
   /* The run has an independent review (its app asks for one and its product is tests): only then does a generation publish the manifest's flow and objective, for the review's "tested" section. Absent: false. */
@@ -128,7 +127,6 @@ export class GenerationTurnsAdapter implements LeadPort, AuthorPort {
       mirrorDir: this.ctx.mirrorDir,
       e2eRelDir: this.ctx.e2eRelDir,
       namespace: this.ctx.namespace,
-      target: this.ctx.target,
       mode: this.ctx.mode,
       appName: this.ctx.appName,
       ...(this.ctx.guidance ? { guidance: this.ctx.guidance } : {}),

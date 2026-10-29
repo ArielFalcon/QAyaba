@@ -9,7 +9,7 @@ const e2eApp: StepIntentContext = {
   authOnlyOrigins: [],
   reviewAgents: ["qa-reviewer"],
 };
-const codeApp: StepIntentContext = { ...e2eApp, specTargets: { kind: "any-write" }, authFiles: [], loginUrls: [] };
+const noLoginApp: StepIntentContext = { ...e2eApp, authFiles: [], loginUrls: [] };
 const ssoApp: StepIntentContext = { ...e2eApp, loginUrls: ["https://sso.example/login"], authOnlyOrigins: ["https://sso.example"] };
 
 const call = (tool: string, bucket: StepCall["bucket"], extra: Partial<StepCall> = {}): StepCall => ({ tool, bucket, targetKind: null, target: null, ...extra });
@@ -20,10 +20,6 @@ const intents = (ctx: StepIntentContext, agent: string, ...steps: StepCall[][]) 
 
 test("a write under the app's spec directory is writing a spec; elsewhere it is not", () => {
   assert.deepEqual(intents(e2eApp, "qa-author", [write("e2e/flows/cart.spec.ts")], [write("src/app.ts")]), ["write_spec", "other"]);
-});
-
-test("a code-target app declares that every write is a test", () => {
-  assert.deepEqual(intents(codeApp, "qa-author", [write("src/test/CartTest.java")]), ["write_spec"]);
 });
 
 test("running a spec is run_spec, even next to a write", () => {
@@ -50,7 +46,7 @@ test("a login on another origin classifies by the declared origin, not by a name
 });
 
 test("an app with no declared login never reads a path named like one as auth", () => {
-  assert.deepEqual(intents(codeApp, "qa-author", [navigate("https://app.example/login")]), ["explore"]);
+  assert.deepEqual(intents(noLoginApp, "qa-author", [navigate("https://app.example/login")]), ["explore"]);
 });
 
 test("the authenticated browser's tools count as browser calls", () => {

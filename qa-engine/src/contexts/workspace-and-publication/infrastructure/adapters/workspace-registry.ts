@@ -1,7 +1,7 @@
 /*
  * The only place that knows which working copy a handle stands for. WorkspacePortAdapter registers the copy it checked out and
- * hands the flow a handle holding the spec directory and the kind alone; publication, confinement and gc resolve the handle back to
- * the mirror root, the commit and the target here. A handle this registry did not issue (another run's registry, or an object the
+ * hands the flow a handle holding the spec directory alone; publication, confinement and gc resolve the handle back to
+ * the mirror root and the commit here. A handle this registry did not issue (another run's registry, or an object the
  * caller built) is refused loudly, so no path the caller names ever reaches a git write.
  */
 import type { WorkspaceHandle } from "../../domain/workspace-handle.ts";
@@ -10,14 +10,13 @@ export interface WorkspaceRecord {
   readonly mirrorDir: string;
   readonly specDir: string;
   readonly sha: string;
-  readonly isCode: boolean;
 }
 
 export class WorkspaceRegistry {
   private readonly records = new WeakMap<WorkspaceHandle, WorkspaceRecord>();
 
   register(record: WorkspaceRecord): WorkspaceHandle {
-    const handle: WorkspaceHandle = Object.freeze({ specDir: record.specDir, kind: record.isCode ? ("code" as const) : ("e2e" as const) });
+    const handle: WorkspaceHandle = Object.freeze({ specDir: record.specDir });
     this.records.set(handle, Object.freeze({ ...record }));
     return handle;
   }

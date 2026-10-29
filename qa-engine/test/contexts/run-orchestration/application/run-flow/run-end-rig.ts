@@ -106,7 +106,7 @@ export function dispose(rig: Rig): void {
 }
 
 const BASE_INPUT = { app: "demo", changeSet: primaryChangeSet("demo", Sha.of("abc1234")), sha: Sha.of("abc1234"), source: "manual" as const, mode: "diff" as const, target: "e2e" as const };
-const BASE_CONFIG: Partial<RunQaConfig> = { needsReview: true, shadow: false, onFailure: "github-issue", maxRetries: 2, isCode: false };
+const BASE_CONFIG: Partial<RunQaConfig> = { needsReview: true, shadow: false, onFailure: "github-issue", maxRetries: 2, };
 
 /** Runs one run through the rig and reports what it did. The rig is the caller's to dispose. */
 export async function observe(rig: Rig, runId: string): Promise<Observed> {

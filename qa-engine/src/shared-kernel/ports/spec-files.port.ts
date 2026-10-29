@@ -3,7 +3,7 @@
 /* A spec, a fixtures file, a login script or a config file is source a person would read; one larger than this is not read. */
 export const MAX_SPEC_SOURCE_BYTES = 256 * 1024;
 
-/* Where the specs of a run live and the checkout that holds them. For a code run the two are the same directory. */
+/* Where the specs of a run live and the checkout that holds them. */
 export interface SpecRoot {
   mirrorDir: string;
   specDir: string;

@@ -83,10 +83,9 @@ const AUTHOR: DelegatingKindSpec = {
 /*
  * What an author works on. A `flow` is one flow of a plan, in a private copy that holds the one spec file it may write. The other
  * targets are the run's own authoring, by one author in the run's working copy under the run's deadline and effort tier: `e2e`
- * (a login still to be written, and every regeneration of an e2e run), `code` (tests in the repo's own framework) and `context`
- * (the architecture map). A target changes where the author works and what bounds it, never what it may use: the roster's grant is the kind's.
+ * (a login still to be written, and every regeneration of an e2e run) and `context` (the architecture map). A target changes where the author works and what bounds it, never what it may use: the roster's grant is the kind's.
  */
-export const AUTHOR_TARGET = { FLOW: "flow", E2E: "e2e", CODE: "code", CONTEXT: "context" } as const;
+export const AUTHOR_TARGET = { FLOW: "flow", E2E: "e2e", CONTEXT: "context" } as const;
 export type AuthorTarget = (typeof AUTHOR_TARGET)[keyof typeof AUTHOR_TARGET];
 
 export interface AuthorTargetSpec {
@@ -99,7 +98,6 @@ const RUN_AUTHORING: AuthorTargetSpec = { workspace: SIDEKICK_WORKSPACE.WORKING_
 const AUTHOR_TARGETS: Readonly<Record<AuthorTarget, AuthorTargetSpec>> = {
   [AUTHOR_TARGET.FLOW]: { workspace: SIDEKICK_WORKSPACE.ISOLATED_SPEC_FILE, budget: SIDEKICK_BUDGET.FLOW },
   [AUTHOR_TARGET.E2E]: RUN_AUTHORING,
-  [AUTHOR_TARGET.CODE]: RUN_AUTHORING,
   [AUTHOR_TARGET.CONTEXT]: RUN_AUTHORING,
 };
 

@@ -414,26 +414,6 @@ test("the runner passes req.guidance to engineFactory's 3rd (run) argument when 
   assert.equal(receivedGuidance, "test the contact form", "engineFactory must receive req.guidance when the run supplies it");
 });
 
-test("the runner passes req.target to engineFactory's 3rd (run) argument", async () => {
-  const queue = new JobQueue();
-  const { port } = fakePort({ verdict: "pass" });
-  let receivedTarget: string | undefined;
-  const id = enqueueTrackedRun(
-    queue,
-    { app: "runner-target-e2e", sha: "def5678", target: "e2e", mode: "diff", source: "manual" },
-    {
-      loadApp: cfg,
-      engineFactory: (_appConfig, _namespace, run) => {
-        receivedTarget = run.target;
-        return port;
-      },
-    },
-  );
-  await queue.drain();
-  assert.equal(getHistory().runs.getRecord(id)!.verdict, "pass");
-  assert.equal(receivedTarget, "e2e", "engineFactory must receive req.target");
-});
-
 test("engineFactory's run.guidance is absent (not an empty string) when req.guidance is omitted", async () => {
   const queue = new JobQueue();
   const { port } = fakePort({ verdict: "pass" });
@@ -1402,10 +1382,10 @@ test("liveAnnounced dedup — the flaky divergence: live announces failed then p
   assert.ok(bodies.some((b) => b.type === "test.passed" && (b as { name: string }).name === "checkout flow"));
 });
 
-test("liveAnnounced dedup — a case NEVER announced live (e.g. code-mode) always publishes post-hoc", async () => {
+test("liveAnnounced dedup — a case NEVER announced live (e.g. a strategy without live callbacks) always publishes post-hoc", async () => {
   const queue = new JobQueue();
   const runEvents = createRunEventStore();
-  /* No onEvent calls at all — standing in for a strategy without live callbacks (code-mode). */
+  /* No onEvent calls at all — standing in for a strategy without live callbacks. */
   const { port } = fakePort({
     verdict: "pass",
     cases: [{ name: "unit: parses config", status: "pass" }],
@@ -1418,7 +1398,7 @@ test("liveAnnounced dedup — a case NEVER announced live (e.g. code-mode) alway
   await queue.drain();
   const bodies = runEvents.replay(id).map((e) => e.body);
   const passedEvents = bodies.filter((b) => b.type === "test.passed" && (b as { name: string }).name === "unit: parses config");
-  assert.equal(passedEvents.length, 1, "a never-announced case must publish its terminal event post-hoc (the safety net for code-mode)");
+  assert.equal(passedEvents.length, 1, "a never-announced case must publish its terminal event post-hoc (the safety net for a strategy without live callbacks)");
 });
 
 test("liveAnnounced dedup — addCase (the record-store write) always runs regardless of live announcement or dedup outcome", async () => {

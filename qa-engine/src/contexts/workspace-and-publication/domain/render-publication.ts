@@ -251,7 +251,6 @@ export function renderIssue(input: RenderIssueInput): string {
 
 export interface RenderPrBodyInput {
   sha?: string;
-  isCode: boolean;
   tested?: TestedItem[];
   parentRunId?: string;
   /* The reviewer's missing cases: behaviours the change decides that no test runs. */
@@ -265,20 +264,15 @@ export interface RenderPrBodyInput {
 }
 
 export function renderPrBody(input: RenderPrBodyInput): string {
-  const what = input.isCode ? "Source-code tests" : "E2E tests";
   const shaText = input.sha ? ` for \`${input.sha}\`` : "";
-  const blocks: string[] = ["## What this PR adds", `${what} generated/updated by qayaba${shaText}.`];
+  const blocks: string[] = ["## What this PR adds", `E2E tests generated/updated by qayaba${shaText}.`];
 
   const covered = (input.tested ?? []).filter((t) => t.flow || t.objective).slice(0, MAX_ITEMS);
   if (covered.length) {
     blocks.push(`**Covers:**\n${covered.map(renderTestedItem).filter(Boolean).join("\n")}`);
   }
 
-  blocks.push(
-    input.isCode
-      ? "**Validation:** the repo's own test suite passed (exit code 0) and the change was approved by the independent reviewer."
-      : "**Validation:** harness green (typecheck + lint + stable run against the live DEV) and approved by the independent reviewer.",
-  );
+  blocks.push("**Validation:** harness green (typecheck + lint + stable run against the live DEV) and approved by the independent reviewer.");
 
   const missing = renderMissingCasesSection(input.missingCases);
   if (missing) blocks.push(missing);

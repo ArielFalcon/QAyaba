@@ -37,13 +37,13 @@ test("resolveSidekickModel only returns a model for the escalated tier", () => {
   assert.equal(resolveSidekickModel("escalated", undefined), undefined);
 });
 
-test("pushback rejects path escape even with code-mode root '.'", () => {
+test("pushback rejects a path escape out of the writable path", () => {
   const brief = createDelegationBrief({ redaction,
     delegationId: "d1",
     runId: "r1",
     objective: "x",
     task: "x",
-    scope: { readablePaths: ["."], writablePaths: ["."], allowedCommands: [] },
+    scope: { readablePaths: ["."], writablePaths: ["e2e/flows/a.spec.ts"], allowedCommands: [] },
   });
   const blocked = applyPushback(brief, {
     delegationId: "d1",
@@ -61,20 +61,20 @@ test("pushback rejects path escape even with code-mode root '.'", () => {
   assert.ok(blocked.concerns.some((c) => c.includes("path-outside-scope")));
 });
 
-test("pushback allows relative project path under code-mode root '.'", () => {
+test("pushback allows the file of the writable path", () => {
   const brief = createDelegationBrief({ redaction,
     delegationId: "d1",
     runId: "r1",
     objective: "x",
     task: "x",
-    scope: { readablePaths: ["."], writablePaths: ["."], allowedCommands: [] },
+    scope: { readablePaths: ["."], writablePaths: ["e2e/flows/a.spec.ts"], allowedCommands: [] },
   });
   const ok = applyPushback(brief, {
     delegationId: "d1",
     runId: "r1",
     status: "completed",
     summary: "ok",
-    filesChanged: [{ path: "src/foo.test.ts" }],
+    filesChanged: [{ path: "e2e/flows/a.spec.ts" }],
     evidence: [],
     concerns: [],
     unresolvedQuestions: [],

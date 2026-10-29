@@ -338,7 +338,6 @@ test("what the kept assembly delivers is a subset of what grounding produced, pe
         mirrorDir: g.e2eDir,
         e2eRelDir: "e2e",
         namespace: "qa-bot-abc1234",
-        target: "e2e",
         mode: "diff",
         appName: "testapp",
         ...(grounding.contextMap ? { contextMap: grounding.contextMap as never } : {}),

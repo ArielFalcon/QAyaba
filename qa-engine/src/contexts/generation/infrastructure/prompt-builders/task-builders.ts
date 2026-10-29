@@ -7,7 +7,7 @@ import { isReGenTurn } from "@contexts/generation/domain/regen-turn.ts";
 import { claim, type PromptClaim } from "@contexts/generation/domain/prompt-contract-lint.ts";
 import { isTestWritingTurn } from "@contexts/generation/domain/step-limit.ts";
 import type { OpencodeRunInput } from "../../domain/opencode-run-input.ts";
-import { CODE_TOOLS, commitDiffBlock, renderCommitMessage } from "./prompt-text.ts";
+import { CODE_TOOLS, renderCommitMessage } from "./prompt-text.ts";
 
 /* What a turn that writes tests says about the outcome its tests assert. The question is asked where the turn has no supplied, undisputed objective to go by; the rule against weakening a test is stated on every turn that writes tests, whether or not the question is asked, and by no other section. */
 export const OBJECTIVE_HEADING = `## Objective — commit to this BEFORE writing`;
@@ -101,8 +101,6 @@ export function buildContextTask(input: OpencodeRunInput): string {
 export interface TaskParts {
   text: string;
   claims: PromptClaim[];
-  /* The commit diff the text carries as its diff block (commitDiffBlock), when it carries one: what the window fit rule gives up first. */
-  diff?: string;
   /* How many lines the commit body the text carries has, when it carries one: what the window fit rule gives up before the diff. */
   commitBodyLines?: number;
 }
@@ -112,97 +110,13 @@ function changedFilesLine(input: OpencodeRunInput, label: string): string {
   return `- ${label}: ${sanitizeText(input.intent?.changedFiles?.join(", ") ?? "").text || "(unknown)"}`;
 }
 
-/* The objective part of a task: the rule against weakening a test on every turn that writes tests, and the question of the outcome ahead of it, with its heading and its claim, only where the turn asks it. A regeneration asks unless the listing found every spec under correction to have an objective its lead declared and nobody disputes; a first pass asks, except a code run on a diff, whose first pass has never asked for it. A turn that writes no tests says nothing of either. */
+/* The objective part of a task: the rule against weakening a test on every turn that writes tests, and the question of the outcome ahead of it, with its heading and its claim, only where the turn asks it. A regeneration asks unless the listing found every spec under correction to have an objective its lead declared and nobody disputes; a first pass asks. A turn that writes no tests says nothing of either. */
 function objectivePart(input: OpencodeRunInput, guards: TaskGuards): TaskParts {
   if (!isTestWritingTurn(input)) return { text: "", claims: [] };
   const asked = isReGenTurn(input) ? guards.reaskObjective : true;
   return asked
     ? { text: [OBJECTIVE_HEADING, OBJECTIVE_QUESTION, ANTI_WEAKENING_RULE].join("\n"), claims: [claim.directs("state-outcome")] }
     : { text: ANTI_WEAKENING_RULE, claims: [] };
-}
-
-/* A regeneration is a correction turn: the whole-repository analysis, the diff and the scope budget of a first pass are already in the session, and the regen-discipline section owns scope. Every mode keeps what a correction still needs — the objective part, and the intent, guidance or changed files that say what the corrections are about. */
-function buildCodeRegenTask(input: OpencodeRunInput, guards: TaskGuards): TaskParts {
-  const intent = input.intent;
-  const lines: string[] = [];
-  if (input.mode === "manual") {
-    lines.push(
-      `Re-generation pass for the UNIT/INTEGRATION tests of ${input.repo}, FOCUSED on:`,
-      ``,
-      sanitizeText(input.guidance ?? "(no guidance provided)").text,
-    );
-  } else if (input.mode === "complete" || input.mode === "exhaustive") {
-    lines.push(`Re-generation pass for the ${input.mode} source-code test suite run of ${input.repo}.`);
-  } else {
-    lines.push(
-      `Re-generation pass for the UNIT/INTEGRATION tests of commit ${input.sha} of ${input.repo}.`,
-      ``,
-      `## Change intent (Conventional Commits)`,
-      `- Type: ${intent?.type ?? "unknown"}${intent?.breaking ? " (BREAKING)" : ""}`,
-      ``,
-      `## Commit message (the author's intent — derive each test's objective from this)`,
-      renderCommitMessage(intent, false),
-    );
-  }
-  if (intent?.changedFiles?.length) lines.push(``, changedFilesLine(input, "Changed files (derive the scope from these)"));
-  const objective = objectivePart(input, guards);
-  if (objective.text) lines.push(``, objective.text);
-  return { text: lines.join("\n"), claims: objective.claims };
-}
-
-function buildCodeTask(input: OpencodeRunInput, guards: TaskGuards): TaskParts {
-  if (isReGenTurn(input)) return buildCodeRegenTask(input, guards);
-  const objective = objectivePart(input, guards);
-  if (input.mode === "manual") {
-    const text = [
-      `Generate or update UNIT/INTEGRATION tests for the source code of ${input.repo}, FOCUSED on:`,
-      ``,
-      sanitizeText(input.guidance ?? "(no guidance provided)").text,
-      ``,
-      objective.text,
-      ``,
-      `Read the relevant source and the repo's existing tests (serena); match their framework and conventions.`,
-      `Stay focused on the guidance; do not generate unrelated tests.`,
-    ].join("\n");
-    return { text, claims: [claim.directs("analyze-repo"), ...objective.claims] };
-  }
-  if (input.mode === "complete" || input.mode === "exhaustive") {
-    const text = [
-      input.mode === "exhaustive"
-        ? `Audit and REGENERATE the source-code test suite of ${input.repo} from scratch.`
-        : `Analyze the WHOLE repository ${input.repo} and grow its source-code test suite where it matters.`,
-      ``,
-      `Read the existing tests and the code (serena: activate_project, get_symbols_overview, find_symbol).`,
-      `Test important, UNCOVERED logic; match the repo's existing test framework and conventions.`,
-      input.mode === "exhaustive"
-        ? `Re-evaluate every existing test for correctness, value and necessity; remove or rewrite the trivial, false-positive, redundant or obsolete.`
-        : `Generate tests ONLY for important UNCOVERED logic (the delta). Do not duplicate existing coverage.`,
-    ].join("\n");
-    return { text, claims: [claim.directs("analyze-repo")] };
-  }
-
-  const intent = input.intent;
-  const text = [
-    `Generate or update UNIT/INTEGRATION tests for the source-code changes in commit ${input.sha} of ${input.repo}.`,
-    ``,
-    `## Change intent (Conventional Commits)`,
-    `- Type: ${intent?.type ?? "unknown"}${intent?.breaking ? " (BREAKING)" : ""}`,
-    changedFilesLine(input, "Changed files (derive the scope from these)"),
-    ``,
-    `## Commit message (the author's intent — derive each test's objective from this)`,
-    renderCommitMessage(intent, true, { sha: input.sha, body: guards.commitBody }),
-    ``,
-    `Cross-check against the diff: if the code does more than the message claims, test what the code`,
-    `actually changes, not just what the message promises.`,
-    ``,
-    commitDiffBlock(input.diff),
-    ``,
-    `Test the changed logic DIRECTLY (no web, no browser, no Playwright): call the changed functions/`,
-    `modules and assert behavior + edge cases. Match the repo's existing test framework and conventions.`,
-    ``,
-    objective.text,
-  ].join("\n");
-  return { text, claims: [claim.provides("diff"), claim.directs("consult", "diff"), ...objective.claims], diff: input.diff, ...(intent?.body ? { commitBodyLines: intent.body.split("\n").length } : {}) };
 }
 
 /* A cross-repo change is read from the service's staged snapshot, never from its working copy: the block that says so declares the fact. */
@@ -240,6 +154,7 @@ function classifierNoteLines(input: OpencodeRunInput): string[] {
   ];
 }
 
+/* A regeneration is a correction turn: the whole-repository analysis, the diff and the scope budget of a first pass are already in the session, and the regen-discipline section owns scope. Every mode keeps what a correction still needs — the objective part, and the intent, guidance or changed files that say what the corrections are about. */
 function buildRegenTask(input: OpencodeRunInput, guards: TaskGuards): TaskParts {
   const intent = input.intent;
   const opening =

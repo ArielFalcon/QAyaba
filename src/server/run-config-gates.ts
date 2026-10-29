@@ -2,11 +2,10 @@
  * The conditions that decide what a run is wired with and that its effectiveConfig must report: one definition each, used by the
  * engine factory (what is wired) and by resolveRunConfig (what is recorded), so the record cannot drift from the wiring.
  */
-import type { TestTarget } from "@kernel/run-mode";
 import type { AppConfig } from "../orchestrator/config-loader";
 
-/* The run_spec loop and the authenticated browser exist only for an e2e run of an app with a DEV address. */
-export function toolsApply(target: TestTarget, app: Pick<AppConfig, "dev">): boolean {
+/* The run_spec loop and the authenticated browser exist only for a run of an app with a DEV address. */
+export function toolsApply(app: Pick<AppConfig, "dev">): boolean {
   return Boolean(app.dev?.baseUrl);
 }
 

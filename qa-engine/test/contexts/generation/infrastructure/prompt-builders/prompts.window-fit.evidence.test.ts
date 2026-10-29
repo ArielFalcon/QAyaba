@@ -31,7 +31,6 @@ function mkInput(overrides: Partial<OpencodeRunInput> = {}): OpencodeRunInput {
     mirrorDir: "/mirrors/org__app",
     e2eRelDir: "e2e",
     namespace: "qa-bot-abc1234",
-    target: "e2e",
     mode: "diff",
     appName: "testapp",
     baseUrl: "http://localhost:3000",
@@ -176,7 +175,6 @@ const review = (executionResult: string): ReviewInput => ({
   e2eRelDir: "e2e",
   appName: "shop",
   mode: "diff",
-  target: "e2e",
   executionResult,
 });
 const executed = (count: number, detail: string) =>

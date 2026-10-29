@@ -1,4 +1,4 @@
-/* buildCoordination: the ledger is always served; the lead and sidekicks only for an e2e run that was given a place for their workspaces. */
+/* buildCoordination: the ledger is always served; the lead and sidekicks only for a run that was given a place for their workspaces. */
 import { afterEach, describe, test } from "node:test";
 import assert from "node:assert/strict";
 import { PatternRedactionAdapter } from "../../../../src/shared-infrastructure/redaction/pattern-redaction.adapter.ts";
@@ -12,7 +12,6 @@ describe("buildCoordination", () => {
 
   function deps(over: Partial<CoordinationDeps> = {}): CoordinationDeps {
     return {
-      isCode: false,
       runtime: { openSession: async () => { throw new Error("unused"); } },
       redaction: new PatternRedactionAdapter(),
       specFileFor: (flowId) => `e2e/flows/${flowId}.spec.ts`,
@@ -29,17 +28,10 @@ describe("buildCoordination", () => {
     assert.equal(api.leadSidekicks, undefined);
   });
 
-  test("an e2e run with a place for the workspaces gets the lead", () => {
+  test("a run with a place for the workspaces gets the lead", () => {
     const api = buildCoordination(deps({ delegation }));
 
     assert.ok(api.leadSidekicks);
-  });
-
-  test("a code run never coordinates, whatever the shell offers", () => {
-    const api = buildCoordination(deps({ isCode: true, delegation }));
-
-    assert.ok(api.coordinationTelemetry);
-    assert.equal(api.leadSidekicks, undefined);
   });
 
   test("the ledger is one per process, so decisions outlive a run", () => {

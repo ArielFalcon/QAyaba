@@ -76,7 +76,7 @@ export interface OnboardingJobStatus {
    *  Absent when the job has no indexRepo dep, and absent before indexing starts. */
   indexProgress?: RepoIndexOutcome[];
   /** Architecture-map run progress, populated once the mapping phase starts. Absent when the job
-   *  has no enqueueContextRun dep or the app is code-mode. */
+   *  has no enqueueContextRun dep. */
   mappingProgress?: MappingProgress;
   /** Login-phase progress, populated once the phase starts. Absent for an app with no form login to bootstrap
    *  and for a job without enqueueLoginRun. */

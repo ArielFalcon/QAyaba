@@ -22,7 +22,6 @@ function run(n: number, overrides: Partial<OpencodeRunInput> = {}): OpencodeRunI
     mirrorDir: "/mirrors/org__app",
     e2eRelDir: "e2e",
     namespace: `qa-run-${n}-r0`,
-    target: "e2e",
     mode: "diff",
     appName: "shop",
     baseUrl: "http://localhost:3000",

@@ -1,5 +1,5 @@
 /* test/contexts/run-orchestration/infrastructure/adapters/setup-port.adapter.test.ts
-   callbacks matching setupE2eProject/setupCodeProject's call shape). THIN — no new policy: this
+   callbacks matching setupE2eProject's call shape). THIN — no new policy: this
    adapter only forwards specDir/signal to the e2e collaborator.
  */
 import { test } from "node:test";
@@ -11,10 +11,7 @@ test("setup() dispatches to the e2e collaborator and forwards specDir", async ()
   const e2e = async (dir: string) => {
     capturedDir = dir;
   };
-  const code = async () => {
-    throw new Error("must not be called");
-  };
-  const adapter = new SetupPortAdapter({ e2e, code }, { target: "e2e" });
+  const adapter = new SetupPortAdapter({ e2e });
 
   await adapter.setup("/mirrors/org/app/e2e");
 
@@ -27,8 +24,7 @@ test("setup() forwards an AbortSignal into the e2e collaborator", async () => {
   const e2e = async (_dir: string, opts?: { signal?: AbortSignal }) => {
     capturedSignal = opts?.signal;
   };
-  const code = async () => {};
-  const adapter = new SetupPortAdapter({ e2e, code }, { target: "e2e" });
+  const adapter = new SetupPortAdapter({ e2e });
 
   await adapter.setup("/mirrors/org/app/e2e", controller.signal);
 
@@ -40,8 +36,7 @@ test("setup() with no signal at all leaves opts.signal undefined (no fabricated 
   const e2e = async (_dir: string, opts?: { signal?: AbortSignal }) => {
     capturedOpts = opts;
   };
-  const code = async () => {};
-  const adapter = new SetupPortAdapter({ e2e, code }, { target: "e2e" });
+  const adapter = new SetupPortAdapter({ e2e });
 
   await adapter.setup("/mirrors/org/app/e2e");
 
@@ -52,8 +47,7 @@ test("setup() propagates a throw from the e2e collaborator verbatim (never swall
   const e2e = async () => {
     throw new Error("npm ci failed (code 1)");
   };
-  const code = async () => {};
-  const adapter = new SetupPortAdapter({ e2e, code }, { target: "e2e" });
+  const adapter = new SetupPortAdapter({ e2e });
 
   await assert.rejects(() => adapter.setup("/mirrors/org/app/e2e"), /npm ci failed/);
 });

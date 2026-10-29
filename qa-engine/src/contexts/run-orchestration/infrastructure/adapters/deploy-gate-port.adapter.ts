@@ -35,7 +35,7 @@ export class DeployGatePortAdapter implements DeployGatePort {
   }
 }
 
-/* Always ready — no /version to poll (static sites and the code target). */
+/* Always ready — no /version to poll (static sites). */
 export class NullDeployGateAdapter implements DeployGatePort {
   async waitUntilServing(_sha: Sha): Promise<Result<true, InfraError>> {
     return ok(true);

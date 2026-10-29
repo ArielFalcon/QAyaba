@@ -12,7 +12,7 @@ import { GitHubIssueAdapter } from "@contexts/workspace-and-publication/infrastr
 import type { GitHubHttpDeps } from "@contexts/workspace-and-publication/infrastructure/github-http.ts";
 /* One registry for the file: the handle a test publishes with is one this registry issued, as the composition's workspace adapter would. */
 const registry = new WorkspaceRegistry();
-const handle = (mirrorDir = "/mirrors/org/app", sha = "abc1234", isCode = false) => registry.register({ mirrorDir, specDir: `${mirrorDir}/e2e`, sha, isCode });
+const handle = (mirrorDir = "/mirrors/org/app", sha = "abc1234") => registry.register({ mirrorDir, specDir: `${mirrorDir}/e2e`, sha, });
 class PublicationPortAdapter extends RegistryBoundAdapter {
   constructor(deps: PublicationPortCollaborators, ctx: PublicationPortStaticContext) {
     super(deps, ctx, registry);
@@ -817,12 +817,12 @@ test("reviewer-outage note: publish() sanitizes reviewerNote through the SAME in
 });
 
 /* PublicationPort.publish()'s three new optional fields reach the REAL render functions correctly:
-   `tested` populates "Covers:"/"What was tested", `isCode` selects the PR body's wording, and
+   `tested` populates "Covers:"/"What was tested" and
    `parentRunId` renders the continuation reference. Absent -> each degrades gracefully (already
    pinned at the render-publication.ts unit level; these tests pin the ADAPTER'S OWN threading).
  */
 
-test("publish() threads tested/the handle's target/parentRunId into the PR body render", async () => {
+test("publish() threads tested/parentRunId into the PR body render", async () => {
   const decide = new PublishDecisionService();
   let bodySeen = "";
   const pr = { openWithAutoMerge: async (_repo: string, _branch: string, _title: string, body: string) => { bodySeen = body; return { url: "https://github.com/org/app/pull/1", number: 1 }; } };
@@ -837,13 +837,13 @@ test("publish() threads tested/the handle's target/parentRunId into the PR body 
     verdict: "pass",
     cases: [],
     logs: "",
-    workspace: handle("/mirrors/org/app", "abc1234", true),
+    workspace: handle(),
     tested: [{ flow: "parseConfig", objective: "rejects malformed YAML" }],
     parentRunId: "run-deadbeef",
   });
 
   assert.match(result.outcome, /pr/);
-  assert.match(bodySeen, /Source-code tests generated\/updated by qayaba/, "a code handle must select the code-flavored PR wording");
+  assert.match(bodySeen, /E2E tests generated\/updated by qayaba/);
   assert.match(bodySeen, /\*\*Covers:\*\*/);
   assert.match(bodySeen, /\*\*parseConfig\*\*/);
   assert.match(bodySeen, /Continuation of run-deadbeef/);
@@ -871,7 +871,7 @@ test("publish() threads tested into the Issue body render", async () => {
   assert.match(bodySeen, /\*\*Checkout\*\*/);
 });
 
-test("publish() with no tested/isCode/parentRunId supplied still renders a complete PR body (backward-compat, isCode defaults to e2e wording)", async () => {
+test("publish() with no tested/parentRunId supplied still renders a complete PR body", async () => {
   const decide = new PublishDecisionService();
   let bodySeen = "";
   const pr = { openWithAutoMerge: async (_repo: string, _branch: string, _title: string, body: string) => { bodySeen = body; return { url: "https://github.com/org/app/pull/2", number: 2 }; } };
@@ -885,7 +885,7 @@ test("publish() with no tested/isCode/parentRunId supplied still renders a compl
   const result = await adapter.publish({ verdict: "pass", cases: [], logs: "", workspace: handle() });
 
   assert.match(result.outcome, /pr/);
-  assert.match(bodySeen, /E2E tests generated\/updated by qayaba/, "absent isCode falls back to the e2e-flavored wording");
+  assert.match(bodySeen, /E2E tests generated\/updated by qayaba/, "the PR body carries the e2e wording");
   assert.ok(!bodySeen.includes("Covers:"), "no tested metadata was supplied, so the section must be absent");
   assert.ok(!bodySeen.includes("Continuation of"), "no parentRunId was supplied, so no continuation reference should render");
 });

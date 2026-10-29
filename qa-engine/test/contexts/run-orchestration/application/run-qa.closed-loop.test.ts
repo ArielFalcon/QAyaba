@@ -90,7 +90,7 @@ function rig(opts: { closed?: boolean; openThrows?: boolean; grant?: boolean } =
           return opts.grant === false ? undefined : handle;
         },
       },
-      config: { needsReview: true, shadow: false, onFailure: "github-issue", maxRetries: 2, isCode: false },
+      config: { needsReview: true, shadow: false, onFailure: "github-issue", maxRetries: 2 },
       ...rest,
     };
   };
@@ -348,7 +348,7 @@ test("the single change-coverage regeneration still runs when the loop is closed
         measure: async () => (measures++ === 0 ? { status: "fail", ratio: 0.2, uncovered: [{ file: "src/a.ts", lines: [1, 2] }] } : { status: "pass", ratio: 0.9 }),
         blocks: (status) => status === "fail",
       },
-      config: { needsReview: false, shadow: false, onFailure: "github-issue", maxRetries: 2, isCode: false, coveragePolicyMode: "enforce" },
+      config: { needsReview: false, shadow: false, onFailure: "github-issue", maxRetries: 2, coveragePolicyMode: "enforce" },
     })).run(INPUT);
     assert.equal(out.decision.sideEffect, "pr", `closed=${closed}`);
     assert.equal(r.generations, 2, `the first pass and the one coverage regeneration, closed=${closed}`);
@@ -420,7 +420,7 @@ function gapRig(closed: boolean, measured: { verdict: "pass" | "fail"; cases: Qa
         return { applied: 1, killed: 1, survived: [] };
       },
     },
-    config: { needsReview: false, shadow: false, onFailure: "github-issue", maxRetries: 2, isCode: false, coveragePolicyMode: "signal", coverageBranchCases: "regenerate" },
+    config: { needsReview: false, shadow: false, onFailure: "github-issue", maxRetries: 2, coveragePolicyMode: "signal", coverageBranchCases: "regenerate" },
   });
   return { r, deps, executions, rechecked, recounted };
 }

@@ -9,7 +9,7 @@ import { REVIEWER_UNAVAILABLE_MARKER } from "../../domain/review.ts";
 import type { AgentRuntimePort, AgentSession } from "@kernel/ports/agent-runtime.port.ts";
 import type { PromptRenderingPort, RepairPort, VerdictParserPort } from "@contexts/generation/application/index.ts";
 import type { ReviewInput, StepLimitFor } from "@contexts/generation/application/index.ts";
-import type { RunMode, TestTarget } from "@kernel/run-mode.ts";
+import type { RunMode } from "@kernel/run-mode.ts";
 import { renderLearnedRulesForReviewer } from "@contexts/cross-run-learning/application/index.ts";
 import { promptFactsOpts } from "@contexts/generation/application/index.ts";
 import { renderExecutionResult, type ExecutionResultCase } from "@contexts/generation/infrastructure/prompt-builders/review-render.ts";
@@ -45,7 +45,6 @@ export interface ReviewPortStaticContext {
   mode: RunMode;
   baseUrl?: string;
   guidance?: string;
-  target?: TestTarget;
   /* Reviewer's own session deadline. Absent → openSession omits timeoutMs. */
   timeoutMs?: number;
 }
@@ -81,7 +80,6 @@ export class ReviewPortAdapter implements ReviewPort {
       mode: this.ctx.mode,
       ...(this.ctx.baseUrl ? { baseUrl: this.ctx.baseUrl } : {}),
       ...(this.ctx.guidance ? { guidance: this.ctx.guidance } : {}),
-      ...(this.ctx.target ? { target: this.ctx.target } : {}),
       ...(enrichment?.priorCorrections?.length ? { priorCorrections: [...enrichment.priorCorrections] } : {}),
       ...(enrichment?.specChanges ? { specChanges: enrichment.specChanges } : {}),
       ...(enrichment?.learnedRules?.length ? { learnedRules: renderLearnedRulesForReviewer(enrichment.learnedRules) } : {}),

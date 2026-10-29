@@ -39,10 +39,8 @@ interface StubbedRecord {
 
 /*
  * The delivered specs, read through the confined reader (a file that is gone or refused contributes nothing), classified from their text.
- * Off-path: a fault here is logged and the run goes on without the record. A code run has no browser to intercept.
- */
+ * Off-path: a fault here is logged and the run goes on without the record. */
 function stubbedStateOf(state: Readonly<RunState>, ctx: WorkspaceRunContext): StubbedRecord | undefined {
-  if (ctx.cfg.isCode) return undefined;
   try {
     const specs: SpecText[] = [];
     for (const file of new Set(state.generation.delivered.map((d) => d.file))) {
@@ -363,7 +361,7 @@ async function persistOutcome(state: Readonly<RunState>, ctx: WorkspaceRunContex
 }
 
 async function learnFromOutcome(state: Readonly<RunState>, ctx: WorkspaceRunContext, mainlineOutcome: NonNullable<Persisted["mainlineOutcome"]>): Promise<void> {
-  const { deps, input, cfg } = ctx;
+  const { deps, input } = ctx;
   const { decision } = decidedOf(state);
   const { offeredArchetypes } = state.grounding;
   const { diff: classificationDiff, intent: classificationIntent } = state.classification;
@@ -377,7 +375,6 @@ async function learnFromOutcome(state: Readonly<RunState>, ctx: WorkspaceRunCont
     mode: input.mode,
     verdict: decision.verdict,
     errorClass: mainlineOutcome.errorClass,
-    isCode: cfg.isCode,
     adjudicationClass: mainlineOutcome.adjudication?.class,
   });
   if (learning.fold) {

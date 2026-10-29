@@ -85,8 +85,6 @@ const OS_INFRA = "qa-engine/src/contexts/objective-signal/infrastructure";
 const OS_INFRA_TEST = "qa-engine/test/contexts/objective-signal/infrastructure";
 const TOPO = "qa-engine/src/contexts/service-topology/infrastructure";
 const TOPO_TEST = "qa-engine/test/contexts/service-topology/infrastructure";
-const TE_INFRA = "qa-engine/src/contexts/test-execution/infrastructure";
-const TE_INFRA_TEST = "qa-engine/test/contexts/test-execution/infrastructure";
 const TE = "qa-engine/src/contexts/test-execution";
 const TE_TEST = "qa-engine/test/contexts/test-execution";
 
@@ -502,7 +500,7 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
     thresholds: DEFAULT_THRESHOLDS,
   },
   "run-output-readers": {
-    description: "what a run of the tests leaves for the orchestrator to read: the strict, capped read of a directory of output and of a native report (never waits on a pipe, never follows a link, never throws, says how many files it left out and why without naming or quoting them, and uses a set of dumps, reports or counters whole or not at all, so that the coverage or the count of a part is never taken for the run's), the coverage dumps and reports, the collector that reads the reports of every kind together, the fault-injection counters and the oracle's reading of the count (an unknown count gives no score), the counter also through the composition root that wires it (whose own lines are broken by hand)",
+    description: "what a run of the tests leaves for the orchestrator to read: the strict, capped read of a directory of output and of a report (never waits on a pipe, never follows a link, never throws, says how many files it left out and why without naming or quoting them, and uses a set of dumps, reports or counters whole or not at all, so that the coverage or the count of a part is never taken for the run's), the coverage dumps, the collector that reads them, the fault-injection counters and the oracle's reading of the count (an unknown count gives no score), the counter also through the composition root that wires it (whose own lines are broken by hand)",
     mutate: [
       "qa-engine/src/shared-infrastructure/run-output-reader.ts",
       `${OS_INFRA}/coverage-dump-reader.ts`,
@@ -588,30 +586,6 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
       `${TOPO_TEST}/openapi-http-resolver.adapter.test.ts`,
       "src/server/service-context.confinement.test.ts",
       "src/server/service-context.test.ts",
-    ],
-    thresholds: DEFAULT_THRESHOLDS,
-  },
-  "code-run-reads": {
-    description: "what a code run reads of its repository's working copy and writes into it, which the agent writes into: the manifest that names the test command (a strict, capped read that never waits on a pipe or follows a link; one that cannot be used is a refusal, said with the reason and nothing the file held, which the project carries: a run of it is infrastructure and the setup of it fails) and the mutation oracle's config (replaced through a temporary file, never written through a link, and a config that cannot be written leaves the run unmeasured without starting Stryker) and report (a strict, capped read; one that cannot be used is a run that produced none)",
-    mutate: [
-      /* The manifest: what is a refusal, the strict read, the project that carries a refusal, and what a run and a setup make of it. */
-      `${TE_INFRA}/code-execution.runner.ts@manifest-refusal`,
-      `${TE_INFRA}/code-execution.runner.ts@strict-manifest-read`,
-      `${TE_INFRA}/code-execution.runner.ts@manifest-read-in-detect`,
-      `${TE_INFRA}/code-execution.runner.ts@project-carries-refusal`,
-      `${TE_INFRA}/code-execution.runner.ts@refused-manifest-run-outcome`,
-      `${TE_INFRA}/code-setup.ts@refused-manifest-setup-failure`,
-      `${OS_INFRA}/stryker-mutation-oracle.adapter.ts@report-size-cap`,
-      /* The write of the config (not what the config holds, which is other code) and the read of the report. */
-      `${OS_INFRA}/stryker-mutation-oracle.adapter.ts@config-write`,
-      `${OS_INFRA}/stryker-mutation-oracle.adapter.ts@config-write-end`,
-      `${OS_INFRA}/stryker-mutation-oracle.adapter.ts@unreadable-report`,
-    ],
-    tests: [
-      `${TE_INFRA_TEST}/code-execution.detect.confinement.test.ts`,
-      `${TE_INFRA_TEST}/code-execution.runner.test.ts`,
-      `${OS_INFRA_TEST}/stryker-mutation-oracle.confinement.test.ts`,
-      `${OS_INFRA_TEST}/stryker-mutation-oracle.adapter.test.ts`,
     ],
     thresholds: DEFAULT_THRESHOLDS,
   },

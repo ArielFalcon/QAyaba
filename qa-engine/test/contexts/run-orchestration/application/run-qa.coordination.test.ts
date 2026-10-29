@@ -97,7 +97,7 @@ function rig(result: () => Promise<CoordinateResult> | CoordinateResult = () => 
       return coordinated;
     } },
     authContext: { baseUrl: "https://dev", auth: { kind: "form", usernameEnv: "U", passwordEnv: "P" } },
-    config: { needsReview: true, shadow: false, onFailure: "github-issue", maxRetries: 2, isCode: false },
+    config: { needsReview: true, shadow: false, onFailure: "github-issue", maxRetries: 2 },
     ...rest,
     };
   };
@@ -464,7 +464,7 @@ test("in a coordinated run an uncovered change goes to the lead's pass, not to a
     measure: async () => (measures++ === 0 ? { status: "fail" as const, ratio: 0.2, uncovered: [{ file: "src/list.ts", lines: [4, 5] }] } : { status: "pass" as const, ratio: 0.9 }),
     blocks: (status: string) => status === "fail",
   };
-  await new RunQaUseCase(r.deps({ objectiveSignal, config: { needsReview: false, shadow: false, onFailure: "github-issue", maxRetries: 2, isCode: false, coveragePolicyMode: "enforce" } })).run(INPUT);
+  await new RunQaUseCase(r.deps({ objectiveSignal, config: { needsReview: false, shadow: false, onFailure: "github-issue", maxRetries: 2, coveragePolicyMode: "enforce" } })).run(INPUT);
   assert.deepEqual(kept.seen.origins, [CORRECTION_ORIGIN.COVERAGE]);
   assert.match(kept.seen.corrected[0]![0]!.text, /src\/list\.ts/);
   assert.equal(r.calls.filter((c) => c === "generate").length, 0);
@@ -508,7 +508,7 @@ test("a coverage gap reaches the lead as one finding per changed file and per un
       : { status: "pass" as const, ratio: 0.9 }),
     blocks: (status: string) => status === "fail",
   };
-  await new RunQaUseCase(r.deps({ objectiveSignal, config: { needsReview: false, shadow: false, onFailure: "github-issue", maxRetries: 2, isCode: false, coveragePolicyMode: "enforce" } })).run(INPUT);
+  await new RunQaUseCase(r.deps({ objectiveSignal, config: { needsReview: false, shadow: false, onFailure: "github-issue", maxRetries: 2, coveragePolicyMode: "enforce" } })).run(INPUT);
   const texts = kept.seen.corrected[0]!.map((f) => f.text);
   assert.equal(texts.length, 4, "two files and two arms");
   assert.ok(texts[0]!.includes("src/list.ts") && /4-5/.test(texts[0]!));
@@ -524,7 +524,7 @@ test("a run the lead authored alone still regenerates a coverage gap whole, with
     measure: async () => ({ status: "fail" as const, ratio: 0.2, uncovered: [{ file: "src/list.ts", lines: [4, 5] }, { file: "src/detail.ts", lines: [9] }] }),
     blocks: (status: string) => status === "fail",
   };
-  await new RunQaUseCase(r.deps({ objectiveSignal, config: { needsReview: false, shadow: false, onFailure: "github-issue", maxRetries: 2, isCode: false, coveragePolicyMode: "enforce" } })).run(INPUT);
+  await new RunQaUseCase(r.deps({ objectiveSignal, config: { needsReview: false, shadow: false, onFailure: "github-issue", maxRetries: 2, coveragePolicyMode: "enforce" } })).run(INPUT);
   const gap = r.enrichments.find((e) => e.coverageGap !== undefined);
   assert.match(gap?.coverageGap ?? "", /src\/list\.ts[\s\S]*src\/detail\.ts/);
 });
@@ -543,7 +543,7 @@ test("a static-gate error that spans paragraphs stays one finding", async () => 
 });
 
 /* A config whose budget of corrections through the lead is spent before the first one. */
-const SPENT = { needsReview: true, shadow: false, onFailure: "github-issue" as const, maxRetries: -leadCorrectionBudget({ maxRetries: 0 }), isCode: false };
+const SPENT = { needsReview: true, shadow: false, onFailure: "github-issue" as const, maxRetries: -leadCorrectionBudget({ maxRetries: 0 }) };
 
 test("when the lead's correction budget is spent the static gate's errors stay unrouted and no cold author regenerates them", async () => {
   let r!: Rig;
@@ -575,7 +575,7 @@ test("when the lead's correction budget is spent the reviewer's findings stay un
 
 /* ── A mutant that survived a line a delivered test executed: the test reached the change and checked nothing ── */
 
-const SIGNAL_BRANCH_CASES = { needsReview: false, shadow: false, onFailure: "github-issue" as const, maxRetries: 2, isCode: false, coveragePolicyMode: "signal" as const, coverageBranchCases: "regenerate" as const };
+const SIGNAL_BRANCH_CASES = { needsReview: false, shadow: false, onFailure: "github-issue" as const, maxRetries: 2, coveragePolicyMode: "signal" as const, coverageBranchCases: "regenerate" as const };
 const survivor = (line: number, specFiles?: string[]) => ({ file: "src/list.ts", line, operator: "negate condition", original: "n > 0", replacement: "!(n > 0)", ...(specFiles ? { specFiles } : {}) });
 const withSurvivors = (survived: ReturnType<typeof survivor>[], killed = 0) => ({
   measure: async () => ({ status: "pass" as const, ratio: 1, bundleMutation: { applied: survived.length + killed, killed, survived } }),
@@ -736,7 +736,7 @@ test("the coverage a flaky run records is recounted from the corrected bytes the
   const order: string[] = [];
   const result = await new RunQaUseCase(r.deps({
     execution: flaky.execution,
-    config: { needsReview: true, shadow: false, onFailure: "github-issue", maxRetries: 2, isCode: false, coveragePolicyMode: "signal" },
+    config: { needsReview: true, shadow: false, onFailure: "github-issue", maxRetries: 2, coveragePolicyMode: "signal" },
     objectiveSignal: {
       measure: async () => (order.push("measure"), { status: "pass" as const, ratio: 0.5, uncovered: [], untakenArms: [] }),
       recount: async (_br, _dir, _diff, reruns) => (order.push(`recount:${reruns.map((x) => x.namespace).join(",")}`), { status: "pass" as const, ratio: 1, uncovered: [], untakenArms: [], measurement: { changedLines: 4, coveredChanged: 4, changedFiles: 1, mappedFiles: 1 } }),

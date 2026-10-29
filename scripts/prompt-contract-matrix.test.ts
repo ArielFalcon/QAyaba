@@ -98,7 +98,7 @@ test("an OpenCode cell is assembled with the step limit that runtime enforces, o
 
 test("the input of a limited cell is the same run input plus the step limit, and an input built without one has no such key", async () => {
   const specs = [
-    allValidSpecs().find((s) => s.mode === "diff" && s.target === "e2e" && s.phase === "first")!,
+    allValidSpecs().find((s) => s.mode === "diff" && s.phase === "first")!,
     allValidSpecs().find((s) => s.mode === "diff" && s.phase === "regen-fix")!,
     allValidSpecs().find((s) => s.mode === "context")!,
   ];
@@ -113,7 +113,7 @@ test("the input of a limited cell is the same run input plus the step limit, and
 
 test("the bucket of a limited combination is the bucket of its twin without a limit plus a suffix, for every kind of bucket", () => {
   const specs = [
-    allValidSpecs().find((s) => s.mode === "diff" && s.target === "e2e" && s.phase === "first" && !s.packRedirect)!,
+    allValidSpecs().find((s) => s.mode === "diff" && s.phase === "first" && !s.packRedirect)!,
     allValidSpecs().find((s) => s.packRedirect)!,
   ];
   for (const spec of specs) {
@@ -142,7 +142,7 @@ test("a cell's assembled sections reproduce the assembled prompt exactly", async
 
 test("the shapes the matrix adds are really assembled: a pack with no DOM and the service block", async () => {
   const spec = (over: Partial<CellSpec>): CellSpec => ({
-    ...allValidSpecs().find((s) => s.mode === "diff" && s.target === "e2e" && s.phase === "regen-fix" && s.tree === "none" && s.grounding === "pack" && s.contextMap && !s.service && s.packDom)!,
+    ...allValidSpecs().find((s) => s.mode === "diff" && s.phase === "regen-fix" && s.tree === "none" && s.grounding === "pack" && s.contextMap && !s.service && s.packDom)!,
     ...over,
   });
   const claimsOf = async (s: CellSpec) => Object.values(buildPromptAssembled(await buildInput(s)).claims).flat();
@@ -166,18 +166,17 @@ test("the structural signal is none, one that names symbols, or one of co-change
   assert.deepEqual([...DIMENSIONS.structuralSignal].sort(), ["co-change", "none", "symbols"]);
 });
 
-test("a signal of co-change files alone is a narrow shape: diff runs with none of the optional blocks, across every phase, target and grounding that can carry it", () => {
+test("a signal of co-change files alone is a narrow shape: diff runs with none of the optional blocks, across every phase and grounding that can carry it", () => {
   const specs = coChangeSpecs();
   assert.ok(specs.length > 0 && specs.length < allValidSpecs().filter((s) => s.structuralSignal === "symbols").length / 10, "a few dozen shapes, not a second copy of the signal's cross product");
   assert.ok(specs.every((s) => s.mode === "diff" && !s.contextMap && !s.authSeedUnauthored && !s.serviceLinks && !s.harnessFacts && !s.service && !s.packRedirect));
   assert.deepEqual([...new Set(specs.map((s) => s.phase))].sort(), [...DIMENSIONS.phase].sort(), "a first pass and every regeneration phase");
-  assert.deepEqual([...new Set(specs.map((s) => s.target))].sort(), [...DIMENSIONS.target].sort());
   assert.deepEqual([...new Set(specs.map((s) => s.grounding))].sort(), [...DIMENSIONS.grounding].sort());
   assert.deepEqual([...new Set(specs.map((s) => s.tree))].sort(), [...DIMENSIONS.tree].sort());
 });
 
 test("the signal shapes are really assembled: symbols give the structural signal and drop the lookup, co-change files give the co-change fact and keep it, none gives neither", async () => {
-  const base = coChangeSpecs().find((s) => s.phase === "first" && s.target === "e2e" && s.grounding === "none")!;
+  const base = coChangeSpecs().find((s) => s.phase === "first" && s.grounding === "none")!;
   const claimsOf = async (s: CellSpec) => Object.values(buildPromptAssembled(await buildInput(s)).claims).flat();
   const provides = (claims: Awaited<ReturnType<typeof claimsOf>>, fact: string) => claims.some((c) => c.kind === "provides" && c.fact === fact);
   const looksUp = (claims: Awaited<ReturnType<typeof claimsOf>>) => claims.some((c) => c.kind === "directs" && c.action === "orient" && c.target === "blast-radius");
@@ -223,7 +222,7 @@ test("a regeneration with a signal of co-change files alone never says the blast
 });
 
 test("the redirect shape is really assembled: the pack lists the page a redirect reached as a section of its own, outside the live DOM", async () => {
-  const base = allValidSpecs().find((s) => s.mode === "diff" && s.target === "e2e" && s.phase === "regen-fix" && s.tree === "none" && s.grounding === "pack" && s.contextMap && !s.service && s.packDom && !s.packRedirect)!;
+  const base = allValidSpecs().find((s) => s.mode === "diff" && s.phase === "regen-fix" && s.tree === "none" && s.grounding === "pack" && s.contextMap && !s.service && s.packDom && !s.packRedirect)!;
   const packOf = async (spec: CellSpec): Promise<string> =>
     splitAssembledSections(buildPromptAssembled(await buildInput(spec))).find((section) => section.id === "context-pack")?.text ?? "";
   const sectionOf = (pack: string, heading: string): string => pack.split(/^### /m).find((part) => part.startsWith(heading)) ?? "";
@@ -238,14 +237,13 @@ test("the redirect shape is really assembled: the pack lists the page a redirect
 
 const noSuiteSpecs = (): CellSpec[] => allValidSpecs().filter((s) => s.suite === "none");
 
-test("a run lists its suite or lists none, and a run with nothing to list is a narrow shape: no optional block, any phase, target, grounding and tree", () => {
+test("a run lists its suite or lists none, and a run with nothing to list is a narrow shape: no optional block, any phase, grounding and tree", () => {
   assert.deepEqual([...DIMENSIONS.suite].sort(), ["large", "listed", "none"]);
   const specs = noSuiteSpecs();
   assert.ok(specs.length > 0 && specs.length < allValidSpecs().filter((s) => s.suite === "listed").length / 10, "a few hundred shapes, not a second copy of the cross product");
   assert.ok(specs.every((s) => !s.contextMap && !s.authSeedUnauthored && !s.serviceLinks && !s.harnessFacts && !s.service && !s.packRedirect));
   assert.ok(specs.every((s) => s.mode === "diff" || s.mode === "manual" || s.phase !== "first"), "a complete, exhaustive or context first pass lists no suite either way, so it has the listed shape alone");
   assert.deepEqual([...new Set(specs.map((s) => s.phase))].sort(), [...DIMENSIONS.phase].sort(), "a first pass and every regeneration phase");
-  assert.deepEqual([...new Set(specs.map((s) => s.target))].sort(), [...DIMENSIONS.target].sort());
 });
 
 test("a combination with nothing to list is named and budgeted apart from the one that lists, so neither shape hides in the other's budget", () => {
@@ -274,7 +272,7 @@ test("a diff first pass with no listing and a regeneration with no carried specs
 });
 
 test("the suite shapes are really assembled: a listing is a provider of the suite and a missing one sends the first pass to read it", async () => {
-  const base = allValidSpecs().find((s) => s.mode === "diff" && s.target === "e2e" && s.phase === "first" && s.suite === "listed" && s.grounding === "none" && s.structuralSignal === "none" && !s.contextMap)!;
+  const base = allValidSpecs().find((s) => s.mode === "diff" && s.phase === "first" && s.suite === "listed" && s.grounding === "none" && s.structuralSignal === "none" && !s.contextMap)!;
   const claimsOf = async (s: CellSpec) => buildPromptAssembled(await buildInput(s)).claims;
   const providers = (claims: Awaited<ReturnType<typeof claimsOf>>) => Object.entries(claims).filter(([, list]) => list.some((c) => c.kind === "provides" && c.fact === "existing-suite")).map(([id]) => id);
   const readsSuite = (claims: Awaited<ReturnType<typeof claimsOf>>) => Object.values(claims).flat().some((c) => c.kind === "directs" && c.action === "read" && c.target === "existing-suite");
@@ -289,7 +287,7 @@ test("the suite shapes are really assembled: a listing is a provider of the suit
 
 test("a regeneration that carries the run's specs lists them under the labels of the turn's work, with the delivered specs refreshing the suite's own line", async () => {
   for (const phase of DIMENSIONS.phase.filter((p) => p !== "first")) {
-    const spec = allValidSpecs().find((s) => s.mode === "diff" && s.target === "e2e" && s.phase === phase && s.suite === "listed" && s.grounding === "none" && s.tree === "none" && s.structuralSignal === "none" && !s.contextMap && !s.service)!;
+    const spec = allValidSpecs().find((s) => s.mode === "diff" && s.phase === phase && s.suite === "listed" && s.grounding === "none" && s.tree === "none" && s.structuralSignal === "none" && !s.contextMap && !s.service)!;
     const section = splitAssembledSections(buildPromptAssembled(await buildInput(spec))).find((part) => part.id === "existing-suite-manifest")!;
     assert.ok(section, `${phase}: the listing is in the prompt`);
     assert.ok(section.text.includes(SUITE_LISTING_LABELS.editable), `${phase}: there is a spec to change`);
@@ -298,7 +296,7 @@ test("a regeneration that carries the run's specs lists them under the labels of
 });
 
 test("an exhaustive regeneration carries many of the run's specs it leaves alone, and the listing names every one of them", async () => {
-  const spec = allValidSpecs().find((s) => s.mode === "exhaustive" && s.target === "e2e" && s.phase === "regen-fix" && s.suite === "listed" && s.grounding === "none" && s.tree === "none")!;
+  const spec = allValidSpecs().find((s) => s.mode === "exhaustive" && s.phase === "regen-fix" && s.suite === "listed" && s.grounding === "none" && s.tree === "none")!;
   const section = splitAssembledSections(buildPromptAssembled(await buildInput(spec))).find((part) => part.id === "existing-suite-manifest")!;
   const delivered = (await buildInput(spec)).deliveredSpecs ?? [];
   const written = section.text.split("\n");
@@ -322,7 +320,6 @@ test("the worst case of a listing is a narrow shape: a diff or manual run that c
   assert.ok(specs.every((s) => !s.contextMap && !s.authSeedUnauthored && !s.serviceLinks && !s.harnessFacts && !s.service && !s.packRedirect && s.structuralSignal === "none"));
   assert.deepEqual([...new Set(specs.map((s) => s.phase))].sort(), ["regen-coverage", "selector-fix"], "the regenerations whose signal names no spec");
   assert.deepEqual([...new Set(specs.map((s) => s.mode))].sort(), ["diff", "manual"]);
-  assert.deepEqual([...new Set(specs.map((s) => s.target))].sort(), [...DIMENSIONS.target].sort());
 });
 
 test("a combination with the worst-case listing is named and budgeted apart from the one with an ordinary listing, so neither hides in the other's budget", () => {
@@ -336,7 +333,7 @@ test("a combination with the worst-case listing is named and budgeted apart from
 
 test("the worst-case listing is really built: many specs delivered and many suite lines, and the section lists every one of them", async () => {
   for (const phase of ["regen-coverage", "selector-fix"] as const) {
-    const spec = largeSpecs().find((s) => s.mode === "diff" && s.target === "e2e" && s.phase === phase && s.tree === "none" && s.grounding === "none")!;
+    const spec = largeSpecs().find((s) => s.mode === "diff" && s.phase === phase && s.tree === "none" && s.grounding === "none")!;
     const input = await buildInput(spec);
     const delivered = input.deliveredSpecs ?? [];
     const existing = input.existingSpecFiles ?? [];
@@ -354,13 +351,13 @@ test("the worst-case listing is really built: many specs delivered and many suit
   }
 });
 
-test("the budgets of the worst-case listing are above those of every ordinary listing of their phase and target, and the ceiling is at least the worst case", () => {
+test("the budgets of the worst-case listing are above those of every ordinary listing of their phase, and the ceiling is at least the worst case", () => {
   const baseline = loadBaseline(ROOT);
   const valid = allValidSpecs();
-  const budgetOf = (suite: CellSpec["suite"], phase: CellSpec["phase"], target: CellSpec["target"]): number =>
-    Math.max(...valid.filter((s) => s.suite === suite && s.phase === phase && s.target === target && !s.closedLoop && !s.planning).map((s) => baseline.buckets[bucketOf(s)]!.bytes));
-  for (const [phase, target] of [["regen-coverage", "e2e"], ["selector-fix", "e2e"]] as const) {
-    assert.ok(budgetOf("large", phase, target) > budgetOf("listed", phase, target), `${phase}, ${target}`);
+  const budgetOf = (suite: CellSpec["suite"], phase: CellSpec["phase"]): number =>
+    Math.max(...valid.filter((s) => s.suite === suite && s.phase === phase && !s.closedLoop && !s.planning).map((s) => baseline.buckets[bucketOf(s)]!.bytes));
+  for (const phase of ["regen-coverage", "selector-fix"] as const) {
+    assert.ok(budgetOf("large", phase) > budgetOf("listed", phase), phase);
   }
   assert.ok(baseline.ceiling.bytes >= Math.max(...valid.filter((s) => s.suite === "large").map((s) => baseline.buckets[bucketOf(s, true)]!.bytes)));
 });
@@ -663,7 +660,7 @@ test("a combination that is a planning turn carries the plan contract on the fir
   const cells = await matrixOnce();
   const planning = cells.filter((c) => c.spec.planning);
   assert.ok(planning.length > 0, "setup: some combinations are planning turns");
-  assert.ok(planning.every((c) => c.layer === "opencode" && c.spec.phase === "first" && c.spec.target === "e2e" && !c.spec.closedLoop && !c.spec.agentBrowser), "only the first pass of an e2e run, in OpenCode, with no tool budget beside it");
+  assert.ok(planning.every((c) => c.layer === "opencode" && c.spec.phase === "first" && !c.spec.closedLoop && !c.spec.agentBrowser), "only the first pass of an e2e run, in OpenCode, with no tool budget beside it");
   for (const cell of planning) assert.ok(cell.lint.sections.some((s) => s.id === LEAD_PLAN_SECTION_ID), `${cell.key}: the plan contract is present`);
   assert.ok(cells.filter((c) => !c.spec.planning).every((c) => !c.lint.sections.some((s) => s.id === LEAD_PLAN_SECTION_ID)), "no other cell carries it");
 });

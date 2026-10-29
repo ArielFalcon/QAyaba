@@ -28,7 +28,7 @@ function recordingVcs(opts: { changed?: boolean; reverted?: { denylisted: string
   return { vcs, calls, commits };
 }
 
-const KINDS: PublishKind[] = ["e2e", "code", "context"];
+const KINDS: PublishKind[] = ["e2e", "context"];
 
 for (const kind of KINDS) {
   test(`a ${kind} publication writes its excludes, then stages its pathspecs, commits with its message and pushes after the commit`, async () => {
@@ -55,15 +55,15 @@ for (const kind of KINDS) {
 test("the reverts of the tracked-file denylist are reported to the caller", async () => {
   const { vcs } = recordingVcs({ reverted: { denylisted: [".env"], dangerous: ["sub/mod"] } });
 
-  const outcome = await new PublishWorkspace("code", vcs).publish({ mirrorDir: "/m", branch: "b" });
+  const outcome = await new PublishWorkspace("e2e", vcs).publish({ mirrorDir: "/m", branch: "b" });
 
   assert.deepEqual(outcome, { changed: true, revertedDenylisted: [".env"], revertedDangerous: ["sub/mod"] });
 });
 
-test("the commit is given the code-denylist guard, which denies an env file and allows a spec", async () => {
+test("the commit is given the denylist guard, which denies an env file and allows a spec", async () => {
   const { vcs, commits } = recordingVcs();
 
-  await new PublishWorkspace("code", vcs).publish({ mirrorDir: "/m", branch: "b" });
+  await new PublishWorkspace("e2e", vcs).publish({ mirrorDir: "/m", branch: "b" });
 
   assert.equal(commits[0]!.denied(".env"), true);
   assert.equal(commits[0]!.denied("e2e/login.spec.ts"), false);

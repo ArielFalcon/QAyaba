@@ -3,26 +3,13 @@
 import { engineLog } from "@kernel/ports/process-logger.ts";
 import { lstatSync, realpathSync } from "node:fs";
 import { isAbsolute, join, relative, sep } from "node:path";
-import { sanitizeText } from "../../../shared-infrastructure/redaction/pattern-redaction.adapter.ts";
 import { MANIFEST_FILE, MAX_MANIFEST_BYTES, validateManifest as validateManifestShape, type ManifestValidation } from "@kernel/manifest/manifest-entry.ts";
 import { BoundedOutputTail } from "@kernel/process-sandbox/bounded-output-tail.ts";
 import { ProcessKillAdapter } from "../../../shared-infrastructure/process-sandbox/process-kill.adapter.ts";
 import { redactByValue } from "../../../shared-kernel/run-secret-redaction.ts";
 import type { ExecCommandClass, ExecSandboxPort } from "../../../shared-infrastructure/process-sandbox/exec-sandbox.ts";
-import type { SandboxProfile } from "../../../shared-infrastructure/process-sandbox/exec-env.ts";
 import { readConfinedSpecFile, readFailureReason, readOwnedSpecFile, scanSpecTree, writeOwnedSpecFile, type SpecRoot } from "../../../shared-infrastructure/spec-path-confinement.ts";
 import type { CheckResult, ValidationResult } from "../domain/execution-strategy.ts";
-import {
-  detectCodeProject,
-  realDetectDeps,
-  resolveChangedModules,
-  effectiveChangedFiles,
-  gitWorkingChanges,
-  DEFAULT_CODE_MODE_TIMEOUT_MS,
-  type CodeProject,
-  type Command,
-  type DetectDeps,
-} from "./code-execution.runner.ts";
 
 const processKill = new ProcessKillAdapter();
 
@@ -114,20 +101,19 @@ function readSpec(root: SpecRoot, spec: string): { source: string } | { problem:
 }
 /* mutation-scope:end spec-scan */
 
-/* `tsc`, `eslint` and `playwright test --list` import and run the project's config and its specs' top-level code, so they are agent-influenced code like a test run: they start through the launcher in the `offline` profile (no network, no session, no account). A code-target compile runs the repo's own build and uses the `install` profile, which reaches package registries only. */
+/* `tsc`, `eslint` and `playwright test --list` import and run the project's config and its specs' top-level code, so they are agent-influenced code like a test run: they start through the launcher in the `offline` profile (no network, no session, no account). */
 export function runCheck(
   cmd: string,
   args: string[],
   e2eDir: string,
   timeoutMs: number = DEFAULT_VALIDATE_CHECK_TIMEOUT_MS,
   exec: ExecSandboxPort,
-  profile: SandboxProfile = "offline",
   commandClass?: ExecCommandClass,
   opts: { stdoutOnly?: boolean } = {},
 ): Promise<CheckResult> {
   return new Promise((resolve) => {
     /* The launcher starts the child detached, as the leader of its own process group, so killTree can reap grandchildren (npx forks the real tool as a child of the child). */
-    const child = exec.spawn(cmd, args, { cwd: e2eDir, profile, ...(commandClass ? { commandClass } : {}) });
+    const child = exec.spawn(cmd, args, { cwd: e2eDir, profile: "offline", ...(commandClass ? { commandClass } : {}) });
     const out = new BoundedOutputTail(CHECK_OUTPUT_KEEP_CHARS);
     let settled = false;
     const settle = (res: CheckResult) => {
@@ -168,7 +154,7 @@ export async function fixLintedSpecs(
   const named = [...new Set(specs.filter((s) => s.endsWith(".spec.ts") && !isAbsolute(s) && !s.split("/").includes("..")))];
 /* mutation-scope:end eslint-fix-source */
   if (named.length === 0) return [];
-  const res = await runCheck(linter[0], [...linter[1], ...GATE_LINT_OPTIONS, "--fix-dry-run", "--format", "json", "--", ...named], specDir, timeoutMs, exec, "offline", "eslint", { stdoutOnly: true });
+  const res = await runCheck(linter[0], [...linter[1], ...GATE_LINT_OPTIONS, "--fix-dry-run", "--format", "json", "--", ...named], specDir, timeoutMs, exec, "eslint", { stdoutOnly: true });
   if (res.infra) return [];
   let report: unknown;
   try {
@@ -222,9 +208,9 @@ const checkManifestFile = async (e2eDir: string): Promise<CheckResult> => {
 /* The static gate's checks over a launcher: there is no default, because every one of them but the manifest check executes agent-influenced code. */
 export function createValidateDeps(exec: ExecSandboxPort, linter: readonly [string, readonly string[]] = ESLINT_COMMAND): ValidateDeps {
   return {
-    typecheck: (e2eDir) => runCheck("npx", ["tsc", "--noEmit"], e2eDir, undefined, exec, "offline", "tsc"),
-    lint: (e2eDir) => runCheck(linter[0], [...linter[1], ...GATE_LINT_OPTIONS, "."], e2eDir, undefined, exec, "offline", "eslint"),
-    listTests: (e2eDir) => runCheck("npx", ["playwright", "test", "--list"], e2eDir, undefined, exec, "offline", "playwright-list"),
+    typecheck: (e2eDir) => runCheck("npx", ["tsc", "--noEmit"], e2eDir, undefined, exec, "tsc"),
+    lint: (e2eDir) => runCheck(linter[0], [...linter[1], ...GATE_LINT_OPTIONS, "."], e2eDir, undefined, exec, "eslint"),
+    listTests: (e2eDir) => runCheck("npx", ["playwright", "test", "--list"], e2eDir, undefined, exec, "playwright-list"),
     checkManifest: checkManifestFile,
   };
 }
@@ -249,80 +235,4 @@ export function validateManifest(raw: unknown): ManifestValidation {
   }
 
   return { ok: errors.length === 0, errors };
-}
-
-
-const TOOLCHAIN_FAILURE_PATTERNS: readonly RegExp[] = [
-  /JAVA_HOME (?:environment variable )?is not (?:correctly set|set|defined)/i,
-  /JAVA_HOME is not set and could not be found/i,
-  /No compiler is provided in this environment/i,
-  /Unable to locate the Javac Compiler/i,
-  /Perhaps you are running on a JRE rather than a JDK/i,
-];
-
-export function isToolchainFailure(output: string): boolean {
-  return TOOLCHAIN_FAILURE_PATTERNS.some((re) => re.test(output));
-}
-
-export function compileCommand(
-  project: CodeProject,
-  repoDir: string,
-  changedFiles: string[],
-  deps: Pick<DetectDeps, "exists"> = realDetectDeps,
-): Command | null {
-  const resolved = resolveChangedModules(project.ecosystem, repoDir, changedFiles, deps);
-  const mods = resolved && resolved.length > 0 ? resolved : null;
-  switch (project.ecosystem) {
-    case "maven":
-      return mods
-        ? { cmd: "mvn", args: ["-B", "-pl", mods.join(","), "-am", "test-compile"] }
-        : { cmd: "mvn", args: ["-B", "test-compile"] };
-    case "gradle":
-      return mods
-        ? { cmd: project.test.cmd, args: mods.map((m) => `:${m.replace(/\//g, ":")}:testClasses`) }
-        : { cmd: project.test.cmd, args: ["testClasses"] };
-    case "go":
-      return mods ? { cmd: "go", args: ["vet", ...mods.map((m) => `./${m}/...`)] } : { cmd: "go", args: ["vet", "./..."] };
-    case "rust":
-      return { cmd: "cargo", args: ["check", "--tests"] };
-    case "node":
-      return deps.exists(join(repoDir, "tsconfig.json")) ? { cmd: "npx", args: ["tsc", "--noEmit"] } : null;
-    case "python": {
-      const py = changedFiles.filter((f) => f.endsWith(".py"));
-      return py.length > 0 ? { cmd: "python3", args: ["-m", "compileall", "-q", ...py] } : null;
-    }
-    default:
-      return null;
-  }
-}
-
-export interface CodeValidateDeps {
-  detect(repoDir: string): CodeProject;
-  runCheck(cmd: string, args: string[], cwd: string, timeoutMs?: number): Promise<CheckResult>;
-  listWrites?(repoDir: string): string[];
-}
-
-/* A compile of the watched repo runs its own build tooling, which resolves dependencies from registries: the `install` profile. */
-export function createCodeValidateDeps(exec: ExecSandboxPort): CodeValidateDeps {
-  return {
-    detect: (repoDir) => detectCodeProject(repoDir),
-    runCheck: (cmd, args, cwd, timeoutMs) => runCheck(cmd, args, cwd, timeoutMs ?? DEFAULT_CODE_MODE_TIMEOUT_MS, exec, "install"),
-    listWrites: (repoDir) => gitWorkingChanges(repoDir),
-  };
-}
-
-export async function validateCodeProject(
-  repoDir: string,
-  deps: CodeValidateDeps,
-  opts: { changedFiles?: string[]; timeoutMs?: number } = {},
-): Promise<ValidationResult> {
-  const project = deps.detect(repoDir);
-  const changed = effectiveChangedFiles(opts.changedFiles ?? [], repoDir, deps.listWrites);
-  const cmd = compileCommand(project, repoDir, changed);
-  if (!cmd) return { ok: true, errors: [], infra: false };
-  const res = await deps.runCheck(cmd.cmd, cmd.args, repoDir, opts.timeoutMs);
-  if (res.ok) return { ok: true, errors: [], infra: false };
-  const infra = res.infra === true || isToolchainFailure(res.output);
-  const clean = sanitizeText(res.output).text.trim();
-  return { ok: false, errors: [`[compile] ${clean}`], infra };
 }

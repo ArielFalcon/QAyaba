@@ -47,7 +47,6 @@ import {
 import { CODE_TOOLS, renderStepLimit } from "./prompt-text.ts";
 import { buildTask } from "./task-builders.ts";
 import { diffWindowDegrade } from "./plan-diff-section.ts";
-import { commitDiffBlock } from "./prompt-text.ts";
 import type { PromptSectionDef, SectionRender } from "./prompt-sections.ts";
 
 /* What the working rules call the API contracts a Context Pack holds, when it holds them. */
@@ -56,17 +55,16 @@ export const PACK_CONTRACTS_NOUN = "contracts";
 /* The id of the section that lists the suite; it titles the section as well. */
 export const SUITE_LISTING_SECTION_ID = PROMPT_HEADINGS.existingSuiteManifest;
 
-/* What the working rules direct, following the branch of the text that renders: a context run directs nothing; a code run is told who compiles and runs its tests; a planning turn opens no browser; a turn with a DOM tree keeps a browser only for a route the tree does not cover; any other turn reads the live page. */
-function workingRulesClaims({ input, isCode, planningTurn, packProvides, treeInPrompt }: PromptContext): PromptClaim[] {
+/* What the working rules direct, following the branch of the text that renders: a context run directs nothing; a planning turn opens no browser; a turn with a DOM tree keeps a browser only for a route the tree does not cover; any other turn reads the live page. */
+function workingRulesClaims({ input, planningTurn, packProvides, treeInPrompt }: PromptContext): PromptClaim[] {
   if (input.mode === "context") return [];
-  if (isCode) return [claim.provides("orchestrator-validation")];
   if (planningTurn) return [];
   if (packProvides("dom-live") || treeInPrompt) return [claim.directs("use-browser-for-uncovered-route")];
   return [claim.directs("use-runtime-signals")];
 }
 
 function renderWorkingRules(ctx: PromptContext): SectionRender {
-  const { input, isCode, isReGen, planningTurn, packProvides, treeInPrompt, browser, openapiHint } = ctx;
+  const { input, planningTurn, packProvides, treeInPrompt, browser, openapiHint } = ctx;
   const workingRulesLines: string[] = [
     `## ${PROMPT_HEADINGS.workingRules}`,
     ...(input.mode === "context"
@@ -77,22 +75,6 @@ function renderWorkingRules(ctx: PromptContext): SectionRender {
           `- Extract from STRUCTURED sources: every route from a routing file, every operation from an OpenAPI spec.`,
           `- Consult the architecture-mapping skill for detailed extraction patterns per source type.`,
           `- The task block in this prompt has the complete procedure. Follow it precisely.`,
-        ]
-      : isCode
-      ? [
-          `- This is a CODE mode run: you are testing source-code logic, not a deployed web app.`,
-          /* The conventions of the repo's tests are read once, on the first pass: a regeneration works from the failing tests and the code under test. */
-          `- Detect the test framework from the repo's dependencies.${isReGen ? "" : " Read 2-3 existing test files for conventions. Match them exactly."}`,
-          `- Place generated tests alongside existing ones. Do not install new dependencies. Run no command: the orchestrator compiles and runs the tests after you finish and returns any compile or test failure to you.`,
-          `- In your closing verdict JSON, include specMetas with {file, flow, objective, targets} for each spec so the orchestrator can write the manifest deterministically.`,
-          `- Classify each affected symbol:`,
-          `  * Pure function → unit test: call with inputs, assert outputs`,
-          `  * Module with deps → integration test: real module + test doubles`,
-          `  * Handler/endpoint → integration test: test client, real request, assert status + body`,
-          `  * Trivial delegation/getter/setter → skip`,
-          `- Assert on BEHAVIOR, not implementation. Include edge cases.`,
-          `- One objective per test. Use realistic test data.`,
-          `- Never write a test whose only assertion is "does not throw".`,
         ]
       : [
           `- Work in the repo's tests folder: ${input.e2eRelDir}/ (source of truth in git). Reuse and improve existing fixtures/specs; do not duplicate.`,
@@ -270,10 +252,10 @@ function renderSkillExemplars(ctx: PromptContext): SectionRender {
 }
 
 function renderAppLogin(ctx: PromptContext): SectionRender {
-  const { input, isGenerationMode, isCode } = ctx;
+  const { input, isGenerationMode } = ctx;
   const authSetupPath = `${input.e2eRelDir}/auth.setup.ts`;
   const appLoginContent =
-    input.authSeedUnauthored && isGenerationMode && !isCode
+    input.authSeedUnauthored && isGenerationMode
       ? [
           `## ${PROMPT_HEADINGS.appLogin}`,
           `${PROMPT_HEADINGS.appLogin} is configured, but ${authSetupPath} is still the stock seed and did not sign in.`,
@@ -389,7 +371,7 @@ function renderSelectorContradictions(ctx: PromptContext): SectionRender {
 }
 
 function renderFixCases(ctx: PromptContext): SectionRender {
-  const { input, isGenerationMode, isCode, hasFailureTree, treeInPrompt, editableListed, browser, groundingUncoveredEscape: GROUNDING_UNCOVERED_ESCAPE } = ctx;
+  const { input, isGenerationMode, hasFailureTree, treeInPrompt, editableListed, browser, groundingUncoveredEscape: GROUNDING_UNCOVERED_ESCAPE } = ctx;
   const hasStaticGateCase = Boolean(input.fixCases?.some((c) => c.name === "static-gate"));
   /* The listing tells the agent to read the specs it changes; where it does not, the fix reads the test file itself. */
   const readTestStep = editableListed ? [] : [FIX_STEPS.readTestFile];
@@ -406,7 +388,7 @@ function renderFixCases(ctx: PromptContext): SectionRender {
               `failure. Fix the underlying error; do NOT rewrite or touch tests that passed the gate.`,
             ]
           : [
-              `The following tests FAILED during execution${isCode ? "" : " against DEV"}. Fix ONLY these`,
+              `The following tests FAILED during execution against DEV. Fix ONLY these`,
               `tests; do NOT rewrite or touch tests that passed.`,
             ]),
         ``,
@@ -451,16 +433,6 @@ function renderFixCases(ctx: PromptContext): SectionRender {
                 FIX_STEPS.changeOnlyWhatIsBroken,
               ]),
             ]
-          : isCode
-          ? [
-              `For each failure:`,
-              ...numbered([
-                ...readTestStep,
-                FIX_STEPS.readCodeUnderTest,
-                `Fix the ROOT CAUSE: a wrong expectation, a wrong test double or setup, or a compile error`,
-                FIX_STEPS.changeOnlyWhatIsBroken,
-              ]),
-            ]
           : [
               `For each failure, use ${browser.name} to explore the page and verify`,
               `your fix BEFORE writing it:`,
@@ -482,7 +454,7 @@ function renderFixCases(ctx: PromptContext): SectionRender {
       ].join("\n")
     : "";
 
-  /* Where the fix turns for the page, following the branch of the text that renders: the tree captured at the failure or any other injected tree (each with the way out for a route it does not cover), or the live page (a code run has none). A failing gate is a fact of its own: nothing was executed. */
+  /* Where the fix turns for the page, following the branch of the text that renders: the tree captured at the failure or any other injected tree (each with the way out for a route it does not cover), or the live page. A failing gate is a fact of its own: nothing was executed. */
   const fixContentClaims: PromptClaim[] = !fixContent
     ? []
     : [
@@ -491,8 +463,6 @@ function renderFixCases(ctx: PromptContext): SectionRender {
           ? [claim.directs("consult", "dom-failure"), claim.directs("use-browser-for-uncovered-route")]
           : treeInPrompt
           ? [claim.directs("consult", "dom-live"), claim.directs("use-browser-for-uncovered-route")]
-          : isCode
-          ? []
           : [claim.directs("use-runtime-signals")]),
       ];
   /* Over the window the failed cases give up their evidence lines, then all but the first line of their error, then their error; the instructions stay. */
@@ -510,7 +480,7 @@ function renderFixCases(ctx: PromptContext): SectionRender {
 }
 
 function renderReviewerCorrections(ctx: PromptContext): SectionRender {
-  const { input, isGenerationMode, isCode, hasFailureTree, treeInPrompt, browser, groundingUncoveredEscape: GROUNDING_UNCOVERED_ESCAPE } = ctx;
+  const { input, isGenerationMode, hasFailureTree, treeInPrompt, browser, groundingUncoveredEscape: GROUNDING_UNCOVERED_ESCAPE } = ctx;
   const reviewContent = input.reviewCorrections?.length && isGenerationMode
     ? [
         `## Apply reviewer corrections (HIGHEST priority)`,
@@ -520,8 +490,6 @@ function renderReviewerCorrections(ctx: PromptContext): SectionRender {
         `it is wrong. Do NOT rewrite specs that were not flagged.`,
         treeInPrompt
           ? `Re-verify against the injected grounding above (the DOM tree) before editing — do NOT re-navigate a route it already covers. ${GROUNDING_UNCOVERED_ESCAPE}`
-          : isCode
-          ? `Where a fix concerns an assertion, re-verify it against the code under test before editing.`
           : `Where a fix concerns a selector or an assertion, re-verify it against the live page with ${browser.name} before editing.`,
         ``,
 
@@ -529,13 +497,11 @@ function renderReviewerCorrections(ctx: PromptContext): SectionRender {
         ``,
       ].join("\n")
     : "";
-  /* Where a correction is re-verified, following the branch of the text that renders: the injected tree, the code under test, or the live page. */
+  /* Where a correction is re-verified, following the branch of the text that renders: the injected tree or the live page. */
   const reviewClaims: PromptClaim[] = !reviewContent
     ? []
     : treeInPrompt
     ? [claim.directs("consult", hasFailureTree ? "dom-failure" : "dom-live"), claim.directs("use-browser-for-uncovered-route")]
-    : isCode
-    ? []
     : [claim.directs("use-runtime-signals")];
   /* The corrections are what the turn answers: whole, never degraded for the window. */
   return { content: reviewContent, claims: reviewClaims, overflow: "drop" };
@@ -601,16 +567,9 @@ function renderTask(ctx: PromptContext): SectionRender {
   /* Over the window the commit body goes first, as the line that says where to read it. */
   const bodyAside = task.commitBodyLines !== undefined ? buildTask(input, { ...guards, commitBody: "reference" }) : undefined;
   const bodyOmission = { class: "truncation" as const, reason: WINDOW_FIT_REASON, count: task.commitBodyLines ?? 0 };
-  /* The task carries the commit diff only on a code run's diff turn: whole, and over the window its hunks give way as references inside the task's own text. */
-  const whole = task.diff !== undefined ? commitDiffBlock(task.diff) : undefined;
-  const diffDegrade = task.diff !== undefined && whole !== undefined ? diffWindowDegrade(task.diff, (section) => (bodyAside ?? task).text.replace(whole, () => section)) : undefined;
   const degrade = bodyAside
-    ? (step: number): SectionDegradation | undefined => {
-        if (step === 1) return { content: bodyAside.text, omissions: [bodyOmission] };
-        const next = diffDegrade?.(step - 1);
-        return next ? { ...next, omissions: [bodyOmission, ...next.omissions] } : undefined;
-      }
-    : diffDegrade;
+    ? (step: number): SectionDegradation | undefined => (step === 1 ? { content: bodyAside.text, omissions: [bodyOmission] } : undefined)
+    : undefined;
   return { content: task.text, claims: task.claims, ...boundOmissions(task.text), ...(degrade ? { degrade } : {}) };
 }
 
@@ -619,7 +578,7 @@ export const GENERATOR_SECTIONS: readonly PromptSectionDef<PromptContext>[] = [
   { id: "working-rules", tier: "stable-prefix", priority: 1, stability: "static", reason: "The mode's rules: where the suite lives, the specMetas the manifest is written from, when to read the live page", applies: () => true, render: renderWorkingRules },
   { id: "regen-discipline", tier: "stable-prefix", priority: 2, stability: "static", reason: "A regeneration re-oriented and re-read the repository instead of answering its correction (RE-1, d45c3cea)", applies: (ctx) => ctx.isReGen, render: renderRegenDiscipline },
   /* First of the run's facts: the test-data prefix, right after the stable prefix. */
-  { id: "test-data-prefix", tier: "semi-stable", priority: -1, stability: "run", reason: "The run's namespace for the data its tests create, kept out of the working rules so the stable prefix carries no run id", applies: (ctx) => ctx.input.mode !== "context" && !ctx.isCode, render: renderTestDataPrefix },
+  { id: "test-data-prefix", tier: "semi-stable", priority: -1, stability: "run", reason: "The run's namespace for the data its tests create, kept out of the working rules so the stable prefix carries no run id", applies: (ctx) => ctx.input.mode !== "context", render: renderTestDataPrefix },
   { id: "arch-map", tier: "semi-stable", priority: 1, stability: "run", reason: "The stored context map, so the agent consumes the FE-BE map instead of rebuilding it from files (5298e9ea)", applies: (ctx) => Boolean(ctx.input.contextMap), render: renderArchMap },
   {
     id: HARNESS_FACTS_SECTION_ID,
@@ -633,21 +592,21 @@ export const GENERATOR_SECTIONS: readonly PromptSectionDef<PromptContext>[] = [
     tier: "semi-stable",
     priority: 0, stability: "run", reason: "States the run_spec budget, and only when the run granted the tool (8301dacb)",
     /* The lead plans with neither tool: a planning turn is not told their budgets. */
-    applies: (ctx) => ctx.isGenerationMode && ctx.input.target === "e2e" && Boolean(ctx.input.closedLoop) && !ctx.planningTurn,
+    applies: (ctx) => ctx.isGenerationMode && Boolean(ctx.input.closedLoop) && !ctx.planningTurn,
     render: (ctx) => ({ content: renderClosedLoop(ctx.input.closedLoop!), claims: [claim.provides("closed-loop")] }),
   },
   {
     id: AGENT_BROWSER_SECTION_ID,
     tier: "semi-stable",
     priority: 0, stability: "run", reason: "States the authenticated browser budget, and only when the run granted it (eb23387c)",
-    applies: (ctx) => ctx.isGenerationMode && ctx.input.target === "e2e" && Boolean(ctx.input.agentBrowser) && !ctx.planningTurn,
+    applies: (ctx) => ctx.isGenerationMode && Boolean(ctx.input.agentBrowser) && !ctx.planningTurn,
     render: (ctx) => ({ content: renderAgentBrowser(ctx.input.agentBrowser!), claims: [claim.provides("agent-browser")] }),
   },
   {
     id: GEOLOCATION_SECTION_ID,
     tier: "semi-stable",
     priority: 0, stability: "run", reason: "Where the authoring scope is, so a spec whose result depends on a location pins it (fbca018f)",
-    applies: (ctx) => ctx.isGenerationMode && ctx.input.target === "e2e" && Boolean(ctx.input.geolocation),
+    applies: (ctx) => ctx.isGenerationMode && Boolean(ctx.input.geolocation),
     render: (ctx) => ({ content: renderGeolocation(ctx.input.geolocation!), claims: [claim.provides("geolocation")] }),
   },
   {
@@ -680,7 +639,7 @@ export const GENERATOR_SECTIONS: readonly PromptSectionDef<PromptContext>[] = [
     id: APP_LOGIN_SECTION_ID,
     tier: "volatile",
     priority: 0, stability: "run", reason: "The stock login seed did not sign in: the author rewrites auth.setup.ts before the specs",
-    applies: (ctx) => Boolean(ctx.input.authSeedUnauthored) && ctx.isGenerationMode && !ctx.isCode,
+    applies: (ctx) => Boolean(ctx.input.authSeedUnauthored) && ctx.isGenerationMode,
     render: renderAppLogin,
   },
   { id: "context-pack", tier: "volatile", priority: 0, stability: "run", reason: "Live DOM and API contracts the orchestrator captured, so selectors are transcribed, never invented (178a8ea2)", applies: (ctx) => ctx.contextPackContent !== "", render: renderContextPack },

@@ -13,17 +13,17 @@ test("QA_EGRESS_MODE: enforce is the default, warn is the operator's choice, any
 });
 
 test("an e2e run's specs reach the app's own origin and what the app declares, nothing else", () => {
-  const origins = resolveRunOrigins({ dev: { baseUrl: "https://dev.example.com/app", allowedOrigins: ["https://idp.example.com", "https://*.cdn.example.com"] } }, "e2e", REGISTRIES);
+  const origins = resolveRunOrigins({ dev: { baseUrl: "https://dev.example.com/app", allowedOrigins: ["https://idp.example.com", "https://*.cdn.example.com"] } }, REGISTRIES);
   assert.deepEqual(origins.dev, ["https://dev.example.com", "https://idp.example.com", "https://*.cdn.example.com"]);
 });
 
 test("an e2e run's installs reach the npm registry and the app's own extra registries", () => {
-  const origins = resolveRunOrigins({ dev: { baseUrl: "https://dev.example.com" }, egress: { installOrigins: ["https://npm.internal.example.com"] } }, "e2e", REGISTRIES);
+  const origins = resolveRunOrigins({ dev: { baseUrl: "https://dev.example.com" }, egress: { installOrigins: ["https://npm.internal.example.com"] } }, REGISTRIES);
   assert.deepEqual(origins.install, ["https://registry.npmjs.org", "https://npm.internal.example.com"]);
 });
 
 test("the app's own origin is not repeated when it also declares it", () => {
-  const origins = resolveRunOrigins({ dev: { baseUrl: "https://dev.example.com", allowedOrigins: ["https://dev.example.com"] } }, "e2e", REGISTRIES);
+  const origins = resolveRunOrigins({ dev: { baseUrl: "https://dev.example.com", allowedOrigins: ["https://dev.example.com"] } }, REGISTRIES);
   assert.deepEqual(origins.dev, ["https://dev.example.com"]);
 });
 

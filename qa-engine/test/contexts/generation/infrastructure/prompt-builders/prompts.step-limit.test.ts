@@ -43,7 +43,6 @@ function mkInput(overrides: Partial<OpencodeRunInput> = {}): OpencodeRunInput {
     mirrorDir: "/mirrors/org__app",
     e2eRelDir: "e2e",
     namespace: "qa-bot-abc1234",
-    target: "e2e",
     mode: "diff",
     appName: "shop",
     baseUrl: "http://localhost:3000",
@@ -77,7 +76,7 @@ interface Turn {
 function turns(): Turn[] {
   const out: Turn[] = [];
   for (const mode of RUN_MODES) {
-    const over: Partial<OpencodeRunInput> = { mode, target: "e2e", ...(mode === "manual" ? { guidance: "cover the coupon form" } : {}) };
+    const over: Partial<OpencodeRunInput> = { mode, ...(mode === "manual" ? { guidance: "cover the coupon form" } : {}) };
     out.push({ label: `${mode} first pass`, mode, over, regen: false });
     if (mode === "context") continue;
     for (const [signal, extra] of REGEN_SIGNALS) {

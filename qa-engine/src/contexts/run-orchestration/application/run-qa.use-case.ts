@@ -60,7 +60,6 @@ const DEFAULT_CONFIG: RunQaConfig = {
   shadow: false,
   onFailure: "github-issue",
   maxRetries: 2,
-  isCode: false,
   reviewLoopIntegrity: false,
   coveragePolicyMode: "signal",
   intentLock: { mode: "signal", opacityFlagRatio: 0.5 },
