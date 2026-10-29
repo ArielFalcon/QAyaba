@@ -223,11 +223,11 @@ is the only engine; webhook (`src/server/webhook-handler.ts`, wired by `src/serv
    a row log an observe-only audit finding). The reviewer's answer crosses to the decision whole: it is read into
    `{ approved, rationale?, findings }`, a finding being `{ text, severity, citation? }` with the severity required and a
    missing `citation` meaning the agent cited nothing; the engine fills in no field of it. An answer with no readable verdict
-   (cut mid-JSON, say), or with an entry or field the schema cannot read (an entry with no severity, a plain string, a
+   (cut mid-JSON, say), or a rejection with an entry or field the schema cannot read (an entry with no severity, a plain string, a
    citation of an unknown kind or with a non-text `ref`, a non-boolean `approved`, `corrections` that is not a list beside a
    rejection) is first asked once, in the same session and naming what could not be read, to restate it (the contract repair
    below); an answer still unreadable is a fail-closed parse miss that carries those issues (`qayaba.review.issues` on the
-   decision span). `corrections` that is not a list beside an approval is read as none and recorded in the same attribute. On a run with a plan the reviewer is given, instead of the whole diff, the slice of each
+   decision span). Beside an approval, `corrections` that is not a list is read as none and an entry the schema cannot read is set aside: the approval stands, the readable entries are kept, the loss is recorded in the same attribute, and no repair turn is spent, so an approved green run still publishes. On a run with a plan the reviewer is given, instead of the whole diff, the slice of each
    flow under review, every changed file (path, kind, added/removed) and, in full under a heading of its
    own, every part of the diff no flow under review holds (`run-flow/review-change.ts`,
    `reviewer-change-sections.ts`); with nothing assigned, or no plan, it keeps the whole diff. A prompt

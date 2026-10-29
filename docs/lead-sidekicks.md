@@ -301,8 +301,12 @@ are the last of their kind to go. An unknown window shows everything, and the re
 ## The reviewer's corrections
 
 The reviewer's answer reaches this step whole: its findings are `{ text, severity, citation? }` exactly as the agent wrote
-them, and an answer with an entry or field the engine cannot read is asked about once and then ends as a parse miss with its
-issues recorded, so no finding the lead is shown was filled in by the engine.
+them, and the evidence filter returns the verified findings themselves, so two findings with the same text are judged
+apart. A rejection with an entry or field the engine cannot read is asked about once and then ends as a parse miss with its
+issues recorded (`qayaba.review.issues` on the decision span), so no finding the lead is shown was filled in by the engine.
+An approval is not put at risk by what it carries beside it: `corrections` that is not a list is read as none and an entry
+the engine cannot read is set aside, the readable entries are kept, the approval stands with no repair turn, and the same
+attribute records the loss.
 
 A pass whose flows delivered, with the lead's planning session, is not closed when the coordination ends: the run keeps it
 (`CoordinatedPass`) through validation, execution and the independent review. When the reviewer rejects a round with verified

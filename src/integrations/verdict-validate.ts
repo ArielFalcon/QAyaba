@@ -1,7 +1,7 @@
 
 
 import { z } from "zod";
-import { GeneratorVerdictSchema, ReviewerVerdictSchema, type CorrectionEntry } from "../orchestrator/schemas";
+import { CorrectionEntrySchema, GeneratorVerdictSchema, ReviewerVerdictSchema, type CorrectionEntry } from "../orchestrator/schemas";
 import { lastJsonMatching, isClosingVerdict } from "./verdict-parse";
 import { GRAVE_TAGS } from "@kernel/error-class";
 import { NOOP_KIND } from "@kernel/noop-kind";
@@ -24,8 +24,8 @@ function effectiveFinding(entry: CorrectionEntry): ReviewerFinding {
 }
 
 /* Render zod issues as compact, prompt-ready strings ("path: message"). */
-function formatIssues(error: z.ZodError): string[] {
-  return error.issues.map((i) => `${i.path.map(String).join(".") || "(root)"}: ${i.message}`);
+function formatIssues(error: z.ZodError, within: string[] = []): string[] {
+  return error.issues.map((i) => `${[...within, ...i.path.map(String)].join(".") || "(root)"}: ${i.message}`);
 }
 
 /* A finding as the decision reads it: the citation is absent when the agent cited nothing. */
@@ -59,7 +59,7 @@ export interface ReviewerVerdict {
   blockingCount: number;
   valid: boolean;  /* the reviewer JSON satisfied the schema: every field the engine reads was readable */
   parsed: boolean;  /* an object carrying an `approved` field was found at all */
-  /* What the engine could not read (an unreadable answer) or read and set aside (the list of corrections beside an approval); empty when nothing was lost. */
+  /* What the engine could not read (an unreadable answer) or read and set aside (corrections beside an approval that are not a list, or entries of it that cannot be read); empty when nothing was lost. */
   issues: string[];
 }
 
@@ -75,9 +75,9 @@ export function parseReviewerVerdict(text: string): ReviewerVerdict {
       issues: ["no reviewer verdict JSON (an object with an `approved` field) was found"],
     };
   }
-  /* An approval does not depend on its list of corrections: a list that is not one is read as none and recorded. A rejection without its list is unreadable. */
-  const approvalWithoutList = candidate.approved === true && !Array.isArray(candidate.corrections);
-  const r = ReviewerVerdictSchema.safeParse(approvalWithoutList ? { ...candidate, corrections: [] } : candidate);
+  /* An approval does not depend on its list of corrections: a list that is not one is read as none, and an entry the schema cannot read is set aside; both are recorded. A rejection without a readable list is unreadable. */
+  const approval = candidate.approved === true ? readApprovalCorrections(candidate.corrections) : undefined;
+  const r = ReviewerVerdictSchema.safeParse(approval ? { ...candidate, corrections: approval.entries } : candidate);
   if (!r.success) {
     return { approved: false, findings: [], blockingCount: 0, valid: false, parsed: true, issues: formatIssues(r.error) };
   }
@@ -89,10 +89,23 @@ export function parseReviewerVerdict(text: string): ReviewerVerdict {
     blockingCount: findings.filter((f) => f.severity === "blocking").length,
     valid: true,
     parsed: true,
-    issues: approvalWithoutList && candidate.corrections !== undefined ? ["corrections: not a list; read as none beside an approval"] : [],
+    issues: approval?.issues ?? [],
   };
 }
 
+/* The corrections beside an approval: the entries the schema reads, and what was set aside as "path: message". Absent corrections lose nothing. */
+function readApprovalCorrections(corrections: unknown): { entries: CorrectionEntry[]; issues: string[] } {
+  if (corrections === undefined) return { entries: [], issues: [] };
+  if (!Array.isArray(corrections)) return { entries: [], issues: ["corrections: not a list; read as none beside an approval"] };
+  const entries: CorrectionEntry[] = [];
+  const issues: string[] = [];
+  corrections.forEach((raw: unknown, index) => {
+    const entry = CorrectionEntrySchema.safeParse(raw);
+    if (entry.success) entries.push(entry.data);
+    else issues.push(...formatIssues(entry.error, ["corrections", String(index)]));
+  });
+  return { entries, issues };
+}
 
 const PRIOR_RESPONSE_TAIL_CHARS = 4096;
 

@@ -280,14 +280,14 @@ export async function reviewRound(state: Readonly<RunState>, ctx: WorkspaceRunCo
       availabilityRoutes: new Set((state.grounding.routeAvailability?.facts ?? []).flatMap((fact) => [pathOnly(fact.route), ...(fact.template !== undefined ? [pathOnly(fact.template)] : [])])),
       contradictionRefs: dataContradictionRefs(state.grounding.dataContradictions?.facts ?? []),
     });
-    blockingSpecs = new Map(findings.flatMap((f) => {
+    blockingSpecs = new Map(filtered.blocking.flatMap((f) => {
       const spec = f.citation ? citedSpec(f.citation.ref, specRelDir) : undefined;
-      return spec !== undefined && filtered.blocking.includes(f.text) ? [[f.text, spec] as const] : [];
+      return spec !== undefined ? [[f.text, spec] as const] : [];
     }));
     filteredReviewFindings = filtered.dropped.length;
     advisoryReviewFindings = filtered.advisory.length;
     droppedBlockingReasons = filtered.droppedBlocking;
-    /* A rejection whose every blocking finding was dropped turns into an approval here: the run must be able to tell. Only the model's own rejection counts: an approval's notes default to blocking severity and were never a rejection. */
+    /* A rejection whose every blocking finding was dropped turns into an approval here: the run must be able to tell. Only the model's own rejection counts: an approval's blocking-severity notes were never a rejection. */
     if (!reviewResult.approved && filtered.blocking.length === 0 && Object.keys(filtered.droppedBlocking).length > 0) addDroppedRejection(reviewStats, filtered.droppedBlocking);
     if (filtered.dropped.length > 0 || filtered.advisory.length > 0) {
       try {
@@ -301,7 +301,7 @@ export async function reviewRound(state: Readonly<RunState>, ctx: WorkspaceRunCo
       ...reviewResult,
       /* Only a verified finding can keep the reviewer's rejection standing. */
       approved: filtered.blocking.length === 0,
-      findings: findings.filter((finding) => finding.severity === "blocking" && filtered.blocking.includes(finding.text)),
+      findings: filtered.blocking,
       blockingCount: filtered.blocking.length,
     };
   }

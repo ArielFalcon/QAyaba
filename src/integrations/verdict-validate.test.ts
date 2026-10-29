@@ -329,19 +329,30 @@ test("a NON-grave tag ([fragile-selector]) keeps its self-assigned advisory seve
 
 /* ── FIX A: per-entry correction tolerance — one malformed element must NOT nuke the array ───── */
 
-test("a malformed entry makes the whole answer unreadable, whatever else the answer says and even when it is the only entry", () => {
+test("a malformed entry beside a rejection makes the whole answer unreadable, even when it is the only entry", () => {
   /* The gate stays closed because nothing of an unreadable answer reaches the decision: no placeholder finding stands in for the entry. */
-  for (const approved of [true, false]) {
-    const alone = parseReviewerVerdict(JSON.stringify({ approved, corrections: [{ severity: "advisory" }] }));
-    assert.deepEqual([alone.parsed, alone.valid, alone.approved, alone.blockingCount, alone.findings], [true, false, false, 0, []]);
-    assert.match(alone.issues.join("; "), /corrections\.0\.text/, "the issue names the entry");
+  const alone = parseReviewerVerdict(JSON.stringify({ approved: false, corrections: [{ severity: "advisory" }] }));
+  assert.deepEqual([alone.parsed, alone.valid, alone.approved, alone.blockingCount, alone.findings], [true, false, false, 0, []]);
+  assert.match(alone.issues.join("; "), /corrections\.0\.text/, "the issue names the entry");
 
-    const beside = parseReviewerVerdict(JSON.stringify({
-      approved,
-      corrections: [{ text: "[false-positive] cart.spec.ts: clicks Pay but asserts nothing", severity: "blocking" }, { severity: "advisory" }],
-    }));
-    assert.deepEqual([beside.valid, beside.approved, beside.findings], [false, false, []]);
-  }
+  const beside = parseReviewerVerdict(JSON.stringify({
+    approved: false,
+    corrections: [{ text: "[false-positive] cart.spec.ts: clicks Pay but asserts nothing", severity: "blocking" }, { severity: "advisory" }],
+  }));
+  assert.deepEqual([beside.valid, beside.approved, beside.findings], [false, false, []]);
+});
+
+test("a malformed entry beside an approval is set aside and recorded: the approval stands and the entries that can be read are kept", () => {
+  const alone = parseReviewerVerdict(JSON.stringify({ approved: true, corrections: [{ severity: "advisory" }] }));
+  assert.deepEqual([alone.parsed, alone.valid, alone.approved, alone.blockingCount, alone.findings], [true, true, true, 0, []]);
+  assert.equal(alone.issues.length, 1);
+  assert.match(alone.issues[0]!, /^corrections\.0\.text: /);
+
+  const readable = { text: "[other] cart.spec.ts: rename the test", severity: "advisory" };
+  const beside = parseReviewerVerdict(JSON.stringify({ approved: true, corrections: [readable, { severity: "advisory" }, "plain"] }));
+  assert.deepEqual([beside.valid, beside.approved, beside.findings], [true, true, [readable]]);
+  assert.equal(beside.issues.length, 2);
+  assert.match(beside.issues[1]!, /^corrections\.2: /);
 });
 
 test("a citation the engine cannot read makes the answer unreadable instead of reading as no citation", () => {
@@ -661,6 +672,33 @@ test("an approval whose corrections are not a list stays an approval and the los
   assert.equal(result.approved, true);
   assert.deepEqual(result.findings, []);
   assert.match(result.issues?.join("\n") ?? "", /corrections/);
+});
+
+test("an approval with an entry the engine cannot read stays an approval in one turn, keeps the entries it can read and records the loss", async () => {
+  const advisory = { text: "[other] flows/checkout.spec.ts: rename the test", severity: "advisory" };
+  const { review, prompts } = reviewWith([answer([noSeverity, advisory, "a plain string"], true)]);
+
+  const result = await review();
+
+  assert.equal(prompts.length, 1, "no repair turn");
+  assert.equal(result.parsed, true);
+  assert.equal(result.approved, true);
+  assert.equal(result.blockingCount, 0);
+  assert.deepEqual(result.findings, [advisory]);
+  assert.match(result.issues?.join("\n") ?? "", /corrections\.0\.severity/);
+  assert.match(result.issues?.join("\n") ?? "", /corrections\.2/);
+});
+
+test("a rejection with an entry the engine cannot read is still repaired once and then fails closed as a parse miss", async () => {
+  const { review, prompts } = reviewWith([answer([blockingEntry, noSeverity]), answer([blockingEntry, noSeverity])]);
+
+  const result = await review();
+
+  assert.equal(prompts.length, 2, "one repair turn");
+  assert.equal(result.parsed, false);
+  assert.equal(result.approved, false);
+  assert.deepEqual(result.findings, []);
+  assert.match(result.issues?.join("\n") ?? "", /corrections\.1\.severity/);
 });
 
 test("a well-formed rejection reaches the decision whole, citation included, with no issue recorded", async () => {

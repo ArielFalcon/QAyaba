@@ -45,9 +45,9 @@ export interface ReviewScope {
 /** Why a finding can never block: it cites nothing, an arm nobody checked, a reference that names no spec the suite can hold, a spec outside this run's scope, or an execution this run did not perform. */
 export type DropReason = "uncited" | "arm" | "unresolved" | "out-of-scope" | "not-executed" | "no-availability-fact" | "no-contradiction-fact";
 
-export interface FilteredReviewFindings {
-  /** Verified, reviewer-blocking findings: the only ones that reach the generator or fail the gate. */
-  readonly blocking: string[];
+export interface FilteredReviewFindings<T extends CitedFinding = CitedFinding> {
+  /** Verified, reviewer-blocking findings, the very objects given: the only ones that reach the generator or fail the gate. Two findings with the same text are judged apart. */
+  readonly blocking: T[];
   /** Verified-but-advisory, plus every DOM-only finding: recorded, never a requirement. */
   readonly advisory: string[];
   /** No citation, an unverifiable one, or a citation outside this run's scope. */
@@ -76,11 +76,11 @@ function canonicalSpecs(files: ReadonlySet<string>, specRelDir: string): Set<str
  * spec this run delivered (and, for an execution, one it executed); a `dom` citation is always
  * advisory; no citation is dropped.
  */
-export function filterReviewFindings(
-  findings: readonly CitedFinding[],
+export function filterReviewFindings<T extends CitedFinding>(
+  findings: readonly T[],
   scope: ReviewScope,
-): FilteredReviewFindings {
-  const blocking: string[] = [];
+): FilteredReviewFindings<T> {
+  const blocking: T[] = [];
   const advisory: string[] = [];
   const dropped: string[] = [];
   const droppedBlocking: Partial<Record<DropReason, number>> = {};
@@ -109,7 +109,7 @@ export function filterReviewFindings(
         drop(finding, "no-availability-fact");
         continue;
       }
-      if (finding.severity === "blocking") blocking.push(finding.text);
+      if (finding.severity === "blocking") blocking.push(finding);
       else advisory.push(finding.text);
       continue;
     }
@@ -120,7 +120,7 @@ export function filterReviewFindings(
         drop(finding, "no-contradiction-fact");
         continue;
       }
-      if (finding.severity === "blocking") blocking.push(finding.text);
+      if (finding.severity === "blocking") blocking.push(finding);
       else advisory.push(finding.text);
       continue;
     }
@@ -142,7 +142,7 @@ export function filterReviewFindings(
       drop(finding, "not-executed");
       continue;
     }
-    if (finding.severity === "blocking") blocking.push(finding.text);
+    if (finding.severity === "blocking") blocking.push(finding);
     else advisory.push(finding.text);
   }
 

@@ -8044,6 +8044,23 @@ test("a rejection reaches the decision whole and records no issue, and a blockin
   assert.equal(uncited.span.attrs["qayaba.review.drop_reasons"], "uncited=1");
 });
 
+test("a dropped finding that repeats a verified finding's text does not come back as blocking", async () => {
+  const text = "[wrong-objective] flows/restaurants.spec.ts: assert the rename";
+  const { span } = await runReviewed("review-repeated-text", async () => ({
+    approved: false,
+    findings: [
+      { text, severity: "blocking" as const, citation: { kind: "execution" as const, ref: "flows/restaurants.spec.ts" } },
+      { text, severity: "blocking" as const },
+    ],
+    blockingCount: 2,
+    parsed: true,
+  }));
+
+  assert.deepEqual(span.attrs["qayaba.review.corrections"], [text], "the verified finding is shown once");
+  assert.equal(span.attrs["qayaba.review.blocking"], 1);
+  assert.equal(span.attrs["qayaba.review.dropped_blocking"], 1);
+});
+
 test("an approval whose corrections the engine set aside stays an approval and records the loss", async () => {
   const issues = ["corrections: not a list; read as none beside an approval"];
   const { span } = await runReviewed("review-approval-list-lost", async () => ({ approved: true, findings: [], blockingCount: 0, parsed: true, issues }));

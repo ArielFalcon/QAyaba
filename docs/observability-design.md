@@ -642,7 +642,8 @@ clock is not resynced promptly, fall back to comparing against the host's time o
 The review round's decision evidence is a `qayaba.review.decision` span under `qayaba.phase.review`: it carries
 `qayaba.review.targets` (the specs this run delivered), `qayaba.review.existing_specs` (the existing suite, context
 only), the bounded `qayaba.review.corrections` and `qayaba.review.rationale`, the blocking count and the correction
-class. The reviewer judges only the delivered specs; an existing suite file is never a wrong-objective target.
+class, and `qayaba.review.issues` (what the engine could not read of the reviewer's answer, or read and set aside, as
+`path: message`; absent when nothing was lost). The reviewer judges only the delivered specs; an existing suite file is never a wrong-objective target.
 
 The existing `/api/metrics` Prometheus endpoint stays as is. It has no OTel coupling.
 

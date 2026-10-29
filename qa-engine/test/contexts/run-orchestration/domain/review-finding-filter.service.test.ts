@@ -150,12 +150,21 @@ const flowsScope: ReviewScope = {
   executedSpecs: new Set(["flows/map-filter-dialogs.spec.ts"]),
 };
 
+test("two findings with the same text are judged apart: the verified one comes back itself, the dropped one does not", () => {
+  const verified = finding({ text: "[false-positive] same words", citation: { kind: "execution", ref: "flows/map-filter-dialogs.spec.ts" } });
+  const uncited = finding({ text: "[false-positive] same words" });
+  const out = filterReviewFindings([uncited, verified], flowsScope);
+  assert.equal(out.blocking.length, 1);
+  assert.equal(out.blocking[0], verified);
+  assert.deepEqual(out.dropped, ["[false-positive] same words"]);
+});
+
 test("an execution citation that carries the spec directory still blocks when that spec is in scope and was executed", () => {
   const out = filterReviewFindings(
     [finding({ text: "[false-positive] the dialog is never asserted", citation: { kind: "execution", ref: `${SPEC_DIR}/flows/map-filter-dialogs.spec.ts` } })],
     flowsScope,
   );
-  assert.deepEqual(out.blocking, ["[false-positive] the dialog is never asserted"]);
+  assert.deepEqual(out.blocking.map((f) => f.text), ["[false-positive] the dialog is never asserted"]);
   assert.deepEqual(out.dropped, []);
   assert.deepEqual(out.droppedBlocking, {});
 });
@@ -211,7 +220,7 @@ test("an availability citation blocks only when it names a route the run classif
     ],
     classified,
   );
-  assert.deepEqual(out.blocking, ["never asserts where /upload-menu/preview ends"]);
+  assert.deepEqual(out.blocking.map((f) => f.text), ["never asserts where /upload-menu/preview ends"]);
   assert.deepEqual(out.advisory, ["advisory about the same route"]);
   assert.deepEqual(out.droppedBlocking, { "no-availability-fact": 1 });
   assert.deepEqual(filterReviewFindings([finding({ text: "no facts", citation: { kind: "availability", ref: "/upload-menu/preview" } })], scope).blocking, []);
@@ -232,7 +241,7 @@ test("a finding that cites a data contradiction the run recorded is a verified f
     ],
     recorded,
   );
-  assert.deepEqual(out.blocking, ["[false-positive] the spec guards its check with `if (offered.length > 0)` over a source the run saw contradict itself", "same fact by the template it was opened from"]);
+  assert.deepEqual(out.blocking.map((f) => f.text), ["[false-positive] the spec guards its check with `if (offered.length > 0)` over a source the run saw contradict itself", "same fact by the template it was opened from"]);
   assert.deepEqual(out.advisory, ["advisory about the same fact"]);
   assert.deepEqual(out.droppedBlocking, { "no-contradiction-fact": 3 });
 });
