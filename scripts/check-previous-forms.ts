@@ -66,8 +66,10 @@ const PATH_TOKEN = new RegExp(`(?<![\\w@./-])((?:[\\w-]+/)+[\\w.-]+\\.(?:${PATH_
 const CITATION = new RegExp(`(?<![\\w/.-])([\\w.-]+\\.(?:${PATH_EXTENSIONS}|tsx|js)):(\\d+)(?:-(\\d+))?(?!\\d|:\\d)`, "g");
 const TEST_FILE = /\.test\.(ts|mjs)$/;
 /* Fixtures hold synthetic content (their paths and citations name files of an imagined app), .gitignore names ignored paths by design,
-   and the test runner's recorded file costs may name a test file deleted since they were recorded (the runner ignores such an entry). */
-const REFERENCE_CHECK_SKIPPED = (path: string): boolean => path.includes("/__fixtures__/") || path === ".gitignore" || path === "scripts/test-timings.json";
+   the test runner's recorded file costs may name a test file deleted since they were recorded (the runner ignores such an entry), and
+   the architecture records cite the code as it was when they were written, which later deletions remove. The banned terms still apply to all of them. */
+const REFERENCE_CHECK_SKIPPED = (path: string): boolean =>
+  path.includes("/__fixtures__/") || path === ".gitignore" || path === "scripts/test-timings.json" || path.startsWith("docs/architecture/");
 const FIXTURE_ROOTS = ["web/src/app/"];
 
 export function isScanned(path: string): boolean {

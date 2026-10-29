@@ -102,3 +102,22 @@ test("the odd directory and the review document are skipped", () => {
   assert.equal(isScanned("src/a.ts"), true);
   assert.deepEqual(check([file("odd/tasks/x.md", "CLAUDE.md codex legacy")]).violations, []);
 });
+
+test("a dead path or citation under docs/architecture passes, because the records name files later deletions remove", () => {
+  const tree = file("docs/real.md", "x");
+  const record = file("docs/architecture/adr/0001-x.md", "see src/server/gone.ts, docs/gone.md and target.ts:9");
+  assert.deepEqual(check([tree, record]).violations, []);
+});
+
+test("a banned term under docs/architecture still fails", () => {
+  const record = file("docs/architecture/adr/0001-x.md", "the Legacy adapter and CLAUDE.md");
+  assert.deepEqual(check([record]).violations.map((v) => v.rule).sort(), ["claude-md", "legacy"]);
+});
+
+test("a dead path or citation outside docs/architecture still fails, including a sibling that only shares the prefix", () => {
+  const tree = file("docs/real.md", "x");
+  for (const path of ["docs/guide.md", "docs/architecture-notes.md", "README.md"]) {
+    const rules = check([tree, file(path, "see docs/gone.md and missing.ts:4")]).violations.map((v) => v.rule);
+    assert.deepEqual(rules, ["dead-path", "dead-citation"], path);
+  }
+});
