@@ -513,11 +513,9 @@ export async function reviewResolve(state: Readonly<RunState>, ctx: WorkspaceRun
     traceAcceptedFiles(ctx, CORRECTION_ORIGIN.REVIEW, { kept: outcome.kept.length, restored: outcome.restored.length });
     const keptSet = new Set(outcome.kept);
     const realCases = outcome.execution?.cases ?? [];
-    if (realCases.length > 0) {
-      /* Replace the kept files' cases with the acceptance execution's real cases; every other file keeps its own. */
-      run = { ...run, cases: [...run.cases.filter((c) => !keptSet.has(c.file ?? c.name)), ...realCases] };
-      session.reviewCases = [...realCases, ...session.reviewCases.filter((c: QaCase) => !keptSet.has(c.file ?? c.name))];
-    }
+    /* The kept files' cases are the acceptance execution's, whatever it holds (a kept file the turn deleted has none); every other file keeps its own. */
+    run = { ...run, cases: [...run.cases.filter((c) => !keptSet.has(c.file ?? c.name)), ...realCases] };
+    session.reviewCases = [...realCases, ...session.reviewCases.filter((c: QaCase) => !keptSet.has(c.file ?? c.name))];
     session.round += 1;
     return goto("review-round", {
       execution: withRun(state.execution, run),

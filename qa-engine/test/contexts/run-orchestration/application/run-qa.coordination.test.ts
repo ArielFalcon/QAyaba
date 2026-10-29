@@ -19,6 +19,7 @@ import { CORRECTION_ORIGIN, type CorrectionOrigin, type CorrectionFinding } from
 import type { AgentBrowserHandle, ClosedLoopHandle } from "@contexts/agent-tools/application/index.ts";
 import type { GenerationEnrichment, ReviewEnrichment } from "@contexts/generation/application/index.ts";
 import type { PlanOutput } from "@kernel/plan-output.ts";
+import { acceptanceNamespace } from "@contexts/run-orchestration/domain/acceptance-namespace.ts";
 import { leadCorrectionBudget } from "@contexts/run-orchestration/domain/lead-correction-budget.ts";
 import { scriptedGeneration } from "../../../support/generation-output.ts";
 import { generationOnDisk, runWorkspace, type RunWorkspace } from "../../../support/run-workspace.ts";
@@ -743,7 +744,7 @@ test("the coverage a flaky run records is recounted from the corrected bytes the
       blocks: () => false,
     },
   })).run(INPUT);
-  assert.deepEqual(order, ["measure", "recount:coord-run-acc0"], "the correction is measured after the first measurement, from its own dumps");
+  assert.deepEqual(order, ["measure", `recount:${acceptanceNamespace("coord-run", 0)}`], "the correction is measured after the first measurement, from its own dumps");
   assert.equal(result.outcome?.gateSignals.coverageRatio, 1, "the record describes the bytes under review");
 });
 

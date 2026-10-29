@@ -48,15 +48,21 @@ interface Scenario {
   rewrite?: (call: number, specs: readonly string[], write: (file: string, text: string) => void) => void;
 }
 
-const PASSING: ExecutionPort["execute"] = async () => ({ verdict: "pass", cases: [], logs: "" });
+/* The spec files an execution was asked to run; an acceptance keeps a file only with a case of it, so a passing execution shows one for each. */
+const askedSpecs = (opts: Parameters<ExecutionPort["execute"]>[1]): string[] => (opts && !(opts instanceof AbortSignal) ? opts.specFiles : undefined) ?? [];
+const PASSING: ExecutionPort["execute"] = async (_specDir, opts) => ({ verdict: "pass", cases: askedSpecs(opts).map((file) => ({ name: file, status: "pass" as const, file })), logs: "" });
 /* A green run that executed the delivered spec, so a reviewer's finding can cite it; each later pass leaves new code, as a generator answering the corrections does. */
-const PASSING_A: ExecutionPort["execute"] = async () => ({ verdict: "pass", cases: [{ name: "a", status: "pass", file: "a.spec.ts" }], logs: "" });
+const PASSING_A: ExecutionPort["execute"] = async (_specDir, opts) => ({
+  verdict: "pass",
+  cases: [...new Set(["a.spec.ts", ...askedSpecs(opts)])].map((file) => ({ name: file === "a.spec.ts" ? "a" : file, status: "pass" as const, file })),
+  logs: "",
+});
 const REVISES = (call: number, specs: readonly string[], write: (file: string, text: string) => void): void => {
   for (const file of specs) write(file, `export const pass${call} = 1;\n`);
 };
 const FAILS_THEN_PASSES = (): ExecutionPort["execute"] => {
   let executions = 0;
-  return async () => (++executions === 1 ? { verdict: "fail", cases: [{ name: "checkout", status: "fail", detail: "boom" }], logs: "" } : { verdict: "pass", cases: [], logs: "" });
+  return async (specDir, opts) => (++executions === 1 ? { verdict: "fail", cases: [{ name: "checkout", status: "fail", detail: "boom" }], logs: "" } : PASSING(specDir, opts));
 };
 const FAILS_EVERY_TIME = (): ExecutionPort["execute"] => {
   let executions = 0;
@@ -64,7 +70,8 @@ const FAILS_EVERY_TIME = (): ExecutionPort["execute"] => {
   return async (_specDir, opts) => {
     const o = opts && !(opts instanceof AbortSignal) ? opts : undefined;
     /* A live report names the spec each case came from; the fixture's first execution fails the first delivered spec. */
-    return { verdict: "fail", cases: [{ name: `checkout-${++executions}`, status: "fail", file: o?.specFiles?.[0] ?? "a.spec.ts", detail: "boom" }], logs: "" };
+    const asked = askedSpecs(opts);
+    return { verdict: "fail", cases: [{ name: `checkout-${++executions}`, status: "fail", file: o?.specFiles?.[0] ?? "a.spec.ts", detail: "boom" }, ...asked.slice(1).map((file) => ({ name: file, status: "pass" as const, file }))], logs: "" };
   };
 };
 const INVALID_ONCE = (): ValidationPort["validate"] => {
@@ -222,7 +229,10 @@ test("a later FixLoop round attributes its contradictions to the files of the ge
         const o = opts && !(opts instanceof AbortSignal) ? opts : undefined;
         return {
           verdict: "fail" as const,
-          cases: [{ name: `checkout-${++executions}`, status: "fail" as const, file: o?.specFiles?.[0] ?? "a.spec.ts", detail: "boom", failureDom: "heading: Owners\nbutton: Cancel" }],
+          cases: [
+            { name: `checkout-${++executions}`, status: "fail" as const, file: o?.specFiles?.[0] ?? "a.spec.ts", detail: "boom", failureDom: "heading: Owners\nbutton: Cancel" },
+            ...askedSpecs(opts).slice(1).map((file) => ({ name: file, status: "pass" as const, file })),
+          ],
           logs: "",
         };
       };

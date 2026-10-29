@@ -32,12 +32,12 @@ interface Harness {
   execute: ExecutionPort["execute"];
 }
 
-function harness(): Harness {
+function harness(gone: readonly string[] = []): Harness {
   const restores: Harness["restores"] = [];
   const executed: Harness["executed"] = [];
   const ledgered: Harness["ledgered"] = [];
   const snapshot: SuiteRestorePort = {
-    snapshot: async (_dir, files) => ({ files: new Map(files.map((f) => [f, bytesOf(`now:${f}`)])) }),
+    snapshot: async (_dir, files) => ({ files: new Map(files.filter((f) => !gone.includes(f)).map((f) => [f, bytesOf(`now:${f}`)])) }),
     restore: async (_dir, snap, created) => { restores.push({ created, files: [...snap.files.keys()] }); },
   };
   const service = new RegenerationAcceptance({
@@ -48,7 +48,7 @@ function harness(): Harness {
   const execute: ExecutionPort["execute"] = async (_dir, opts) => {
     const o = opts as { specFiles: string[]; retries: number; namespace: string };
     executed.push({ specFiles: o.specFiles, retries: o.retries, namespace: o.namespace });
-    return { verdict: "pass", cases: [], logs: "" };
+    return { verdict: "pass", cases: o.specFiles.map((file) => caseOf(file, "pass")), logs: "" };
   };
   return { service, snapshot, restores, executed, ledgered, execute };
 }
@@ -391,6 +391,148 @@ test("a spec file with no case is restored while another spec file stands: the r
     assert.deepEqual(outcome.execution?.cases.map((c) => c.file), ["flows/green.spec.ts"]);
   }
   assert.deepEqual(h.restores, [{ created: [], files: ["flows/silent.spec.ts", "flows/red.spec.ts"] }]);
+});
+
+/* An acceptance keeps a spec file only with a case of it: a file that still exists and that the execution showed no case of has no result to stand on, whatever the verdict. */
+test("a passing execution that shows no case of an existing spec file restores that file and keeps the others", async () => {
+  const h = harness();
+  const outcome = await h.service.accept({
+    specDir: "/w/e2e",
+    changedSpecFiles: ["flows/green.spec.ts", "flows/silent.spec.ts"],
+    namespace: NAMESPACE,
+    snapshot: snapshotOf(["flows/green.spec.ts", "flows/silent.spec.ts"]),
+    independentSpecs: true,
+    deadline: deadline(60_000),
+    validate,
+    execute: async () => ({ verdict: "pass", cases: [caseOf("flows/green.spec.ts", "pass")], logs: "" }),
+  });
+
+  assert.equal(outcome.kind, "accepted");
+  if (outcome.kind === "accepted") {
+    assert.deepEqual(outcome.kept, ["flows/green.spec.ts"]);
+    assert.deepEqual(outcome.restored, ["flows/silent.spec.ts"]);
+    assert.deepEqual(outcome.executedSpecs, ["flows/green.spec.ts"]);
+    assert.equal(outcome.execution?.verdict, "pass");
+    assert.deepEqual(outcome.execution?.cases.map((c) => c.file), ["flows/green.spec.ts"]);
+    assert.deepEqual(outcome.proof.map((p) => p.file), ["flows/green.spec.ts"], "no proof for bytes that showed no case");
+  }
+  assert.deepEqual(h.restores, [{ created: [], files: ["flows/silent.spec.ts"] }]);
+  assert.deepEqual(h.ledgered.map((l) => l.file), ["flows/green.spec.ts"]);
+});
+
+test("a passing execution that shows no case of a spec file the turn created removes that file", async () => {
+  const h = harness();
+  const outcome = await h.service.accept({
+    specDir: "/w/e2e",
+    changedSpecFiles: ["flows/green.spec.ts", "flows/created.spec.ts"],
+    namespace: NAMESPACE,
+    snapshot: snapshotOf(["flows/green.spec.ts"]),
+    independentSpecs: true,
+    deadline: deadline(60_000),
+    validate,
+    execute: async () => ({ verdict: "pass", cases: [caseOf("flows/green.spec.ts", "pass")], logs: "" }),
+  });
+
+  assert.equal(outcome.kind, "accepted");
+  assert.deepEqual(h.restores, [{ created: ["flows/created.spec.ts"], files: [] }]);
+});
+
+test("a passing execution that shows no case of any existing spec file rejects the regeneration whole", async () => {
+  const h = harness();
+  const outcome = await h.service.accept({
+    specDir: "/w/e2e",
+    changedSpecFiles: ["flows/silent.spec.ts"],
+    namespace: NAMESPACE,
+    snapshot: snapshotOf(["flows/silent.spec.ts"]),
+    independentSpecs: true,
+    deadline: deadline(60_000),
+    validate,
+    execute: async () => ({ verdict: "pass", cases: [], logs: "" }),
+  });
+
+  assert.equal(outcome.kind, "rejected");
+  assert.deepEqual(h.restores, [{ created: [], files: ["flows/silent.spec.ts"] }]);
+  assert.equal(h.ledgered.length, 0);
+});
+
+test("a regeneration that changed a file the specs import is judged whole: a spec file with no case restores them all", async () => {
+  const h = harness();
+  const outcome = await h.service.accept({
+    specDir: "/w/e2e",
+    changedSpecFiles: ["flows/green.spec.ts", "flows/silent.spec.ts"],
+    namespace: NAMESPACE,
+    snapshot: snapshotOf(["flows/green.spec.ts", "flows/silent.spec.ts"]),
+    deadline: deadline(60_000),
+    validate,
+    execute: async () => ({ verdict: "pass", cases: [caseOf("flows/green.spec.ts", "pass")], logs: "" }),
+  });
+
+  assert.equal(outcome.kind, "rejected");
+  assert.deepEqual(h.restores, [{ created: [], files: ["flows/green.spec.ts", "flows/silent.spec.ts"] }]);
+});
+
+test("a spec file the turn deleted has no case by nature: its deletion stands in a passing execution", async () => {
+  const h = harness(["flows/deleted.spec.ts"]);
+  const outcome = await h.service.accept({
+    specDir: "/w/e2e",
+    changedSpecFiles: ["flows/green.spec.ts", "flows/deleted.spec.ts"],
+    namespace: NAMESPACE,
+    snapshot: snapshotOf(["flows/green.spec.ts", "flows/deleted.spec.ts"]),
+    independentSpecs: true,
+    deadline: deadline(60_000),
+    validate,
+    execute: async () => ({ verdict: "pass", cases: [caseOf("flows/green.spec.ts", "pass")], logs: "" }),
+  });
+
+  assert.equal(outcome.kind, "accepted");
+  if (outcome.kind === "accepted") {
+    assert.deepEqual(outcome.kept, ["flows/green.spec.ts", "flows/deleted.spec.ts"]);
+    assert.deepEqual(outcome.restored, []);
+    assert.deepEqual(outcome.proof.map((p) => p.file), ["flows/green.spec.ts"], "a deleted file has no bytes to prove");
+  }
+  assert.equal(h.restores.length, 0, "the deletion is not undone");
+});
+
+test("an adopted round restores a spec file with no case and keeps the failing cases of the others", async () => {
+  const h = harness();
+  const outcome = await h.service.accept({
+    specDir: "/w/e2e",
+    changedSpecFiles: ["flows/red.spec.ts", "flows/silent.spec.ts"],
+    namespace: NAMESPACE,
+    snapshot: snapshotOf(["flows/red.spec.ts", "flows/silent.spec.ts"]),
+    adoptFailures: true,
+    independentSpecs: true,
+    deadline: deadline(60_000),
+    validate,
+    execute: async () => ({ verdict: "fail", cases: [caseOf("flows/red.spec.ts", "fail")], logs: "" }),
+  });
+
+  assert.equal(outcome.kind, "accepted");
+  if (outcome.kind === "accepted") {
+    assert.deepEqual(outcome.kept, ["flows/red.spec.ts"]);
+    assert.deepEqual(outcome.restored, ["flows/silent.spec.ts"]);
+    assert.equal(outcome.execution?.verdict, "fail", "the adopted round is still failing");
+    assert.deepEqual(outcome.execution?.cases.map((c) => c.file), ["flows/red.spec.ts"]);
+    assert.deepEqual(outcome.proof, [], "a failing round's bytes are never proof of green");
+  }
+  assert.deepEqual(h.restores, [{ created: [], files: ["flows/silent.spec.ts"] }]);
+});
+
+test("an adopted round whose changes are judged whole is rejected when a spec file shows no case", async () => {
+  const h = harness();
+  const outcome = await h.service.accept({
+    specDir: "/w/e2e",
+    changedSpecFiles: ["flows/red.spec.ts", "flows/silent.spec.ts"],
+    namespace: NAMESPACE,
+    snapshot: snapshotOf(["flows/red.spec.ts", "flows/silent.spec.ts"]),
+    adoptFailures: true,
+    deadline: deadline(60_000),
+    validate,
+    execute: async () => ({ verdict: "fail", cases: [caseOf("flows/red.spec.ts", "fail")], logs: "" }),
+  });
+
+  assert.equal(outcome.kind, "rejected");
+  assert.deepEqual(h.restores, [{ created: [], files: ["flows/red.spec.ts", "flows/silent.spec.ts"] }]);
 });
 
 test("a regeneration with no spec file all green is rejected and restored whole, as before", async () => {

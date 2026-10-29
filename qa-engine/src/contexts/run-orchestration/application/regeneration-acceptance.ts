@@ -7,7 +7,8 @@
  * its pre-turn bytes restored and the files its turn created removed, so the bytes on disk always
  * equal the last bytes that executed green. A regeneration that changed spec files only
  * (`independentSpecs`) is judged file by file: when its execution fails, every spec file whose cases
- * all passed is kept and only the others are restored; with none kept it is rejected whole. An iterative fix-loop round may adopt a failing execution
+ * all passed is kept and only the others are restored; with none kept it is rejected whole. A spec file that still exists and that the execution showed no case of
+ * is never kept, whatever the verdict (a deleted file has no case by nature, and its deletion stands). An iterative fix-loop round may adopt a failing execution
  * (`adoptFailures`): its bytes and cases stand while the loop repairs them, but only green bytes get a
  * proof, so nothing can publish them. Built once per run; the run's own counter caps how many
  * acceptance executions one run spends, and the run's deadline bounds each of them.
@@ -140,19 +141,31 @@ export class RegenerationAcceptance {
       this.executions += 1;
       const result = await input.execute(input.specDir, { specFiles: [...input.changedSpecFiles], retries: 0, namespace: input.namespace });
       execution = { verdict: result.verdict, cases: result.cases, logs: result.logs };
-      if (result.verdict !== "pass" && (!input.adoptFailures || result.verdict === "infra-error")) {
-        const split = input.independentSpecs && result.verdict !== "infra-error" ? greenSpecFiles(input.changedSpecFiles, result.cases) : undefined;
+      const failed = result.verdict !== "pass" && (!input.adoptFailures || result.verdict === "infra-error");
+      /* 5b. A file that is still there and that the execution showed no case of has no result to stand on, whatever the verdict; a deleted file has no case by nature. */
+      const silent = failed ? [] : await this.silentFiles(input, result.cases);
+      if (failed || silent.length > 0) {
+        const split =
+          input.independentSpecs && result.verdict !== "infra-error"
+            ? failed
+              ? greenSpecFiles(input.changedSpecFiles, result.cases)
+              : standingSpecFiles(input.changedSpecFiles, silent)
+            : undefined;
         if (!split) {
           await restore();
-          return { kind: "rejected", reason: `execution ended ${result.verdict}`, execution };
+          return {
+            kind: "rejected",
+            reason: failed ? `execution ended ${result.verdict}` : `execution showed no case of ${silent.join(", ")}`,
+            execution,
+          };
         }
-        /* 5b. Per spec file: the failing files get their pre-turn bytes back; the green ones stand on their own cases. */
+        /* 5c. Per spec file: the files that do not stand get their pre-turn bytes back; the others stand on their own cases. */
         const back = new Map([...input.snapshot.files].filter(([file]) => split.restored.includes(file)));
         await this.deps.snapshot.restore(input.specDir, { files: back }, created.filter((file) => split.restored.includes(file)));
         ({ kept, restored } = split);
         executedSpecs = kept;
         const keptCases = result.cases.filter((c) => c.file !== undefined && kept.some((file) => sameSpec(file, c.file!)));
-        execution = { verdict: "pass", cases: keptCases, logs: result.logs };
+        execution = { verdict: failed ? "pass" : result.verdict, cases: keptCases, logs: result.logs };
       }
     }
 
@@ -175,6 +188,12 @@ export class RegenerationAcceptance {
       kept,
       restored,
     };
+  }
+
+  /* The changed spec files that exist after the turn and that `cases` holds no case of. */
+  private async silentFiles(input: AcceptanceInput, cases: readonly QaCase[]): Promise<string[]> {
+    const now = await this.deps.snapshot.snapshot(input.specDir, [...input.changedSpecFiles]);
+    return input.changedSpecFiles.filter((file) => now.files.has(file) && !cases.some((c) => c.file !== undefined && sameSpec(file, c.file)));
   }
 
   private requireTime(deadline: RunDeadlinePort): void {
@@ -202,4 +221,10 @@ function greenSpecFiles(changed: readonly string[], cases: readonly QaCase[]): {
   const kept = changed.filter(green);
   if (kept.length === 0) return undefined;
   return { kept, restored: changed.filter((file) => !kept.includes(file)) };
+}
+
+/* The changed files left standing when only `silent` ones do not: undefined when none is left, and the regeneration is then rejected whole. */
+function standingSpecFiles(changed: readonly string[], silent: readonly string[]): { kept: string[]; restored: string[] } | undefined {
+  const kept = changed.filter((file) => !silent.includes(file));
+  return kept.length === 0 ? undefined : { kept, restored: [...silent] };
 }

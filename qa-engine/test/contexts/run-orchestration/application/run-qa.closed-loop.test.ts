@@ -2,7 +2,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { Sha } from "@kernel/sha.ts";
 import { ERROR_CLASS } from "@kernel/error-class.ts";
@@ -20,6 +20,7 @@ import { fakeWorkspace } from "./run-flow/fake-workspace.ts";
 import { confinedSpecFiles } from "../../../../src/shared-infrastructure/spec-files.adapter.ts";
 import { served } from "../../../support/coordinator-over-author.ts";
 import { primaryChangeSet } from "../../../support/change-set.ts";
+import { citingRejections } from "../../../support/cited-rejection.ts";
 import { MAX_ACCEPTANCE_EXECUTIONS, MAX_STATIC_FIX_ROUNDS } from "@kernel/derive-cycle-backstop.ts";
 import { acceptanceNamespace } from "@contexts/run-orchestration/domain/acceptance-namespace.ts";
 import { memoryLogger } from "@kernel/ports/logger.port.ts";
@@ -472,7 +473,7 @@ test("a gap regeneration whose acceptance executed its specs is measured from th
 });
 
 /* A review correction is accepted only on the cases of an execution of its bytes, whatever `run_spec` saw pass. */
-function reviewCorrectionRig(files: readonly string[], proved: readonly string[]) {
+function reviewCorrectionRig(files: readonly string[], proved: readonly string[], deletedByCorrection: readonly string[] = [], silentInAcceptance: readonly string[] = []) {
   const r = rig({ closed: true });
   r.handle.isClosed = async (specs) => specs.length > 0 && specs.every((file) => proved.includes(file));
   const executions: { namespace?: string; specFiles?: string[] }[] = [];
@@ -485,25 +486,28 @@ function reviewCorrectionRig(files: readonly string[], proved: readonly string[]
         r.generations++;
         turns++;
         mkdirSync(join(specDir, "flows"), { recursive: true });
-        for (const file of files) writeFileSync(join(specDir, file), `await page.goto("/pass-${turns}");\n`);
-        return scriptedGeneration({ specs: [...files] });
+        const delivered = turns === 1 ? files : files.filter((file) => !deletedByCorrection.includes(file));
+        for (const file of delivered) writeFileSync(join(specDir, file), `await page.goto("/pass-${turns}");\n`);
+        for (const file of files) if (!delivered.includes(file)) rmSync(join(specDir, file), { force: true });
+        return scriptedGeneration({ specs: [...delivered] });
       },
     }),
     execution: {
-      execute: async (_dir, opts) => {
+      execute: async (dir, opts) => {
         const { namespace, specFiles } = (opts ?? {}) as { namespace?: string; specFiles?: string[] };
         executions.push({ ...(namespace ? { namespace } : {}), ...(specFiles ? { specFiles } : {}) });
         const accepting = isAcceptanceNamespace(namespace);
-        return { verdict: "pass", cases: (specFiles ?? files).map((file) => caseOf(file, accepting ? "after" : "before")), logs: "" };
+        /* A runner reports no case of a file that is not there, nor of a file whose tests it did not run. */
+        return { verdict: "pass", cases: (specFiles ?? files).filter((file) => existsSync(join(dir, file)) && !(accepting && silentInAcceptance.includes(file))).map((file) => caseOf(file, accepting ? "after" : "before")), logs: "" };
       },
     },
     review: {
-      review: async (_dir, cases) => {
+      review: citingRejections(async (_dir, cases) => {
         reviewed.push(cases.map((c) => c.file ?? c.name));
         return reviewed.length === 1
-          ? { approved: false, corrections: ["[false-positive] assert the outcome, not the heading"], blockingCount: 1, parsed: true }
-          : { approved: true, corrections: [], blockingCount: 0, parsed: true };
-      },
+          ? { approved: false, findings: [{ text: "[false-positive] assert the outcome, not the heading", severity: "blocking" as const }], blockingCount: 1, parsed: true }
+          : { approved: true, findings: [], blockingCount: 0, parsed: true };
+      }),
     },
   });
   return { r, deps, executions, reviewed };
@@ -528,6 +532,25 @@ test("a review correction that changes two files, one of them proved, leaves cas
   assert.deepEqual(executions.filter((e) => isAcceptanceNamespace(e.namespace)).map((e) => [...(e.specFiles ?? [])].sort()), [[...files].sort()], "every changed file executes in the one acceptance");
   assert.deepEqual(r.saved.at(-1)!.cases?.map((c) => c.name).sort(), files.map((f) => `${f} after`).sort());
   assert.deepEqual(reviewed.map((round) => [...round].sort()), [[...files].sort(), [...files].sort()], "no delivered file leaves the reviewer's scope");
+});
+
+test("a review correction that deletes one of two spec files leaves the record and the next review with the cases of the file that stands", async () => {
+  const files = ["flows/kept.spec.ts", "flows/deleted.spec.ts"];
+  const { r, deps, reviewed } = reviewCorrectionRig(files, [], ["flows/deleted.spec.ts"]);
+
+  await new RunQaUseCase(deps).run(INPUT);
+
+  assert.deepEqual(r.saved.at(-1)!.cases?.map((c) => c.name), ["flows/kept.spec.ts after"], "the kept file's cases come from the acceptance, and the deleted file leaves none behind");
+  assert.deepEqual(reviewed.map((round) => [...round].sort()), [[...files].sort(), ["flows/kept.spec.ts"]]);
+});
+
+test("a review correction whose kept files are only a deleted spec file leaves none of its cases in the record, and the file that showed no case keeps its prior ones", async () => {
+  const [silent, deleted] = ["flows/silent.spec.ts", "flows/deleted.spec.ts"];
+  const { r, deps } = reviewCorrectionRig([silent!, deleted!], [], [deleted!], [silent!]);
+
+  await new RunQaUseCase(deps).run(INPUT);
+
+  assert.deepEqual(r.saved.at(-1)!.cases?.map((c) => c.name), [`${silent} before`], "the deleted file has no result to stand on; the file that showed no case was given its prior bytes and cases back");
 });
 
 test("a fix-loop round whose changed file holds a run_spec proof is executed by its acceptance: a case of it that still fails keeps the verdict failing", async () => {

@@ -11,6 +11,7 @@ import { RunQaUseCase, type RunQaUseCaseDeps } from "@contexts/run-orchestration
 import { renderBlastRadiusSignal } from "@contexts/change-analysis/infrastructure/adapters/blast-radius-signal.ts";
 import { FixLoop } from "@contexts/run-orchestration/domain/fix-loop.aggregate.ts";
 import { MAX_STATIC_FIX_ROUNDS } from "@kernel/derive-cycle-backstop.ts";
+import { acceptanceNamespace } from "@contexts/run-orchestration/domain/acceptance-namespace.ts";
 import { ERROR_CLASS } from "@kernel/error-class.ts";
 import { AuthPreconditionError, PRECONDITION_KIND } from "@contexts/app-catalog/domain/auth-precondition.ts";
 import { AuthSessionAdapter } from "@contexts/app-catalog/infrastructure/auth-session.adapter.ts";
@@ -73,6 +74,26 @@ import { citingRejections } from "../../../support/cited-rejection.ts";
    returns a clean pass, no coverage config (blocksPublish never trips), not shadow, onFailure
    defaults to "github-issue". ──────────────────────────────────────────────────────────────────
  */
+
+/* A passing execution that shows a case for each spec file it was asked to run, as an acceptance requires of the files it keeps. */
+const passPerSpec: ExecutionPort["execute"] = async (_dir, opts) => ({
+  verdict: "pass",
+  cases: ((opts as { specFiles?: string[] } | undefined)?.specFiles ?? []).map((file) => ({ name: file, status: "pass" as const, file })),
+  logs: "",
+});
+
+/*
+ * An execution that, under an execution namespace (an acceptance's), shows a case of each spec file it was asked to run, as an acceptance
+ * requires of the files it keeps: a case named for the spec gets its file, and a spec with none gets a passing case.
+ */
+const showingACase = (execute: ExecutionPort["execute"]): ExecutionPort["execute"] => async (dir, opts) => {
+  const result = await execute(dir, opts);
+  const { specFiles, namespace } = (opts ?? {}) as { specFiles?: string[]; namespace?: string };
+  if (namespace === undefined || specFiles === undefined) return result;
+  const named = result.cases.map((c) => (c.file === undefined && specFiles.includes(c.name) ? { ...c, file: c.name } : c));
+  const missing = specFiles.filter((file) => !named.some((c) => c.file === file));
+  return { ...result, cases: [...named, ...missing.map((file) => ({ name: file, status: "pass" as const, file }))] };
+};
 
 function stubPorts(overrides: Partial<{
   classify: ChangeAnalysisPort["classify"];
@@ -879,7 +900,7 @@ test("RunQaUseCase — shadow: publish() IS called (dispatches to PublicationPor
      publication-port.adapter.test.ts. This test's job is proving the WIRING reaches the port at all.
    */
   let publishCallCount = 0;
-  const { ports } = stubPorts({ execute: async () => ({ verdict: "pass", cases: [], logs: "" }) });
+  const { ports } = stubPorts({ execute: passPerSpec });
   ports.publication.publish = async () => { publishCallCount++; return { outcome: "shadow: shadow mode — side effects replaced with logs" }; };
   const useCase = new RunQaUseCase({ ...ports, config: { ...baseConfig, shadow: true } });
 
@@ -1270,7 +1291,7 @@ test("reviewer parse-miss (parsed:false) must FAIL CLOSED — reviewerApproved=f
 
 test("coveragePolicyMode:\"signal\" (the default) NEVER blocks publish even when the signal is fail", async () => {
   const { ports } = stubPorts({
-    execute: async () => ({ verdict: "pass", cases: [], logs: "" }),
+    execute: passPerSpec,
     measure: async () => ({ status: "fail", ratio: 0.2 }),
   });
   const useCase = new RunQaUseCase({
@@ -1299,7 +1320,7 @@ test("enforce mode — first measure fails, regen fires, second measure ALSO fai
     const { ports } = stubPorts({
       prepare: real.prepare,
       generate: real.generate,
-      execute: async () => ({ verdict: "pass" as const, cases: [], logs: "" }),
+      execute: passPerSpec,
       measure: async () => { measureCallCount++; return { status: "fail" as const, ratio: 0.2, uncovered: [{ file: "src/a.ts", lines: [1, 2] }] }; },
       blocks: (status) => status === "fail",
     });
@@ -1325,7 +1346,7 @@ test("enforce mode — first measure fails, regen fires, second measure PASSES �
     const { ports } = stubPorts({
       prepare: real.prepare,
       generate: real.generate,
-      execute: async () => ({ verdict: "pass" as const, cases: [], logs: "" }),
+      execute: passPerSpec,
       measure: async () => {
         measureCallCount++;
         return measureCallCount === 1
@@ -1356,7 +1377,7 @@ test("enforce mode — regen's second measure resolves unknown — blocksPublish
     const { ports } = stubPorts({
       prepare: real.prepare,
       generate: real.generate,
-      execute: async () => ({ verdict: "pass" as const, cases: [], logs: "" }),
+      execute: passPerSpec,
       measure: async () => {
         measureCallCount++;
         return measureCallCount === 1
@@ -1382,7 +1403,7 @@ test("enforce mode — regen's second measure resolves unknown — blocksPublish
 test("enforce mode — the regen's generate() throws — KEEPS the first measurement's blocksPublish (never fabricated)", async () => {
   let measureCallCount = 0;
   const { ports } = stubPorts({
-    execute: async () => ({ verdict: "pass" as const, cases: [], logs: "" }),
+    execute: passPerSpec,
     measure: async () => { measureCallCount++; return { status: "fail" as const, ratio: 0.2, uncovered: [{ file: "src/a.ts", lines: [1] }] }; },
     blocks: (status) => status === "fail",
   });
@@ -1407,7 +1428,7 @@ test("enforce mode — the regen's generate() throws — KEEPS the first measure
 test("enforce mode — the run deadline is spent during the coverage regeneration — the first measurement stands: no time-budget end, the PR stays held", async () => {
   let measureCallCount = 0;
   const { ports } = stubPorts({
-    execute: async () => ({ verdict: "pass" as const, cases: [], logs: "" }),
+    execute: passPerSpec,
     measure: async () => { measureCallCount++; return { status: "fail" as const, ratio: 0.2, uncovered: [{ file: "src/a.ts", lines: [1] }] }; },
     blocks: (status) => status === "fail",
   });
@@ -1429,7 +1450,7 @@ test("enforce mode — the run deadline is spent during the coverage regeneratio
 test("enforce mode — the regen produces ZERO specs — KEEPS the first measurement's blocksPublish, only ONE measure() call", async () => {
   let measureCallCount = 0;
   const { ports } = stubPorts({
-    execute: async () => ({ verdict: "pass" as const, cases: [], logs: "" }),
+    execute: passPerSpec,
     measure: async () => { measureCallCount++; return { status: "fail" as const, ratio: 0.2, uncovered: [{ file: "src/a.ts", lines: [1] }] }; },
     blocks: (status) => status === "fail",
   });
@@ -1454,7 +1475,7 @@ test("signal mode — first measure fails, NO regen fires, NO second measure() c
   let measureCallCount = 0;
   let genCallCount = 0;
   const { ports } = stubPorts({
-    execute: async () => ({ verdict: "pass" as const, cases: [], logs: "" }),
+    execute: passPerSpec,
     measure: async () => { measureCallCount++; return { status: "fail" as const, ratio: 0.2, uncovered: [{ file: "src/a.ts", lines: [1] }] }; },
     blocks: () => false,
   });
@@ -1494,7 +1515,7 @@ test("a coverage regen's acceptance execution and the final re-measure each carr
     };
     ports.execution.execute = async (_specDir, opts) => {
       capturedExecuteNamespaces.push((opts as { namespace?: string } | undefined)?.namespace);
-      return { verdict: "pass" as const, cases: [], logs: "" };
+      return passPerSpec(_specDir, opts);
     };
     const useCase = new RunQaUseCase({
       ...ports,
@@ -1505,7 +1526,7 @@ test("a coverage regen's acceptance execution and the final re-measure each carr
 
     assert.equal(measureCallCount, 2, "the regen must have re-measured once");
     const regenExecuteCall = capturedExecuteNamespaces.find((ns) => ns?.endsWith("-acc0"));
-    assert.equal(regenExecuteCall, "p2c-regen-namespace-attribution-acc0", "the regen's changed specs execute under their acceptance namespace, so collect/read hit the regen's own dumps");
+    assert.equal(regenExecuteCall, acceptanceNamespace("p2c-regen-namespace-attribution", 0), "the regen's changed specs execute under their acceptance namespace, so collect/read hit the regen's own dumps");
     const finalExecuteCalls = capturedExecuteNamespaces.filter((ns) => ns?.endsWith("-coverage-final"));
     assert.equal(finalExecuteCalls.length, 1, "the final re-measure runs once, under its own namespace");
 
@@ -2020,7 +2041,7 @@ test("follow-up #28: a normal reviewer APPROVAL is unaffected — no reviewerNot
 test("follow-up #28: a normal rejection does NOT populate gateSignals.reviewerRationale either", async () => {
   let saved: import("@kernel/run-outcome.ts").RunOutcome | undefined;
   const { ports } = stubPorts({
-    execute: async () => ({ verdict: "pass", cases: [], logs: "" }),
+    execute: passPerSpec,
     review: async () => ({
       approved: false,
       findings: [{ text: "[false-positive] weak assertion", severity: "blocking" as const }],
@@ -2397,12 +2418,12 @@ test("enforce mode — a flaky run whose review regeneration was accepted gets o
     const executeNamespaces: (string | undefined)[] = [];
     const { ports } = stubPorts({
       prepare: async () => fakeHandle({ specDir: fixtures.specDir, mirrorDir: fixtures.mirrorDir }),
-      execute: async (_specDir, opts) => {
+      execute: showingACase(async (_specDir, opts) => {
         const namespace = (opts as { namespace?: string } | undefined)?.namespace;
         executeNamespaces.push(namespace);
         /* The final run happens to pass on its first attempt: that does not make the run's earlier instability go away. */
         return namespace?.endsWith("-coverage-final") || /-acc\d+$/.test(namespace ?? "") ? { verdict: "pass" as const, cases: [{ name: "checkout", status: "pass" as const }], logs: "" } : { verdict: "flaky" as const, cases: [{ name: "checkout", status: "flaky" as const }], logs: "" };
-      },
+      }),
       measure: async () => {
         measureCalls++;
         return measureCalls === 1
@@ -2439,7 +2460,7 @@ test("the final guard restores the proven bytes when a spec changes after its gr
   try {
     const { ports } = stubPorts({
       prepare: async () => fakeHandle({ specDir: fixtures.specDir, mirrorDir: fixtures.mirrorDir }),
-      execute: async () => ({ verdict: "pass" as const, cases: [], logs: "" }),
+      execute: passPerSpec,
       /* The measurement tampers with the spec after the green run: the guard must put the proven bytes back. */
       measure: async () => {
         fixtures.write("flows/restaurants.spec.ts", "// tampered after the run\n");
@@ -2621,7 +2642,7 @@ test("the branches a measurement counted on the changed lines are persisted besi
   const persisted = async (measurement: { changedBranches?: number; takenBranches?: number }) => {
     let saved: import("@kernel/run-outcome.ts").RunOutcome | undefined;
     const { ports } = stubPorts({
-      execute: async () => ({ verdict: "pass", cases: [], logs: "" }),
+      execute: passPerSpec,
       measure: async () => ({ status: "pass", ratio: 1, measurement: { changedLines: 3, coveredChanged: 3, changedFiles: 1, mappedFiles: 1, ...measurement } }),
     });
     ports.runHistory.save = async (outcome) => { saved = outcome; };
@@ -2717,7 +2738,7 @@ test("errorClass is E-FLAKY on a flaky verdict", async () => {
 test("errorClass is E-COVERAGE-GAP on a green run with a below-threshold coverageRatio", async () => {
   let saved: import("@kernel/run-outcome.ts").RunOutcome | undefined;
   const { ports } = stubPorts({
-    execute: async () => ({ verdict: "pass", cases: [], logs: "" }),
+    execute: passPerSpec,
     measure: async () => ({ status: "fail", ratio: 0.25 }),
   });
   ports.runHistory.save = async (outcome) => { saved = outcome; };
@@ -2736,7 +2757,7 @@ test("errorClass is E-COVERAGE-GAP on a green run with a below-threshold coverag
 test("errorClass is null on a clean green pass (healthy runs teach nothing, never a fabricated class)", async () => {
   let saved: import("@kernel/run-outcome.ts").RunOutcome | undefined;
   const { ports } = stubPorts({
-    execute: async () => ({ verdict: "pass", cases: [], logs: "" }),
+    execute: passPerSpec,
   });
   ports.runHistory.save = async (outcome) => { saved = outcome; };
   const useCase = new RunQaUseCase({ ...ports, config: { ...baseConfig, needsReview: false } });
@@ -2806,7 +2827,7 @@ test("publish() is called with the reviewerApproved field threaded (not dropped)
 test("publish() is called with the coverageBlocks field threaded (not dropped) under signal-mode coverage", async () => {
   let publishedDecision: { verdict: string; reviewerApproved?: boolean; coverageBlocks?: boolean } | undefined;
   const { ports } = stubPorts({
-    execute: async () => ({ verdict: "pass", cases: [], logs: "" }),
+    execute: passPerSpec,
     measure: async () => ({ status: "fail", ratio: 0.2 }),
   });
   ports.publication.publish = async (decision) => { publishedDecision = decision; return { outcome: "pr" }; };
@@ -4201,7 +4222,7 @@ test("a regeneration that produces zero specs mid-loop is a lost cause — termi
 test("exactly ONE reviewer session (review() call) fires for a clean pass — no double review", async () => {
   let reviewCallCount = 0;
   const { ports } = stubPorts({
-    execute: async () => ({ verdict: "pass" as const, cases: [], logs: "" }),
+    execute: passPerSpec,
   });
   ports.review.review = citingRejections(async () => { reviewCallCount++; return { approved: true, findings: [], blockingCount: 0, parsed: true }; });
   const useCase = new RunQaUseCase({ ...ports, config: baseConfig });
@@ -6258,7 +6279,7 @@ test("parentRunId: an enforce-mode coverage-regen never fabricates its own paren
     const { ports } = stubPorts({
       prepare: real.prepare,
       generate: real.generate,
-      execute: async () => ({ verdict: "pass" as const, cases: [], logs: "" }),
+      execute: passPerSpec,
       measure: async () => {
         measureCallCount++;
         return measureCallCount === 1
@@ -6302,9 +6323,9 @@ test("FixLoop retry execute() forwards the per-attempt retryNs as ExecutionOpts.
       capturedNamespaces.push(typeof opts === "object" && opts && !(opts instanceof AbortSignal) ? opts.namespace : undefined);
       capturedSpecFiles.push(typeof opts === "object" && opts && !(opts instanceof AbortSignal) ? opts.specFiles : undefined);
       if (executeCalls === 1) {
-        return { verdict: "fail", cases: [{ name: "owners", status: "fail", detail: "boom", file: "owners.spec.ts" }], logs: "" };
+        return { verdict: "fail", cases: [{ name: "owners", status: "fail", detail: "boom", file: "a.spec.ts" }], logs: "" };
       }
-      return { verdict: "pass", cases: [{ name: "owners", status: "pass", file: "owners.spec.ts" }], logs: "" };
+      return passPerSpec(_specDir, opts);
     },
     measure: async (_br, _specDir, _diff, _baseline, opts) => {
       capturedMeasureNamespaces.push(opts?.namespace);
@@ -7591,7 +7612,7 @@ test("reviewer pre-check (R4): a spec asserting an empty state the captured DOM 
     const { ports, savedOutcomes } = stubPorts({
       prepare: async () => fakeHandle({ specDir: fixtures.specDir, mirrorDir: fixtures.mirrorDir }),
       captureReviewDom: async () => R4_DOM,
-      execute: async () => ({ verdict: "pass", cases: [{ name: "flows/restaurants.spec.ts", status: "pass" }], logs: "" }),
+      execute: showingACase(async () => ({ verdict: "pass", cases: [{ name: "flows/restaurants.spec.ts", status: "pass" }], logs: "" })),
       review: async () => { modelReviews++; return { approved: true, findings: [], blockingCount: 0, parsed: true }; },
     });
     ports.generation.author = async (specDir, _signal, _diff, enrichment) => {
@@ -7627,7 +7648,7 @@ test("reviewer pre-check: a legitimate spec whose assertions the captured DOM co
     const { ports, savedOutcomes } = stubPorts({
       prepare: async () => fakeHandle({ specDir: fixtures.specDir, mirrorDir: fixtures.mirrorDir }),
       captureReviewDom: async () => R4_DOM,
-      execute: async () => ({ verdict: "pass", cases: [{ name: "flows/restaurants.spec.ts", status: "pass" }], logs: "" }),
+      execute: showingACase(async () => ({ verdict: "pass", cases: [{ name: "flows/restaurants.spec.ts", status: "pass" }], logs: "" })),
       review: async () => {
         modelReviews++;
         return { approved: true, findings: [], blockingCount: 0, rationale: "the list is asserted against the captured page", parsed: true };
@@ -7826,7 +7847,7 @@ test("a review round decided without a model says so at the level of an expected
     const { ports } = stubPorts({
       prepare: async () => fakeHandle({ specDir: fixtures.specDir, mirrorDir: fixtures.mirrorDir }),
       captureReviewDom: async () => R4_DOM,
-      execute: async () => ({ verdict: "pass", cases: [{ name: "flows/restaurants.spec.ts", status: "pass" }], logs: "" }),
+      execute: showingACase(async () => ({ verdict: "pass", cases: [{ name: "flows/restaurants.spec.ts", status: "pass" }], logs: "" })),
     });
     ports.generation.author = async (_specDir) => {
       fixtures.write("flows/restaurants.spec.ts", R4_SPEC);
@@ -7860,7 +7881,7 @@ test("each review round records a bounded qayaba.review metric: what decided it 
     const { ports } = stubPorts({
       prepare: async () => fakeHandle({ specDir: fixtures.specDir, mirrorDir: fixtures.mirrorDir }),
       captureReviewDom: async () => R4_DOM,
-      execute: async () => ({ verdict: "pass", cases: [{ name: "flows/restaurants.spec.ts", status: "pass" }], logs: "" }),
+      execute: showingACase(async () => ({ verdict: "pass", cases: [{ name: "flows/restaurants.spec.ts", status: "pass" }], logs: "" })),
     });
     ports.generation.author = async (_specDir) => {
       fixtures.write("flows/restaurants.spec.ts", R4_SPEC);
@@ -8079,11 +8100,11 @@ test("the fix_loop phase span carries its outcome, the failing counts and the sp
     let executeCallCount = 0;
     const { ports } = stubPorts({
       prepare: async () => fakeHandle({ specDir, mirrorDir }),
-      execute: async () => {
+      execute: async (_specDir, opts) => {
         executeCallCount++;
         return executeCallCount === 1
-          ? { verdict: "fail" as const, cases: [{ name: "checkout", status: "fail" as const, file: "flows/checkout.spec.ts", detail: "getByRole resolved to 0 elements" }], logs: "x" }
-          : { verdict: "pass" as const, cases: [{ name: "checkout", status: "pass" as const, file: "flows/checkout.spec.ts" }], logs: "" };
+          ? { verdict: "fail" as const, cases: [{ name: "checkout", status: "fail" as const, file: "a.spec.ts", detail: "getByRole resolved to 0 elements" }], logs: "x" }
+          : await passPerSpec(_specDir, opts);
       },
     });
     const useCase = new RunQaUseCase({ ...ports, telemetry, config: baseConfig });
@@ -8138,7 +8159,7 @@ test("intent lock in signal mode accepts a weakened regeneration and records the
     const { ports } = stubPorts({
       prepare: real.prepare,
       generate: real.generate,
-      execute: async () => ({ verdict: "pass" as const, cases: [], logs: "" }),
+      execute: passPerSpec,
       measure: async () => ({ status: "fail" as const, ratio: 0.2, uncovered: [{ file: "src/a.ts", lines: [1] }] }),
       blocks: (status) => status === "fail",
     });
@@ -8172,7 +8193,7 @@ test("a new run is never bound by a previous run's contract", async () => {
     const { ports } = stubPorts({
       prepare: real.prepare,
       generate: real.generate,
-      execute: async () => ({ verdict: "pass" as const, cases: [], logs: "" }),
+      execute: passPerSpec,
       measure: async () => {
         measureCalls += 1;
         return measureCalls <= 2
@@ -8227,7 +8248,7 @@ test("with the integrity switch on, a blocking finding that cites a spec outside
   try {
     const { ports } = stubPorts({
       prepare: async () => fakeHandle({ specDir: fixtures.specDir, mirrorDir: fixtures.mirrorDir }),
-      execute: async () => ({ verdict: "pass" as const, cases: [], logs: "" }),
+      execute: passPerSpec,
       review: citedReview({ kind: "contract", ref: "specs/auth.spec.ts#clause-1" }),
     });
     ports.generation.author = generate;
@@ -8318,7 +8339,7 @@ test("a rejection whose every blocking finding the filter dropped is recorded on
     const h = new RecordingTelemetry();
     const { ports } = stubPorts({
       prepare: async () => fakeHandle({ specDir: fixtures.specDir, mirrorDir: fixtures.mirrorDir }),
-      execute: async () => ({ verdict: "pass" as const, cases: [], logs: "" }),
+      execute: passPerSpec,
       review: citedReview({ kind: "contract", ref: "the checkout flow" }),
     });
     ports.generation.author = generate;
@@ -8681,7 +8702,7 @@ test("signal mode: a green run with arms no test ran regenerates once with those
     assert.equal(turns.length, 2, "the first pass and one regeneration");
     assert.ok(turns[1]!.includes("src/a.ts:3 if: else") && turns[1]!.includes("src/a.ts:7 logical: right of || evaluated"), "the regeneration is given the arms");
     assert.ok(!turns[1]!.includes("all changed lines are covered"), "an arms-only gap says nothing of the lines");
-    assert.deepEqual(recounts, [[true, [{ namespace: "branch-cases-signal-acc0", specFiles: ["a.spec.ts"] }], { caseFiles: ["a.spec.ts"] }]], "told the passing spec files the recounted dumps belong to");
+    assert.deepEqual(recounts, [[true, [{ namespace: acceptanceNamespace("branch-cases-signal", 0), specFiles: ["a.spec.ts"] }], { caseFiles: ["a.spec.ts"] }]], "told the passing spec files the recounted dumps belong to");
     assert.deepEqual(savedOutcomes.at(-1)!.gateSignals.branchCases, { outcome: "accepted", armsBefore: 2, armsAfter: 1, kept: 1, restored: 0 });
     assert.deepEqual(savedOutcomes.at(-1)!.gateSignals.branchCoverage, { changed: 6, taken: 5 }, "the recount is what the run records");
     assert.equal(savedOutcomes.at(-1)!.gateSignals.coverageRatio, 1);
@@ -8915,7 +8936,7 @@ test("a branch regeneration whose acceptance fails in one spec file keeps the sp
     assert.equal(readFileSync(join(ws.specDir, "a.spec.ts"), "utf8"), "// a, generation 2\n", "the all-green file keeps its new bytes");
     assert.equal(readFileSync(join(ws.specDir, "b.spec.ts"), "utf8"), "// b, generation 1\n", "the failing file gets the bytes that last ran green");
     assert.throws(() => readFileSync(join(ws.specDir, "c.spec.ts")), "the failing file the turn created is removed");
-    assert.deepEqual(recounts, [[{ namespace: "per-file-acc0", specFiles: ["a.spec.ts"] }]], "the recount uses the kept file's dumps; the others are read from the dumps of the bytes they were given back");
+    assert.deepEqual(recounts, [[{ namespace: acceptanceNamespace("per-file", 0), specFiles: ["a.spec.ts"] }]], "the recount uses the kept file's dumps; the others are read from the dumps of the bytes they were given back");
     assert.deepEqual(savedOutcomes.at(-1)!.gateSignals.branchCases, { outcome: "accepted", armsBefore: 2, armsAfter: 1, kept: 1, restored: 2 });
     assert.deepEqual(rechecks, [[[["a.spec.ts"]], ["a works", "a else arm"]]], "the survivor is judged on the kept file and its passing cases only");
     assert.equal(out.decision.verdict, "pass", "the suite on disk is the kept file and the prior bytes, all green");
@@ -8936,7 +8957,7 @@ test("a branch regeneration whose acceptance is green in every spec file is acce
 
     assert.equal(readFileSync(join(ws.specDir, "b.spec.ts"), "utf8"), "// b, generation 2\n");
     assert.equal(readFileSync(join(ws.specDir, "c.spec.ts"), "utf8"), "// c, generation 2\n");
-    assert.deepEqual(recounts, [[{ namespace: "per-file-green-acc0", specFiles: ["b.spec.ts", "c.spec.ts", "a.spec.ts"] }]], "the recount reads every kept file from the acceptance's dumps");
+    assert.deepEqual(recounts, [[{ namespace: acceptanceNamespace("per-file-green", 0), specFiles: ["b.spec.ts", "c.spec.ts", "a.spec.ts"] }]], "the recount reads every kept file from the acceptance's dumps");
     assert.deepEqual(savedOutcomes.at(-1)!.gateSignals.branchCases, { outcome: "accepted", armsBefore: 2, armsAfter: 1, kept: 3, restored: 0 });
     assert.equal(out.decision.sideEffect, "pr");
   } finally {
@@ -8982,7 +9003,7 @@ test("no branch regeneration without arms, with the branch cases off, or when th
           turns++;
           return real.generate(...args);
         },
-        execute: async () => ({ verdict: "pass" as const, cases: [], logs: "" }),
+        execute: passPerSpec,
         measure: async () => ({ status: c.status!, ratio: 0.5, uncovered: [{ file: "src/a.ts", lines: [1] }], untakenArms: c.untakenArms! }),
         blocks: (status) => c.mode === "enforce" && status === "fail",
       });
@@ -9006,7 +9027,7 @@ test("a branch regeneration that delivers nothing keeps the first measurement an
     const { ports, savedOutcomes } = stubPorts({
       prepare: real.prepare,
       generate: async (...args) => (++turns === 1 ? real.generate(...args) : scriptedGeneration({ specs: [] })),
-      execute: async () => ({ verdict: "pass" as const, cases: [], logs: "" }),
+      execute: passPerSpec,
       measure: async () => ({ status: "pass" as const, ratio: 0.9, uncovered: [], untakenArms: ARMS, measurement: { changedLines: 10, coveredChanged: 9, changedFiles: 1, mappedFiles: 1, changedBranches: 6, takenBranches: 4 } }),
       recount: async () => {
         recounts++;
@@ -9032,7 +9053,7 @@ test("an accepted branch regeneration the port cannot recount leaves the arms af
     const { ports, savedOutcomes } = stubPorts({
       prepare: real.prepare,
       generate: real.generate,
-      execute: async () => ({ verdict: "pass" as const, cases: [], logs: "" }),
+      execute: passPerSpec,
       measure: async () => ({ status: "pass" as const, ratio: 0.9, uncovered: [], untakenArms: ARMS }),
     });
     const useCase = new RunQaUseCase({ ...ports, config: { ...baseConfig, needsReview: false, coveragePolicyMode: "signal", coverageBranchCases: "regenerate" } });
@@ -9086,7 +9107,7 @@ test("after an accepted regeneration whose coverage could not be recounted, the 
     const { ports } = stubPorts({
       prepare: real.prepare,
       generate: real.generate,
-      execute: async () => ({ verdict: "pass" as const, cases: [], logs: "" }),
+      execute: passPerSpec,
       measure: async () => ({ status: "pass" as const, ratio: 0.9, uncovered: [], untakenArms: ARMS }),
       review: async (_dir, _cases, _diff, enrichment) => {
         given = enrichment?.untakenArms;
