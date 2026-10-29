@@ -1332,16 +1332,21 @@ test("the seed runs the failure capture from an auto fixture", () => {
   assert.ok(seed.indexOf(FIXTURE_MARKER) < seed.indexOf("\nexport { expect };"), "the fixture lives inside the seed's test.extend");
 });
 
-test("setup gives a fixtures.ts from the seed that ran the capture from hooks the capture fixture, matching the current seed", () => {
+test("setup gives a fixtures.ts from the seed that ran the capture from hooks the capture fixture, the current blocks and the mutation fixture, and leaves the response-oracle fixture it holds as it is", () => {
+  const current = readFileSync(join(REAL_SEED_DIR, "fixtures.ts"), "utf8");
+  const hooks = shippedRevision("fixtures.rev-hooks.txt");
   let after = "";
   const warnings = warningsOf(() => {
-    after = afterEnsure("fixtures.ts", shippedRevision("fixtures.rev-hooks.txt"), (adapter, dir) => {
+    after = afterEnsure("fixtures.ts", hooks, (adapter, dir) => {
       adapter.ensureFailureCapture(dir);
       adapter.ensureSourceMaps(dir);
       adapter.ensureMutationFixture(dir);
     });
   });
-  assert.equal(after, readFileSync(join(REAL_SEED_DIR, "fixtures.ts"), "utf8"));
+  for (const [opening, closing] of SYSTEM_OWNED_BLOCKS) assert.equal(markedBlock(after, opening, closing), markedBlock(current, opening, closing), opening);
+  assert.ok(after.indexOf(">>> qa-capture-fixture") < after.indexOf("_faultInject: ["), "the capture fixture sits before the response-oracle fixture the copy holds");
+  assert.ok(after.indexOf("_faultInject: [") < after.indexOf("_mutate: ["), "and the mutation fixture after it");
+  assert.equal(markedBlock(after, "RESPONSE-ORACLE pass", "  _faultInject: ["), markedBlock(hooks, "RESPONSE-ORACLE pass", "  _faultInject: ["), "the retired fixture is not touched");
   assert.deepEqual(warnings, []);
 });
 
@@ -1412,24 +1417,74 @@ const FULL_MAPS_SEED = readFileSync(fileURLToPath(new URL("./__fixtures__/seed-r
 test("ensureSourceMaps: a fixtures.ts still holding the seed's code that kept each map whole is brought to the current seed", () => {
   const current = readFileSync(join(REAL_SEED_DIR, "fixtures.ts"), "utf8");
   assert.notEqual(FULL_MAPS_SEED, current);
-  assert.equal(withFixtures(FULL_MAPS_SEED, (dir) => realAdapter().ensureSourceMaps(dir)), current);
+  const after = withFixtures(FULL_MAPS_SEED, (dir) => realAdapter().ensureSourceMaps(dir));
+  assert.equal(markedBlock(after, ">>> qa-source-maps", "// <<< qa-source-maps <<<\n"), markedBlock(current, ">>> qa-source-maps", "// <<< qa-source-maps <<<\n"));
+  assert.match(after, /attachSourceMaps\(entries as unknown as CoverageEntry\[\], page\.request\)/);
 });
 
-test("ensureMutationFixture: a fixtures.ts from the seed without the mutation fixture gets it, typed, after the response oracle's; one that has it, or is not shaped like the seed, is left as it is", () => {
+const CAPTURE_FIXTURE_TYPE = "  // system-owned: do not edit — runs the failure-point capture around every test.\n  _failureCapture: void;\n";
+const MUTATION_FIXTURE_TYPE = "  // system-owned: do not edit — the orchestrator's mutation pass (PW_MUTANT).\n  _mutate: void;\n";
+const SYSTEM_OWNED_BLOCKS: ReadonlyArray<readonly [string, string]> = [
+  [">>> qa-capture-fixture", "// <<< qa-capture-fixture <<<\n"],
+  [">>> qa-failure-capture", "// <<< qa-failure-capture <<<\n"],
+  [">>> qa-source-maps", "// <<< qa-source-maps <<<\n"],
+  [">>> qa-mutation-fixture", "// <<< qa-mutation-fixture <<<\n"],
+];
+
+/* The current seed as a copy made from it would be without a fixture: the fixture's block and its type entry taken out. */
+function currentSeedWithout(fixture: "capture" | "mutation" | "both"): string {
+  let src = readFileSync(join(REAL_SEED_DIR, "fixtures.ts"), "utf8");
+  const take = (opening: string, closing: string, type: string): void => {
+    const block = markedBlock(src, opening, closing);
+    assert.ok(src.includes(block) && src.includes(type), `test precondition: the seed holds ${opening}`);
+    src = src.replace(block + (block.includes("qa-capture-fixture") ? "\n" : ""), "").replace(type, "");
+  };
+  if (fixture !== "mutation") take(">>> qa-capture-fixture", "// <<< qa-capture-fixture <<<\n", CAPTURE_FIXTURE_TYPE);
+  if (fixture !== "capture") take(">>> qa-mutation-fixture", "// <<< qa-mutation-fixture <<<\n", MUTATION_FIXTURE_TYPE);
+  return src;
+}
+
+test("ensureMutationFixture: a fixtures.ts from the seed without the mutation fixture gets it, typed, whether it holds the retired response-oracle fixture or not; one that has it, or is not shaped like the seed, is left as it is", () => {
   const current = readFileSync(join(REAL_SEED_DIR, "fixtures.ts"), "utf8");
-  const after = withFixtures(UNGATED_MAPS_SEED, (dir) => realAdapter().ensureMutationFixture(dir));
   const opening = ">>> qa-mutation-fixture";
   const closing = "// <<< qa-mutation-fixture <<<\n";
-  assert.equal(markedBlock(after, opening, closing), markedBlock(current, opening, closing));
-  assert.match(after, /_faultInject: void;\n  \/\/ system-owned: do not edit — the orchestrator's mutation pass \(PW_MUTANT\)\.\n  _mutate: void;\n/);
-  assert.ok(after.indexOf("_mutate: [") > after.indexOf("_faultInject: ["), "after the response oracle's fixture");
+
+  /* A copy made before the seed dropped the response-oracle fixture: it keeps the fixture, and the mutation fixture comes after it. */
+  const withOracle = withFixtures(UNGATED_MAPS_SEED, (dir) => realAdapter().ensureMutationFixture(dir));
+  assert.equal(markedBlock(withOracle, opening, closing), markedBlock(current, opening, closing));
+  assert.ok(withOracle.includes(MUTATION_FIXTURE_TYPE), "typed");
+  assert.ok(withOracle.indexOf("_mutate: [") > withOracle.indexOf("_faultInject: ["), "after the response-oracle fixture");
+
+  /* A copy of the current seed: put back exactly where the seed has it. */
+  const without = currentSeedWithout("mutation");
+  assert.notEqual(without, current);
+  assert.equal(withFixtures(without, (dir) => realAdapter().ensureMutationFixture(dir)), current);
 
   assert.equal(withFixtures(current, (dir) => realAdapter().ensureMutationFixture(dir)), current);
   const own = "export const test = base.extend({});\nexport { expect };\n";
   assert.equal(withFixtures(own, (dir) => realAdapter().ensureMutationFixture(dir)), own);
 });
 
-test("setup brings a fixtures.ts that is still the previous seed byte-for-byte to the current seed", () => {
+test("ensureFailureCapture: a fixtures.ts from the current seed without the capture fixture gets it back, typed, before the mutation fixture when it holds one and at the end of test.extend when it does not", () => {
+  const current = readFileSync(join(REAL_SEED_DIR, "fixtures.ts"), "utf8");
+  const [opening, closing] = SYSTEM_OWNED_BLOCKS[0]!;
+
+  /* Before the mutation fixture, where the seed has it (the type entries may differ in order, which a type literal does not care about). */
+  const beforeMutation = withFixtures(currentSeedWithout("capture"), (dir) => realAdapter().ensureFailureCapture(dir));
+  assert.equal(markedBlock(beforeMutation, opening, closing), markedBlock(current, opening, closing));
+  assert.ok(beforeMutation.includes(CAPTURE_FIXTURE_TYPE), "typed");
+  assert.ok(beforeMutation.indexOf(">>> qa-capture-fixture") < beforeMutation.indexOf(">>> qa-mutation-fixture"));
+
+  /* With neither fixture in the copy, both go to the end of test.extend, capture first, as the seed has them. */
+  const withNeither = withFixtures(currentSeedWithout("both"), (dir) => {
+    const adapter = realAdapter();
+    adapter.ensureFailureCapture(dir);
+    adapter.ensureMutationFixture(dir);
+  });
+  assert.equal(withNeither, current);
+});
+
+test("setup brings a fixtures.ts that is still the previous seed byte-for-byte to the current seed's blocks and fixtures, keeping the response-oracle fixture it holds", () => {
   const current = readFileSync(join(REAL_SEED_DIR, "fixtures.ts"), "utf8");
   const after = withFixtures(UNGATED_MAPS_SEED, (dir) => {
     const adapter = realAdapter();
@@ -1437,7 +1492,8 @@ test("setup brings a fixtures.ts that is still the previous seed byte-for-byte t
     adapter.ensureSourceMaps(dir);
     adapter.ensureMutationFixture(dir);
   });
-  assert.equal(after, current);
+  for (const [opening, closing] of SYSTEM_OWNED_BLOCKS) assert.equal(markedBlock(after, opening, closing), markedBlock(current, opening, closing), opening);
+  assert.ok(after.includes("_faultInject: ["), "the retired fixture stays in the copy");
 });
 
 test("ensureSourceMaps: the current seed, an edited copy of the previous code and a call site that is not the seed's are each left as they are", () => {

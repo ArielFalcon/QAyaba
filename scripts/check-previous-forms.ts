@@ -38,6 +38,8 @@ export interface CheckResult {
 }
 
 const RECORDS_PREFIX = "docs/architecture/";
+/* The seed revisions the setup adapter upgrades are kept byte-for-byte as they shipped, so they name what the seed has since dropped. */
+const SHIPPED_SEED_REVISIONS_PREFIX = "qa-engine/test/contexts/workspace-and-publication/infrastructure/__fixtures__/seed-revisions/";
 
 export const BANNED_RULES: BannedRule[] = [
   { id: "engine-flag", patterns: [/PIPELINE_ENGINE/i, /pipeline-engine-flag/i, /selectEngine/i] },
@@ -140,11 +142,11 @@ export const BANNED_RULES: BannedRule[] = [
   {
     id: "response-value-oracle",
     patterns: [
-      /\b(?:FaultInjectionOracleAdapter|NullValueOracleAdapter|ValueOraclePort|ValueOracleResult|ValueOraclePolicy|resolveValueOraclePolicy|FaultAim|FaultAimCandidate|faultAimOf|faultAim|scoreFaultInjection|FaultInjectionScore|CandidateValueUnscored|isFlowBreak|FLOW_BREAK|faultInject|faultOperations|oraclePolicy)\b/,
+      /\b(?:FaultInjectionOracleAdapter|NullValueOracleAdapter|ValueOraclePort|ValueOracleResult|ValueOraclePolicy|resolveValueOraclePolicy|FaultAim|FaultAimCandidate|faultAimOf|faultAim|scoreFaultInjection|FaultInjectionScore|CandidateValueUnscored|isFlowBreak|FLOW_BREAK|faultInject|faultOperations|oraclePolicy|faultOperationsFromEnv|faultOperationFor|corruptValues|faultCounterSequence|seed-fault-operations)\b/,
       /\b(?:fault-injection-oracle|null-value-oracle|value-oracle\.port|fault-injection-score|fault-aim|fault-calibration|fault-calibrate)\b/,
       /\b(?:CalibrationVerdict|CalibrationReplicate|CandidateCalibration|MAX_REPLICATE_SPREAD|MIN_APPLICABLE_SHARE|MAX_FLOW_BREAK_SHARE)\b/,
     ],
-    exemptPrefixes: [RECORDS_PREFIX],
+    exemptPrefixes: [RECORDS_PREFIX, SHIPPED_SEED_REVISIONS_PREFIX],
   },
   { id: "shell-dead-run-types", patterns: [/\bAgentResult\b/], exemptPrefixes: [RECORDS_PREFIX] },
   { id: "shell-events-reexport", patterns: [/\bsrc\/contract\/events(?:\.ts)?(?![\w.-])/], exemptPrefixes: [RECORDS_PREFIX] },

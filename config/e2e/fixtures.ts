@@ -9,7 +9,7 @@
 
 import { test as base, expect, type BrowserContext, type Page } from "@playwright/test";
 import { mkdirSync, writeFileSync } from "node:fs";
-import { join, relative } from "node:path";
+import { join } from "node:path";
 
 // system-owned: do not edit. A V8 coverage entry plus its (best-effort) source map. The
 // orchestrator uses `map` to translate covered bundle bytes back to original source files.
@@ -91,48 +91,6 @@ async function attachSourceMaps(entries: CoverageEntry[], request: QaMapRequest)
 }
 // <<< qa-source-maps <<<
 
-// >>> fault-operations (system-owned: do not edit) >>>
-// The operations the response-corruption pass may touch. The orchestrator hands them in QA_FAULT_INJECT_OPERATIONS as a
-// JSON list of `{ verb, pattern }` (at most 64 entries, each pattern at most 200 characters, an anchored regular
-// expression over the request's pathname). Whatever does not have that shape is left out; with no operation nothing is
-// corrupted.
-interface FaultOperation {
-  verb: string;
-  pattern: string;
-  re: RegExp;
-}
-
-function faultOperationsFromEnv(raw: string | undefined): FaultOperation[] {
-  if (!raw) return [];
-  try {
-    const parsed: unknown = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-    const operations: FaultOperation[] = [];
-    for (const entry of parsed.slice(0, 64)) {
-      if (typeof entry !== "object" || entry === null) continue;
-      const { verb, pattern } = entry as { verb?: unknown; pattern?: unknown };
-      if (typeof verb !== "string" || typeof pattern !== "string" || pattern.length > 200) continue;
-      try {
-        operations.push({ verb: verb.toUpperCase(), pattern, re: new RegExp(pattern) });
-      } catch {
-        /* a pattern that is not a regular expression names nothing */
-      }
-    }
-    return operations;
-  } catch {
-    return [];
-  }
-}
-
-function faultOperationFor(operations: readonly FaultOperation[], method: string, pathname: string): FaultOperation | undefined {
-  const verb = method.toUpperCase();
-  return operations.find((operation) => (operation.verb === "ANY" || operation.verb === "*" || operation.verb === verb) && operation.re.test(pathname));
-}
-// <<< fault-operations <<<
-
-// One counter file per test, named by the worker and the test's order in it.
-let faultCounterSequence = 0;
-
 export interface QaFixtures {
   namespace: string; // PER-ATTEMPT data prefix `qa-bot-<sha>-w<worker>r<retry>` (use to NAME/find created
                      // entities). The run-level BASE is `process.env.PW_NAMESPACE` (no -wXrY) — match by THAT
@@ -141,8 +99,6 @@ export interface QaFixtures {
   cleanup: (undo: () => Promise<void>) => void; // registers undo steps (LIFO, automatic)
   // system-owned: do not edit — the orchestrator reads these dumps for change-coverage.
   _coverage: void;
-  // system-owned: do not edit — the orchestrator's response-oracle pass (QA_FAULT_INJECT).
-  _faultInject: void;
   // system-owned: do not edit — the orchestrator's mutation pass (PW_MUTANT).
   _mutate: void;
   // system-owned: do not edit — runs the failure-point capture around every test.
@@ -261,71 +217,12 @@ export const test = base.extend<QaFixtures>({
   ],
   // <<< qa-capture-fixture <<<
 
-  // system-owned: do not edit. The orchestrator's RESPONSE-ORACLE pass sets QA_FAULT_INJECT=1 and names, in
-  // QA_FAULT_INJECT_OPERATIONS, the operations the change reaches. It re-runs the green suite with the JSON response
-  // VALUES of those operations corrupted (numbers/booleans flipped; status, shape, strings/ids preserved so auth and
-  // refs survive). A spec that stays green under corrupted data has a weak oracle (it would accept a backend regression).
-  // No-op in a normal run, and with no operation named. For each test that saw a corrupted response it dumps, to
-  // .qa/fault-injection/<ns>/, how many responses were corrupted, per operation, and which test it was, so the
-  // orchestrator can tell "no JSON API surface to corrupt" (oracle not applicable → no score) apart from "corruption
-  // happened and the suite stayed green" (a weak oracle), and attribute each outcome to its spec.
-  _faultInject: [
-    async ({ page }, use, testInfo) => {
-      const operations = process.env.QA_FAULT_INJECT === "1" ? faultOperationsFromEnv(process.env.QA_FAULT_INJECT_OPERATIONS) : [];
-      const byOperation: Record<string, number> = {};
-      let corrupted = 0;
-      if (operations.length > 0) {
-        await page.route("**", async (route) => {
-          const request = route.request();
-          const type = request.resourceType();
-          if (type !== "xhr" && type !== "fetch") return route.continue();
-          let operation: FaultOperation | undefined;
-          try {
-            operation = faultOperationFor(operations, request.method(), new URL(request.url()).pathname);
-          } catch {
-            operation = undefined;
-          }
-          if (!operation) return route.continue();
-          let res;
-          try {
-            res = await route.fetch();
-          } catch {
-            return route.continue();
-          }
-          const ct = res.headers()["content-type"] ?? "";
-          if (!ct.includes("json")) return route.fulfill({ response: res });
-          let body: unknown;
-          try {
-            body = await res.json();
-          } catch {
-            return route.fulfill({ response: res });
-          }
-          corrupted++;
-          const key = `${operation.verb} ${operation.pattern}`;
-          byOperation[key] = (byOperation[key] ?? 0) + 1;
-          return route.fulfill({ response: res, json: corruptValues(body) });
-        });
-      }
-      await use();
-      if (corrupted > 0) {
-        try {
-          const dir = join(process.cwd(), ".qa", "fault-injection", process.env.PW_NAMESPACE ?? "local");
-          mkdirSync(dir, { recursive: true });
-          const test = `${relative(process.cwd(), testInfo.file)}::${testInfo.title}`.slice(0, 400);
-          writeFileSync(join(dir, `injected-${process.pid}-${faultCounterSequence++}.json`), JSON.stringify({ corrupted, byOperation, test }));
-        } catch {
-          /* best effort — the marker is a signal, never a test failure */
-        }
-      }
-    },
-    { auto: true },
-  ],
   // >>> qa-mutation-fixture (system-owned: do not edit) >>>
   // The orchestrator's MUTATION pass sets PW_MUTANT to one edit of one script the page loads
   // ({ url, sha256, start, end, replacement }) and re-runs the tests that reached it: a test that stays
   // green while the changed code it ran does the opposite does not check that code. The edit is made
   // only to a response whose text is the script the coverage saw (same sha256). How many responses were
-  // mutated is counted beside the response oracle's counters, so a mutant that never reached the page
+  // mutated is counted in a counter file under .qa/fault-injection/<ns>/, so a mutant that never reached the page
   // is not scored. When the mutant names the tests whose coverage dumps ran it (`tests`, each named as
   // the coverage fixture names a dump), every other test is skipped. No-op in a normal run.
   _mutate: [
@@ -899,21 +796,6 @@ test.afterEach(async ({ page }, testInfo) => {
   if (!qaFailureCaptureByFixture) await qaFailureCaptureFinish(page, testInfo);
 });
 // <<< qa-failure-capture <<<
-
-// Recursively corrupts JSON VALUES (numbers, booleans) while preserving structure, strings, nulls
-// and keys — so tokens/ids (usually strings) survive and the app keeps flowing, but any numeric or
-// boolean datum the UI shows is now wrong. Used only by the _faultInject response-oracle pass.
-function corruptValues(v: unknown): unknown {
-  if (typeof v === "number") return Number.isFinite(v) ? (v === 0 ? 1 : v + 1) : v;
-  if (typeof v === "boolean") return !v;
-  if (Array.isArray(v)) return v.map(corruptValues);
-  if (v && typeof v === "object") {
-    const out: Record<string, unknown> = {};
-    for (const [k, val] of Object.entries(v as Record<string, unknown>)) out[k] = corruptValues(val);
-    return out;
-  }
-  return v;
-}
 
 // Names a test entity with the run's prefix: ns("qa-bot-x", "user").
 export function ns(namespace: string, name: string): string {

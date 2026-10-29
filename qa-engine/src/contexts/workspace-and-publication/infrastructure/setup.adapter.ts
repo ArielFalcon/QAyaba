@@ -59,9 +59,13 @@ const FAILURE_CAPTURE_FIXTURE = `  // >>> qa-capture-fixture (system-owned: do n
   // <<< qa-capture-fixture <<<
 
 `;
-const FAILURE_CAPTURE_FIXTURE_ANCHOR = "  // system-owned: do not edit. The orchestrator's RESPONSE-ORACLE pass";
 const FAILURE_CAPTURE_FIXTURE_TYPE = "  // system-owned: do not edit — runs the failure-point capture around every test.\n  _failureCapture: void;\n";
-const FAILURE_CAPTURE_FIXTURE_TYPE_ANCHOR = "\n  _faultInject: void;\n";
+/* The type line both fixture entries are placed after: the seed's first fixture, which every copy of it holds. */
+const FIXTURE_TYPE_ANCHOR = "\n  _coverage: void;\n";
+/* The end of the seed's test.extend, where a fixture goes when no other anchor is there. */
+const EXTEND_END_ANCHOR = "\n});\n\nexport { expect };\n";
+/* A fixtures.ts copied from the seed before it dropped its response-oracle fixture still holds that fixture, and the capture fixture sits before it. */
+const RETIRED_ORACLE_FIXTURE_ANCHOR = "  // system-owned: do not edit. The orchestrator's RESPONSE-ORACLE pass";
 
 /*
  * sha256 of every earlier capture block a repo's fixtures.ts received — appended by setup or carried
@@ -140,11 +144,21 @@ function withCaptureBlock(src: string, block: string): string {
 /* `src` with the capture fixture, when it has it or is a fixtures.ts from the seed holding the current block; undefined when the fixture cannot be placed. */
 function withCaptureFixture(src: string, block: string): string | undefined {
   if (src.includes(FAILURE_CAPTURE_FIXTURE_MARKER)) return src;
-  const typeAt = onlyIndexOf(src, FAILURE_CAPTURE_FIXTURE_TYPE_ANCHOR);
-  const fixtureAt = onlyIndexOf(src, FAILURE_CAPTURE_FIXTURE_ANCHOR);
-  if (!src.includes(block) || typeAt === -1 || fixtureAt === -1 || typeAt > fixtureAt) return undefined;
-  const typeEnd = typeAt + FAILURE_CAPTURE_FIXTURE_TYPE_ANCHOR.length;
-  return src.slice(0, typeEnd) + FAILURE_CAPTURE_FIXTURE_TYPE + src.slice(typeEnd, fixtureAt) + FAILURE_CAPTURE_FIXTURE + src.slice(fixtureAt);
+  const typeAt = onlyIndexOf(src, FIXTURE_TYPE_ANCHOR);
+  const place = captureFixturePlace(src);
+  if (!src.includes(block) || typeAt === -1 || place === undefined || typeAt > place.at) return undefined;
+  const typeEnd = typeAt + FIXTURE_TYPE_ANCHOR.length;
+  return src.slice(0, typeEnd) + FAILURE_CAPTURE_FIXTURE_TYPE + src.slice(typeEnd, place.at) + place.text + src.slice(place.at);
+}
+
+/* Where the capture fixture goes: before the response-oracle fixture a copy made before the seed dropped it still holds, else before the mutation fixture, else at the end of test.extend; undefined when none is there exactly once. */
+function captureFixturePlace(src: string): { at: number; text: string } | undefined {
+  const oracle = onlyIndexOf(src, RETIRED_ORACLE_FIXTURE_ANCHOR);
+  if (oracle !== -1) return { at: oracle, text: FAILURE_CAPTURE_FIXTURE };
+  const mutation = onlyIndexOf(src, `  // ${MUTATION_FIXTURE_MARKER}`);
+  if (mutation !== -1) return { at: mutation, text: FAILURE_CAPTURE_FIXTURE };
+  const end = onlyIndexOf(src, EXTEND_END_ANCHOR);
+  return end === -1 ? undefined : { at: end + 1, text: FAILURE_CAPTURE_FIXTURE };
 }
 
 /*
@@ -198,14 +212,12 @@ function withCurrentSourceMaps(src: string, current: string): string {
 /*
  * The seed's auto fixture of the mutation pass (it mutates one served script when PW_MUTANT names an edit), and its
  * entry in the seed's fixture types. A fixtures.ts from the seed that lacks it gets both, the fixture as the last of the
- * seed's test.extend and its type after the response oracle's; any other fixtures.ts is left as it is, and its mutants
+ * seed's test.extend and its type after the seed's first fixture's; any other fixtures.ts is left as it is, and its mutants
  * reach no page, so they are not scored.
  */
 export const MUTATION_FIXTURE_MARKER = ">>> qa-mutation-fixture (system-owned: do not edit) >>>";
 const MUTATION_FIXTURE_END_MARKER = "  // <<< qa-mutation-fixture <<<\n";
 const MUTATION_FIXTURE_TYPE = "  // system-owned: do not edit — the orchestrator's mutation pass (PW_MUTANT).\n  _mutate: void;\n";
-const MUTATION_FIXTURE_TYPE_ANCHOR = "\n  _faultInject: void;\n";
-const MUTATION_FIXTURE_ANCHOR = "\n});\n\nexport { expect };\n";
 
 /* The seed's mutation fixture block (from its opening marker's line through its closing marker line), or undefined. */
 function mutationFixtureOf(seed: string): string | undefined {
@@ -218,10 +230,10 @@ function mutationFixtureOf(seed: string): string | undefined {
 /* `src` with the mutation fixture `block`, when it has it or is shaped like the seed; undefined when it cannot be placed. */
 function withMutationFixture(src: string, block: string): string | undefined {
   if (src.includes(MUTATION_FIXTURE_MARKER)) return src;
-  const typeAt = onlyIndexOf(src, MUTATION_FIXTURE_TYPE_ANCHOR);
-  const fixtureAt = onlyIndexOf(src, MUTATION_FIXTURE_ANCHOR);
+  const typeAt = onlyIndexOf(src, FIXTURE_TYPE_ANCHOR);
+  const fixtureAt = onlyIndexOf(src, EXTEND_END_ANCHOR);
   if (typeAt === -1 || fixtureAt === -1 || typeAt > fixtureAt) return undefined;
-  const typeEnd = typeAt + MUTATION_FIXTURE_TYPE_ANCHOR.length;
+  const typeEnd = typeAt + FIXTURE_TYPE_ANCHOR.length;
   return src.slice(0, typeEnd) + MUTATION_FIXTURE_TYPE + src.slice(typeEnd, fixtureAt + 1) + block + src.slice(fixtureAt + 1);
 }
 
