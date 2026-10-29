@@ -163,14 +163,32 @@ report:
     }
   });
 
-  test("loadAppConfig warns that the retired qa.valueOracle key is ignored and still loads the app that carries it", () => {
+  test("loadAppConfig names the replacement of the retired qa.valueOracle key and says bundle mutation now runs unless it is off", () => {
     const lines = captureWarnings();
     const { root } = loadWith("", VALID_APP.replace("  needsReview: true", "  needsReview: true\n  valueOracle: signal"));
     try {
       assert.equal(loadAppConfig("shop", root).repo, "org/shop-front");
+      const retired = lines.filter((l) => /qa\.valueOracle/.test(l.message));
+      assert.equal(retired.length, 1);
+      assert.match(retired[0]?.message ?? "", /'shop'/);
+      assert.match(retired[0]?.message ?? "", /qa\.changeCoverage\.bundleMutation/);
+      assert.match(retired[0]?.message ?? "", /runs unless .*off/);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("loadAppConfig keeps the generic unknown-key warning for every other unknown key of the qa block", () => {
+    const lines = captureWarnings();
+    const { root } = loadWith("", VALID_APP.replace("  needsReview: true", "  needsReview: true\n  valueOraclee: signal"));
+    try {
       const unknown = lines.filter((l) => /unknown key/.test(l.message));
-      assert.equal(unknown.length, 1);
-      assert.match(unknown[0]?.message ?? "", /'qa\.valueOracle'/);
+      loadAppConfig("shop", root);
+      const warned = lines.filter((l) => /valueOraclee/.test(l.message));
+      assert.equal(unknown.length, 0);
+      assert.equal(warned.length, 1);
+      assert.match(warned[0]?.message ?? "", /unknown key 'qa\.valueOraclee' is ignored/);
+      assert.doesNotMatch(warned[0]?.message ?? "", /bundleMutation/);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

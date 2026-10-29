@@ -71,12 +71,18 @@ function droppedKeyPaths(document: unknown, kept: unknown, prefix = ""): string[
 /* A config is read on every request that names its app, so a dropped key is reported once per process, not once per read. */
 const warnedKeys = new Set<string>();
 
+const RETIRED_KEY_ADVICE: ReadonlyMap<string, string> = new Map([
+  ["qa.valueOracle", "it is ignored; use 'qa.changeCoverage.bundleMutation' instead (bundle mutation now runs unless that key is 'off')"],
+]);
+
 function warnDroppedKeys(app: string, root: string, paths: readonly string[]): void {
   for (const key of paths) {
     const id = `${root}\0${app}\0${key}`;
     if (warnedKeys.has(id)) continue;
     warnedKeys.add(id);
-    appLogger.warn(`[qa] app config '${app}': unknown key '${key}' is ignored (the schema does not declare it; a typo falls back to the default)`, { app, key });
+    const advice = RETIRED_KEY_ADVICE.get(key);
+    if (advice) appLogger.warn(`[qa] app config '${app}': key '${key}' is retired; ${advice}`, { app, key });
+    else appLogger.warn(`[qa] app config '${app}': unknown key '${key}' is ignored (the schema does not declare it; a typo falls back to the default)`, { app, key });
   }
 }
 
