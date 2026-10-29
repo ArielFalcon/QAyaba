@@ -32,7 +32,7 @@ import { createMaintainerRuntime, type MaintainerConfig, type MaintainerSideEffe
 import { recordIncident } from "../src/server/maintainer.ts";
 import { recordFixFailure } from "../src/server/maintainer-memory.ts";
 import { buildRunChatContext, buildRunContext } from "../src/server/chat.ts";
-import { LlmProfileProposerAdapter, PROPOSER_MODEL } from "../src/server/onboarding/llm-profile-proposer.adapter.ts";
+import { LlmProfileProposerAdapter } from "../src/server/onboarding/llm-profile-proposer.adapter.ts";
 import type { RunRecord } from "../src/types.ts";
 import { PROMPT_HEADINGS } from "@contexts/generation/application/index.ts";
 import { DIMENSIONS, MATRIX_STEP_LIMIT, allValidSpecs, buildInput, cellName, type CellSpec } from "./prompt-contract-matrix.ts";
@@ -221,7 +221,6 @@ async function readDeclaredModelSources(root: string = ROOT): Promise<Record<str
     "provider role defaults": (["opencode"] as const).flatMap((p) =>
       Object.values(providerConfig(p, {}).assignments).map((a) => a.model),
     ),
-    "proposer pin": [PROPOSER_MODEL],
   };
 }
 
@@ -646,7 +645,7 @@ async function reflectorPrompts(subject: string): Promise<PromptText[]> {
 /* The onboarding proposer's prompt, on the first round and after a round that scored low. */
 async function proposerPrompts(subject: string): Promise<PromptText[]> {
   const sent: string[] = [];
-  const adapter = new LlmProfileProposerAdapter(async () => recordingDeps(sent), PROPOSER_MODEL, { app: subject });
+  const adapter = new LlmProfileProposerAdapter(async () => recordingDeps(sent), { app: subject });
   const front = { repo: "org/web", mirrorDir: "/m/web" };
   const system = [{ repo: "org/orders", mirrorDir: "/m/orders" }];
   const profile = {

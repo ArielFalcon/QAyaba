@@ -9,9 +9,6 @@ import type { ProfileProposerPort, ProposerFeedback } from "@contexts/service-to
 import { lastJsonObjectWhere } from "@kernel/last-json-object";
 import { ProposerVerdictSchema, UNPARSEABLE_SENTINEL, type SchemaCandidate } from "./proposer-verdict.schema";
 
-/** Model pinned for every proposer session. Keep in sync with agents/opencode.json qa-proposer.model. */
-export const PROPOSER_MODEL = "opencode-go/glm-5.3-flash";
-
 /* Default per-session timeout when the caller doesn't override it via ctx.timeoutMs. */
 const DEFAULT_PROPOSER_TIMEOUT_MS = 5 * 60 * 1000;
 
@@ -133,13 +130,11 @@ export function commonSessionRoot(front: RepoRef, system: RepoRef[]): string {
 }
 
 /** LLM-backed ProfileProposerPort implementation. Ctor DI keeps the agent-runtime dependency
- *  swappable (a fake depsFactory drives the unit tests) and the model pin overridable for tests
- *  without touching the production default. */
+ *  swappable (a fake depsFactory drives the unit tests). The session runs on the model
+ *  agents/opencode.json declares for qa-proposer. */
 export class LlmProfileProposerAdapter implements ProfileProposerPort {
   constructor(
     private readonly depsFactory: () => Promise<AgentDeps> = defaultAgentDeps,
-    private readonly model: string = PROPOSER_MODEL,
-
     private readonly ctx: { app: string; timeoutMs?: number; signal?: AbortSignal },
   ) {}
 
@@ -147,7 +142,6 @@ export class LlmProfileProposerAdapter implements ProfileProposerPort {
     try {
       const deps = await this.depsFactory();
       const session = await deps.open("qa-proposer", commonSessionRoot(front, system), {
-        model: this.model,
         timeoutMs: this.ctx.timeoutMs ?? DEFAULT_PROPOSER_TIMEOUT_MS,
         signal: this.ctx.signal,
       });
@@ -169,7 +163,6 @@ export class LlmProfileProposerAdapter implements ProfileProposerPort {
        */
       logJson("warn", "onboarding proposer round failed (fail-open, returning no candidates)", {
         app: this.ctx.app,
-        model: this.model,
         error: redactionPort.redactError(err),
       });
       return [];

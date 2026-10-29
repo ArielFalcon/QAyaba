@@ -61,7 +61,7 @@ import { createApp as adminCreateApp, updateApp as adminUpdateApp, deleteApp as 
 import { writeConfig, configExists } from "./onboard";
 import { applyEnvVars, defaultEnvStoreFs } from "./env-store";
 import { createOnboardingJob, type RepoIndexOutcome } from "./onboarding/onboarding-job";
-import { LlmProfileProposerAdapter, PROPOSER_MODEL } from "./onboarding/llm-profile-proposer.adapter";
+import { LlmProfileProposerAdapter } from "./onboarding/llm-profile-proposer.adapter";
 import { OnboardingService } from "@contexts/service-topology/application/index";
 import { buildServiceBoundaryResolver } from "@contexts/service-topology/infrastructure/resolver-factory";
 
@@ -587,7 +587,7 @@ export function wireApp(settingsStore: SettingsStore): WiredApp {
       ensureMirrorAtBranch(repo, baseBranch, defaultMirrorDeps),
     hasOpencodeApiKey: () => Boolean(settings.environment.OPENCODE_API_KEY),
     hasProposerAgent: () => hasProposerAgentConfigured(),
-    buildProposer: (ctx) => new LlmProfileProposerAdapter(defaultAgentDeps, PROPOSER_MODEL, ctx),
+    buildProposer: (ctx) => new LlmProfileProposerAdapter(defaultAgentDeps, ctx),
     buildOnboardingService: (proposer, onRound) => new OnboardingService(proposer, buildServiceBoundaryResolver, 3, onRound),
     resolveLinks: (profile, system, front) => buildServiceBoundaryResolver([profile]).resolveLinks(system, front),
     readConfig: (path) => readFileSync(path, "utf8"),

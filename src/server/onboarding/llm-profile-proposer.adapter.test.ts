@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import type { AgentDeps, AgentSession } from "../../integrations/opencode-client";
 import type { RepoRef } from "@contexts/service-topology/application/index.ts";
 import type { ProposerFeedback } from "@contexts/service-topology/application/index.ts";
-import { LlmProfileProposerAdapter, PROPOSER_MODEL, commonSessionRoot } from "./llm-profile-proposer.adapter";
+import { LlmProfileProposerAdapter, commonSessionRoot } from "./llm-profile-proposer.adapter";
 
 const FRONT: RepoRef = { repo: "ArielFalcon/nname-gateway", mirrorDir: "/mirrors/nname-gateway" };
 const SYSTEM: RepoRef[] = [{ repo: "ArielFalcon/ms-name-orders", mirrorDir: "/mirrors/ms-name-orders" }];
@@ -116,7 +116,7 @@ function fakeDepsFactory(opts: FakeDepsOpts): () => Promise<AgentDeps> {
 test("propose(): a well-formed verdict (1 http + 1 event) returns the correctly discriminated BoundaryProfile[]", async () => {
   const disposed = { count: 0 };
   const depsFactory = fakeDepsFactory({ promptResult: fencedJson(VALID_VERDICT_JSON), disposed });
-  const adapter = new LlmProfileProposerAdapter(depsFactory, PROPOSER_MODEL, { app: "nname" });
+  const adapter = new LlmProfileProposerAdapter(depsFactory, { app: "nname" });
 
   const result = await adapter.propose(SYSTEM, FRONT);
 
@@ -131,7 +131,7 @@ test("propose(): a well-formed verdict (1 http + 1 event) returns the correctly 
 
 test("propose(): fail-open — deps.open() throwing returns [] without propagating", async () => {
   const depsFactory = fakeDepsFactory({ openThrows: true });
-  const adapter = new LlmProfileProposerAdapter(depsFactory, PROPOSER_MODEL, { app: "nname" });
+  const adapter = new LlmProfileProposerAdapter(depsFactory, { app: "nname" });
 
   const result = await adapter.propose(SYSTEM, FRONT);
 
@@ -140,7 +140,7 @@ test("propose(): fail-open — deps.open() throwing returns [] without propagati
 
 test("propose(): fail-open — session.prompt() rejecting (timeout/transport error) returns []", async () => {
   const depsFactory = fakeDepsFactory({ promptResult: new Error("timed out") });
-  const adapter = new LlmProfileProposerAdapter(depsFactory, PROPOSER_MODEL, { app: "nname" });
+  const adapter = new LlmProfileProposerAdapter(depsFactory, { app: "nname" });
 
   const result = await adapter.propose(SYSTEM, FRONT);
 
@@ -149,7 +149,7 @@ test("propose(): fail-open — session.prompt() rejecting (timeout/transport err
 
 test("propose(): fail-open — garbage/unparseable text from prompt() returns []", async () => {
   const depsFactory = fakeDepsFactory({ promptResult: "this is not json at all, sorry." });
-  const adapter = new LlmProfileProposerAdapter(depsFactory, PROPOSER_MODEL, { app: "nname" });
+  const adapter = new LlmProfileProposerAdapter(depsFactory, { app: "nname" });
 
   const result = await adapter.propose(SYSTEM, FRONT);
 
@@ -158,7 +158,7 @@ test("propose(): fail-open — garbage/unparseable text from prompt() returns []
 
 test("propose(): an unfenced verdict with nested objects after brace narration still parses", async () => {
   const reply = `I will scan \`async ({ page }) => {\` call sites first.\n${VALID_VERDICT_JSON}`;
-  const adapter = new LlmProfileProposerAdapter(fakeDepsFactory({ promptResult: reply }), PROPOSER_MODEL, { app: "nname" });
+  const adapter = new LlmProfileProposerAdapter(fakeDepsFactory({ promptResult: reply }), { app: "nname" });
 
   const result = await adapter.propose(SYSTEM, FRONT);
 
@@ -167,7 +167,7 @@ test("propose(): an unfenced verdict with nested objects after brace narration s
 
 test("propose(): a fenced verdict wins over an earlier quoted object", async () => {
   const reply = `Earlier draft: {"candidates":[]}\n${fencedJson(VALID_VERDICT_JSON)}`;
-  const adapter = new LlmProfileProposerAdapter(fakeDepsFactory({ promptResult: reply }), PROPOSER_MODEL, { app: "nname" });
+  const adapter = new LlmProfileProposerAdapter(fakeDepsFactory({ promptResult: reply }), { app: "nname" });
 
   const result = await adapter.propose(SYSTEM, FRONT);
 
@@ -176,7 +176,7 @@ test("propose(): a fenced verdict wins over an earlier quoted object", async () 
 
 test("propose(): mixed valid/malformed candidates returns only the valid ones (sentinel filtered out)", async () => {
   const depsFactory = fakeDepsFactory({ promptResult: fencedJson(MIXED_VERDICT_JSON) });
-  const adapter = new LlmProfileProposerAdapter(depsFactory, PROPOSER_MODEL, { app: "nname" });
+  const adapter = new LlmProfileProposerAdapter(depsFactory, { app: "nname" });
 
   const result = await adapter.propose(SYSTEM, FRONT);
 
@@ -186,20 +186,20 @@ test("propose(): mixed valid/malformed candidates returns only the valid ones (s
   if (result[1]?.transport === "http") assert.equal(result[1].servicePrefixTemplate, "other-{service}-api");
 });
 
-test("propose(): calls depsFactory() DIRECTLY and pins the adapter's model on open() opts (facade-bypass proof)", async () => {
+test("propose(): calls depsFactory() DIRECTLY and opens the session on the model qa-proposer declares (no pin on open() opts)", async () => {
   const opens: Array<{ agent: string; cwd: string; model?: string; timeoutMs?: number }> = [];
   const depsFactory = fakeDepsFactory({
     promptResult: fencedJson(VALID_VERDICT_JSON),
     onOpen: (agent, cwd, opts) => opens.push({ agent, cwd, model: opts?.model, timeoutMs: opts?.timeoutMs }),
   });
-  const adapter = new LlmProfileProposerAdapter(depsFactory, PROPOSER_MODEL, { app: "nname", timeoutMs: 12345 });
+  const adapter = new LlmProfileProposerAdapter(depsFactory, { app: "nname", timeoutMs: 12345 });
 
   await adapter.propose(SYSTEM, FRONT);
 
   assert.equal(opens.length, 1);
   assert.equal(opens[0]?.agent, "qa-proposer");
   assert.equal(opens[0]?.cwd, "/mirrors", "session must root at the front+services' common ancestor, not front.mirrorDir alone");
-  assert.equal(opens[0]?.model, PROPOSER_MODEL, "adapter must pin its own model, not fall through a facade");
+  assert.equal(opens[0]?.model, undefined, "the model is the one agents/opencode.json declares for qa-proposer, not one named here");
   assert.equal(opens[0]?.timeoutMs, 12345);
 });
 
@@ -222,7 +222,7 @@ test("propose(): multi-repo — session opens at the common ancestor of front + 
     promptResult: fencedJson(VALID_VERDICT_JSON),
     onOpen: (agent, cwd) => opens.push({ agent, cwd }),
   });
-  const adapter = new LlmProfileProposerAdapter(depsFactory, PROPOSER_MODEL, { app: "nname" });
+  const adapter = new LlmProfileProposerAdapter(depsFactory, { app: "nname" });
 
   await adapter.propose(system, front);
 
@@ -238,7 +238,7 @@ test("propose(): single-repo (system: []) — session opens at front.mirrorDir, 
     promptResult: fencedJson(VALID_VERDICT_JSON),
     onOpen: (agent, cwd) => opens.push({ agent, cwd }),
   });
-  const adapter = new LlmProfileProposerAdapter(depsFactory, PROPOSER_MODEL, { app: "nname" });
+  const adapter = new LlmProfileProposerAdapter(depsFactory, { app: "nname" });
 
   await adapter.propose([], front);
 
@@ -255,7 +255,7 @@ test("propose(): LCA edge case — divergent sibling-looking dirs resolve to the
     promptResult: fencedJson(VALID_VERDICT_JSON),
     onOpen: (agent, cwd) => opens.push({ agent, cwd }),
   });
-  const adapter = new LlmProfileProposerAdapter(depsFactory, PROPOSER_MODEL, { app: "nname" });
+  const adapter = new LlmProfileProposerAdapter(depsFactory, { app: "nname" });
 
   await adapter.propose(system, front);
 
@@ -309,7 +309,7 @@ test("propose(): ctx.signal is threaded straight through to deps.open's opts.sig
     },
   });
   const controller = new AbortController();
-  const adapter = new LlmProfileProposerAdapter(depsFactory, PROPOSER_MODEL, { app: "nname", signal: controller.signal });
+  const adapter = new LlmProfileProposerAdapter(depsFactory, { app: "nname", signal: controller.signal });
 
   await adapter.propose(SYSTEM, FRONT);
 
@@ -329,7 +329,7 @@ test("propose(): omitting ctx.signal leaves deps.open's opts.signal undefined (n
       };
     },
   });
-  const adapter = new LlmProfileProposerAdapter(depsFactory, PROPOSER_MODEL, { app: "nname" });
+  const adapter = new LlmProfileProposerAdapter(depsFactory, { app: "nname" });
 
   await adapter.propose(SYSTEM, FRONT);
 
@@ -348,7 +348,7 @@ test("propose(): prompt documents the http-backend transport shape and callPatte
       dispose: async () => {},
     }),
   });
-  const adapter = new LlmProfileProposerAdapter(depsFactory, PROPOSER_MODEL, { app: "nname" });
+  const adapter = new LlmProfileProposerAdapter(depsFactory, { app: "nname" });
   await adapter.propose(SYSTEM, FRONT);
 
   assert.ok(capturedPrompt.includes("http-backend"), "prompt must document the http-backend transport");
@@ -373,7 +373,7 @@ test("propose(): a well-formed http-backend candidate is returned as an HttpBack
     ],
   });
   const depsFactory = fakeDepsFactory({ promptResult: fencedJson(verdict) });
-  const adapter = new LlmProfileProposerAdapter(depsFactory, PROPOSER_MODEL, { app: "nname" });
+  const adapter = new LlmProfileProposerAdapter(depsFactory, { app: "nname" });
 
   const result = await adapter.propose(SYSTEM, FRONT);
 
@@ -397,7 +397,7 @@ test("propose(): http-backend prior-round feedback is summarized without throwin
       dispose: async () => {},
     }),
   });
-  const adapter = new LlmProfileProposerAdapter(depsFactory, PROPOSER_MODEL, { app: "nname" });
+  const adapter = new LlmProfileProposerAdapter(depsFactory, { app: "nname" });
   const feedback: ProposerFeedback = {
     priorCandidates: [
       {
@@ -435,7 +435,7 @@ test("propose(): when feedback.priorCandidates is non-empty, the prompt text ref
       dispose: async () => {},
     }),
   });
-  const adapter = new LlmProfileProposerAdapter(depsFactory, PROPOSER_MODEL, { app: "nname" });
+  const adapter = new LlmProfileProposerAdapter(depsFactory, { app: "nname" });
 
   const feedback: ProposerFeedback = {
     priorCandidates: [
@@ -464,7 +464,7 @@ test("propose(): when feedback.priorCandidates is non-empty, the prompt text ref
 
 test("propose(): fail-open holds even when feedback is supplied and the session throws", async () => {
   const depsFactory = fakeDepsFactory({ openThrows: true });
-  const adapter = new LlmProfileProposerAdapter(depsFactory, PROPOSER_MODEL, { app: "nname" });
+  const adapter = new LlmProfileProposerAdapter(depsFactory, { app: "nname" });
 
   const feedback: ProposerFeedback = {
     priorCandidates: [
@@ -492,19 +492,19 @@ test("propose(): fail-open holds even when feedback is supplied and the session 
 
 /* ── Diagnostic logging on the fail-open catch (an instant failure) ────────────────────
    LlmProfileProposerAdapter.propose()'s catch is the ONLY point where the real thrown error and
-   the app/model/singleProvider context still exist before the fail-open contract erases them to
+   the app context still exists before the fail-open contract erases them to
    `[]`. These tests assert exactly one warn-level structured log per failed round, with a redacted
    `error` field, and NO log on a successful round — including the zero-candidates-after-filtering
    case, which is not a throw and must stay silent.
  */
 
-test("propose(): session.prompt() rejecting logs exactly one redacted warn with {app, model, singleProvider, error} and still returns []", async () => {
+test("propose(): session.prompt() rejecting logs exactly one redacted warn with {app, error} and still returns []", async () => {
   const originalWarn = console.warn;
   const logged: string[] = [];
   console.warn = (...args: unknown[]) => { logged.push(args.map(String).join(" ")); };
   try {
     const depsFactory = fakeDepsFactory({ promptResult: new Error("connect ECONNREFUSED 127.0.0.1:4096") });
-    const adapter = new LlmProfileProposerAdapter(depsFactory, PROPOSER_MODEL, { app: "nname" });
+    const adapter = new LlmProfileProposerAdapter(depsFactory, { app: "nname" });
 
     const result = await adapter.propose(SYSTEM, FRONT);
 
@@ -513,7 +513,6 @@ test("propose(): session.prompt() rejecting logs exactly one redacted warn with 
     const entry = JSON.parse(logged[0] ?? "{}");
     assert.equal(entry.l, "warn");
     assert.equal(entry.app, "nname");
-    assert.equal(entry.model, PROPOSER_MODEL);
     assert.equal("singleProvider" in entry, false, "the retired runtime selector is no longer logged");
     assert.equal(entry.error, "connect ECONNREFUSED 127.0.0.1:4096");
   } finally {
@@ -527,7 +526,7 @@ test("propose(): deps.open() throwing before a session exists logs exactly one w
   console.warn = (...args: unknown[]) => { logged.push(args.map(String).join(" ")); };
   try {
     const depsFactory = fakeDepsFactory({ openThrows: true });
-    const adapter = new LlmProfileProposerAdapter(depsFactory, PROPOSER_MODEL, { app: "nname" });
+    const adapter = new LlmProfileProposerAdapter(depsFactory, { app: "nname" });
 
     const result = await adapter.propose(SYSTEM, FRONT);
 
@@ -535,7 +534,6 @@ test("propose(): deps.open() throwing before a session exists logs exactly one w
     assert.equal(logged.length, 1, "exactly one warn log must be emitted when open() throws");
     const entry = JSON.parse(logged[0] ?? "{}");
     assert.equal(entry.app, "nname");
-    assert.equal(entry.model, PROPOSER_MODEL);
     assert.match(entry.error, /boom: open failed/);
   } finally {
     console.warn = originalWarn;
@@ -555,7 +553,7 @@ test("propose(): an unparseable reply degrades to an empty verdict inside the tr
   console.warn = (...args: unknown[]) => { logged.push(args.map(String).join(" ")); };
   try {
     const depsFactory = fakeDepsFactory({ promptResult: "this is not json at all, sorry." });
-    const adapter = new LlmProfileProposerAdapter(depsFactory, PROPOSER_MODEL, { app: "nname" });
+    const adapter = new LlmProfileProposerAdapter(depsFactory, { app: "nname" });
 
     const result = await adapter.propose(SYSTEM, FRONT);
 
@@ -574,7 +572,7 @@ test("propose(): a secret embedded in the thrown error's message never reaches t
     const depsFactory = fakeDepsFactory({
       promptResult: new Error("401: Authorization: Bearer sk-supersecrettoken12345"),
     });
-    const adapter = new LlmProfileProposerAdapter(depsFactory, PROPOSER_MODEL, { app: "nname" });
+    const adapter = new LlmProfileProposerAdapter(depsFactory, { app: "nname" });
 
     await adapter.propose(SYSTEM, FRONT);
 
@@ -593,7 +591,7 @@ test("propose(): a successful round with candidates emits no failure log", async
   console.warn = (...args: unknown[]) => { logged.push(args.map(String).join(" ")); };
   try {
     const depsFactory = fakeDepsFactory({ promptResult: fencedJson(VALID_VERDICT_JSON) });
-    const adapter = new LlmProfileProposerAdapter(depsFactory, PROPOSER_MODEL, { app: "nname" });
+    const adapter = new LlmProfileProposerAdapter(depsFactory, { app: "nname" });
 
     const result = await adapter.propose(SYSTEM, FRONT);
 
@@ -610,7 +608,7 @@ test("propose(): a successful round filtered to zero (sentinel-only) candidates 
   console.warn = (...args: unknown[]) => { logged.push(args.map(String).join(" ")); };
   try {
     const depsFactory = fakeDepsFactory({ promptResult: fencedJson(SENTINEL_ONLY_VERDICT_JSON) });
-    const adapter = new LlmProfileProposerAdapter(depsFactory, PROPOSER_MODEL, { app: "nname" });
+    const adapter = new LlmProfileProposerAdapter(depsFactory, { app: "nname" });
 
     const result = await adapter.propose(SYSTEM, FRONT);
 

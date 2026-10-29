@@ -16,7 +16,7 @@ import { MirrorRegistryAdapter } from "../qa-engine/src/contexts/service-topolog
 import { buildServiceBoundaryResolver } from "../qa-engine/src/contexts/service-topology/infrastructure/resolver-factory.ts";
 import { OnboardingService, type OnboardingResult } from "../qa-engine/src/contexts/service-topology/application/index.ts";
 import type { RepoRef } from "../qa-engine/src/contexts/service-topology/application/index.ts";
-import { LlmProfileProposerAdapter, PROPOSER_MODEL } from "../src/server/onboarding/llm-profile-proposer.adapter.ts";
+import { LlmProfileProposerAdapter } from "../src/server/onboarding/llm-profile-proposer.adapter.ts";
 import { defaultAgentDeps } from "../src/integrations/opencode-client";
 import { serializeBoundary, spliceBoundariesBlock } from "../src/server/onboarding/write-boundaries.ts";
 
@@ -165,7 +165,7 @@ export async function runOnboarding(argv: string[], deps: OnboardingCliDeps): Pr
 
 function realDeps(app: string, mirrorRoot: string): OnboardingCliDeps {
   const registry = new MirrorRegistryAdapter(mirrorRoot);
-  const proposer = new LlmProfileProposerAdapter(defaultAgentDeps, PROPOSER_MODEL, { app });
+  const proposer = new LlmProfileProposerAdapter(defaultAgentDeps, { app });
   const service = new OnboardingService(proposer, buildServiceBoundaryResolver, 3);
   return {
     mirrorDir: (repo) => registry.mirrorDir(repo),

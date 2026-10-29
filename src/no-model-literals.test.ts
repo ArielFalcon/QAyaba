@@ -6,13 +6,11 @@ import { fileURLToPath } from "node:url";
 
 /*
  * Which model runs a role is configuration (agents/opencode.json and the operator's tier models). A model id in
- * production code is a second copy of that choice, so only the sites below may name one.
+ * production code is a second copy of that choice, so none may name one.
  */
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const SCANNED = ["src", "qa-engine/src"];
-
-const ALLOWED: readonly string[] = ["src/server/onboarding/llm-profile-proposer.adapter.ts"];
 
 /* A model id is `<provider>/<name>`; the providers are the ones agents/opencode.json declares models of. */
 function declaredProviderPrefixes(): string[] {
@@ -42,18 +40,6 @@ test("agents/opencode.json declares the providers whose model ids the scan looks
   assert.ok(prefixes.length > 0);
 });
 
-test("production code names a model id only where the allow-list says", () => {
-  const permitted = new Set(ALLOWED);
-  assert.deepEqual(
-    naming.filter((path) => !permitted.has(path)),
-    [],
-    "read the model from agents/opencode.json (declaredAgentModel) or the operator's tier model instead of naming it",
-  );
-});
-
-test("a file that no longer names a model id is removed from the allow-list", () => {
-  assert.deepEqual(
-    ALLOWED.filter((path) => !naming.includes(path)),
-    [],
-  );
+test("production code names no model id", () => {
+  assert.deepEqual(naming, [], "read the model from agents/opencode.json (declaredAgentModel) or the operator's tier model instead of naming it");
 });
