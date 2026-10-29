@@ -4,7 +4,7 @@ import { z } from "zod";
 import { writeFileSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { RunEventSchema, RunEventBodySchema } from "./events";
+import { RunEventSchema, RunEventBodySchema } from "@kernel/contract/events";
 import {
   RunRecordSchema, QaCaseSchema, SpecRecordSchema, AgentActivitySchema,
   AppViewSchema, AppServiceViewSchema, QueueStatusSchema, ChatEntrySchema, VersionInfoSchema,

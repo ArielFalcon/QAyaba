@@ -22,7 +22,7 @@ import { RedactionPortAdapter } from "../orchestrator/sanitizer";
 import { sleep as sleepWithAbort } from "../util/sleep";
 import { isInfraError } from "@kernel/domain-error";
 import type { RunEventStore } from "./run-events";
-import type { RunEventBody } from "../contract/events";
+import type { RunEventBody } from "@kernel/contract/events";
 import { Sha } from "@kernel/sha";
 import { ChangeSet, anchorProjection, type ChangeEntry } from "@contexts/change-analysis/application/index";
 import { changeEntryOf, isCoalescible, PendingChangeSets, type DeclaredRepos } from "./pending-change-sets";

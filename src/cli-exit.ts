@@ -1,4 +1,4 @@
-import { RunVerdictSchema } from "./contract/events";
+import { RunVerdictSchema } from "@kernel/contract/events";
 import { engineStatus, RUN_ENGINE_STATUSES } from "./types";
 
 /*

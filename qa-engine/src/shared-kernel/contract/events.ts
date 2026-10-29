@@ -1,4 +1,4 @@
-/* Live RunEvent stream the Channel Gateway pushes to clients. Our vocabulary, not OpenCode's: producers map raw signals onto these events; model prose (delta/TextPart/ReasoningPart) is never represented. Adding a variant here is the only way to surface a new live signal — there is no raw passthrough. src/contract/events.ts re-exports this module. */
+/* Live RunEvent stream the Channel Gateway pushes to clients. Our vocabulary, not OpenCode's: producers map raw signals onto these events; model prose (delta/TextPart/ReasoningPart) is never represented. Adding a variant here is the only way to surface a new live signal — there is no raw passthrough. */
 
 import { z } from "zod";
 

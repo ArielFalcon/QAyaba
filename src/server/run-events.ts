@@ -1,5 +1,5 @@
-import type { RunEvent, RunEventBody } from "../contract/events";
-import { RunEventBodySchema, RunEventSchema } from "../contract/events";
+import type { RunEvent, RunEventBody } from "@kernel/contract/events";
+import { RunEventBodySchema, RunEventSchema } from "@kernel/contract/events";
 import { sanitizeText } from "../../qa-engine/src/shared-infrastructure/redaction/pattern-redaction.adapter";
 import { TypedEventBus, type Unsubscribe } from "./event-bus";
 

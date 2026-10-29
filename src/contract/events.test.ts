@@ -10,7 +10,7 @@ import {
   RunStepSchema,
   RunVerdictSchema,
   TestTargetSchema,
-} from "./events";
+} from "@kernel/contract/events";
 
 test("a valid envelope with a test.passed body parses", () => {
   const ev = RunEventSchema.parse({

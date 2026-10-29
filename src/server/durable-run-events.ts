@@ -1,4 +1,4 @@
-import type { RunEvent } from "../contract/events";
+import type { RunEvent } from "@kernel/contract/events";
 import { createRunEventStore, type RunEventStore } from "./run-events";
 import { getHistory } from "./persistence/index";
 

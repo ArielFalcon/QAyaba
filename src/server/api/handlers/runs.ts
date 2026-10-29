@@ -3,7 +3,7 @@
 import { appLogger } from "../../../integrations/redacting-logger";
 import { z } from "zod";
 import { AgentTurnViewSchema, RunDetailSchema, RunRecordSchema } from "../../../contract/commands";
-import { RunEventSchema, type RunEvent } from "../../../contract/events";
+import { RunEventSchema, type RunEvent } from "@kernel/contract/events";
 import { sanitizeText } from "../../../../qa-engine/src/shared-infrastructure/redaction/pattern-redaction.adapter";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { ApiError } from "../api-error";

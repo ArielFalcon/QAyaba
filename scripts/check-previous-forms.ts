@@ -50,6 +50,7 @@ export const BANNED_RULES: BannedRule[] = [
   { id: "claude-md", patterns: [/CLAUDE\.md/i] },
   { id: "codebase-memory", patterns: [/codebase-memory/i] },
   { id: "shell-error-taxonomy", patterns: [/\bsrc\/errors\b/], exemptPrefixes: [RECORDS_PREFIX] },
+  { id: "shell-events-reexport", patterns: [/\bsrc\/contract\/events(?:\.ts)?(?![\w.-])/], exemptPrefixes: [RECORDS_PREFIX] },
   {
     id: "narration",
     patterns: [/migration-tier/i, /\bSlice \d/i, /\bcutover\b/i, /deleted twin/i, /frozen oracle/i, /the (old|earlier|former) (engine|pipeline|loader|path|build)/i, /\bcharacterization\b/i, /\bported (from|to)\b/i],

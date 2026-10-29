@@ -7,7 +7,7 @@ import (
 
 /* Each sample is the SSE `data:` payload the orchestrator emits (RunEventStore →
    {seq,runId,ts,body}). Decoding them through Decode ties the hand-written decoder
-   to the contract (src/contract/events.ts) so a variant cannot drift. */
+   to the contract (qa-engine/src/shared-kernel/contract/events.ts) so a variant cannot drift. */
 func TestDecodeRunEventVariants(t *testing.T) {
 	cases := []struct {
 		name string
