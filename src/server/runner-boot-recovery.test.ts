@@ -26,3 +26,17 @@ test("a run interrupted by a restart is finalized and its event stream ends with
   assert.equal(resumed[0]!.type, "run.verdict");
   assert.equal(resumed[0]!.type === "run.verdict" && resumed[0]!.verdict, "infra-error");
 });
+
+test("a run interrupted by a restart is announced in the log with the status and step it was left at", () => {
+  const rec = getHistory().runs.createRecord({ app: "boot-zombie-line", sha: "fff6666", target: "e2e", mode: "diff" });
+  getHistory().runs.updateRecord(rec.id, { status: "running", step: "validate" });
+  const lines: string[] = [];
+  const originalLog = console.log;
+  console.log = (...args: unknown[]) => void lines.push(args.map(String).join(" "));
+  try {
+    finalizeInterruptedRuns({ runEvents: createDurableRunEventStore() });
+  } finally {
+    console.log = originalLog;
+  }
+  assert.ok(lines.some((l) => l.includes(`finalized ${rec.id} (boot-zombie-line@fff6666) as infra-error (was running, step validate)`)), `no recovery line in: ${JSON.stringify(lines)}`);
+});

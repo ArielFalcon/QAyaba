@@ -1740,6 +1740,22 @@ test("a phase record that cannot be stored never stops the failed run from being
   assert.ok(errors.some((l) => /phase/i.test(l)), "the dropped phase record is said aloud");
 });
 
+/* The signal a crash used to carry as a maintainer incident is the error-level line: console.error is the error sink, an info line would go to console.log. */
+test("an unexpected internal error is logged at error level as a crash naming the app, the commit and the message", async () => {
+  const queue = new JobQueue();
+  const port: RunPipelinePort = { async run() { throw new Error("the factory blew up"); } };
+  const errors: string[] = [];
+  const originalError = console.error;
+  console.error = (...args: unknown[]) => void errors.push(args.map(String).join(" "));
+  try {
+    enqueueTrackedRun(queue, { app: "runner-crash-line", sha: "abc1234", target: "e2e", mode: "diff", source: "manual" }, { loadApp: cfg, engineFactory: () => port });
+    await queue.drain();
+  } finally {
+    console.error = originalError;
+  }
+  assert.ok(errors.some((l) => /CRASHED \(internal error\) runner-crash-line@abc1234: the factory blew up/.test(l)), `no error-level crash line in: ${JSON.stringify(errors)}`);
+});
+
 /* A run whose app map does not describe its commit gets the map rebuilt first, in its own queue turn, so that run already grounds on it.
    The question (does this app's map fit this commit?) is injected; the rebuild is an ordinary context run linked to the run that asked. */
 function mapRig(needs?: (app: string, sha: string) => Promise<boolean>) {
