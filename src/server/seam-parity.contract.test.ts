@@ -267,7 +267,7 @@ describe("seam-parity: COMPOSITION (EngineRootDeps vs buildEngineRootDeps)", () 
             return { text: "", sectionSizes: {} };
           },
         },
-        verdicts: { parseReview: () => ({ approved: true, corrections: [], parsed: true, valid: true, issues: [] }) },
+        verdicts: { parseReview: () => ({ approved: true, findings: [], parsed: true, valid: true, issues: [] }) },
       },
     });
     const specDir = join(cfg.mirrorDir, cfg.e2eRelDir);

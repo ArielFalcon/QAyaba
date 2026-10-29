@@ -1,7 +1,7 @@
 
 
 import { z } from "zod";
-import { GeneratorVerdictSchema, ReviewerVerdictSchema, correctionText, correctionSeverity, correctionCitation } from "../orchestrator/schemas";
+import { GeneratorVerdictSchema, ReviewerVerdictSchema, type CorrectionEntry } from "../orchestrator/schemas";
 import { lastJsonMatching, isClosingVerdict } from "./verdict-parse";
 import { GRAVE_TAGS } from "@kernel/error-class";
 import { NOOP_KIND } from "@kernel/noop-kind";
@@ -16,16 +16,20 @@ function leadingClassTag(text: string): string | null {
 }
 
 
-function effectiveSeverity(entry: import("../orchestrator/schemas").CorrectionEntry): "blocking" | "advisory" {
-  const tag = leadingClassTag(correctionText(entry));
-  if (tag && GRAVE_TAGS.has(tag)) return "blocking";
-  return correctionSeverity(entry);
+/* The reviewer's finding as the decision reads it: a grave class tag raises the severity the agent stated, and a null citation is no citation. */
+function effectiveFinding(entry: CorrectionEntry): ReviewerFinding {
+  const tag = leadingClassTag(entry.text);
+  const severity = tag && GRAVE_TAGS.has(tag) ? "blocking" : entry.severity;
+  return { text: entry.text, severity, ...(entry.citation ? { citation: entry.citation } : {}) };
 }
 
 /* Render zod issues as compact, prompt-ready strings ("path: message"). */
 function formatIssues(error: z.ZodError): string[] {
   return error.issues.map((i) => `${i.path.map(String).join(".") || "(root)"}: ${i.message}`);
 }
+
+/* A finding as the decision reads it: the citation is absent when the agent cited nothing. */
+export type ReviewerFinding = Omit<CorrectionEntry, "citation"> & { citation?: NonNullable<CorrectionEntry["citation"]> };
 
 export interface VerdictCheck {
   valid: boolean;
@@ -50,53 +54,43 @@ export function checkGeneratorVerdict(text: string): VerdictCheck {
 export interface ReviewerVerdict {
   approved: boolean;
   rationale?: string;
-  /* Flat list of ALL correction texts (blocking + advisory), for backward-compat logging. */
-  corrections: string[];
-  /* The effective severity of each correction, in the same order. Absent on older parsers. */
-  correctionSeverities?: ("blocking" | "advisory")[];
-  /* The evidence each correction cites, in the same order; a hole means that entry cited none. */
-  citations?: ({ kind: "contract" | "execution" | "dom" | "arm" | "availability" | "contradiction"; ref: string } | undefined)[];
-
+  /* Every finding the agent wrote, each with its effective severity and the evidence it cites; a finding with no citation is one the agent left uncited. */
+  findings: ReviewerFinding[];
   blockingCount: number;
-  valid: boolean;  /* the reviewer JSON satisfied the schema (i.e. `approved` is a clean boolean) */
+  valid: boolean;  /* the reviewer JSON satisfied the schema: every field the engine reads was readable */
   parsed: boolean;  /* an object carrying an `approved` field was found at all */
+  /* What the engine could not read (an unreadable answer) or read and set aside (the list of corrections beside an approval); empty when nothing was lost. */
   issues: string[];
 }
-
 
 export function parseReviewerVerdict(text: string): ReviewerVerdict {
   const candidate = lastJsonMatching(text, (x) => "approved" in x);
   if (!candidate) {
     return {
       approved: false,
-      corrections: [],
+      findings: [],
       blockingCount: 0,
       valid: false,
       parsed: false,
       issues: ["no reviewer verdict JSON (an object with an `approved` field) was found"],
     };
   }
-  const r = ReviewerVerdictSchema.safeParse(candidate);
-  if (r.success) {
-    const corrections = r.data.corrections.map(correctionText);
-    const correctionSeverities = r.data.corrections.map((e) => effectiveSeverity(e));
-    const citations = r.data.corrections.map((e) => correctionCitation(e));
-
-    const blockingCount = correctionSeverities.filter((s) => s === "blocking").length;
-    return {
-      approved: r.data.approved,
-      ...(r.data.rationale && r.data.rationale.trim() ? { rationale: r.data.rationale.trim() } : {}),
-      corrections,
-      correctionSeverities,
-      citations,
-      blockingCount,
-      valid: true,
-      parsed: true,
-      issues: [],
-    };
+  /* An approval does not depend on its list of corrections: a list that is not one is read as none and recorded. A rejection without its list is unreadable. */
+  const approvalWithoutList = candidate.approved === true && !Array.isArray(candidate.corrections);
+  const r = ReviewerVerdictSchema.safeParse(approvalWithoutList ? { ...candidate, corrections: [] } : candidate);
+  if (!r.success) {
+    return { approved: false, findings: [], blockingCount: 0, valid: false, parsed: true, issues: formatIssues(r.error) };
   }
-
-  return { approved: false, corrections: [], blockingCount: 0, valid: false, parsed: true, issues: formatIssues(r.error) };
+  const findings = r.data.corrections.map(effectiveFinding);
+  return {
+    approved: r.data.approved,
+    ...(r.data.rationale && r.data.rationale.trim() ? { rationale: r.data.rationale.trim() } : {}),
+    findings,
+    blockingCount: findings.filter((f) => f.severity === "blocking").length,
+    valid: true,
+    parsed: true,
+    issues: approvalWithoutList && candidate.corrections !== undefined ? ["corrections: not a list; read as none beside an approval"] : [],
+  };
 }
 
 
@@ -153,7 +147,7 @@ export function repairInstruction(kind: "generator" | "reviewer", issues: string
     kind === "generator"
       ? `{"specs": string[], "specMetas"?: [{"file","flow","objective","targets": string[]}], "note"?: string, "noop"?: {"kind": "${NOOP_KIND.NOT_WORTH}" | "${NOOP_KIND.UNOBSERVABLE}", "reason": string}}` +
         `\nIf you wrote no specs, "specs" is [] and "noop" gives its kind and the reason.`
-      : `{"approved": boolean, "rationale": string, "corrections": string[]}`;
+      : `{"approved": boolean, "rationale": string, "corrections": [{"text": string, "severity": "blocking" | "advisory", "citation"?: {"kind": "contract" | "execution" | "dom" | "arm" | "availability" | "contradiction", "ref": string}}]}`;
   const tail = opts?.priorResponseTail ? stripFrameMarkers(opts.priorResponseTail).trim() : "";
   const tailBlock = tail
     ? [

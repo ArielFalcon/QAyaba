@@ -21,7 +21,7 @@ function useCase(telemetry: TelemetryPort | undefined, withGrounding = true, val
   const deps: RunQaUseCaseDeps = {
     changeAnalysis: { classify: async () => ({ action: "generate", reason: "diff touches src/x.ts", diff: "" }) },
     ...served(generationOnDisk({ author: async () => scriptedGeneration({ specs: ["a.spec.ts"]}) })),
-    review: { review: async () => ({ approved: true, corrections: [], blockingCount: 0, parsed: true }) },
+    review: { review: async () => ({ approved: true, findings: [], blockingCount: 0, parsed: true }) },
     validation: { validate },
     execution: { execute: async () => ({ verdict: "pass", cases: [], logs: "" }) },
     objectiveSignal: { measure: async () => ({ status: "unknown", ratio: null }), blocks: () => false },

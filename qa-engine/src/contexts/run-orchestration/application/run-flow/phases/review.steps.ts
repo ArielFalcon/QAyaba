@@ -5,7 +5,7 @@ import { engineLog } from "@kernel/ports/process-logger.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 import { BlastRadius } from "@kernel/blast-radius.ts";
 import { hasGreenBytes } from "@kernel/run-verdict.ts";
-import { correctionClassOf } from "@contexts/generation/application/index.ts";
+import { correctionClassOf, findingTexts } from "@contexts/generation/application/index.ts";
 import { renderSpecChanges, sameReviewedSpecs, type ReviewSpecText } from "@contexts/generation/application/index.ts";
 import type { SpecRoot } from "@kernel/ports/spec-files.port.ts";
 import { precheckSpecsAgainstDom } from "@contexts/generation/application/index.ts";
@@ -173,7 +173,7 @@ export async function reviewRound(state: Readonly<RunState>, ctx: WorkspaceRunCo
     reviewStats.skippedRounds++;
     reviewResult = {
       approved: false,
-      corrections: previousRoundCorrections ?? [],
+      findings: (previousRoundCorrections ?? []).map((text) => ({ text, severity: "blocking" as const })),
       blockingCount: session.previousRoundBlocking ?? previousRoundCorrections?.length ?? 0,
       rationale: "the specs are materially unchanged since the previous rejection, so that verdict stands",
       parsed: true,
@@ -202,7 +202,7 @@ export async function reviewRound(state: Readonly<RunState>, ctx: WorkspaceRunCo
       roundRationale = `the captured DEV page contradicts ${precheckFindings.length} assertion(s) in the specs (deterministic check)`;
       reviewResult = {
         approved: false,
-        corrections: precheckFindings.map((finding) => finding.correction),
+        findings: precheckFindings.map((finding) => ({ text: finding.correction, severity: "blocking" as const })),
         blockingCount: precheckFindings.length,
         rationale: roundRationale,
         parsed: true,
@@ -243,12 +243,8 @@ export async function reviewRound(state: Readonly<RunState>, ctx: WorkspaceRunCo
   }
   reviewStats.rounds++;
   /* The missing cases the reviewer cites from the arms no test ran are taken out first: recorded and shown, never a requirement or a gate. */
-  if (decidedBy === "model" && reviewResult.citations?.some((citation) => citation?.kind === "arm")) {
-    const cited = reviewResult.corrections.map((text, index) => ({
-      text,
-      severity: reviewResult.severities?.[index] ?? ("blocking" as const),
-      ...(reviewResult.citations?.[index] ? { citation: reviewResult.citations[index]! } : {}),
-    }));
+  if (decidedBy === "model" && reviewResult.findings.some((finding) => finding.citation?.kind === "arm")) {
+    const cited = reviewResult.findings;
     const untakenArmRefs = session.armsCurrent ? new Set(state.coverage.untakenArms.map((u) => `${u.file}:${u.line}`)) : new Set<string>();
     const taken = takeMissingCases(cited, untakenArmRefs);
     for (const text of taken.missingCases) if (!session.missingCases.includes(text)) session.missingCases.push(text);
@@ -258,9 +254,7 @@ export async function reviewRound(state: Readonly<RunState>, ctx: WorkspaceRunCo
       ...reviewResult,
       /* A rejection that rested only on missing cases is no rejection. */
       approved: reviewResult.approved || (restedOnArms && blocking === 0),
-      corrections: taken.rest.map((f) => f.text),
-      severities: taken.rest.map((f) => f.severity),
-      citations: taken.rest.map((f) => f.citation),
+      findings: taken.rest,
       blockingCount: blocking,
     };
   }
@@ -275,12 +269,8 @@ export async function reviewRound(state: Readonly<RunState>, ctx: WorkspaceRunCo
   let droppedBlockingReasons: Partial<Record<DropReason, number>> = {};
   /* The spec each verified finding's citation names, for routing it to the flow that owns that spec. */
   let blockingSpecs = new Map<string, string>();
-  if (decidedBy === "model" && reviewResult.corrections.length > 0) {
-    const findings = reviewResult.corrections.map((text, index) => ({
-      text,
-      severity: reviewResult.severities?.[index] ?? ("blocking" as const),
-      ...(reviewResult.citations?.[index] ? { citation: reviewResult.citations[index]! } : {}),
-    }));
+  if (decidedBy === "model" && reviewResult.findings.length > 0) {
+    const findings = reviewResult.findings;
     /* The scope and the citations meet in the suite-relative form: the spec directory an agent prefixes to a path is not part of the file's name. */
     const specRelDir = specRelDirOf(specRoot);
     const filtered = filterReviewFindings(findings, {
@@ -311,16 +301,15 @@ export async function reviewRound(state: Readonly<RunState>, ctx: WorkspaceRunCo
       ...reviewResult,
       /* Only a verified finding can keep the reviewer's rejection standing. */
       approved: filtered.blocking.length === 0,
-      corrections: filtered.blocking,
-      severities: filtered.blocking.map(() => "blocking" as const),
-      citations: filtered.blocking.map(() => undefined),
+      findings: findings.filter((finding) => finding.severity === "blocking" && filtered.blocking.includes(finding.text)),
       blockingCount: filtered.blocking.length,
     };
   }
-  const reviewedBlocking = reviewResult.blockingCount ?? reviewResult.corrections.length;
+  const corrections = findingTexts(reviewResult.findings);
+  const reviewedBlocking = reviewResult.blockingCount ?? corrections.length;
   if (!reviewResult.unavailable) reviewStats.blocking = reviewedBlocking;
   const reviewOutcome = reviewResult.unavailable ? "unavailable" : reviewResult.parsed === false ? "parse-miss" : reviewResult.approved && reviewedBlocking === 0 ? "approved" : "rejected";
-  const correctionClass = reviewedBlocking > 0 ? correctionClassOf(reviewResult.corrections) : "none";
+  const correctionClass = reviewedBlocking > 0 ? correctionClassOf(corrections) : "none";
   session.lastReviewOutcome = reviewOutcome;
   session.lastCorrectionClass = correctionClass;
   recordReviewDecision(ctx, {
@@ -331,11 +320,12 @@ export async function reviewRound(state: Readonly<RunState>, ctx: WorkspaceRunCo
     blocking: reviewedBlocking,
     targets: [...new Set(reviewCases.map((c) => c.file ?? c.name))],
     existingSpecFiles,
-    corrections: reviewResult.corrections,
+    corrections,
     filtered: filteredReviewFindings,
     advisory: advisoryReviewFindings,
     droppedBlocking: droppedBlockingReasons,
     rationale: reviewResult.rationale,
+    issues: reviewResult.issues ?? [],
     durationMs: reviewResult.stats?.durationMs,
   });
   /*
@@ -373,11 +363,11 @@ export async function reviewRound(state: Readonly<RunState>, ctx: WorkspaceRunCo
      * An approving round clears them, including its own advisory notes — otherwise
      * a passing run would derive a failure class.
      */
-    session.finalReviewerCorrections = gateApproves ? [] : reviewResult.corrections;
+    session.finalReviewerCorrections = gateApproves ? [] : corrections;
   }
   if (next !== "correct") return goto("review-settle", { loops: { ...state.loops, reviewRound: round } });
   deps.observer?.onStep("retry", `reviewer-correction round ${round + 1}/${MAX_REVIEW_ROUNDS}`);
-  session.previousRoundCorrections = reviewResult.corrections;
+  session.previousRoundCorrections = corrections;
   session.previousRoundBlocking = reviewedBlocking;
   session.previousRoundSpecs = reviewedSpecs;
   session.previousRoundCaseCount = reviewCases.length;
@@ -406,10 +396,10 @@ export async function reviewCorrect(state: Readonly<RunState>, ctx: WorkspaceRun
   let { acceptanceCalls } = state.coverage;
   const pass = trail.coordinatedPass;
   const { reviewResult, blockingSpecs } = cur;
-  const findings: CorrectionFinding[] = reviewResult.corrections.map((text) => ({ text, ...(blockingSpecs.has(text) ? { spec: blockingSpecs.get(text)! } : {}) }));
+  const findings: CorrectionFinding[] = findingTexts(reviewResult.findings).map((text) => ({ text, ...(blockingSpecs.has(text) ? { spec: blockingSpecs.get(text)! } : {}) }));
   const { output: regen, leadCorrections } = !pass
     ? {
-        output: await regenerateByAuthor(state, ctx, signal, { reviewCorrections: reviewResult.corrections }),
+        output: await regenerateByAuthor(state, ctx, signal, { reviewCorrections: findingTexts(reviewResult.findings) }),
         leadCorrections: 0,
       }
     : mayCorrectThroughLead(state, ctx)
@@ -457,11 +447,12 @@ export async function reviewResolve(state: Readonly<RunState>, ctx: WorkspaceRun
    * one the run cannot check leaves the finding standing and is remembered as what the generator refused.
    */
   const rebuttals = decidedBy === "model" ? (regen.rebuttals ?? []) : [];
+  const corrections = findingTexts(reviewResult.findings);
   const settled = rebuttals.length > 0
-    ? verifyRebuttals(rebuttals, reviewResult.corrections, rebuttalEvidence(ctx, run.cases, rebuttals))
+    ? verifyRebuttals(rebuttals, corrections, rebuttalEvidence(ctx, run.cases, rebuttals))
     : { withdrawn: [], disputed: [] };
   const withdrawn = new Set(settled.withdrawn.map(findingKey));
-  const outstanding = reviewResult.corrections.filter((finding) => !withdrawn.has(findingKey(finding)));
+  const outstanding = corrections.filter((finding) => !withdrawn.has(findingKey(finding)));
   if (rebuttals.length > 0) {
     reviewStats.rebuttals += rebuttals.length;
     reviewStats.rebuttalWithdrawn += settled.withdrawn.length;
@@ -481,7 +472,7 @@ export async function reviewResolve(state: Readonly<RunState>, ctx: WorkspaceRun
     }
     rollbackDelivered(state, deliveredBefore);
     /* Every blocking finding withdrawn with evidence, and no new bytes: the reviewed bytes stand approved. */
-    const allWithdrawn = reviewResult.corrections.length > 0 && outstanding.length === 0;
+    const allWithdrawn = corrections.length > 0 && outstanding.length === 0;
     const next = reviewAction({ after: "correction", produced: false, allWithdrawn, disputed: settled.disputed.length > 0 });
     if (next === "approve") {
       session.reviewerApproved = true;
@@ -539,7 +530,7 @@ export async function reviewResolve(state: Readonly<RunState>, ctx: WorkspaceRun
   rollbackDelivered(state, deliveredBefore);
   if (outcome) traceAcceptedFiles(ctx, CORRECTION_ORIGIN.REVIEW, { kept: 0, restored: changedSpecFiles.length });
   session.reviewerApproved = false;
-  session.finalReviewerCorrections = reviewResult.corrections;
+  session.finalReviewerCorrections = corrections;
   if (outcome?.kind === "cap") integrityCounters.capHit = true;
   else integrityCounters.rejected += 1;
   return goto("review-settle");

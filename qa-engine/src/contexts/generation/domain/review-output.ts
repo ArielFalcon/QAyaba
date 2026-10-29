@@ -62,31 +62,30 @@ export function boundReviewRationale(rationale: string | undefined): string | un
   return bounded === "" ? undefined : bounded;
 }
 
+/** One finding of the reviewer's answer: its text, the severity the reviewer gave it and the evidence it cites. A finding with no `citation` is one the reviewer left uncited. */
+export interface ReviewFinding {
+  text: string;
+  severity: "blocking" | "advisory";
+  citation?: { kind: "contract" | "execution" | "dom" | "arm" | "availability" | "contradiction"; ref: string };
+}
+
+/** The texts of a list of findings, where a list of strings is handed on (to the generator, to the record). */
+export function findingTexts(findings: readonly ReviewFinding[]): string[] {
+  return findings.map((finding) => finding.text);
+}
+
 /**
- * The corrections the generator will be handed (at most REVIEW_CORRECTIONS_MAX, each bounded), with the severity and citation the reviewer gave each, bounded and ordered as one
- * list, so the three stay aligned by index. A parallel list the reviewer did not give stays absent.
+ * The findings the generator will be handed (at most REVIEW_CORRECTIONS_MAX, each text bounded), blocking
+ * first, with the severity and citation each one carries.
  */
-export function boundReviewFindings<C>(
-  corrections: readonly string[],
-  severities?: readonly ("blocking" | "advisory")[],
-  citations?: readonly C[],
-): { corrections: string[]; severities?: ("blocking" | "advisory")[]; citations?: C[] } {
-  const bounded = corrections.map((correction, index) => ({
-    text: boundReviewText(correction, REVIEW_CORRECTION_MAX_CHARS),
-    severity: severities?.[index],
-    citation: citations?.[index],
-  }));
+export function boundReviewFindings(findings: readonly ReviewFinding[]): ReviewFinding[] {
+  const bounded = findings.map((finding) => ({ ...finding, text: boundReviewText(finding.text, REVIEW_CORRECTION_MAX_CHARS) }));
   /* A count cap must never hide the blocking finding the generator has to fix: blocking entries
    * come first, whatever order the model wrote them in. */
-  const blocking = (c: (typeof bounded)[number]): boolean => c.severity === "blocking";
-  const kept = [...bounded.filter(blocking), ...bounded.filter((c) => !blocking(c))]
-    .filter((c) => c.text !== "")
+  const blocking = (finding: ReviewFinding): boolean => finding.severity === "blocking";
+  return [...bounded.filter(blocking), ...bounded.filter((finding) => !blocking(finding))]
+    .filter((finding) => finding.text !== "")
     .slice(0, REVIEW_CORRECTIONS_MAX);
-  return {
-    corrections: kept.map((c) => c.text),
-    ...(severities ? { severities: kept.map((c) => c.severity ?? "advisory") } : {}),
-    ...(citations ? { citations: kept.map((c) => c.citation as C) } : {}),
-  };
 }
 
 /** Whether an answer exceeded the contract's size, so a caller can say so without keeping the prose. */

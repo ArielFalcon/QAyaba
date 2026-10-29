@@ -35,7 +35,7 @@ function harness(overrides: Overrides = {}) {
   const deps: RunQaUseCaseDeps = {
     changeAnalysis: { classify: overrides.classify ?? (async () => ({ action: "generate", reason: "diff touches src/x.ts", diff: "" })) },
     ...served(generationOnDisk({ author: overrides.author ?? (async () => scriptedGeneration({ specs: ["a.spec.ts"]})) })),
-    review: { review: async () => ({ approved: true, corrections: [], blockingCount: 0, parsed: true }) },
+    review: { review: async () => ({ approved: true, findings: [], blockingCount: 0, parsed: true }) },
     validation: { validate: overrides.validate ?? (async () => ({ ok: true, errors: [] })) },
     execution: { execute: async () => ({ verdict: "pass", cases: [], logs: "" }) },
     objectiveSignal: { measure: async () => ({ status: "unknown", ratio: null }), blocks: () => false },

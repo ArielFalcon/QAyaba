@@ -73,7 +73,7 @@ const INVALID_ONCE = (): ValidationPort["validate"] => {
 };
 const REJECTS_ONCE = (): ReviewPort["review"] => {
   let reviews = 0;
-  return citingRejections(async () => (++reviews === 1 ? { approved: false, corrections: ["[false-positive] the assertion targets the wrong element"], blockingCount: 1, parsed: true } : { approved: true, corrections: [], blockingCount: 0, parsed: true }));
+  return citingRejections(async () => (++reviews === 1 ? { approved: false, findings: [{ text: "[false-positive] the assertion targets the wrong element", severity: "blocking" as const }], blockingCount: 1, parsed: true } : { approved: true, findings: [], blockingCount: 0, parsed: true }));
 };
 const COVERAGE_GAP: ObjectiveSignalPort["measure"] = async () => ({ status: "fail", ratio: 0.2, uncovered: [{ file: "src/a.ts", lines: [1, 2] }] });
 
@@ -108,7 +108,7 @@ async function run(scenario: Scenario): Promise<GenerationEnrichment[]> {
           return output;
         },
       })),
-      review: { review: scenario.review ?? (async () => ({ approved: true, corrections: [], blockingCount: 0, parsed: true })) },
+      review: { review: scenario.review ?? (async () => ({ approved: true, findings: [], blockingCount: 0, parsed: true })) },
       validation: { validate: scenario.validate ?? (async () => ({ ok: true, errors: [] })) },
       execution: { execute: scenario.execute ?? PASSING },
       objectiveSignal: { measure: scenario.measure ?? (async () => ({ status: "unknown", ratio: null })), blocks: scenario.blocks ?? (() => false) },

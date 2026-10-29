@@ -55,7 +55,7 @@ async function runOf(input: RunQaInput, execute?: RunQaUseCaseDeps["execution"][
       ws.write("a.spec.ts", `export const turn = ${++turn};\n`);
       return scriptedGeneration({ specs: ["a.spec.ts"]});
     } })),
-    review: { review: citingRejections(review ?? (async () => ({ approved: true, corrections: [], blockingCount: 0, parsed: true }))) },
+    review: { review: citingRejections(review ?? (async () => ({ approved: true, findings: [], blockingCount: 0, parsed: true }))) },
     validation: { validate: async () => ({ ok: true, errors: [] }) },
     execution: { execute: execute ?? (async () => ({ verdict: "pass", cases: [{ name: "a", status: "pass", file: "a.spec.ts" }], logs: "" })) },
     objectiveSignal: { measure: async () => ({ status: "unknown", ratio: null }), blocks: () => false },
@@ -132,7 +132,7 @@ test("a rejected review corrects through its own steps, then judges the correcte
     { ...base, mode: "diff", runId: "sequence-review-rounds" },
     undefined,
     "pass",
-    async () => (++reviews === 1 ? { approved: false, corrections: ["assert the confirmation text"], blockingCount: 1, parsed: true } : { approved: true, corrections: [], blockingCount: 0, parsed: true }),
+    async () => (++reviews === 1 ? { approved: false, findings: [{ text: "assert the confirmation text", severity: "blocking" as const }], blockingCount: 1, parsed: true } : { approved: true, findings: [], blockingCount: 0, parsed: true }),
   );
   const ran = recorder.steps.filter((step) => step.outcome === "ran" && step.id.startsWith("review-")).map((step) => step.id);
   assert.deepEqual(ran, ["review-tests", "review-round", "review-correct", "review-resolve", "review-round", "review-settle"]);

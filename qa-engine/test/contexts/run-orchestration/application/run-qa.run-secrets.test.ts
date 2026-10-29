@@ -36,7 +36,7 @@ async function runOnce(runId: string, observe: { atGenerate?: RunSecretScope | u
           return scriptedGeneration({ specs: ["a.spec.ts"], declaredSpecs: [{ file: "a.spec.ts", flow: "f", objective: "o" }]});
         },
       })),
-      review: { review: async () => ({ approved: true, corrections: [], blockingCount: 0, parsed: true }) },
+      review: { review: async () => ({ approved: true, findings: [], blockingCount: 0, parsed: true }) },
       validation: { validate: async () => ({ ok: true, errors: [] }) },
       execution: {
         execute: async () => {

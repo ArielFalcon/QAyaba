@@ -74,7 +74,7 @@ function rig(result: () => Promise<CoordinateResult> | CoordinateResult = () => 
         return { plan: { kind: "lead" }, parsed: true, timedOut: false };
       },
     }),
-    review: { review: async () => ({ approved: true, corrections: [], blockingCount: 0, parsed: true }) },
+    review: { review: async () => ({ approved: true, findings: [], blockingCount: 0, parsed: true }) },
     validation: { validate: async () => (r.validated++, calls.push("validate"), { ok: true, errors: [] }) },
     execution: { execute: async () => (calls.push("execute"), { verdict: "pass", cases: PASS, logs: "" }) },
     objectiveSignal: { measure: async () => ({ status: "unknown", ratio: null }), blocks: () => false },
@@ -295,7 +295,7 @@ function keptPass(r: Rig, answer: (findings: readonly CorrectionFinding[]) => Pa
 /* A reviewer that rejects its first round with these findings and approves the next. */
 function rejectingOnce(corrections: string[]) {
   let round = 0;
-  return { review: citingRejections(async () => (round++ === 0 ? { approved: false, corrections, blockingCount: corrections.length, parsed: true } : { approved: true, corrections: [], blockingCount: 0, parsed: true })) };
+  return { review: citingRejections(async () => (round++ === 0 ? { approved: false, findings: corrections.map((text) => ({ text, severity: "blocking" as const })), blockingCount: corrections.length, parsed: true } : { approved: true, findings: [], blockingCount: 0, parsed: true })) };
 }
 
 const delivered = (pass: CoordinatedPass): CoordinateResult => ({ action: "fanout", aggregated: { end: GENERATION_END.DELIVERED, specs: ["flows/a.spec.ts"], incompleteFlows: [] }, proposals: [], signal: signalOf({ plan: "fanout", flows: 1, delivered: 1 }), pass });
@@ -390,8 +390,8 @@ test("corrections the lead's pass made are recorded even when the reviewer canno
   kept.pass.correct = async (findings) => { const out = await correct(findings); r.ws.write("flows/a.spec.ts", "export const total = 1;\n"); return out; };
   let round = 0;
   const review = { review: citingRejections(async () => (round++ === 0
-    ? { approved: false, corrections: ["flows/a.spec.ts never asserts the total"], blockingCount: 1, parsed: true }
-    : { approved: false, corrections: [], blockingCount: 0, parsed: false, unavailable: true })) };
+    ? { approved: false, findings: [{ text: "flows/a.spec.ts never asserts the total", severity: "blocking" as const }], blockingCount: 1, parsed: true }
+    : { approved: false, findings: [], blockingCount: 0, parsed: false, unavailable: true })) };
   const result = await new RunQaUseCase(r.deps({ review })).run(INPUT);
   assert.equal(result.outcome?.errorClass, "E-REVIEWER-UNAVAILABLE");
   assert.deepEqual(result.outcome?.gateSignals.coordination?.corrections, { turns: 1, routed: 1, unrouted: 0, revised: 1, replaced: 0, rebutted: 0 });
@@ -673,7 +673,7 @@ test("a flaky run is measured and reviewed like a pass, and is still quarantined
   const result = await new RunQaUseCase(r.deps({
     execution: flaky.execution,
     objectiveSignal: { measure: async () => (measured++, { status: "unknown" as const, ratio: null }), blocks: () => false },
-    review: { review: async () => (reviewed++, { approved: true, corrections: [], blockingCount: 0, parsed: true }) },
+    review: { review: async () => (reviewed++, { approved: true, findings: [], blockingCount: 0, parsed: true }) },
   })).run(INPUT);
   assert.equal(measured, 1, "the change-coverage of the green bytes is measured");
   assert.equal(reviewed, 1, "the reviewer judges the specs");
@@ -686,7 +686,7 @@ test("a flaky run whose reviewer cannot be reached is still quarantined, not an 
   const flaky = flakyOnce([flakyCase()]);
   const result = await new RunQaUseCase(r.deps({
     execution: flaky.execution,
-    review: { review: async () => ({ approved: false, corrections: [], blockingCount: 0, parsed: false, unavailable: true }) },
+    review: { review: async () => ({ approved: false, findings: [], blockingCount: 0, parsed: false, unavailable: true }) },
   })).run(INPUT);
   assert.equal(result.decision.verdict, "flaky");
   assert.equal(result.decision.sideEffect, "quarantine");
@@ -791,7 +791,7 @@ test("the reviewer of a planned run is handed the change by flow under review, a
   const changeScope = { resolve: async () => ({ repos: [], reach: [], hubs: [], disagreements: [], omitted: 0, degraded: [] }), candidates: async () => candidates };
   const changeAnalysis = { classify: async () => ({ action: "generate" as const, reason: "diff touches src/cart.ts", diff }) };
   const seen: Array<ReviewEnrichment | undefined> = [];
-  const review = { review: async (_dir: string, _cases: readonly QaCase[], _diff?: string, enrichment?: ReviewEnrichment) => (seen.push(enrichment), { approved: true, corrections: [], blockingCount: 0, parsed: true }) };
+  const review = { review: async (_dir: string, _cases: readonly QaCase[], _diff?: string, enrichment?: ReviewEnrichment) => (seen.push(enrichment), { approved: true, findings: [], blockingCount: 0, parsed: true }) };
 
   const planned = rig(() => ({ ...authored(), flowCandidates: [{ specFile: "flows/a.spec.ts", candidates: ["uc-cart"] }] }));
   await new RunQaUseCase(planned.deps({ changeScope, changeAnalysis, review })).run(INPUT);

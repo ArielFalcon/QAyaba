@@ -7,14 +7,14 @@ import { parseVerdict } from "./verdict-parse";
 const NARRATION = "I will write `async ({ page }) => {` and then the helper {name, value} to check the form.\n";
 
 test("parseReviewerVerdict reads the closing verdict after narration with an unbalanced brace", () => {
-  const v = parseReviewerVerdict(`${NARRATION}{"approved":false,"corrections":["a.spec.ts: scope the selector"]}`);
+  const v = parseReviewerVerdict(`${NARRATION}{"approved":false,"corrections":[{"text":"a.spec.ts: scope the selector","severity":"blocking"}]}`);
   assert.equal(v.parsed, true);
   assert.equal(v.approved, false);
-  assert.equal(v.corrections.length, 1);
+  assert.equal(v.findings.length, 1);
 });
 
 test("parseReviewerVerdict takes the last verdict when an earlier one was quoted", () => {
-  const v = parseReviewerVerdict('{"approved":false,"corrections":["x"]} then, revised:\n{"approved":true,"corrections":[]}');
+  const v = parseReviewerVerdict('{"approved":false,"corrections":[{"text":"x","severity":"blocking"}]} then, revised:\n{"approved":true,"corrections":[]}');
   assert.equal(v.approved, true);
 });
 

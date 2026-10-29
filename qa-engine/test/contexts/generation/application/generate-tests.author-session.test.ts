@@ -21,7 +21,7 @@ function author(): { turn(): Promise<unknown>; opened: Opened[]; disposed: () =>
     rendering: { render: () => "", renderMain: () => ({ text: "MAIN", sectionSizes: {} }), renderReviewer: () => ({ text: "", sectionSizes: {} }), specFileForFlow: (f) => `flows/${f}.spec.ts` },
     verdicts: {
       parseGenerator: (text) => ({ specs: ["flows/a.spec.ts"], parsed: true, outputTail: text }),
-      parseReview: () => ({ approved: true, corrections: [], valid: true, issues: [] }),
+      parseReview: () => ({ approved: true, findings: [], valid: true, issues: [] }),
     },
     manifest: { read: async () => [], reconcile: async (_d, e) => [...e] as ManifestEntry[] },
   };

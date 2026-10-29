@@ -21,7 +21,7 @@ function useCase(saved: RunOutcome[], opts: { verdict?: "pass" | "fail"; note?: 
   return new RunQaUseCase({
     changeAnalysis: { classify: async () => ({ action: "generate", reason: "x", diff: "" }) },
     ...served(generationOnDisk({ author: async () => scriptedGeneration({ specs: ["a.spec.ts"]}) })),
-    review: { review: async () => ({ approved: true, corrections: [], blockingCount: 0, parsed: true }) },
+    review: { review: async () => ({ approved: true, findings: [], blockingCount: 0, parsed: true }) },
     validation: { validate: async () => ({ ok: true, errors: [] }) },
     execution: { execute: async () => ({ verdict: opts.verdict ?? "pass", cases: [], logs: "" }) },
     objectiveSignal: { measure: async () => ({ status: "unknown", ratio: null }), blocks: () => false },

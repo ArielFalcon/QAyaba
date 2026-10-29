@@ -44,9 +44,8 @@ const CandidateSchema = z.discriminatedUnion("transport", [
 
 /*
  * Recognizable sentinel a malformed candidate degrades to (per-entry .catch), so the adapter can
- * filter it out while preserving valid siblings — the INVERSE intent of ReviewerVerdictSchema's
- * fail-closed placeholder (src/orchestrator/schemas.ts): the proposer must fail OPEN, a bad
- * candidate must never poison the round nor collapse the whole array.
+ * filter it out while preserving valid siblings: the proposer fails OPEN, a bad candidate never
+ * poisons the round nor collapses the whole array.
  */
 export const UNPARSEABLE_SENTINEL = {
   transport: "http",

@@ -17,7 +17,7 @@ async function run(opts: { facts?: DataContradiction[]; review?: ReviewPort["rev
     rig.extra = { preGenerationGrounding: { ground: async () => ({ dataContradictions: { read: 3, facts: opts.facts ?? [FACT] } }) } };
     rig.review = async (...args) => {
       enrichment = args[3];
-      return opts.review ? opts.review(...args) : { approved: true, corrections: [], blockingCount: 0, parsed: true };
+      return opts.review ? opts.review(...args) : { approved: true, findings: [], blockingCount: 0, parsed: true };
     };
     rig.publish = async (decision) => {
       published = decision;
@@ -52,9 +52,7 @@ test("pages read with no contradiction are recorded as read, and nothing is give
 test("a blocking finding that cites a contradiction the run recorded is verified and rejects the review; one citing an unrecorded key is dropped", async () => {
   const rejection = (ref: string): ReviewPort["review"] => async () => ({
     approved: false,
-    corrections: ["[false-positive] the spec guards its ordering check with `if (offered.length > 0)` over a source the run saw contradict itself"],
-    severities: ["blocking"],
-    citations: [{ kind: "contradiction", ref }],
+    findings: [{ text: "[false-positive] the spec guards its ordering check with `if (offered.length > 0)` over a source the run saw contradict itself", severity: "blocking", citation: { kind: "contradiction", ref } }],
     blockingCount: 1,
     parsed: true,
   });

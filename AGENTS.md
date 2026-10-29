@@ -220,9 +220,14 @@ is the only engine; webhook (`src/server/webhook-handler.ts`, wired by `src/serv
    → Issue. Before any model round a deterministic DOM pre-check (`generation/domain/deterministic-review-precheck.ts`) may reject a spec whose positive assertion the captured page lacks; it never checks a spec file whose every case passed on DEV on the bytes under review (that assertion resolved on the live site, whatever viewport, session, locale or location the capture differed in), counted as `gateSignals.reviewer.preCheckSkippedProven`. A reviewer that could not be reached (its session failed, or it returned nothing) judged
    nothing, which is not a rejection: the run ends as a persisted `infra-error` `E-REVIEWER-UNAVAILABLE`
    (the reviewer's reason on the run record and in the log, no PR and no Issue, nothing learned; three in
-   a row log an observe-only audit finding). A reviewer whose answer holds no readable verdict (cut mid-JSON, say) is first asked once, in
-   the same session, to restate it (the contract repair below); an answer still unreadable is a fail-closed
-   parse miss. On a run with a plan the reviewer is given, instead of the whole diff, the slice of each
+   a row log an observe-only audit finding). The reviewer's answer crosses to the decision whole: it is read into
+   `{ approved, rationale?, findings }`, a finding being `{ text, severity, citation? }` with the severity required and a
+   missing `citation` meaning the agent cited nothing; the engine fills in no field of it. An answer with no readable verdict
+   (cut mid-JSON, say), or with an entry or field the schema cannot read (an entry with no severity, a plain string, a
+   citation of an unknown kind or with a non-text `ref`, a non-boolean `approved`, `corrections` that is not a list beside a
+   rejection) is first asked once, in the same session and naming what could not be read, to restate it (the contract repair
+   below); an answer still unreadable is a fail-closed parse miss that carries those issues (`qayaba.review.issues` on the
+   decision span). `corrections` that is not a list beside an approval is read as none and recorded in the same attribute. On a run with a plan the reviewer is given, instead of the whole diff, the slice of each
    flow under review, every changed file (path, kind, added/removed) and, in full under a heading of its
    own, every part of the diff no flow under review holds (`run-flow/review-change.ts`,
    `reviewer-change-sections.ts`); with nothing assigned, or no plan, it keeps the whole diff. A prompt
@@ -528,7 +533,8 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
 - **Contract repair** — the re-prompt that only restates a verdict (author or reviewer) runs with tools
   disabled (`AgentPromptOpts.withoutTools`; OpenCode sends a per-prompt `tools` deny map) and under its own short timeout (`REPAIR_TURN_TIMEOUT_MS`,
   2 min, further cut to the time left). A repair that outlasts its cap leaves the first answer standing:
-  the generation then ends `no-verdict` (loudly noted) and an unreadable review fails closed. A timeout
+  the generation then ends `no-verdict` (loudly noted) and an unreadable review fails closed. The reviewer's
+  repair names the issues the parser found. A timeout
   in a run with no tier budget (broad, other modes, a regeneration) is still the integration error it was,
   unless it is the run deadline.
 - **Regeneration listing** — a regeneration lists the suite as that turn knows it (the specs

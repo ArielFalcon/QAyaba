@@ -53,7 +53,7 @@ function stubPorts(overrides: Partial<{
     author: overrides.generate ?? (async () => (scriptedGeneration({ specs: ["a.spec.ts"]}))),
   }));
   const review: ReviewPort = {
-    review: overrides.review ?? (async () => ({ approved: true, corrections: [], blockingCount: 0, parsed: true })),
+    review: overrides.review ?? (async () => ({ approved: true, findings: [], blockingCount: 0, parsed: true })),
   };
   const validation: ValidationPort = {
     validate: overrides.validate ?? (async () => ({ ok: true, errors: [] })),
@@ -305,7 +305,7 @@ test("an outcome the use case never persisted still tells how far the run got", 
 
 test("reviewerApproved is forwarded into the returned RunOutcome, not hardcoded away", async () => {
   const { ports } = stubPorts({
-    review: async () => ({ approved: true, corrections: [], blockingCount: 0, parsed: true }),
+    review: async () => ({ approved: true, findings: [], blockingCount: 0, parsed: true }),
   });
   const adapter = new RunPipelineAdapter({ ...ports, config: baseConfig });
 

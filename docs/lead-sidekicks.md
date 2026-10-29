@@ -300,6 +300,10 @@ are the last of their kind to go. An unknown window shows everything, and the re
 
 ## The reviewer's corrections
 
+The reviewer's answer reaches this step whole: its findings are `{ text, severity, citation? }` exactly as the agent wrote
+them, and an answer with an entry or field the engine cannot read is asked about once and then ends as a parse miss with its
+issues recorded, so no finding the lead is shown was filled in by the engine.
+
 A pass whose flows delivered, with the lead's planning session, is not closed when the coordination ends: the run keeps it
 (`CoordinatedPass`) through validation, execution and the independent review. When the reviewer rejects a round with verified
 findings, the run asks the lead, in the same planning session, instead of regenerating alone (`lead-correction.ts`):

@@ -7,7 +7,7 @@ import type { GeneratorDeliverable, ReviewJudgment } from "../domain/manifest-re
 import type { SpecMeta } from "@kernel/qa-case.ts";
 import { GENERATION_NOTE_MAX_CHARS } from "../domain/generation-end.ts";
 import { sanitizeText } from "../../../shared-infrastructure/redaction/pattern-redaction.adapter.ts";
-import { boundReviewFindings, boundReviewRationale, boundReviewText, reviewAnswerIsOversized, REVIEW_CORRECTION_MAX_CHARS, REVIEW_CORRECTIONS_MAX, REVIEW_RATIONALE_MAX_CHARS, REVIEW_RESPONSE_MAX_CHARS } from "../domain/review-output.ts";
+import { boundReviewFindings, boundReviewRationale, boundReviewText, reviewAnswerIsOversized, REVIEW_CORRECTION_MAX_CHARS, REVIEW_CORRECTIONS_MAX, REVIEW_RATIONALE_MAX_CHARS, REVIEW_RESPONSE_MAX_CHARS, type ReviewFinding } from "../domain/review-output.ts";
 import type { NoopKind } from "@kernel/noop-kind.ts";
 
 /* Redacted at the earliest point, then cut to the note bound: the reason and the output tail end up persisted on the run, where no later stage redacts them. The reason keeps its start, the output keeps its end. */
@@ -52,16 +52,12 @@ interface ParsedVerdict {
 }
 interface ParsedReviewerVerdict {
   approved: boolean;
-  corrections: string[];
+  findings: ReviewFinding[];
   rationale?: string;
   blockingCount?: number;
   parsed?: boolean;
   valid: boolean;
   issues: string[];
-  /* The effective severity of each correction, in order, when the parser can tell them apart. */
-  correctionSeverities?: ("blocking" | "advisory")[];
-  /* The evidence each correction cites, in order; a hole means that entry cited none. */
-  citations?: ({ kind: "contract" | "execution" | "dom" | "arm" | "availability" | "contradiction"; ref: string } | undefined)[];
 }
 
 export interface VerdictParsers {
@@ -121,14 +117,9 @@ export class VerdictParserAdapter implements VerdictParserPort {
       );
     }
     const rationale = boundReviewRationale(r.rationale);
-    /* One ordering (blocking first) and one cap for the corrections and their parallel lists, so each
-       severity and citation stays with its own correction. */
-    const { corrections, severities, citations } = boundReviewFindings(r.corrections, r.correctionSeverities, r.citations);
     return {
       approved: r.approved,
-      corrections,
-      ...(severities ? { severities } : {}),
-      ...(citations ? { citations } : {}),
+      findings: boundReviewFindings(r.findings),
       ...(rationale !== undefined ? { rationale } : {}),
       ...(r.blockingCount !== undefined ? { blockingCount: r.blockingCount } : {}),
       ...(r.parsed !== undefined ? { parsed: r.parsed } : {}),

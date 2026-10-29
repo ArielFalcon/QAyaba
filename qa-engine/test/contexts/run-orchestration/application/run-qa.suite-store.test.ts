@@ -77,7 +77,7 @@ function rig(opts: { authRestored?: boolean; notRestored?: readonly string[]; re
     return {
     changeAnalysis: { classify: async () => ({ action: "generate", reason: "diff touches src/x.ts", diff: "" }) },
     ...served(generationOnDisk(generationOver ?? { author: async () => scriptedGeneration({ specs: ["flows/a.spec.ts"]}) })),
-    review: { review: async () => ({ approved: true, corrections: [], blockingCount: 0, parsed: true }) },
+    review: { review: async () => ({ approved: true, findings: [], blockingCount: 0, parsed: true }) },
     validation: { validate: async () => ({ ok: true, errors: [] }) },
     execution: { execute: async () => ({ verdict: "pass", cases: PASSING, logs: "" }) },
     objectiveSignal: { measure: async () => ({ status: "unknown", ratio: null }), blocks: () => false },
@@ -140,7 +140,7 @@ test("a spec the reviewer's correction round rewrote is executed by its acceptan
         return scriptedGeneration({ specs: ["flows/a.spec.ts"]});
       },
     }),
-    review: { review: citingRejections(async () => (reviews++ === 0 ? { approved: false, corrections: ["assert the total"], blockingCount: 1, parsed: true } : { approved: true, corrections: [], blockingCount: 0, parsed: true })) },
+    review: { review: citingRejections(async () => (reviews++ === 0 ? { approved: false, findings: [{ text: "assert the total", severity: "blocking" as const }], blockingCount: 1, parsed: true } : { approved: true, findings: [], blockingCount: 0, parsed: true })) },
     execution: { execute: async () => (executions++, { verdict: "pass", cases: PASSING, logs: "" }) },
   })).run(INPUT);
 
@@ -165,7 +165,7 @@ test("a correction round whose acceptance fails in one spec file keeps the green
         return scriptedGeneration({ specs: ["flows/a.spec.ts", "flows/b.spec.ts"] });
       },
     }),
-    review: { review: citingRejections(async () => (reviews++ === 0 ? { approved: false, corrections: ["assert the total"], blockingCount: 1, parsed: true } : { approved: true, corrections: [], blockingCount: 0, parsed: true })) },
+    review: { review: citingRejections(async () => (reviews++ === 0 ? { approved: false, findings: [{ text: "assert the total", severity: "blocking" as const }], blockingCount: 1, parsed: true } : { approved: true, findings: [], blockingCount: 0, parsed: true })) },
     execution: {
       execute: async () => {
         executions += 1;
@@ -208,7 +208,7 @@ test("a run that is not accepted keeps nothing: a failed or flaky verdict, a rej
   const cases: Array<[string, Partial<RunQaUseCaseDeps>]> = [
     ["fail", { execution: { execute: async () => ({ verdict: "fail", cases: [{ name: "a", status: "fail", file: "flows/a.spec.ts" }], logs: "" }) } }],
     ["flaky", { execution: { execute: async () => ({ verdict: "flaky", cases: [{ name: "a", status: "flaky", file: "flows/a.spec.ts" }], logs: "" }) } }],
-    ["rejected", { review: { review: citingRejections(async () => ({ approved: false, corrections: ["x"], blockingCount: 1, parsed: true })) } }],
+    ["rejected", { review: { review: citingRejections(async () => ({ approved: false, findings: [{ text: "x", severity: "blocking" as const }], blockingCount: 1, parsed: true })) } }],
     ["coverage block", { objectiveSignal: { measure: async () => ({ status: "fail", ratio: 0.1 }), blocks: () => true } }],
   ];
   for (const [name, over] of cases) {

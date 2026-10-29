@@ -2,6 +2,12 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { checkGeneratorVerdict, parseReviewerVerdict, repairInstruction } from "./verdict-validate";
 import { parseVerdict } from "./verdict-parse";
+import { ReviewPortAdapter } from "@contexts/generation/infrastructure/adapters/review-port.adapter";
+import { VerdictParserAdapter } from "@contexts/generation/infrastructure/verdict-parser.adapter";
+import type { PromptRenderingPort } from "@contexts/generation/application/ports/prompt-rendering.port";
+import type { RepairPort } from "@contexts/generation/application/index";
+import type { AgentRuntimePort } from "@kernel/ports/agent-runtime.port";
+import type { QaCase } from "@kernel/qa-case";
 
 test("checkGeneratorVerdict accepts a well-formed generator block", () => {
   const c = checkGeneratorVerdict('done.\n{"specs":["login.spec.ts"],"specMetas":[{"file":"login.spec.ts","flow":"login","objective":"valid creds reach the dashboard","targets":["AuthService.login"]}],"note":""}');
@@ -147,13 +153,13 @@ test("parseReviewerVerdict reads an approval with a rationale", () => {
   assert.equal(v.valid, true);
   assert.equal(v.approved, true);
   assert.equal(v.rationale, "the discount logic is asserted");
-  assert.deepEqual(v.corrections, []);
+  assert.deepEqual(v.findings, []);
 });
 
 test("parseReviewerVerdict reads a rejection with tagged corrections", () => {
-  const v = parseReviewerVerdict('{"approved":false,"rationale":"no assertion on the discount","corrections":["[false-positive] checkout.spec.ts: assert the discounted total"]}');
+  const v = parseReviewerVerdict('{"approved":false,"rationale":"no assertion on the discount","corrections":[{"text":"[false-positive] checkout.spec.ts: assert the discounted total","severity":"blocking"}]}');
   assert.equal(v.approved, false);
-  assert.deepEqual(v.corrections, ["[false-positive] checkout.spec.ts: assert the discounted total"]);
+  assert.deepEqual(v.findings, [{ text: "[false-positive] checkout.spec.ts: assert the discounted total", severity: "blocking" }]);
 });
 
 test("parseReviewerVerdict flags a non-boolean approved for repair (does not silently pass or miss)", () => {
@@ -175,15 +181,26 @@ test("parseReviewerVerdict fails closed and flags a parse miss when no verdict i
   assert.ok(v.issues.length > 0);
 });
 
-test("parseReviewerVerdict tolerates malformed corrections (never false-blocks an approval)", () => {
-  /* The gate is `approved`; a botched corrections field must not turn a real approval into a
-     fail-closed rejection. corrections falls back to [].
-   */
+test("parseReviewerVerdict does not let a botched corrections field turn a real approval into a rejection, and records the loss", () => {
   const v = parseReviewerVerdict('{"approved":true,"corrections":"oops not an array"}');
   assert.equal(v.parsed, true);
   assert.equal(v.valid, true);
   assert.equal(v.approved, true);
-  assert.deepEqual(v.corrections, []);
+  assert.deepEqual(v.findings, []);
+  assert.deepEqual(v.issues, ["corrections: not a list; read as none beside an approval"]);
+});
+
+test("parseReviewerVerdict reads an approval with no corrections field as an approval with nothing lost", () => {
+  const v = parseReviewerVerdict('{"approved":true,"rationale":"ok"}');
+  assert.deepEqual([v.valid, v.approved, v.findings, v.issues], [true, true, [], []]);
+});
+
+test("parseReviewerVerdict does not read a rejection whose corrections are not a list: the answer is unreadable", () => {
+  for (const text of ['{"approved":false,"corrections":"fix the selector"}', '{"approved":false,"rationale":"did not converge"}']) {
+    const v = parseReviewerVerdict(text);
+    assert.deepEqual([v.parsed, v.valid, v.approved], [true, false, false]);
+    assert.match(v.issues.join("; "), /corrections/);
+  }
 });
 
 test("parseReviewerVerdict takes the LAST verdict object", () => {
@@ -207,7 +224,7 @@ test("advisory-only verdict — blockingCount is zero, gate passes", () => {
   assert.equal(v.valid, true);
   assert.equal(v.parsed, true);
   assert.equal(v.blockingCount, 0, "advisory-only verdict must have blockingCount=0");
-  assert.equal(v.corrections.length, 2, "both advisory corrections surfaced as strings");
+  assert.equal(v.findings.length, 2, "both advisory findings surfaced");
 });
 
 test("blocking correction — blockingCount is non-zero, gate fails", () => {
@@ -223,25 +240,21 @@ test("blocking correction — blockingCount is non-zero, gate fails", () => {
   const v = parseReviewerVerdict(json);
   assert.equal(v.valid, true);
   assert.equal(v.blockingCount, 1, "exactly one blocking correction");
-  assert.equal(v.corrections.length, 2, "both corrections in the flat list");
+  assert.equal(v.findings.length, 2, "both findings in the list");
 });
 
-test("missing severity field defaults to blocking (fail-closed backward compat)", () => {
-  /* A plain-string correction (no severity field) must be treated as blocking so older
-     reviewer outputs do not accidentally pass the gate with unclassified corrections.
-   */
+test("an entry with no severity makes the answer unreadable: the engine assigns none", () => {
   const json = JSON.stringify({
     approved: false,
     rationale: "format correction",
-    corrections: ["[other] some.spec.ts: a correction without a severity field"],
+    corrections: [{ text: "[other] some.spec.ts: a correction without a severity field" }],
   });
   const v = parseReviewerVerdict(json);
-  assert.equal(v.valid, true);
-  assert.equal(v.blockingCount, 1, "plain-string correction defaults to blocking");
-  assert.equal(v.corrections[0], "[other] some.spec.ts: a correction without a severity field");
+  assert.deepEqual([v.parsed, v.valid, v.blockingCount, v.findings], [true, false, 0, []]);
+  assert.match(v.issues.join("; "), /corrections\.0\.severity/);
 });
 
-test("mixed structured and plain-string corrections — plain strings count as blocking", () => {
+test("a plain-string entry makes the answer unreadable: the contract says each correction is an object", () => {
   const json = JSON.stringify({
     approved: false,
     rationale: "mixed format",
@@ -251,8 +264,8 @@ test("mixed structured and plain-string corrections — plain strings count as b
     ],
   });
   const v = parseReviewerVerdict(json);
-  assert.equal(v.blockingCount, 1, "only the plain-string counts as blocking");
-  assert.equal(v.corrections.length, 2);
+  assert.equal(v.valid, false);
+  assert.match(v.issues.join("; "), /corrections\.0/);
 });
 
 test("approve-when-resolved — zero blocking in round 2 approves even with advisories", () => {
@@ -268,7 +281,7 @@ test("approve-when-resolved — zero blocking in round 2 approves even with advi
   });
   const v = parseReviewerVerdict(round2Json);
   assert.equal(v.blockingCount, 0, "zero blocking in round 2 → gate passes");
-  assert.equal(v.corrections.length, 1, "advisory correction still surfaces for logging");
+  assert.equal(v.findings.length, 1, "advisory finding still surfaces for logging");
   assert.equal(v.approved, true);
 });
 
@@ -316,42 +329,27 @@ test("a NON-grave tag ([fragile-selector]) keeps its self-assigned advisory seve
 
 /* ── FIX A: per-entry correction tolerance — one malformed element must NOT nuke the array ───── */
 
-test("a malformed correction element degrades to BLOCKING (fails closed), valid sibling kept", () => {
-  /* The fail-OPEN hole: an array-level `.catch([])` collapsed the WHOLE corrections array to [] when
-     any single element was malformed. Combined with the severity gate (blockingCount===0), a verdict
-     carrying one BLOCKING correction + one unparseable element yielded blockingCount=0 → the gate
-     wrongly APPROVED while silently dropping the blocking finding. Per-entry `.catch` degrades the bad
-     element to a blocking placeholder instead: the valid entry is preserved AND the malformed one
-     counts as blocking, so blockingCount>0 and the gate fails CLOSED.
-   */
-  const json = JSON.stringify({
-    approved: true, /* model says approve — but a blocking finding is present and must hold the gate */
-    rationale: "one real blocking finding plus a garbled entry",
-    corrections: [
-      { text: "[false-positive] cart.spec.ts: clicks Pay but asserts nothing", severity: "blocking" },
-      { severity: "advisory" }, /* malformed: missing `text` → fails the entry schema */
-    ],
-  });
-  const v = parseReviewerVerdict(json);
-  assert.equal(v.valid, true, "the verdict still parses (tolerance is per-entry, not array-nuking)");
-  assert.equal(v.corrections.length, 2, "the valid entry AND the degraded malformed entry both survive");
-  assert.ok(v.blockingCount >= 2, `both count as blocking (real + degraded), got ${v.blockingCount}`);
-  /* The whole point: blockingCount > 0 means the caller's gate (approved && blockingCount===0) FAILS
-     closed, so the blocking finding can no longer be silently dropped.
-   */
-  assert.ok(v.blockingCount > 0, "fail-CLOSED: a malformed entry must keep blockingCount > 0");
+test("a malformed entry makes the whole answer unreadable, whatever else the answer says and even when it is the only entry", () => {
+  /* The gate stays closed because nothing of an unreadable answer reaches the decision: no placeholder finding stands in for the entry. */
+  for (const approved of [true, false]) {
+    const alone = parseReviewerVerdict(JSON.stringify({ approved, corrections: [{ severity: "advisory" }] }));
+    assert.deepEqual([alone.parsed, alone.valid, alone.approved, alone.blockingCount, alone.findings], [true, false, false, 0, []]);
+    assert.match(alone.issues.join("; "), /corrections\.0\.text/, "the issue names the entry");
+
+    const beside = parseReviewerVerdict(JSON.stringify({
+      approved,
+      corrections: [{ text: "[false-positive] cart.spec.ts: clicks Pay but asserts nothing", severity: "blocking" }, { severity: "advisory" }],
+    }));
+    assert.deepEqual([beside.valid, beside.approved, beside.findings], [false, false, []]);
+  }
 });
 
-test("a non-array corrections field still falls back to [] (orthogonal advisory-slip tolerance)", () => {
-  /* The per-entry change must NOT regress the separate guarantee that a wholly mis-shaped corrections
-     field (a stray string, not an array) is a tolerable advisory slip — it must never false-block a
-     genuine approval. This is the existing "tolerates malformed corrections" contract, re-pinned.
-   */
-  const v = parseReviewerVerdict('{"approved":true,"corrections":"oops not an array"}');
-  assert.equal(v.valid, true);
-  assert.equal(v.approved, true);
-  assert.deepEqual(v.corrections, []);
-  assert.equal(v.blockingCount, 0, "a non-array corrections field does not fabricate a blocking finding");
+test("a citation the engine cannot read makes the answer unreadable instead of reading as no citation", () => {
+  for (const citation of [{ kind: "network", ref: "a.spec.ts" }, { kind: "execution", ref: 7 }]) {
+    const v = parseReviewerVerdict(JSON.stringify({ approved: false, corrections: [{ text: "[other] a.spec.ts: x", severity: "blocking", citation }] }));
+    assert.equal(v.valid, false);
+    assert.match(v.issues.join("; "), /corrections\.0\.citation/);
+  }
 });
 
 test("repairInstruction names the generator shape and the specific issues", () => {
@@ -366,11 +364,13 @@ test("repairInstruction offers the generator the no-op decision and never offers
   assert.doesNotMatch(repairInstruction("reviewer", ["approved: required"]), /noop/);
 });
 
-test("repairInstruction names the reviewer shape", () => {
+test("repairInstruction names the reviewer shape: each correction is an object with its severity", () => {
   const msg = repairInstruction("reviewer", ["approved: required"]);
   assert.match(msg, /approved/);
   assert.match(msg, /rationale/);
   assert.match(msg, /corrections/);
+  assert.match(msg, /severity/);
+  assert.match(msg, /citation/);
 });
 
 /* A fresh process that never saw the prior turn (no resume by default), so a bare
@@ -500,7 +500,7 @@ test("a verdict with no plan key carries no plan", () => {
 test("a 49 KB reviewer answer parses, and the adapter keeps only a bounded verdict", async () => {
   const { VerdictParserAdapter } = await import("@contexts/generation/infrastructure/verdict-parser.adapter");
   const prose = "The spec asserts an empty state while the page shows results, so it would stay green. ".repeat(650);
-  const text = `${prose}\n{"approved":false,"rationale":"${"r".repeat(800)}","corrections":["[false-positive] spec: ${"c".repeat(700)}"]}`;
+  const text = `${prose}\n{"approved":false,"rationale":"${"r".repeat(800)}","corrections":[{"text":"[false-positive] spec: ${"c".repeat(700)}","severity":"blocking"}]}`;
   const adapter = new VerdictParserAdapter({
     parseVerdict: () => ({ parsed: true, specs: [] }),
     parseReviewerVerdict,
@@ -511,8 +511,8 @@ test("a 49 KB reviewer answer parses, and the adapter keeps only a bounded verdi
   assert.equal(j.parsed, true, "the JSON at the end of the prose is still found");
   assert.equal(j.approved, false, "the verdict itself is untouched");
   assert.ok((j.rationale ?? "").length <= 320, `rationale capped, got ${j.rationale?.length}`);
-  assert.equal(j.corrections.length, 1);
-  assert.ok(j.corrections[0]!.length <= 400, `correction capped, got ${j.corrections[0]?.length}`);
+  assert.equal(j.findings.length, 1);
+  assert.ok(j.findings[0]!.text.length <= 400, `finding capped, got ${j.findings[0]?.text.length}`);
 });
 
 test("the correction cap never hides a blocking finding behind six advisory ones", async () => {
@@ -524,14 +524,169 @@ test("the correction cap never hides a blocking finding behind six advisory ones
 
   const j = adapter.parseReview(text);
 
-  assert.equal(j.corrections.length, 6);
-  assert.match(j.corrections[0] ?? "", /^\[false-positive\]/, "the blocking correction survives the count cap, first");
-  assert.ok(j.corrections.slice(1).every((c) => c.startsWith("[fragile-selector]")));
+  assert.equal(j.findings.length, 6);
+  assert.match(j.findings[0]?.text ?? "", /^\[false-positive\]/, "the blocking finding survives the count cap, first");
+  assert.ok(j.findings.slice(1).every((f) => f.text.startsWith("[fragile-selector]")));
 });
 
 test("parseReviewerVerdict keeps the evidence each correction cites, an arm of the changed code included", () => {
   const r = parseReviewerVerdict(
     '{"approved":true,"rationale":"ok","corrections":[{"text":"[missing-case] the empty search is not tested","severity":"advisory","citation":{"kind":"arm","ref":"src/search.ts:12"}},{"text":"[false-positive] a.spec.ts asserts nothing","severity":"blocking","citation":{"kind":"execution","ref":"a.spec.ts"}}]}',
   );
-  assert.deepEqual(r.citations, [{ kind: "arm", ref: "src/search.ts:12" }, { kind: "execution", ref: "a.spec.ts" }]);
+  assert.deepEqual(r.findings.map((f) => f.citation), [{ kind: "arm", ref: "src/search.ts:12" }, { kind: "execution", ref: "a.spec.ts" }]);
+});
+
+/* The reviewer's answer crosses to the decision whole: the review port over the real verdict parser and the real contract repair, with a runtime that answers what the model wrote. */
+const rendering: PromptRenderingPort = {
+  render: () => "",
+  renderMain: () => ({ text: "", sectionSizes: {} }),
+  renderReviewer: () => ({ text: "reviewer-prompt", sectionSizes: {} }),
+  specFileForFlow: (flow: string) => `flows/${flow}.spec.ts`,
+};
+
+const repair: RepairPort = {
+  checkGenerator: (text) => checkGeneratorVerdict(text),
+  instruction: (kind, issues, opts) => repairInstruction(kind, issues, opts),
+};
+
+const cases: QaCase[] = [{ name: "checkout flow", file: "flows/checkout.spec.ts", status: "pass" }];
+
+/* Answers the prompts in turn and keeps what it was asked. */
+function scripted(answers: string[]): { runtime: AgentRuntimePort; prompts: string[] } {
+  const prompts: string[] = [];
+  return {
+    prompts,
+    runtime: {
+      openSession: async () => ({
+        prompt: async (text) => {
+          prompts.push(text);
+          return { output: answers[prompts.length - 1] ?? "" };
+        },
+        dispose: async () => {},
+      }),
+    },
+  };
+}
+
+function reviewWith(answers: string[]): { review: () => ReturnType<ReviewPortAdapter["review"]>; prompts: string[] } {
+  const reviewer = scripted(answers);
+  const adapter = new ReviewPortAdapter(
+    { runtime: reviewer.runtime, rendering, verdicts: new VerdictParserAdapter({ parseVerdict, parseReviewerVerdict }), repair },
+    { diff: "", mirrorDir: "/mirrors/org/app", e2eRelDir: "e2e", appName: "app", mode: "diff" },
+  );
+  return { review: () => adapter.review("/mirrors/org/app/e2e", cases), prompts: reviewer.prompts };
+}
+
+const answer = (corrections: unknown, approved: unknown = false): string => JSON.stringify({ approved, rationale: "r", corrections });
+const blockingEntry = { text: "[false-positive] flows/checkout.spec.ts: asserts nothing", severity: "blocking", citation: { kind: "execution", ref: "flows/checkout.spec.ts" } };
+const noSeverity = { text: blockingEntry.text, citation: blockingEntry.citation };
+
+test("an entry with no severity is asked about once and the restated rejection is the finding set", async () => {
+  const { review, prompts } = reviewWith([answer([noSeverity]), answer([blockingEntry])]);
+
+  const result = await review();
+
+  assert.equal(prompts.length, 2, "one repair turn");
+  assert.match(prompts[1]!, /corrections\.0\.severity/, "the repair names the entry's path");
+  assert.equal(result.parsed, true);
+  assert.equal(result.approved, false);
+  assert.deepEqual(result.findings, [blockingEntry]);
+});
+
+test("a citation of an unknown kind, or a non-text ref, is asked about once and never read as no citation", async () => {
+  for (const citation of [{ kind: "network", ref: "flows/checkout.spec.ts" }, { kind: "execution", ref: 7 }]) {
+    const { review, prompts } = reviewWith([answer([{ ...blockingEntry, citation }]), answer([blockingEntry])]);
+
+    const result = await review();
+
+    assert.equal(prompts.length, 2, "one repair turn");
+    assert.match(prompts[1]!, /corrections\.0\.citation/);
+    assert.deepEqual(result.findings, [blockingEntry]);
+  }
+});
+
+test("an answer still unreadable after the repair fails closed as a parse miss that names what was unreadable", async () => {
+  const { review, prompts } = reviewWith([answer([noSeverity]), answer([noSeverity])]);
+
+  const result = await review();
+
+  assert.equal(prompts.length, 2, "never a second repair");
+  assert.equal(result.parsed, false);
+  assert.equal(result.approved, false);
+  assert.deepEqual(result.findings, []);
+  assert.match(result.issues?.join("\n") ?? "", /corrections\.0\.severity/);
+});
+
+test("an approved that is not a boolean, or corrections that are not a list beside a rejection, is unreadable", async () => {
+  for (const unreadable of [answer([], "false"), answer("fix the selector", false)]) {
+    const { review, prompts } = reviewWith([unreadable, unreadable]);
+
+    const result = await review();
+
+    assert.equal(prompts.length, 2);
+    assert.equal(result.parsed, false);
+    assert.equal(result.approved, false);
+  }
+});
+
+test("a null citation on a blocking entry is the agent citing nothing: no repair turn, and the finding reaches the filter uncited", async () => {
+  const uncited = { text: blockingEntry.text, severity: "blocking" };
+  const { review, prompts } = reviewWith([answer([{ ...uncited, citation: null }])]);
+
+  const result = await review();
+
+  assert.equal(prompts.length, 1, "no repair turn");
+  assert.equal(result.parsed, true);
+  assert.equal(result.blockingCount, 1);
+  assert.deepEqual(result.findings, [uncited], "no citation key: the same finding as one sent without a citation");
+  assert.equal(result.issues, undefined);
+});
+
+test("a plain-string entry is unreadable: the contract says each correction is an object", async () => {
+  const { review, prompts } = reviewWith([answer(["[other] flows/checkout.spec.ts: a plain string"]), answer([blockingEntry])]);
+
+  const result = await review();
+
+  assert.equal(prompts.length, 2);
+  assert.deepEqual(result.findings, [blockingEntry]);
+});
+
+test("an approval whose corrections are not a list stays an approval and the loss is recorded", async () => {
+  const { review, prompts } = reviewWith([answer("oops not an array", true)]);
+
+  const result = await review();
+
+  assert.equal(prompts.length, 1, "no repair turn");
+  assert.equal(result.parsed, true);
+  assert.equal(result.approved, true);
+  assert.deepEqual(result.findings, []);
+  assert.match(result.issues?.join("\n") ?? "", /corrections/);
+});
+
+test("a well-formed rejection reaches the decision whole, citation included, with no issue recorded", async () => {
+  const { review, prompts } = reviewWith([answer([blockingEntry])]);
+
+  const result = await review();
+
+  assert.equal(prompts.length, 1);
+  assert.equal(result.approved, false);
+  assert.equal(result.blockingCount, 1);
+  assert.deepEqual(result.findings, [blockingEntry]);
+  assert.equal(result.issues, undefined);
+});
+
+test("an approval with advisory entries still approves, and an entry the agent left uncited stays uncited", async () => {
+  const advisory = { text: "[other] flows/checkout.spec.ts: rename the test", severity: "advisory" };
+  const uncited = { text: "[false-positive] flows/checkout.spec.ts: asserts nothing", severity: "blocking" };
+  const { review } = reviewWith([answer([advisory], true), answer([uncited])]);
+
+  const approved = await review();
+
+  assert.equal(approved.approved, true);
+  assert.equal(approved.blockingCount, 0);
+  assert.deepEqual(approved.findings, [advisory]);
+
+  const rejected = await reviewWith([answer([uncited])]).review();
+
+  assert.deepEqual(rejected.findings, [uncited], "no citation is the agent's own absence, carried as it is");
 });

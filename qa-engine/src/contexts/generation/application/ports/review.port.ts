@@ -1,6 +1,7 @@
 import type { QaCase } from "@kernel/qa-case.ts";
 import type { ReviewEnrichment } from "../../domain/review-enrichment.ts";
 import type { ReviewStats } from "../../domain/review.ts";
+import type { ReviewFinding } from "../../domain/review-output.ts";
 
 export interface ReviewPort {
   /**
@@ -9,13 +10,13 @@ export interface ReviewPort {
    */
   review(specDir: string, cases: readonly QaCase[], diff?: string, enrichment?: ReviewEnrichment): Promise<{
     approved: boolean;
-    corrections: string[];
+    /* The reviewer's findings as it wrote them: text, severity and the evidence each cites. Nothing stands in for a field the reviewer did not send. */
+    findings: ReviewFinding[];
     rationale?: string;
     blockingCount?: number;
     parsed?: boolean;
-    /* The reviewer's own severity per correction, and the evidence it cites, in the same order. */
-    severities?: ("blocking" | "advisory")[];
-    citations?: ({ kind: "contract" | "execution" | "dom" | "arm" | "availability" | "contradiction"; ref: string } | undefined)[];
+    /* What the engine could not read of the answer, or read and set aside. Absent when nothing was lost. */
+    issues?: string[];
     /**
      * True when no judgment was possible because the reviewer's runtime failed or returned nothing: an
      * integration fault, which is neither an approval nor a rejection. Absent on every review that

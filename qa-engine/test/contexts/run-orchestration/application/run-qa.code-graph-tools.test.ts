@@ -39,7 +39,7 @@ function rig(opts: { openThrows?: boolean; generateThrows?: boolean; closeThrows
           return scriptedGeneration({ specs: ["flows/a.spec.ts"]});
         },
       })),
-      review: { review: async () => ({ approved: true, corrections: [], blockingCount: 0, parsed: true }) },
+      review: { review: async () => ({ approved: true, findings: [], blockingCount: 0, parsed: true }) },
       validation: { validate: async () => ({ ok: true, errors: [] }) },
       execution: { execute: async () => ({ verdict: "pass", cases: PASS, logs: "" }) },
       objectiveSignal: { measure: async () => ({ status: "unknown", ratio: null }), blocks: () => false },

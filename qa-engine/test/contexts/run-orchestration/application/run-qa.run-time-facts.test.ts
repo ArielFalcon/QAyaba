@@ -16,7 +16,7 @@ function build(config: Partial<RunQaConfig>, measure: RunQaUseCaseDeps["objectiv
   const deps: RunQaUseCaseDeps = {
     changeAnalysis: { classify: async () => ({ action: "generate", reason: "diff touches src/x.ts", diff: "" }) },
     ...served(generationOnDisk({ author: async () => scriptedGeneration({ specs: ["a.spec.ts"]}) })),
-    review: { review: async () => ({ approved: true, corrections: [], blockingCount: 0, parsed: true }) },
+    review: { review: async () => ({ approved: true, findings: [], blockingCount: 0, parsed: true }) },
     validation: { validate: async () => ({ ok: true, errors: [] }) },
     execution: { execute: async () => ({ verdict, cases: [], logs: "" }) },
     objectiveSignal: { measure, blocks: () => false },

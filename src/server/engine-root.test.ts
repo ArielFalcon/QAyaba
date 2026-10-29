@@ -81,7 +81,7 @@ function fakeConfig(overrides: Partial<EngineRootDeps> = {}): EngineRootDeps {
     reviewRuntime: {
       runtime: { openSession: async () => ({ prompt: async () => ({ output: "{}" }), dispose: async () => {} }) },
       rendering: { renderReviewer: () => ({ text: "", sectionSizes: {} }) },
-      verdicts: { parseReview: () => ({ approved: true, corrections: [], parsed: true, valid: true, issues: [] }) },
+      verdicts: { parseReview: () => ({ approved: true, findings: [], parsed: true, valid: true, issues: [] }) },
     },
     validationStrategies: {
       e2e: { validateAll: async () => ({ ok: true, errors: [], infra: false }) },
@@ -453,7 +453,7 @@ test("buildEngine threads cfg.reviewTimeoutMs onto ReviewPortAdapter's openSessi
         },
       },
       rendering: { renderReviewer: () => ({ text: "", sectionSizes: {} }) },
-      verdicts: { parseReview: () => ({ approved: true, corrections: [], parsed: true, valid: true, issues: [] }) },
+      verdicts: { parseReview: () => ({ approved: true, findings: [], parsed: true, valid: true, issues: [] }) },
     },
   });
   const port = buildEngine(cfg);
@@ -483,7 +483,7 @@ test("buildEngine with absent cfg.reviewTimeoutMs omits timeoutMs from ReviewPor
         },
       },
       rendering: { renderReviewer: () => ({ text: "", sectionSizes: {} }) },
-      verdicts: { parseReview: () => ({ approved: true, corrections: [], parsed: true, valid: true, issues: [] }) },
+      verdicts: { parseReview: () => ({ approved: true, findings: [], parsed: true, valid: true, issues: [] }) },
     },
   });
   const port = buildEngine(cfg);
@@ -516,7 +516,7 @@ test("buildEngine hands cfg.reviewRuntime.repair to the reviewer: an answer with
         }),
       },
       rendering: { renderReviewer: () => ({ text: "", sectionSizes: {} }) },
-      verdicts: { parseReview: (text: string) => ({ approved: true, corrections: [], parsed: text === "{}", valid: true, issues: [] }) },
+      verdicts: { parseReview: (text: string) => ({ approved: true, findings: [], parsed: text === "{}", valid: true, issues: [] }) },
       repair: { checkGenerator: () => ({ valid: true, issues: [] }), instruction: () => "restate the verdict" },
     },
   });

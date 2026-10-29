@@ -78,7 +78,7 @@ const otherBytes = (real: ReadonlyMap<string, string>): ReadonlyMap<string, stri
 
 const reviewerDown: ReviewPort["review"] = async () => ({
   approved: false,
-  corrections: [],
+  findings: [],
   rationale: "reviewer unavailable: the reviewer session failed",
   parsed: false,
   unavailable: true,
@@ -92,9 +92,7 @@ function refusedFinding(rig: Rig): void {
   rig.execute = async () => ({ verdict: "pass", cases: [{ name: "checkout", file: spec, status: "pass" }], logs: "" });
   rig.review = async () => ({
     approved: false,
-    corrections: [DISPUTED_FINDING],
-    severities: ["blocking" as const],
-    citations: [{ kind: "execution" as const, ref: spec }],
+    findings: [{ text: DISPUTED_FINDING, severity: "blocking" as const, citation: { kind: "execution" as const, ref: spec } }],
     blockingCount: 1,
     parsed: true,
   });
@@ -213,7 +211,7 @@ export const RUN_END_ROWS: readonly RunEndRow[] = [
   { id: "publication-failed-after-decision", endReason: "decided", setup: (rig) => { rig.publish = async () => { throw new Error("github 502"); }; }, expect: { verdict: "pass", errorClass: null, furthestPhase: "learn", persisted: true, published: "pr", publishCalled: true, note: /publication failed after verdict was decided \(decided: pass, reviewerApproved: true\): github 502/ } },
   { id: "run-deadline", endReason: "run-deadline", setup: (rig) => { rig.author = async () => { throw deadline("primary"); }; }, expect: { verdict: "infra-error", errorClass: "E-TIME-BUDGET", furthestPhase: "generate", persisted: true, published: "none", publishCalled: false } },
   { id: "run-deadline-during-fix-loop", endReason: "run-deadline", setup: (rig) => { let turn = 0; rig.author = async () => { if (++turn > 1) throw deadline("primary"); return scriptedGeneration({ specs: [RIG_SPEC]}); }; rig.execute = async () => ({ verdict: "fail", cases: [{ name: "checkout", status: "fail" }], logs: "assertion failed" }); }, expect: { verdict: "infra-error", errorClass: "E-TIME-BUDGET", furthestPhase: "fix_loop", persisted: true, published: "none", publishCalled: false } },
-  { id: "run-deadline-in-review-without-verdict", endReason: "run-deadline", setup: (rig) => { let turn = 0; rig.author = async () => { if (++turn > 1) throw deadline("primary"); return scriptedGeneration({ specs: [RIG_SPEC]}); }; rig.review = async () => ({ approved: false, corrections: ["assert the total"], blockingCount: 1, parsed: true }); }, expect: { verdict: "infra-error", errorClass: "E-TIME-BUDGET", furthestPhase: "review", persisted: true, published: "none", publishCalled: false } },
+  { id: "run-deadline-in-review-without-verdict", endReason: "run-deadline", setup: (rig) => { let turn = 0; rig.author = async () => { if (++turn > 1) throw deadline("primary"); return scriptedGeneration({ specs: [RIG_SPEC]}); }; rig.review = async () => ({ approved: false, findings: [{ text: "assert the total", severity: "blocking" as const }], blockingCount: 1, parsed: true }); }, expect: { verdict: "infra-error", errorClass: "E-TIME-BUDGET", furthestPhase: "review", persisted: true, published: "none", publishCalled: false } },
   {
     id: "run-deadline-after-review-verdict",
     endReason: "decided",
@@ -225,7 +223,7 @@ export const RUN_END_ROWS: readonly RunEndRow[] = [
       /* The correction changes the spec's bytes, so the second round is a real review and not the first verdict repeated. */
       rig.author = async () => { rig.ws.write(RIG_SPEC, `test("checkout", async () => {}); // turn ${++turn}\n`); return scriptedGeneration({ specs: [RIG_SPEC]}); };
       rig.measure = async () => ({ status: "pass", ratio: 0.95 });
-      rig.review = async () => (++reviews === 1 ? { approved: false, corrections: ["cover the total"], blockingCount: 1, parsed: true } : { approved: true, corrections: [], blockingCount: 0, parsed: true });
+      rig.review = async () => (++reviews === 1 ? { approved: false, findings: [{ text: "cover the total", severity: "blocking" as const }], blockingCount: 1, parsed: true } : { approved: true, findings: [], blockingCount: 0, parsed: true });
       /* The initial run and the accepted correction pass; the whole-suite measured run that follows finds the deadline spent. */
       rig.execute = async () => { if (++executions > 2) throw deadline("primary"); return { verdict: "pass", cases: [{ name: "checkout", file: RIG_SPEC, status: "pass" }], logs: "" }; };
     },
@@ -252,5 +250,5 @@ export const RUN_END_ROWS: readonly RunEndRow[] = [
   { id: "decided-fail-issue", endReason: "decided", setup: (rig) => { rig.execute = async () => ({ verdict: "fail", cases: [{ name: "checkout", status: "fail" }], logs: "expect(received).toBe(expected)" }); }, expect: { verdict: "fail", errorClass: "E-EXEC-FAIL", furthestPhase: "learn", persisted: true, published: "issue", publishCalled: true } },
   { id: "decided-flaky-quarantine", endReason: "decided", setup: (rig) => { rig.execute = async () => ({ verdict: "flaky", cases: [{ name: "checkout", status: "flaky" }], logs: "" }); }, expect: { verdict: "flaky", errorClass: "E-FLAKY", furthestPhase: "learn", persisted: true, published: "quarantine", publishCalled: true } },
   { id: "coverage-blocks-publish", endReason: "decided", setup: (rig) => { rig.config = { ...rig.config, coveragePolicyMode: "enforce" }; rig.measure = async () => ({ status: "fail", ratio: 0.2 }); rig.blocks = () => true; }, expect: { verdict: "pass", errorClass: "E-COVERAGE-GAP", furthestPhase: "learn", persisted: true, published: "issue", publishCalled: true } },
-  { id: "review-rejected", endReason: "decided", setup: (rig) => { rig.review = async () => ({ approved: false, corrections: ["[blocking] asserts nothing"], blockingCount: 1, parsed: true }); }, expect: { verdict: "pass", errorClass: "E-FALSE-POSITIVE", furthestPhase: "learn", persisted: true, published: "issue", publishCalled: true } },
+  { id: "review-rejected", endReason: "decided", setup: (rig) => { rig.review = async () => ({ approved: false, findings: [{ text: "[blocking] asserts nothing", severity: "blocking" as const }], blockingCount: 1, parsed: true }); }, expect: { verdict: "pass", errorClass: "E-FALSE-POSITIVE", furthestPhase: "learn", persisted: true, published: "issue", publishCalled: true } },
 ];

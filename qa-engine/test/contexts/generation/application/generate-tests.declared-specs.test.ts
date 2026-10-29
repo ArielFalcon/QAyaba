@@ -23,7 +23,7 @@ function generate(deliverable: GeneratorDeliverable, options: Options = {}): Pro
     },
     verdicts: {
       parseGenerator: () => deliverable,
-      parseReview: () => ({ approved: true, corrections: [], blockingCount: 0, parsed: true, valid: true, issues: [] }),
+      parseReview: () => ({ approved: true, findings: [], blockingCount: 0, parsed: true, valid: true, issues: [] }),
     },
     manifest: { read: async () => [], reconcile: async (_root, entries) => (options.reconcile ? options.reconcile([...entries]) : [...entries]) },
   };

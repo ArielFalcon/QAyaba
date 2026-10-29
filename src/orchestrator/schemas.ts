@@ -496,58 +496,21 @@ export const GeneratorVerdictSchema = z
 export type ValidatedGeneratorVerdict = z.infer<typeof GeneratorVerdictSchema>;
 
 
-export const CorrectionEntrySchema = z.union([
-  /* Structured entry with severity, and the evidence it rests on. A malformed citation degrades to
-     "no citation" instead of failing the entry: the filter drops an uncited finding on its own. */
-  z.object({
-    text: z.string(),
-    severity: z.enum(["blocking", "advisory"]),
-    citation: z
-      .object({ kind: z.enum(["contract", "execution", "dom", "arm", "availability", "contradiction"]), ref: z.string() })
-      .optional()
-      .catch(undefined),
-  }),
-  /* Plain-string entry: treated as blocking (fail-closed). */
-  z.string(),
-]);
+/** One reviewer finding as the agent wrote it; a `null` citation is the agent saying it cited nothing. An entry the schema cannot read makes the whole answer unreadable; nothing here stands in for a field the agent did not send. */
+export const CorrectionEntrySchema = z.object({
+  text: z.string(),
+  severity: z.enum(["blocking", "advisory"]),
+  citation: z
+    .object({ kind: z.enum(["contract", "execution", "dom", "arm", "availability", "contradiction"]), ref: z.string() })
+    .nullish(),
+});
 
 export type CorrectionEntry = z.infer<typeof CorrectionEntrySchema>;
-
-/* Resolve a correction entry to its canonical text string. */
-export function correctionText(entry: CorrectionEntry): string {
-  return typeof entry === "string" ? entry : entry.text;
-}
-
-/*
- * Resolve a correction entry's severity. Defaults to "blocking" for plain strings
- * and any entry without an explicit severity (fail-closed backward compat).
- */
-export function correctionSeverity(entry: CorrectionEntry): "blocking" | "advisory" {
-  if (typeof entry === "string") return "blocking";
-  return entry.severity;
-}
-
-/* Resolve a correction entry's cited evidence, if it carries any. */
-export function correctionCitation(entry: CorrectionEntry): { kind: "contract" | "execution" | "dom" | "arm" | "availability" | "contradiction"; ref: string } | undefined {
-  return typeof entry === "string" ? undefined : entry.citation;
-}
 
 export const ReviewerVerdictSchema = z.object({
   approved: z.boolean(),
   rationale: z.string().optional().catch(undefined),
-  /*
-   * Tolerance is PER-ENTRY. An array-level `.catch([])` was fail-OPEN: a SINGLE malformed element
-   * collapsed the WHOLE array to [], so a verdict carrying one blocking correction alongside one
-   * unparseable element yielded blockingCount=0 → the severity gate APPROVED while silently dropping
-   * the blocking finding. The inner per-entry `.catch` instead degrades a bad element to a BLOCKING
-   * placeholder, so a malformed entry FAILS the gate closed (blockingCount>0) while the valid
-   * siblings are preserved. The outer array-level `.catch([])` still guards the orthogonal case where
-   * `corrections` is not an array at all (e.g. a stray string) — that advisory-shape slip must not
-   * false-block a genuine approval, exactly as before.
-   */
-  corrections: z
-    .array(CorrectionEntrySchema.catch({ text: "(unparseable correction)", severity: "blocking" }))
-    .catch([]),
+  corrections: z.array(CorrectionEntrySchema),
 });
 
 export type ValidatedReviewerVerdict = z.infer<typeof ReviewerVerdictSchema>;

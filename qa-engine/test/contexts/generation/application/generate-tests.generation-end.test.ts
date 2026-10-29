@@ -67,7 +67,7 @@ async function generate(turns: Turn[], options: { valid?: (text: string) => bool
     },
     verdicts: {
       parseGenerator,
-      parseReview: () => ({ approved: true, corrections: [], valid: true, issues: [] }),
+      parseReview: () => ({ approved: true, findings: [], valid: true, issues: [] }),
     },
     manifest: { read: async () => [], reconcile: async (_d, e) => [...e] as ManifestEntry[] },
     ...(options.noRepair

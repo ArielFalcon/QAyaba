@@ -18,6 +18,11 @@ import { isAgentTimeoutError } from "@kernel/domain-error.ts";
 import { REPAIR_TURN_TIMEOUT_MS } from "../../domain/repair-turn.ts";
 import { openSidekickSession, REVIEW_SIDEKICK } from "@kernel/sidekick-session.ts";
 
+/* The answer is the reviewer's word only when an object with `approved` was found and every field the engine reads was readable. */
+function isReadable(judgment: ReturnType<VerdictParserPort["parseReview"]>): boolean {
+  return judgment.parsed !== false && judgment.valid;
+}
+
 /* One executed case as the reviewer's execution evidence: only the fields the renderer shows, and only when the run captured them. */
 function executionResultCase(c: QaCase): ExecutionResultCase {
   return {
@@ -128,13 +133,13 @@ export class ReviewPortAdapter implements ReviewPort {
         /* An answer with nothing in it is the reviewer's absence, not a verdict to repair. */
         if (output.trim() !== "") {
           judgment = verdicts.parseReview(output);
-          /* One tools-disabled turn in the same session asks only for the verdict again, so an answer cut off before its closing JSON is not a rejection by default. */
-          if (judgment.parsed === false && this.deps.repair) {
-            const repaired = await this.repairVerdict(session, this.deps.repair, output, stepLimit);
+          /* One tools-disabled turn in the same session asks only for the verdict again, naming what could not be read, so an answer cut off or malformed is not a rejection by default. */
+          if (!isReadable(judgment) && this.deps.repair) {
+            const repaired = await this.repairVerdict(session, this.deps.repair, output, judgment.issues, stepLimit);
             if (repaired !== undefined) {
               repairChars = repaired.length;
               const again = verdicts.parseReview(repaired);
-              /* Still unreadable: the first answer's parse miss stands, failing closed. */
+              /* No verdict in the second answer either: the first answer's issues stand. */
               if (again.parsed !== false) judgment = again;
             }
           }
@@ -153,18 +158,20 @@ export class ReviewPortAdapter implements ReviewPort {
       /* A reviewer that answered with nothing judged nothing: an errored session (provider refusal, quota, outage) that the transport let through, not a verdict of any kind. */
       if (judgment === undefined) return { ...this.unavailable("the reviewer returned no output"), stats };
 
-      /* Parse miss is not an actionable rejection and never a free pass — approved must be false. */
-      const approved = judgment.parsed === false ? false : judgment.approved;
+      /* An answer the engine could not read whole is a parse miss: never a rejection, never a free pass, and nothing of it reaches the decision. */
+      if (!isReadable(judgment)) {
+        engineLog.error(`[qa] the reviewer's answer is unreadable (${judgment.issues.join("; ")}) — failing closed as a parse miss without burning a regeneration round.`);
+        return { approved: false, findings: [], parsed: false, issues: judgment.issues, stats };
+      }
 
       return {
-        approved,
-        corrections: judgment.corrections,
+        approved: judgment.approved,
+        /* The finding filter honors a blocking finding only through its cited evidence. */
+        findings: judgment.findings,
         ...(judgment.rationale !== undefined ? { rationale: judgment.rationale } : {}),
         ...(judgment.blockingCount !== undefined ? { blockingCount: judgment.blockingCount } : {}),
         ...(judgment.parsed !== undefined ? { parsed: judgment.parsed } : {}),
-        /* The finding filter honors a blocking finding only through its cited evidence. */
-        ...(judgment.severities ? { severities: judgment.severities } : {}),
-        ...(judgment.citations ? { citations: judgment.citations } : {}),
+        ...(judgment.issues.length > 0 ? { issues: judgment.issues } : {}),
         stats,
       };
     } catch (err) {
@@ -174,12 +181,12 @@ export class ReviewPortAdapter implements ReviewPort {
     }
   }
 
-  /* The reviewer's answer held no readable verdict: ask once, with no tool, for the verdict alone. Undefined when the repair ran past its own cap (the first answer stands). Any other fault propagates like a fault of the first turn, and the run's deadline ends the run: the deadline runtime sends no turn when no time is left. */
-  private async repairVerdict(session: AgentSession, repair: RepairPort, priorOutput: string, stepLimit: number | undefined): Promise<string | undefined> {
+  /* The reviewer's answer was not readable whole: ask once, with no tool, for the verdict alone, naming what could not be read. Undefined when the repair ran past its own cap (the first answer stands). Any other fault propagates like a fault of the first turn, and the run's deadline ends the run: the deadline runtime sends no turn when no time is left. */
+  private async repairVerdict(session: AgentSession, repair: RepairPort, priorOutput: string, issues: string[], stepLimit: number | undefined): Promise<string | undefined> {
     const timeoutMs = this.collaborators.repairTimeoutMs ?? REPAIR_TURN_TIMEOUT_MS;
     try {
       const repaired = await session.prompt(
-        repair.instruction("reviewer", ["the answer ended with no complete verdict JSON (an object with an `approved` field)"], { priorResponseTail: priorOutput }),
+        repair.instruction("reviewer", issues, { priorResponseTail: priorOutput }),
         { isRepair: true, withoutTools: true, textOnly: true, ...(stepLimit !== undefined ? { stepLimit } : {}), timeoutMs, timeLimit: "repair-cap" },
       );
       return repaired.output;
@@ -191,11 +198,11 @@ export class ReviewPortAdapter implements ReviewPort {
     }
   }
 
-  private unavailable(reason: string): { approved: false; corrections: string[]; rationale: string; parsed: false; unavailable: true } {
+  private unavailable(reason: string): { approved: false; findings: []; rationale: string; parsed: false; unavailable: true } {
     engineLog.error(`[qa] reviewer unavailable (${reason}) — failing closed without burning a regeneration round; the run ends as an infra-error, not a rejection.`);
     return {
       approved: false,
-      corrections: [],
+      findings: [],
       rationale: `${REVIEWER_UNAVAILABLE_MARKER}: ${reason}`,
       parsed: false,
       unavailable: true,

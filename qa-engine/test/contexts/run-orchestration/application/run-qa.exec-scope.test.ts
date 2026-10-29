@@ -37,7 +37,7 @@ async function runWith(options: { execScope?: ExecScopePort; observer?: Observer
         }),
       },
       ...served(generationOnDisk({ author: async () => scriptedGeneration({ specs: ["a.spec.ts"], declaredSpecs: [{ file: "a.spec.ts", flow: "f", objective: "o" }]}) })),
-      review: { review: async () => ({ approved: true, corrections: [], blockingCount: 0, parsed: true }) },
+      review: { review: async () => ({ approved: true, findings: [], blockingCount: 0, parsed: true }) },
       validation: { validate: async () => ({ ok: true, errors: [] }) },
       execution: { execute: options.execute },
       objectiveSignal: { measure: async () => ({ status: "unknown", ratio: null }), blocks: () => false },

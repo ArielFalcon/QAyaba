@@ -186,6 +186,8 @@ export interface ReviewDecisionRecord {
   /* The reviewer-blocking findings the filter dropped, per reason. */
   droppedBlocking: Partial<Record<DropReason, number>>;
   rationale: string | undefined;
+  /* What the engine could not read of the reviewer's answer, or read and set aside; empty when nothing was lost. */
+  issues: readonly string[];
   durationMs: number | undefined;
 }
 
@@ -215,6 +217,7 @@ export function recordReviewDecision(ctx: WorkspaceRunContext, record: ReviewDec
         ...(record.advisory > 0 ? { "qayaba.review.advisory": record.advisory } : {}),
         /* A blocking finding the filter dropped is a rejection the run did not honor: how many, and why (a reference that names no spec is told apart from a spec outside the scope). */
         ...(droppedBlockingTotal > 0 ? { "qayaba.review.dropped_blocking": droppedBlockingTotal, "qayaba.review.drop_reasons": Object.entries(record.droppedBlocking).map(([reason, count]) => `${reason}=${count}`).join(",") } : {}),
+        ...(record.issues.length ? { "qayaba.review.issues": [...record.issues] } : {}),
         ...(record.rationale ? { "qayaba.review.rationale": record.rationale } : {}),
       },
     });

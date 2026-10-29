@@ -80,7 +80,7 @@ function build(
           : text.includes("NOOP")
             ? { specs: [], parsed: true, noopReason: NOOP_REASON }
             : { specs: [], parsed: false },
-      parseReview: () => ({ approved: true, corrections: [], valid: true, issues: [], parsed: true }),
+      parseReview: () => ({ approved: true, findings: [], valid: true, issues: [], parsed: true }),
     },
     manifest: { read: async () => [], reconcile: async (_d, e) => [...e] as ManifestEntry[] },
     now: () => seen.clock.now,

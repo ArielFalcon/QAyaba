@@ -9,7 +9,7 @@ import { GENERATION_NOTE_MAX_CHARS } from "@contexts/generation/domain/generatio
 test("parseReview delegates and forwards blockingCount + parsed + valid + issues (no behavior drop)", () => {
   const adapter = new VerdictParserAdapter({
     parseVerdict: () => ({ parsed: true, specs: ["a.spec.ts"] }) as never,
-    parseReviewerVerdict: () => ({ approved: true, corrections: [], blockingCount: 0, parsed: true, valid: true, issues: [] }) as never,
+    parseReviewerVerdict: () => ({ approved: true, findings: [], blockingCount: 0, parsed: true, valid: true, issues: [] }) as never,
   } as never);
   const j = adapter.parseReview("…json…");
   assert.equal(j.approved, true);
@@ -22,7 +22,7 @@ test("parseReview delegates and forwards blockingCount + parsed + valid + issues
 test("a contract-miss reviewer verdict forwards valid:false + issues (the bounded-repair re-prompt fuel)", () => {
   const adapter = new VerdictParserAdapter({
     parseVerdict: () => ({ parsed: true, specs: [] }) as never,
-    parseReviewerVerdict: () => ({ approved: false, corrections: [], blockingCount: 0, parsed: true, valid: false, issues: ["contract failure"] }) as never,
+    parseReviewerVerdict: () => ({ approved: false, findings: [], blockingCount: 0, parsed: true, valid: false, issues: ["contract failure"] }) as never,
   } as never);
   const j = adapter.parseReview("…malformed reviewer json…");
   /* valid:false != a real rejection — the use-case fires ONE repairInstruction("reviewer", issues). */
@@ -33,7 +33,7 @@ test("a contract-miss reviewer verdict forwards valid:false + issues (the bounde
 test("a parse MISS is fail-closed (approved:false, parsed:false) —", () => {
   const adapter = new VerdictParserAdapter({
     parseVerdict: () => ({ parsed: false, specs: [] }) as never,
-    parseReviewerVerdict: () => ({ approved: false, corrections: ["no parseable verdict"], blockingCount: 0, parsed: false, valid: false, issues: ["no reviewer verdict JSON found"] }) as never,
+    parseReviewerVerdict: () => ({ approved: false, findings: [{ text: "no parseable verdict", severity: "blocking" }], blockingCount: 0, parsed: false, valid: false, issues: ["no reviewer verdict JSON found"] }) as never,
   } as never);
   const j = adapter.parseReview("garbage");
   assert.equal(j.approved, false);
@@ -44,7 +44,7 @@ test("parseGenerator delegates to parseVerdict and returns specs", () => {
   let seenText = "";
   const adapter = new VerdictParserAdapter({
     parseVerdict: (text: string) => { seenText = text; return { parsed: true, approved: true, specs: ["login.spec.ts"], note: "ok" }; },
-    parseReviewerVerdict: () => ({ approved: true, corrections: [], blockingCount: 0, parsed: true, valid: true, issues: [] }) as never,
+    parseReviewerVerdict: () => ({ approved: true, findings: [], blockingCount: 0, parsed: true, valid: true, issues: [] }) as never,
   } as never);
   const d = adapter.parseGenerator("verdict text");
   assert.equal(seenText, "verdict text"); /* DELEGATION: a gutted impl that ignores the injected fn FAILS this */
@@ -56,14 +56,14 @@ test("parseGenerator forwards parsed + specMetas (WRAP-2 fail-closed + WRAP-1 ma
   const specMetas = [{ file: "login.spec.ts", flow: "login", objective: "sign in", targets: ["src/auth.ts"], sha256: "abc" }];
   const adapter = new VerdictParserAdapter({
     parseVerdict: () => ({ parsed: true, approved: true, specs: ["login.spec.ts"], note: "ok", specMetas }),
-    parseReviewerVerdict: () => ({ approved: true, corrections: [], blockingCount: 0, parsed: true, valid: true, issues: [] }) as never,
+    parseReviewerVerdict: () => ({ approved: true, findings: [], blockingCount: 0, parsed: true, valid: true, issues: [] }) as never,
   } as never);
   const d = adapter.parseGenerator("verdict text");
   assert.equal(d.parsed, true);                 /* WRAP-2: the #1 fail-closed invariant — a port that dropped it would be undefined here */
   assert.deepEqual(d.specMetas, specMetas);     /* WRAP-1: drives the disk-reconciled manifest upsert — gutted-impl-proof */
 });
 
-const NO_REVIEWER = () => ({ approved: true, corrections: [], blockingCount: 0, parsed: true, valid: true, issues: [] }) as never;
+const NO_REVIEWER = () => ({ approved: true, findings: [], blockingCount: 0, parsed: true, valid: true, issues: [] }) as never;
 const SECRET = "sk-abcdefghijklmnopqrstuvwxyz1234";
 
 function adapterReading(verdict: Record<string, unknown>): VerdictParserAdapter {
@@ -115,7 +115,7 @@ test("parseGenerator on a parse MISS is fail-closed (parsed:false, specs ?? [] =
   const adapter = new VerdictParserAdapter({
     /* parse miss: no verdict JSON found → parsed:false and specs absent (the ?? [] default must apply) */
     parseVerdict: () => ({ parsed: false }) as never,
-    parseReviewerVerdict: () => ({ approved: false, corrections: [], blockingCount: 0, parsed: false, valid: false, issues: [] }) as never,
+    parseReviewerVerdict: () => ({ approved: false, findings: [], blockingCount: 0, parsed: false, valid: false, issues: [] }) as never,
   } as never);
   const d = adapter.parseGenerator("garbage");
   assert.equal(d.parsed, false);     /* a parse miss is NOT a deliberate no-op — the use-case branches on this */
@@ -136,7 +136,7 @@ function suiteWith(files: string[]): string {
 function reporting(specs: string[]): VerdictParserAdapter {
   return new VerdictParserAdapter({
     parseVerdict: () => ({ parsed: true, approved: true, specs, specMetas: specs.map((file) => ({ file, flow: `flow-${file}`, objective: "o", targets: [] })) }),
-    parseReviewerVerdict: () => ({ approved: true, corrections: [], blockingCount: 0, parsed: true, valid: true, issues: [] }),
+    parseReviewerVerdict: () => ({ approved: true, findings: [], blockingCount: 0, parsed: true, valid: true, issues: [] }),
   });
 }
 
@@ -203,12 +203,12 @@ test("and carries none when it read none", () => {
   const plan = { kind: "fanout", flows: [{ id: "a", objective: "x" }] };
   const withPlan = new VerdictParserAdapter({
     parseVerdict: () => ({ parsed: true, approved: true, specs: [], plan }),
-    parseReviewerVerdict: () => ({ approved: true, corrections: [], blockingCount: 0, parsed: true, valid: true, issues: [] }) as never,
+    parseReviewerVerdict: () => ({ approved: true, findings: [], blockingCount: 0, parsed: true, valid: true, issues: [] }) as never,
   } as never);
   assert.deepEqual(withPlan.parseGenerator("planned").plan, plan);
   const without = new VerdictParserAdapter({
     parseVerdict: () => ({ parsed: true, approved: true, specs: ["a.spec.ts"] }),
-    parseReviewerVerdict: () => ({ approved: true, corrections: [], blockingCount: 0, parsed: true, valid: true, issues: [] }) as never,
+    parseReviewerVerdict: () => ({ approved: true, findings: [], blockingCount: 0, parsed: true, valid: true, issues: [] }) as never,
   } as never);
   assert.equal("plan" in without.parseGenerator("written"), false);
 });
@@ -226,7 +226,7 @@ test("a 49 KB reviewer answer is parsed to a bounded verdict, never stored whole
     parseReviewerVerdict: (t: string) => ({
       approved: t.includes('"approved":false') ? false : true,
       rationale: "r".repeat(900),
-      corrections: Array.from({ length: 9 }, (_, i) => `[false-positive] spec: correction ${i} ${"c".repeat(500)}`),
+      findings: Array.from({ length: 9 }, (_, i) => ({ text: `[false-positive] spec: correction ${i} ${"c".repeat(500)}`, severity: "blocking" as const })),
       blockingCount: 9,
       parsed: true,
       valid: true,
@@ -238,8 +238,8 @@ test("a 49 KB reviewer answer is parsed to a bounded verdict, never stored whole
 
   assert.equal(j.approved, false, "the verdict itself is untouched");
   assert.ok((j.rationale ?? "").length <= 320, `rationale capped, got ${j.rationale?.length}`);
-  assert.ok(j.corrections.length <= 6, `corrections capped, got ${j.corrections.length}`);
-  for (const correction of j.corrections) assert.ok(correction.length <= 400, `correction capped, got ${correction.length}`);
+  assert.ok(j.findings.length <= 6, `findings capped, got ${j.findings.length}`);
+  for (const finding of j.findings) assert.ok(finding.text.length <= 400, `finding capped, got ${finding.text.length}`);
   assert.equal(j.blockingCount, 9, "the blocking count is the reviewer's own, never reduced by the display cap");
 });
 
@@ -249,7 +249,7 @@ test("an approval keeps its rationale, bounded, and is not turned into a rejecti
     parseReviewerVerdict: () => ({
       approved: true,
       rationale: `${"The discount is asserted end to end. ".repeat(40)}`,
-      corrections: [],
+      findings: [],
       blockingCount: 0,
       parsed: true,
       valid: true,
@@ -268,9 +268,10 @@ test("a blocking finding moved ahead of an advisory one keeps its own severity a
     parseVerdict: () => ({ parsed: true, specs: [] }) as never,
     parseReviewerVerdict: () => ({
       approved: false,
-      corrections: ["[missing-case] the empty search is not tested", "[false-positive] b.spec.ts asserts nothing"],
-      correctionSeverities: ["advisory", "blocking"],
-      citations: [{ kind: "arm", ref: "src/search.ts:12" }, { kind: "execution", ref: "b.spec.ts" }],
+      findings: [
+        { text: "[missing-case] the empty search is not tested", severity: "advisory", citation: { kind: "arm", ref: "src/search.ts:12" } },
+        { text: "[false-positive] b.spec.ts asserts nothing", severity: "blocking", citation: { kind: "execution", ref: "b.spec.ts" } },
+      ],
       blockingCount: 1,
       parsed: true,
       valid: true,
@@ -280,7 +281,8 @@ test("a blocking finding moved ahead of an advisory one keeps its own severity a
 
   const j = adapter.parseReview("…json…");
 
-  assert.deepEqual(j.corrections, ["[false-positive] b.spec.ts asserts nothing", "[missing-case] the empty search is not tested"]);
-  assert.deepEqual(j.severities, ["blocking", "advisory"]);
-  assert.deepEqual(j.citations, [{ kind: "execution", ref: "b.spec.ts" }, { kind: "arm", ref: "src/search.ts:12" }]);
+  assert.deepEqual(j.findings, [
+    { text: "[false-positive] b.spec.ts asserts nothing", severity: "blocking", citation: { kind: "execution", ref: "b.spec.ts" } },
+    { text: "[missing-case] the empty search is not tested", severity: "advisory", citation: { kind: "arm", ref: "src/search.ts:12" } },
+  ]);
 });

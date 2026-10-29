@@ -19,7 +19,7 @@ import type { ReviewInput, StepLimitRole } from "@contexts/generation/domain/gen
 import type { QaCase } from "@kernel/qa-case.ts";
 import { RunDeadlineExceededError } from "@kernel/run-deadline.ts";
 import { AgentTimeoutError } from "@kernel/domain-error.ts";
-import type { RepairPort } from "@contexts/generation/application/index.ts";
+import type { RepairPort, ReviewPort } from "@contexts/generation/application/index.ts";
 import { REPAIR_TURN_TIMEOUT_MS } from "@contexts/generation/domain/repair-turn.ts";
 import { RunDeadlineRuntime } from "@contexts/run-orchestration/infrastructure/run-deadline-runtime.adapter.ts";
 import type { AgentPromptOpts } from "@kernel/ports/agent-runtime.port.ts";
@@ -55,7 +55,7 @@ test("review() delegates to the reviewer session and surfaces approved/correctio
   const runtime = fakeRuntime("verdict-json");
   const rendering = fakeRendering();
   const verdicts = fakeVerdicts({
-    approved: true, corrections: [], rationale: undefined, parsed: true, valid: true, issues: [],
+    approved: true, findings: [], rationale: undefined, parsed: true, valid: true, issues: [],
   });
   const adapter = new ReviewPortAdapter({ runtime, rendering, verdicts }, {
     diff: "", mirrorDir: "/mirrors/org/app", e2eRelDir: "e2e", appName: "app", mode: "diff",
@@ -72,7 +72,7 @@ test("review() fail-closed invariant: a parse miss (parsed:false) is NEVER treat
   const rendering = fakeRendering();
   const verdicts = fakeVerdicts({
     approved: true, /* even if the parser's own approved defaulted true, parsed:false must win */
-    corrections: [], parsed: false, valid: false, issues: ["no verdict JSON found"],
+    findings: [], parsed: false, valid: false, issues: ["no verdict JSON found"],
   });
   const adapter = new ReviewPortAdapter({ runtime, rendering, verdicts }, {
     diff: "", mirrorDir: "/mirrors/org/app", e2eRelDir: "e2e", appName: "app", mode: "diff",
@@ -88,7 +88,7 @@ test("review() threads blockingCount so the caller can distinguish blocking vs a
   const runtime = fakeRuntime("verdict-json");
   const rendering = fakeRendering();
   const verdicts = fakeVerdicts({
-    approved: false, corrections: ["nit: rename var"], blockingCount: 0, parsed: true, valid: true, issues: [],
+    approved: false, findings: [{ text: "nit: rename var", severity: "advisory" as const }], blockingCount: 0, parsed: true, valid: true, issues: [],
   });
   const adapter = new ReviewPortAdapter({ runtime, rendering, verdicts }, {
     diff: "", mirrorDir: "/mirrors/org/app", e2eRelDir: "e2e", appName: "app", mode: "diff",
@@ -97,7 +97,7 @@ test("review() threads blockingCount so the caller can distinguish blocking vs a
   const result = await adapter.review("/mirrors/org/app/e2e", cases);
 
   assert.equal(result.blockingCount, 0);
-  assert.deepEqual(result.corrections, ["nit: rename var"]);
+  assert.deepEqual(result.findings, [{ text: "nit: rename var", severity: "advisory" }]);
 });
 
 test("review() prefers the run's DYNAMIC diff over the static ctx.diff (Plan 7.6), falling back when absent", async () => {
@@ -106,7 +106,7 @@ test("review() prefers the run's DYNAMIC diff over the static ctx.diff (Plan 7.6
     ...fakeRendering(),
     renderReviewer: (input) => { seenDiff = (input as { diff?: string }).diff; return { text: "reviewer-prompt", sectionSizes: {} }; },
   };
-  const verdicts = fakeVerdicts({ approved: true, corrections: [], rationale: undefined, parsed: true, valid: true, issues: [] });
+  const verdicts = fakeVerdicts({ approved: true, findings: [], rationale: undefined, parsed: true, valid: true, issues: [] });
   const adapter = new ReviewPortAdapter({ runtime: fakeRuntime("verdict-json"), rendering, verdicts }, {
     diff: "STATIC-ctx-diff", mirrorDir: "/mirrors/org/app", e2eRelDir: "e2e", appName: "app", mode: "diff",
   });
@@ -126,7 +126,7 @@ test("review() maps enrichment.priorCorrections onto ReviewInput.priorCorrection
     ...fakeRendering(),
     renderReviewer: (input) => { seenInput = input as { priorCorrections?: string[] }; return { text: "reviewer-prompt", sectionSizes: {} }; },
   };
-  const verdicts = fakeVerdicts({ approved: true, corrections: [], parsed: true, valid: true, issues: [] });
+  const verdicts = fakeVerdicts({ approved: true, findings: [], parsed: true, valid: true, issues: [] });
   const adapter = new ReviewPortAdapter({ runtime: fakeRuntime("verdict-json"), rendering, verdicts }, {
     diff: "", mirrorDir: "/mirrors/org/app", e2eRelDir: "e2e", appName: "app", mode: "diff",
   });
@@ -145,7 +145,7 @@ test("review() maps enrichment.domSnapshot onto ReviewInput.domSnapshot verbatim
     ...fakeRendering(),
     renderReviewer: (input) => { seenInput = input as { domSnapshot?: string }; return { text: "reviewer-prompt", sectionSizes: {} }; },
   };
-  const verdicts = fakeVerdicts({ approved: true, corrections: [], parsed: true, valid: true, issues: [] });
+  const verdicts = fakeVerdicts({ approved: true, findings: [], parsed: true, valid: true, issues: [] });
   const adapter = new ReviewPortAdapter({ runtime: fakeRuntime("verdict-json"), rendering, verdicts }, {
     diff: "", mirrorDir: "/mirrors/org/app", e2eRelDir: "e2e", appName: "app", mode: "diff",
   });
@@ -161,7 +161,7 @@ test("review() hands enrichment.changeView to the reviewer prompt, and omits it 
     ...fakeRendering(),
     renderReviewer: (input) => { seen.push((input as ReviewInput).changeView); return { text: "reviewer-prompt", sectionSizes: {} }; },
   };
-  const verdicts = fakeVerdicts({ approved: true, corrections: [], parsed: true, valid: true, issues: [] });
+  const verdicts = fakeVerdicts({ approved: true, findings: [], parsed: true, valid: true, issues: [] });
   const adapter = new ReviewPortAdapter({ runtime: fakeRuntime("verdict-json"), rendering, verdicts }, {
     diff: "", mirrorDir: "/mirrors/org/app", e2eRelDir: "e2e", appName: "app", mode: "diff",
   });
@@ -179,7 +179,7 @@ test("review() with absent enrichment.domSnapshot omits it from ReviewInput (nev
     ...fakeRendering(),
     renderReviewer: (input) => { seenInput = input as { domSnapshot?: string }; return { text: "reviewer-prompt", sectionSizes: {} }; },
   };
-  const verdicts = fakeVerdicts({ approved: true, corrections: [], parsed: true, valid: true, issues: [] });
+  const verdicts = fakeVerdicts({ approved: true, findings: [], parsed: true, valid: true, issues: [] });
   const adapter = new ReviewPortAdapter({ runtime: fakeRuntime("verdict-json"), rendering, verdicts }, {
     diff: "", mirrorDir: "/mirrors/org/app", e2eRelDir: "e2e", appName: "app", mode: "diff",
   });
@@ -195,7 +195,7 @@ test("review() with no enrichment argument omits priorCorrections (unchanged pro
     ...fakeRendering(),
     renderReviewer: (input) => { seenInput = input as { priorCorrections?: string[] }; return { text: "reviewer-prompt", sectionSizes: {} }; },
   };
-  const verdicts = fakeVerdicts({ approved: true, corrections: [], parsed: true, valid: true, issues: [] });
+  const verdicts = fakeVerdicts({ approved: true, findings: [], parsed: true, valid: true, issues: [] });
   const adapter = new ReviewPortAdapter({ runtime: fakeRuntime("verdict-json"), rendering, verdicts }, {
     diff: "", mirrorDir: "/mirrors/org/app", e2eRelDir: "e2e", appName: "app", mode: "diff",
   });
@@ -220,7 +220,7 @@ test("review() threads ctx.timeoutMs into openSession's opts.timeoutMs (reviewer
       return { prompt: async () => ({ output: "verdict-json" }), dispose: async () => {} };
     },
   };
-  const verdicts = fakeVerdicts({ approved: true, corrections: [], parsed: true, valid: true, issues: [] });
+  const verdicts = fakeVerdicts({ approved: true, findings: [], parsed: true, valid: true, issues: [] });
   const adapter = new ReviewPortAdapter({ runtime, rendering: fakeRendering(), verdicts }, {
     diff: "", mirrorDir: "/mirrors/org/app", e2eRelDir: "e2e", appName: "app", mode: "diff", timeoutMs: 360_000,
   });
@@ -238,7 +238,7 @@ test("review() with absent ctx.timeoutMs omits it from openSession opts (backwar
       return { prompt: async () => ({ output: "verdict-json" }), dispose: async () => {} };
     },
   };
-  const verdicts = fakeVerdicts({ approved: true, corrections: [], parsed: true, valid: true, issues: [] });
+  const verdicts = fakeVerdicts({ approved: true, findings: [], parsed: true, valid: true, issues: [] });
   const adapter = new ReviewPortAdapter({ runtime, rendering: fakeRendering(), verdicts }, {
     diff: "", mirrorDir: "/mirrors/org/app", e2eRelDir: "e2e", appName: "app", mode: "diff",
   });
@@ -254,7 +254,7 @@ test("review() maps a thrown openSession/prompt failure (e.g. a reviewer timeout
       throw new Error("reviewer session timed out after 360000ms");
     },
   };
-  const verdicts = fakeVerdicts({ approved: true, corrections: [], parsed: true, valid: true, issues: [] });
+  const verdicts = fakeVerdicts({ approved: true, findings: [], parsed: true, valid: true, issues: [] });
   const adapter = new ReviewPortAdapter({ runtime, rendering: fakeRendering(), verdicts }, {
     diff: "", mirrorDir: "/mirrors/org/app", e2eRelDir: "e2e", appName: "app", mode: "diff", timeoutMs: 360_000,
   });
@@ -274,7 +274,7 @@ test("review() maps a thrown session.prompt() failure the same fail-closed way (
       dispose: async () => {},
     }),
   };
-  const verdicts = fakeVerdicts({ approved: true, corrections: [], parsed: true, valid: true, issues: [] });
+  const verdicts = fakeVerdicts({ approved: true, findings: [], parsed: true, valid: true, issues: [] });
   const adapter = new ReviewPortAdapter({ runtime, rendering: fakeRendering(), verdicts }, {
     diff: "", mirrorDir: "/mirrors/org/app", e2eRelDir: "e2e", appName: "app", mode: "diff", timeoutMs: 360_000,
   });
@@ -299,7 +299,7 @@ function renderingRecording(seen: ReviewInput[]): PromptRenderingPort {
   };
 }
 
-const approving = fakeVerdicts({ approved: true, corrections: [], parsed: true, valid: true, issues: [] });
+const approving = fakeVerdicts({ approved: true, findings: [], parsed: true, valid: true, issues: [] });
 const REVIEW_CONTEXT = { diff: "", mirrorDir: "/mirrors/org/app", e2eRelDir: "e2e", appName: "app", mode: "diff" as const };
 
 test("review() puts the reviewer's limit from the resolver on ReviewInput.stepLimit, asking for the reviewer role and for no other", async () => {
@@ -405,14 +405,14 @@ test("review() marks a reviewer that returned nothing as unavailable: an empty a
 });
 
 test("review() does not mark a real rejection as unavailable, and keeps it exactly as it was", async () => {
-  const rejecting = fakeVerdicts({ approved: false, corrections: ["[false-positive] asserts nothing"], blockingCount: 1, parsed: true, valid: true, issues: [], rationale: "asserts nothing real" });
+  const rejecting = fakeVerdicts({ approved: false, findings: [{ text: "[false-positive] asserts nothing", severity: "blocking" as const }], blockingCount: 1, parsed: true, valid: true, issues: [], rationale: "asserts nothing real" });
   const result = await new ReviewPortAdapter({ runtime: fakeRuntime("verdict-json"), rendering: fakeRendering(), verdicts: rejecting }, REVIEW_CTX).review("/mirrors/org/app/e2e", cases);
   assert.equal("unavailable" in result, false);
-  assert.deepEqual([result.approved, result.parsed, result.blockingCount, result.corrections], [false, true, 1, ["[false-positive] asserts nothing"]]);
+  assert.deepEqual([result.approved, result.parsed, result.blockingCount, result.findings], [false, true, 1, [{ text: "[false-positive] asserts nothing", severity: "blocking" }]]);
 });
 
 test("review() does not mark an answer it could not read as unavailable: the reviewer was reached, only its verdict is a parse miss", async () => {
-  const unreadable = fakeVerdicts({ approved: false, corrections: [], parsed: false, valid: false, issues: ["no verdict JSON found"] });
+  const unreadable = fakeVerdicts({ approved: false, findings: [], parsed: false, valid: false, issues: ["no verdict JSON found"] });
   const result = await new ReviewPortAdapter({ runtime: fakeRuntime("I think the tests look fine"), rendering: fakeRendering(), verdicts: unreadable }, REVIEW_CTX).review("/mirrors/org/app/e2e", cases);
   assert.equal("unavailable" in result, false);
   assert.equal(result.parsed, false);
@@ -502,7 +502,7 @@ test("review() renders the run's execution evidence into the reviewer prompt, bo
     ...fakeRendering(),
     renderReviewer: (input) => { seenInput = input as { executionResult?: string }; return { text: "reviewer-prompt", sectionSizes: {} }; },
   };
-  const verdicts = fakeVerdicts({ approved: true, corrections: [], parsed: true, valid: true, issues: [] });
+  const verdicts = fakeVerdicts({ approved: true, findings: [], parsed: true, valid: true, issues: [] });
   const adapter = new ReviewPortAdapter({ runtime: fakeRuntime("verdict-json"), rendering, verdicts }, {
     diff: "", mirrorDir: "/mirrors/org/app", e2eRelDir: "e2e", appName: "app", mode: "diff",
   });
@@ -524,7 +524,7 @@ test("review() with no execution evidence omits the section entirely (never an e
     ...fakeRendering(),
     renderReviewer: (input) => { seenInput = input as { executionResult?: string }; return { text: "reviewer-prompt", sectionSizes: {} }; },
   };
-  const verdicts = fakeVerdicts({ approved: true, corrections: [], parsed: true, valid: true, issues: [] });
+  const verdicts = fakeVerdicts({ approved: true, findings: [], parsed: true, valid: true, issues: [] });
   const adapter = new ReviewPortAdapter({ runtime: fakeRuntime("verdict-json"), rendering, verdicts }, {
     diff: "", mirrorDir: "/mirrors/org/app", e2eRelDir: "e2e", appName: "app", mode: "diff",
   });
@@ -540,7 +540,7 @@ test("review() hands the reviewer prompt the arms no test ran, and none when the
     ...fakeRendering(),
     renderReviewer: (input) => { seen.push((input as { untakenArms?: unknown }).untakenArms); return { text: "reviewer-prompt", sectionSizes: {} }; },
   };
-  const verdicts = fakeVerdicts({ approved: true, corrections: [], parsed: true, valid: true, issues: [] });
+  const verdicts = fakeVerdicts({ approved: true, findings: [], parsed: true, valid: true, issues: [] });
   const adapter = new ReviewPortAdapter({ runtime: fakeRuntime("verdict-json"), rendering, verdicts }, {
     diff: "", mirrorDir: "/mirrors/org/app", e2eRelDir: "e2e", appName: "app", mode: "diff",
   });
@@ -552,12 +552,10 @@ test("review() hands the reviewer prompt the arms no test ran, and none when the
   assert.deepEqual(seen, [arms, undefined]);
 });
 
-test("review() hands on the reviewer's severity and citation of every correction", async () => {
+test("review() hands on every finding as the reviewer wrote it: its text, severity and citation", async () => {
   const verdicts = fakeVerdicts({
     approved: false,
-    corrections: ["[false-positive] flows/x.spec.ts asserts nothing"],
-    severities: ["blocking"],
-    citations: [{ kind: "execution", ref: "flows/x.spec.ts" }],
+    findings: [{ text: "[false-positive] flows/x.spec.ts asserts nothing", severity: "blocking", citation: { kind: "execution", ref: "flows/x.spec.ts" } }],
     blockingCount: 1,
     parsed: true,
     valid: true,
@@ -569,8 +567,31 @@ test("review() hands on the reviewer's severity and citation of every correction
 
   const result = await adapter.review("/mirrors/org/app/e2e", cases);
 
-  assert.deepEqual(result.severities, ["blocking"]);
-  assert.deepEqual(result.citations, [{ kind: "execution", ref: "flows/x.spec.ts" }]);
+  assert.deepEqual(result.findings, [{ text: "[false-positive] flows/x.spec.ts asserts nothing", severity: "blocking", citation: { kind: "execution", ref: "flows/x.spec.ts" } }]);
+});
+
+test("a port result without findings does not compile", () => {
+  /* Checked by `npm run typecheck`: the directive fails the build when the omission starts to compile. */
+  const omitted = async (): ReturnType<ReviewPort["review"]> =>
+    // @ts-expect-error findings is required: an adapter that drops the reviewer's findings is a build failure
+    ({ approved: true, parsed: true });
+  assert.equal(typeof omitted, "function");
+});
+
+test("review() treats a parsed answer the parser found invalid as unreadable: one repair turn naming the issues, then a parse miss that carries them", async () => {
+  const invalid: VerdictParserPort = {
+    parseGenerator: () => ({ specs: [] }),
+    parseReview: () => ({ approved: false, findings: [], parsed: true, valid: false, issues: ["corrections.0.severity: expected one of blocking|advisory"] }),
+  };
+  const reviewer = scriptedReviewer(["{}", "{}"]);
+  const adapter = new ReviewPortAdapter({ runtime: reviewer.runtime, rendering: fakeRendering(), verdicts: invalid, repair: repairPort }, REVIEW_CONTEXT);
+
+  const result = await adapter.review("/mirrors/org/app/e2e", cases);
+
+  assert.match(reviewer.prompts[1]!.text, /corrections\.0\.severity/);
+  assert.equal(reviewer.prompts.length, 2);
+  assert.deepEqual([result.approved, result.parsed, result.findings], [false, false, []]);
+  assert.deepEqual(result.issues, ["corrections.0.severity: expected one of blocking|advisory"]);
 });
 
 /* A reviewer answer cut before its closing JSON is asked once to restate the verdict, with no tool, in the same session. */
@@ -582,8 +603,8 @@ const RESTATED_ANSWER = '{"approved": true, "rationale": "the spec asserts the f
 const verdictsByShape: VerdictParserPort = {
   parseGenerator: () => ({ specs: [] }),
   parseReview: (text) => text.endsWith("}")
-    ? { approved: true, corrections: [], rationale: "the spec asserts the filtered list", parsed: true, valid: true, issues: [] }
-    : { approved: false, corrections: [], parsed: false, valid: false, issues: ["no verdict JSON found"] },
+    ? { approved: true, findings: [], rationale: "the spec asserts the filtered list", parsed: true, valid: true, issues: [] }
+    : { approved: false, findings: [], parsed: false, valid: false, issues: ["no verdict JSON found"] },
 };
 
 const repairPort: RepairPort = {

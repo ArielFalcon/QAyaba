@@ -5,6 +5,7 @@ import { Sha } from "@kernel/sha.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 import type { RunVerdict } from "@kernel/run-verdict.ts";
 import { AcceptDeliveredSpecsUseCase, type AcceptInput } from "@contexts/run-orchestration/application/accept-delivered-specs.use-case.ts";
+import type { ReviewFinding } from "@contexts/generation/domain/review-output.ts";
 import type { ExecutionOpts } from "@contexts/test-execution/application/index.ts";
 
 const PASS: QaCase[] = [{ name: "flows/a.spec.ts › loads", status: "pass", file: "flows/a.spec.ts" }];
@@ -23,7 +24,7 @@ function rig(script: {
   runs?: Array<{ verdict: RunVerdict; cases: QaCase[] }>;
   coverage?: { status: "pass" | "fail" | "unknown"; ratio: number | null };
   blocks?: boolean;
-  review?: { approved: boolean; corrections: string[]; blockingCount?: number; parsed?: boolean; unavailable?: boolean } | "none";
+  review?: { approved: boolean; findings: ReviewFinding[]; blockingCount?: number; parsed?: boolean; unavailable?: boolean } | "none";
 } = {}): Rig {
   const r: Rig = { validated: [], executed: [], measured: [], reviewed: 0, useCase: undefined as never };
   const runs = script.runs ?? [{ verdict: "pass", cases: PASS }, { verdict: "pass", cases: PASS }];
@@ -117,7 +118,7 @@ test("a run that could not execute makes the acceptance an infrastructure error"
 });
 
 test("a suite that did not pass is neither measured nor reviewed", async () => {
-  const r = rig({ runs: [{ verdict: "fail", cases: FAIL }], review: { approved: true, corrections: [] } });
+  const r = rig({ runs: [{ verdict: "fail", cases: FAIL }], review: { approved: true, findings: [] } });
   await r.useCase.accept({ ...INPUT, reviewRequired: true });
   assert.equal(r.measured.length, 0);
   assert.equal(r.reviewed, 0);
@@ -133,17 +134,17 @@ test("nothing delivered is nothing accepted, with nothing executed", async () =>
 });
 
 test("when a review is asked for, it must approve with no blocking correction", async () => {
-  const approved = await rig({ review: { approved: true, corrections: [], blockingCount: 0, parsed: true } }).useCase.accept({ ...INPUT, reviewRequired: true });
+  const approved = await rig({ review: { approved: true, findings: [], blockingCount: 0, parsed: true } }).useCase.accept({ ...INPUT, reviewRequired: true });
   assert.equal(approved.accepted, true);
   assert.deepEqual(approved.reviewer, { approved: true, corrections: [], unavailable: false });
 
-  const rejected = await rig({ review: { approved: true, corrections: ["assert the total"], blockingCount: 1, parsed: true } }).useCase.accept({ ...INPUT, reviewRequired: true });
+  const rejected = await rig({ review: { approved: true, findings: [{ text: "assert the total", severity: "blocking" }], blockingCount: 1, parsed: true } }).useCase.accept({ ...INPUT, reviewRequired: true });
   assert.equal(rejected.accepted, false, "an approving verdict with a blocking correction is a rejection");
   assert.deepEqual(rejected.decision, { verdict: "pass", sideEffect: "issue" });
 });
 
 test("a reviewer that could not be reached judged nothing, so nothing is accepted on its word", async () => {
-  const report = await rig({ review: { approved: false, corrections: [], unavailable: true } }).useCase.accept({ ...INPUT, reviewRequired: true });
+  const report = await rig({ review: { approved: false, findings: [], unavailable: true } }).useCase.accept({ ...INPUT, reviewRequired: true });
   assert.equal(report.accepted, false);
   assert.equal(report.reviewer?.unavailable, true);
 });
@@ -155,7 +156,7 @@ test("a review that was asked for and has no reviewer wired is a refusal to acce
 });
 
 test("a review that was not asked for is not run even when a reviewer is wired", async () => {
-  const r = rig({ review: { approved: false, corrections: ["x"], blockingCount: 1, parsed: true } });
+  const r = rig({ review: { approved: false, findings: [{ text: "x", severity: "blocking" }], blockingCount: 1, parsed: true } });
   const report = await r.useCase.accept(INPUT);
   assert.equal(r.reviewed, 0);
   assert.equal(report.accepted, true);

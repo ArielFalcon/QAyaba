@@ -12,7 +12,7 @@ import { BlastRadius } from "@kernel/blast-radius.ts";
 import { decide, isAccepted, type RunEvidence } from "../domain/run-decision.service.ts";
 import type { ExecutionPort, ValidationPort } from "@contexts/test-execution/application/index.ts";
 import type { ObjectiveSignalPort } from "@contexts/objective-signal/application/index.ts";
-import type { ReviewPort } from "@contexts/generation/application/index.ts";
+import { findingTexts, type ReviewPort } from "@contexts/generation/application/index.ts";
 
 /* The runs of the delivered specs: twice, so that a spec that passes once by luck does not count. */
 export const ACCEPTANCE_RUNS = 2;
@@ -125,7 +125,7 @@ export class AcceptDeliveredSpecsUseCase {
     const review = await this.deps.review.review(input.specDir, first.cases, input.diff, {});
     const unavailable = review.unavailable === true;
     /* The pipeline's own gate: approved with no blocking correction; a verdict that could not be read, or no verdict at all, is no approval. */
-    const approved = !unavailable && review.parsed !== false && review.approved && (review.blockingCount ?? review.corrections.length) === 0;
-    return conclude(verdict, { validate, runs, coverage, reviewer: { approved, corrections: review.corrections, unavailable } }, { blocksPublish: blocks, reviewerApproved: approved });
+    const approved = !unavailable && review.parsed !== false && review.approved && (review.blockingCount ?? review.findings.length) === 0;
+    return conclude(verdict, { validate, runs, coverage, reviewer: { approved, corrections: findingTexts(review.findings), unavailable } }, { blocksPublish: blocks, reviewerApproved: approved });
   }
 }

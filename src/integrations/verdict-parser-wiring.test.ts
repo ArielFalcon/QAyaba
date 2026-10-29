@@ -96,7 +96,7 @@ test("parseReview on a reviewer rejection forwards blockingCount and corrections
   const text = JSON.stringify({
     approved: false,
     rationale: "missing assertion on discount",
-    corrections: ["[false-positive] checkout.spec.ts: asserts nothing about the discount total"],
+    corrections: [{ text: "[false-positive] checkout.spec.ts: asserts nothing about the discount total", severity: "blocking" }],
   });
   const adapter = makeRealAdapter();
   const got = adapter.parseReview(text);

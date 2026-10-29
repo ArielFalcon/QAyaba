@@ -47,6 +47,7 @@ import { ok, err } from "@kernel/result.ts";
 import type { RunOutcome } from "@kernel/run-outcome.ts";
 import type { CodeGraphPort } from "@kernel/ports/code-graph.port.ts";
 import type { CodeGraphIndexRecord } from "@kernel/code/index.ts";
+import { ReviewPortAdapter } from "@contexts/generation/infrastructure/adapters/review-port.adapter.ts";
 import { GenerationTurnsAdapter } from "@contexts/generation/infrastructure/adapters/generation-turns.adapter.ts";
 import { GenerateTestsUseCase, type AuthoringPorts } from "@contexts/generation/application/generate-tests.use-case.ts";
 import type { OpencodeRunInput } from "@contexts/generation/application/index.ts";
@@ -107,7 +108,7 @@ function stubPorts(overrides: Partial<{
     overrides.generate ?? (async () => (scriptedGeneration({ specs: ["a.spec.ts"]}))),
   );
   const review: ReviewPort = {
-    review: citingRejections(overrides.review ?? (async () => ({ approved: true, corrections: [], blockingCount: 0, parsed: true }))),
+    review: citingRejections(overrides.review ?? (async () => ({ approved: true, findings: [], blockingCount: 0, parsed: true }))),
   };
   const validation: ValidationPort = {
     validate: overrides.validate ?? (async () => ({ ok: true, errors: [] })),
@@ -444,7 +445,7 @@ test("RunQaUseCase: absent PreGenerationGroundingPort/ReviewDomGroundingPort -> 
     },
     review: async (_specDir, _cases, _diff, enrichment) => {
       reviewCalls.push({ enrichment });
-      return { approved: true, corrections: [], blockingCount: 0, parsed: true };
+      return { approved: true, findings: [], blockingCount: 0, parsed: true };
     },
   });
   const useCase = new RunQaUseCase({ ...ports, config: { needsReview: true } });
@@ -545,8 +546,8 @@ test("RunQaUseCase: harness facts from grounding reach the initial generate() an
       return async () => {
         round++;
         return round === 1
-          ? { approved: false, corrections: ["fix the thing"], blockingCount: 1, parsed: true }
-          : { approved: true, corrections: [], blockingCount: 0, parsed: true };
+          ? { approved: false, findings: [{ text: "fix the thing", severity: "blocking" as const }], blockingCount: 1, parsed: true }
+          : { approved: true, findings: [], blockingCount: 0, parsed: true };
       };
     })(),
   });
@@ -586,8 +587,8 @@ test("RunQaUseCase: PreGenerationGroundingPort wired — grounding is reused UNC
       let round = 0;
       return async () => {
         round++;
-        if (round === 1) return { approved: false, corrections: ["fix the thing"], blockingCount: 1, parsed: true };
-        return { approved: true, corrections: [], blockingCount: 0, parsed: true };
+        if (round === 1) return { approved: false, findings: [{ text: "fix the thing", severity: "blocking" as const }], blockingCount: 1, parsed: true };
+        return { approved: true, findings: [], blockingCount: 0, parsed: true };
       };
     })(),
   });
@@ -627,7 +628,7 @@ test("RunQaUseCase: ReviewDomGroundingPort wired — domSnapshot threads into th
     captureReviewDom: async () => "route /owners:\n  heading: Owners",
     review: async (_specDir, _cases, _diff, enrichment) => {
       reviewCalls.push({ enrichment });
-      return { approved: true, corrections: [], blockingCount: 0, parsed: true };
+      return { approved: true, findings: [], blockingCount: 0, parsed: true };
     },
   });
   const useCase = new RunQaUseCase({ ...ports, config: { needsReview: true } });
@@ -649,7 +650,7 @@ test("RunQaUseCase: ReviewDomGroundingPort wired — memoized per round: NOT re-
     /* Both rounds review the SAME spec set (approve on round 0 — no regen, so reviewCases never
        changes) — capture() must fire exactly once.
      */
-    review: async () => ({ approved: true, corrections: [], blockingCount: 0, parsed: true }),
+    review: async () => ({ approved: true, findings: [], blockingCount: 0, parsed: true }),
   });
   const useCase = new RunQaUseCase({ ...ports, config: { needsReview: true } });
 
@@ -664,7 +665,7 @@ test("RunQaUseCase: ReviewDomGroundingPort wired — a capture failure is non-fa
     captureReviewDom: async () => { throw new Error("render crashed"); },
     review: async (_specDir, _cases, _diff, enrichment) => {
       reviewCalls.push({ enrichment });
-      return { approved: true, corrections: [], blockingCount: 0, parsed: true };
+      return { approved: true, findings: [], blockingCount: 0, parsed: true };
     },
   });
   const useCase = new RunQaUseCase({ ...ports, config: { needsReview: true } });
@@ -704,7 +705,7 @@ test("REVIEWER DOM GROUNDING: aborting during capture() (signal fires inside the
   let reviewCalled = false;
   const { ports } = stubPorts({
     captureReviewDom: async () => { controller.abort(); return undefined; },
-    review: async () => { reviewCalled = true; return { approved: true, corrections: [], blockingCount: 0, parsed: true }; },
+    review: async () => { reviewCalled = true; return { approved: true, findings: [], blockingCount: 0, parsed: true }; },
   });
   const useCase = new RunQaUseCase({ ...ports, config: { needsReview: true } });
 
@@ -892,7 +893,7 @@ test("RunQaUseCase — shadow: publish() IS called (dispatches to PublicationPor
 test("RunQaUseCase — cross-repo (needsReview:false): review() is NEVER called", async () => {
   let reviewCallCount = 0;
   const { ports } = stubPorts({});
-  ports.review.review = citingRejections(async () => { reviewCallCount++; return { approved: true, corrections: [], blockingCount: 0, parsed: true }; });
+  ports.review.review = citingRejections(async () => { reviewCallCount++; return { approved: true, findings: [], blockingCount: 0, parsed: true }; });
   const useCase = new RunQaUseCase({ ...ports, config: { ...baseConfig, needsReview: false } });
 
   const out = await useCase.run({ ...baseInput, runId: "golden-cross-repo-wiring-proof" });
@@ -916,7 +917,7 @@ test("a regression commit that PASSES the existing suite publishes NOTHING (pass
     execute: async () => { executeCallCount++; return { verdict: "pass", cases: [{ name: "existing-suite-flow", status: "pass" as const }], logs: "" }; },
   });
   ports.generation.author = async () => { generateCallCount++; return scriptedGeneration({ specs: ["a.spec.ts"]}); };
-  ports.review.review = citingRejections(async () => { reviewCallCount++; return { approved: true, corrections: [], blockingCount: 0, parsed: true }; });
+  ports.review.review = citingRejections(async () => { reviewCallCount++; return { approved: true, findings: [], blockingCount: 0, parsed: true }; });
   ports.publication.publish = async () => { publishCallCount++; return { outcome: "pr" }; };
   const useCase = new RunQaUseCase({ ...ports, config: baseConfig });
 
@@ -1254,7 +1255,7 @@ test("reviewer parse-miss (parsed:false) must FAIL CLOSED — reviewerApproved=f
    */
   const { ports } = stubPorts({
     execute: async () => ({ verdict: "pass", cases: [], logs: "" }),
-    review: async () => ({ approved: false, corrections: [], blockingCount: 0, parsed: false }),
+    review: async () => ({ approved: false, findings: [], blockingCount: 0, parsed: false }),
   });
   const useCase = new RunQaUseCase({ ...ports, config: baseConfig }); /* baseConfig.needsReview === true */
 
@@ -1520,7 +1521,7 @@ test("a reviewer correction whose execution runs red is rejected: the prior byte
   let executions = 0;
   const { ports } = stubPorts({
     generate: async () => scriptedGeneration({ specs: ["a.spec.ts"]}),
-    review: async () => ({ approved: false, corrections: ["assert the total"], blockingCount: 1, parsed: true }),
+    review: async () => ({ approved: false, findings: [{ text: "assert the total", severity: "blocking" as const }], blockingCount: 1, parsed: true }),
     execute: async () => {
       executions++;
       return executions === 1
@@ -1546,8 +1547,8 @@ test("coverage measures the reviewer-corrected revision: bytes that stop coverin
     review: async () => {
       reviewRounds++;
       return reviewRounds === 1
-        ? { approved: false, corrections: ["cover the total"], blockingCount: 1, parsed: true }
-        : { approved: true, corrections: [], blockingCount: 0, parsed: true };
+        ? { approved: false, findings: [{ text: "cover the total", severity: "blocking" as const }], blockingCount: 1, parsed: true }
+        : { approved: true, findings: [], blockingCount: 0, parsed: true };
     },
     execute: async () => {
       executions++;
@@ -1575,7 +1576,7 @@ test("a run deadline during the correction re-admit ends the run E-TIME-BUDGET (
   let executions = 0;
   const { ports } = stubPorts({
     generate: async () => scriptedGeneration({ specs: ["a.spec.ts"]}),
-    review: async () => ({ approved: false, corrections: ["fix it"], blockingCount: 1, parsed: true }),
+    review: async () => ({ approved: false, findings: [{ text: "fix it", severity: "blocking" as const }], blockingCount: 1, parsed: true }),
     execute: async () => {
       executions++;
       if (executions === 1) return { verdict: "pass" as const, cases: [{ name: "a", status: "pass" as const, file: "a.spec.ts" }], logs: "" };
@@ -1888,7 +1889,7 @@ test("a run without a FixLoop adjudicator verdict (clean first-try pass) publish
 const REVIEWER_DOWN_REASON = "HTTP 400: the model is not supported by the provider";
 const reviewerDown = async () => ({
   approved: false,
-  corrections: [],
+  findings: [],
   rationale: `reviewer unavailable: ${REVIEWER_DOWN_REASON}`,
   parsed: false,
   unavailable: true,
@@ -1963,7 +1964,7 @@ test("a reviewer unavailable on a context run does not apply: a context run has 
 test("a reviewer that answered but could not be read (a parse miss) is still the fail-closed Issue it was: it was reached, only its verdict is missing", async () => {
   let publishedSideEffect: string | undefined;
   const { ports } = stubPorts({
-    review: async () => ({ approved: false, corrections: [], rationale: "the model produced garbage, not JSON", parsed: false }),
+    review: async () => ({ approved: false, findings: [], rationale: "the model produced garbage, not JSON", parsed: false }),
     publish: async () => { publishedSideEffect = "issue"; return { outcome: "issue" }; },
   });
   const out = await new RunQaUseCase({ ...ports, config: baseConfig }).run({ ...baseInput, runId: "reviewer-parse-miss" });
@@ -1978,7 +1979,7 @@ test("follow-up #28: a NORMAL reviewer rejection (parsed:true) does NOT carry a 
     execute: async () => ({ verdict: "pass", cases: [{ name: "a", status: "pass" as const, file: "a.spec.ts" }], logs: "" }),
     review: async () => ({
       approved: false,
-      corrections: ["[false-positive] weak assertion"],
+      findings: [{ text: "[false-positive] weak assertion", severity: "blocking" as const }],
       blockingCount: 1,
       rationale: "the assertion is too weak to catch a regression",
       parsed: true,
@@ -2001,7 +2002,7 @@ test("follow-up #28: a normal reviewer APPROVAL is unaffected — no reviewerNot
   let publishedDecision: { reviewerNote?: string } | undefined;
   const { ports } = stubPorts({
     execute: async () => ({ verdict: "pass", cases: [], logs: "" }),
-    review: async () => ({ approved: true, corrections: [], blockingCount: 0, parsed: true }),
+    review: async () => ({ approved: true, findings: [], blockingCount: 0, parsed: true }),
   });
   ports.publication.publish = async (decision) => {
     publishedDecision = decision;
@@ -2022,7 +2023,7 @@ test("follow-up #28: a normal rejection does NOT populate gateSignals.reviewerRa
     execute: async () => ({ verdict: "pass", cases: [], logs: "" }),
     review: async () => ({
       approved: false,
-      corrections: ["[false-positive] weak assertion"],
+      findings: [{ text: "[false-positive] weak assertion", severity: "blocking" as const }],
       blockingCount: 1,
       rationale: "the assertion is too weak",
       parsed: true,
@@ -2228,7 +2229,7 @@ test("SETUP: aborting during setup() (signal fires inside the collaborator) stop
 test("reviewerApproved is copied into the persisted gateSignals (not dropped after being used as a decide() input)", async () => {
   let saved: import("@kernel/run-outcome.ts").RunOutcome | undefined;
   const { ports } = stubPorts({
-    review: async () => ({ approved: true, corrections: [], blockingCount: 0, parsed: true }),
+    review: async () => ({ approved: true, findings: [], blockingCount: 0, parsed: true }),
   });
   ports.runHistory.save = async (outcome) => { saved = outcome; };
   const useCase = new RunQaUseCase({ ...ports, config: baseConfig });
@@ -2243,7 +2244,7 @@ test("reviewerApproved reflects a reviewer REJECTION (false), not silently omitt
   let saved: import("@kernel/run-outcome.ts").RunOutcome | undefined;
   const { ports } = stubPorts({
     execute: async () => ({ verdict: "pass", cases: [{ name: "a", status: "pass" as const, file: "a.spec.ts" }], logs: "" }),
-    review: async () => ({ approved: false, corrections: ["[false-positive] x"], blockingCount: 1, parsed: true }),
+    review: async () => ({ approved: false, findings: [{ text: "[false-positive] x", severity: "blocking" as const }], blockingCount: 1, parsed: true }),
   });
   ports.runHistory.save = async (outcome) => { saved = outcome; };
   const useCase = new RunQaUseCase({ ...ports, config: baseConfig });
@@ -2271,8 +2272,8 @@ test("signal mode — an accepted regeneration after the measurement reuses it a
       review: async () => {
         reviews++;
         return reviews === 1
-          ? { approved: false, corrections: ["assert the list"], blockingCount: 1, parsed: true }
-          : { approved: true, corrections: [], blockingCount: 0, parsed: true };
+          ? { approved: false, findings: [{ text: "assert the list", severity: "blocking" as const }], blockingCount: 1, parsed: true }
+          : { approved: true, findings: [], blockingCount: 0, parsed: true };
       },
     });
     ports.generation.author = async () => {
@@ -2323,8 +2324,8 @@ test("enforce mode — a review regeneration after the measurement gets ONE fina
       review: async () => {
         reviews++;
         return reviews === 1
-          ? { approved: false, corrections: ["assert the amount"], blockingCount: 1, parsed: true }
-          : { approved: true, corrections: [], blockingCount: 0, parsed: true };
+          ? { approved: false, findings: [{ text: "assert the amount", severity: "blocking" as const }], blockingCount: 1, parsed: true }
+          : { approved: true, findings: [], blockingCount: 0, parsed: true };
       },
     });
     ports.generation.author = async () => {
@@ -2366,8 +2367,8 @@ test("signal mode — a flaky run whose review regeneration was accepted marks i
       review: async () => {
         reviews++;
         return reviews === 1
-          ? { approved: false, corrections: ["assert the list"], blockingCount: 1, parsed: true }
-          : { approved: true, corrections: [], blockingCount: 0, parsed: true };
+          ? { approved: false, findings: [{ text: "assert the list", severity: "blocking" as const }], blockingCount: 1, parsed: true }
+          : { approved: true, findings: [], blockingCount: 0, parsed: true };
       },
     });
     ports.generation.author = async () => {
@@ -2412,8 +2413,8 @@ test("enforce mode — a flaky run whose review regeneration was accepted gets o
       review: async () => {
         reviews++;
         return reviews === 1
-          ? { approved: false, corrections: ["assert the amount"], blockingCount: 1, parsed: true }
-          : { approved: true, corrections: [], blockingCount: 0, parsed: true };
+          ? { approved: false, findings: [{ text: "assert the amount", severity: "blocking" as const }], blockingCount: 1, parsed: true }
+          : { approved: true, findings: [], blockingCount: 0, parsed: true };
       },
     });
     ports.generation.author = async () => {
@@ -2548,9 +2549,9 @@ test("contextMapCapture is absent by default — no-op, no behavior change on a 
 
 /* A context run's product is the architecture map: it generates no test, so there is nothing for a test reviewer to judge, and a verdict it cannot give must never turn a clean pass into an Issue. */
 const REJECTING_REVIEWERS: Array<{ name: string; review: ReviewPort["review"] }> = [
-  { name: "a rejecting reviewer", review: async () => ({ approved: false, corrections: ["[blocking] no test to review"], blockingCount: 1, parsed: true }) },
-  { name: "a reviewer parse-miss", review: async () => ({ approved: false, corrections: [], blockingCount: 0, parsed: false }) },
-  { name: "an unavailable reviewer", review: async () => ({ approved: false, corrections: [], blockingCount: 0, parsed: false, rationale: "reviewer unavailable: timed out after 360000ms" }) },
+  { name: "a rejecting reviewer", review: async () => ({ approved: false, findings: [{ text: "[blocking] no test to review", severity: "blocking" as const }], blockingCount: 1, parsed: true }) },
+  { name: "a reviewer parse-miss", review: async () => ({ approved: false, findings: [], blockingCount: 0, parsed: false }) },
+  { name: "an unavailable reviewer", review: async () => ({ approved: false, findings: [], blockingCount: 0, parsed: false, rationale: "reviewer unavailable: timed out after 360000ms" }) },
 ];
 
 for (const { name, review } of REJECTING_REVIEWERS) {
@@ -2755,7 +2756,7 @@ test("reviewerApproved is absent when the run ends before its review, however th
     execute: async () => ({ verdict: "fail", cases: [{ name: "login", status: "fail" as const }], logs: "x" }),
     generate: async () => (scriptedGeneration({ specs: ["a.spec.ts"]})),
   });
-  ports.review.review = citingRejections(async () => { reviewCallCount++; return { approved: true, corrections: [], blockingCount: 0, parsed: true }; });
+  ports.review.review = citingRejections(async () => { reviewCallCount++; return { approved: true, findings: [], blockingCount: 0, parsed: true }; });
   ports.runHistory.save = async (outcome) => { saved = outcome; };
   const useCase = new RunQaUseCase({ ...ports, config: baseConfig });
 
@@ -2790,7 +2791,7 @@ test("publish() is called with the reviewerApproved field threaded (not dropped)
   let publishedDecision: { verdict: string; reviewerApproved?: boolean; coverageBlocks?: boolean } | undefined;
   const { ports } = stubPorts({
     execute: async () => ({ verdict: "pass", cases: [], logs: "" }),
-    review: async () => ({ approved: true, corrections: [], blockingCount: 0, parsed: true }),
+    review: async () => ({ approved: true, findings: [], blockingCount: 0, parsed: true }),
   });
   ports.publication.publish = async (decision) => { publishedDecision = decision; return { outcome: "pr" }; };
   const useCase = new RunQaUseCase({ ...ports, config: baseConfig });
@@ -2830,7 +2831,7 @@ test("publish() is called with the handle WorkspacePort.prepare() issued on the 
   let publishedDecision: { verdict: string; workspace?: WorkspaceHandle } | undefined;
   const { ports, ws } = stubPorts({
     execute: async () => ({ verdict: "pass", cases: [], logs: "" }),
-    review: async () => ({ approved: true, corrections: [], blockingCount: 0, parsed: true }),
+    review: async () => ({ approved: true, findings: [], blockingCount: 0, parsed: true }),
   });
   ports.publication.publish = async (decision) => { publishedDecision = decision; return { outcome: "pr" }; };
   const useCase = new RunQaUseCase({ ...ports, config: baseConfig });
@@ -2850,7 +2851,7 @@ test("reviewerApproved on a genuine pass+review call still reflects the INDEPEND
   const { ports } = stubPorts({
     execute: async () => ({ verdict: "pass", cases: [{ name: "a", status: "pass" as const, file: "a.spec.ts" }], logs: "" }),
     generate: async () => (scriptedGeneration({ specs: ["a.spec.ts"]})), /* generation self-approves */
-    review: async () => ({ approved: false, corrections: ["[false-positive] x"], blockingCount: 1, parsed: true }),
+    review: async () => ({ approved: false, findings: [{ text: "[false-positive] x", severity: "blocking" as const }], blockingCount: 1, parsed: true }),
   });
   ports.runHistory.save = async (outcome) => { saved = outcome; };
   const useCase = new RunQaUseCase({ ...ports, config: baseConfig });
@@ -3951,8 +3952,8 @@ test("a reviewer rejection with blocking corrections triggers regeneration with 
   ports.review.review = citingRejections(async () => {
     reviewCallCount++;
     return reviewCallCount === 1
-      ? { approved: false, corrections: ["[false-positive] assertion targets the wrong element"], blockingCount: 1, parsed: true }
-      : { approved: true, corrections: [], blockingCount: 0, parsed: true };
+      ? { approved: false, findings: [{ text: "[false-positive] assertion targets the wrong element", severity: "blocking" as const }], blockingCount: 1, parsed: true }
+      : { approved: true, findings: [], blockingCount: 0, parsed: true };
   });
   ports.generation.author = revisingAuthor(ws, async (_specDir, _signal, _diff, enrichment) => {
     capturedReviewCorrections.push(enrichment?.reviewCorrections);
@@ -3978,13 +3979,13 @@ test("corrections resolved on the regenerated round -> reviewerApproved:true -> 
   ports.review.review = citingRejections(async (_specDir, _cases, _diff, enrichment) => {
     reviewCallCount++;
     if (reviewCallCount === 1) {
-      return { approved: false, corrections: ["[false-positive] x"], blockingCount: 1, parsed: true };
+      return { approved: false, findings: [{ text: "[false-positive] x", severity: "blocking" as const }], blockingCount: 1, parsed: true };
     }
     /* Round 1: the reviewer sees the SAME corrections it raised last round via priorCorrections and
        now approves — proves convergence threading.
      */
     assert.deepEqual(enrichment?.priorCorrections, ["[false-positive] x"], "round 1's review() call must receive round 0's own corrections as priorCorrections");
-    return { approved: true, corrections: [], blockingCount: 0, parsed: true };
+    return { approved: true, findings: [], blockingCount: 0, parsed: true };
   });
   ports.generation.author = revisingAuthor(ws);
   const useCase = new RunQaUseCase({ ...ports, config: baseConfig });
@@ -4004,7 +4005,7 @@ test("not pr)", async () => {
   });
   ports.review.review = citingRejections(async () => {
     reviewCallCount++;
-    return { approved: false, corrections: ["[false-positive] persistent issue"], blockingCount: 1, parsed: true };
+    return { approved: false, findings: [{ text: "[false-positive] persistent issue", severity: "blocking" as const }], blockingCount: 1, parsed: true };
   });
   ports.generation.author = revisingAuthor(ws, async () => {
     generateCallCount++;
@@ -4035,7 +4036,7 @@ test("a terminal reviewer rejection threads its corrections into gateSignals.rev
   });
   ports.review.review = citingRejections(async () => {
     /* Rejects on EVERY round — the persistent-rejection case (same fixture as the bound test above). */
-    return { approved: false, corrections: ["[false-positive] asserts nothing on the discount"], blockingCount: 1, parsed: true };
+    return { approved: false, findings: [{ text: "[false-positive] asserts nothing on the discount", severity: "blocking" as const }], blockingCount: 1, parsed: true };
   });
   const useCase = new RunQaUseCase({ ...ports, config: baseConfig });
 
@@ -4058,7 +4059,7 @@ test("an APPROVED review (no rejection) still persists gateSignals.reviewerCorre
   const { ports } = stubPorts({
     execute: async () => ({ verdict: "pass" as const, cases: [{ name: "login", status: "pass" as const }], logs: "" }),
   });
-  ports.review.review = citingRejections(async () => ({ approved: true, corrections: [], blockingCount: 0, parsed: true }));
+  ports.review.review = citingRejections(async () => ({ approved: true, findings: [], blockingCount: 0, parsed: true }));
   const useCase = new RunQaUseCase({ ...ports, config: baseConfig });
 
   const out = await useCase.run({ ...baseInput, runId: "approved-no-corrections" });
@@ -4081,7 +4082,7 @@ test("BOUNDARY: approved with ADVISORY-ONLY corrections (blockingCount 0) — er
   });
   ports.review.review = citingRejections(async () => ({
     approved: true,
-    corrections: ["[fragile-selector] prefer role-based locator"], /* advisory note on an APPROVAL */
+    findings: [{ text: "[fragile-selector] prefer role-based locator", severity: "blocking" as const }], /* advisory note on an APPROVAL */
     blockingCount: 0,
     parsed: true,
   }));
@@ -4104,13 +4105,13 @@ test("a rejection resolved by convergence (round 1 APPROVES, even with an adviso
   ports.review.review = citingRejections(async () => {
     reviewCallCount++;
     if (reviewCallCount === 1) {
-      return { approved: false, corrections: ["[fragile-selector] round 0 nit"], blockingCount: 1, parsed: true };
+      return { approved: false, findings: [{ text: "[fragile-selector] round 0 nit", severity: "blocking" as const }], blockingCount: 1, parsed: true };
     }
     /* The approving round carries a leftover ADVISORY note — the guard is "approval -> []",
        not "last round's raw corrections win": an approving round's advisory notes are notes,
        never a learning/errorClass signal (see the BOUNDARY test above).
      */
-    return { approved: true, corrections: ["[fragile-selector] minor residual style nit"], blockingCount: 0, parsed: true };
+    return { approved: true, findings: [{ text: "[fragile-selector] minor residual style nit", severity: "blocking" as const }], blockingCount: 0, parsed: true };
  });
   ports.generation.author = revisingAuthor(ws);
   const useCase = new RunQaUseCase({ ...ports, config: baseConfig });
@@ -4132,7 +4133,7 @@ test("reviewer-rejection reaches the process audit with the real (non-null) erro
   const { ports } = stubPorts({
     execute: async () => ({ verdict: "pass" as const, cases: [{ name: "login", status: "pass" as const, file: "a.spec.ts" }], logs: "" }),
   });
-  ports.review.review = citingRejections(async () => ({ approved: false, corrections: ["[wrong-objective] tests login, commit changed checkout"], blockingCount: 1, parsed: true }));
+  ports.review.review = citingRejections(async () => ({ approved: false, findings: [{ text: "[wrong-objective] tests login, commit changed checkout", severity: "blocking" as const }], blockingCount: 1, parsed: true }));
   const processAudit = makeFakeProcessAudit((outcome) => { capturedOutcome = outcome; });
   const useCase = new RunQaUseCase({ ...ports, processAudit, config: baseConfig });
 
@@ -4152,7 +4153,7 @@ test("parsed:false (a parse miss) fails closed WITHOUT burning a regeneration ro
   });
   ports.review.review = async () => {
     reviewCallCount++;
-    return { approved: true, corrections: [], blockingCount: 0, parsed: false }; /* parse miss, NOT a real rejection */
+    return { approved: true, findings: [], blockingCount: 0, parsed: false }; /* parse miss, NOT a real rejection */
   };
   ports.generation.author = async () => { generateCallCount++; return scriptedGeneration({ specs: ["a.spec.ts"]}); };
   const useCase = new RunQaUseCase({ ...ports, config: baseConfig });
@@ -4172,7 +4173,7 @@ test("a regeneration that produces zero specs mid-loop is a lost cause — termi
   });
   ports.review.review = citingRejections(async () => {
     reviewCallCount++;
-    return { approved: false, corrections: ["[false-positive] x"], blockingCount: 1, parsed: true };
+    return { approved: false, findings: [{ text: "[false-positive] x", severity: "blocking" as const }], blockingCount: 1, parsed: true };
   });
   let generateCallCount = 0;
   ports.generation.author = async () => {
@@ -4202,7 +4203,7 @@ test("exactly ONE reviewer session (review() call) fires for a clean pass — no
   const { ports } = stubPorts({
     execute: async () => ({ verdict: "pass" as const, cases: [], logs: "" }),
   });
-  ports.review.review = citingRejections(async () => { reviewCallCount++; return { approved: true, corrections: [], blockingCount: 0, parsed: true }; });
+  ports.review.review = citingRejections(async () => { reviewCallCount++; return { approved: true, findings: [], blockingCount: 0, parsed: true }; });
   const useCase = new RunQaUseCase({ ...ports, config: baseConfig });
 
   const out = await useCase.run({ ...baseInput, runId: "w2-f4-single-review-clean-pass" });
@@ -4539,7 +4540,7 @@ test("executedRed: the outer review gate is unreachable for a fail verdict — r
   let reviewCallCount = 0;
   const { ports } = stubPorts({
     execute: async () => ({ verdict: "fail", cases: [{ name: "checkout flow", status: "fail" as const }], logs: "1 failed" }),
-    review: async () => { reviewCallCount++; return { approved: true, corrections: [], blockingCount: 0, parsed: true }; },
+    review: async () => { reviewCallCount++; return { approved: true, findings: [], blockingCount: 0, parsed: true }; },
   });
   const useCase = new RunQaUseCase({ ...ports, config: { ...baseConfig, maxRetries: 0 } });
 
@@ -4553,7 +4554,7 @@ test("executedRed: the outer review gate is unreachable for a fail verdict — r
 test("executedRed: evidence green (run.verdict==='pass') — a genuine reviewer approval stands, the override's condition never evaluates true", async () => {
   const { ports } = stubPorts({
     execute: async () => ({ verdict: "pass", cases: [{ name: "checkout flow", status: "pass" as const }], logs: "1 passed" }),
-    review: async () => ({ approved: true, corrections: [], blockingCount: 0, parsed: true }),
+    review: async () => ({ approved: true, findings: [], blockingCount: 0, parsed: true }),
   });
   const useCase = new RunQaUseCase({ ...ports, config: baseConfig });
 
@@ -4819,8 +4820,8 @@ test("a signal the port reports as naming symbols carries that flag on the first
       let round = 0;
       return async () => {
         round++;
-        if (round === 1) return { approved: false, corrections: ["fix the thing"], blockingCount: 1, parsed: true };
-        return { approved: true, corrections: [], blockingCount: 0, parsed: true };
+        if (round === 1) return { approved: false, findings: [{ text: "fix the thing", severity: "blocking" as const }], blockingCount: 1, parsed: true };
+        return { approved: true, findings: [], blockingCount: 0, parsed: true };
       };
     })(),
   });
@@ -4866,8 +4867,8 @@ test("a co-change-only signal reaches every generation with no symbol flag at al
       let round = 0;
       return async () => {
         round++;
-        if (round === 1) return { approved: false, corrections: ["fix the thing"], blockingCount: 1, parsed: true };
-        return { approved: true, corrections: [], blockingCount: 0, parsed: true };
+        if (round === 1) return { approved: false, findings: [{ text: "fix the thing", severity: "blocking" as const }], blockingCount: 1, parsed: true };
+        return { approved: true, findings: [], blockingCount: 0, parsed: true };
       };
     })(),
   });
@@ -5065,7 +5066,7 @@ function fakeAuthoringPortsForAntiInert(capture: { input?: OpencodeRunInput }): 
     verdicts: {
       /* The tests below read the generator's input only; a declared no-op ends the run without touching anything else. */
       parseGenerator: () => ({ specs: [], noopReason: "the test only inspects what the generator was given" }),
-      parseReview: () => ({ approved: true, corrections: [], parsed: true, valid: true, issues: [] }),
+      parseReview: () => ({ approved: true, findings: [], parsed: true, valid: true, issues: [] }),
     },
     manifest: { read: async () => [], reconcile: async (_d, entries) => [...entries] },
   };
@@ -7369,8 +7370,8 @@ test("the coordination outcome reports the review as not applicable when the run
 });
 
 test("the coordination outcome reports the reviewer's verdict when the review step dispatched one", async () => {
-  const approving = async () => ({ approved: true, corrections: [], blockingCount: 0, parsed: true });
-  const rejecting = async () => ({ approved: false, corrections: ["[false-positive] assert the total"], blockingCount: 1, parsed: true });
+  const approving = async () => ({ approved: true, findings: [], blockingCount: 0, parsed: true });
+  const rejecting = async () => ({ approved: false, findings: [{ text: "[false-positive] assert the total", severity: "blocking" as const }], blockingCount: 1, parsed: true });
   assert.equal(await coordinationReviewOutcome({ needsReview: true, review: approving }), "approved");
   assert.equal(await coordinationReviewOutcome({ needsReview: true, review: rejecting }), "rejected");
 });
@@ -7591,7 +7592,7 @@ test("reviewer pre-check (R4): a spec asserting an empty state the captured DOM 
       prepare: async () => fakeHandle({ specDir: fixtures.specDir, mirrorDir: fixtures.mirrorDir }),
       captureReviewDom: async () => R4_DOM,
       execute: async () => ({ verdict: "pass", cases: [{ name: "flows/restaurants.spec.ts", status: "pass" }], logs: "" }),
-      review: async () => { modelReviews++; return { approved: true, corrections: [], blockingCount: 0, parsed: true }; },
+      review: async () => { modelReviews++; return { approved: true, findings: [], blockingCount: 0, parsed: true }; },
     });
     ports.generation.author = async (specDir, _signal, _diff, enrichment) => {
       regenCorrections.push(enrichment?.reviewCorrections);
@@ -7629,7 +7630,7 @@ test("reviewer pre-check: a legitimate spec whose assertions the captured DOM co
       execute: async () => ({ verdict: "pass", cases: [{ name: "flows/restaurants.spec.ts", status: "pass" }], logs: "" }),
       review: async () => {
         modelReviews++;
-        return { approved: true, corrections: [], blockingCount: 0, rationale: "the list is asserted against the captured page", parsed: true };
+        return { approved: true, findings: [], blockingCount: 0, rationale: "the list is asserted against the captured page", parsed: true };
       },
     });
     ports.generation.author = async (_specDir) => {
@@ -7658,7 +7659,7 @@ test("reviewer pre-check: a spec whose file passed on DEV is not rejected for an
       prepare: async () => fakeHandle({ specDir: fixtures.specDir, mirrorDir: fixtures.mirrorDir }),
       captureReviewDom: async () => R4_DOM,
       execute: async () => ({ verdict: "pass", cases: [{ name: "the empty state is shown", file: "flows/restaurants.spec.ts", status: "pass" }], logs: "" }),
-      review: async () => { modelReviews++; return { approved: true, corrections: [], blockingCount: 0, rationale: "the case ran green on DEV", parsed: true }; },
+      review: async () => { modelReviews++; return { approved: true, findings: [], blockingCount: 0, rationale: "the case ran green on DEV", parsed: true }; },
     });
     ports.generation.author = async (_specDir) => {
       fixtures.write("flows/restaurants.spec.ts", R4_SPEC);
@@ -7685,7 +7686,7 @@ test("reviewer pre-check: the same contradiction in a spec file that did not pas
       prepare: async () => fakeHandle({ specDir: fixtures.specDir, mirrorDir: fixtures.mirrorDir }),
       captureReviewDom: async () => R4_DOM,
       execute: async () => ({ verdict: "flaky", cases: [{ name: "the empty state is shown", file: "flows/restaurants.spec.ts", status: "flaky" }], logs: "" }),
-      review: async () => ({ approved: true, corrections: [], blockingCount: 0, parsed: true }),
+      review: async () => ({ approved: true, findings: [], blockingCount: 0, parsed: true }),
     });
     ports.generation.author = async (_specDir) => {
       fixtures.write("flows/restaurants.spec.ts", R4_SPEC);
@@ -7712,7 +7713,7 @@ test("a generator that changes nothing after a rejection is not reviewed twice: 
       execute: async () => ({ verdict: "pass", cases: [{ name: "flows/restaurants.spec.ts", status: "pass", file: "flows/restaurants.spec.ts" }], logs: "" }),
       review: async () => {
         modelReviews++;
-        return { approved: false, corrections: ["[false-positive] the list is never asserted"], blockingCount: 1, parsed: true };
+        return { approved: false, findings: [{ text: "[false-positive] the list is never asserted", severity: "blocking" as const }], blockingCount: 1, parsed: true };
       },
     });
     ports.generation.author = async (_specDir) => {
@@ -7742,7 +7743,7 @@ test("a regeneration that only adds comments does not buy a second review: the r
       execute: async () => ({ verdict: "pass", cases: [{ name: "flows/restaurants.spec.ts", status: "pass", file: "flows/restaurants.spec.ts" }], logs: "" }),
       review: async () => {
         modelReviews++;
-        return { approved: false, corrections: ["[false-positive] the list is never asserted"], blockingCount: 1, parsed: true };
+        return { approved: false, findings: [{ text: "[false-positive] the list is never asserted", severity: "blocking" as const }], blockingCount: 1, parsed: true };
       },
     });
     ports.generation.author = async (_specDir) => {
@@ -7772,8 +7773,8 @@ test("a materially changed spec is re-reviewed with the prior corrections and th
       review: async (_specDir, _cases, _diff, enrichment) => {
         seen.push({ ...(enrichment?.priorCorrections ? { priorCorrections: enrichment.priorCorrections } : {}), ...(enrichment?.specChanges ? { specChanges: enrichment.specChanges } : {}) });
         return seen.length === 1
-          ? { approved: false, corrections: ["[false-positive] the list is never asserted"], blockingCount: 1, parsed: true }
-          : { approved: true, corrections: [], blockingCount: 0, parsed: true };
+          ? { approved: false, findings: [{ text: "[false-positive] the list is never asserted", severity: "blocking" as const }], blockingCount: 1, parsed: true }
+          : { approved: true, findings: [], blockingCount: 0, parsed: true };
       },
     });
     ports.generation.author = async (_specDir) => {
@@ -7907,7 +7908,7 @@ test("the reviewer judges only the specs this run delivered; the existing suite 
           cases: cases.map((c) => c.file ?? c.name),
           ...(enrichment?.existingSpecFiles ? { existing: enrichment.existingSpecFiles } : {}),
         });
-        return { approved: true, corrections: [], blockingCount: 0, rationale: "the delivered spec targets the rename", parsed: true };
+        return { approved: true, findings: [], blockingCount: 0, rationale: "the delivered spec targets the rename", parsed: true };
       },
     });
     ports.generation.author = async (_specDir) => {
@@ -7945,7 +7946,7 @@ test("the reviewer decision span carries the delivered targets, the existing sui
       }),
       review: async () => ({
         approved: false,
-        corrections: ["[wrong-objective] flows/restaurants.spec.ts: assert the rename, not the list"],
+        findings: [{ text: "[wrong-objective] flows/restaurants.spec.ts: assert the rename, not the list", severity: "blocking" as const }],
         blockingCount: 1,
         rationale: "the delivered spec does not target the rename",
         parsed: true,
@@ -7974,6 +7975,81 @@ test("the reviewer decision span carries the delivered targets, the existing sui
   } finally {
     fixtures.cleanup();
   }
+});
+
+/* The reviewer's answer reaches the decision whole: what the engine could not read is a parse miss with its issues, never an approval. */
+function reviewDecisionSpan(h: RecordingTelemetry) {
+  const span = h.spans.find((s) => s.name === "qayaba.review.decision" && s.attrs["qayaba.review.decided_by"] === "model");
+  assert.ok(span, "the model round is recorded");
+  return span;
+}
+
+async function runReviewed(runId: string, review: ReviewPort["review"]) {
+  const fixtures = reviewFixtures();
+  try {
+    const h = new RecordingTelemetry();
+    const { ports } = stubPorts({
+      prepare: async () => fakeHandle({ specDir: fixtures.specDir, mirrorDir: fixtures.mirrorDir }),
+      execute: async () => ({ verdict: "pass" as const, cases: [{ name: "flows/restaurants.spec.ts", file: "flows/restaurants.spec.ts", status: "pass" as const }], logs: "" }),
+    });
+    /* The answer reaches the step as the test states it: the default rig would cite an uncited rejection. */
+    ports.review.review = review;
+    ports.generation.author = async () => {
+      fixtures.write("flows/restaurants.spec.ts", R4_LEGIT_SPEC);
+      return scriptedGeneration({ specs: ["flows/restaurants.spec.ts"] });
+    };
+    const out = await new RunQaUseCase({ ...ports, telemetry: h, config: baseConfig }).run({ ...baseInput, runId });
+    return { out, span: reviewDecisionSpan(h) };
+  } finally {
+    fixtures.cleanup();
+  }
+}
+
+test("a reviewer answer the engine could not read is a parse miss that names its issues, and never an approval", async () => {
+  const issues = ["corrections.0.severity: Invalid option: expected one of \"blocking\"|\"advisory\""];
+  /* The real review port over a parser that found the answer invalid: nothing of the answer may stand as a judgment. */
+  const port = new ReviewPortAdapter(
+    {
+      runtime: { openSession: async () => ({ prompt: async () => ({ output: '{"approved":false,"corrections":[{"text":"x"}]}' }), dispose: async () => {} }) },
+      rendering: { render: () => "", renderMain: () => ({ text: "", sectionSizes: {} }), renderReviewer: () => ({ text: "reviewer-prompt", sectionSizes: {} }), specFileForFlow: (flow: string) => `flows/${flow}.spec.ts` },
+      verdicts: { parseGenerator: () => ({ specs: [] }), parseReview: () => ({ approved: false, findings: [], parsed: true, valid: false, issues }) },
+    },
+    { diff: "", mirrorDir: "/mirrors/org/app", e2eRelDir: "e2e", appName: "app", mode: "diff" },
+  );
+  const { out, span } = await runReviewed("review-unreadable-answer", (specDir, cases, diff, enrichment) => port.review(specDir, cases, diff, enrichment));
+
+  assert.equal(span.attrs["qayaba.review.outcome"], "parse-miss");
+  assert.deepEqual(span.attrs["qayaba.review.issues"], issues);
+  assert.equal(span.attrs["qayaba.review.dropped_blocking"], undefined, "nothing was set aside as uncited: the entry was never read");
+  assert.equal(out.decision.sideEffect, "issue", "an unreadable verdict fails closed");
+});
+
+test("a rejection reaches the decision whole and records no issue, and a blocking entry the agent left uncited is still dropped as uncited", async () => {
+  const cited = await runReviewed("review-cited-rejection", async () => ({
+    approved: false,
+    findings: [{ text: "[wrong-objective] flows/restaurants.spec.ts: assert the rename", severity: "blocking" as const, citation: { kind: "execution" as const, ref: "flows/restaurants.spec.ts" } }],
+    blockingCount: 1,
+    parsed: true,
+  }));
+  assert.equal(cited.span.attrs["qayaba.review.outcome"], "rejected");
+  assert.equal(cited.span.attrs["qayaba.review.issues"], undefined);
+
+  const uncited = await runReviewed("review-uncited-rejection", async () => ({
+    approved: false,
+    findings: [{ text: "[wrong-objective] flows/restaurants.spec.ts: assert the rename", severity: "blocking" as const }],
+    blockingCount: 1,
+    parsed: true,
+  }));
+  assert.equal(uncited.span.attrs["qayaba.review.dropped_blocking"], 1);
+  assert.equal(uncited.span.attrs["qayaba.review.drop_reasons"], "uncited=1");
+});
+
+test("an approval whose corrections the engine set aside stays an approval and records the loss", async () => {
+  const issues = ["corrections: not a list; read as none beside an approval"];
+  const { span } = await runReviewed("review-approval-list-lost", async () => ({ approved: true, findings: [], blockingCount: 0, parsed: true, issues }));
+
+  assert.equal(span.attrs["qayaba.review.outcome"], "approved");
+  assert.deepEqual(span.attrs["qayaba.review.issues"], issues);
 });
 
 test("the fix_loop phase span carries its outcome, the failing counts and the spec-set digest", async () => {
@@ -8110,9 +8186,7 @@ test("a new run is never bound by a previous run's contract", async () => {
 function citedReview(citation: { kind: "contract" | "execution" | "dom"; ref: string } | undefined) {
   return async () => ({
     approved: false,
-    corrections: ["[wrong-objective] the stock auth spec is not part of this change"],
-    severities: ["blocking" as const],
-    citations: [citation],
+    findings: [{ text: "[wrong-objective] the stock auth spec is not part of this change", severity: "blocking" as const, citation: citation }],
     blockingCount: 1,
     parsed: true,
   });
@@ -8209,7 +8283,7 @@ test("an approval that carries plain-string notes is no dropped rejection: the r
     const { ports } = stubPorts({
       prepare: async () => fakeHandle({ specDir: fixtures.specDir, mirrorDir: fixtures.mirrorDir }),
       execute: async () => ({ verdict: "pass" as const, cases: [], logs: "" }),
-      review: async () => ({ approved: true, corrections: ["minor: a name could be clearer"], blockingCount: 0, parsed: true }),
+      review: async () => ({ approved: true, findings: [{ text: "minor: a name could be clearer", severity: "blocking" as const }], blockingCount: 0, parsed: true }),
     });
     ports.generation.author = generate;
     const out = await new RunQaUseCase({ ...ports, config: { ...baseConfig, needsReview: true } }).run({ ...baseInput, runId: "findings-approval-notes" });
@@ -8254,9 +8328,7 @@ const DISPUTED_FINDING = "[wrong-objective] checkout.spec.ts: the discount is ne
 function disputedFinding(citation: { kind: "contract" | "execution" | "dom"; ref: string }) {
   return async () => ({
     approved: false,
-    corrections: [DISPUTED_FINDING],
-    severities: ["blocking" as const],
-    citations: [citation],
+    findings: [{ text: DISPUTED_FINDING, severity: "blocking" as const, citation: citation }],
     blockingCount: 1,
     parsed: true,
   });
@@ -8366,13 +8438,11 @@ function correctiveReview() {
     return round === 1
       ? {
           approved: false,
-          corrections: ["[wrong-objective] a.spec.ts: the total is never asserted"],
-          severities: ["blocking" as const],
-          citations: [{ kind: "execution" as const, ref: "a.spec.ts" }],
+          findings: [{ text: "[wrong-objective] a.spec.ts: the total is never asserted", severity: "blocking" as const, citation: { kind: "execution" as const, ref: "a.spec.ts" } }],
           blockingCount: 1,
           parsed: true,
         }
-      : { approved: true, corrections: [], blockingCount: 0, rationale: "the total is asserted", parsed: true };
+      : { approved: true, findings: [], blockingCount: 0, rationale: "the total is asserted", parsed: true };
   };
 }
 
@@ -8970,9 +9040,7 @@ test("the reviewer is given the arms no test ran, and a missing case it cites fr
       given = enrichment?.untakenArms;
       return {
         approved: false,
-        corrections: ["[missing-case] the else of src/a.ts:3 (no results) is not tested", "[missing-case] an arm the run never measured"],
-        severities: ["blocking", "blocking"],
-        citations: [{ kind: "arm", ref: "src/a.ts:3" }, { kind: "arm", ref: "src/z.ts:1" }],
+        findings: [{ text: "[missing-case] the else of src/a.ts:3 (no results) is not tested", severity: "blocking", citation: { kind: "arm", ref: "src/a.ts:3" } }, { text: "[missing-case] an arm the run never measured", severity: "blocking", citation: { kind: "arm", ref: "src/z.ts:1" } }],
         blockingCount: 2,
         parsed: true,
       };
@@ -9005,7 +9073,7 @@ test("after an accepted regeneration whose coverage could not be recounted, the 
       measure: async () => ({ status: "pass" as const, ratio: 0.9, uncovered: [], untakenArms: ARMS }),
       review: async (_dir, _cases, _diff, enrichment) => {
         given = enrichment?.untakenArms;
-        return { approved: true, corrections: [], blockingCount: 0, parsed: true };
+        return { approved: true, findings: [], blockingCount: 0, parsed: true };
       },
     });
     const useCase = new RunQaUseCase({ ...ports, config: { ...baseConfig, needsReview: true, coveragePolicyMode: "signal", coverageBranchCases: "regenerate" } });

@@ -19,7 +19,7 @@ import type { QaCase } from "@kernel/qa-case.ts";
 const runtime: AgentRuntimePort = { openSession: async () => ({ prompt: async () => ({ output: "{}" }), dispose: async () => {} }) };
 const verdicts: VerdictParserPort = {
   parseGenerator: () => ({ specs: [] }),
-  parseReview: () => ({ approved: true, corrections: [], parsed: true, valid: true, issues: [] }),
+  parseReview: () => ({ approved: true, findings: [], parsed: true, valid: true, issues: [] }),
 };
 
 /* A rendering port that records the input and renders the real reviewer prompt from it. */

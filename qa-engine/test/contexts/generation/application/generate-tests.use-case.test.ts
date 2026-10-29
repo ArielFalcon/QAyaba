@@ -43,7 +43,7 @@ test("renders → opens session → parses deliverable → reconciles manifest (
     },
     verdicts: {
       parseGenerator: (_text) => { calls.push("parse"); return { specs: ["flows/login.spec.ts"], parsed: true }; },
-      parseReview: () => ({ approved: true, corrections: [], valid: true, issues: [] }),
+      parseReview: () => ({ approved: true, findings: [], valid: true, issues: [] }),
     },
     manifest: {
       read: async () => [],
@@ -91,7 +91,7 @@ test("the files the rendered prompt already carries are handed to the session wi
     },
     verdicts: {
       parseGenerator: () => ({ specs: ["flows/login.spec.ts"], parsed: true }),
-      parseReview: () => ({ approved: true, corrections: [], valid: true, issues: [] }),
+      parseReview: () => ({ approved: true, findings: [], valid: true, issues: [] }),
     },
     manifest: { read: async () => [], reconcile: async (_d, e) => [...e] as ManifestEntry[] },
   });
@@ -137,7 +137,7 @@ test("fires exactly ONE bounded repair when checkGenerator returns valid:false",
         if (text.includes('"specs"')) return { specs: ["flows/repair.spec.ts"], parsed: true };
         return { specs: [], parsed: true }; /* contract miss — no specs key, but JSON present */
       },
-      parseReview: () => ({ approved: true, corrections: [], valid: true, issues: [] }),
+      parseReview: () => ({ approved: true, findings: [], valid: true, issues: [] }),
     },
     manifest: {
       read: async () => [],
@@ -191,7 +191,7 @@ test("parse miss → empty specs (fail-closed, no phantom spec names)", async ()
     },
     verdicts: {
       parseGenerator: () => ({ specs: [], parsed: false }),
-      parseReview: () => ({ approved: true, corrections: [], valid: true, issues: [] }),
+      parseReview: () => ({ approved: true, findings: [], valid: true, issues: [] }),
     },
     manifest: {
       read: async () => [],
@@ -236,7 +236,7 @@ test("manifest.reconcile is called with [] when the deliverable carries specs bu
     },
     verdicts: {
       parseGenerator: () => ({ specs: ["flows/checkout.spec.ts"], parsed: true }),
-      parseReview: () => ({ approved: true, corrections: [], valid: true, issues: [] }),
+      parseReview: () => ({ approved: true, findings: [], valid: true, issues: [] }),
     },
     manifest: {
       read: async () => [],
@@ -282,7 +282,7 @@ test("manifest.reconcile receives the run's spec root: the mirror, and the spec 
     },
     verdicts: {
       parseGenerator: () => ({ specs: ["flows/checkout.spec.ts"], parsed: true }),
-      parseReview: () => ({ approved: true, corrections: [], valid: true, issues: [] }),
+      parseReview: () => ({ approved: true, findings: [], valid: true, issues: [] }),
     },
     manifest: {
       read: async () => [],
@@ -338,7 +338,7 @@ test("manifest entries are built from specMetas with objective/flow/targets + ch
         parsed: true,
         specMetas: [{ file: "flows/checkout.spec.ts", flow: "checkout", objective: "user can checkout", targets: ["CheckoutService.pay"] }],
       }),
-      parseReview: () => ({ approved: true, corrections: [], valid: true, issues: [] }),
+      parseReview: () => ({ approved: true, findings: [], valid: true, issues: [] }),
     },
     manifest: {
       read: async () => [],
@@ -394,7 +394,7 @@ test("manifest entry changeRef.type falls back to 'unknown' when input.intent is
         parsed: true,
         specMetas: [{ file: "flows/login.spec.ts", flow: "login", objective: "user can log in", targets: ["AuthService.login"] }],
       }),
-      parseReview: () => ({ approved: true, corrections: [], valid: true, issues: [] }),
+      parseReview: () => ({ approved: true, findings: [], valid: true, issues: [] }),
     },
     manifest: {
       read: async () => [],
@@ -449,7 +449,7 @@ test("a spec present in specs[] but ABSENT from specMetas[] gets NO manifest ent
         parsed: true,
         specMetas: [{ file: "flows/checkout.spec.ts", flow: "checkout", objective: "user can checkout", targets: ["CheckoutService.pay"] }],
       }),
-      parseReview: () => ({ approved: true, corrections: [], valid: true, issues: [] }),
+      parseReview: () => ({ approved: true, findings: [], valid: true, issues: [] }),
     },
     manifest: {
       read: async () => [],
@@ -512,7 +512,7 @@ test("follow-up #27: a malformed generator verdict triggers ONE bounded repair w
         if (text.includes('"specs"')) return { specs: ["flows/repair.spec.ts"], parsed: true };
         return { specs: [], parsed: true };
       },
-      parseReview: () => ({ approved: true, corrections: [], valid: true, issues: [] }),
+      parseReview: () => ({ approved: true, findings: [], valid: true, issues: [] }),
     },
     manifest: {
       read: async () => [],
@@ -580,7 +580,7 @@ test("assembled manifest entries satisfy the real ManifestEntrySchema shape (obj
         parsed: true,
         specMetas: [{ file: "flows/checkout.spec.ts", flow: "checkout", objective: "user can checkout", targets: ["CheckoutService.pay"] }],
       }),
-      parseReview: () => ({ approved: true, corrections: [], valid: true, issues: [] }),
+      parseReview: () => ({ approved: true, findings: [], valid: true, issues: [] }),
     },
     manifest: {
       read: async () => [],
@@ -632,7 +632,7 @@ async function reportedSpecs(): Promise<string[]> {
       },
       verdicts: new VerdictParserAdapter({
         parseVerdict: () => ({ parsed: true, approved: true, specs: ["login.spec.ts"] }),
-        parseReviewerVerdict: () => ({ approved: true, corrections: [], blockingCount: 0, parsed: true, valid: true, issues: [] }),
+        parseReviewerVerdict: () => ({ approved: true, findings: [], blockingCount: 0, parsed: true, valid: true, issues: [] }),
       }),
       manifest: { read: async () => [], reconcile: async (_d, e) => [...e] as ManifestEntry[] },
     };
@@ -674,7 +674,7 @@ async function optionsSentFor(input: Partial<OpencodeRunInput>, repairing?: "gen
     },
     verdicts: {
       parseGenerator: () => ({ specs: ["flows/a.spec.ts"], parsed: true }),
-      parseReview: () => ({ approved: true, corrections: [], valid: true, issues: [], parsed: true }),
+      parseReview: () => ({ approved: true, findings: [], valid: true, issues: [], parsed: true }),
     },
     manifest: { read: async () => [], reconcile: async (_d, e) => [...e] as ManifestEntry[] },
     ...(repairing
@@ -747,7 +747,7 @@ for (const mode of ["diff", "context"] as const) {
       },
       verdicts: {
         parseGenerator: () => ({ specs: ["flows/a.spec.ts"], parsed: true }),
-        parseReview: () => ({ approved: false, corrections: [], valid: true, issues: [], parsed: true }),
+        parseReview: () => ({ approved: false, findings: [], valid: true, issues: [], parsed: true }),
       },
       manifest: { read: async () => [], reconcile: async (_d, e) => [...e] as ManifestEntry[] },
     };

@@ -50,7 +50,7 @@ function build(step: { output: string } | { throws: Error }, deliverable: Genera
     },
     verdicts: {
       parseGenerator: (text, specDir) => { seen.parsedWith.push({ text, specDir }); return deliverable; },
-      parseReview: () => ({ approved: true, corrections: [], valid: true, issues: [], parsed: true }),
+      parseReview: () => ({ approved: true, findings: [], valid: true, issues: [], parsed: true }),
     },
     manifest: { read: async () => [], reconcile: async (_d, e) => [...e] as ManifestEntry[] },
   };

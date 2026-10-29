@@ -18,7 +18,7 @@ function portsReturning(deliverable: GeneratorDeliverable): AuthoringPorts {
     },
     verdicts: {
       parseGenerator: () => deliverable,
-      parseReview: () => ({ approved: true, corrections: [], parsed: true, valid: true, issues: [] }),
+      parseReview: () => ({ approved: true, findings: [], parsed: true, valid: true, issues: [] }),
     },
     manifest: { read: async () => [], reconcile: async (_dir, entries) => [...entries] },
   };

@@ -86,7 +86,7 @@ function makeAuthoringPorts(capturedInput: { value: OpencodeRunInput | undefined
     },
     verdicts: {
       parseGenerator: () => ({ specs: [], parsed: true }),
-      parseReview: () => ({ approved: true, corrections: [], valid: true, issues: [] }),
+      parseReview: () => ({ approved: true, findings: [], valid: true, issues: [] }),
     },
     manifest: {
       read: async () => [],

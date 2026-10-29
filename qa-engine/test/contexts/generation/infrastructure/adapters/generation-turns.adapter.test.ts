@@ -54,7 +54,7 @@ function fakeAuthoringPorts(overrides: {
     },
     verdicts: {
       parseGenerator: () => ({ specs: ["flows/checkout.spec.ts"], note: "ok" }),
-      parseReview: () => ({ approved: true, corrections: [], parsed: true, valid: true, issues: [] }),
+      parseReview: () => ({ approved: true, findings: [], parsed: true, valid: true, issues: [] }),
     },
     manifest: {
       read: async () => [],
@@ -920,7 +920,7 @@ async function generatorPromptFor(
     }),
     verdicts: {
       parseGenerator: () => ({ specs: [], parsed: true }),
-      parseReview: () => ({ approved: true, corrections: [], parsed: true, valid: true, issues: [] }),
+      parseReview: () => ({ approved: true, findings: [], parsed: true, valid: true, issues: [] }),
     },
     manifest: { read: async () => [], reconcile: async (_specDir, entries) => [...entries] },
   });
