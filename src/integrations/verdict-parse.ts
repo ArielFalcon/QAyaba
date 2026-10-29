@@ -1,6 +1,6 @@
 
 
-import type { SpecMeta } from "../types";
+import type { SpecMeta } from "@kernel/qa-case";
 import { readNoopKind, type NoopKind } from "@kernel/noop-kind";
 import { jsonObjectsIn, lastJsonObjectWhere } from "@kernel/last-json-object";
 

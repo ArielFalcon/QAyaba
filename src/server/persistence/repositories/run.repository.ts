@@ -4,7 +4,8 @@ import type { CaptureMode } from "@kernel/telemetry/capture-mode";
 import type { CampaignIdentity } from "../../../contract/campaign";
 import { logJson } from "../../../integrations/logger";
 import { RedactionPortAdapter } from "../../../orchestrator/sanitizer";
-import type { AgentActivity, QaCase, RunChangeEntry, RunMode, RunRecord, RunVerdict, SpecRecord, TestTarget } from "../../../types";
+import type { AgentActivity, QaCase, RunChangeEntry, RunMode, RunRecord, RunVerdict, TestTarget } from "../../../types";
+import type { SpecRecord } from "@kernel/qa-case";
 import type { HistoryDatabase } from "../database";
 import { parseJsonColumn } from "../json-column";
 

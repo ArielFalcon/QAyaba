@@ -4,73 +4,13 @@ import type { ActivityKindSchema, RunChangeEntrySchema } from "./contract/comman
 import type { z } from "zod";
 import { RUN_MODES, type RunMode, type TestTarget, type TriggerSource } from "@kernel/run-mode";
 import { RUN_ENGINE_STATUSES, engineStatus, type RunEngineStatus, type RunVerdict } from "@kernel/run-verdict";
-import type { CaseStatus, QaCase } from "@kernel/qa-case";
+import type { CaseStatus, QaCase, SpecRecord } from "@kernel/qa-case";
 import type { RouteAvailabilityGateSignal } from "@kernel/route-availability";
 import type { DataContradictionGateSignal } from "@kernel/data-contradiction";
 import type { ObservedDifference } from "@kernel/observed-difference";
 
 export { RUN_MODES, RUN_ENGINE_STATUSES, engineStatus };
 export type { RunMode, TestTarget, TriggerSource, RunEngineStatus, RunVerdict, CaseStatus, QaCase };
-
-/*
- * Structured metadata the agent emits per spec — the day-one fields (objective, flow,
- * targets) the orchestrator uses for deterministic manifest upsert. Complements the
- * flat `specs: string[]` in AgentResult for backward compatibility.
- */
-export interface SpecMeta {
-  file: string;     /* spec file name, e.g. "login.spec.ts" */
-  flow: string;     /* user flow, e.g. "login" */
-  objective: string;  /* acceptance criterion */
-  targets: string[];   /* symbols/routes the spec exercises */
-  sha256?: string;  /* content checksum for integrity verification */
-}
-
-
-export interface RunOptions {
-  target?: TestTarget;  /* defaults to "e2e" when omitted */
-  mode: RunMode;
-  guidance?: string;  /* used by "manual" and by a human-in-the-loop continuation */
-  /*
-   * Continuation: seed the FIRST generation with these previously-failed cases (so the
-   * agent fixes them) and record the run it continues.
-   */
-  fixCases?: QaCase[];
-  parentRunId?: string;
-  previousNamespace?: string;  /* cleanup: namespace from an interrupted previous run */
-  runId?: string;  /* the tracked run id; scopes the data/coverage namespace per run */
-  triggerRepo?: string;  /* cross-repo: the service repo whose commit triggered this run */
-  commits?: number;  /* diff mode: how many commits ending at the SHA the diff spans (default 1) */
-  /*
-   * PR/push range: when set and != the head sha, the diff spans baseSha..sha (the whole PR),
-   * not just the tip commit. Absent → single-commit behavior (unchanged).
-   */
-  baseSha?: string;
-}
-
-/*
- * Outcome of an OpenCode agent run. The agent writes the E2E tests directly into
- * the working copy's `e2e/` folder (git is the source of truth, not this object);
- * only the reviewer subagent's verdict (resolved inside OpenCode) and the final
- * text travel here.
- */
-export interface AgentResult {
-  output: string;  /* the agent's final text, including its closing verdict */
-  specs: string[];  /* names of the specs it reported writing/updating */
-  specMetas?: SpecMeta[];  /* structured metadata per spec (flow, objective, targets) */
-  reviewed: boolean;  /* whether review was enabled */
-  approved: boolean;  /* reviewer verdict (true when not reviewed) */
-  note?: string;  /* reason when not approved (e.g. did not converge) */
-  /*
-   * Browser NAVIGATIONS (route visits) the agent made THIS turn (re-exploration telemetry;
-   * counts `navigate`, not snapshots). Threaded into the fix-loop's RoundResult so the progress gate can
-   * treat a heavy-re-navigation retry that merely reshuffles the failure set as "no progress".
-   * Absent ⇒ treated as 0 (no gating).
-   */
-  reexploreNavigations?: number;
-
-  objectiveCount?: number;
-}
-
 
 export interface QaRunResult {
   sha: string;
@@ -80,13 +20,6 @@ export interface QaRunResult {
   logs: string;
   note?: string;  /* human-readable summary of what happened (reviewer rejection, skip reason, etc.) */
   outcome?: string;  /* what the run PRODUCED — "suite PR merged · <url>", "Issue filed · <url>", etc. */
-}
-
-/* A single spec produced by the AI agent with its objective and flow path. */
-export interface SpecRecord {
-  name: string;
-  objective?: string;
-  flow?: string;
 }
 
 /*

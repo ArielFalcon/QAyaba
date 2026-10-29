@@ -62,7 +62,7 @@ export interface AdjudicatorEvidence {
   gateReason: string;
   /** Pre-computed DEV health: true for code mode (no web env) or when DEV is responding. */
   devHealthy: boolean;
-  /** Run mode from RunOptions.mode. */
+  /** Run mode. */
   mode: RunMode;
   /** Diff mode: intent.changedFiles; manual mode: [opts.guidance] (filtered non-empty). */
   objectiveSource: string[];
