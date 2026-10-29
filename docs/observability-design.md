@@ -504,44 +504,22 @@ against the AI SDK span's tool list from §5.7. If they disagree, the attribute 
 ### 5.7 Hidden calls, provider retries, quota (F7, F8, F15)
 
 The orchestrator cannot see OpenCode's `title` agent or the provider's internal retries.
-- **Content risk, which applies to both options.** AI SDK telemetry records inputs and outputs by
-  default: `ai.prompt.messages`, `ai.response.text`, `ai.toolCall.args/result`. That includes repo
-  files, MCP page content and engram. It bypasses `captureMode` and in-process redaction.
-  - So Option A is **off by default**.
-  - S0.2 must establish OpenCode's `recordInputs`/`recordOutputs`.
-  - The agent receiver's pipeline (§9.2) **deletes** `ai.prompt*`, `ai.response.*` and
-    `ai.toolCall.{args,result}` unless the server-side capture ceiling is `full`. Even then, it
-    redacts them with the collector's secret patterns.
-- **Option A (behind spike S0.2, and deferred to after S2).** Enable OpenCode's `experimental.openTelemetry`, which is
-  present in 1.17.7 and gated on `OTEL_EXPORTER_OTLP_ENDPOINT`. It emits AI SDK spans:
-  `ai.streamText` and `ai.toolCall`, with `ai.*` attributes plus `session.id`, including title calls
-  and retries.
-  - OpenCode's source never mentions `traceparent`. However, its HTTP server is Effect's
-    `HttpRouter.serve`, whose default `HttpMiddleware.tracer` takes the parent of the request span
-    from the W3C `traceparent` header. This is inferred from the Effect source and is unverified.
-  - **S0.2 tests both levels:**
-    1. Send `traceparent` (the attempt span) on `POST /session/:id/message` through the shared
-       client's `headers`/`fetch` hook (`opencode-client.ts:221`), and check that the HTTP server
-       span is parented.
-    2. Check whether the AI SDK spans (which run in separate Effect fibers) inherit that parent.
-  - If (2) holds, OpenCode's spans are **connected** children of the attempt span.
-  - If not, they land in separate traces with `service.name=opencode`. The collector copies
-    `session.id` into `gen_ai.conversation.id`, so viewers join them to the run's turn: **correlated,
-    not connected**, stated plainly.
-  - The title agent passes `experimental_telemetry` too (`agent/agent.ts:376`), so its hidden call
-    is visible either way.
-- **Option B (fallback).** The supervisor tails `opencode.log` and ships provider-error and title
-  lines as OTel logs with the session id. This is more brittle, but works whatever the OTel support.
+- **Content risk.** AI SDK telemetry records inputs and outputs by default: `ai.prompt.messages`, `ai.response.text`,
+  `ai.toolCall.args/result`. That includes repo files and MCP page content. It bypasses `captureMode` and in-process redaction.
+  The agent receiver's pipeline (§9.2) **deletes** `ai.prompt*`, `ai.response.*` and `ai.toolCall.{args,result}` unless the
+  server-side capture ceiling is `full`. Even then, it redacts them with the collector's secret patterns.
+- **OpenCode's own AI SDK spans** (`experimental.openTelemetry`, gated on `OTEL_EXPORTER_OTLP_ENDPOINT`) were evaluated and are
+  not used, as the next paragraph records.
 
-**Evaluated 2026-10-19 (OpenCode 1.17.7).** Option A emits `ai.streamText`/`ai.streamText.doStream` with `session.id` and
+**Evaluated 2026-10-19 (OpenCode 1.17.7).** The AI SDK option emits `ai.streamText`/`ai.streamText.doStream` with `session.id` and
 `gen_ai.usage.*`, but every span lands in one process-wide trace with no root and no `traceparent` parenting (an inbound
-`traceparent` is ignored: there is no per-request HTTP span), and it exports prompt and response bodies. Option B is not
+`traceparent` is ignored: there is no per-request HTTP span), and it exports prompt and response bodies. A log-tailing fallback is not
 needed: OpenCode exports OTLP logs natively when `OTEL_EXPORTER_OTLP_ENDPOINT` is set, with severity, time and the trace
 and span ids of that process trace. The adopted path is **logs only**: the agent collector keeps them (stripped and
 stamped like spans) and drops `service.name=opencode` traces. `experimental.openTelemetry` stays off; no per-call cost is
 synthesized from SSE. R6 records the decision.
 
-Either way, the turn span's `error.type` (§5.3) already covers what reaches the orchestrator.
+The turn span's `error.type` (§5.3) already covers what reaches the orchestrator.
 
 ---
 
@@ -1168,7 +1146,7 @@ their own commits.
 | **S3b DOM capture per route** | The capture script reports per-route timing and state (its output changes) | C8, F11 |
 | **S4 Evaluation** | `evaluation` context; deterministic graders; `run_scores`; API #2–#6 | B3–B6, B8 |
 | **S4b Langfuse** | Removed (RFC-0001 OD-1): the profile, the score sink and the label import. The `langfuse.*` span attributes stay | n/a |
-| **S2b OpenCode native spans** (not shipped) | Option A rejected: one process-wide trace with no root, and content-bearing `ai.*` spans. OpenCode's logs ship instead (R6) | F7/F8 detail comes from the orchestrator's own attempt and tool spans |
+| **S2b OpenCode native spans** (not shipped) | Rejected: one process-wide trace with no root, and content-bearing `ai.*` spans. OpenCode's logs ship instead (R6) | F7/F8 detail comes from the orchestrator's own attempt and tool spans |
 | **S5 Campaigns** | Trigger metadata (API #1), datasets, replicate comparison report | B7 |
 | **S6 Judges** | Annotation queues and human-label import (§11.3). The LLM judges and their calibration were removed | Human labels |
 
@@ -1252,7 +1230,7 @@ findings, 16 warnings and 11 suggestions. The load-bearing claims were re-verifi
 | S5 suspend fallback clock | The fallback uses the HTTP `Date` header of an outbound call from the root process, not `host.docker.internal` | §7 |
 | S6 Langfuse trace attrs on the late root | `langfuse.trace.*` is also set on the first exported span of the run. Tempo and Langfuse retention follow R4 | §4.3, §10 |
 | S7 contract gaps | Per-source and per-intent score names are `<grader>.<source\|intent>`. A campaign is `complete` when every requested (item × variant × replicate) has a `done` run and `evaluationStatus=complete`. `GET /evaluations/regrade/:jobId` reports regrade status. With `QA_TELEMETRY=off`, `telemetry` is `null` and `phases` still comes from `run_outcomes` | §14 |
-| S8 simplify | Adopted: the funnel ships first from `run_outcomes` (S1a); Langfuse is split into S4b; Option A deferred; same capture mode across arms | §16 |
+| S8 simplify | Adopted: the funnel ships first from `run_outcomes` (S1a); Langfuse is split into S4b; OpenCode native spans deferred; same capture mode across arms | §16 |
 | S9 split S1 | Done | §16 |
 | S10 `RunEvidence` name clash | Renamed | §11.1 |
 | S11 the classifier pinned to Playwright messages | Fixtures, plus an entry in the "when Playwright moves" checklist | §6.2 |
@@ -1270,8 +1248,8 @@ both.
 ## 19. Known gaps (stated, not hidden)
 
 - `chat` (step) spans have **receive-time** timestamps. OpenCode 1.17.7 step parts carry none.
-- OpenCode's own spans (title calls, provider retries) are connected only if S0.2 proves that
-  Effect's server tracer parents them. Otherwise they are **correlated by session id**.
+- OpenCode's own spans (title calls, provider retries) are not exported: its AI SDK spans were evaluated and rejected (§5.7).
+  Its logs are shipped and **correlated by session id**.
 - The offered tool schema bytes are reconstructed by the orchestrator. S0.4 checks that they match
   what the model received.
 - Sandbox children are traced from the orchestrator's side only.
