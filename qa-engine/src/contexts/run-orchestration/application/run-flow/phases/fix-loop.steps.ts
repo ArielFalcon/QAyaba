@@ -55,8 +55,7 @@ interface LeadTally {
 
 /* The ports of the fix loop, over the working copy and the services of this run; the loop's own state lives in its session, so a step rebuilds them each time. */
 function fixLoopFor(state: Readonly<RunState>, ctx: WorkspaceRunContext, pending: FixLoopSession["pending"], tally: LeadTally): FixLoop {
-  const { deps, workspace, signal, services, trail } = ctx;
-  const { closedLoop } = trail;
+  const { deps, workspace, signal, services } = ctx;
   const { lastGenerated } = state.execution;
   const { snapshotSuite, acceptanceScope, suiteChangedFiles, acceptance, integrityCounters, runDeadlinePort, snapshotPort } = services;
   const liveExecutionOpts = liveExecutionOptions(ctx);
@@ -150,7 +149,6 @@ function fixLoopFor(state: Readonly<RunState>, ctx: WorkspaceRunContext, pending
         namespace,
         snapshot,
         adoptFailures: true,
-        ...(closedLoop ? { closedLoop } : {}),
         deadline: runDeadlinePort,
         validate: validateAccepted(state, ctx),
         execute: executeAccepted(ctx),

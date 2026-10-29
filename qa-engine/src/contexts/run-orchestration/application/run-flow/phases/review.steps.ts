@@ -389,7 +389,6 @@ export async function reviewRound(state: Readonly<RunState>, ctx: WorkspaceRunCo
 export async function reviewCorrect(state: Readonly<RunState>, ctx: WorkspaceRunContext): Result {
   const { input, signal, trail, workspace, services } = ctx;
   const { acceptance, runDeadlinePort, suiteChangedFiles, acceptanceScope } = services;
-  const { closedLoop } = trail;
   const session = sessionOf(state);
   const cur = session.current;
   if (!cur) throw new Error("a review correction ran before its round was judged");
@@ -420,7 +419,6 @@ export async function reviewCorrect(state: Readonly<RunState>, ctx: WorkspaceRun
     snapshot: cur.snapshot,
     /* A turn that changed no file the specs import is accepted spec file by spec file. */
     independentSpecs: cur.changedSupportFiles.length === 0,
-    ...(closedLoop ? { closedLoop } : {}),
     deadline: runDeadlinePort,
     validate: validateAccepted(state, ctx),
     execute: executeAccepted(ctx),
@@ -500,7 +498,7 @@ export async function reviewResolve(state: Readonly<RunState>, ctx: WorkspaceRun
     session.previousRoundBlocking = outstanding.length;
   }
   /*
-   * The regenerated specs stand only once they execute green (or reuse a proof): they went through the same
+   * The regenerated specs stand only once they execute green: they went through the same
    * acceptance as the coverage regen. Never let unaccepted bytes stand.
    */
   const next = reviewAction({ after: "acceptance", accepted: outcome?.kind === "accepted" });
@@ -519,7 +517,6 @@ export async function reviewResolve(state: Readonly<RunState>, ctx: WorkspaceRun
       run = { ...run, cases: [...run.cases.filter((c) => !keptSet.has(c.file ?? c.name)), ...realCases] };
       session.reviewCases = [...realCases, ...session.reviewCases.filter((c: QaCase) => !keptSet.has(c.file ?? c.name))];
     }
-    /* Proof reuse executed nothing: the existing cases already describe the bytes on disk. */
     session.round += 1;
     return goto("review-round", {
       execution: withRun(state.execution, run),

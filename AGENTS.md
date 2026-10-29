@@ -377,7 +377,7 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   unreadable or claimed by two files for one project, exempts nothing; a control that fails is logged and leaves the call's page traffic charged in full), a ledger of every call's sha256, revoked when the run ends. Scratch specs live in `e2e/.qa-probe/` and are swept
   after every generation: never delivered, stored or validated. When `loopClosed` (every delivered spec's current bytes are those
   whose last call passed) the regenerations that only repeat that work are skipped (the pre-exec corrective regeneration and
-  the fix loop's); the static-fix rounds, the declared no-op, `E-NO-DECISION` / `E-STEP-BUDGET` / `E-TIME-BUDGET` and the single
+  the fix loop's), but an acceptance still executes every spec it accepts; the static-fix rounds, the declared no-op, `E-NO-DECISION` / `E-STEP-BUDGET` / `E-TIME-BUDGET` and the single
   coverage or branch-case regeneration are unchanged. The `Run spec budget` prompt
   section (facts only) exists only when granted. `gateSignals.closedLoop { calls, devWrites, closed, granted, writesRefused }`.
 - **Authenticated browser (`authbrowser_*`)** — on unless `qa.agentBrowser.enabled: false`, and skipped for a run with no saved session (or a run asks: `--agent-browser on|off`,
@@ -1027,15 +1027,15 @@ that catches nothing. The objective signal that breaks the circle is **change-co
   measurement regenerates for coverage instead, with the same arms in its gap). It goes through acceptance
   like any regeneration; an accepted one is recounted from the dumps on disk (the first run's minus
   those of the re-run spec files, plus the acceptance's), never by re-running the whole suite. A gap regeneration
-  (coverage, branch cases, flaky) never reuses a `run_spec` proof: a proof says the bytes passed, not which tests
-  they hold nor what they ran, so its acceptance executes every spec file it changed, and that one execution
-  supplies the kept files' cases (new and renamed tests included), the dumps of the recount and the survivor
-  closure's baseline. A file that fails it gets its prior bytes, cases and delivery back by the per-file rule
+  (coverage, branch cases, flaky), a review correction or a fix-loop round never reuses a `run_spec` proof: a proof
+  says the bytes passed, not which tests they hold nor what they ran, so every acceptance executes every spec file it
+  changed, and that one execution supplies the kept files' cases (new and renamed tests included), the dumps of the
+  recount and the survivor closure's baseline, the reviewer's scope and the fix loop's verdict. A file that fails it gets its prior bytes, cases and delivery back by the per-file rule
   below; at the acceptance cap the regeneration is capped and the first measurement stands.
   `gateSignals.branchCases { outcome, armsBefore, armsAfter?, kept?, restored? }`.
 - **Per-file acceptance**: a regeneration (gap, flaky or review correction) that changed spec files only is
   accepted file by file (`RegenerationAcceptance`, `independentSpecs`): when its acceptance run fails, every
-  spec file whose cases all passed (or, outside a gap regeneration, whose bytes already hold a `run_spec` proof) stands, and every other
+  spec file whose cases all passed stands, and every other
   changed file gets its prior bytes, cases and delivery back. Only the kept files get a proof, so the bytes on
   disk are still the last that ran green, file by file, and the suite store captures only those; survivor
   closure is judged on the kept files. With none kept, or a changed file the specs import, it is accepted or

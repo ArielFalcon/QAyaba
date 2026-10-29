@@ -466,6 +466,99 @@ test("a gap regeneration whose acceptance executed its specs is measured from th
   assert.deepEqual(recounted, [[{ namespace: "loop-run-acc0", specFiles: ["flows/a.spec.ts"] }]]);
 });
 
+/* A review correction is accepted only on the cases of an execution of its bytes, whatever `run_spec` saw pass. */
+function reviewCorrectionRig(files: readonly string[], proved: readonly string[]) {
+  const r = rig({ closed: true });
+  r.handle.isClosed = async (specs) => specs.length > 0 && specs.every((file) => proved.includes(file));
+  const executions: { namespace?: string; specFiles?: string[] }[] = [];
+  const reviewed: string[][] = [];
+  let turns = 0;
+  const caseOf = (file: string, phase: "before" | "after"): QaCase => ({ name: `${file} ${phase}`, status: "pass", file });
+  const deps = r.deps({
+    ...served({
+      author: async (specDir) => {
+        r.generations++;
+        turns++;
+        mkdirSync(join(specDir, "flows"), { recursive: true });
+        for (const file of files) writeFileSync(join(specDir, file), `await page.goto("/pass-${turns}");\n`);
+        return scriptedGeneration({ specs: [...files] });
+      },
+    }),
+    execution: {
+      execute: async (_dir, opts) => {
+        const { namespace, specFiles } = (opts ?? {}) as { namespace?: string; specFiles?: string[] };
+        executions.push({ ...(namespace ? { namespace } : {}), ...(specFiles ? { specFiles } : {}) });
+        const accepting = namespace?.includes("-acc") ?? false;
+        return { verdict: "pass", cases: (specFiles ?? files).map((file) => caseOf(file, accepting ? "after" : "before")), logs: "" };
+      },
+    },
+    review: {
+      review: async (_dir, cases) => {
+        reviewed.push(cases.map((c) => c.file ?? c.name));
+        return reviewed.length === 1
+          ? { approved: false, corrections: ["[false-positive] assert the outcome, not the heading"], blockingCount: 1, parsed: true }
+          : { approved: true, corrections: [], blockingCount: 0, parsed: true };
+      },
+    },
+  });
+  return { r, deps, executions, reviewed };
+}
+
+test("a review correction whose changed file holds a run_spec proof is executed by its acceptance: the record and the next review hold that execution's cases", async () => {
+  const { r, deps, executions, reviewed } = reviewCorrectionRig(["flows/a.spec.ts"], ["flows/a.spec.ts"]);
+
+  await new RunQaUseCase(deps).run(INPUT);
+
+  assert.deepEqual(executions.filter((e) => e.namespace?.includes("-acc")), [{ namespace: "loop-run-acc0", specFiles: ["flows/a.spec.ts"] }], "the corrected bytes execute under the acceptance namespace, the proof notwithstanding");
+  assert.deepEqual(r.saved.at(-1)!.cases?.map((c) => c.name), ["flows/a.spec.ts after"], "the record holds the cases of the bytes on disk, not those of the previous bytes");
+  assert.deepEqual(reviewed, [["flows/a.spec.ts"], ["flows/a.spec.ts"]], "the corrected file is in the next round's scope");
+});
+
+test("a review correction that changes two files, one of them proved, leaves cases for both in the record and in the next review's scope", async () => {
+  const files = ["flows/proved.spec.ts", "flows/open.spec.ts"];
+  const { r, deps, executions, reviewed } = reviewCorrectionRig(files, ["flows/proved.spec.ts"]);
+
+  await new RunQaUseCase(deps).run(INPUT);
+
+  assert.deepEqual(executions.filter((e) => e.namespace?.includes("-acc")).map((e) => [...(e.specFiles ?? [])].sort()), [[...files].sort()], "every changed file executes in the one acceptance");
+  assert.deepEqual(r.saved.at(-1)!.cases?.map((c) => c.name).sort(), files.map((f) => `${f} after`).sort());
+  assert.deepEqual(reviewed.map((round) => [...round].sort()), [[...files].sort(), [...files].sort()], "no delivered file leaves the reviewer's scope");
+});
+
+test("a fix-loop round whose changed file holds a run_spec proof is executed by its acceptance: a case of it that still fails keeps the verdict failing", async () => {
+  const proved = "flows/proved.spec.ts";
+  const files = [proved, "flows/open.spec.ts"];
+  const r = rig({ closed: true });
+  r.handle.isClosed = async (specs) => specs.length > 0 && specs.every((file) => file === proved);
+  const executed: { namespace?: string; specFiles?: string[] }[] = [];
+  let turns = 0;
+  const deps = r.deps({
+    ...served({
+      author: async (specDir) => {
+        r.generations++;
+        turns++;
+        mkdirSync(join(specDir, "flows"), { recursive: true });
+        for (const file of files) writeFileSync(join(specDir, file), `await page.goto("/pass-${turns}");\n`);
+        return scriptedGeneration({ specs: files });
+      },
+    }),
+    execution: {
+      execute: async (_dir, opts) => {
+        const { namespace, specFiles } = (opts ?? {}) as { namespace?: string; specFiles?: string[] };
+        executed.push({ ...(namespace ? { namespace } : {}), ...(specFiles ? { specFiles } : {}) });
+        const cases = (specFiles ?? files).map((file): QaCase => ({ name: file, status: file === proved ? "fail" : "pass", file, ...(file === proved ? { detail: "expected 1 got 2" } : {}) }));
+        return { verdict: cases.some((c) => c.status === "fail") ? "fail" : "pass", cases, logs: "" };
+      },
+    },
+  });
+
+  const out = await new RunQaUseCase(deps).run(INPUT);
+
+  assert.ok(r.generations > 1, "the fix loop regenerated");
+  assert.ok(executed.some((e) => e.specFiles?.includes(proved) && e.namespace !== undefined), "the round's acceptance executed the proved file");
+  assert.equal(out.decision.verdict, "fail", "the case that still fails is not dropped from the record");
+});
+
 test("a sweep that fails ends the run as an infra-error before anything validates, executes or publishes: probes the sweep left must not be judged or delivered", async () => {
   const r = rig();
   r.handle.sweepProbes = async () => { throw new Error("the probe tree could not be removed"); };
