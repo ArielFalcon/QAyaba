@@ -7,7 +7,6 @@ import { resolveCampaignFreeze } from "../server/campaign-freeze";
 import { resolveEgressMode, type EgressMode } from "../server/egress-wiring";
 import { parseCampaignRetentionDays, parseRetentionDays, resolveTelemetryConfig, type TelemetryConfig } from "../telemetry/config";
 import { resolveBackendHealthConfig, type BackendHealthConfig } from "../telemetry/backend-health";
-import { resolveLangfuseConfig, type LangfuseConfig } from "../telemetry/langfuse-score-sink";
 import { resolveRunTimeBudgets } from "@contexts/run-orchestration/application/index";
 import { resolveDiffTimeBudgets } from "@contexts/generation/application/index";
 import { resolveExecSandboxMode, type ExecSandboxMode } from "../../qa-engine/src/shared-infrastructure/process-sandbox/exec-sandbox";
@@ -101,7 +100,6 @@ export interface Settings {
     readonly config: TelemetryConfig;
     readonly backendHealth: BackendHealthConfig;
     readonly traceUrlTemplate: string | undefined;
-    readonly langfuse: LangfuseConfig | undefined;
   };
   readonly retention: {
     readonly spanDays: number;
@@ -183,7 +181,6 @@ export function loadSettings(env: EnvironmentMap): Settings {
   const spanDays = r.run(["QA_TELEMETRY_RETENTION_DAYS"], () => parseRetentionDays(env.QA_TELEMETRY_RETENTION_DAYS), 0);
   const campaignDays = r.run(["QA_TELEMETRY_CAMPAIGN_RETENTION_DAYS"], () => parseCampaignRetentionDays(env.QA_TELEMETRY_CAMPAIGN_RETENTION_DAYS), 0);
   const backendHealth = resolveBackendHealthConfig(env);
-  const langfuse = resolveLangfuseConfig(env, (message) => r.warnings.push(message));
   r.warnings.push(...retiredSettingWarnings(env));
 
   const settings: Settings = {
@@ -241,7 +238,6 @@ export function loadSettings(env: EnvironmentMap): Settings {
       config: telemetryConfig,
       backendHealth,
       traceUrlTemplate: r.str("QA_TRACE_URL_TEMPLATE"),
-      langfuse,
     },
     retention: { spanDays, campaignDays },
     warnings: r.warnings,
@@ -300,6 +296,5 @@ const SECRET_FIELDS: ReadonlySet<string> = new Set(SETTINGS_REGISTRY.filter((def
 
 function describeField(group: string, key: string, value: unknown): unknown {
   if (SECRET_FIELDS.has(`${group}.${key}`)) return value === undefined ? undefined : MASK_SET;
-  if (group === "telemetry" && key === "langfuse") return value === undefined ? undefined : { baseUrl: (value as LangfuseConfig).baseUrl, publicKey: MASK_SET, secretKey: MASK_SET };
   return value;
 }

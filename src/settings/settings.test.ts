@@ -31,7 +31,6 @@ test("a minimal environment yields the defaults each parser yields on its own", 
   assert.equal(settings.telemetry.config.serviceName, DEFAULT_SERVICE_NAME);
   assert.equal(settings.retention.spanDays, DEFAULT_SPAN_RETENTION_DAYS);
   assert.equal(settings.retention.campaignDays, DEFAULT_CAMPAIGN_RETENTION_DAYS);
-  assert.equal(settings.telemetry.langfuse, undefined);
 });
 
 test("an empty value counts as unset", () => {
@@ -99,9 +98,7 @@ test("a secret value never appears in an error text", () => {
 test("a secret value never appears in a dump of the settings", () => {
   const env: Record<string, string> = {};
   for (const def of SETTINGS_REGISTRY) if (def.secret) env[def.env] = `${SECRET_VALUE}-${def.env}`;
-  env.LANGFUSE_BASE_URL = "http://langfuse-web:3000";
   const settings = loadSettings(env);
-  assert.ok(settings.telemetry.langfuse, "the langfuse sink is configured by its address and both keys");
   assert.ok(settings.auth.apiToken, "the real value stays available to the code that needs it");
   const dumps = [JSON.stringify(settings), JSON.stringify(describeSettings(settings)), inspect(settings, { depth: 8 }), `${JSON.stringify({ settings })}`];
   for (const dump of dumps) assert.ok(!dump.includes(SECRET_VALUE), "no dump carries a secret value");
@@ -178,7 +175,7 @@ test("a settings document that differs from the registry is stale and a missing 
 });
 
 test("each retired variable that is still set is reported once at load; an unset or empty one is not", () => {
-  const retired = ["SELF_MAINTAINER_AUTOMERGE", "SELF_MAINTAINER_CI_CHECK", "QAYABA_REPO", "QA_REFLECTOR_ENABLED"];
+  const retired = ["SELF_MAINTAINER_AUTOMERGE", "SELF_MAINTAINER_CI_CHECK", "QAYABA_REPO", "QA_REFLECTOR_ENABLED", "LANGFUSE_BASE_URL", "LANGFUSE_PUBLIC_KEY", "LANGFUSE_SECRET_KEY", "LANGFUSE_ALLOW_EXTERNAL"];
   assert.deepEqual(loadSettings({}).warnings, []);
   assert.deepEqual(loadSettings(Object.fromEntries(retired.map((name) => [name, ""]))).warnings, []);
   const warnings = loadSettings(Object.fromEntries(retired.map((name) => [name, "true"]))).warnings;

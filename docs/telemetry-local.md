@@ -84,7 +84,7 @@ declared but off; add it to a pipeline in the collector's config to print spans 
 
 Every grading, and every regrade, mirrors the run's scores to Prometheus through the evaluation context's sink
 (`src/telemetry/score-metrics-sink.ts`). The scores themselves stay stored in `run_scores` first; `GET
-/api/v1/runs/:id/evaluation` and the optional Langfuse profile are unchanged. The sink is fail-open: a lookup or
+/api/v1/runs/:id/evaluation` is unchanged. The sink is fail-open: a lookup or
 measurement fault is logged and never changes a grade.
 
 Dashboard **QAYABA evaluations** (uid `qayaba-evaluations`, folder `QAYABA`) is provisioned from `config/grafana/`:
@@ -203,54 +203,3 @@ docker run --rm --entrypoint /otel-lgtm/loki/loki \
 ```
 
 The collector image is pinned to `0.163.1`: the `0.163.0` tag was never published to Docker Hub.
-
-## Langfuse (optional second profile)
-
-Langfuse v4 (self-hosted) adds the evaluation workflow (scores, annotation queues, datasets) to the same traces. It is
-`docker-compose.langfuse.yml`, loaded **in addition to** the base files and with its profile:
-
-```bash
-F="-f docker-compose.yml -f docker-compose.override.yml -f docker-compose.langfuse.yml"
-docker compose $F --profile langfuse up --build
-```
-
-UI: <http://127.0.0.1:3002> (user `LANGFUSE_INIT_USER_EMAIL`, password `LANGFUSE_INIT_USER_PASSWORD`; signup is closed).
-Plan for about 5.5 GiB of containers (Langfuse recommends 4 cores and 16 GiB for the host): use it for campaign review
-sessions, not always-on. Scores never depend on it (they are stored in `run_scores` first), so stopping it loses nothing.
-
-Variables (names only; no default exists for any of them, and compose refuses to start without them):
-
-| Name | Purpose |
-|---|---|
-| `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY` | The project key pair (`pk-lf-...` / `sk-lf-...`; pick them, Langfuse creates the project with them at first boot through `LANGFUSE_INIT_*`). The orchestrator signs API calls with them (score sink, score configs, label import) and the trusted collector signs OTLP exports with them. |
-| `LANGFUSE_INIT_USER_EMAIL`, `LANGFUSE_INIT_USER_PASSWORD` | The first (headless) user. |
-| `LANGFUSE_NEXTAUTH_SECRET`, `LANGFUSE_SALT`, `LANGFUSE_ENCRYPTION_KEY` (`openssl rand -hex 32`) | Langfuse's own secrets. |
-| `LANGFUSE_POSTGRES_PASSWORD`, `LANGFUSE_CLICKHOUSE_PASSWORD`, `LANGFUSE_REDIS_AUTH`, `LANGFUSE_MINIO_ROOT_PASSWORD` | The stores. |
-| `LANGFUSE_BASE_URL` | Set by the file on the orchestrator (`http://langfuse-web:3000`). The score sink is configured only when this and both keys are set. |
-
-How the keys flow: Doppler/`.env` -> compose -> (a) `langfuse-web` as `LANGFUSE_INIT_PROJECT_*`, (b) the orchestrator as
-`LANGFUSE_PUBLIC_KEY`/`LANGFUSE_SECRET_KEY` (Basic auth to `/api/public/*`), (c) the trusted `collector` (the
-`basicauth/langfuse` extension encodes `pk:sk` for the exporter). They are not in the agents container, `LANGFUSE_` is a blocked
-prefix in `scrub-env.ts` and on no sandbox profile's allowlist, and the sink never logs them.
-
-Networks: the stores, the worker and the web service share the internal `langfuse-internal`, which the orchestrator and the
-collector are **not** on. `langfuse-web` is also on the dedicated internal `langfuse-api`, joined only by `langfuse-web`, the
-orchestrator and the trusted `collector`: that is the one path to Langfuse's port 3000. It is deliberately **not** on
-`telemetry-internal`, which the untrusted `collector-agents` shares, so the agent-facing receiver cannot reach Langfuse.
-`langfuse-proxy` is the only member of the non-internal `langfuse-ui`, publishing `127.0.0.1:3002`. The agents container shares
-no network with any of it. Every image is pinned by tag and digest.
-
-The score sink sends the project keys only to the `langfuse-web` host, loopback or an https address. Any other host leaves the
-sink unconfigured with a startup warning, unless `LANGFUSE_ALLOW_EXTERNAL=true` is set.
-
-Traces: the file swaps the trusted collector's config for `config/otel/collector-langfuse.yaml` (the plain config plus an
-`otlphttp/langfuse` exporter to `/api/public/otel`, header `x-langfuse-ingestion-version: 4`). A compose file cannot make a
-pipeline conditional, hence a second config; a test pins that the two differ only by that exporter. Metrics stay in LGTM
-(Langfuse discards OTLP metrics). Agent-origin traces (`collector-agents`) never go to Langfuse.
-If the file is loaded without `--profile langfuse`, the collector exports to a Langfuse that is not running: the exporter fails open.
-
-Image pins: `langfuse` and `langfuse-worker` 4.63.0 (latest 4.x checked 2026-10-18), ClickHouse 25.12.11, Postgres 17.11,
-Redis 7.4.11, MinIO by digest (MinIO no longer publishes community images; this is the image Langfuse's own compose uses).
-
-Human labels: annotate in Langfuse (annotation queues), then `npm run langfuse:labels -- --session <id>` (inside the
-orchestrator container) copies them into `run_scores` as `source=human` rows, so calibration never reads Langfuse live.

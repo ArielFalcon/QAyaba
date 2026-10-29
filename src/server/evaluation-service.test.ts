@@ -7,7 +7,7 @@ import { buildRunViewExtras, type RunViewDeps } from "./run-view";
 import Database from "better-sqlite3";
 import { RegradeRequestError } from "@contexts/evaluation/application/index";
 import { traceHarness } from "../telemetry/trace-harness";
-import { ScoreMetricsSink, composeScoreSinks } from "../telemetry/score-metrics-sink";
+import { ScoreMetricsSink } from "../telemetry/score-metrics-sink";
 import type { RunOutcome } from "../types";
 
 const quiet = () => undefined;
@@ -386,23 +386,6 @@ test("a name only a human labelled is not in the default view", () => {
   assert.equal(service.evaluation(id, false)!.scores.some((s) => s.name === "furthest_phase" && s.source === "human"), false);
 });
 
-test("a run is found by its trace id, and an unknown trace is not guessed at", () => {
-  const id = finishedRun("trace-lookup", { traceId: "c".repeat(32) });
-  assert.equal(getHistory().runs.getRunIdByTraceId("c".repeat(32)), id);
-  assert.equal(getHistory().runs.getRunIdByTraceId("d".repeat(32)), undefined);
-});
-
-test("the trace-id lookup is served by an index on runs", () => {
-  finishedRun("trace-index");
-  const raw = new Database(process.env.HISTORY_DB_PATH!, { readonly: true });
-  try {
-    const plan = raw.prepare("EXPLAIN QUERY PLAN SELECT id FROM runs WHERE trace_id = ? LIMIT 1").all("x") as Array<{ detail: string }>;
-    assert.match(plan.map((p) => p.detail).join(" "), /idx_runs_trace_id/);
-  } finally {
-    raw.close();
-  }
-});
-
 function campaignRun(campaignId: string, variant: Record<string, string>, replicate: number, done = true): string {
   const r = getHistory().runs.createRecord({ target: "e2e", app: "eval-campaign", sha: "abcdef1234", mode: "diff", campaign: { id: campaignId, variant, replicate } });
   if (done) getHistory().runs.updateRecord(r.id, { status: "done", verdict: "pass", step: "done" });
@@ -485,7 +468,7 @@ test("grading and regrading a run mirror its scores as bounded metrics", async (
       verdictOf: (runId) => getHistory().learning.getRunOutcome(runId)?.verdict,
     });
     const sched = manualScheduler();
-    const service = createEvaluationService({ schedule: sched.schedule, log: quiet, sink: composeScoreSinks([sink]), newId: () => "job-metrics" });
+    const service = createEvaluationService({ schedule: sched.schedule, log: quiet, sink, newId: () => "job-metrics" });
     service.scheduleGrading(id);
     await sched.flush();
 

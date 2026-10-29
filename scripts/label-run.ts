@@ -1,5 +1,5 @@
 /*
- * Labels one run by hand, without Langfuse: what a person needs to judge it, then the label they give.
+ * Labels one run by hand: what a person needs to judge it, then the label they give.
  *
  *   npm run label -- --run <id> --show
  *   npm run label -- --run <id> --name <score> --value <value> [--comment <text>]
@@ -12,12 +12,23 @@
  * It reads and writes the orchestrator's run history, so run it inside the orchestrator container, as the other operator scripts.
  */
 import { pathToFileURL } from "node:url";
-import { MAX_SCORE_COMMENT_CHARS, specOfScore } from "../qa-engine/src/contexts/evaluation/application/index.ts";
+import { MAX_SCORE_COMMENT_CHARS, specOfScore, type ScoreDataType, type ScorePolarity } from "../qa-engine/src/contexts/evaluation/application/index.ts";
 import { referenceFor, type UseCaseReference } from "../qa-engine/src/contexts/evaluation/application/index.ts";
 import { USE_CASES_DIR, loadReferences } from "../src/server/use-case-reference-loader.ts";
-import type { LabelRow } from "./langfuse-labels.ts";
 
 export { USE_CASES_DIR, loadReferences };
+
+export interface LabelRow {
+  runId: string;
+  name: string;
+  graderVersion: "human";
+  dataType: ScoreDataType;
+  polarity: ScorePolarity;
+  source: "human";
+  value: number | boolean | string;
+  comment: string | null;
+  observationId: string | null;
+}
 
 export type Parsed =
   | { ok: true; runId: string; show: true }

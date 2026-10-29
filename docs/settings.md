@@ -127,10 +127,6 @@ The orchestrator reads its environment once, in `loadSettings(env)`. An empty va
 | `QA_TELEMETRY_TEMPO_URL` | - | url | - | - | Address of the trace store, probed by the telemetry health check. |
 | `QA_TELEMETRY_COLLECTOR_METRICS_URLS` | - | list | - | - | Comma-separated collector metrics addresses, probed by the telemetry health check. |
 | `QA_TRACE_URL_TEMPLATE` | `telemetry.traceUrlTemplate` | string | - | - | URL template that links a run to its trace; it contains {traceId}. |
-| `LANGFUSE_BASE_URL` | - | url | - | - | Address of the Langfuse server that receives run scores. The sink is configured only when this and both keys are set. |
-| `LANGFUSE_PUBLIC_KEY` | - | string | - | secret | Public key of the Langfuse project. |
-| `LANGFUSE_SECRET_KEY` | - | string | - | secret | Secret key of the Langfuse project. |
-| `LANGFUSE_ALLOW_EXTERNAL` | - | boolean | `false` | - | Allow a Langfuse address that is neither langfuse-web, loopback nor https. Only the exact value true enables it. |
 
 ## Retention
 

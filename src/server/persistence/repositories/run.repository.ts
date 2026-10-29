@@ -269,11 +269,6 @@ export class RunRepository {
     };
   }
 
-  /* The run whose trace has this id; the join from a Langfuse score back to the run store. Undefined for an unknown trace. */
-  getRunIdByTraceId(traceId: string): string | undefined {
-    return (this.db.statement("SELECT id FROM runs WHERE trace_id = ? LIMIT 1").get(traceId) as { id: string } | undefined)?.id;
-  }
-
   /* What a run recorded about how it ended, beyond its verdict. Undefined: no such run. */
   getRunFacts(id: string): Required<RunFactsPatch> | undefined {
     const row = this.db.statement(`SELECT ${FACT_COLUMNS.map(([, c]) => c).join(", ")} FROM runs WHERE id = ?`).get(id) as Record<string, string | number | null> | undefined;

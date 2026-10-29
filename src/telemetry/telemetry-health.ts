@@ -43,16 +43,7 @@ export interface TelemetryHealth {
     readonly spans: number;
     readonly writeErrors: number;
   };
-  /* The Langfuse score mirror: configured only when the address and both keys are set. Scores are stored locally first, so a fault here changes no grade. */
-  readonly scoreSink: {
-    readonly configured: boolean;
-    /* Scores that failed or were held back (score configs not ensured); absent until there is one. */
-    readonly faults?: number;
-    /* ISO-8601 time of the last score accepted by Langfuse. */
-    readonly lastExportAt?: string;
-    /* A short, sanitized description of the last failure; never a key. */
-    readonly lastError?: string;
-  };
+  readonly scoreSink: { readonly configured: false };
   /* Attributes dropped by the registry or the capture policy. */
   readonly droppedAttributes: number;
   /* End-to-end state of the stores behind the collector; absent until the first probe finishes or when none is configured. */

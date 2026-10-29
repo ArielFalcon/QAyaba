@@ -36,7 +36,6 @@
     "warm-suite": "tsx scripts/warm-suite.ts",
     "campaign": "tsx scripts/campaign.ts",
     "campaign-report": "tsx scripts/campaign-compare.ts",
-    "langfuse:labels": "tsx scripts/langfuse-labels.ts",
     "label": "tsx scripts/label-run.ts",
     "previous-forms:check": "tsx scripts/check-previous-forms.ts",
     "arch:check": "depcruise --config qa-engine/.dependency-cruiser.cjs qa-engine/src src scripts",

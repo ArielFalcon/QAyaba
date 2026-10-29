@@ -7,6 +7,10 @@ const RETIRED_SETTINGS: ReadonlyArray<{ readonly name: string; readonly gone: st
   { name: "SELF_MAINTAINER_CI_CHECK", gone: "the self-maintainer was removed" },
   { name: "QAYABA_REPO", gone: "the self-maintainer was removed" },
   { name: "QA_REFLECTOR_ENABLED", gone: "the reflector was removed" },
+  { name: "LANGFUSE_BASE_URL", gone: "the Langfuse score sink was removed" },
+  { name: "LANGFUSE_PUBLIC_KEY", gone: "the Langfuse score sink was removed" },
+  { name: "LANGFUSE_SECRET_KEY", gone: "the Langfuse score sink was removed" },
+  { name: "LANGFUSE_ALLOW_EXTERNAL", gone: "the Langfuse score sink was removed" },
 ];
 
 export function retiredSettingWarnings(env: Readonly<Record<string, string | undefined>>): string[] {

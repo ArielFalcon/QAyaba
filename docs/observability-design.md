@@ -23,9 +23,9 @@ Read this table first. Each row is defended later in the section it names.
 | D7 | Sandboxed children get **no `TRACEPARENT`**. They cannot reach a collector by design. The launcher records an orchestrator-side span per child, and Playwright per-test spans are synthesized from the JSON report. | §6 |
 | D8 | **No sampling in v1.** Runs are sequential and few, so we keep 100%. Volume is controlled by `captureMode` (`off \| metadata \| full`), never by dropping runs. A/B arms stay identical. | §8 |
 | D9 | Host suspend and event-loop stalls are first-class signals: a heartbeat that compares wall time with monotonic time, plus `monitorEventLoopDelay`. | §7 |
-| D10 | Local stack in a compose profile that is off by default. Collector plus `grafana/otel-lgtm` (traces and metrics) by default. **Langfuse v4 is a second, optional profile** (it needs ClickHouse, Postgres, Redis and MinIO, with 16 GiB recommended). | §10 |
+| D10 | Local stack in a compose profile that is off by default. Collector plus `grafana/otel-lgtm` (traces and metrics) by default. The optional Langfuse profile was removed (RFC-0001 OD-1). | §10 |
 | D11 | GenAI semconv is "Development" and moved to its own repo in 2026. All `gen_ai.*` keys go through **one mapping module**, so a rename is a one-file change. | §5.1 |
-| D12 | Graders are pure functions in a new `evaluation` context, over a `RunEvidence` read model. Scores go to SQLite (`run_scores`) first and are pushed to Langfuse fail-open. | §11 |
+| D12 | Graders are pure functions in a new `evaluation` context, over a `RunEvidence` read model. Scores go to SQLite (`run_scores`) and to the Prometheus score sink. | §11 |
 | D13 | Telemetry that comes **from the agents container is untrusted**. Graders and verdicts never read agent-emitted OTLP, only orchestrator-recorded evidence. | §9 |
 
 ---
@@ -797,15 +797,11 @@ Loki's chunk compression already absorbs. A run in `full` stores about 200-300 K
 - **Networks.** Today `docker-compose.yml` defines none, so every service shares the default
   network, and the agents container (including the generator's Playwright MCP browser) could reach
   any telemetry UI. The telemetry compose file adds:
-  - `telemetry-internal` (`internal: true`), joined by the orchestrator, the collector, LGTM and Langfuse.
+  - `telemetry-internal` (`internal: true`), joined by the orchestrator, the collector and LGTM.
   - `agent-otlp`, joined **only** by the agents container and the collector, with the collector
     exposing a **separate receiver** (`:4319`) on it.
-  - Every UI (Grafana, Langfuse) bound to `127.0.0.1` on the host. Grafana runs with anonymous
+  - Every UI (Grafana) bound to `127.0.0.1` on the host. Grafana runs with anonymous
     access disabled.
-- **Keys.** The orchestrator **does** hold the Langfuse public and secret keys, because the score
-  sink (§11), score-config bootstrap and label import call the Langfuse API. They come from Doppler,
-  are scrubbed from every sandbox env (they are not on any profile allowlist), and are never logged.
-  The collector holds its own copy for OTLP ingestion. Neither key is ever in the agents container.
 - **Sandbox uid.** It cannot reach the collector, and no change is made there.
 - **Agent-emitted telemetry (D13).**
   - What the agents side emits (OpenCode AI SDK spans) is **untrusted**. A
@@ -846,10 +842,8 @@ services:
   collector:   otel/opentelemetry-collector-contrib:0.163.0   # traces, metrics and logs
                receivers: otlp(http :4318)
                processors: memory_limiter, redaction, attributes, batch
-               exporters: otlphttp/lgtm, otlphttp/langfuse (only with profile langfuse), file (rotating, debug)
+               exporters: otlphttp/lgtm, file (rotating, debug)
   lgtm:        grafana/otel-lgtm:0.37.0     # Tempo + Prometheus + Loki + Grafana 127.0.0.1:3001, /data volume, anonymous off, Tempo retention = R4, Loki = R6
-  langfuse-*:  langfuse 4.x web + worker, postgres 17, clickhouse 25.12, redis 7, minio
-               # profile: langfuse — follows Langfuse's own compose; ports bound to 127.0.0.1
 ```
 
 - **Off by default.** Plain `docker compose up` is unchanged. The orchestrator gets
@@ -858,9 +852,6 @@ services:
   under the run's capture mode. OpenCode exports its own logs through the untrusted collector, whose trace pipeline drops
   `service.name=opencode`. Loki's retention is YAML-only, so the image's config is shadowed by
   `config/otel/loki-config.yaml` (R6).
-- **Langfuse ingestion:** `POST /api/public/otel/v1/traces`, HTTP only (no gRPC), Basic
-  `pk:sk`, header `x-langfuse-ingestion-version: 4`. Without that header, ingestion can lag up to
-  10 minutes. Langfuse **discards OTLP metrics**, so metrics go to LGTM only.
 - **Cost in Langfuse:**
   - Send the provider-reported cost (`info.cost`) as `langfuse.observation.cost_details`.
   - Send token buckets as explicit `usage_details`, because Langfuse buckets are **exclusive** while
@@ -868,9 +859,6 @@ services:
   - Cost attaches only to `generation` observations, so `chat` spans set
     `langfuse.observation.type=generation`.
 - **A turn with no `chat` span has no usage or cost in Langfuse.** Usage and cost sit on `chat` spans (generations) only. Its tokens remain in the run store and the API. Do not synthesize a generation for it.
-- **Resources.** The Langfuse docs recommend 4 cores and 16 GiB. On the owner's Mac, Langfuse is
-  for campaign review sessions, not always-on.
-- **Score configs** are created idempotently at boot by the score sink (§11.3).
 
 ---
 
@@ -883,7 +871,7 @@ qa-engine/src/contexts/evaluation/
   domain/       run-evidence.ts (read model), graders/*.ts (pure), score.ts, context-refs.ts (extraction)
   application/  grade-run.use-case.ts, regrade.use-case.ts, ports (EvidencePort, ScoreStorePort, ScoreSinkPort)
   infrastructure/ evidence.sqlite.adapter (run_outcomes + agent_turns + run_spans + specs),
-                  score-store.sqlite.adapter (run_scores), langfuse-score-sink.adapter (fail-open)
+                  score-store.sqlite.adapter (run_scores)
 ```
 
 - A grader is `(RunEvidence) → Score[]`. A `Score` has:
@@ -892,9 +880,7 @@ qa-engine/src/contexts/evaluation/
   - `graderVersion`, `comment?`, `observationId?` (the span id)
 - **When it runs.** After a run's root ends, **off the queue path**: a background job that never
   delays the next run. It can also be triggered by `regrade`.
-- **Idempotent.** The store key is `(runId, name, graderVersion)`. The Langfuse score id is
-  `sha256(runId:name:graderVersion)`, with timestamp = run end. Langfuse needs id, name and date to
-  match before it replaces a score.
+- **Idempotent.** The store key is `(runId, name, graderVersion)`.
 - The read model is named `RunEvaluationEvidence`, because `RunEvidence` already exists in
   `run-decision.service.ts`.
 - **Spec snapshots make retroactive grading possible.**
@@ -961,10 +947,9 @@ qa-engine/src/contexts/evaluation/
 ### 11.3 Human labels
 
 The LLM judges and their calibration were removed (RFC-0001 OD-1): none ever produced a score, and the deterministic graders cover the same targets.
-- **Human labels** use Langfuse annotation queues (OSS). `npm run langfuse:labels` imports them as `source=human` in `run_scores`, typed by the grader catalog.
-- **Labelling without Langfuse.** `npm run label -- --run <id> --show` prints what a person needs to judge a run: the flows of the plan
+- **Human labels** are `source=human` rows of `run_scores`, typed by the grader catalog. `npm run label -- --run <id> --show` prints what a person needs to judge a run: the flows of the plan
   it kept, the tests it delivered with their result, the human labels it already has, and the use cases the **reference set** holds for its commit.
-  `npm run label -- --run <id> --name <score> --value <v>` keeps the label as the same `source=human` row the Langfuse import writes.
+  `npm run label -- --run <id> --name <score> --value <v>` keeps the label as a `source=human` row.
   The reference set (`config/benchmarks/use-cases/<app>.json`, user data; the tracked `use-cases.example.json` shows the format) lists,
   per change a person read, its use cases and each one's reachability: `dev` (a browser test reaches it with real data),
   `fault-injection` (only when a request fails), `not-observable` (the deployed site does not show it) or `not-e2e`.
@@ -1182,7 +1167,7 @@ their own commits.
 | **S3 Grounding and execution** | Context spans and item ids; login attempts; suite-store spans; validation and test spans; failure classifier (pinned to Playwright 1.60 message fixtures); **spec snapshots** | F5, F6, F10, F16, C6, C7, C10 |
 | **S3b DOM capture per route** | The capture script reports per-route timing and state (its output changes) | C8, F11 |
 | **S4 Evaluation** | `evaluation` context; deterministic graders; `run_scores`; API #2–#6 | B3–B6, B8 |
-| **S4b Langfuse** | `langfuse` profile, score sink, score configs, usage/cost mapping | Eval UI |
+| **S4b Langfuse** | Removed (RFC-0001 OD-1): the profile, the score sink and the label import. The `langfuse.*` span attributes stay | n/a |
 | **S2b OpenCode native spans** (not shipped) | Option A rejected: one process-wide trace with no root, and content-bearing `ai.*` spans. OpenCode's logs ship instead (R6) | F7/F8 detail comes from the orchestrator's own attempt and tool spans |
 | **S5 Campaigns** | Trigger metadata (API #1), datasets, replicate comparison report | B7 |
 | **S6 Judges** | Annotation queues and human-label import (§11.3). The LLM judges and their calibration were removed | Human labels |
@@ -1223,7 +1208,7 @@ reliable, deterministic; trust over features; local operability on a Mac.
 | # | Decision | Resolution | Why |
 |---|---|---|---|
 | R1 | Is the local ledger on by default? | **Yes.** `QA_TELEMETRY=local` is the default. `off` is the opt-out and the overhead baseline. | Retroactive graders and the public API must work when no collector ran. That matches the brief's own principle 8, which outranks the "zero overhead" wording of principle 2. Network stays at zero without an endpoint. The ledger write is one synchronous SQLite insert per span, on a sequential queue. |
-| R2 | Which viewer is the default? | **`telemetry` profile = collector + LGTM.** `langfuse` is a second profile that adds Langfuse to the same collector. | LGTM is one container and answers the diagnostic questions (C1–C12) with traces and metrics. Langfuse carries the eval workflow (scores UI, annotation queues, datasets), but needs about 6 containers and 16 GiB. Scores never depend on it (D12), so turning it on later loses nothing. |
+| R2 | Which viewer is the default? | **`telemetry` profile = collector + LGTM.** | LGTM is one container and answers the diagnostic questions (C1–C12) with traces and metrics. |
 | R3 | Does `empty_output_guard` gate? | **Grader only.** It becomes a gate only if it ever fails on real data, and then as a governance-sensitive change in its own commit. | The invariant already exists (no-op → `skipped`, zero specs → `E-NO-DECISION`, "approved is never a no-op"). A second gate on the same condition adds a path that can disagree with the first, and AGENTS.md rules out piling up LLM-free gates without evidence. |
 | R5 | Do we upgrade OpenCode (1.17.7 → 1.19.3) for better telemetry? | **No.** The telemetry components (OTel JS 2.12 / 0.223, Collector 0.163.0, otel-lgtm 0.37.0, Langfuse 4.63.0) are adopted at their latest versions. | A source diff of both tags found no telemetry gain in OpenCode: the same `ai` 6.0.168, the same `experimental.openTelemetry`, no step timestamps, the same tool-list API, no trace context in `ToolContext`. Moving a pin costs a re-recorded agent-list fixture, re-run smokes and new behaviour risk on the execution path, for no telemetry gain. Revisit when the runtime ships GenAI semconv or step timestamps. |
 | R4 | How long are records kept? | **`run_spans` 30 days, like `agent_turns`. Campaign-tagged runs keep both for 180 days.** `QA_TELEMETRY_RETENTION_DAYS` and `QA_TELEMETRY_CAMPAIGN_RETENTION_DAYS` override them. `run_scores` are never pruned (they are tiny). | Campaign runs are the eval baselines that later graders and judges re-score (principle 8). Ordinary runs are diagnostic and lose value fast. |
@@ -1291,13 +1276,3 @@ both.
   what the model received.
 - Sandbox children are traced from the orchestrator's side only.
 - Suspend detection on Docker Desktop is unproven until S0.1.
-- **Langfuse assumptions to prove in spike S0.5** (S4b is built on them, none is checked on a real instance):
-  - Langfuse prefers the explicit `langfuse.observation.usage_details` (exclusive buckets) over the inclusive `gen_ai.usage.*` on
-    the same `chat` span. If it does not, cost is double-counted and the OTel keys must be dropped from the Langfuse path.
-  - Whether `POST /api/public/scores` honours a body `timestamp`. If not, a score is stamped with its ingestion time, so "same
-    id replaces" holds only within one day and the "timestamp = run end" idempotency in §11.1 is wrong; the fallback is a
-    `score-create` event on `/api/public/ingestion`, whose envelope carries the timestamp.
-  - The field shapes of `/api/public/score-configs` (create, list and its paging), of the score body, and of the annotation
-    scores read by `scripts/langfuse-labels.ts` (`/api/public/v2/scores?source=ANNOTATION`, `/api/public/traces?sessionId=`).
-  - The usage bucket key names (`cache_read_input_tokens`, `cache_creation_input_tokens`, `output_reasoning_tokens`).
-  - `LANGFUSE_INIT_*` headless creation and the key format it accepts.

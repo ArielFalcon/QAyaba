@@ -26,8 +26,7 @@ import { createDurableRunEventStore } from "./durable-run-events";
 import { serveDashboard, resolveDashboardDir } from "./static";
 import { MAX_CONTINUATION_DEPTH } from "./persistence/repositories/run.repository";
 import { createEvaluationService } from "./evaluation-service";
-import { LangfuseScoreSink, scoreSinkHealthOf } from "../telemetry/langfuse-score-sink";
-import { ScoreMetricsSink, composeScoreSinks } from "../telemetry/score-metrics-sink";
+import { ScoreMetricsSink } from "../telemetry/score-metrics-sink";
 import { hashStaticPrompts, type RunConfigEnvironment } from "./effective-config";
 import { buildRunViewExtras, defaultRunViewDeps } from "./run-view";
 import { enqueueTrackedRun, enqueueContextMapRun, enqueueLoginBootstrapRun, cancelTrackedRun, finalizeInterruptedRuns, type RunnerDeps } from "./runner";
@@ -120,27 +119,20 @@ export function wireApp(settingsStore: SettingsStore): WiredApp {
   });
 
   /* Scores and regrade jobs. Grading is scheduled off the queue by the runner's post-run hook; a regrade job left open by a previous process ends failed at boot. */
-  /* The Langfuse mirror of the scores: built only when LANGFUSE_BASE_URL and both keys are set (docker-compose.langfuse.yml). Fail-open: stored scores never depend on it. */
-  const langfuseConfig = settings.telemetry.langfuse;
-  const langfuseSink = langfuseConfig
-    ? new LangfuseScoreSink({ config: langfuseConfig, traceIdOf: (runId) => getHistory().runs.getRunFacts(runId)?.traceId ?? null, sanitize: (text) => redactionPort.redact(text) })
-    : undefined;
-  /* The score metrics sink makes the grades visible in Grafana; the Langfuse mirror stays optional and human-facing. */
+  /* The score metrics sink makes the grades visible in Grafana. */
   const scoreMetricsSink = new ScoreMetricsSink({
     telemetry: telemetry.telemetry,
     appOf: (runId) => getHistory().runs.getRecord(runId)?.app,
     verdictOf: (runId) => getHistory().learning.getRunOutcome(runId)?.verdict ?? getHistory().runs.getRecord(runId)?.verdict,
   });
   const evaluation = createEvaluationService({
-    sink: composeScoreSinks([scoreMetricsSink, ...(langfuseSink ? [langfuseSink] : [])]),
+    sink: scoreMetricsSink,
   });
   /* Hands a finished run to the graders; it never blocks the queue. */
   const afterRun = (runId: string): void => {
     evaluation.scheduleGrading(runId);
   };
   evaluation.recoverInterrupted();
-  /* Score configs are ensured in the background at boot; the sink also retries before its first score. */
-  void langfuseSink?.ensureScoreConfigs();
   const runViewDeps = defaultRunViewDeps(() => telemetry.health().mode !== "off", settings.environment);
   const hostHealth = new HostHealth({ telemetry: telemetry.telemetry, ...(sandboxIdentity ? { sandboxUid: sandboxIdentity.uid } : {}) });
   hostHealth.start();
@@ -579,7 +571,7 @@ export function wireApp(settingsStore: SettingsStore): WiredApp {
 
   const apiDeps: ApiDeps = {
     queue,
-    telemetryHealth: () => ({ ...telemetry.health(), scoreSink: scoreSinkHealthOf(langfuseSink) }),
+    telemetryHealth: () => telemetry.health(),
     hostHealth: () => hostHealth.snapshot(),
     ...(backendHealth ? { backendHealth } : {}),
     enqueue: enqueueApiRun,

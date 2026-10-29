@@ -70,18 +70,3 @@ export class ScoreMetricsSink implements ScoreSinkPort {
     }
   }
 }
-
-/* Fans one emission out to every sink, isolating a failing one so the others still see it. */
-export function composeScoreSinks(sinks: readonly ScoreSinkPort[], log: (message: string) => void = (m) => appLogger.error(m)): ScoreSinkPort {
-  return {
-    async emit(runId, scores, at): Promise<void> {
-      for (const sink of sinks) {
-        try {
-          await sink.emit(runId, scores, at);
-        } catch (err) {
-          log(`[evaluation] a score sink failed for ${runId}: ${err instanceof Error ? err.message : String(err)}`);
-        }
-      }
-    },
-  };
-}

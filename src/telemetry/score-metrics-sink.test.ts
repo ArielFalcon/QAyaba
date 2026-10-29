@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { ScoreMetricsSink, composeScoreSinks } from "./score-metrics-sink";
+import { ScoreMetricsSink } from "./score-metrics-sink";
 import { traceHarness } from "./trace-harness";
 import { GRADER_CATALOG, type Score } from "@contexts/evaluation/application/index";
 import type { RecordMeasurement } from "@kernel/telemetry/telemetry.port";
@@ -93,7 +93,7 @@ test("a run with no record or outcome omits the app and verdict labels instead o
   assert.deepEqual(Object.keys(m!.attrs).sort(), ["qayaba.eval.data_type", "qayaba.eval.name", "qayaba.eval.source"]);
 });
 
-test("the sink never throws into grading and one failing sink does not stop another", async () => {
+test("the sink never throws into grading", () => {
   const logs: string[] = [];
   const throwing = {
     gauge: (() => () => {
@@ -104,18 +104,4 @@ test("the sink never throws into grading and one failing sink does not stop anot
   const sink = new ScoreMetricsSink({ telemetry: throwing, appOf: () => "app", verdictOf: () => "pass", log: (m) => logs.push(m) });
   assert.doesNotThrow(() => sink.emit(RUN, [score("spec_validity_rate", 1, "NUMERIC")]));
   assert.match(logs.join("\n"), /meter gone/);
-
-  const calls: string[] = [];
-  const composite = composeScoreSinks(
-    [
-      { emit: () => { throw new Error("down"); } },
-      { emit: (runId) => void calls.push(runId) },
-    ],
-    (m) => logs.push(m),
-  );
-  await assert.doesNotReject(async () => {
-    await composite.emit(RUN, [score("spec_validity_rate", 1, "NUMERIC")], "t");
-  });
-  assert.deepEqual(calls, [RUN]);
-  assert.match(logs.join("\n"), /down/);
 });

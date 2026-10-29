@@ -166,6 +166,14 @@ export const BANNED_RULES: BannedRule[] = [
     ],
     exemptPrefixes: [RECORDS_PREFIX],
   },
+  {
+    id: "langfuse-sink",
+    patterns: [
+      /\b(?:LangfuseScoreSink|LangfuseConfig|resolveLangfuseConfig|scoreSinkHealthOf|ScoreSinkHealth|scoreConfigsOfCatalog|langfuseScoreId|getRunIdByTraceId)\b/,
+      /\b(?:langfuse-score-sink|langfuse-labels|langfuse:labels|collector-langfuse|langfuse-proxy|docker-compose\.langfuse)\b/,
+    ],
+    exemptPrefixes: [RECORDS_PREFIX],
+  },
   { id: "stored-outcome-copy", patterns: [/\b(?:toStoredRunOutcome|StructuredReflection)\b/], exemptPrefixes: [RECORDS_PREFIX] },
   { id: "shell-dead-run-types", patterns: [/\bAgentResult\b/], exemptPrefixes: [RECORDS_PREFIX] },
   { id: "shell-events-reexport", patterns: [/\bsrc\/contract\/events(?:\.ts)?(?![\w.-])/], exemptPrefixes: [RECORDS_PREFIX] },

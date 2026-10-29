@@ -130,10 +130,6 @@ export const SETTINGS_REGISTRY: readonly SettingDef[] = [
   entry({ env: "QA_TELEMETRY_TEMPO_URL", key: "-", group: "telemetry", type: "url", description: "Address of the trace store, probed by the telemetry health check." }),
   entry({ env: "QA_TELEMETRY_COLLECTOR_METRICS_URLS", key: "-", group: "telemetry", type: "list", description: "Comma-separated collector metrics addresses, probed by the telemetry health check." }),
   entry({ env: "QA_TRACE_URL_TEMPLATE", key: "traceUrlTemplate", group: "telemetry", type: "string", description: "URL template that links a run to its trace; it contains {traceId}." }),
-  entry({ env: "LANGFUSE_BASE_URL", key: "-", group: "telemetry", type: "url", description: "Address of the Langfuse server that receives run scores. The sink is configured only when this and both keys are set." }),
-  entry({ env: "LANGFUSE_PUBLIC_KEY", key: "-", group: "telemetry", type: "string", secret: true, description: "Public key of the Langfuse project." }),
-  entry({ env: "LANGFUSE_SECRET_KEY", key: "-", group: "telemetry", type: "string", secret: true, description: "Secret key of the Langfuse project." }),
-  entry({ env: "LANGFUSE_ALLOW_EXTERNAL", key: "-", group: "telemetry", type: "boolean", default: "false", description: "Allow a Langfuse address that is neither langfuse-web, loopback nor https. Only the exact value true enables it." }),
 
   /* retention */
   entry({ env: "QA_TELEMETRY_RETENTION_DAYS", key: "spanDays", group: "retention", type: "integer", default: String(DEFAULT_SPAN_RETENTION_DAYS), description: "Days run spans, plans and snapshots are kept (1-3650)." }),
