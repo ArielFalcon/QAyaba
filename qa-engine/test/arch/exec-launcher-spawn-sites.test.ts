@@ -1,4 +1,4 @@
-/* Every child process that runs code an agent influenced starts through the execution launcher. The structural guarantee is the import: a module that does not import child_process cannot start a child as the orchestrator, so the rule forbids the import everywhere in qa-engine/src except the launcher and the few modules that start only trusted binaries (git, chown, the code graph). A type-only import (ChildProcess) starts nothing and is allowed.
+/* Every child process that runs code an agent influenced starts through the execution launcher. The structural guarantee is the import: a module that does not import child_process cannot start a child as the orchestrator, so the rule forbids the import everywhere in qa-engine/src and in the shell's src/ except the launcher, the few modules that start only trusted binaries (git, chown, the code graph) and the shell's three named sites. A type-only import (ChildProcess) starts nothing and is allowed, and so is a test file of the shell.
 
    The real tree is only ever scanned read-only; the synthetic violations are built under os.tmpdir() with a copy of the real .dependency-cruiser.cjs, so no probe file is ever visible to a concurrently running test. */
 import { test } from "node:test";
@@ -14,7 +14,7 @@ const CONFIG_REL = join("qa-engine", ".dependency-cruiser.cjs");
 
 function runDepcruise(treeRoot: string): { ok: boolean; output: string } {
   try {
-    const output = execFileSync(DEPCRUISE, ["--config", join(treeRoot, CONFIG_REL), "qa-engine/src"], { cwd: treeRoot, encoding: "utf8" });
+    const output = execFileSync(DEPCRUISE, ["--config", join(treeRoot, CONFIG_REL), "qa-engine/src", "src"], { cwd: treeRoot, encoding: "utf8" });
     return { ok: true, output };
   } catch (e) {
     const err = e as { stdout?: string; stderr?: string; code?: string | number };
@@ -27,7 +27,7 @@ function inSyntheticTree(files: Record<string, string>): { ok: boolean; output: 
   const treeRoot = mkdtempSync(join(tmpdir(), "exec-launcher-sites-"));
   try {
     const tsconfig = JSON.stringify({ compilerOptions: { strict: true, noEmit: true, module: "ESNext", moduleResolution: "bundler", allowImportingTsExtensions: true, types: ["node"] } });
-    const all: Record<string, string> = { "tsconfig.json": tsconfig, "qa-engine/tsconfig.json": tsconfig, ...files };
+    const all: Record<string, string> = { "tsconfig.json": tsconfig, "qa-engine/tsconfig.json": tsconfig, "qa-engine/src/empty.ts": "export {};\n", "src/empty.ts": "export {};\n", ...files };
     for (const [rel, content] of Object.entries(all)) {
       mkdirSync(dirname(join(treeRoot, rel)), { recursive: true });
       writeFileSync(join(treeRoot, rel), content);
@@ -39,7 +39,7 @@ function inSyntheticTree(files: Record<string, string>): { ok: boolean; output: 
   }
 }
 
-test("no engine module outside the launcher and the trusted-binary modules starts a child process", () => {
+test("no module of the engine or the shell outside the launcher and the named sites starts a child process", () => {
   const { ok, output } = runDepcruise(repoRoot);
   assert.equal(ok, true, `dependency-cruiser reported a violation:\n${output}`);
 });
@@ -74,6 +74,25 @@ test("a type-only import of ChildProcess starts nothing and is allowed", () => {
 test("the launcher itself may import spawn", () => {
   const { ok, output } = inSyntheticTree({
     "qa-engine/src/shared-infrastructure/process-sandbox/exec-sandbox.ts": 'import { spawn } from "node:child_process";\nexport const launch = (): unknown => spawn("npx", []);\n',
+  });
+  assert.equal(ok, true, output);
+});
+
+test("a module of the shell that imports a child-process function is caught by the rule", () => {
+  const { ok, output } = inSyntheticTree({
+    "src/server/probe-spawn.ts": 'import { execSync } from "node:child_process";\nexport const go = (): unknown => execSync("npm test");\n',
+  });
+  assert.equal(ok, false, "depcruise must report a violation for a shell module starting a child itself");
+  assert.match(output, /no-child-process-outside-launchers:\s*src\/server\/probe-spawn\.ts/, `expected the rule to name the offending module, got:\n${output}`);
+});
+
+test("the shell's three named sites and its test files may import child_process", () => {
+  const spawning = 'import { execFileSync } from "node:child_process";\nexport const go = (): unknown => execFileSync("git", []);\n';
+  const { ok, output } = inSyntheticTree({
+    "src/integrations/repo-mirror.ts": spawning,
+    "src/server/run-engine-factory.ts": spawning,
+    "src/server/file-boundary-check.ts": spawning,
+    "src/server/probe-spawn.test.ts": spawning,
   });
   assert.equal(ok, true, output);
 });
