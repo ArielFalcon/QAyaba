@@ -1,19 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { sanitizeText, containsSecrets } from "../../qa-engine/src/shared-infrastructure/redaction/pattern-redaction.adapter";
-import { SECRET_AUDIT, recordAudit, capText, MAX_PROMPT_BODY_CHARS, RedactionPortAdapter } from "./sanitizer";
-
-test("capText passes short prose through unchanged", () => {
-  assert.equal(capText("a short commit body", MAX_PROMPT_BODY_CHARS), "a short commit body");
-});
-
-test("capText caps long prose with a visible truncation marker and keeps the head", () => {
-  const long = "x".repeat(5000);
-  const out = capText(long, 4000);
-  assert.ok(out.length < long.length, "capped output is shorter than the input");
-  assert.match(out, /body truncated/);
-  assert.ok(out.startsWith("x".repeat(4000)), "the first maxChars are preserved");
-});
+import { SECRET_AUDIT, recordAudit, RedactionPortAdapter } from "./sanitizer";
 
 test("SECRET_AUDIT records redactions", () => {
   SECRET_AUDIT.clear();

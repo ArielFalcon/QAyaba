@@ -86,15 +86,3 @@ export class RedactionPortAdapter implements RedactionPort {
     return patterns.containsSecret(text, mode);
   }
 }
-
-
-export const MAX_PROMPT_BODY_CHARS = 4_000;
-
-
-export function capText(text: string, maxChars: number = MAX_PROMPT_BODY_CHARS): string {
-  if (text.length <= maxChars) return text;
-  return (
-    text.slice(0, maxChars) +
-    `\n[…body truncated: ${text.length - maxChars} more chars; read the full message with \`git show <sha>\`.]`
-  );
-}

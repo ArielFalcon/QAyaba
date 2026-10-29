@@ -1,6 +1,5 @@
-/* Behavioral tests for pattern-redaction.adapter.ts, scoped to sanitizeText ONLY (capDiff/capText live in
-   prompt-cap.ts; containsSecrets/SECRET_AUDIT/recordAudit are diagnostic-only and not consumed
-   by context-pack.ts).
+/* Behavioral tests for pattern-redaction.adapter.ts, scoped to sanitizeText ONLY (containsSecrets/SECRET_AUDIT/recordAudit
+   are diagnostic-only and not consumed by context-pack.ts).
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
