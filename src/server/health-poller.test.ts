@@ -54,6 +54,25 @@ test("the tenth consecutive failed probe logs a second error", async () => {
   assert.match(h.logged[1]?.message ?? "", /10 consecutive/);
 });
 
+test("the failures between the third and the tenth, and every one after the tenth, log nothing more", async () => {
+  const h = harness({ fetch: async () => ({ ok: false, status: 503 }) });
+  await h.run(3);
+  assert.equal(h.logged.length, 1);
+  await h.run(6);
+  assert.equal(h.logged.length, 1, "the 4th to the 9th failed probe are silent");
+  await h.run(1);
+  assert.equal(h.logged.length, 2, "the 10th failed probe is the second error");
+  await h.run(5);
+  assert.equal(h.logged.length, 2, "the 11th and later failed probes are silent");
+});
+
+test("a probe that throws counts as a failed probe like one that answers an error status", async () => {
+  const h = harness({ fetch: async () => { throw new Error("connection refused"); } });
+  await h.run(3);
+  assert.equal(h.logged.length, 1);
+  assert.match(h.logged[0]?.message ?? "", /3 consecutive/);
+});
+
 test("a probe that recovers resets the failure count", async () => {
   let up = false;
   const h = harness({ fetch: async () => ({ ok: up, status: up ? 200 : 503 }) });
@@ -77,6 +96,17 @@ test("a queue deeper than ten logs one warning until it drains", async () => {
   depth = 12;
   await h.run(1);
   assert.equal(h.logged.length, 2);
+});
+
+test("a queue of exactly ten logs nothing, and one past ten warns again after a depth of ten", async () => {
+  let depth = 10;
+  const h = harness({ queueSize: () => depth });
+  await h.run(2);
+  assert.equal(h.logged.length, 0);
+  depth = 11;
+  await h.run(1);
+  assert.equal(h.logged.length, 1);
+  assert.match(h.logged[0]?.message ?? "", /queue depth is 11/);
 });
 
 test("a sweep that cleaned sessions logs a warning with the count, and one that cleaned none logs nothing", async () => {
