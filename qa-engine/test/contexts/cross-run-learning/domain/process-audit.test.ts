@@ -79,7 +79,7 @@ test("a recurring time-budget end is only observed, worded as the generator runn
   assert.doesNotMatch(findings[0]!.summary, /rule promotion|app-behavior/i);
 });
 
-test("a recurring dev_not_rendered triage is only observed: it never becomes an engine-defect finding or a learned rule", () => {
+test("a streak of runs whose triage found the change missing from DEV is read as its error class: no finding of its own", () => {
   const notRendered = (sha: string) => outcome({
     errorClass: "E-PRECONDITION",
     verdict: "infra-error",
@@ -89,22 +89,9 @@ test("a recurring dev_not_rendered triage is only observed: it never becomes an 
   const o = notRendered("a");
   const findings = auditProcess({ outcome: o, recent: [o, notRendered("b"), notRendered("c")] });
   assert.equal(findings.length, 1, "one finding: the streak itself");
-  assert.equal(findings[0]!.kind, "recurring-dev-not-rendered");
+  assert.equal(findings[0]!.kind, "recurring-precondition-failure");
   assert.equal(findings[0]!.disposition, "observe");
-  assert.match(findings[0]!.summary, /not rendered on DEV/i);
   assert.doesNotMatch(findings[0]!.summary, /rule promotion|engine defect/i);
-});
-
-test("two dev_not_rendered triages in a row are not yet a streak", () => {
-  const notRendered = (sha: string) => outcome({
-    errorClass: "E-PRECONDITION",
-    verdict: "infra-error",
-    sha,
-    adjudication: { class: "dev_not_rendered" },
-  });
-  const o = notRendered("a");
-  const findings = auditProcess({ outcome: o, recent: [o, notRendered("b")] });
-  assert.equal(findings.some((f) => f.kind === "recurring-dev-not-rendered"), false);
 });
 
 test("a recurring unavailable reviewer is only observed: it is not read as an app-behavior gap", () => {

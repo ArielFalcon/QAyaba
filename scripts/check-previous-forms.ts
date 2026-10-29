@@ -213,6 +213,11 @@ export const BANNED_RULES: BannedRule[] = [
     exemptPrefixes: [RECORDS_PREFIX],
   },
   {
+    id: "audit-dev-not-rendered",
+    patterns: [/\brecurring-dev-not-rendered\b/, /\bDEV_NOT_RENDERED_CLASS\b/],
+    exemptPrefixes: [RECORDS_PREFIX],
+  },
+  {
     id: "langfuse-sink",
     patterns: [
       /\b(?:LangfuseScoreSink|LangfuseConfig|resolveLangfuseConfig|scoreSinkHealthOf|ScoreSinkHealth|scoreConfigsOfCatalog|langfuseScoreId|getRunIdByTraceId)\b/,
