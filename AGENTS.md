@@ -37,7 +37,7 @@ auto-merge**. Failures open an Issue. The suite lives in git and improves run af
 | Path | What |
 |---|---|
 | `qa-engine/src/` | The engine: bounded contexts (`change-analysis`, `generation`, `coordination`, `agent-tools`, `test-execution`, `objective-signal`, `cross-run-learning`, `run-orchestration`, …), hexagonal. New engine logic goes here. |
-| `src/` | The permanent shell around the engine (see [Boundary](#boundary-qa-engine--src)). |
+| `src/` | The shell the migration empties: each module has a row of the [decision table](#placement-rule) and moves to the engine or the platform at steps 2 to 5 of `docs/engine-platform-architecture.md` (see [Boundary](#boundary-qa-engine--src)). |
 | `src/settings/` | The typed Settings: one registry of every environment variable, `loadSettings(env)`, the store; `docs/settings.md` is generated from it. |
 | `agents/` | `agents` container: OpenCode config (`opencode.json`), prompts (`AGENTS.md`, `agent/*.md`, `skill/`), MCPs (Serena, Playwright). |
 | `config/apps/` | Watched-app YAMLs (gitignored user data; template: `example.yaml`). `config/e2e/` is the seed copied into a repo's `e2e/`. |
@@ -103,19 +103,56 @@ Keep the two rigorously separate.
 ### Boundary: qa-engine ↔ src
 
 `qa-engine/src` never imports from `src/` — enforced by `npm run arch:check`
-(dependency-cruiser `no-src-import-in-qa-engine`). `src/` has four permanent roles:
-- **Composition root** — `src/server/wire-app.ts` (settings, persistence, API, webhook, queue; `src/index.ts` only
+(dependency-cruiser `no-src-import-in-qa-engine`). `src/` holds four kinds of module today, each naming its row of the [decision table](#placement-rule):
+- **Composition root** (row 8) — `src/server/wire-app.ts` (settings, persistence, API, webhook, queue; `src/index.ts` only
   starts it), `src/server/engine-root.ts` (assembles the engine from each context's `composition/` builders) and
   `src/server/run-engine-factory.ts`, which maps each app's `AppConfig` into the engine's `EngineRootDeps` and wires the host collaborators (agent runtime, GitHub, runners).
-- **Control plane** — `src/server/*` (webhook, queue, API, TUI surface) and `client/`. The control API is a route table
+- **Control plane** (row 7) — `src/server/*` (webhook, queue, API, TUI surface) and `client/`. The control API is a route table
   (`src/server/api/route-table.ts`): each route declares its method, path and `auth`; handlers throw `ApiError` and every
   error answers `{ schemaVersion: 1, error }`; a known path with an unsupported method answers 405.
-- **Provider I/O edges** — `src/integrations/opencode-client.ts` (raw SDK primitives
+- **Provider I/O edges** (rows 6 and 4) — `src/integrations/opencode-client.ts` (raw SDK primitives
   only) and `src/agent-runtime/*` (provider-agnostic facade + the OpenCode strategy).
-- **Persistence** — `src/server/persistence/` (schema, migrations, repositories) behind `getHistory()`, and
+- **Persistence** (rows 6 and 4) — `src/server/persistence/` (schema, migrations, repositories) behind `getHistory()`, and
   `src/server/run-history-sqlite-adapter.ts`.
 
 Seams are pinned by `src/server/seam-parity.contract.test.ts`.
+
+The design pillars every design answers to are in [ADR-0001](docs/architecture/adr/0001-design-pillars.md).
+
+### Placement rule
+
+> **A module goes to the engine if it decides something about QA or belongs to exactly one context.**
+> **It goes to the platform if the whole process owns it once, or if it only translates the outside world into a call
+> to the engine.**
+
+"Decides" means it holds a policy whose outcome changes a run: what to test, what to publish, what to learn, which
+verdict, how many retries, which error class. A module that holds even one such decision is engine code, however small,
+and however close to HTTP or SQL it sits today.
+
+"The whole process owns it once" means there is one instance per process that several contexts or entry points use: one
+database connection with one schema, one tracing SDK started before anything else, one HTTP server, one connection to
+the agent server, one Settings object.
+
+Until step 5 renames the roots, the plan's target names map to today's folders: the engine is `qa-engine/src`; the
+platform is the composition root, control plane, provider edges and persistence of `src/`
+(`docs/engine-platform-architecture.md` holds the plan and the migration order). A change places each part it touches by
+the table first.
+
+| # | Question | Yes → | Example of the kind |
+|---|---|---|---|
+| 1 | Is it a copy of something the engine already has (a type, a taxonomy, a parser, a sanitizer)? | **Delete it**; import the engine's copy. | A re-declared verdict or role union kept in step by a parity test |
+| 2 | Does nothing reach it? | **Delete it.** | A flag that always returns one value |
+| 3 | Does it decide something about a run? | **`engine/contexts/<owner>/domain` or `application`.** | A publish policy, a retry policy, a learning attribution, an app-config validation rule |
+| 4 | Is it an adapter for a resource exactly one context uses? | **`engine/contexts/<owner>/infrastructure`.** | A client only the publication context calls |
+| 5 | Is it an adapter two or more contexts use, with no process-wide state? | **`engine/shared-infrastructure`.** | A bounded file reader, the process sandbox |
+| 6 | Is it a process-wide resource or its adapter? | **`platform/<resource>`.** | The database, the tracing SDK, the agent-server client, Settings |
+| 7 | Does it turn an outside request into a call to a use case and the result into a response? | **`platform/entrypoints`.** | A route handler, the webhook, the queue, a CLI command, the wire contract |
+| 8 | Does it build adapters and wire contexts? | **`platform/composition`.** | The engine root, the run-engine factory, the app wiring |
+
+Ask the questions in order; the first yes places the module. If a module answers yes to more than one question, it is two
+modules: split it first, then place each part. The most common case is an entry point or a factory with a policy inside
+it: the policy goes to the engine (row 3), the translation or the wiring stays in the platform (row 7 or 8). Test
+support (a module only tests import) takes no row and moves with its tests.
 
 ### The run flow — start here
 

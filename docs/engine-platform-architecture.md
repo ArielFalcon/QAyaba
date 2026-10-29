@@ -9,8 +9,8 @@ gates. It does not list modules one by one: the inventory belongs to the feature
 
 ## Quick path
 
-1. Read [The target in one picture](#the-target-in-one-picture) and [The placement rule](#the-placement-rule).
-2. Classify a module with the [decision table](#decision-table) before you move it.
+1. Read [The target in one picture](#the-target-in-one-picture) and the placement rule in [`AGENTS.md`](../AGENTS.md#placement-rule).
+2. Classify a module with the decision table there before you move it.
 3. Migrate in the [order below](#migration-order); each step leaves the full CI gate green.
 4. The migration is done when the [completion checklist](#completion-checklist) holds.
 
@@ -69,36 +69,7 @@ not behaviour.
 
 ## The placement rule
 
-> **A module goes to the engine if it decides something about QA or belongs to exactly one context.**
-> **It goes to the platform if the whole process owns it once, or if it only translates the outside world into a call
-> to the engine.**
-
-"Decides" means it holds a policy whose outcome changes a run: what to test, what to publish, what to learn, which
-verdict, how many retries, which error class. A module that holds even one such decision is engine code, however small,
-and however close to HTTP or SQL it sits today.
-
-"The whole process owns it once" means there is one instance per process that several contexts or entry points use:
-one database connection with one schema, one tracing SDK started before anything else, one HTTP server, one connection
-to the agent server, one Settings object.
-
-### Decision table
-
-Ask the questions in order; the first yes places the module.
-
-| # | Question | Yes → | Example of the kind |
-|---|---|---|---|
-| 1 | Is it a copy of something the engine already has (a type, a taxonomy, a parser, a sanitizer)? | **Delete it**; import the engine's copy. | A re-declared verdict or role union kept in step by a parity test |
-| 2 | Does nothing reach it? | **Delete it.** | A flag that always returns one value |
-| 3 | Does it decide something about a run? | **`engine/contexts/<owner>/domain` or `application`.** | A publish policy, a retry policy, a learning attribution, an app-config validation rule |
-| 4 | Is it an adapter for a resource exactly one context uses? | **`engine/contexts/<owner>/infrastructure`.** | A client only the publication context calls |
-| 5 | Is it an adapter two or more contexts use, with no process-wide state? | **`engine/shared-infrastructure`.** | A bounded file reader, the process sandbox |
-| 6 | Is it a process-wide resource or its adapter? | **`platform/<resource>`.** | The database, the tracing SDK, the agent-server client, Settings |
-| 7 | Does it turn an outside request into a call to a use case and the result into a response? | **`platform/entrypoints`.** | A route handler, the webhook, the queue, a CLI command, the wire contract |
-| 8 | Does it build adapters and wire contexts? | **`platform/composition`.** | The engine root, the run-engine factory, the app wiring |
-
-If a module answers yes to more than one question, it is two modules: split it first, then place each part. The most
-common case is an entry point or a factory with a policy inside it: the policy goes to the engine (row 3), the
-translation or the wiring stays in the platform (row 7 or 8).
+The placement rule and the decision table live in one place, [`AGENTS.md`](../AGENTS.md#placement-rule), so no second copy can drift. Classify a module with that table before you move it. The questions are asked in order, and a module that answers yes to more than one is split first.
 
 ## The engine: hexagonal DDD rules
 
