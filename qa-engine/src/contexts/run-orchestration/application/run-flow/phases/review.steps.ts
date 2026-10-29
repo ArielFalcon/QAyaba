@@ -20,7 +20,7 @@ import { runOf, type ReviewSession, type RunState } from "../run-state.ts";
 import { acceptedRegeneration, addRetries, remeasured, rollbackDelivered, withAcceptanceCalls, withRun } from "../reducers.ts";
 import { liveExecutionOptions, executeAccepted, validateAccepted } from "./execute.steps.ts";
 import { reviewRequired } from "../../../domain/review-required.ts";
-import { closedLoopSignal, contractFindingText, correctionBudgetSpent, correctThroughLead, mayCorrectThroughLead, regenerateByAuthor } from "./generation-services.ts";
+import { closedLoopSignal, correctionBudgetSpent, correctThroughLead, mayCorrectThroughLead, regenerateByAuthor } from "./generation-services.ts";
 import { CORRECTION_ORIGIN, type CorrectionFinding } from "@contexts/coordination/application/index.ts";
 import { resolveTested } from "./fix-loop.steps.ts";
 import { reviewChangeViewOf } from "../review-change.ts";
@@ -110,7 +110,7 @@ export async function reviewTests(state: Readonly<RunState>, ctx: WorkspaceRunCo
     lastReviewSpecsKey: undefined,
     current: undefined,
   };
-  return goto("review-round", { review: { ...state.review, session }, loops: { ...state.loops, reviewRound: 0, reviewAttempt: 0 } });
+  return goto("review-round", { review: { ...state.review, session }, loops: { ...state.loops, reviewRound: 0 } });
 }
 
 /* One round: the reviewer judges the specs (or the pre-check or the unchanged-specs rule decides for it), and the verdict says what comes next. */
@@ -388,40 +388,25 @@ export async function reviewRound(state: Readonly<RunState>, ctx: WorkspaceRunCo
     changedSpecFiles: [],
     changedSupportFiles: [],
     outcome: undefined,
-    contractFeedback: undefined,
   };
-  return goto("review-correct", { execution: addRetries(state.execution, 1), loops: { ...state.loops, reviewRound: round, reviewAttempt: 0 } });
+  return goto("review-correct", { execution: addRetries(state.execution, 1), loops: { ...state.loops, reviewRound: round } });
 }
 
-/*
- * One correction attempt, with the turn's bytes accepted or given back. A round the contract refuses is sent back
- * once with the violations as facts (A-2b): the generator learns the bound the run holds it to inside the run,
- * and the retry spends no DEV time because the contract is checked before validation and execution. The bound is
- * per round, so the review loop's own round budget still caps the whole phase.
- */
+/* One correction attempt, with the turn's bytes accepted or given back. */
 export async function reviewCorrect(state: Readonly<RunState>, ctx: WorkspaceRunContext): Result {
   const { input, signal, trail, workspace, services } = ctx;
-  const { acceptance, integrityCounters, runDeadlinePort, suiteChangedFiles, acceptanceScope } = services;
+  const { acceptance, runDeadlinePort, suiteChangedFiles, acceptanceScope } = services;
   const { closedLoop } = trail;
   const session = sessionOf(state);
   const cur = session.current;
   if (!cur) throw new Error("a review correction ran before its round was judged");
-  const attempt = state.loops.reviewAttempt;
   let { acceptanceCalls } = state.coverage;
-  /* A refused attempt's files were restored, so its delivery must not survive into the next one. */
-  rollbackDelivered(state, cur.deliveredBefore);
   const pass = trail.coordinatedPass;
-  const { reviewResult, blockingSpecs, contractFeedback } = cur;
-  const findings: CorrectionFinding[] = [
-    ...reviewResult.corrections.map((text) => ({ text, ...(blockingSpecs.has(text) ? { spec: blockingSpecs.get(text)! } : {}) })),
-    ...(contractFeedback ?? []).map((v) => ({ text: contractFindingText(v), spec: v.file })),
-  ];
+  const { reviewResult, blockingSpecs } = cur;
+  const findings: CorrectionFinding[] = reviewResult.corrections.map((text) => ({ text, ...(blockingSpecs.has(text) ? { spec: blockingSpecs.get(text)! } : {}) }));
   const { output: regen, leadCorrections } = !pass
     ? {
-        output: await regenerateByAuthor(state, ctx, signal, {
-          reviewCorrections: reviewResult.corrections,
-          ...(contractFeedback ? { contractFeedback } : {}),
-        }),
+        output: await regenerateByAuthor(state, ctx, signal, { reviewCorrections: reviewResult.corrections }),
         leadCorrections: 0,
       }
     : mayCorrectThroughLead(state, ctx)
@@ -449,15 +434,6 @@ export async function reviewCorrect(state: Readonly<RunState>, ctx: WorkspaceRun
   });
   cur.outcome = outcome;
   const coverage = withAcceptanceCalls(state.coverage, acceptanceCalls);
-  /* mutation-scope:begin contract-feedback-round */
-  const refusedWithViolations = outcome.kind === "rejected" && !!outcome.violations?.length;
-  if (reviewAction({ after: "attempt", refusedWithViolations, retried: attempt }) === "correct" && outcome.kind === "rejected") {
-  /* mutation-scope:end contract-feedback-round */
-    /* The refused attempt is one rejected regeneration, even though the round goes on to answer it. */
-    integrityCounters.rejected += 1;
-    cur.contractFeedback = outcome.violations;
-    return goto("review-correct", { coverage, loops: { ...loops, reviewAttempt: attempt + 1 } });
-  }
   return goto("review-resolve", { coverage, loops });
 }
 
@@ -554,7 +530,7 @@ export async function reviewResolve(state: Readonly<RunState>, ctx: WorkspaceRun
     return goto("review-round", {
       execution: withRun(state.execution, run),
       coverage,
-      loops: { ...state.loops, reviewRound: session.round, reviewAttempt: 0 },
+      loops: { ...state.loops, reviewRound: session.round },
     });
   }
   rollbackDelivered(state, deliveredBefore);

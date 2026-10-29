@@ -10,7 +10,6 @@ import { adjudicate, type AdjFailureClass, type AdjudicatorEvidence, type Adjudi
 import { classifyFailure } from "@kernel/failure-detail-class.ts";
 import { decideProgress, bestRound, isLikelyRealBug, type RoundResult } from "./helpers/progress-gate.ts";
 import type { ContradictionOrigin, SpecSelectorFindings } from "@kernel/selector-findings.ts";
-import type { ContractFeedback } from "./contract-feedback.ts";
 import { contradictsPack } from "./failure-data-state.ts";
 import { availabilityDecision, matchAvailability, type AvailabilityTriageInput } from "./availability-triage.ts";
 import { fixLoopAction, type FixLoopNext, type FixLoopStep, type FixLoopStop } from "./fix-loop-action.ts";
@@ -27,8 +26,6 @@ export interface FixLoopGenerateInput {
   /* The spec that raised each of selectorContradictions, by its index among the spec sources the check read (the previous regeneration's). Absent when the check does not say. */
   selectorContradictionOrigins?: ContradictionOrigin[];
   domSnapshot?: string;
-  /* A-2b: the intent lock's deltas on the previous round, handed back as facts. Absent when that round broke no contract. */
-  contractFeedback?: readonly ContractFeedback[];
   /* CycleBudget/WallClockBudget are forwarded unread into regenerate() — this aggregate never ticks or inspects them, and neither does the generation adapter (see this file's header comment). */
   cycleBudget: CycleBudget;
   wallClockBudget: WallClockBudget;
@@ -124,8 +121,6 @@ export type FixLoopAcceptanceOutcome =
       reason: string;
       /** The execution that rejected the round (an infra-error), when one ran. */
       execution?: FixLoopRun;
-      /** The contract deltas that rejected the round: the loop hands them to the next round as facts (A-2b). */
-      violations?: readonly ContractFeedback[];
     }
   | { kind: "cap" };
 
@@ -326,10 +321,6 @@ export interface FixLoopState {
   triage: FixLoopTriage | undefined;
   /** A rejected test-correct claim earns one repair even when the progress gate would stop the round. */
   claimRejected: boolean;
-  /** A round the contract refused never executed, so the progress gate would read it as no progress: it earns one repair all the same. */
-  contractRejected: boolean;
-  /** A round the contract refused leaves its deltas for the next round; an accepted round clears them. */
-  contractFeedback: readonly ContractFeedback[] | undefined;
   /** Only what a later round reads from the previous regeneration. */
   lastRegenResult: Pick<FixLoopGenerateResult, "specSources" | "reexploreNavigations" | "specMetas"> | undefined;
   round: RoundScratch | undefined;
@@ -376,8 +367,6 @@ export class FixLoop {
       triaged: false,
       triage: undefined,
       claimRejected: false,
-      contractRejected: false,
-      contractFeedback: undefined,
       lastRegenResult: input.initialSpecSources?.length ? { specSources: input.initialSpecSources } : undefined,
       round: undefined,
       roundAccepted: false,
@@ -483,11 +472,8 @@ export class FixLoop {
     };
     const gate = state.claimRejected
       ? { spend: true, reason: "a rejected test-correct claim is not evidence — asking for the repair" }
-      : state.contractRejected
-        ? { spend: true, reason: "the contract refused the previous round before it ran: asking for the repair the violations name" }
-        : decideProgress(state.prevRound, curRound);
+      : decideProgress(state.prevRound, curRound);
     state.claimRejected = false;
-    state.contractRejected = false;
 
     const allUnique =
       anyVerifiedPresent &&
@@ -659,7 +645,6 @@ export class FixLoop {
       ...(round.selectorContradictions.length > 0 ? { selectorContradictions: round.selectorContradictions } : {}),
       ...(round.selectorContradictions.length > 0 && round.origins ? { selectorContradictionOrigins: round.origins } : {}),
       ...(input.failureDomSnapshot ? { domSnapshot: input.failureDomSnapshot } : {}),
-      ...(state.contractFeedback ? { contractFeedback: state.contractFeedback } : {}),
       cycleBudget: input.cycleBudget,
       wallClockBudget: input.wallClockBudget,
     });
@@ -724,16 +709,6 @@ export class FixLoop {
     });
     if (outcome.kind === "rejected") {
       /*
-       * The contract refused the round: its bytes are already restored, and the deltas it found are
-       * the next round's facts. The rejected turn already spent its retry, so the loop stays inside
-       * the same cap (A-2b).
-       */
-      if (outcome.violations?.length) {
-        state.contractFeedback = outcome.violations;
-        state.contractRejected = true;
-        return fixLoopAction({ after: "acceptance", kind: "rejected", violations: true });
-      }
-      /*
        * A validation failure or an infra-error: the prior verdict and bytes stand. A live
        * execution that failed while DEV went unhealthy is the run's infra-error, as before.
        */
@@ -743,12 +718,11 @@ export class FixLoop {
       ) {
         state.run = { verdict: "infra-error", cases: [] };
       }
-      return fixLoopAction({ after: "acceptance", kind: "rejected", violations: false });
+      return fixLoopAction({ after: "acceptance", kind: "rejected" });
     }
-    if (outcome.kind === "cap") return fixLoopAction({ after: "acceptance", kind: "cap", violations: false }); /* the prior verdict and bytes stand (B-7) */
+    if (outcome.kind === "cap") return fixLoopAction({ after: "acceptance", kind: "cap" }); /* the prior verdict and bytes stand (B-7) */
 
     state.run = mergeAcceptedRound(state.run, outcome);
-    state.contractFeedback = undefined;
     /*
      * The round executed only the specs it changed, and of those only the ones without a green proof: theirs are the latest dumps,
      * every other spec's stay where they were.
@@ -758,7 +732,7 @@ export class FixLoop {
     state.roundAccepted = true;
     state.acceptedToken = outcome.accepted;
     this.recordBest(state);
-    return fixLoopAction({ after: "acceptance", kind: "accepted", violations: false });
+    return fixLoopAction({ after: "acceptance", kind: "accepted" });
   }
 
   private async reexecuteStage(state: FixLoopState): Promise<FixLoopNext> {

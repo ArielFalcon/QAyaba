@@ -28,11 +28,6 @@ test("a rejection of specs unchanged since the last one is terminal", () => {
 test("a rejection with a round left earns a correction", () => {
   assert.equal(reviewAction(judged), "correct");
 });
-test("a correction the contract refused is sent back once, then resolved", () => {
-  assert.equal(reviewAction({ after: "attempt", refusedWithViolations: true, retried: 0 }), "correct");
-  assert.equal(reviewAction({ after: "attempt", refusedWithViolations: true, retried: 1 }), "resolve");
-  assert.equal(reviewAction({ after: "attempt", refusedWithViolations: false, retried: 0 }), "resolve");
-});
 test("a correction that delivered specs goes to acceptance", () => {
   assert.equal(reviewAction({ after: "correction", produced: true, allWithdrawn: false, disputed: false }), "resolve");
 });

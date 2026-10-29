@@ -11,7 +11,6 @@ import type { ExecutionPort, ValidationPort } from "@contexts/test-execution/app
 import type { QaCase } from "@kernel/qa-case.ts";
 import type { ChangedDecision } from "@kernel/changed-decision.ts";
 import type { DeliveredSpec } from "@kernel/delivered-spec.ts";
-import type { ContractFeedback } from "../../domain/contract-feedback.ts";
 import type { ReviewPort } from "@contexts/generation/application/index.ts";
 import type { SuiteRestorePoint } from "../../domain/suite-restore-point.ts";
 import type { RegenerationAcceptance } from "../regeneration-acceptance.ts";
@@ -235,8 +234,6 @@ export interface ReviewRoundScratch {
   changedSpecFiles: string[];
   changedSupportFiles: string[];
   outcome: Awaited<ReturnType<RegenerationAcceptance["accept"]>> | undefined;
-  /** A refused attempt hands the contract's violations to the next one. */
-  contractFeedback: readonly ContractFeedback[] | undefined;
 }
 
 /** The review's convergence context between rounds: data, so the rounds are steps and not one function's locals. */
@@ -303,15 +300,13 @@ export interface LoopCounters {
   coverageRegen: number;
   /** Review rounds. */
   reviewRound: number;
-  /** Attempts within a review round's correction (a refusal of the contract is retried once). */
-  reviewAttempt: number;
   /** Corrections that went through the lead, across every origin. */
   leadCorrections: number;
   /** Review turns the lead used in a coordinated pass. */
   leadReviewTurns: number;
 }
 
-export const initialLoopCounters = (): LoopCounters => ({ staticFix: 0, preExecRegen: 0, fixLoop: 0, coverageRegen: 0, reviewRound: 0, reviewAttempt: 0, leadCorrections: 0, leadReviewTurns: 0 });
+export const initialLoopCounters = (): LoopCounters => ({ staticFix: 0, preExecRegen: 0, fixLoop: 0, coverageRegen: 0, reviewRound: 0, leadCorrections: 0, leadReviewTurns: 0 });
 
 /* A fault the run went on past because what it had proven stands: the reason the policy named and what the outcome says about it. */
 export interface Degradation {

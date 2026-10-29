@@ -102,11 +102,6 @@ export interface EvidenceFinding {
   finding: CorrectionFinding;
 }
 
-/* A contract delta the intent lock found, as a finding: the clause, what it held before and what it holds now. */
-export function contractFindingText(v: { rule: string; file: string; clauseId: string; before: string; after: string }): string {
-  return `the correction broke the test's contract (${v.rule}) in ${v.file}, clause ${v.clauseId}: it was ${JSON.stringify(v.before)} and is ${JSON.stringify(v.after)}`;
-}
-
 /* The static gate's errors, one finding each, as the gate reported them: each names the file it refused. */
 export function staticGateFindings(errors: readonly string[]): EvidenceFinding[] {
   return errors.map((error) => error.trim()).filter(Boolean).map((error) => ({
@@ -146,9 +141,6 @@ function findingsOf(enrichment: GenerationEnrichment): EvidenceFinding[] {
   const gapItems = enrichment.coverageGapItems ?? [];
   if (gapItems.length > 0) for (const text of gapItems) out.push({ finding: { text } });
   else if (enrichment.coverageGap) out.push({ finding: { text: enrichment.coverageGap } });
-  for (const v of enrichment.contractFeedback ?? []) {
-    out.push({ finding: { text: contractFindingText(v), spec: v.file } });
-  }
   return out;
 }
 

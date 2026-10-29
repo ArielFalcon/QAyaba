@@ -26,8 +26,6 @@ import { boundedEvidenceCount, EVIDENCE_SAFETY_BOUND_REASON } from "../prompt-ca
 import { PACK_HEADINGS } from "@contexts/generation/domain/prompt-headings.ts";
 import {
   CONTRACT_DRIFT_HEADING,
-  CONTRACT_FEEDBACK_SECTION_ID,
-  type ContractViolationShape,
   type FixCaseShape,
   FIX_STEPS,
   RUNTIME_SIGNALS_LINES,
@@ -35,7 +33,6 @@ import {
   numbered,
   renderAgentBrowser,
   renderClosedLoop,
-  renderContractViolations,
   renderFixCase,
   renderGeolocation,
   renderHarnessFacts,
@@ -521,22 +518,6 @@ function renderCoverageGap(ctx: PromptContext): SectionRender {
   return { content: coverageContent, claims: coverageClaims, shedAs: "critical-recap", ...(degrade ? { degrade } : {}) };
 }
 
-/* A-2b: the deltas the intent lock found in the previous turn, as facts of this one. Sanitized, and never an order: the generator decides how to restore what its bytes weakened. */
-function renderContractFeedback(ctx: PromptContext): SectionRender {
-  const violations = ctx.input.contractFeedback ?? [];
-  const content = renderContractViolations(violations);
-  const shapes: ContractViolationShape[] = ["named", "counted"];
-  return {
-    content,
-    overflow: "drop",
-    ...boundOmissions(content),
-    degrade: (step) => {
-      const shape = shapes[step - 1];
-      return shape === undefined ? undefined : { content: renderContractViolations(violations, shape), omissions: [{ class: "truncation", reason: WINDOW_FIT_REASON, count: violations.length }] };
-    },
-  };
-}
-
 /* The omission the safety bound on evidence text records when it cut something in a rendered section. */
 function boundOmissions(rendered: string): { omissions?: Omission[] } {
   const cut = boundedEvidenceCount(rendered);
@@ -642,13 +623,6 @@ export const GENERATOR_SECTIONS: readonly PromptSectionDef<PromptContext>[] = [
     priority: 4, stability: "run", reason: "The reviewer's verified blocking findings a regeneration must answer",
     applies: (ctx) => Boolean(ctx.input.reviewCorrections?.length) && ctx.isGenerationMode,
     render: renderReviewerCorrections,
-  },
-  {
-    id: CONTRACT_FEEDBACK_SECTION_ID,
-    tier: "volatile",
-    priority: 4, stability: "run", reason: "The intent lock's contract deltas, handed back to the turn that must restore them (abb73758)",
-    applies: (ctx) => Boolean(ctx.input.contractFeedback?.length) && ctx.isGenerationMode,
-    render: renderContractFeedback,
   },
   { id: "coverage-gap", tier: "volatile", priority: 5, stability: "run", reason: "The changed lines and arms no test ran: the one coverage or branch-case regeneration (change-coverage)", applies: (ctx) => Boolean(ctx.input.coverageGap) && ctx.isGenerationMode, render: renderCoverageGap },
   { id: "task", tier: "task", priority: 1, stability: "run", reason: "The turn's task and procedure for its mode, with the run's change and guidance", applies: () => true, render: renderTask },

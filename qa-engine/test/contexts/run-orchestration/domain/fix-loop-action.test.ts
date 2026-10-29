@@ -57,11 +57,10 @@ test("a failed revalidation ends the loop", () => {
   assert.deepEqual(fixLoopAction({ after: "revalidation", ok: false }), { stop: "revalidation-failed" });
   assert.deepEqual(fixLoopAction({ after: "revalidation", ok: true }), { go: "reexecute" });
 });
-test("an acceptance: accepted continues, rejected with deltas continues, rejected without ends, cap ends", () => {
-  assert.deepEqual(fixLoopAction({ after: "acceptance", kind: "accepted", violations: false }), { go: "triage", again: true });
-  assert.deepEqual(fixLoopAction({ after: "acceptance", kind: "rejected", violations: true }), { go: "triage", again: true });
-  assert.deepEqual(fixLoopAction({ after: "acceptance", kind: "rejected", violations: false }), { stop: "round-rejected" });
-  assert.deepEqual(fixLoopAction({ after: "acceptance", kind: "cap", violations: false }), { stop: "round-capped" });
+test("an acceptance: accepted continues, rejected ends, cap ends", () => {
+  assert.deepEqual(fixLoopAction({ after: "acceptance", kind: "accepted" }), { go: "triage", again: true });
+  assert.deepEqual(fixLoopAction({ after: "acceptance", kind: "rejected" }), { stop: "round-rejected" });
+  assert.deepEqual(fixLoopAction({ after: "acceptance", kind: "cap" }), { stop: "round-capped" });
 });
 test("a re-execution that failed with DEV down ends the loop, otherwise the next round begins", () => {
   assert.deepEqual(fixLoopAction({ after: "reexecution", failed: true, devHealthy: false }), { stop: "dev-failed-under-the-run" });

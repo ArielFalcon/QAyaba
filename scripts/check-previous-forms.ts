@@ -198,6 +198,11 @@ export const BANNED_RULES: BannedRule[] = [
     exemptPrefixes: [RECORDS_PREFIX, "src/orchestrator/config-loader.test.ts"],
   },
   {
+    id: "intent-lock-enforce",
+    patterns: [/\b(?:contractFeedback|ContractFeedback|contract-feedback|MAX_CONTRACT_RETRIES|renderContractViolations|ContractViolationShape)\b/, /\bintentLock\b[^\n]*\benforce\b/, /\bintent lock\b[^\n]*\b(?:refused|enforce)\b/i],
+    exemptPrefixes: [RECORDS_PREFIX, "src/orchestrator/config-loader.test.ts"],
+  },
+  {
     id: "langfuse-sink",
     patterns: [
       /\b(?:LangfuseScoreSink|LangfuseConfig|resolveLangfuseConfig|scoreSinkHealthOf|ScoreSinkHealth|scoreConfigsOfCatalog|langfuseScoreId|getRunIdByTraceId)\b/,

@@ -442,8 +442,7 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   and the result goes through the round's acceptance and rebuttal check like any regeneration. A finding no flow took that names a
   spec of the suite no flow of the plan authored gets one maintenance flow (a fresh flow sidekick on that spec alone, within
   the app's `maxFlows` ceiling when set and the time reserve; `corrections.maintained`); any other is recorded unrouted and never handed to a cold author. The run's own checks before the review take the same route: the
-  static gate's errors (one finding per error block), a failing execution's cases in the fix loop (and the contract deltas of a
-  round the intent lock refused), the pre-execution selector contradictions and the change-coverage gap (the changed lines no test ran and the
+  static gate's errors (one finding per error block), a failing execution's cases in the fix loop, the pre-execution selector contradictions and the change-coverage gap (the changed lines no test ran and the
   arms of their decisions that never ran) each go to the lead as
   facts it routes to their flows and never rebuts (the coverage gap as one finding per file and per arm, each carrying `file`/`line`
   and owned by the one flow covering a use case that file seeds; a file seeds a use case through one definition every reader shares

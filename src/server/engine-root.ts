@@ -87,8 +87,8 @@ export interface EngineRootDeps {
   coverageMinRatio?: number;
   /* The branch cases of the same policy: one regeneration from the arms of the changed code no test ran. Absent: off. */
   coverageBranchCases?: "regenerate" | "off";
-  /* The test-intent lock (off | signal | enforce) plus the opacity ratio it flags. Absent: signal, 0.5. */
-  intentLock?: { mode: "off" | "signal" | "enforce"; opacityFlagRatio: number };
+  /* The test-intent lock (off | signal) plus the opacity ratio it flags. Absent: signal, 0.5. */
+  intentLock?: { mode: "off" | "signal"; opacityFlagRatio: number };
   /* Per-mode agent session budget (ms). Factory maps agentTimeout(mode). Optional: omitted fakes keep the use-case default (0 = derived but not enforced). */
   agentTimeoutMs?: number;
   wallClockBudgetMs?: number;

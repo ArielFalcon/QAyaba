@@ -191,6 +191,22 @@ report:
     }
   });
 
+  test("loadAppConfig refuses the retired enforce value of qa.intentLock.mode and still accepts signal", () => {
+    const withMode = (mode: string) => VALID_APP.replace("  needsReview: true", `  needsReview: true\n  intentLock:\n    mode: ${mode}`);
+    const refused = loadWith("", withMode("enforce"));
+    try {
+      assert.throws(() => loadAppConfig("shop", refused.root), (err: unknown) => err instanceof AppConfigInvalidError && /"intentLock"[\s\S]*"mode"/.test(err.message));
+    } finally {
+      rmSync(refused.root, { recursive: true, force: true });
+    }
+    const accepted = loadWith("", withMode("signal"));
+    try {
+      assert.equal(loadAppConfig("shop", accepted.root).qa.intentLock?.mode, "signal");
+    } finally {
+      rmSync(accepted.root, { recursive: true, force: true });
+    }
+  });
+
   test("loadAppConfig keeps the generic unknown-key warning for every other unknown key of the qa block", () => {
     const lines = captureWarnings();
     const { root } = loadWith("", VALID_APP.replace("  needsReview: true", "  needsReview: true\n  valueOraclee: signal"));

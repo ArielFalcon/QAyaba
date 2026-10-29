@@ -84,43 +84,6 @@ test("service links over the author's window keep the links the change reaches, 
   assert.deepEqual(counted.sectionItems["service-links"]?.itemIds, []);
 });
 
-/* ------------------------------------------------------------------ contract feedback */
-
-const violation = (i: number, after = "total === 0") => ({ rule: "weakened-assertion", file: "e2e/flows/cart.spec.ts", clauseId: `assertion-${i}`, before: "total === 10", after });
-const CORRECTIONS = ["[wrong-objective] assert the discount"];
-
-test("every contract violation reaches the prompt, with its clause whole up to the safety bound", () => {
-  const many = Array.from({ length: 20 }, (_, i) => violation(i));
-  const text = buildPromptAssembled(mkInput({ reviewCorrections: CORRECTIONS, contractFeedback: many })).text;
-  for (const v of many) assert.ok(text.includes(v.clauseId), v.clauseId);
-  assert.doesNotMatch(text, /more not shown/);
-
-  const longClause = "clause word ".repeat(130);
-  const long = buildPromptAssembled(mkInput({ reviewCorrections: CORRECTIONS, contractFeedback: [violation(0, longClause)] })).text;
-  assert.ok(long.includes(longClause), "a clause past the old 200 characters is whole");
-
-  const huge = "clause word ".repeat(Math.ceil((EVIDENCE_TEXT_SAFETY_BOUND + 500) / 12));
-  const bounded = buildPromptAssembled(mkInput({ reviewCorrections: CORRECTIONS, contractFeedback: [violation(0, huge)] }));
-  assert.equal(bounded.text.includes(huge), false, "a clause past the safety bound is cut");
-  assert.deepEqual(bounded.sectionItems["contract-feedback"]?.omissions, [{ class: "truncation", reason: EVIDENCE_SAFETY_BOUND_REASON, count: 1 }]);
-});
-
-test("contract violations over the window lose their before and after first, then are counted", () => {
-  const many = Array.from({ length: 20 }, (_, i) => violation(i, `after-${i}-${"zed word ".repeat(50)}`));
-  const input = mkInput({ reviewCorrections: CORRECTIONS, contractFeedback: many });
-  const whole = buildPromptAssembled(input, { fit: roomy });
-  const section = sizeOf(whole, "contract-feedback");
-
-  const named = buildPromptAssembled(input, { fit: windowOf(bytesOf(whole.text) - section / 2) });
-  assert.ok(named.text.includes("assertion-19"), "each violation is still named");
-  assert.equal(named.text.includes("zed word zed word"), false, "what the contract held is not shown");
-  assert.ok(named.sectionItems["contract-feedback"]?.omissions.some((o) => o.reason === WINDOW_FIT_REASON));
-
-  const counted = buildPromptAssembled(input, { fit: windowOf(bytesOf(whole.text) - section + 300) });
-  assert.equal(counted.text.includes("assertion-19"), false);
-  assert.match(counted.text, /20 violation\(s\) are not shown here, to fit the window/);
-});
-
 /* ------------------------------------------------------------------ failing cases */
 
 const failing = (over: Partial<QaCase> = {}): QaCase => ({

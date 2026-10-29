@@ -28,12 +28,6 @@ export interface GenerationEnrichment {
    * whole gap does not fit the author's window.
    */
   coverageGapReference?: string;
-  /**
-   * The intent lock's violations of the turn before this one (A-2b): what the contract held before and
-   * after, handed back as facts so the generator can repair the weakening it introduced. Structural
-   * mirror of the domain's ContractFeedback: this barrel carries no cross-context type.
-   */
-  contractFeedback?: readonly { rule: string; file: string; clauseId: string; before: string; after: string }[];
   /** Present only when the run granted the generator the run_spec tool: the limits its prompt states. */
   closedLoop?: ClosedLoopLimits;
   /** Present only when the run granted the authoring agents the authenticated browser: the limits its prompt states. */

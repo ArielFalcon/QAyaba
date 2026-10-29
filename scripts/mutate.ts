@@ -286,7 +286,6 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
       `${ORCH}/application/run-flow/phases/fix-loop.steps.ts@confinement-and-clear-corrections`,
       `${ORCH}/application/run-flow/phases/fix-loop.steps.ts@round-result-tail`,
       `${ORCH}/application/run-flow/phases/coverage.steps.ts@delivered-before-coverage-regen`,
-      `${ORCH}/application/run-flow/phases/review.steps.ts@contract-feedback-round`,
     ],
     tests: [
       "qa-engine/test/shared-kernel/spec-path.test.ts",

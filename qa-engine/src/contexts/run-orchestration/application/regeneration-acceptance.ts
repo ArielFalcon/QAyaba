@@ -17,7 +17,6 @@ import type { QaCase } from "@kernel/qa-case.ts";
 import { normalizeSpecPath } from "@kernel/spec-path.ts";
 import { RunDeadlineExceededError } from "@kernel/run-deadline.ts";
 import { MAX_ACCEPTANCE_EXECUTIONS } from "../../../shared-kernel/derive-cycle-backstop.ts";
-import type { ContractFeedback } from "../domain/contract-feedback.ts";
 import type { ClosedLoopHandle } from "@contexts/agent-tools/application/index.ts";
 import type { ExecutionPort, ValidationPort } from "@contexts/test-execution/application/index.ts";
 import type { RunDeadlinePort } from "./ports/run-deadline.port.ts";
@@ -50,8 +49,6 @@ export type AcceptanceOutcome =
       reason: string;
       /** The execution that rejected the round (an infra-error), when one ran. */
       execution?: { verdict: RunVerdict; cases: readonly QaCase[]; logs: string };
-      /** The contract deltas that rejected the round, when the intent lock was the reason: the caller hands them to the next turn as facts (A-2b). */
-      violations?: readonly ContractFeedback[];
     }
   | { kind: "cap" };
 
@@ -61,8 +58,8 @@ export interface RegenerationAcceptanceDeps {
   fingerprint: (bytes: Uint8Array) => string;
   /** Records one accepted file's proof (its path, the sha256 of its green bytes, and those bytes). */
   ledger: (entry: AcceptanceProofEntry) => Promise<void>;
-  /** The intent-lock contract check (a later task). Absent: always passes. */
-  contractCheck?: (changedSpecFiles: readonly string[]) => Promise<{ ok: boolean; reason?: string; violations?: readonly ContractFeedback[] }>;
+  /** Reads the changed specs against the contract the primary pass fixed and records what moved. It judges nothing. Absent: no contract is observed. */
+  observeContract?: (changedSpecFiles: readonly string[]) => Promise<void>;
 }
 
 export interface AcceptanceInput {
@@ -117,16 +114,8 @@ export class RegenerationAcceptance {
     const created = input.changedSpecFiles.filter((file) => !input.snapshot.files.has(file));
     const restore = (): Promise<void> => this.deps.snapshot.restore(input.specDir, input.snapshot, created);
 
-    /* 1. Contract check (the intent lock, a later task): absent means it passes. */
-    const contract = await this.deps.contractCheck?.(input.changedSpecFiles);
-    if (contract && !contract.ok) {
-      await restore();
-      return {
-        kind: "rejected",
-        reason: contract.reason ?? "the contract check rejected the change",
-        ...(contract.violations?.length ? { violations: contract.violations } : {}),
-      };
-    }
+    /* 1. The intent lock observes the changed specs; it never rejects them. */
+    await this.deps.observeContract?.(input.changedSpecFiles);
 
     /* 2. Validate. */
     const validation = await input.validate(input.specDir);

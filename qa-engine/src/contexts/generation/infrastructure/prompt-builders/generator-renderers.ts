@@ -194,32 +194,3 @@ export function buildDiffSection(input: OpencodeRunInput): string {
   if (isReGenTurn(input)) return "";
   return commitDiffBlock(input.diff);
 }
-
-export const CONTRACT_FEEDBACK_SECTION_ID = "contract-feedback";
-
-/**
- * The intent lock's violations as a facts section: each line names the rule, the clause and what the
- * contract held before and after. Every text is redacted, so a literal that carries a secret never reaches
- * the model, and a clause past the safety bound on evidence text is cut and says so. `shape` is how much of
- * each violation a line shows: `whole`, `named` (the rule, the file and the clause only) or `counted` (how
- * many, nothing else); the last two are what the window fit rule asks for.
- */
-export type ContractViolationShape = "whole" | "named" | "counted";
-export function renderContractViolations(
-  violations: readonly { rule: string; file: string; clauseId: string; before: string; after: string }[],
-  shape: ContractViolationShape = "whole",
-): string {
-  const line = (violation: (typeof violations)[number]): string => {
-    const named = `- ${sanitizeText(violation.rule).text} ${sanitizeText(violation.file).text}#${sanitizeText(violation.clauseId).text}`;
-    return shape === "named" ? named : `${named}: ${boundEvidenceText(sanitizeText(violation.before).text)} → ${boundEvidenceText(sanitizeText(violation.after).text)}`;
-  };
-  const lines = [
-    `## Contract violations (the intent contract this run fixed on these specs)`,
-    ``,
-    `The intent contract was derived from the primary pass's own bytes. Each line is a delta the orchestrator found between that contract and the bytes of the last turn:`,
-    ``,
-    ...(shape === "counted" ? [`${violations.length} violation(s) are ${NOT_SHOWN}.`] : violations.map(line)),
-    ``,
-  ];
-  return lines.join("\n");
-}

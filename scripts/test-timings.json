@@ -186,7 +186,6 @@
   "qa-engine/test/contexts/generation/infrastructure/prompt-builders/prompts.claims.test.ts": 19,
   "qa-engine/test/contexts/generation/infrastructure/prompt-builders/prompts.closed-loop.test.ts": 3,
   "qa-engine/test/contexts/generation/infrastructure/prompt-builders/prompts.context-window.test.ts": 182,
-  "qa-engine/test/contexts/generation/infrastructure/prompt-builders/prompts.contract-feedback.test.ts": 3,
   "qa-engine/test/contexts/generation/infrastructure/prompt-builders/prompts.evidence-bound.test.ts": 26,
   "qa-engine/test/contexts/generation/infrastructure/prompt-builders/prompts.geolocation.test.ts": 22,
   "qa-engine/test/contexts/generation/infrastructure/prompt-builders/prompts.harness-facts.test.ts": 3,

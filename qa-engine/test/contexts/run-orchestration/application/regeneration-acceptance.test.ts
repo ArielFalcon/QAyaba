@@ -245,20 +245,15 @@ test("no time left before an acceptance execution throws the run's deadline erro
   assert.equal(h.restores.length, 0);
 });
 
-/*
- * A-2b: a regeneration the contract rejects carries the violations out, so the site that sent the turn
- * can hand them back as facts. The bytes are restored all the same: nothing rejected stays on disk.
- */
-test("a contract rejection carries its violations out, and restores the pre-turn bytes", async () => {
+/* The intent lock reads the changed specs and records what moved; it never decides the round. */
+test("the contract observation sees the changed specs before validation and never rejects them", async () => {
   const h = harness();
-  const violations = [
-    { rule: "weakened-matcher", file: "flows/checkout.spec.ts", clauseId: "assertion-1", before: "strength=exact", after: "strength=presence" },
-  ];
+  const observed: Array<readonly string[]> = [];
   const service = new RegenerationAcceptance({
     snapshot: h.snapshot,
     fingerprint: (b) => `sha-${b.byteLength}`,
     ledger: async () => {},
-    contractCheck: async () => ({ ok: false, reason: "contract: weakened-matcher (assertion-1)", violations }),
+    observeContract: async (files) => { observed.push(files); },
   });
 
   const outcome = await service.accept({
@@ -271,10 +266,9 @@ test("a contract rejection carries its violations out, and restores the pre-turn
     execute: h.execute,
   });
 
-  assert.equal(outcome.kind, "rejected");
-  assert.deepEqual(outcome.kind === "rejected" ? outcome.violations : undefined, violations);
-  assert.equal(h.restores.length, 1, "a rejected regeneration is rolled back, violations or not");
-  assert.deepEqual(h.executed, [], "the contract is checked before any DEV time is spent");
+  assert.deepEqual(observed, [["flows/checkout.spec.ts"]]);
+  assert.equal(outcome.kind, "accepted");
+  assert.equal(h.restores.length, 0, "nothing is rolled back for what the contract observed");
 });
 
 /* Per spec file: a regeneration that changed only spec files is judged file by file, so one failing spec does not throw away a green one. */

@@ -69,11 +69,11 @@ export interface RunQaConfig {
    */
   coverageBranchCases?: "regenerate" | "off";
   /**
-   * The test-intent lock: whether the contract a primary pass establishes binds later regenerations.
-   * "signal" (default) records the deltas that would have been rejected; "enforce" rejects them and
-   * restores the pre-turn bytes. The opacity ratio flags a contract, never blocks one.
+   * The test-intent lock: whether the contract a primary pass establishes is read against later regenerations.
+   * "signal" (default) records the deltas that would have been rejected; "off" derives no contract. It never
+   * rejects a regeneration, and the opacity ratio flags a contract, never blocks one.
    */
-  intentLock?: { mode: "off" | "signal" | "enforce"; opacityFlagRatio: number };
+  intentLock?: { mode: "off" | "signal"; opacityFlagRatio: number };
   /**
    * Per-mode agent session budget (ms). 0 / omitted derives WallClockBudget but
    * MUST NOT enforce it — a zero budget would abort every retry immediately.

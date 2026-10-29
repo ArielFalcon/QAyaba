@@ -147,7 +147,6 @@ export class GenerationTurnsAdapter implements LeadPort, AuthorPort {
       ...(enrichment?.domSnapshot ? { domSnapshot: enrichment.domSnapshot } : {}),
       ...(enrichment?.coverageGap ? { coverageGap: enrichment.coverageGap } : {}),
       ...(enrichment?.coverageGap && enrichment.coverageGapReference ? { coverageGapReference: enrichment.coverageGapReference } : {}),
-      ...(enrichment?.contractFeedback?.length ? { contractFeedback: enrichment.contractFeedback.map((violation) => ({ ...violation })) } : {}),
       ...(enrichment?.intent ? { intent: toGenerationIntent(enrichment.intent) } : {}),
       ...(enrichment?.contextPack ? { contextPack: enrichment.contextPack } : {}),
       ...(enrichment?.contextPackItemIds ? { contextPackItemIds: enrichment.contextPackItemIds } : {}),

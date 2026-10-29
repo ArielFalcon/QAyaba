@@ -137,9 +137,9 @@ qa:
   # Test-intent lock: what a delivered test is FOR, derived by the orchestrator from the change
   # itself (string literals on added diff lines). A regeneration that drops an assertion, weakens a
   # matcher, flips a negation, replaces scope with a positional step, loses the anchor or changes an
-  # in-scope expected value is rejected (enforce) or recorded (signal). Opacity is telemetry only.
+  # in-scope expected value is recorded as a would-be rejection (signal). Opacity is telemetry only.
   # intentLock:
-  #   mode: signal             # off | signal (record would-be rejections) | enforce (reject, restore bytes)
+  #   mode: signal             # off | signal (record would-be rejections)
   #   opacityFlagRatio: 0.5    # flag a contract whose unreadable clauses cross this ratio; never blocks
 
 report:

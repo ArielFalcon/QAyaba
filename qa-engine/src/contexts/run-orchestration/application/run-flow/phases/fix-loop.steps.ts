@@ -103,8 +103,6 @@ function fixLoopFor(state: Readonly<RunState>, ctx: WorkspaceRunContext, pending
       /* mutation-scope:end regenerate-round */
         ...(attributedSpecFiles.length ? { attributedSpecFiles } : {}),
         ...(fixLoopInput.domSnapshot ? { domSnapshot: fixLoopInput.domSnapshot } : {}),
-        /* The intent lock's deltas on the round it refused: the next round repairs the weakening it introduced. */
-        ...(fixLoopInput.contractFeedback?.length ? { contractFeedback: fixLoopInput.contractFeedback } : {}),
       }, CORRECTION_ORIGIN.EXECUTION);
       tally.leadCorrections += leadCorrections;
       /* mutation-scope:begin confinement-and-clear-corrections */
@@ -178,8 +176,6 @@ function fixLoopFor(state: Readonly<RunState>, ctx: WorkspaceRunContext, pending
       return {
         kind: "rejected",
         reason: outcome.reason,
-        /* The contract's deltas are the next round's facts: without them the loop would end on a rejection the generator could repair. */
-        ...(outcome.violations?.length ? { violations: outcome.violations } : {}),
         ...(outcome.execution
           ? { execution: { verdict: outcome.execution.verdict, cases: [...outcome.execution.cases] } }
           : {}),

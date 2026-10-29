@@ -235,13 +235,12 @@ export const AppConfigSchema = z
         .optional(),
       /*
        * Test-intent lock. off = the contract is not derived; signal (default) = derive it and record
-       * the would-be rejections; enforce = a regeneration that drops or weakens the contract is
-       * rejected (its pre-turn bytes restored). opacityFlagRatio flags a contract whose statically
-       * unreadable clauses cross it; the flag never blocks.
+       * the would-be rejections. opacityFlagRatio flags a contract whose statically unreadable clauses
+       * cross it; the flag never blocks.
        */
       intentLock: z
         .object({
-          mode: z.enum(["off", "signal", "enforce"]).optional(),
+          mode: z.enum(["off", "signal"]).optional(),
           opacityFlagRatio: z.number().min(0).max(1).optional(),
         })
         .optional(),

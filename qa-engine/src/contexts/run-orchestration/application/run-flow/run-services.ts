@@ -11,7 +11,6 @@ import { specSetDigest } from "./spec-set-digest.ts";
 import { suiteRestorePort } from "../suite-restore.ts";
 import { RegenerationAcceptance } from "../regeneration-acceptance.ts";
 import type { SuiteRestorePoint } from "../../domain/suite-restore-point.ts";
-import type { ContractFeedback } from "../../domain/contract-feedback.ts";
 import { EMPTY_TOKEN_SET, type ChangeTokenSet } from "@contexts/objective-signal/application/index.ts";
 import { diffContracts, type IntentViolation, type SpecIntent } from "@contexts/objective-signal/application/index.ts";
 import type { RunQaConfig, RunQaUseCaseDeps } from "./run-types.ts";
@@ -49,7 +48,7 @@ export function createRunServices(deps: RunQaUseCaseDeps, cfg: RunQaConfig, work
   /*
    * The test-intent lock. A primary pass fixes each spec's contract against the change's own tokens
    * (the literals on added diff lines); a later regeneration is diffed against that baseline and a
-   * generic weakening is rejected under `enforce`, recorded under `signal`. Baseline and tokens live
+   * generic weakening is recorded as a would-be rejection. Baseline and tokens live
    * for this run only: a new primary pass is never bound by a previous run's contract.
    */
   const intentLock = cfg.intentLock ?? { mode: "signal", opacityFlagRatio: 0.5 };
@@ -77,9 +76,9 @@ export function createRunServices(deps: RunQaUseCaseDeps, cfg: RunQaConfig, work
       intentState.baselines.set(file, extraction.specs);
     }
   };
-  const contractCheck = async (files: readonly string[]): Promise<{ ok: boolean; reason?: string; violations?: readonly ContractFeedback[] }> => {
+  const observeContract = async (files: readonly string[]): Promise<void> => {
     const extractor = deps.intentContract;
-    if (!extractor || intentLock.mode === "off" || files.length === 0) return { ok: true };
+    if (!extractor || intentLock.mode === "off" || files.length === 0) return;
     const current = await snapshotPort.snapshot(workspace.specDir, [...files]);
     const decoder = new TextDecoder();
     const deltas: IntentViolation[] = [];
@@ -99,15 +98,11 @@ export function createRunServices(deps: RunQaUseCaseDeps, cfg: RunQaConfig, work
       }
       deltas.push(...diffContracts(previous, extraction.specs, intentState.tokens));
     }
-    if (deltas.length === 0) return { ok: true };
+    if (deltas.length === 0) return;
     intentState.violations += deltas.length;
-    const reason = `contract: ${deltas.map((delta) => `${delta.rule} (${delta.clauseId})`).join(", ")}`;
-    /* The deltas travel with the refusal: the site that sent the turn hands them to the next one as facts (A-2b). */
-    if (intentLock.mode === "enforce") return { ok: false, reason, violations: deltas };
-    /* Signal: the regeneration is accepted and the would-be rejection is recorded. */
+    /* The regeneration is accepted and the would-be rejection is recorded. */
     intentState.wouldReject += 1;
-    deps.observer?.onEvent({ type: "log.line", level: "info", text: `[qa] intent lock would reject this regeneration — ${reason}` });
-    return { ok: true };
+    deps.observer?.onEvent({ type: "log.line", level: "info", text: `[qa] intent lock would reject this regeneration — contract: ${deltas.map((delta) => `${delta.rule} (${delta.clauseId})`).join(", ")}` });
   };
   const acceptance = new RegenerationAcceptance({
     snapshot: snapshotPort,
@@ -115,7 +110,7 @@ export function createRunServices(deps: RunQaUseCaseDeps, cfg: RunQaConfig, work
     ledger: async (entry) => {
       keepProof(entry.file, entry.sha256, entry.bytes);
     },
-    contractCheck,
+    observeContract,
   });
   const runDeadlinePort = deps.runDeadline ?? { arm: () => {}, describe: () => undefined, remainingMs: () => undefined, allowance: () => null };
 
@@ -201,7 +196,6 @@ export function createRunServices(deps: RunQaUseCaseDeps, cfg: RunQaConfig, work
     intentLock,
     intentState,
     primeIntentBaseline,
-    contractCheck,
     acceptance,
     runDeadlinePort,
     suiteChangedFiles,
