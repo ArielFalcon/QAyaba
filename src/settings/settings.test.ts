@@ -175,7 +175,7 @@ test("a settings document that differs from the registry is stale and a missing 
 });
 
 test("each retired variable that is still set is reported once at load; an unset or empty one is not", () => {
-  const retired = ["SELF_MAINTAINER_AUTOMERGE", "SELF_MAINTAINER_CI_CHECK", "QAYABA_REPO", "QA_REFLECTOR_ENABLED", "LANGFUSE_BASE_URL", "LANGFUSE_PUBLIC_KEY", "LANGFUSE_SECRET_KEY", "LANGFUSE_ALLOW_EXTERNAL"];
+  const retired = ["SELF_MAINTAINER_AUTOMERGE", "SELF_MAINTAINER_CI_CHECK", "QAYABA_REPO", "QA_REFLECTOR_ENABLED", "QA_JUDGES_ENABLED", "QA_JUDGES_DAILY_TOKENS", "LANGFUSE_BASE_URL", "LANGFUSE_PUBLIC_KEY", "LANGFUSE_SECRET_KEY", "LANGFUSE_ALLOW_EXTERNAL"];
   assert.deepEqual(loadSettings({}).warnings, []);
   assert.deepEqual(loadSettings(Object.fromEntries(retired.map((name) => [name, ""]))).warnings, []);
   const warnings = loadSettings(Object.fromEntries(retired.map((name) => [name, "true"]))).warnings;

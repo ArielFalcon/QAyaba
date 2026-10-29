@@ -161,7 +161,7 @@ export const BANNED_RULES: BannedRule[] = [
   {
     id: "llm-judges",
     patterns: [
-      /\b(?:RunJudgesUseCase|CalibrateJudgeUseCase|JudgeService|composeJudges|JudgeAgentPort|JudgeLedgerPort|JudgeRegradePort|JudgeEvidencePort|CalibrationPairsPort|CalibrationStorePort|JudgeRepository|JudgeCatalogEntry|judgeCatalog|judgeLabelSpec|JUDGE_WORKDIR|JUDGE_NAMES|QA_JUDGES_ENABLED|QA_JUDGES_DAILY_TOKENS)\b/,
+      /\b(?:RunJudgesUseCase|CalibrateJudgeUseCase|JudgeService|composeJudges|JudgeAgentPort|JudgeLedgerPort|JudgeRegradePort|JudgeEvidencePort|CalibrationPairsPort|CalibrationStorePort|JudgeRepository|JudgeCatalogEntry|judgeCatalog|judgeLabelSpec|JUDGE_WORKDIR|JUDGE_NAMES)\b/,
       /\b(?:qa-judge|judge-calibrate|judge-service|judge-agent|judge-settings|judges-composition|judge-adapters|judge-calibration|enqueueIdle|abortIdle)\b/,
     ],
     exemptPrefixes: [RECORDS_PREFIX],
