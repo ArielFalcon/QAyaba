@@ -5,11 +5,13 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, sep } from "node:path";
 import {
   AUTH_SETUP_FILE, MANIFEST_FILE, STOCK_SEED_MARKER, createSnapshot, loadSnapshot,
-  main, parseArguments, restoreSuite, specsTouchedSinceSnapshot, warmSnapshotDir, warmStatus, type WarmDeps,
+  main, parseArguments, restoreSuite, specsTouchedSinceSnapshot, storeSnapshotDir, warmSnapshotDir, warmStatus, type WarmDeps,
 } from "./warm-suite.ts";
+import { workdirRoot } from "../src/integrations/repo-mirror.ts";
+import { qayabaDataDir } from "../src/paths.ts";
 import { MAX_FILE_BYTES } from "../qa-engine/src/shared-infrastructure/suite-tree.ts";
 
 const STOCK_SEED = readFileSync(join(import.meta.dirname, "..", "config", "e2e", "auth.setup.ts"), "utf8");
@@ -425,4 +427,23 @@ test("arguments are validated: a known subcommand, an app and a label that canno
   for (const bad of [[], ["frobnicate"], ["snapshot", "--app", "demo"], ["snapshot", "--label", "w1"], ["snapshot", "--app", "../x", "--label", "w1"], ["verify", "--app", "demo", "--label", "a/b"], ["snapshot", "--app", "demo", "--label", "w1", "--dry-run"], ["verify", "--app", "demo", "--label", "w1", "--nope"]]) {
     assert.equal(parseArguments(bad).ok, false, bad.join(" "));
   }
+});
+
+test("a store snapshot lives in the data volume, never under the mirrors root the agents container mounts", (t) => {
+  const saved = process.env.QAYABA_ROOT;
+  t.after(() => {
+    if (saved === undefined) delete process.env.QAYABA_ROOT;
+    else process.env.QAYABA_ROOT = saved;
+  });
+  const root = mkdtempSync(join(tmpdir(), "warm-suite-root-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  process.env.QAYABA_ROOT = root;
+
+  const dir = storeSnapshotDir("demo", "w12");
+
+  assert.equal(dir, join(qayabaDataDir(), "suite-snapshots", "demo", "w12"));
+  assert.equal(dir.startsWith(`${qayabaDataDir()}${sep}`), true);
+  assert.equal(dir.startsWith(`${workdirRoot()}${sep}`), false, "the stored login must not sit where the agents container can read it");
+  assert.throws(() => storeSnapshotDir("../mirrors", "w12"));
+  assert.throws(() => storeSnapshotDir("demo", "../w12"));
 });

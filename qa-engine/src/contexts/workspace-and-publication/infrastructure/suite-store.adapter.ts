@@ -468,15 +468,18 @@ export class SuiteStoreAdapter implements SuiteStorePort {
 
   /**
    * Replaces the store with the snapshot `exportSnapshot` wrote, keeping its provenance and pinning nothing. The snapshot is checked
-   * whole before the store is touched, and the store is read back afterwards; either failure throws naming the entries.
+   * whole before the store is touched, and the store is read back afterwards, its own manifest through the hash check, and its digest must equal the snapshot's; any failure throws naming the entries or the digests.
    */
   restoreSnapshot(snapshotDir: string): { entries: number; digest: string } {
     const snapshot = readManifestFile(snapshotDir);
     if (snapshot === undefined) throw new Error(`there is no suite snapshot at ${snapshotDir}`);
     const blobs = this.readAllBlobs(snapshot.entries, "the snapshot is not whole", join(snapshotDir, BLOBS_DIR));
     this.writeStore(this.nextManifest(this.loadToReplace(), snapshot.entries, snapshot.auth), blobs);
-    this.readAllBlobs(snapshot.entries, "the store does not read back whole after the restore");
-    return { entries: snapshot.entries.length, digest: restoredSetDigest(snapshot.entries) };
+    const digest = restoredSetDigest(snapshot.entries);
+    const stored = this.load().entries;
+    this.readAllBlobs(stored, "the store does not read back whole after the restore");
+    if (restoredSetDigest(stored) !== digest) throw new Error(`the store reads back as another set than the snapshot: digest ${restoredSetDigest(stored)}, the snapshot's is ${digest}`);
+    return { entries: snapshot.entries.length, digest };
   }
 
   /* The login a verified run signed in with becomes the record; a demoted record stays until a login is verified again. */

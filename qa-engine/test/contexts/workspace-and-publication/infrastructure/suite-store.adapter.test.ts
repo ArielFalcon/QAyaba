@@ -805,3 +805,41 @@ test("a restored snapshot keeps its provenance and pins nothing, and a tracked p
   const result = await r.store().restore(root(r));
   assert.deepEqual({ restored: result.restored, trackedWins: result.trackedWins }, { restored: 1, trackedWins: 1 });
 });
+
+test("a verified login goes through an export and a restore into an empty store: the next run restores it, signed in, with the same digest", async (t) => {
+  const r = rig(t);
+  const snapshot = join(r.base, "snapshot");
+  r.put(AUTH_SETUP_PATH, APP_LOGIN);
+  r.put("flows/x.spec.ts", "x");
+  await r.capture({ executedGreen: ["flows/x.spec.ts"], authVerifiedSha256: sha(APP_LOGIN) });
+  r.clean();
+  const before = await r.store().restore(root(r));
+  const exported = r.store().exportSnapshot(snapshot);
+  assert.equal((JSON.parse(readFileSync(join(snapshot, "manifest.json"), "utf8")) as SuiteManifest).auth?.status, "verified", "the snapshot names the login as verified");
+
+  rmSync(r.storeDir, { recursive: true, force: true });
+  const laid = r.store().restoreSnapshot(snapshot);
+  r.clean();
+  const after = await r.store().restore(root(r));
+
+  assert.equal(r.manifest().auth?.status, "verified");
+  assert.equal(after.authRestored, true);
+  assert.equal(r.read(AUTH_SETUP_PATH), APP_LOGIN);
+  assert.equal(after.digest, before.digest);
+  assert.deepEqual(exported, laid);
+});
+
+test("a restore fails when the manifest it wrote names another set than the snapshot did, though every blob reads", async (t) => {
+  const r = rig(t);
+  const snapshot = join(r.base, "snapshot");
+  r.put("flows/x.spec.ts", "x");
+  r.put("flows/y.spec.ts", "y");
+  await r.capture({ executedGreen: ["flows/x.spec.ts", "flows/y.spec.ts"] });
+  r.store().exportSnapshot(snapshot);
+  const store = r.store();
+  const write = Reflect.get(store, "writeStore") as (manifest: SuiteManifest, fresh: ReadonlyMap<string, Buffer>) => void;
+  Reflect.set(store, "writeStore", (manifest: SuiteManifest, fresh: ReadonlyMap<string, Buffer>) =>
+    write.call(store, { ...manifest, entries: manifest.entries.map((e) => (e.path === "flows/y.spec.ts" ? { ...e, path: "flows/z.spec.ts" } : e)) }, fresh));
+
+  assert.throws(() => store.restoreSnapshot(snapshot), /digest/);
+});

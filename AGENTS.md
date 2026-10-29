@@ -650,7 +650,7 @@ test, and the verdict is its last action.
   except a warm-seeded entry, which is pinned and wins over git). A stored copy that no longer matches its
   hash is rewritten by the next capture that holds the file. `restore` returns a digest of what it laid down
   (`qayaba.suite_store.restored_digest`) and `notRestored`, the paths its manifest names that it could not lay
-  down (`qayaba.suite_store.not_restored`, a warning in the setup announcement); `campaign-report`/`campaign-compare` mark a replicate whose digest differs from
+  down (the span carries their count as `qayaba.suite_store.not_restored`; the setup announcement warns); `campaign-report`/`campaign-compare` mark a replicate whose digest differs from
   replicate 1 invalid, and one with no digest "isolation unknown". A restored
   login that fails to sign in is demoted and the stock seed takes its place. Store faults are off-path
   (logged, never a verdict). Context-map, session state, credentials and `.qa-probe/` never enter it.

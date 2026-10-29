@@ -40,7 +40,7 @@ import { pathToFileURL } from "node:url";
 import { isStockAuthSetup } from "../qa-engine/src/shared-infrastructure/e2e-seed/auth-setup-seed.ts";
 import { readOwnedSpecFile, writeOwnedSpecFile } from "../qa-engine/src/shared-infrastructure/spec-path-confinement.ts";
 import { MAX_FILE_BYTES, NODE_MODULES, assertRealDirectory, assertSafeRelative, exclusionReason, looksLikeSessionState, readStrict, walkTree } from "../qa-engine/src/shared-infrastructure/suite-tree.ts";
-import { WARM_SNAPSHOTS_DIR } from "../src/paths.ts";
+import { WARM_SNAPSHOTS_DIR, qayabaDataDir } from "../src/paths.ts";
 import { DEFAULT_SUITE_DIR } from "./probe-metrics.ts";
 import { assertFileName } from "./probe-report.ts";
 
@@ -496,18 +496,19 @@ export async function seedSuiteStore(app: string, files: ReadonlyMap<string, Buf
   return (await appSuiteStore(app)).seed(files, { label });
 }
 
-/** A store snapshot lives in the data volume beside the stores, which the agents container never mounts. */
-async function storeSnapshotDir(app: string, label: string): Promise<string> {
-  const { qayabaDataDir } = await import("../src/paths.ts");
+/** <data>/suite-snapshots/<app>/<label>: the data volume beside the stores, which the agents container never mounts. A snapshot holds the stored login, so it is never placed under the mirrors root. */
+export function storeSnapshotDir(app: string, label: string): string {
+  assertFileName(app, "app");
+  assertFileName(label, "label");
   return join(qayabaDataDir(), STORE_SNAPSHOTS_DIR, app, label);
 }
 
 export async function exportSuiteStore(app: string, label: string, leaveOut: readonly string[]): Promise<{ entries: number; digest: string }> {
-  return (await appSuiteStore(app)).exportSnapshot(await storeSnapshotDir(app, label), { leaveOut });
+  return (await appSuiteStore(app)).exportSnapshot(storeSnapshotDir(app, label), { leaveOut });
 }
 
 export async function restoreSuiteStore(app: string, label: string): Promise<{ entries: number; digest: string }> {
-  return (await appSuiteStore(app)).restoreSnapshot(await storeSnapshotDir(app, label));
+  return (await appSuiteStore(app)).restoreSnapshot(storeSnapshotDir(app, label));
 }
 
 /** The queue, the app configs and the mirrors of the orchestrator container, imported lazily so a test that injects its own never opens them. */
