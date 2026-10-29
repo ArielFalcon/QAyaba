@@ -21,7 +21,7 @@ import type { AdjudicatorVerdict } from "../../domain/adjudicate.service.ts";
 import type { FixLoopStage } from "../../domain/fix-loop.aggregate.ts";
 import type { CoordinationGateSignal } from "@kernel/coordination.ts";
 import type { RunOutcome } from "@kernel/run-outcome.ts";
-import type { BundleMutationOutcome, CandidateCoverage, CandidateValue, CausalLabel, CoverageExclusions, CoverageRecount, CoverageRerun, MutantProof, MutantRun, SurvivorClosure, UntakenArm, ValueStats } from "@contexts/objective-signal/application/index.ts";
+import type { BundleMutationOutcome, CandidateCoverage, CausalLabel, CoverageExclusions, CoverageRecount, CoverageRerun, MutantProof, MutantRun, SurvivorClosure, UntakenArm } from "@contexts/objective-signal/application/index.ts";
 import type { RunDecision } from "../../domain/run-decision.ts";
 import type { RunEvidence } from "../../domain/run-decision.service.ts";
 import type { EndReason } from "./end-reason.ts";
@@ -185,15 +185,6 @@ export interface CoverageOutcome {
   coverageStatus: "pass" | "fail" | "unknown" | undefined;
   /** Whether this run measured a real per-commit signal (a diff run on one repo): only then can its ratio go stale. */
   coverageMeasured: boolean;
-  /** Null when the oracle is unwired, never a fabricated 0. */
-  valueScore: number | null;
-  /** The score per use case the change makes testable, or why one has none; undefined when the oracle was not aimed at any. A signal, never a gate. */
-  valueByCandidate: CandidateValue[] | undefined;
-  /** What the re-run counted (baseline, exposed, killed, failed, flow breaks), for calibrating the score; undefined when it measured nothing. */
-  valueStats: ValueStats | undefined;
-  /** Undefined means the oracle never measured this run; never fabricated as 0. */
-  mutantCount: number | undefined;
-  killedCount: number | undefined;
   /** The changed lines the first measurement left uncovered, for the enforce-mode regeneration. */
   uncovered: { file: string; lines: number[] }[];
   /** The share of each use case's changed lines the run executed, or why it has none; undefined when no use case was asked for. A signal beside the ratio, never a gate. */
@@ -228,8 +219,6 @@ export interface CoverageOutcome {
   acceptedRegenAfterMeasure: boolean;
   /** The measurement predates the bytes an accepted regeneration wrote, and the mode reuses it rather than re-measuring. */
   coverageStale: boolean;
-  /** The same bytes make the value score describe a suite that is no longer on disk. The oracle stays signal-only: stale is recorded, never a gate. */
-  valueStale: boolean;
   /** The changed files the run's facts say are no gap of the suite (reached only through routes the change made unavailable, imported only by tests), decided once at the first measurement and handed to every later one so they leave the same change out; undefined when none was decided. */
   exclusions: CoverageExclusions | undefined;
 }
@@ -416,11 +405,6 @@ export function initialRunState(): RunState {
       coverageRatio: null,
       coverageStatus: undefined,
       coverageMeasured: false,
-      valueScore: null,
-      valueByCandidate: undefined,
-      valueStats: undefined,
-      mutantCount: undefined,
-      killedCount: undefined,
       uncovered: [],
       perCandidate: undefined,
       branchCoverage: undefined,
@@ -437,7 +421,6 @@ export function initialRunState(): RunState {
       acceptanceCalls: 0,
       acceptedRegenAfterMeasure: false,
       coverageStale: false,
-      valueStale: false,
       exclusions: undefined,
     },
     review: { session: undefined, reviewerApproved: true, reviewerApprovedForOutcome: undefined, finalReviewerCorrections: [], missingCases: [], reviewerSignal: undefined },

@@ -211,7 +211,7 @@ function noteOf(shape: Shape, publishOutcome: string | undefined): string | unde
 
 function outcomeOf(shape: Shape, decision: RunDecision, note: string | undefined, ctx: RunContext): RunOutcome | undefined {
   if (shape.kind === "skip") {
-    return toRunOutcome(ctx, decision, [], 0, null, deriveErrorClass("skipped", null, null), {
+    return toRunOutcome(ctx, decision, [], 0, null, deriveErrorClass("skipped", null), {
       ...(shape.noop ? { noop: shape.noop } : {}),
       ...(shape.note !== undefined ? { note: shape.note } : {}),
       ...(shape.confinement !== undefined ? { confinement: shape.confinement } : {}),
@@ -235,7 +235,7 @@ function outcomeOf(shape: Shape, decision: RunDecision, note: string | undefined
 /* invalid → E-STATIC, infra-error → E-INFRA, unless a generation end or a failed precondition that ended the run names its own class. */
 function errorClassOf(terminal: TerminalShape, ctx: RunContext): string | null {
   const { generationEnd, preconditionFailed, reviewerUnavailable, reviewDisputed } = terminal;
-  return deriveErrorClass(terminal.verdict, null, null, [], { generationEnd, preconditionFailed, reviewerUnavailable, reviewDisputed, sandboxRefused: ctx.host.sandboxRefused() });
+  return deriveErrorClass(terminal.verdict, null, [], { generationEnd, preconditionFailed, reviewerUnavailable, reviewDisputed, sandboxRefused: ctx.host.sandboxRefused() });
 }
 
 /* The same learning gates as the decided end, at the terminal stage: a terminal outcome teaches only through a class that teaches. */
@@ -262,8 +262,8 @@ function resultOf(shape: Shape, decision: RunDecision, outcome: RunOutcome | und
     return {
       decision,
       /* An end that persists nothing still derives its class for the returned result. */
-      errorClass: deriveErrorClass("infra-error", null, null, [], { sandboxRefused: ctx.host.sandboxRefused() }),
-      gateSignals: { static: false, coverageRatio: null, valueScore: null, retries: 0, ...NO_GROUNDING_SIGNALS },
+      errorClass: deriveErrorClass("infra-error", null, [], { sandboxRefused: ctx.host.sandboxRefused() }),
+      gateSignals: { static: false, coverageRatio: null, retries: 0, ...NO_GROUNDING_SIGNALS },
       cases: [],
       ...(shape.note !== undefined ? { note: shape.note } : {}),
     };
@@ -273,11 +273,10 @@ function resultOf(shape: Shape, decision: RunDecision, outcome: RunOutcome | und
       decision,
       ...(shape.note ? { note: shape.note } : {}),
       /* A skipped run always resolves errorClass null: skipped runs teach nothing. */
-      errorClass: deriveErrorClass("skipped", null, null),
+      errorClass: deriveErrorClass("skipped", null),
       gateSignals: {
         static: false,
         coverageRatio: null,
-        valueScore: null,
         retries: 0,
         ...NO_GROUNDING_SIGNALS,
       },
@@ -296,7 +295,6 @@ function resultOf(shape: Shape, decision: RunDecision, outcome: RunOutcome | und
     gateSignals: {
       static: persisted ? terminal.static : false,
       coverageRatio: null,
-      valueScore: null,
       retries: persisted ? (terminal.retries ?? 0) : 0,
       preExecAmbiguityCatches: persisted ? grounding.preExecAmbiguityCatches : 0,
       deterministicSelectorBlocks: persisted ? grounding.deterministicSelectorBlocks : 0,

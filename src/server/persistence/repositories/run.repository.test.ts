@@ -267,7 +267,7 @@ function finishedRun(app: string, verdict: RunOutcome["verdict"], furthestPhase:
   if (errorClass !== null) {
     getHistory().learning.saveRunOutcome({
       runId: r.id, app, sha: "abcdef1234", mode: "diff", target: "e2e", verdict, errorClass: errorClass as RunOutcome["errorClass"],
-      gateSignals: { static: true, coverageRatio: null, valueScore: null, reviewerCorrections: [], flaky: false, retries: 0 },
+      gateSignals: { static: true, coverageRatio: null, reviewerCorrections: [], flaky: false, retries: 0 },
 at: at ?? new Date().toISOString(),
     });
   }

@@ -78,7 +78,6 @@ export interface CoordinationTelemetryEvent {
   /** Reviewer approved/rejected/skipped when kind is outcome. */
   readonly reviewOutcome?: "approved" | "rejected" | "skipped" | "n/a";
   /** Quality sampled at outcome time (deterministic ports — never invented). */
-  readonly valueScore?: number;
   readonly coverageRatio?: number | null;
   /** Escalation events observed in this process window before this record. */
   readonly escalations?: number;

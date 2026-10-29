@@ -17,7 +17,7 @@ function harness(t: import("node:test").TestContext) {
 
 const source = (): RunDataSource => ({
   events: () => [{ type: "step.changed", step: "generate" }, { type: "agent.activity", kind: "writing", target: "t", status: "completed", callId: "c1" }],
-  outcome: () => ({ runId: "r", app: "demo", sha: "abc1234", mode: "diff", target: "e2e", verdict: "pass", errorClass: null, gateSignals: { static: true, coverageRatio: null, valueScore: null, reviewerCorrections: [], flaky: false, retries: 0 }, at: "t" }) as RunOutcome,
+  outcome: () => ({ runId: "r", app: "demo", sha: "abc1234", mode: "diff", target: "e2e", verdict: "pass", errorClass: null, gateSignals: { static: true, coverageRatio: null, reviewerCorrections: [], flaky: false, retries: 0 }, at: "t" }) as RunOutcome,
   record: () => ({ id: "r", app: "demo", sha: "abc1234", target: "e2e", mode: "diff", status: "done", passed: 1, failed: 0, cases: [], logs: [], at: "t" }) as RunRecord,
   turns: () => [],
 });

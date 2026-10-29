@@ -120,11 +120,6 @@ export async function measureCoverage(state: Readonly<RunState>, ctx: WorkspaceR
         coverageRatio: signal.ratio,
         coverageStatus: signal.status,
         coverageMeasured: measuresPerCommit(ctx),
-        valueScore: signal.valueScore ?? null,
-        valueByCandidate: signal.valueByCandidate,
-        valueStats: signal.valueStats,
-        mutantCount: signal.mutantCount ?? undefined,
-        killedCount: signal.killedCount ?? undefined,
         uncovered: signal.uncovered ?? [],
         perCandidate: signal.measurement?.perCandidate,
         branchCoverage: branchCoverageOf(signal.measurement),
@@ -331,7 +326,6 @@ export async function recountAfter(state: Readonly<RunState>, ctx: WorkspaceRunC
     ...remeasured(arms),
     coverageRatio: recount.ratio,
     coverageStatus: recount.status,
-    valueStale: state.coverage.valueScore !== null || state.coverage.valueStale,
   };
 }
 

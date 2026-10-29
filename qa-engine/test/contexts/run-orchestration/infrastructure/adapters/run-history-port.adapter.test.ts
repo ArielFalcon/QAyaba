@@ -10,7 +10,7 @@ function fakeOutcome(runId: string): RunOutcome {
   return {
     runId, app: "app", sha: "abc1234", mode: "diff", target: "e2e", verdict: "pass",
     errorClass: null,
-    gateSignals: { static: true, coverageRatio: null, valueScore: null, reviewerCorrections: [], flaky: false, retries: 0 },
+    gateSignals: { static: true, coverageRatio: null, reviewerCorrections: [], flaky: false, retries: 0 },
     at: new Date().toISOString(),
   };
 }

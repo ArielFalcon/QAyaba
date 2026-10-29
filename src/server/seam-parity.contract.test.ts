@@ -40,14 +40,14 @@ describe("seam-parity: PERSISTENCE (kernel RunOutcome vs toStoredRunOutcome)", (
   } satisfies Record<keyof KernelRunOutcome, true>;
 
   const ALL_GATE_SIGNAL_FIELDS = {
-    static: true, coverageRatio: true, valueScore: true, mutantCount: true, killedCount: true, branchCoverage: true, changeCoverage: true, bundleMutation: true, branchCases: true, survivorClosure: true, flakyTriage: true, missingCases: true,
+    static: true, coverageRatio: true, branchCoverage: true, changeCoverage: true, bundleMutation: true, branchCases: true, survivorClosure: true, flakyTriage: true, missingCases: true,
     reviewerCorrections: true,
     reviewerRationale: true, reviewerApproved: true, reviewer: true, flaky: true, retries: true, confinement: true,
     usage: true, phaseTimings: true, furthestPhase: true, preExecAmbiguityCatches: true, deterministicSelectorBlocks: true,
     catalogGateInWindow: true, catalogGateAdvisory: true, catalogGateFailClosed: true,
     structuralSignalBytes: true, serviceLinksCount: true, contractDriftCount: true,
     crossRepoImpactedCount: true, sandbox: true, reviewerIndependence: true, closedLoop: true, agentBrowser: true, coordination: true,
-    coverage: true, integrity: true, intent: true, value: true, noop: true, causal: true, coverageByCandidate: true, valueByCandidate: true, valueStats: true, routeAvailability: true, stubbedState: true, dataContradictions: true,
+    coverage: true, integrity: true, intent: true, noop: true, causal: true, coverageByCandidate: true, routeAvailability: true, stubbedState: true, dataContradictions: true,
   } satisfies Record<keyof KernelRunOutcome["gateSignals"], true>;
 
   const ALLOWLIST: Record<string, string> = {
@@ -71,13 +71,13 @@ describe("seam-parity: PERSISTENCE (kernel RunOutcome vs toStoredRunOutcome)", (
 
   test("gateSignals' own field list is fully mapped (no allowlist needed — every field carries through)", () => {
     const mapped = [
-      "static", "coverageRatio", "valueScore", "mutantCount", "killedCount", "branchCoverage", "changeCoverage", "bundleMutation", "branchCases", "survivorClosure", "flakyTriage", "missingCases", "reviewerCorrections",
+      "static", "coverageRatio", "branchCoverage", "changeCoverage", "bundleMutation", "branchCases", "survivorClosure", "flakyTriage", "missingCases", "reviewerCorrections",
       "reviewerRationale",
       "reviewerApproved", "reviewer", "flaky", "retries", "confinement", "usage", "phaseTimings", "furthestPhase",
       "preExecAmbiguityCatches", "deterministicSelectorBlocks", "catalogGateInWindow",
       "catalogGateAdvisory", "catalogGateFailClosed",
       "structuralSignalBytes", "serviceLinksCount", "contractDriftCount", "crossRepoImpactedCount", "sandbox", "reviewerIndependence", "closedLoop", "agentBrowser", "coordination",
-      "coverage", "integrity", "intent", "value", "noop", "causal", "coverageByCandidate", "valueByCandidate", "valueStats", "routeAvailability", "stubbedState", "dataContradictions",
+      "coverage", "integrity", "intent", "noop", "causal", "coverageByCandidate", "routeAvailability", "stubbedState", "dataContradictions",
     ];
     assert.deepEqual(mapped.sort(), Object.keys(ALL_GATE_SIGNAL_FIELDS).sort(), "every gateSignals field must be mapped — toStoredRunOutcome's own header claims 100% pass-through for this nested object");
   });
@@ -94,7 +94,6 @@ describe("seam-parity: PERSISTENCE (kernel RunOutcome vs toStoredRunOutcome)", (
       gateSignals: {
         static: true,
         coverageRatio: 0.42,
-        valueScore: 0.77,
         reviewerCorrections: [S("reviewerCorrections")],
         reviewerRationale: S("reviewerRationale"),
         reviewerApproved: true,
@@ -119,16 +118,13 @@ describe("seam-parity: PERSISTENCE (kernel RunOutcome vs toStoredRunOutcome)", (
         agentBrowser: { calls: 9, blocks: 2, invalidations: 1, renewals: 1 },
         coordination: { plan: "fanout", flows: 3, delivered: 2, incomplete: 1, authoring: "authenticated-browser" },
         coverage: { stale: true },
-        value: { stale: true },
         integrity: { acceptances: 2, rejected: 1, proofReused: 1, capHit: true },
         intent: { mode: "enforce", violations: 2, wouldReject: 0, clauses: 9, opaque: 1, opacityHigh: false },
         noop: { kind: "unobservable" },
         coverageByCandidate: [{ candidateId: "uc-0000aaaa", changedLines: 4, coveredChanged: 3, ratio: 0.75 }],
-        valueStats: { baseline: 5, exposed: 2, killed: 1, failed: 1, flowBreaks: 0 },
         routeAvailability: { read: 4, unavailable: 1, byClass: { "change-introduced": 1 }, facts: [{ route: "/a", class: "change-introduced", why: "route-declaration", to: "/home" }], omitted: 0 },
         stubbedState: { specFiles: 1, tests: 2, violations: [{ file: "a.spec.ts", kind: "har-replay" }] },
         dataContradictions: { pages: 2, found: 1, schemaBacked: 0, facts: [{ route: "/a", key: "k", carriedBy: "GET https://x/all", missingFrom: "GET https://x/some", schemaBacked: false }], omitted: 0 },
-        valueByCandidate: [{ candidateId: "uc-0000aaaa", exposed: 2, killed: 1, ratio: 0.5 }],
         causal: { reach: "in-reach", basis: "request", via: ["GET /orders"], reason: "r", cases: [{ name: "c", reach: "in-reach", basis: "request" }] },
       },
       at: "2026-07-02T00:00:00.000Z",
@@ -150,7 +146,6 @@ describe("seam-parity: PERSISTENCE (kernel RunOutcome vs toStoredRunOutcome)", (
     const gs = out.gateSignals;
     assert.equal(gs.static, true, `gateSignals.static dropped at ${dyingLayer}`);
     assert.equal(gs.coverageRatio, 0.42, `gateSignals.coverageRatio dropped at ${dyingLayer}`);
-    assert.equal(gs.valueScore, 0.77, `gateSignals.valueScore dropped at ${dyingLayer}`);
     assert.deepEqual(gs.reviewerCorrections, [S("reviewerCorrections")], `gateSignals.reviewerCorrections dropped at ${dyingLayer}`);
     assert.equal(gs.reviewerRationale, S("reviewerRationale"), `gateSignals.reviewerRationale dropped at ${dyingLayer}`);
     assert.equal(gs.reviewerApproved, true, `gateSignals.reviewerApproved dropped at ${dyingLayer}`);
@@ -163,11 +158,9 @@ describe("seam-parity: PERSISTENCE (kernel RunOutcome vs toStoredRunOutcome)", (
     assert.equal(gs.furthestPhase, "execute", `gateSignals.furthestPhase dropped at ${dyingLayer}`);
     assert.deepEqual(gs.noop, { kind: "unobservable" }, `gateSignals.noop dropped at ${dyingLayer}`);
     assert.equal(gs.causal?.reach, "in-reach", `gateSignals.causal dropped at ${dyingLayer}`);
-    assert.equal(gs.valueStats?.exposed, 2, `gateSignals.valueStats dropped at ${dyingLayer}`);
     assert.equal(gs.routeAvailability?.facts[0]?.class, "change-introduced", `gateSignals.routeAvailability dropped at ${dyingLayer}`);
     assert.deepEqual(gs.stubbedState, { specFiles: 1, tests: 2, violations: [{ file: "a.spec.ts", kind: "har-replay" }] }, `gateSignals.stubbedState dropped at ${dyingLayer}`);
     assert.equal(gs.dataContradictions?.facts[0]?.key, "k", `gateSignals.dataContradictions dropped at ${dyingLayer}`);
-    assert.equal(gs.valueByCandidate?.[0]?.ratio, 0.5, `gateSignals.valueByCandidate dropped at ${dyingLayer}`);
     assert.equal(gs.coverageByCandidate?.[0]?.ratio, 0.75, `gateSignals.coverageByCandidate dropped at ${dyingLayer}`);
     assert.equal(gs.preExecAmbiguityCatches, 2, `gateSignals.preExecAmbiguityCatches dropped at ${dyingLayer}`);
     assert.equal(gs.deterministicSelectorBlocks, 1, `gateSignals.deterministicSelectorBlocks dropped at ${dyingLayer}`);
@@ -193,7 +186,7 @@ describe("seam-parity: PERSISTENCE (kernel RunOutcome vs toStoredRunOutcome)", (
     await adapter.save({
       runId: S("runId"), app: S("app"), sha: S("sha"), mode: "diff", target: "e2e", verdict: "pass",
       errorClass: null,
-      gateSignals: { static: true, coverageRatio: null, valueScore: null, reviewerCorrections: [], flaky: false, retries: 0 },
+      gateSignals: { static: true, coverageRatio: null, reviewerCorrections: [], flaky: false, retries: 0 },
       at: "2026-07-02T00:00:00.000Z",
     });
     assert.equal((captured as { runId: string }).runId, S("runId"), "SqliteRunHistoryAdapter.save() dropped runId before it reached saveOutcome");

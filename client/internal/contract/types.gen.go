@@ -1961,7 +1961,6 @@ type CoordinationEvent struct {
 	RunId               string                `json:"runId"`
 	SidekickKind        *string               `json:"sidekickKind,omitempty"`
 	Tier                *string               `json:"tier,omitempty"`
-	ValueScore          *float32              `json:"valueScore,omitempty"`
 }
 
 // CoordinationEventKind defines model for CoordinationEvent.Kind.

@@ -15,12 +15,6 @@ test("mutation_kill_rate is killed over judged bundle mutants, and says nothing 
   assert.equal(grade(withSignals({ bundleMutation: undefined }), "mutation_kill_rate"), undefined);
 });
 
-test("mutation_kill_rate leaves the response oracle's mutation_value as it was", () => {
-  const s = signals({ mutantCount: 4, killedCount: 1, bundleMutation: { applied: 3, killed: 3 } });
-  assert.equal(grade(evidence({ signals: s }), "mutation_value")?.value, 1 / 4);
-  assert.equal(grade(evidence({ signals: s }), "mutation_kill_rate")?.value, 1);
-});
-
 test("change_coverage_ratio and branch_coverage_ratio are numbers, and nothing when the coverage is unknown", () => {
   const measured = withSignals({ coverageStatus: "pass", coverageRatio: 0.75, branchCoverage: { changed: 4, taken: 1 } });
   assert.equal(grade(measured, "change_coverage_ratio")?.value, 0.75);

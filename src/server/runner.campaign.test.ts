@@ -28,7 +28,7 @@ const uniqueApp = (): string => `camp-app-${(counter += 1)}-${Math.random().toSt
 function outcomeOf(input: RunInput): RunOutcome {
   return {
     runId: input.runId, app: input.app, sha: input.sha.value, mode: input.mode, target: input.target, verdict: "pass", errorClass: null,
-    gateSignals: { static: true, coverageRatio: null, valueScore: null, reviewerCorrections: [], flaky: false, retries: 0 },
+    gateSignals: { static: true, coverageRatio: null, reviewerCorrections: [], flaky: false, retries: 0 },
 at: new Date(0).toISOString(),
   };
 }

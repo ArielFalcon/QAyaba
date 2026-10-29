@@ -39,6 +39,11 @@ export interface CheckResult {
 
 const RECORDS_PREFIX = "docs/architecture/";
 /* The seed revisions the setup adapter upgrades are kept byte-for-byte as they shipped, so they name what the seed has since dropped. */
+/* The tests that pin what a retired name leaves behind (a stored row that still carries the value fields, a grade that is no longer emitted): they have to write the names. */
+const RETIRED_FIELD_TESTS = [
+  "src/server/persistence/repositories/learning.repository.retired-fields.test.ts",
+  "qa-engine/test/contexts/evaluation/retired-graders.test.ts",
+];
 const SHIPPED_SEED_REVISIONS_PREFIX = "qa-engine/test/contexts/workspace-and-publication/infrastructure/__fixtures__/seed-revisions/";
 
 export const BANNED_RULES: BannedRule[] = [
@@ -147,6 +152,11 @@ export const BANNED_RULES: BannedRule[] = [
       /\b(?:CalibrationVerdict|CalibrationReplicate|CandidateCalibration|MAX_REPLICATE_SPREAD|MIN_APPLICABLE_SHARE|MAX_FLOW_BREAK_SHARE)\b/,
     ],
     exemptPrefixes: [RECORDS_PREFIX, SHIPPED_SEED_REVISIONS_PREFIX],
+  },
+  {
+    id: "value-fields",
+    patterns: [/\b(?:valueScore|valueByCandidate|valueStats|valueStale|mutantCount|killedCount|CandidateValue|ValueStats|mutation_value|E-VALUE-SURVIVED)\b/],
+    exemptPrefixes: [RECORDS_PREFIX, SHIPPED_SEED_REVISIONS_PREFIX, ...RETIRED_FIELD_TESTS],
   },
   { id: "shell-dead-run-types", patterns: [/\bAgentResult\b/], exemptPrefixes: [RECORDS_PREFIX] },
   { id: "shell-events-reexport", patterns: [/\bsrc\/contract\/events(?:\.ts)?(?![\w.-])/], exemptPrefixes: [RECORDS_PREFIX] },

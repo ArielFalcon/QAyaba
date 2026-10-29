@@ -34,7 +34,7 @@ test("toSignalsView aggregates change-coverage across the fleet (null when unmea
   const outcome = (coverageRatio: number | null): RunOutcome => ({
     runId: "r", app: "a", sha: "s", mode: "diff", target: "e2e", verdict: "pass",
     errorClass: null,
-    gateSignals: { static: true, coverageRatio, valueScore: null, reviewerCorrections: [], flaky: false, retries: 0 },
+    gateSignals: { static: true, coverageRatio, reviewerCorrections: [], flaky: false, retries: 0 },
 at: "2026-01-01T00:00:00Z",
   });
   const view = toSignalsView([

@@ -81,7 +81,7 @@ function writingCalls(h: History): Record<string, () => unknown> {
   };
   const outcome = {
     runId: "r", app: "app", sha: "abcdef1", mode: "diff", target: "e2e", verdict: "pass", errorClass: null,
-    gateSignals: { static: true, coverageRatio: null, valueScore: null, reviewerCorrections: [], flaky: false, retries: 0 },at: AT,
+    gateSignals: { static: true, coverageRatio: null, reviewerCorrections: [], flaky: false, retries: 0 },at: AT,
   };
   return {
     "RunRepository.createRecord": () => h.runs.createRecord({ app: "app", sha: "abcdef2345", target: "e2e", mode: "diff" }),

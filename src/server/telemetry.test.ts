@@ -26,7 +26,7 @@ function outcome(runId: string, app: string, overrides: Partial<RunOutcome> = {}
     gateSignals: {
       static: true,
       coverageRatio: null,
-      valueScore: null,
+      
       reviewerCorrections: [],
       flaky: false,
       retries: 0,

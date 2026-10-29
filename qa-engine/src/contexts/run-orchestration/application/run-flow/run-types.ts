@@ -314,7 +314,6 @@ export interface RunQaResult {
   gateSignals: {
     static: boolean;
     coverageRatio: number | null;
-    valueScore: number | null;
     reviewerApproved?: boolean;
     /** What the review phase cost and decided; absent when no reviewer phase ran. */
     reviewer?: RunOutcome["gateSignals"]["reviewer"];
@@ -335,8 +334,6 @@ export interface RunQaResult {
     agentBrowser?: AgentBrowserGateSignal;
     /** Present only when the recorded coverage predates the bytes an accepted regeneration wrote (signal mode). */
     coverage?: { stale: boolean };
-    /** Present only when the recorded value score describes bytes an accepted regeneration rewrote. Never a gate. */
-    value?: { stale: boolean };
     /** Present only when a regeneration went through acceptance. */
     integrity?: { acceptances: number; rejected: number; proofReused: number; capHit: boolean };
     /** Present only when the test-intent lock derived a contract this run. */

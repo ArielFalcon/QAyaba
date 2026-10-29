@@ -6,7 +6,7 @@ import { infraErrorGloss } from "./learning/infra-error-gloss";
 const baseSignals: ValueSignals = {
   coverageRatio: null,
   coverageMeasured: false,
-  valueScore: null,
+  
   reviewerApproved: null,
 };
 
@@ -48,7 +48,7 @@ const baseReport: RunReportInput = {
   failed: 0,
   specCount: 3,
   specNames: ["login", "add-owner", "add-pet"],
-  signals: { coverageRatio: 0.82, coverageMeasured: true, coveragePolicy: "signal", valueScore: null, reviewerApproved: true, reviewerRationale: "covers the new validation branch" },
+  signals: { coverageRatio: 0.82, coverageMeasured: true, coveragePolicy: "signal", reviewerApproved: true, reviewerRationale: "covers the new validation branch" },
   errorClass: null,
 };
 

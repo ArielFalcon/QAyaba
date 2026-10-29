@@ -1116,7 +1116,6 @@ export interface components {
             progressFingerprint?: string;
             finalOutcome?: string;
             reviewOutcome?: string;
-            valueScore?: number | null;
             coverageRatio?: number | null;
             escalations?: number;
             at: number;

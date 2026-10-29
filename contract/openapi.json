@@ -3894,10 +3894,6 @@
           "reviewOutcome": {
             "type": "string"
           },
-          "valueScore": {
-            "nullable": true,
-            "type": "number"
-          },
           "coverageRatio": {
             "nullable": true,
             "type": "number"

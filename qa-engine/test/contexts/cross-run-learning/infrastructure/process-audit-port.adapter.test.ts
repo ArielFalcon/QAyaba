@@ -21,7 +21,7 @@ function outcome(over: Partial<RunOutcome> = {}): RunOutcome {
     target: "e2e",
     verdict: over.verdict ?? "fail",
     errorClass: over.errorClass ?? "E-EXEC-FAIL",
-    gateSignals: { static: false, coverageRatio: null, valueScore: null, reviewerCorrections: [], flaky: false, retries: 0, ...over.gateSignals },
+    gateSignals: { static: false, coverageRatio: null, reviewerCorrections: [], flaky: false, retries: 0, ...over.gateSignals },
     at: over.at ?? "2026-06-13T00:00:00Z",
   };
 }
@@ -106,7 +106,7 @@ test("context-heal finding invalidates the architecture map", async () => {
 });
 
 test("observe finding calls no sink at all", async () => {
-  const current = outcome({ verdict: "fail", gateSignals: { static: false, coverageRatio: null, valueScore: null, reviewerCorrections: [], flaky: false, retries: 3 } });
+  const current = outcome({ verdict: "fail", gateSignals: { static: false, coverageRatio: null, reviewerCorrections: [], flaky: false, retries: 3 } });
   const adapter = new ProcessAuditPortAdapter({
     app: "petclinic",
     readRecentOutcomes: () => [current],

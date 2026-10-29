@@ -472,7 +472,7 @@ window.QayabaConsole = (function () {
       specs: (r.specs || []).length, reviewer: '—', decision: r.note || '',
       /* A continuation re-runs the FAILED cases of a finished run — the server refuses anything else. */
       canContinue: r.status === 'done' && (r.cases || []).some((c) => c.status === 'fail'),
-      branch: r.ref || 'DEV', duration: '', coverage: '—', oracle: '—',
+      branch: r.ref || 'DEV', duration: '', coverage: '—',
       stages: pipelineStageStates(r.step), cases: cases, step: r.step || '',
       changed: [], newSpecs: (r.specs || []).map((s) => ({ file: s.name, status: r.verdict, n: 1 })),
       log: (r.logs || []).map((l) => ['›', l]),

@@ -57,7 +57,6 @@ export const GRADER_CATALOG: readonly ScoreSpec[] = [
   spec({ name: "context_fresh", dataType: "NUMERIC", polarity: "higher_better", range: UNIT }),
   spec({ name: "noop_consistent", dataType: "BOOLEAN", polarity: "higher_better" }),
   spec({ name: "change_coverage", dataType: "CATEGORICAL", polarity: "none", categories: COVERAGE_CLASSES }),
-  spec({ name: "mutation_value", dataType: "NUMERIC", polarity: "higher_better", range: UNIT }),
   spec({ name: "mutation_kill_rate", dataType: "NUMERIC", polarity: "higher_better", range: UNIT }),
   spec({ name: "change_coverage_ratio", dataType: "NUMERIC", polarity: "higher_better", range: UNIT }),
   spec({ name: "branch_coverage_ratio", dataType: "NUMERIC", polarity: "higher_better", range: UNIT }),

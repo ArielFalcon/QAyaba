@@ -778,7 +778,6 @@ export const CoordinationEventSchema = z.object({
   progressFingerprint: z.string().optional(),
   finalOutcome: z.string().optional(),
   reviewOutcome: z.string().optional(),
-  valueScore: z.number().nullable().optional(),
   coverageRatio: z.number().nullable().optional(),
   escalations: z.number().int().nonnegative().optional(),
   at: z.number().int().nonnegative(),

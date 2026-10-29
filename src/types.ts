@@ -79,11 +79,6 @@ export interface RunOutcome {
   gateSignals: {
     static: boolean;
     coverageRatio: number | null;
-    valueScore: number | null;
-    /* Real value-oracle counts when measured; absent means it never measured this run — never a
-     * fabricated 0 (indistinguishable from a genuine measured zero). */
-    mutantCount?: number;
-    killedCount?: number;
     /* The arms of the decisions on changed lines and how many ran; absent when none was seen. A signal, never a gate. */
     branchCoverage?: { changed: number; taken: number };
     /* What the mutants of the changed code did; absent when none was judged. A signal, never a gate. */
@@ -188,16 +183,10 @@ export interface RunOutcome {
     crossRepoImpactedCount?: number;
     /* The coverage signal was measured before the specs an accepted regeneration rewrote: the ratio no longer describes the bytes on disk. Persist-only. */
     coverage?: { stale: boolean };
-    /* The value score has the same staleness (an accepted regeneration rewrote the suite). Persist-only, never a gate. */
-    value?: { stale: boolean };
     /* Whether the run's failure is in the change's reach and the evidence for it; absent when no case failed. Persist-only, never a gate. */
     causal?: { reach: "in-reach" | "out-of-reach" | "unknown"; basis: "request" | "page" | "flow" | "none"; via: string[]; reason: string; cases: Array<{ name: string; reach: "in-reach" | "out-of-reach" | "unknown"; basis: "request" | "page" | "flow" | "none" }> };
     /* The share of each use case's changed lines the green run executed, or the reason it has none (`unmeasured`). Absent when the run asked for no use case or measured nothing. Persist-only: the aggregate ratio alone decides. */
     coverageByCandidate?: Array<{ candidateId: string; changedLines: number; coveredChanged: number; ratio: number | null; unmeasured?: string }>;
-    /* The fault-injection score per use case the change makes testable: the specs exposed to a corrupted response of its operations and how many noticed, or why it has no ratio (`unscored`). Absent when the oracle was not aimed at any. Persist-only, never a gate. */
-    valueByCandidate?: Array<{ candidateId: string; exposed: number; killed: number; ratio: number | null; unscored?: string }>;
-    /* What the corrupted re-run counted: the baseline-passing specs it executed, those exposed to a corrupted response of an operation in reach, those that failed under it and the failures that were the flow breaking. Absent when it measured nothing. Persist-only: the input of the score's calibration. */
-    valueStats?: { baseline: number; exposed: number; killed: number; failed: number; flowBreaks: number };
     /* Why the routes the Context Pack's capture could not show at their own address were not, by class. Persist-only, never a gate. */
     routeAvailability?: RouteAvailabilityGateSignal;
     /* The delivered tests that fulfil a stated response instead of reading DEV, and the guards they broke. Absent when there were none. Persist-only, never a gate. */

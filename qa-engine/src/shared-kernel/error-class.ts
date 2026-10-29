@@ -11,7 +11,6 @@ export const ERROR_CLASSES = [
   "E-FRAGILE-SELECTOR",
   "E-NO-CLEANUP",
   "E-REVIEWER-REJECTED",
-  "E-VALUE-SURVIVED",
   "E-INFRA",
   "E-STEP-BUDGET",
   "E-NO-DECISION",
@@ -118,7 +117,6 @@ export interface ResolveErrorClassInput {
   coverageRatio: number | null;
   minCoverageRatio: number;
   reviewerCorrections: string[];
-  valueScore?: number | null;
   /** How the generation ended, when it ended the run. An exhausted or undecided end names its own class. */
   generationEnd?: GenerationEndKind;
   /** The run ended on a positively evidenced setup failure (the app's login), before generation had anything to test. */
@@ -133,7 +131,7 @@ export interface ResolveErrorClassInput {
   /* mutation-scope:end resolve-input-sandbox-flag */
 }
 
-/* A generation end that ended the run names its class before anything the verdict implies, and a failed precondition follows it; then verdict-derived structural classes short-circuit, then reviewer corrections, then E-COVERAGE-GAP, then E-VALUE-SURVIVED (green + good coverage but mutants survive). */
+/* A generation end that ended the run names its class before anything the verdict implies, and a failed precondition follows it; then verdict-derived structural classes short-circuit, then reviewer corrections, then E-COVERAGE-GAP. */
 export function resolveErrorClass(input: ResolveErrorClassInput): ErrorClass | null {
   if (input.generationEnd === GENERATION_END.EXHAUSTED) return ERROR_CLASS.STEP_BUDGET;
   if (input.generationEnd === GENERATION_END.TIME_BUDGET) return ERROR_CLASS.TIME_BUDGET;
@@ -155,11 +153,6 @@ export function resolveErrorClass(input: ResolveErrorClassInput): ErrorClass | n
   if (fromReviewer) return fromReviewer;
 
   if (fromVerdict === "E-COVERAGE-GAP") return "E-COVERAGE-GAP";
-
-  /* E-VALUE-SURVIVED: green + good coverage but mutants survive (the deepest false positive) */
-  if (input.verdict === "pass" && input.valueScore !== null && input.valueScore !== undefined && input.valueScore < 0.5) {
-    return "E-VALUE-SURVIVED";
-  }
 
   return null;
 }

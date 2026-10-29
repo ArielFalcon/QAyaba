@@ -638,7 +638,6 @@ export async function remeasureStaleCoverage(state: Readonly<RunState>, ctx: Wor
         ...(state.coverage.exclusions ? { exclusions: state.coverage.exclusions } : {}),
       },
     );
-    const { valueScore, mutantCount, killedCount } = state.coverage;
     return {
       update: {
         execution: withRun(state.execution, finalRun),
@@ -655,34 +654,17 @@ export async function remeasureStaleCoverage(state: Readonly<RunState>, ctx: Wor
           mutantProofs: finalSignal.mutantProofs ?? [],
           changeCoverage: changeCoverageOf(finalSignal.measurement),
           blocksPublish: deps.objectiveSignal.blocks(finalSignal.status),
-          /* The oracle measured again on the delivered bytes: its score describes what is on disk now. */
-          valueScore: finalSignal.valueScore ?? valueScore,
-          valueByCandidate: finalSignal.valueByCandidate ?? state.coverage.valueByCandidate,
-          valueStats: finalSignal.valueStats ?? state.coverage.valueStats,
-          mutantCount: finalSignal.mutantCount ?? mutantCount,
-          killedCount: finalSignal.killedCount ?? killedCount,
-          valueStale: false,
         },
       },
     };
   }
   if (cfg.coveragePolicyMode !== "signal") return;
-  let valueStale = state.coverage.valueStale;
-  /* A measured value score is reused for the record and marked stale; it never blocks. */
-  if (state.coverage.valueScore !== null) {
-    valueStale = true;
-    try {
-      telemetry.counter("qayaba.value.stale")(1, { "qayaba.app": input.app });
-    } catch (err) {
-      engineLog.error(`[telemetry] the stale-value counter could not be recorded (the run goes on): ${err instanceof Error ? err.message : String(err)}`);
-    }
-  }
   try {
     telemetry.counter("qayaba.coverage.stale")(1, { "qayaba.app": input.app });
   } catch (err) {
     engineLog.error(`[telemetry] the stale-coverage counter could not be recorded (the run goes on): ${err instanceof Error ? err.message : String(err)}`);
   }
-  return { update: { coverage: { ...state.coverage, coverageStale: true, valueStale } } };
+  return { update: { coverage: { ...state.coverage, coverageStale: true } } };
 }
 
 /* The coordinated pass is kept only for the reviewer's corrections: once the review is over, or did not run, nothing can correct through it, and its sessions, workspaces and loops are released. Nothing when the run held none. */

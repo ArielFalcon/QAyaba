@@ -255,14 +255,14 @@ test("a label is stored with the catalog's data type, and one whose type or rang
       annotation({ traceId: "a".repeat(32), name: "approval_consistent", dataType: "NUMERIC", value: 1 }),
       annotation({ traceId: "a".repeat(32), name: "spec_validity_rate", value: 1.5 }),
       annotation({ traceId: "a".repeat(32), name: "closed_loop_refusals", value: -0.1 }),
-      annotation({ traceId: "a".repeat(32), name: "mutation_value", value: 0.75 }),
+      annotation({ traceId: "a".repeat(32), name: "mutation_kill_rate", value: 0.75 }),
       annotation({ traceId: "a".repeat(32), name: "empty_output_guard", dataType: "BOOLEAN", value: 0 }),
     ],
   });
   try {
     const { d, saved } = deps(lf.baseUrl);
     const result = await importLabels(d, { since: "2026-10-01" });
-    assert.deepEqual(saved.map((r) => [r.name, r.dataType, r.value]), [["mutation_value", "NUMERIC", 0.75], ["empty_output_guard", "BOOLEAN", false]]);
+    assert.deepEqual(saved.map((r) => [r.name, r.dataType, r.value]), [["mutation_kill_rate", "NUMERIC", 0.75], ["empty_output_guard", "BOOLEAN", false]]);
     assert.equal(result.unsupported, 4);
   } finally {
     await lf.close();

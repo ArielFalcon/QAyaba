@@ -329,7 +329,7 @@ func TestCoordinationEventsViewDecodesFromServerJSON(t *testing.T) {
 			{
 				"runId":"run_1","kind":"delegation","action":"navigate","sidekickKind":"author",
 				"reason":"frontend flow needs a live DOM","durationMs":1500,"delegationId":"d1",
-				"attempt":1,"valueScore":0.82,"coverageRatio":0.6,"at":1731000000000
+				"attempt":1,"coverageRatio":0.6,"at":1731000000000
 			}
 		],
 		"truncated":false
@@ -354,8 +354,8 @@ func TestCoordinationEventsViewDecodesFromServerJSON(t *testing.T) {
 	if e.DelegationId == nil || *e.DelegationId != "d1" || e.Attempt == nil || *e.Attempt != 1 {
 		t.Fatalf("delegationId/attempt not decoded: %+v", e)
 	}
-	if e.ValueScore == nil || *e.ValueScore != 0.82 || e.CoverageRatio == nil || *e.CoverageRatio != 0.6 {
-		t.Fatalf("valueScore/coverageRatio not decoded: %+v", e)
+	if e.CoverageRatio == nil || *e.CoverageRatio != 0.6 {
+		t.Fatalf("coverageRatio not decoded: %+v", e)
 	}
 	if e.At != 1731000000000 {
 		t.Fatalf("at not decoded: got %v", e.At)

@@ -83,21 +83,3 @@ export interface CoverageRecount {
   measurement: CoverageMeasurement;
   ranBy?: FileRanBy[];
 }
-
-/* The score of the retired response oracle per use case, left readable until the stored value fields leave the types. */
-export interface CandidateValue {
-  candidateId: string;
-  exposed: number;
-  killed: number;
-  ratio: number | null;
-  unscored?: "no-operation-hit" | "no-spec" | "inconclusive";
-}
-
-/* What the retired response oracle's re-run counted, left readable until the stored value fields leave the types. */
-export interface ValueStats {
-  baseline: number;
-  exposed: number;
-  killed: number;
-  failed: number;
-  flowBreaks: number;
-}

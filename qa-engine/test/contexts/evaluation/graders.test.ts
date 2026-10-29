@@ -122,12 +122,6 @@ test("change_coverage is the decision the engine recorded, and a run that record
   assert.equal(find(evidence({ signals: undefined }), "change_coverage"), undefined);
 });
 
-test("mutation_value is the kill share and exists only when the oracle ran", () => {
-  assert.equal(find(evidence({ signals: signals({ mutantCount: 4, killedCount: 3 }) }), "mutation_value")?.value, 0.75);
-  assert.equal(find(evidence(), "mutation_value"), undefined);
-  assert.equal(find(evidence({ signals: signals({ mutantCount: 0, killedCount: 0 }) }), "mutation_value"), undefined);
-});
-
 test("infra_error carries the error class of an infra-error run and none otherwise", () => {
   assert.equal(find(evidence({ verdict: "infra-error", decision: "none", errorClass: "E-TIME-BUDGET" }), "infra_error")?.value, "E-TIME-BUDGET");
   assert.equal(find(evidence({ verdict: "infra-error", errorClass: null }), "infra_error")?.value, "unclassified");

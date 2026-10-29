@@ -8,7 +8,6 @@ const round = (n: number): number => Math.round(n * 1e4) / 1e4;
 function outcome(p: {
   verdict: RunVerdict;
   coverageRatio?: number | null;
-  valueScore?: number | null;
   flaky?: boolean;
   errorClass?: RunOutcome["errorClass"];
 }): RunOutcome {
@@ -23,7 +22,6 @@ function outcome(p: {
     gateSignals: {
       static: true,
       coverageRatio: p.coverageRatio ?? null,
-      valueScore: p.valueScore ?? null,
       reviewerCorrections: [],
       flaky: p.flaky ?? false,
       retries: 0,

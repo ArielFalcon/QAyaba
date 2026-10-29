@@ -14,7 +14,6 @@ export interface ComparableOutcome {
   gateSignals: {
     static: boolean;
     coverageRatio: number | null;
-    valueScore: number | null;
     reviewerCorrections: string[];
     reviewerApproved?: boolean;
     reviewerRationale?: string;
@@ -41,7 +40,6 @@ function behavioralProjection(o: ComparableOutcome): Record<string, unknown> {
     errorClass: o.errorClass,
     static: o.gateSignals.static,
     coverageRatio: o.gateSignals.coverageRatio,
-    valueScore: o.gateSignals.valueScore,
     reviewerCorrections: o.gateSignals.reviewerCorrections,
     reviewerApproved: o.gateSignals.reviewerApproved ?? null,
     flaky: o.gateSignals.flaky,

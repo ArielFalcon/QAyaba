@@ -156,7 +156,6 @@ test("a run that dies on an agent error after a child was refused hosts still pe
     assert.equal(outcome.verdict, "infra-error");
     assert.deepEqual(outcome.gateSignals.sandbox, { egress: "enforced", denied: ["idp.example.test", "cdn.example.test"] });
     assert.equal(outcome.gateSignals.coverageRatio, null, "no other signal is made up for a run that never reached it");
-    assert.equal(outcome.gateSignals.valueScore, null);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

@@ -120,7 +120,7 @@ async function recordCoordinationOutcome(state: Readonly<RunState>, ctx: Workspa
   const { decision } = decidedOf(state);
   const coordinationSignal = host.coordination();
   if (!coordinationSignal || !deps.coordinationTelemetry) return;
-  const { coverageRatio, valueScore } = state.coverage;
+  const { coverageRatio } = state.coverage;
   const reviewerApprovedForOutcome = reviewerApprovedForOutcomeOf(state);
   /* Read from the same honest source as the persisted outcome: absent when no reviewer looked at this run. */
   const reviewOutcome =
@@ -138,7 +138,6 @@ async function recordCoordinationOutcome(state: Readonly<RunState>, ctx: Workspa
     reviewOutcome,
     /* Quality sampled at the same instant the outcome is stamped. */
     ...(coverageRatio !== undefined ? { coverageRatio } : {}),
-    ...(valueScore !== null ? { valueScore } : {}),
     escalations: coordinationSignal.incomplete,
     durationMs: Date.now() - startedAt,
     at: Date.now(),
@@ -262,18 +261,15 @@ interface Persisted {
 function sharedSignals(state: Readonly<RunState>, ctx: WorkspaceRunContext, loopSignal: Persisted["loopSignal"]) {
   const { agentBrowser } = ctx.trail;
   const { integrityCounters, intentLock, intentState } = ctx.services;
-  const { coverageStale, valueStale } = state.coverage;
+  const { coverageStale } = state.coverage;
   const causal = state.decided?.causal;
-  const { perCandidate, valueByCandidate, valueStats } = state.coverage;
+  const { perCandidate } = state.coverage;
   return {
-    ...(valueStats ? { valueStats } : {}),
-    ...(valueByCandidate && valueByCandidate.length > 0 ? { valueByCandidate } : {}),
     ...(causal ? { causal } : {}),
     ...(perCandidate && perCandidate.length > 0 ? { coverageByCandidate: perCandidate } : {}),
     ...(loopSignal ? { closedLoop: loopSignal } : {}),
     ...(agentBrowser?.signals() ? { agentBrowser: agentBrowser.signals() } : {}),
     ...(coverageStale ? { coverage: { stale: true } } : {}),
-    ...(valueStale ? { value: { stale: true } } : {}),
     ...(integrityCounters.acceptances > 0 || integrityCounters.rejected > 0 || integrityCounters.capHit
       ? { integrity: { ...integrityCounters } }
       : {}),
@@ -292,19 +288,19 @@ function sharedSignals(state: Readonly<RunState>, ctx: WorkspaceRunContext, loop
   };
 }
 
-/* Derive errorClass/valueScore once for both the persisted outcome and the returned result. */
+/* Derive the errorClass once for both the persisted outcome and the returned result. */
 async function persistOutcome(state: Readonly<RunState>, ctx: WorkspaceRunContext, publishOutcome: string | undefined, stubbed: StubbedRecord | undefined): Promise<Persisted> {
   const { deps, services } = ctx;
   const { decision, isContextCleanPass } = decidedOf(state);
   const { retries, validation } = state.execution;
   const run = runOf(state);
-  const { coverageRatio, valueScore, mutantCount, killedCount, branchCoverage, bundleMutation, branchCases, survivorClosure, flakyTriage, changeCoverage } = state.coverage;
+  const { coverageRatio, branchCoverage, bundleMutation, branchCases, survivorClosure, flakyTriage, changeCoverage } = state.coverage;
   const { finalReviewerCorrections, reviewerSignal, missingCases } = state.review;
   const { blastRadiusSignal, serviceLinks, contractDrift, crossRepoImpact } = state.grounding;
   const { preExecAmbiguityCatches, catalogGateInWindow, catalogGateAdvisory, catalogGateFailClosed } = state.generation;
   const loopSignal = await closedLoopSignal(state, ctx);
   /* Thread the review loop's real final-round corrections into errorClass derivation. */
-  const errorClass = deriveErrorClass(decision.verdict, coverageRatio, valueScore, finalReviewerCorrections, {
+  const errorClass = deriveErrorClass(decision.verdict, coverageRatio, finalReviewerCorrections, {
     ...(state.fixLoop.devNotRenderedConclusive ? { preconditionFailed: true } : {}),
     sandboxRefused: ctx.host.sandboxRefused(),
   });
@@ -312,10 +308,6 @@ async function persistOutcome(state: Readonly<RunState>, ctx: WorkspaceRunContex
   const mainlineOutcome = toRunOutcome(ctx, decision, run.cases, retries, coverageRatio, errorClass, {
     staticOk: validation.ok,
     reviewerApproved: reviewerApprovedForOutcomeOf(state),
-    valueScore,
-    /* Real oracle counts when threaded; absent (never a fabricated 0) when the oracle never measured. */
-    mutantCount,
-    killedCount,
     ...(branchCoverage ? { branchCoverage } : {}),
     ...(changeCoverage ? { changeCoverage } : {}),
     ...(bundleMutation ? { bundleMutation } : {}),
@@ -391,7 +383,7 @@ function resultOf(state: Readonly<RunState>, ctx: WorkspaceRunContext, persisted
   const { errorClass, loopSignal, mainlineOutcome } = persisted;
   const { retries, validation } = state.execution;
   const run = runOf(state);
-  const { coverageRatio, valueScore } = state.coverage;
+  const { coverageRatio } = state.coverage;
   const { reviewerSignal } = state.review;
   const { preExecAmbiguityCatches, catalogGateInWindow, catalogGateAdvisory, catalogGateFailClosed } = state.generation;
   const reviewerApprovedForOutcome = reviewerApprovedForOutcomeOf(state);
@@ -406,7 +398,6 @@ function resultOf(state: Readonly<RunState>, ctx: WorkspaceRunContext, persisted
       /* Clean context pass reports static:false: nothing was genuinely persisted. */
       static: isContextCleanPass ? false : validation.ok,
       coverageRatio,
-      valueScore,
       /* Clean context pass omits reviewerApproved: nothing was genuinely persisted. */
       ...(!isContextCleanPass && reviewerApprovedForOutcome !== undefined ? { reviewerApproved: reviewerApprovedForOutcome } : {}),
       ...(!isContextCleanPass && reviewerSignal !== undefined ? { reviewer: reviewerSignal } : {}),

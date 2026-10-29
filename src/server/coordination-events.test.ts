@@ -16,7 +16,7 @@ const raw = [
   JSON.stringify({ runId: "r1", kind: "delegation", action: "delegate", sidekickKind: "author", tier: "standard", reason: "sidekick status=failed", failureClass: "failed", delegationId: "d1", attempt: 1, durationMs: 1000, at: 2 }),
   JSON.stringify({ runId: "r1", kind: "delegation", reason: "sidekick status=completed-with-concerns", delegationId: "d2", attempt: 2, durationMs: 2000, at: 3 }),
   JSON.stringify({ runId: "r1", kind: "escalation", reason: "no progress", escalations: 1, at: 4 }),
-  JSON.stringify({ runId: "r1", kind: "outcome", action: "delegate", reason: "pipeline verdict=pass", finalOutcome: "pass", reviewOutcome: "approved", escalations: 1, valueScore: 0.75, coverageRatio: 0.9, durationMs: 42000, at: 5 }),
+  JSON.stringify({ runId: "r1", kind: "outcome", action: "delegate", reason: "pipeline verdict=pass", finalOutcome: "pass", reviewOutcome: "approved", escalations: 1, coverageRatio: 0.9, durationMs: 42000, at: 5 }),
   /* Non-JSON noise must be skipped, malformed kinds dropped — never 500 the audit read. */
   "{ line corrupt",
   JSON.stringify({ runId: "r0", kind: "bogus-kind", reason: "x", at: 9 }),
@@ -171,7 +171,7 @@ test("readCoordinationLedger: real file tail with run filter + limit", () => {
     assert.equal(view.events.length, 3);
     const last = view.events.at(-1);
     assert.ok(last, "expected the tail to include the outcome event");
-    assert.equal(last.valueScore, 0.75);
+    assert.equal(last.coverageRatio, 0.9);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

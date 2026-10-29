@@ -3,7 +3,7 @@ import type { RunMode, RunOutcome, RunRecord, RunVerdict, TestTarget } from "../
 import type { HistoryDatabase } from "../database";
 import { parseJsonColumn } from "../json-column";
 
-const EMPTY_GATE_SIGNALS: RunOutcome["gateSignals"] = { static: false, coverageRatio: null, valueScore: null, reviewerCorrections: [], flaky: false, retries: 0 };
+const EMPTY_GATE_SIGNALS: RunOutcome["gateSignals"] = { static: false, coverageRatio: null, reviewerCorrections: [], flaky: false, retries: 0 };
 
 /* What a run taught: run_outcomes (append-only). The learning_rules, curriculum and scorecard tables and the rules_retrieved and reflection columns of run_outcomes are no longer written or read; the schema keeps them, and purging an app still empties its rows. */
 export class LearningRepository {

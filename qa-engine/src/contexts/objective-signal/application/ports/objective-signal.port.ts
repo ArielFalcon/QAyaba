@@ -1,12 +1,11 @@
 import type { BlastRadius } from "@kernel/blast-radius.ts";
 import type { UseCaseCandidate } from "@kernel/use-case-candidate.ts";
-import type { BundleMutationOutcome, CandidateValue, CoverageMeasurement, CoverageRecount, CoverageRerun, FileRanBy, MutantSelectionRecord, UntakenArm, ValueStats } from "../../domain/objective-signal.ts";
+import type { BundleMutationOutcome, CoverageMeasurement, CoverageRecount, CoverageRerun, FileRanBy, MutantSelectionRecord, UntakenArm } from "../../domain/objective-signal.ts";
 import type { BundleMutationResult, MutantProof, MutantRun } from "../../domain/coverage-collector.ts";
 import type { CoverageExclusions } from "../../domain/coverage-exclusions.ts";
 
 export interface ObjectiveSignalPort {
   /**
-   * `valueScore`, `valueByCandidate`, `valueStats`, `mutantCount` and `killedCount` are never set: no response oracle remains.
    * `diff` absent (non-diff modes) → assembler never invoked → decide() gets
    * null → "unknown" → never blocks.
    * `baselineCases` are this run's passing case names; absent falls back to the
@@ -32,7 +31,7 @@ export interface ObjectiveSignalPort {
    * `ranBy` names, per changed file, the spec files among `opts.caseFiles` whose tests' dumps (those the measurement read) ran a line of
    * it; a dump no case file wrote counts for none. Absent when the collector cannot tell which dump ran what. In memory only.
    */
-  measure(br: BlastRadius, specDir: string, diff?: string, baselineCases?: string[], opts?: { namespace?: string; caseFiles?: string[]; candidates?: readonly UseCaseCandidate[]; crossRepo?: boolean; reruns?: readonly CoverageRerun[]; exclusions?: CoverageExclusions }): Promise<{ status: "pass" | "fail" | "unknown"; ratio: number | null; valueScore?: number | null; valueByCandidate?: CandidateValue[]; valueStats?: ValueStats; mutantCount?: number | null; killedCount?: number | null; uncovered?: { file: string; lines: number[] }[]; untakenArms?: UntakenArm[]; bundleMutation?: BundleMutationOutcome; mutantSelection?: MutantSelectionRecord; mutantProofs?: MutantProof[]; survivorRuns?: MutantRun[]; measurement?: CoverageMeasurement; ranBy?: FileRanBy[] }>;
+  measure(br: BlastRadius, specDir: string, diff?: string, baselineCases?: string[], opts?: { namespace?: string; caseFiles?: string[]; candidates?: readonly UseCaseCandidate[]; crossRepo?: boolean; reruns?: readonly CoverageRerun[]; exclusions?: CoverageExclusions }): Promise<{ status: "pass" | "fail" | "unknown"; ratio: number | null; uncovered?: { file: string; lines: number[] }[]; untakenArms?: UntakenArm[]; bundleMutation?: BundleMutationOutcome; mutantSelection?: MutantSelectionRecord; mutantProofs?: MutantProof[]; survivorRuns?: MutantRun[]; measurement?: CoverageMeasurement; ranBy?: FileRanBy[] }>;
   /**
    * Single source of truth for whether a measured status blocks publish.
    * Only "enforce" + "fail" blocks; "unknown" never blocks regardless of mode.

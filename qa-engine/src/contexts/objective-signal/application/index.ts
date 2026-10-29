@@ -25,4 +25,3 @@ export { changedCodeFiles, testSupportFiles, unreachableByDesign } from "../doma
 export type { CoverageExclusions, ReachScope, TestSupportFile, UnreachableByDesign } from "../domain/coverage-exclusions.ts";
 export { perCandidateCoverage } from "../domain/per-candidate-coverage.ts";
 export type { CandidateCoverage, CandidateUnmeasured } from "../domain/per-candidate-coverage.ts";
-export type { CandidateValue, ValueStats } from "../domain/objective-signal.ts";

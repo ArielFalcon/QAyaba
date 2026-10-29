@@ -44,9 +44,8 @@ export function buildLearningContext(app: string): string | null {
     if (outcomes.length > 0) {
       lines.push(`### Recent outcomes (${outcomes.length}):`);
       for (const o of outcomes.slice(0, 5)) {
-        const vs = o.gateSignals.valueScore !== null ? ` valueScore=${(o.gateSignals.valueScore * 100).toFixed(0)}%` : "";
         const ec = o.errorClass ? ` ${o.errorClass}` : "";
-        lines.push(`- ${o.verdict}${ec}${vs} (${o.mode}/${o.target}, ${o.sha.slice(0, 7)})`);
+        lines.push(`- ${o.verdict}${ec} (${o.mode}/${o.target}, ${o.sha.slice(0, 7)})`);
       }
       lines.push("");
     }

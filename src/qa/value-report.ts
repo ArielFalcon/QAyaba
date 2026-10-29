@@ -13,7 +13,6 @@ export interface ValueSignals {
   coverageRatio: number | null;  /* change-coverage ratio 0..1; null when not measured */
   coverageMeasured: boolean;  /* false → bundled deploy / no provider → never shown as a % */
   coveragePolicy?: "off" | "signal" | "enforce";
-  valueScore: number | null;  /* oracle mutant-kill rate 0..1; null when the oracle did not run */
   reviewerApproved: boolean | null;  /* null when review is disabled or was not reached */
   reviewerRationale?: string;  /* the reviewer's one/two-sentence reasoning (approve or reject) */
 }

@@ -33,9 +33,6 @@ export function toStoredRunOutcome(outcome: KernelRunOutcome): StoredRunOutcome 
     gateSignals: {
       static: outcome.gateSignals.static,
       coverageRatio: outcome.gateSignals.coverageRatio,
-      valueScore: outcome.gateSignals.valueScore,
-      ...(outcome.gateSignals.mutantCount !== undefined ? { mutantCount: outcome.gateSignals.mutantCount } : {}),
-      ...(outcome.gateSignals.killedCount !== undefined ? { killedCount: outcome.gateSignals.killedCount } : {}),
       ...(outcome.gateSignals.branchCoverage !== undefined ? { branchCoverage: outcome.gateSignals.branchCoverage } : {}),
       ...(outcome.gateSignals.changeCoverage !== undefined ? { changeCoverage: outcome.gateSignals.changeCoverage } : {}),
       ...(outcome.gateSignals.bundleMutation !== undefined ? { bundleMutation: outcome.gateSignals.bundleMutation } : {}),
@@ -71,13 +68,10 @@ export function toStoredRunOutcome(outcome: KernelRunOutcome): StoredRunOutcome 
 
       ...(outcome.gateSignals.crossRepoImpactedCount !== undefined ? { crossRepoImpactedCount: outcome.gateSignals.crossRepoImpactedCount } : {}),
       ...(outcome.gateSignals.coverage !== undefined ? { coverage: outcome.gateSignals.coverage } : {}),
-      ...(outcome.gateSignals.value !== undefined ? { value: outcome.gateSignals.value } : {}),
       ...(outcome.gateSignals.integrity !== undefined ? { integrity: outcome.gateSignals.integrity } : {}),
       ...(outcome.gateSignals.intent !== undefined ? { intent: outcome.gateSignals.intent } : {}),
       ...(outcome.gateSignals.causal !== undefined ? { causal: outcome.gateSignals.causal } : {}),
       ...(outcome.gateSignals.coverageByCandidate !== undefined ? { coverageByCandidate: outcome.gateSignals.coverageByCandidate } : {}),
-      ...(outcome.gateSignals.valueByCandidate !== undefined ? { valueByCandidate: outcome.gateSignals.valueByCandidate } : {}),
-      ...(outcome.gateSignals.valueStats !== undefined ? { valueStats: outcome.gateSignals.valueStats } : {}),
       ...(outcome.gateSignals.routeAvailability !== undefined ? { routeAvailability: outcome.gateSignals.routeAvailability } : {}),
       ...(outcome.gateSignals.stubbedState !== undefined ? { stubbedState: outcome.gateSignals.stubbedState } : {}),
       ...(outcome.gateSignals.dataContradictions !== undefined ? { dataContradictions: outcome.gateSignals.dataContradictions } : {}),

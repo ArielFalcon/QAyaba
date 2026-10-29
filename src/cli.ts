@@ -249,7 +249,6 @@ function printRunReport(record: RunRecord, appCfg: ReturnType<typeof loadAppConf
       coverageRatio: gs?.coverageRatio ?? null,
       coverageMeasured: gs?.coverageRatio !== null && gs?.coverageRatio !== undefined,
       coveragePolicy: appCfg.qa.changeCoverage?.mode ?? "signal",
-      valueScore: gs?.valueScore ?? null,
       reviewerApproved: gs?.reviewerApproved ?? null,
       reviewerRationale: gs?.reviewerRationale,
     },

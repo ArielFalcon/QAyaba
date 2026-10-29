@@ -38,7 +38,6 @@ function outcome(over: Partial<RunOutcome["gateSignals"]> = {}, top: Partial<Run
     gateSignals: {
       static: true,
       coverageRatio: 0.82,
-      valueScore: 0.9,
       reviewerCorrections: [],
       flaky: false,
       retries: 0,
@@ -110,12 +109,10 @@ test("failing run: FAIL headline with error class, flow-results surfaces and out
 });
 
 test("coverage not measured: value is null (never a hard zero), caption says so", () => {
-  const view = toRunReportView({ record: record(), outcome: outcome({ coverageRatio: null, valueScore: null }) });
+  const view = toRunReportView({ record: record(), outcome: outcome({ coverageRatio: null }) });
   const cov = view.insights.find((i) => i.id === "change-coverage")!;
   assert.equal(cov.value, null);
   assert.equal(cov.caption, "not measured this run");
-  const val = view.insights.find((i) => i.id === "value-oracle")!;
-  assert.equal(val.value, null);
   assert.equal(view.headline, "PASS — 3/3 cases green");
 });
 

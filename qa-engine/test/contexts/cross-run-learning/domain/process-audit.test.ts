@@ -19,7 +19,7 @@ function outcome(over: Partial<RunOutcome> & { errorClass?: RunOutcome["errorCla
     target: "e2e",
     verdict: over.verdict ?? "fail",
     errorClass: over.errorClass ?? "E-EXEC-FAIL",
-    gateSignals: { static: false, coverageRatio: null, valueScore: null, reviewerCorrections: [], flaky: false, retries: 0, ...over.gateSignals },
+    gateSignals: { static: false, coverageRatio: null, reviewerCorrections: [], flaky: false, retries: 0, ...over.gateSignals },
     at: over.at ?? "2026-06-13T00:00:00Z",
     ...(over.adjudication ? { adjudication: over.adjudication } : {}),
   };
@@ -148,7 +148,7 @@ test("a one-off errorClass does NOT fire a recurring-error-class finding (one oc
 });
 
 test("review churn that never reaches pass → observe", () => {
-  const o = outcome({ verdict: "fail", gateSignals: { static: false, coverageRatio: null, valueScore: null, reviewerCorrections: [], flaky: false, retries: 3 } });
+  const o = outcome({ verdict: "fail", gateSignals: { static: false, coverageRatio: null, reviewerCorrections: [], flaky: false, retries: 3 } });
   const f = auditProcess({ outcome: o, recent: [o] }).find((x) => x.kind === "review-churn-no-gain");
   assert.ok(f);
   assert.equal(f!.disposition, "observe");

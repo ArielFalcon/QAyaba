@@ -93,7 +93,6 @@ function coerce(o: Record<string, unknown>): CoordinationEvent {
     ...(optStr(o.progressFingerprint) ? { progressFingerprint: optStr(o.progressFingerprint) } : {}),
     ...(optStr(o.finalOutcome) ? { finalOutcome: optStr(o.finalOutcome) } : {}),
     ...(optStr(o.reviewOutcome) ? { reviewOutcome: optStr(o.reviewOutcome) } : {}),
-    ...(typeof o.valueScore === "number" ? { valueScore: o.valueScore } : {}),
     ...(o.coverageRatio === null || typeof o.coverageRatio === "number"
       ? { coverageRatio: o.coverageRatio as number | null }
       : {}),

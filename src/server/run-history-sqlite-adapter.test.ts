@@ -16,7 +16,6 @@ function kernelOutcome(overrides: Partial<KernelRunOutcome> = {}): KernelRunOutc
     gateSignals: {
       static: true,
       coverageRatio: 0.85,
-      valueScore: 0.5,
       reviewerCorrections: [],
       flaky: false,
       retries: 0,
@@ -43,7 +42,6 @@ test("SqliteRunHistoryAdapter.save() delegates to the injected saveOutcome", asy
   assert.equal(captured!.target, "e2e");
   assert.equal(captured!.verdict, "pass");
   assert.equal(captured!.gateSignals.coverageRatio, 0.85);
-  assert.equal(captured!.gateSignals.valueScore, 0.5);
   assert.equal(captured!.at, "2026-07-02T00:00:00.000Z");
 });
 
@@ -79,7 +77,6 @@ test("toStoredRunOutcome forwards every present optional gateSignals field faith
       gateSignals: {
         static: true,
         coverageRatio: 0.7,
-        valueScore: 0.4,
         reviewerCorrections: ["missing assertion"],
         reviewerRationale: "solid coverage",
         reviewerApproved: true,
@@ -124,7 +121,6 @@ test("toStoredRunOutcome forwards structuralSignalBytes/serviceLinksCount/contra
       gateSignals: {
         static: true,
         coverageRatio: 0.7,
-        valueScore: 0.4,
         reviewerCorrections: [],
         flaky: false,
         retries: 0,
@@ -137,32 +133,4 @@ test("toStoredRunOutcome forwards structuralSignalBytes/serviceLinksCount/contra
   assert.equal(out.gateSignals.structuralSignalBytes, 512);
   assert.equal(out.gateSignals.serviceLinksCount, 3);
   assert.equal(out.gateSignals.contractDriftCount, 0, "a genuine 0 (resolver ran, found none) must round-trip as 0, not be dropped or coerced to undefined");
-});
-
-/* mutantCount/killedCount round-trip the same conditional-spread way as the sibling optional
-   counts above — absent stays absent (never a fabricated 0), a genuine measured value round-trips. */
-
-test("toStoredRunOutcome omits mutantCount/killedCount when absent on the kernel outcome (never fabricates a 0)", () => {
-  const out = toStoredRunOutcome(kernelOutcome());
-  assert.equal("mutantCount" in out.gateSignals, false);
-  assert.equal("killedCount" in out.gateSignals, false);
-});
-
-test("toStoredRunOutcome forwards mutantCount/killedCount faithfully when present, including a genuine 0", () => {
-  const out = toStoredRunOutcome(
-    kernelOutcome({
-      gateSignals: {
-        static: true,
-        coverageRatio: 0.7,
-        valueScore: 0.4,
-        reviewerCorrections: [],
-        flaky: false,
-        retries: 0,
-        mutantCount: 20,
-        killedCount: 0,
-      },
-    }),
-  );
-  assert.equal(out.gateSignals.mutantCount, 20);
-  assert.equal(out.gateSignals.killedCount, 0, "a genuine 0 (measured, none killed) must round-trip as 0, not be dropped or coerced to undefined");
 });

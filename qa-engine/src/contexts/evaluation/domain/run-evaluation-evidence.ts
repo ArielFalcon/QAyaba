@@ -149,8 +149,6 @@ export interface RunEvaluationEvidence {
         coverageStatus: "pass" | "fail" | "unknown" | undefined;
         /* The coverage policy mode in force at run time. */
         coverageMode: string | undefined;
-        mutantCount: number | undefined;
-        killedCount: number | undefined;
         catalogGateFailClosed: number | undefined;
         /* Review rounds whose model rejection lost every blocking finding to the evidence filter (the round then read as an approval), with the findings lost per reason; undefined when none did. */
         droppedRejections: { rounds: number; reasons: Readonly<Record<string, number>> } | undefined;

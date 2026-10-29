@@ -38,7 +38,6 @@ function toOutcome(input: RunInput, result: RunQaResult): RunOutcome {
     gateSignals: {
       static: result.gateSignals.static,
       coverageRatio: result.gateSignals.coverageRatio,
-      valueScore: result.gateSignals.valueScore,
       reviewerCorrections: [],
       ...(result.gateSignals.reviewerApproved !== undefined ? { reviewerApproved: result.gateSignals.reviewerApproved } : {}),
       ...(result.gateSignals.reviewer !== undefined ? { reviewer: result.gateSignals.reviewer } : {}),

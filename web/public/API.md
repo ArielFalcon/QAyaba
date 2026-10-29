@@ -56,7 +56,7 @@ contract schema names are in (parens).
 |---|---|---|---|
 | **Header** | `verdict, sha, app, branch, mode, message, author, time, duration` | `GET /api/v1/runs/{id}` → `RunRecord` | ⚠ — `RunRecord` has `verdict, sha, app, ref, mode, note, at`. Missing **`author`**, **`duration`**. `branch`=`ref`, `message`=`note`. |
 | **Pipeline stepper** | `stages: [[name,state]]` for classify→generate→validate→execute→decide | `RunRecord.step / activity` | ⚠ — add a normalized `stages[]` (state per stage) or derive from `step`+`activity`. |
-| **Quality signals** | `coverage` label, `oracle` valueScore, `reviewer` verdict | `RunRecord` + run events | ⚠ — `coverage`, `oracle valueScore`, `reviewer` approval are emitted as run **events** (`coverage.computed`, `reviewer.verdict`) but are **not persisted on `RunRecord`**. Persist them on the record for finished-run detail. |
+| **Quality signals** | `coverage` label, `reviewer` verdict | `RunRecord` + run events | ⚠ — `coverage`, `reviewer` approval are emitted as run **events** (`coverage.computed`, `reviewer.verdict`) but are **not persisted on `RunRecord`**. Persist them on the record for finished-run detail. |
 | **Changed files (blast radius)** | `changed: string[]` | — | ✗ new — `RunRecord` has no changed-file list. Add `changed[]` (the diff blast radius). |
 | **Generated specs** | `newSpecs: [{file,status,n}]` | `RunRecord.specs[]` (`SpecRecord{name,objective,flow}`) + `cases[]` | ⚠ — derive `file`=`name`; per-spec `status`/test-count come from correlating `cases[]`. |
 | **Decision callout** | `decision` text (PR #/Issue #/quarantined) | — | ⚠ extend — add a `decision`/`outcome` string to `RunRecord` (event `run.verdict.outcome` exists; persist it). |
@@ -164,7 +164,7 @@ consumes them and normalizes to the UI's `{onStep,onPlan,onCase,onLog,onVerdict}
 
 **Extend (⚠):**
 1. **`/signals`** → fleet, period-over-period, with `series[]` + `suitesGreen`/`prsAutoMerged`/`issuesOpen` (powers the Overview hero).
-2. **`RunRecord`** → persist `author`, `duration`, `decision/outcome`, `coverage`, `oracle valueScore`, `reviewer` approval, `changed[]`, normalized `stages[]`, and (for live) spec `code[]`.
+2. **`RunRecord`** → persist `author`, `duration`, `decision/outcome`, `coverage`, `reviewer` approval, `changed[]`, normalized `stages[]`, and (for live) spec `code[]`.
 3. **`AppView`** → `stack`, `health`, and the watched-app config (`baseBranch`, `gate`, `onFailure`, `coverageMode`, `coverageMin`).
 4. **`/runs`** → confirm fleet-wide listing (no `app`) + `verdict`/`mode` filters.
 5. **`/queue`** → engine status (health poller, sessions, last mirror-prune, webhook).

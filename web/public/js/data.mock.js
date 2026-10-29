@@ -122,8 +122,6 @@ window.QayabaMockData = (function () {
       ['›', 'execute · renders empty-state for zero results …'],
       ['✓', 'execute · renders empty-state · 221ms'],
       ['›', 'execute · 4 passed · 0 flaky · 11.8s'],
-      ['›', 'oracle · mutation testing · 18 mutants'],
-      ['✓', 'oracle · 15/18 caught · valueScore 0.83'],
       ['✓', 'verdict PASS → opening PR with auto-merge'],
     ],
   };
@@ -134,7 +132,7 @@ window.QayabaMockData = (function () {
       workforce: { producer: 'sidekick', delegations: 1, repairs: 0, failures: 0, avgMs: 69000 },
       message: 'feat(map): cluster nearby pins at low zoom', author: 'maria',
       time: '4m ago', specs: 4, reviewer: 'approved', decision: 'PR #182 · auto-merge',
-      branch: 'DEV', duration: '2m 18s', coverage: 'covered', oracle: '0.82',
+      branch: 'DEV', duration: '2m 18s', coverage: 'covered',
       stages: [['classify', 'done'], ['generate', 'done'], ['validate', 'done'], ['execute', 'done'], ['decide', 'done']],
       changed: ['src/app/map/map.component.ts', 'src/app/map/cluster.service.ts'],
       newSpecs: [
@@ -148,7 +146,6 @@ window.QayabaMockData = (function () {
         ['›', 'fe↔be · getPins() → GET /pins (checkout-api)'],
         ['›', 'generate · wrote 4 specs · reviewer approved'],
         ['›', 'execute · 4 passed · 0 flaky · 12.4s'],
-        ['›', 'oracle · mutation 0.82'],
         ['✓', 'verdict PASS → PR #182 opened, auto-merge enabled'],
       ],
     },
@@ -156,7 +153,7 @@ window.QayabaMockData = (function () {
       id: 'r-1840', app: 'checkout-api', sha: 'a1b2c3d', verdict: 'fail', mode: 'diff',
       message: 'fix(cart): reject negative quantities', author: 'devon',
       time: '22m ago', specs: 2, reviewer: 'approved', decision: 'Issue #91', canContinue: true,
-      branch: 'DEV', duration: '1m 47s', coverage: 'covered', oracle: '—',
+      branch: 'DEV', duration: '1m 47s', coverage: 'covered',
       stages: [['classify', 'done'], ['generate', 'done'], ['validate', 'done'], ['execute', 'fail'], ['decide', 'done']],
       changed: ['src/cart/CartController.java', 'src/cart/CartService.java'],
       newSpecs: [
@@ -175,7 +172,7 @@ window.QayabaMockData = (function () {
       id: 'r-1839', app: 'web-app', sha: 'd4e5f6a', verdict: 'flaky', mode: 'diff',
       message: 'refactor(auth): extract token refresh', author: 'maria',
       time: '1h ago', specs: 1, reviewer: 'approved', decision: 'quarantined',
-      branch: 'DEV', duration: '3m 02s', coverage: 'covered', oracle: '—',
+      branch: 'DEV', duration: '3m 02s', coverage: 'covered',
       stages: [['classify', 'done'], ['generate', 'done'], ['validate', 'done'], ['execute', 'flaky'], ['decide', 'done']],
       changed: ['src/app/auth/token.service.ts'],
       newSpecs: [{ file: 'e2e/auth/token-refresh.spec.ts', status: 'flaky', n: 1 }],
@@ -190,7 +187,7 @@ window.QayabaMockData = (function () {
       id: 'r-1838', app: 'portfolio', sha: 'c0ffee1', verdict: 'skipped', mode: 'diff',
       message: 'style: format with prettier', author: 'ariel',
       time: '2h ago', specs: 0, reviewer: '—', decision: 'no tokens spent',
-      branch: 'DEV', duration: '0.3s', coverage: '—', oracle: '—',
+      branch: 'DEV', duration: '0.3s', coverage: '—',
       stages: [['classify', 'skip'], ['generate', 'skip'], ['validate', 'skip'], ['execute', 'skip'], ['decide', 'skip']],
       changed: ['src/**/*.astro'],
       newSpecs: [],
@@ -204,7 +201,7 @@ window.QayabaMockData = (function () {
       id: 'r-1837', app: 'checkout-api', sha: 'b4dc0de', verdict: 'infra-error', mode: 'diff',
       message: 'chore(deps): bump spring-boot', author: 'devon',
       time: '3h ago', specs: 0, reviewer: '—', decision: 'DEV unhealthy',
-      branch: 'DEV', duration: '90s timeout', coverage: '—', oracle: '—',
+      branch: 'DEV', duration: '90s timeout', coverage: '—',
       stages: [['classify', 'done'], ['generate', 'done'], ['validate', 'done'], ['execute', 'infra'], ['decide', 'skip']],
       changed: ['pom.xml'],
       newSpecs: [],
@@ -218,7 +215,7 @@ window.QayabaMockData = (function () {
       id: 'r-1836', app: 'web-app', sha: 'feed123', verdict: 'pass', mode: 'complete',
       message: 'coverage sweep · uncovered flows', author: 'qayaba',
       time: '5h ago', specs: 7, reviewer: 'approved', decision: 'PR #180 · auto-merge',
-      branch: 'DEV', duration: '6m 41s', coverage: 'covered', oracle: '0.74',
+      branch: 'DEV', duration: '6m 41s', coverage: 'covered',
       stages: [['classify', 'done'], ['generate', 'done'], ['validate', 'done'], ['execute', 'done'], ['decide', 'done']],
       changed: ['(whole repo)'],
       newSpecs: [
@@ -284,44 +281,43 @@ window.QayabaMockData = (function () {
     { n: 1, label: 'static analysis', icon: 'file-check-2', mode: 'blocks', pass: 128, of: 128, desc: 'compiles · lint · valid test list · manifest' },
     { n: 2, label: 'reviewer ai', icon: 'scan-eye', mode: 'blocks', pass: 119, of: 128, desc: 'real value · asserts · robust selectors' },
     { n: 3, label: 'change-coverage', icon: 'crosshair', mode: 'signal', pass: 102, of: 124, desc: 'green test executes the changed lines' },
-    { n: 4, label: 'mutation / oracle', icon: 'bug', mode: 'signal', pass: 71, of: 96, desc: 'detects injected bugs → valueScore' },
   ];
 
   /* ── Per-app health history ─────────────────────────────────────────────
      Each checkpoint = one run. Fields:
-     id, time, verdict, health(0-100), passRate, specs, coverage%, oracle, flaky, issues, durSec
+     id, time, verdict, health(0-100), passRate, specs, coverage%, flaky, issues, durSec
    */
   function ck(a) {
     return { id: a[0], sha: a[1], time: a[2], verdict: a[3], health: a[4], passRate: a[5],
-      specs: a[6], coverage: a[7], oracle: a[8], flaky: a[9], issues: a[10], durSec: a[11] };
+      specs: a[6], coverage: a[7], flaky: a[8], issues: a[9], durSec: a[10] };
   }
   const histories = {
     'web-app': [
-      ['r-1801', '3c1aa20', '7d', 'pass', 80, 0.81, 13, 84, 0.69, 2, 2, 128],
-      ['r-1808', '7b22e4f', '6d', 'pass', 83, 0.84, 15, 86, 0.72, 1, 1, 121],
-      ['r-1815', 'e90c155', '5d', 'fail', 71, 0.76, 15, 80, 0.0, 1, 3, 140],
-      ['r-1822', '4ad7be1', '4d', 'pass', 85, 0.86, 17, 88, 0.74, 1, 1, 118],
-      ['r-1829', '1f0d9a2', '3d', 'pass', 87, 0.87, 18, 90, 0.76, 1, 1, 124],
-      ['r-1836', 'feed123', '5h', 'pass', 88, 0.86, 20, 90, 0.74, 0, 1, 401],
-      ['r-1839', 'd4e5f6a', '1h', 'flaky', 84, 0.85, 20, 90, 0.0, 2, 1, 182],
-      ['r-1841', '9f6edf2', '4m', 'pass', 91, 0.89, 21, 92, 0.82, 0, 1, 138],
+      ['r-1801', '3c1aa20', '7d', 'pass', 80, 0.81, 13, 84, 2, 2, 128],
+      ['r-1808', '7b22e4f', '6d', 'pass', 83, 0.84, 15, 86, 1, 1, 121],
+      ['r-1815', 'e90c155', '5d', 'fail', 71, 0.76, 15, 80, 1, 3, 140],
+      ['r-1822', '4ad7be1', '4d', 'pass', 85, 0.86, 17, 88, 1, 1, 118],
+      ['r-1829', '1f0d9a2', '3d', 'pass', 87, 0.87, 18, 90, 1, 1, 124],
+      ['r-1836', 'feed123', '5h', 'pass', 88, 0.86, 20, 90, 0, 1, 401],
+      ['r-1839', 'd4e5f6a', '1h', 'flaky', 84, 0.85, 20, 90, 2, 1, 182],
+      ['r-1841', '9f6edf2', '4m', 'pass', 91, 0.89, 21, 92, 0, 1, 138],
     ].map(ck),
     'checkout-api': [
-      ['r-1790', '0aa11b2', '7d', 'pass', 79, 0.82, 11, 82, 0.0, 1, 1, 96],
-      ['r-1797', '5cc02de', '5d', 'pass', 77, 0.80, 12, 80, 0.0, 2, 2, 104],
-      ['r-1810', 'bb31f07', '4d', 'flaky', 72, 0.79, 13, 78, 0.0, 2, 2, 150],
-      ['r-1820', '9d40a18', '2d', 'fail', 68, 0.77, 13, 76, 0.0, 2, 3, 141],
-      ['r-1833', '7e5b9c0', '1d', 'pass', 74, 0.78, 14, 79, 0.0, 1, 2, 112],
-      ['r-1837', 'b4dc0de', '3h', 'infra-error', 60, 0.78, 14, 76, 0.0, 2, 3, 90],
-      ['r-1840', 'a1b2c3d', '22m', 'fail', 64, 0.78, 14, 76, 0.0, 3, 3, 107],
+      ['r-1790', '0aa11b2', '7d', 'pass', 79, 0.82, 11, 82, 1, 1, 96],
+      ['r-1797', '5cc02de', '5d', 'pass', 77, 0.80, 12, 80, 2, 2, 104],
+      ['r-1810', 'bb31f07', '4d', 'flaky', 72, 0.79, 13, 78, 2, 2, 150],
+      ['r-1820', '9d40a18', '2d', 'fail', 68, 0.77, 13, 76, 2, 3, 141],
+      ['r-1833', '7e5b9c0', '1d', 'pass', 74, 0.78, 14, 79, 1, 2, 112],
+      ['r-1837', 'b4dc0de', '3h', 'infra-error', 60, 0.78, 14, 76, 2, 3, 90],
+      ['r-1840', 'a1b2c3d', '22m', 'fail', 64, 0.78, 14, 76, 3, 3, 107],
     ].map(ck),
     'portfolio': [
-      ['r-1780', 'aa0b1c2', '6d', 'pass', 90, 0.90, 5, 86, 0.0, 0, 0, 72],
-      ['r-1788', 'c1d2e30', '5d', 'skipped', 90, 0.90, 5, 86, 0.0, 0, 0, 1],
-      ['r-1802', 'd3e4f51', '3d', 'pass', 92, 0.92, 6, 88, 0.0, 0, 0, 80],
-      ['r-1818', 'e5f6a72', '2d', 'skipped', 91, 0.91, 6, 88, 0.0, 0, 0, 1],
-      ['r-1831', 'f7a8b93', '1d', 'pass', 93, 0.93, 6, 90, 0.0, 0, 0, 78],
-      ['r-1838', 'c0ffee1', '2h', 'skipped', 91, 0.91, 6, 88, 0.0, 0, 0, 1],
+      ['r-1780', 'aa0b1c2', '6d', 'pass', 90, 0.90, 5, 86, 0, 0, 72],
+      ['r-1788', 'c1d2e30', '5d', 'skipped', 90, 0.90, 5, 86, 0, 0, 1],
+      ['r-1802', 'd3e4f51', '3d', 'pass', 92, 0.92, 6, 88, 0, 0, 80],
+      ['r-1818', 'e5f6a72', '2d', 'skipped', 91, 0.91, 6, 88, 0, 0, 1],
+      ['r-1831', 'f7a8b93', '1d', 'pass', 93, 0.93, 6, 90, 0, 0, 78],
+      ['r-1838', 'c0ffee1', '2h', 'skipped', 91, 0.91, 6, 88, 0, 0, 1],
     ].map(ck),
   };
 

@@ -13,7 +13,7 @@ const base: ComparableOutcome = {
   gateSignals: {
     static: true,
     coverageRatio: 0.8,
-    valueScore: null,
+    
     reviewerCorrections: [],
     reviewerApproved: true,
     flaky: false,

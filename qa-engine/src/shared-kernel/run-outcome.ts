@@ -24,10 +24,6 @@ export interface RunOutcome {
   gateSignals: {
     static: boolean;
     coverageRatio: number | null;
-    valueScore: number | null;
-    /* Absent means the value-oracle never measured this run — never a fabricated 0 (indistinguishable from a genuine measured zero). */
-    mutantCount?: number;
-    killedCount?: number;
     /* The arms of the decisions on changed lines and how many ran: a signal beside coverageRatio, never a gate. Absent when no decision was seen on a changed line. */
     branchCoverage?: { changed: number; taken: number };
     /* What the change-coverage counted beside its ratio: the changed lines it took for code (`executableLines`), those it left out as no code, the changed files no loaded script mapped, those of them whose every changed line is no code (`noCodeFiles`, left out whole), the changed files it left out as no gap of the suite (`unreachableByDesign`: only reached through routes the change made unavailable, with those routes; `testSupportFiles`: only test files import them, with how many do), and, when a killed mutant's re-run added to it, the lines the passing tests ran by themselves and the lines and arms only a killed mutant made run. Absent when nothing was measured. */
@@ -42,8 +38,6 @@ export interface RunOutcome {
     flakyTriage?: { cases: number; dataInstability: number; timing: number; outcome: "no-pass" | "accepted" | "empty" | "rejected" | "capped"; kept?: number; restored?: number };
     /* The reviewer's missing cases: findings that cite an arm of the changed code no test ran. A record, never a gate; absent when there were none. */
     missingCases?: string[];
-    /* The value score describes bytes an accepted regeneration rewrote. Signal-only: recorded, never a gate. */
-    value?: { stale: boolean };
     /*
      * The test-intent lock: what this run derived and what it would have rejected. `wouldReject` counts
      * regenerations that were accepted only because the policy is `signal`; the opacity flag is
@@ -125,10 +119,6 @@ export interface RunOutcome {
     causal?: { reach: "in-reach" | "out-of-reach" | "unknown"; basis: "request" | "page" | "flow" | "none"; via: string[]; reason: string; cases: Array<{ name: string; reach: "in-reach" | "out-of-reach" | "unknown"; basis: "request" | "page" | "flow" | "none" }> };
     /* The share of each use case's changed lines the green run executed, or the reason it has none (`unmeasured`). Absent when the run asked for no use case or measured nothing. Persist-only: the aggregate ratio alone decides. */
     coverageByCandidate?: Array<{ candidateId: string; changedLines: number; coveredChanged: number; ratio: number | null; unmeasured?: string }>;
-    /* The fault-injection score per use case the change makes testable: the specs exposed to a corrupted response of its operations and how many noticed, or why it has no ratio (`unscored`). Absent when the oracle was not aimed at any. Persist-only, never a gate. */
-    valueByCandidate?: Array<{ candidateId: string; exposed: number; killed: number; ratio: number | null; unscored?: string }>;
-    /* What the corrupted re-run counted: the baseline-passing specs it executed, those exposed to a corrupted response of an operation in reach, those that failed under it and the failures that were the flow breaking. Absent when it measured nothing. Persist-only: the input of the score's calibration. */
-    valueStats?: { baseline: number; exposed: number; killed: number; failed: number; flowBreaks: number };
     /* Why the routes the Context Pack's capture could not show at their own address were not, by class. Absent when the pack did not classify. Persist-only: it reads nothing back into a verdict. */
     routeAvailability?: RouteAvailabilityGateSignal;
     /* The delivered tests that fulfil a stated response instead of reading DEV: how many spec files and tests, and the guards they broke (a fulfil no GET check guards, a changed request, a replay of every method, a spec file with no live test). Absent when no delivered test is stubbed and no guard broke. Persist-only: it reads nothing back into a verdict. */

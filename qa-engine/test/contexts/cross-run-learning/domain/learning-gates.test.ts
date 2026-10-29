@@ -18,7 +18,6 @@ const CLASS_LEARNS: Record<ErrorClass, boolean> = {
   "E-FRAGILE-SELECTOR": true,
   "E-NO-CLEANUP": true,
   "E-REVIEWER-REJECTED": true,
-  "E-VALUE-SURVIVED": true,
   "E-INFRA": false,
   "E-STEP-BUDGET": true,
   "E-NO-DECISION": false,

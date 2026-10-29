@@ -46,7 +46,7 @@ function fakePort(outcome: Partial<RunOutcome> = {}): { port: RunPipelinePort; c
         target: input.target,
         verdict: "pass",
         errorClass: null,
-        gateSignals: { static: true, coverageRatio: null, valueScore: null, reviewerCorrections: [], flaky: false, retries: 0 },
+        gateSignals: { static: true, coverageRatio: null, reviewerCorrections: [], flaky: false, retries: 0 },
         at: new Date().toISOString(),
         ...outcome,
       };
@@ -708,7 +708,7 @@ test("a port that drives ObserverPort.onStep mid-run updates the record's step +
         target: input.target,
         verdict: "pass",
         errorClass: null,
-        gateSignals: { static: true, coverageRatio: null, valueScore: null, reviewerCorrections: [], flaky: false, retries: 0 },
+        gateSignals: { static: true, coverageRatio: null, reviewerCorrections: [], flaky: false, retries: 0 },
         at: new Date().toISOString(),
       };
     },
@@ -758,7 +758,7 @@ test("ObserverPort.onStep('retry', detail) sets record.stepDetail and record.ret
         target: input.target,
         verdict: "pass",
         errorClass: null,
-        gateSignals: { static: true, coverageRatio: null, valueScore: null, reviewerCorrections: [], flaky: false, retries: 1 },
+        gateSignals: { static: true, coverageRatio: null, reviewerCorrections: [], flaky: false, retries: 1 },
         at: new Date().toISOString(),
       };
     },
@@ -814,7 +814,7 @@ test("a port that drives ObserverPort.onStep, where runEvents.publish throws on 
         target: input.target,
         verdict: "pass",
         errorClass: null,
-        gateSignals: { static: true, coverageRatio: null, valueScore: null, reviewerCorrections: [], flaky: false, retries: 0 },
+        gateSignals: { static: true, coverageRatio: null, reviewerCorrections: [], flaky: false, retries: 0 },
         at: new Date().toISOString(),
       };
     },
@@ -891,7 +891,7 @@ test("cancelTrackedRun aborts the port's in-flight run.run() AND the record is n
         target: input.target,
         verdict: "pass",
         errorClass: null,
-        gateSignals: { static: true, coverageRatio: null, valueScore: null, reviewerCorrections: [], flaky: false, retries: 0 },
+        gateSignals: { static: true, coverageRatio: null, reviewerCorrections: [], flaky: false, retries: 0 },
         at: new Date().toISOString(),
       };
     },
@@ -999,7 +999,7 @@ test("a green run publishes live RunEvents for steps and the final verdict", asy
       return {
         runId: input.runId, app: input.app, sha: input.sha.value, mode: input.mode, target: input.target,
         verdict: "pass", errorClass: null,
-        gateSignals: { static: true, coverageRatio: null, valueScore: null, reviewerCorrections: [], flaky: false, retries: 0 },
+        gateSignals: { static: true, coverageRatio: null, reviewerCorrections: [], flaky: false, retries: 0 },
 at: new Date().toISOString(),
         cases: [{ name: "checkout", status: "pass" }],
       };
@@ -1261,7 +1261,7 @@ test("outcome.gateSignals.reviewerApproved publishes a reviewer.verdict RunEvent
   const runEvents = createRunEventStore();
   const { port } = fakePort({
     verdict: "pass",
-    gateSignals: { static: true, coverageRatio: null, valueScore: null, reviewerCorrections: ["nit: naming"], reviewerApproved: true, flaky: false, retries: 0 },
+    gateSignals: { static: true, coverageRatio: null, reviewerCorrections: ["nit: naming"], reviewerApproved: true, flaky: false, retries: 0 },
   });
   const id = enqueueTrackedRun(
     queue,
@@ -1300,7 +1300,7 @@ test("liveAnnounced dedup — a case announced live with a MATCHING final status
       return {
         runId: input.runId, app: input.app, sha: input.sha.value, mode: input.mode, target: input.target,
         verdict: "pass", errorClass: null,
-        gateSignals: { static: true, coverageRatio: null, valueScore: null, reviewerCorrections: [], flaky: false, retries: 0 },
+        gateSignals: { static: true, coverageRatio: null, reviewerCorrections: [], flaky: false, retries: 0 },
 at: new Date().toISOString(),
         cases: [{ name: "login flow", status: "pass", durationMs: 500 }],
       };
@@ -1343,7 +1343,7 @@ test("liveAnnounced dedup — the flaky divergence: live announces failed then p
       return {
         runId: input.runId, app: input.app, sha: input.sha.value, mode: input.mode, target: input.target,
         verdict: "flaky", errorClass: null,
-        gateSignals: { static: true, coverageRatio: null, valueScore: null, reviewerCorrections: [], flaky: true, retries: 1 },
+        gateSignals: { static: true, coverageRatio: null, reviewerCorrections: [], flaky: true, retries: 1 },
 at: new Date().toISOString(),
         cases: [{ name: "checkout flow", status: "flaky" }],
       };
@@ -1407,7 +1407,7 @@ test("liveAnnounced dedup — addCase (the record-store write) always runs regar
       return {
         runId: input.runId, app: input.app, sha: input.sha.value, mode: input.mode, target: input.target,
         verdict: "pass", errorClass: null,
-        gateSignals: { static: true, coverageRatio: null, valueScore: null, reviewerCorrections: [], flaky: false, retries: 0 },
+        gateSignals: { static: true, coverageRatio: null, reviewerCorrections: [], flaky: false, retries: 0 },
 at: new Date().toISOString(),
         cases: [
           { name: "case A", status: "pass" },
@@ -1628,7 +1628,7 @@ test("multi-run FIFO during onboarding: several runs enqueued while onboarding i
         target: input.target,
         verdict: "pass",
         errorClass: null,
-        gateSignals: { static: true, coverageRatio: null, valueScore: null, reviewerCorrections: [], flaky: false, retries: 0 },
+        gateSignals: { static: true, coverageRatio: null, reviewerCorrections: [], flaky: false, retries: 0 },
         at: new Date().toISOString(),
       };
     },
@@ -1675,7 +1675,7 @@ test("a finished run records the furthest phase and the phase timings its outcom
   const queue = new JobQueue();
   const { port } = fakePort({
     verdict: "infra-error",
-    gateSignals: { static: false, coverageRatio: null, valueScore: null, reviewerCorrections: [], flaky: false, retries: 0, furthestPhase: "setup", phaseTimings: { gate: 2, setup: 700 } },
+    gateSignals: { static: false, coverageRatio: null, reviewerCorrections: [], flaky: false, retries: 0, furthestPhase: "setup", phaseTimings: { gate: 2, setup: 700 } },
   });
   const id = enqueueTrackedRun(queue, { app: "runner-phases-recorded", sha: "abc1234", target: "e2e", mode: "diff", source: "manual" }, { loadApp: cfg, engineFactory: () => port });
   await queue.drain();

@@ -38,7 +38,7 @@ function outcomeOf(input: RunInput, patch: Partial<RunOutcome> = {}, facts?: Run
     target: input.target,
     verdict: "pass",
     errorClass: null,
-    gateSignals: { static: true, coverageRatio: null, valueScore: null, reviewerCorrections: [], flaky: false, retries: 0 },
+    gateSignals: { static: true, coverageRatio: null, reviewerCorrections: [], flaky: false, retries: 0 },
     at: new Date(0).toISOString(),
     ...patch,
   };
@@ -154,7 +154,7 @@ test("a finished run records what it came to on the root and counts as one run",
     {
       verdict: "fail",
       errorClass: "E-EXEC-FAIL",
-      gateSignals: { static: true, coverageRatio: null, valueScore: null, reviewerCorrections: [], flaky: false, retries: 0, furthestPhase: "decide" },
+      gateSignals: { static: true, coverageRatio: null, reviewerCorrections: [], flaky: false, retries: 0, furthestPhase: "decide" },
     },
     { decision: "issue", generationEnd: "delivered", endReason: "decided" },
   );

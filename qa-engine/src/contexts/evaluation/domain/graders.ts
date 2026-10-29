@@ -112,15 +112,6 @@ const changeCoverage: Grader = {
   grade: (e) => (e.finished && e.signals?.coverageStatus !== undefined ? [{ name: "change_coverage", value: e.signals.coverageStatus }] : []),
 };
 
-const mutationValue: Grader = {
-  names: ["mutation_value"],
-  grade: (e) => {
-    const s = e.signals;
-    if (!e.finished || !s || s.mutantCount === undefined || s.killedCount === undefined || s.mutantCount <= 0) return [];
-    return [{ name: "mutation_value", value: ratio(s.killedCount, s.mutantCount), comment: `${s.killedCount} of ${s.mutantCount} mutants killed` }];
-  },
-};
-
 const infraError: Grader = {
   names: ["infra_error"],
   /* Only an infra-error run (or a cancelled one) has an infra error to name; `unclassified` is an infra-error run that recorded no class. */
@@ -633,7 +624,6 @@ export const GRADERS: readonly Grader[] = [
   budgetExhaustion,
   approvalConsistent,
   changeCoverage,
-  mutationValue,
   mutationKillRate,
   changeCoverageRatio,
   branchCoverageRatio,

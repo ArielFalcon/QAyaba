@@ -9,7 +9,7 @@ test("kernel RunOutcome.gateSignals accepts catalogGateInWindow/Advisory/FailClo
     runId: "r1", app: "demo", sha: "abc1234", mode: "diff", target: "e2e",
     verdict: "pass", errorClass: null,
     gateSignals: {
-      static: true, coverageRatio: 0.8, valueScore: null, reviewerCorrections: [],
+      static: true, coverageRatio: 0.8, reviewerCorrections: [],
       reviewerApproved: true, flaky: false, retries: 0,
       catalogGateInWindow: 3, catalogGateAdvisory: 1, catalogGateFailClosed: 0,
     },
@@ -38,7 +38,7 @@ test("kernel RunOutcome accepts an optional adjudication field, widely typed (cl
   const withAdjudication: KernelRunOutcome = {
     runId: "r1", app: "demo", sha: "abc1234", mode: "diff", target: "e2e",
     verdict: "fail", errorClass: null,
-    gateSignals: { static: true, coverageRatio: null, valueScore: null, reviewerCorrections: [], flaky: false, retries: 1 },
+    gateSignals: { static: true, coverageRatio: null, reviewerCorrections: [], flaky: false, retries: 1 },
     at: "2026-06-24T00:00:00.000Z",
     adjudication: { class: "app_defect", confidence: "high", action: "break-issue", reason: "5xx" },
   };
@@ -48,7 +48,7 @@ test("kernel RunOutcome accepts an optional adjudication field, widely typed (cl
   const withoutAdjudication: KernelRunOutcome = {
     runId: "r2", app: "demo", sha: "abc1234", mode: "diff", target: "e2e",
     verdict: "pass", errorClass: null,
-    gateSignals: { static: true, coverageRatio: 0.9, valueScore: null, reviewerCorrections: [], flaky: false, retries: 0 },
+    gateSignals: { static: true, coverageRatio: 0.9, reviewerCorrections: [], flaky: false, retries: 0 },
     at: "2026-06-24T00:00:00.000Z",
   };
   assert.equal(withoutAdjudication.adjudication, undefined);

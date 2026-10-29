@@ -48,7 +48,7 @@ qayaba turns every deploy into a QA checkpoint, automatically.
 | **Provider-agnostic runtime** | Runs on OpenCode through one facade. Every role's model is configured in `agents/opencode.json`; the primary, reviewer, and chat assignments can be overridden from the Dashboard or the environment. |
 | **Independent review** | A separate reviewer agent judges every generated test for value. Tests that click without asserting, use fragile selectors, or miss the actual change are rejected before they reach the suite. |
 | **Self-improving suite** | When tests pass and the reviewer approves, they are committed to the app's repository via PR with auto-merge. The suite grows with every deploy and never degrades into "green noise." |
-| **Measured value** | Mutation testing measures whether the tests actually catch bugs (valueScore), and every run's outcome is kept in the run history. |
+| **Measured value** | Mutation testing of the changed code measures whether the tests actually catch bugs, and every run's outcome is kept in the run history. |
 | **Multi-app, single engine** | One centralized service watches all your team's repos. Each app gets its own namespace for test data and persistent memory. |
 | **Shadow mode** | Onboard a repo without touching it: the full pipeline runs, but PRs and Issues are only logged. Flip the switch when you are ready. |
 
@@ -87,7 +87,7 @@ flowchart LR
 ### Orchestrator
 **Node.js** deterministic infrastructure.
 
-Receives webhooks, manages the sequential queue, clones repos, runs Playwright against DEV, publishes results. It admits the lead's plan, runs the flows through a bounded pool and takes back only what each brief names. Runs mutation testing to measure test quality (valueScore), keeps the run history, and appends every coordination decision to a durable telemetry ledger. Every side-effecting step is dependency-injected and unit-tested with stubs.
+Receives webhooks, manages the sequential queue, clones repos, runs Playwright against DEV, publishes results. It admits the lead's plan, runs the flows through a bounded pool and takes back only what each brief names. Runs mutation testing of the changed code to measure test quality, keeps the run history, and appends every coordination decision to a durable telemetry ledger. Every side-effecting step is dependency-injected and unit-tested with stubs.
 
 </td>
 <td width="50%" valign="top">

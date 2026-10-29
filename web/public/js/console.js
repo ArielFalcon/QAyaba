@@ -512,7 +512,6 @@
     const decisionIcon = run.verdict === 'pass' ? 'git-pull-request' : run.verdict === 'fail' ? 'circle-dot' : run.verdict === 'flaky' ? 'rotate-cw' : run.verdict === 'infra-error' ? 'unplug' : 'minus';
     const covMap = { covered: 'covered', unknown: 'unknown', '—': 'n/a' };
     const covTone = run.coverage === 'covered' ? 'var(--pass-600)' : 'var(--text-muted)';
-    const oracleTone = run.oracle && run.oracle !== '—' ? 'var(--pass-600)' : 'var(--text-muted)';
     const header = '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px">' +
       '<div style="display:flex;flex-direction:column;gap:9px;min-width:0">' +
       '<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">' + VerdictTag(run.verdict, {}) +
@@ -535,7 +534,6 @@
       Card({ eyebrow: 'pipeline · deploy gate → classify → generate → validate → execute → decide', title: 'Run stages', children: StageStepper(run.stages) }) +
       '<div style="display:flex;gap:var(--space-4)">' +
       QChip('crosshair', 'change-coverage', covMap[run.coverage] || run.coverage, covTone) +
-      QChip('bug', 'oracle · valueScore', run.oracle && run.oracle !== '—' ? run.oracle : 'not run', oracleTone) +
       QChip('scan-eye', 'reviewer · ' + models.reviewer, run.reviewer, 'var(--text-muted)') + WorkforceChips(run) + '</div>' +
       '<div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--space-4);align-items:start">' +
       Card({ eyebrow: 'blast radius', title: 'Changed files', action: '<span style="font-family:var(--font-mono);font-size:11px;color:var(--text-faint)">' + run.changed.length + ' file' + (run.changed.length !== 1 ? 's' : '') + '</span>', children: changed }) +
@@ -610,9 +608,9 @@
     const t = (q || '').toLowerCase();
     const has = function () { for (var i = 0; i < arguments.length; i++) if (t.indexOf(arguments[i]) >= 0) return true; return false; };
     if (live) {
-      if (has('eta', 'how long', 'left', 'remaining', 'finish', 'done yet')) return "About 20–30s left. 2 of 3 specs are green; I'm executing the spinner case now, then the oracle runs mutation testing before I decide.";
+      if (has('eta', 'how long', 'left', 'remaining', 'finish', 'done yet')) return "About 20–30s left. 2 of 3 specs are green; I'm executing the spinner case now, then I decide.";
       if (has('test', 'spec', 'running', 'current', 'executing', 'doing')) return "Right now I'm executing e2e/search/debounce.spec.ts against DEV — case 3 of 4 (\"shows spinner while a query is pending\"). The first two assertions passed in 412ms and 338ms.";
-      if (has('plan', 'next', 'step', 'stage', 'after')) return "Plan: classify → blast radius → generate (done · 3 specs) → static gate (done) → execute (now) → oracle → decide. I'm on the execute stage.";
+      if (has('plan', 'next', 'step', 'stage', 'after')) return "Plan: classify → blast radius → generate (done · 3 specs) → static gate (done) → execute (now) → decide. I'm on the execute stage.";
       if (has('cancel', 'stop', 'abort', 'kill')) return "Cancel from the header. The working copy is discarded and nothing is pushed — the orchestrator never writes to the watched repo mid-run.";
       if (has('why', 'debounce', 'slow', 'wait')) return "The debounce is intentional: the spec waits 300ms to confirm the query fires only after input settles — that's the behaviour this commit introduced.";
       return "This run is on the execute stage — 2/3 specs green, executing the third. Ask me about the current test or the plan.";
@@ -628,15 +626,12 @@
     if (has('coverage', 'lines', 'false green')) return run.coverage === 'covered'
       ? 'Change-coverage held: the green specs actually executed the lines the commit changed — not a false green.'
       : "Change-coverage wasn't measurable here (bundled assets) — I reported it as unknown rather than faking it.";
-    if (has('oracle', 'mutation', 'valuescore', 'value')) return run.oracle && run.oracle !== '—'
-      ? 'Oracle valueScore was ' + run.oracle + ' — mutation testing caught most injected bugs, strong enough to promote the relevant rule to high confidence.'
-      : "The oracle didn't run for this one (non-JS/TS target or shadow), so promotion fell back to the conservative prevention signal.";
     if (has('pr', 'merge', 'issue', 'decision', 'outcome', 'result')) return 'Decision: ' + run.decision + '. ' + (run.verdict === 'pass' ? 'Green + reviewer-approved → PR with auto-merge.' : run.verdict === 'fail' ? 'A real failure → GitHub Issue, never a silent skip.' : '');
     if (has('rerun', 're-run', 'again', 'reproduce')) return 'I can re-run ' + run.sha + ' in ' + run.mode + ' mode — runs are deterministic, so a clean re-run of the same SHA should reproduce ' + run.verdict + '.';
     if (has('spec', 'test', 'generate', 'wrote')) return (run.newSpecs && run.newSpecs.length)
       ? 'I wrote ' + run.specs + ' spec' + (run.specs > 1 ? 's' : '') + ' for the blast radius: ' + run.newSpecs.map((s) => s.file.split('/').pop()).join(', ') + '. The reviewer approved them.'
       : 'No specs were written — the commit was classified as ' + (run.verdict === 'skipped' ? 'style/docs with no logic change, a valid no-op' : 'non-testable') + '.';
-    return 'Run ' + run.id + ' (' + run.sha + ') on ' + run.app + ' resolved ' + run.verdict + ' — ' + run.decision + '. Ask me why, about coverage, the oracle, or what I learned.';
+    return 'Run ' + run.id + ' (' + run.sha + ') on ' + run.app + ' resolved ' + run.verdict + ' — ' + run.decision + '. Ask me why, about coverage, or what I learned.';
   }
   function chatBubble(who, text, kind) {
     const agent = who === 'agent';
@@ -869,7 +864,6 @@
     }
     const older = history[Math.min(sel.a, sel.b)] || {}, newer = history[Math.max(sel.a, sel.b)] || {};
     const pctDelta = Math.round((newer.passRate - older.passRate) * 100);
-    const oracleNa = !older.oracle && !newer.oracle;
     const hd = newer.health - older.health, improved = hd >= 0;
     return '<div style="background:var(--surface-raised);border:var(--border-rule);border-radius:var(--radius-md);overflow:hidden">' +
       '<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:15px 18px;border-bottom:var(--border-rule)">' +
@@ -886,7 +880,6 @@
       DeltaCard('health', older.health, newer.health, hd, null, true) +
       DeltaCard('pass rate', Math.round(older.passRate * 100) + '%', Math.round(newer.passRate * 100) + '%', pctDelta, 'pts', true) +
       DeltaCard('change-coverage', older.coverage + '%', newer.coverage + '%', newer.coverage - older.coverage, 'pts', true) +
-      DeltaCard('oracle value', older.oracle ? older.oracle.toFixed(2) : 'n/a', newer.oracle ? newer.oracle.toFixed(2) : 'n/a', +(newer.oracle - older.oracle).toFixed(2), null, true, oracleNa) + '</div></div>' +
       '<div><span style="font-family:var(--font-mono);font-size:10px;letter-spacing:0.08em;text-transform:uppercase;color:var(--text-faint)">stability &amp; footprint</span>' +
       '<div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(128px, 1fr));gap:var(--space-3);margin-top:8px">' +
       DeltaCard('flaky specs', older.flaky, newer.flaky, newer.flaky - older.flaky, null, false) +
@@ -1386,14 +1379,14 @@
       const cs = LIVE.cases;
       const ri = cs.findIndex((c) => c.s === 'running'); if (ri >= 0) { cs[ri].s = 'pass'; cs[ri].ms = MS[ri]; }
       const pi = cs.findIndex((c) => c.s === 'pending'); if (pi >= 0) cs[pi].s = 'running';
-      const notes = ['renders empty-state for zero results', '4 cases green · 11.8s', 'oracle · mutation testing · 18 mutants'];
+      const notes = ['renders empty-state for zero results', '4 cases green · 11.8s'];
       LIVE.note = notes[Math.min(qi, notes.length - 1)];
       qi++; repaint();
       if (qi >= queue.length) {
         clearInterval(t2);
         const t3 = setTimeout(() => {
           LIVE.stages = LIVE.stages.map(([n, s]) => n === 'execute' ? [n, 'done'] : n === 'decide' ? [n, 'active'] : [n, s]);
-          LIVE.note = 'oracle green · choosing PR vs Issue'; repaint();
+          LIVE.note = 'verdict green · choosing PR vs Issue'; repaint();
         }, 1600);
         teardown.push(() => clearTimeout(t3));
       }

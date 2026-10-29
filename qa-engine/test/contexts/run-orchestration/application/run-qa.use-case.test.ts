@@ -2253,7 +2253,7 @@ test("signal mode — an accepted regeneration after the measurement reuses it a
       execute: async () => ({ verdict: "pass" as const, cases: [], logs: "" }),
       measure: async () => {
         measureCalls++;
-        return { status: "fail" as const, ratio: 0.2, valueScore: 0.25, uncovered: [{ file: "src/a.ts", lines: [1] }] };
+        return { status: "fail" as const, ratio: 0.2, uncovered: [{ file: "src/a.ts", lines: [1] }] };
       },
       blocks: () => false,
       review: async () => {
@@ -2279,11 +2279,8 @@ test("signal mode — an accepted regeneration after the measurement reuses it a
 
     assert.equal(measureCalls, 1, "signal mode reuses the measurement it has; it never spends a second one");
     assert.equal(out.gateSignals.coverage?.stale, true, "the recorded coverage predates the accepted bytes and is marked so");
-    assert.equal(out.gateSignals.value?.stale, true, "the value score describes the same superseded bytes and is marked stale");
-    assert.equal(out.gateSignals.valueScore, 0.25, "the measured score is kept for the record, never re-measured in signal mode");
     assert.equal(out.decision.sideEffect, "pr", "a stale signal is a recorded caveat, never a block");
     assert.equal(saved?.gateSignals.coverage?.stale, true, "the persisted outcome records the stale coverage");
-    assert.equal(saved?.gateSignals.value?.stale, true, "the persisted outcome records the stale value score");
   } finally {
     fixtures.cleanup();
   }
@@ -2307,8 +2304,8 @@ test("enforce mode — a review regeneration after the measurement gets ONE fina
         measureCalls++;
         measureNamespaces.push(opts?.namespace);
         return measureCalls === 1
-          ? { status: "fail" as const, ratio: 0.2, valueScore: 0.2, uncovered: [{ file: "src/a.ts", lines: [1] }] }
-          : { status: "pass" as const, ratio: 0.9, valueScore: 0.9 };
+          ? { status: "fail" as const, ratio: 0.2, uncovered: [{ file: "src/a.ts", lines: [1] }] }
+          : { status: "pass" as const, ratio: 0.9 };
       },
       blocks: (status) => status === "fail",
       review: async () => {
@@ -2335,8 +2332,6 @@ test("enforce mode — a review regeneration after the measurement gets ONE fina
     assert.equal(executeNamespaces.filter((ns) => ns?.endsWith("-coverage-final")).length, 1);
     assert.equal(out.decision.sideEffect, "pr", "the final measurement, not the superseded first one, decides");
     assert.equal(out.gateSignals.integrity?.acceptances, 2, "the coverage and the review regeneration each went through acceptance");
-    assert.equal(out.gateSignals.valueScore, 0.9, "the final re-measure's value score describes the bytes now on disk");
-    assert.equal(out.gateSignals.value?.stale, undefined, "a refreshed measurement is not stale");
   } finally {
     fixtures.cleanup();
   }
@@ -2353,7 +2348,7 @@ test("signal mode — a flaky run whose review regeneration was accepted marks i
       execute: async (_specDir, opts) => ((opts as { namespace?: string } | undefined)?.namespace ? { verdict: "pass" as const, cases: [], logs: "" } : { verdict: "flaky" as const, cases: [{ name: "checkout", status: "flaky" as const }], logs: "" }),
       measure: async () => {
         measureCalls++;
-        return { status: "fail" as const, ratio: 0.2, valueScore: 0.25, uncovered: [{ file: "src/a.ts", lines: [1] }] };
+        return { status: "fail" as const, ratio: 0.2, uncovered: [{ file: "src/a.ts", lines: [1] }] };
       },
       blocks: () => false,
       review: async () => {
@@ -2398,8 +2393,8 @@ test("enforce mode — a flaky run whose review regeneration was accepted gets o
       measure: async () => {
         measureCalls++;
         return measureCalls === 1
-          ? { status: "fail" as const, ratio: 0.2, valueScore: 0.2, uncovered: [{ file: "src/a.ts", lines: [1] }] }
-          : { status: "pass" as const, ratio: 0.9, valueScore: 0.9 };
+          ? { status: "fail" as const, ratio: 0.2, uncovered: [{ file: "src/a.ts", lines: [1] }] }
+          : { status: "pass" as const, ratio: 0.9 };
       },
       blocks: (status) => status === "fail",
       review: async () => {
@@ -2419,7 +2414,6 @@ test("enforce mode — a flaky run whose review regeneration was accepted gets o
     const out = await useCase.run({ ...baseInput, runId: "coverage-final-flaky", mode: "diff" });
 
     assert.equal(executeNamespaces.filter((ns) => ns?.endsWith("-coverage-final")).length, 1, "one final whole-suite measured run");
-    assert.equal(out.gateSignals.valueScore, 0.9, "the measurement describes the bytes now on disk");
     assert.equal(out.decision.verdict, "flaky", "a final run that passed first time never promotes a flaky run");
     assert.notEqual(out.decision.sideEffect, "pr", "a flaky run is never published");
   } finally {
@@ -2610,52 +2604,6 @@ test("contextMapCapture is NOT invoked on a context-mode INVALID result — capt
   assert.equal(captureCallCount, 0, "an invalid context-mode result must never invoke contextMapCapture — only a clean pass reached a validated, publishable map");
 });
 
-test("valueScore flows from ObjectiveSignalPort.measure() into the persisted gateSignals (not hardcoded null)", async () => {
-  let saved: import("@kernel/run-outcome.ts").RunOutcome | undefined;
-  const { ports } = stubPorts({
-    execute: async () => ({ verdict: "pass", cases: [], logs: "" }),
-    measure: async () => ({ status: "pass", ratio: 0.92, valueScore: 0.85 }),
-  });
-  ports.runHistory.save = async (outcome) => { saved = outcome; };
-  const useCase = new RunQaUseCase({ ...ports, config: { ...baseConfig, needsReview: false } });
-
-  await useCase.run({ ...baseInput, runId: "value-score-persisted" });
-
-  assert.ok(saved, "runHistory.save() must have been called");
-  assert.equal(saved!.gateSignals.valueScore, 0.85, "valueScore must be threaded from ObjectiveSignalPort.measure() into the persisted gateSignals");
-});
-
-test("an absent valueScore from ObjectiveSignalPort.measure() persists null, never a fabricated 0", async () => {
-  let saved: import("@kernel/run-outcome.ts").RunOutcome | undefined;
-  const { ports } = stubPorts({
-    execute: async () => ({ verdict: "pass", cases: [], logs: "" }),
-    measure: async () => ({ status: "unknown", ratio: null }), /* no valueScore field at all */
-  });
-  ports.runHistory.save = async (outcome) => { saved = outcome; };
-  const useCase = new RunQaUseCase({ ...ports, config: { ...baseConfig, needsReview: false } });
-
-  await useCase.run({ ...baseInput, runId: "value-score-absent-is-null" });
-
-  assert.ok(saved, "runHistory.save() must have been called");
-  assert.equal(saved!.gateSignals.valueScore, null, "an unwired/absent valueScore must persist as null, never a fabricated 0 or undefined");
-});
-
-test("mutantCount/killedCount flow from ObjectiveSignalPort.measure() into the persisted gateSignals (not hardcoded 0 downstream)", async () => {
-  let saved: import("@kernel/run-outcome.ts").RunOutcome | undefined;
-  const { ports } = stubPorts({
-    execute: async () => ({ verdict: "pass", cases: [], logs: "" }),
-    measure: async () => ({ status: "pass", ratio: 0.92, valueScore: 0.85, mutantCount: 20, killedCount: 17 }),
-  });
-  ports.runHistory.save = async (outcome) => { saved = outcome; };
-  const useCase = new RunQaUseCase({ ...ports, config: { ...baseConfig, needsReview: false } });
-
-  await useCase.run({ ...baseInput, runId: "o3-mutant-killed-count-persisted" });
-
-  assert.ok(saved, "runHistory.save() must have been called");
-  assert.equal(saved!.gateSignals.mutantCount, 20, "the oracle's real mutantCount must be threaded into the persisted gateSignals");
-  assert.equal(saved!.gateSignals.killedCount, 17, "the oracle's real killedCount must be threaded into the persisted gateSignals");
-});
-
 test("the branches a measurement counted on the changed lines are persisted beside the line ratio, and absent when it saw none", async () => {
   const persisted = async (measurement: { changedBranches?: number; takenBranches?: number }) => {
     let saved: import("@kernel/run-outcome.ts").RunOutcome | undefined;
@@ -2691,22 +2639,6 @@ test("the coverage measurement is told the spec files of the passing cases, and 
   assert.deepEqual(withMutation.gate.bundleMutation, judged);
   assert.deepEqual(withMutation.told, ["flows/pay.spec.ts"]);
   assert.equal("bundleMutation" in (await persisted()).gate, false);
-});
-
-test("an absent mutantCount/killedCount from ObjectiveSignalPort.measure() persists as absent, never a fabricated 0", async () => {
-  let saved: import("@kernel/run-outcome.ts").RunOutcome | undefined;
-  const { ports } = stubPorts({
-    execute: async () => ({ verdict: "pass", cases: [], logs: "" }),
-    measure: async () => ({ status: "unknown", ratio: null }), /* no mutantCount/killedCount field at all */
-  });
-  ports.runHistory.save = async (outcome) => { saved = outcome; };
-  const useCase = new RunQaUseCase({ ...ports, config: { ...baseConfig, needsReview: false } });
-
-  await useCase.run({ ...baseInput, runId: "o3-mutant-killed-count-absent" });
-
-  assert.ok(saved, "runHistory.save() must have been called");
-  assert.equal(saved!.gateSignals.mutantCount, undefined, "an unwired/absent mutantCount must stay absent, never a fabricated 0");
-  assert.equal(saved!.gateSignals.killedCount, undefined, "an unwired/absent killedCount must stay absent, never a fabricated 0");
 });
 
 test("errorClass is derived from the verdict (E-EXEC-FAIL on a fail), not hardcoded null", async () => {
@@ -4463,7 +4395,7 @@ test("measure() receives the run's own passing case names as baselineCases", asy
     execute: async () => ({ verdict: "pass", cases: passingCases, logs: "2 passed" }),
     measure: async (_br, _specDir, _diff, baselineCases) => {
       capturedBaselineCases = baselineCases;
-      return { status: "unknown", ratio: null, valueScore: 0.75 };
+      return { status: "unknown", ratio: null };
     },
   });
   const useCase = new RunQaUseCase({ ...ports, config: baseConfig });
@@ -4472,7 +4404,6 @@ test("measure() receives the run's own passing case names as baselineCases", asy
 
   assert.equal(out.decision.verdict, "pass");
   assert.deepEqual(capturedBaselineCases, ["login flow", "checkout flow"]);
-  assert.equal(out.gateSignals.valueScore, 0.75, "the oracle's real score must survive to the returned RunQaResult");
 });
 
 test("measure() excludes non-passing case names from baselineCases (a flaky-then-pass run's own flaky case is not a 'clean baseline' case)", async () => {

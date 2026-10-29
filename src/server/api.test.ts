@@ -184,7 +184,7 @@ test("GET /api/apps/:name/trends and /report return 200 and pass contractJson eg
     target: "e2e",
     verdict,
     errorClass: null,
-    gateSignals: { static: true, coverageRatio, valueScore: null, reviewerCorrections: [], flaky: false, retries: 0 },
+    gateSignals: { static: true, coverageRatio, reviewerCorrections: [], flaky: false, retries: 0 },
     at: "2026-01-01T00:00:00Z",
   });
   const outcomes = [outcome("pass", 0.8), outcome("fail", 0.4)];
@@ -214,7 +214,7 @@ test("GET /api/apps/:name/trends and /report return 200 and pass contractJson eg
 test("GET /report?format=csv returns CSV and ?window= is threaded to the dep", async () => {
   const outcome = (verdict: RunOutcome["verdict"], coverageRatio: number | null): RunOutcome => ({
     runId: "r", app: "demo", sha: "s", mode: "diff", target: "e2e", verdict, errorClass: null,
-    gateSignals: { static: true, coverageRatio, valueScore: null, reviewerCorrections: [], flaky: false, retries: 0 },
+    gateSignals: { static: true, coverageRatio, reviewerCorrections: [], flaky: false, retries: 0 },
 at: "2026-01-01T00:00:00Z",
   });
   const outcomes = [outcome("pass", 0.8), outcome("fail", 0.4)];

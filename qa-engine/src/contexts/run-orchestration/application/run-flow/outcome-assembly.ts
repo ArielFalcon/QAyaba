@@ -16,8 +16,8 @@ import type { RunContext } from "./run-context.ts";
 const DEFAULT_MIN_COVERAGE_RATIO = 0.7;
 
 /*
- * What a persisted outcome may carry beyond the decision. reviewerApproved and valueScore are optional: early exits
- * never reached those phases and must not fabricate them. Pre-exec counters default to 0 (not undefined) when the gate never ran.
+ * What a persisted outcome may carry beyond the decision. reviewerApproved is optional: early exits
+ * never reached that phase and must not fabricate them. Pre-exec counters default to 0 (not undefined) when the gate never ran.
  */
 export interface OutcomeExtras {
   /* Only callers whose path genuinely passed the static gate thread true; default is false. */
@@ -29,10 +29,6 @@ export interface OutcomeExtras {
   reviewerRationale?: string;
   /* What the review phase cost and decided; absent when no reviewer phase ran. */
   reviewer?: RunOutcome["gateSignals"]["reviewer"];
-  valueScore?: number | null;
-  /* Same "never ran" (absent) vs "ran and found zero" distinction as the sibling counts below. */
-  mutantCount?: number;
-  killedCount?: number;
   branchCoverage?: RunOutcome["gateSignals"]["branchCoverage"];
   changeCoverage?: RunOutcome["gateSignals"]["changeCoverage"];
   bundleMutation?: RunOutcome["gateSignals"]["bundleMutation"];
@@ -67,8 +63,6 @@ export interface OutcomeExtras {
   agentBrowser?: AgentBrowserGateSignal;
   /* The recorded coverage predates the bytes an accepted regeneration wrote (signal mode reuses it). */
   coverage?: { stale: boolean };
-  /* The recorded value score has the same staleness; the oracle stays signal-only. */
-  value?: { stale: boolean };
   /* What the run's regeneration acceptance did; absent when no regeneration came through it. */
   integrity?: { acceptances: number; rejected: number; proofReused: number; capHit: boolean };
   /* The test-intent lock's derived clauses and deltas; absent when the lock is off or nothing was derived. */
@@ -77,10 +71,6 @@ export interface OutcomeExtras {
   noop?: { kind: NoopKind };
   /* Per use case change-coverage; absent when no use case was asked for. */
   coverageByCandidate?: RunOutcome["gateSignals"]["coverageByCandidate"];
-  /* Per use case fault-injection score; absent when the oracle was not aimed at any. */
-  valueByCandidate?: RunOutcome["gateSignals"]["valueByCandidate"];
-  /* What the corrupted re-run counted; absent when it measured nothing. */
-  valueStats?: RunOutcome["gateSignals"]["valueStats"];
   /* Whether the failure is in the change's reach; absent when no case failed. */
   causal?: RunOutcome["gateSignals"]["causal"];
 }
@@ -102,7 +92,6 @@ export interface ErrorClassEnds {
 export function deriveErrorClass(
   verdict: string,
   coverageRatio: number | null,
-  valueScore: number | null,
   reviewerCorrections: string[] = [],
   ends: ErrorClassEnds = {},
 ): string | null {
@@ -113,7 +102,6 @@ export function deriveErrorClass(
     coverageRatio,
     minCoverageRatio: DEFAULT_MIN_COVERAGE_RATIO,
     reviewerCorrections,
-    valueScore,
     ...(ends.generationEnd ? { generationEnd: ends.generationEnd } : {}),
     ...(ends.preconditionFailed ? { preconditionFailed: true } : {}),
     ...(ends.reviewerUnavailable ? { reviewerUnavailable: true } : {}),
@@ -136,7 +124,6 @@ export function toRunOutcome(
   const coordination = ctx.host.coordination();
   const sandbox = ctx.host.sandboxSignal();
   const gateCoverageRatio = coverageRatio;
-  const gateValueScore = extra?.valueScore ?? null;
   return {
     runId: input.runId,
     app: input.app,
@@ -149,10 +136,6 @@ export function toRunOutcome(
       /* Default staticOk is false. Callers pass the real per-path value. */
       static: extra?.staticOk ?? false,
       coverageRatio: gateCoverageRatio,
-      valueScore: gateValueScore,
-      /* Conditional-spread, not `?? 0`: absent means the oracle never measured this run. */
-      ...(extra?.mutantCount !== undefined ? { mutantCount: extra.mutantCount } : {}),
-      ...(extra?.killedCount !== undefined ? { killedCount: extra.killedCount } : {}),
       ...(extra?.branchCoverage ? { branchCoverage: extra.branchCoverage } : {}),
       ...(extra?.changeCoverage ? { changeCoverage: extra.changeCoverage } : {}),
       ...(extra?.bundleMutation ? { bundleMutation: extra.bundleMutation } : {}),
@@ -190,14 +173,11 @@ export function toRunOutcome(
       ...(extra?.closedLoop !== undefined ? { closedLoop: extra.closedLoop } : {}),
       ...(extra?.agentBrowser !== undefined ? { agentBrowser: extra.agentBrowser } : {}),
       ...(extra?.coverage !== undefined ? { coverage: extra.coverage } : {}),
-      ...(extra?.value !== undefined ? { value: extra.value } : {}),
       ...(extra?.integrity !== undefined ? { integrity: extra.integrity } : {}),
       ...(extra?.intent !== undefined ? { intent: extra.intent } : {}),
       ...(extra?.noop !== undefined ? { noop: extra.noop } : {}),
       ...(extra?.causal !== undefined ? { causal: extra.causal } : {}),
       ...(extra?.coverageByCandidate !== undefined ? { coverageByCandidate: extra.coverageByCandidate } : {}),
-      ...(extra?.valueByCandidate !== undefined ? { valueByCandidate: extra.valueByCandidate } : {}),
-      ...(extra?.valueStats !== undefined ? { valueStats: extra.valueStats } : {}),
       ...(coordination ? { coordination } : {}),
     },
     ...(input.purpose !== undefined || extra?.note !== undefined ? { note: [input.purpose !== undefined ? `[${input.purpose}]` : undefined, extra?.note].filter((part) => part !== undefined).join(" ") } : {}),

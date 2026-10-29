@@ -297,7 +297,7 @@ test("an outcome the use case never persisted still tells how far the run got", 
   assert.deepEqual(Object.keys(outcome.gateSignals.phaseTimings ?? {}), ["gate"]);
 });
 
-/* toOutcome() must mirror the SAME errorClass/valueScore/reviewerApproved the use-case already
+/* toOutcome() must mirror the SAME errorClass/reviewerApproved the use-case already
    derived and persisted — not re-hardcode them to null at this adapter boundary (RunHistoryPort
    has no read-back path, so this adapter's toOutcome() is the ONLY place these fields can be
    surfaced to the RunPipelinePort caller).
@@ -312,18 +312,6 @@ test("reviewerApproved is forwarded into the returned RunOutcome, not hardcoded 
   const outcome = await adapter.run({ ...baseInput, runId: "adapter-reviewer-approved" });
 
   assert.equal(outcome.gateSignals.reviewerApproved, true, "reviewerApproved must be forwarded from the use-case's RunQaResult into the adapter's RunOutcome");
-});
-
-test("valueScore is forwarded into the returned RunOutcome, not hardcoded null", async () => {
-  const { ports } = stubPorts({
-    execute: async () => ({ verdict: "pass", cases: [], logs: "" }),
-    measure: async () => ({ status: "pass", ratio: 0.92, valueScore: 0.85 }),
-  });
-  const adapter = new RunPipelineAdapter({ ...ports, config: { ...baseConfig, needsReview: false } });
-
-  const outcome = await adapter.run({ ...baseInput, runId: "adapter-value-score" });
-
-  assert.equal(outcome.gateSignals.valueScore, 0.85, "valueScore must be forwarded from the use-case's RunQaResult into the adapter's RunOutcome, matching the value-oracle result");
 });
 
 test("errorClass is forwarded into the returned RunOutcome, not hardcoded null", async () => {

@@ -2,7 +2,7 @@
  * toRunReportView turns ONE finished run (its record + learning outcome) into a self-describing
  * report about THAT execution — distinct from the evolutionary report (toReportView), which ranks
  * period-over-period trends. This answers "what is important about the run that just finished?":
- * the verdict, the case mix, this run's change-coverage and value-oracle, its duration, and which
+ * the verdict, the case mix, this run's change-coverage, its duration, and which
  * flows misbehaved. It emits the SAME ReportView shape as the evolutionary report, so every client
  * renders both with one renderer (render by `intent`, not by domain).
  * Pure — unit-tested directly. Snapshot semantics: there is no previous window, so delta/multiplier
@@ -185,24 +185,6 @@ export function toRunReportView(input: RunReportInput): ReportView {
           value !== null
             ? `${pct(value)}% of changed lines exercised (target ${pct(minRatio)}%)`
             : "not measured this run",
-      }),
-    );
-  }
-
-  /* Value-oracle (mutation kill rate) of THIS run. Concern when below a coin-flip. */
-  {
-    const value = outcome?.gateSignals.valueScore ?? null;
-    const concern = value !== null && value < 0.5 ? 0.5 - value : 0;
-    insights.push(
-      snapshot({
-        id: "value-oracle",
-        title: "Value-oracle (mutation kill rate)",
-        chart: "gauge",
-        value,
-        unit: "ratio",
-        goodWhen: "up",
-        score: W("value-oracle", 0.7) + concern,
-        caption: value !== null ? `${pct(value)}% of injected faults caught` : "not measured this run",
       }),
     );
   }

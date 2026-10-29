@@ -502,8 +502,6 @@ export class HistoryEvidenceAdapter implements EvidencePort {
             reviewerApproved: g.reviewerApproved,
             coverageStatus,
             coverageMode: facts?.coverageMode ?? undefined,
-            mutantCount: g.mutantCount,
-            killedCount: g.killedCount,
             catalogGateFailClosed: g.catalogGateFailClosed,
             droppedRejections: g.reviewer?.droppedRejections,
             coverageRatio: g.coverageRatio ?? undefined,

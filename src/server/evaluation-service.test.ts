@@ -52,7 +52,7 @@ function finishedRun(app: string, over: { verdict?: RunOutcome["verdict"]; decis
   for (const c of over.cases ?? [{ name: "login works", status: "pass", file: "login.spec.ts" }, { name: "cart totals", status: "pass", file: "cart.spec.ts" }]) getHistory().runs.addCase(r.id, c);
   const outcome: RunOutcome = {
     runId: r.id, app, sha: "abcdef1234", mode: "diff", target: "e2e", verdict, errorClass: verdict === "infra-error" ? "E-TIME-BUDGET" : null,
-    gateSignals: { static: true, coverageRatio: 0.9, valueScore: null, reviewerCorrections: [], reviewerApproved: true, flaky: false, retries: 0 },
+    gateSignals: { static: true, coverageRatio: 0.9, reviewerCorrections: [], reviewerApproved: true, flaky: false, retries: 0 },
 at: "2026-10-17T10:00:00.000Z",
   };
   getHistory().learning.saveRunOutcome(outcome);
