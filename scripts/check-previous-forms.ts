@@ -50,6 +50,11 @@ export const BANNED_RULES: BannedRule[] = [
   { id: "claude-md", patterns: [/CLAUDE\.md/i] },
   { id: "codebase-memory", patterns: [/codebase-memory/i] },
   { id: "shell-error-taxonomy", patterns: [/\bsrc\/errors\b/], exemptPrefixes: [RECORDS_PREFIX] },
+  {
+    id: "unreached-engine-ports",
+    patterns: [/\b(RepoInfoPort|ComplexityExtractorPort|PatternExtractorPort|RelationExtractorPort|SemanticDiffExtractorPort|SymbolExtractorPort|ExtractorSet|StaticSignal|ExtractionContext|DomGroundingPort|PlanParserPort|CodeValidatePort)\b/],
+    exemptPrefixes: [RECORDS_PREFIX],
+  },
   { id: "shell-dead-run-types", patterns: [/\bAgentResult\b/], exemptPrefixes: [RECORDS_PREFIX] },
   { id: "shell-events-reexport", patterns: [/\bsrc\/contract\/events(?:\.ts)?(?![\w.-])/], exemptPrefixes: [RECORDS_PREFIX] },
   {
