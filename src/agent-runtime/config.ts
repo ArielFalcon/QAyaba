@@ -1,5 +1,5 @@
-import { AGENT_PROVIDERS, assignmentForRole, modelForRole } from "./types";
-import type { AgentProvider, AgentRuntimeConfig, AgentProviderHealth, AssignmentTier, DeclaredModels, RoleAssignment } from "./types";
+import { AGENT_NAME_FOR_ROLE, AGENT_PROVIDERS, assignmentForRole, modelForRole } from "./types";
+import type { AgentProvider, AgentRole, AgentRuntimeConfig, AgentProviderHealth, AssignmentTier, DeclaredModels, RoleAssignment } from "./types";
 import { declaredAgentModel } from "./declared-model";
 import { activeEnvironment } from "../settings/active";
 
@@ -19,29 +19,24 @@ export interface PublicAgentConfig {
   health?: Record<AgentProvider, AgentProviderHealth>;
 }
 
-/* The model of a tier no operator chose, for a role whose own agent declares none in agents/opencode.json (a role that declares one runs on it: `modelForRole`). */
-const DEFAULT_MODELS: Record<AgentProvider, Record<AssignmentTier, string>> = {
-  opencode: {
-    /* Must match agents/opencode.json qa-author. */
-    primary: "opencode-go/deepseek-v4.1-flash",
-    /* Must match qa-reviewer. It may equal primary: whether the review is an independent judgment is
-       recorded on every run (reviewerIndependence) and warned about at boot, not enforced. */
-    reviewer: "opencode-go/minimax-m3.1-flash",
-    chat: "opencode-go/glm-5.3-flash",
-  },
-};
+/* The role whose agent in agents/opencode.json supplies a tier's model when no operator chose one. */
+const TIER_ROLE: Record<AssignmentTier, AgentRole> = { primary: "author", reviewer: "reviewer", chat: "chat" };
 
 const KEY_NAME: Record<AgentProvider, string> = { opencode: "OPENCODE_API_KEY" };
 
 const TIERS: readonly AssignmentTier[] = ["primary", "reviewer", "chat"];
 
-/* Every role runs on `provider`; each tier's model comes from AGENT_<TIER>_MODEL or the provider's default, and a tier on its default is recorded as defaulted. */
-export function providerConfig(provider: AgentProvider, env: Record<string, string | undefined> = activeEnvironment()): AgentRuntimeConfig {
+/* Every role runs on `provider`; each tier's model comes from AGENT_<TIER>_MODEL or the model its agent declares in agents/opencode.json, and a tier on the declared model is recorded as defaulted. */
+export function providerConfig(
+  provider: AgentProvider,
+  env: Record<string, string | undefined> = activeEnvironment(),
+  declared: DeclaredModels = declaredAgentModel,
+): AgentRuntimeConfig {
   return {
     assignments: {
-      primary: assignment(provider, "primary", env),
-      reviewer: assignment(provider, "reviewer", env),
-      chat: assignment(provider, "chat", env),
+      primary: assignment(provider, "primary", env, declared),
+      reviewer: assignment(provider, "reviewer", env, declared),
+      chat: assignment(provider, "chat", env, declared),
     },
     defaulted: TIERS.filter((tier) => !env[modelEnvKey(tier)]),
   };
@@ -118,8 +113,8 @@ function modelEnvKey(tier: AssignmentTier): string {
   return `AGENT_${tier.toUpperCase()}_MODEL`;
 }
 
-function assignment(provider: AgentProvider, tier: AssignmentTier, env: Record<string, string | undefined>): RoleAssignment {
-  return { provider, model: env[modelEnvKey(tier)] || DEFAULT_MODELS[provider][tier] };
+function assignment(provider: AgentProvider, tier: AssignmentTier, env: Record<string, string | undefined>, declared: DeclaredModels): RoleAssignment {
+  return { provider, model: env[modelEnvKey(tier)] || declared(AGENT_NAME_FOR_ROLE[TIER_ROLE[tier]]) || "" };
 }
 
 function visibleRoles(): Array<keyof AgentRuntimeConfig["assignments"]> {

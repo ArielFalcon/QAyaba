@@ -58,6 +58,7 @@ export const BANNED_RULES: BannedRule[] = [
   { id: "ast-grep-flag", patterns: [/\bhasAstGrepRules\b/, /\bastGrep\b/], exemptPrefixes: [RECORDS_PREFIX] },
   { id: "api-token-resolver", patterns: [/\bresolveApiToken\b/], exemptPrefixes: [RECORDS_PREFIX] },
   { id: "sanitizer-prompt-cap", patterns: [/\bcapText\b/, /\bMAX_PROMPT_BODY_CHARS\b/], exemptPrefixes: [RECORDS_PREFIX] },
+  { id: "default-models-table", patterns: [/\bDEFAULT_MODELS\b/], exemptPrefixes: [RECORDS_PREFIX] },
   { id: "shell-dead-run-types", patterns: [/\bAgentResult\b/], exemptPrefixes: [RECORDS_PREFIX] },
   { id: "shell-events-reexport", patterns: [/\bsrc\/contract\/events(?:\.ts)?(?![\w.-])/], exemptPrefixes: [RECORDS_PREFIX] },
   {
