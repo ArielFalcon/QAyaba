@@ -3,7 +3,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createDelegationBrief } from "@contexts/coordination/application/delegation-brief.ts";
 import { readDelegationResult } from "@contexts/coordination/application/delegation-reading.ts";
-import type { DevStateGround } from "@contexts/coordination/application/explore-verification.ts";
+import type { DevStateGround } from "@contexts/coordination/application/dev-state-backing.ts";
 import { PatternRedactionAdapter } from "../../../../src/shared-infrastructure/redaction/pattern-redaction.adapter.ts";
 
 const redaction = new PatternRedactionAdapter();

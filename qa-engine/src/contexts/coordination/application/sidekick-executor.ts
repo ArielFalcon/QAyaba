@@ -8,7 +8,7 @@ import { isAgentTimeoutError } from "@kernel/domain-error.ts";
 import { isRunDeadlineError } from "@kernel/run-deadline.ts";
 import { assembleDefs, type AssembledPrompt, type WindowFitOutcome } from "@kernel/prompt-sections.ts";
 import { FEEDBACK_SECTIONS } from "./coordination-sections/feedback-sections.ts";
-import type { DevStateGround } from "./explore-verification.ts";
+import type { DevStateGround } from "./dev-state-backing.ts";
 import { delegatingKindSpec, type SidekickKind } from "./sidekick-kinds.ts";
 
 export interface SidekickRender {

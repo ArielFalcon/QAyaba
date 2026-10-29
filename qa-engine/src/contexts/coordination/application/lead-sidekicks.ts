@@ -46,7 +46,7 @@ import { admitExploreRequest } from "./explore-request.ts";
 import { assembleExploreOutcome, runExploreRound } from "./explore-round.ts";
 import type { EvidenceRef } from "./evidence-ref.ts";
 import { evidenceFromEmptyRead, evidenceFromPackDataRoutes } from "./evidence-from.ts";
-import type { DevStateGround } from "./explore-verification.ts";
+import type { DevStateGround } from "./dev-state-backing.ts";
 import { observationConflictIn } from "./evidence-precedence.ts";
 import { AUTHORING_FAILURE, authoringFailureFeedback, classifyAuthoringFailure, type AuthoringFailure } from "./authoring-failure.ts";
 import { FanOutDispatcher, FLOW_RESULT, type TimerPort } from "./fan-out-dispatcher.ts";

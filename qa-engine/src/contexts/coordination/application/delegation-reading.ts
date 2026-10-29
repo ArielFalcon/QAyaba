@@ -6,7 +6,7 @@ import type { DelegationBrief } from "./delegation-brief.ts";
 import { ANSWER_MISS, belongsToBrief, CANDIDATE_CLAIMS, DELEGATION_RECOMMENDATIONS, type CandidateClaim, type CandidateClaimStatus, DELEGATION_STATUSES, type AnswerMiss, type DelegationRecommendation, type DelegationResult, type DelegationStatus } from "./delegation-result.ts";
 import { readAcceptanceReport } from "./acceptance-report.ts";
 import { applyPushback } from "./pushback.ts";
-import { backDevStateUnmet, type DevStateGround } from "./explore-verification.ts";
+import { backDevStateUnmet, type DevStateGround } from "./dev-state-backing.ts";
 import { isPathWithinWritableRoots } from "./path-scope.ts";
 
 function asStringArray(value: unknown): string[] {

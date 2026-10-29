@@ -5,7 +5,7 @@ import { ACCEPTANCE_REPORT_DEFECTS, type AcceptanceReportEntry } from "./accepta
 import { SIDEKICK_AUTHORITY } from "./authority.ts";
 import type { DelegationBrief } from "./delegation-brief.ts";
 import { belongsToBrief, type DelegationResult, type UnmetByDevState } from "./delegation-result.ts";
-import type { DevStateBacking } from "./explore-verification.ts";
+import type { DevStateBacking } from "./dev-state-backing.ts";
 import { isPathWithinWritableRoots } from "./path-scope.ts";
 
 export const PUSHBACK_REASONS = [

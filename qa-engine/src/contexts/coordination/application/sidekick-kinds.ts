@@ -10,7 +10,7 @@ import type { DelegationBrief } from "./delegation-brief.ts";
 import { readDelegationResult } from "./delegation-reading.ts";
 import type { DelegationResult } from "./delegation-result.ts";
 import { readExploreResult, renderExploreBrief } from "./explore-kind.ts";
-import type { DevStateGround } from "./explore-verification.ts";
+import type { DevStateGround } from "./dev-state-backing.ts";
 import { renderSidekickBrief } from "./sidekick-prompt.ts";
 import { AUTHOR_SIDEKICK, REVIEW_SIDEKICK } from "@kernel/sidekick-session.ts";
 

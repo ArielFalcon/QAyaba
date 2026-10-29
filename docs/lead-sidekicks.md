@@ -218,7 +218,7 @@ the lead dropped with a reason is not named.
 An acceptance criterion the sidekick reports `unmet` blocks the flow's result (`pushback.ts`: `acceptance-contradiction`), with
 one exception: the entry may carry the typed cause `"cause":"dev-state"` and the `pages` where the sidekick read DEV's state
 (`AcceptanceReportEntry.devState`; prose in `note` or `concerns` never counts). The orchestrator backs the claim from what it
-holds itself (`backDevStateUnmet`, `explore-verification.ts`): every named page must be a page the orchestrator's browser
+holds itself (`backDevStateUnmet`, `dev-state-backing.ts`): every named page must be a page the orchestrator's browser
 showed that flow's sessions (`AgentBrowserHandle.readsOf`) or one its own `run_spec` calls read empty, and an empty read of a
 page the Context Pack read with results (`observationConflictIn`) backs nothing, the pack winning as for an exploration
 finding. A backed unmet is not a contradiction: the result stays `completed-with-concerns` with the sidekick's own summary,
