@@ -3,7 +3,7 @@
 import { CampaignInputSchema, CaptureModeSchema, CreateRunResultSchema, GroundingInputSchema, type GroundingInput } from "../../../contract/commands";
 import type { CampaignIdentity } from "../../../contract/campaign";
 import type { CaptureMode } from "@kernel/telemetry/capture-mode";
-import { RUN_MODES, type RunMode, type TestTarget } from "../../../types";
+import { RETIRED_RUN_MODES, RUN_MODES, type RunMode, type TestTarget } from "../../../types";
 import { CampaignCaptureMismatchError } from "../../campaign-capture";
 import { ApiError } from "../api-error";
 import type { ApiDeps } from "../deps";
@@ -24,6 +24,9 @@ export async function createRun(deps: ApiDeps, body: Record<string, unknown>): P
 
   const target: TestTarget = "e2e";
   if (body.target !== undefined && body.target !== target) throw new ApiError(400, `'target' must be "${target}" (it is the only target)`);
+  if (typeof body.mode === "string" && RETIRED_RUN_MODES.includes(body.mode)) {
+    throw new ApiError(400, `'mode' "${body.mode}" was removed; use one of ${RUN_MODES.join(", ")}`);
+  }
   const mode: RunMode =
     typeof body.mode === "string" && (RUN_MODES as readonly string[]).includes(body.mode) ? (body.mode as RunMode) : "diff";
   const guidance = typeof body.guidance === "string" ? body.guidance.slice(0, MAX_GUIDANCE_LENGTH) : undefined;

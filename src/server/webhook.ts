@@ -1,7 +1,7 @@
 /* Webhook core: signature, payload, enqueue decision. HTTP wrapper lives in src/server/webhook-handler.ts. */
 
 import { createHmac, timingSafeEqual } from "node:crypto";
-import { RUN_MODES, RunMode } from "../types";
+import { RETIRED_RUN_MODES, RUN_MODES, RunMode } from "../types";
 
 export interface WebhookPayload {
   repo: string;
@@ -65,6 +65,10 @@ export function handleWebhook(
     json = JSON.parse(rawBody);
   } catch {
     return { status: 400, message: "invalid JSON" };
+  }
+  const mode = (json as { mode?: unknown } | null)?.mode;
+  if (typeof mode === "string" && RETIRED_RUN_MODES.includes(mode)) {
+    return { status: 400, message: `mode "${mode}" was removed; use one of ${RUN_MODES.join(", ")}` };
   }
   const payload = parseWebhook(json);
   if (!payload) return { status: 422, message: "payload without a recognizable repo/sha" };

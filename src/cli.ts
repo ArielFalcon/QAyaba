@@ -25,7 +25,7 @@ import { discoverApiToken } from "./server/api-token";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { loadAppConfig } from "./orchestrator/config-loader";
-import { RUN_MODES, RunMode } from "./types";
+import { RETIRED_RUN_MODES, RUN_MODES, RunMode } from "./types";
 import { runSucceeded } from "./cli-exit";
 import type { GroundingInput } from "./contract/commands";
 import { renderRunReport } from "./qa/value-report";
@@ -275,6 +275,10 @@ export function parseArgs(argv: string[]): { app: string; sha: string; baseSha?:
     console.error(
       `Usage: npm run qa -- --app <app> --sha <sha> [--base-sha <sha>] [--mode ${RUN_MODES.join("|")}] [--guidance "..."] [--closed-loop on|off] [--agent-browser on|off] [--dom-pack on|off]`,
     );
+    process.exit(2);
+  }
+  if (out.mode !== undefined && RETIRED_RUN_MODES.includes(out.mode)) {
+    console.error(`--mode ${out.mode} was removed; use one of ${RUN_MODES.join("|")}`);
     process.exit(2);
   }
   const mode = (RUN_MODES as readonly string[]).includes(out.mode ?? "") ? (out.mode as RunMode) : "diff";

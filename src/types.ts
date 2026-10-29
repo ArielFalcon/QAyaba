@@ -2,12 +2,12 @@
 
 import type { ActivityKindSchema, RunChangeEntrySchema } from "./contract/commands";
 import type { z } from "zod";
-import { RUN_MODES, type RunMode, type TestTarget, type TriggerSource } from "@kernel/run-mode";
+import { RETIRED_RUN_MODES, RUN_MODES, type RunMode, type TestTarget, type TriggerSource } from "@kernel/run-mode";
 import { RUN_ENGINE_STATUSES, engineStatus, type RunEngineStatus, type RunVerdict } from "@kernel/run-verdict";
 import type { CaseStatus, QaCase, SpecRecord } from "@kernel/qa-case";
 import type { RunOutcome as EngineRunOutcome } from "@kernel/run-outcome";
 
-export { RUN_MODES, RUN_ENGINE_STATUSES, engineStatus };
+export { RETIRED_RUN_MODES, RUN_MODES, RUN_ENGINE_STATUSES, engineStatus };
 export type { RunMode, TestTarget, TriggerSource, RunEngineStatus, RunVerdict, CaseStatus, QaCase };
 
 export interface QaRunResult {

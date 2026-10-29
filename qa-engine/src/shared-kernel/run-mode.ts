@@ -14,6 +14,9 @@ export type TriggerSource = "webhook" | "manual";
 export type RunMode = "diff" | "manual" | "context";
 export const RUN_MODES: readonly RunMode[] = ["diff", "manual", "context"] as const;
 
+/* Modes that were removed. A request that names one is refused, never run as another mode. */
+export const RETIRED_RUN_MODES: readonly string[] = ["complete", "exhaustive"] as const;
+
 /**
  * Why a run was started, when it is not a change to test. The mode says what the run does; a purpose says what it is for, and is
  * recorded on the run's persisted note so the history can tell the run apart. It never changes a verdict, a decision or a gate.

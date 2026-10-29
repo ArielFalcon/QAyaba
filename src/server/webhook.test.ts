@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createHmac } from "node:crypto";
 import { verifySignature, parseWebhook, handleWebhook } from "./webhook";
+import { RETIRED_RUN_MODES } from "../types";
 
 const SECRET = "topsecret";
 const SHA = "abc1234"; /* a valid 7-char hex commit id */
@@ -34,9 +35,16 @@ test("parseWebhook reads mode and guidance", () => {
     baseSha: undefined,
   });
   assert.equal(parseWebhook({ repo: "a", sha: SHA, mode: "nope" })?.mode, "diff");
-  assert.equal(parseWebhook({ repo: "a", sha: SHA, mode: "complete" })?.mode, "diff", "a retired mode reads as any unknown one");
-  assert.equal(parseWebhook({ repo: "a", sha: SHA, mode: "exhaustive" })?.mode, "diff");
   assert.equal(parseWebhook({ repo: "a", sha: SHA, mode: "context" })?.mode, "context");
+});
+
+test("a webhook that names a removed mode is refused, never run as a diff run", () => {
+  for (const mode of RETIRED_RUN_MODES) {
+    const result = handleWebhook(JSON.stringify({ repo: "a", sha: SHA, mode }), undefined, {});
+    assert.equal(result.status, 400, mode);
+    assert.match(result.message, new RegExp(mode));
+    assert.equal(result.payload, undefined, mode);
+  }
 });
 
 test("parseWebhook understands the GitHub push event (mode diff)", () => {

@@ -7,7 +7,7 @@ import { AppConfigInvalidError, AppNotFoundError } from "../orchestrator/config-
 import { createLocalConsoleLogin, LOCAL_CONSOLE_PRINCIPAL, validateSession } from "./auth";
 import { toTrendsView } from "./trends-view";
 import { toReportView } from "./report-view";
-import { RunRecord, RunOutcome } from "../types";
+import { RETIRED_RUN_MODES, RunRecord, RunOutcome } from "../types";
 import {
   AgentConfigApplyResultSchema,
   AgentModelsResponseSchema,
@@ -439,6 +439,17 @@ test("POST /api/v1/runs refuses a target other than e2e instead of running somet
   assert.equal(res.status, 400);
   assert.match(JSON.parse(res.body).error, /target/);
   assert.equal(enqueued, 0);
+});
+
+test("POST /api/v1/runs refuses a removed mode instead of running a diff run in its place", async () => {
+  for (const mode of RETIRED_RUN_MODES) {
+    let enqueued = 0;
+    const res = mkRes();
+    await routeApi(mkReq("POST", "/api/v1/runs", JSON.stringify({ app: "demo", sha: "abc1234", mode })), res, deps({ enqueue: () => { enqueued += 1; return "r1"; } }));
+    assert.equal(res.status, 400, mode);
+    assert.match(JSON.parse(res.body).error, new RegExp(mode));
+    assert.equal(enqueued, 0, mode);
+  }
 });
 
 test("POST /api/v1/runs forwards a baseSha to the enqueue so the run's diff spans baseSha..sha", async () => {
