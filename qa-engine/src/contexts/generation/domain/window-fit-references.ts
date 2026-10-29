@@ -6,7 +6,7 @@
  */
 import { WINDOW_FIT_REASON, type SectionDegradation } from "@kernel/prompt-sections.ts";
 import type { Omission } from "@kernel/telemetry/section-meta.ts";
-import { domPageCount, referenceDomPages, referenceSectionFacts, sectionFactCount } from "./pack-pages.ts";
+import { domPageCount, referenceDomPages, referenceSectionFacts, routesPrintedElsewhere, sectionFactCount } from "./pack-pages.ts";
 import { PACK_HEADINGS } from "./prompt-headings.ts";
 import { advisoryLineIds, itemId } from "@kernel/context-item-ids.ts";
 
@@ -14,7 +14,7 @@ const windowFit = (count: number, route?: string): Omission => ({ class: "trunca
 
 /*
  * A DOM text that gives way page by page, the last (lowest-ranked) page first, each shown as its `route …:` line and how many lines
- * it held. `wrap` puts the DOM back into its section; `itemIds` drops the elements of every page left out from the ids the section
+ * it held. `wrap` puts the DOM back into its section; `itemIds` drops the elements of every page left out, unless the text still prints that page elsewhere, from the ids the section
  * supplies; `section` names the heading the pages are under, in a text that holds others.
  */
 export function domPagesDegrade(opts: {
@@ -29,7 +29,9 @@ export function domPagesDegrade(opts: {
   return (step) => {
     if (step > pages) return undefined;
     const { text, left } = referenceDomPages(opts.dom, step, scope);
-    const leftRoutes = left.map((page) => `dom:${page.route}#`);
+    /* A tree the text still prints elsewhere (the advisory block of a redirect's reached page) is still supplied. */
+    const printedElsewhere = routesPrintedElsewhere(opts.dom, scope);
+    const leftRoutes = left.filter((page) => !printedElsewhere.has(page.route)).map((page) => `dom:${page.route}#`);
     return {
       content: opts.wrap(text),
       omissions: [...(opts.omissions ?? []), ...left.map((page) => windowFit(page.lines, page.route))],

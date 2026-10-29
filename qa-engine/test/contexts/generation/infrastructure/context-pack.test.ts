@@ -1306,9 +1306,10 @@ function siteRendering(pages: readonly RouteSnapshot[]): ContextPackDeps {
 /* The routes the pack text prints a tree for: the grounded routes (an opened template page by its template) and the pages redirects reached. */
 function printedRoutes(text: string | undefined): Set<string> {
   const printed = new Set<string>();
-  for (const line of (text ?? "").split("\n")) {
+  const lines = (text ?? "").split("\n");
+  for (const [i, line] of lines.entries()) {
     const grounded = /^route (\S+)(?: \(instance of (\S+)\))?:/.exec(line);
-    if (grounded && !line.includes("(redirected to")) printed.add(grounded[2] ?? grounded[1]!);
+    if (grounded && lines[i + 1]?.startsWith("  ")) printed.add(grounded[2] ?? grounded[1]!);
     const reached = /^reached (\S+), asked for /.exec(line);
     if (reached) printed.add(reached[1]!);
   }
@@ -1352,10 +1353,39 @@ test("a changed test id on a page a redirect reached makes one fact for that pag
   assert.deepEqual(facts, ["fact:/home#save-btn:present"]);
 });
 
+test("a page the report prints no tree for still makes an absence unproven: an unconfirmed data state there emits no absent fact", async () => {
+  const deps: ContextPackDeps = {
+    captureDomForRoutes: async (_routes, input) => {
+      const page = { grounded: true, links: [], keptNodes: ["button: Save"], keptTestIds: [], testIdOfNode: new Map<string, string>(), nodeCapOmitted: 0 };
+      input.onPages?.([
+        { ...page, route: "/home", printed: true },
+        { ...page, route: "/", printed: false, dataState: true, resultExpected: true, resultCount: 0, dataStateUnconfirmed: true, testIds: ["save-btn"] },
+      ]);
+      return "route /home:\n  button: Save";
+    },
+    domDeps: stubDomDeps(undefined),
+    log: () => {},
+  };
+  const result = await buildContextPack(
+    { routes: ["/home"], baseUrl: "http://localhost:3000", e2eDir: "/fake/e2e", changedElements: [{ file: "f.html", line: 1, testId: "save-btn", raw: "raw" }] },
+    deps,
+  );
+  const { ids } = packDeliveredItemIds(result);
+  assert.deepEqual(ids.filter((id) => id.startsWith("fact:")), [], "no fact for a page the report does not print, and no absence while a page is unconfirmed");
+  assert.deepEqual(routesOfIds(ids), ["/home"], "the unprinted page lists no element");
+});
+
+test("a tree printed under two routes keeps the test ids of every print", async () => {
+  const pages = [rendered("/home", HOME_NODES, { testIds: ["save-btn"] }), rendered("/login", HOME_NODES, { sentTo: "/home" })];
+  const result = await buildContextPack({ routes: ["/home", "/login"], ...PACK_INPUT }, siteRendering(pages));
+  assert.ok(packDeliveredItemIds(result).ids.includes("dom:/home#save-btn"));
+});
+
 const SHAPES: ReadonlyArray<{ shape: string; routes: string[]; pages: () => RouteSnapshot[] }> = [
   { shape: "no redirect", routes: ["/a", "/b"], pages: () => [rendered("/a", buttons("A", 4)), rendered("/b", buttons("B", 5))] },
   { shape: "redirects to an asked page", routes: ["/home", ...GUARDED], pages: guardedPages },
   { shape: "redirects to a page nobody asked for", routes: GUARDED, pages: guardedPages },
+  { shape: "a route whose capture failed", routes: ["/a", "/b"], pages: () => [rendered("/a", buttons("A", 4)), { route: "/b", error: "timeout" }] },
   { shape: "a link seed", routes: ["/a", LIST_TEMPLATE], pages: () => [rendered("/a", buttons("A", 4)), rendered("/", buttons("Landing", 8))] },
   { shape: "a template page opened through a link", routes: ["/a", LIST_TEMPLATE], pages: () => [rendered("/a", buttons("A", 4), { links: ["/shops/madrid/madrid"] }), rendered("/", buttons("Landing", 8), { links: ["/shops/madrid/madrid"] }), { ...rendered("/shops/madrid/madrid", buttons("Shop", 5)), template: LIST_TEMPLATE }] },
 ];

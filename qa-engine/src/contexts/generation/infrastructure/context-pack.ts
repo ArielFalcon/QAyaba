@@ -120,9 +120,10 @@ function packItemIds(assembly: ContextPackAssembly): { ids: string[]; omissions:
   if (!trace) return { ids: [], omissions: [] };
   const deliveries = trace.pageDeliveries ?? [];
   const domIds = domItemIds(deliveries.map((p) => ({ route: p.route, nodes: p.keptNodes, testIdOfNode: p.testIdOfNode, testIds: p.keptTestIds })));
-  const factIds = changedValueFactIds(trace.pages.flatMap((page) => {
+  /* Every captured page weighs on whether an absence is proof; only a tree the report prints supplies a fact. */
+  const factIds = changedValueFactIds(trace.pages.map((page) => {
     const route = reportedRoute(page);
-    return route === undefined ? [] : [{ route, ...(page.testIds ? { testIds: page.testIds } : {}), unconfirmed: page.dataStateUnconfirmed === true }];
+    return { route: route ?? page.route, ...(route !== undefined && page.testIds ? { testIds: page.testIds } : {}), unconfirmed: page.dataStateUnconfirmed === true };
   }), trace.changedTestIds);
   const opIds = trace.contractIds.map(itemId.op);
   const omissions: Omission[] = [];
@@ -388,7 +389,17 @@ export async function buildContextPack(
     const route = reportedRoute(page);
     if (route === undefined) return;
     const keptNodes = page.keptNodes ?? [];
-    deliveries.set(`${route}\n${keptNodes.join("\n")}`, { route, ...(page.template !== undefined && page.reached === undefined ? { template: page.template } : {}), keptNodes, keptTestIds: page.keptTestIds ?? [], testIdOfNode: page.testIdOfNode ?? new Map(), nodeCapOmitted: page.nodeCapOmitted ?? 0 });
+    const key = `${route}\n${keptNodes.join("\n")}`;
+    const earlier = deliveries.get(key);
+    /* The same tree printed under one name by several routes may carry different test ids in each print: the record keeps them all. */
+    deliveries.set(key, {
+      route,
+      ...(page.template !== undefined && page.reached === undefined ? { template: page.template } : {}),
+      keptNodes,
+      keptTestIds: [...new Set([...(earlier?.keptTestIds ?? []), ...(page.keptTestIds ?? [])])],
+      testIdOfNode: new Map([...(earlier?.testIdOfNode ?? []), ...(page.testIdOfNode ?? [])]),
+      nodeCapOmitted: Math.max(earlier?.nodeCapOmitted ?? 0, page.nodeCapOmitted ?? 0),
+    });
   };
   const capture = async (routes: string[], captureInput: CaptureRoutesInput): Promise<void> => {
     const rawCaptured = await deps.captureDomForRoutes(routes, { ...captureInput, onPages: (reported) => reported.forEach(recordPage) }, deps.domDeps, input.changedElements);

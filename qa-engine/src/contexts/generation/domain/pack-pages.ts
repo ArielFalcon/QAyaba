@@ -151,6 +151,28 @@ function pageSpans(lines: readonly string[], section?: string): PageSpan[] {
   return spans;
 }
 
+/* The heading line of a page the redirect advisory prints: the path a redirect reached and the routes asked for. */
+const REACHED_LINE = /^reached (.+?), asked for .*:$/;
+
+/* The routes whose tree the text prints outside the pages `referenceDomPages` can give way to: the pages a redirect reached (the advisory block) and the pages under any heading other than `section`. A page is printed when lines follow its heading. */
+export function routesPrintedElsewhere(text: string, opts: { section?: string } = {}): ReadonlySet<string> {
+  const lines = text.split("\n");
+  const routes = new Set<string>();
+  let inScope = opts.section === undefined;
+  lines.forEach((line, i) => {
+    if (HEADING.test(line)) {
+      inScope = opts.section === undefined || line.startsWith(`### ${opts.section}`);
+      return;
+    }
+    if (!lines[i + 1]?.startsWith("  ")) return;
+    const reached = REACHED_LINE.exec(line);
+    const page = inScope ? null : PAGE_LINE.exec(line);
+    const route = reached?.[1] ?? (page ? (page[2] ?? page[1]) : undefined);
+    if (route !== undefined) routes.add(route);
+  });
+  return routes;
+}
+
 /* How many pages of a DOM text can give way to a reference. */
 export function domPageCount(text: string, opts: { section?: string } = {}): number {
   return pageSpans(text.split("\n"), opts.section).length;

@@ -144,6 +144,26 @@ test("the Context Pack over the author's window shows its lowest-ranked pages as
   assert.equal(prompt.windowFit?.outcome, "fits");
 });
 
+const ADVISORY_PACK = [
+  PACK,
+  "",
+  `### ${PACK_HEADINGS.redirected} (ADVISORY)`,
+  "These routes sent the browser to another page.",
+  "reached /orders, asked for /login:",
+  ...Array.from({ length: 3 }, (_, i) => `  button: orders action ${i}`),
+].join("\n");
+
+test("a page the window leaves out of the Live DOM keeps its elements while the redirect advisory still prints the same tree", () => {
+  const input = generator({ contextPack: ADVISORY_PACK, contextPackItemIds: PACK_IDS });
+  const whole = buildPromptAssembled(input, { fit: roomy });
+  const prompt = buildPromptAssembled(input, { fit: windowOf(bytesOf(whole.text) - 9_000) });
+  assert.match(prompt.text, /route \/orders:\n {2}\(this page's 300 line\(s\) are not shown here, to fit the window\)/);
+  assert.ok(prompt.text.includes("reached /orders, asked for /login:\n  button: orders action 0"), "the advisory still prints the page");
+  const meta = prompt.sectionItems["context-pack"]!;
+  assert.ok(meta.omissions.some((o) => o.reason === WINDOW_FIT_REASON && o.route === "/orders"), "the Live DOM lines left out are recorded");
+  assert.ok(meta.itemIds.includes("dom:/orders#role:button:z"), "a tree the text still prints stays in the record");
+});
+
 test("a generator prompt that fits, or whose window is unknown, is the prompt it was without the rule", () => {
   const input = generator({ contextPack: PACK, contextPackItemIds: PACK_IDS });
   const plain = buildPromptAssembled(input);
