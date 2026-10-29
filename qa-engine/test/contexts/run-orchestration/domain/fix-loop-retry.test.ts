@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { FixLoop, type FixLoopExecutionPort, type FixLoopRegenerationPort } from "@contexts/run-orchestration/domain/fix-loop.aggregate.ts";
 import { CycleBudget } from "@kernel/cycle-budget.ts";
 import { WallClockBudget } from "@kernel/wall-clock-budget.ts";
+import { UNPROVEN_INTEGRITY } from "../../../support/fix-loop-integrity.ts";
 
 /* The retry loop of the FixLoop aggregate: a run that fails the same way on every execution is retried once and ends
    as a fail, and the aggregate's own retries counter reaches 2 under maxRetries=2 while progress is preserved. The
@@ -48,6 +49,7 @@ test("a run that fails identically on every execution is retried once and ends a
     wallClockBudget,
     devHealthy: async () => true,
     namespace: "fail-identically",
+    integrity: UNPROVEN_INTEGRITY,
     coverageWillMeasure: false, /* no change-coverage wiring in this scenario */
   });
 
@@ -109,6 +111,7 @@ test("FixLoop's OWN retries counter reaches 2 under maxRetries=2 with a progress
     wallClockBudget,
     devHealthy: async () => true,
     namespace: "progress-preserved",
+    integrity: UNPROVEN_INTEGRITY,
     coverageWillMeasure: true, /* never-filter, keeps merge logic out of this test's scope */
   });
 
@@ -184,6 +187,7 @@ test("failureTrees are re-derived per-round from the CURRENT run's failing cases
     wallClockBudget,
     devHealthy: async () => true,
     namespace: "failure-trees",
+    integrity: UNPROVEN_INTEGRITY,
     coverageWillMeasure: true,
   });
 

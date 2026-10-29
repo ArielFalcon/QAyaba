@@ -239,7 +239,7 @@ export async function reviewRound(state: Readonly<RunState>, ctx: WorkspaceRunCo
     }
   }
   reviewStats.rounds++;
-  /* The missing cases the reviewer cites from the arms no test ran are taken out first, whatever the integrity switch: recorded and shown, never a requirement or a gate. */
+  /* The missing cases the reviewer cites from the arms no test ran are taken out first: recorded and shown, never a requirement or a gate. */
   if (decidedBy === "model" && reviewResult.citations?.some((citation) => citation?.kind === "arm")) {
     const cited = reviewResult.corrections.map((text, index) => ({
       text,
@@ -265,14 +265,14 @@ export async function reviewRound(state: Readonly<RunState>, ctx: WorkspaceRunCo
    * The findings filter (D): only a finding that cites a contract clause, an execution or a DOM
    * fact this run can verify may block. Everything else is advisory telemetry, never sent to the
    * generator. The pre-check is the orchestrator's own deterministic evidence, so it is not a
-   * reviewer finding and is never filtered. Gated by the master switch.
+   * reviewer finding and is never filtered.
    */
   let filteredReviewFindings = 0;
   let advisoryReviewFindings = 0;
   let droppedBlockingReasons: Partial<Record<DropReason, number>> = {};
   /* The spec each verified finding's citation names, for routing it to the flow that owns that spec. */
   let blockingSpecs = new Map<string, string>();
-  if (cfg.reviewLoopIntegrity && decidedBy === "model" && reviewResult.corrections.length > 0) {
+  if (decidedBy === "model" && reviewResult.corrections.length > 0) {
     const findings = reviewResult.corrections.map((text, index) => ({
       text,
       severity: reviewResult.severities?.[index] ?? ("blocking" as const),
@@ -477,7 +477,7 @@ export async function reviewResolve(state: Readonly<RunState>, ctx: WorkspaceRun
    * never rebuttable, so only a model round's findings are open to one. A verified rebuttal withdraws its finding;
    * one the run cannot check leaves the finding standing and is remembered as what the generator refused.
    */
-  const rebuttals = cfg.reviewLoopIntegrity && decidedBy === "model" ? (regen.rebuttals ?? []) : [];
+  const rebuttals = decidedBy === "model" ? (regen.rebuttals ?? []) : [];
   const settled = rebuttals.length > 0
     ? verifyRebuttals(rebuttals, reviewResult.corrections, rebuttalEvidence(ctx, run.cases, rebuttals))
     : { withdrawn: [], disputed: [] };

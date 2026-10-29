@@ -40,7 +40,7 @@ interface Calls {
 
 function context(opts: { mode?: RunQaInput["mode"]; mirrorDir?: string | undefined; config?: Partial<RunQaConfig> } = {}): { ctx: RunContext; calls: Calls; state: RunState } {
   const calls: Calls = { order: [], saved: [], published: [], audited: 0, pruned: [], done: 0 };
-  const cfg: RunQaConfig = { needsReview: true, shadow: false, onFailure: "github-issue", maxRetries: 2, reviewLoopIntegrity: false, coveragePolicyMode: "signal", ...opts.config };
+  const cfg: RunQaConfig = { needsReview: true, shadow: false, onFailure: "github-issue", maxRetries: 2, coveragePolicyMode: "signal", ...opts.config };
   const deps = {
     publication: { publish: async (input: unknown) => { calls.order.push("publish"); calls.published.push(input); return { outcome: "issue #7 opened" }; } },
     runHistory: { save: async (outcome: RunOutcome) => { calls.order.push("save"); calls.saved.push(outcome); } },

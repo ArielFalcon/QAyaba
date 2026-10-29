@@ -1,4 +1,4 @@
-/* FixLoop aggregate: triage → selector check → adjudicate → regen → accept (validate + execute the changed specs; a rejected or capped round restores its bytes), with absentKeys short-circuit and a fewest-failures regression guard that restores the best round's bytes too. Triage and the typed test-correct claim are capabilities the caller grants only while the review-loop integrity switch is on. CycleBudget/WallClockBudget are forwarded unread into every regenerate() call — this aggregate neither ticks nor inspects them, and neither does the generation adapter: CycleBudget.ceiling is telemetry-only, and WallClockBudget.exhausted() is checked directly by run-qa.use-case.ts before each regen round, not by this aggregate or the generator. break-needs-human exits without setting realBugDetected; the caller labels the Issue. Filtered-retry scopes to failing specs only when change-coverage will not measure this run. */
+/* FixLoop aggregate: triage → selector check → adjudicate → regen → accept (validate + execute the changed specs; a rejected or capped round restores its bytes), with absentKeys short-circuit and a fewest-failures regression guard that restores the best round's bytes too. Triage and the typed test-correct claim run on the evidence the caller grants in `integrity`. CycleBudget/WallClockBudget are forwarded unread into every regenerate() call — this aggregate neither ticks nor inspects them, and neither does the generation adapter: CycleBudget.ceiling is telemetry-only, and WallClockBudget.exhausted() is checked directly by run-qa.use-case.ts before each regen round, not by this aggregate or the generator. break-needs-human exits without setting realBugDetected; the caller labels the Issue. Filtered-retry scopes to failing specs only when change-coverage will not measure this run. */
 
 import type { RunVerdict } from "@kernel/run-verdict.ts";
 import type { RunMode } from "@kernel/run-mode.ts";
@@ -129,11 +129,7 @@ export type FixLoopAcceptanceOutcome =
     }
   | { kind: "cap" };
 
-/**
- * What the caller grants the loop while the review-loop integrity switch is on: the evidence the
- * triage needs and a cap for the one re-execution it may spend. Absent means the switch is off, and
- * neither the triage nor a typed test-correct claim is read.
- */
+/** What the caller grants the loop: the evidence the triage needs and a cap for the one re-execution it may spend. */
 export interface FixLoopIntegrity {
   /** Whether the current bytes of a spec file were seen passing in this run (the run_spec closure, or a proof the ledger already holds). */
   hasGreenProof(specFile: string): Promise<boolean>;
@@ -165,8 +161,7 @@ export interface FixLoopInput {
   /* The routes this run's capture classified as unavailable, and how to read which routes a spec opens. A failure that ended where its route sends the run's client met the route's availability. Absent when none was classified. */
   routeAvailability?: AvailabilityTriageInput;
   specDir?: string;
-  /* Present only while the review-loop integrity switch is on: enables triage and reads a typed test-correct claim. */
-  integrity?: FixLoopIntegrity;
+  integrity: FixLoopIntegrity;
 }
 
 export interface FixLoopResult {
@@ -533,7 +528,6 @@ export class FixLoop {
     if (
       availabilityVerdict === undefined &&
       !state.triaged &&
-      input.integrity &&
       (absentKeys.size > 0 || packConflict) &&
       failureClasses.length > 0 &&
       /* A contradicted data state is the page's own reading, whatever the assertion that met it; an absent target stands only on a presence failure. */
@@ -541,7 +535,7 @@ export class FixLoop {
       failed.every((c) => !!c.file)
     ) {
       const failedFiles = [...new Set(failed.map((c) => c.file as string))];
-      const proofs = packConflict ? [] : await Promise.all(failedFiles.map((file) => input.integrity!.hasGreenProof(file)));
+      const proofs = packConflict ? [] : await Promise.all(failedFiles.map((file) => input.integrity.hasGreenProof(file)));
       const record = (outcome: FixLoopTriage["outcome"]): void => {
         state.triage ??= { trigger: packConflict ? "pack-conflict" : "absent-selectors", outcome, files: failedFiles.length };
       };
@@ -675,7 +669,7 @@ export class FixLoop {
      * evidence: the loop verifies it against this round's artifacts; unverified, it earns one
      * repair and the claim is not counted as a fix. Bounded by the loop's retry cap.
      */
-    const claim = result.specs.length === 0 && input.integrity ? result.testCorrect : undefined;
+    const claim = result.specs.length === 0 ? result.testCorrect : undefined;
     const transition = { after: "regeneration", delivered: result.specs.length, absentTargets: round.absentKeys.size > 0, accepting: !!this.deps.acceptance } as const;
     if (claim) {
       const verified = verifiedTestCorrectReason(claim, {

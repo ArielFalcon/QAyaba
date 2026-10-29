@@ -51,7 +51,7 @@ import type { OpencodeRunInput } from "@contexts/generation/application/index.ts
 
 import { scriptedGeneration } from "../../../support/generation-output.ts";
 import { extractSpecContract } from "@contexts/objective-signal/infrastructure/ts-spec-contract.extractor.ts";
-import { reassignableGeneration, runWorkspace } from "../../../support/run-workspace.ts";
+import { reassignableGeneration, runWorkspace, type RunWorkspace } from "../../../support/run-workspace.ts";
 import { authoredByCoordinator, coordinatorOver, loginToBeWritten } from "../../../support/coordinator-over-author.ts";
 import { scriptedLoginEvidence } from "../../../support/login-evidence.ts";
 import type { WorkspaceHandle } from "@contexts/workspace-and-publication/application/index.ts";
@@ -59,6 +59,7 @@ import { fakeHandle, rootsOf } from "./run-flow/fake-workspace.ts";
 import { confinedSpecFiles } from "../../../../src/shared-infrastructure/spec-files.adapter.ts";
 import { ChangeSet } from "@contexts/change-analysis/application/index.ts";
 import { primaryChangeSet } from "../../../support/change-set.ts";
+import { citingRejections } from "../../../support/cited-rejection.ts";
 /* Ports through the full lifecycle. NO inline IO, NO prompt strings, NO learning side-effects on
    the verdict path (the process audit is off-path). Drives the SAME stub shapes scenarios.ts
    provides for the equivalent runPipeline scenario.
@@ -104,14 +105,14 @@ function stubPorts(overrides: Partial<{
     overrides.generate ?? (async () => (scriptedGeneration({ specs: ["a.spec.ts"]}))),
   );
   const review: ReviewPort = {
-    review: overrides.review ?? (async () => ({ approved: true, corrections: [], blockingCount: 0, parsed: true })),
+    review: citingRejections(overrides.review ?? (async () => ({ approved: true, corrections: [], blockingCount: 0, parsed: true }))),
   };
   const validation: ValidationPort = {
     validate: overrides.validate ?? (async () => ({ ok: true, errors: [] })),
     ...(overrides.autofix ? { autofix: overrides.autofix } : {}),
   };
   const execution: ExecutionPort = {
-    execute: overrides.execute ?? (async () => ({ verdict: "pass", cases: [], logs: "" })),
+    execute: overrides.execute ?? (async () => ({ verdict: "pass", cases: [{ name: "a", status: "pass", file: "a.spec.ts" }], logs: "" })),
   };
   const objectiveSignal: ObjectiveSignalPort = {
     measure: overrides.measure ?? (async () => ({ status: "unknown", ratio: null })),
@@ -164,6 +165,15 @@ function stubPorts(overrides: Partial<{
     },
     savedOutcomes,
     ws,
+  };
+}
+
+/* A generator handed the reviewer's corrections answers them with new code, as a real one does: the second review judges changed specs, not the first verdict repeated. */
+function revisingAuthor(ws: RunWorkspace, inner: AuthorPort["author"] = async () => scriptedGeneration({ specs: ["a.spec.ts"] })): AuthorPort["author"] {
+  let turn = 0;
+  return async (...args) => {
+    ws.write("a.spec.ts", `export const turn = ${++turn};\n`);
+    return inner(...args);
   };
 }
 
@@ -880,7 +890,7 @@ test("RunQaUseCase — shadow: publish() IS called (dispatches to PublicationPor
 test("RunQaUseCase — cross-repo (needsReview:false): review() is NEVER called", async () => {
   let reviewCallCount = 0;
   const { ports } = stubPorts({});
-  ports.review.review = async () => { reviewCallCount++; return { approved: true, corrections: [], blockingCount: 0, parsed: true }; };
+  ports.review.review = citingRejections(async () => { reviewCallCount++; return { approved: true, corrections: [], blockingCount: 0, parsed: true }; });
   const useCase = new RunQaUseCase({ ...ports, config: { ...baseConfig, needsReview: false } });
 
   const out = await useCase.run({ ...baseInput, runId: "golden-cross-repo-wiring-proof" });
@@ -904,7 +914,7 @@ test("a regression commit that PASSES the existing suite publishes NOTHING (pass
     execute: async () => { executeCallCount++; return { verdict: "pass", cases: [{ name: "existing-suite-flow", status: "pass" as const }], logs: "" }; },
   });
   ports.generation.author = async () => { generateCallCount++; return scriptedGeneration({ specs: ["a.spec.ts"]}); };
-  ports.review.review = async () => { reviewCallCount++; return { approved: true, corrections: [], blockingCount: 0, parsed: true }; };
+  ports.review.review = citingRejections(async () => { reviewCallCount++; return { approved: true, corrections: [], blockingCount: 0, parsed: true }; });
   ports.publication.publish = async () => { publishCallCount++; return { outcome: "pr" }; };
   const useCase = new RunQaUseCase({ ...ports, config: baseConfig });
 
@@ -1963,7 +1973,7 @@ test("a reviewer that answered but could not be read (a parse miss) is still the
 test("follow-up #28: a NORMAL reviewer rejection (parsed:true) does NOT carry a reviewerNote", async () => {
   let publishedDecision: { reviewerNote?: string } | undefined;
   const { ports } = stubPorts({
-    execute: async () => ({ verdict: "pass", cases: [], logs: "" }),
+    execute: async () => ({ verdict: "pass", cases: [{ name: "a", status: "pass" as const, file: "a.spec.ts" }], logs: "" }),
     review: async () => ({
       approved: false,
       corrections: ["[false-positive] weak assertion"],
@@ -2230,7 +2240,7 @@ test("reviewerApproved is copied into the persisted gateSignals (not dropped aft
 test("reviewerApproved reflects a reviewer REJECTION (false), not silently omitted", async () => {
   let saved: import("@kernel/run-outcome.ts").RunOutcome | undefined;
   const { ports } = stubPorts({
-    execute: async () => ({ verdict: "pass", cases: [], logs: "" }),
+    execute: async () => ({ verdict: "pass", cases: [{ name: "a", status: "pass" as const, file: "a.spec.ts" }], logs: "" }),
     review: async () => ({ approved: false, corrections: ["[false-positive] x"], blockingCount: 1, parsed: true }),
   });
   ports.runHistory.save = async (outcome) => { saved = outcome; };
@@ -2250,7 +2260,7 @@ test("signal mode — an accepted regeneration after the measurement reuses it a
     let reviews = 0;
     const { ports } = stubPorts({
       prepare: async () => fakeHandle({ specDir: fixtures.specDir, mirrorDir: fixtures.mirrorDir }),
-      execute: async () => ({ verdict: "pass" as const, cases: [], logs: "" }),
+      execute: async () => ({ verdict: "pass" as const, cases: [{ name: "a", status: "pass" as const, file: "flows/restaurants.spec.ts" }], logs: "" }),
       measure: async () => {
         measureCalls++;
         return { status: "fail" as const, ratio: 0.2, uncovered: [{ file: "src/a.ts", lines: [1] }] };
@@ -2265,7 +2275,7 @@ test("signal mode — an accepted regeneration after the measurement reuses it a
     });
     ports.generation.author = async () => {
       generation++;
-      fixtures.write("flows/restaurants.spec.ts", generation === 1 ? "// first\n" : "// second\n");
+      fixtures.write("flows/restaurants.spec.ts", generation === 1 ? "export const first = 1;\n" : "export const second = 2;\n");
       return scriptedGeneration({ specs: ["flows/restaurants.spec.ts"]});
     };
     let saved: import("@kernel/run-outcome.ts").RunOutcome | undefined;
@@ -2298,7 +2308,7 @@ test("enforce mode — a review regeneration after the measurement gets ONE fina
       prepare: async () => fakeHandle({ specDir: fixtures.specDir, mirrorDir: fixtures.mirrorDir }),
       execute: async (_specDir, opts) => {
         executeNamespaces.push((opts as { namespace?: string } | undefined)?.namespace);
-        return { verdict: "pass" as const, cases: [], logs: "" };
+        return { verdict: "pass" as const, cases: [{ name: "a", status: "pass" as const, file: "flows/restaurants.spec.ts" }], logs: "" };
       },
       measure: async (_br, _specDir, _diff, _baseline, opts) => {
         measureCalls++;
@@ -2317,7 +2327,7 @@ test("enforce mode — a review regeneration after the measurement gets ONE fina
     });
     ports.generation.author = async () => {
       generation++;
-      fixtures.write("flows/restaurants.spec.ts", `// generation ${generation}\n`);
+      fixtures.write("flows/restaurants.spec.ts", `export const generation = ${generation};\n`);
       return scriptedGeneration({ specs: ["flows/restaurants.spec.ts"]});
     };
     const useCase = new RunQaUseCase({
@@ -2345,7 +2355,7 @@ test("signal mode — a flaky run whose review regeneration was accepted marks i
     let reviews = 0;
     const { ports } = stubPorts({
       prepare: async () => fakeHandle({ specDir: fixtures.specDir, mirrorDir: fixtures.mirrorDir }),
-      execute: async (_specDir, opts) => ((opts as { namespace?: string } | undefined)?.namespace ? { verdict: "pass" as const, cases: [], logs: "" } : { verdict: "flaky" as const, cases: [{ name: "checkout", status: "flaky" as const }], logs: "" }),
+      execute: async (_specDir, opts) => ((opts as { namespace?: string } | undefined)?.namespace ? { verdict: "pass" as const, cases: [{ name: "a", status: "pass" as const, file: "flows/restaurants.spec.ts" }], logs: "" } : { verdict: "flaky" as const, cases: [{ name: "checkout", status: "flaky" as const, file: "flows/restaurants.spec.ts" }], logs: "" }),
       measure: async () => {
         measureCalls++;
         return { status: "fail" as const, ratio: 0.2, uncovered: [{ file: "src/a.ts", lines: [1] }] };
@@ -2360,7 +2370,7 @@ test("signal mode — a flaky run whose review regeneration was accepted marks i
     });
     ports.generation.author = async () => {
       generation++;
-      fixtures.write("flows/restaurants.spec.ts", generation === 1 ? "// first\n" : "// second\n");
+      fixtures.write("flows/restaurants.spec.ts", generation === 1 ? "export const first = 1;\n" : "export const second = 2;\n");
       return scriptedGeneration({ specs: ["flows/restaurants.spec.ts"]});
     };
     const useCase = new RunQaUseCase({ ...ports, config: { ...baseConfig, needsReview: true, coveragePolicyMode: "signal" } });
@@ -2406,7 +2416,7 @@ test("enforce mode — a flaky run whose review regeneration was accepted gets o
     });
     ports.generation.author = async () => {
       generation++;
-      fixtures.write("flows/restaurants.spec.ts", `// generation ${generation}\n`);
+      fixtures.write("flows/restaurants.spec.ts", `export const generation = ${generation};\n`);
       return scriptedGeneration({ specs: ["flows/restaurants.spec.ts"]});
     };
     const useCase = new RunQaUseCase({ ...ports, config: { ...baseConfig, needsReview: true, coveragePolicyMode: "enforce" } });
@@ -2743,7 +2753,7 @@ test("reviewerApproved is absent when the run ends before its review, however th
     execute: async () => ({ verdict: "fail", cases: [{ name: "login", status: "fail" as const }], logs: "x" }),
     generate: async () => (scriptedGeneration({ specs: ["a.spec.ts"]})),
   });
-  ports.review.review = async () => { reviewCallCount++; return { approved: true, corrections: [], blockingCount: 0, parsed: true }; };
+  ports.review.review = citingRejections(async () => { reviewCallCount++; return { approved: true, corrections: [], blockingCount: 0, parsed: true }; });
   ports.runHistory.save = async (outcome) => { saved = outcome; };
   const useCase = new RunQaUseCase({ ...ports, config: baseConfig });
 
@@ -2836,7 +2846,7 @@ test("reviewerApproved on a genuine pass+review call still reflects the INDEPEND
      gets persisted, even when it disagrees with generation's self-approval. */
   let saved: import("@kernel/run-outcome.ts").RunOutcome | undefined;
   const { ports } = stubPorts({
-    execute: async () => ({ verdict: "pass", cases: [], logs: "" }),
+    execute: async () => ({ verdict: "pass", cases: [{ name: "a", status: "pass" as const, file: "a.spec.ts" }], logs: "" }),
     generate: async () => (scriptedGeneration({ specs: ["a.spec.ts"]})), /* generation self-approves */
     review: async () => ({ approved: false, corrections: ["[false-positive] x"], blockingCount: 1, parsed: true }),
   });
@@ -3933,19 +3943,19 @@ test("the FixLoop's regenerate() call forwards domSnapshot when Lever-2 supplies
 test("a reviewer rejection with blocking corrections triggers regeneration with reviewCorrections threaded", async () => {
   let reviewCallCount = 0;
   const capturedReviewCorrections: (readonly string[] | undefined)[] = [];
-  const { ports } = stubPorts({
-    execute: async () => ({ verdict: "pass" as const, cases: [{ name: "login", status: "pass" as const }], logs: "" }),
+  const { ports, ws } = stubPorts({
+    execute: async () => ({ verdict: "pass" as const, cases: [{ name: "login", status: "pass" as const, file: "a.spec.ts" }], logs: "" }),
   });
-  ports.review.review = async () => {
+  ports.review.review = citingRejections(async () => {
     reviewCallCount++;
     return reviewCallCount === 1
       ? { approved: false, corrections: ["[false-positive] assertion targets the wrong element"], blockingCount: 1, parsed: true }
       : { approved: true, corrections: [], blockingCount: 0, parsed: true };
-  };
-  ports.generation.author = async (_specDir, _signal, _diff, enrichment) => {
+  });
+  ports.generation.author = revisingAuthor(ws, async (_specDir, _signal, _diff, enrichment) => {
     capturedReviewCorrections.push(enrichment?.reviewCorrections);
     return scriptedGeneration({ specs: ["a.spec.ts"]});
-  };
+  });
   const useCase = new RunQaUseCase({ ...ports, config: baseConfig });
 
   const out = await useCase.run({ ...baseInput, runId: "w2-f3-corrections-thread-into-regen" });
@@ -3960,10 +3970,10 @@ test("a reviewer rejection with blocking corrections triggers regeneration with 
 
 test("corrections resolved on the regenerated round -> reviewerApproved:true -> publish", async () => {
   let reviewCallCount = 0;
-  const { ports } = stubPorts({
-    execute: async () => ({ verdict: "pass" as const, cases: [{ name: "login", status: "pass" as const }], logs: "" }),
+  const { ports, ws } = stubPorts({
+    execute: async () => ({ verdict: "pass" as const, cases: [{ name: "login", status: "pass" as const, file: "a.spec.ts" }], logs: "" }),
   });
-  ports.review.review = async (_specDir, _cases, _diff, enrichment) => {
+  ports.review.review = citingRejections(async (_specDir, _cases, _diff, enrichment) => {
     reviewCallCount++;
     if (reviewCallCount === 1) {
       return { approved: false, corrections: ["[false-positive] x"], blockingCount: 1, parsed: true };
@@ -3973,7 +3983,8 @@ test("corrections resolved on the regenerated round -> reviewerApproved:true -> 
      */
     assert.deepEqual(enrichment?.priorCorrections, ["[false-positive] x"], "round 1's review() call must receive round 0's own corrections as priorCorrections");
     return { approved: true, corrections: [], blockingCount: 0, parsed: true };
-  };
+  });
+  ports.generation.author = revisingAuthor(ws);
   const useCase = new RunQaUseCase({ ...ports, config: baseConfig });
 
   const out = await useCase.run({ ...baseInput, runId: "w2-f3-corrections-resolved-publishes" });
@@ -3986,17 +3997,17 @@ test("corrections resolved on the regenerated round -> reviewerApproved:true -> 
 test("not pr)", async () => {
   let reviewCallCount = 0;
   let generateCallCount = 0;
-  const { ports } = stubPorts({
-    execute: async () => ({ verdict: "pass" as const, cases: [{ name: "login", status: "pass" as const }], logs: "" }),
+  const { ports, ws } = stubPorts({
+    execute: async () => ({ verdict: "pass" as const, cases: [{ name: "login", status: "pass" as const, file: "a.spec.ts" }], logs: "" }),
   });
-  ports.review.review = async () => {
+  ports.review.review = citingRejections(async () => {
     reviewCallCount++;
     return { approved: false, corrections: ["[false-positive] persistent issue"], blockingCount: 1, parsed: true };
-  };
-  ports.generation.author = async (_specDir, _signal, _diff, _enrichment) => {
+  });
+  ports.generation.author = revisingAuthor(ws, async () => {
     generateCallCount++;
     return scriptedGeneration({ specs: ["a.spec.ts"]});
-  };
+  });
   const useCase = new RunQaUseCase({ ...ports, config: baseConfig });
 
   const out = await useCase.run({ ...baseInput, runId: "w2-f3-bound-terminal-rejection" });
@@ -4018,12 +4029,12 @@ test("not pr)", async () => {
 
 test("a terminal reviewer rejection threads its corrections into gateSignals.reviewerCorrections and derives the tagged errorClass", async () => {
   const { ports } = stubPorts({
-    execute: async () => ({ verdict: "pass" as const, cases: [{ name: "login", status: "pass" as const }], logs: "" }),
+    execute: async () => ({ verdict: "pass" as const, cases: [{ name: "login", status: "pass" as const, file: "a.spec.ts" }], logs: "" }),
   });
-  ports.review.review = async () => {
+  ports.review.review = citingRejections(async () => {
     /* Rejects on EVERY round — the persistent-rejection case (same fixture as the bound test above). */
     return { approved: false, corrections: ["[false-positive] asserts nothing on the discount"], blockingCount: 1, parsed: true };
-  };
+  });
   const useCase = new RunQaUseCase({ ...ports, config: baseConfig });
 
   const out = await useCase.run({ ...baseInput, runId: "corrections-thread-into-gate-signals" });
@@ -4045,7 +4056,7 @@ test("an APPROVED review (no rejection) still persists gateSignals.reviewerCorre
   const { ports } = stubPorts({
     execute: async () => ({ verdict: "pass" as const, cases: [{ name: "login", status: "pass" as const }], logs: "" }),
   });
-  ports.review.review = async () => ({ approved: true, corrections: [], blockingCount: 0, parsed: true });
+  ports.review.review = citingRejections(async () => ({ approved: true, corrections: [], blockingCount: 0, parsed: true }));
   const useCase = new RunQaUseCase({ ...ports, config: baseConfig });
 
   const out = await useCase.run({ ...baseInput, runId: "approved-no-corrections" });
@@ -4066,12 +4077,12 @@ test("BOUNDARY: approved with ADVISORY-ONLY corrections (blockingCount 0) — er
   const { ports } = stubPorts({
     execute: async () => ({ verdict: "pass" as const, cases: [{ name: "login", status: "pass" as const }], logs: "" }),
   });
-  ports.review.review = async () => ({
+  ports.review.review = citingRejections(async () => ({
     approved: true,
     corrections: ["[fragile-selector] prefer role-based locator"], /* advisory note on an APPROVAL */
     blockingCount: 0,
     parsed: true,
-  });
+  }));
   const processAudit = makeFakeProcessAudit(() => { auditCallCount++; });
   const useCase = new RunQaUseCase({ ...ports, processAudit, config: baseConfig });
 
@@ -4085,10 +4096,10 @@ test("BOUNDARY: approved with ADVISORY-ONLY corrections (blockingCount 0) — er
 
 test("a rejection resolved by convergence (round 1 APPROVES, even with an advisory note) persists gateSignals.reviewerCorrections as [] — approval clears, rejection threads", async () => {
   let reviewCallCount = 0;
-  const { ports } = stubPorts({
-    execute: async () => ({ verdict: "pass" as const, cases: [{ name: "login", status: "pass" as const }], logs: "" }),
+  const { ports, ws } = stubPorts({
+    execute: async () => ({ verdict: "pass" as const, cases: [{ name: "login", status: "pass" as const, file: "a.spec.ts" }], logs: "" }),
   });
-  ports.review.review = async () => {
+  ports.review.review = citingRejections(async () => {
     reviewCallCount++;
     if (reviewCallCount === 1) {
       return { approved: false, corrections: ["[fragile-selector] round 0 nit"], blockingCount: 1, parsed: true };
@@ -4098,7 +4109,8 @@ test("a rejection resolved by convergence (round 1 APPROVES, even with an adviso
        never a learning/errorClass signal (see the BOUNDARY test above).
      */
     return { approved: true, corrections: ["[fragile-selector] minor residual style nit"], blockingCount: 0, parsed: true };
-  };
+ });
+  ports.generation.author = revisingAuthor(ws);
   const useCase = new RunQaUseCase({ ...ports, config: baseConfig });
 
   const out = await useCase.run({ ...baseInput, runId: "convergence-final-round-wins" });
@@ -4116,9 +4128,9 @@ test("a rejection resolved by convergence (round 1 APPROVES, even with an adviso
 test("reviewer-rejection reaches the process audit with the real (non-null) errorClass — the audit gate does not suppress it as an unfalsifiable green", async () => {
   let capturedOutcome: RunOutcome | undefined;
   const { ports } = stubPorts({
-    execute: async () => ({ verdict: "pass" as const, cases: [{ name: "login", status: "pass" as const }], logs: "" }),
+    execute: async () => ({ verdict: "pass" as const, cases: [{ name: "login", status: "pass" as const, file: "a.spec.ts" }], logs: "" }),
   });
-  ports.review.review = async () => ({ approved: false, corrections: ["[wrong-objective] tests login, commit changed checkout"], blockingCount: 1, parsed: true });
+  ports.review.review = citingRejections(async () => ({ approved: false, corrections: ["[wrong-objective] tests login, commit changed checkout"], blockingCount: 1, parsed: true }));
   const processAudit = makeFakeProcessAudit((outcome) => { capturedOutcome = outcome; });
   const useCase = new RunQaUseCase({ ...ports, processAudit, config: baseConfig });
 
@@ -4154,12 +4166,12 @@ test("parsed:false (a parse miss) fails closed WITHOUT burning a regeneration ro
 test("a regeneration that produces zero specs mid-loop is a lost cause — terminal rejection, no further review", async () => {
   let reviewCallCount = 0;
   const { ports } = stubPorts({
-    execute: async () => ({ verdict: "pass" as const, cases: [{ name: "login", status: "pass" as const }], logs: "" }),
+    execute: async () => ({ verdict: "pass" as const, cases: [{ name: "login", status: "pass" as const, file: "a.spec.ts" }], logs: "" }),
   });
-  ports.review.review = async () => {
+  ports.review.review = citingRejections(async () => {
     reviewCallCount++;
     return { approved: false, corrections: ["[false-positive] x"], blockingCount: 1, parsed: true };
-  };
+  });
   let generateCallCount = 0;
   ports.generation.author = async () => {
     generateCallCount++;
@@ -4188,7 +4200,7 @@ test("exactly ONE reviewer session (review() call) fires for a clean pass — no
   const { ports } = stubPorts({
     execute: async () => ({ verdict: "pass" as const, cases: [], logs: "" }),
   });
-  ports.review.review = async () => { reviewCallCount++; return { approved: true, corrections: [], blockingCount: 0, parsed: true }; };
+  ports.review.review = citingRejections(async () => { reviewCallCount++; return { approved: true, corrections: [], blockingCount: 0, parsed: true }; });
   const useCase = new RunQaUseCase({ ...ports, config: baseConfig });
 
   const out = await useCase.run({ ...baseInput, runId: "w2-f4-single-review-clean-pass" });
@@ -7676,7 +7688,7 @@ test("a generator that changes nothing after a rejection is not reviewed twice: 
     let modelReviews = 0;
     const { ports, savedOutcomes } = stubPorts({
       prepare: async () => fakeHandle({ specDir: fixtures.specDir, mirrorDir: fixtures.mirrorDir }),
-      execute: async () => ({ verdict: "pass", cases: [{ name: "flows/restaurants.spec.ts", status: "pass" }], logs: "" }),
+      execute: async () => ({ verdict: "pass", cases: [{ name: "flows/restaurants.spec.ts", status: "pass", file: "flows/restaurants.spec.ts" }], logs: "" }),
       review: async () => {
         modelReviews++;
         return { approved: false, corrections: ["[false-positive] the list is never asserted"], blockingCount: 1, parsed: true };
@@ -7706,7 +7718,7 @@ test("a regeneration that only adds comments does not buy a second review: the r
     let generation = 0;
     const { ports } = stubPorts({
       prepare: async () => fakeHandle({ specDir: fixtures.specDir, mirrorDir: fixtures.mirrorDir }),
-      execute: async () => ({ verdict: "pass", cases: [{ name: "flows/restaurants.spec.ts", status: "pass" }], logs: "" }),
+      execute: async () => ({ verdict: "pass", cases: [{ name: "flows/restaurants.spec.ts", status: "pass", file: "flows/restaurants.spec.ts" }], logs: "" }),
       review: async () => {
         modelReviews++;
         return { approved: false, corrections: ["[false-positive] the list is never asserted"], blockingCount: 1, parsed: true };
@@ -7735,7 +7747,7 @@ test("a materially changed spec is re-reviewed with the prior corrections and th
     let generation = 0;
     const { ports } = stubPorts({
       prepare: async () => fakeHandle({ specDir: fixtures.specDir, mirrorDir: fixtures.mirrorDir }),
-      execute: async () => ({ verdict: "pass", cases: [{ name: "flows/restaurants.spec.ts", status: "pass" }], logs: "" }),
+      execute: async () => ({ verdict: "pass", cases: [{ name: "flows/restaurants.spec.ts", status: "pass", file: "flows/restaurants.spec.ts" }], logs: "" }),
       review: async (_specDir, _cases, _diff, enrichment) => {
         seen.push({ ...(enrichment?.priorCorrections ? { priorCorrections: enrichment.priorCorrections } : {}), ...(enrichment?.specChanges ? { specChanges: enrichment.specChanges } : {}) });
         return seen.length === 1
@@ -7870,7 +7882,7 @@ test("the reviewer decision span carries the delivered targets, the existing sui
         verdict: "pass",
         cases: [
           { name: "flows/auth.spec.ts", status: "pass" },
-          { name: "flows/restaurants.spec.ts", status: "pass" },
+          { name: "flows/restaurants.spec.ts", status: "pass", file: "flows/restaurants.spec.ts" },
         ],
         logs: "",
       }),
@@ -7983,7 +7995,7 @@ test("intent lock in signal mode accepts a weakened regeneration and records the
     const useCase = new RunQaUseCase({
       ...ports,
       intentContract: { extract: extractSpecContract },
-      config: { ...baseConfig, needsReview: false, coveragePolicyMode: "enforce", reviewLoopIntegrity: true, intentLock: { mode: "signal", opacityFlagRatio: 0.5 } },
+      config: { ...baseConfig, needsReview: false, coveragePolicyMode: "enforce", intentLock: { mode: "signal", opacityFlagRatio: 0.5 } },
     });
 
     let saved: import("@kernel/run-outcome.ts").RunOutcome | undefined;
@@ -8013,7 +8025,7 @@ test("intent lock in enforce mode rejects the weakened regeneration and restores
     const useCase = new RunQaUseCase({
       ...ports,
       intentContract: { extract: extractSpecContract },
-      config: { ...baseConfig, needsReview: false, coveragePolicyMode: "enforce", reviewLoopIntegrity: true, intentLock: { mode: "enforce", opacityFlagRatio: 0.5 } },
+      config: { ...baseConfig, needsReview: false, coveragePolicyMode: "enforce", intentLock: { mode: "enforce", opacityFlagRatio: 0.5 } },
     });
 
     const out = await useCase.run({ ...baseInput, runId: "intent-enforce-rejects" });
@@ -8053,7 +8065,7 @@ test("a new run is never bound by a previous run's contract", async () => {
     const useCase = new RunQaUseCase({
       ...ports,
       intentContract: { extract: extractSpecContract },
-      config: { ...baseConfig, needsReview: false, coveragePolicyMode: "enforce", reviewLoopIntegrity: true, intentLock: { mode: "enforce", opacityFlagRatio: 0.5 } },
+      config: { ...baseConfig, needsReview: false, coveragePolicyMode: "enforce", intentLock: { mode: "enforce", opacityFlagRatio: 0.5 } },
     });
 
     await useCase.run({ ...baseInput, runId: "intent-run-one" });
@@ -8061,35 +8073,6 @@ test("a new run is never bound by a previous run's contract", async () => {
 
     assert.equal(second.decision.verdict, "pass");
     assert.equal(second.decision.sideEffect, "pr", "run 2's regeneration is judged against run 2's own primary pass, so nothing is rejected");
-  } finally {
-    real.cleanup();
-  }
-});
-
-/*
- * B6: the master switch grants the A slice. An app that configures the intent lock without granting the
- * switch keeps the pre-change flow — the lock is not read at all, not even in signal mode.
- */
-test("with the master switch off, the intent lock is off whatever the app configured", async () => {
-  const real = intentWorkspace([INTENT_PRIMARY, INTENT_WEAKENED]);
-  try {
-    const { ports } = stubPorts({
-      prepare: real.prepare,
-      generate: real.generate,
-      execute: async () => ({ verdict: "pass" as const, cases: [], logs: "" }),
-      measure: async () => ({ status: "fail" as const, ratio: 0.2, uncovered: [{ file: "src/a.ts", lines: [1] }] }),
-      blocks: (status) => status === "fail",
-    });
-    const useCase = new RunQaUseCase({
-      ...ports,
-      intentContract: { extract: extractSpecContract },
-      config: { ...baseConfig, needsReview: false, coveragePolicyMode: "enforce", reviewLoopIntegrity: false, intentLock: { mode: "enforce", opacityFlagRatio: 0.5 } },
-    });
-
-    const out = await useCase.run({ ...baseInput, runId: "intent-switch-off" });
-
-    assert.equal(out.gateSignals.intent, undefined, "the lock is never read while the switch is off");
-    assert.equal(out.gateSignals.integrity?.rejected ?? 0, 0, "no regeneration was rejected against a contract");
   } finally {
     real.cleanup();
   }
@@ -8128,7 +8111,7 @@ test("a fix-loop round the contract rejects hands its violations to the next rou
     const useCase = new RunQaUseCase({
       ...ports,
       intentContract: { extract: extractSpecContract },
-      config: { ...baseConfig, needsReview: false, maxRetries: 3, reviewLoopIntegrity: true, intentLock: { mode: "enforce", opacityFlagRatio: 0.5 } },
+      config: { ...baseConfig, needsReview: false, maxRetries: 3, intentLock: { mode: "enforce", opacityFlagRatio: 0.5 } },
     });
 
     const out = await useCase.run({ ...baseInput, runId: "intent-fix-loop-feedback" });
@@ -8176,7 +8159,7 @@ test("a correction turn rejected by the contract earns one more turn carrying th
     const useCase = new RunQaUseCase({
       ...ports,
       intentContract: { extract: extractSpecContract },
-      config: { ...baseConfig, needsReview: true, reviewLoopIntegrity: true, intentLock: { mode: "enforce", opacityFlagRatio: 0.5 } },
+      config: { ...baseConfig, needsReview: true, intentLock: { mode: "enforce", opacityFlagRatio: 0.5 } },
     });
 
     const out = await useCase.run({ ...baseInput, runId: "intent-contract-feedback" });
@@ -8228,35 +8211,13 @@ test("with the integrity switch on, a blocking finding that cites a spec outside
     ports.generation.author = generate;
     const useCase = new RunQaUseCase({
       ...ports,
-      config: { ...baseConfig, needsReview: true, reviewLoopIntegrity: true },
+      config: { ...baseConfig, needsReview: true },
     });
 
     const out = await useCase.run({ ...baseInput, runId: "findings-out-of-scope-dropped" });
 
     assert.equal(out.decision.verdict, "pass");
     assert.equal(out.decision.sideEffect, "pr", "an unverifiable blocking finding is advisory, so the run still publishes");
-  } finally {
-    fixtures.cleanup();
-  }
-});
-
-test("with the switch off, the same finding keeps its pre-change behaviour and the run does not publish", async () => {
-  const { fixtures, generate } = findingFixtures();
-  try {
-    const { ports } = stubPorts({
-      prepare: async () => fakeHandle({ specDir: fixtures.specDir, mirrorDir: fixtures.mirrorDir }),
-      execute: async () => ({ verdict: "pass" as const, cases: [], logs: "" }),
-      review: citedReview({ kind: "contract", ref: "specs/auth.spec.ts#clause-1" }),
-    });
-    ports.generation.author = generate;
-    const useCase = new RunQaUseCase({
-      ...ports,
-      config: { ...baseConfig, needsReview: true, reviewLoopIntegrity: false },
-    });
-
-    const out = await useCase.run({ ...baseInput, runId: "findings-switch-off" });
-
-    assert.notEqual(out.decision.sideEffect, "pr", "the filter is gated by the master switch");
   } finally {
     fixtures.cleanup();
   }
@@ -8277,7 +8238,7 @@ test("a verified blocking finding on a spec this run delivered still rejects", a
     ports.generation.author = generate;
     const useCase = new RunQaUseCase({
       ...ports,
-      config: { ...baseConfig, needsReview: true, reviewLoopIntegrity: true },
+      config: { ...baseConfig, needsReview: true },
     });
 
     const out = await useCase.run({ ...baseInput, runId: "findings-verified-blocks" });
@@ -8301,7 +8262,7 @@ test("a blocking finding that cites its spec with the spec directory in front st
         review: citedReview(citation),
       });
       ports.generation.author = generate;
-      const out = await new RunQaUseCase({ ...ports, config: { ...baseConfig, needsReview: true, reviewLoopIntegrity: true } }).run({ ...baseInput, runId: `findings-prefixed-${citation.kind}` });
+      const out = await new RunQaUseCase({ ...ports, config: { ...baseConfig, needsReview: true } }).run({ ...baseInput, runId: `findings-prefixed-${citation.kind}` });
 
       assert.notEqual(out.decision.sideEffect, "pr", `${citation.ref} names a delivered spec`);
       assert.equal(out.gateSignals.reviewer?.droppedRejections, undefined, "nothing the reviewer blocked on was dropped");
@@ -8320,7 +8281,7 @@ test("an approval that carries plain-string notes is no dropped rejection: the r
       review: async () => ({ approved: true, corrections: ["minor: a name could be clearer"], blockingCount: 0, parsed: true }),
     });
     ports.generation.author = generate;
-    const out = await new RunQaUseCase({ ...ports, config: { ...baseConfig, needsReview: true, reviewLoopIntegrity: true } }).run({ ...baseInput, runId: "findings-approval-notes" });
+    const out = await new RunQaUseCase({ ...ports, config: { ...baseConfig, needsReview: true } }).run({ ...baseInput, runId: "findings-approval-notes" });
 
     assert.equal(out.decision.sideEffect, "pr");
     assert.equal(out.gateSignals.reviewer?.droppedRejections, undefined);
@@ -8339,7 +8300,7 @@ test("a rejection whose every blocking finding the filter dropped is recorded on
       review: citedReview({ kind: "contract", ref: "the checkout flow" }),
     });
     ports.generation.author = generate;
-    const out = await new RunQaUseCase({ ...ports, telemetry: h, config: { ...baseConfig, needsReview: true, reviewLoopIntegrity: true } }).run({ ...baseInput, runId: "findings-dropped-recorded" });
+    const out = await new RunQaUseCase({ ...ports, telemetry: h, config: { ...baseConfig, needsReview: true } }).run({ ...baseInput, runId: "findings-dropped-recorded" });
 
     assert.equal(out.decision.sideEffect, "pr");
     const span = h.spans.find((s) => s.name === "qayaba.review.decision" && s.attrs["qayaba.review.decided_by"] === "model");
@@ -8405,7 +8366,7 @@ test("a verified blocking finding whose rebuttal is not verified ends the run as
   const { fixtures, generate } = rebuttingGeneration((finding) => ({ finding, basis: "execution", ref: "flows/absent.spec.ts", reason: "the case passed" }));
   try {
     const { ports, savedOutcomes } = disputedPorts(fixtures, generate, disputedFinding({ kind: "execution", ref: "flows/checkout.spec.ts" }) as ReviewPort["review"]);
-    const out = await new RunQaUseCase({ ...ports, config: { ...baseConfig, reviewLoopIntegrity: true } }).run({ ...baseInput, runId: "review-disputed" });
+    const out = await new RunQaUseCase({ ...ports, config: { ...baseConfig } }).run({ ...baseInput, runId: "review-disputed" });
 
     assert.equal(out.decision.verdict, "infra-error");
     assert.equal(out.decision.sideEffect, "none", "fail-closed: no PR and no Issue");
@@ -8423,7 +8384,7 @@ test("a rebuttal the orchestrator can verify withdraws its finding and the revie
   const { fixtures, generate } = rebuttingGeneration((finding) => ({ finding, basis: "execution", ref: "flows/checkout.spec.ts", reason: "the case ran green on these bytes" }));
   try {
     const { ports, savedOutcomes } = disputedPorts(fixtures, generate, disputedFinding({ kind: "execution", ref: "flows/checkout.spec.ts" }) as ReviewPort["review"]);
-    const out = await new RunQaUseCase({ ...ports, config: { ...baseConfig, reviewLoopIntegrity: true } }).run({ ...baseInput, runId: "review-rebuttal-verified" });
+    const out = await new RunQaUseCase({ ...ports, config: { ...baseConfig } }).run({ ...baseInput, runId: "review-rebuttal-verified" });
 
     assert.equal(out.decision.verdict, "pass");
     assert.equal(out.decision.sideEffect, "pr", "nothing blocking stands: the run publishes");
@@ -8437,24 +8398,10 @@ test("a generator that refuses a finding and offers no basis is a plain rejectio
   const { fixtures, generate } = rebuttingGeneration(() => ({ finding: "", basis: "execution", ref: "", reason: "" }));
   try {
     const { ports, savedOutcomes } = disputedPorts(fixtures, generate, disputedFinding({ kind: "execution", ref: "flows/checkout.spec.ts" }) as ReviewPort["review"]);
-    const out = await new RunQaUseCase({ ...ports, config: { ...baseConfig, reviewLoopIntegrity: true } }).run({ ...baseInput, runId: "review-no-rebuttal" });
+    const out = await new RunQaUseCase({ ...ports, config: { ...baseConfig } }).run({ ...baseInput, runId: "review-no-rebuttal" });
 
     assert.notEqual(out.decision.sideEffect, "pr");
     assert.notEqual(out.errorClass, ERROR_CLASS.REVIEW_DISPUTED, "no rebuttal arrived: the existing rejection path stands");
-    assert.equal(savedOutcomes.length, 1);
-  } finally {
-    fixtures.cleanup();
-  }
-});
-
-test("with the integrity switch off, a rebuttal is not read: the rejection path is unchanged", async () => {
-  const { fixtures, generate } = rebuttingGeneration((finding) => ({ finding, basis: "execution", ref: "flows/checkout.spec.ts", reason: "the case ran green" }));
-  try {
-    const { ports, savedOutcomes } = disputedPorts(fixtures, generate, disputedFinding({ kind: "execution", ref: "flows/checkout.spec.ts" }) as ReviewPort["review"]);
-    const out = await new RunQaUseCase({ ...ports, config: { ...baseConfig, reviewLoopIntegrity: false } }).run({ ...baseInput, runId: "review-rebuttal-switch-off" });
-
-    assert.notEqual(out.decision.sideEffect, "pr");
-    assert.notEqual(out.errorClass, ERROR_CLASS.REVIEW_DISPUTED, "the D slice is gated by the master switch");
     assert.equal(savedOutcomes.length, 1);
   } finally {
     fixtures.cleanup();
@@ -8527,7 +8474,7 @@ for (const [label, change, expected] of [
         ws.write(change, change === "fixtures.ts" ? "export const helper = 2;\n" : "test('a', async () => { expect(1).toBe(1); });\n");
         return scriptedGeneration({ specs: ["a.spec.ts"]});
       };
-      const useCase = new RunQaUseCase({ ...ports, config: { ...baseConfig, needsReview: true, reviewLoopIntegrity: true } });
+      const useCase = new RunQaUseCase({ ...ports, config: { ...baseConfig, needsReview: true } });
 
       await useCase.run({ ...baseInput, runId: `support-change-${change}` });
 
@@ -8618,7 +8565,7 @@ test("a failure that reads empty, twice, a page the Context Pack read with resul
       },
       execute: async () => { executions++; return { verdict: "fail", cases: [failing], logs: "" }; },
     });
-    const out = await new RunQaUseCase({ ...ports, config: { ...baseConfig, needsReview: false, reviewLoopIntegrity: true } }).run({ ...baseInput, runId: "pack-conflict" });
+    const out = await new RunQaUseCase({ ...ports, config: { ...baseConfig, needsReview: false } }).run({ ...baseInput, runId: "pack-conflict" });
 
     assert.equal(out.decision.verdict, "infra-error");
     assert.equal(out.errorClass, ERROR_CLASS.PRECONDITION);
@@ -8670,7 +8617,7 @@ test("the fix_loop phase span says what made the triage re-read a failure and wh
           : { verdict: "pass" as const, cases: [{ name: "owners list", status: "pass" as const, file: "flows/owners.spec.ts" }], logs: "" };
       },
     });
-    const out = await new RunQaUseCase({ ...ports, telemetry, config: { ...baseConfig, needsReview: false, reviewLoopIntegrity: true } }).run({ ...baseInput, runId: "pack-conflict-span" });
+    const out = await new RunQaUseCase({ ...ports, telemetry, config: { ...baseConfig, needsReview: false } }).run({ ...baseInput, runId: "pack-conflict-span" });
 
     assert.equal(out.decision.verdict, "flaky");
     const span = telemetry.spans.find((s) => s.name === "qayaba.phase.fix_loop");

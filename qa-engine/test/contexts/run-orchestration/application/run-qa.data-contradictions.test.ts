@@ -14,7 +14,6 @@ async function run(opts: { facts?: DataContradiction[]; review?: ReviewPort["rev
   try {
     let enrichment: Parameters<ReviewPort["review"]>[3];
     let published: Parameters<PublicationPort["publish"]>[0] | undefined;
-    rig.config = { reviewLoopIntegrity: true };
     rig.extra = { preGenerationGrounding: { ground: async () => ({ dataContradictions: { read: 3, facts: opts.facts ?? [FACT] } }) } };
     rig.review = async (...args) => {
       enrichment = args[3];

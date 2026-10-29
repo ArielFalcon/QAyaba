@@ -24,6 +24,7 @@ import { coordinatorOver } from "../../../../support/coordinator-over-author.ts"
 import { fakeHandle, rootsOf } from "./fake-workspace.ts";
 import { confinedSpecFiles } from "../../../../../src/shared-infrastructure/spec-files.adapter.ts";
 import { primaryChangeSet } from "../../../../support/change-set.ts";
+import { citingRejections } from "../../../../support/cited-rejection.ts";
 
 /** Where a run stood and what it did to the outside when it ended. */
 export interface Observed {
@@ -77,7 +78,7 @@ export function newRig(): Rig {
     author: async () => scriptedGeneration({ specs: [RIG_SPEC]}),
     review: async () => ({ approved: true, corrections: [], blockingCount: 0, parsed: true }),
     validate: async () => ({ ok: true, errors: [] }),
-    execute: async () => ({ verdict: "pass", cases: [], logs: "" }),
+    execute: async () => ({ verdict: "pass", cases: [{ name: "a", status: "pass", file: RIG_SPEC }], logs: "" }),
     measure: async () => ({ status: "unknown", ratio: null }),
     blocks: () => false,
     publish: async () => ({ outcome: "pr" }),
@@ -115,7 +116,7 @@ export async function observe(rig: Rig, runId: string): Promise<Observed> {
     changeAnalysis: { classify: rig.classify },
     generation,
     leadSidekicks: coordinatorOver(generation),
-    review: { review: rig.review },
+    review: { review: citingRejections(rig.review) },
     validation: { validate: rig.validate },
     execution: { execute: rig.execute },
     objectiveSignal: { measure: rig.measure, blocks: rig.blocks },

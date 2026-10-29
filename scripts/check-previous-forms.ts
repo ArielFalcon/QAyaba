@@ -193,6 +193,11 @@ export const BANNED_RULES: BannedRule[] = [
     exemptPrefixes: [RECORDS_PREFIX],
   },
   {
+    id: "review-loop-switch",
+    patterns: [/\breviewLoopIntegrity\b/, /\bintegrity\??\.reviewLoop\b/],
+    exemptPrefixes: [RECORDS_PREFIX, "src/orchestrator/config-loader.test.ts"],
+  },
+  {
     id: "langfuse-sink",
     patterns: [
       /\b(?:LangfuseScoreSink|LangfuseConfig|resolveLangfuseConfig|scoreSinkHealthOf|ScoreSinkHealth|scoreConfigsOfCatalog|langfuseScoreId|getRunIdByTraceId)\b/,

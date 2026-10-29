@@ -89,7 +89,6 @@ const DISPUTED_FINDING = "[wrong-objective] checkout.spec.ts: the discount is ne
 function refusedFinding(rig: Rig): void {
   const spec = "flows/checkout.spec.ts";
   let turn = 0;
-  rig.config = { ...rig.config, reviewLoopIntegrity: true };
   rig.execute = async () => ({ verdict: "pass", cases: [{ name: "checkout", file: spec, status: "pass" }], logs: "" });
   rig.review = async () => ({
     approved: false,

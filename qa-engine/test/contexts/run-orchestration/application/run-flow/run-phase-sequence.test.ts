@@ -13,6 +13,7 @@ import { fakeWorkspace } from "./fake-workspace.ts";
 import { confinedSpecFiles } from "../../../../../src/shared-infrastructure/spec-files.adapter.ts";
 import { served } from "../../../../support/coordinator-over-author.ts";
 import { primaryChangeSet } from "../../../../support/change-set.ts";
+import { citingRejections } from "../../../../support/cited-rejection.ts";
 
 const PHASE_SPAN_PREFIX = "qayaba.phase.";
 
@@ -46,12 +47,17 @@ class PhaseRecorder extends NoopTelemetry {
 async function runOf(input: RunQaInput, execute?: RunQaUseCaseDeps["execution"]["execute"], expectVerdict = "pass", review?: RunQaUseCaseDeps["review"]["review"]): Promise<PhaseRecorder> {
   const ws = runWorkspace("qa-phase-sequence-");
   const telemetry = new PhaseRecorder();
+  let turn = 0;
   const deps: RunQaUseCaseDeps = {
     changeAnalysis: { classify: async () => ({ action: "generate", reason: "diff touches src/x.ts", diff: "" }) },
-    ...served(generationOnDisk({ author: async () => scriptedGeneration({ specs: ["a.spec.ts"]}) })),
-    review: { review: review ?? (async () => ({ approved: true, corrections: [], blockingCount: 0, parsed: true })) },
+    ...served(generationOnDisk({ author: async () => {
+      /* Each turn leaves new code, as a generator that answers the reviewer's corrections does. */
+      ws.write("a.spec.ts", `export const turn = ${++turn};\n`);
+      return scriptedGeneration({ specs: ["a.spec.ts"]});
+    } })),
+    review: { review: citingRejections(review ?? (async () => ({ approved: true, corrections: [], blockingCount: 0, parsed: true }))) },
     validation: { validate: async () => ({ ok: true, errors: [] }) },
-    execution: { execute: execute ?? (async () => ({ verdict: "pass", cases: [], logs: "" })) },
+    execution: { execute: execute ?? (async () => ({ verdict: "pass", cases: [{ name: "a", status: "pass", file: "a.spec.ts" }], logs: "" })) },
     objectiveSignal: { measure: async () => ({ status: "unknown", ratio: null }), blocks: () => false },
     publication: { publish: async () => ({ outcome: "pr" }) },
     workspace: fakeWorkspace(ws),

@@ -48,19 +48,12 @@ export type { PreconditionFailure, RunQaConfig, RunQaUseCaseDeps, RunQaInput, Ru
 
 const SYSTEM_PHASE_CLOCK: PhaseClock = { now: () => Date.now() };
 
-/*
- * The fallback a run gets when a composition passes no config at all. The review-loop master switch's
- * product default (on, opt-out) is resolved where `qa.reviewLoopIntegrity` lives — the app config, read by
- * the shell's engine root, which defaults it to true. This
- * fallback keeps the pre-switch flow for a caller that states nothing, so a missing config never grants
- * a slice silently; every composition that runs a real app states it.
- */
+/* The fallback a run gets when a composition passes no config at all. */
 const DEFAULT_CONFIG: RunQaConfig = {
   needsReview: false,
   shadow: false,
   onFailure: "github-issue",
   maxRetries: 2,
-  reviewLoopIntegrity: false,
   coveragePolicyMode: "signal",
   intentLock: { mode: "signal", opacityFlagRatio: 0.5 },
 };

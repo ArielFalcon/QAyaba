@@ -82,8 +82,6 @@ export interface EngineRootDeps {
   shadow: boolean;
   onFailure: string;
   maxRetries: number;
-  /* The review-loop integrity master switch (failure triage, intent lock, findings filter). Absent: off. */
-  integrity?: { reviewLoop: boolean };
   coveragePolicyMode: "off" | "signal" | "enforce";
   /* The change-coverage threshold of the same policy; recorded with the run's coverage decision. */
   coverageMinRatio?: number;
@@ -512,7 +510,6 @@ function assemble(cfg: EngineRootDeps): RunOrchestrationApi {
     config: {
       needsReview: cfg.needsReview,
       shadow: cfg.shadow,
-      reviewLoopIntegrity: cfg.integrity?.reviewLoop ?? true,
       onFailure: cfg.onFailure,
       maxRetries: cfg.maxRetries,
       coveragePolicyMode: cfg.coveragePolicyMode,

@@ -289,24 +289,20 @@ export async function runFixLoop(state: Readonly<RunState>, ctx: WorkspaceRunCon
         }
       : {}),
     specDir: workspace.specDir,
-    ...(cfg.reviewLoopIntegrity
-      ? {
-          integrity: {
-            hasGreenProof: async (file: string) => {
-              if (state.proof[file] !== undefined) return true;
-              if (!closedLoop) return false;
-              try {
-                return await closedLoop.isClosed([file]);
-              } catch (err) {
-                engineLog.error(`[qa] could not read the green proof of ${file} (triage treats it as unproven): ${err instanceof Error ? err.message : String(err)}`);
-                return false;
-              }
-            },
-            spendExecution: () => acceptance.spendExecution(),
-            remainingMs: () => runDeadlinePort.remainingMs?.(),
-          },
+    integrity: {
+      hasGreenProof: async (file: string) => {
+        if (state.proof[file] !== undefined) return true;
+        if (!closedLoop) return false;
+        try {
+          return await closedLoop.isClosed([file]);
+        } catch (err) {
+          engineLog.error(`[qa] could not read the green proof of ${file} (triage treats it as unproven): ${err instanceof Error ? err.message : String(err)}`);
+          return false;
         }
-      : {}),
+      },
+      spendExecution: () => acceptance.spendExecution(),
+      remainingMs: () => runDeadlinePort.remainingMs?.(),
+    },
   };
   /* Pre-exec corrections, and the files they were attributed to, still feed later FixLoop regens until the first of them consumes them. */
   /* mutation-scope:begin pending-contradictions */

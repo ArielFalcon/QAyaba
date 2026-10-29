@@ -2975,16 +2975,6 @@ test("the factory tells the geolocation registry about a sidekick's session of a
   assert.equal(registry.find("ses-geo"), undefined);
 });
 
-/* T20: the review-loop integrity slice is on unless the app opts out. It is the engine's default
-   acceptance behaviour (verified acceptance is always on; C, A and D are the switch), so a new app
-   gets it without knowing the knob exists, and only an explicit false turns it off. */
-test("buildEngineRootDeps grants the review-loop integrity slice unless the app sets it false", () => {
-  const base = cfg("factory-integrity-default");
-  assert.equal(buildEngineRootDeps(base, { getAgentDeps: stubAgentDeps }, "qa-bot-int0001-run1", { mode: "diff" }).integrity?.reviewLoop, true);
-  const off: AppConfig = { ...base, qa: { ...base.qa, reviewLoopIntegrity: false } };
-  assert.equal(buildEngineRootDeps(off, { getAgentDeps: stubAgentDeps }, "qa-bot-int0001-run1", { mode: "diff" }).integrity?.reviewLoop, false);
-});
-
 test("the lead's sessions of a run are told to the code-graph registry and lose the right when they end; a sidekick's never gets it", async () => {
   const { CodeGraphToolRegistry } = await import("@contexts/agent-tools/infrastructure/code-graph-tool-registry");
   const registry = new CodeGraphToolRegistry();

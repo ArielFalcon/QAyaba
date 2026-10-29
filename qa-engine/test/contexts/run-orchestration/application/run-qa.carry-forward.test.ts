@@ -14,6 +14,7 @@ import { fakeWorkspace } from "./run-flow/fake-workspace.ts";
 import { confinedSpecFiles } from "../../../../src/shared-infrastructure/spec-files.adapter.ts";
 import { loginToBeWritten, served } from "../../../support/coordinator-over-author.ts";
 import { primaryChangeSet } from "../../../support/change-set.ts";
+import { citingRejections } from "../../../support/cited-rejection.ts";
 
 /** A spec the lead delivered and declared. */
 const declared = (file: string, objective: string): DeliveredSpec => ({ file, flow: `${file} flow`, objective });
@@ -48,6 +49,11 @@ interface Scenario {
 }
 
 const PASSING: ExecutionPort["execute"] = async () => ({ verdict: "pass", cases: [], logs: "" });
+/* A green run that executed the delivered spec, so a reviewer's finding can cite it; each later pass leaves new code, as a generator answering the corrections does. */
+const PASSING_A: ExecutionPort["execute"] = async () => ({ verdict: "pass", cases: [{ name: "a", status: "pass", file: "a.spec.ts" }], logs: "" });
+const REVISES = (call: number, specs: readonly string[], write: (file: string, text: string) => void): void => {
+  for (const file of specs) write(file, `export const pass${call} = 1;\n`);
+};
 const FAILS_THEN_PASSES = (): ExecutionPort["execute"] => {
   let executions = 0;
   return async () => (++executions === 1 ? { verdict: "fail", cases: [{ name: "checkout", status: "fail", detail: "boom" }], logs: "" } : { verdict: "pass", cases: [], logs: "" });
@@ -67,7 +73,7 @@ const INVALID_ONCE = (): ValidationPort["validate"] => {
 };
 const REJECTS_ONCE = (): ReviewPort["review"] => {
   let reviews = 0;
-  return async () => (++reviews === 1 ? { approved: false, corrections: ["[false-positive] the assertion targets the wrong element"], blockingCount: 1, parsed: true } : { approved: true, corrections: [], blockingCount: 0, parsed: true });
+  return citingRejections(async () => (++reviews === 1 ? { approved: false, corrections: ["[false-positive] the assertion targets the wrong element"], blockingCount: 1, parsed: true } : { approved: true, corrections: [], blockingCount: 0, parsed: true }));
 };
 const COVERAGE_GAP: ObjectiveSignalPort["measure"] = async () => ({ status: "fail", ratio: 0.2, uncovered: [{ file: "src/a.ts", lines: [1, 2] }] });
 
@@ -258,7 +264,7 @@ test("a coverage regeneration is handed the delivered specs", async () => {
 });
 
 test("a reviewer-correction regeneration is handed the delivered specs", async () => {
-  const calls = await run({ generations: [lead(A1)], review: REJECTS_ONCE(), config: { needsReview: true } });
+  const calls = await run({ generations: [lead(A1)], execute: PASSING_A, rewrite: REVISES, review: REJECTS_ONCE(), config: { needsReview: true } });
   assert.equal(calls.length, 2);
   assert.ok((calls[1]!.reviewCorrections?.length ?? 0) > 0);
   assert.deepEqual(calls[1]!.deliveredSpecs, [A1]);
@@ -302,6 +308,8 @@ test("a FixLoop lead pass adds the specs it delivers: the round after it is hand
 test("a coverage pass adds the specs it delivers: the reviewer-correction regeneration after it is handed them", async () => {
   const calls = await run({
     generations: [lead(A1), lead(C1), lead(C1)],
+    execute: PASSING_A,
+    rewrite: REVISES,
     measure: COVERAGE_GAP,
     blocks: (status) => status === "fail",
     review: REJECTS_ONCE(),

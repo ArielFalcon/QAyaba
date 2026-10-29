@@ -57,12 +57,6 @@ export interface RunQaConfig {
   onFailure: string;
   maxRetries: number;
   /**
-   * The master switch of the review-loop integrity work: failure triage (C), the intent lock (A) and
-   * the findings filter (D). Off (default) keeps the pre-change behavior; the acceptance correctness
-   * fixes are always on. When off, the intent-lock policy is not read.
-   */
-  reviewLoopIntegrity: boolean;
-  /**
    * "signal" (default) measures and records but never blocks publish. Only
    * "enforce" holds the PR on a "fail" status. "unknown" never blocks in any mode.
    */

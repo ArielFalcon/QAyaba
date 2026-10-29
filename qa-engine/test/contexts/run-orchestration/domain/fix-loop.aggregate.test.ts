@@ -96,6 +96,7 @@ test("break-issue with runner_infra evidence -> infra-error, no regen call", asy
     maxRetries: 2,
     cycleBudget,
     wallClockBudget,
+    integrity: integrity({ hasGreenProof: async () => false }),
     devHealthy: async () => true,
     namespace: "qa-bot-abc",
   });
@@ -130,6 +131,7 @@ test("break-issue with app_defect (real-bug) evidence -> realBugDetected=true, v
     maxRetries: 2,
     cycleBudget,
     wallClockBudget,
+    integrity: integrity({ hasGreenProof: async () => false }),
     devHealthy: async () => true,
     namespace: "qa-bot-abc",
   });
@@ -162,6 +164,7 @@ test("loop condition — maxRetries=0 disables the fix-loop entirely (no regen, 
     maxRetries: 0,
     cycleBudget,
     wallClockBudget,
+    integrity: integrity({ hasGreenProof: async () => false }),
     devHealthy: async () => true,
     namespace: "qa-bot-abc",
   });
@@ -185,6 +188,7 @@ test("loop condition — verdict!=='fail' skips the loop entirely (already pass)
     maxRetries: 2,
     cycleBudget,
     wallClockBudget,
+    integrity: integrity({ hasGreenProof: async () => false }),
     devHealthy: async () => true,
     namespace: "qa-bot-abc",
   });
@@ -207,6 +211,7 @@ test("loop condition — generating=false skips the loop entirely (regression-on
     maxRetries: 2,
     cycleBudget,
     wallClockBudget,
+    integrity: integrity({ hasGreenProof: async () => false }),
     devHealthy: async () => true,
     namespace: "qa-bot-abc",
   });
@@ -264,6 +269,7 @@ test("Lever-2 absentKeys short-circuit — regenerates WITHOUT re-executing, loo
     maxRetries: 2,
     cycleBudget,
     wallClockBudget,
+    integrity: integrity({ hasGreenProof: async () => false }),
     devHealthy: async () => true,
     namespace: "qa-bot-abc",
   });
@@ -299,6 +305,7 @@ async function regenInputFor(findings: Partial<SpecSelectorFindings> & { origins
     maxRetries: 1,
     cycleBudget,
     wallClockBudget,
+    integrity: integrity({ hasGreenProof: async () => false }),
     devHealthy: async () => true,
     namespace: "qa-bot-abc",
   });
@@ -352,6 +359,7 @@ test("filtered-retry — canFilter true (coverageWillMeasure=false, regen stayed
     maxRetries: 1,
     cycleBudget,
     wallClockBudget,
+    integrity: integrity({ hasGreenProof: async () => false }),
     devHealthy: async () => true,
     namespace: "qa-bot-abc",
     coverageWillMeasure: false,
@@ -384,6 +392,7 @@ async function retryScopeFor(failingFile: string, regenSpecs: string[]): Promise
     maxRetries: 1,
     cycleBudget,
     wallClockBudget,
+    integrity: integrity({ hasGreenProof: async () => false }),
     devHealthy: async () => true,
     namespace: "qa-bot-abc",
     coverageWillMeasure: false,
@@ -437,6 +446,7 @@ test("filtered-retry — regen specs are ALL outside the failing set -> full re-
     maxRetries: 1,
     cycleBudget,
     wallClockBudget,
+    integrity: integrity({ hasGreenProof: async () => false }),
     devHealthy: async () => true,
     namespace: "qa-bot-abc",
     coverageWillMeasure: false,
@@ -476,6 +486,7 @@ test("filtered-retry — canFilter false when coverageWillMeasure=true (never fi
     maxRetries: 1,
     cycleBudget,
     wallClockBudget,
+    integrity: integrity({ hasGreenProof: async () => false }),
     devHealthy: async () => true,
     namespace: "qa-bot-abc",
     coverageWillMeasure: true,
@@ -532,6 +543,7 @@ test("bestRunSoFar regression guard — a worse terminal retry is discarded for 
     maxRetries: 2,
     cycleBudget,
     wallClockBudget,
+    integrity: integrity({ hasGreenProof: async () => false }),
     devHealthy: async () => true,
     namespace: "qa-bot-abc",
     coverageWillMeasure: true, /* never-filter, keeps the merge logic out of this test's scope */
@@ -583,6 +595,7 @@ test("bestRunSoFar guard is SKIPPED when realBugDetected fired (the current fail
     maxRetries: 2,
     cycleBudget,
     wallClockBudget,
+    integrity: integrity({ hasGreenProof: async () => false }),
     devHealthy: async () => true,
     namespace: "qa-bot-abc",
     coverageWillMeasure: true,
@@ -627,6 +640,7 @@ test("an accepted round's execution replaces its changed file's cases, and the l
     maxRetries: 1,
     cycleBudget,
     wallClockBudget,
+    integrity: integrity({ hasGreenProof: async () => false }),
     devHealthy: async () => true,
     namespace: "qa-bot-abc",
   });
@@ -668,6 +682,7 @@ test("a rejected acceptance keeps the prior run and stops without executing", as
     maxRetries: 2,
     cycleBudget,
     wallClockBudget,
+    integrity: integrity({ hasGreenProof: async () => false }),
     devHealthy: async () => true,
     namespace: "qa-bot-abc",
   });
@@ -704,6 +719,7 @@ test("a capped acceptance keeps the prior run and stops without executing", asyn
     maxRetries: 2,
     cycleBudget,
     wallClockBudget,
+    integrity: integrity({ hasGreenProof: async () => false }),
     devHealthy: async () => true,
     namespace: "qa-bot-abc",
   });
@@ -749,6 +765,7 @@ test("the best round's snapshot is restored when a later round regresses", async
     maxRetries: 2,
     cycleBudget,
     wallClockBudget,
+    integrity: integrity({ hasGreenProof: async () => false }),
     devHealthy: async () => true,
     namespace: "qa-bot-abc",
   });
@@ -786,6 +803,7 @@ test("an accepted round names as re-run only the changed spec files its executio
     maxRetries: 1,
     cycleBudget,
     wallClockBudget,
+    integrity: integrity({ hasGreenProof: async () => false }),
     devHealthy: async () => true,
     namespace: "qa-bot-abc",
   });
@@ -824,6 +842,7 @@ test("an accepted round keeps a case the run cannot attribute to a file", async 
     maxRetries: 1,
     cycleBudget,
     wallClockBudget,
+    integrity: integrity({ hasGreenProof: async () => false }),
     devHealthy: async () => true,
     namespace: "qa-bot-abc",
   });
@@ -866,6 +885,7 @@ test("the initial run's own bytes are restored when the first accepted round is 
     maxRetries: 1,
     cycleBudget,
     wallClockBudget,
+    integrity: integrity({ hasGreenProof: async () => false }),
     devHealthy: async () => true,
     namespace: "qa-bot-abc",
   });
@@ -905,6 +925,7 @@ test("an accepted round never hides a flaky spec it did not re-run", async () =>
     maxRetries: 1,
     cycleBudget,
     wallClockBudget,
+    integrity: integrity({ hasGreenProof: async () => false }),
     devHealthy: async () => true,
     namespace: "qa-bot-abc",
   });
@@ -934,6 +955,7 @@ test("DEV unhealthy before a round's acceptance skips it", async () => {
     maxRetries: 1,
     cycleBudget,
     wallClockBudget,
+    integrity: integrity({ hasGreenProof: async () => false }),
     /* Healthy for the initial snapshot; down by the time the round's acceptance is asked to run. */
     devHealthy: async () => {
       devCalls += 1;
@@ -971,6 +993,7 @@ test("a rejected fail round ends as infra-error when DEV went unhealthy during i
     maxRetries: 1,
     cycleBudget,
     wallClockBudget,
+    integrity: integrity({ hasGreenProof: async () => false }),
     /* Healthy for the initial snapshot and the pre-acceptance check; down by the time the rejected failure is classified. */
     devHealthy: async () => {
       devCalls += 1;
@@ -1003,6 +1026,7 @@ test("a validation rejection while DEV is down stays a validation rejection, not
     maxRetries: 1,
     cycleBudget,
     wallClockBudget,
+    integrity: integrity({ hasGreenProof: async () => false }),
     /* Healthy for the snapshot and the pre-acceptance check; down when the rejection is read. */
     devHealthy: async () => {
       devCalls += 1;
@@ -1039,6 +1063,7 @@ test("a rejected infra-error round ends the run as infra-error", async () => {
     maxRetries: 2,
     cycleBudget,
     wallClockBudget,
+    integrity: integrity({ hasGreenProof: async () => false }),
     devHealthy: async () => true,
     namespace: "qa-bot-abc",
   });
@@ -1092,6 +1117,7 @@ test("reexploreNavigations thrash-stop — a heavy re-exploration round downgrad
     maxRetries: 2,
     cycleBudget,
     wallClockBudget,
+    integrity: integrity({ hasGreenProof: async () => false }),
     devHealthy: async () => true,
     namespace: "qa-bot-f1",
     coverageWillMeasure: true, /* never-filter, keeps merge logic out of this test's scope */
@@ -1145,6 +1171,7 @@ test("mid-retry infra-error (DEV dies after a filtered retry-execute) discards c
     maxRetries: 2,
     cycleBudget,
     wallClockBudget,
+    integrity: integrity({ hasGreenProof: async () => false }),
     devHealthy: async () => {
       devHealthyCallCount++;
       /* 1st call: the adjudicator evidence snapshot (must be healthy so the loop proceeds to regen).
@@ -1192,6 +1219,7 @@ test("the regen call threads cycleBudget/wallClockBudget to the the regeneration
     maxRetries: 1,
     cycleBudget,
     wallClockBudget,
+    integrity: integrity({ hasGreenProof: async () => false }),
     devHealthy: async () => true,
     namespace: "qa-bot-f4",
   });
@@ -1232,6 +1260,7 @@ test("lastSpecMetas reflects the FINAL regen round's own specMetas once the loop
     maxRetries: 1,
     cycleBudget,
     wallClockBudget,
+    integrity: integrity({ hasGreenProof: async () => false }),
     devHealthy: async () => true,
     namespace: "qa-bot-specmetas",
   });
@@ -1266,6 +1295,7 @@ test("lastSpecMetas is undefined when the loop never regenerated (already passin
     maxRetries: 2,
     cycleBudget,
     wallClockBudget,
+    integrity: integrity({ hasGreenProof: async () => false }),
     devHealthy: async () => true,
     namespace: "qa-bot-specmetas-noop",
   });
@@ -1332,6 +1362,7 @@ function loopInput(overrides: Partial<FixLoopInput> = {}): FixLoopInput {
     devHealthy: async () => true,
     namespace: "qa-bot-run",
     coverageWillMeasure: false,
+    integrity: integrity({ hasGreenProof: async () => false }),
     ...overrides,
   };
 }
@@ -1359,19 +1390,7 @@ function integrity(overrides: Partial<FixLoopIntegrity> = {}): FixLoopIntegrity 
 
 const TRIAGE_FAULT = "locator.fill: element(s) not found\nwaiting for locator('[data-testid=discount]')";
 
-/* ── Review-loop integrity: triage and the typed test-correct claim ────────────────────────────── */
-
-test("with the review-loop integrity capability absent, an absent-target locator failure is still a test defect and a repair is asked for", async () => {
-  const failing = makeCase({ name: "discount", file: "checkout.spec.ts", detail: TRIAGE_FAULT, failureDom: "main: Checkout" });
-  const { loop, rec } = recordingLoop({ check: () => findings({ absentKeys: new Set(["data-testid=discount"]) }), regen: noFix });
-
-  const result = await loop.run(loopInput({ initialRun: { verdict: "fail", cases: [failing] } }));
-
-  assert.equal(rec.executes.length, 0, "the switch is off: no triage re-execution is spent");
-  assert.equal(rec.generates.length, 1, "the loop asks for a repair as before");
-  assert.notEqual(result.lastAdjudicatorVerdict?.class, "dev_not_rendered");
-  assert.equal(result.preconditionFailed, false);
-});
+/* ── Triage and the typed test-correct claim ────────────────────────────── */
 
 test("a target absent on both reads while its bytes have a green proof ends as a precondition, without a repair turn", async () => {
   const failing = makeCase({ name: "discount", file: "checkout.spec.ts", detail: TRIAGE_FAULT, failureDom: "main: Checkout" });
@@ -1921,16 +1940,6 @@ test("an empty data state on a route the Context Pack did not confirm with resul
   assert.equal(result.preconditionFailed, false);
 });
 
-test("with the review-loop integrity capability absent, a contradicted data state is repaired as before", async () => {
-  const failing = emptyListCase();
-  const { loop, rec } = recordingLoop({ regen: noFix });
-
-  await loop.run(loopInput({ initialRun: { verdict: "fail", cases: [failing] }, packConfirmedDataRoutes: PACK_CONFIRMED }));
-
-  assert.equal(rec.executes.length, 0);
-  assert.equal(rec.generates.length, 1);
-});
-
 /* ── The triage's own record: what made it re-read and what the re-read came to ─────────────────── */
 
 test("a contradicted data state whose re-read passes reports a pack-conflict triage that passed", async () => {
@@ -1989,11 +1998,3 @@ test("an absent target whose bytes have no green proof reports an unproven triag
   assert.deepEqual(result.triage, { trigger: "absent-selectors", outcome: "unproven", files: 1 });
 });
 
-test("with the review-loop integrity capability absent, no triage is reported", async () => {
-  const failing = makeCase({ name: "discount", file: "checkout.spec.ts", detail: TRIAGE_FAULT, failureDom: "main: Checkout" });
-  const { loop } = recordingLoop({ check: () => findings({ absentKeys: new Set(["data-testid=discount"]) }), regen: noFix });
-
-  const result = await loop.run(loopInput({ initialRun: { verdict: "fail", cases: [failing] } }));
-
-  assert.equal(result.triage, undefined);
-});

@@ -45,7 +45,7 @@ test("the run's candidates are asked about and their figures persisted beside th
 
 test("a run with no candidates asks the measurement as it always did and persists no per-candidate figure", async () => {
   const { observed, asked } = await run({ withScope: false });
-  assert.equal(asked[0], undefined);
+  assert.equal(asked[0]?.candidates, undefined, "the measurement is asked about no use case");
   assert.equal(observed.saved[0]!.gateSignals.coverageByCandidate, undefined);
   assert.equal(observed.saved[0]!.gateSignals.coverageRatio, 0.5);
 });

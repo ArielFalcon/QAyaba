@@ -204,22 +204,8 @@ describe("seam-parity: COMPOSITION (EngineRootDeps vs buildEngineRootDeps)", () 
     assert.equal(cfg.contextMap, undefined, "contextMap is deliberately absent at composition time — see OPTIONAL_ALLOWLIST.contextMap");
     assert.equal(cfg.prChangedFiles, undefined, "prChangedFiles is deliberately absent at composition time — see OPTIONAL_ALLOWLIST.prChangedFiles");
     assert.equal(cfg.domPack, true, "domPack is defaulted true at composition time — see OPTIONAL_ALLOWLIST.domPack");
-    assert.deepEqual(cfg.integrity, { reviewLoop: true }, `integrity (review-loop master switch, default on, opt-out) dropped at ${dyingLayer}`);
     assert.equal(cfg.historyFilePath, undefined, "historyFilePath is the opt-OUT alternative to runHistory — absent by default, see OPTIONAL_ALLOWLIST.historyFilePath");
     assert.equal(cfg.observer, undefined, "observer is absent because this call omitted the 5th argument — see OPTIONAL_ALLOWLIST.observer");
-  });
-
-  test("qa.reviewLoopIntegrity reaches EngineRootDeps.integrity.reviewLoop, and is on unless the app opts out", () => {
-    const byDefault = buildEngineRootDeps(fakeAppConfig(), fakeFactoryDeps(), S("namespace"), { mode: "diff" });
-    assert.deepEqual(byDefault.integrity, { reviewLoop: true }, "the master switch is on unless the app turns it off");
-
-    const off = buildEngineRootDeps(
-      fakeAppConfig({ qa: { needsReview: true, shadow: false, testDataPrefix: "qa-bot", reviewLoopIntegrity: false } }),
-      fakeFactoryDeps(),
-      S("namespace"),
-      { mode: "diff" },
-    );
-    assert.deepEqual(off.integrity, { reviewLoop: false }, "qa.reviewLoopIntegrity: false reaches buildEngineRootDeps()");
   });
 
   /* The spec reader is the composition root's own: the shell hands it none (asserted above), so what Lever-2 reads

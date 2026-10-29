@@ -7,6 +7,7 @@ import type { RouteAvailabilityFact, AvailabilityBasis } from "@kernel/route-ava
 import { CycleBudget } from "@kernel/cycle-budget.ts";
 import { WallClockBudget } from "@kernel/wall-clock-budget.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
+import { UNPROVEN_INTEGRITY } from "../../../support/fix-loop-integrity.ts";
 
 const SPEC = `test("upload", async ({ page }) => {\n  await page.goto("/upload-menu/preview?x=1");\n  await expect(page.getByRole("heading", { name: "Preview" })).toBeVisible();\n});\n`;
 const FAULT = "expect(locator).toBeVisible() failed\n\nLocator: getByRole('heading', { name: 'Preview' })\nError: element(s) not found";
@@ -47,6 +48,7 @@ function input(facts: readonly RouteAvailabilityFact[], cases: QaCase[] = [faili
     wallClockBudget,
     devHealthy: async () => true,
     namespace: "run",
+    integrity: UNPROVEN_INTEGRITY,
     routeAvailability: { facts, specOpens: async (file) => (file === "flows/upload.spec.ts" ? routesOpenedBy(SPEC) : []) },
   };
 }

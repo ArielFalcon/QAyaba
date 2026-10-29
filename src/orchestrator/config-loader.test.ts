@@ -178,6 +178,19 @@ report:
     }
   });
 
+  test("loadAppConfig reports the retired reviewLoopIntegrity key as an unknown key, with no replacement named", () => {
+    const lines = captureWarnings();
+    const { root } = loadWith("", VALID_APP.replace("  needsReview: true", "  needsReview: true\n  reviewLoopIntegrity: false"));
+    try {
+      loadAppConfig("shop", root);
+      const warned = lines.filter((l) => /reviewLoopIntegrity/.test(l.message));
+      assert.equal(warned.length, 1);
+      assert.match(warned[0]?.message ?? "", /unknown key 'qa\.reviewLoopIntegrity' is ignored/);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   test("loadAppConfig keeps the generic unknown-key warning for every other unknown key of the qa block", () => {
     const lines = captureWarnings();
     const { root } = loadWith("", VALID_APP.replace("  needsReview: true", "  needsReview: true\n  valueOraclee: signal"));
