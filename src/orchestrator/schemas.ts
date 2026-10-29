@@ -496,7 +496,7 @@ export const GeneratorVerdictSchema = z
 export type ValidatedGeneratorVerdict = z.infer<typeof GeneratorVerdictSchema>;
 
 
-/** One reviewer finding as the agent wrote it; a `null` citation is the agent saying it cited nothing. An entry the schema cannot read makes the whole answer unreadable; nothing here stands in for a field the agent did not send. */
+/** One reviewer finding as the agent wrote it; a `null` citation is the agent saying it cited nothing. An entry the schema cannot read makes a rejection unreadable; beside an approval it is set aside and recorded. Nothing here stands in for a field the agent did not send. */
 export const CorrectionEntrySchema = z.object({
   text: z.string(),
   severity: z.enum(["blocking", "advisory"]),
