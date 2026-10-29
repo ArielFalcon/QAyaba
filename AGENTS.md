@@ -160,22 +160,27 @@ One row per decision the records have classified, saying who decides: the **engi
 **agent with facts** (the agent judges, from facts the engine hands it, and the engine admits or verifies the answer) or a
 **signal** (the engine adapts from a measured value, never from a size or count compared with a constant). The table
 answers pillar P2 of [ADR-0001](docs/architecture/adr/0001-design-pillars.md). It has no up-front inventory: each RFC adds
-the rows for the decisions it touches, with the rule and the record that settled it.
+the rows for the decisions it touches, with the rule and the record that settled it. The Status column says whether the
+code holds the rule today: **in force** is current fact (the rest of this file describes it), **lands with <RFC>** is the
+rule a record settled and the named change has not yet made true, so no other line of this file describes it as current.
+The RFC that lands a row flips it to **in force** in the same commit.
 
-| Decision | Decides | Rule it follows | Record |
-|---|---|---|---|
-| Which flows a change needs, and what each flow's author writes | Agent with facts | The lead plans from the change map, the Context Pack and the code graph; the engine admits only what the plan's shape and the run's limits allow | Architecture, "Lead and sidekicks" |
-| Whether a change needs no test | Agent with facts | A declared `noop` with a reason and zero specs is honored; silence is not a decision (`E-NO-DECISION`) | Invariants, "Honor the explicit no-op" |
-| Whether the lead accepts a flow's spec | Agent with facts, the engine's facts win | An accept of a spec with no `run_spec` pass on its current bytes is sent back; an app defect is never sent back to be made green | Architecture, "Lead and sidekicks" |
-| Whether a reviewer's finding blocks | Agent with facts, the engine verifies | Only a finding whose citation the engine verifies blocks; an answer the engine could not read is never an approval | Architecture, "Lead and sidekicks"; [RFC-0006](docs/architecture/rfc/0006-review-answer-crosses-whole.md) |
-| Which verdict a run ends with | Engine | One closed outcome per step, one `finalizeRun`, one failure policy; an agent's answer is an input | Architecture, "The run flow" |
-| Whether a request is a write the spec caused | Engine, from a signal | Cause is measured against a control load, not read from the request's destination | [RFC-0007](docs/architecture/rfc/0007-dev-write-attribution.md) |
-| Whether change coverage blocks a publication | Engine, from a signal | The measurement on the final bytes; `unknown` never blocks; `enforce` only after three consecutive replicates with a trustworthy measurement and bundle mutation on | [ADR-0005](docs/architecture/adr/0005-coverage-enforce-activation.md) |
-| How much time and effort a change gets | Signal (not yet named) | Today a count of files and lines against constants (`DIFF_TIERS`), which P3 forbids; the replacing signal is an open question | [ADR-0001](docs/architecture/adr/0001-design-pillars.md), Open question 3 |
-| Which level a log line has | Engine | Derived from the typed outcome recorded beside it, never fixed at the call site | [RFC-0004](docs/architecture/rfc/0004-log-level-from-outcome.md) |
-| Which commit DEV serves | Engine, from the product | The product states its version; qayaba never infers it and records "version unknown" until the product does | [ADR-0008](docs/architecture/adr/0008-product-version-source.md) |
-| Whether a campaign run may learn | Engine | The server freezes a campaign-tagged run unless its request declares a learning arm | [ADR-0009](docs/architecture/adr/0009-campaign-freeze-on-server.md) |
-| What a run teaches the next run | Engine, no agent | Lessons are produced deterministically from typed facts, measured against a frozen arm and deleted if they do not help | [ADR-0003](docs/architecture/adr/0003-learning-layer-rebuild.md) |
+| Decision | Decides | Rule it follows | Record | Status |
+|---|---|---|---|---|
+| Which flows a change needs, and what each flow's author writes | Agent with facts | The lead plans from the change map, the Context Pack and the code graph; the engine admits only what the plan's shape and the run's limits allow | Architecture, "Lead and sidekicks" | in force |
+| Whether a change needs no test | Agent with facts | A declared `noop` with a reason and zero specs is honored; silence is not a decision (`E-NO-DECISION`) | Invariants, "Honor the explicit no-op" | in force |
+| Whether the lead accepts a flow's spec | Agent with facts, the engine's facts win | An accept of a spec with no `run_spec` pass on its current bytes is sent back; an app defect is never sent back to be made green | Architecture, "Lead and sidekicks" | in force |
+| Whether a reviewer's finding blocks | Agent with facts, the engine verifies | Only a finding whose citation the engine verifies blocks; an answer holding no readable verdict fails closed as a parse miss, never an approval | Architecture, "Lead and sidekicks" | in force |
+| Whether one unreadable entry of a reviewer's answer sinks the answer | Engine | Beside an approval the entry is recorded and the approval stands; a rejection repairs once, then fails closed; a lost entry is loud | [RFC-0006](docs/architecture/rfc/0006-review-answer-crosses-whole.md) | lands with RFC-0006 |
+| Which verdict a run ends with | Engine | One closed outcome per step, one `finalizeRun`, one failure policy; an agent's answer is an input | Architecture, "The run flow" | in force |
+| Whether a request is a write the spec caused | Engine, from a signal | Cause is measured against a control load, not read from the request's destination | [RFC-0007](docs/architecture/rfc/0007-dev-write-attribution.md) | lands with RFC-0007 |
+| Whether change coverage blocks a publication | Engine, from a signal | The measurement on the final bytes; `unknown` never blocks; only `enforce` blocks | [ADR-0005](docs/architecture/adr/0005-coverage-enforce-activation.md) | in force |
+| When `enforce` may be switched on | Engine, from a signal | Only after three consecutive replicates with a trustworthy measurement and bundle mutation on | [ADR-0005](docs/architecture/adr/0005-coverage-enforce-activation.md) | lands with ADR-0005 |
+| How much time and effort a change gets | Signal (not yet named) | Today a count of files and lines against constants (`DIFF_TIERS`), which P3 forbids; the replacing signal is an open question | [ADR-0001](docs/architecture/adr/0001-design-pillars.md), Open question 3 | lands with the RFC that names the signal |
+| Which level a log line has | Engine | Derived from the typed outcome recorded beside it, never fixed at the call site | [RFC-0004](docs/architecture/rfc/0004-log-level-from-outcome.md) | lands with RFC-0004 |
+| Which commit DEV serves | Engine, from the product | The product states its version; qayaba never infers it and records "version unknown" until the product does | [ADR-0008](docs/architecture/adr/0008-product-version-source.md) | lands with ADR-0008 |
+| Whether a campaign run may learn | Engine | The server freezes a campaign-tagged run unless its request declares a learning arm | [ADR-0009](docs/architecture/adr/0009-campaign-freeze-on-server.md) | lands with ADR-0009 |
+| What a run teaches the next run | Engine, no agent | Lessons are produced deterministically from typed facts, measured against a frozen arm and deleted if they do not help | [ADR-0003](docs/architecture/adr/0003-learning-layer-rebuild.md) | lands with ADR-0003 |
 
 ### The run flow — start here
 
