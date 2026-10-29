@@ -15,6 +15,7 @@ import type { EngineRootDeps } from "./engine-root";
 import type { StepLimitRole } from "@contexts/generation/application/index.ts";
 import { rosterFixturePath } from "../integrations/fixtures/opencode-roster";
 import { setAgentsConfigPath } from "../integrations/opencode-client";
+import Database from "better-sqlite3";
 
 /* The roster is an input here: window budgets resolve from the roster fixture, never the deployable agents/opencode.json. */
 setAgentsConfigPath(rosterFixturePath());
@@ -285,6 +286,12 @@ test("a model the runtime reports no window for has an unknown window", async ()
 });
 
 test("with no recorded turns the working room starts cold from the role's live step limit", async () => {
+  const raw = new Database(process.env.HISTORY_DB_PATH!);
+  try {
+    raw.exec("DELETE FROM agent_turns");
+  } finally {
+    raw.close();
+  }
   const config = compose(() => facadeWithWindows(async () => ({ "p/primary-model": 1_000_000 }), { author: 41, lead: 12 }));
 
   await limitOf(config, "author");
