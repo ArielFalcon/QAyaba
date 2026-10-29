@@ -11,25 +11,6 @@ export { SecretLeakError };
 
 const patterns = new PatternRedactionAdapter();
 
-export const SECRET_AUDIT = new Map<string, number>();
-/*
- * The audit map is an in-memory diagnostic that nothing reads back into a decision, so it must
- * not grow without bound over a long-lived process. Cap it and evict in insertion order.
- */
-export const SECRET_AUDIT_MAX = 500;
-
-export function recordAudit(runId: string, detection: SecretDetection): void {
-  if (detection.redacted) {
-    SECRET_AUDIT.set(runId, detection.count);
-    while (SECRET_AUDIT.size > SECRET_AUDIT_MAX) {
-      const oldest = SECRET_AUDIT.keys().next().value;
-      if (oldest === undefined) break;
-      SECRET_AUDIT.delete(oldest);
-    }
-  }
-}
-
-
 const ENV_SECRET_NAME = /(?:KEY|TOKEN|SECRET|PASSWORD|PASS)$/;
 const MIN_ENV_SECRET_LEN = 6;
 

@@ -1,4 +1,4 @@
-/* E2E Playwright runner against live DEV. Timeouts and recordAudit are injected — this module never reads process.env and never imports src/orchestrator. */
+/* E2E Playwright runner against live DEV. Timeouts are injected — this module never reads process.env and never imports src/orchestrator. */
 
 import { engineLog } from "@kernel/ports/process-logger.ts";
 import { createHash } from "node:crypto";
@@ -8,7 +8,7 @@ import { dirname, join, relative } from "node:path";
 import type { QaCase, CaseStatus, FailureSettle, FailureAttemptEvidence } from "@kernel/qa-case.ts";
 import type { RunVerdict } from "@kernel/run-verdict.ts";
 import { redactByValue } from "../../../shared-kernel/run-secret-redaction.ts";
-import { sanitizeText, type SecretDetection } from "../../../shared-infrastructure/redaction/pattern-redaction.adapter.ts";
+import { sanitizeText } from "../../../shared-infrastructure/redaction/pattern-redaction.adapter.ts";
 import { parseAriaSnapshot } from "@contexts/generation/application/index.ts";
 import { BoundedLineReader } from "@contexts/test-execution/infrastructure/bounded-line-reader.ts";
 import { BoundedOutputTail } from "@kernel/process-sandbox/bounded-output-tail.ts";
@@ -178,8 +178,6 @@ export interface E2eExecuteDeps {
   exitWaitMs?: number;
   /* A directory for the failure dumps of one run, inside the run's work dir, and the root the strict reader walks from. Absent (a fake runner): runE2E makes a temp dir of its own. */
   allocateFailureDir?(): { dir: string; root: string; dispose(): void };
-  /* OPTIONAL diagnostic sink for a secret-redaction audit trail (src/orchestrator/sanitizer.ts's recordAudit/SECRET_AUDIT — a security-boundary concern this module does not import directly, to stay src/-free). Absent ⇒ no audit recorded (safe for every unit test that doesn't care about it). The engine-root shell (run-engine-factory.ts) binds the REAL recordAudit into createDefaultE2eExecuteDeps's returned object, so production behavior is unchanged. */
-  recordAudit?(runId: string, detection: SecretDetection): void;
   /* OPTIONAL read-only observer of a report-shaped Playwright JSON report, told once per run before the verdict is derived (the shell turns it into spans), with the harvested (and redacted) cases as its evidence. It never alters the report or the verdict; a fault in it is logged and ignored. */
   /* mutation-scope:begin report-callback */
   onReport?(report: unknown, cases: readonly QaCase[]): void;
@@ -329,7 +327,6 @@ export async function runE2E(
   if (sanitized.detection.redacted) {
     engineLog.warn("[sanitizer] Secrets detected in E2E execution logs — redacting before publish");
   }
-  deps.recordAudit?.(opts.namespace, sanitized.detection);
 
   /* The temp capture dir is removed on EVERY exit path — the early infra-error returns below, the main return, a throw from the harvest, AND a runSuite REJECT — via the finally at the end. A runner that produced no parseable report did not actually run the suite — it crashed (bad config, browser launch failure, OOM). That is INFRASTRUCTURE, not a pass: never let a swallowed parse error surface as green (the #1 invariant). */
   if (!ran || !isReportShaped(report)) {

@@ -1,20 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { sanitizeText, containsSecrets } from "../../qa-engine/src/shared-infrastructure/redaction/pattern-redaction.adapter";
-import { SECRET_AUDIT, recordAudit, RedactionPortAdapter } from "./sanitizer";
-
-test("SECRET_AUDIT records redactions", () => {
-  SECRET_AUDIT.clear();
-  const { detection } = sanitizeText("apiKey: sk-123");
-  recordAudit("run-1", detection);
-  assert.equal(SECRET_AUDIT.get("run-1"), 1);
-});
-
-test("SECRET_AUDIT does not record zero redactions", () => {
-  SECRET_AUDIT.clear();
-  recordAudit("run-2", { redacted: false, patterns: [], count: 0 });
-  assert.equal(SECRET_AUDIT.has("run-2"), false);
-});
+import { RedactionPortAdapter } from "./sanitizer";
 
 /* RedactionPortAdapter must detect a secret VALUE present verbatim in text, driven by env VAR
    NAME heuristics (parity with src/util/redact.ts's secretValues/redactSecrets), even when no

@@ -143,7 +143,7 @@ import { blockedHostMatcher, egressGateFor, loadRegistryGroups, resolveRunOrigin
 import { setSandboxGroup } from "../../qa-engine/src/shared-infrastructure/process-sandbox/git-hardening";
 import type { EffectiveConfig, GroundingInput } from "../contract/commands";
 import { requireEnv } from "../util/env";
-import { RedactionPortAdapter, recordAudit, redactSourceForModel } from "../orchestrator/sanitizer";
+import { RedactionPortAdapter, redactSourceForModel } from "../orchestrator/sanitizer";
 import { ensureMirror, ensureMirrorAtBranch, defaultMirrorDeps, workdirRoot, realGit, authHeaderArgs, hardenGitArgs, assertTrustedGitTree } from "../integrations/repo-mirror";
 import { stageServiceContext, serviceContextDir } from "./service-context";
 import { SqliteRunHistoryAdapter } from "./run-history-sqlite-adapter";
@@ -616,7 +616,6 @@ export function buildAcceptanceHarness(input: AcceptanceHarnessInput): Acceptanc
     ...createDefaultE2eExecuteDeps(new ProcessKillAdapter(), e2eTimeoutMs(env), exec, env.PW_ACTION_TIMEOUT_MS),
     ...(app.dev?.geolocation ? { geolocation: app.dev.geolocation } : {}),
     ...(app.dev?.dataState ? { dataState: app.dev.dataState } : {}),
-    recordAudit,
   };
   const execution = new ExecutionPortAdapter(
     { e2e: new E2eExecutionStrategy((specDir, opts) => runE2E(specDir, opts, e2eExecuteDeps)) },
@@ -916,7 +915,6 @@ export function buildEngineRootDeps(
     ...createDefaultE2eExecuteDeps(new ProcessKillAdapter(), e2eDefaultTimeoutMs, exec, pwActionTimeoutMs),
     ...(app.dev?.geolocation ? { geolocation: app.dev.geolocation } : {}),
     ...(app.dev?.dataState ? { dataState: app.dev.dataState } : {}),
-    recordAudit,
     /* The Playwright report as spans (spec files, cases, attempts) under the phase that executes. */
     ...(deps.telemetry ? { onReport: (report, cases) => synthesizeReportSpans({ telemetry: deps.telemetry! }, report, cases) } : {}),
   };
