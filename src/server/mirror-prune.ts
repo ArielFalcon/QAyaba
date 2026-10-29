@@ -22,8 +22,6 @@ import { getHistory } from "./persistence/index";
 import { activeSettings } from "../settings/store";
 
 export const PRUNE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;  /* 7 days */
-/* Mirrors that are never pruned (the maintainer's own working copy). */
-export const PROTECTED_MIRROR_NAMES = new Set(["qayaba-self"]);
 
 /* Directory name of a repo's mirror under the mirrors root (see repo-mirror.ts). */
 export function repoSlug(repo: string): string {
@@ -71,7 +69,7 @@ export function pruneMirrors(deps: MirrorPruneDeps): MirrorPruneResult {
   const deleted: string[] = [];
   let freedBytes = 0;
   for (const entry of entries) {
-    if (PROTECTED_MIRROR_NAMES.has(entry.name) || entry.name === EXPERIMENT_COPIES_DIR || entry.name === WARM_SNAPSHOTS_DIR || entry.name === DELEGATIONS_DIR || entry.name === JUDGE_WORKDIR) continue;
+    if (entry.name === EXPERIMENT_COPIES_DIR || entry.name === WARM_SNAPSHOTS_DIR || entry.name === DELEGATIONS_DIR || entry.name === JUDGE_WORKDIR) continue;
     if (active.has(entry.name)) continue;  /* never touch the running job's mirrors */
     const isOrphan = !configured.has(entry.name);
     const isStale = now - entry.mtimeMs > PRUNE_MAX_AGE_MS;

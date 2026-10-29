@@ -42,7 +42,6 @@ describe("createApp", () => {
       control: {
         authorize: (req) => req.headers.authorization === "Bearer good",
         metrics: () => "",
-        maintainer: async () => false,
         api: async (req, res) => {
           if (!/^\/api(\/v1)?\/(health|auth\/)/.test(req.url ?? "")) return false;
           res.writeHead(200, { "Content-Type": "application/json" });
@@ -89,7 +88,7 @@ describe("createApp", () => {
 
   test("building the app opens no listener until listen() is called", () => {
     const app = createApp({
-      control: { authorize: () => false, metrics: () => "", maintainer: async () => false, api: async () => false, dashboard: async () => false, shouldLogApiRequest, log: () => {}, now: () => 0 },
+      control: { authorize: () => false, metrics: () => "", api: async () => false, dashboard: async () => false, shouldLogApiRequest, log: () => {}, now: () => 0 },
       webhook: { secret: SECRET, allowUnsigned: false, catalog: { load: async () => { throw new Error("unused"); }, list: async () => [], resolveByRepo: async () => [] }, enqueue: (() => "") as never, shuttingDown: () => false, log: () => {} },
       toolsServer: createServer(),
       lifecycle: { shuttingDown: () => false, setShuttingDown: () => {}, shutdown: async () => {} },
@@ -167,7 +166,7 @@ describe("createApp", () => {
     await new Promise<void>((resolve) => taken.listen(0, "127.0.0.1", resolve));
     const exits: number[] = [];
     const app = createApp({
-      control: { authorize: () => false, metrics: () => "", maintainer: async () => false, api: async () => false, dashboard: async () => false, shouldLogApiRequest, log: () => {}, now: () => 0 },
+      control: { authorize: () => false, metrics: () => "", api: async () => false, dashboard: async () => false, shouldLogApiRequest, log: () => {}, now: () => 0 },
       webhook: { secret: SECRET, allowUnsigned: false, catalog: { load: async () => { throw new Error("unused"); }, list: async () => [], resolveByRepo: async () => [] }, enqueue: (() => "") as never, shuttingDown: () => false, log: () => {} },
       toolsServer: createServer(),
       lifecycle: { shuttingDown: () => false, setShuttingDown: () => {}, shutdown: async () => {} },

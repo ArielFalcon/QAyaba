@@ -49,13 +49,6 @@ Commands:
     --last N        Nth-last run (default: 1)
   history <app>   Recent runs for an app
     --limit N       Number of runs (default: 10)
-  maintainer      Self-maintenance agent
-    report          Report an incident
-      --summary ".."  What happened
-      --severity s    warn | error | critical (default: warn)
-      --source s      health-check | log-scraper | qa-author | qa-reviewer | cli (default: cli)
-    status          Maintainer status
-    incidents       List recorded incidents
   help            Show this help
 
 Env: QA_HOST (default localhost:458) · QA_API_TOKEN (if the service requires auth)
@@ -326,56 +319,6 @@ cmd_history() {
     | awk -F'\t' '{printf "  %-22s %-11s %-10s %-8s %s\n", $1, $2, $3, $4, $5}'
 }
 
-# ── maintainer ──
-cmd_maintainer_report() {
-  local summary="" severity="warn" source="cli"
-  while [[ $# -gt 0 ]]; do
-    case "$1" in
-      --summary) need_value "$1" "$2"; summary="$2"; shift 2 ;;
-      --severity) need_value "$1" "$2"; severity="$2"; shift 2 ;;
-      --source) need_value "$1" "$2"; source="$2"; shift 2 ;;
-      *) shift ;;
-    esac
-  done
-  [[ -n "$summary" ]] || die "--summary is required"
-  local body; body=$(jq -n --arg src "$source" --arg sev "$severity" --arg sum "$summary" \
-    '{source:$src,severity:$sev,summary:$sum}')
-  request POST "/api/maintainer/report" "$body" || die "cannot reach $QA_HOST"
-  if [[ "$REPLY_CODE" != 202 ]]; then
-    echo "$REPLY_BODY" | jq -r '.error // .message' 2>/dev/null || echo "$REPLY_BODY"
-    exit 1
-  fi
-  local id; id=$(echo "$REPLY_BODY" | jq -r '.id')
-  echo "$ARROW incident recorded: $id"
-}
-
-cmd_maintainer_status() {
-  request GET "/api/maintainer/status" || die "cannot reach $QA_HOST"
-  echo "$REPLY_BODY" | jq -r '"status: \(.status) · pending: \(.pendingIncidents)"'
-}
-
-cmd_maintainer_incidents() {
-  request GET "/api/maintainer/incidents" || die "cannot reach $QA_HOST"
-  if [[ "$REPLY_BODY" == "[]" ]]; then
-    echo "no incidents recorded"
-    return
-  fi
-  echo "$REPLY_BODY" | jq -r '.[]
-    | [.id, .source, .severity, .status, .summary[:60]]
-    | @tsv' \
-    | awk -F'\t' '{printf "  %-20s %-14s %-8s %-10s %s\n", $1, $2, $3, $4, $5}'
-}
-
-cmd_maintainer() {
-  [[ $# -eq 0 ]] && { echo "qa: maintainer <report|status|incidents>"; exit 2; }
-  case "${1:-}" in
-    report)     shift; cmd_maintainer_report "$@" ;;
-    status)     cmd_maintainer_status ;;
-    incidents)  cmd_maintainer_incidents ;;
-    *)          echo "qa: unknown maintainer command '${1:-}'" >&2; exit 2 ;;
-  esac
-}
-
 # ── main ──
 [[ $# -eq 0 ]] && usage
 case "${1:-}" in
@@ -384,7 +327,6 @@ case "${1:-}" in
   apps)           cmd_apps ;;
   logs)           shift; cmd_logs "$@" ;;
   history)        shift; cmd_history "$@" ;;
-  maintainer)     shift; cmd_maintainer "$@" ;;
   help|-h|--help) usage ;;
   *)              echo "qa: unknown command '${1:-}'" >&2; usage ;;
 esac

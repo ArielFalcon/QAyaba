@@ -107,13 +107,12 @@ test("the forbidden-I/O scan also catches WebSocket and the remaining node: I/O 
 });
 
 /* burden entirely" — false even after this fix, which only widens the enumerated static/dynamic
-   import forms this scan recognizes. The real guard is the PROTECTED_PATHS review requirement on
-   this file (merge-guard.ts already lists shadow-log.adapter.ts); this scan is defense-in-depth on
-   top of that review, not a substitute for it — see this file's own module-level comment above for
+   import forms this scan recognizes. The real guard is human review of
+   this file; this scan is defense-in-depth on top of that review, not a substitute for it — see this file's own module-level comment above for
    the honestly-scoped claim.
  */
 test("the scan's own claim is honestly scoped — a genuinely novel obfuscation (string concatenation into a dynamic import) is a documented, out-of-scope gap, not a false 'entirely removes the burden' guarantee", () => {
   const stillEvades = 'const mod = "child" + "_process";\nexport async function x() { const { spawn } = await import(mod); spawn("ls"); }\n';
   const hits = scanForbiddenIO(stillEvades);
-  assert.deepEqual(hits, [], "documented limitation: a computed/concatenated module specifier is NOT caught by this static scan — human review (PROTECTED_PATHS) is the real guard, not this defense-in-depth scan");
+  assert.deepEqual(hits, [], "documented limitation: a computed/concatenated module specifier is NOT caught by this static scan — human review is the real guard, not this defense-in-depth scan");
 });

@@ -15,7 +15,6 @@ import { serializablePhases } from "./persistence/repositories/run.repository";
 import { traceFactsOf } from "@kernel/run-trace-facts";
 import { phaseSnapshotOf } from "@contexts/run-orchestration/application/index";
 import { specCountsOf } from "./evaluation-evidence";
-import { recordIncident } from "./maintainer";
 import { testDataNamespace } from "../qa/test-data";
 import { RunMode, TestTarget, TriggerSource, QaCase, QaRunResult, engineStatus, type RunChangeEntry } from "../types";
 import { RedactionPortAdapter } from "../orchestrator/sanitizer";
@@ -650,8 +649,7 @@ function trackRun(req: RunRequest, deps: RunnerDeps, captureMode: CaptureMode, w
       /*
        * A working copy whose git dir is not the orchestrator's own is a SECURITY REFUSAL: nothing ran, so the
        * verdict is inconclusive, but it is neither a transient infrastructure fault nor a code defect. It is loud
-       * and has its own note. It opens NO maintainer incident: the incident summary is fed to the maintainer's
-       * model prompt, and the refusal names paths the sandboxed repository controls.
+       * and has its own note.
        */
       const refusal = isUntrustedGitTreeError(err);
       /* One class for the run's record, its outcome, its trace root and the metric: a genuine infrastructure fault says E-INFRA, a refusal says so, anything else is the internal error it is. */
@@ -683,15 +681,6 @@ function trackRun(req: RunRequest, deps: RunnerDeps, captureMode: CaptureMode, w
       appLogger.error(`[qa] run ${refusal ? "REFUSED (security refusal: untrusted git tree)" : infra ? "infra-error" : "CRASHED (internal error)"} ${req.app}@${req.sha}: ${msg}`);
       /* The outcome row is what the graders and the value report read: it carries the same class the trace root and the metric just did. */
       getHistory().learning.saveCrashedRunOutcome(record, errorClass);
-
-      /*
-       * Only a genuine infrastructure condition or a security refusal is exempt from a maintainer-eligible incident
-       * (it must not trigger an autonomous self-modification for a non-code fault). An unexpected
-       * internal error DOES record an incident so the failure is visible and not swallowed.
-       */
-      if (!infra && !refusal) {
-        recordIncident({ source: "qa-author", severity: "error", summary: `pipeline crash for ${req.app}: ${msg}` });
-      }
     }
   };
 
@@ -840,13 +829,7 @@ export function finalizeInterruptedRuns(deps: Pick<RunnerDeps, "runEvents" | "af
   appLogger.info(`[qa] recovering ${zombies.length} interrupted run(s) from previous process...`);
   for (const r of zombies) {
     finalizeUnfinished(r.id, "process restarted — run was interrupted", deps, false);
-    recordIncident({
-      source: "health-check",
-      severity: "warn",
-      summary: `run ${r.id} (${r.app}@${r.sha.slice(0, 7)}) was interrupted by process restart`,
-      detail: `Previous status: ${r.status}, step: ${r.step ?? "unknown"}`,
-    });
-    appLogger.info(`[qa]   finalized ${r.id} (${r.app}@${r.sha.slice(0, 7)}) as infra-error`);
+    appLogger.info(`[qa]   finalized ${r.id} (${r.app}@${r.sha.slice(0, 7)}) as infra-error (was ${r.status}, step ${r.step ?? "unknown"})`);
   }
   appLogger.info(`[qa] recovery complete — ${zombies.length} run(s) marked as infra-error`);
 }

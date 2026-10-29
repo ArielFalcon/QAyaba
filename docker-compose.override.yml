@@ -5,11 +5,8 @@
 # either. Docker Desktop's file sharing does not enforce file permissions on a bind mount (any uid could write the host's
 # src/), while a read-only mount is refused by the kernel for every uid. The boot check (src/server/file-boundary-check.ts)
 # refuses agent code if a mount under /app is writable by that uid, so a rw code mount added here makes runs end E-SANDBOX.
-# Trade-off: a read-only src/ and package files are what the maintainer hot-swap canNOT rewrite (EROFS, before
-# anything is removed). So with this override the self-update hot-swap is a deliberate no-op (it fails safe: no
-# swap, no restart) — which is fine for dev, where you edit code on the host directly.
 #
-# For PRODUCTION (hot-swap working, code from the baked image) run WITHOUT this file:
+# For PRODUCTION (code from the baked image) run WITHOUT this file:
 #   docker compose -f docker-compose.yml up --build
 
 services:
@@ -55,7 +52,7 @@ services:
       QA_RUN_TIME_BUDGET_MS_EXHAUSTIVE: ${QA_RUN_TIME_BUDGET_MS_EXHAUSTIVE:-}
       QA_RUN_TIME_BUDGET_MS_CONTEXT: ${QA_RUN_TIME_BUDGET_MS_CONTEXT:-}
       # Stops a run from reading or writing cross-run learning state (rule fold and retrieval, curriculum,
-      # reflector, process audit with its incidents and context-stale flag), so the replicates of an A/B
+      # reflector, process audit with its context-stale flag), so the replicates of an A/B
       # campaign start from the same ground. Empty is off (docs/efficiency-benchmark.md, "Campaigns").
       QA_CAMPAIGN_FREEZE: ${QA_CAMPAIGN_FREEZE:-}
       # Re-enables the reflector pass and the injection of unproven (candidate / low-confidence) learned

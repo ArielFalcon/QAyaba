@@ -1,5 +1,5 @@
-/* The model-agnostic prompt guard: no prompt names a model. A limit, a tier or a budget comes from the runtime or from a named constant, never from which model runs, so a text that names a model id or a family is a defect wherever it stands. The guard scans the static role and shared layers, the skills and every prompt the harness sends to an agent (generator, context task, reviewer, verdict repair, sidekick, maintainer, assistant, reflector, proposer), in three layers:
-   - derived: every id and label a declared model source holds (the runtime agent config and its fallbacks, each provider's role defaults, the proposer's pin), so a model configured later is caught with no edit here. An id is forbidden anywhere, its family only next to a version chunk;
+/* The model-agnostic prompt guard: no prompt names a model. A limit, a tier or a budget comes from the runtime or from a named constant, never from which model runs, so a text that names a model id or a family is a defect wherever it stands. The guard scans the static role and shared layers, the skills and every prompt the harness sends to an agent (generator, context task, reviewer, verdict repair, sidekick, assistant, reflector, proposer), in three layers:
+   - derived: every id and label a declared model source holds (the runtime agent config and its fallbacks, each provider's role defaults), so a model configured later is caught with no edit here. An id is forbidden anywhere, its family only next to a version chunk;
    - fixed list: well-known vendor and family names, forbidden anywhere. The list only forbids: nothing selects a prompt, a limit or a rule by it;
    - headings: the parenthetical of a role's title holds no version-like token and no letter segment of a declared id.
    The title's letter-segment match is intentionally strict inside parentheses: a plain word such as "flash" or "mini" is a finding there, though it is fine in a body.
@@ -28,9 +28,6 @@ import { providerConfig } from "../src/agent-runtime/config.ts";
 import { AGENT_NAME_FOR_ROLE, type AgentRole } from "../src/agent-runtime/types.ts";
 import { askAssistant, type AgentDeps } from "../src/integrations/opencode-client.ts";
 import { repairInstruction } from "../src/integrations/verdict-validate.ts";
-import { createMaintainerRuntime, type MaintainerConfig, type MaintainerSideEffects } from "../src/server/maintainer-runtime.ts";
-import { recordIncident } from "../src/server/maintainer.ts";
-import { recordFixFailure } from "../src/server/maintainer-memory.ts";
 import { buildRunChatContext, buildRunContext } from "../src/server/chat.ts";
 import { LlmProfileProposerAdapter } from "../src/server/onboarding/llm-profile-proposer.adapter.ts";
 import type { RunRecord } from "../src/types.ts";
@@ -556,39 +553,6 @@ async function leadPrompts(subject: string): Promise<PromptText[]> {
   ];
 }
 
-/* The maintainer's incident prompt, with a past failed fix in its memory. Its console line is silenced. */
-async function maintainerPrompts(subject: string): Promise<PromptText[]> {
-  const root = mkdtempSync(join(tmpdir(), "model-agnostic-maintainer-"));
-  const sent: string[] = [];
-  const log = console.log;
-  console.log = () => {};
-  try {
-    mkdirSync(join(root, "data"));
-    recordFixFailure(join(root, "data", "maintainer-failures.json"), {
-      at: "2026-01-01T00:00:00.000Z",
-      reason: "canary-unhealthy",
-      prTitle: "fix: retry the health probe",
-      rootCause: "the probe raced the boot",
-    });
-    recordIncident({ source: "health-check", severity: "critical", summary: `the ${subject} health check failed`, detail: "the gate timed out" });
-    const config: MaintainerConfig = {
-      queue: { drain: async () => {} },
-      getAgentDeps: () => recordingDeps(sent),
-      setShuttingDown: () => {},
-      root,
-      selfRepo: "org/qayaba",
-      autonomous: false,
-      port: 9999,
-    };
-    const effects = { mirrorDeps: { exists: () => true, git: async () => "" } } as unknown as MaintainerSideEffects;
-    await createMaintainerRuntime(config, effects).triggerMaintainer();
-  } finally {
-    console.log = log;
-    rmSync(root, { recursive: true, force: true });
-  }
-  return promptsSent("maintainer", sent);
-}
-
 /* The read-only assistant's answer prompt over the run context of an e2e run and of a code run. */
 async function assistantPrompts(subject: string): Promise<PromptText[]> {
   const sent: string[] = [];
@@ -670,7 +634,6 @@ const PROMPT_KINDS: readonly PromptKind[] = [
   { kind: "lead", roles: ["lead"], prompts: leadPrompts },
   { kind: "author", roles: ["author"], prompts: sidekickPrompts },
   { kind: "explore", roles: ["explore"], prompts: explorePrompts },
-  { kind: "maintainer", roles: ["maintainer"], prompts: maintainerPrompts },
   { kind: "assistant", roles: ["chat"], prompts: assistantPrompts },
   { kind: "reflector", roles: ["reflector"], prompts: reflectorPrompts },
   { kind: "proposer", roles: ["proposer"], prompts: proposerPrompts },
@@ -678,7 +641,7 @@ const PROMPT_KINDS: readonly PromptKind[] = [
 
 test("every role the runtime opens a session for is sent a kind of prompt the guard scans", () => {
   const reached = new Set(PROMPT_KINDS.flatMap((k) => k.roles));
-  const unreached = (Object.keys(AGENT_NAME_FOR_ROLE) as AgentRole[]).filter((role) => !reached.has(role));
+  const unreached = (Object.keys(AGENT_NAME_FOR_ROLE) as AgentRole[]).filter((role) => !reached.has(role) && role !== "maintainer");
   assert.deepEqual(unreached, [], `roles with no scanned prompt kind: ${unreached.join(", ")}`);
 });
 

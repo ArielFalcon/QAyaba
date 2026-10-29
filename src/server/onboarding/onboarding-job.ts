@@ -134,7 +134,7 @@ export type ProposeResult = { ok: true } | { ok: false; error: string };
 export type ConfirmResult = { ok: true } | { ok: false; error: string };
 
 /** Every side-effecting collaborator the job needs, injected so the state machine is unit-tested
- *  with fakes (DI shape mirrors AppAdminDeps / maintainer-runtime.ts's MaintainerConfig). */
+ *  with fakes (DI shape mirrors AppAdminDeps). */
 export interface OnboardingJobDeps {
   /** True when the shared QA run queue is active — onboarding must never provision mirrors while the runner is busy. */
   isRunnerBusy(): boolean;

@@ -100,5 +100,23 @@
     "path": "src/settings/compose-parity.test.ts",
     "contains": "AGENT_RUNTIME_MODE",
     "reason": "Names .env.example still assigns although nothing reads them (a pending edit of a file outside this phase's edit surface; the replacement lines are recorded in the arch-p7 Log). Remove this entry with that edit."
+  },
+  {
+    "rule": "self-maintainer-runtime",
+    "path": ".env.example",
+    "contains": "boot-guard",
+    "reason": "Pending edit of the operator-owned file (ADR-0013, point 3); remove this entry with that edit."
+  },
+  {
+    "rule": "self-maintainer-runtime",
+    "path": ".env.example",
+    "contains": "SELF_MAINTAINER_AUTOMERGE",
+    "reason": "Pending edit of the operator-owned file (ADR-0013, point 3); remove this entry with that edit."
+  },
+  {
+    "rule": "self-maintainer-runtime",
+    "path": "src/settings/compose-parity.test.ts",
+    "contains": "SELF_MAINTAINER_AUTOMERGE",
+    "reason": "Names the variable .env.example still assigns although nothing reads it (a pending edit of the operator-owned file, ADR-0013 point 3). Remove this entry with that edit."
   }
 ]

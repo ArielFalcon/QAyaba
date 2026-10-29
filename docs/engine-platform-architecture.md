@@ -180,7 +180,7 @@ Two mechanical commits, each alone: `src/` â†’ `platform/`, then `qa-engine/` â†
 | A commit either moves files or changes code, never both. | Git detects a pure move as a rename, so `git log --follow` and blame survive, and a reviewer reads the change without the noise of the move. |
 | A move updates every consumer of the path in the same commit. | A half-updated path breaks a gate silently or loudly. See the list below. |
 | Tests move with their module and keep testing through the public seam. | A moved test that starts importing an internal file breaks `cross-context-internals` and the testing standards. |
-| Governance-sensitive files move in a commit of their own. | Security invariants ship alone (`AGENTS.md`, Invariants): the merge guard, the file-boundary check, the sandbox and egress, the API token, credentials handling. |
+| Governance-sensitive files move in a commit of their own. | Security invariants ship alone (`AGENTS.md`, Invariants): the file-boundary check, the sandbox and egress, the API token, credentials handling. |
 | The test count does not drop, and no assertion changes in a move commit. | A pure move proves itself by the same suite passing unchanged. |
 | A move that would need an exception in the rules is not a move: classify the module again. | The exceptions list only shrinks. |
 
@@ -189,7 +189,6 @@ Consumers of a path to update with every move:
 - TypeScript project files and their path aliases.
 - `qa-engine/.dependency-cruiser.cjs` rule regexes and the shell exceptions list.
 - Mutation presets (`scripts/mutate.ts`) and their file anchors.
-- The merge guard's classification of governed files.
 - `scripts/previous-forms.allow.json`.
 - The Dockerfiles and `docker-compose.yml` (copies, entrypoint, commands).
 - `package.json` scripts, including the settings and contract generators and their output paths.

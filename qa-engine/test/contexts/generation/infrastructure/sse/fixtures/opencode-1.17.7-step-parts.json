@@ -72,7 +72,7 @@
         "id": "ses_f17098d21ffeZoNC7PyLvZarst",
         "slug": "witty-engine",
         "projectID": "d3e8d3d6b5c993ad0e51b7c1a996d2f1c7633593",
-        "directory": "/app/.mirrors/qayaba-self",
+        "directory": "/app/.mirrors/app",
         "path": "",
         "title": "New session - 2026-09-28T17:01:00.510Z",
         "agent": "build",
@@ -121,8 +121,8 @@
         "mode": "build",
         "agent": "build",
         "path": {
-          "cwd": "/app/.mirrors/qayaba-self",
-          "root": "/app/.mirrors/qayaba-self"
+          "cwd": "/app/.mirrors/app",
+          "root": "/app/.mirrors/app"
         },
         "cost": 0,
         "tokens": {
@@ -152,7 +152,7 @@
         "id": "ses_f17098d21ffeZoNC7PyLvZarst",
         "slug": "witty-engine",
         "projectID": "d3e8d3d6b5c993ad0e51b7c1a996d2f1c7633593",
-        "directory": "/app/.mirrors/qayaba-self",
+        "directory": "/app/.mirrors/app",
         "path": "",
         "title": "New session - 2026-09-28T17:01:00.510Z",
         "agent": "build",
@@ -234,7 +234,7 @@
         "id": "ses_f17098d21ffeZoNC7PyLvZarst",
         "slug": "witty-engine",
         "projectID": "d3e8d3d6b5c993ad0e51b7c1a996d2f1c7633593",
-        "directory": "/app/.mirrors/qayaba-self",
+        "directory": "/app/.mirrors/app",
         "path": "",
         "title": "ack",
         "agent": "build",
@@ -380,8 +380,8 @@
         "mode": "build",
         "agent": "build",
         "path": {
-          "cwd": "/app/.mirrors/qayaba-self",
-          "root": "/app/.mirrors/qayaba-self"
+          "cwd": "/app/.mirrors/app",
+          "root": "/app/.mirrors/app"
         },
         "cost": 0.0041518,
         "tokens": {
@@ -416,8 +416,8 @@
         "mode": "build",
         "agent": "build",
         "path": {
-          "cwd": "/app/.mirrors/qayaba-self",
-          "root": "/app/.mirrors/qayaba-self"
+          "cwd": "/app/.mirrors/app",
+          "root": "/app/.mirrors/app"
         },
         "cost": 0.0041518,
         "tokens": {
@@ -477,7 +477,7 @@
         "id": "ses_f17098d21ffeZoNC7PyLvZarst",
         "slug": "witty-engine",
         "projectID": "d3e8d3d6b5c993ad0e51b7c1a996d2f1c7633593",
-        "directory": "/app/.mirrors/qayaba-self",
+        "directory": "/app/.mirrors/app",
         "path": "",
         "title": "ack",
         "agent": "build",

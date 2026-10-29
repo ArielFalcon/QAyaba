@@ -3529,7 +3529,7 @@ test("with the campaign freeze on, a run neither learns nor reflects nor audits 
   const config = buildEngineRootDeps(cfg("factory-freeze-on"), { getAgentDeps: stubAgentDeps, env }, "qa-bot-abc1234-run1", { mode: "diff" });
   assert.equal(config.learningRepo, undefined, "no rule is retrieved or folded");
   assert.equal(config.reflectorPort, undefined, "the reflector does not run");
-  assert.equal(config.processAudit, undefined, "no incident is recorded and no context is marked stale");
+  assert.equal(config.processAudit, undefined, "no context is marked stale");
   assert.equal(config.curriculumPort, undefined, "no archetype is selected or folded");
   assert.ok(config.contextMapCapture, "a context-mode run still stores the map it builds");
 });

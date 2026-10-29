@@ -21,7 +21,6 @@ import { createRunEventStore } from "./run-events";
 import type { RunPipelinePort, RunInput } from "@contexts/run-orchestration/application/index.ts";
 import type { RunOutcome } from "@kernel/run-outcome.ts";
 import { AgentTimeoutError, UntrustedGitTreeError } from "@kernel/domain-error";
-import { getIncidents } from "./maintainer";
 import { traceHarness } from "../telemetry/trace-harness";
 import { getHistory } from "./persistence/index";
 
@@ -121,7 +120,6 @@ test("an agent call that exceeded its deadline finalizes as infrastructure, not 
       throw new AgentTimeoutError("generate: timed out after 900000ms");
     },
   };
-  const incidentsBefore = getIncidents().length;
   const id = enqueueTrackedRun(
     queue,
     { app: "runner-agent-timeout", sha: "abc1234", target: "e2e", mode: "diff", source: "webhook" },
@@ -131,20 +129,16 @@ test("an agent call that exceeded its deadline finalizes as infrastructure, not 
   const r = getHistory().runs.getRecord(id)!;
   assert.equal(r.verdict, "infra-error");
   assert.doesNotMatch(r.note ?? "", /unexpected internal error/);
-  assert.equal(getIncidents().length, incidentsBefore, "an agent timeout must not open a maintainer incident");
 });
 
-/* A working copy whose git dir is not the orchestrator's own is a security refusal: loud, with its own note, and
-   never a maintainer trigger (the incident summary is fed to the maintainer's model prompt, and the refusal names
-   paths the repository controls). */
-test("a run refused because the working copy's git dir is untrusted is finalized as a security refusal, not an internal crash, and opens no maintainer incident", async () => {
+/* A working copy whose git dir is not the orchestrator's own is a security refusal: loud, with its own note. */
+test("a run refused because the working copy's git dir is untrusted is finalized as a security refusal, not an internal crash", async () => {
   const queue = new JobQueue();
   const port: RunPipelinePort = {
     async run() {
       throw new UntrustedGitTreeError("refusing to run git on /mirrors/org__app/sub/.git: it sits inside the submodule directory sub");
     },
   };
-  const incidentsBefore = getIncidents().length;
   const errors: string[] = [];
   const originalError = console.error;
   console.error = (...args: unknown[]) => void errors.push(args.map(String).join(" "));
@@ -161,7 +155,6 @@ test("a run refused because the working copy's git dir is untrusted is finalized
     assert.match(r.note ?? "", /security refusal/i);
     assert.match(r.note ?? "", /org__app\/sub\/\.git/, "the operator is told which path was refused");
     assert.doesNotMatch(r.note ?? "", /unexpected internal error|investigate/i);
-    assert.equal(getIncidents().length, incidentsBefore, "a refusal names repository-controlled paths and must never reach the maintainer's prompt");
     assert.ok(errors.some((line) => /security refusal/i.test(line)), "the refusal is logged loudly");
   } finally {
     console.error = originalError;
@@ -957,7 +950,7 @@ test("cancelTrackedRun + an UNRELATED late crash: the catch branch must NOT over
   /* A port that observes the cancel, then — in the async gap after cancelTrackedRun has
      already finalized the record — its own work rejects with an UNRELATED (non-cancel) error,
      routing to the queue callback's catch branch. Without the catch-branch guard, that catch would
-     overwrite the accurate "cancelled" record with a crash note + fire a spurious incident.
+     overwrite the accurate "cancelled" record with a crash note.
    */
   const crashingPort: RunPipelinePort = {
     run: async (_input, signal) => {
@@ -983,7 +976,7 @@ test("cancelTrackedRun + an UNRELATED late crash: the catch branch must NOT over
   await queue.drain();
   const finalRecord = getHistory().runs.getRecord(id)!;
   assert.equal(finalRecord.verdict, "infra-error");
-  assert.equal(finalRecord.note, cancelledNote, "the catch branch must NOT overwrite the cancelled record's note with a crash note (nor fire a spurious incident — the guard returns before both)");
+  assert.equal(finalRecord.note, cancelledNote, "the catch branch must NOT overwrite the cancelled record's note with a crash note");
 });
 
 test("the run does NOT execute synchronously — it is deferred to the queue (no bypass)", async () => {
@@ -1753,7 +1746,6 @@ test("a phase record that cannot be stored never stops the failed run from being
   recordPhaseSnapshot(failure, { furthestPhase: "generate", phaseTimings: { generate: 10n as unknown as number } });
   const port: RunPipelinePort = { async run() { throw failure; } };
   const events = createRunEventStore();
-  const incidentsBefore = getIncidents().length;
   const errors: string[] = [];
   const originalError = console.error;
   console.error = (...args: unknown[]) => void errors.push(args.map(String).join(" "));
@@ -1772,7 +1764,6 @@ test("a phase record that cannot be stored never stops the failed run from being
   const bodies = events.replay(id).map((e) => e.body.type);
   assert.ok(bodies.includes("agent.error"));
   assert.ok(bodies.includes("run.verdict"));
-  assert.equal(getIncidents().length, incidentsBefore + 1, "an unexpected internal error still opens its incident");
   assert.ok(errors.some((l) => /phase/i.test(l)), "the dropped phase record is said aloud");
 });
 

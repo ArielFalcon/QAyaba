@@ -162,21 +162,20 @@ Baseline (2026-09-28). Score = (killed + timeout) / valid mutants; the killed-on
 timeouts out. **Before** is the suite against the code as it stood with every exclusion directive
 lifted (the earlier table reported 100% for every preset because directives excluded 3–70 mutants
 each, several of them killed and some surviving non-equivalent ones). **After** is the current code
-with no directive. Every timeout was checked: in keystone, merge-guard, coordination-events and
+with no directive. Every timeout was checked: in keystone, coordination-events and
 coordination each one is an infinite-loop mutant (a loop bound, counter or growth step mutated). In
 the two presets with slow tests, fix-loop's two failing-file-filter timeouts and 12 of
 write-confinement's 17 are killed within seconds when the preset's tests run directly (they timed out
 only under load), 4 of write-confinement's are loops, and one — the `" -> "` literal of the rename
 arrow check → `""` — survives when run directly: it is one of write-confinement's documented
 equivalents, so that preset really has 20 survivors. Runs used 4 workers (`--concurrency=4`),
-write-confinement its preset cap of 2. The coordination and merge-guard rows are full re-runs after
+write-confinement its preset cap of 2. The coordination row is a full re-run after
 later changes. The write-confinement row is derived, not re-run: the `^` anchor of `isCodeDenied`'s
 leading-`./` strip was listed as an equivalent survivor, but a `./` past the start of a path is part
 of a directory name (`e2e/.env./secrets` loses its `.env.` segment without the anchor); a test now
 kills it, checked by applying the mutant by hand, which moves one survivor to killed.
 
-The merge-guard After column was re-run on 2026-09-30, after the protected-path list grew; its five
-survivors are the documented ones below. agent-efficiency (2026-09-30, 4 workers) is a new preset:
+agent-efficiency (2026-09-30, 4 workers) is a new preset:
 **Before** is its first run against the suite as written, **After** the re-run once the 55 survivors
 were triaged. Most were real gaps and got behavior tests (which sightings a call sequence counts,
 read windows, tool-name anchors, prompt-line indexing and gutters, the coarse call identity and
@@ -1240,7 +1239,6 @@ The re-run: 307 killed, no timeout, none survived, 100%.
 | rule-learning | rule-governance.service, rule-fold | 117 / 4 / 7 — 94.53% (91.41%) | 114 / 0 / 0 — 100% (100%) | — |
 | fix-loop | fix-loop.aggregate | 184 / 2 / 15 — 92.54% (91.54%) | 197 / 2 / 8 — 96.14% (95.17%) | — |
 | coordination | acceptance-report, pushback, delegation-failure-class (scores measured while the preset also held the since-removed routing role) | 199 / 20 / 11 — 95.22% (86.52%) | 252 / 1 / 3 — 98.83% (98.44%) | — |
-| merge-guard | src/server/merge-guard.ts | 258 / 6 / 12 — 95.65% (93.48%) | 314 / 2 / 5 — 98.44% (97.82%) | — |
 | coordination-events | src/server/coordination-events.ts | 156 / 13 / 16 — 91.35% (84.32%) | 132 / 8 / 1 — 99.29% (93.62%) | — |
 | local-login | src/server/auth.ts (local-login policy range) | 63 / 2 / 4 — 94.2% (91.3%) | 59 / 0 / 0 — 100% (100%) | — |
 | write-confinement | write-confinement.service | 149 / 14 / 20 — 89.07% (81.42%) | 147 / 17 / 19 — 89.62% (80.33%) | — |
@@ -1370,15 +1368,6 @@ Each is a genuine equivalent mutant: no test can observe it without asserting th
   constant, as the standards ask, so a different value moves the expectations with it. What the number means is pinned
   (a text of exactly the bound is untouched, one over it is cut with its mark and the cut is recorded); the number is
   the design's.
-
-**merge-guard** (`src/server/merge-guard.ts`)
-- the `redaction/` directory entry and the `publication-port.adapter.ts` entry → `""` (StringLiteral ×2): the
-  adapter is also covered by a directory prefix entry; it is listed so narrowing that prefix cannot
-  unprotect it.
-- `assessChange` reasons — the `" | "` and `", "` list separators (StringLiteral ×2): each unreadable
-  row and each protected file is still named.
-- `quotedLength` — `i < text.length` → `<=` (EqualityOperator): `text[text.length]` is undefined, so
-  the extra pass only ends the loop.
 
 **coordination-events** (`src/server/coordination-events.ts`)
 - `parseCoordinationLedger` — the `catch` block emptied (BlockStatement): an unparsed line leaves

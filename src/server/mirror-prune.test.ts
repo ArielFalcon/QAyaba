@@ -121,16 +121,6 @@ test("active-run guard: the running job's mirror is never deleted, orphaned or s
   assert.deepEqual(removed, ["/mirrors/inactive__orphan"]);
 });
 
-test("protected mirror names are never deleted", () => {
-  const { deps, removed } = makeDeps({
-    entries: [entry("qayaba-self", STALE)], /* orphan AND stale — still protected */
-    configured: [],
-  });
-  const result = pruneMirrors(deps);
-  assert.deepEqual(result.deleted, []);
-  assert.deepEqual(removed, []);
-});
-
 test("a failing delete is logged as a warning and does not stop the pass", () => {
   const removed: string[] = [];
   const { deps, logs } = makeDeps({

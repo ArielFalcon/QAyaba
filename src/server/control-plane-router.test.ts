@@ -24,7 +24,6 @@ describe("control-plane router", () => {
       authorize: (req: IncomingMessage) => req.headers.authorization === "Bearer good",
       loginLimiter: createFixedWindowLimiter({ limit: 20, windowMs: 60_000 }),
       metrics: () => "qayaba_queue_depth 0",
-      maintainer: async () => false,
       api: async (req, res) => {
         seen.api.push(req.url ?? "");
         /* handleApi owns the version prefix itself; the fake does the same. */
@@ -93,13 +92,6 @@ describe("control-plane router", () => {
     assert.equal(res.status, 200);
     assert.match(res.headers.get("content-type") ?? "", /text\/plain/);
     assert.match(await res.text(), /qayaba_queue_depth/);
-  });
-
-  test("a maintainer route nobody handled is answered 404 and one that was handled is left to its handler", async () => {
-    const unhandled = await start();
-    assert.equal((await fetch(`${unhandled.base}/api/maintainer/status`, { headers: GOOD })).status, 404);
-    const handled = await start({ maintainer: async (_req, res) => { answer(res, 200, "maintainer"); return true; } });
-    assert.equal(await (await fetch(`${handled.base}/api/maintainer/status`, { headers: GOOD })).text(), "maintainer");
   });
 
   test("an API path no route matches is answered 404 in the API error shape", async () => {

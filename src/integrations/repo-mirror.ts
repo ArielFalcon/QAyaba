@@ -201,7 +201,7 @@ export const realGit: Git = (args, cwd) =>
        * A git fault is by definition an ENVIRONMENT fault (network/auth/corrupt mirror/host pressure),
        * never a code/test verdict — wrap the scrubbed error in InfraError so runner.ts's isInfraError
        * classifies it as a clean inconclusive infra-error instead of a mislabeled "unexpected internal
-       * error" + maintainer incident. Scrub first so the credential redaction happens at the spawn
+       * error". Scrub first so the credential redaction happens at the spawn
        * boundary before ANY error instance escapes.
        */
       const scrubbed = scrubGitError(err);

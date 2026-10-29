@@ -25,7 +25,6 @@ import { toReportView } from "./report-view";
 import { toRunReportView } from "./run-report-view";
 import { createDurableRunEventStore } from "./durable-run-events";
 import { serveDashboard, resolveDashboardDir } from "./static";
-import { handleMaintainerApi, recordIncident, getMaintainerStatus, getIncidents } from "./maintainer";
 import { MAX_CONTINUATION_DEPTH } from "./persistence/repositories/run.repository";
 import { createEvaluationService } from "./evaluation-service";
 import { composeJudges } from "./judges-composition";
@@ -43,7 +42,6 @@ import { ProcessKillAdapter } from "../../qa-engine/src/shared-infrastructure/pr
 import { deleteSuiteStoreDir } from "@contexts/workspace-and-publication/infrastructure/suite-store.adapter";
 import { pruneMirrors, defaultMirrorPruneDeps, getDirectorySize } from "./mirror-prune";
 import { buildArtifactBytesMetrics, type ArtifactSizeCache } from "./metrics";
-import { createMaintainerRuntime } from "./maintainer-runtime";
 import { installHttpDispatcher } from "../util/net";
 import { resolveRef, defaultMirrorDeps, ensureMirrorAtBranch, getHeadSha } from "../integrations/repo-mirror";
 import { askAssistant, AgentDeps, getOpenSessionCount, defaultAgentDeps, setAgentBrowserGrantLookup, setCodeGraphGrantLookup, setGeolocationGrantLookup } from "../integrations/opencode-client";
@@ -54,7 +52,7 @@ import { getHistoryDatabase } from "./persistence/index";
 import { pruneHistory, retentionPolicyFrom } from "./persistence/retention";
 import { backupDatabase } from "./persistence/backup";
 import { type RunMode, type TestTarget } from "../types";
-import { installShutdown, installUnhandledRejectionRecorder } from "./shutdown";
+import { installShutdown, installUnhandledRejectionLogger } from "./shutdown";
 import { startHealthPoller } from "./health-poller";
 import { github } from "../integrations/github";
 import { createApp as adminCreateApp, updateApp as adminUpdateApp, deleteApp as adminDeleteApp, type AppAdminDeps } from "./app-admin";
@@ -107,7 +105,6 @@ export function wireApp(settingsStore: SettingsStore): WiredApp {
   const settings = settingsStore.current();
   for (const warning of settings.warnings) appLogger.warn(warning);
 
-  const SELF_REPO = settings.server.selfRepo;
   const ROOT = qayabaRoot();
 
   const appCatalog = new YamlAppConfigAdapter({ load: loadAppConfig, list: listAppConfigs });
@@ -122,11 +119,6 @@ export function wireApp(settingsStore: SettingsStore): WiredApp {
   const sandboxIdentity = resolveSandbox(settings.environment);
   const queue = new JobQueue((e) => {
     appLogger.error("[qa] run failed:", { error: e });
-    /*
-     * Incidents are recorded by the runner (with infra-vs-code classification).
-     * This handler only fires for truly unhandled rejections that escape the job's
-     * own catch — duplicates there would create maintainer noise for infra blips.
-     */
   });
 
   /* Scores and regrade jobs. Grading is scheduled off the queue by the runner's post-run hook; a regrade job left open by a previous process ends failed at boot. */
@@ -165,16 +157,9 @@ export function wireApp(settingsStore: SettingsStore): WiredApp {
   const backendHealth = telemetry.health().mode === "off" ? undefined : new BackendHealthMonitor({ config: settings.telemetry.backendHealth, fetch: systemBackendFetch, now: () => Date.now() });
   /*
    * Durable backing lives in createDurableRunEventStore, shared with the CLI so every
-   * trigger persists events identically: the live SSE stream survives a restart (e.g. the
-   * maintainer hot-swap's process.exit) and eviction from the in-memory ring.
+   * trigger persists events identically: the live SSE stream survives a restart and eviction from the in-memory ring.
    */
   const runEvents = createDurableRunEventStore();
-  /*
-   * The maintainer's autonomous merge+hot-swap is OFF by default. Opt-in with
-   * SELF_MAINTAINER_AUTOMERGE=true (requires branch protection on the self-repo).
-   */
-  const AUTONOMOUS_MAINTAINER = settings.maintainer.autoMerge;
-
   const port = settings.server.port;
   const listenHost = settings.server.listenHost;
   const secret = settings.webhook.secret;
@@ -239,10 +224,7 @@ export function wireApp(settingsStore: SettingsStore): WiredApp {
     exit: (code) => process.exit(code),
     log: (message) => appLogger.info(message),
   });
-  installUnhandledRejectionRecorder(
-    (summary) => recordIncident({ source: "qa-author", severity: "error", summary }),
-    (message) => appLogger.error(message),
-  );
+  installUnhandledRejectionLogger((message) => appLogger.error(message));
   const agentRuntime = createAgentRuntimeManager({
     env: settings.environment,
     fs: defaultEnvStoreFs(),
@@ -352,22 +334,6 @@ export function wireApp(settingsStore: SettingsStore): WiredApp {
     enqueueContextRun: enqueueContextHealRun,
   });
 
-  /*
-   * Auto-maintenance runtime (ARCH-01): the self-deploy path lives in maintainer-runtime.ts; the
-   * entrypoint only wires it to the values it owns (queue, agent deps, the shuttingDown setter, the
-   * repo identity, the port). The destructured handles keep the existing call sites unchanged.
-   */
-  const maintainer = createMaintainerRuntime({
-    queue,
-    getAgentDeps: currentAgentDeps,
-    setShuttingDown: (v) => lifecycle.setShuttingDown(v),
-    root: ROOT,
-    selfRepo: SELF_REPO,
-    autonomous: AUTONOMOUS_MAINTAINER,
-    port,
-  });
-  const { triggerMaintainer, confirmSwapAfterBoot, recoverMaintainerState, recoverRollbackRecord } = maintainer;
-
   /* One path for the control API and the webhook; the trigger is what tells their runs apart in the trace. */
   function enqueueRunFrom(trigger: "api" | "webhook", request: ApiRunRequest): string {
     if (lifecycle.shuttingDown()) {
@@ -394,11 +360,7 @@ export function wireApp(settingsStore: SettingsStore): WiredApp {
     const deps = currentAgentDeps();
     if (!deps.cleanupOrphans) return 0;
     try {
-      const cleaned = await deps.cleanupOrphans(MAX_SESSION_IDLE_MS);
-      if (cleaned > 0) {
-        recordIncident({ source: "health-check", severity: "warn", summary: `cleaned up ${cleaned} orphaned OpenCode session(s)` });
-      }
-      return cleaned;
+      return await deps.cleanupOrphans(MAX_SESSION_IDLE_MS);
     } catch (err) {
       appLogger.warn(`[qa] orphan session cleanup failed: ${err instanceof Error ? err.message : String(err)}`);
       return 0;
@@ -469,10 +431,6 @@ export function wireApp(settingsStore: SettingsStore): WiredApp {
       port,
       fetch: (url) => fetch(url),
       queueSize: () => queue.size,
-      recordIncident,
-      hasPendingIncidents: () => getIncidents().some((i) => i.status === "pending"),
-      maintainerIdle: () => getMaintainerStatus() === "idle",
-      triggerMaintainer: () => void triggerMaintainer(),
       cleanupOrphanedSessions,
       runHistoryRetention,
       backupDatabase: () => backupDatabase(getHistoryDatabase()),
@@ -781,7 +739,6 @@ export function wireApp(settingsStore: SettingsStore): WiredApp {
     control: {
       authorize: authorized,
       metrics: () => generatePrometheusMetrics(queue, getOpenSessionCount()),
-      maintainer: (req, res) => handleMaintainerApi(req, res, triggerMaintainer),
       api: (req, res) => routeApi(req, res, apiDeps),
       dashboard: (req, res) => serveDashboard(req, res, { dir: resolveDashboardDir(ROOT) }),
       shouldLogApiRequest,
@@ -826,10 +783,7 @@ export function wireApp(settingsStore: SettingsStore): WiredApp {
           try { runEvents.publish(runId, body); } catch { /* advisory */ }
         },
       )?.catch((err) => appLogger.warn("event stream reconnect loop failed", { error: err instanceof Error ? err.message : String(err) }));
-      recoverRollbackRecord();
-      confirmSwapAfterBoot();
       startPoller();
-      recoverMaintainerState();
     },
     log: logLine,
     exit: (code) => process.exit(code),

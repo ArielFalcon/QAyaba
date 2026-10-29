@@ -1,6 +1,5 @@
 /* Defaults that only the settings know: no other module owns them. Kept import-free so any module may read them. */
 
-export const DEFAULT_SELF_REPO = "ArielFalcon/qayaba";
 /* How long a cancelled run gets to unwind on shutdown before the process is cut. Fixed, not an environment variable: docker-compose.yml gives the service a longer stop_grace_period so Docker never kills it mid-drain. */
 export const DEFAULT_DRAIN_MS = 25_000;
 export const DEFAULT_SESSION_TTL_SECONDS = 24 * 60 * 60;

@@ -105,9 +105,7 @@ app config (and so widen `dev.allowedOrigins` for the next run) or rewrite the o
   reads and writes them as before. Nothing the sandbox runs reads `config/`: the `config/e2e` seed is copied into the mirror by
   the orchestrator.
 - **Code is mounted read-only** in the dev override (`src`, `qa-engine`, `scripts`, `web`, `tsconfig.json`, the package files): a
-  read-only mount is refused by the kernel for every uid. The orchestrator writes none of them at runtime; the maintainer hot-swap
-  stays a no-op in dev (it fails with `EROFS` before it removes anything, where a rw `fakeowner` mount would have let it empty the
-  host's `src/` before failing).
+  read-only mount is refused by the kernel for every uid. The orchestrator writes none of them at runtime.
 - **The boundary is proven at every boot.** After setting the modes the entrypoint runs `src/server/file-boundary-check.ts`, which
   makes, in a child started as the sandbox uid the way the launcher starts agent code, every attempt that uid must see refused:
   read `/proc/1/environ` and the API token (new and old place), list `data/`, `data/auth`, `config/`, `config/apps`

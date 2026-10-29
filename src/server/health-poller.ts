@@ -1,14 +1,10 @@
-/* The service's periodic self-check, once a minute: probes its own liveness endpoint, sweeps orphaned agent sessions, raises incidents for a failing probe or a deep queue, hands pending incidents to the maintainer, and runs the slow jobs on their own tick counts (history retention and the SQLite backup every 24 hours, the mirror prune every 6 hours). */
+/* The service's periodic self-check, once a minute: probes its own liveness endpoint, sweeps orphaned agent sessions, logs a failing probe or a deep queue, and runs the slow jobs on their own tick counts (history retention and the SQLite backup every 24 hours, the mirror prune every 6 hours). */
 
 export interface HealthPollerDeps {
   /* The port the control plane listens on: the probe is `http://localhost:<port>/api/health`. */
   port: number;
   fetch(url: string): Promise<{ ok: boolean; status: number }>;
   queueSize(): number;
-  recordIncident(incident: { source: "health-check"; severity: "warn" | "critical"; summary: string }): void;
-  hasPendingIncidents(): boolean;
-  maintainerIdle(): boolean;
-  triggerMaintainer(): void;
   /* Collects the agent sessions no run owns and answers how many it collected. */
   cleanupOrphanedSessions(): Promise<number>;
   /* Deletes the history the retention windows no longer keep. Logs its own failure. */
@@ -42,29 +38,19 @@ export function startHealthPoller(deps: HealthPollerDeps): void {
     } catch {
       fails++;
       if (fails === 3) {
-        const summary = "orchestrator health check failing (3 consecutive failures)";
-        deps.recordIncident({ source: "health-check", severity: "critical", summary });
-        deps.log("error", summary);
+        deps.log("error", "orchestrator health check failing (3 consecutive failures)");
       }
       if (fails === 10) {
-        const summary = "orchestrator health check failing (10 consecutive failures — likely crashed)";
-        deps.recordIncident({ source: "health-check", severity: "critical", summary });
-        deps.log("error", summary);
+        deps.log("error", "orchestrator health check failing (10 consecutive failures — likely crashed)");
       }
     }
     const cleaned = await deps.cleanupOrphanedSessions();
     if (cleaned > 0) deps.log("warn", `cleaned up ${cleaned} orphaned OpenCode session(s)`, { cleaned });
     const depth = deps.queueSize();
     if (depth > DEEP_QUEUE && lastQueueWarn <= DEEP_QUEUE) {
-      const summary = `queue depth is ${depth} (possible stuck job)`;
-      deps.recordIncident({ source: "health-check", severity: "warn", summary });
-      deps.log("warn", summary, { depth });
+      deps.log("warn", `queue depth is ${depth} (possible stuck job)`, { depth });
     }
     lastQueueWarn = depth;
-
-    if (deps.hasPendingIncidents() && deps.maintainerIdle()) {
-      deps.triggerMaintainer();
-    }
 
     backupTick++;
     if (backupTick >= BACKUP_INTERVAL_TICKS) {

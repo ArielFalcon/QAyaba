@@ -1,4 +1,4 @@
-/* The control plane's request sequence, in order: CORS preflight, the `/api` surface (version prefix normalization, the Bearer auth gate, the per-address throttle on the public sign-in routes, metrics, the maintainer routes, the API), the same-origin web console, and the deployment webhook for any other POST. Everything it touches is injected, so the whole sequence runs over fakes. */
+/* The control plane's request sequence, in order: CORS preflight, the `/api` surface (version prefix normalization, the Bearer auth gate, the per-address throttle on the public sign-in routes, metrics, the API), the same-origin web console, and the deployment webhook for any other POST. Everything it touches is injected, so the whole sequence runs over fakes. */
 
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { ApiError, respondError } from "./api/api-error";
@@ -12,8 +12,6 @@ export interface ControlPlaneDeps {
   loginLimiter: RateLimiter;
   /* The Prometheus text of `GET /api/metrics`. */
   metrics(): string;
-  /* Handles `/api/maintainer*`; false when no route matched. */
-  maintainer(req: IncomingMessage, res: ServerResponse): Promise<boolean>;
   /* Handles the rest of `/api`; false when no route matched. */
   api(req: IncomingMessage, res: ServerResponse): Promise<boolean>;
   /* Serves the web console under `/app`; false when it answered nothing. */
@@ -68,11 +66,6 @@ export function createControlPlaneHandler(deps: ControlPlaneDeps): (req: Incomin
       if (path === "/api/metrics") {
         res.writeHead(200, { "Content-Type": "text/plain" });
         res.end(deps.metrics());
-        return;
-      }
-      if (path.startsWith("/api/maintainer")) {
-        if (await deps.maintainer(req, res)) return;
-        respondError(res, new ApiError(404, "not found"));
         return;
       }
       if (await deps.api(req, res)) {

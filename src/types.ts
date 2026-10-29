@@ -66,21 +66,6 @@ export interface RunRecord {
   at: string;
 }
 
-export type IncidentSeverity = "warn" | "error" | "critical";
-export type IncidentSource = "health-check" | "log-scraper" | "qa-author" | "qa-reviewer" | "cli" | "process-audit";
-
-export interface Incident {
-  id: string;
-  source: IncidentSource;
-  severity: IncidentSeverity;
-  summary: string;
-  detail?: string;
-  status: "pending" | "diagnosing" | "fixed" | "dismissed";
-  at: string;
-  prUrl?: string;
-}
-
-
 export type { ErrorClass } from "@kernel/error-class";
 
 export interface RunOutcome {

@@ -173,8 +173,7 @@ Each accepts a positive whole number of milliseconds; blank or unset keeps the d
 Reading the evidence: a run that hit it has `error class E-TIME-BUDGET` and a note starting `Run time budget
 of N min (<kind>) exhausted`, against a tier-budget end's `Time budget of N min exhausted ... the generator's
 turn`. Three of them in a row log `[audit] observe (recurring-time-exhaustion)` on the orchestrator: the
-signal is visibility only (a slow DEV, or a budget too tight for the changes it meets), it never opens a
-maintainer incident. The contract-repair turn (the re-prompt that only restates a verdict) now runs with tools
+signal is visibility only (a slow DEV, or a budget too tight for the changes it meets). The contract-repair turn (the re-prompt that only restates a verdict) now runs with tools
 disabled under a 2 minute cap, so a `repair` turn with tool calls in an old report is the thing this removes.
 
 ## Probe: what one pipeline run did, and a plain agent for comparison
@@ -533,7 +532,7 @@ and restart it. It is read once, in the composition root (`src/server/campaign-f
 | rule retrieval and the rule fold (`learningRepo` is not wired, so the engine uses its no-op repository) | a rule learned in replicate 1 would ground replicate 2. The per-run value scorecard goes through the same repository, so it is not recorded either |
 | the curriculum select and fold | the archetypes offered to the generator would drift |
 | the reflector pass | it only feeds the rule ledger |
-| the process audit (no incident, hence the maintainer is never triggered; no rule is deprecated; the context map is not marked stale) | an audit finding from a campaign run must not change the system under test |
+| the process audit (no rule is deprecated; the context map is not marked stale) | an audit finding from a campaign run must not change the system under test |
 | the suite store's writes (it stays readable: the campaign seeds it before every arm-run) | the suite a replicate was accepted with would start the next one; a read-only store restores and captures nothing |
 | the context-map rebuild a stale flag requests | it would put a run that is not part of the campaign on the queue. A flag armed before the campaign is still read (the stored map is not used), the same for every replicate: clear it first by running `mode: context` once |
 

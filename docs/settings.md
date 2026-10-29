@@ -13,7 +13,6 @@ The orchestrator reads its environment once, in `loadSettings(env)`. An empty va
 | `QA_TOOLS_PORT` | `server.toolsPort` | integer | `459` | - | TCP port of the agents' tools endpoint (1-65535), a second listener that is never published. |
 | `QA_TOOLS_LISTEN_HOST` | `server.toolsListenHost` | string | - | - | Interface the tools endpoint binds. Unset, it follows LISTEN_HOST and narrows a wildcard to the container's one non-loopback IPv4 address. |
 | `QA_TOOLS_TOKEN` | - | string | - | secret | Service token the agents service authenticates to the tools endpoint with (at least 32 characters; the same value on both services). Unset, a random one is generated for the boot and the tools are refused. |
-| `QAYABA_REPO` | `server.selfRepo` | string | `ArielFalcon/qayaba` | - | The repository (owner/name) that holds this orchestrator's own code, which the self-maintainer opens fix pull requests against. |
 | `NO_COLOR` | `server.noColor` | boolean | - | - | When set to any non-empty value the command-line client prints no ANSI colors. |
 
 ## Authentication
@@ -141,13 +140,6 @@ The orchestrator reads its environment once, in `loadSettings(env)`. An empty va
 | --- | --- | --- | --- | --- | --- |
 | `QA_TELEMETRY_RETENTION_DAYS` | `retention.spanDays` | integer | `30` | - | Days run spans, plans and snapshots are kept (1-3650). |
 | `QA_TELEMETRY_CAMPAIGN_RETENTION_DAYS` | `retention.campaignDays` | integer | `180` | - | Days the turns and spans of a campaign-tagged run are kept (1-3650). |
-
-## Self-maintainer
-
-| Variable | Field | Type | Default | Flags | Description |
-| --- | --- | --- | --- | --- | --- |
-| `SELF_MAINTAINER_AUTOMERGE` | `maintainer.autoMerge` | boolean | `false` | - | Let the self-maintainer merge and deploy its own fix pull requests. Only the exact value true enables it. |
-| `SELF_MAINTAINER_CI_CHECK` | `maintainer.ciCheck` | string | `ci` | - | Name of the check the maintainer requires to pass before it promotes a fix. |
 
 ## Judges
 

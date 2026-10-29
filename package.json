@@ -20,7 +20,7 @@
     "settings:check": "tsx scripts/check-settings-fresh.ts",
     "sdk:gen": "openapi-typescript contract/openapi.json -o packages/sdk/src/types.gen.ts",
     "sdk:typecheck": "tsc -p packages/sdk",
-    "start": "node boot-guard.mjs && tsx src/index.ts",
+    "start": "tsx src/index.ts",
     "test": "node scripts/run-tests.mjs",
     "test:isolated": "node scripts/run-tests.mjs --isolated",
     "typecheck": "tsc -b qa-engine/tsconfig.json && tsc --noEmit -p tsconfig.json && tsc --noEmit -p qa-engine/tsconfig.json && tsc --noEmit -p scripts/tsconfig.json && npm run embedded:typecheck",

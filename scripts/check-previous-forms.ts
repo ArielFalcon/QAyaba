@@ -61,6 +61,17 @@ export const BANNED_RULES: BannedRule[] = [
   { id: "default-models-table", patterns: [/\bDEFAULT_MODELS\b/], exemptPrefixes: [RECORDS_PREFIX] },
   { id: "fallback-models-table", patterns: [/\bFALLBACK_MODELS\b/], exemptPrefixes: [RECORDS_PREFIX] },
   { id: "proposer-model-pin", patterns: [/\bPROPOSER_MODEL\b/], exemptPrefixes: [RECORDS_PREFIX] },
+  {
+    id: "self-maintainer-runtime",
+    patterns: [
+      /\b(maintainer-(?:runtime|memory|summary)|merge-guard|self-update|boot-guard|qayaba-self)\b/,
+      /\bSELF_MAINTAINER_[A-Z_]+\b/,
+      /\b(QAYABA_REPO|DEFAULT_SELF_REPO|selfRepo|PROTECTED_MIRROR_NAMES|PROTECTED_PATHS)\b/,
+      /\b(recordIncident|recordEngineIncident|triggerMaintainer|handleMaintainerApi|getMaintainerStatus|createMaintainerRuntime|installUnhandledRejectionRecorder)\b/,
+      /\/api\/maintainer\b/,
+    ],
+    exemptPrefixes: [RECORDS_PREFIX],
+  },
   { id: "shell-dead-run-types", patterns: [/\bAgentResult\b/], exemptPrefixes: [RECORDS_PREFIX] },
   { id: "shell-events-reexport", patterns: [/\bsrc\/contract\/events(?:\.ts)?(?![\w.-])/], exemptPrefixes: [RECORDS_PREFIX] },
   {

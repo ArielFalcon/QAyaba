@@ -6,9 +6,9 @@ import { DEFAULT_JUDGE_DAILY_TOKENS } from "../server/judge-settings";
 import { DEFAULT_CAMPAIGN_RETENTION_DAYS, DEFAULT_SERVICE_NAME, DEFAULT_SPAN_RETENTION_DAYS } from "../telemetry/config";
 import { resolveRunTimeBudgets } from "@contexts/run-orchestration/application/index";
 
-import { DEFAULT_REVIEWER_TIMEOUT_MS, DEFAULT_SELF_REPO, DEFAULT_SESSION_TTL_SECONDS, DEFAULT_STALL_MS } from "./defaults";
+import { DEFAULT_REVIEWER_TIMEOUT_MS, DEFAULT_SESSION_TTL_SECONDS, DEFAULT_STALL_MS } from "./defaults";
 
-export const SETTING_GROUPS = ["server", "auth", "webhook", "agent", "git", "paths", "sandbox", "run", "telemetry", "retention", "maintainer", "judges"] as const;
+export const SETTING_GROUPS = ["server", "auth", "webhook", "agent", "git", "paths", "sandbox", "run", "telemetry", "retention", "judges"] as const;
 export type SettingGroup = (typeof SETTING_GROUPS)[number];
 
 export type SettingType = "string" | "integer" | "boolean" | "url" | "path" | "enum" | "list";
@@ -41,7 +41,6 @@ export const SETTINGS_REGISTRY: readonly SettingDef[] = [
   entry({ env: "QA_TOOLS_PORT", key: "toolsPort", group: "server", type: "integer", default: String(DEFAULT_TOOLS_PORT), description: "TCP port of the agents' tools endpoint (1-65535), a second listener that is never published." }),
   entry({ env: "QA_TOOLS_LISTEN_HOST", key: "toolsListenHost", group: "server", type: "string", description: "Interface the tools endpoint binds. Unset, it follows LISTEN_HOST and narrows a wildcard to the container's one non-loopback IPv4 address." }),
   entry({ env: "QA_TOOLS_TOKEN", key: "-", group: "server", type: "string", secret: true, description: "Service token the agents service authenticates to the tools endpoint with (at least 32 characters; the same value on both services). Unset, a random one is generated for the boot and the tools are refused." }),
-  entry({ env: "QAYABA_REPO", key: "selfRepo", group: "server", type: "string", default: DEFAULT_SELF_REPO, description: "The repository (owner/name) that holds this orchestrator's own code, which the self-maintainer opens fix pull requests against." }),
   entry({ env: "NO_COLOR", key: "noColor", group: "server", type: "boolean", description: "When set to any non-empty value the command-line client prints no ANSI colors." }),
 
   /* auth */
@@ -142,10 +141,6 @@ export const SETTINGS_REGISTRY: readonly SettingDef[] = [
   /* retention */
   entry({ env: "QA_TELEMETRY_RETENTION_DAYS", key: "spanDays", group: "retention", type: "integer", default: String(DEFAULT_SPAN_RETENTION_DAYS), description: "Days run spans, plans and snapshots are kept (1-3650)." }),
   entry({ env: "QA_TELEMETRY_CAMPAIGN_RETENTION_DAYS", key: "campaignDays", group: "retention", type: "integer", default: String(DEFAULT_CAMPAIGN_RETENTION_DAYS), description: "Days the turns and spans of a campaign-tagged run are kept (1-3650)." }),
-
-  /* maintainer */
-  entry({ env: "SELF_MAINTAINER_AUTOMERGE", key: "autoMerge", group: "maintainer", type: "boolean", default: "false", description: "Let the self-maintainer merge and deploy its own fix pull requests. Only the exact value true enables it." }),
-  entry({ env: "SELF_MAINTAINER_CI_CHECK", key: "ciCheck", group: "maintainer", type: "string", default: "ci", description: "Name of the check the maintainer requires to pass before it promotes a fix." }),
 
   /* judges */
   entry({ env: "QA_JUDGES_ENABLED", key: "-", group: "judges", type: "boolean", default: "false", description: "Turns the LLM judges on (true) or off (false or empty). Any other value stops the boot." }),

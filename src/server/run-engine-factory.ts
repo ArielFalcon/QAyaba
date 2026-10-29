@@ -162,7 +162,6 @@ import { stageServiceContext, serviceContextDir } from "./service-context";
 import { SqliteRunHistoryAdapter } from "./run-history-sqlite-adapter";
 import { SqliteLearningRepository } from "@contexts/cross-run-learning/infrastructure/sqlite-learning-repository.adapter";
 import type { LearningStorePort } from "@contexts/cross-run-learning/application/index";
-import { recordIncident } from "./maintainer";
 import { resolveCampaignFreeze } from "./campaign-freeze";
 import { agentBrowserEnabled, closedLoopEnabled, serviceTopologyWired, toolsApply } from "./run-config-gates";
 import { resolveReflectorEnabled } from "./reflector-switch";
@@ -1057,7 +1056,7 @@ export function buildEngineRootDeps(
     contextPack: run.mode !== "context",
     /*
      * Multi-agent coordination is always wired. Fail-open paths inside RunQaUseCase are the
-     * incident safety net; telemetry lands in the durable JSONL sink. Distinct from qa.shadow
+     * safety net; telemetry lands in the durable JSONL sink. Distinct from qa.shadow
      * (PR/Issue publishing). Default path matches HISTORY_DB_PATH's data/ root;
      * COORDINATION_TELEMETRY_PATH overrides (e.g. a mounted volume).
      */
@@ -1478,18 +1477,6 @@ export function buildEngineRootDeps(
       readRecentOutcomes: (a, limit) => getHistory().learning.listRunOutcomes(a, limit),
       readRules: (a, limit) => getHistory().learning.listLearningRules(a, limit),
       deprecateRule: (ruleId) => { getHistory().learning.setRuleStatusByHuman(ruleId, "deprecated"); },
-      recordEngineIncident: (finding) =>
-        recordIncident({
-          source: "process-audit",
-          severity: finding.severity === "error" ? "error" : "warn",
-          summary: finding.summary,
-          /*
-           * finding.diagnosis is never populated by this port today (Layer 2 LLM root-cause
-           * diagnosis is deferred — see process-audit.ts's own SCOPE NOTE); kept conditional so a
-           * future diagnosis producer needs no change here.
-           */
-          detail: [finding.evidence, finding.diagnosis ? `\nLIKELY ROOT CAUSE: ${finding.diagnosis}` : ""].join(""),
-        }),
       invalidateContext: (reason) => {
         try {
           getHistory().contexts.markContextStale(app.name);

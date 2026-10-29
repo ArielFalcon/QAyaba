@@ -13,7 +13,7 @@ import { resolveLangfuseConfig, type LangfuseConfig } from "../telemetry/langfus
 import { resolveRunTimeBudgets } from "@contexts/run-orchestration/application/index";
 import { resolveDiffTimeBudgets } from "@contexts/generation/application/index";
 import { resolveExecSandboxMode, type ExecSandboxMode } from "../../qa-engine/src/shared-infrastructure/process-sandbox/exec-sandbox";
-import { DEFAULT_DRAIN_MS, DEFAULT_REVIEWER_TIMEOUT_MS, DEFAULT_SELF_REPO, DEFAULT_SESSION_TTL_SECONDS, DEFAULT_STALL_MS } from "./defaults";
+import { DEFAULT_DRAIN_MS, DEFAULT_REVIEWER_TIMEOUT_MS, DEFAULT_SESSION_TTL_SECONDS, DEFAULT_STALL_MS } from "./defaults";
 import { SETTINGS_REGISTRY, settingDef } from "./registry";
 
 type RunTimeBudgets = ReturnType<typeof resolveRunTimeBudgets>;
@@ -51,7 +51,6 @@ export interface Settings {
     readonly listenHost: string;
     readonly toolsPort: number;
     readonly toolsListenHost: string | undefined;
-    readonly selfRepo: string;
     readonly noColor: boolean;
     /* Fixed (no environment variable): the shutdown drain window. */
     readonly drainMs: number;
@@ -111,10 +110,6 @@ export interface Settings {
   readonly retention: {
     readonly spanDays: number;
     readonly campaignDays: number;
-  };
-  readonly maintainer: {
-    readonly autoMerge: boolean;
-    readonly ciCheck: string;
   };
   readonly judges: JudgeSwitch;
   /* Warnings the load produced (a rejected optional integration); the composition root logs them. */
@@ -202,7 +197,6 @@ export function loadSettings(env: EnvironmentMap): Settings {
       listenHost,
       toolsPort,
       toolsListenHost: r.str("QA_TOOLS_LISTEN_HOST"),
-      selfRepo: r.str("QAYABA_REPO") ?? DEFAULT_SELF_REPO,
       noColor: r.str("NO_COLOR") !== undefined,
       drainMs: DEFAULT_DRAIN_MS,
     },
@@ -256,10 +250,6 @@ export function loadSettings(env: EnvironmentMap): Settings {
       langfuse,
     },
     retention: { spanDays, campaignDays },
-    maintainer: {
-      autoMerge: r.flag("SELF_MAINTAINER_AUTOMERGE"),
-      ciCheck: r.str("SELF_MAINTAINER_CI_CHECK") ?? "ci",
-    },
     judges: r.run(["QA_JUDGES_ENABLED", "QA_JUDGES_DAILY_TOKENS"], () => resolveJudgeSwitch(env), { enabled: false, dailyTokens: 0 }),
     warnings: r.warnings,
   };

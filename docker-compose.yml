@@ -12,10 +12,9 @@ name: qayaba
 # .env is only for running locally without Doppler.
 #
 # This base file is the PRODUCTION definition: the orchestrator runs the src/ baked into the
-# image (COPY in the Dockerfile), so the maintainer hot-swap (which rewrites src/ + package
-# files) works on a normal filesystem. docker-compose.override.yml — auto-loaded by plain
-# `docker compose up` for local dev — bind-mounts the host source READ-ONLY for live editing; the
-# swap canNOT rewrite a read-only src/ or package file (EROFS), so hot-swap is intentionally a no-op in dev. For production run WITHOUT the override:
+# image (COPY in the Dockerfile). docker-compose.override.yml — auto-loaded by plain
+# `docker compose up` for local dev — bind-mounts the host source READ-ONLY for live editing.
+# For production run WITHOUT the override:
 #   docker compose -f docker-compose.yml up --build
 #
 # The local telemetry stack starts with the app, from this file: two OpenTelemetry collectors (one per trust level),
@@ -140,15 +139,14 @@ services:
       QA_TOOLS_PORT: ${QA_TOOLS_PORT:-459}
       QA_TOOLS_TOKEN: ${QA_TOOLS_TOKEN:-}
     volumes:
-      # App configs + the config/e2e seed (read-mostly; not hot-swapped). Mounted under /app/.host, a directory only root may
+      # App configs + the config/e2e seed (read-mostly). Mounted under /app/.host, a directory only root may
       # enter (/app/config is a link to it, see the Dockerfile): the host folder's own permissions may not be enforced (Docker
       # Desktop's file sharing), the parent's always are, so the sandbox uid cannot reach the configs on any host.
       - ./config:/app/.host/config
-      # NOTE: src/ and package files are NOT bind-mounted here on purpose — the hot-swap must be
-      # able to rewrite them (a read-only bind mount → EROFS). They ship baked in the image. The dev
+      # NOTE: src/ and package files are NOT bind-mounted here on purpose: they ship baked in the image. The dev
       # override re-adds them, read-only, for live editing. The E2E suite is NOT in a volume: it lives in git.
       - mirrors:/app/.mirrors # local working copies (shared with the agents container); the harness runs over <repo>/e2e here
-      - qayaba-data:/app/data # run history + maintainer state (markers/ledger/failure memory) — persists across restarts
+      - qayaba-data:/app/data # run history — persists across restarts
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:${PORT:-458}/api/health"]
       interval: 30s

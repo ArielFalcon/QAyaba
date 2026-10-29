@@ -40,7 +40,7 @@ export function isAgentTimeoutError(err: unknown): boolean {
 /**
  * The git dir git would use for a working copy is not the orchestrator's own: untrusted code may have replaced the
  * repository. A security refusal, not an infrastructure fault and not a code defect: it is never turned into an empty
- * result and never opens a maintainer incident, and the message carries repository-controlled text only in escaped form.
+ * result, and the message carries repository-controlled text only in escaped form.
  */
 export class UntrustedGitTreeError extends Error {
   constructor(message: string) {

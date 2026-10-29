@@ -95,8 +95,8 @@ export const SCHEMA_1_SQL = `
   CREATE INDEX IF NOT EXISTS idx_outcomes_error_class ON run_outcomes(error_class);
 
   -- Durable backing for the live RunEvent (SSE) stream. The in-memory store keeps a
-  -- bounded replay buffer; persisting here lets replay survive a restart (e.g. the maintainer
-  -- hot-swap's process.exit) and eviction of an old run from the 200-run ring.
+  -- bounded replay buffer; persisting here lets replay survive a restart and eviction of an
+  -- old run from the 200-run ring.
   CREATE TABLE IF NOT EXISTS run_events (
     run_id TEXT NOT NULL,
     seq INTEGER NOT NULL,

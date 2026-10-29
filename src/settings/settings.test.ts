@@ -35,7 +35,6 @@ test("a minimal environment yields the defaults each parser yields on its own", 
   assert.equal(settings.retention.campaignDays, DEFAULT_CAMPAIGN_RETENTION_DAYS);
   assert.equal(settings.judges.enabled, false);
   assert.equal(settings.judges.dailyTokens, DEFAULT_JUDGE_DAILY_TOKENS);
-  assert.equal(settings.maintainer.autoMerge, false);
   assert.equal(settings.telemetry.langfuse, undefined);
 });
 
@@ -53,7 +52,6 @@ test("set values reach their typed fields", () => {
     MIRROR_DIR: "/data/mirrors",
     OPENCODE_TIMEOUT_MS: "120000",
     WEBHOOK_ALLOW_UNSIGNED: "true",
-    SELF_MAINTAINER_CI_CHECK: "build",
     QA_JUDGES_ENABLED: "true",
     QA_TELEMETRY_RETENTION_DAYS: "7",
   });
@@ -61,7 +59,6 @@ test("set values reach their typed fields", () => {
   assert.equal(settings.git.mirrorDir, "/data/mirrors");
   assert.equal(settings.agent.timeoutMs, 120_000);
   assert.equal(settings.webhook.allowUnsigned, true);
-  assert.equal(settings.maintainer.ciCheck, "build");
   assert.equal(settings.judges.enabled, true);
   assert.equal(settings.retention.spanDays, 7);
 });

@@ -18,9 +18,8 @@ tooling. You do NOT touch watched app repos — you fix the pipeline that tests 
   is necessary, minimal and safe (see the closing protocol). Hard limits — a fix that breaks
   any of these is blocked and left for a human, so stay within them:
   - **Keep it small:** at most **15 files / 400 changed lines**.
-  - **Never modify the recovery/build files:** `boot-guard.mjs`, `src/server/self-update.ts`,
-    `src/server/merge-guard.ts`, any `Dockerfile`, `docker-compose.yml`, or `.github/`. These
-    are the rollback safety net and the image build — changing them requires a human.
+  - **Never modify the build files:** any `Dockerfile`, `docker-compose.yml`, or `.github/`.
+    Changing them requires a human.
   - A fix that does not pass `npm run typecheck` + `npm test` is rejected and never deployed —
     keep both green.
 

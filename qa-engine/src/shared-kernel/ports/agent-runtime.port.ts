@@ -9,7 +9,7 @@ import type { ContextFit } from "@kernel/context-budget.ts";
  * provider returned; `cost` is the SDK's own (0 when the model's rate is unknown). */
 export interface UsageSnapshot { input: number; output: number; reasoning: number; cacheRead: number; cacheWrite: number; cost: number; }
 
-/** Session-scoped identity. runId/objective are optional so inapplicable call-sites (maintainer) omit them. */
+/** Session-scoped identity. runId/objective are optional so a call-site that has neither omits them. */
 export interface AgentOpenDescriptor {
   runId?: string;
   role?: string;

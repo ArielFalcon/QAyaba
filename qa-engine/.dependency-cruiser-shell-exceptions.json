@@ -28,7 +28,6 @@
   "src/server/judge-evidence.ts",
   "src/server/judges-composition.ts",
   "src/server/login-bootstrap-wiring.ts",
-  "src/server/maintainer-runtime.ts",
   "src/server/onboarding/write-boundaries.test.ts",
   "src/server/run-engine-factory.test.ts",
   "src/server/run-engine-factory.ts",

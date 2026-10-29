@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
-import { installShutdown, installUnhandledRejectionRecorder, type ShutdownDeps } from "./shutdown";
+import { installShutdown, installUnhandledRejectionLogger, type ShutdownDeps } from "./shutdown";
 
 function setup(over: { drain?: () => Promise<void>; drainMs?: number } = {}) {
   const calls: string[] = [];
@@ -44,7 +44,7 @@ test("a drain that outlives its window flushes the span ledger and exits 1", asy
   assert.ok(!calls.includes("telemetry.shutdown"));
 });
 
-test("the lifecycle refuses new work from the first signal and while a hot swap marked it", async () => {
+test("the lifecycle refuses new work from the first signal and while setShuttingDown(true) holds it", async () => {
   const { lifecycle } = setup();
   assert.equal(lifecycle.shuttingDown(), false);
   lifecycle.setShuttingDown(true);
@@ -70,12 +70,10 @@ test("the signal that arrived is named in the log line", async () => {
   assert.ok(logs.some((line) => line.includes("SIGINT")));
 });
 
-test("an unhandled rejection is logged and recorded as an incident", () => {
+test("an unhandled rejection is logged with its message", () => {
   const source = new EventEmitter();
-  const recorded: string[] = [];
   const logged: string[] = [];
-  installUnhandledRejectionRecorder((summary) => recorded.push(summary), (message) => logged.push(message), source as never);
+  installUnhandledRejectionLogger((message) => logged.push(message), source as never);
   source.emit("unhandledRejection", new Error("boom"));
-  assert.ok(recorded[0]?.includes("boom"));
   assert.ok(logged[0]?.includes("boom"));
 });

@@ -23,7 +23,7 @@ export interface SignalSource {
 }
 
 export interface Lifecycle {
-  /* True once a shutdown began, or once something (the maintainer's hot swap) marked the process as going away: new work is refused. */
+  /* True once a shutdown began, or once `setShuttingDown(true)` marked the process as going away: new work is refused. */
   shuttingDown(): boolean;
   setShuttingDown(value: boolean): void;
   /* Runs the shutdown for a signal and resolves after `exit` was called. A second call while one runs joins it. */
@@ -76,15 +76,13 @@ export function installShutdown(deps: ShutdownDeps, signals: SignalSource = proc
   };
 }
 
-/* Records an unhandled rejection as an incident instead of letting it vanish; the process keeps running. */
-export function installUnhandledRejectionRecorder(
-  record: (summary: string) => void,
+/* Logs an unhandled rejection instead of letting it vanish; the process keeps running. */
+export function installUnhandledRejectionLogger(
   logError: (message: string) => void,
   source: { on(event: "unhandledRejection", listener: (reason: unknown) => void): unknown } = process,
 ): void {
   source.on("unhandledRejection", (reason) => {
     const message = reason instanceof Error ? reason.message : String(reason);
     logError(`[qa] unhandled rejection: ${reason instanceof Error ? reason.stack ?? message : message}`);
-    record(`unhandled rejection: ${message}`);
   });
 }

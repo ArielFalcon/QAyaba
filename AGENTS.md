@@ -521,7 +521,7 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   (validation, a Playwright execution) are not cut: they have their own timeouts and the next agent turn
   meets the deadline. The deadline is the one time authority: the first generation pass is bounded by the smaller of its tier budget and what the deadline has left (`RunDeadline.allowance`), and a fix-loop regeneration starts only while the deadline has time left and the configured `wallClockBudgetMs` is not spent (`regenerationAllowed`); neither stops a turn already running. A deadline that expires after a suite ran green on its final bytes degrades the run to publication with the proven suite when no review verdict is required (`deadline-after-proof`). An audit signal, not a lesson: a streak of `E-TIME-BUDGET` ends reaches the process audit alone
   (`observesOperatingSignal`), which logs an observe-only `recurring-time-exhaustion` finding; it never
-  folds, reflects, opens a maintainer incident or changes a rule.
+  folds, reflects or changes a rule.
 - **Contract repair** — the re-prompt that only restates a verdict (author or reviewer) runs with tools
   disabled (`AgentPromptOpts.withoutTools`; OpenCode sends a per-prompt `tools` deny map) and under its own short timeout (`REPAIR_TURN_TIMEOUT_MS`,
   2 min, further cut to the time left). A repair that outlasts its cap leaves the first answer standing:
@@ -624,7 +624,7 @@ OpenCode is the one strategy today and another runtime is added as a strategy be
 facade. The agents are the lead (`qa-lead`, plans and reviews, read-only), the author
 (`qa-author`, the one agent that writes tests, for a flow or for the run's own task), the
 explorer (`qa-explore`, read-only, asked for by the lead before it plans) and the reviewer
-(`qa-reviewer`), beside the maintainer, assistant, reflector and proposer. `agents/opencode.json`
+(`qa-reviewer`), beside the assistant, reflector and proposer. `agents/opencode.json`
 is the source of truth for the roster, models and per-role step limits (`maxSteps`). A role's model resolves in one place (`modelForRole`,
 `src/agent-runtime/types.ts`), for the session it opens, for the context window its prompts are fitted to and for the reviewer-independence
 record: a model the caller asks for (an escalated replacement) > the operator's `AGENT_<TIER>_MODEL` (or the model saved from the Agent
@@ -640,10 +640,6 @@ The static layers are **consume-first**: use what the prompt supplies at the con
 states and look up only what it lacks; to change a flow, find its existing spec, read it, and
 update it. The author is done once its specs are written or it has decided nothing is worth a
 test, and the verdict is its last action.
-
-`qa-maintainer` self-repairs THIS repo via fix PRs; auto-deploy only with
-`SELF_MAINTAINER_AUTOMERGE="true"`, behind `src/server/merge-guard.ts` (read its
-threat-model header first) and a canary-before-promote hot-swap.
 
 ### Persistence & onboarding
 

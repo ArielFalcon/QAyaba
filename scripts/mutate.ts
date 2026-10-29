@@ -426,12 +426,6 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
     tests: [`${GEN_TEST}/domain/tool-link.test.ts`],
     thresholds: DEFAULT_THRESHOLDS,
   },
-  "merge-guard": {
-    description: "self-maintainer auto-merge gates: protected paths, change/rate limits",
-    mutate: ["src/server/merge-guard.ts"],
-    tests: ["src/server/merge-guard.test.ts", "src/server/maintainer-runtime.test.ts"],
-    thresholds: DEFAULT_THRESHOLDS,
-  },
   "coordination-events": {
     description: "coordination telemetry ledger read model served to the API/TUI",
     mutate: ["src/server/coordination-events.ts"],
