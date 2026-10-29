@@ -26,8 +26,8 @@ export async function restoreAcceptedSuite(state: Readonly<RunState>, ctx: Works
       suiteRestored = true;
       storeRestoredLogin = restored.authRestored;
       ctx.host.announceSuite(
-        `[qa] suite store: restored ${restored.restored} file(s), overlaid ${restored.overlaid} unpublished change(s) over git, left ${restored.trackedWins} to git${restored.authRestored ? "; the app's login was restored" : ""}`,
-        "info",
+        `[qa] suite store: restored ${restored.restored} file(s), overlaid ${restored.overlaid} unpublished change(s) over git, left ${restored.trackedWins} to git${restored.notRestored.length > 0 ? `, could not restore ${restored.notRestored.length} (${restored.notRestored.join(", ")})` : ""}${restored.authRestored ? "; the app's login was restored" : ""}`,
+        restored.notRestored.length > 0 ? "warn" : "info",
       );
     } catch (err) {
       carryOn(err);

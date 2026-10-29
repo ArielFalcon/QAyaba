@@ -125,7 +125,7 @@ test("a login restored from the suite store, and one demoted earlier in the run,
   const h = traceHarness();
   let restoredAuth = true;
   const inner: SuiteStorePort = {
-    restore: async () => ({ restored: 3, trackedWins: 1, overlaid: 2, authRestored: restoredAuth }),
+    restore: async () => ({ restored: 3, trackedWins: 1, overlaid: 2, authRestored: restoredAuth, notRestored: [] }),
     fingerprint: async () => new Map(),
     capture: async () => ({ entries: 5, admitted: 2, dropped: 1, skipped: [{ path: "a", reason: SKIP_REASON.CHANGED_AFTER_RUN }, { path: "b", reason: "the path is a link" }] }),
     demoteAuth: async () => {},
@@ -184,7 +184,7 @@ test("a skip reason becomes a member of a closed set, whatever the store or the 
 test("a demotion reason in any other words is exported as other, never as free text", async () => {
   assert.equal(classifyDemoteReason("some words with a secret hunter2"), "other");
   const h = traceHarness();
-  const store = new TracedSuiteStore({ restore: async () => ({ restored: 0, trackedWins: 0, overlaid: 0, authRestored: false }), fingerprint: async () => new Map(), capture: async () => ({ entries: 0, admitted: 0, dropped: 0, skipped: [] }), demoteAuth: async () => {} }, h.telemetry);
+  const store = new TracedSuiteStore({ restore: async () => ({ restored: 0, trackedWins: 0, overlaid: 0, authRestored: false, notRestored: [] }), fingerprint: async () => new Map(), capture: async () => ({ entries: 0, admitted: 0, dropped: 0, skipped: [] }), demoteAuth: async () => {} }, h.telemetry);
   await store.demoteAuth({ mirrorDir: "/m", specDir: "/m/e2e" }, "some words with a secret hunter2");
   assert.equal(h.only("qayaba.suite_store.demote").attributes["qayaba.suite_store.reason"], "other");
 });
@@ -192,9 +192,16 @@ test("a demotion reason in any other words is exported as other, never as free t
 test("the restore span carries the digest of the set it put back, so two runs can be compared on what they started from", async () => {
   const h = traceHarness();
   const digest = "a".repeat(64);
-  const store = new TracedSuiteStore({ restore: async () => ({ restored: 13, trackedWins: 0, overlaid: 0, authRestored: false, digest }), fingerprint: async () => new Map(), capture: async () => ({ entries: 0, admitted: 0, dropped: 0, skipped: [] }), demoteAuth: async () => {} }, h.telemetry);
+  const store = new TracedSuiteStore({ restore: async () => ({ restored: 13, trackedWins: 0, overlaid: 0, authRestored: false, notRestored: [], digest }), fingerprint: async () => new Map(), capture: async () => ({ entries: 0, admitted: 0, dropped: 0, skipped: [] }), demoteAuth: async () => {} }, h.telemetry);
   await store.restore({ mirrorDir: "/m", specDir: "/m/e2e" });
   assert.equal(h.only("qayaba.suite_store.restore").attributes["qayaba.suite_store.restored_digest"], digest);
+});
+
+test("the restore span counts the entries the manifest named and the restore could not lay down", async () => {
+  const h = traceHarness();
+  const store = new TracedSuiteStore({ restore: async () => ({ restored: 12, trackedWins: 0, overlaid: 0, authRestored: false, notRestored: ["flows/user-account.spec.ts"] }), fingerprint: async () => new Map(), capture: async () => ({ entries: 0, admitted: 0, dropped: 0, skipped: [] }), demoteAuth: async () => {} }, h.telemetry);
+  await store.restore({ mirrorDir: "/m", specDir: "/m/e2e" });
+  assert.equal(h.only("qayaba.suite_store.restore").attributes["qayaba.suite_store.not_restored"], 1);
 });
 
 test("a store call that fails is an error on its span and the failure goes on", async () => {
@@ -210,8 +217,8 @@ test("a login and a store traced by a port that throws behave exactly as untrace
     const session = await withExecScope(t.scope, () => t.adapter.prepare(REQ));
     assert.equal(session.unauthored, false);
     assert.ok(session.storageStatePath);
-    const store = new TracedSuiteStore({ restore: async () => ({ restored: 1, trackedWins: 0, overlaid: 0, authRestored: false }), fingerprint: async () => new Map(), capture: async () => ({ entries: 0, admitted: 0, dropped: 0, skipped: [] }), demoteAuth: async () => {} }, new ThrowingTelemetry());
-    assert.deepEqual(await store.restore({ mirrorDir: "/m", specDir: "/m/e2e" }), { restored: 1, trackedWins: 0, overlaid: 0, authRestored: false });
+    const store = new TracedSuiteStore({ restore: async () => ({ restored: 1, trackedWins: 0, overlaid: 0, authRestored: false, notRestored: [] }), fingerprint: async () => new Map(), capture: async () => ({ entries: 0, admitted: 0, dropped: 0, skipped: [] }), demoteAuth: async () => {} }, new ThrowingTelemetry());
+    assert.deepEqual(await store.restore({ mirrorDir: "/m", specDir: "/m/e2e" }), { restored: 1, trackedWins: 0, overlaid: 0, authRestored: false, notRestored: [] });
   } finally {
     t.dispose();
   }

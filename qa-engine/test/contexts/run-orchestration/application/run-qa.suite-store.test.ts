@@ -41,7 +41,7 @@ interface Rig {
   deps(over?: Partial<RunQaUseCaseDeps>): RunQaUseCaseDeps;
 }
 
-function rig(opts: { authRestored?: boolean; restoreThrows?: Error; captureThrows?: Error } = {}): Rig {
+function rig(opts: { authRestored?: boolean; notRestored?: readonly string[]; restoreThrows?: Error; captureThrows?: Error } = {}): Rig {
   const ws = runWorkspace("qa-suite-");
   ws.write("flows/a.spec.ts", "a v1");
   ws.write("flows/b.spec.ts", "b v1");
@@ -59,7 +59,7 @@ function rig(opts: { authRestored?: boolean; restoreThrows?: Error; captureThrow
     restore: async () => {
       events.push("restore");
       if (opts.restoreThrows) throw opts.restoreThrows;
-      return { restored: 3, trackedWins: 0, overlaid: 0, authRestored: opts.authRestored ?? false };
+      return { restored: 3, trackedWins: 0, overlaid: 0, authRestored: opts.authRestored ?? false, notRestored: opts.notRestored ?? [] };
     },
     capture: async (input) => {
       events.push("capture");
@@ -223,6 +223,26 @@ test("a capture that throws changes neither the verdict nor the publication", as
   const out = await new RunQaUseCase(r.deps()).run(INPUT);
   assert.equal(out.decision.verdict, "pass");
   assert.equal(r.events.includes("publish"), true);
+});
+
+test("a restore that could not lay down an entry its manifest names says so loudly, naming it, and the run goes on", async () => {
+  const lines: Array<{ level: string; text: string }> = [];
+  const observer = { onStep: () => {}, onEvent: (event: { type: string; level?: string; text?: string }) => { if (event.type === "log.line") lines.push({ level: event.level ?? "", text: event.text ?? "" }); } };
+  const r = rig({ notRestored: ["flows/x.spec.ts"] });
+  const out = await new RunQaUseCase(r.deps({ observer: observer as RunQaUseCaseDeps["observer"] })).run(INPUT);
+  const announced = lines.find((line) => line.text.startsWith("[qa] suite store: restored"));
+  assert.equal(announced?.level, "warn");
+  assert.match(announced?.text ?? "", /could not restore 1 \(flows\/x\.spec\.ts\)/);
+  assert.equal(out.decision.verdict, "pass");
+});
+
+test("a restore that lost nothing is announced at info", async () => {
+  const lines: Array<{ level: string; text: string }> = [];
+  const observer = { onStep: () => {}, onEvent: (event: { type: string; level?: string; text?: string }) => { if (event.type === "log.line") lines.push({ level: event.level ?? "", text: event.text ?? "" }); } };
+  await new RunQaUseCase(rig().deps({ observer: observer as RunQaUseCaseDeps["observer"] })).run(INPUT);
+  const announced = lines.find((line) => line.text.startsWith("[qa] suite store: restored"));
+  assert.equal(announced?.level, "info");
+  assert.doesNotMatch(announced?.text ?? "", /could not restore/);
 });
 
 test("a restore that throws leaves a cold run, and a cold run cannot publish: no proof was seeded", async () => {

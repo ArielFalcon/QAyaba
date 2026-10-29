@@ -271,7 +271,17 @@ test("the specs a snapshot already held are not a case's own unless their conten
 function harness(s: Sandbox, over: Partial<WarmDeps> = {}) {
   const lines: string[] = [];
   const seeded: Array<{ app: string; label: string; files: Map<string, Buffer> }> = [];
+  const exported: Array<{ app: string; label: string; leaveOut: readonly string[] }> = [];
+  const restoredStores: Array<{ app: string; label: string }> = [];
   const deps: WarmDeps = {
+    exportStore: async (app, label, leaveOut) => {
+      exported.push({ app, label, leaveOut });
+      return { entries: 12, digest: "fc7ad52e".repeat(8) };
+    },
+    restoreStore: async (app, label) => {
+      restoredStores.push({ app, label });
+      return { entries: 12, digest: "fc7ad52e".repeat(8) };
+    },
     seedStore: async (app, files, label) => {
       seeded.push({ app, label, files: new Map(files) });
       return { entries: files.size, bytes: [...files.values()].reduce((n, b) => n + b.length, 0) };
@@ -283,7 +293,7 @@ function harness(s: Sandbox, over: Partial<WarmDeps> = {}) {
     out: (line) => lines.push(line),
     ...over,
   };
-  return { deps, lines, seeded, text: () => lines.join("\n") };
+  return { deps, lines, seeded, exported, restoredStores, text: () => lines.join("\n") };
 }
 const busy = async (): Promise<void> => { throw new Error("the queue is busy"); };
 
@@ -373,6 +383,39 @@ test("seed-store reports a cold snapshot as cold but still loads it: a cold arm 
   assert.equal(await main(["seed-store", "--app", "demo", "--label", "cold"], h.deps), 0);
   assert.ok(h.text().includes("COLD"));
   assert.equal(h.seeded.length, 1);
+});
+
+test("store-export writes the store to a snapshot, leaving out the paths it is told to, and prints the count and digest of what it kept", async (t) => {
+  const h = harness(sandbox(t));
+  assert.equal(await main(["store-export", "--app", "demo", "--label", "w12", "--leave-out", "flows/a.spec.ts", "--leave-out", "flows/b.spec.ts"], h.deps), 0);
+  assert.deepEqual(h.exported, [{ app: "demo", label: "w12", leaveOut: ["flows/a.spec.ts", "flows/b.spec.ts"] }]);
+  assert.ok(h.text().includes(`12 entries, digest ${"fc7ad52e".repeat(8)}`), h.text());
+});
+
+test("store-restore puts a snapshot back into the store and prints the count and digest it proved", async (t) => {
+  const h = harness(sandbox(t));
+  assert.equal(await main(["store-restore", "--app", "demo", "--label", "w12"], h.deps), 0);
+  assert.deepEqual(h.restoredStores, [{ app: "demo", label: "w12" }]);
+  assert.ok(h.text().includes(`12 entries, digest ${"fc7ad52e".repeat(8)}`), h.text());
+});
+
+test("store-export and store-restore refuse a busy queue, and a store that fails the proof exits non-zero with the reason", async (t) => {
+  const s = sandbox(t);
+  const busyHarness = harness(s, { assertQueueIdle: busy });
+  assert.equal(await main(["store-export", "--app", "demo", "--label", "w12"], busyHarness.deps), 1);
+  assert.equal(await main(["store-restore", "--app", "demo", "--label", "w12"], busyHarness.deps), 1);
+  assert.deepEqual([busyHarness.exported, busyHarness.restoredStores], [[], []], "a busy queue means the store belongs to the run using it");
+
+  const failing = harness(s, { restoreStore: async () => { throw new Error("the snapshot is not whole: flows/x.spec.ts"); } });
+  assert.equal(await main(["store-restore", "--app", "demo", "--label", "w12"], failing.deps), 1);
+  assert.ok(failing.text().includes("error: the snapshot is not whole: flows/x.spec.ts"), failing.text());
+});
+
+test("--leave-out is accepted by store-export only and needs a value", () => {
+  assert.equal(parseArguments(["store-export", "--app", "demo", "--label", "w1", "--leave-out", "flows/a.spec.ts"]).ok, true);
+  for (const bad of [["store-restore", "--app", "demo", "--label", "w1", "--leave-out", "x"], ["seed-store", "--app", "demo", "--label", "w1", "--leave-out", "x"], ["store-export", "--app", "demo", "--label", "w1", "--leave-out"]]) {
+    assert.equal(parseArguments(bad).ok, false, bad.join(" "));
+  }
 });
 
 test("arguments are validated: a known subcommand, an app and a label that cannot name a path, and --dry-run only for restore", () => {

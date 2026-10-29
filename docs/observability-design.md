@@ -250,7 +250,7 @@ qayaba.run
 ├─ qayaba.phase.workspace         checkout, mirror, index sync
 ├─ qayaba.phase.classify          action, tier
 ├─ qayaba.phase.setup
-│  ├─ qayaba.suite_store.restore  restored, overlaid, tracked_wins, auth_restored
+│  ├─ qayaba.suite_store.restore  restored, overlaid, tracked_wins, not_restored, auth_restored
 │  ├─ qayaba.setup.seed
 │  ├─ qayaba.exec install         (npm ci, §6)
 │  ├─ qayaba.setup.orphan_cleanup

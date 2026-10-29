@@ -366,6 +366,7 @@ export const ATTRIBUTES = {
   "qayaba.suite_store.restored_digest": str("A sha256 of the set of files (path and content hash) the restore put back; equal for runs that started from the same suite."),
   "qayaba.suite_store.overlaid": int("Tracked files whose unpublished change was put back."),
   "qayaba.suite_store.tracked_wins": int("Stored files left out because git tracks the path with other content."),
+  "qayaba.suite_store.not_restored": int("Entries the store's manifest names that the restore could not lay down."),
   "qayaba.suite_store.auth_restored": bool("The stored login was put back."),
   "qayaba.suite_store.entries": int("Entries the store holds after a capture."),
   "qayaba.suite_store.admitted": int("Entries added or changed by a capture."),

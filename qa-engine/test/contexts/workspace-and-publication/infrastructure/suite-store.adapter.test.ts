@@ -99,7 +99,7 @@ test("a restore puts back what a capture took, and a wiped working copy equals t
   r.clean();
   const result = await r.store().restore(root(r));
 
-  assert.deepEqual({ ...result, digest: undefined }, { restored: 5, trackedWins: 0, overlaid: 0, authRestored: true, digest: undefined });
+  assert.deepEqual({ ...result, digest: undefined }, { restored: 5, trackedWins: 0, overlaid: 0, authRestored: true, notRestored: [], digest: undefined });
   assert.equal(r.read("flows/login.spec.ts"), "test('login')");
   assert.equal(r.read("pages/login.page.ts"), "export class LoginPage {}");
   assert.equal(r.read(AUTH_SETUP_PATH), APP_LOGIN);
@@ -142,7 +142,7 @@ test("a store with nothing in it restores nothing and leaves the working copy al
   const r = rig(t);
   r.put("flows/a.spec.ts", "x");
   const empty = await r.store().restore(root(r));
-  assert.deepEqual({ ...empty, digest: undefined }, { restored: 0, trackedWins: 0, overlaid: 0, authRestored: false, digest: undefined });
+  assert.deepEqual({ ...empty, digest: undefined }, { restored: 0, trackedWins: 0, overlaid: 0, authRestored: false, notRestored: [], digest: undefined });
   assert.match(empty.digest ?? "", /^[0-9a-f]{64}$/, "an empty restore still has a digest, so it differs from a populated one");
   assert.equal(r.read("flows/a.spec.ts"), "x");
 });
@@ -397,6 +397,7 @@ test("a corrupt manifest or a blob that no longer matches its hash is said aloud
   r.clean();
   const result = await r.store().restore(root(r));
   assert.equal(result.restored, 1);
+  assert.deepEqual(result.notRestored, ["flows/a.spec.ts"]);
   assert.equal(r.has("flows/a.spec.ts"), false);
   assert.match(r.warnings.join("\n"), /flows\/a\.spec\.ts.*no longer matches/);
 
@@ -571,7 +572,7 @@ test("a seeded store restores to exactly the snapshot, and the snapshot's login 
 
   r.clean();
   const restored = await r.store().restore(root(r));
-  assert.deepEqual({ ...restored, digest: undefined }, { restored: 3, trackedWins: 0, overlaid: 0, authRestored: true, digest: undefined });
+  assert.deepEqual({ ...restored, digest: undefined }, { restored: 3, trackedWins: 0, overlaid: 0, authRestored: true, notRestored: [], digest: undefined });
   assert.equal(r.read(AUTH_SETUP_PATH), APP_LOGIN);
 });
 
@@ -674,4 +675,133 @@ test("a manifest that cannot be read is an error, not an answer", (t) => {
   mkdirSync(r.storeDir, { recursive: true });
   writeFileSync(join(r.storeDir, "manifest.json"), "not json");
   assert.throws(() => suiteStoreHoldsVerifiedLogin(r.storeDir), /manifest/);
+});
+
+/* ── one writer: the store exports and restores a whole snapshot ── */
+
+const snapshotBlobs = (dir: string): string[] => readdirSync(join(dir, "blobs")).sort();
+const storeFiles = (r: Rig): Record<string, string> => ({ manifest: readFileSync(join(r.storeDir, "manifest.json"), "utf8"), blobs: r.blobs().join(",") });
+
+test("a restore lists the entries its manifest names and could not lay down, and counts the ones it did", async (t) => {
+  const r = rig(t);
+  r.put("flows/x.spec.ts", "x v1");
+  r.put("flows/y.spec.ts", "y v1");
+  await r.capture({ executedGreen: ["flows/x.spec.ts", "flows/y.spec.ts"] });
+  const manifestCopy = readFileSync(join(r.storeDir, "manifest.json"), "utf8");
+  r.put("flows/x.spec.ts", "x v2");
+  await r.capture({ runId: "run-2", executedGreen: ["flows/x.spec.ts"] });
+  writeFileSync(join(r.storeDir, "manifest.json"), manifestCopy);
+
+  r.clean();
+  const result = await r.store().restore(root(r));
+
+  assert.equal(result.restored, 1);
+  assert.deepEqual(result.notRestored, ["flows/x.spec.ts"]);
+});
+
+test("a snapshot taken before a capture that rewrote an entry restores whole", async (t) => {
+  const r = rig(t);
+  const snapshot = join(r.base, "snapshot");
+  r.put("flows/x.spec.ts", "x v1");
+  r.put("flows/y.spec.ts", "y v1");
+  await r.capture({ executedGreen: ["flows/x.spec.ts", "flows/y.spec.ts"] });
+  r.clean();
+  const before = await r.store().restore(root(r));
+  const exported = r.store().exportSnapshot(snapshot);
+  r.put("flows/x.spec.ts", "x v2");
+  await r.capture({ runId: "run-2", executedGreen: ["flows/x.spec.ts"] });
+
+  const laid = r.store().restoreSnapshot(snapshot);
+  r.clean();
+  const after = await r.store().restore(root(r));
+
+  assert.equal(r.read("flows/x.spec.ts"), "x v1");
+  assert.equal(after.digest, before.digest);
+  assert.deepEqual({ entries: laid.entries, digest: laid.digest }, { entries: 2, digest: before.digest });
+  assert.deepEqual(exported, laid);
+  assert.deepEqual(after.notRestored, []);
+  assert.deepEqual(r.blobs(), snapshotBlobs(snapshot));
+});
+
+test("an export leaves out the paths it is told to, and needs only the blobs of the ones it keeps", async (t) => {
+  const r = rig(t);
+  const snapshot = join(r.base, "snapshot");
+  r.put("flows/x.spec.ts", "x");
+  r.put("flows/y.spec.ts", "y");
+  await r.capture({ executedGreen: ["flows/x.spec.ts", "flows/y.spec.ts"] });
+  rmSync(join(r.storeDir, "blobs", sha("x")));
+
+  const exported = r.store().exportSnapshot(snapshot, { leaveOut: ["flows/x.spec.ts"] });
+
+  assert.equal(exported.entries, 1);
+  assert.deepEqual(snapshotBlobs(snapshot), [sha("y")]);
+  assert.deepEqual((JSON.parse(readFileSync(join(snapshot, "manifest.json"), "utf8")) as SuiteManifest).entries.map((e) => e.path), ["flows/y.spec.ts"]);
+});
+
+test("a snapshot that is not whole is refused naming the entry, and the store is untouched", async (t) => {
+  const r = rig(t);
+  const snapshot = join(r.base, "snapshot");
+  r.put("flows/x.spec.ts", "x");
+  r.put("flows/y.spec.ts", "y");
+  await r.capture({ executedGreen: ["flows/x.spec.ts", "flows/y.spec.ts"] });
+  r.store().exportSnapshot(snapshot);
+  r.put("flows/z.spec.ts", "z");
+  await r.capture({ runId: "run-2", executedGreen: ["flows/x.spec.ts", "flows/y.spec.ts", "flows/z.spec.ts"] });
+  const untouched = storeFiles(r);
+
+  rmSync(join(snapshot, "blobs", sha("x")));
+  assert.throws(() => r.store().restoreSnapshot(snapshot), /flows\/x\.spec\.ts/);
+  writeFileSync(join(snapshot, "blobs", sha("x")), "altered");
+  assert.throws(() => r.store().restoreSnapshot(snapshot), /flows\/x\.spec\.ts/);
+  rmSync(join(snapshot, "blobs"), { recursive: true });
+  assert.throws(() => r.store().restoreSnapshot(snapshot), /flows\/x\.spec\.ts/, "a manifest-only snapshot");
+
+  assert.deepEqual(storeFiles(r), untouched);
+});
+
+test("an export of a store that is not readable whole is refused and leaves no directory", async (t) => {
+  const r = rig(t);
+  const snapshot = join(r.base, "snapshot");
+  r.put("flows/x.spec.ts", "x");
+  r.put("flows/y.spec.ts", "y");
+  await r.capture({ executedGreen: ["flows/x.spec.ts", "flows/y.spec.ts"] });
+  rmSync(join(r.storeDir, "blobs", sha("x")));
+
+  assert.throws(() => r.store().exportSnapshot(snapshot), /flows\/x\.spec\.ts/);
+
+  assert.deepEqual(readdirSync(r.base).filter((name) => name.startsWith("snapshot")), []);
+});
+
+test("an export does not replace a snapshot that exists", async (t) => {
+  const r = rig(t);
+  const snapshot = join(r.base, "snapshot");
+  r.put("flows/x.spec.ts", "x");
+  await r.capture({ executedGreen: ["flows/x.spec.ts"] });
+  r.store().exportSnapshot(snapshot);
+  assert.throws(() => r.store().exportSnapshot(snapshot), /already exists/);
+});
+
+test("a restored snapshot keeps its provenance and pins nothing, and a tracked path with other content still goes to git", async (t) => {
+  const r = rig(t);
+  const snapshot = join(r.base, "snapshot");
+  r.put("flows/x.spec.ts", "x");
+  r.put("flows/y.spec.ts", "y");
+  r.tracked.set("flows/y.spec.ts", { oid: gitBlobOid(Buffer.from("y at git"), 40) });
+  await r.capture({ executedGreen: ["flows/x.spec.ts", "flows/y.spec.ts"] });
+  r.store().exportSnapshot(snapshot);
+  const exported = JSON.parse(readFileSync(join(snapshot, "manifest.json"), "utf8")) as SuiteManifest;
+  r.put("flows/x.spec.ts", "x v2");
+  await r.capture({ runId: "run-2", executedGreen: ["flows/x.spec.ts"] });
+
+  r.store().restoreSnapshot(snapshot);
+
+  const entries = r.manifest().entries;
+  assert.deepEqual(entries, exported.entries);
+  assert.ok(entries.every((e) => e.pinned === undefined));
+  assert.equal(r.manifest().generation > exported.generation, true);
+
+  r.tracked.set("flows/y.spec.ts", { oid: gitBlobOid(Buffer.from("other"), 40) });
+  r.clean();
+  const result = await r.store().restore(root(r));
+  assert.deepEqual({ restored: result.restored, trackedWins: result.trackedWins }, { restored: 1, trackedWins: 1 });
 });

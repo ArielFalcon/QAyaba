@@ -649,13 +649,18 @@ test, and the verdict is its last action.
   unchanged since the entry was admitted: unpublished change overlaid; tracked and different: git wins,
   except a warm-seeded entry, which is pinned and wins over git). A stored copy that no longer matches its
   hash is rewritten by the next capture that holds the file. `restore` returns a digest of what it laid down
-  (`qayaba.suite_store.restored_digest`); `campaign-report`/`campaign-compare` mark a replicate whose digest differs from
+  (`qayaba.suite_store.restored_digest`) and `notRestored`, the paths its manifest names that it could not lay
+  down (`qayaba.suite_store.not_restored`, a warning in the setup announcement); `campaign-report`/`campaign-compare` mark a replicate whose digest differs from
   replicate 1 invalid, and one with no digest "isolation unknown". A restored
   login that fails to sign in is demoted and the stock seed takes its place. Store faults are off-path
   (logged, never a verdict). Context-map, session state, credentials and `.qa-probe/` never enter it.
   `deleteApp` with purge removes it (`suite:<name>`); a plain delete keeps it, like the mirror. Under
   `QA_CAMPAIGN_FREEZE` it is read-only; `warm-suite seed-store` loads an experiment snapshot into it
-  (`docs/efficiency-benchmark.md`).
+  (`docs/efficiency-benchmark.md`). The adapter is the only writer of the store's files (`manifest.json` and
+  `blobs/`): `warm-suite store-export` and `store-restore` return the store to a recorded state through
+  `exportSnapshot` and `restoreSnapshot`, which check the snapshot whole before touching the store and read the
+  store back afterwards; nothing copies the manifest alone. `qa-engine/test/arch/suite-store-writers.test.ts`
+  freezes the modules that derive the store's directory.
 
 ## Invariants — do not break these
 

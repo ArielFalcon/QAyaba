@@ -6,7 +6,9 @@
  *   manifest.json   the entries, each with the sha256 of its content and what admitted it; replaced atomically (temporary file + rename)
  *   blobs/<sha256>  the content, addressed by its hash; unreferenced blobs are removed after every manifest swap
  *
- * One writer: the queue runs one run at a time. Everything read from or written to the suite directory is untrusted and goes
+ * One writer: this adapter. The queue runs one run at a time, and an operator returns the store to a recorded state only through
+ * `exportSnapshot` and `restoreSnapshot`, which keep the manifest and its blobs together; nothing else writes either file. Everything
+ * read from or written to the suite directory is untrusted and goes
  * through spec-path-confinement.ts; the store's own directory is the orchestrator's and is read plainly, with each blob checked
  * against its hash. Git is the other source of truth: a path git tracks with other content than the one a stored file was admitted
  * over belongs to git, so a merged pull request is never overwritten by an older stored copy.
@@ -243,10 +245,11 @@ export class SuiteStoreAdapter implements SuiteStorePort {
   }
 
   async restore(root: SuiteRoot): Promise<SuiteRestoreResult> {
-    const result: SuiteRestoreResult = { restored: 0, trackedWins: 0, overlaid: 0, authRestored: false };
+    const result = { restored: 0, trackedWins: 0, overlaid: 0, authRestored: false };
     const manifest = this.load();
     const written: Array<{ path: string; sha256: string }> = [];
-    if (manifest.entries.length === 0) return { ...result, digest: restoredSetDigest(written) };
+    const notRestored: string[] = [];
+    if (manifest.entries.length === 0) return { ...result, notRestored, digest: restoredSetDigest(written) };
     const tracked = await this.deps.listTracked(root.mirrorDir, this.deps.specRelDir);
     if (!existsSync(root.specDir)) mkdirSync(root.specDir, { recursive: true });
     if (this.deps.seedDir !== undefined && !existsSync(join(root.specDir, PROJECT_MARK_FILE))) {
@@ -259,15 +262,19 @@ export class SuiteStoreAdapter implements SuiteStorePort {
         result.trackedWins += 1;
         continue;
       }
-      const bytes = this.readBlob(entry);
-      if (bytes === undefined) continue;
-      writeOwnedSpecFile(root, entry.path, bytes);
+      const blob = this.readBlob(entry);
+      if ("problem" in blob) {
+        this.warn(blob.problem);
+        notRestored.push(entry.path);
+        continue;
+      }
+      writeOwnedSpecFile(root, entry.path, blob.bytes);
       if (trackedFile !== undefined) result.overlaid += 1;
       else result.restored += 1;
       written.push({ path: entry.path, sha256: entry.sha256 });
       if (entry.kind === SUITE_ENTRY_KIND.AUTH_SETUP) result.authRestored = true;
     }
-    return { ...result, digest: restoredSetDigest(written) };
+    return { ...result, notRestored, digest: restoredSetDigest(written) };
   }
 
   async fingerprint(root: SuiteRoot, specs: readonly string[]): Promise<ReadonlyMap<string, string>> {
@@ -413,12 +420,7 @@ export class SuiteStoreAdapter implements SuiteStorePort {
    * cannot be read is replaced too: a seed is how it is repaired.
    */
   async seed(snapshot: ReadonlyMap<string, Buffer>, origin: { label: string }): Promise<{ entries: number; bytes: number }> {
-    let previous: SuiteManifest;
-    try {
-      previous = this.load();
-    } catch {
-      previous = emptyManifest(this.deps);
-    }
+    const previous = this.loadToReplace();
     const at = this.deps.now().toISOString();
     const admittedBy: SuiteEntryAdmission = { runId: `seed:${origin.label}`, sha: "seed", at };
     const entries: SuiteEntry[] = [];
@@ -438,6 +440,43 @@ export class SuiteStoreAdapter implements SuiteStorePort {
     const auth: SuiteAuthRecord | undefined = login ? { sha256: login.sha256, verifiedBy: { runId: admittedBy.runId, at }, status: AUTH_STATUS.VERIFIED } : undefined;
     this.writeStore(this.nextManifest(previous, entries, auth), fresh);
     return { entries: entries.length, bytes: entries.reduce((sum, entry) => sum + entry.bytes, 0) };
+  }
+
+  /**
+   * Writes the store's state to `snapshotDir` in the store's own layout (manifest and blobs), leaving out the paths in `leaveOut`.
+   * Every blob it keeps is read through the hash check; one that cannot be read fails the export before anything is written.
+   * `snapshotDir` must not exist. The digest is the one a run's restore reports for the same set.
+   */
+  exportSnapshot(snapshotDir: string, opts: { leaveOut?: readonly string[] } = {}): { entries: number; digest: string } {
+    if (existsSync(snapshotDir)) throw new Error(`${snapshotDir} already exists: a snapshot is never replaced`);
+    const manifest = this.load();
+    const left = new Set(opts.leaveOut ?? []);
+    const entries = manifest.entries.filter((entry) => !left.has(entry.path));
+    const blobs = this.readAllBlobs(entries, "the store cannot be exported whole");
+    const staging = `${snapshotDir}.${process.pid}.${randomBytes(4).toString("hex")}.tmp`;
+    try {
+      mkdirSync(join(staging, BLOBS_DIR), { recursive: true, mode: 0o700 });
+      for (const [hash, bytes] of blobs) writeAtomically(join(staging, BLOBS_DIR, hash), bytes);
+      writeAtomically(join(staging, MANIFEST_FILE), `${JSON.stringify({ ...manifest, entries }, null, 2)}\n`);
+      renameSync(staging, snapshotDir);
+    } catch (err) {
+      rmSync(staging, { recursive: true, force: true });
+      throw err;
+    }
+    return { entries: entries.length, digest: restoredSetDigest(entries) };
+  }
+
+  /**
+   * Replaces the store with the snapshot `exportSnapshot` wrote, keeping its provenance and pinning nothing. The snapshot is checked
+   * whole before the store is touched, and the store is read back afterwards; either failure throws naming the entries.
+   */
+  restoreSnapshot(snapshotDir: string): { entries: number; digest: string } {
+    const snapshot = readManifestFile(snapshotDir);
+    if (snapshot === undefined) throw new Error(`there is no suite snapshot at ${snapshotDir}`);
+    const blobs = this.readAllBlobs(snapshot.entries, "the snapshot is not whole", join(snapshotDir, BLOBS_DIR));
+    this.writeStore(this.nextManifest(this.loadToReplace(), snapshot.entries, snapshot.auth), blobs);
+    this.readAllBlobs(snapshot.entries, "the store does not read back whole after the restore");
+    return { entries: snapshot.entries.length, digest: restoredSetDigest(snapshot.entries) };
   }
 
   /* The login a verified run signed in with becomes the record; a demoted record stays until a login is verified again. */
@@ -468,16 +507,41 @@ export class SuiteStoreAdapter implements SuiteStorePort {
     return readManifestFile(this.deps.storeDir) ?? emptyManifest(this.deps);
   }
 
-  private readBlob(entry: SuiteEntry): Buffer | undefined {
-    const path = join(this.deps.storeDir, BLOBS_DIR, entry.sha256);
+  /** The manifest a replacement starts from; one that cannot be read is replaced too, since a replacement is how it is repaired. */
+  private loadToReplace(): SuiteManifest {
     try {
-      const bytes = readFileSync(path);
-      if (sha256Of(bytes) === entry.sha256) return bytes;
-      (this.deps.warn ?? ((m: string): void => engineLog.error(m)))(`[suite-store] ${entry.path}: the stored copy no longer matches its hash; it is left out and dropped at the next capture`);
-    } catch (err) {
-      (this.deps.warn ?? ((m: string): void => engineLog.error(m)))(`[suite-store] ${entry.path}: the stored copy cannot be read (${err instanceof Error ? err.message : String(err)}); it is left out and dropped at the next capture`);
+      return this.load();
+    } catch {
+      return emptyManifest(this.deps);
     }
-    return undefined;
+  }
+
+  private warn(message: string): void {
+    (this.deps.warn ?? ((m: string): void => engineLog.error(m)))(message);
+  }
+
+  /** The bytes of an entry's blob in `blobsDir`, or why they cannot be used. */
+  private readBlob(entry: SuiteEntry, blobsDir: string = join(this.deps.storeDir, BLOBS_DIR)): { bytes: Buffer } | { problem: string } {
+    try {
+      const bytes = readFileSync(join(blobsDir, entry.sha256));
+      if (sha256Of(bytes) === entry.sha256) return { bytes };
+      return { problem: `[suite-store] ${entry.path}: the stored copy no longer matches its hash; it is left out and dropped at the next capture` };
+    } catch (err) {
+      return { problem: `[suite-store] ${entry.path}: the stored copy cannot be read (${err instanceof Error ? err.message : String(err)}); it is left out and dropped at the next capture` };
+    }
+  }
+
+  /** The blobs of these entries by hash, or a throw naming every entry whose blob cannot be used. */
+  private readAllBlobs(entries: readonly SuiteEntry[], failure: string, blobsDir?: string): Map<string, Buffer> {
+    const blobs = new Map<string, Buffer>();
+    const unusable: string[] = [];
+    for (const entry of entries) {
+      const blob = this.readBlob(entry, blobsDir);
+      if ("bytes" in blob) blobs.set(entry.sha256, blob.bytes);
+      else unusable.push(entry.path);
+    }
+    if (unusable.length > 0) throw new Error(`${failure}: ${unusable.join(", ")}`);
+    return blobs;
   }
 
   /* Whether the file is, byte for byte, the engine's own seed file at the same path: not the app's, so not the store's. */

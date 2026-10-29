@@ -455,8 +455,10 @@ reason and left out of the summary and the rubric. A run with no digest (a recor
 reads `ok (isolation unknown)`, never invalid; if the first replicate has none, nothing can be compared. `npm run campaign-report` (API-tagged campaigns, `GET /campaigns/:id/runs` with each run's optional `restoredDigest`) applies the same
 check per variant and lists the replicates it leaves out in `comparison.md` and `comparison.json` (`contaminated`, `isolationUnknown`). The campaign itself is strictly
 sequential (each arm-run waits for an idle queue, then seeds the store, before it starts). **A run launched by hand as a replicate** (`npm run qa`,
-`POST /api/v1/runs`) is not: it must not be enqueued while another run is going or queued, and the suite store must be restored to the
-warm snapshot (`warm-suite seed-store`) before each one; otherwise the digest comparison above is what reveals the contamination, after the fact.
+`POST /api/v1/runs`) is not: it must not be enqueued while another run is going or queued, and the suite store must be returned to its recorded
+state before each one: `warm-suite store-restore` for a snapshot of the store taken by `warm-suite store-export` (it checks the snapshot whole,
+reads the store back and prints the entry count and digest to compare with a run's `restoredDigest`), or `warm-suite seed-store` for a warm start
+from the files of an `e2e/` snapshot; otherwise the digest comparison above is what reveals the contamination, after the fact.
 
 ### Arm A': the plain agent, judged by the pipeline's acceptance
 

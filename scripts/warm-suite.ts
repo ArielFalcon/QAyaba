@@ -9,6 +9,8 @@
  *   npm run warm-suite -- restore  --app <app> --label <l> [--dry-run]
  *   npm run warm-suite -- verify   --app <app> --label <l>
  *   npm run warm-suite -- seed-store --app <app> --label <l>
+ *   npm run warm-suite -- store-export --app <app> --label <l> [--leave-out <path>]...
+ *   npm run warm-suite -- store-restore --app <app> --label <l>
  *
  * `snapshot` copies the app's primary mirror `e2e/` to <mirrors>/.warm/<app>/<label>/e2e and records a manifest
  * (every file with its sha256, and what was left out and why). It leaves out install and run output
@@ -21,6 +23,10 @@
  * after its checkout), replacing whatever the store held, so the pipeline's next run starts from the same suite as the
  * plain agent's throwaway copy. It is how a campaign gives the pipeline arm its warm start; restoring the mirror does
  * nothing for a run, whose checkout wipes the untracked suite.
+ * `store-export` and `store-restore` return the suite store to a recorded state: the store's manifest and its blobs are written to
+ * data/suite-snapshots/<app>/<l>/ and read back from there, by the adapter that owns the store, which proves the snapshot whole before
+ * it touches the store and reads the store back afterwards. Both refuse unless the queue is idle and print the entry count and the
+ * digest a run's restore span reports for the same set.
  * The baseline arm applies the same snapshot to its throwaway copy (`baseline-agent --warm <label>`).
  *
  * Everything under `e2e/` is untrusted (the agent writes there): it is walked without following a link, read
@@ -48,6 +54,8 @@ export const AUTH_SETUP_FILE = "auth.setup.ts";
 /** The first-line marker of the stock login seed (config/e2e/auth.setup.ts). */
 export const STOCK_SEED_MARKER = "qa-auth-setup-seed";
 const MAX_MANIFEST_BYTES = 8 * 1024 * 1024;
+/** The folder of the data volume, beside `suites/`, that holds the suite store snapshots. */
+const STORE_SNAPSHOTS_DIR = "suite-snapshots";
 
 export interface ManifestFile {
   path: string;
@@ -329,7 +337,7 @@ export function specsTouchedSinceSnapshot(touched: readonly string[], manifest: 
 
 /* ── command line ──────────────────────────────────────────────────────────────────── */
 
-const SUBCOMMANDS = ["snapshot", "restore", "verify", "seed-store"] as const;
+const SUBCOMMANDS = ["snapshot", "restore", "verify", "seed-store", "store-export", "store-restore"] as const;
 type Subcommand = (typeof SUBCOMMANDS)[number];
 
 export interface WarmDeps {
@@ -343,18 +351,27 @@ export interface WarmDeps {
   out(line: string): void;
   /** Replaces the app's suite store with these files (relative paths, as the snapshot holds them); `label` names the snapshot they came from. */
   seedStore(app: string, files: ReadonlyMap<string, Buffer>, label: string): Promise<{ entries: number; bytes: number }>;
+  /** Writes the app's suite store to the snapshot `label`, without the paths in `leaveOut`; the digest is the one a run's restore reports for that set. */
+  exportStore(app: string, label: string, leaveOut: readonly string[]): Promise<{ entries: number; digest: string }>;
+  /** Replaces the app's suite store with the snapshot `label`, proving the snapshot whole first and the store afterwards. */
+  restoreStore(app: string, label: string): Promise<{ entries: number; digest: string }>;
 }
 
-type Parsed = { ok: true; command: Subcommand; app: string; label: string; dryRun: boolean } | { ok: false; problem: string };
+type Parsed = { ok: true; command: Subcommand; app: string; label: string; dryRun: boolean; leaveOut: string[] } | { ok: false; problem: string };
 
 export function parseArguments(argv: readonly string[]): Parsed {
   const command = argv[0];
   if (!SUBCOMMANDS.includes(command as Subcommand)) return { ok: false, problem: `error: the first argument is one of ${SUBCOMMANDS.join(", ")}` };
   const values: Record<string, string> = {};
   let dryRun = false;
+  const leaveOut: string[] = [];
   for (let i = 1; i < argv.length; i++) {
     const a = argv[i]!;
-    if (a === "--app" || a === "--label") {
+    if (a === "--leave-out" && command === "store-export") {
+      const v = argv[++i];
+      if (v === undefined || v.startsWith("--")) return { ok: false, problem: `error: ${a} needs a value` };
+      leaveOut.push(v);
+    } else if (a === "--app" || a === "--label") {
       const v = argv[++i];
       if (v === undefined || v.startsWith("--")) return { ok: false, problem: `error: ${a} needs a value` };
       values[a] = v;
@@ -368,7 +385,7 @@ export function parseArguments(argv: readonly string[]): Parsed {
   } catch (err) {
     return { ok: false, problem: `error: ${err instanceof Error ? err.message : String(err)}` };
   }
-  return { ok: true, command: command as Subcommand, app: values["--app"]!, label: values["--label"]!, dryRun };
+  return { ok: true, command: command as Subcommand, app: values["--app"]!, label: values["--label"]!, dryRun, leaveOut };
 }
 
 const USAGE = [
@@ -376,10 +393,13 @@ const USAGE = [
   "       npm run warm-suite -- restore  --app <app> --label <l> [--dry-run]",
   "       npm run warm-suite -- verify   --app <app> --label <l>",
   "       npm run warm-suite -- seed-store --app <app> --label <l>",
+  "       npm run warm-suite -- store-export --app <app> --label <l> [--leave-out <path>]...",
+  "       npm run warm-suite -- store-restore --app <app> --label <l>",
   "  EXPERIMENT ONLY. Snapshots the app's primary mirror e2e/ (without node_modules, run output, login sessions or credentials) to",
   "  <mirrors>/.warm/<app>/<l>/, restores a mirror's e2e/ to a snapshot, checks that the snapshot's auth.setup.ts is no longer the stock seed,",
   "  and loads a snapshot into the app's suite store (what a pipeline run restores after its checkout).",
-  "  snapshot, restore and seed-store refuse unless the queue is idle. Run inside the orchestrator container.",
+  "  store-export writes the suite store itself to a snapshot and store-restore puts one back, each proving the set it moved.",
+  "  snapshot, restore, seed-store, store-export and store-restore refuse unless the queue is idle. Run inside the orchestrator container.",
 ].join("\n");
 
 const LISTED = 40;
@@ -400,7 +420,7 @@ export async function main(argv: string[], deps: WarmDeps): Promise<number> {
     for (const line of USAGE.split("\n")) out(line);
     return 2;
   }
-  const { command, app, label, dryRun } = parsed;
+  const { command, app, label, dryRun, leaveOut } = parsed;
   try {
     const labelDir = warmSnapshotDir(deps.warmRoot(), app, label);
     if (command === "verify") {
@@ -418,6 +438,13 @@ export async function main(argv: string[], deps: WarmDeps): Promise<number> {
       out(`[warm] seeded the suite store of ${app} with ${app}/${label}: ${seeded.entries} files, ${seeded.bytes} bytes (what the store held is replaced)`);
       const status = warmStatus(snapshot);
       out(`[warm] login: ${status.warm ? "WARM" : "COLD"}: ${status.note}`);
+      return 0;
+    }
+
+    if (command === "store-export" || command === "store-restore") {
+      await deps.assertQueueIdle();
+      const done = command === "store-export" ? await deps.exportStore(app, label, leaveOut) : await deps.restoreStore(app, label);
+      out(`[warm] ${command === "store-export" ? "exported the suite store of" : "restored the suite store of"} ${app} ${command === "store-export" ? "to" : "from"} ${app}/${label}: ${done.entries} entries, digest ${done.digest}`);
       return 0;
     }
 
@@ -448,13 +475,13 @@ export async function main(argv: string[], deps: WarmDeps): Promise<number> {
 
 /* ── the real collaborators ────────────────────────────────────────────────────────── */
 
-/** Loads a snapshot's files into an app's suite store (data/suites/<app>/), replacing what it held. The engine's own adapter does it, so the store is exactly what a run would have captured. */
-export async function seedSuiteStore(app: string, files: ReadonlyMap<string, Buffer>, label: string): Promise<{ entries: number; bytes: number }> {
+/** The adapter over an app's suite store, the one writer of its files. */
+async function appSuiteStore(app: string) {
   const { SuiteStoreAdapter } = await import("../qa-engine/src/contexts/workspace-and-publication/infrastructure/suite-store.adapter.ts");
   const { appSuiteStoreDir } = await import("../src/server/run-engine-factory.ts");
   const { qayabaRoot } = await import("../src/paths.ts");
   const { loadAppConfig } = await import("../src/orchestrator/config-loader.ts");
-  const store = new SuiteStoreAdapter({
+  return new SuiteStoreAdapter({
     storeDir: appSuiteStoreDir(qayabaRoot(), app),
     app,
     repo: loadAppConfig(app).repo,
@@ -462,7 +489,25 @@ export async function seedSuiteStore(app: string, files: ReadonlyMap<string, Buf
     listTracked: async () => new Map(),
     now: () => new Date(),
   });
-  return store.seed(files, { label });
+}
+
+/** Loads a snapshot's files into an app's suite store (data/suites/<app>/), replacing what it held. The engine's own adapter does it, so the store is exactly what a run would have captured. */
+export async function seedSuiteStore(app: string, files: ReadonlyMap<string, Buffer>, label: string): Promise<{ entries: number; bytes: number }> {
+  return (await appSuiteStore(app)).seed(files, { label });
+}
+
+/** A store snapshot lives in the data volume beside the stores, which the agents container never mounts. */
+async function storeSnapshotDir(app: string, label: string): Promise<string> {
+  const { qayabaDataDir } = await import("../src/paths.ts");
+  return join(qayabaDataDir(), STORE_SNAPSHOTS_DIR, app, label);
+}
+
+export async function exportSuiteStore(app: string, label: string, leaveOut: readonly string[]): Promise<{ entries: number; digest: string }> {
+  return (await appSuiteStore(app)).exportSnapshot(await storeSnapshotDir(app, label), { leaveOut });
+}
+
+export async function restoreSuiteStore(app: string, label: string): Promise<{ entries: number; digest: string }> {
+  return (await appSuiteStore(app)).restoreSnapshot(await storeSnapshotDir(app, label));
 }
 
 /** The queue, the app configs and the mirrors of the orchestrator container, imported lazily so a test that injects its own never opens them. */
@@ -482,6 +527,8 @@ export async function defaultDeps(env: Record<string, string | undefined> = proc
     now: () => new Date(),
     out: (line) => console.log(line),
     seedStore: (app, files, label) => seedSuiteStore(app, files, label),
+    exportStore: exportSuiteStore,
+    restoreStore: restoreSuiteStore,
   };
 }
 

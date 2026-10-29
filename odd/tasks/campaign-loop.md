@@ -5,7 +5,7 @@ Branch: main (single branch; governance changes as their own commits). Test runn
 
 ## Charter
 
-- **Case (fixed for the whole loop):** app `name-webapp`, sha `ed28973`, 3-commit range, mode `diff`, shadow, capture `full`. The suite store is restored from its snapshot before every run (`~/.claude/skills/qayaba-campaign/scripts/suite-store.sh restore name-webapp config/benchmarks/suite-snapshots/name-webapp-zero-2026-10-27-d.json`); **3 replicates per cycle** (one campaign id per cycle, `validation-<date>-<letter>` or `loop-<n>-<date>`, replicates 1..3, the same launch body: `"commits": 3`, `shadow`, `captureMode: full`); a cycle's fixes land only after its 3 replicates end (the orchestrator mounts the code live).
+- **Case (fixed for the whole loop):** app `name-webapp`, sha `ed28973`, 3-commit range, mode `diff`, shadow, capture `full`. The suite store is returned to its recorded state before every run (`npm run warm-suite -- store-restore --app name-webapp --label <snapshot>`, run in the orchestrator container; the snapshot is taken from the live store with `store-export`); **3 replicates per cycle** (one campaign id per cycle, `validation-<date>-<letter>` or `loop-<n>-<date>`, replicates 1..3, the same launch body: `"commits": 3`, `shadow`, `captureMode: full`); a cycle's fixes land only after its 3 replicates end (the orchestrator mounts the code live).
 - **Target (the case is good when the median of a cycle's 3 replicates meets every row and no replicate regresses a fixed failure class; then the loop moves to a new commit selection):**
 
   | Metric | Source | Target |
