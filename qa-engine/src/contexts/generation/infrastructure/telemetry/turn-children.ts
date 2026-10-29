@@ -10,6 +10,7 @@ import { GENAI, normalizeOpenCodeUsage } from "@kernel/telemetry/genai-semconv.t
 import type { RedactionScope, SpanHandle, TelemetryPort } from "@kernel/telemetry/telemetry.port.ts";
 import { classifyNavOutcome, isNavigationCall, type NavOutcomeInput } from "../../domain/nav-outcome.ts";
 import { classifyStepIntents, type StepCall, type StepIntentContext } from "../../domain/step-intent.ts";
+import { toolOutcomeMessage, toolOutcomeStatus } from "../../domain/tool-outcome.ts";
 import type { CallTrace, StepTrace, TurnTrace } from "../../domain/turn-trace.ts";
 import { matchServerCalls, type ServerToolCall } from "../../domain/tool-link.ts";
 
@@ -103,13 +104,16 @@ function recordStepMetrics(step: StepTrace, startedAt: number, endedAt: number, 
 
 function toolAttrs(call: CallTrace, input: ChildrenInput): Attrs {
   const real = call.startedAt !== null;
+  const message = toolOutcomeMessage(call.outcome);
   return {
     [GENAI.attrs.operationName]: GENAI.operations.executeTool,
     [GENAI.attrs.toolName]: call.tool,
     [GENAI.attrs.toolCallId]: call.callId,
     "qayaba.tool.bucket": call.bucket,
-    "qayaba.tool.status": call.denied ? "denied" : call.status,
+    "qayaba.tool.status": toolOutcomeStatus(call.outcome),
     ...(call.target !== null ? { "qayaba.tool.target": call.target } : {}),
+    ...(message !== undefined ? { "qayaba.tool.error": message } : {}),
+    ...(call.outcome.kind === "invalid" && call.outcome.attempted !== undefined ? { "qayaba.tool.attempted": call.outcome.attempted } : {}),
     ...(call.step !== null ? { "qayaba.agent.step": call.step } : {}),
     ...(isNavigationCall(call.tool) && call.status !== "running" ? { "qayaba.nav.outcome": classifyNavOutcome(navigation(call, input.intent)) } : {}),
     "qayaba.span.synthesized": true,

@@ -5,6 +5,9 @@
  * orchestrator received its start and finish (the runtime stamps neither).
  */
 import type { CallBucket } from "./tool-call-taxonomy.ts";
+import type { ToolOutcome, ToolStatus } from "./tool-outcome.ts";
+
+export type CallStatus = ToolStatus;
 
 /* The most steps and the most calls one turn's trace keeps; what comes after is counted in `truncated`, not kept. */
 export const TRACE_MAX_ENTRIES = 500;
@@ -32,8 +35,6 @@ export interface StepTrace {
   callIds: string[];
 }
 
-export type CallStatus = "running" | "completed" | "error";
-
 export interface CallTrace {
   callId: string;
   /* The assistant message the call belongs to; the join key with the orchestrator's server span of a tool call (tool-link.ts). */
@@ -48,7 +49,7 @@ export interface CallTrace {
   firstSeenAt: number;
   /* The step the call was first seen in; null when it was seen outside any step. */
   step: number | null;
-  denied: boolean;
+  outcome: ToolOutcome;
   targetKind: "path" | "pattern" | "url" | "command" | "query" | "element" | null;
   /* Redacted and capped. */
   target: string | null;

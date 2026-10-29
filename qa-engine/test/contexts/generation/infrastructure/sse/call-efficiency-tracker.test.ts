@@ -1025,9 +1025,29 @@ test("a call the runtime denied is counted once, whether or not it ever ran, and
   assert.equal(metrics?.deniedCallCount, 2);
   assert.equal(metrics?.totalCalls, 2, "a denial that never ran is not a call, as before");
   assert.deepEqual(metrics?.toolSequence, [
-    { tool: "bash", target: "rm -rf /", denied: true },
-    { tool: "read", target: "nope.ts" },
+    { tool: "bash", target: "rm -rf /", denied: true, outcome: "denied" },
+    { tool: "read", target: "nope.ts", outcome: "failed" },
   ]);
+});
+
+test("failed calls still count as calls: two failed reads of one path and a failed edit move totalCalls, writeCount and duplicateCallCount as completed ones do", () => {
+  const failed = tracked();
+  const completed = tracked();
+  const calls = [["r1", "read", { filePath: `${CWD}/a.ts` }], ["r2", "read", { filePath: `${CWD}/a.ts` }], ["w1", "edit", { filePath: `${CWD}/a.ts`, oldString: "x", newString: "y" }]] as const;
+  for (const [id, name, input] of calls) {
+    failed.record(toolEvent("s1", id, name, "running", input));
+    failed.record(errorEvent("s1", id, name, input, "boom"));
+    runCall(completed, "s1", id, name, input);
+  }
+  const [a, b] = [failed.take("s1", ""), completed.take("s1", "")];
+  assert.deepEqual([a?.totalCalls, a?.writeCount, a?.duplicateCallCount], [3, 1, 1]);
+  assert.deepEqual([a?.totalCalls, a?.writeCount, a?.duplicateCallCount], [b?.totalCalls, b?.writeCount, b?.duplicateCallCount]);
+});
+
+test("an invalid call carries its attempted tool and message into the sequence, whatever status the runtime gave it", () => {
+  const tracker = tracked();
+  runCall(tracker, "s1", "i1", "invalid", { tool: "readfile", error: "filePath is required" });
+  assert.deepEqual(tracker.take("s1", "")?.toolSequence, [{ tool: "invalid", target: null, outcome: "invalid", attempted: "readfile" }]);
 });
 
 test("denied calls are counted per turn and a turn with no event has no metrics at all", () => {

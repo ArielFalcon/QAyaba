@@ -42,14 +42,9 @@ import {
 import { indexPromptLines, isProvidedByPrompt, sampleReadOutput } from "../../domain/provided-context.ts";
 import { callFingerprint } from "./call-fingerprint.ts";
 import { buildTurnCallMetrics, type TurnCallMetrics, type TurnUsage } from "../../domain/turn-efficiency-summary.ts";
-import {
-  TOOL_SEQUENCE_MAX_ENTRIES,
-  TOOL_TARGET_MAX_CHARS,
-  isPermissionDenial,
-  toolCallSubject,
-  type ToolSequenceEntry,
-} from "../../domain/tool-sequence.ts";
-import { sanitizeText } from "../../../../shared-infrastructure/redaction/pattern-redaction.adapter.ts";
+import { TOOL_SEQUENCE_MAX_ENTRIES, TOOL_TARGET_MAX_CHARS, toolCallSubject, type ToolSequenceEntry } from "../../domain/tool-sequence.ts";
+import type { ToolOutcome } from "../../domain/tool-outcome.ts";
+import { redactedText, toolAnswerOf, toolOutcomeOf } from "./opencode-tool-outcome.ts";
 import { NAV_OUTCOME_READ_CHARS, isNavigationCall } from "../../domain/nav-outcome.ts";
 import { TRACE_MAX_ENTRIES, type CallStatus, type CallTrace, type StepTrace, type StepUsageTrace, type TurnTrace } from "../../domain/turn-trace.ts";
 
@@ -105,8 +100,8 @@ interface TrackedCall {
   stepAbs: number | null;
   /** A bounded prefix of a navigation's answer, kept for the outcome classifier. */
   navOutput?: string;
-  /** Whether the runtime refused the call under a permission rule. */
-  denied: boolean;
+  /** How the call ended, as its latest sighting showed. */
+  outcome: ToolOutcome;
   /** Up to PROVIDED_CONTEXT_SAMPLE_LINES normalized lines of a completed content read. */
   sample?: string[];
   /** The first GRAPH_ANSWER_KEPT_CHARS of a completed code-graph answer, the source it showed the agent. */
@@ -162,7 +157,7 @@ interface SessionState {
   sawEventSinceFlush: boolean;
   /** When the turn in flight was first prepared; null until then and after each flush. */
   turnStartedAt: number | null;
-  /** Every call the runtime refused, whether or not it ever ran; only grows. */
+  /** Every call whose outcome was a refusal under a permission rule, whether or not it ever ran; only grows. */
   deniedIds: Set<string>;
   flushedDenied: number;
   /** Every finished step seen, by part id, the latest sighting of a part winning. */
@@ -270,17 +265,7 @@ function sumUsage(steps: readonly StepUsage[]): TurnUsage {
   return total;
 }
 
-/* Redaction runs on a bounded prefix, so a pathological input costs a bounded amount. */
-const TARGET_REDACTION_WINDOW_CHARS = 1_000;
-
-/* A target is untrusted text from the agent: redacted like every text that leaves the system, then capped. A fault in redaction yields a marker, never the raw text. */
-function safeTarget(raw: string): string {
-  try {
-    return sanitizeText(raw.slice(0, TARGET_REDACTION_WINDOW_CHARS)).text.slice(0, TOOL_TARGET_MAX_CHARS);
-  } catch {
-    return "[redacted]";
-  }
-}
+const safeTarget = (raw: string): string => redactedText(raw, TOOL_TARGET_MAX_CHARS);
 
 /* A path inside the session's directory reads relative to it; one outside stays absolute so a read outside the working copy is visible. */
 function displayPath(raw: string, cwd: string): string {
@@ -316,7 +301,9 @@ function toSequenceEntry(call: TrackedCall): ToolSequenceEntry {
     target: call.target.target,
     ...(call.target.scope !== undefined ? { scope: call.target.scope } : {}),
     ...(call.window && isContentReadTool(call.tool) ? { window: call.window.slice(0, TOOL_TARGET_MAX_CHARS) } : {}),
-    ...(call.denied ? { denied: true as const } : {}),
+    ...(call.outcome.kind === "denied" ? { denied: true as const } : {}),
+    ...(call.outcome.kind === "failed" || call.outcome.kind === "denied" || call.outcome.kind === "invalid" ? { outcome: call.outcome.kind } : {}),
+    ...(call.outcome.kind === "invalid" && call.outcome.attempted !== undefined ? { attempted: call.outcome.attempted } : {}),
   };
 }
 
@@ -517,11 +504,9 @@ export class CallEfficiencyTracker implements StreamLifecycleSink {
     const status = part.state?.status;
     if (status !== "running" && status !== "completed" && status !== "error") return;
 
+    const outcome = toolOutcomeOf(part);
+    if (outcome.kind === "denied") session.deniedIds.add(part.callID);
     let call = session.calls.get(part.callID);
-    if (status === "error" && isPermissionDenial(part.state?.error)) {
-      session.deniedIds.add(part.callID);
-      if (call) call.denied = true;
-    }
     /* A call counts from its first running/completed sighting; an error with no prior
        running sighting never entered the sequence. */
     if (!call && status === "error") return;
@@ -535,6 +520,7 @@ export class CallEfficiencyTracker implements StreamLifecycleSink {
       path: pathOf(input, session.cwd),
       window: readWindowOf(input),
       target: describeTarget(input, session.cwd),
+      outcome,
     };
     if (call) {
       Object.assign(call, seen);
@@ -545,7 +531,6 @@ export class CallEfficiencyTracker implements StreamLifecycleSink {
         ...(typeof part.messageID === "string" && part.messageID !== "" ? { messageId: part.messageID.slice(0, 200) } : {}),
         tool: part.tool,
         firstSeenAt: this.now(),
-        denied: session.deniedIds.has(part.callID),
         status,
         startedAt: null,
         endedAt: null,
@@ -560,7 +545,7 @@ export class CallEfficiencyTracker implements StreamLifecycleSink {
     call.startedAt = stamp(part.state?.time?.start) ?? call.startedAt;
     call.endedAt = stamp(part.state?.time?.end) ?? call.endedAt;
     if (status !== "running" && isNavigationCall(part.tool) && (call.navOutput !== undefined || session.navKept < NAV_OUTPUT_MAX_KEPT)) {
-      const answer = status === "completed" ? part.state?.output : part.state?.error;
+      const answer = toolAnswerOf(part);
       if (typeof answer === "string") {
         if (call.navOutput === undefined) session.navKept += 1;
         call.navOutput = answer.slice(0, NAV_OUTCOME_READ_CHARS);
@@ -632,7 +617,7 @@ export class CallEfficiencyTracker implements StreamLifecycleSink {
       endedAt: call.endedAt,
       firstSeenAt: call.firstSeenAt,
       step: call.stepAbs !== null && call.stepAbs >= base && call.stepAbs - base < steps.length ? call.stepAbs - base + 1 : null,
-      denied: call.denied,
+      outcome: call.outcome,
       targetKind: call.target.kind,
       target: call.target.target,
       ...(call.target.relPath !== undefined ? { relPath: call.target.relPath } : {}),

@@ -4602,6 +4602,17 @@
                   "enum": [
                     true
                   ]
+                },
+                "outcome": {
+                  "type": "string",
+                  "enum": [
+                    "failed",
+                    "denied",
+                    "invalid"
+                  ]
+                },
+                "attempted": {
+                  "type": "string"
                 }
               },
               "required": [

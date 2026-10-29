@@ -1,5 +1,5 @@
 /*
- * What a tool call pointed at, and whether the runtime refused it. Pure: the input a call carried in,
+ * What a tool call pointed at. Pure: the input a call carried in,
  * a labelled subject out. The tracker that sees the calls resolves paths, redacts and caps what this
  * names; nothing a call typed, wrote or sent as a body is ever a subject.
  */
@@ -10,7 +10,7 @@ export const TOOL_SEQUENCE_MAX_ENTRIES = 200;
 /** The longest target one entry keeps, after redaction. */
 export const TOOL_TARGET_MAX_CHARS = 200;
 
-/** One call of a turn, in the order the agent made it. `target` is null when the call points at nothing; `scope` is the path a search ran in; `denied` marks a call the runtime refused. */
+/** One call of a turn, in the order the agent made it. `target` is null when the call points at nothing; `scope` is the path a search ran in; `denied` marks a call the runtime refused; `outcome` says how a call that did not complete ended, and `attempted` is the tool an invalid call tried to use. */
 export interface ToolSequenceEntry {
   tool: string;
   target: string | null;
@@ -18,6 +18,8 @@ export interface ToolSequenceEntry {
   /** For a content read: the part of the file it asked for (`readWindowOf`); absent for the whole file. */
   window?: string;
   denied?: true;
+  outcome?: "failed" | "denied" | "invalid";
+  attempted?: string;
 }
 
 export type ToolSubjectKind = "path" | "pattern" | "url" | "command" | "query" | "element";
@@ -73,12 +75,4 @@ export function toolCallSubject(input: unknown): ToolCallSubject | undefined {
   if (query !== undefined) return { kind: "query", value: query };
   const element = stringUnder(record, ["element"]);
   return element !== undefined ? { kind: "element", value: element } : undefined;
-}
-
-/* The message the runtime attaches to a call a permission rule refuses (the pinned OpenCode build's own wording). A rejection by a person, or any other failure of a tool, is not this. */
-const DENIAL_MESSAGE = /specified a rule which prevents you from using this specific tool call/i;
-
-/** Whether a failed call's error text is the runtime refusing the call under a permission rule. */
-export function isPermissionDenial(error: unknown): boolean {
-  return typeof error === "string" && DENIAL_MESSAGE.test(error);
 }

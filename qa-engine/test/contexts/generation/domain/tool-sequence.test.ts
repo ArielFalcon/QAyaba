@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { isPermissionDenial, toolCallSubject } from "@contexts/generation/domain/tool-sequence.ts";
+import { toolCallSubject } from "@contexts/generation/domain/tool-sequence.ts";
 
 test("a file tool's subject is its path", () => {
   assert.deepEqual(toolCallSubject({ filePath: "src/a.ts", offset: 3 }), { kind: "path", value: "src/a.ts" });
@@ -37,14 +37,4 @@ test("a call that points at nothing, or whose input is not an object, has no sub
   assert.equal(toolCallSubject(undefined), undefined);
   assert.equal(toolCallSubject("not an object"), undefined);
   assert.equal(toolCallSubject({ filePath: "" }), undefined);
-});
-
-test("only the runtime's own permission-rule message is a denial", () => {
-  assert.equal(
-    isPermissionDenial("The user has specified a rule which prevents you from using this specific tool call. Here are some of the relevant rules []"),
-    true,
-  );
-  assert.equal(isPermissionDenial("File not found"), false);
-  assert.equal(isPermissionDenial(undefined), false);
-  assert.equal(isPermissionDenial(42), false);
 });

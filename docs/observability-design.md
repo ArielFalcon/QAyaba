@@ -396,7 +396,7 @@ invoke_agent qa-author               INTERNAL  one per prompt (turn)
 ├─ qayaba.agent.attempt                 one per attempt: primary, then fallback model
 │  ├─ chat <model>                      CLIENT, synthesized, one per step (step-start → step-finish)
 │  │  └─ (step tokens, reasoning, cache, cost, finish reason)
-│  ├─ execute_tool read                 INTERNAL, synthesized from tool part state.time (real times)
+│  ├─ execute_tool read                 INTERNAL, synthesized from tool part state.time (real times); a call that did not complete also carries its message
 │  ├─ execute_tool run_spec ──link──► qayaba.tool.run_spec (SERVER, orchestrator-side, §5.5)
 │  └─ …
 └─ events: host_suspended, stall_warning, circuit_opened, fallback_model_used, step_budget_exhausted
@@ -678,7 +678,7 @@ Every instrument is declared in one table with its allowed attribute keys. A tes
 | `captureMode` | What leaves the process | Default |
 |---|---|---|
 | `off` | Structure only: names, timings, counts, ids. No hashes of content | — |
-| `metadata` | Plus prompt and section **hashes and sizes**, tool targets (sanitized and capped, as `toolSequence` already does), error messages (redacted, capped at 1 KB) | **default** |
+| `metadata` | Plus prompt and section **hashes and sizes**, tool targets (sanitized and capped, as `toolSequence` already does), error messages (redacted, capped at 1 KB; a failed tool call's `qayaba.tool.error` among them) | **default** |
 | `full` | Plus `gen_ai.input.messages`, `gen_ai.output.messages` and tool arguments/results, capped at 32 KB per attribute, redacted. Langfuse documents no mapping for the new `gen_ai.*.messages` keys, so when content capture is wired it must also be mapped explicitly to `langfuse.observation.input/output` (not registered until then) | campaigns, on request |
 
 The full text is **already** stored redacted in `agent_turns`. In `metadata` mode, the span carries
@@ -727,10 +727,12 @@ A repeated per-item line becomes one line carrying the list. A new call site pic
 already records the fact and the run stayed on the expected path: if so it logs at `info` and ships nothing. A fact that is a
 span attribute and also a carried-on loss (the findings left unrouted) is `warn` and ships.
 
-OpenCode's logs reach Loki through the agents collector at WARN and above (provider failures, tool errors, stream
-errors; its INFO chatter is dropped there), and the collector copies the session id out of the body into
-`opencode.session_id` so a failure is found by the session the orchestrator's turn span records. OpenCode's own trace id
-joins no run. The backend health probe pushes one line per process to prove the write path, then watches Loki's
+OpenCode's logs reach Loki through the agents collector at WARN and above (provider failures, stream errors; its INFO
+chatter is dropped there), and the collector copies the session id out of the body into `opencode.session_id` so a
+failure is found by the session the orchestrator's turn span records. OpenCode's own trace id joins no run. The runtime
+logs no tool failure at any level: a failed, denied or invalid tool call says why on its own `execute_tool` span
+(`qayaba.tool.status`, the redacted message in `qayaba.tool.error`, the tool an invalid call tried to use in
+`qayaba.tool.attempted`), and no log line restates it. The backend health probe pushes one line per process to prove the write path, then watches Loki's
 append-failure counter, so the store holds no line per poll.
 
 #### Turn bodies in Loki (the HOW of a turn)

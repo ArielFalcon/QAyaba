@@ -33,9 +33,9 @@ const stepFinish = (id: string, reason: string, tokens: { input: number; output:
   type: "message.part.updated",
   properties: { part: { id, sessionID: SESSION, messageID: "m1", type: "step-finish", reason, tokens: { total: 0, input: tokens.input, output: tokens.output, reasoning: tokens.reasoning ?? 0, cache: { read: tokens.read ?? 0, write: tokens.write ?? 0 } }, cost } },
 });
-const tool = (callID: string, name: string, status: "running" | "completed" | "error", time: { start: number; end?: number }, input: Record<string, unknown>, output?: string): RawOpencodeEvent => ({
+const tool = (callID: string, name: string, status: "running" | "completed" | "error", time: { start: number; end?: number }, input: Record<string, unknown>, output?: string, error?: string): RawOpencodeEvent => ({
   type: "message.part.updated",
-  properties: { part: { id: `prt_${callID}`, sessionID: SESSION, messageID: "m1", type: "tool", callID, tool: name, state: { status, input, time, ...(output !== undefined ? { output } : {}) } } },
+  properties: { part: { id: `prt_${callID}`, sessionID: SESSION, messageID: "m1", type: "tool", callID, tool: name, state: { status, input, time, ...(output !== undefined ? { output } : {}), ...(error !== undefined ? { error } : {}) } } },
 });
 
 interface Rig {
@@ -527,4 +527,92 @@ test("no span of a turn carries a langfuse attribute, and a chat span keeps the 
   assert.deepEqual([attr(first!, "qayaba.usage.cost"), attr(second!, "qayaba.usage.cost")], [0.02, 0.03]);
   const keys = r.h.spans().flatMap((span) => Object.keys(span.attributes));
   assert.deepEqual(keys.filter((key) => key.startsWith("langfuse.")), []);
+});
+
+const DENIAL_TEXT = 'The user has specified a rule which prevents you from using this specific tool call. Here are some of the relevant rules [{"permission":"bash","pattern":"*","action":"deny"}]';
+
+/** One turn whose only calls are the ones given: each runs, then ends as `ending` says. */
+async function turnOf(calls: Array<{ id: string; name: string; input: Record<string, unknown>; ending: { status: "completed" | "error"; error?: string; output?: string } }>) {
+  const secrets = createRunSecretScope();
+  secrets.addAccountSecrets(["hunter2-pass"]);
+  const r = rig({
+    promptSession: async ({ stream }) => {
+      stream(stepStart("a"));
+      for (const [i, c] of calls.entries()) {
+        stream(tool(c.id, c.name, "running", { start: 10 * i + 1 }, c.input));
+        stream(tool(c.id, c.name, c.ending.status, { start: 10 * i + 1, end: 10 * i + 2 }, c.input, c.ending.output, c.ending.error));
+      }
+      stream(stepFinish("fa", "stop", { input: 1, output: 1 }, 0.01));
+      return answered();
+    },
+  });
+  await withRunSecretScope(secrets, async () => {
+    const session = await r.deps.open("qa-author", CWD, { descriptor: { runId: "run-1", role: "qa-author" } });
+    await session.prompt("hello");
+    await session.dispose();
+  });
+  return r;
+}
+
+test("a failed call's span says why it failed", async () => {
+  const r = await turnOf([{ id: "c1", name: "read", input: { filePath: `${CWD}/src/missing-cart.ts` }, ending: { status: "error", error: "ENOENT: no such file or directory, open 'src/missing-cart.ts'" } }]);
+  const span = r.h.only("execute_tool read");
+  assert.deepEqual([attr(span, "qayaba.tool.status"), attr(span, "qayaba.tool.target")], ["error", "src/missing-cart.ts"]);
+  assert.match(String(attr(span, "qayaba.tool.error")), /ENOENT: no such file or directory/);
+  assert.equal(attr(span, "qayaba.tool.attempted"), undefined);
+  assert.equal(r.rows[0]!.callMetrics?.toolSequence[0]?.outcome, "failed");
+});
+
+test("an invalid call records the tool it attempted, the runtime's message and an error status", async () => {
+  const r = await turnOf([{ id: "c1", name: "invalid", input: { tool: "readfile", error: "Invalid input for tool readfile: filePath is required" }, ending: { status: "completed", output: "The arguments provided to the tool are invalid" } }]);
+  const span = r.h.only("execute_tool invalid");
+  assert.equal(attr(span, "qayaba.tool.status"), "error");
+  assert.equal(attr(span, "qayaba.tool.attempted"), "readfile");
+  assert.match(String(attr(span, "qayaba.tool.error")), /filePath is required/);
+  assert.deepEqual(r.rows[0]!.callMetrics?.toolSequence[0], { tool: "invalid", target: null, outcome: "invalid", attempted: "readfile" });
+});
+
+test("a denied call keeps the rule it hit and is counted once", async () => {
+  const r = await turnOf([{ id: "c1", name: "bash", input: { command: "rm -rf /" }, ending: { status: "error", error: DENIAL_TEXT } }]);
+  const span = r.h.only("execute_tool bash");
+  assert.equal(attr(span, "qayaba.tool.status"), "denied");
+  assert.match(String(attr(span, "qayaba.tool.error")), /"permission":"bash"/);
+  assert.equal(r.rows[0]!.callMetrics?.deniedCallCount, 1);
+  assert.deepEqual(r.rows[0]!.callMetrics?.toolSequence[0], { tool: "bash", target: "rm -rf /", denied: true, outcome: "denied" });
+});
+
+test("a completed call carries no error, attempted tool or outcome", async () => {
+  const r = await turnOf([{ id: "c1", name: "read", input: { filePath: `${CWD}/src/cart.ts` }, ending: { status: "completed", output: "const cart = 1" } }]);
+  const span = r.h.only("execute_tool read");
+  assert.deepEqual([attr(span, "qayaba.tool.status"), attr(span, "qayaba.tool.error"), attr(span, "qayaba.tool.attempted")], ["completed", undefined, undefined]);
+  assert.deepEqual(r.rows[0]!.callMetrics?.toolSequence[0], { tool: "read", target: "src/cart.ts" });
+});
+
+test("a tool error never leaves raw: a pattern secret and a run secret in the message reach no span and no sequence entry", async () => {
+  const leak = "boom Authorization: Bearer abc.def.ghi-123456 for hunter2-pass";
+  const r = await turnOf([{ id: "c1", name: "read", input: { filePath: `${CWD}/src/a.ts` }, ending: { status: "error", error: leak } }]);
+  const span = r.h.only("execute_tool read");
+  const everything = JSON.stringify([r.h.spans().map((s) => [s.attributes, s.events]), r.rows[0]!.callMetrics?.toolSequence]);
+  assert.match(String(attr(span, "qayaba.tool.error")), /^boom /);
+  assert.ok(!everything.includes("abc.def.ghi"), "the pattern secret is redacted at the tracker");
+  assert.ok(!everything.includes("hunter2"), "the run secret is redacted at the span");
+});
+
+test("in off capture mode a tool's error text does not leave", async () => {
+  const off = (await import("./trace-harness")).traceHarness({ captureMode: "off" });
+  const r = rig({
+    telemetry: off.telemetry,
+    promptSession: async ({ stream }) => {
+      stream(stepStart("a"));
+      stream(tool("c1", "read", "running", { start: 1 }, { filePath: `${CWD}/a.ts` }));
+      stream(tool("c1", "read", "error", { start: 1, end: 2 }, { filePath: `${CWD}/a.ts` }, undefined, "ENOENT"));
+      stream(stepFinish("fa", "stop", { input: 1, output: 1 }, 0.01));
+      return answered();
+    },
+  });
+  const session = await r.deps.open("qa-author", CWD, { descriptor: { runId: "run-1", role: "qa-author" } });
+  await session.prompt("hello");
+  const span = off.named("execute_tool read")[0]!;
+  assert.equal(attr(span, "qayaba.tool.status"), "error");
+  assert.equal(attr(span, "qayaba.tool.error"), undefined);
 });

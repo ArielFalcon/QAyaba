@@ -2,6 +2,8 @@
 
 import type { RunEventBody } from "@kernel/contract/events.ts";
 import { kindForTool, toolInputPath } from "@contexts/generation/domain/tool-call-taxonomy.ts";
+import { toolOutcomeMessage } from "@contexts/generation/domain/tool-outcome.ts";
+import { toolOutcomeOf, type OpencodeToolPart } from "./opencode-tool-outcome.ts";
 
 export interface RawOpencodeEvent {
   type: string;
@@ -15,11 +17,9 @@ function cap(s: string, n = 200): string {
   return s.length > n ? s.slice(0, n) : s;
 }
 
-interface ToolStateLike {
-  status?: string;
+interface ToolStateLike extends NonNullable<OpencodeToolPart["state"]> {
   title?: string;
   input?: Record<string, unknown>;
-  output?: string;
 }
 
 function targetFor(tool: string, state: ToolStateLike): string {
@@ -64,7 +64,7 @@ function toolActivity(part: PartLike, workerId?: string): RunEventBody[] {
   const status = String(state.status ?? "");
 
   if (status === "error") {
-    return [{ type: "agent.error", detail: cap(state.output || state.title || `tool ${tool} failed`) }];
+    return [{ type: "agent.error", detail: cap(toolOutcomeMessage(toolOutcomeOf(part)) ?? `tool ${tool} failed`) }];
   }
   if (status !== "running" && status !== "completed") return [];
   const liveStatus: "running" | "completed" = status === "running" ? "running" : "completed";

@@ -55,11 +55,33 @@ test("bash → command, task → subagent", () => {
   );
 });
 
-test("a tool error → agent.error", () => {
+test("a failed tool → agent.error carrying the runtime's message, capped, and the generic text when it gave none", () => {
   assert.deepEqual(
-    mapValid(toolEvent({ status: "error", output: "ENOENT: missing file" }, { tool: "read" })),
+    mapValid(toolEvent({ status: "error", input: {}, error: "ENOENT: missing file" }, { tool: "read" })),
     [{ type: "agent.error", detail: "ENOENT: missing file" }],
   );
+  const long = mapValid(toolEvent({ status: "error", input: {}, error: "line ".repeat(100) }, { tool: "read" })) as Array<{ detail: string }>;
+  assert.equal(long[0]!.detail, "line ".repeat(100).slice(0, 200));
+  assert.deepEqual(mapValid(toolEvent({ status: "error", input: {} }, { tool: "read" })), [{ type: "agent.error", detail: "tool read failed" }]);
+});
+
+test("a denied tool → agent.error naming the rule it hit", () => {
+  const denial = 'The user has specified a rule which prevents you from using this specific tool call. Here are some of the relevant rules [{"permission":"bash"}]';
+  const [event] = mapValid(toolEvent({ status: "error", input: { command: "ls" }, error: denial }, { tool: "bash" })) as Array<{ type: string; detail: string }>;
+  assert.equal(event!.type, "agent.error");
+  assert.ok(event!.detail.startsWith("The user has specified a rule"));
+});
+
+test("an invalid call keeps its activity event and raises no error event", () => {
+  assert.deepEqual(
+    mapValid(toolEvent({ status: "completed", input: { tool: "readfile", error: "bad arguments" } }, { tool: "invalid" })),
+    [{ type: "agent.activity", kind: "analyzing", target: "invalid", status: "completed" }],
+  );
+});
+
+test("a pattern secret in a tool's error never reaches the event", () => {
+  const [event] = mapValid(toolEvent({ status: "error", input: {}, error: "failed with Authorization: Bearer abc.def.ghi-123456" }, { tool: "bash" })) as Array<{ detail: string }>;
+  assert.ok(!event!.detail.includes("abc.def.ghi"));
 });
 
 test("pending tools and prose parts are dropped", () => {

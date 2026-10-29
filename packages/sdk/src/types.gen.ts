@@ -1266,6 +1266,9 @@ export interface components {
                 window?: string;
                 /** @enum {boolean} */
                 denied?: true;
+                /** @enum {string} */
+                outcome?: "failed" | "denied" | "invalid";
+                attempted?: string;
             }[] | null;
             usageTotal: {
                 input: number;

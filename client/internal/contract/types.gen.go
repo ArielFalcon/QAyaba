@@ -201,6 +201,27 @@ func (e AgentTurnViewToolSequenceDenied) Valid() bool {
 	}
 }
 
+// Defines values for AgentTurnViewToolSequenceOutcome.
+const (
+	AgentTurnViewToolSequenceOutcomeDenied  AgentTurnViewToolSequenceOutcome = "denied"
+	AgentTurnViewToolSequenceOutcomeFailed  AgentTurnViewToolSequenceOutcome = "failed"
+	AgentTurnViewToolSequenceOutcomeInvalid AgentTurnViewToolSequenceOutcome = "invalid"
+)
+
+// Valid indicates whether the value is a known member of the AgentTurnViewToolSequenceOutcome enum.
+func (e AgentTurnViewToolSequenceOutcome) Valid() bool {
+	switch e {
+	case AgentTurnViewToolSequenceOutcomeDenied:
+		return true
+	case AgentTurnViewToolSequenceOutcomeFailed:
+		return true
+	case AgentTurnViewToolSequenceOutcomeInvalid:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ApiErrorSchemaVersion.
 const (
 	ApiErrorSchemaVersionN1 ApiErrorSchemaVersion = 1
@@ -1247,19 +1268,19 @@ func (e RunRecordMode) Valid() bool {
 
 // Defines values for RunRecordStatus.
 const (
-	Done     RunRecordStatus = "done"
-	Enqueued RunRecordStatus = "enqueued"
-	Running  RunRecordStatus = "running"
+	RunRecordStatusDone     RunRecordStatus = "done"
+	RunRecordStatusEnqueued RunRecordStatus = "enqueued"
+	RunRecordStatusRunning  RunRecordStatus = "running"
 )
 
 // Valid indicates whether the value is a known member of the RunRecordStatus enum.
 func (e RunRecordStatus) Valid() bool {
 	switch e {
-	case Done:
+	case RunRecordStatusDone:
 		return true
-	case Enqueued:
+	case RunRecordStatusEnqueued:
 		return true
-	case Running:
+	case RunRecordStatusRunning:
 		return true
 	default:
 		return false
@@ -1691,11 +1712,13 @@ type AgentTurnView struct {
 	TokensOutput            *float32            `json:"tokensOutput"`
 	TokensReasoning         *float32            `json:"tokensReasoning"`
 	ToolSequence            *[]struct {
-		Denied *AgentTurnViewToolSequenceDenied `json:"denied,omitempty"`
-		Scope  *string                          `json:"scope,omitempty"`
-		Target *string                          `json:"target"`
-		Tool   string                           `json:"tool"`
-		Window *string                          `json:"window,omitempty"`
+		Attempted *string                           `json:"attempted,omitempty"`
+		Denied    *AgentTurnViewToolSequenceDenied  `json:"denied,omitempty"`
+		Outcome   *AgentTurnViewToolSequenceOutcome `json:"outcome,omitempty"`
+		Scope     *string                           `json:"scope,omitempty"`
+		Target    *string                           `json:"target"`
+		Tool      string                            `json:"tool"`
+		Window    *string                           `json:"window,omitempty"`
 	} `json:"toolSequence"`
 	TotalCalls *int   `json:"totalCalls"`
 	Ts         string `json:"ts"`
@@ -1716,6 +1739,9 @@ type AgentTurnViewEnded string
 
 // AgentTurnViewToolSequenceDenied defines model for AgentTurnView.ToolSequence.Denied.
 type AgentTurnViewToolSequenceDenied bool
+
+// AgentTurnViewToolSequenceOutcome defines model for AgentTurnView.ToolSequence.Outcome.
+type AgentTurnViewToolSequenceOutcome string
 
 // ApiError defines model for ApiError.
 type ApiError struct {
