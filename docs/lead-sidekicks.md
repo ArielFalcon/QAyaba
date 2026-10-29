@@ -61,8 +61,7 @@ signed-in app (see below); without either, no sidekick can author and the run en
    can pass the cap by that one call's writes); a call whose writes cannot be counted is charged the run's whole remainder. Only an
    app whose cap is 0 gives its flows no loop, and their briefs say the app allows no writes to DEV. Calls refused for writes, for the
    run's total or for the calling flow's own share, are counted in `gateSignals.closedLoop.writesRefused`. A browser session of a flow spends its flow's share alone;
-   the browser's own run total (`DEFAULT_AGENT_BROWSER_LIMITS.maxCalls`) holds only the sessions bound to no flow and is the base an
-   explore question's share is cut from. The derived totals are recorded: `gateSignals.closedLoop.granted` and
+   the browser's own run total (`DEFAULT_AGENT_BROWSER_LIMITS.maxCalls`) holds only the sessions bound to no flow. The derived totals are recorded: `gateSignals.closedLoop.granted` and
    `gateSignals.agentBrowser.granted`. A plan that cannot be admitted goes back to the lead once, in its open session, with the
    reason (`renderRejectedPlanRequest`); a no-op or an admitted answer replaces it, and anything else ends the run `E-NO-AUTHOR` with
    the first reason recorded (`refusal: plan-rejected:<reason>`); a plan of one flow is a fan-out of one, and a fan-out of no flow whose use cases are dropped
@@ -155,23 +154,9 @@ of the app's map the change is linked to and asked to give a flow to each page w
 pages no admitted flow visits are recorded as a `lead-decision` event. The Context Pack captures as many of those pages as the
 change is linked to, up to `MAX_ROUTES_PER_CHANGE`.
 
-### Asking to explore
-
-Instead of a plan the lead may ask once for exploration: `{"explore":[{"id","question","routes"?}]}`, at most 3 questions of at most
-400 characters, with site-relative routes. The orchestrator runs one read-only `explore` sidekick (`qa-explore`) per question in the
-run's working copy, in parallel, each bounded by `EXPLORE_BUDGET_MS` (120 s) and by the time the run can spare after its reserve.
-An explore sidekick holds the code graph and the authenticated browser, never a write, `run_spec` or location tool; the
-exploration spends at most a quarter of the run's browser and code-graph calls, split between the questions
-(`EXPLORE_CALL_SHARE`). Its answer is `{id, status, findings:[{claim, kind, ref, evidence}]}` (at most 12 findings). Before the lead
-sees a finding the orchestrator labels it: `verified` when the Context Pack read the page, the pack read the data route with
-results, the orchestrator's browser showed that sidekick the page, or the code graph holds the symbol (`<file>#<symbol>`);
-`contradicted` when it claims an empty data state the pack read with results (the pack's read stands); `unverified` otherwise,
-shown to the lead as a claim. The lead is then asked in the same session and that answer must be a plan: a second request is
-refused as a plan that was not admitted (`E-NO-AUTHOR`, `plan-rejected:malformed`). A plan answered directly spends no exploration time.
-
 ## How the prompts are assembled
 
-Every prompt of this context is assembled from registered section definitions (`coordination/application/coordination-sections/`) through the shared prompt engine (`shared-kernel/prompt-sections.ts`), the one the generator and the reviewer use: the flow author's brief, the explore sidekick's brief, the lead's review turn, its correction turn (and the request that sends a refused answer back), its re-plan refusal and the turn after an exploration. Sections are ordered by priority and joined by a blank line, and each report carries its sections' sizes and hashes (`assemble*` functions; the `render*` ones return the text). A delegation brief states four things, each in exactly one section: the objective (`task` / `question`), the return shape (`contract`), the boundary (`scope`: what it may write, and the authority it cannot raise) and the tools it holds (`tools`, from the kind's grant); the prompt-contract lint (R17, R18) fails a brief that misses one, states one twice, names a tool its turn does not grant or says it may write when the turn grants no write. `scripts/prompt-contract-matrix.ts` assembles each of these prompts over its shapes and holds them to budgets recorded in `scripts/prompt-contract-coordination-baseline.json`. A module outside a registry that writes a prompt heading fails `prompt-registry-rule.test.ts`.
+Every prompt of this context is assembled from registered section definitions (`coordination/application/coordination-sections/`) through the shared prompt engine (`shared-kernel/prompt-sections.ts`), the one the generator and the reviewer use: the flow author's brief, the lead's review turn, its correction turn (and the request that sends a refused answer back) and its re-plan refusal. Sections are ordered by priority and joined by a blank line, and each report carries its sections' sizes and hashes (`assemble*` functions; the `render*` ones return the text). A delegation brief states four things, each in exactly one section: the objective (`task` / `question`), the return shape (`contract`), the boundary (`scope`: what it may write, and the authority it cannot raise) and the tools it holds (`tools`, from the kind's grant); the prompt-contract lint (R17, R18) fails a brief that misses one, states one twice, names a tool its turn does not grant or says it may write when the turn grants no write. `scripts/prompt-contract-matrix.ts` assembles each of these prompts over its shapes and holds them to budgets recorded in `scripts/prompt-contract-coordination-baseline.json`. A module outside a registry that writes a prompt heading fails `prompt-registry-rule.test.ts`.
 
 ## What a sidekick may author with
 
@@ -220,8 +205,7 @@ one exception: the entry may carry the typed cause `"cause":"dev-state"` and the
 (`AcceptanceReportEntry.devState`; prose in `note` or `concerns` never counts). The orchestrator backs the claim from what it
 holds itself (`backDevStateUnmet`, `dev-state-backing.ts`): every named page must be a page the orchestrator's browser
 showed that flow's sessions (`AgentBrowserHandle.readsOf`) or one its own `run_spec` calls read empty, and an empty read of a
-page the Context Pack read with results (`observationConflictIn`) backs nothing, the pack winning as for an exploration
-finding. A backed unmet is not a contradiction: the result stays `completed-with-concerns` with the sidekick's own summary,
+page the Context Pack read with results (`observationConflictIn`) backs nothing, the pack winning. A backed unmet is not a contradiction: the result stays `completed-with-concerns` with the sidekick's own summary,
 a concern `acceptance-unmet-dev-state` naming the criterion and the fact, and `DelegationResult.unmetByDevState`; the lead
 is shown it as a "DEV limits" line (the criterion cannot be met on DEV as it stands: accept the flow or drop the criterion;
 asking again for that state cannot succeed). Any other unmet, or one the facts do not back, is `blocked` as before. A delivered
@@ -235,7 +219,7 @@ ledger's `sha256` is that of the spec bytes the confined reader returns now; oth
 bytes, in the review, in the instruction that sends an unverified spec back, and in the facts added to a revision. The
 lead's session remembers what it was shown (`withSpecDigests`): a flow whose spec bytes are those shown in an earlier turn
 carries a line, "unchanged since review turn N" with the sha256 and the line count, instead of the spec. The turns of the
-lead (this one, the correction, the re-plan, the refusal and the exploration outcome) pass their section sizes and hashes to
+lead (this one, the correction, the re-plan and the refusal) pass their section sizes and hashes to
 the transport, as the sidekick's brief and its feedback do. It answers per flow:
 
 - `accept`;
@@ -260,7 +244,7 @@ The answer is untrusted, and the orchestrator's facts decide over it:
   that could not be read): its status is its word, the bytes are what the run judges;
 - a flow the answer does not name, or an answer that cannot be read or runs out of its time, leaves the flows as they are.
 
-How an agent's closing JSON is read (sidekick results, the lead's review and correction answers, explore answers): the LAST top-level object
+How an agent's closing JSON is read (sidekick results, the lead's review and correction answers): the LAST top-level object
 of the output that has the shape of that contract (`shared-kernel/last-json-object.ts`), whatever narration or earlier objects
 come before it; braces in prose never hide it. A sidekick output with no DelegationResult is a failed result marked `readMiss: unreadable`:
 still not a success, files still taken back, but recorded with failure class and `qayaba.delegation.status` `unreadable` instead of

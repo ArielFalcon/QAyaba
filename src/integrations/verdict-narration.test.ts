@@ -34,12 +34,6 @@ test("parseVerdict reads the lead's plan after narration with an unbalanced brac
   assert.deepEqual(v.plan, { flows: [] });
 });
 
-test("parseVerdict reads the lead's explore request after narration with an unbalanced brace", () => {
-  const v = parseVerdict(`${NARRATION}{"explore":[{"question":"q"}]}`);
-  assert.equal(v.parsed, true);
-  assert.equal(v.explore?.length, 1);
-});
-
 test("parseVerdict takes the last closing block and ignores a non-verdict object after it", () => {
   const v = parseVerdict('{"specs":["a.spec.ts"]} later {"specs":["b.spec.ts"]} and {"unrelated":1}');
   assert.deepEqual(v.specs, ["b.spec.ts"]);

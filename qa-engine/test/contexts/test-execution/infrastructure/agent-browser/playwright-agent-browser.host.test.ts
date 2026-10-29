@@ -142,8 +142,8 @@ function setup(over: { origins?: string[]; material?: SessionMaterial; denyRoute
     ...(over.geolocation ? { geolocation: over.geolocation } : {}),
   });
   const signal = new AbortController().signal;
-  const call = (sessionId: string, action: BrowserAction, geolocation?: { latitude: number; longitude: number }, readOnly = false) =>
-    host.perform(sessionId, action, { signal, timeoutMs: 10_000, ...(geolocation ? { geolocation } : {}), ...(readOnly ? { readOnly } : {}) });
+  const call = (sessionId: string, action: BrowserAction, geolocation?: { latitude: number; longitude: number }) =>
+    host.perform(sessionId, action, { signal, timeoutMs: 10_000, ...(geolocation ? { geolocation } : {}) });
   return { host, browser, browsers, gates, call, counts: () => ({ launches, disposed, materialReads }) };
 }
 
@@ -293,18 +293,6 @@ test("a request of the context is let through only when the guard allows it, and
   assert.match(state.blocked[0]!.detail, /POST/);
   const again = await call("s1", { kind: "snapshot" });
   assert.deepEqual(again.blocked, [], "a block is reported once");
-});
-
-test("a request of a read-only session is blocked even where the app allows the mutation, and another session's is not", async () => {
-  const { browser, call } = setup({ allowMutating: ["POST /api/search"] });
-  await call("author", { kind: "navigate", url: `${BASE}/orders` });
-  await call("explore", { kind: "navigate", url: `${BASE}/orders` }, undefined, true);
-  const context = browser.contexts[0]!;
-  const [authorPage, explorePage] = [...context.pages];
-  assert.deepEqual(await context.request(authorPage, "POST", `${BASE}/api/search`), { continued: true, aborted: false });
-  assert.deepEqual(await context.request(explorePage, "POST", `${BASE}/api/search`), { continued: false, aborted: true });
-  assert.deepEqual(await context.request(explorePage, "GET", `${BASE}/api/search`), { continued: true, aborted: false });
-  assert.deepEqual(await context.request(undefined, "POST", `${BASE}/api/search`), { continued: false, aborted: true }, "a request no page can be named for is read-only while a read-only session holds a page");
 });
 
 test("a navigation the guard aborts is reported as a block, not as a failure", async () => {

@@ -167,6 +167,14 @@ export const BANNED_RULES: BannedRule[] = [
     exemptPrefixes: [RECORDS_PREFIX],
   },
   {
+    id: "qa-explore",
+    patterns: [
+      /\b(?:CODE_GRAPH_EXPLORE_AGENT|AGENT_BROWSER_READ_ONLY_AGENTS|EXPLORE_BRIEF_SECTIONS|EXPLORE_BUDGET_MS|EXPLORE_CALL_SHARE|admitExploreRequest|runExploreRound|assembleExploreBrief|assembleExploreOutcome|renderExploreBrief|renderExploreOutcome|backExploreFindings|shapeExploreFindings|graphHoldsSymbol|requestIsReadOnly)\b/,
+      /\b(?:qa-explore|explore-kind|explore-round|explore-request|explore-verification|explore-ids|explore-brief|lead-explore-outcome)\b/,
+    ],
+    exemptPrefixes: [RECORDS_PREFIX],
+  },
+  {
     id: "langfuse-sink",
     patterns: [
       /\b(?:LangfuseScoreSink|LangfuseConfig|resolveLangfuseConfig|scoreSinkHealthOf|ScoreSinkHealth|scoreConfigsOfCatalog|langfuseScoreId|getRunIdByTraceId)\b/,

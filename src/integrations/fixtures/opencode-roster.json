@@ -4,7 +4,6 @@
     "qa-lead": { "model": "opencode/fixture-lead-model", "maxSteps": 40 },
     "qa-reviewer": { "model": "opencode/minimax-m3", "maxSteps": 20 },
     "qa-assistant": { "model": "opencode/minimax-m3.1-flash-free", "maxSteps": 10 },
-    "qa-proposer": { "model": "opencode/fixture-proposer-model", "maxSteps": 15 },
-    "qa-explore": { "model": "opencode/fixture-explore-model", "maxSteps": 40 }
+    "qa-proposer": { "model": "opencode/fixture-proposer-model", "maxSteps": 15 }
   }
 }

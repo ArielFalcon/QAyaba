@@ -17,13 +17,11 @@ function page(over: Partial<PageState> = {}): PageState {
 class FakeHost implements AgentBrowserHostPort {
   readonly calls: { sessionId: string; action: BrowserAction }[] = [];
   readonly timeouts: number[] = [];
-  readonly readOnly: (boolean | undefined)[] = [];
   resets = 0;
   closed = 0;
   next: () => Promise<PageState> | PageState = () => page();
-  async perform(sessionId: string, action: BrowserAction, opts?: { timeoutMs: number; readOnly?: boolean }): Promise<PageState> {
+  async perform(sessionId: string, action: BrowserAction, opts?: { timeoutMs: number }): Promise<PageState> {
     this.calls.push({ sessionId, action });
-    this.readOnly.push(opts?.readOnly);
     if (opts) this.timeouts.push(opts.timeoutMs);
     return this.next();
   }
@@ -35,8 +33,8 @@ function setup(over: { host?: FakeHost; lock?: AccountLock; renew?: (() => Promi
   const host = over.host ?? new FakeHost();
   const capability = new AgentBrowserCapability({ runId: "r1", limits: { ...DEFAULT_AGENT_BROWSER_LIMITS, ...over.limits }, expiresAtMs: over.expiresAtMs ?? 1_000_000, now: over.now ?? (() => 0) });
   capability.bindSession("s1");
-  capability.bindSession("explore", "r1-explore-0", "qa-explore");
-  capability.setShare("r1-explore-0", 5);
+  capability.bindSession("flow", "r1-flow-0");
+  capability.setShare("r1-flow-0", 5);
   const lock = over.lock ?? new AccountLock();
   const useCase = new AgentBrowserUseCase({
     capability,
@@ -80,21 +78,14 @@ test("a revoked capability and an expired one refuse every call", async () => {
   assert.equal(e.ok === false && e.code, AGENT_BROWSER_REFUSAL.EXPIRED);
 });
 
-test("an explore session's call reaches the host read-only and an authoring session's does not", async () => {
-  const { host, useCase } = setup();
-  await useCase.call({ ...nav("/orders"), sessionId: "explore", agent: "qa-explore" });
-  await useCase.call(nav("/orders"));
-  assert.deepEqual(host.readOnly, [true, undefined]);
-});
-
 test("the pages a flow's sessions were shown are the capability's ledger of reads, by path, and a refused call leaves none", async () => {
   const { host, capability, useCase } = setup();
   host.next = () => page({ url: `${BASE}/orders?page=2#top`, requestedPath: "/orders" });
-  await useCase.call({ ...nav("/orders"), sessionId: "explore", agent: "qa-explore" });
-  await useCase.call({ ...nav("/admin/users"), sessionId: "explore", agent: "qa-explore" });
+  await useCase.call({ ...nav("/orders"), sessionId: "flow", agent: "qa-author" });
+  await useCase.call({ ...nav("/admin/users"), sessionId: "flow", agent: "qa-author" });
   await useCase.call(nav("/orders"));
-  assert.deepEqual(capability.readsOf("r1-explore-0"), ["/orders"], "the path alone, once; a session bound to no flow leaves none and a blocked route is not read");
-  assert.deepEqual(capability.readsOf("r1-explore-1"), []);
+  assert.deepEqual(capability.readsOf("r1-flow-0"), ["/orders"], "the path alone, once; a session bound to no flow leaves none and a blocked route is not read");
+  assert.deepEqual(capability.readsOf("r1-flow-1"), []);
 });
 
 test("a navigation resolves a path against the app's base address and returns the page", async () => {
@@ -484,7 +475,7 @@ test("a sign-in that throws counts as one that failed", async () => {
   assert.equal(res.ok === false && res.code, AGENT_BROWSER_REFUSAL.SESSION_INVALIDATED);
   if (!res.ok) assert.match(res.message, /could not be renewed/);
   assert.equal(host.resets, 0);
-  assert.deepEqual(capability.signal, { calls: 1, blocks: 0, invalidations: 1, renewals: 0, granted: 5 }, "the explore share the setup granted");
+  assert.deepEqual(capability.signal, { calls: 1, blocks: 0, invalidations: 1, renewals: 0, granted: 5 }, "the flow share the setup granted");
   assert.equal(capability.canRenew(), true, "one failed attempt of two");
 });
 

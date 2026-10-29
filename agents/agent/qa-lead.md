@@ -32,16 +32,6 @@ The prompt's plan section states the limits the orchestrator holds the plan to.
 
 When the prompt lists the use cases the change makes testable, every one is either cited by a flow (its id in `candidates`) or listed in `dropped` with a `basis` and a reason; `dropped` may be left out when you drop none. The basis is one of `no-observable-change` (the change leaves nothing a browser can observe; executable code that the use case lists as changed is observable), `already-covered` (a spec of the suite that the use case lists proves it) or `needs-unavailable-state` (it needs a state or a capability this run cannot reach; a state that needs only a response DEV does not return is a flow whose acceptance names it, because its author covers it with a stubbed test beside the live one). The orchestrator checks the basis against what it holds, refuses one the facts contradict and asks you once more. A flow is one spec file named by its id; no two flows share a file or depend on each other's data. A flow's acceptance names one outcome per behaviour the change decides on its pages: the outcome when it succeeds, and each other state the change handles there (an error, an empty result, a rejected input) that the page can be brought to through the UI against DEV. The orchestrator decides what each flow may write, how long it takes and what it may run, so the plan carries none of that. A flow without a `location` inherits the run's.
 
-## Exploration
-
-Before you plan you may ask once for exploration: read-only explore sidekicks that walk the code graph and look at DEV through
-the authenticated browser, one per question. Ask only for what the prompt does not already give you (a page, a data state or a symbol the
-change reaches that the prompt does not show). Instead of a plan, close with ONLY
-`{"explore":[{"id":"<short-slug>","question":"<one question, at most 400 characters>","routes":["/<path to look at>"]}]}`: at most 3
-questions, site-relative routes only. You then get the findings in the same session and must answer with your plan: a second
-request to explore is refused. A finding the orchestrator marks verified means it confirmed that the place exists (the page, the data state's route or the symbol), not that the claim about it is
-true; a claim it could not confirm is only the sidekick's word, and where a finding is contradicted the orchestrator's read stands.
-
 ## Review of the flows
 
 Your sidekicks authored the flows of your plan. Judge each one against the change you planned for: does its spec

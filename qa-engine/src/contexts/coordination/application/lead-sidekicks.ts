@@ -21,7 +21,6 @@ import { formatGeoLocation, type GeoLocation } from "@kernel/geolocation.ts";
 import { isRunDeadlineError } from "../../../shared-kernel/run-deadline.ts";
 import type { AgentBrowserHandle, ClosedLoopHandle, FlowFailureFact, FlowGeolocationHandle, FlowLedgerEntry, FlowLoopHandle, GeolocationHandle } from "@contexts/agent-tools/application/index.ts";
 import type { LeadSessionHandle, PlanOutput } from "@kernel/plan-output.ts";
-import type { CodeGraphToolsHandle } from "@contexts/agent-tools/application/index.ts";
 import type { DelegationWorkspace, DelegationWorkspaceRequest, WorkspaceChange } from "../domain/delegation-workspace.ts";
 import type { DelegationWorkspacePort } from "./ports/delegation-workspace.port.ts";
 import { createDelegationBrief, type DelegationBrief } from "./delegation-brief.ts";
@@ -42,8 +41,6 @@ import type { CoordinationTelemetryEvent, CoordinationTelemetryPort } from "./co
 import { PLAN_SNAPSHOT_KIND, type PlanSnapshotCandidate, type PlanSnapshotFlow, type PlanSnapshotKind, type PlanSnapshotPort } from "@kernel/ports/plan-snapshot.port.ts";
 import { authorTask } from "./author-task.ts";
 import { SIDEKICK_KIND, SIDEKICK_TIER, type SidekickKind, type SidekickTier } from "./sidekick-kinds.ts";
-import { admitExploreRequest } from "./explore-request.ts";
-import { assembleExploreOutcome, runExploreRound } from "./explore-round.ts";
 import type { EvidenceRef } from "./evidence-ref.ts";
 import { evidenceFromEmptyRead, evidenceFromPackDataRoutes } from "./evidence-from.ts";
 import type { DevStateGround } from "./dev-state-backing.ts";
@@ -100,8 +97,6 @@ export interface LeadSidekicksDeps {
   readSpec?(root: { mirrorDir: string; specDir: string }, specFile: string): Promise<string | undefined>;
   /* The spec file, relative to the spec directory, that a flow's id names. */
   specFileFor(flowId: string): string;
-  /* Whether the run's code graph holds the symbol an explore finding names (`<file>#<symbol>`); absent: no symbol finding is verified. */
-  graphHolds?(ref: string): Promise<boolean>;
   /* The run's deadline as the agents' turns read it; a call may bring its own. Absent: nothing bounds the run's time. */
   deadline?: { remainingMs(): number | undefined };
   /* The author's window and the working room its turn needs: a brief preloads the flow's changed code while it fits, and an admitted flow whose owned change alone does not fit is asked of the lead to split. Absent, or an unknown window: every owned hunk is preloaded and no flow is too large. */
@@ -121,8 +116,6 @@ export interface CoordinateInput {
   facts: { hasLogin: boolean };
   closedLoop?: ClosedLoopHandle;
   agentBrowser?: AgentBrowserHandle;
-  /* The run's code-graph right: an explore sidekick is given a share of its calls. */
-  codeGraph?: CodeGraphToolsHandle;
   /* The run's authoring location, when the app declares one: a flow may name a place and each flow owns its own value. */
   geolocation?: GeolocationHandle;
   devBaseUrl?: string;
@@ -302,7 +295,7 @@ export class LeadSidekicks {
     const candidateSlices = change && admission.required.length > 0 ? candidateSlicesOf(change, admission.required) : undefined;
     /* The capacity the plan is told, as it will stand once the planning turn has taken its time. */
     const capacity = this.capacity(input, parallel, before === undefined ? undefined : before - settings.planBudgetMs);
-    let planned = await input.plan({
+    const planned = await input.plan({
       ...(capacity !== undefined ? { capacity } : {}),
       maxParallel: parallel,
       flowBudgetMs: settings.flowBudgetMs.opencode,
@@ -316,14 +309,6 @@ export class LeadSidekicks {
     /* The lead's planning session, when the plan kept it: its review of the flows is asked there, and it ends with the pass. */
     let leadHanded = false;
     try {
-      if (planned.explore !== undefined) {
-        const explored = await this.explore(input, planned);
-        if ("downgrade" in explored) {
-          this.snapshotPlan(input, PLAN_SNAPSHOT_KIND.REJECTED, [], explored.downgrade);
-          return refuse(`${AUTHORING_REFUSAL.PLAN_REJECTED}:${explored.downgrade}`, `the exploration request was not admitted (${explored.downgrade})`, { authoring: authoringName });
-        }
-        planned = explored.planned;
-      }
       if (planned.timedOut) return refuse(AUTHORING_REFUSAL.PLAN_TIMED_OUT, "the planning turn ran out of its time", { authoring: authoringName });
       /* A declared no-op in either shape (`{"kind":"noop"}` or a plan of no flows that drops every use case) is held to the same facts. */
       const noopOf = (reason: string): AdmittedPlan => ({ kind: LEAD_PLAN_KIND.NOOP, reason, ...(admission.required.length > 0 ? { dropped: impliedNoopDrops(reason, admission.required) } : {}) });
@@ -493,55 +478,6 @@ export class LeadSidekicks {
       return stands;
     }
     return { plan: answer, coverage: planCoverage({ flows: answer.kind === LEAD_PLAN_KIND.FANOUT ? answer.flows : [], dropped: answer.dropped ?? [] }, admission.required, planFactsOf(input.contextPack)) };
-  }
-
-  /*
-   * The one round of exploration the lead asked for instead of a plan: read-only sidekicks answer its questions, the orchestrator
-   * labels each finding by what it holds itself, and the lead is asked again in the same session; that answer must be a plan.
-   */
-  private async explore(input: CoordinateInput, planned: PlanOutput): Promise<{ planned: PlanOutput } | { downgrade: string }> {
-    const lead = planned.lead;
-    const request = admitExploreRequest(planned.explore, this.deps.redaction);
-    if (!lead || request.kind === "rejected") {
-      this.record(input, { kind: "lead-decision", reason: `explore: the request was not admitted (${request.kind === "rejected" ? request.reason : "no session to ask again"})` });
-      return { downgrade: PLAN_DOWNGRADE.MALFORMED };
-    }
-    this.record(input, { kind: "proposal", action: "delegate", sidekickKind: SIDEKICK_KIND.EXPLORE, reason: `explore: ${request.questions.length} question(s)` });
-    const remaining = this.remaining(input);
-    const outcome = await runExploreRound(
-      {
-        redaction: this.deps.redaction,
-        sidekick: this.deps.sidekick,
-        dispatcher: this.dispatcher,
-        ...(this.deps.graphHolds ? { graphHolds: this.deps.graphHolds } : {}),
-        record: (event) => this.record(input, { kind: "delegation", action: "delegate", sidekickKind: SIDEKICK_KIND.EXPLORE, tier: SIDEKICK_TIER.STANDARD, ...event }),
-        now: this.now,
-        ...(this.deps.log ? { log: this.deps.log } : {}),
-      },
-      {
-        runId: input.runId,
-        mirrorDir: input.mirrorDir,
-        questions: request.questions,
-        spareMs: remaining === undefined ? undefined : remaining - this.reserve(remaining),
-        ...(input.signal ? { signal: input.signal } : {}),
-        ...(input.agentBrowser ? { agentBrowser: input.agentBrowser } : {}),
-        ...(input.codeGraph ? { codeGraph: input.codeGraph } : {}),
-        ...(input.contextPack ? { contextPack: input.contextPack } : {}),
-        ...(input.confirmedDataRoutes ? { confirmedDataRoutes: input.confirmedDataRoutes } : {}),
-        ...(input.devBaseUrl ? { devBaseUrl: input.devBaseUrl } : {}),
-      },
-    );
-    /* A cancelled run spends no further turn of the lead: it has no plan to admit, and the caller reads the cancellation. */
-    if (input.signal?.aborted) return { planned: { parsed: false, timedOut: false, lead } };
-    const left = this.remaining(input);
-    const followUp = assembleExploreOutcome(this.deps.redaction, outcome);
-    const answered = await lead.askForPlan(followUp.text, turnOpts(followUp,Math.max(1, left === undefined ? input.settings.planBudgetMs : Math.min(input.settings.planBudgetMs, left))));
-    /* One round per run: a second request is not a plan. */
-    if (answered.explore !== undefined) {
-      this.record(input, { kind: "lead-decision", reason: "explore: the lead asked to explore a second time, which a run does not allow" });
-      return { downgrade: PLAN_DOWNGRADE.MALFORMED };
-    }
-    return { planned: { ...(answered.plan ? { plan: answered.plan } : {}), ...(answered.noopReason !== undefined ? { noopReason: answered.noopReason } : {}), parsed: answered.parsed, timedOut: answered.timedOut, lead } };
   }
 
   /* The flows of an admitted plan: each authored once, then reviewed by the lead, then added up. Every flow's resources end here, however the pass ends. */

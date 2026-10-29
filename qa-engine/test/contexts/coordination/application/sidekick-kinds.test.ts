@@ -4,7 +4,6 @@ import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { AGENT_TOOL, REGISTERED_SIDEKICK_KINDS, SIDEKICK_KIND, SIDEKICK_TIER, sidekickKindSpec, delegatingKindSpec, type AgentTool } from "@contexts/coordination/application/sidekick-kinds.ts";
-import { CODE_GRAPH_EXPLORE_AGENT } from "@kernel/code-graph-tools.ts";
 import { REVIEW_SIDEKICK } from "@kernel/sidekick-session.ts";
 import { resolveSidekickModel } from "@contexts/coordination/application/resolve-sidekick-model.ts";
 import { PatternRedactionAdapter } from "../../../../src/shared-infrastructure/redaction/pattern-redaction.adapter.ts";
@@ -46,13 +45,6 @@ test("a kind's registered tools equal the tools its agent is granted in the rost
   }
 });
 
-test("the explore role is granted read, the code graph and the authenticated browser, and nothing that writes or runs code", () => {
-  assert.deepEqual(grantedBy(CODE_GRAPH_EXPLORE_AGENT), [AGENT_TOOL.AUTHBROWSER, AGENT_TOOL.CODEGRAPH, AGENT_TOOL.READ].sort());
-  const entry = roster.agent[CODE_GRAPH_EXPLORE_AGENT]!;
-  const file = /\{file:\.\/(.+)\}/.exec(entry.prompt ?? "")?.[1];
-  assert.ok(file && existsSync(`${ROOT}agents/${file}`), "its prompt file exists");
-});
-
 test("the author kind\'s brief names its one writable file", () => {
   const spec = sidekickKindSpec(SIDEKICK_KIND.AUTHOR);
   assert.equal(spec.workspace, "isolated-spec-file");
@@ -66,15 +58,6 @@ test("an escalated tier resolves the escalated model and a standard tier none", 
 
 test("a kind that is not registered is refused loudly", () => {
   assert.throws(() => sidekickKindSpec("unknown" as never), /no sidekick kind/);
-});
-
-test("the explore kind is the read-only explore agent, with the code graph and the browser, working in the working copy under the exploration budget", () => {
-  const spec = sidekickKindSpec(SIDEKICK_KIND.EXPLORE);
-  assert.equal(spec.agent, CODE_GRAPH_EXPLORE_AGENT);
-  assert.deepEqual([...spec.tools].sort(), [AGENT_TOOL.AUTHBROWSER, AGENT_TOOL.CODEGRAPH, AGENT_TOOL.READ].sort());
-  assert.equal(spec.workspace, "working-copy");
-  assert.equal(spec.budget, "explore-budget");
-  assert.deepEqual([...spec.tiers], [SIDEKICK_TIER.STANDARD]);
 });
 
 test("the review kind is the read-only reviewer agent working in the working copy under the reviewer's session timeout", () => {

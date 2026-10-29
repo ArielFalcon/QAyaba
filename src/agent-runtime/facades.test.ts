@@ -206,5 +206,5 @@ test("an agent whose declared model is its tier's default opens on that model, a
 });
 
 test("an agent that declares no model opens on its tier's model", async () => {
-  assert.equal(await openedModel(DEFAULTED_CONFIG, "qa-explore"), CONFIG.assignments.primary.model);
+  assert.equal(await openedModel(DEFAULTED_CONFIG, "qa-proposer"), CONFIG.assignments.primary.model);
 });

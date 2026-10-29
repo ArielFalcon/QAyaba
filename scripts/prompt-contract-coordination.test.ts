@@ -1,4 +1,4 @@
-/* The coordination prompts (the sidekicks' briefs and the lead's review, correction, re-plan and exploration turns) are assembled from the section registry, linted like the generator's and held to budgets recorded apart. */
+/* The coordination prompts (the sidekicks' briefs and the lead's review, correction and re-plan turns) are assembled from the section registry, linted like the generator's and held to budgets recorded apart. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { COORDINATION_PROMPTS } from "@contexts/coordination/application/index.ts";
@@ -15,7 +15,7 @@ test("every coordination prompt of the registry has a cell in the matrix", () =>
 test("no coordination prompt breaks a lint rule, and every delegation brief is held to its contract and its grant", () => {
   assert.deepEqual(cells.flatMap((cell) => lintCoordinationCell(cell, baseline).map((finding) => `${cell.key}: ${finding.rule} ${finding.part ?? ""} ${finding.sections.join(",")}`)), []);
   const briefs = cells.filter((cell) => cell.prompt.endsWith("-brief"));
-  assert.ok(briefs.length >= 4);
+  assert.ok(briefs.length >= 2);
   assert.ok(briefs.every((cell) => cell.lint.delegation !== undefined));
 });
 

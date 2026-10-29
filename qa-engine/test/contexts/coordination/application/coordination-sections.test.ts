@@ -6,11 +6,9 @@ import type { AssembledPrompt } from "@kernel/prompt-sections.ts";
 import { PatternRedactionAdapter } from "../../../../src/shared-infrastructure/redaction/pattern-redaction.adapter.ts";
 import { createDelegationBrief, type DelegationBrief } from "@contexts/coordination/application/delegation-brief.ts";
 import { renderSidekickBrief } from "@contexts/coordination/application/sidekick-prompt.ts";
-import { renderExploreBrief } from "@contexts/coordination/application/explore-kind.ts";
 import { assembleLeadReview } from "@contexts/coordination/application/lead-review.ts";
 import { assembleLeadCorrection, assembleRefusedCorrection } from "@contexts/coordination/application/lead-correction.ts";
-import { assembleExploreOutcome } from "@contexts/coordination/application/explore-round.ts";
-import { AUTHOR_BRIEF_SECTIONS, EXPLORE_BRIEF_SECTIONS } from "@contexts/coordination/application/coordination-sections/brief-sections.ts";
+import { AUTHOR_BRIEF_SECTIONS } from "@contexts/coordination/application/coordination-sections/brief-sections.ts";
 import { COORDINATION_PROMPTS } from "@contexts/coordination/application/coordination-sections/index.ts";
 import { FLOW_OUTCOME } from "@contexts/coordination/application/flow-outcomes.ts";
 import { assembleDefs } from "@kernel/prompt-sections.ts";
@@ -27,17 +25,6 @@ const authorBrief = (): DelegationBrief =>
     scope: { readablePaths: ["."], writablePaths: ["e2e/flows/checkout.spec.ts"], allowedCommands: [] },
     acceptanceCriteria: ["checkout completes"],
     tools: ["read", "write", "run_spec"],
-  });
-
-const exploreBrief = (): DelegationBrief =>
-  createDelegationBrief({
-    redaction,
-    delegationId: "r1-explore-q1",
-    runId: "r1",
-    objective: "does the cart list items?",
-    task: "Answer ONE question for the lead, read-only.",
-    scope: { readablePaths: ["."], writablePaths: [], allowedCommands: [] },
-    tools: ["read", "codegraph"],
   });
 
 /* The assembled sections of a prompt, cut at the blank line the coordination prompts join them with. */
@@ -61,16 +48,13 @@ test("every coordination prompt reports a size and a hash for each section it ca
     review: assembleLeadReview(redaction, flows as never, { turn: 1, maxTurns: 3 }),
     correction: assembleLeadCorrection(redaction, [{ id: "one", objective: "o", specFile: "flows/one.spec.ts", sessionOpen: true }], [{ text: "bad", spec: "flows/one.spec.ts" }]),
     refused: assembleRefusedCorrection([{ reason: "nope" }], 1),
-    outcome: assembleExploreOutcome(redaction, { ran: true, questions: [{ id: "q1", question: "?", status: "answered", findings: [] }] }),
     author: asBrief(AUTHOR_BRIEF_SECTIONS, authorBrief()),
-    explore: asBrief(EXPLORE_BRIEF_SECTIONS, exploreBrief()),
   };
   for (const [name, prompt] of Object.entries(prompts)) {
     assert.ok(Object.keys(prompt.sectionSizes).length > 0, name);
     assert.deepEqual(Object.keys(prompt.sectionHashes ?? {}), Object.keys(prompt.sectionSizes), `${name}: a hash for every sized section`);
   }
   assert.deepEqual(Object.keys(renderSidekickBrief(redaction, authorBrief()).sectionHashes), Object.keys(renderSidekickBrief(redaction, authorBrief()).sectionSizes));
-  assert.deepEqual(Object.keys(renderExploreBrief(redaction, exploreBrief()).sectionHashes), Object.keys(renderExploreBrief(redaction, exploreBrief()).sectionSizes));
 });
 
 test("the flow author's brief opens with the tools its turn grants, then its sections in order, each once, with the boundary and the tools stated apart from the return shape", () => {
@@ -83,19 +67,9 @@ test("the flow author's brief opens with the tools its turn grants, then its sec
   assert.match(text, /- run_spec: /);
 });
 
-test("the explore brief keeps its question, task and return shape, and states that the sidekick writes nothing and which tools it holds", () => {
-  const { text, sectionSizes } = renderExploreBrief(redaction, exploreBrief());
-  assert.deepEqual(Object.keys(sectionSizes), ["tools", "question", "task", "boundary", "contract"]);
-  assert.match(text, /You write no file/);
-  assert.match(text, /- codegraph: /);
-  assert.doesNotMatch(text, /authbrowser/);
-});
-
 test("a delegation brief that states its whole contract and only what its turn grants lints clean", () => {
   const author = briefCell(asBrief(AUTHOR_BRIEF_SECTIONS, authorBrief()), { tools: ["read", "write", "run_spec"], writes: true });
-  const explore = briefCell(asBrief(EXPLORE_BRIEF_SECTIONS, exploreBrief()), { tools: ["read", "codegraph"], writes: false });
   assert.deepEqual(lintCell(author), []);
-  assert.deepEqual(lintCell(explore), []);
 });
 
 test("a brief missing its return shape is a finding naming the part", () => {
@@ -140,5 +114,5 @@ test("the registry names every coordination prompt and each of its sections once
     const ids = defs.map((def) => def.id);
     assert.equal(new Set(ids).size, ids.length, `${name}: duplicate section id`);
   }
-  assert.deepEqual(Object.keys(COORDINATION_PROMPTS).sort(), ["explore-brief", "flow-author-brief", "lead-correction", "lead-correction-refused", "lead-explore-outcome", "lead-feedback", "lead-plan-rejected", "lead-replan", "lead-review"]);
+  assert.deepEqual(Object.keys(COORDINATION_PROMPTS).sort(), ["flow-author-brief", "lead-correction", "lead-correction-refused", "lead-feedback", "lead-plan-rejected", "lead-replan", "lead-review"]);
 });

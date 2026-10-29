@@ -1,5 +1,5 @@
 /*
- * The section registries of the delegation briefs: what an author sidekick and an explore sidekick are handed. A brief states four
+ * The section registry of the author sidekick's delegation brief. A brief states four
  * things, each in exactly one section: the objective (what the sidekick is for), the return shape, the boundary (what it may write
  * and must not do) and the tools it holds; the prompt-contract lint holds it to that (R17) and to stating only what its turn
  * grants (R18). One tier: the static sections (the tools) open the brief, then the run's facts by priority.
@@ -11,8 +11,6 @@ import { ACCEPTANCE_STATUSES } from "../acceptance-report.ts";
 import { briefTools, type DelegationBrief } from "../delegation-brief.ts";
 import type { EvidenceRef } from "../evidence-ref.ts";
 import { CANDIDATE_CLAIMS } from "../delegation-result.ts";
-import { MAX_FINDINGS } from "../exploration.ts";
-import { questionIdOf } from "./explore-ids.ts";
 import { decisionText } from "@kernel/changed-decision.ts";
 
 export const BRIEF_DECISIONS_SECTION_ID = "decisions";
@@ -210,50 +208,4 @@ export const AUTHOR_BRIEF_SECTIONS: readonly PromptSectionDef<BriefPromptContext
   }),
   toolsSection,
   section({ id: "contract", priority: 100, stability: "run", reason: "The DelegationResult JSON the author closes with, one closing object (R17 return shape) (2d319787)", render: (ctx) => ({ content: authorReturnShape(ctx), claims: [claim.statesContract("return-shape")] }) }),
-];
-
-/* The explore sidekick's answer: one exploration result for the question, capped. */
-function exploreReturnShape({ brief }: BriefPromptContext): string {
-  const id = questionIdOf(brief.delegationId);
-  return [
-    "## Output contract",
-    "End with ONLY JSON:",
-    `{"id":"${id}","status":"answered"|"unanswered","findings":[{"claim":"...","kind":"page"|"element"|"symbol"|"data-state","ref":"...","evidence":"..."}]}`,
-    `At most ${MAX_FINDINGS} findings. A symbol ref is <repo-relative file>#<symbol>; a page or data-state ref is the site-relative path.`,
-  ].join("\n");
-}
-
-/* The explore sidekick's brief: one question, read-only. */
-export const EXPLORE_BRIEF_SECTIONS: readonly PromptSectionDef<BriefPromptContext>[] = [
-  section({
-    id: "question",
-    priority: 10, stability: "run", reason: "The one question the lead asked, by id (R17 objective) (bb8a4ab2)",
-    render: ({ brief, scrub }) => ({ content: ["## Question", `id: ${questionIdOf(brief.delegationId)}`, scrub(brief.objective)].join("\n"), claims: [claim.statesContract("objective")] }),
-  }),
-  section({ id: "task", priority: 20, stability: "run", reason: "What the lead asks of the explore sidekick (bb8a4ab2)", render: ({ brief, scrub }) => ({ content: ["## Task", scrub(brief.task)].join("\n") }) }),
-  section({
-    id: "facts",
-    priority: 30, stability: "run", reason: "Facts the run already holds, with source and confidence (bb8a4ab2)",
-    applies: ({ brief }) => brief.knownFacts.length > 0,
-    render: ({ brief, scrub }) => ({ content: ["## Known facts", ...brief.knownFacts.map(factLine(scrub))].join("\n") }),
-  }),
-  section({
-    id: "artifacts",
-    priority: 40, stability: "run", reason: "Artifacts the lead hands the sidekick by path (bb8a4ab2)",
-    applies: ({ brief }) => brief.artifactRefs.length > 0,
-    render: ({ brief }) => ({ content: ["## Artifacts", ...brief.artifactRefs.map((ref) => `- ${ref.id}: ${ref.path}`)].join("\n") }),
-  }),
-  section({
-    id: "boundary",
-    priority: 50, stability: "run", reason: "Read-only: what it may read, and that it writes nothing (R17 boundary) (07d8f70b)",
-    render: ({ brief }) => {
-      const writes = brief.scope.writablePaths.length > 0;
-      return {
-        content: ["## Boundary", `- readablePaths: ${brief.scope.readablePaths.join(", ") || "(none)"}`, writes ? `- writablePaths: ${brief.scope.writablePaths.join(", ")}` : "You write no file: you only read and report."].join("\n"),
-        claims: [claim.statesContract("boundary"), ...(writes ? [claim.statesWrite()] : [])],
-      };
-    },
-  }),
-  { ...toolsSection, priority: 60 },
-  section({ id: "contract", priority: 100, stability: "run", reason: "One exploration result for the question, capped at MAX_FINDINGS findings (R17 return shape) (bb8a4ab2)", render: (ctx) => ({ content: exploreReturnShape(ctx), claims: [claim.statesContract("return-shape")] }) }),
 ];

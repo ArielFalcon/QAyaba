@@ -544,7 +544,7 @@ export function hidesGeolocationTool(agent: string, sessionId: string): boolean 
 }
 
 /*
- * The same arrangement for the code-graph tools: the lead's role and the explore role hold them in the configuration, and a prompt of a session
+ * The same arrangement for the code-graph tools: the lead's role holds them in the configuration, and a prompt of a session
  * whose run granted no code graph (the app is not in it, or the session is the lead's for a flow) hides them. Until a lookup is
  * installed (a test, the standalone CLI) nothing is granted.
  */

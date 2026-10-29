@@ -157,7 +157,7 @@ test("exhaustion is read from what was persisted, never re-derived from the turn
 });
 
 test("other roles' turns do not count towards the generator's exhaustion", () => {
-  assert.equal(exhaustedOf(withExhausted(true, { role: "qa-explore" }), withExhausted(false)), false);
+  assert.equal(exhaustedOf(withExhausted(true, { role: "qa-reviewer" }), withExhausted(false)), false);
 });
 
 test("exhaustion is null when the run has no generator turn", () => {

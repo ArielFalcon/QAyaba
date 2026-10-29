@@ -45,8 +45,6 @@ interface PageEntry {
   requests: RequestLog;
   notes: string[];
   status: number | undefined;
-  /* The session's role never writes to DEV: its page's requests are judged without the app's allowMutating entries. */
-  readOnly: boolean;
 }
 
 export interface PlaywrightAgentBrowserHostDeps {
@@ -110,7 +108,6 @@ export class PlaywrightAgentBrowserHost implements AgentBrowserHostPort {
     remaining();
     const entry = await this.entryFor(sessionId);
     entry.status = undefined;
-    entry.readOnly = options.readOnly === true;
     const requestedPath = action.kind === "navigate" ? pathOf(action.url) : pathOf(entry.page.url());
     try {
       /* The context is shared by every session; the call holds the account, so setting the caller's location here cannot race another session's. */
@@ -284,7 +281,7 @@ export class PlaywrightAgentBrowserHost implements AgentBrowserHostPort {
     } finally {
       this.creatingPage = false;
     }
-    const entry: PageEntry = { page, lastGoodUrl: undefined, blocked: [], requests: new RequestLog(), notes: [], status: undefined, readOnly: false };
+    const entry: PageEntry = { page, lastGoodUrl: undefined, blocked: [], requests: new RequestLog(), notes: [], status: undefined };
     page.on("response", (response) => {
       if (response.request().isNavigationRequest() && response.frame() === page.mainFrame()) entry.status = response.status();
     });
@@ -359,7 +356,7 @@ export class PlaywrightAgentBrowserHost implements AgentBrowserHostPort {
       let allowed = false;
       try {
         const request = route.request();
-        const decision = this.deps.guard.decide({ method: request.method(), url: request.url() }, { readOnly: this.requestIsReadOnly(request) });
+        const decision = this.deps.guard.decide({ method: request.method(), url: request.url() });
         allowed = decision.allow;
         this.recordRequest(request, decision);
         if (!decision.allow) this.recordBlock(request, decision.detail, decision.reason);
@@ -383,19 +380,6 @@ export class PlaywrightAgentBrowserHost implements AgentBrowserHostPort {
       this.loose.notes.push("the page tried to open a new tab; it was closed (use navigate to open an address)");
       void page.close().catch(() => undefined);
     });
-  }
-
-  /* Whether the page that made a request belongs to a read-only session. A request no page can be named for is read-only while any read-only session holds a page: it cannot be told apart, so it gets the narrower right. */
-  private requestIsReadOnly(request: PwRequest): boolean {
-    let page: PwPage | null = null;
-    try {
-      page = request.frame().page();
-    } catch {
-      /* Playwright cannot name the frame of some requests. */
-    }
-    const entry = page ? this.byPage.get(page) : undefined;
-    if (entry) return entry.readOnly;
-    return [...this.entries.values()].some((held) => held.readOnly);
   }
 
   /* The entry of the page that made a request, when Playwright can name it. */

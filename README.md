@@ -95,7 +95,7 @@ Receives webhooks, manages the sequential queue, clones repos, runs Playwright a
 ### Agent Runtime
 **OpenCode** behind one provider-neutral facade; another runtime is added as a strategy behind it.
 
-The lead (`qa-lead`) is read-only: it explores the code with the code-graph tool, may ask read-only explorer sidekicks (`qa-explore`) to check what it needs, and plans the change's flows. A dedicated author sidekick (`qa-author`) writes each flow in a workspace of its own — it may only write the one file its brief names, must report what it actually wrote, and can push the work back when the brief is wrong. The reviewer stays a fully independent judge: neither agent can influence it. The Dashboard's Agent Runtime screen selects role assignments, models, and API keys; `qayaba agent` prints the current configuration.
+The lead (`qa-lead`) is read-only: it explores the code with the code-graph tool and plans the change's flows. A dedicated author sidekick (`qa-author`) writes each flow in a workspace of its own — it may only write the one file its brief names, must report what it actually wrote, and can push the work back when the brief is wrong. The reviewer stays a fully independent judge: neither agent can influence it. The Dashboard's Agent Runtime screen selects role assignments, models, and API keys; `qayaba agent` prints the current configuration.
 
 </td>
 </tr>
@@ -231,7 +231,7 @@ The project uses provider-neutral role assignments. The roster, each role's mode
 
 | Role | Agent | Purpose |
 |---|---|---|
-| `primary` | `qa-lead`, `qa-author`, `qa-explore`, `qa-proposer` | The lead plans and reviews flows (read-only); the author sidekick writes the Playwright tests; the explorer answers the lead's questions (read-only) |
+| `primary` | `qa-lead`, `qa-author`, `qa-proposer` | The lead plans and reviews flows (read-only); the author sidekick writes the Playwright tests |
 | `reviewer` | `qa-reviewer` | Read-only quality judge; rejects tests with trivial assertions or fragile patterns |
 | `chat` | `qa-assistant` | Read-only operator assistant |
 

@@ -112,7 +112,6 @@ export interface AgentFacade {
  */
 export const AGENT_NAME_FOR_ROLE: Readonly<Record<AgentRole, string>> = {
   lead: "qa-lead",
-  explore: "qa-explore",
   reviewer: "qa-reviewer",
   chat: "qa-assistant",
   author: "qa-author",
@@ -135,7 +134,7 @@ export function roleForAgentName(agent: string): AgentRole {
 export function tierForRole(role: AgentRole): AssignmentTier {
   if (role === "reviewer") return "reviewer";
   if (role === "chat") return "chat";
-  /* The roles that plan, explore, author and maintain run on the `primary` assignment: the tier the operator configures for the agents that do the run's work. */
+  /* The roles that plan, author and propose run on the `primary` assignment: the tier the operator configures for the agents that do the run's work. */
   return "primary";
 }
 

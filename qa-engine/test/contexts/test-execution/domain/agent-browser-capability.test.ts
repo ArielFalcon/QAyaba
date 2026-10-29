@@ -14,8 +14,8 @@ function capability(over: { now?: () => number; expiresAtMs?: number; maxCalls?:
   return c;
 }
 
-test("only the authoring roles and the explore role are named as holders, and nothing else is", () => {
-  assert.deepEqual([...AGENT_BROWSER_AGENTS].sort(), ["qa-author", "qa-explore"]);
+test("only the authoring role is named as a holder, and nothing else is", () => {
+  assert.deepEqual([...AGENT_BROWSER_AGENTS].sort(), ["qa-author"]);
 });
 
 test("a bound session of an authoring role is authorized, and each reason to refuse has its own code", () => {
@@ -130,17 +130,4 @@ test("a session bound for a flow that was given no share is refused, not left un
   c.bindSession("side-x", "flow-x");
   const refused = c.reserve("side-x");
   assert.equal(refused.ok === false && refused.code, AGENT_BROWSER_REFUSAL.NO_CALLS);
-});
-
-
-test("an explore session is read-only and an authoring session is not", () => {
-  const c = capability();
-  c.bindSession("explore", "r1-explore-0", "qa-explore");
-  c.bindSession("author", "r1-flow-a", "qa-author");
-  assert.equal(c.authorize("explore", "qa-explore"), undefined);
-  assert.equal(c.isReadOnly("explore"), true);
-  assert.equal(c.isReadOnly("author"), false);
-  assert.equal(c.isReadOnly("s1"), false);
-  c.unbindSession("explore");
-  assert.equal(c.isReadOnly("explore"), false);
 });

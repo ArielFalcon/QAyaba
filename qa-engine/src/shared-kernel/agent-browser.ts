@@ -14,7 +14,7 @@ export interface AgentBrowserSetting {
 }
 
 export interface AgentBrowserLimits {
-  /* Tool calls in one run of the sessions bound to no share (the run's own author), and the base an explore question's share is cut from. A flow of a plan spends only its own share, so the run's total for its flows is the sum of their grants. */
+  /* Tool calls in one run of the sessions bound to no share (the run's own author). A flow of a plan spends only its own share, so the run's total for its flows is the sum of their grants. */
   maxCalls: number;
   /* The longest one call may take, its own wait for the account excluded. */
   perCallMs: number;
@@ -33,6 +33,6 @@ export interface AgentBrowserGateSignal {
   invalidations: number;
   /* Of those, how many the auth port signed in again. */
   renewals: number;
-  /* The calls the run's shares (flows of a plan, explore questions) were granted, together: the derived total. Absent when none was granted. */
+  /* The calls the run's shares (flows of a plan) were granted, together: the derived total. Absent when none was granted. */
   granted?: number;
 }

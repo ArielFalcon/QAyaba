@@ -1,13 +1,10 @@
 /*
- * The section registries of the lead's turns after its plan: the review of the flows its sidekicks authored, the routing of corrections,
- * and the findings of the exploration it asked for. Each is the turn's prompt as data; how to judge it and the answer's shape are the
+ * The section registries of the lead's turns after its plan: the review of the flows its sidekicks authored and the routing of corrections. Each is the turn's prompt as data; how to judge it and the answer's shape are the
  * lead's role prompt. Sections are ordered by priority alone (one tier) and joined by a blank line.
  */
 import { candidateLine, type UseCaseCandidate } from "@kernel/use-case-candidate.ts";
 import { WINDOW_FIT_REASON, type PromptSectionDef, type SectionDegradation } from "@kernel/prompt-sections.ts";
 import { NOT_SHOWN } from "@contexts/generation/application/index.ts";
-import { FINDING_VERIFICATION } from "../explore-verification.ts";
-import type { VerifiedExploration } from "../explore-verification.ts";
 import type { FlowOutcome } from "../flow-outcomes.ts";
 
 /* What the sidekick's last answer came to, and whose words the statement is: only a read answer carries the sidekick's own. */
@@ -430,45 +427,5 @@ export const REFUSED_CORRECTION_SECTIONS: readonly PromptSectionDef<RefusedCorre
         "Answer with ONLY the corrected JSON object of the correction contract, complete (repeat every order and rebuttal you still hold). This is the only other correction turn for these findings.",
       ].join("\n"),
     }),
-  }),
-];
-
-/* ── exploration outcome ── */
-
-export interface ExploreOutcomePromptContext {
-  skipped?: string;
-  questions: readonly VerifiedExploration[];
-  scrub(text: string): string;
-}
-
-const LABEL: Record<(typeof FINDING_VERIFICATION)[keyof typeof FINDING_VERIFICATION], string> = {
-  [FINDING_VERIFICATION.VERIFIED]: "verified by the orchestrator",
-  [FINDING_VERIFICATION.UNVERIFIED]: "CLAIM, not verified",
-  [FINDING_VERIFICATION.CONTRADICTED]: "CONTRADICTED by the orchestrator's own read",
-};
-
-function findingsText({ skipped, questions, scrub }: ExploreOutcomePromptContext): string {
-  const lines: string[] = ["## Exploration findings", "The orchestrator ran the exploration you asked for. Verified findings are facts; a claim that is not verified is only the explore sidekick's word; where a finding is contradicted, the orchestrator's read stands."];
-  if (skipped) lines.push(`No exploration ran: ${scrub(skipped)}. Plan from what you have.`);
-  for (const question of questions) {
-    lines.push("", `### ${question.id}: ${scrub(question.question)}`, `status: ${question.status}`);
-    if (question.findings.length === 0) lines.push("(no findings)");
-    for (const finding of question.findings) {
-      lines.push(`- [${LABEL[finding.verification]}] (${finding.kind}) ${scrub(finding.claim)} | ref: ${scrub(finding.ref)} | evidence: ${scrub(finding.evidence)}${finding.contradictedBy ? ` | the orchestrator: ${scrub(finding.contradictedBy)}` : ""}`);
-    }
-  }
-  return lines.join("\n");
-}
-
-/* The lead's turn after its exploration: the findings labelled by what the orchestrator checked, and the one answer that is left to give. */
-export const EXPLORE_OUTCOME_SECTIONS: readonly PromptSectionDef<ExploreOutcomePromptContext>[] = [
-  section({ id: "exploration", priority: 10, stability: "run", reason: "Exploration findings labelled by what the orchestrator verified (bb8a4ab2)", applies: () => true, render: (ctx) => ({ content: findingsText(ctx) }) }),
-  section({
-    id: "answer",
-    /* The closing instruction: the recap that ends the turn, after the findings it answers. */
-    tier: "critical-recap",
-    priority: 20, stability: "static", reason: "After its one exploration the lead plans and cannot explore again (bb8a4ab2)",
-    applies: () => true,
-    render: () => ({ content: 'Now answer with your plan: ONLY the JSON object `{"plan":...}` (or the declared no-op). You cannot explore again.' }),
   }),
 ];

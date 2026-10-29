@@ -78,8 +78,6 @@ export interface GenerateOpts {
  */
 export interface PlanResult {
   plan?: Record<string, unknown>;
-  /** The questions the lead asked the explore sidekicks instead of planning: the raw array, untrusted. */
-  explore?: unknown[];
   noopReason?: string;
   parsed: boolean;
   timedOut: boolean;
@@ -93,8 +91,8 @@ export interface PlanResult {
 export interface LeadSession {
   /* Asks the lead again, read-only; a turn that runs out of its time answers `timedOut` with no output. */
   ask(text: string, opts: LeadTurnOpts): Promise<{ output: string; timedOut: boolean }>;
-  /* Asks the lead again for its plan, read-only, and reads the answer as a planning turn is read: a plan, a declared no-op, a second exploration request, or an answer no verdict could be read from. */
-  askForPlan(text: string, opts: LeadTurnOpts): Promise<{ plan?: Record<string, unknown>; explore?: unknown[]; noopReason?: string; parsed: boolean; timedOut: boolean }>;
+  /* Asks the lead again for its plan, read-only, and reads the answer as a planning turn is read: a plan, a declared no-op, or an answer no verdict could be read from. */
+  askForPlan(text: string, opts: LeadTurnOpts): Promise<{ plan?: Record<string, unknown>; noopReason?: string; parsed: boolean; timedOut: boolean }>;
   /* Ends the session. Idempotent. */
   dispose(): Promise<void>;
 }
@@ -153,8 +151,8 @@ export class GenerateTestsUseCase {
       await dispose();
       throw err;
     }
-    /* Only a plan or a request to explore has a next turn to ask: anything else ends the session here. */
-    const continues = Boolean(deliverable.plan ?? deliverable.explore);
+    /* Only a plan has a next turn to ask: anything else ends the session here. */
+    const continues = Boolean(deliverable.plan);
     if (!continues) await dispose();
     const ask: LeadSession["ask"] = async (text, askOpts) => {
       try {
@@ -181,7 +179,6 @@ export class GenerateTestsUseCase {
             const next = this.ports.verdicts.parseGenerator(answer.output, `${input.mirrorDir}/${input.e2eRelDir}`);
             return {
               ...(next.plan ? { plan: next.plan } : {}),
-              ...(next.explore ? { explore: next.explore } : {}),
               ...(next.noopReason ? { noopReason: next.noopReason } : {}),
               parsed: next.parsed !== false,
               timedOut: false,
@@ -192,7 +189,6 @@ export class GenerateTestsUseCase {
       : undefined;
     return {
       ...(deliverable.plan ? { plan: deliverable.plan } : {}),
-      ...(deliverable.explore ? { explore: deliverable.explore } : {}),
       ...(deliverable.noopReason ? { noopReason: deliverable.noopReason } : {}),
       parsed: deliverable.parsed !== false,
       timedOut: false,

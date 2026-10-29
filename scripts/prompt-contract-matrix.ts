@@ -50,8 +50,6 @@ import {
 import type { ArchitectureContext, DelegationGrant, OpencodeRunInput, ReviewInput } from "@contexts/generation/application/index.ts";
 import {
   CORRECTION_ORIGIN,
-  assembleExploreBrief,
-  assembleExploreOutcome,
   assembleLeadCorrection,
   assembleLeadReview,
   assembleRefusedCorrection,
@@ -864,8 +862,8 @@ export function loadDigests(path: string = DIGESTS_PATH): { header: string; dige
 }
 
 /* ── the coordination prompts ──
- * The prompts the lead and its sidekicks are handed after the plan is made (the flow author's and the explore sidekick's briefs, the
- * lead's review, correction, re-plan and exploration turns) are assembled from registered sections like the generator's, so the same lint
+ * The prompts the lead and its sidekicks are handed after the plan is made (the flow author's brief, the
+ * lead's review, correction and re-plan turns) are assembled from registered sections like the generator's, so the same lint
  * holds them. Each is paired with the static role layer of the agent that reads it; a delegation brief is also held to its contract
  * (R17) and to what its turn grants (R18). Their budgets are recorded apart, in prompt-contract-coordination-baseline.json. */
 
@@ -873,7 +871,7 @@ export interface CoordinationCell {
   key: string;
   prompt: string;
   /* The agent whose role prompt the cell's static layer holds. */
-  role: "qa-author" | "qa-explore" | "qa-lead";
+  role: "qa-author" | "qa-lead";
   lint: LintCell;
   assembledBytes: number;
   directives: number;
@@ -907,9 +905,7 @@ function coordinationBriefs() {
   const scope = { readablePaths: ["."], writablePaths: ["e2e/flows/cart.spec.ts"], allowedCommands: [] };
   const author = (extra: Parameters<typeof createDelegationBrief>[0] extends infer I ? Partial<I> : never = {}) =>
     createDelegationBrief({ redaction: MATRIX_REDACTION, delegationId: "r1-d1", runId: "r1", objective: "the cart lists the items added to it", task: "Write the Playwright E2E spec for ONE flow.", scope, acceptanceCriteria: ["adding an item shows it in the cart"], tools: ["read", "write", "run_spec"], ...extra } as never);
-  const explore = (tools: string[]) =>
-    createDelegationBrief({ redaction: MATRIX_REDACTION, delegationId: "r1-explore-q1", runId: "r1", objective: "does the cart page list items?", task: "Answer ONE question for the lead, read-only.", scope: { readablePaths: ["."], writablePaths: [], allowedCommands: [] }, tools });
-  return { author, explore };
+  return { author };
 }
 
 function coordinationReviewFixtures() {
@@ -925,7 +921,6 @@ export function buildCoordinationMatrix(root: string = ROOT): CoordinationCell[]
   const review = coordinationReviewFixtures();
   const correctionFlows = [{ id: "cart", objective: "the cart lists items", specFile: "flows/cart.spec.ts", sessionOpen: true, spec: "test('x', async () => {});", candidates: ["uc-00000001"], seedFiles: ["src/cart.ts"] }];
   const findings = [{ text: "flows/cart.spec.ts: the selector is not scoped", spec: "flows/cart.spec.ts" }, { text: "src/cart.ts:12 no test exercised this line", file: "src/cart.ts", line: 12 }];
-  const outcome = { ran: true, questions: [{ id: "q1", question: "does the cart list items?", status: "answered", findings: [{ claim: "the cart lists items", kind: "page", ref: "/cart", evidence: "heading", verification: "verified" }] }, { id: "q2", question: "is there a coupon?", status: "failed", findings: [] }] };
   const prompts: Array<{ prompt: string; variant: string; role: CoordinationCell["role"]; assembled: AssembledPrompt; delegation?: DelegationGrant }> = [
     { prompt: "flow-author-brief", variant: "plain", role: "qa-author", assembled: assembleSidekickBrief(MATRIX_REDACTION, briefs.author()), delegation: { tools: ["read", "write", "run_spec"], writes: true } },
     {
@@ -947,8 +942,6 @@ export function buildCoordinationMatrix(root: string = ROOT): CoordinationCell[]
       })),
       delegation: { tools: ["read", "write", "run_spec", "authbrowser", "set_geolocation"], writes: true },
     },
-    { prompt: "explore-brief", variant: "graph", role: "qa-explore", assembled: assembleExploreBrief(MATRIX_REDACTION, briefs.explore(["read", "codegraph"])), delegation: { tools: ["read", "codegraph"], writes: false } },
-    { prompt: "explore-brief", variant: "graph-and-browser", role: "qa-explore", assembled: assembleExploreBrief(MATRIX_REDACTION, briefs.explore(["read", "codegraph", "authbrowser"])), delegation: { tools: ["read", "codegraph", "authbrowser"], writes: false } },
     { prompt: "lead-review", variant: "turn-1", role: "qa-lead", assembled: assembleLeadReview(MATRIX_REDACTION, review.flows, { turn: 1, maxTurns: 3 }) },
     { prompt: "lead-review", variant: "last-turn-with-gaps", role: "qa-lead", assembled: assembleLeadReview(MATRIX_REDACTION, review.flows, { turn: 3, maxTurns: 3 }, review.gaps) },
     ...(Object.values(CORRECTION_ORIGIN) as CorrectionOrigin[]).map((origin) => ({ prompt: "lead-correction", variant: origin, role: "qa-lead" as const, assembled: assembleLeadCorrection(MATRIX_REDACTION, correctionFlows, findings, origin) })),
@@ -958,7 +951,6 @@ export function buildCoordinationMatrix(root: string = ROOT): CoordinationCell[]
     { prompt: "lead-feedback", variant: "plain", role: "qa-author", assembled: assembleSidekickFeedback(MATRIX_REDACTION, "Assert the total row, not the count.", "Respond with the SAME JSON output contract for delegationId=d runId=r.") },
     { prompt: "lead-correction-refused", variant: "plain", role: "qa-lead", assembled: assembleRefusedCorrection([{ flowId: "cart", finding: 3, reason: "the finding is not one of the turn's" }], 2) },
     { prompt: "lead-plan-rejected", variant: "malformed", role: "qa-lead", assembled: assembleRejectedPlanRequest("malformed") },
-    { prompt: "lead-explore-outcome", variant: "answered", role: "qa-lead", assembled: assembleExploreOutcome(MATRIX_REDACTION, outcome as never) },
   ];
   const staticByRole = new Map<CoordinationCell["role"], LintSection[]>();
   const staticOf = (role: CoordinationCell["role"]): LintSection[] => {

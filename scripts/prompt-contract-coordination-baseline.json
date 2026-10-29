@@ -1,13 +1,5 @@
 {
   "cells": {
-    "explore-brief/graph": {
-      "bytes": 625,
-      "directives": 0
-    },
-    "explore-brief/graph-and-browser": {
-      "bytes": 716,
-      "directives": 1
-    },
     "flow-author-brief/full": {
       "bytes": 3678,
       "directives": 5
@@ -44,10 +36,6 @@
       "bytes": 512,
       "directives": 0
     },
-    "lead-explore-outcome/answered": {
-      "bytes": 551,
-      "directives": 0
-    },
     "lead-feedback/plain": {
       "bytes": 128,
       "directives": 0
@@ -79,8 +67,7 @@
   },
   "staticLayers": {
     "qa-author": 26180,
-    "qa-explore": 10092,
-    "qa-lead": 16228
+    "qa-lead": 15279
   },
   "lastIncrease": {
     "reason": "stubbed-response rule: the lead's needs-unavailable-state basis names the stubbed-test route",

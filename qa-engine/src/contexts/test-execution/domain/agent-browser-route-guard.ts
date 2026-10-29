@@ -35,13 +35,8 @@ export interface RouteGuardPolicy {
   allowMutating: readonly string[];
 }
 
-export interface GuardOptions {
-  /* The caller never writes to DEV: the app's allowMutating entries are ignored and every method that writes is blocked. */
-  readOnly?: boolean;
-}
-
 export interface RouteGuard {
-  decide(request: GuardRequest, options?: GuardOptions): GuardDecision;
+  decide(request: GuardRequest): GuardDecision;
 }
 
 const SAFE_METHODS: ReadonlySet<string> = new Set(["GET", "HEAD", "OPTIONS"]);
@@ -126,7 +121,7 @@ export function createRouteGuard(policy: RouteGuardPolicy): RouteGuard {
   });
 
   return {
-    decide(request, options) {
+    decide(request) {
       let url: URL;
       try {
         url = new URL(request.url);
@@ -142,7 +137,7 @@ export function createRouteGuard(policy: RouteGuardPolicy): RouteGuard {
       if (deny.some((re) => re.test(path))) return { allow: false, reason: GUARD_REASON.DENY_ROUTE, detail: `${url.pathname} is a route this app closes to the agent` };
       const method = request.method.toUpperCase();
       if (SAFE_METHODS.has(method)) return { allow: true };
-      if (options?.readOnly !== true && allow.some((entry) => (entry.method === undefined || entry.method === method) && entry.path.test(url.pathname))) return { allow: true };
+      if (allow.some((entry) => (entry.method === undefined || entry.method === method) && entry.path.test(url.pathname))) return { allow: true };
       return { allow: false, reason: GUARD_REASON.METHOD, detail: `${method} ${describe(url)} would write to DEV` };
     },
   };

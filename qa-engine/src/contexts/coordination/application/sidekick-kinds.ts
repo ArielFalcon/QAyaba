@@ -9,12 +9,11 @@ import type { WindowFitOutcome } from "@kernel/prompt-sections.ts";
 import type { DelegationBrief } from "./delegation-brief.ts";
 import { readDelegationResult } from "./delegation-reading.ts";
 import type { DelegationResult } from "./delegation-result.ts";
-import { readExploreResult, renderExploreBrief } from "./explore-kind.ts";
 import type { DevStateGround } from "./dev-state-backing.ts";
 import { renderSidekickBrief } from "./sidekick-prompt.ts";
 import { AUTHOR_SIDEKICK, REVIEW_SIDEKICK } from "@kernel/sidekick-session.ts";
 
-export const SIDEKICK_KIND = { AUTHOR: "author", EXPLORE: "explore", REVIEW: "review" } as const;
+export const SIDEKICK_KIND = { AUTHOR: "author", REVIEW: "review" } as const;
 export type SidekickKind = (typeof SIDEKICK_KIND)[keyof typeof SIDEKICK_KIND];
 
 /* The capacity a session runs at: the escalated one is a fresh sidekick the lead's review starts on a flow that is stuck. */
@@ -37,8 +36,8 @@ export type AgentTool = (typeof AGENT_TOOL)[keyof typeof AGENT_TOOL];
 export const SIDEKICK_WORKSPACE = { ISOLATED_SPEC_FILE: "isolated-spec-file", WORKING_COPY: "working-copy" } as const;
 export type SidekickWorkspace = (typeof SIDEKICK_WORKSPACE)[keyof typeof SIDEKICK_WORKSPACE];
 
-/* What bounds a kind's time: the flow budget the plan admitted, the run's own deadline and its tier budget for an author of the whole run, the exploration budget, the reviewer's session timeout. `maxSteps` is the roster's. */
-export const SIDEKICK_BUDGET = { FLOW: "flow-budget", RUN: "run-deadline", EXPLORE: "explore-budget", REVIEW: "review-timeout" } as const;
+/* What bounds a kind's time: the flow budget the plan admitted, the run's own deadline and its tier budget for an author of the whole run, the reviewer's session timeout. `maxSteps` is the roster's. */
+export const SIDEKICK_BUDGET = { FLOW: "flow-budget", RUN: "run-deadline", REVIEW: "review-timeout" } as const;
 export type SidekickBudget = (typeof SIDEKICK_BUDGET)[keyof typeof SIDEKICK_BUDGET];
 
 interface SidekickKindBase {
@@ -55,7 +54,7 @@ interface SidekickKindBase {
 
 /* A kind the lead briefs for one flow: the brief is a `DelegationBrief` and the answer a `DelegationResult`. */
 export interface DelegatingKindSpec extends SidekickKindBase {
-  readonly id: typeof SIDEKICK_KIND.AUTHOR | typeof SIDEKICK_KIND.EXPLORE;
+  readonly id: typeof SIDEKICK_KIND.AUTHOR;
   /* `fit` is the window fit rule of the model the session runs on: a brief over it gives its degradable sections up as references. */
   render(redaction: RedactionPort, brief: DelegationBrief, fit?: (bytes: number) => WindowFitOutcome): { text: string; sectionSizes: Record<string, number>; stablePrefixBytes?: number };
   /* `ground` is what the orchestrator holds of the flow, for the claims an answer makes about DEV's state; a kind that makes none ignores it. */
@@ -103,18 +102,6 @@ const AUTHOR_TARGETS: Readonly<Record<AuthorTarget, AuthorTargetSpec>> = {
 
 export const authorTargetSpec = (target: AuthorTarget): AuthorTargetSpec => AUTHOR_TARGETS[target];
 
-const EXPLORE: DelegatingKindSpec = {
-  id: SIDEKICK_KIND.EXPLORE,
-  agent: "qa-explore",
-  role: "explore",
-  tools: [AGENT_TOOL.READ, AGENT_TOOL.CODEGRAPH, AGENT_TOOL.AUTHBROWSER],
-  tiers: [SIDEKICK_TIER.STANDARD],
-  workspace: SIDEKICK_WORKSPACE.WORKING_COPY,
-  budget: SIDEKICK_BUDGET.EXPLORE,
-  render: (redaction, brief) => renderExploreBrief(redaction, brief),
-  parse: (redaction, output, brief) => readExploreResult(redaction, output, brief),
-};
-
 const REVIEW: ReviewKindSpec = {
   id: SIDEKICK_KIND.REVIEW,
   ...REVIEW_SIDEKICK,
@@ -124,7 +111,7 @@ const REVIEW: ReviewKindSpec = {
   budget: SIDEKICK_BUDGET.REVIEW,
 };
 
-const KINDS: Readonly<Partial<Record<SidekickKind, SidekickKindSpec>>> = { [SIDEKICK_KIND.AUTHOR]: AUTHOR, [SIDEKICK_KIND.EXPLORE]: EXPLORE, [SIDEKICK_KIND.REVIEW]: REVIEW };
+const KINDS: Readonly<Partial<Record<SidekickKind, SidekickKindSpec>>> = { [SIDEKICK_KIND.AUTHOR]: AUTHOR, [SIDEKICK_KIND.REVIEW]: REVIEW };
 
 /* Every kind the registry holds. */
 export const REGISTERED_SIDEKICK_KINDS = (): SidekickKindSpec[] => Object.values(KINDS);

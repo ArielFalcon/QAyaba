@@ -3,8 +3,6 @@
 import type { PlanSnapshotPort } from "@kernel/ports/plan-snapshot.port.ts";
 import { sanitizedPlanSnapshots } from "@kernel/ports/plan-snapshot.port.ts";
 import type { AgentRuntimePort } from "@kernel/ports/agent-runtime.port.ts";
-import type { CodeGraphPort } from "@kernel/ports/code-graph.port.ts";
-import { DEFAULT_WALK_POLICY } from "@kernel/code/index.ts";
 import type { RedactionPort } from "@kernel/ports/redaction.port.ts";
 import type { RunDeadlineView } from "@kernel/run-deadline.ts";
 import type { TelemetryPort } from "@kernel/telemetry/telemetry.port.ts";
@@ -35,9 +33,6 @@ export interface CoordinationDeps {
   redaction: RedactionPort;
   /* The spec file, relative to the spec directory, that a flow's id names (the prompt builders own the name). */
   specFileFor: (flowId: string) => string;
-  /* The run's code graph and the repository it indexes: an explore finding that names a symbol is verified against it. */
-  codeGraph?: CodeGraphPort;
-  codeGraphRepoDir?: string;
   /* The outbound sanitizer for the plan a run keeps; with `planSnapshots`, otherwise nothing is kept. */
   sanitize?: (text: string) => string;
   planSnapshots?: PlanSnapshotPort;
@@ -76,7 +71,6 @@ export function buildCoordination(deps: CoordinationDeps): CoordinationApi {
       ...(deps.planSnapshots && deps.sanitize ? { planSnapshots: sanitizedPlanSnapshots(deps.planSnapshots, deps.sanitize) } : {}),
       specFileFor: deps.specFileFor,
       ...(deps.contextBudget ? { contextBudget: deps.contextBudget } : {}),
-      ...(deps.codeGraph && deps.codeGraphRepoDir ? { graphHolds: (ref) => graphHoldsSymbol(deps.codeGraph!, deps.codeGraphRepoDir!, ref) } : {}),
       /* What a sidekick wrote is untrusted: the lead's review reads it through the confined reader, and an unreadable spec is shown as none. */
       readSpec: async (root, specFile) => {
         try {
@@ -89,15 +83,4 @@ export function buildCoordination(deps: CoordinationDeps): CoordinationApi {
       ...(delegation.deadline ? { deadline: delegation.deadline } : {}),
     }),
   };
-}
-
-/* A symbol ref is `<repo-relative file>#<symbol>`: the graph holds it when it finds that symbol in that file; a bare name is held when a route points at a symbol of that name. Any answer but a clear yes is no. */
-export async function graphHoldsSymbol(codeGraph: CodeGraphPort, repoDir: string, ref: string): Promise<boolean> {
-  const at = ref.indexOf("#");
-  if (at > 0 && at < ref.length - 1) {
-    const found = await codeGraph.callersOf(repoDir, [{ file: ref.slice(0, at), symbol: ref.slice(at + 1) }], { ...DEFAULT_WALK_POLICY, depth: 0 });
-    return found.ok && found.value.symbols.some((s) => s.file === ref.slice(0, at) && s.symbol === ref.slice(at + 1));
-  }
-  const routes = await codeGraph.routes(repoDir);
-  return routes.ok && routes.value.some((route) => route.target?.symbol === ref);
 }
