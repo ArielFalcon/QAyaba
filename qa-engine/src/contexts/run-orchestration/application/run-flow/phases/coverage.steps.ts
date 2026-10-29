@@ -14,6 +14,7 @@ import { acceptedRegeneration, remeasured, rollbackDelivered, withAcceptanceCall
 import { executeAccepted, validateAccepted } from "./execute.steps.ts";
 import { regenerate, type EvidenceFinding } from "./generation-services.ts";
 import { branchCasesAction, coverageRegenAction } from "../../../domain/coverage-regen.ts";
+import { acceptanceNamespace } from "../../../domain/acceptance-namespace.ts";
 
 type Result = Promise<StepOutcome<RunState>>;
 
@@ -226,7 +227,7 @@ export async function regenerateAtGap(
     return { outcome: "empty", run, acceptanceCalls, leadCorrections };
   }
   if (changedSpecFiles.length === 0) return { outcome: "empty", run, acceptanceCalls, leadCorrections };
-  const namespace = `${input.runId}-acc${acceptanceCalls++}`;
+  const namespace = acceptanceNamespace(input.runId, acceptanceCalls++);
   const outcome = await acceptance.accept({
     specDir: workspace.specDir,
     changedSpecFiles,

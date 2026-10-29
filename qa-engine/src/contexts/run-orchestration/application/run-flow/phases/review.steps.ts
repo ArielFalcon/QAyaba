@@ -21,6 +21,7 @@ import { REVIEW_DECISION_EFFECT, runOf, type ReviewDecidedBy, type ReviewSession
 import { acceptedRegeneration, addRetries, remeasured, rollbackDelivered, withAcceptanceCalls, withRun } from "../reducers.ts";
 import { liveExecutionOptions, executeAccepted, validateAccepted } from "./execute.steps.ts";
 import { reviewRequired } from "../../../domain/review-required.ts";
+import { acceptanceNamespace } from "../../../domain/acceptance-namespace.ts";
 import { closedLoopSignal, correctionBudgetSpent, correctThroughLead, mayCorrectThroughLead, regenerateByAuthor } from "./generation-services.ts";
 import { CORRECTION_ORIGIN, type CorrectionFinding } from "@contexts/coordination/application/index.ts";
 import { resolveTested } from "./fix-loop.steps.ts";
@@ -415,7 +416,7 @@ export async function reviewCorrect(state: Readonly<RunState>, ctx: WorkspaceRun
   const outcome = await acceptance.accept({
     specDir: workspace.specDir,
     changedSpecFiles: cur.changedSpecFiles,
-    namespace: `${input.runId}-acc${acceptanceCalls++}`,
+    namespace: acceptanceNamespace(input.runId, acceptanceCalls++),
     snapshot: cur.snapshot,
     /* A turn that changed no file the specs import is accepted spec file by spec file. */
     independentSpecs: cur.changedSupportFiles.length === 0,

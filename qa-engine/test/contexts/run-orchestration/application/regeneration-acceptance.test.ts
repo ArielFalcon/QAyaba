@@ -4,10 +4,13 @@ import assert from "node:assert/strict";
 import { RegenerationAcceptance } from "@contexts/run-orchestration/application/regeneration-acceptance.ts";
 import { MAX_ACCEPTANCE_EXECUTIONS } from "@kernel/derive-cycle-backstop.ts";
 import { isRunDeadlineError } from "@kernel/run-deadline.ts";
+import { acceptanceNamespace } from "@contexts/run-orchestration/domain/acceptance-namespace.ts";
 import type { SuiteRestorePoint } from "@contexts/run-orchestration/domain/suite-restore-point.ts";
 import type { SuiteRestorePort } from "@contexts/run-orchestration/application/ports/suite-restore.port.ts";
 import type { ExecutionPort, ValidationPort } from "@contexts/test-execution/application/index.ts";
 import type { RunDeadlinePort } from "@contexts/run-orchestration/application/ports/run-deadline.port.ts";
+
+const NAMESPACE = acceptanceNamespace("run-1", 0);
 
 const bytesOf = (text: string): Uint8Array => new TextEncoder().encode(text);
 
@@ -57,7 +60,7 @@ test("a green regeneration is accepted: its changed specs are executed once unde
   const outcome = await h.service.accept({
     specDir: "/w/e2e",
     changedSpecFiles: ["flows/checkout.spec.ts"],
-    namespace: "run-1-acc0",
+    namespace: NAMESPACE,
     snapshot: snapshotOf(["flows/checkout.spec.ts"]),
     deadline: deadline(60_000),
     validate,
@@ -70,7 +73,7 @@ test("a green regeneration is accepted: its changed specs are executed once unde
     assert.equal(outcome.execution?.verdict, "pass");
     assert.deepEqual(outcome.proof.map((p) => p.file), ["flows/checkout.spec.ts"]);
   }
-  assert.deepEqual(h.executed, [{ specFiles: ["flows/checkout.spec.ts"], retries: 0, namespace: "run-1-acc0" }]);
+  assert.deepEqual(h.executed, [{ specFiles: ["flows/checkout.spec.ts"], retries: 0, namespace: NAMESPACE }]);
   assert.deepEqual(h.ledgered.map((l) => l.file), ["flows/checkout.spec.ts"]);
   assert.equal(h.ledgered[0]!.sha256, "sha-26", "the ledger carries the sha256 of the accepted bytes");
   assert.equal(Buffer.from(h.ledgered[0]!.bytes!).toString("utf8"), "now:flows/checkout.spec.ts", "the ledger carries the accepted bytes themselves, so a later restore has them");
@@ -82,7 +85,7 @@ test("a regeneration that fails validation restores its prior bytes and is rejec
   const outcome = await h.service.accept({
     specDir: "/w/e2e",
     changedSpecFiles: ["flows/checkout.spec.ts"],
-    namespace: "run-1-acc0",
+    namespace: NAMESPACE,
     snapshot: snapshotOf(["flows/checkout.spec.ts"]),
     deadline: deadline(60_000),
     validate: async () => ({ ok: false, errors: ["TS2554: expected 2 arguments"] }),
@@ -102,7 +105,7 @@ test("a regeneration that fails execution restores its prior bytes and is reject
   const outcome = await h.service.accept({
     specDir: "/w/e2e",
     changedSpecFiles: ["flows/checkout.spec.ts"],
-    namespace: "run-1-acc0",
+    namespace: NAMESPACE,
     snapshot: snapshotOf(["flows/checkout.spec.ts"]),
     deadline: deadline(60_000),
     validate,
@@ -165,7 +168,7 @@ test("a file the turn created is removed when the regeneration is rejected", asy
   const outcome = await h.service.accept({
     specDir: "/w/e2e",
     changedSpecFiles: ["flows/created.spec.ts"],
-    namespace: "run-1-acc0",
+    namespace: NAMESPACE,
     snapshot: snapshotOf([]), // nothing existed before the turn
     deadline: deadline(60_000),
     validate: async () => ({ ok: false, errors: ["type error"] }),
@@ -183,7 +186,7 @@ test("every changed file is executed and has a case in the outcome, whatever pro
   const outcome = await h.service.accept({
     specDir: "/w/e2e",
     changedSpecFiles: files,
-    namespace: "run-1-acc0",
+    namespace: NAMESPACE,
     snapshot: snapshotOf(files),
     deadline: deadline(60_000),
     validate,
@@ -200,7 +203,30 @@ test("every changed file is executed and has a case in the outcome, whatever pro
     assert.deepEqual(outcome.kept, files);
     assert.deepEqual(outcome.execution?.cases.map((c) => c.file), files, "a case for each kept file");
   }
-  assert.deepEqual(h.executed, [{ specFiles: files, retries: 0, namespace: "run-1-acc0" }]);
+  assert.deepEqual(h.executed, [{ specFiles: files, retries: 0, namespace: NAMESPACE }]);
+});
+
+test("a regeneration that changed no spec file is accepted with nothing executed, even with no execution left and no time left", async () => {
+  const h = harness();
+  for (let i = 0; i < MAX_ACCEPTANCE_EXECUTIONS; i++) assert.equal(h.service.spendExecution(), true);
+  const outcome = await h.service.accept({
+    specDir: "/w/e2e",
+    changedSpecFiles: [],
+    namespace: NAMESPACE,
+    snapshot: snapshotOf([]),
+    deadline: deadline(0),
+    validate,
+    execute: h.execute,
+  });
+
+  assert.equal(outcome.kind, "accepted", "nothing to execute, so neither the cap nor the deadline applies");
+  if (outcome.kind === "accepted") {
+    assert.equal(outcome.execution, undefined);
+    assert.deepEqual([outcome.executedSpecs, outcome.kept, outcome.restored, outcome.proof], [[], [], [], []]);
+  }
+  assert.equal(h.executed.length, 0);
+  assert.equal(h.ledgered.length, 0);
+  assert.equal(h.restores.length, 0);
 });
 
 test("at the cap a further regeneration is not executed: its snapshot is restored and the prior result stands", async () => {
@@ -235,7 +261,7 @@ test("no time left before an acceptance execution throws the run's deadline erro
     h.service.accept({
       specDir: "/w/e2e",
       changedSpecFiles: ["flows/checkout.spec.ts"],
-      namespace: "run-1-acc0",
+      namespace: NAMESPACE,
       snapshot: snapshotOf(["flows/checkout.spec.ts"]),
       deadline: deadline(0),
       validate,
@@ -261,7 +287,7 @@ test("the contract observation sees the changed specs before validation and neve
   const outcome = await service.accept({
     specDir: "/w/e2e",
     changedSpecFiles: ["flows/checkout.spec.ts"],
-    namespace: "run-1-acc0",
+    namespace: NAMESPACE,
     snapshot: snapshotOf(["flows/checkout.spec.ts"]),
     deadline: deadline(60_000),
     validate,
@@ -281,7 +307,7 @@ test("a regeneration whose execution fails in one spec file keeps every spec fil
   const outcome = await h.service.accept({
     specDir: "/w/e2e",
     changedSpecFiles: ["flows/green.spec.ts", "flows/red.spec.ts", "flows/created.spec.ts"],
-    namespace: "run-1-acc0",
+    namespace: NAMESPACE,
     snapshot: snapshotOf(["flows/green.spec.ts", "flows/red.spec.ts"]),
     independentSpecs: true,
     deadline: deadline(60_000),
@@ -311,7 +337,7 @@ test("a spec file that was proved earlier is judged on its own cases when anothe
   const outcome = await h.service.accept({
     specDir: "/w/e2e",
     changedSpecFiles: ["flows/proved.spec.ts", "flows/red.spec.ts"],
-    namespace: "run-1-acc0",
+    namespace: NAMESPACE,
     snapshot: snapshotOf(["flows/proved.spec.ts", "flows/red.spec.ts"]),
     independentSpecs: true,
     deadline: deadline(60_000),
@@ -334,7 +360,7 @@ test("a spec file with no case in a failing execution is restored, not kept on a
   const outcome = await h.service.accept({
     specDir: "/w/e2e",
     changedSpecFiles: ["flows/silent.spec.ts", "flows/red.spec.ts"],
-    namespace: "run-1-acc0",
+    namespace: NAMESPACE,
     snapshot: snapshotOf(["flows/silent.spec.ts", "flows/red.spec.ts"]),
     independentSpecs: true,
     deadline: deadline(60_000),
@@ -345,12 +371,34 @@ test("a spec file with no case in a failing execution is restored, not kept on a
   assert.equal(outcome.kind, "rejected", "no file is left standing, so the regeneration is rejected whole");
 });
 
+test("a spec file with no case is restored while another spec file stands: the record holds only the cases of the files it kept", async () => {
+  const h = harness();
+  const outcome = await h.service.accept({
+    specDir: "/w/e2e",
+    changedSpecFiles: ["flows/green.spec.ts", "flows/silent.spec.ts", "flows/red.spec.ts"],
+    namespace: NAMESPACE,
+    snapshot: snapshotOf(["flows/green.spec.ts", "flows/silent.spec.ts", "flows/red.spec.ts"]),
+    independentSpecs: true,
+    deadline: deadline(60_000),
+    validate,
+    execute: async () => ({ verdict: "fail", cases: [caseOf("flows/green.spec.ts", "pass"), caseOf("flows/red.spec.ts", "fail")], logs: "" }),
+  });
+
+  assert.equal(outcome.kind, "accepted");
+  if (outcome.kind === "accepted") {
+    assert.deepEqual(outcome.kept, ["flows/green.spec.ts"]);
+    assert.deepEqual(outcome.restored, ["flows/silent.spec.ts", "flows/red.spec.ts"], "a file the execution showed no case of has no pass to stand on");
+    assert.deepEqual(outcome.execution?.cases.map((c) => c.file), ["flows/green.spec.ts"]);
+  }
+  assert.deepEqual(h.restores, [{ created: [], files: ["flows/silent.spec.ts", "flows/red.spec.ts"] }]);
+});
+
 test("a regeneration with no spec file all green is rejected and restored whole, as before", async () => {
   const h = harness();
   const outcome = await h.service.accept({
     specDir: "/w/e2e",
     changedSpecFiles: ["flows/a.spec.ts", "flows/b.spec.ts"],
-    namespace: "run-1-acc0",
+    namespace: NAMESPACE,
     snapshot: snapshotOf(["flows/a.spec.ts", "flows/b.spec.ts"]),
     independentSpecs: true,
     deadline: deadline(60_000),
@@ -369,7 +417,7 @@ test("a fully green regeneration of independent specs is accepted whole, as befo
   const outcome = await h.service.accept({
     specDir: "/w/e2e",
     changedSpecFiles: ["flows/a.spec.ts", "flows/b.spec.ts"],
-    namespace: "run-1-acc0",
+    namespace: NAMESPACE,
     snapshot: snapshotOf(["flows/a.spec.ts"]),
     independentSpecs: true,
     deadline: deadline(60_000),
@@ -397,7 +445,7 @@ test("a failure no spec file can be blamed for rejects the whole regeneration, e
     const outcome = await h.service.accept({
       specDir: "/w/e2e",
       changedSpecFiles: ["flows/a.spec.ts", "flows/b.spec.ts"],
-      namespace: "run-1-acc0",
+      namespace: NAMESPACE,
       snapshot: snapshotOf(["flows/a.spec.ts", "flows/b.spec.ts"]),
       independentSpecs: true,
       deadline: deadline(60_000),
@@ -415,7 +463,7 @@ test("a regeneration that changed a file the specs import is judged whole: one f
   const outcome = await h.service.accept({
     specDir: "/w/e2e",
     changedSpecFiles: ["flows/a.spec.ts", "flows/b.spec.ts"],
-    namespace: "run-1-acc0",
+    namespace: NAMESPACE,
     snapshot: snapshotOf(["flows/a.spec.ts", "flows/b.spec.ts"]),
     deadline: deadline(60_000),
     validate,
