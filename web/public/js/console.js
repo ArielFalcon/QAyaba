@@ -1,7 +1,7 @@
 /* ═══════════════════════════════════════════════════════════════════════
    qayaba console — vanilla render of the QA control panel.
    Mission-control Fleet, runs feed, run detail + the live run, app detail,
-   integrity, learning, reports. Deep-linkable via ?run=<id> and #<section>.
+   integrity, reports. Deep-linkable via ?run=<id> and #<section>.
    All data comes from window.QayabaConsole.api (see api.js). The UI never
    fetches directly; swap config.mode mock↔live to connect to the server.
    ═══════════════════════════════════════════════════════════════════════
@@ -425,7 +425,6 @@
       KpiCard({ label: 'issues open', value: io.v == null ? 'n/a' : io.v, dir: 'down', good: true,
                 deltaText: (io.v == null || io.prev == null) ? null : '' + (io.v - io.prev),
                 series: io.series, seriesColor: 'var(--fail-500)', sub: io.v == null ? 'not available from the API' : 'awaiting a fix' }) + delegationKpi + '</div>';
-    const ledgerBtn = '<button data-action="nav" data-id="learning" style="border:0;background:transparent;cursor:pointer;display:inline-flex;align-items:center;gap:5px;font-family:var(--font-mono);font-size:12px;color:var(--ember-600)">ledger ' + I('arrow-right', 13) + '</button>';
     const allRunsBtn = '<button data-action="nav" data-id="runs" style="border:0;background:transparent;cursor:pointer;display:inline-flex;align-items:center;gap:5px;font-family:var(--font-mono);font-size:12px;color:var(--ember-600)">all runs ' + I('arrow-right', 13) + '</button>';
     const windowLabel = (s.window && s.prevWindow) ? ('fleet signals · ' + s.window + ' vs ' + s.prevWindow) : 'fleet signals · not available from the API';
     return '<div style="padding:24px 28px 36px;display:flex;flex-direction:column;gap:var(--space-6)">' +
@@ -435,7 +434,7 @@
       '<div style="display:flex;flex-direction:column;gap:var(--space-4)">' + sectionHead('watched repositories · drill into App Value', 'Fleet') +
       '<div class="pa-stagger" style="display:grid;grid-template-columns:repeat(auto-fit, minmax(280px, 1fr));gap:var(--space-4)">' + D.apps.map(AppFleetCard).join('') + '</div></div>' +
       '<div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.1fr);gap:var(--space-4);align-items:start">' +
-      Card({ eyebrow: 'where the guardrails fire · fleet', title: 'ErrorClass distribution', action: ledgerBtn, children: ErrorClassBars(D.fleetErrorClasses, 'var(--ink-700)') }) +
+      Card({ eyebrow: 'where the guardrails fire · fleet', title: 'ErrorClass distribution', children: ErrorClassBars(D.fleetErrorClasses, 'var(--ink-700)') }) +
       Card({ eyebrow: 'pipeline · all repos', title: 'Recent activity', bodyPadding: false, action: allRunsBtn, children: '<div>' + D.runs.filter((r) => !D.running || r.id !== D.running.id).slice(0, 5).map(RecentRow).join('') + '</div>' }) +
       '</div></div>';
   }
@@ -620,11 +619,10 @@
     if (live) {
       if (has('eta', 'how long', 'left', 'remaining', 'finish', 'done yet')) return "About 20–30s left. 2 of 3 specs are green; I'm executing the spinner case now, then the oracle runs mutation testing before I decide.";
       if (has('test', 'spec', 'running', 'current', 'executing', 'doing')) return "Right now I'm executing e2e/search/debounce.spec.ts against DEV — case 3 of 4 (\"shows spinner while a query is pending\"). The first two assertions passed in 412ms and 338ms.";
-      if (has('plan', 'next', 'step', 'stage', 'after')) return "Plan: classify → blast radius → recall rules → generate (done · 3 specs) → static gate (done) → execute (now) → oracle → decide. I'm on the execute stage.";
-      if (has('rule', 'recall', 'memory', 'engram', 'remember')) return "I recalled R-198 and R-204 for web-app and injected them into the prompt — Keycloak redirects and lazy-loaded content, both relevant to /search.";
+      if (has('plan', 'next', 'step', 'stage', 'after')) return "Plan: classify → blast radius → generate (done · 3 specs) → static gate (done) → execute (now) → oracle → decide. I'm on the execute stage.";
       if (has('cancel', 'stop', 'abort', 'kill')) return "Cancel from the header. The working copy is discarded and nothing is pushed — the orchestrator never writes to the watched repo mid-run.";
       if (has('why', 'debounce', 'slow', 'wait')) return "The debounce is intentional: the spec waits 300ms to confirm the query fires only after input settles — that's the behaviour this commit introduced.";
-      return "This run is on the execute stage — 2/3 specs green, executing the third. Ask me about the current test, the plan, or which rules I recalled.";
+      return "This run is on the execute stage — 2/3 specs green, executing the third. Ask me about the current test or the plan.";
     }
     if (has('fail', 'failed', 'wrong', 'broke')) {
       return run.verdict === 'fail'
@@ -640,9 +638,6 @@
     if (has('oracle', 'mutation', 'valuescore', 'value')) return run.oracle && run.oracle !== '—'
       ? 'Oracle valueScore was ' + run.oracle + ' — mutation testing caught most injected bugs, strong enough to promote the relevant rule to high confidence.'
       : "The oracle didn't run for this one (non-JS/TS target or shadow), so promotion fell back to the conservative prevention signal.";
-    if (has('rule', 'learn', 'memory', 'engram', 'ledger')) return run.verdict === 'fail'
-      ? 'I reflected on the failure and distilled a rule candidate into the ledger. Proven archetypes get injected into future prompts for ' + run.app + '.'
-      : 'I reinforced the recalled rules in the ledger. Proven archetypes keep getting injected into future ' + run.app + ' prompts.';
     if (has('pr', 'merge', 'issue', 'decision', 'outcome', 'result')) return 'Decision: ' + run.decision + '. ' + (run.verdict === 'pass' ? 'Green + reviewer-approved → PR with auto-merge.' : run.verdict === 'fail' ? 'A real failure → GitHub Issue, never a silent skip.' : '');
     if (has('rerun', 're-run', 'again', 'reproduce')) return 'I can re-run ' + run.sha + ' in ' + run.mode + ' mode — runs are deterministic, so a clean re-run of the same SHA should reproduce ' + run.verdict + '.';
     if (has('spec', 'test', 'generate', 'wrote')) return (run.newSpecs && run.newSpecs.length)
@@ -1107,66 +1102,6 @@
       Card({ eyebrow: 'confidence is earned in layers', title: 'Quality gate', bodyPadding: false, children: D.gates.length ? ('<div>' + D.gates.map((g, i) => GateRow(g, i > 0)).join('') + '</div>') : '<div style="padding:16px 18px;font-family:var(--font-mono);font-size:12px;color:var(--text-faint)">' + na + '</div>' }) + '</div>';
   }
 
-  function viewLearning() {
-    const devBadge = MockDataBadge();
-    const flywheel = D.flywheel, ledger = D.ledger;
-    const confTone = { high: { c: 'var(--pass-600)', bg: 'var(--pass-100)' }, med: { c: 'var(--flaky-600)', bg: 'var(--flaky-100)' }, low: { c: 'var(--ink-500)', bg: 'var(--bone-200)' } };
-    const STATUS = [['active', 'var(--pass-600)'], ['candidate', 'var(--ember-600)'], ['deprecated', 'var(--flaky-600)'], ['superseded', 'var(--ink-500)']];
-    const notes = D.engram.map((e) => [e.app, e.text]);
-    const wheelRow = flywheel.length
-      ? flywheel.map((f, i) => FlowNode({ icon: f.icon, label: f.label, stat: f.stat, unit: f.unit, note: f.note, last: i === flywheel.length - 1 })).join('')
-      : '<div style="padding:16px 0;font-family:var(--font-mono);font-size:12px;color:var(--text-faint)">flywheel counters not available from the API yet</div>';
-    const wheel = '<div style="display:flex;flex-direction:column;gap:var(--space-4)"><div style="display:flex;flex-direction:column;gap:3px">' + EYEBROW('labeler → oracle → reflector → distiller → curriculum') +
-      '<h2 style="font-size:17px;font-weight:700;letter-spacing:-0.015em;color:var(--text-strong);margin:0">The learning flywheel</h2></div>' +
-      '<div style="display:flex;align-items:stretch;gap:0">' + wheelRow + '</div>' +
-      Callout({ tone: 'important', label: 'promotion uses two signals', children: 'The <strong>oracle</strong> (mutation / fault-injection) is strong ground-truth — it promotes rules to high confidence where it runs. A conservative <strong>prevention signal</strong> is always available and caps at medium. So the wheel turns for every onboarded app, and "high confidence" is reserved for rules backed by real evidence.' }) + '</div>';
-    const inventory = '<div style="display:flex;flex-direction:column;gap:var(--space-4)"><div style="display:flex;align-items:center;gap:8px">' + I('book-marked', 15, 'color:var(--text-muted)') + EYEBROW('governed rule inventory · injected into future prompts') + '</div>' +
-      STATUS.map(([st, c]) => {
-        const items = ledger.rules.filter((r) => r.status === st);
-        if (!items.length) return '';
-        const rows = items.map((r, i) => {
-          const ct = confTone[r.confidence] || confTone.low, sr = r.outcomes ? Math.round(r.success * 100) : null;
-          const barCol = sr >= 75 ? 'var(--pass-500)' : sr >= 50 ? 'var(--flaky-500)' : 'var(--fail-500)';
-          return '<div style="' + sty({ display: 'flex', alignItems: 'center', gap: 14, padding: '12px 18px', borderTop: i ? 'var(--border-rule)' : 0, opacity: st === 'deprecated' || st === 'superseded' ? 0.7 : 1 }) + '">' +
-            '<span style="font-family:var(--font-mono);font-size:11.5px;color:var(--ember-600);width:50px;flex:none">' + esc(r.id) + '</span>' +
-            '<span style="flex:1;min-width:0;display:flex;align-items:center;gap:7px;font-size:12.5px;color:var(--text-body)"><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(r.trigger) + '</span>' + I('arrow-right', 12, 'color:var(--bone-400);flex:none') + '<span style="color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(r.action) + '</span></span>' +
-            '<span style="' + sty({ fontFamily: 'var(--font-mono)', fontSize: 10.5, color: 'var(--text-muted)', width: 110, flex: 'none', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }) + '">' + esc(r.errorClass) + '</span>' +
-            '<span style="' + sty({ fontFamily: 'var(--font-mono)', fontSize: 9.5, fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase', padding: '2px 7px', borderRadius: 'var(--radius-xs)', flex: 'none', border: '1px solid ' + ct.c, color: ct.c, background: ct.bg }) + '">' + esc(r.confidence) + '</span>' +
-            '<span style="font-family:var(--font-mono);font-size:10.5px;color:var(--text-faint);width:66px;text-align:right;flex:none">' + r.usage + '× · ' + r.outcomes + 'o</span>' +
-            '<span style="width:66px;flex:none;display:flex;align-items:center;gap:6px"><span style="flex:1;height:5px;background:var(--surface-sunken);border-radius:999px;overflow:hidden"><span style="display:block;width:' + (sr || 0) + '%;height:100%;background:' + barCol + '"></span></span><span style="font-family:var(--font-mono);font-size:10px;color:var(--text-muted);width:24px;text-align:right">' + (sr == null ? '—' : sr + '%') + '</span></span></div>';
-        }).join('');
-        return '<div style="display:flex;flex-direction:column;gap:8px"><div style="display:flex;align-items:center;gap:8px">' +
-          '<span style="width:8px;height:8px;border-radius:50%;background:' + c + '"></span>' +
-          '<span style="font-family:var(--font-mono);font-size:11px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:' + c + '">' + esc(st) + '</span>' +
-          '<span style="font-family:var(--font-mono);font-size:11px;color:var(--text-faint)">' + items.length + '</span></div>' +
-          '<div style="background:var(--surface-raised);border:var(--border-rule);border-radius:var(--radius-md);overflow:hidden">' + rows + '</div></div>';
-      }).join('') + '</div>';
-    const emptyRow = (text) => '<div style="padding:14px 18px;font-family:var(--font-mono);font-size:12px;color:var(--text-faint)">' + esc(text) + '</div>';
-    const maxPromo = Math.max.apply(null, ledger.archetypes.map((x) => x.promotions).concat([1]));
-    /* A corrupt stored curriculum is a fault to repair, shown as such — its archetypes are missing
-       from the list below, not proven absent. */
-    const corruptRows = (ledger.corruptCurricula || []).map((app) => '<div style="padding:11px 18px;border-bottom:var(--border-rule)">' +
-      UnknownPanel(app + ' · curriculum corrupt', 'The stored curriculum for ' + app + ' cannot be read, so its archetypes are missing here until it is repaired.', 'alert-triangle') + '</div>').join('');
-    const curriculum = Card({ eyebrow: 'curriculum · only proven archetypes inject', title: 'Scenario archetypes', bodyPadding: false, children: '<div>' + corruptRows + (ledger.archetypes.length
-      ? ledger.archetypes.slice().sort((a, b) => b.promotions - a.promotions).map((a, i) => '<div style="' + sty({ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 18px', borderTop: i ? 'var(--border-rule)' : 0 }) + '">' +
-        '<span style="flex:1;min-width:0;font-size:12.5px;color:var(--text-body);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(a.name) + '</span>' +
-        '<span style="' + sty({ display: 'inline-flex', alignItems: 'center', gap: 4, flex: 'none', fontFamily: 'var(--font-mono)', fontSize: 9.5, letterSpacing: '0.04em', textTransform: 'uppercase', padding: '2px 7px', borderRadius: 'var(--radius-xs)', border: '1px solid ' + (a.caughtRealBug ? 'var(--pass-600)' : 'var(--bone-400)'), color: a.caughtRealBug ? 'var(--pass-600)' : 'var(--text-faint)', background: a.caughtRealBug ? 'var(--pass-100)' : 'transparent' }) + '">' + I(a.caughtRealBug ? 'bug' : 'circle-dashed', 11) + (a.caughtRealBug ? 'caught bug' : 'unproven') + '</span>' +
-        '<span style="width:56px;flex:none;display:flex;align-items:center;gap:6px"><span style="flex:1;height:6px;background:var(--surface-sunken);border-radius:999px;overflow:hidden"><span style="display:block;width:' + ((a.promotions / maxPromo) * 100) + '%;height:100%;background:var(--ember-500)"></span></span><span style="font-family:var(--font-mono);font-size:10.5px;color:var(--text-muted)">' + a.promotions + '</span></span></div>').join('')
-      : emptyRow('no proven archetypes yet')) + '</div>' });
-    const audit = Card({ eyebrow: 'audit / veto · rule lifecycle', title: 'Governance log', bodyPadding: false, children: '<div>' + (ledger.audit.length
-      ? ledger.audit.map((a, i) => '<div style="' + sty({ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 18px', borderTop: i ? 'var(--border-rule)' : 0 }) + '">' +
-        '<span style="font-family:var(--font-mono);font-size:11.5px;color:var(--ember-600);width:50px;flex:none">' + esc(a.rule) + '</span>' +
-        '<span style="flex:1;min-width:0;font-size:12.5px;color:var(--text-body);line-height:1.4">' + esc(a.issue) + '</span>' +
-        '<span style="' + sty({ fontFamily: 'var(--font-mono)', fontSize: 9.5, fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase', padding: '2px 7px', borderRadius: 'var(--radius-xs)', flex: 'none', border: '1px solid ' + (a.level === 'demoted' ? 'var(--flaky-600)' : 'var(--pass-600)'), color: a.level === 'demoted' ? 'var(--flaky-600)' : 'var(--pass-600)' }) + '">' + esc(a.level) + '</span></div>').join('')
-      : emptyRow('not available from the API yet')) + '</div>' });
-    const engram = '<div style="display:flex;flex-direction:column;gap:var(--space-3)"><div style="display:flex;align-items:center;gap:8px">' + I('database', 15, 'color:var(--text-muted)') + EYEBROW('engram · episodic memory · per-app, volatile') + '</div>' +
-      (notes.length
-        ? notes.map(([app, t]) => '<div style="' + sty({ display: 'flex', gap: 14, padding: 'var(--space-4)', background: 'var(--surface-raised)', border: 'var(--border-rule)', borderRadius: 'var(--radius-sm)' }) + '"><span style="font-family:var(--font-mono);font-size:11px;color:var(--ember-600);width:96px;flex:none">' + esc(app) + '</span><span style="font-size:13.5px;color:var(--text-body);line-height:1.5">' + esc(t) + '</span></div>').join('')
-        : emptyRow('not available from the API yet')) + '</div>';
-    return '<div style="padding:24px 28px 36px;display:flex;flex-direction:column;gap:var(--space-6)">' + devBadge + wheel + inventory +
-      '<div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(300px,1fr));gap:var(--space-4);align-items:start">' + curriculum + audit + '</div>' + engram + '</div>';
-  }
-
   function insightBlock(ins, rank) {
     const shapeIcon = { multiplier: 'x', gauge: 'gauge', bars: 'bar-chart-3', sparkline: 'trending-up', note: 'info' };
     let viz;
@@ -1240,14 +1175,12 @@
     { id: 'overview', label: 'Fleet', icon: 'layout-grid' },
     { id: 'runs', label: 'Runs', icon: 'activity' },
     { id: 'integrity', label: 'Integrity', icon: 'shield-check' },
-    { id: 'learning', label: 'Learning', icon: 'brain' },
     { id: 'reports', label: 'Reports', icon: 'file-text' },
   ];
   const TITLES = {
     overview: ['Fleet', 'health across all watched apps'],
     runs: ['Runs', 'pipeline · activity · the live run'],
     integrity: ['Integrity', 'suite health · trust · determinism'],
-    learning: ['Learning', 'flywheel · governed ledger · engram'],
     reports: ['Reports', 'ad-hoc value & health reports'],
   };
   function fbSelect(label, opts) {
@@ -1337,7 +1270,6 @@
     }
     if (state.section === 'runs') return viewRunsFeed();
     if (state.section === 'integrity') return viewIntegrity();
-    if (state.section === 'learning') return viewLearning();
     if (state.section === 'reports') return viewReports();
     return viewOverview();
   }

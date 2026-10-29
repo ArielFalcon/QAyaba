@@ -29,7 +29,6 @@ export interface RunConfigEnvironment {
   staticPromptHash(): string | null;
   /* The run_spec and authenticated browser tools can be granted to a run (the service token is configured). */
   toolsGranted: boolean;
-  reflectorEnabled: boolean;
   campaignFrozen: boolean;
   /* The server's ceiling on content capture (QA_TELEMETRY_MAX_CAPTURE): no run, whatever it asks, captures more. */
   maxCapture: CaptureMode;
@@ -64,11 +63,9 @@ export function resolveRunConfig(app: AppConfig, request: RunConfigRequest, capt
     grounding: {
       /* The service-topology collaborator is one of the two advisory structural signals: it exists only for an app with services and declared boundaries. */
       stitcher: stitched ? (requestedGrounding.stitcher === false ? "off" : "signal") : null,
-      curriculum: env.campaignFrozen ? "frozen" : requestedGrounding.curriculum === false ? "off" : "learning",
       domPack: requestedGrounding.domPack ?? app.qa.domPack ?? true,
     },
     coverage: { mode: app.qa.changeCoverage?.mode ?? DEFAULT_COVERAGE_MODE, minRatio: app.qa.changeCoverage?.minRatio ?? DEFAULT_COVERAGE_MIN_RATIO },
-    reflector: env.reflectorEnabled && !env.campaignFrozen,
   };
 }
 
@@ -79,7 +76,6 @@ export function configInEffect(config: StoredRunConfig): RunConfigInEffect {
     closedLoop: config.levers.closedLoop,
     agentBrowser: config.levers.agentBrowser,
     coveragePolicy: config.coverage.mode,
-    reflector: config.reflector,
     campaignFreeze: config.campaignFreeze,
     staticPromptHash: config.prompt.staticHash,
     captureMode: config.levers.captureMode,
@@ -91,9 +87,8 @@ const NOT_RECORDED: StoredRunConfig = {
   campaignFreeze: null,
   runtime: null,
   prompt: { staticHash: null },
-  grounding: { stitcher: null, curriculum: null, domPack: null },
+  grounding: { stitcher: null, domPack: null },
   coverage: { mode: null, minRatio: null },
-  reflector: null,
 };
 
 export function parseStoredRunConfig(json: string | null | undefined): StoredRunConfig | undefined {
@@ -108,11 +103,9 @@ export function parseStoredRunConfig(json: string | null | undefined): StoredRun
       /* Only the keys this version knows: a record written by an older one may carry others, which are left out. */
       grounding: {
         stitcher: parsed.grounding?.stitcher ?? null,
-        curriculum: parsed.grounding?.curriculum ?? null,
         domPack: parsed.grounding?.domPack ?? null,
       },
       coverage: { ...NOT_RECORDED.coverage, ...(parsed.coverage ?? {}) },
-      reflector: parsed.reflector ?? null,
     };
   } catch {
     return undefined;

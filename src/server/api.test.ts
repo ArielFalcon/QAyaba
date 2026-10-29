@@ -1781,7 +1781,6 @@ test("POST /api/v1/runs rejects an agentBrowser that is not a boolean (nothing i
 const APP_ROUTES: ReadonlyArray<{ route: string; method: string; path: string; body?: string; over?: Partial<ApiDeps> }> = [
   { route: "create run", method: "POST", path: "/api/v1/runs", body: JSON.stringify({ app: "ghost", sha: "abc1234", mode: "diff", target: "e2e" }) },
   { route: "get app", method: "GET", path: "/api/v1/apps/ghost" },
-  { route: "intelligence", method: "GET", path: "/api/v1/apps/ghost/intelligence", over: { intelligence: () => { throw new Error("not reached"); } } },
   { route: "context map", method: "GET", path: "/api/v1/apps/ghost/context-map", over: { contextMap: () => null } },
   { route: "trends", method: "GET", path: "/api/v1/apps/ghost/trends", over: { trends: () => { throw new Error("not reached"); } } },
   { route: "report", method: "GET", path: "/api/v1/apps/ghost/report", over: { report: () => { throw new Error("not reached"); } } },

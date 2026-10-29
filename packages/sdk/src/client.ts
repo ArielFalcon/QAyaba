@@ -19,7 +19,6 @@ import type {
   CampaignRuns,
   QueueStatus,
   AppView,
-  IntelligenceView,
   SignalsView,
   CoordinationEventsView,
   TrendsView,
@@ -82,8 +81,6 @@ export function createClient(opts: ClientOptions) {
 
     listApps: () => request<AppView[]>("GET", "/api/v1/apps"),
     getApp: (name: string) => request<AppView>("GET", `/api/v1/apps/${q(name)}`),
-    getIntelligence: (app: string) =>
-      request<IntelligenceView>("GET", `/api/v1/apps/${q(app)}/intelligence`),
     getTrends: (app: string) => request<TrendsView>("GET", `/api/v1/apps/${q(app)}/trends`),
     getReport: (app: string) => request<ReportView>("GET", `/api/v1/apps/${q(app)}/report`),
     getRunReport: (runId: string) => request<RunReportView>("GET", `/api/v1/runs/${q(runId)}/report`),

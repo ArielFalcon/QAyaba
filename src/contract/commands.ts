@@ -152,7 +152,6 @@ export const CampaignInputSchema = z.object({
 /* The run's own choice of grounding sources (an A/B arm); every key absent means the app's setting. */
 export const GroundingInputSchema = z.object({
   stitcher: z.boolean().optional(),
-  curriculum: z.boolean().optional(),
   domPack: z.boolean().optional(),
 }).strict();
 export type GroundingInput = z.infer<typeof GroundingInputSchema>;
@@ -646,11 +645,9 @@ export const EffectiveConfigSchema = z.object({
   prompt: z.object({ staticHash: z.string().nullable() }),
   grounding: z.object({
     stitcher: z.string().nullable(),
-    curriculum: z.string().nullable(),
     domPack: z.boolean().nullable(),
   }),
   coverage: z.object({ mode: z.string().nullable(), minRatio: z.number().nullable() }),
-  reflector: z.boolean().nullable(),
 });
 
 /* GET /campaigns/:id/runs: the campaign's runs, optionally narrowed by variant labels. */
@@ -737,65 +734,6 @@ export type AgentModelInfo = z.infer<typeof AgentModelInfoSchema>;
 export type AgentConfigApplyResult = z.infer<typeof AgentConfigApplyResultSchema>;
 export type AgentRestartRequest = z.infer<typeof AgentRestartRequestSchema>;
 export type AgentRestartResponse = z.infer<typeof AgentRestartResponseSchema>;
-
-/** ── Intelligence (read-only projections of the persisted learning artifacts) ────── The operator console renders these; they are honest views of what the ledger, the value-oracle scorecard and the curriculum actually hold — no signal is invented. */
-
-export const LearningRuleViewSchema = z.object({
-  trigger: z.string(),
-  action: z.string(),
-  errorClass: z.string(),
-  confidence: z.enum(["low", "medium", "high"]),
-  usageCount: z.number().int().nonnegative(),
-  outcomeCount: z.number().int().nonnegative(),
-  successRate: z.number().nullable(),
-  status: z.enum(["candidate", "active", "deprecated", "superseded"]),
-});
-
-export const ScorecardViewSchema = z.object({
-  updatedAt: z.string(),
-  totalRuns: z.number().int().nonnegative(),
-  measuredRuns: z.number().int().nonnegative(),
-  avgValueScore: z.number().nullable(),
-  lastValueScore: z.number().nullable(),
-  entries: z.array(
-    z.object({
-      valueScore: z.number().nullable(),
-      /* null means "not measured" (the value-oracle never ran or reported no count) — distinct
-       * from a genuine measured zero. Never a fabricated 0. */
-      mutantCount: z.number().int().nonnegative().nullable(),
-      killedCount: z.number().int().nonnegative().nullable(),
-      target: z.string(),
-      at: z.string(),
-    }),
-  ),
-});
-
-export const CurriculumViewSchema = z.object({
-  updatedAt: z.string(),
-  archetypes: z.array(
-    z.object({
-      archetype: z.string(),
-      /* Proven STRICTLY by the adjudicator's app_defect verdict — never by coverage. */
-      caughtRealBug: z.boolean(),
-      promotionCount: z.number().int().nonnegative(),
-      /* The evidence ladder's second tier: runs in which this archetype was offered to the generator AND the run produced a determinable objective signal, and how many of those earned credit. The operator reads credited/evaluated as the archetype's hit rate for this app; evaluated 0 means "never tried", which every renderer must show as such and never as a 0/0 rate. */
-      evaluated: z.number().int().nonnegative(),
-      credited: z.number().int().nonnegative(),
-    }),
-  ),
-});
-
-export const IntelligenceViewSchema = z.object({
-  app: z.string(),
-  rules: z.array(LearningRuleViewSchema),
-  scorecard: ScorecardViewSchema.nullable(),
-  /* null when the app has no curriculum yet OR its stored row is corrupt; curriculumCorrupt tells the two apart. */
-  curriculum: CurriculumViewSchema.nullable(),
-  /* true when a curriculum row exists but cannot be parsed. Renderers must show it as corrupt (the row is kept for repair, never silently reset), never as "no curriculum yet". */
-  curriculumCorrupt: z.boolean(),
-});
-
-export type IntelligenceView = z.infer<typeof IntelligenceViewSchema>;
 
 export const CoordinationSignalsSchema = z.object({
   measured: z.boolean(),

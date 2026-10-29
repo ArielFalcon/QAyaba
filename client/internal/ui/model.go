@@ -24,7 +24,6 @@ const (
 	screenAgent
 	screenAppAdmin
 	screenHelp
-	screenIntelligence
 	screenReport
 	screenBoundaryPropose
 )
@@ -43,7 +42,6 @@ type Model struct {
 	agent           agentModel
 	appAdmin        appAdminModel
 	help            helpModel
-	intelligence    intelligenceModel
 	report          reportModel
 	reportOrigin    screen /* the screen the report was opened from, to return there on esc */
 	boundaryPropose boundaryProposeModel
@@ -184,13 +182,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.screen = screenHelp
 		return m, m.help.Init()
-	case intelligenceSelectedMsg:
-		m.intelligence = newIntelligenceModel(m.client, msg.app)
-		if m.width > 0 && m.height > 0 {
-			m.intelligence.resize(m.width, m.bodyHeight())
-		}
-		m.screen = screenIntelligence
-		return m, m.intelligence.Init()
 	case reportSelectedMsg:
 		m.reportOrigin = m.screen /* remember where we came from so esc returns there, not to the board */
 		m.report = newReportModel(m.client, msg.runID, msg.app, msg.preloaded)
@@ -284,8 +275,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.appAdmin, cmd = m.appAdmin.Update(msg)
 	case screenHelp:
 		m.help, cmd = m.help.Update(msg)
-	case screenIntelligence:
-		m.intelligence, cmd = m.intelligence.Update(msg)
 	case screenReport:
 		m.report, cmd = m.report.Update(msg)
 	case screenBoundaryPropose:
@@ -338,8 +327,6 @@ func (m Model) screenView() string {
 		return m.appAdmin.View()
 	case screenHelp:
 		return m.help.View()
-	case screenIntelligence:
-		return m.intelligence.View()
 	case screenReport:
 		return m.report.View()
 	case screenBoundaryPropose:

@@ -17,7 +17,6 @@ import type { ApiRunRequest } from "./api/run-request";
 import { authorizeBearer, createLocalConsoleLogin, issueSession } from "./auth";
 import { verifyGithubIdentity, authorizeUser } from "./github-auth";
 import { createFixedWindowLimiter } from "./rate-limit";
-import { loadIntelligenceView } from "./intelligence-view";
 import { toSignalsView } from "./signals-view";
 import { readRecentCoordinationEvents, toCoordinationSignals } from "./coordination-events";
 import { toTrendsView } from "./trends-view";
@@ -316,7 +315,6 @@ export function wireApp(settingsStore: SettingsStore): WiredApp {
     runtime: () => agentRuntime.current().assignments.primary.provider,
     staticPromptHash: () => (staticPromptHash === undefined ? (staticPromptHash = hashStaticPrompts(ROOT)) : staticPromptHash),
     toolsGranted: !toolsToken.generated,
-    reflectorEnabled: settings.agent.reflectorEnabled,
     campaignFrozen: settings.run.campaignFrozen,
     maxCapture: settings.telemetry.config.maxCapture,
   };
@@ -629,7 +627,6 @@ export function wireApp(settingsStore: SettingsStore): WiredApp {
     getRecord: (id) => getHistory().runs.getRecord(id),
     listRecords: (app, limit) => getHistory().runs.listRecords(app, limit),
     currentRun: () => getHistory().runs.currentRun(),
-    intelligence: loadIntelligenceView,
     /* Read-only stored FE<->BE architecture map. null (no row yet) -> the route 404s. */
     contextMap: (app) => {
       const stored = getHistory().contexts.loadContextMap(app);

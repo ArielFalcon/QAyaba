@@ -15,8 +15,8 @@ func TestFleetSelectedRowRevealsActionDrawer(t *testing.T) {
 
 	out := m.renderFleet(90)
 
-	if !strings.Contains(out, "history") || !strings.Contains(out, "intel") {
-		t.Fatalf("the selected row should reveal its actions inline (history/intel); got:\n%s", out)
+	if !strings.Contains(out, "history") {
+		t.Fatalf("the selected row should reveal its actions inline (history); got:\n%s", out)
 	}
 }
 

@@ -1070,54 +1070,6 @@
         }
       }
     },
-    "/api/v1/apps/{name}/intelligence": {
-      "get": {
-        "operationId": "getAppIntelligence",
-        "summary": "Learning ledger, value-oracle scorecard and curriculum for an app (read-only)",
-        "parameters": [
-          {
-            "name": "name",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "intelligence view",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/IntelligenceView"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "app not found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "app config invalid: the app has a config file that cannot be loaded",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/v1/apps/{name}/context-map": {
       "get": {
         "operationId": "getAppContextMap",
@@ -2725,9 +2677,6 @@
               "stitcher": {
                 "type": "boolean"
               },
-              "curriculum": {
-                "type": "boolean"
-              },
               "domPack": {
                 "type": "boolean"
               }
@@ -3791,226 +3740,6 @@
         "required": [
           "provider",
           "model"
-        ],
-        "additionalProperties": false
-      },
-      "LearningRuleView": {
-        "type": "object",
-        "properties": {
-          "trigger": {
-            "type": "string"
-          },
-          "action": {
-            "type": "string"
-          },
-          "errorClass": {
-            "type": "string"
-          },
-          "confidence": {
-            "type": "string",
-            "enum": [
-              "low",
-              "medium",
-              "high"
-            ]
-          },
-          "usageCount": {
-            "type": "integer",
-            "minimum": 0,
-            "maximum": 9007199254740991
-          },
-          "outcomeCount": {
-            "type": "integer",
-            "minimum": 0,
-            "maximum": 9007199254740991
-          },
-          "successRate": {
-            "nullable": true,
-            "type": "number"
-          },
-          "status": {
-            "type": "string",
-            "enum": [
-              "candidate",
-              "active",
-              "deprecated",
-              "superseded"
-            ]
-          }
-        },
-        "required": [
-          "trigger",
-          "action",
-          "errorClass",
-          "confidence",
-          "usageCount",
-          "outcomeCount",
-          "successRate",
-          "status"
-        ],
-        "additionalProperties": false
-      },
-      "ScorecardView": {
-        "type": "object",
-        "properties": {
-          "updatedAt": {
-            "type": "string"
-          },
-          "totalRuns": {
-            "type": "integer",
-            "minimum": 0,
-            "maximum": 9007199254740991
-          },
-          "measuredRuns": {
-            "type": "integer",
-            "minimum": 0,
-            "maximum": 9007199254740991
-          },
-          "avgValueScore": {
-            "nullable": true,
-            "type": "number"
-          },
-          "lastValueScore": {
-            "nullable": true,
-            "type": "number"
-          },
-          "entries": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "properties": {
-                "valueScore": {
-                  "nullable": true,
-                  "type": "number"
-                },
-                "mutantCount": {
-                  "nullable": true,
-                  "type": "integer",
-                  "minimum": 0,
-                  "maximum": 9007199254740991
-                },
-                "killedCount": {
-                  "nullable": true,
-                  "type": "integer",
-                  "minimum": 0,
-                  "maximum": 9007199254740991
-                },
-                "target": {
-                  "type": "string"
-                },
-                "at": {
-                  "type": "string"
-                }
-              },
-              "required": [
-                "valueScore",
-                "mutantCount",
-                "killedCount",
-                "target",
-                "at"
-              ],
-              "additionalProperties": false
-            }
-          }
-        },
-        "required": [
-          "updatedAt",
-          "totalRuns",
-          "measuredRuns",
-          "avgValueScore",
-          "lastValueScore",
-          "entries"
-        ],
-        "additionalProperties": false
-      },
-      "CurriculumView": {
-        "type": "object",
-        "properties": {
-          "updatedAt": {
-            "type": "string"
-          },
-          "archetypes": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "properties": {
-                "archetype": {
-                  "type": "string"
-                },
-                "caughtRealBug": {
-                  "type": "boolean"
-                },
-                "promotionCount": {
-                  "type": "integer",
-                  "minimum": 0,
-                  "maximum": 9007199254740991
-                },
-                "evaluated": {
-                  "type": "integer",
-                  "minimum": 0,
-                  "maximum": 9007199254740991
-                },
-                "credited": {
-                  "type": "integer",
-                  "minimum": 0,
-                  "maximum": 9007199254740991
-                }
-              },
-              "required": [
-                "archetype",
-                "caughtRealBug",
-                "promotionCount",
-                "evaluated",
-                "credited"
-              ],
-              "additionalProperties": false
-            }
-          }
-        },
-        "required": [
-          "updatedAt",
-          "archetypes"
-        ],
-        "additionalProperties": false
-      },
-      "IntelligenceView": {
-        "type": "object",
-        "properties": {
-          "app": {
-            "type": "string"
-          },
-          "rules": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/LearningRuleView"
-            }
-          },
-          "scorecard": {
-            "nullable": true,
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/ScorecardView"
-              }
-            ]
-          },
-          "curriculum": {
-            "nullable": true,
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/CurriculumView"
-              }
-            ]
-          },
-          "curriculumCorrupt": {
-            "type": "boolean"
-          }
-        },
-        "required": [
-          "app",
-          "rules",
-          "scorecard",
-          "curriculum",
-          "curriculumCorrupt"
         ],
         "additionalProperties": false
       },
@@ -6271,10 +6000,6 @@
                     "nullable": true,
                     "type": "string"
                   },
-                  "curriculum": {
-                    "nullable": true,
-                    "type": "string"
-                  },
                   "domPack": {
                     "nullable": true,
                     "type": "boolean"
@@ -6282,7 +6007,6 @@
                 },
                 "required": [
                   "stitcher",
-                  "curriculum",
                   "domPack"
                 ],
                 "additionalProperties": false
@@ -6304,10 +6028,6 @@
                   "minRatio"
                 ],
                 "additionalProperties": false
-              },
-              "reflector": {
-                "nullable": true,
-                "type": "boolean"
               }
             },
             "required": [
@@ -6317,8 +6037,7 @@
               "agents",
               "prompt",
               "grounding",
-              "coverage",
-              "reflector"
+              "coverage"
             ],
             "additionalProperties": false
           }

@@ -594,51 +594,6 @@ func (e EvaluationCatalogScoresStatus) Valid() bool {
 	}
 }
 
-// Defines values for LearningRuleViewConfidence.
-const (
-	High   LearningRuleViewConfidence = "high"
-	Low    LearningRuleViewConfidence = "low"
-	Medium LearningRuleViewConfidence = "medium"
-)
-
-// Valid indicates whether the value is a known member of the LearningRuleViewConfidence enum.
-func (e LearningRuleViewConfidence) Valid() bool {
-	switch e {
-	case High:
-		return true
-	case Low:
-		return true
-	case Medium:
-		return true
-	default:
-		return false
-	}
-}
-
-// Defines values for LearningRuleViewStatus.
-const (
-	Active     LearningRuleViewStatus = "active"
-	Candidate  LearningRuleViewStatus = "candidate"
-	Deprecated LearningRuleViewStatus = "deprecated"
-	Superseded LearningRuleViewStatus = "superseded"
-)
-
-// Valid indicates whether the value is a known member of the LearningRuleViewStatus enum.
-func (e LearningRuleViewStatus) Valid() bool {
-	switch e {
-	case Active:
-		return true
-	case Candidate:
-		return true
-	case Deprecated:
-		return true
-	case Superseded:
-		return true
-	default:
-		return false
-	}
-}
-
 // Defines values for OnboardingJobStatusIndexProgressStatus.
 const (
 	OnboardingJobStatusIndexProgressStatusFailed OnboardingJobStatusIndexProgressStatus = "failed"
@@ -2073,9 +2028,8 @@ type CreateRunInput struct {
 	ClosedLoop  *bool                      `json:"closedLoop,omitempty"`
 	Commits     *int                       `json:"commits,omitempty"`
 	Grounding   *struct {
-		Curriculum *bool `json:"curriculum,omitempty"`
-		DomPack    *bool `json:"domPack,omitempty"`
-		Stitcher   *bool `json:"stitcher,omitempty"`
+		DomPack  *bool `json:"domPack,omitempty"`
+		Stitcher *bool `json:"stitcher,omitempty"`
 	} `json:"grounding,omitempty"`
 	Guidance *string              `json:"guidance,omitempty"`
 	Mode     CreateRunInputMode   `json:"mode"`
@@ -2113,18 +2067,6 @@ type CreateRunResultSchemaVersion float32
 
 // CreateRunResultTarget defines model for CreateRunResult.Target.
 type CreateRunResultTarget string
-
-// CurriculumView defines model for CurriculumView.
-type CurriculumView struct {
-	Archetypes []struct {
-		Archetype      string `json:"archetype"`
-		CaughtRealBug  bool   `json:"caughtRealBug"`
-		Credited       int    `json:"credited"`
-		Evaluated      int    `json:"evaluated"`
-		PromotionCount int    `json:"promotionCount"`
-	} `json:"archetypes"`
-	UpdatedAt string `json:"updatedAt"`
-}
 
 // DeleteAppResult defines model for DeleteAppResult.
 type DeleteAppResult struct {
@@ -2176,33 +2118,6 @@ type FlakyTrend struct {
 	Rate         *float32 `json:"rate"`
 	Runs         int      `json:"runs"`
 }
-
-// IntelligenceView defines model for IntelligenceView.
-type IntelligenceView struct {
-	App               string             `json:"app"`
-	Curriculum        *CurriculumView    `json:"curriculum"`
-	CurriculumCorrupt bool               `json:"curriculumCorrupt"`
-	Rules             []LearningRuleView `json:"rules"`
-	Scorecard         *ScorecardView     `json:"scorecard"`
-}
-
-// LearningRuleView defines model for LearningRuleView.
-type LearningRuleView struct {
-	Action       string                     `json:"action"`
-	Confidence   LearningRuleViewConfidence `json:"confidence"`
-	ErrorClass   string                     `json:"errorClass"`
-	OutcomeCount int                        `json:"outcomeCount"`
-	Status       LearningRuleViewStatus     `json:"status"`
-	SuccessRate  *float32                   `json:"successRate"`
-	Trigger      string                     `json:"trigger"`
-	UsageCount   int                        `json:"usageCount"`
-}
-
-// LearningRuleViewConfidence defines model for LearningRuleView.Confidence.
-type LearningRuleViewConfidence string
-
-// LearningRuleViewStatus defines model for LearningRuleView.Status.
-type LearningRuleViewStatus string
 
 // LoginBootstrapResult defines model for LoginBootstrapResult.
 type LoginBootstrapResult struct {
@@ -2558,9 +2473,8 @@ type RunDetail struct {
 			Mode     *string  `json:"mode"`
 		} `json:"coverage"`
 		Grounding struct {
-			Curriculum *string `json:"curriculum"`
-			DomPack    *bool   `json:"domPack"`
-			Stitcher   *string `json:"stitcher"`
+			DomPack  *bool   `json:"domPack"`
+			Stitcher *string `json:"stitcher"`
 		} `json:"grounding"`
 		Levers struct {
 			AgentBrowser *bool                                      `json:"agentBrowser"`
@@ -2570,8 +2484,7 @@ type RunDetail struct {
 		Prompt struct {
 			StaticHash *string `json:"staticHash"`
 		} `json:"prompt"`
-		Reflector *bool   `json:"reflector"`
-		Runtime   *string `json:"runtime"`
+		Runtime *string `json:"runtime"`
 	} `json:"effectiveConfig"`
 	EngineStatus  *RunDetailEngineStatus `json:"engineStatus,omitempty"`
 	Failed        *int                   `json:"failed,omitempty"`
@@ -2748,22 +2661,6 @@ type ScoreValue2 = string
 // Score_Value defines model for Score.Value.
 type Score_Value struct {
 	union json.RawMessage
-}
-
-// ScorecardView defines model for ScorecardView.
-type ScorecardView struct {
-	AvgValueScore *float32 `json:"avgValueScore"`
-	Entries       []struct {
-		At          string   `json:"at"`
-		KilledCount *int     `json:"killedCount"`
-		MutantCount *int     `json:"mutantCount"`
-		Target      string   `json:"target"`
-		ValueScore  *float32 `json:"valueScore"`
-	} `json:"entries"`
-	LastValueScore *float32 `json:"lastValueScore"`
-	MeasuredRuns   int      `json:"measuredRuns"`
-	TotalRuns      int      `json:"totalRuns"`
-	UpdatedAt      string   `json:"updatedAt"`
 }
 
 // SignalsView defines model for SignalsView.

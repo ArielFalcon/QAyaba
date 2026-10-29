@@ -34,7 +34,6 @@ export type CreateAppResult = S["CreateAppResult"];
 export type UpdateAppInput = S["UpdateAppInput"];
 export type DeleteAppResult = S["DeleteAppResult"];
 export type RepoListResponse = S["RepoListResponse"];
-export type IntelligenceView = S["IntelligenceView"];
 export type SignalsView = S["SignalsView"];
 export type CoordinationEvent = S["CoordinationEvent"];
 export type CoordinationEventsView = S["CoordinationEventsView"];

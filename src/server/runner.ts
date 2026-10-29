@@ -45,7 +45,7 @@ type RunStep = RunStepEvent["step"];
 const redactionPort = new RedactionPortAdapter();
 
 /* What a run records of the process around it when the composition root gave none: nothing known, no tool grants. */
-const UNKNOWN_RUN_CONFIG_ENV: RunConfigEnvironment = { runtime: () => null, staticPromptHash: () => null, toolsGranted: false, reflectorEnabled: false, campaignFrozen: false, maxCapture: DEFAULT_CAPTURE_MODE };
+const UNKNOWN_RUN_CONFIG_ENV: RunConfigEnvironment = { runtime: () => null, staticPromptHash: () => null, toolsGranted: false, campaignFrozen: false, maxCapture: DEFAULT_CAPTURE_MODE };
 
 
 const ONBOARDING_POLL_MS = 5_000;

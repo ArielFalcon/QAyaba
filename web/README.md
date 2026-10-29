@@ -1,7 +1,7 @@
 # @qayaba/web — operator/value dashboard
 
 The web dashboard for qayaba: a Fleet mission-control overview, the runs feed, run detail
-+ the live run, per-app App Value, integrity, the learning ledger, and reports.
++ the live run, per-app App Value, integrity, and reports.
 
 ## How it fits
 

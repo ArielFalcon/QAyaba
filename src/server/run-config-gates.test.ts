@@ -6,7 +6,7 @@ import { resolveRunConfig, type RunConfigEnvironment } from "./effective-config"
 
 const app = (over: Record<string, unknown> = {}, qa: Record<string, unknown> = {}): AppConfig =>
   ({ name: "a", repo: "o/a", dev: { baseUrl: "https://dev" }, qa: { needsReview: true, testDataPrefix: "qa", ...qa }, report: { onFailure: "x" }, ...over }) as AppConfig;
-const env: RunConfigEnvironment = { runtime: () => null, staticPromptHash: () => null, toolsGranted: true, reflectorEnabled: false, campaignFrozen: false, maxCapture: "metadata" };
+const env: RunConfigEnvironment = { runtime: () => null, staticPromptHash: () => null, toolsGranted: true, campaignFrozen: false, maxCapture: "metadata" };
 
 test("the tools apply to a run of an app with a DEV address, and to nothing else", () => {
   assert.equal(toolsApply(app()), true);

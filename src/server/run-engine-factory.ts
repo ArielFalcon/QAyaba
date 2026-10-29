@@ -1439,7 +1439,7 @@ export function buildEngineRootDeps(
      * the history repositories (src-only; qa-engine may never import them). Wired unconditionally: measure-and-rank
      * only, never gates a verdict, publish, or coverage decision. Left out under QA_CAMPAIGN_FREEZE.
      */
-    ...(campaignFrozen || grounding?.curriculum === false || grounding?.curriculum === "off" ? {} : { curriculumPort: new CurriculumPortAdapter(app.name, (name) => getHistory().learning.loadCurriculum(name), (curriculum) => getHistory().learning.saveCurriculum(curriculum)) }),
+    ...(campaignFrozen ? {} : { curriculumPort: new CurriculumPortAdapter(app.name, (name) => getHistory().learning.loadCurriculum(name), (curriculum) => getHistory().learning.saveCurriculum(curriculum)) }),
     /*
      * ContextMapCapturePort — write side of the FE<->BE architecture map. Constructed here for the
      * same reason curriculumPort is: its store is the history repositories (src-only; qa-engine may never import

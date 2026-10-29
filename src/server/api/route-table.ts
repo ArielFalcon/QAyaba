@@ -19,7 +19,7 @@ import {
 import { localLogin, login } from "./handlers/auth";
 import { campaignRuns, CampaignIdParamSchema, evaluationCatalog, regradeJob, runEvaluation, startRegrade } from "./handlers/evaluations";
 import { help } from "./handlers/help";
-import { appContextMap, appIntelligence, appReport, appTelemetry, appTrends, coordinationEvents, runReport, signals } from "./handlers/insights";
+import { appContextMap, appReport, appTelemetry, appTrends, coordinationEvents, runReport, signals } from "./handlers/insights";
 import { askRun, cancelRun, continueRunRoute, getRun, listRuns, postRun, runTurns, streamRunEvents } from "./handlers/runs";
 import { health, queue, telemetryHealth, version } from "./handlers/system";
 
@@ -70,7 +70,6 @@ export const routes: readonly ApiRoute[] = [
   bearer("GET", "/apps/:name/boundaries/propose/status", boundaryStatusRoute),
   bearer("POST", "/apps/:name/boundaries/confirm", confirmBoundariesRoute),
   bearer("POST", "/apps/:name/login-bootstrap", loginBootstrap),
-  bearer("GET", "/apps/:name/intelligence", appIntelligence),
   bearer("GET", "/apps/:name/context-map", appContextMap),
   bearer("GET", "/apps/:name/trends", appTrends),
   bearer("GET", "/apps/:name/telemetry", appTelemetry),

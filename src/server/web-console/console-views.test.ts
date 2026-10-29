@@ -229,7 +229,7 @@ test("live report insights from every app are shown, each attributed to its app"
 test("live views never claim to show mock data", async () => {
   const h = await loadConsole({ withConsole: true, token: "t", routes: controlApi({ apps: [appView("shop")], runs: [] }) });
 
-  for (const section of ["overview", "runs", "integrity", "learning", "reports"]) {
+  for (const section of ["overview", "runs", "integrity", "reports"]) {
     h.click("nav", section);
     assert.doesNotMatch(h.text(), /mock data/i, `${section} is live data`);
   }
@@ -381,28 +381,4 @@ test("the engine is reported operational only when its health check says so", as
     }),
   });
   assert.doesNotMatch(unknown.text(), /engine operational/);
-});
-
-test("the learning view says an app's stored curriculum is corrupt, and only for that app", async () => {
-  const intelligence = (app: string, curriculumCorrupt: boolean) => ({ app, rules: [], scorecard: null, curriculum: null, curriculumCorrupt });
-  const h = await loadConsole({
-    withConsole: true,
-    token: "t",
-    routes: controlApi({
-      apps: [appView("shop"), appView("blog")],
-      runs: [],
-      extra: (req) => {
-        if (req.path === "/api/v1/apps/shop/intelligence") return { status: 200, json: intelligence("shop", true) };
-        if (req.path === "/api/v1/apps/blog/intelligence") return { status: 200, json: intelligence("blog", false) };
-        return undefined;
-      },
-    }),
-  });
-
-  h.click("nav", "learning");
-  const text = h.text();
-
-  const mentions = [...text.matchAll(/[^.]*corrupt[^.]*/gi)].map((m) => m[0]);
-  assert.ok(mentions.some((m) => /\bshop\b/.test(m)), `shop's corrupt curriculum is reported: ${mentions}`);
-  assert.ok(mentions.every((m) => !/\bblog\b/.test(m)), `blog has no curriculum yet, not a corrupt one: ${mentions}`);
 });

@@ -80,7 +80,6 @@ window.QayabaMockData = (function () {
     plan: [
       { t: 'Classify commit · feat → targeted generation', s: 'done' },
       { t: 'Map blast radius · search.component.ts → /search', s: 'done' },
-      { t: 'Recall rules · R-198, R-204 injected into prompt', s: 'done' },
       { t: 'Generate 3 specs · reviewer (minimax-m3) approved', s: 'done' },
       { t: 'Static gate · tsc · lint · manifest', s: 'done' },
       { t: 'Execute suite against DEV', s: 'active' },
@@ -112,7 +111,6 @@ window.QayabaMockData = (function () {
       ['$', 'qayaba qa --app web-app --sha aa17c93'],
       ['›', 'classify · feat → generate targeted'],
       ['›', 'blast radius · search.component.ts → /search route'],
-      ['›', 'recall · injected R-198, R-204 into prompt'],
       ['›', 'generate · wrote 3 specs · reviewer approved'],
       ['›', 'static gate · tsc ok · lint ok · manifest ok'],
       ['›', 'execute · debounce.spec.ts → DEV'],
@@ -151,7 +149,7 @@ window.QayabaMockData = (function () {
         ['›', 'fe↔be · getPins() → GET /pins (checkout-api)'],
         ['›', 'generate · wrote 4 specs · reviewer approved'],
         ['›', 'execute · 4 passed · 0 flaky · 12.4s'],
-        ['›', 'oracle · mutation 0.82 → promotes R-204'],
+        ['›', 'oracle · mutation 0.82'],
         ['✓', 'verdict PASS → PR #182 opened, auto-merge enabled'],
       ],
     },
@@ -282,21 +280,6 @@ window.QayabaMockData = (function () {
     { m: 'manual', n: 5, note: 'operator prompt' },
   ];
 
-  const flywheel = [
-    { id: 'labeler', label: 'labeler', icon: 'tags', stat: '128', unit: 'runs classed', note: 'no LLM · error class' },
-    { id: 'oracle', label: 'oracle', icon: 'shield-check', stat: '0.78', unit: 'mean valueScore', note: 'mutation · fault-inject' },
-    { id: 'reflector', label: 'reflector', icon: 'lightbulb', stat: '25', unit: 'reflections', note: 'on every failure' },
-    { id: 'distiller', label: 'distiller', icon: 'filter', stat: '18', unit: 'rules distilled', note: 'deduped & reusable' },
-    { id: 'curriculum', label: 'curriculum', icon: 'graduation-cap', stat: '9', unit: 'archetypes proven', note: 'injected into prompts' },
-  ];
-
-  const rules = [
-    { id: 'R-204', app: 'web-app', conf: 'high', source: 'oracle', hits: 6, text: 'Map tiles lazy-load — assert pins after networkidle, not on load.' },
-    { id: 'R-198', app: 'web-app', conf: 'high', source: 'oracle', hits: 9, text: 'Login posts to Keycloak; wait for redirect to /dashboard before asserting.' },
-    { id: 'R-187', app: 'checkout-api', conf: 'med', source: 'prevention', hits: 4, text: 'Cart totals round half-up; expect "12.35" string, not float 12.345.' },
-    { id: 'R-176', app: 'portfolio', conf: 'med', source: 'prevention', hits: 3, text: 'Astro bundles assets — URL→source coverage unmeasurable, report unknown.' },
-  ];
-
   /* The four-layer quality gate. Layers 1–2 block; 3 blocks only on enforce; 4 never blocks. */
   const gates = [
     { n: 1, label: 'static analysis', icon: 'file-check-2', mode: 'blocks', pass: 128, of: 128, desc: 'compiles · lint · valid test list · manifest' },
@@ -379,30 +362,6 @@ window.QayabaMockData = (function () {
     ['auth-flow', 4], ['env-drift', 3], ['coverage-miss', 3],
   ];
 
-  const ledger = {
-    rules: [
-      { id: 'R-204', status: 'active', trigger: 'lazy-loaded content on /map', action: 'await networkidle before asserting pins', errorClass: 'timing-flake', confidence: 'high', usage: 6, outcomes: 6, success: 1.0 },
-      { id: 'R-198', status: 'active', trigger: 'Keycloak login redirect', action: 'wait for /dashboard before asserting', errorClass: 'auth-flow', confidence: 'high', usage: 9, outcomes: 8, success: 0.89 },
-      { id: 'R-176', status: 'active', trigger: 'Astro bundled assets', action: 'report coverage unknown, never block', errorClass: 'coverage-miss', confidence: 'med', usage: 3, outcomes: 3, success: 1.0 },
-      { id: 'R-187', status: 'active', trigger: 'cart total rounding', action: 'expect 2dp string, not float', errorClass: 'assertion-trivial', confidence: 'med', usage: 4, outcomes: 3, success: 0.75 },
-      { id: 'R-211', status: 'candidate', trigger: 'search debounce 300ms', action: 'wait before asserting URL query param', errorClass: 'timing-flake', confidence: 'low', usage: 1, outcomes: 1, success: 1.0 },
-      { id: 'R-215', status: 'candidate', trigger: 'paginated list tail', action: 'assert last page boundary explicitly', errorClass: 'assertion-trivial', confidence: 'low', usage: 0, outcomes: 0, success: 0 },
-      { id: 'R-152', status: 'deprecated', trigger: 'old selector data-qa', action: 'use data-test instead', errorClass: 'selector-fragile', confidence: 'low', usage: 12, outcomes: 7, success: 0.58 },
-      { id: 'R-149', status: 'superseded', trigger: 'generic wait 1000ms', action: 'superseded by R-204', errorClass: 'timing-flake', confidence: 'low', usage: 8, outcomes: 4, success: 0.50 },
-    ],
-    archetypes: [
-      { name: 'auth redirect flow', caughtRealBug: true, promotions: 5 },
-      { name: 'lazy-loaded list', caughtRealBug: true, promotions: 4 },
-      { name: 'form validation boundary', caughtRealBug: true, promotions: 3 },
-      { name: 'pagination edge', caughtRealBug: false, promotions: 2 },
-      { name: 'empty-state render', caughtRealBug: false, promotions: 1 },
-    ],
-    audit: [
-      { rule: 'R-152', issue: 'successRate 0.58 below floor → demoted to deprecated', level: 'demoted' },
-      { rule: 'R-149', issue: 'malformed canonical trigger → superseded by R-204', level: 'resolved' },
-    ],
-  };
-
   const integrity = {
     flakyRate: { v: 0.055, prev: 0.070, series: [0.08, 0.07, 0.09, 0.06, 0.05, 0.06, 0.055] },
     infraErrorRate: { v: 0.031, prev: 0.020, series: [0.02, 0.03, 0.02, 0.04, 0.03, 0.03, 0.031] },
@@ -426,13 +385,13 @@ window.QayabaMockData = (function () {
     insights: [
       { metric: 'value-oracle', shape: 'multiplier', headline: 'Value-oracle ×1.6 vs last sprint', detail: 'Mutation kill-rate 0.78 — up from a 0.49 baseline window. Generated tests are catching real injected bugs.', weight: 0.94 },
       { metric: 'change-coverage', shape: 'gauge', headline: 'Coverage 92%, above the 70% enforce floor', detail: 'web-app coverage held on every enforce run; no PR shipped without exercising the diff.', weight: 0.88 },
-      { metric: 'where-guardrails-fire', shape: 'bars', headline: 'timing-flake leads guardrail trips', detail: '9 of 29 rejections were timing-related; R-204 now intercepts most of them.', weight: 0.71 },
-      { metric: 'flaky', shape: 'sparkline', headline: 'Flaky rate down to 5.5%', detail: 'From 7.0% — quarantine policy plus R-204 promotion. Determinism holding at 0.98.', weight: 0.66 },
+      { metric: 'where-guardrails-fire', shape: 'bars', headline: 'timing-flake leads guardrail trips', detail: '9 of 29 rejections were timing-related.', weight: 0.71 },
+      { metric: 'flaky', shape: 'sparkline', headline: 'Flaky rate down to 5.5%', detail: 'From 7.0% — quarantine policy. Determinism holding at 0.98.', weight: 0.66 },
       { metric: 'infra', shape: 'note', headline: 'Infra-error rate up to 3.1% — not the code', detail: 'checkout-api DEV restarts during spring-boot bumps; surfaced as infra, never counted as a failure.', weight: 0.41 },
     ],
   };
 
-  return { models, apps, running, runs, stats, live, verdictMix, trend, modes, flywheel, rules, gates,
+  return { models, apps, running, runs, stats, live, verdictMix, trend, modes, gates,
     coordinationEvents, coordinationSignals,
-    histories, suite, engram, signals, fleetErrorClasses, ledger, integrity, reports };
+    histories, suite, engram, signals, fleetErrorClasses, integrity, reports };
 })();

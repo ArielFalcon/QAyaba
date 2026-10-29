@@ -345,7 +345,7 @@ func (m dashboardModel) handleNowKey(k tea.KeyMsg) (dashboardModel, tea.Cmd) {
 
 /* handleFleetKey drives the FLEET panel: pick a project (↑↓), edit its quick-launch
    config in place (← → mode), and launch or watch it (↵). The per-app actions
-   (history/intelligence/edit/delete) act on the selected project. */
+   (history/edit/delete) act on the selected project. */
 func (m dashboardModel) handleFleetKey(k tea.KeyMsg) (dashboardModel, tea.Cmd) {
 	switch k.String() {
 	case "left":
@@ -373,10 +373,6 @@ func (m dashboardModel) handleFleetKey(k tea.KeyMsg) (dashboardModel, tea.Cmd) {
 	case "h":
 		if a, ok := m.selectedApp(); ok {
 			return m, func() tea.Msg { return historySelectedMsg{app: a.Name} }
-		}
-	case "i":
-		if a, ok := m.selectedApp(); ok {
-			return m, func() tea.Msg { return intelligenceSelectedMsg{app: a.Name} }
 		}
 	case "e":
 		if a, ok := m.selectedApp(); ok {
@@ -516,10 +512,6 @@ func (m dashboardModel) paletteActions() []paletteAction {
 	for _, a := range m.sys.apps {
 		name := a.Name
 		as = append(as, paletteAction{"history " + name, func() tea.Msg { return historySelectedMsg{app: name} }})
-	}
-	for _, a := range m.sys.apps {
-		name := a.Name
-		as = append(as, paletteAction{"intelligence " + name, func() tea.Msg { return intelligenceSelectedMsg{app: name} }})
 	}
 	/* The dashboard IS the home surface: queue/health live in the status bar, projects in
 	   FLEET, the model roster in MODELS. The classic "menu" and "status" screens are
@@ -908,7 +900,7 @@ func (m dashboardModel) renderFleet(w int) string {
 		/* Progressive disclosure: the focused selection reveals its secondary actions inline,
 		   so they are discoverable on the row rather than memorised from the footer. */
 		if selected && focused {
-			actions := "h history · i intel"
+			actions := "h history"
 			if _, _, running := m.runningPhase(a.Name); !running {
 				actions += " · e edit · d delete · b boundaries"
 			}

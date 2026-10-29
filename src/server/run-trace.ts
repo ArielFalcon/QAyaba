@@ -47,7 +47,6 @@ export interface RunConfigInEffect {
   closedLoop: boolean | null;
   agentBrowser: boolean | null;
   coveragePolicy: string | null;
-  reflector: boolean | null;
   campaignFreeze: boolean | null;
   staticPromptHash: string | null;
   captureMode: string | null;
@@ -188,7 +187,6 @@ export class RunTrace {
     if (config.closedLoop !== null) attrs["qayaba.closed_loop.enabled"] = config.closedLoop;
     if (config.agentBrowser !== null) attrs["qayaba.agent_browser.enabled"] = config.agentBrowser;
     if (config.coveragePolicy !== null) attrs["qayaba.coverage.policy"] = config.coveragePolicy;
-    if (config.reflector !== null) attrs["qayaba.reflector.enabled"] = config.reflector;
     if (config.campaignFreeze !== null) attrs["qayaba.campaign.freeze"] = config.campaignFreeze;
     if (config.staticPromptHash !== null) attrs["qayaba.prompt.static_hash"] = config.staticPromptHash;
     if (config.captureMode !== null) attrs["qayaba.capture_mode"] = config.captureMode;

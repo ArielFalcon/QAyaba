@@ -331,7 +331,7 @@ Grouped. The full list lives in the registry (§9.3).
 | Group | Attributes |
 |---|---|
 | Identity | `qayaba.run.id`, `qayaba.app`, `qayaba.commit.sha`, `qayaba.trigger`, `qayaba.mode`, `qayaba.target`, `qayaba.parent_run.id`, `qayaba.trigger_repo`, `qayaba.shadow` |
-| Config in effect | `qayaba.runtime` (the runtime that served the turn), `qayaba.closed_loop.enabled`, `qayaba.agent_browser.enabled`, `qayaba.coverage.policy`, `qayaba.reflector.enabled`, `qayaba.campaign.freeze`, `qayaba.prompt.static_hash` (hash of `agents/AGENTS.md` plus role files), `qayaba.capture_mode` |
+| Config in effect | `qayaba.runtime` (the runtime that served the turn), `qayaba.closed_loop.enabled`, `qayaba.agent_browser.enabled`, `qayaba.coverage.policy`, `qayaba.campaign.freeze`, `qayaba.prompt.static_hash` (hash of `agents/AGENTS.md` plus role files), `qayaba.capture_mode` |
 | Campaign | `qayaba.campaign.id`, `qayaba.campaign.variant.<key>`, `qayaba.campaign.replicate` |
 | Budgets | `qayaba.deadline.label`, `qayaba.deadline.budget_ms`, `qayaba.tier`, `qayaba.tier.budget_ms` |
 | Outcome | `qayaba.verdict`, `qayaba.error_class`, `qayaba.generation.end`, `qayaba.decision`, `qayaba.furthest_phase`, `qayaba.specs.generated/valid/passed`, `qayaba.reviewer.turn_happened`, `qayaba.limit.fired` |
@@ -1145,7 +1145,7 @@ the contract above is unaffected:
   What makes an arm behave differently is **only** the explicit request levers (`closedLoop`,
   `agentBrowser`, `captureMode`) and the deployment's config.
   - Every run returns `effectiveConfig`: the levers actually applied, the agent models per role,
-    `prompt.static_hash`, the stitcher and curriculum settings, and
+    `prompt.static_hash`, the stitcher setting, and
     `campaignFreeze`.
   - A consumer verifies that its arms really differed by comparing `effectiveConfig`, not labels.
   - Exact shape. Every key is always present; a setting that does not apply is `null`:
@@ -1159,9 +1159,8 @@ the contract above is unaffected:
         "qa-reviewer":  { "provider": "opencode-go", "model": "minimax-m3", "reasoningEffort": null, "stepLimit": 25 }
       },
       "prompt": { "staticHash": "sha256:…" },
-      "grounding": { "stitcher": "signal", "curriculum": "frozen" },
-      "coverage": { "mode": "signal", "minRatio": 0.7 },
-      "reflector": false
+      "grounding": { "stitcher": "signal", "domPack": true },
+      "coverage": { "mode": "signal", "minRatio": 0.7 }
     }
     ```
     `agents` lists only the roles the run actually invoked. Each entry is the resolved value read
@@ -1169,10 +1168,10 @@ the contract above is unaffected:
   - Model and prompt-version variants are config changes, made between arms. They are not request fields.
   - How each key is filled. It is resolved once, when the run starts, and stored on the run (`runs.effective_config`); a read never recomputes it from the current configuration. A run that predates the field answers every leaf as `null`.
     - `levers.closedLoop` / `agentBrowser`: the request's choice, else the app's setting, and `false` when the tools cannot be granted (no `QA_TOOLS_TOKEN`); `null` for an app with no DEV address. These are the settings in force at the start: a reduction the engine makes during the run (a sidekick excluded, a plan refused) is recorded in `gateSignals.coordination`, not here. `captureMode` is the applied value, after the ceiling.
-    - `campaignFreeze`: `QA_CAMPAIGN_FREEZE`. `runtime`: the provider of the primary (authoring) role assignment at the start. `reflector`: the reflector switch and not frozen.
+    - `campaignFreeze`: `QA_CAMPAIGN_FREEZE`. `runtime`: the provider of the primary (authoring) role assignment at the start.
     - `agents`: from the run's own recorded agent turns. `provider` and `model` (the model that answered, else the one asked for) are what the runtime reported on the last turn that said; `stepLimit` is the largest step cap a prompt of that role stated (the live read). `reasoningEffort` is always `null`: OpenCode's live agent list (`GET /agent`) does not carry it, and the repo copy of the config is not a substitute.
     - `prompt.staticHash`: sha256 over `agents/AGENTS.md` and each `agents/agent/*.md`, in name order, read from the orchestrator's own copy of the repository. The agents container mounts the same folder read-only, so it is what it serves unless the two checkouts differ; `null` when the files cannot be read.
-    - `stitcher`: `signal` for an app with services and declared boundaries (the service-topology collaborator), `off` when the run's `grounding.stitcher` is `false`, else `null`. The code graph, and with it the structural block and the change dossier, is part of every run's grounding and has no key here. `curriculum`: `frozen` under a campaign freeze, else `learning`.
+    - `stitcher`: `signal` for an app with services and declared boundaries (the service-topology collaborator), `off` when the run's `grounding.stitcher` is `false`, else `null`. The code graph, and with it the structural block and the change dossier, is part of every run's grounding and has no key here.
     - `coverage`: the policy the engine reported when the run ended (`runs.coverage_mode`, `coverage_min_ratio`), else the one the run started with (`qa.changeCoverage`).
   - A run that is enqueued and has not started yet has no recorded configuration: its `effectiveConfig` answers every leaf as `null` (and `agents` as `{}`). It fills in when the run starts.
   - `prompt.staticHash` is computed once per process, on the first run that needs it, and kept. After editing `agents/AGENTS.md` or a role file, restart the orchestrator to see the new hash on later runs.

@@ -90,12 +90,12 @@ contract schema names are in (parens).
 | **Health-over-time chart + snapshot compare** | `histories[app]: [{id,sha,time,verdict,health,passRate,specs,coverage,oracle,flaky,issues,durSec}]` (one checkpoint **per run**) | — | ✗ **new (key gap)** — `TrendsView` has aggregate `series[]` but **not** per-run checkpoints with all these fields. Add `GET /api/v1/apps/{name}/history` returning the run-by-run checkpoints the compare view diffs. |
 | **Activity tab · runs** | runs for the app | `GET /api/v1/runs?app={name}` → `RunRecord[]` | ✓ |
 | **Activity tab · suite** | committed specs for the app `[{file,status,n,coverage}]` | — | ✗ new — no committed-suite endpoint. Add `GET /api/v1/apps/{name}/suite`. |
-| **What Qayaba knows (engram)** | per-app episodic memory `[{text}]` | — | ✗ new — add `GET /api/v1/apps/{name}/memory` (episodic notes). Distinct from `intelligence` rules. |
+| **What Qayaba knows (engram)** | per-app episodic memory `[{text}]` | — | ✗ new — add `GET /api/v1/apps/{name}/memory` (episodic notes). |
 | **Activity tab · map** | FE<->BE architecture map `{map:{routes,api,feBe,flows?},builtAtSha,updatedAt}` | `GET /api/v1/apps/{name}/context-map` → `ContextMapView` | ✓ wired (Batch F) — 404 (no stored map yet) renders an honest empty state; live mode never shows a mock map. |
 
 ---
 
-## 6. Integrity, Learning, Reports
+## 6. Integrity, Reports
 
 ### Integrity (suite-health / trust)
 | Block | Data needed | Endpoint | Status |
@@ -105,13 +105,9 @@ contract schema names are in (parens).
 | Gate effectiveness | `gates.{enforceHeld,regenRecovered,staticRejected}` | — | ✗ new. |
 | 4-layer quality gate | `gates: [{n,label,mode,pass,of,desc}]` | — | ✗ new. |
 
-### Learning (flywheel + ledger + engram)
+### Engram
 | Block | Data needed | Endpoint | Status |
 |---|---|---|---|
-| Flywheel counters | `flywheel: [{id,stat,unit,note}]` (labeler→oracle→reflector→distiller→curriculum) | — | ✗ new — fleet counters. Some derivable from `IntelligenceView.scorecard`. |
-| Governed rule inventory | `ledger.rules: [{id,status,trigger,action,errorClass,confidence,usage,outcomes,success}]` | `GET /api/v1/apps/{name}/intelligence` → `IntelligenceView.rules[]` (`LearningRuleView`) | ✓ per-app — fields map (`confidence` `low/medium/high`→`low/med/high`; `status` `candidate/active/deprecated/superseded` ✓; `usageCount/outcomeCount/successRate`). ⚠ needs a **fleet** aggregate + a stable rule **id** (contract rule has no id). |
-| Scenario archetypes | `ledger.archetypes: [{name,caughtRealBug,promotions}]`, `ledger.corruptCurricula: [app]` | `IntelligenceView.curriculum` → `CurriculumView.archetypes[]`, `IntelligenceView.curriculumCorrupt` | ✓ wired — console aggregates each app's `curriculum.archetypes` into the fleet ledger (promotions summed, `caughtRealBug` OR-ed); an app whose stored curriculum is corrupt is flagged in the card, never shown as an empty curriculum. |
-| Governance / audit log | `ledger.audit: [{rule,issue,level}]` | — | ✗ new. |
 | Engram (all apps) | `engram: [{app,text}]` | — | ✗ new (see §5 memory). |
 
 ### Reports
@@ -164,7 +160,7 @@ consumes them and normalizes to the UI's `{onStep,onPlan,onCase,onLog,onVerdict}
 
 ## 9. Summary — what to build to go fully live
 
-**Reuse as-is (✓):** `/apps`, `/apps/{name}`, `/apps/{name}/trends`, `/apps/{name}/intelligence`,
+**Reuse as-is (✓):** `/apps`, `/apps/{name}`, `/apps/{name}/trends`,
 `/apps/{name}/report`, `/runs` (+`{id}`, `/events`, `/ask`, `/continue`), `/queue`, `/agent/config`.
 
 **Extend (⚠):**
@@ -173,14 +169,13 @@ consumes them and normalizes to the UI's `{onStep,onPlan,onCase,onLog,onVerdict}
 3. **`AppView`** → `stack`, `health`, and the watched-app config (`baseBranch`, `gate`, `oracle`, `onFailure`, `coverageMode`, `coverageMin`).
 4. **`/runs`** → confirm fleet-wide listing (no `app`) + `verdict`/`mode` filters.
 5. **`/queue`** → engine status (health poller, sessions, last mirror-prune, webhook).
-6. **`IntelligenceView.rules`** → stable rule `id`.
 
 **New (✗):**
 - `GET /api/v1/apps/{name}/history` — per-run health checkpoints (App-detail compare).
 - `GET /api/v1/apps/{name}/suite` — committed spec list.
 - `GET /api/v1/apps/{name}/memory` — per-app engram notes.
 - `GET /api/v1/integrity` — fleet flaky/infra/invalid/time-to-green/determinism, phase timing, gate effectiveness, the 4-layer gate.
-- Fleet rollups: recent runs, stats (`runs7d`/`passRate`/`specsAdded`/`openIssues`), 7-day verdict mix, fleet ErrorClass, learning flywheel counters, governance/audit log, (optional) fleet report + report templates.
+- Fleet rollups: recent runs, stats (`runs7d`/`passRate`/`specsAdded`/`openIssues`), 7-day verdict mix, fleet ErrorClass, (optional) fleet report + report templates.
 
 > Once these land, set `window.QAYABA_CONSOLE_CONFIG = { mode:'live' }` and complete the
 > `TODO(server)` markers in `js/api.js#mapModel` (most are 1-line field maps).

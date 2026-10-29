@@ -2,7 +2,7 @@
 
 The QA control panel for the **qayaba** engine: a Fleet mission-control
 overview, the runs feed, run detail + the **live run**, per-app **App Value**, integrity,
-the learning ledger, and reports.
+and reports.
 
 This is a **self-contained, framework-agnostic console** — plain `index.html` + CSS + vanilla JS,
 no bundler, no build step, no runtime framework. The orchestrator serves this directory as-is,

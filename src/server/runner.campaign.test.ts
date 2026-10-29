@@ -37,7 +37,6 @@ const env: RunConfigEnvironment = {
   runtime: () => "opencode",
   staticPromptHash: () => "sha256:feed",
   toolsGranted: true,
-  reflectorEnabled: true,
   campaignFrozen: true,
   maxCapture: "metadata",
 };
@@ -178,9 +177,8 @@ test("effectiveConfig records the levers, switches and grounding the run started
     runtime: "opencode",
     agents: {},
     prompt: { staticHash: "sha256:feed" },
-    grounding: { stitcher: null, curriculum: "frozen", domPack: true },
+    grounding: { stitcher: null, domPack: true },
     coverage: { mode: "enforce", minRatio: 0.8 },
-    reflector: false,
   });
   const root = h.only("qayaba.run");
   assert.equal(root.attributes["qayaba.closed_loop.enabled"], true);
@@ -223,7 +221,7 @@ test("a run that recorded no configuration answers every key as null", async () 
   assert.equal(getHistory().runs.getRecord(id)?.verdict, "infra-error");
   const detail = buildRunViewExtras(id, defaultRunViewDeps(() => true, {}))!.effectiveConfig;
   assert.deepEqual(detail.levers, { closedLoop: null, agentBrowser: null, captureMode: "metadata" });
-  assert.deepEqual([detail.campaignFreeze, detail.runtime, detail.prompt.staticHash, detail.reflector], [null, null, null, null]);
+  assert.deepEqual([detail.campaignFreeze, detail.runtime, detail.prompt.staticHash], [null, null, null]);
   assert.deepEqual(detail.coverage, { mode: null, minRatio: null });
 });
 

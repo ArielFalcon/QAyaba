@@ -104,9 +104,8 @@ window.QayabaConsole = (function () {
     listRuns: (app, limit) => req('GET', '/runs?app=' + encodeURIComponent(app) + '&limit=' + (limit || 20)),
     getRun: (id) => req('GET', '/runs/' + encodeURIComponent(id)),
     trends: (app) => req('GET', '/apps/' + encodeURIComponent(app) + '/trends'),
-    intelligence: (app) => req('GET', '/apps/' + encodeURIComponent(app) + '/intelligence'),
     /* FE<->BE architecture map persisted from the app's last successful mode:context run.
-       404 (no stored map yet) surfaces as a rejected promise, same as trends/intelligence/report
+       404 (no stored map yet) surfaces as a rejected promise, same as trends/report
        when unavailable — callers `.catch(() => null)` it. */
     contextMap: (app) => req('GET', '/apps/' + encodeURIComponent(app) + '/context-map'),
     report: (app) => req('GET', '/apps/' + encodeURIComponent(app) + '/report'),
@@ -133,18 +132,17 @@ window.QayabaConsole = (function () {
       const perApp = await Promise.all(names.map((n) => Promise.all([
         ep.listRuns(n, 20).catch(() => []),
         ep.trends(n).catch(() => null),
-        ep.intelligence(n).catch(() => null),
         ep.report(n).catch(() => null),
         ep.contextMap(n).catch(() => null),
       ])));
-      const runsByApp = {}, trendsByApp = {}, intelByApp = {}, reportsByApp = {}, contextMapByApp = {};
-      names.forEach((n, i) => { runsByApp[n] = perApp[i][0]; trendsByApp[n] = perApp[i][1]; intelByApp[n] = perApp[i][2]; reportsByApp[n] = perApp[i][3]; contextMapByApp[n] = perApp[i][4]; });
+      const runsByApp = {}, trendsByApp = {}, reportsByApp = {}, contextMapByApp = {};
+      names.forEach((n, i) => { runsByApp[n] = perApp[i][0]; trendsByApp[n] = perApp[i][1]; reportsByApp[n] = perApp[i][2]; contextMapByApp[n] = perApp[i][3]; });
       let runningRecord = null;
       if (queue && queue.running && queue.running.id) {
         const fromApp = (runsByApp[queue.running.app] || []).find((r) => r.id === queue.running.id);
         runningRecord = fromApp || await ep.getRun(queue.running.id).catch(() => null);
       }
-      return mapModel({ apps, queue, health, signals, coordination, agentConfig, runsByApp, trendsByApp, intelByApp, reportsByApp, contextMapByApp, runningRecord });
+      return mapModel({ apps, queue, health, signals, coordination, agentConfig, runsByApp, trendsByApp, reportsByApp, contextMapByApp, runningRecord });
     },
     /* SSE live feed → normalized handlers the UI applies. Maps the 15 RunEventBody
        variants onto {onStep,onPlan,onCase,onLog,onVerdict}. Transport is a fetch stream,
@@ -352,7 +350,7 @@ window.QayabaConsole = (function () {
       shadow: a.shadow, watching: true,
       baseBranch: 'main', devUrl: a.baseUrl,
       status: a.shadow ? 'shadow' : 'live',
-      /* TODO(server): vmix, value, coverage, reviewerPass, errClasses, trend come from /apps/:name/trends + /intelligence */
+      /* TODO(server): vmix, value, coverage, reviewerPass, errClasses, trend come from /apps/:name/trends */
       vmix: trendVmix(raw.trendsByApp[a.name]) || [],
       value: pick(raw.trendsByApp[a.name], 'valueOracle.avgScore'),
       coverage: pick(raw.trendsByApp[a.name], 'coverage.measured') ? pick(raw.trendsByApp[a.name], 'coverage.ratio') : null,
@@ -449,15 +447,13 @@ window.QayabaConsole = (function () {
         signals: (raw.signals && raw.signals.coordination) || null,
       },
       fleetErrorClasses: [], /* TODO(server): fleet-wide ErrorClass rollup (API.md §1) */
-      flywheel: [],          /* TODO(server): learning flywheel counters (API.md §6) */
       gates: [],             /* TODO(server): 4-layer quality-gate effectiveness (API.md §6) */
       histories: {},         /* TODO(server): per-app health history — per-run checkpoints (API.md §5) */
       suite: [],             /* TODO(server): committed suite per app (API.md §5) */
       engram: [],            /* TODO(server): per-app episodic memory (API.md §5) */
-      ledger: mapLedger(raw.intelByApp) || { rules: [], archetypes: [], audit: [] },
       integrity: emptyIntegrity(), /* TODO(server): suite-health/trust rollup — no endpoint yet (API.md §6) */
       reports: reports,         /* insights from every app's /apps/:name/report; templates are client-side presets, never simulated data (API.md §6) */
-      modes: [], rules: [], trend: { passRate: [], specs: [] }, /* unused by the current UI; kept honestly empty rather than the mock fleet trend */
+      modes: [], trend: { passRate: [], specs: [] }, /* unused by the current UI; kept honestly empty rather than the mock fleet trend */
     };
   }
   function mapRun(r) {
@@ -569,32 +565,6 @@ window.QayabaConsole = (function () {
     base.runs = { measured: vo.measuredRuns || 0, total: vo.totalRuns || 0, prevMeasured: null, prevTotal: null, series: [vo.measuredRuns || 0] };
     base.coordination = s.coordination || null;
     return base;
-  }
-  function mapLedger(intelByApp) {
-    const rules = [];
-    const arch = {};
-    /* Apps whose stored curriculum cannot be read — a fault, never the "no curriculum yet" of an
-       app that simply has none (IntelligenceView.curriculumCorrupt). */
-    const corruptCurricula = [];
-    Object.keys(intelByApp || {}).forEach((app) => {
-      const iv = intelByApp[app]; if (!iv) return;
-      if (iv.curriculumCorrupt) corruptCurricula.push(app);
-      if (!iv.rules) return;
-      iv.rules.forEach((r, i) => rules.push({
-        id: 'R-' + app.slice(0, 2) + i, status: r.status === 'medium' ? 'active' : r.status,
-        trigger: r.trigger, action: r.action, errorClass: r.errorClass,
-        confidence: r.confidence === 'medium' ? 'med' : r.confidence,
-        usage: r.usageCount, outcomes: r.outcomeCount, success: r.successRate,
-      }));
-      ((iv.curriculum && iv.curriculum.archetypes) || []).forEach((a) => {
-        const slot = arch[a.archetype] || (arch[a.archetype] = { name: a.archetype, caughtRealBug: false, promotions: 0 });
-        slot.promotions += a.promotionCount || 0;
-        if (a.caughtRealBug) slot.caughtRealBug = true;
-      });
-    });
-    if (!rules.length && !Object.keys(arch).length && !corruptCurricula.length) return null;
-    /* Governance audit log has no endpoint yet (API.md §6) — empty, never fake. */
-    return { rules: rules, archetypes: Object.keys(arch).map((k) => arch[k]), audit: [], corruptCurricula: corruptCurricula };
   }
   function trendVmix(t) { return t && t.verdictMix ? Object.keys(t.verdictMix).map((v) => ({ v: v, n: t.verdictMix[v] })) : null; }
   function pick(obj, path, dflt) {

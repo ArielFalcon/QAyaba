@@ -359,23 +359,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/apps/{name}/intelligence": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Learning ledger, value-oracle scorecard and curriculum for an app (read-only) */
-        get: operations["getAppIntelligence"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v1/apps/{name}/context-map": {
         parameters: {
             query?: never;
@@ -834,7 +817,6 @@ export interface components {
             captureMode?: "off" | "metadata" | "full";
             grounding?: {
                 stitcher?: boolean;
-                curriculum?: boolean;
                 domPack?: boolean;
             };
         };
@@ -1098,49 +1080,6 @@ export interface components {
             /** @enum {string} */
             provider: "opencode";
             model: string;
-        };
-        LearningRuleView: {
-            trigger: string;
-            action: string;
-            errorClass: string;
-            /** @enum {string} */
-            confidence: "low" | "medium" | "high";
-            usageCount: number;
-            outcomeCount: number;
-            successRate: number | null;
-            /** @enum {string} */
-            status: "candidate" | "active" | "deprecated" | "superseded";
-        };
-        ScorecardView: {
-            updatedAt: string;
-            totalRuns: number;
-            measuredRuns: number;
-            avgValueScore: number | null;
-            lastValueScore: number | null;
-            entries: {
-                valueScore: number | null;
-                mutantCount: number | null;
-                killedCount: number | null;
-                target: string;
-                at: string;
-            }[];
-        };
-        CurriculumView: {
-            updatedAt: string;
-            archetypes: {
-                archetype: string;
-                caughtRealBug: boolean;
-                promotionCount: number;
-                evaluated: number;
-                credited: number;
-            }[];
-        };
-        IntelligenceView: {
-            app: string;
-            rules: components["schemas"]["LearningRuleView"][];
-            scorecard: components["schemas"]["ScorecardView"] | null;
-            curriculum: components["schemas"]["CurriculumView"] | null;
-            curriculumCorrupt: boolean;
         };
         SignalsView: {
             valueOracle: {
@@ -1636,14 +1575,12 @@ export interface components {
                 };
                 grounding: {
                     stitcher: string | null;
-                    curriculum: string | null;
                     domPack: boolean | null;
                 };
                 coverage: {
                     mode: string | null;
                     minRatio: number | null;
                 };
-                reflector: boolean | null;
             };
         };
         CampaignRuns: {
@@ -2542,46 +2479,6 @@ export interface operations {
             };
             /** @description service shutting down */
             503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiError"];
-                };
-            };
-        };
-    };
-    getAppIntelligence: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                name: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description intelligence view */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["IntelligenceView"];
-                };
-            };
-            /** @description app not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiError"];
-                };
-            };
-            /** @description app config invalid: the app has a config file that cannot be loaded */
-            422: {
                 headers: {
                     [name: string]: unknown;
                 };

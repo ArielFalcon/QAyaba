@@ -42,9 +42,10 @@ test("CreateRunInput requires app/target/mode and rejects an unknown mode", () =
   assert.throws(() => CreateRunInputSchema.parse({ app: "portfolio", target: "e2e", mode: "turbo" }));
 });
 
-test("CreateRunInput grounding takes stitcher, curriculum and domPack, and refuses the levers that switched the structural signal or the dossier", () => {
+test("CreateRunInput grounding takes stitcher and domPack, and refuses the levers that switched the structural signal, the dossier or the curriculum", () => {
   const run = { app: "portfolio", target: "e2e", mode: "diff" };
-  assert.deepEqual(CreateRunInputSchema.parse({ ...run, grounding: { stitcher: false, curriculum: false, domPack: false } }).grounding, { stitcher: false, curriculum: false, domPack: false });
+  assert.deepEqual(CreateRunInputSchema.parse({ ...run, grounding: { stitcher: false, domPack: false } }).grounding, { stitcher: false, domPack: false });
+  assert.throws(() => CreateRunInputSchema.parse({ ...run, grounding: { curriculum: false } }));
   assert.throws(() => CreateRunInputSchema.parse({ ...run, grounding: { dossier: false } }));
   assert.throws(() => CreateRunInputSchema.parse({ ...run, grounding: { structuralSignal: false } }));
 });

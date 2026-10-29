@@ -56,9 +56,8 @@ const extras: RunViewExtras = {
     runtime: "opencode",
     agents: { "qa-author": { provider: "opencode-go", model: "m1", reasoningEffort: null, stepLimit: 50 } },
     prompt: { staticHash: "sha256:abc" },
-    grounding: { stitcher: "signal", curriculum: "frozen", domPack: true },
+    grounding: { stitcher: "signal", domPack: true },
     coverage: { mode: "signal", minRatio: 0.7 },
-    reflector: false,
   },
 };
 
@@ -284,7 +283,7 @@ test("POST /evaluations/regrade answers 400 with the service's reason for a bad 
 test("GET /runs/:id carries the campaign and the effectiveConfig exactly in the contract's shape", async () => {
   const { json } = await call("GET", "/api/v1/runs/run-1");
   assert.deepEqual(json.campaign, { id: "ab-1", variant: { arm: "treatment" }, replicate: 2 });
-  assert.deepEqual(Object.keys(json.effectiveConfig), ["levers", "campaignFreeze", "runtime", "agents", "prompt", "grounding", "coverage", "reflector"]);
+  assert.deepEqual(Object.keys(json.effectiveConfig), ["levers", "campaignFreeze", "runtime", "agents", "prompt", "grounding", "coverage"]);
   assert.deepEqual(json.effectiveConfig.levers, { closedLoop: true, agentBrowser: false, captureMode: "metadata" });
 });
 

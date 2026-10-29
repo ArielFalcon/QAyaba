@@ -113,7 +113,6 @@ export const ATTRIBUTES = {
   "qayaba.coordination.decision_overridden": bool("Whether the orchestrator did not take the lead's decision as given."),
   "qayaba.coordination.override_reason": str("The code of why the orchestrator did not take the decision as given."),
   "qayaba.coordination.failure_class": str("How a flow's turn failed, by the fixed classes of the coordination."),
-  "qayaba.reflector.enabled": bool("The reflector pass is on."),
   "qayaba.campaign.freeze": bool("Campaign freeze is on: the run neither reads nor writes learned state."),
   "qayaba.prompt.static_hash": str("Hash of the static prompt layers.", "high"),
   "qayaba.capture_mode": str("The content capture mode: off, metadata or full."),

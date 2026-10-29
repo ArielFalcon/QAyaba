@@ -12,7 +12,6 @@ import type {
   PublicAgentConfig,
   OnboardingJobStatusSchema,
   ProposeBoundariesInputSchema,
-  IntelligenceViewSchema,
   ContextMapViewSchema,
   SignalsViewSchema,
   CoordinationEventsViewSchema,
@@ -46,11 +45,6 @@ export interface ApiDeps {
   getRecord(id: string): RunRecord | undefined;
   listRecords(app: string, limit: number): RunRecord[];
   currentRun(): RunRecord | undefined;
-  /*
-   * Read-only intelligence projection (learning ledger + oracle scorecard + curriculum)
-   * for an app. Absent ⇒ the /intelligence route returns 501.
-   */
-  intelligence?: (app: string) => z.infer<typeof IntelligenceViewSchema>;
   /*
    * Read-only FE<->BE architecture map (context.json) persisted from the app's last successful
    * mode:context run. Absent ⇒ the route returns 501; null ⇒ 404 (no stored map yet).

@@ -1,10 +1,9 @@
-/* Read-only views: an app's intelligence, context map, trends, report and telemetry; a run's report; fleet signals and coordination events. */
+/* Read-only views: an app's context map, trends, report and telemetry; a run's report; fleet signals and coordination events. */
 
 import {
   AppTelemetryViewSchema,
   ContextMapViewSchema,
   CoordinationEventsViewSchema,
-  IntelligenceViewSchema,
   ReportViewSchema,
   RunReportViewSchema,
   SignalsViewSchema,
@@ -17,14 +16,6 @@ import { reply, type ApiResult } from "../respond";
 import { loadApp, parseLimit, parseWindow, redactionPort } from "../support";
 
 const CSV = "text/csv; charset=utf-8";
-
-export function appIntelligence(ctx: ApiContext): ApiResult {
-  const { intelligence } = ctx.deps;
-  if (!intelligence) throw new ApiError(501, "intelligence is not available");
-  const name = param(ctx, "name");
-  loadApp(ctx.deps, name);
-  return reply.contract(200, IntelligenceViewSchema, intelligence(name));
-}
 
 export function appContextMap(ctx: ApiContext): ApiResult {
   const { contextMap } = ctx.deps;
