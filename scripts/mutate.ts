@@ -488,15 +488,13 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
     thresholds: DEFAULT_THRESHOLDS,
   },
   "run-output-readers": {
-    description: "what a run of the tests leaves for the orchestrator to read: the strict, capped read of a directory of output and of a report (never waits on a pipe, never follows a link, never throws, says how many files it left out and why without naming or quoting them, and uses a set of dumps, reports or counters whole or not at all, so that the coverage or the count of a part is never taken for the run's), the coverage dumps, the collector that reads them, the fault-injection counters and the oracle's reading of the count (an unknown count gives no score), the counter also through the composition root that wires it (whose own lines are broken by hand)",
+    description: "what a run of the tests leaves for the orchestrator to read: the strict, capped read of a directory of output and of a report (never waits on a pipe, never follows a link, never throws, says how many files it left out and why without naming or quoting them, and uses a set of dumps, reports or counters whole or not at all, so that the coverage or the count of a part is never taken for the run's), the coverage dumps, the collector that reads them, and the mutation counters (an unknown count is not judged)",
     mutate: [
       "qa-engine/src/shared-infrastructure/run-output-reader.ts",
       `${OS_INFRA}/coverage-dump-reader.ts`,
       `${OS_INFRA}/target-coverage-collector.ts`,
       `${OS_INFRA}/fault-injection-counter-reader.ts`,
       `${OS}/dump-sanitizers.ts`,
-      /* The oracle's reading of the count of corrupted responses: unknown, none, or some. */
-      `${OS_INFRA}/fault-injection-oracle.adapter.ts@injected-count-read`,
     ],
     tests: [
       /* The reader's own cases: what a directory that is cut at the entry cap is, to a set used whole and to one scanned. */
@@ -504,13 +502,10 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
       `${OS_INFRA_TEST}/coverage-dump-reader.test.ts`,
       `${OS_INFRA_TEST}/coverage-dump-reader.confinement.test.ts`,
       `${OS_INFRA_TEST}/fault-injection-counter-reader.test.ts`,
-      `${OS_INFRA_TEST}/fault-injection-oracle.adapter.test.ts`,
       /* What a dump and a counter are rebuilt as before they reach the mirror the readers read. */
       `${OS_TEST}/dump-sanitizers.test.ts`,
       /* The real readers behind the collector the factory builds. */
       `${OS_INFRA_TEST}/target-coverage-collector.test.ts`,
-      /* Apart from run-engine-factory.test.ts, whose many tests would all run once per mutant. */
-      "src/server/run-engine-factory.fault-injection.test.ts",
       /* The scan that the e2e runner reads the failure dumps with: it uses what it can and keeps going, where the readers above use a set whole or not at all. */
       "qa-engine/test/contexts/test-execution/infrastructure/e2e-execution.runner.confinement.test.ts",
     ],

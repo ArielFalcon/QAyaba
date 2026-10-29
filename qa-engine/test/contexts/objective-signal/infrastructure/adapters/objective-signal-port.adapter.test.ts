@@ -2,7 +2,7 @@
    ObjectiveSignalPortAdapter composes the REAL keystone collaborators — CoverageCollectorPort.collect
    (raw covered lines), the assembler (diff + raw CoverageReport -> ChangeCoverage read-model),
    DecideCoverageService.decide (the keystone: unknown NEVER blocks — consumed VERBATIM, never
-   reimplemented) and ValueOraclePort.measure (the mutation-testing / fault-injection valueScore).
+   reimplemented) and BundleMutationPort.measure (the mutation pass).
    THIN — no new coverage-ratio logic added here.
    The assembler is wired via qa-engine/src/contexts/objective-signal/domain/assemble-change-coverage.ts
    (see that module's own tests for the assembler's correctness). This suite exercises the ADAPTER:
@@ -19,8 +19,7 @@ import { ObjectiveSignalPortAdapter } from "@contexts/objective-signal/infrastru
 import { DecideCoverageService, type ChangeCoverage } from "@contexts/objective-signal/domain/decide-coverage.service.ts";
 import { assembleChangeCoverage } from "@contexts/objective-signal/domain/assemble-change-coverage.ts";
 import type { CoverageCollectorPort } from "@contexts/objective-signal/application/ports/coverage-collector.port.ts";
-import type { ValueOraclePort } from "@contexts/objective-signal/application/ports/value-oracle.port.ts";
-import type { CoverageReport, ValueOracleResult } from "@contexts/objective-signal/domain/coverage-collector.ts";
+import type { CoverageReport } from "@contexts/objective-signal/domain/coverage-collector.ts";
 import { BlastRadius } from "@kernel/blast-radius.ts";
 import { Sha } from "@kernel/sha.ts";
 
@@ -31,9 +30,6 @@ function fakeCollector(report: CoverageReport, onCollect?: (specDir: string, nam
       return report;
     },
   };
-}
-function fakeOracle(result: ValueOracleResult): ValueOraclePort {
-  return { measure: async () => result };
 }
 
 const SAMPLE_DIFF = [
@@ -47,8 +43,7 @@ const SAMPLE_DIFF = [
 test("measure() returns unknown+null when no ChangeCoverage assembler is injected (keystone-safe default)", async () => {
   const collector = fakeCollector({ covered: [{ file: "src/checkout.ts", lines: [1, 2, 3] }] });
   const decide = new DecideCoverageService();
-  const oracle = fakeOracle({ valueScore: null, mutantCount: 0, killedCount: 0, details: "" });
-  const adapter = new ObjectiveSignalPortAdapter({ collector, decide, oracle }, { policy: { mode: "signal", minRatio: 0.7 }, repoDir: "/mirrors/org/app" });
+  const adapter = new ObjectiveSignalPortAdapter({ collector, decide }, { policy: { mode: "signal", minRatio: 0.7 }, repoDir: "/mirrors/org/app" });
 
   const br = BlastRadius.of(Sha.of("abc1234"), ["src/checkout.ts"]);
   const result = await adapter.measure(br, "/mirrors/org/app/e2e", SAMPLE_DIFF);
@@ -60,9 +55,8 @@ test("measure() returns unknown+null when no ChangeCoverage assembler is injecte
 test("measure() returns unknown+null when an assembler IS injected but diff is absent (non-diff modes)", async () => {
   const collector = fakeCollector({ covered: [{ file: "src/checkout.ts", lines: [1, 2] }] });
   const decide = new DecideCoverageService();
-  const oracle = fakeOracle({ valueScore: null, mutantCount: 0, killedCount: 0, details: "" });
   const adapter = new ObjectiveSignalPortAdapter(
-    { collector, decide, oracle },
+    { collector, decide },
     { policy: { mode: "enforce", minRatio: 0.7 }, repoDir: "/mirrors/org/app", assembleChangeCoverage },
   );
 
@@ -77,21 +71,19 @@ test("measure() short-circuits the collector's IO entirely when no assembly will
   let collectCalls = 0;
   const collector = fakeCollector({ covered: [{ file: "src/checkout.ts", lines: [1, 2] }] }, () => { collectCalls++; });
   const decide = new DecideCoverageService();
-  const oracle = fakeOracle({ valueScore: 0.5, mutantCount: 2, killedCount: 1, details: "" });
   const br = BlastRadius.of(Sha.of("abc1234"), ["src/checkout.ts"]);
 
   /* Case 1: assembler wired, diff absent (non-diff modes / cross-repo starved diff) -> no collection. */
   const withAssembler = new ObjectiveSignalPortAdapter(
-    { collector, decide, oracle },
+    { collector, decide },
     { policy: { mode: "enforce", minRatio: 0.7 }, repoDir: "/mirrors/org/app", assembleChangeCoverage },
   );
   const starved = await withAssembler.measure(br, "/mirrors/org/app/e2e");
   assert.equal(collectCalls, 0, "no diff -> the collector's real IO must be skipped, not run-and-discarded");
   assert.equal(starved.status, "unknown");
-  assert.equal(starved.valueScore, 0.5, "the value-oracle still runs — only coverage collection is skipped");
 
   const withoutAssembler = new ObjectiveSignalPortAdapter(
-    { collector, decide, oracle },
+    { collector, decide },
     { policy: { mode: "signal", minRatio: 0.7 }, repoDir: "/mirrors/org/app" },
   );
   await withoutAssembler.measure(br, "/mirrors/org/app/e2e", SAMPLE_DIFF);
@@ -104,10 +96,9 @@ test("measure() short-circuits the collector's IO entirely when no assembly will
 test("measure() delegates to the injected ChangeCoverageAssembler + DecideCoverageService.decide verbatim", async () => {
   const collector = fakeCollector({ covered: [{ file: "src/checkout.ts", lines: [1, 2] }] });
   const decide = new DecideCoverageService();
-  const oracle = fakeOracle({ valueScore: null, mutantCount: 0, killedCount: 0, details: "" });
   const spy = (diff: string, report: CoverageReport): ChangeCoverage => assembleChangeCoverage(diff, report);
   const adapter = new ObjectiveSignalPortAdapter(
-    { collector, decide, oracle },
+    { collector, decide },
     { policy: { mode: "enforce", minRatio: 0.7 }, repoDir: "/mirrors/org/app", assembleChangeCoverage: spy },
   );
 
@@ -124,9 +115,8 @@ test("measure() surfaces uncovered from the assembled ChangeCoverage when willAs
    */
   const collector = fakeCollector({ covered: [] });
   const decide = new DecideCoverageService();
-  const oracle = fakeOracle({ valueScore: null, mutantCount: 0, killedCount: 0, details: "" });
   const adapter = new ObjectiveSignalPortAdapter(
-    { collector, decide, oracle },
+    { collector, decide },
     { policy: { mode: "enforce", minRatio: 0.7 }, repoDir: "/mirrors/org/app", assembleChangeCoverage },
   );
 
@@ -139,50 +129,24 @@ test("measure() surfaces uncovered from the assembled ChangeCoverage when willAs
 test("measure() omits uncovered (undefined, never []) when willAssemble is false — no assembler, or assembler present but diff absent", async () => {
   const collector = fakeCollector({ covered: [] });
   const decide = new DecideCoverageService();
-  const oracle = fakeOracle({ valueScore: null, mutantCount: 0, killedCount: 0, details: "" });
   const br = BlastRadius.of(Sha.of("abc1234"), ["src/checkout.ts"]);
 
   const withoutAssembler = new ObjectiveSignalPortAdapter(
-    { collector, decide, oracle },
+    { collector, decide },
     { policy: { mode: "signal", minRatio: 0.7 }, repoDir: "/mirrors/org/app" },
   );
   const resultNoAssembler = await withoutAssembler.measure(br, "/mirrors/org/app/e2e", SAMPLE_DIFF);
   assert.equal(resultNoAssembler.uncovered, undefined, "no assembler -> uncovered must be absent, never fabricated as []");
 
   const withAssembler = new ObjectiveSignalPortAdapter(
-    { collector, decide, oracle },
+    { collector, decide },
     { policy: { mode: "enforce", minRatio: 0.7 }, repoDir: "/mirrors/org/app", assembleChangeCoverage },
   );
   const resultNoDiff = await withAssembler.measure(br, "/mirrors/org/app/e2e");
   assert.equal(resultNoDiff.uncovered, undefined, "assembler present but diff absent -> uncovered must be absent");
 });
 
-test("measure() surfaces valueScore from the injected ValueOraclePort (the mutation-testing keystone companion)", async () => {
-  const collector = fakeCollector({ covered: [] });
-  const decide = new DecideCoverageService();
-  const oracle = fakeOracle({ valueScore: 0.85, mutantCount: 20, killedCount: 17, details: "17/20 mutants killed" });
-  const adapter = new ObjectiveSignalPortAdapter({ collector, decide, oracle }, { policy: { mode: "signal", minRatio: 0.7 }, repoDir: "/mirrors/org/app" });
 
-  const br = BlastRadius.of(Sha.of("abc1234"), ["src/checkout.ts"]);
-  const result = await adapter.measure(br, "/mirrors/org/app/e2e");
-
-  assert.equal(result.valueScore, 0.85);
-  assert.equal(result.mutantCount, 20, "the oracle's real mutantCount must reach the caller, not be dropped on the floor");
-  assert.equal(result.killedCount, 17, "the oracle's real killedCount must reach the caller, not be dropped on the floor");
-});
-
-test("measure() surfaces a null mutantCount/killedCount from the injected ValueOraclePort as-is (distinct from 'ran and found zero')", async () => {
-  const collector = fakeCollector({ covered: [] });
-  const decide = new DecideCoverageService();
-  const oracle = fakeOracle({ valueScore: null, mutantCount: null, killedCount: null, details: "valueOracle is off" });
-  const adapter = new ObjectiveSignalPortAdapter({ collector, decide, oracle }, { policy: { mode: "signal", minRatio: 0.7 }, repoDir: "/mirrors/org/app" });
-
-  const br = BlastRadius.of(Sha.of("abc1234"), ["src/checkout.ts"]);
-  const result = await adapter.measure(br, "/mirrors/org/app/e2e");
-
-  assert.equal(result.mutantCount, null);
-  assert.equal(result.killedCount, null);
-});
 
 /* ── NAMESPACE FIX ────────────────────────────────────────────────────────────────────────────── */
 
@@ -193,9 +157,8 @@ test("measure() uses ctx.namespace (the SAME per-run namespace ExecutionPortAdap
   const seenNamespaces: string[] = [];
   const collector = fakeCollector({ covered: [] }, (_specDir, namespace) => seenNamespaces.push(namespace));
   const decide = new DecideCoverageService();
-  const oracle = fakeOracle({ valueScore: null, mutantCount: 0, killedCount: 0, details: "" });
   const adapter = new ObjectiveSignalPortAdapter(
-    { collector, decide, oracle },
+    { collector, decide },
     { policy: { mode: "signal", minRatio: 0.7 }, repoDir: "/mirrors/org/app", namespace: "qa-bot-abc1234", assembleChangeCoverage },
   );
 
@@ -209,9 +172,8 @@ test("measure() falls back to br.sha.toString() when ctx.namespace is absent (ba
   const seenNamespaces: string[] = [];
   const collector = fakeCollector({ covered: [] }, (_specDir, namespace) => seenNamespaces.push(namespace));
   const decide = new DecideCoverageService();
-  const oracle = fakeOracle({ valueScore: null, mutantCount: 0, killedCount: 0, details: "" });
   const adapter = new ObjectiveSignalPortAdapter(
-    { collector, decide, oracle },
+    { collector, decide },
     { policy: { mode: "signal", minRatio: 0.7 }, repoDir: "/mirrors/org/app", assembleChangeCoverage },
   );
 
@@ -230,9 +192,8 @@ test("measure() opts.namespace overrides ctx.namespace for the collector call (p
   const seenNamespaces: string[] = [];
   const collector = fakeCollector({ covered: [] }, (_specDir, namespace) => seenNamespaces.push(namespace));
   const decide = new DecideCoverageService();
-  const oracle = fakeOracle({ valueScore: null, mutantCount: 0, killedCount: 0, details: "" });
   const adapter = new ObjectiveSignalPortAdapter(
-    { collector, decide, oracle },
+    { collector, decide },
     { policy: { mode: "signal", minRatio: 0.7 }, repoDir: "/mirrors/org/app", namespace: "qa-bot-abc1234", assembleChangeCoverage },
   );
 
@@ -246,9 +207,8 @@ test("measure() falls back to ctx.namespace when opts.namespace is absent (backw
   const seenNamespaces: string[] = [];
   const collector = fakeCollector({ covered: [] }, (_specDir, namespace) => seenNamespaces.push(namespace));
   const decide = new DecideCoverageService();
-  const oracle = fakeOracle({ valueScore: null, mutantCount: 0, killedCount: 0, details: "" });
   const adapter = new ObjectiveSignalPortAdapter(
-    { collector, decide, oracle },
+    { collector, decide },
     { policy: { mode: "signal", minRatio: 0.7 }, repoDir: "/mirrors/org/app", namespace: "qa-bot-abc1234", assembleChangeCoverage },
   );
 
@@ -264,9 +224,8 @@ test("measure() derives changedFiles from the diff and threads them into collect
   const seenChangedFiles: (string[] | undefined)[] = [];
   const collector = fakeCollector({ covered: [] }, (_specDir, _namespace, changedFiles) => seenChangedFiles.push(changedFiles));
   const decide = new DecideCoverageService();
-  const oracle = fakeOracle({ valueScore: null, mutantCount: 0, killedCount: 0, details: "" });
   const adapter = new ObjectiveSignalPortAdapter(
-    { collector, decide, oracle },
+    { collector, decide },
     { policy: { mode: "signal", minRatio: 0.7 }, repoDir: "/mirrors/org/app", assembleChangeCoverage },
   );
 
@@ -276,72 +235,9 @@ test("measure() derives changedFiles from the diff and threads them into collect
   assert.deepEqual(seenChangedFiles, [["src/checkout.ts"]]);
 });
 
-/* Per-call baselineCases: the e2e fault-injection oracle returns valueScore:null forever unless
-   it knows the green run's passing spec names; the composition root's static ctx.baselineCases is
-   a permanent [] placeholder (no per-run case list exists at composition time) — the PER-CALL arg
-   is what supplies a real value.
- */
 
-test("measure() forwards a PER-CALL baselineCases arg into ValueOraclePort.measure, taking precedence over ctx.baselineCases", async () => {
-  const seenBaselineCases: (string[] | undefined)[] = [];
-  const collector = fakeCollector({ covered: [] });
-  const decide = new DecideCoverageService();
-  const oracle: ValueOraclePort = {
-    measure: async (_br, _repoDir, _namespace, baselineCases) => {
-      seenBaselineCases.push(baselineCases);
-      return { valueScore: 0.9, mutantCount: 10, killedCount: 9, details: "9/10" };
-    },
-  };
-  const adapter = new ObjectiveSignalPortAdapter(
-    { collector, decide, oracle },
-    { policy: { mode: "signal", minRatio: 0.7 }, repoDir: "/mirrors/org/app", baselineCases: ["stale-static-case"] },
-  );
 
-  const br = BlastRadius.of(Sha.of("abc1234"), []);
-  const result = await adapter.measure(br, "/mirrors/org/app/e2e", undefined, ["login", "checkout"]);
 
-  assert.deepEqual(seenBaselineCases, [["login", "checkout"]], "the per-call baselineCases must win over the static ctx.baselineCases placeholder");
-  assert.equal(result.valueScore, 0.9);
-});
-
-test("measure() falls back to ctx.baselineCases when the per-call arg is absent (backward compatible)", async () => {
-  const seenBaselineCases: (string[] | undefined)[] = [];
-  const collector = fakeCollector({ covered: [] });
-  const decide = new DecideCoverageService();
-  const oracle: ValueOraclePort = {
-    measure: async (_br, _repoDir, _namespace, baselineCases) => {
-      seenBaselineCases.push(baselineCases);
-      return { valueScore: null, mutantCount: 0, killedCount: 0, details: "" };
-    },
-  };
-  const adapter = new ObjectiveSignalPortAdapter(
-    { collector, decide, oracle },
-    { policy: { mode: "signal", minRatio: 0.7 }, repoDir: "/mirrors/org/app", baselineCases: ["ctx-fallback-case"] },
-  );
-
-  const br = BlastRadius.of(Sha.of("abc1234"), []);
-  await adapter.measure(br, "/mirrors/org/app/e2e"); /* no baselineCases arg at all */
-
-  assert.deepEqual(seenBaselineCases, [["ctx-fallback-case"]]);
-});
-
-test("measure() passes undefined to the oracle when NEITHER a per-call arg NOR ctx.baselineCases is supplied", async () => {
-  const seenBaselineCases: (string[] | undefined)[] = [];
-  const collector = fakeCollector({ covered: [] });
-  const decide = new DecideCoverageService();
-  const oracle: ValueOraclePort = {
-    measure: async (_br, _repoDir, _namespace, baselineCases) => {
-      seenBaselineCases.push(baselineCases);
-      return { valueScore: null, mutantCount: 0, killedCount: 0, details: "" };
-    },
-  };
-  const adapter = new ObjectiveSignalPortAdapter({ collector, decide, oracle }, { policy: { mode: "signal", minRatio: 0.7 }, repoDir: "/mirrors/org/app" });
-
-  const br = BlastRadius.of(Sha.of("abc1234"), []);
-  await adapter.measure(br, "/mirrors/org/app/e2e");
-
-  assert.deepEqual(seenBaselineCases, [undefined]);
-});
 
 /* ObjectiveSignalPort.blocks() delegates to DecideCoverageService.blocks() VERBATIM — "enforce" +
    "fail" is the ONLY combination that blocks; every other combination must NOT. The use-case asks
@@ -351,8 +247,7 @@ test("measure() passes undefined to the oracle when NEITHER a per-call arg NOR c
 test("blocks() delegates to DecideCoverageService.blocks() verbatim: enforce+fail -> true", () => {
   const collector = fakeCollector({ covered: [] });
   const decide = new DecideCoverageService();
-  const oracle = fakeOracle({ valueScore: null, mutantCount: 0, killedCount: 0, details: "" });
-  const adapter = new ObjectiveSignalPortAdapter({ collector, decide, oracle }, { policy: { mode: "enforce", minRatio: 0.7 }, repoDir: "/mirrors/org/app" });
+  const adapter = new ObjectiveSignalPortAdapter({ collector, decide }, { policy: { mode: "enforce", minRatio: 0.7 }, repoDir: "/mirrors/org/app" });
 
   assert.equal(adapter.blocks("fail"), true, "enforce mode + fail status must block");
 });
@@ -360,8 +255,7 @@ test("blocks() delegates to DecideCoverageService.blocks() verbatim: enforce+fai
 test("blocks(): signal+fail -> false (signal mode never blocks, regardless of status)", () => {
   const collector = fakeCollector({ covered: [] });
   const decide = new DecideCoverageService();
-  const oracle = fakeOracle({ valueScore: null, mutantCount: 0, killedCount: 0, details: "" });
-  const adapter = new ObjectiveSignalPortAdapter({ collector, decide, oracle }, { policy: { mode: "signal", minRatio: 0.7 }, repoDir: "/mirrors/org/app" });
+  const adapter = new ObjectiveSignalPortAdapter({ collector, decide }, { policy: { mode: "signal", minRatio: 0.7 }, repoDir: "/mirrors/org/app" });
 
   assert.equal(adapter.blocks("fail"), false, "signal mode must never block, even on fail");
 });
@@ -369,8 +263,7 @@ test("blocks(): signal+fail -> false (signal mode never blocks, regardless of st
 test("blocks(): enforce+unknown -> false (the keystone invariant — unknown NEVER blocks)", () => {
   const collector = fakeCollector({ covered: [] });
   const decide = new DecideCoverageService();
-  const oracle = fakeOracle({ valueScore: null, mutantCount: 0, killedCount: 0, details: "" });
-  const adapter = new ObjectiveSignalPortAdapter({ collector, decide, oracle }, { policy: { mode: "enforce", minRatio: 0.7 }, repoDir: "/mirrors/org/app" });
+  const adapter = new ObjectiveSignalPortAdapter({ collector, decide }, { policy: { mode: "enforce", minRatio: 0.7 }, repoDir: "/mirrors/org/app" });
 
   assert.equal(adapter.blocks("unknown"), false, "unknown must never block even in enforce mode");
 });
@@ -378,44 +271,35 @@ test("blocks(): enforce+unknown -> false (the keystone invariant — unknown NEV
 test("blocks(): enforce+pass -> false", () => {
   const collector = fakeCollector({ covered: [] });
   const decide = new DecideCoverageService();
-  const oracle = fakeOracle({ valueScore: null, mutantCount: 0, killedCount: 0, details: "" });
-  const adapter = new ObjectiveSignalPortAdapter({ collector, decide, oracle }, { policy: { mode: "enforce", minRatio: 0.7 }, repoDir: "/mirrors/org/app" });
+  const adapter = new ObjectiveSignalPortAdapter({ collector, decide }, { policy: { mode: "enforce", minRatio: 0.7 }, repoDir: "/mirrors/org/app" });
 
   assert.equal(adapter.blocks("pass"), false, "a pass status must never block");
 });
 
-/* coveragePolicy.mode "off" must skip BOTH collector IO and the value oracle (YAML honesty). */
-test("measure() with policy.mode off skips collector and oracle", async () => {
+/* coveragePolicy.mode "off" must skip collector IO and the mutation pass (YAML honesty). */
+test("measure() with policy.mode off skips the collector and the mutation pass", async () => {
   let collectCalls = 0;
-  let oracleCalls = 0;
+  let mutationCalls = 0;
   const collector = fakeCollector({ covered: [{ file: "src/checkout.ts", lines: [1, 2] }] }, () => { collectCalls++; });
   const decide = new DecideCoverageService();
-  const oracle: ValueOraclePort = {
-    measure: async () => {
-      oracleCalls++;
-      return { valueScore: 0.9, mutantCount: 2, killedCount: 2, details: "should not run" };
-    },
-  };
+  const mutation = { measure: async () => { mutationCalls++; return { applied: 1, killed: 1, survived: [] }; } };
   const adapter = new ObjectiveSignalPortAdapter(
-    { collector, decide, oracle },
+    { collector, decide, mutation },
     { policy: { mode: "off", minRatio: 0.7 }, repoDir: "/mirrors/org/app", assembleChangeCoverage },
   );
   const br = BlastRadius.of(Sha.of("abc1234"), ["src/checkout.ts"]);
   const result = await adapter.measure(br, "/mirrors/org/app/e2e", SAMPLE_DIFF, ["a"]);
 
   assert.equal(collectCalls, 0, "coverage.mode off must not collect coverage dumps");
-  assert.equal(oracleCalls, 0, "coverage.mode off must not run the value oracle");
+  assert.equal(mutationCalls, 0, "coverage.mode off must not run the mutation pass");
   assert.equal(result.status, "unknown");
   assert.equal(result.ratio, null);
-  assert.equal(result.valueScore, undefined);
-  assert.equal(result.mutantCount, undefined, "the oracle never ran — mutantCount must be absent, never a fabricated 0 or null");
-  assert.equal(result.killedCount, undefined, "the oracle never ran — killedCount must be absent, never a fabricated 0 or null");
+  assert.equal(result.bundleMutation, undefined);
 });
 
 test("measure() says why a change-coverage is unknown: no executed source mapped to a changed file, no diff, no assembler", async () => {
-  const oracle = fakeOracle({ valueScore: null, mutantCount: null, killedCount: null, details: "" });
   const adapterWith = (report: CoverageReport, assembler = true) =>
-    new ObjectiveSignalPortAdapter({ collector: fakeCollector(report), decide: new DecideCoverageService(), oracle }, { policy: { mode: "signal", minRatio: 0.7 }, repoDir: "/r", ...(assembler ? { assembleChangeCoverage } : {}) });
+    new ObjectiveSignalPortAdapter({ collector: fakeCollector(report), decide: new DecideCoverageService() }, { policy: { mode: "signal", minRatio: 0.7 }, repoDir: "/r", ...(assembler ? { assembleChangeCoverage } : {}) });
   const br = BlastRadius.of(Sha.of("abc1234"), ["src/checkout.ts"]);
 
   const unmapped = await adapterWith({ covered: [] }).measure(br, "/r/e2e", SAMPLE_DIFF);
@@ -432,7 +316,7 @@ test("measure() says why a change-coverage is unknown: no executed source mapped
 test("measure() says the scripts carried no source map when the dumps held scripts, none had one and no changed file mapped; it never blocks", async () => {
   const br = BlastRadius.of(Sha.of("abc1234"), ["src/checkout.ts"]);
   const make = (report: CoverageReport) => new ObjectiveSignalPortAdapter(
-    { collector: fakeCollector(report), decide: new DecideCoverageService(), oracle: fakeOracle({ valueScore: null, mutantCount: 0, killedCount: 0, details: "" }) },
+    { collector: fakeCollector(report), decide: new DecideCoverageService() },
     { policy: { mode: "enforce", minRatio: 0.7 }, repoDir: "/r", assembleChangeCoverage: assembleChangeCoverage },
   );
 
@@ -456,7 +340,7 @@ const CAND = (id: string, over: Record<string, unknown> = {}) => ({
 
 function perCandidateAdapter(covered: number[]) {
   return new ObjectiveSignalPortAdapter(
-    { collector: fakeCollector({ covered: [{ file: "src/checkout.ts", lines: covered }] }), decide: new DecideCoverageService(), oracle: fakeOracle({ valueScore: null, mutantCount: 0, killedCount: 0, details: "" }) },
+    { collector: fakeCollector({ covered: [{ file: "src/checkout.ts", lines: covered }] }), decide: new DecideCoverageService() },
     { policy: { mode: "enforce", minRatio: 0.7 }, repoDir: "/mirrors/org/app", assembleChangeCoverage },
   );
 }
@@ -475,7 +359,7 @@ test("measure() with candidates reports each candidate's share and leaves the ag
 
 test("measure() with candidates and no source maps gives every candidate the reason, and the aggregate still never blocks", async () => {
   const adapter = new ObjectiveSignalPortAdapter(
-    { collector: fakeCollector({ covered: [], scripts: { total: 3, withSourceMap: 0 } }), decide: new DecideCoverageService(), oracle: fakeOracle({ valueScore: null, mutantCount: 0, killedCount: 0, details: "" }) },
+    { collector: fakeCollector({ covered: [], scripts: { total: 3, withSourceMap: 0 } }), decide: new DecideCoverageService() },
     { policy: { mode: "enforce", minRatio: 0.7 }, repoDir: "/mirrors/org/app", assembleChangeCoverage },
   );
   const result = await adapter.measure(BlastRadius.of(Sha.of("abc1234"), ["src/checkout.ts"]), "/m/e2e", SAMPLE_DIFF, undefined, { candidates: [CAND("uc-1"), CAND("uc-2")] });
@@ -507,9 +391,8 @@ test("measure() counts only the change's own code: the repo's test files a commi
   ].join("\n");
   let collected: string[] | undefined;
   const collector = fakeCollector({ covered: [{ file: "src/checkout.ts", lines: [1, 2] }] }, (_dir, _ns, files) => { collected = files; });
-  const oracle = fakeOracle({ valueScore: null, mutantCount: null, killedCount: null, details: "" });
   const adapter = new ObjectiveSignalPortAdapter(
-    { collector, decide: new DecideCoverageService(), oracle },
+    { collector, decide: new DecideCoverageService() },
     { policy: { mode: "enforce", minRatio: 0.7 }, repoDir: "/mirrors/org/app", assembleChangeCoverage },
   );
 
@@ -525,7 +408,7 @@ test("measure() counts only the change's own code: the repo's test files a commi
 test("measure() of a commit that only changes the repo's tests has no changed lines to cover, which never blocks", async () => {
   const diff = ["diff --git a/src/checkout.spec.ts b/src/checkout.spec.ts", "+++ b/src/checkout.spec.ts", "@@ -1,0 +1,1 @@", "+it('a', () => {});"].join("\n");
   const adapter = new ObjectiveSignalPortAdapter(
-    { collector: fakeCollector({ covered: [] }), decide: new DecideCoverageService(), oracle: fakeOracle({ valueScore: null, mutantCount: null, killedCount: null, details: "" }) },
+    { collector: fakeCollector({ covered: [] }), decide: new DecideCoverageService() },
     { policy: { mode: "enforce", minRatio: 0.7 }, repoDir: "/mirrors/org/app", assembleChangeCoverage },
   );
 
@@ -542,7 +425,7 @@ test("measure() reports the branches on the changed lines and the arms that neve
     branches: [{ file: "src/checkout.ts", line: 1, column: 0, kind: "if", arms: [{ label: "then", taken: true }, { label: "else", taken: false }] }],
   };
   const adapter = new ObjectiveSignalPortAdapter(
-    { collector: fakeCollector(report), decide: new DecideCoverageService(), oracle: fakeOracle({ valueScore: null, mutantCount: null, killedCount: null, details: "" }) },
+    { collector: fakeCollector(report), decide: new DecideCoverageService() },
     { policy: { mode: "enforce", minRatio: 0.7 }, repoDir: "/mirrors/org/app", assembleChangeCoverage },
   );
 
@@ -565,7 +448,7 @@ test("measure() hands the mutants on the changed lines to the mutation oracle, w
     },
   };
   const adapter = new ObjectiveSignalPortAdapter(
-    { collector: fakeCollector(report), decide: new DecideCoverageService(), oracle: fakeOracle({ valueScore: null, mutantCount: null, killedCount: null, details: "" }), mutation },
+    { collector: fakeCollector(report), decide: new DecideCoverageService(), mutation },
     { policy: { mode: "signal", minRatio: 0.7 }, repoDir: "/mirrors/org/app", assembleChangeCoverage, namespace: "run-7" },
   );
 
@@ -594,7 +477,7 @@ test("measure() with re-runs reads the latest dumps of every spec file, and its 
     },
   };
   const adapter = new ObjectiveSignalPortAdapter(
-    { collector, decide: new DecideCoverageService(), oracle: fakeOracle({ valueScore: null, mutantCount: null, killedCount: null, details: "" }), mutation },
+    { collector, decide: new DecideCoverageService(), mutation },
     { policy: { mode: "signal", minRatio: 0.7 }, repoDir: "/mirrors/org/app", assembleChangeCoverage, namespace: "run-7" },
   );
 
@@ -611,7 +494,7 @@ test("measure() with re-runs reads the latest dumps of every spec file, and its 
 
 test("measure() with re-runs whose dumps cannot all be read measures nothing: a part never stands for the suite", async () => {
   const adapter = new ObjectiveSignalPortAdapter(
-    { collector: { collect: async () => ({ covered: [{ file: "src/checkout.ts", lines: [1, 2] }] }), recollect: async () => ({ covered: [{ file: "src/checkout.ts", lines: [1] }], incomplete: true }) }, decide: new DecideCoverageService(), oracle: fakeOracle({ valueScore: null, mutantCount: null, killedCount: null, details: "" }) },
+    { collector: { collect: async () => ({ covered: [{ file: "src/checkout.ts", lines: [1, 2] }] }), recollect: async () => ({ covered: [{ file: "src/checkout.ts", lines: [1] }], incomplete: true }) }, decide: new DecideCoverageService() },
     { policy: { mode: "enforce", minRatio: 0.7 }, repoDir: "/r", assembleChangeCoverage, namespace: "run-7" },
   );
 
@@ -636,7 +519,7 @@ test("measure() makes no mutant of a site whose source line in the working copy 
       },
     };
     const adapter = new ObjectiveSignalPortAdapter(
-      { collector: fakeCollector(report), decide: new DecideCoverageService(), oracle: fakeOracle({ valueScore: null, mutantCount: null, killedCount: null, details: "" }), mutation },
+      { collector: fakeCollector(report), decide: new DecideCoverageService(), mutation },
       { policy: { mode: "signal", minRatio: 0.7 }, repoDir, assembleChangeCoverage, namespace: "run-7" },
     );
 
@@ -656,7 +539,7 @@ test("measure() hands back the survivors' mutants as they ran beside the outcome
   const survivorRuns = [{ site, specFiles: ["flows/pay.spec.ts"] }];
   const mutation = { measure: async () => ({ applied: 1, killed: 0, survived: [{ file: "src/checkout.ts", line: 1, operator: "negate condition" }], survivorRuns }) };
   const adapter = new ObjectiveSignalPortAdapter(
-    { collector: fakeCollector({ covered: [{ file: "src/checkout.ts", lines: [1, 2] }], mutationSites: [site] }), decide: new DecideCoverageService(), oracle: fakeOracle({ valueScore: null, mutantCount: null, killedCount: null, details: "" }), mutation },
+    { collector: fakeCollector({ covered: [{ file: "src/checkout.ts", lines: [1, 2] }], mutationSites: [site] }), decide: new DecideCoverageService(), mutation },
     { policy: { mode: "signal", minRatio: 0.7 }, repoDir: "/mirrors/org/app", assembleChangeCoverage, namespace: "run-7" },
   );
 
@@ -672,7 +555,7 @@ test("recheckSurvivors() applies the survivors again through the mutation oracle
   const judged = { applied: 1, killed: 1, survived: [] };
   const mutation = { measure: async (mutants: unknown, specDir: string, namespace: string, baselineCases: string[]) => (asked.push([mutants, specDir, namespace, baselineCases]), judged) };
   const build = (withMutation: boolean) => new ObjectiveSignalPortAdapter(
-    { collector: fakeCollector({ covered: [] }), decide: new DecideCoverageService(), oracle: fakeOracle({ valueScore: null, mutantCount: null, killedCount: null, details: "" }), ...(withMutation ? { mutation } : {}) },
+    { collector: fakeCollector({ covered: [] }), decide: new DecideCoverageService(), ...(withMutation ? { mutation } : {}) },
     { policy: { mode: "signal", minRatio: 0.7 }, repoDir: "/mirrors/org/app", assembleChangeCoverage },
   );
   const survivors = [{ site, specFiles: ["flows/new.spec.ts"] }];
@@ -693,7 +576,7 @@ test("measure() asks the mutation oracle to observe and records what each surviv
     },
   };
   const adapter = new ObjectiveSignalPortAdapter(
-    { collector: fakeCollector({ covered: [{ file: "src/checkout.ts", lines: [1, 2] }], mutationSites: [site] }), decide: new DecideCoverageService(), oracle: fakeOracle({ valueScore: null, mutantCount: null, killedCount: null, details: "" }), mutation },
+    { collector: fakeCollector({ covered: [{ file: "src/checkout.ts", lines: [1, 2] }], mutationSites: [site] }), decide: new DecideCoverageService(), mutation },
     { policy: { mode: "signal", minRatio: 0.7 }, repoDir: "/mirrors/org/app", assembleChangeCoverage, namespace: "run-7" },
   );
 
@@ -710,7 +593,7 @@ test("measure() asks no mutation when no site is on a changed line, coverage mea
   const mutation = { measure: async () => { asked++; return null; } };
   const site = { file: "src/checkout.ts", line: 40, column: 0, operator: "negate condition", script: { url: "u", sha256: "h" }, edit: { start: 0, end: 1, replacement: "!" }, original: "x", ranIn: ["d"] };
   const build = (report: CoverageReport, withMutation = true) => new ObjectiveSignalPortAdapter(
-    { collector: fakeCollector(report), decide: new DecideCoverageService(), oracle: fakeOracle({ valueScore: null, mutantCount: null, killedCount: null, details: "" }), ...(withMutation ? { mutation } : {}) },
+    { collector: fakeCollector(report), decide: new DecideCoverageService(), ...(withMutation ? { mutation } : {}) },
     { policy: { mode: "signal", minRatio: 0.7 }, repoDir: "/mirrors/org/app", assembleChangeCoverage },
   );
   const br = BlastRadius.of(Sha.of("abc1234"), ["src/checkout.ts"]);
@@ -723,9 +606,8 @@ test("measure() asks no mutation when no site is on a changed line, coverage mea
   for (const r of [offChanged, unmeasured, unwired]) assert.equal("bundleMutation" in r, false);
 });
 
-test("recount() measures the change again over the dumps on disk: the first run's without those of the re-run spec files, plus each re-run's, with no oracle and no mutant", async () => {
+test("recount() measures the change again over the dumps on disk: the first run's without those of the re-run spec files, plus each re-run's, with no mutant", async () => {
   const asked: unknown[] = [];
-  let oracleCalls = 0;
   const collector: CoverageCollectorPort = {
     collect: async () => ({ covered: [] }),
     recollect: async (specDir, sources) => {
@@ -733,8 +615,7 @@ test("recount() measures the change again over the dumps on disk: the first run'
       return { covered: [{ file: "src/checkout.ts", lines: [1, 2] }], branches: [{ file: "src/checkout.ts", line: 2, column: 0, kind: "if", arms: [{ label: "then", taken: true }, { label: "else", taken: false }] }] };
     },
   };
-  const oracle: ValueOraclePort = { measure: async () => { oracleCalls++; return { valueScore: 1, mutantCount: 1, killedCount: 1, details: "" }; } };
-  const adapter = new ObjectiveSignalPortAdapter({ collector, decide: new DecideCoverageService(), oracle }, { policy: { mode: "signal", minRatio: 0.7 }, repoDir: "/mirrors/org/app", assembleChangeCoverage });
+  const adapter = new ObjectiveSignalPortAdapter({ collector, decide: new DecideCoverageService() }, { policy: { mode: "signal", minRatio: 0.7 }, repoDir: "/mirrors/org/app", assembleChangeCoverage });
   const br = BlastRadius.of(Sha.of("abc1234"), ["src/checkout.ts"]);
 
   const result = await adapter.recount!(br, "/e2e", SAMPLE_DIFF, [{ namespace: "run-acc0", specFiles: ["flows/a.spec.ts"] }, { namespace: "run-acc1", specFiles: ["flows/b.spec.ts"] }], { namespace: "run-ns" });
@@ -745,14 +626,12 @@ test("recount() measures the change again over the dumps on disk: the first run'
   assert.deepEqual(result?.uncovered, []);
   assert.deepEqual(result?.untakenArms, [{ file: "src/checkout.ts", line: 2, kind: "if", arm: "else" }]);
   assert.equal(result?.measurement?.changedBranches, 2);
-  assert.equal(oracleCalls, 0, "a recount re-runs nothing");
 });
 
 test("recount() reads a spec re-run twice from its latest re-run only", async () => {
   const asked: unknown[] = [];
   const collector: CoverageCollectorPort = { collect: async () => ({ covered: [] }), recollect: async (_dir, sources) => (asked.push(sources), { covered: [{ file: "src/checkout.ts", lines: [1] }] }) };
-  const oracle = fakeOracle({ valueScore: null, mutantCount: null, killedCount: null, details: "" });
-  const adapter = new ObjectiveSignalPortAdapter({ collector, decide: new DecideCoverageService(), oracle }, { policy: { mode: "signal", minRatio: 0.7 }, repoDir: "/r", assembleChangeCoverage });
+  const adapter = new ObjectiveSignalPortAdapter({ collector, decide: new DecideCoverageService() }, { policy: { mode: "signal", minRatio: 0.7 }, repoDir: "/r", assembleChangeCoverage });
   const br = BlastRadius.of(Sha.of("abc1234"), ["src/checkout.ts"]);
   await adapter.recount!(br, "/e2e", SAMPLE_DIFF, [{ namespace: "r-acc0", specFiles: ["a.spec.ts", "b.spec.ts"] }, { namespace: "r-acc1", specFiles: ["a.spec.ts"] }, { namespace: "r-acc2", specFiles: ["a.spec.ts"] }], { namespace: "r" });
   assert.deepEqual(asked, [[{ namespace: "r", exceptSpecFiles: ["a.spec.ts", "b.spec.ts"] }, { namespace: "r-acc0", onlySpecFiles: ["b.spec.ts"] }, { namespace: "r-acc2", onlySpecFiles: ["a.spec.ts"] }]]);
@@ -761,8 +640,7 @@ test("recount() reads a spec re-run twice from its latest re-run only", async ()
 test("recount() reads a re-run's namespace for its own spec files only: a spec run there and given its prior bytes back never counts", async () => {
   const asked: unknown[] = [];
   const collector: CoverageCollectorPort = { collect: async () => ({ covered: [] }), recollect: async (_dir, sources) => (asked.push(sources), { covered: [{ file: "src/checkout.ts", lines: [1] }] }) };
-  const oracle = fakeOracle({ valueScore: null, mutantCount: null, killedCount: null, details: "" });
-  const adapter = new ObjectiveSignalPortAdapter({ collector, decide: new DecideCoverageService(), oracle }, { policy: { mode: "signal", minRatio: 0.7 }, repoDir: "/r", assembleChangeCoverage });
+  const adapter = new ObjectiveSignalPortAdapter({ collector, decide: new DecideCoverageService() }, { policy: { mode: "signal", minRatio: 0.7 }, repoDir: "/r", assembleChangeCoverage });
   const br = BlastRadius.of(Sha.of("abc1234"), ["src/checkout.ts"]);
   /* The acceptance under r-acc0 ran a.spec.ts and b.spec.ts; only a.spec.ts was kept, so b.spec.ts is read from the first run. */
   await adapter.recount!(br, "/e2e", SAMPLE_DIFF, [{ namespace: "r-acc0", specFiles: ["a.spec.ts"] }], { namespace: "r" });
@@ -771,9 +649,8 @@ test("recount() reads a re-run's namespace for its own spec files only: a spec r
 
 test("recount() has nothing to say with coverage off, without a diff, or with a collector that cannot add namespaces", async () => {
   const br = BlastRadius.of(Sha.of("abc1234"), ["src/checkout.ts"]);
-  const oracle = fakeOracle({ valueScore: null, mutantCount: null, killedCount: null, details: "" });
   const recollecting: CoverageCollectorPort = { collect: async () => ({ covered: [] }), recollect: async () => ({ covered: [{ file: "src/checkout.ts", lines: [1] }] }) };
-  const make = (collector: CoverageCollectorPort, mode: "off" | "signal") => new ObjectiveSignalPortAdapter({ collector, decide: new DecideCoverageService(), oracle }, { policy: { mode, minRatio: 0.7 }, repoDir: "/r", assembleChangeCoverage });
+  const make = (collector: CoverageCollectorPort, mode: "off" | "signal") => new ObjectiveSignalPortAdapter({ collector, decide: new DecideCoverageService() }, { policy: { mode, minRatio: 0.7 }, repoDir: "/r", assembleChangeCoverage });
   const rerun = [{ namespace: "acc", specFiles: ["flows/a.spec.ts"] }];
 
   assert.equal(await make(recollecting, "off").recount!(br, "/e2e", SAMPLE_DIFF, rerun), null);
@@ -799,7 +676,7 @@ function provingAdapter(verified: CoverageReport, asked: unknown[] = []) {
   };
   const mutation = { measure: async () => ({ applied: 1, killed: 1, survived: [], proofs: [PROOF] }) };
   return new ObjectiveSignalPortAdapter(
-    { collector, decide: new DecideCoverageService(), oracle: fakeOracle({ valueScore: null, mutantCount: null, killedCount: null, details: "" }), mutation },
+    { collector, decide: new DecideCoverageService(), mutation },
     { policy: { mode: "enforce", minRatio: 0.7 }, repoDir: "/mirrors/org/app", assembleChangeCoverage, namespace: "run-7" },
   );
 }
@@ -837,7 +714,7 @@ test("measure() keeps the coverage by execution when the killed mutant's dumps c
 test("recount() adds the proofs of the spec files it did not re-run, and keeps the measurement before it when a source could not be read", async () => {
   const asked: unknown[] = [];
   const make = (report: CoverageReport) => new ObjectiveSignalPortAdapter(
-    { collector: { collect: async () => ({ covered: [] }), recollect: async (_d, sources) => { asked.push(sources); return report; } }, decide: new DecideCoverageService(), oracle: fakeOracle({ valueScore: null, mutantCount: null, killedCount: null, details: "" }) },
+    { collector: { collect: async () => ({ covered: [] }), recollect: async (_d, sources) => { asked.push(sources); return report; } }, decide: new DecideCoverageService() },
     { policy: { mode: "signal", minRatio: 0.7 }, repoDir: "/r", assembleChangeCoverage },
   );
   const br = BlastRadius.of(Sha.of("abc1234"), ["src/checkout.ts"]);
@@ -888,7 +765,6 @@ function excludedRig(onCollect?: (files?: string[]) => void) {
     {
       collector: { collect: async (_dir, _ns, files) => (onCollect?.(files), report), recollect: async (_dir, _sources, files) => (onCollect?.(files), report) },
       decide: new DecideCoverageService(),
-      oracle: fakeOracle({ valueScore: null, mutantCount: null, killedCount: null, details: "" }),
       mutation,
     },
     { policy: { mode: "enforce", minRatio: 0.7 }, repoDir: "/r", assembleChangeCoverage },
@@ -983,7 +859,6 @@ function unloadedRig(sources: Record<string, string> = UNLOADED_SOURCES) {
     {
       collector: { collect: async () => report, recollect: async () => report },
       decide: new DecideCoverageService(),
-      oracle: fakeOracle({ valueScore: null, mutantCount: null, killedCount: null, details: "" }),
       readSource: (file) => sources[file],
     },
     { policy: { mode: "enforce", minRatio: 0.7 }, repoDir: "/r", assembleChangeCoverage },
@@ -1063,7 +938,7 @@ test("measure() and recount() tell which spec ran each changed file only from du
     collect: async () => ({ covered: [{ file: "src/checkout.ts", lines: [1] }], ranBy }),
     recollect: async () => ({ covered: [{ file: "src/checkout.ts", lines: [1] }], ranBy }),
   };
-  const adapter = new ObjectiveSignalPortAdapter({ collector, decide: new DecideCoverageService(), oracle: fakeOracle({ valueScore: null, mutantCount: null, killedCount: null, details: "" }) }, { policy: { mode: "signal", minRatio: 0.7 }, repoDir: "/r", assembleChangeCoverage });
+  const adapter = new ObjectiveSignalPortAdapter({ collector, decide: new DecideCoverageService() }, { policy: { mode: "signal", minRatio: 0.7 }, repoDir: "/r", assembleChangeCoverage });
   const br = BlastRadius.of(Sha.of("abc1234"), ["src/checkout.ts"]);
   const caseFiles = ["flows/cart.spec.ts", "flows/pay.spec.ts"];
 

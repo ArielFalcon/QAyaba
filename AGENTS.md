@@ -75,7 +75,6 @@ npm run settings:check      # fails when docs/settings.md is stale
 npm run mutate -- <preset>  # mutation testing per preset (scripts/mutate.ts)
 npm run sandbox:smoke       # IN the running orchestrator container: proves the execution sandbox holds (docs/execution-sandbox.md)
 npm run judge-calibrate -- --judge <name> [--min-n 20] # calibrate an LLM judge against human labels and persist the report (inside the orchestrator container; docs/observability-design.md §11.3)
-npm run fault-calibrate -- --campaign <id> [--out <file>] # whether the response oracle's score holds still across a campaign's replicates (inside the orchestrator container); gates nothing
 npm run label -- --run <id> (--show | --name <score> --value <v>) # label one run by hand against the use-case reference set (inside the orchestrator container)
 npm run efficiency-benchmark # agent step/call telemetry over real runs; never a gate (needs the stack up; docs/efficiency-benchmark.md)
 npm run probe-report -- <runId...> # one run's phases, turns, tool use, tokens and cost (inside the orchestrator container)
@@ -964,13 +963,13 @@ that catches nothing. The objective signal that breaks the circle is **change-co
   A mutant is judged only when it reached a page; it is killed when a passing test fails. A mutant whose re-run left
   counters that could not be read (a set left out by the dump bridge, a directory that cannot be vouched for) is not known
   to have reached a page or not: it is not judged, logged on a line of its own and counted apart as `unreadable`, never
-  as "reached no page". The dump bridge gives each kind of dump (coverage, fault-injection counters) a check time of its
+  as "reached no page". The dump bridge gives each kind of dump (coverage, mutation counters) a check time of its
   own (`DUMP_CHECK_BUDGET_MS`), so bulky coverage dumps cannot use up the time the small counters are checked in, and a
   kind whose time ran out says so (`OutOfTimeError`) instead of "its content could not be used".
   `gateSignals.bundleMutation` holds `{ applied, killed, survived[] }`, plus `skippedSites { count, reasons }`
   (sites left out, by `no-source-line` or `not-in-source-line`), `rerunsBySpecFile` (mutants whose tests
   could not be told) and `unreadable` (mutants not judged for unreadable counters; the object is then present even
-  with `applied: 0`) when there are any, beside the response oracle's `valueScore`, whose meaning is unchanged.
+  with `applied: 0`) when there are any.
   **What a survivor moved** (signal, never a gate): the survivor's finding says which observable the mutation changed, because an author
   that knows only the line cannot write the assertion that kills it. Each mutant's re-run is observed (`PW_OBSERVE=1`: the capture block of the seed's
   `fixtures.ts` records, per test that ran, the requests its page depended on by method + origin + pathname with a count, never the query, fragment,
@@ -1032,7 +1031,7 @@ that catches nothing. The objective signal that breaks the circle is **change-co
   denominator, and a boolean that saturates becomes a ratio. Whether the suite has value is answered by `mutation_kill_rate`,
   `change_coverage_ratio`, `branch_coverage_ratio`, `defect_found`, `survivors_routed` and `review_verdict`.
 
-- **Causal label and calibration** (record only, never a gate): `gateSignals.causal` labels a failure by whether the change reaches it, `coverageByCandidate` and `valueByCandidate`/`valueStats` hold the per-use-case coverage and kill rates, and `npm run fault-calibrate` gives each campaign variant a calibration verdict. The response oracle corrupts only the operations the change reaches and writes no score without a scope.
+- **Causal label** (record only, never a gate): `gateSignals.causal` labels a failure by whether the change reaches it, and `coverageByCandidate` holds the per-use-case coverage.
 
 New "quality" logic should strengthen this signal (better line mapping, moving apps from
 `signal` to `enforce`), not add another LLM proxy.

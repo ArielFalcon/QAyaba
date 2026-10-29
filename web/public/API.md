@@ -81,7 +81,7 @@ contract schema names are in (parens).
 
 | Block | Data needed | Endpoint | Status |
 |---|---|---|---|
-| **Header / config rail** | `stack, status, repo, health, baseBranch, devUrl, gate, oracle, onFailure, shadow, coverageMode, coverageMin` | `GET /api/v1/apps/{name}` → `AppView` | ⚠ extend — `AppView` has `repo, baseUrl, shadow`. Missing **`stack`, `health`, `baseBranch`, `gate`, `oracle`, `onFailure`, `coverageMode`, `coverageMin`** (the watched-app config). Surface the app's `config/apps/<name>.yaml` here. |
+| **Header / config rail** | `stack, status, repo, health, baseBranch, devUrl, gate, onFailure, shadow, coverageMode, coverageMin` | `GET /api/v1/apps/{name}` → `AppView` | ⚠ extend — `AppView` has `repo, baseUrl, shadow`. Missing **`stack`, `health`, `baseBranch`, `gate`, `onFailure`, `coverageMode`, `coverageMin`** (the watched-app config). Surface the app's `config/apps/<name>.yaml` here. |
 | **Coverage keystone** | `coverage` ratio + `coverageMin` + `coverageSeries` + measured/unknown | `GET /api/v1/apps/{name}/trends` → `TrendsView.coverage{measured,ratio,minRatio,series}` | ✓ |
 | **Verdict mix donut** | `vmix: [{v,n}]` | `TrendsView.verdictMix` | ✓ |
 | **Reviewer pass-rate** | `reviewerPass` | `TrendsView.reviewerPassRate` | ✓ |
@@ -165,7 +165,7 @@ consumes them and normalizes to the UI's `{onStep,onPlan,onCase,onLog,onVerdict}
 **Extend (⚠):**
 1. **`/signals`** → fleet, period-over-period, with `series[]` + `suitesGreen`/`prsAutoMerged`/`issuesOpen` (powers the Overview hero).
 2. **`RunRecord`** → persist `author`, `duration`, `decision/outcome`, `coverage`, `oracle valueScore`, `reviewer` approval, `changed[]`, normalized `stages[]`, and (for live) spec `code[]`.
-3. **`AppView`** → `stack`, `health`, and the watched-app config (`baseBranch`, `gate`, `oracle`, `onFailure`, `coverageMode`, `coverageMin`).
+3. **`AppView`** → `stack`, `health`, and the watched-app config (`baseBranch`, `gate`, `onFailure`, `coverageMode`, `coverageMin`).
 4. **`/runs`** → confirm fleet-wide listing (no `app`) + `verdict`/`mode` filters.
 5. **`/queue`** → engine status (health poller, sessions, last mirror-prune, webhook).
 

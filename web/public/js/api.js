@@ -356,7 +356,7 @@ window.QayabaConsole = (function () {
       coverageMin: pick(raw.trendsByApp[a.name], 'coverage.minRatio', 0.7),
       reviewerPass: pick(raw.trendsByApp[a.name], 'reviewerPassRate', 0),
       errClasses: (pick(raw.trendsByApp[a.name], 'errorClasses', []) || []).map((e) => [e.errorClass, e.count]),
-      coverageMode: 'signal', oracle: 'e2e',
+      coverageMode: 'signal',
       coverageSeries: pick(raw.trendsByApp[a.name], 'coverage.series', null),
       /* Stored FE<->BE architecture map. null when the app has never completed a
          mode:context run — the console renders that as an honest empty state, never a mock map. */

@@ -7,7 +7,6 @@ import type { CoverageRecount, CoverageRerun, FileRanBy } from "../../domain/obj
 import { isDumpOfSpecFile } from "../../domain/dump-names.ts";
 import type { BundleMutationPort } from "../../application/ports/bundle-mutation.port.ts";
 import type { CoverageCollectorPort } from "../../application/ports/coverage-collector.port.ts";
-import type { ValueOraclePort } from "../../application/ports/value-oracle.port.ts";
 import type { BundleMutationResult, CoverageReport, DumpSource, MutantProof, MutantRun } from "../../domain/coverage-collector.ts";
 import { DecideCoverageService, type ChangeCoverage, type CoveragePolicy } from "../../domain/decide-coverage.service.ts";
 import { parseDiffHunks, type NoCodeLinesOf } from "../../domain/assemble-change-coverage.ts";
@@ -23,8 +22,7 @@ import { diffChangedFiles, perCandidateCoverage } from "../../domain/per-candida
 export interface ObjectiveSignalPortCollaborators {
   collector: CoverageCollectorPort;
   decide: DecideCoverageService;
-  oracle: ValueOraclePort;
-  /* The mutation pass over the served script; absent when the value oracle is off or the target has no browser. */
+  /* The mutation pass over the served script; absent when `qa.changeCoverage.bundleMutation` is off. */
   mutation?: BundleMutationPort;
   /* The text of a changed file of the working copy (a mutant's source line, an unloaded file's statements); absent → the working copy (`repoDir`) is read through the confined reader. */
   readSource?: (file: string) => string | undefined;
@@ -150,7 +148,7 @@ export class ObjectiveSignalPortAdapter implements ObjectiveSignalPort {
 
   async measure(br: BlastRadius, specDir: string, diff?: string, baselineCases?: string[], opts?: Parameters<ObjectiveSignalPort["measure"]>[4]): ReturnType<ObjectiveSignalPort["measure"]> {
     const namespace = opts?.namespace ?? this.ctx.namespace ?? br.sha.toString();
-    /* coverage.mode "off" skips collector IO and the value oracle. decide() sees null → "unknown" (never blocks). */
+    /* coverage.mode "off" skips collector IO and the mutation pass. decide() sees null → "unknown" (never blocks). */
     if (this.ctx.policy.mode === "off") {
       return { status: this.deps.decide.decide(null, this.ctx.policy), ratio: null };
     }
@@ -165,8 +163,6 @@ export class ObjectiveSignalPortAdapter implements ObjectiveSignalPort {
     const report = willAssemble ? await this.collectFrom(specDir, namespace, rerun ? sources : undefined, changedFiles) : null;
     const noCodeOf = this.noCodeOf();
     const executed: ChangeCoverage | null = report ? this.ctx.assembleChangeCoverage!(changeDiff!, report, noCodeOf) : null;
-
-    const oracleResult = await this.deps.oracle.measure(br, this.ctx.repoDir, namespace, baselineCases ?? this.ctx.baselineCases, opts?.faultAim);
 
     /* Mutants only of a measured change, on its changed lines, where a test reached: first the decisions an arm of which no test ran. */
     let bundleMutation: BundleMutationResult | null = null;
@@ -199,11 +195,6 @@ export class ObjectiveSignalPortAdapter implements ObjectiveSignalPort {
     return {
       status,
       ratio,
-      valueScore: oracleResult.valueScore,
-      ...(oracleResult.perCandidate !== undefined ? { valueByCandidate: oracleResult.perCandidate } : {}),
-      ...(oracleResult.stats !== undefined ? { valueStats: oracleResult.stats } : {}),
-      mutantCount: oracleResult.mutantCount,
-      killedCount: oracleResult.killedCount,
       ...(willAssemble && cc?.uncovered ? { uncovered: cc.uncovered } : {}),
       ...(cc?.untakenArms ? { untakenArms: cc.untakenArms } : {}),
       ...(bundleMutation

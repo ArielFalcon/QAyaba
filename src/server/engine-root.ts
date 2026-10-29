@@ -61,7 +61,7 @@ import type { PromptRenderingPort, RepairPort, VerdictParserPort } from "@contex
 import type { StaticGateAdapter } from "@contexts/test-execution/infrastructure/static-gate.adapter";
 import type { E2eExecutionStrategy } from "@contexts/test-execution/infrastructure/e2e-execution.strategy";
 import type { CoveragePolicy, ChangeCoverage } from "@contexts/objective-signal/application/index";
-import type { BundleMutationPort, CoverageCollectorPort, ValueOraclePort } from "@contexts/objective-signal/application/index";
+import type { BundleMutationPort, CoverageCollectorPort } from "@contexts/objective-signal/application/index";
 import type { VcsReadPort } from "@contexts/change-analysis/application/index";
 import type { ProcessAuditPort } from "@contexts/cross-run-learning/application/index";
 
@@ -218,8 +218,7 @@ export interface EngineRootDeps {
   /* ObjectiveSignalPort collaborators — the keystone. assembleChangeCoverage is OPTIONAL (absent, or no per-run diff at measure() call time -> decide() receives null -> "unknown" -> NEVER blocks, the keystone's own architecturally-safe default). */
   objectiveSignal: {
     collector: Pick<CoverageCollectorPort, "collect">;
-    oracle: Pick<ValueOraclePort, "measure">;
-    /* The mutation pass over the served script; absent when the value oracle is off or the target has no browser. */
+    /* The mutation pass over the served script; absent when `qa.changeCoverage.bundleMutation` is off. */
     mutation?: BundleMutationPort;
   };
   coveragePolicy: CoveragePolicy;
@@ -425,7 +424,6 @@ function assemble(cfg: EngineRootDeps): RunOrchestrationApi {
 
   const objectiveSignalApi = buildObjectiveSignal({
     collector: cfg.objectiveSignal.collector,
-    oracle: cfg.objectiveSignal.oracle,
     ...(cfg.objectiveSignal.mutation ? { mutation: cfg.objectiveSignal.mutation } : {}),
     policy: cfg.coveragePolicy,
     repoDir: cfg.mirrorDir,

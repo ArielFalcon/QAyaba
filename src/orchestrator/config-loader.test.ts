@@ -163,6 +163,19 @@ report:
     }
   });
 
+  test("loadAppConfig warns that the retired qa.valueOracle key is ignored and still loads the app that carries it", () => {
+    const lines = captureWarnings();
+    const { root } = loadWith("", VALID_APP.replace("  needsReview: true", "  needsReview: true\n  valueOracle: signal"));
+    try {
+      assert.equal(loadAppConfig("shop", root).repo, "org/shop-front");
+      const unknown = lines.filter((l) => /unknown key/.test(l.message));
+      assert.equal(unknown.length, 1);
+      assert.match(unknown[0]?.message ?? "", /'qa\.valueOracle'/);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   test("loadAppConfig refuses an app that declared code: true and has no dev block", () => {
     captureWarnings();
     const noDev = VALID_APP.replace('dev:\n  baseUrl: "https://dev.shop.io"\n', "").replace('services:\n  - repo: "org/orders-svc"\n', "");

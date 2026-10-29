@@ -1,4 +1,3 @@
-import type { CandidateValue, ValueStats } from "./fault-injection-score.ts";
 import type { ObservedDifference } from "@kernel/observed-difference.ts";
 import type { SpecFileDifference } from "./observed-difference.ts";
 import type { DecisionKind } from "@kernel/changed-decision.ts";
@@ -35,18 +34,6 @@ export interface DumpsThatRan { file: string; dumps: string[]; }
 export interface CoverageReport { covered: CoveredLines[]; executable?: CoveredLines[]; scripts?: CoverageScripts; branches?: BranchHit[]; mutationSites?: MutationSite[]; ranBy?: DumpsThatRan[]; /* A source of a recollection yielded no dump: the report is a part of what it was asked for. */ incomplete?: true; }
 /* The dumps of one namespace a recollection adds: without those the tests of `exceptSpecFiles` wrote, and, when `onlySpecFiles` is given, only those its tests wrote; `mutant` is the edit the page's script carried when they were written, undone before they are read. */
 export interface DumpSource { namespace: string; exceptSpecFiles?: readonly string[]; onlySpecFiles?: readonly string[]; mutant?: MutantEdit; }
-export interface ValueOracleResult {
-  valueScore: number | null;
-  /* null when the oracle ran but produced no mutation/fault-injection count (e.g. it is wired off) —
-   * distinct from a genuine measured zero. Never fabricated as 0. */
-  mutantCount: number | null;
-  killedCount: number | null;
-  details: string;
-  /** The score per use case the change makes testable, when the oracle was aimed at some; absent otherwise. */
-  perCandidate?: CandidateValue[];
-  /** What the re-run counted, for the calibration of the score; absent when it measured nothing. */
-  stats?: ValueStats;
-}
 /* A mutant of the served script to re-run, with the spec files whose tests reached it and, when the dumps that ran it name their tests, those tests (each as the coverage fixture names its dumps): only they are re-run. */
 export interface MutantRun { site: MutationSite; specFiles: string[]; tests?: string[]; }
 /* What the mutants did: how many reached a page and were judged, how many a test noticed, and where the others are. */

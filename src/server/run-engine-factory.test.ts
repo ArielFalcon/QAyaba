@@ -109,7 +109,6 @@ test("buildEngineRootDeps maps an e2e AppConfig into a complete EngineRootDeps",
   assert.ok(config.groundingCollaborators, "PreGenerationGroundingPort collaborators must be wired for an e2e app");
   assert.ok(config.reviewDomGroundingCollaborators, "ReviewDomGroundingPort collaborators must be wired for an e2e app");
   assert.ok(config.objectiveSignal.collector, "coverage collector must be wired");
-  assert.ok(config.objectiveSignal.oracle, "value oracle must be wired");
   assert.ok(config.githubPr, "githubPr collaborator must be wired (production path, not buildShadow)");
   assert.ok(config.githubIssue, "githubIssue collaborator must be wired");
   assert.ok(config.publish, "PROD-BLOCKER fix: publish wiring must be wired — without it the 'pr' route throws at publish() time instead of silently opening a PR against an unpushed branch");
@@ -1262,90 +1261,6 @@ test("createRunEngineFactory forwards its 4th (observer) argument to buildEngine
   assert.doesNotThrow(() => factory(app, "qa-bot-abc1234-run1", { mode: "diff" }, observer));
 });
 
-test("buildEngineRootDeps honors per-run target e2e", () => {
-  const app: AppConfig = {
-    ...cfg("factory-run-target-e2e"),
-    qa: { ...cfg("factory-run-target-e2e").qa, shadow: true, valueOracle: "signal" },
-  };
-  const config = buildEngineRootDeps(app, { getAgentDeps: stubAgentDeps }, "qa-bot-tgte2e-run", { mode: "diff", });
-  assert.equal(
-    config.objectiveSignal.oracle.constructor.name,
-    "FaultInjectionOracleAdapter",
-    "e2e-target composition must pick fault-injection",
-  );
-});
-
-/*
- * The value oracle re-runs the suite with responses corrupted. The repo owns its
- * playwright.config.ts, so that re-run must not name a project the repo may not define. A fake
- * `playwright` binary stands in for the runner at the process boundary: it behaves like a config
- * whose only project is "chromium" (an unknown --project fails), marks one intercepted response as
- * corrupted, and reports the single baseline spec failing under corruption.
- */
-const FAKE_PLAYWRIGHT = `#!/usr/bin/env node
-const fs = require("node:fs");
-const path = require("node:path");
-const project = process.argv.slice(2).find((a) => a.startsWith("--project"));
-if (project && project !== "--project=chromium") {
-  process.stderr.write("Error: Project(s) not found. Available projects: \\"chromium\\"\\n");
-  process.exit(1);
-}
-const marks = path.join(process.cwd(), ".qa", "fault-injection", process.env.PW_NAMESPACE);
-fs.mkdirSync(marks, { recursive: true });
-fs.writeFileSync(path.join(marks, "worker-0.json"), JSON.stringify({ corrupted: 1, byOperation: { "GET ^/api/dashboard/?$": 1 }, test: "login.spec.ts::shows the dashboard" }));
-fs.writeFileSync(process.env.PLAYWRIGHT_JSON_OUTPUT_NAME, JSON.stringify({
-  suites: [{ title: "login.spec.ts", specs: [{ title: "shows the dashboard", tests: [{ status: "unexpected", results: [{ status: "failed", error: { message: "dashboard heading missing" } }] }] }] }],
-  stats: { expected: 0, unexpected: 1 },
-}));
-process.exit(1);
-`;
-
-test("the value oracle scores a suite whose Playwright config has no desktop project", async () => {
-  const app: AppConfig = { ...cfg("factory-oracle-no-desktop"), qa: { ...cfg("factory-oracle-no-desktop").qa, valueOracle: "signal" } };
-  const e2eDir = mkdtempSync(join(tmpdir(), "qayaba-oracle-projects-"));
-  try {
-    mkdirSync(join(e2eDir, "node_modules", ".bin"), { recursive: true });
-    const bin = join(e2eDir, "node_modules", ".bin", "playwright");
-    writeFileSync(bin, FAKE_PLAYWRIGHT);
-    chmodSync(bin, 0o755);
-    const config = buildEngineRootDeps(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
-
-    const result = await inRunScope(config, () => config.objectiveSignal.oracle.measure(
-      BlastRadius.of(Sha.of("abc1234"), ["src/login.ts"]),
-      e2eDir,
-      "qa-bot-abc1234-run1",
-      ["login.spec.ts › shows the dashboard"],
-      { operations: [{ verb: "GET", pattern: "^/api/dashboard/?$" }], candidates: [], specToCandidates: [] },
-    ));
-
-    assert.notEqual(result.valueScore, null, `the corrupted re-run must be conclusive, got: ${result.details}`);
-    assert.equal(result.killedCount, 1);
-  } finally {
-    rmSync(e2eDir, { recursive: true, force: true });
-  }
-});
-
-/* AppConfig.qa.valueOracle was schema-only — the factory always constructed
-   FaultInjectionOracleAdapter, so valueOracle:"off" still fault-injected on every green run.
- */
-test("e2e + valueOracle off wires NullValueOracleAdapter (no fault-injection)", () => {
-  const app: AppConfig = { ...cfg("factory-oracle-off"), qa: { ...cfg("factory-oracle-off").qa, valueOracle: "off" } };
-  const config = buildEngineRootDeps(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
-  assert.equal(config.objectiveSignal.oracle.constructor.name, "NullValueOracleAdapter");
-});
-
-test("e2e shadow with omitted valueOracle wires NullValueOracleAdapter (shadow-aware default)", () => {
-  const app = cfg("factory-oracle-shadow-default");
-  const config = buildEngineRootDeps(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
-  assert.equal(config.objectiveSignal.oracle.constructor.name, "NullValueOracleAdapter");
-});
-
-test("e2e + valueOracle signal wires FaultInjectionOracleAdapter even in shadow", () => {
-  const app: AppConfig = { ...cfg("factory-oracle-signal"), qa: { ...cfg("factory-oracle-signal").qa, shadow: true, valueOracle: "signal" } };
-  const config = buildEngineRootDeps(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
-  assert.equal(config.objectiveSignal.oracle.constructor.name, "FaultInjectionOracleAdapter");
-});
-
 test("the mutation pass runs under qa.changeCoverage.bundleMutation: on by default, shadow or not, and off when the key says off", () => {
   const mutationOf = (app: AppConfig) =>
     buildEngineRootDeps(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" }).objectiveSignal.mutation?.constructor.name;
@@ -1360,7 +1275,7 @@ test("the mutation pass runs under qa.changeCoverage.bundleMutation: on by defau
 });
 
 test("qa.valueOracle no longer switches the mutation pass", () => {
-  const app: AppConfig = { ...cfg("factory-mutation-oracle-off"), qa: { ...cfg("factory-mutation-oracle-off").qa, valueOracle: "off" } };
+  const app: AppConfig = { ...cfg("factory-mutation-oracle-off"), qa: { ...cfg("factory-mutation-oracle-off").qa, ...({ valueOracle: "off" } as object) } };
   const config = buildEngineRootDeps(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
   assert.equal(config.objectiveSignal.mutation?.constructor.name, "BundleMutationOracleAdapter");
 });

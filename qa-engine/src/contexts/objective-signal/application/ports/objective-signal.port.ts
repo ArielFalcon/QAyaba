@@ -1,16 +1,12 @@
 import type { BlastRadius } from "@kernel/blast-radius.ts";
-import type { CandidateValue, FaultAim, ValueStats } from "../../domain/fault-injection-score.ts";
 import type { UseCaseCandidate } from "@kernel/use-case-candidate.ts";
-import type { BundleMutationOutcome, CoverageMeasurement, CoverageRecount, CoverageRerun, FileRanBy, MutantSelectionRecord, UntakenArm } from "../../domain/objective-signal.ts";
+import type { BundleMutationOutcome, CandidateValue, CoverageMeasurement, CoverageRecount, CoverageRerun, FileRanBy, MutantSelectionRecord, UntakenArm, ValueStats } from "../../domain/objective-signal.ts";
 import type { BundleMutationResult, MutantProof, MutantRun } from "../../domain/coverage-collector.ts";
 import type { CoverageExclusions } from "../../domain/coverage-exclusions.ts";
 
 export interface ObjectiveSignalPort {
   /**
-   * `valueScore` absent means not measured — never a fabricated 0.
-   * `mutantCount`/`killedCount` mirror the value-oracle's own ValueOracleResult: absent means the
-   * oracle never ran this measure() call (e.g. coverage.mode "off"); `null` means it ran but has no
-   * count to report. Neither is ever fabricated as 0 — that would read as a genuine measured zero.
+   * `valueScore`, `valueByCandidate`, `valueStats`, `mutantCount` and `killedCount` are never set: no response oracle remains.
    * `diff` absent (non-diff modes) → assembler never invoked → decide() gets
    * null → "unknown" → never blocks.
    * `baselineCases` are this run's passing case names; absent falls back to the
@@ -19,8 +15,6 @@ export interface ObjectiveSignalPort {
    * never fabricated as [].
    * `opts.candidates` are the use cases the change makes testable: the measurement then carries `perCandidate`, a signal that
    * never gates. `opts.crossRepo` says the diff was withheld because the changed lines live in another repo.
-   * `opts.faultAim` is what the response oracle may corrupt and for which use cases; without it the oracle gives no score
-   * (`valueScore` null) and `valueByCandidate` is absent. It is a signal and never gates.
    * `opts.caseFiles` are the spec files of this run's passing cases: a bundle mutant re-runs the ones whose tests reached it.
    * `opts.exclusions` are the changed files that are not a gap of the suite (reached only through routes the change made unavailable,
    * or imported only by tests): they leave the diff before anything is collected, counted or mutated, and the measurement records them apart.
@@ -38,7 +32,7 @@ export interface ObjectiveSignalPort {
    * `ranBy` names, per changed file, the spec files among `opts.caseFiles` whose tests' dumps (those the measurement read) ran a line of
    * it; a dump no case file wrote counts for none. Absent when the collector cannot tell which dump ran what. In memory only.
    */
-  measure(br: BlastRadius, specDir: string, diff?: string, baselineCases?: string[], opts?: { namespace?: string; caseFiles?: string[]; candidates?: readonly UseCaseCandidate[]; crossRepo?: boolean; faultAim?: FaultAim; reruns?: readonly CoverageRerun[]; exclusions?: CoverageExclusions }): Promise<{ status: "pass" | "fail" | "unknown"; ratio: number | null; valueScore?: number | null; valueByCandidate?: CandidateValue[]; valueStats?: ValueStats; mutantCount?: number | null; killedCount?: number | null; uncovered?: { file: string; lines: number[] }[]; untakenArms?: UntakenArm[]; bundleMutation?: BundleMutationOutcome; mutantSelection?: MutantSelectionRecord; mutantProofs?: MutantProof[]; survivorRuns?: MutantRun[]; measurement?: CoverageMeasurement; ranBy?: FileRanBy[] }>;
+  measure(br: BlastRadius, specDir: string, diff?: string, baselineCases?: string[], opts?: { namespace?: string; caseFiles?: string[]; candidates?: readonly UseCaseCandidate[]; crossRepo?: boolean; reruns?: readonly CoverageRerun[]; exclusions?: CoverageExclusions }): Promise<{ status: "pass" | "fail" | "unknown"; ratio: number | null; valueScore?: number | null; valueByCandidate?: CandidateValue[]; valueStats?: ValueStats; mutantCount?: number | null; killedCount?: number | null; uncovered?: { file: string; lines: number[] }[]; untakenArms?: UntakenArm[]; bundleMutation?: BundleMutationOutcome; mutantSelection?: MutantSelectionRecord; mutantProofs?: MutantProof[]; survivorRuns?: MutantRun[]; measurement?: CoverageMeasurement; ranBy?: FileRanBy[] }>;
   /**
    * Single source of truth for whether a measured status blocks publish.
    * Only "enforce" + "fail" blocks; "unknown" never blocks regardless of mode.

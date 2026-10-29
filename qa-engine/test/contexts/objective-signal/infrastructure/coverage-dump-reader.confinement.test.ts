@@ -11,7 +11,6 @@ import {
   readV8Coverage,
 } from "@contexts/objective-signal/infrastructure/coverage-dump-reader.ts";
 import { makeTargetCoverageCollector } from "@contexts/objective-signal/infrastructure/target-coverage-collector.ts";
-import { NullValueOracleAdapter } from "@contexts/objective-signal/infrastructure/null-value-oracle.adapter.ts";
 import { DecideCoverageService } from "@contexts/objective-signal/domain/decide-coverage.service.ts";
 import { assembleChangeCoverage } from "@contexts/objective-signal/domain/assemble-change-coverage.ts";
 import { ObjectiveSignalPortAdapter } from "@contexts/objective-signal/infrastructure/adapters/objective-signal-port.adapter.ts";
@@ -476,7 +475,7 @@ const HALF_COVERING_DUMP = JSON.stringify([{ url: "https://dev/src/checkout.ts",
 async function measureChangeCoverage(e2e: string, mode: "signal" | "enforce"): Promise<{ status: string; blocked: boolean }> {
   const collector = makeTargetCoverageCollector([]);
   const port = new ObjectiveSignalPortAdapter(
-    { collector, decide: new DecideCoverageService(), oracle: new NullValueOracleAdapter() },
+    { collector, decide: new DecideCoverageService() },
     { policy: { mode, minRatio: 0.7 }, repoDir: e2e, assembleChangeCoverage, namespace: NS },
   );
   const result = await port.measure(BlastRadius.of(Sha.of("abc1234"), ["src/checkout.ts"]), e2e, CHANGED_DIFF);

@@ -6,25 +6,23 @@ import { Sha } from "@kernel/sha.ts";
 import { buildObjectiveSignal } from "@contexts/objective-signal/composition/build-objective-signal.ts";
 
 const base = {
-  oracle: { measure: async () => ({ kind: "unavailable", reason: "fake" }) } as never,
   policy: { mode: "signal", minRatio: 0.7 } as never,
   repoDir: "/repo",
   namespace: "ns",
 };
 
-test("the objective signal measures through the oracle it was built from, in the namespace it was given", async () => {
-  const asked: Array<{ repoDir: string; namespace: string }> = [];
+test("the objective signal measures the collector it was built from, in the namespace it was given", async () => {
+  const asked: Array<{ specDir: string; namespace: string }> = [];
   const api = buildObjectiveSignal({
     ...base,
-    oracle: { measure: async (_br, repoDir, namespace) => { asked.push({ repoDir, namespace }); return { valueScore: 0.5, mutantCount: 2, killedCount: 1 } as never; } },
-    collector: { collect: async () => ({}) as never },
+    collector: { collect: async (specDir, namespace) => { asked.push({ specDir, namespace }); return {} as never; } },
+    assembleChangeCoverage: () => ({ measured: false, overall: { changedLines: 0, coveredChanged: 0, ratio: 0 }, perFile: [], uncovered: [] }) as never,
   });
 
-  const measured = await api.objectiveSignal.measure(BlastRadius.of(Sha.of("abc1234"), ["src/a.ts"]), "/repo/e2e");
+  const measured = await api.objectiveSignal.measure(BlastRadius.of(Sha.of("abc1234"), ["src/a.ts"]), "/repo/e2e", "diff --git a/src/a.ts b/src/a.ts\n+++ b/src/a.ts\n@@ -0,0 +1 @@\n+x");
 
-  assert.deepEqual(asked, [{ repoDir: "/repo", namespace: "ns" }]);
+  assert.deepEqual(asked, [{ specDir: "/repo/e2e", namespace: "ns" }]);
   assert.equal(measured.status, "unknown");
-  assert.equal(measured.valueScore, 0.5);
 });
 
 test("only an enforced failing measurement blocks", () => {

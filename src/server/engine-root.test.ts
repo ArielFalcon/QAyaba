@@ -91,7 +91,6 @@ function fakeConfig(overrides: Partial<EngineRootDeps> = {}): EngineRootDeps {
     },
     objectiveSignal: {
       collector: { collect: async () => ({ covered: [] }) },
-      oracle: { measure: async () => ({ valueScore: null, mutantCount: 0, killedCount: 0, details: "" }) },
     },
     coveragePolicy: { mode: "signal", minRatio: 0.7 },
     checkout: async () => MIRROR,

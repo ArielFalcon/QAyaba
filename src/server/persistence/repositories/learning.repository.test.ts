@@ -7,6 +7,7 @@ import type { RunOutcome } from "../../../types";
 
 test("purging an app removes the scorecard row earlier runs left", () => {
   const app = "hist-scorecard-purge";
+  getHistory(); /* opens the history database, and so creates its tables, before a second connection reads it */
   /* Nothing reads or writes a scorecard any more: the row is left by a second connection to the same on-disk db, as an earlier version of the engine left it. */
   const dbPath = process.env.HISTORY_DB_PATH ?? join(process.env.QAYABA_ROOT ?? process.cwd(), "data", "qayaba.db");
   const countRows = (): number => {

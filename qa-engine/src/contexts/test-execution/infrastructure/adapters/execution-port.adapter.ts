@@ -36,8 +36,6 @@ export class ExecutionPortAdapter implements ExecutionPort {
       ...(this.ctx.baseUrl ? { baseUrl: this.ctx.baseUrl } : {}),
       ...(o.signal ? { signal: o.signal } : {}),
       ...(this.ctx.testIdAttribute !== undefined ? { testIdAttribute: this.ctx.testIdAttribute } : {}),
-      ...(o.faultInject !== undefined ? { faultInject: o.faultInject } : {}),
-      ...(o.faultOperations !== undefined ? { faultOperations: o.faultOperations } : {}),
       ...(o.specFiles ? { specFiles: o.specFiles } : {}),
       ...(o.retries !== undefined ? { retries: o.retries } : {}),
       ...(o.grep !== undefined ? { grep: o.grep } : {}),

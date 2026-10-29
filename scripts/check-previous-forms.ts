@@ -137,6 +137,15 @@ export const BANNED_RULES: BannedRule[] = [
     ],
     exemptPrefixes: [RECORDS_PREFIX],
   },
+  {
+    id: "response-value-oracle",
+    patterns: [
+      /\b(?:FaultInjectionOracleAdapter|NullValueOracleAdapter|ValueOraclePort|ValueOracleResult|ValueOraclePolicy|resolveValueOraclePolicy|FaultAim|FaultAimCandidate|faultAimOf|faultAim|scoreFaultInjection|FaultInjectionScore|CandidateValueUnscored|isFlowBreak|FLOW_BREAK|faultInject|faultOperations|oraclePolicy)\b/,
+      /\b(?:fault-injection-oracle|null-value-oracle|value-oracle\.port|fault-injection-score|fault-aim|fault-calibration|fault-calibrate)\b/,
+      /\b(?:CalibrationVerdict|CalibrationReplicate|CandidateCalibration|MAX_REPLICATE_SPREAD|MIN_APPLICABLE_SHARE|MAX_FLOW_BREAK_SHARE)\b/,
+    ],
+    exemptPrefixes: [RECORDS_PREFIX],
+  },
   { id: "shell-dead-run-types", patterns: [/\bAgentResult\b/], exemptPrefixes: [RECORDS_PREFIX] },
   { id: "shell-events-reexport", patterns: [/\bsrc\/contract\/events(?:\.ts)?(?![\w.-])/], exemptPrefixes: [RECORDS_PREFIX] },
   {

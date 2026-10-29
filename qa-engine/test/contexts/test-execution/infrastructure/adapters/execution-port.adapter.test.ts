@@ -17,20 +17,20 @@ import type { E2eExecuteOptions } from "@contexts/test-execution/infrastructure/
  */
 const E2E_EXECUTE_OPTIONS_ALL_FIELDS = {
   baseUrl: true, namespace: true, onCase: true, onRunning: true, onDiscovered: true,
-  faultInject: true, signal: true, timeoutMs: true, project: true, testIdAttribute: true,
-  specFiles: true, retries: true, grep: true, countWrites: true, cleanupPass: true, faultOperations: true, mutant: true, observe: true,
+  signal: true, timeoutMs: true, project: true, testIdAttribute: true,
+  specFiles: true, retries: true, grep: true, countWrites: true, cleanupPass: true, mutant: true, observe: true,
 } satisfies Record<keyof E2eExecuteOptions, true>;
 
 const E2E_EXECUTE_OPTIONS_ALLOWLIST: Record<string, string> = {
   baseUrl: "held as ExecutionPortStaticContext (constructor-time, not per-call) — carried through ctx.baseUrl, asserted by the dispatch tests below, not a drop.",
   namespace: "held as ExecutionPortStaticContext (constructor-time, overridable per-call via opts.namespace) — asserted by the dispatch/override tests below, not a drop.",
   cleanupPass: "a dedicated cleanup pass is a separate call to runE2E (scripts/campaign.ts); a pipeline run's execution is never one, so the port has nothing to map.",
-  mutant: "the mutation pass is a separate call to runE2E by the value oracle (like the response oracle's corrupted re-run); a pipeline run's execution never carries a mutant, so the port has nothing to map.",
+  mutant: "the mutation pass is a separate call to runE2E by the bundle mutation; a pipeline run's execution never carries a mutant, so the port has nothing to map.",
   observe: "the observation of pages is the mutation oracle's own call to runE2E (a mutant's re-run and the unmutated re-run it is compared with); a pipeline run's execution never observes, so the port has nothing to map.",
 };
 
 test("E2eExecuteOptions' own field list matches the allowlist + ExecutionPortAdapter's mapped set exactly (retired seam-parity block (c))", () => {
-  const mapped = ["onCase", "onRunning", "onDiscovered", "faultInject", "signal", "timeoutMs", "project", "testIdAttribute", "specFiles", "retries", "grep", "countWrites", "faultOperations"];
+  const mapped = ["onCase", "onRunning", "onDiscovered", "signal", "timeoutMs", "project", "testIdAttribute", "specFiles", "retries", "grep", "countWrites"];
   const allFieldNames = Object.keys(E2E_EXECUTE_OPTIONS_ALL_FIELDS).sort();
   const accountedFor = [...new Set([...mapped, ...Object.keys(E2E_EXECUTE_OPTIONS_ALLOWLIST)])].sort();
   assert.deepEqual(accountedFor, allFieldNames, "every E2eExecuteOptions field must be either mapped by ExecutionPortAdapter or allowlisted with a reason");
@@ -102,7 +102,7 @@ test("execute() with no signal at all behaves exactly as before (no second-arg r
   assert.equal((capturedOpts as { signal?: AbortSignal }).signal, undefined, "an absent signal must remain absent downstream — no fabricated AbortSignal");
 });
 
-/* ExecutionPort.execute accepts an ExecutionOpts bag (faultInject/specFiles/project/
+/* ExecutionPort.execute accepts an ExecutionOpts bag (specFiles/project/
    timeoutMs/onCase/onRunning/onDiscovered), not only a bare AbortSignal as the 2nd arg.
  */
 
@@ -134,7 +134,7 @@ test("execute() forwards specFiles from the opts bag into the e2e strategy's Exe
   assert.deepEqual((capturedOpts as { specFiles?: string[] }).specFiles, ["login.spec.ts", "checkout.spec.ts"]);
 });
 
-test("execute() forwards faultInject/project/timeoutMs from the opts bag into the e2e strategy", async () => {
+test("execute() forwards project/timeoutMs from the opts bag into the e2e strategy", async () => {
   let capturedOpts: unknown;
   const e2e = new E2eExecutionStrategy(async (_specDir, opts) => {
     capturedOpts = opts;
@@ -142,10 +142,9 @@ test("execute() forwards faultInject/project/timeoutMs from the opts bag into th
   });
   const adapter = new ExecutionPortAdapter({ e2e }, { baseUrl: "https://dev.example.com", namespace: "qa-bot-abc1234" });
 
-  await adapter.execute("/mirrors/org/app/e2e", { faultInject: true, project: "chromium", timeoutMs: 45000 });
+  await adapter.execute("/mirrors/org/app/e2e", { project: "chromium", timeoutMs: 45000 });
 
-  const opts = capturedOpts as { faultInject?: boolean; project?: string; timeoutMs?: number };
-  assert.equal(opts.faultInject, true);
+  const opts = capturedOpts as { project?: string; timeoutMs?: number };
   assert.equal(opts.project, "chromium");
   assert.equal(opts.timeoutMs, 45000);
 });
@@ -221,14 +220,3 @@ test("execute() forwards a single-attempt, title-filtered run to the strategy an
   assert.equal(result.devWrites, 2);
 });
 
-test("execute() forwards the operations a corrupting re-run may touch, and nothing when none are named", async () => {
-  const seen: unknown[] = [];
-  const e2e = new E2eExecutionStrategy(async (_specDir, opts) => {
-    seen.push((opts as { faultOperations?: unknown }).faultOperations);
-    return { verdict: "pass", cases: [], logs: "" };
-  });
-  const adapter = new ExecutionPortAdapter({ e2e }, { baseUrl: "https://dev.example.com", namespace: "ns" });
-  await adapter.execute("/m/e2e", { faultInject: true, faultOperations: [{ verb: "GET", pattern: "^/a$" }] });
-  await adapter.execute("/m/e2e");
-  assert.deepEqual(seen, [[{ verb: "GET", pattern: "^/a$" }], undefined]);
-});

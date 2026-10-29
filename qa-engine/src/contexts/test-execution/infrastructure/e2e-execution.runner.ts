@@ -76,8 +76,6 @@ export interface E2eExecuteOptions {
   onCase?: (c: QaCase) => void;
   onRunning?: (title: string) => void;
   onDiscovered?: (title: string, file?: string) => void;
-  faultInject?: boolean;
-  faultOperations?: ReadonlyArray<{ verb: string; pattern: string }>;
   /* One edit of one served script, as JSON, for the mutation pass (the seed's fixture reads it from PW_MUTANT). */
   mutant?: string;
   /* Have the fixtures record, for each test that ran, the requests its page depended on and the accessible tree it ended on (PW_OBSERVE); they come back as `observations`. */
@@ -125,7 +123,7 @@ export function streamStatusToCase(status: string): CaseStatus | null {
 /*
  * Pattern owner: test-execution/domain/playwright-infra.ts. Runner-infra
  * reclassification runs HERE, upstream of both of runE2E's production callers
- * (E2eExecutionStrategy and the fault-injection oracle's own re-run) — see the call site below.
+ * (E2eExecutionStrategy and the bundle mutation's re-run) — see the call site below.
  */
 export function allFailuresAreRunnerInfra(cases: QaCase[]): boolean {
   const failed = cases.filter((c) => c.status === "fail");
@@ -158,8 +156,6 @@ export interface E2eExecuteDeps {
     geolocation?: { latitude: number; longitude: number };
     dataState?: E2eDataState;
     testIdAttribute?: string;
-    faultInject?: boolean;
-    faultOperations?: ReadonlyArray<{ verb: string; pattern: string }>;
     mutant?: string;
     observe?: boolean;
     project?: string;
@@ -273,8 +269,6 @@ export async function runE2E(
     namespace: opts.namespace,
     ...(deps.geolocation ? { geolocation: deps.geolocation } : {}),
     ...(deps.dataState ? { dataState: deps.dataState } : {}),
-    faultInject: opts.faultInject,
-    ...(opts.faultOperations !== undefined ? { faultOperations: opts.faultOperations } : {}),
     ...(opts.mutant !== undefined ? { mutant: opts.mutant } : {}),
     ...(opts.observe ? { observe: true } : {}),
     /* No project unless one is configured: the repo owns its playwright.config.ts, so every project it defines runs. The seed keeps its login setup project out of a suite run itself (it is defined only under PW_AUTH_SETUP). */
@@ -905,7 +899,7 @@ export function createDefaultE2eExecuteDeps(
       const dir = exec.allocDir("failures", ["dumps"]);
       return { dir: join(dir, "dumps"), root: exec.workDir(), dispose: () => { try { rmSync(dir, { recursive: true, force: true }); } catch { /* best-effort */ } } };
     },
-    runSuite: ({ dir, baseUrl, namespace, geolocation, dataState, testIdAttribute, faultInject, faultOperations, mutant, observe, project, specFiles, retries, grep, countWrites, cleanupPass, signal, timeoutMs, onEvent, failureCaptureDir }) =>
+    runSuite: ({ dir, baseUrl, namespace, geolocation, dataState, testIdAttribute, mutant, observe, project, specFiles, retries, grep, countWrites, cleanupPass, signal, timeoutMs, onEvent, failureCaptureDir }) =>
       new Promise((resolve, reject) => {
         /* The specs to run, as a file the orchestrator writes (root-owned, read-only to the sandbox): the child is told which files by an exact list, never by a pattern. */
         const testListPath = specFiles !== undefined && specFiles.length > 0 ? exec.writeScript("spec-list.txt", specListContent(specFiles)) : undefined;
@@ -937,7 +931,7 @@ export function createDefaultE2eExecuteDeps(
           profile: "suite",
           commandClass: "playwright-test",
           ...(geolocation ? { geolocation } : {}),
-          extraEnv: { PW_BASE_URL: baseUrl, PW_NAMESPACE: namespace, PLAYWRIGHT_JSON_OUTPUT_NAME: jsonPath, ...(cleanupPass ? { PW_CLEANUP: "1" } : {}), ...(countWrites ? { PW_COUNT_DEV_WRITES: "1", PW_COVERAGE: "0" } : {}), ...(testIdAttribute ? { PW_TEST_ID_ATTRIBUTE: testIdAttribute } : {}), ...(actionTimeoutMs ? { PW_ACTION_TIMEOUT_MS: actionTimeoutMs } : {}), ...(faultInject ? { QA_FAULT_INJECT: "1", ...(faultOperations !== undefined && faultOperations.length > 0 ? { QA_FAULT_INJECT_OPERATIONS: JSON.stringify(faultOperations.slice(0, 64).map(({ verb, pattern }) => ({ verb, pattern }))) } : {}) } : {}), ...(mutant ? { PW_MUTANT: mutant } : {}), ...(observe ? { PW_OBSERVE: "1" } : {}), ...(failureCaptureDir ? { QA_FAILURE_CAPTURE_DIR: failureCaptureDir } : {}), ...(failureCaptureDir && dataState ? { PW_DATA_STATE: JSON.stringify(dataState) } : {}) },
+          extraEnv: { PW_BASE_URL: baseUrl, PW_NAMESPACE: namespace, PLAYWRIGHT_JSON_OUTPUT_NAME: jsonPath, ...(cleanupPass ? { PW_CLEANUP: "1" } : {}), ...(countWrites ? { PW_COUNT_DEV_WRITES: "1", PW_COVERAGE: "0" } : {}), ...(testIdAttribute ? { PW_TEST_ID_ATTRIBUTE: testIdAttribute } : {}), ...(actionTimeoutMs ? { PW_ACTION_TIMEOUT_MS: actionTimeoutMs } : {}), ...(mutant ? { PW_MUTANT: mutant } : {}), ...(observe ? { PW_OBSERVE: "1" } : {}), ...(failureCaptureDir ? { QA_FAILURE_CAPTURE_DIR: failureCaptureDir } : {}), ...(failureCaptureDir && dataState ? { PW_DATA_STATE: JSON.stringify(dataState) } : {}) },
         });
 
         const stderr = new BoundedOutputTail(E2E_STDERR_KEEP_CHARS);

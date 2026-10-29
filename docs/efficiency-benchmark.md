@@ -440,7 +440,7 @@ Output, in `config/benchmarks/campaigns/<label>/` (gitignored), rewritten after 
 | File | Holds |
 |---|---|
 | `campaign.json` | the record: conditions (freeze, shadow), the snapshot, and one entry per case x arm x replicate |
-| `campaign.md` | the per arm-run table (verdict, whether the outcome was the expected one, valid, valid / delivered specs, fake-pass flags, USD, wall, wall without the change-coverage phase (where the value oracle runs), steps, cold/warm, whether the replicate is invalid and why) and a per case x arm summary with medians over comparable replicates and the figures that were measured |
+| `campaign.md` | the per arm-run table (verdict, whether the outcome was the expected one, valid, valid / delivered specs, fake-pass flags, USD, wall, wall without the change-coverage phase (where the mutation pass runs), steps, cold/warm, whether the replicate is invalid and why) and a per case x arm summary with medians over comparable replicates and the figures that were measured |
 | `rubric.csv` | one row per **valid, comparable** arm-run, with what the case says the spec must verify and where the files are, and an empty `score_0_3` column for the owner |
 | `<case>/<arm>-<n>/files/` | every file the arm delivered (specs and helpers). For B, only when its run was accepted; a rejected run's files are in `rejected/` |
 | `<case>/<arm>-<n>/{result,report}.json` | the arm-run's entry, and the arm's own probe report |
@@ -467,7 +467,7 @@ agent's delivery the same questions (`qa-engine/.../application/accept-delivered
 
 1. the static gate (`tsc`, ESLint, `playwright --list`), failing → `invalid` (`E-STATIC`), nothing executed;
 2. the delivered specs executed **twice with `retries: 0`** through the sandbox (`pass` only when both pass, one of each is `flaky`, a run that could not execute is `infra-error`);
-3. change-coverage under the app's policy (value oracle off), only when green;
+3. change-coverage under the app's policy (no mutation pass), only when green;
 4. with `--accept-review` (the campaign passes it when the app has `qa.needsReview`), the independent reviewer: approved with no blocking correction, a reviewer that could not be reached is no approval;
 5. the same `decide()` and `isAccepted()` the pipeline publishes by (shadow ignored for `isAccepted`: flaky is never accepted).
 

@@ -2,7 +2,6 @@
 
 import { engineLog } from "@kernel/ports/process-logger.ts";
 import { CORRECTION_ORIGIN, type CorrectionFinding, type CorrectionOrigin } from "@contexts/coordination/application/index.ts";
-import { faultAimOf } from "../fault-aim.ts";
 import { BlastRadius } from "@kernel/blast-radius.ts";
 import { candidatesSeededBy } from "@kernel/change-map.ts";
 import { hasGreenBytes } from "@kernel/run-verdict.ts";
@@ -84,36 +83,32 @@ export async function measureCoverage(state: Readonly<RunState>, ctx: WorkspaceR
   const runBlastRadius = BlastRadius.of(input.sha, intent?.changedFiles ?? []);
   /*
    * Change-coverage assembler runs only when a real per-commit diff is present.
-   * Cross-repo: starve the diff arg so coverage is "unknown" (never blocks) while
-   * the value-oracle inside measure() still runs.
+   * Cross-repo: starve the diff arg so coverage is "unknown" (never blocks).
    */
   if (input.triggerRepo) {
     /* Log so a cross-repo "unknown" is diagnosable, never a silent null. */
     engineLog.info(`[qa] change-coverage: skipped — the changed lines live in ${input.triggerRepo}; browser coverage maps only the frontend (status=unknown).`);
   }
-  /* This pass's own passing case names — the green baseline the fault-injection oracle needs. */
+  /* This pass's own passing case names — the green baseline the mutation pass judges against. */
   const passed = run.cases.filter((c) => c.status === "pass");
   const baselineCases = passed.map((c) => c.name);
   /* The spec files of those cases: a mutant re-runs the ones whose tests reached it, and a dump tells which changed file a spec ran only among them. */
   const caseFiles = passingCaseFiles(run.cases);
   /* The loop's last whole-suite execution and the re-runs of some spec files after it: the measurement reads the latest dumps of every spec file. */
   const { coverageNamespace, coverageReruns } = state.fixLoop;
-  /* The response oracle corrupts only the operations the change reaches; with no scope it has nothing to corrupt. */
-  const faultAim = faultAimOf({ scope: state.grounding.changeScope, candidates: state.grounding.candidates, flowCandidates: state.generation.flowCandidates });
   const exclusions = await coverageExclusionsOf(state, ctx);
   const signal = await deps.objectiveSignal.measure(
     runBlastRadius,
     workspace.specDir,
     input.triggerRepo ? undefined : diff,
     baselineCases,
-    ...(coverageNamespace || coverageReruns.length > 0 || caseFiles.length > 0 || state.grounding.candidates.length > 0 || faultAim !== undefined || exclusions !== undefined
+    ...(coverageNamespace || coverageReruns.length > 0 || caseFiles.length > 0 || state.grounding.candidates.length > 0 || exclusions !== undefined
       ? [{
           ...(coverageNamespace ? { namespace: coverageNamespace } : {}),
           ...(coverageReruns.length > 0 ? { reruns: coverageReruns } : {}),
           ...(caseFiles.length > 0 ? { caseFiles } : {}),
           ...(state.grounding.candidates.length > 0 ? { candidates: state.grounding.candidates } : {}),
           ...(input.triggerRepo ? { crossRepo: true } : {}),
-          ...(faultAim ? { faultAim } : {}),
           ...(exclusions ? { exclusions } : {}),
         }]
       : []),

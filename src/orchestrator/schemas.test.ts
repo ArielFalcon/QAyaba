@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { AppConfigSchema, ManifestEntrySchema, resolveValueOraclePolicy } from "./schemas";
+import { AppConfigSchema, ManifestEntrySchema } from "./schemas";
 
 const base = {
   name: "shop",
@@ -251,18 +251,6 @@ test("boundaries[]: an entry with an unknown transport THROWS (discriminated uni
 test("boundaries[]: no boundaries key at all -> AppConfig.boundaries is undefined (not [], no throw)", () => {
   const cfg = AppConfigSchema.parse(base);
   assert.equal(cfg.boundaries, undefined);
-});
-
-/* YAML `qa.valueOracle` plus the shadow-aware default the CLI already reports. */
-test("resolveValueOraclePolicy: an explicit valueOracle wins over shadow", () => {
-  assert.equal(resolveValueOraclePolicy({ valueOracle: "signal", shadow: true }), "signal");
-  assert.equal(resolveValueOraclePolicy({ valueOracle: "off", shadow: false }), "off");
-});
-
-test("resolveValueOraclePolicy: omitted valueOracle is off while shadowing, signal otherwise", () => {
-  assert.equal(resolveValueOraclePolicy({ shadow: true }), "off");
-  assert.equal(resolveValueOraclePolicy({ shadow: false }), "signal");
-  assert.equal(resolveValueOraclePolicy({}), "signal");
 });
 
 test("dev.allowedOrigins and egress.installOrigins accept origins and wildcard origins", () => {

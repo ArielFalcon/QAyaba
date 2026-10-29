@@ -10,7 +10,7 @@ window.QayabaMockData = (function () {
     {
       name: 'portfolio', repo: 'ArielFalcon/portfolio', stack: 'Astro · Vercel',
       shadow: true, watching: true, health: 'healthy', baseBranch: 'main',
-      devUrl: 'dev.portfolio.internal', gate: 'signal', oracle: 'off',
+      devUrl: 'dev.portfolio.internal', gate: 'signal',
       lastVerdict: 'skipped', passRate: 0.91, specs: 6,
       trend: [0.88, 0.9, 0.89, 0.92, 0.9, 0.93, 0.91],
       status: 'shadow', coverage: null,
@@ -22,7 +22,7 @@ window.QayabaMockData = (function () {
     {
       name: 'checkout-api', repo: 'acme/checkout-api', stack: 'Spring · K8s',
       shadow: false, watching: true, health: 'degraded', baseBranch: 'main',
-      devUrl: 'dev.checkout-api.internal', gate: 'enforce', oracle: 'e2e',
+      devUrl: 'dev.checkout-api.internal', gate: 'enforce',
       lastVerdict: 'fail', passRate: 0.78, specs: 14,
       trend: [0.82, 0.8, 0.79, 0.77, 0.81, 0.76, 0.78],
       status: 'live', coverage: null,
@@ -34,7 +34,7 @@ window.QayabaMockData = (function () {
     {
       name: 'web-app', repo: 'acme/web-app', stack: 'Angular · Vercel',
       shadow: false, watching: true, health: 'healthy', baseBranch: 'main',
-      devUrl: 'dev.web-app.internal', gate: 'enforce', oracle: 'e2e',
+      devUrl: 'dev.web-app.internal', gate: 'enforce',
       lastVerdict: 'pass', passRate: 0.89, specs: 21,
       trend: [0.84, 0.85, 0.86, 0.85, 0.88, 0.87, 0.89],
       status: 'live', coverage: 0.92,

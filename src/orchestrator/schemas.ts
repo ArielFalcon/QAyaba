@@ -248,12 +248,6 @@ export const AppConfigSchema = z
         })
         .optional(),
       /*
-       * e2e value oracle (response fault-injection). off (default) = skip; signal = re-run the
-       * green suite with corrupted responses and record the catch-rate. NEVER blocks publish, and
-       * it DOUBLES the DEV run — so it is opt-in.
-       */
-      valueOracle: z.enum(["off", "signal"]).optional(),
-      /*
        * The code graph is part of every run's grounding; the app declares only its scope.
        * `exclude`: repo-relative globs kept out of the index (generated or vendored source the app commits).
        */
@@ -416,19 +410,6 @@ export const AppConfigSchema = z
 
 export type ValidatedAppConfig = z.infer<typeof AppConfigSchema>;
 export type ServiceConfig = NonNullable<ValidatedAppConfig["services"]>[number];
-
-/*
- * Resolved value-oracle policy. An explicit `qa.valueOracle` wins; otherwise shadow apps default
- * to off (do not double-run DEV while onboarding) and production apps default to signal.
- */
-export type ValueOraclePolicy = "off" | "signal";
-export function resolveValueOraclePolicy(qa: {
-  valueOracle?: ValueOraclePolicy;
-  shadow?: boolean;
-}): ValueOraclePolicy {
-  return qa.valueOracle ?? (qa.shadow ? "off" : "signal");
-}
-
 
 export { ManifestEntrySchema, ManifestSchema } from "../../qa-engine/src/shared-kernel/manifest/manifest-entry";
 export type { ManifestEntry as ValidatedManifestEntry } from "../../qa-engine/src/shared-kernel/manifest/manifest-entry";

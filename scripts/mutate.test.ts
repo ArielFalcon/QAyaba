@@ -270,7 +270,7 @@ test("the spec-path-confinement preset mutates the confined reader and the stric
   assert.equal(preset.thresholds.break, null, "a new preset starts in signal mode");
 });
 
-test("the run-output-readers preset mutates the strict capped readers of what a run of the tests leaves, the coverage dumps and their collector, the fault-injection counters and the oracle's reading of the count, against their own tests and the factory's wiring of the counter", () => {
+test("the run-output-readers preset mutates the strict capped readers of what a run of the tests leaves, the coverage dumps and their collector, and the mutation counters, against their own tests", () => {
   const preset = PRESETS["run-output-readers"];
   assert.ok(preset, "the run-output-readers preset exists");
   assert.deepEqual(preset.mutate.map(sourcePathOf), [
@@ -279,16 +279,13 @@ test("the run-output-readers preset mutates the strict capped readers of what a 
     "qa-engine/src/contexts/objective-signal/infrastructure/target-coverage-collector.ts",
     "qa-engine/src/contexts/objective-signal/infrastructure/fault-injection-counter-reader.ts",
     "qa-engine/src/contexts/objective-signal/domain/dump-sanitizers.ts",
-    "qa-engine/src/contexts/objective-signal/infrastructure/fault-injection-oracle.adapter.ts",
   ]);
   for (const tests of [
     "shared-infrastructure/run-output-reader.test.ts",
     "infrastructure/coverage-dump-reader.test.ts",
     "infrastructure/coverage-dump-reader.confinement.test.ts",
     "infrastructure/fault-injection-counter-reader.test.ts",
-    "infrastructure/fault-injection-oracle.adapter.test.ts",
     "infrastructure/target-coverage-collector.test.ts",
-    "run-engine-factory.fault-injection.test.ts",
     "infrastructure/e2e-execution.runner.confinement.test.ts",
   ]) {
     assert.ok(preset.tests.some((t) => t.endsWith(tests)), `${tests} runs against every mutant`);

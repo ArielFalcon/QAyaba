@@ -25,7 +25,6 @@ import { discoverApiToken } from "./server/api-token";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { loadAppConfig } from "./orchestrator/config-loader";
-import { resolveValueOraclePolicy } from "./orchestrator/schemas";
 import { RUN_MODES, RunMode } from "./types";
 import { runSucceeded } from "./cli-exit";
 import type { GroundingInput } from "./contract/commands";
@@ -250,11 +249,6 @@ function printRunReport(record: RunRecord, appCfg: ReturnType<typeof loadAppConf
       coverageRatio: gs?.coverageRatio ?? null,
       coverageMeasured: gs?.coverageRatio !== null && gs?.coverageRatio !== undefined,
       coveragePolicy: appCfg.qa.changeCoverage?.mode ?? "signal",
-      /*
-       * Resolve the oracle policy exactly as the pipeline does, so the report distinguishes a
-       * genuinely-off oracle from one that was enabled but had no passing specs to score.
-       */
-      oraclePolicy: resolveValueOraclePolicy(appCfg.qa),
       valueScore: gs?.valueScore ?? null,
       reviewerApproved: gs?.reviewerApproved ?? null,
       reviewerRationale: gs?.reviewerRationale,

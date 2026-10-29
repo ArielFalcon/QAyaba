@@ -13,8 +13,6 @@ export interface ValueSignals {
   coverageRatio: number | null;  /* change-coverage ratio 0..1; null when not measured */
   coverageMeasured: boolean;  /* false → bundled deploy / no provider → never shown as a % */
   coveragePolicy?: "off" | "signal" | "enforce";
-  oraclePolicy?: "off" | "signal";  /* the resolved value-oracle policy — so the report can tell */
-  /* "off (enable it)" apart from "enabled but produced no score this run" (e.g. no passing specs). */
   valueScore: number | null;  /* oracle mutant-kill rate 0..1; null when the oracle did not run */
   reviewerApproved: boolean | null;  /* null when review is disabled or was not reached */
   reviewerRationale?: string;  /* the reviewer's one/two-sentence reasoning (approve or reject) */
@@ -164,20 +162,6 @@ export function renderRunReport(i: RunReportInput, opts: ReportOptions = {}): st
     row("change-cov", `${paint(pct(s.coverageRatio), on)}  ${dim(`${s.coveragePolicy ?? "signal"} · measured against the diff`, on)}`);
   } else {
     row("change-cov", dim("not measured (unknown — never blocks; enable DEV source maps to activate)", on));
-  }
-
-  if (s.valueScore !== null) {
-    const paint = s.valueScore >= 0.5 ? green : amber;
-    row("oracle", `${paint(pct(s.valueScore), on)} ${dim("mutant-kill (the tests caught injected faults)", on)}`);
-  } else if ((s.oraclePolicy ?? "off") === "off") {
-    /* Genuinely disabled (explicit off, or shadow's default-off) — tell the operator how to enable it. */
-    row("oracle", dim("off (set valueOracle: signal to earn ground-truth)", on));
-  } else {
-    /*
-     * Enabled but produced no score THIS run — not "off". Most often: no baseline-passing specs to
-     * score (e.g. an infra-error/zero-spec run), or the app's flows exposed no JSON to fault-inject.
-     */
-    row("oracle", dim("enabled · no ground-truth this run (no passing specs to score, or not applicable)", on));
   }
 
   if (s.reviewerApproved === true) {

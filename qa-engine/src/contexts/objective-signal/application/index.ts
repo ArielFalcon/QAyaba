@@ -13,7 +13,6 @@ export type { IntentViolation, SpecContractExtraction, SpecIntent } from "../dom
 export type { IntentContractPort } from "./ports/intent-contract.port.ts";
 export type { CoverageCollectorPort } from "./ports/coverage-collector.port.ts";
 export type { ObjectiveSignalPort } from "./ports/objective-signal.port.ts";
-export type { ValueOraclePort } from "./ports/value-oracle.port.ts";
 export type { CoverageReport, BranchHit, BranchKind, BranchArm, MutationSite, DumpSource, MutantRun, BundleMutationResult, MutantEdit, MutantProof, SurvivedMutant } from "../domain/coverage-collector.ts";
 export type { BundleMutationPort } from "./ports/bundle-mutation.port.ts";
 export type { CoverageMeasurement, CoverageRecount, CoverageRerun, UntakenArm, BundleMutationOutcome } from "../domain/objective-signal.ts";
@@ -26,7 +25,4 @@ export { changedCodeFiles, testSupportFiles, unreachableByDesign } from "../doma
 export type { CoverageExclusions, ReachScope, TestSupportFile, UnreachableByDesign } from "../domain/coverage-exclusions.ts";
 export { perCandidateCoverage } from "../domain/per-candidate-coverage.ts";
 export type { CandidateCoverage, CandidateUnmeasured } from "../domain/per-candidate-coverage.ts";
-export { operationKey } from "../domain/fault-injection-score.ts";
-export type { CandidateValue, FaultAim, FaultAimCandidate, ValueStats } from "../domain/fault-injection-score.ts";
-export { calibrate, MAX_FLOW_BREAK_SHARE, MAX_REPLICATE_SPREAD, MIN_APPLICABLE_SHARE, MIN_REPLICATES } from "../domain/fault-calibration.ts";
-export type { Calibration, CalibrationReplicate, CalibrationVerdict, CandidateCalibration } from "../domain/fault-calibration.ts";
+export type { CandidateValue, ValueStats } from "../domain/objective-signal.ts";

@@ -41,8 +41,8 @@ test("the session requests kept apart from the writes come back with the result"
 /*
  * Runner-infra reclassification has a SINGLE owner — e2e-execution.runner.ts's own
  * allFailuresAreRunnerInfra, which runs inside the real runE2E before this strategy ever sees a
- * verdict (both of runE2E's production callers — this strategy AND the fault-injection oracle's
- * runCorruptedFaultInjection re-run — depend on that SAME upstream reclassification; the strategy
+ * verdict (both of runE2E's production callers — this strategy AND the bundle mutation's
+ * re-run — depend on that SAME upstream reclassification; the strategy
  * previously duplicated the exact same check via AdjudicateService/AppDefect, which never actually
  * fired against the real runE2E and computed an AppDefect value nothing ever read). The strategy
  * now passes the injected runE2E's verdict straight through, unchanged, whatever it is — a fake
@@ -63,11 +63,11 @@ test("throws when baseUrl is absent (e2e requires a live DEV URL)", async () => 
   await assert.rejects(() => strategy.run({ specDir: "/m/e2e", namespace: "qa-abc" }), /baseUrl/);
 });
 
-/* Pin optional-field threading — a silently-dropped onCase/onRunning/onDiscovered/project/faultInject
+/* Pin optional-field threading — a silently-dropped onCase/onRunning/onDiscovered/project
    breaks the live bar and history callbacks with no other failing test.
  */
-test("threads all optional ExecutionRequest fields (project, onCase, onRunning, onDiscovered, faultInject) to the injected runE2E fn", async () => {
-  type Opts = { baseUrl: string; namespace: string; project?: string; onCase?: unknown; onRunning?: unknown; onDiscovered?: unknown; faultInject?: boolean };
+test("threads all optional ExecutionRequest fields (project, onCase, onRunning, onDiscovered) to the injected runE2E fn", async () => {
+  type Opts = { baseUrl: string; namespace: string; project?: string; onCase?: unknown; onRunning?: unknown; onDiscovered?: unknown };
   let capturedOpts: Opts | null = null;
   const strategy = new E2eExecutionStrategy(async (_dir, opts) => {
     capturedOpts = opts as Opts;
@@ -84,14 +84,12 @@ test("threads all optional ExecutionRequest fields (project, onCase, onRunning, 
     onCase,
     onRunning,
     onDiscovered,
-    faultInject: true,
   });
   assert.ok(capturedOpts !== null, "runE2E fn must be called");
   assert.equal((capturedOpts as Opts).project, "chromium", "project must be threaded");
   assert.equal((capturedOpts as Opts).onCase, onCase, "onCase callback must be threaded");
   assert.equal((capturedOpts as Opts).onRunning, onRunning, "onRunning callback must be threaded");
   assert.equal((capturedOpts as Opts).onDiscovered, onDiscovered, "onDiscovered callback must be threaded");
-  assert.equal((capturedOpts as Opts).faultInject, true, "faultInject must be threaded");
 });
 
 /* testIdAttribute must reach the runner opts — apps declare their test-id convention in config

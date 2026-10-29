@@ -1023,7 +1023,7 @@
       Card({ eyebrow: 'config/apps/' + app.name + '.yaml', title: 'Configuration', children: '<div>' +
         CfgRow('baseBranch', app.baseBranch, null, true) + CfgRow('dev.baseUrl', app.devUrl) +
         CfgRow('qa.gate', app.gate, app.gate === 'enforce' ? 'var(--ink-900)' : 'var(--text-body)') +
-        CfgRow('qa.valueOracle', app.oracle) + CfgRow('onFailure', 'github-issue') +
+        CfgRow('onFailure', 'github-issue') +
         CfgRow('shadow', app.shadow ? 'true' : 'false', app.shadow ? 'var(--flaky-600)' : 'var(--text-body)') + '</div>' }) +
       Card({ eyebrow: 'two-model loop', title: 'Models', children: '<div>' + CfgRow('generator', D.models.generator, null, true) + CfgRow('reviewer', D.models.reviewer) + '</div>' }) +
       Card({ eyebrow: 'engram · ' + appEngram.length + ' lessons', title: 'What Qayaba knows', bodyPadding: false, children: '<div>' + (appEngram.length

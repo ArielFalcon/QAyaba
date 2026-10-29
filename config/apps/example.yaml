@@ -145,13 +145,6 @@ qa:
   # intentLock:
   #   mode: signal             # off | signal (record would-be rejections) | enforce (reject, restore bytes)
   #   opacityFlagRatio: 0.5    # flag a contract whose unreadable clauses cross this ratio; never blocks
-  # Value oracle — response fault-injection, which RE-RUNS the suite against DEV once per green
-  # diff (≈2× execution — that is the cost of ground-truth). Default is shadow-aware: OFF while
-  # `shadow: true` (don't double-run DEV during onboarding), ON once you go to production
-  # (`shadow: false`). Set explicitly to override — e.g. a static site with no backend should set
-  # "off" (fault-injection has nothing meaningful to corrupt). Bundle mutation has its own key,
-  # `changeCoverage.bundleMutation`.
-  # valueOracle: signal        # off | signal  (omit to use the shadow-aware default)
 
 report:
   onFailure: "github-issue"

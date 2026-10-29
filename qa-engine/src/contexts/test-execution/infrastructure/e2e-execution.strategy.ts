@@ -11,8 +11,6 @@ type RunE2eFn = (
   opts: {
     baseUrl: string;
     namespace: string;
-    faultInject?: boolean;
-    faultOperations?: ReadonlyArray<{ verb: string; pattern: string }>;
     specFiles?: string[];
     retries?: number;
     grep?: string;
@@ -35,8 +33,6 @@ export class E2eExecutionStrategy implements ExecutionStrategyPort {
     const result = await this.runE2E(req.specDir, {
       baseUrl: req.baseUrl,
       namespace: req.namespace,
-      ...(req.faultInject !== undefined ? { faultInject: req.faultInject } : {}),
-      ...(req.faultOperations !== undefined ? { faultOperations: req.faultOperations } : {}),
       ...(req.specFiles ? { specFiles: req.specFiles } : {}),
       ...(req.retries !== undefined ? { retries: req.retries } : {}),
       ...(req.grep !== undefined ? { grep: req.grep } : {}),
@@ -52,7 +48,7 @@ export class E2eExecutionStrategy implements ExecutionStrategyPort {
     /*
      * Runner-infra reclassification has ONE owner: e2e-execution.runner.ts's own
      * allFailuresAreRunnerInfra, which runs inside runE2E before this point — both of runE2E's
-     * production callers (this strategy AND the fault-injection oracle's own re-run) depend on
+     * production callers (this strategy AND the bundle mutation's re-run) depend on
      * that SAME upstream check, so this strategy does not re-derive it.
      */
     return { verdict: result.verdict as ExecutionResult["verdict"], cases: result.cases, logs: result.logs, ...(result.devWrites !== undefined ? { devWrites: result.devWrites } : {}), ...(result.unfinishedTests !== undefined ? { unfinishedTests: result.unfinishedTests } : {}), ...(result.devWriteRequests !== undefined ? { devWriteRequests: result.devWriteRequests } : {}), ...(result.sessionRequests !== undefined ? { sessionRequests: result.sessionRequests } : {}), ...(result.loadErrors !== undefined ? { loadErrors: result.loadErrors } : {}) };

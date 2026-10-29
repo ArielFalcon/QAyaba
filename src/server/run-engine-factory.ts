@@ -10,7 +10,6 @@ import { DELEGATIONS_DIR, qayabaDataDir, qayabaRoot } from "../paths";
 import { readFileSync, mkdirSync, writeFileSync, realpathSync, lstatSync, rmSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import type { AppConfig } from "../orchestrator/config-loader";
-import { resolveValueOraclePolicy } from "../orchestrator/schemas";
 import type { AgentDeps } from "../integrations/opencode-client";
 import { reviewerTimeoutMs, agentPromptCapMs, agentTimeout, agentConfigFacts, maxStepsFromConfig, setSessionToolDeny, withTimeout } from "../integrations/opencode-client";
 import { AGENT_NAME_FOR_ROLE, assignmentForRole, type AgentFacade, type AgentRuntimeConfig, type ModelWindows, type StepLimits } from "../agent-runtime/types";
@@ -89,10 +88,8 @@ import { ManifestRepositoryAdapter } from "@contexts/generation/infrastructure/m
 import { readManifest, reconcileManifest } from "@contexts/generation/infrastructure/manifest-fs";
 import { StaticGateAdapter } from "@contexts/test-execution/infrastructure/static-gate.adapter";
 import { E2eExecutionStrategy } from "@contexts/test-execution/infrastructure/e2e-execution.strategy";
-import { FaultInjectionOracleAdapter } from "@contexts/objective-signal/infrastructure/fault-injection-oracle.adapter";
-import { countInjectedResponses, readFaultCounters } from "@contexts/objective-signal/infrastructure/fault-injection-counter-reader";
+import { countInjectedResponses } from "@contexts/objective-signal/infrastructure/fault-injection-counter-reader";
 import { BundleMutationOracleAdapter } from "@contexts/objective-signal/infrastructure/bundle-mutation-oracle.adapter";
-import { NullValueOracleAdapter } from "@contexts/objective-signal/infrastructure/null-value-oracle.adapter";
 import { GitHubPrAdapter } from "@contexts/workspace-and-publication/infrastructure/github-pr.adapter";
 import { GitHubIssueAdapter } from "@contexts/workspace-and-publication/infrastructure/github-issue.adapter";
 import type { GitHubHttpDeps } from "@contexts/workspace-and-publication/infrastructure/github-http";
@@ -520,7 +517,7 @@ export interface AcceptanceHarness {
 
 /*
  * The acceptance an experiment judges every arm by (accept-delivered-specs.use-case.ts), over the same parts the pipeline's own run uses: the
- * static gate, the Playwright runner, the change-coverage collector under the app's coverage policy (the value oracle off: it doubles a DEV
+ * static gate, the Playwright runner, the change-coverage collector under the app's coverage policy (no mutation pass: it doubles a DEV
  * run and decides nothing here) and the independent reviewer. It is built over a copy of the working copy, never over a mirror.
  */
 export function buildAcceptanceHarness(input: AcceptanceHarnessInput): AcceptanceHarness {
@@ -556,7 +553,6 @@ export function buildAcceptanceHarness(input: AcceptanceHarnessInput): Acceptanc
     {
       collector: makeTargetCoverageCollector([]),
       decide: new DecideCoverageService(),
-      oracle: new NullValueOracleAdapter(),
     },
     { policy, repoDir: copyDir, namespace: `${app.qa.testDataPrefix}-acceptance`, assembleChangeCoverage },
   );
@@ -857,26 +853,9 @@ export function buildEngineRootDeps(
    */
   const collector = makeTargetCoverageCollector([]);
 
-  const runCorruptedFaultInjection = ({ dir, baseUrl, namespace, operations }: { dir: string; baseUrl: string; namespace: string; operations: ReadonlyArray<{ verb: string; pattern: string }> }) =>
-    /*
-     * No --project, like a suite run: the repo owns its playwright.config.ts, and naming a project
-     * it does not define fails the whole re-run, leaving the value score inconclusive. The re-run
-     * corrupts only the operations it is handed.
-     */
-    runE2E(dir, { baseUrl, namespace, faultInject: true, faultOperations: operations }, e2eExecuteDeps);
-
-  /*
-   * Honor YAML qa.valueOracle (and the shadow-aware default the CLI already reports).
-   * "off" → NullValueOracleAdapter (no DEV re-run). "signal" → the fault-injection oracle.
-   */
-  const valueOraclePolicy = resolveValueOraclePolicy(app.qa);
-  const oracle = valueOraclePolicy === "off"
-    ? new NullValueOracleAdapter()
-    : new FaultInjectionOracleAdapter(runCorruptedFaultInjection, readFaultCounters, app.dev?.baseUrl ?? "");
   /*
    * The mutation pass: unless `qa.changeCoverage.bundleMutation` is off, an app re-runs, for each of a few mutants of the changed code in the served
-   * script, the spec files that reached it, once (no retry: a mutant that fails a test once was noticed). Its counters sit beside
-   * the response oracle's.
+   * script, the spec files that reached it, once (no retry: a mutant that fails a test once was noticed).
    */
   const mutation = app.qa.changeCoverage?.bundleMutation === "off"
     ? undefined
@@ -1262,7 +1241,7 @@ export function buildEngineRootDeps(
       : {}),
 
     ...(app.e2e?.testIdAttribute !== undefined ? { testIdAttribute: app.e2e.testIdAttribute } : {}),
-    objectiveSignal: { collector, oracle, ...(mutation ? { mutation } : {}) },
+    objectiveSignal: { collector, ...(mutation ? { mutation } : {}) },
     coveragePolicy,
     /* Change-coverage: unknown never blocks publish. */
     assembleChangeCoverage,
