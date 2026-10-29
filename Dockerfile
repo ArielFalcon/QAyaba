@@ -15,7 +15,7 @@ FROM mcr.microsoft.com/playwright:v1.60.0-noble
 # better-sqlite3 12.10.1 ships a linux-x64 prebuilt for ABI v137 (Node 24) — no
 # source compile needed on amd64. On arm64 (Apple-silicon dev, Graviton CI) there is
 # no matching prebuilt, so npm install COMPILES it from source — build-essential and
-# python3 are installed below (the same toolchain code-mode needs), so the build succeeds.
+# python3 are installed below, so the build succeeds.
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl \
   && curl -fsSL https://deb.nodesource.com/setup_24.x | bash - \
   && apt-get install -y --no-install-recommends nodejs \
@@ -26,48 +26,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
 RUN apt-get update && apt-get install -y --no-install-recommends iptables \
   && rm -rf /var/lib/apt/lists/*
 
-# git: to clone/check out the working copies of the watched repos.
-# Code-mode runtimes: the orchestrator runs the watched repo's own test suite
-# (Python/pytest, Go, Rust/Cargo, Maven, Gradle) for code-mode apps. These run
-# in the orchestrator process, NOT in the agents container — see code-runner.ts.
-# noble (Ubuntu 24.04) package-name audit: python3/python3-pip/python3-venv/cargo/rustc/
-# maven/gradle/build-essential are all present in noble under the same names.
-# Go is NOT installed from apt (the noble `golang` package is 1.22 and would lag); we
-# install the upstream tarball below.
-# JDK (NOT just a JRE): the `maven`/`gradle` packages only pull a headless JRE, which has `java`
-# but NOT `javac`. `mvn test-compile`/`mvn test` then fail with "No compiler is provided in this
-# environment. Perhaps you are running on a JRE rather than a JDK?" — turning EVERY Java code-mode
-# run into an inconclusive infra-error. `default-jdk-headless` puts `javac` on PATH (via
-# update-alternatives) and `java-common` provides the arch-independent /usr/lib/jvm/default-java.
+# git: to clone/check out the working copies of the watched repos. build-essential and python3 compile
+# better-sqlite3 from source on arm64 (above) and run lizard (below).
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     build-essential \
-    default-jdk-headless \
     python3 python3-pip python3-venv \
-    cargo rustc \
-    maven \
-    gradle \
   && rm -rf /var/lib/apt/lists/*
-# Maven/Gradle and many JVM tools consult JAVA_HOME; point it at the arch-independent symlink
-# java-common installs, so the same line works on amd64 and arm64.
-ENV JAVA_HOME=/usr/lib/jvm/default-java
-
-# --- Go upstream tarball install ------------------------------------------
-# apt-get install golang on noble gives Go 1.22 (lagging); use the upstream tarball
-# for a current release. go1.26.4 is the pinned target (latest 1.26.x stable, verified
-# present on go.dev/dl). Update the version variable to bump Go.
-# Arch-aware: derive the Debian arch (amd64/arm64) so the image builds on both x86_64 and
-# arm64 hosts (Apple-silicon dev machines, Graviton CI) instead of hardcoding linux-amd64.
-ENV GO_VERSION=1.26.4
-RUN GOARCH="$(dpkg --print-architecture)" \
-  && case "$GOARCH" in \
-       amd64|arm64) : ;; \
-       *) echo "unsupported arch for Go tarball: $GOARCH" >&2; exit 1 ;; \
-     esac \
-  && curl -fsSL "https://dl.google.com/go/go${GO_VERSION}.linux-${GOARCH}.tar.gz" \
-  | tar -C /usr/local -xz \
-  && ln -sf /usr/local/go/bin/go /usr/local/bin/go \
-  && ln -sf /usr/local/go/bin/gofmt /usr/local/bin/gofmt
 
 # Deterministic static-signal extractors (Stage 2). difft + ast-grep are arch-specific release binaries.
 RUN pip3 install --no-cache-dir --break-system-packages lizard==1.23.0
@@ -113,16 +78,16 @@ RUN ARCH="$(dpkg --print-architecture)" \
   && ln -s /opt/codegraph/bin/codegraph /usr/local/bin/codegraph
 
 # Unprivileged user for executing UNTRUSTED code: the agent-written Playwright specs, the e2e project's
-# own tsc/eslint/install, a login script, and the watched repo's own install/test/coverage. The
+# own tsc/eslint/install and a login script. The
 # orchestrator runs as root and DROPS to this user for every one of those spawns (the execution
 # launcher, qa-engine/src/shared-infrastructure/process-sandbox/exec-sandbox.ts), so untrusted code
 # cannot read the root-owned API token (data/.api_token), the auth material under /app/data, the app
 # configs, or another watched repo under /app/.mirrors (bin/container-entrypoint.sh closes them at every
 # boot and then proves it as this uid), tamper with the orchestrator's files (/app/src, node_modules),
 # or write the mirror it runs in.
-# The user owns a writable home for toolchain caches (~/.m2, ~/.gradle, ~/.cache, ~/.cargo). NOBLE drift: Ubuntu 24.04 ships a default `ubuntu` user at uid 1000,
+# The user owns a writable home for package-manager caches (~/.cache). NOBLE drift: Ubuntu 24.04 ships a default `ubuntu` user at uid 1000,
 # which pushed the Playwright image's `pwuser` to uid 1001 (it was 1000 on jammy). So `sandbox` uses
-# uid 1002 (the next free id) — docker-compose sets CODE_SANDBOX_UID=1002 so code-runner.ts matches.
+# uid 1002 (the next free id) — docker-compose sets CODE_SANDBOX_UID=1002 so resolveSandbox matches.
 RUN useradd --create-home --uid 1002 --shell /usr/sbin/nologin sandbox
 
 WORKDIR /app

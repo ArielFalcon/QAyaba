@@ -168,7 +168,7 @@ declare wildcards only below names you own); no path, query or credentials; an I
 | Where | What it widens |
 |---|---|
 | `dev.baseUrl` (always) and `dev.allowedOrigins` in `config/apps/<app>.yaml` | `suite` and `login` children |
-| `config/egress/registries.yaml` (groups `npm`, `maven`, `gradle`, `pip`, `go`, `cargo`) | `install` children: an install child reaches the `npm` group only; the other groups stay declared until the file is edited |
+| `config/egress/registries.yaml` (group `npm`) | `install` children: the e2e project's `npm ci` |
 | `egress.installOrigins` in the app config | `install` children: a private registry or mirror |
 | `dev.blockedOrigins` in the app config | nothing: origins left blocked on purpose (telemetry, analytics). The filter refuses them like any undeclared host; the only effect is that a refusal of one is never taken as the reason a login failed (`E-PRECONDITION`, kind `egress-denied`). An origin cannot be both allowed and blocked |
 

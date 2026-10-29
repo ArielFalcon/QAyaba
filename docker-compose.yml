@@ -63,8 +63,7 @@ services:
     env_file: .env
     restart: always
     # Defense-in-depth for the untrusted code the orchestrator executes (agent-authored specs, the e2e
-    # project's own tooling and installs, a login script, and — for code-mode — the watched repo's own
-    # install/test command). Every such child starts through one launcher, which DROPS PRIVILEGE to the
+    # project's own tooling and installs, and a login script). Every such child starts through one launcher, which DROPS PRIVILEGE to the
     # unprivileged `sandbox` user (uid 1002) with an environment built from an allowlist per profile,
     # so it cannot read the root-owned API token, the auth material, another repo's mirror or the
     # provider keys, tamper with the orchestrator's files, or write the mirror it runs in — see
@@ -122,7 +121,7 @@ services:
       AGENT_SUPERVISOR_URL: http://agents:4097
       MIRROR_DIR: /app/.mirrors
       # noble drift: the image's `sandbox` user is uid 1002 (pwuser took 1001 on Ubuntu 24.04) — keep
-      # code-runner.ts (CODE_SANDBOX_UID ?? 1001) in sync with the Dockerfile so privilege-drop resolves.
+      # resolveSandbox (CODE_SANDBOX_UID ?? 1001) in sync with the Dockerfile so privilege-drop resolves.
       CODE_SANDBOX_UID: "1002"
       # `required`: a run that cannot drop to the sandbox uid refuses to execute agent code and ends E-SANDBOX.
       # `best-effort` (the engine's default outside this file) runs as the current user with a loud warning, for a
