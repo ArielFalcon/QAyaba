@@ -11,6 +11,7 @@
  * order. Absence is never painted as a hard zero (a not-measured ratio is null, not 0).
  */
 import type { RunRecord, RunOutcome } from "../types";
+import type { RunUsage } from "../qa/usage";
 import type { ReportView } from "../contract/commands";
 import { infraErrorGloss } from "../qa/learning/infra-error-gloss";
 
@@ -224,7 +225,8 @@ export function toRunReportView(input: RunReportInput): ReportView {
 
   /* Agent usage — one informational line; absent when no snapshot fired (never shows $0). */
   {
-    const u = outcome?.gateSignals.usage ?? null;
+    /* The engine keeps `usage` wide so it imports nothing downstream; this reader is where it takes its shape. */
+    const u = (outcome?.gateSignals.usage as RunUsage | undefined) ?? null;
     /* Compact thousands: 1500 → "1.5k", 800 → "800". */
     const k = (n: number): string => (n >= 1000 ? (n / 1000).toFixed(1) + "k" : String(n));
     const caption = u

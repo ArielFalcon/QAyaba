@@ -158,6 +158,7 @@ export const BANNED_RULES: BannedRule[] = [
     patterns: [/\b(?:valueScore|valueByCandidate|valueStats|valueStale|mutantCount|killedCount|CandidateValue|ValueStats|mutation_value|E-VALUE-SURVIVED)\b/],
     exemptPrefixes: [RECORDS_PREFIX, SHIPPED_SEED_REVISIONS_PREFIX, ...RETIRED_FIELD_TESTS],
   },
+  { id: "stored-outcome-copy", patterns: [/\b(?:toStoredRunOutcome|StructuredReflection)\b/], exemptPrefixes: [RECORDS_PREFIX] },
   { id: "shell-dead-run-types", patterns: [/\bAgentResult\b/], exemptPrefixes: [RECORDS_PREFIX] },
   { id: "shell-events-reexport", patterns: [/\bsrc\/contract\/events(?:\.ts)?(?![\w.-])/], exemptPrefixes: [RECORDS_PREFIX] },
   {

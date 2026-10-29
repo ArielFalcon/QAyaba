@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { SqliteRunHistoryAdapter, toStoredRunOutcome } from "./run-history-sqlite-adapter";
+import { SqliteRunHistoryAdapter } from "./run-history-sqlite-adapter";
+import { getHistory } from "./persistence/index";
 import type { RunOutcome as KernelRunOutcome } from "@kernel/run-outcome.ts";
 import type { RunOutcome as StoredRunOutcome } from "../types";
 
@@ -51,86 +52,34 @@ test("SqliteRunHistoryAdapter uses the real saveRunOutcome by default (no explic
   assert.ok(adapter, "constructs without touching the DB (lazy init, lazily opened history)");
 });
 
-/* ── toStoredRunOutcome — the field mapping itself ────────────────────────────────────────────── */
+/* ── the real store ─────────────────────────────────────────────────────────────────────────── */
 
-test("toStoredRunOutcome carries errorClass through as-is (a genuine taxonomy member, per the kernel's own producer contract)", () => {
-  const out = toStoredRunOutcome(kernelOutcome({ errorClass: "E-EXEC-FAIL" }));
-  assert.equal(out.errorClass, "E-EXEC-FAIL");
-});
+test("an outcome saved through the adapter reads back from the history store with its signals, and the run's note, cases and logs are not stored", async () => {
+  const app = "hist-adapter-roundtrip";
+  getHistory().purgeApp(app);
+  try {
+    await new SqliteRunHistoryAdapter().save(kernelOutcome({
+      runId: "run-adapter-roundtrip",
+      app,
+      errorClass: "E-EXEC-FAIL",
+      note: "a note the run record holds",
+      cases: [{ name: "c1", status: "fail" }],
+      logs: "a log line",
+      gateSignals: { static: true, coverageRatio: 0.7, reviewerCorrections: ["missing assertion"], reviewerApproved: true, flaky: false, retries: 2, phaseTimings: { generate: 1200 }, contractDriftCount: 0 },
+    }));
 
-test("toStoredRunOutcome omits optional gateSignals fields that are absent on the kernel outcome (never fabricates)", () => {
-  const out = toStoredRunOutcome(kernelOutcome());
-  assert.equal("reviewerRationale" in out.gateSignals, false);
-  assert.equal("reviewerApproved" in out.gateSignals, false);
-  assert.equal("confinement" in out.gateSignals, false);
-  assert.equal("usage" in out.gateSignals, false);
-  assert.equal("phaseTimings" in out.gateSignals, false);
-  assert.equal("preExecAmbiguityCatches" in out.gateSignals, false);
-  assert.equal("deterministicSelectorBlocks" in out.gateSignals, false);
-  assert.equal("catalogGateInWindow" in out.gateSignals, false);
-  assert.equal("reflection" in out, false);
-});
-
-test("toStoredRunOutcome forwards every present optional gateSignals field faithfully", () => {
-  const out = toStoredRunOutcome(
-    kernelOutcome({
-      gateSignals: {
-        static: true,
-        coverageRatio: 0.7,
-        reviewerCorrections: ["missing assertion"],
-        reviewerRationale: "solid coverage",
-        reviewerApproved: true,
-        flaky: false,
-        retries: 2,
-        confinement: { strays: 0, dangerous: 0, reverted: [] },
-        phaseTimings: { generate: 1200 },
-        preExecAmbiguityCatches: 1,
-        deterministicSelectorBlocks: 0,
-        catalogGateInWindow: 3,
-        catalogGateAdvisory: 1,
-        catalogGateFailClosed: 0,
-      },
-    }),
-  );
-  assert.equal(out.gateSignals.reviewerRationale, "solid coverage");
-  assert.equal(out.gateSignals.reviewerApproved, true);
-  assert.deepEqual(out.gateSignals.confinement, { strays: 0, dangerous: 0, reverted: [] });
-  assert.deepEqual(out.gateSignals.phaseTimings, { generate: 1200 });
-  assert.equal(out.gateSignals.preExecAmbiguityCatches, 1);
-  assert.equal(out.gateSignals.catalogGateInWindow, 3);
-  assert.equal(out.gateSignals.catalogGateAdvisory, 1);
-  assert.equal(out.gateSignals.catalogGateFailClosed, 0);
-});
-
-/* serviceLinksCount/contractDriftCount round-trip through toStoredRunOutcome's conditional-spread
-   pattern — undefined MUST stay undefined (never a fabricated 0), matching the catalogGate*
-   precedent's persistence-mapping half exactly (this design deliberately diverges only at the
-   CONSTRUCTION site, not here). ────────────────────────────────────────────────────────────────
- */
-
-test("toStoredRunOutcome omits structuralSignalBytes/serviceLinksCount/contractDriftCount when absent on the kernel outcome (never fabricates a 0)", () => {
-  const out = toStoredRunOutcome(kernelOutcome());
-  assert.equal("structuralSignalBytes" in out.gateSignals, false);
-  assert.equal("serviceLinksCount" in out.gateSignals, false);
-  assert.equal("contractDriftCount" in out.gateSignals, false);
-});
-
-test("toStoredRunOutcome forwards structuralSignalBytes/serviceLinksCount/contractDriftCount faithfully when present, including a genuine 0 (ran, found none)", () => {
-  const out = toStoredRunOutcome(
-    kernelOutcome({
-      gateSignals: {
-        static: true,
-        coverageRatio: 0.7,
-        reviewerCorrections: [],
-        flaky: false,
-        retries: 0,
-        structuralSignalBytes: 512,
-        serviceLinksCount: 3,
-        contractDriftCount: 0,
-      },
-    }),
-  );
-  assert.equal(out.gateSignals.structuralSignalBytes, 512);
-  assert.equal(out.gateSignals.serviceLinksCount, 3);
-  assert.equal(out.gateSignals.contractDriftCount, 0, "a genuine 0 (resolver ran, found none) must round-trip as 0, not be dropped or coerced to undefined");
+    const stored = getHistory().learning.getRunOutcome("run-adapter-roundtrip")!;
+    assert.equal(stored.errorClass, "E-EXEC-FAIL");
+    assert.equal(stored.gateSignals.coverageRatio, 0.7);
+    assert.deepEqual(stored.gateSignals.reviewerCorrections, ["missing assertion"]);
+    assert.equal(stored.gateSignals.reviewerApproved, true);
+    assert.equal(stored.gateSignals.retries, 2);
+    assert.deepEqual(stored.gateSignals.phaseTimings, { generate: 1200 });
+    assert.equal(stored.gateSignals.contractDriftCount, 0, "a genuine 0 round-trips as 0");
+    assert.equal("note" in stored, false);
+    assert.equal("cases" in stored, false);
+    assert.equal("logs" in stored, false);
+  } finally {
+    getHistory().purgeApp(app);
+  }
 });

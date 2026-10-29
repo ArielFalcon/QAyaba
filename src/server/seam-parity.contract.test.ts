@@ -1,7 +1,6 @@
-/* Permanent seam: kernel RunOutcome ↔ toStoredRunOutcome, and AppConfig ↔ EngineRootDeps.
-   qa-engine cannot import src/, so this shell test is the drift gate. A field added
-   to the type without an allowlist entry fails typecheck; a field dropped by the adapter fails
-   this test. */
+/* Permanent seam: the engine's RunOutcome reaching the history store, and AppConfig ↔ EngineRootDeps.
+   qa-engine cannot import src/, so this shell test is the drift gate. The stored outcome is derived from the
+   engine's type, so only the forwarding is pinned here. */
 import { test, describe, mock } from "node:test";
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
@@ -13,7 +12,7 @@ import { GENERATION_END } from "@kernel/generation-end";
 import { wireEngine, type EngineRootDeps } from "./engine-root";
 import { ConfinedPathError } from "../../qa-engine/src/shared-infrastructure/spec-path-confinement";
 
-import { toStoredRunOutcome, type RunHistorySqliteAdapterDeps, SqliteRunHistoryAdapter } from "./run-history-sqlite-adapter";
+import { type RunHistorySqliteAdapterDeps, SqliteRunHistoryAdapter } from "./run-history-sqlite-adapter";
 import { buildEngineRootDeps, type RunEngineFactoryDeps } from "./run-engine-factory";
 import type { AppConfig } from "../orchestrator/config-loader";
 import type { AgentDeps } from "../integrations/opencode-client";
@@ -29,157 +28,11 @@ import type { OpencodeRunInput, ReviewInput } from "@contexts/generation/applica
 const S = (field: string): string => `__SENTINEL__${field}__`;
 
 /* ════════════════════════════════════════════════════════════════════════════════════════════════
-   (d) PERSISTENCE surface — kernel RunOutcome vs SqliteRunHistoryAdapter's toStoredRunOutcome
+   (d) PERSISTENCE surface — the engine outcome reaching SqliteRunHistoryAdapter's saveOutcome
    ════════════════════════════════════════════════════════════════════════════════════════════════
  */
-describe("seam-parity: PERSISTENCE (kernel RunOutcome vs toStoredRunOutcome)", () => {
-  const ALL_TOP_FIELDS = {
-    runId: true, app: true, sha: true, mode: true, target: true, verdict: true, errorClass: true,
-    gateSignals: true, at: true, note: true, cases: true,
-    logs: true, adjudication: true,
-  } satisfies Record<keyof KernelRunOutcome, true>;
-
-  const ALL_GATE_SIGNAL_FIELDS = {
-    static: true, coverageRatio: true, branchCoverage: true, changeCoverage: true, bundleMutation: true, branchCases: true, survivorClosure: true, flakyTriage: true, missingCases: true,
-    reviewerCorrections: true,
-    reviewerRationale: true, reviewerApproved: true, reviewer: true, flaky: true, retries: true, confinement: true,
-    usage: true, phaseTimings: true, furthestPhase: true, preExecAmbiguityCatches: true, deterministicSelectorBlocks: true,
-    catalogGateInWindow: true, catalogGateAdvisory: true, catalogGateFailClosed: true,
-    structuralSignalBytes: true, serviceLinksCount: true, contractDriftCount: true,
-    crossRepoImpactedCount: true, sandbox: true, reviewerIndependence: true, closedLoop: true, agentBrowser: true, coordination: true,
-    coverage: true, integrity: true, intent: true, noop: true, causal: true, coverageByCandidate: true, routeAvailability: true, stubbedState: true, dataContradictions: true,
-  } satisfies Record<keyof KernelRunOutcome["gateSignals"], true>;
-
-  const ALLOWLIST: Record<string, string> = {
-    /* toStoredRunOutcome dropping `note` matches the shell RunOutcome shape in src/types.ts,
-       which has no note field. QaRunResult.note and RunRecord.note are different types; `note`
-       reaches the run record through QaRunResult.note -> RunRecord.note, never through this
-       mapping's run_outcomes row.
-     */
-    note: "CORRECT BY DESIGN (not a drop): toStoredRunOutcome never carries outcome.note through because StoredRunOutcome (src/types.ts's RunOutcome interface) has NO note field to carry it TO — grep/read-confirmed against the full interface. The kernel RunOutcome.note reaches the run record through a SEPARATE seam (QaRunResult.note -> RunRecord.note, src/server/runner.ts's own header), never through this mapping fn's run_outcomes row. Diagnostic-only either way (never gates verdict/publish).",
-    cases: "DELIBERATELY not persisted via toStoredRunOutcome — StoredRunOutcome (src/types.ts) has NO cases field at all (grep-confirmed); this field exists on the kernel RunOutcome ONLY for a DIFFERENT driving-side consumer (src/server/runner.ts's runViaEngine threads it into history.addCase() calls directly, per this file's own header comment), not for the run_outcomes row this adapter writes. Comparator-blind by the kernel type's own documented construction.",
-    logs: "DELIBERATELY not persisted via toStoredRunOutcome",
-    adjudication: "CORRECT BY DESIGN (not a drop): StoredRunOutcome (src/types.ts) has NO adjudication field at all. This is a REWRITTEN-ONLY field: the kernel type carries it (wide, optional",
-  };
-
-  test("kernel RunOutcome's own top-level field list matches the allowlist + the mapping fn's carried set exactly", () => {
-    const mapped = ["runId", "app", "sha", "mode", "target", "verdict", "errorClass", "gateSignals", "at"];
-    const allFieldNames = Object.keys(ALL_TOP_FIELDS).sort();
-    const accountedFor = [...new Set([...mapped, ...Object.keys(ALLOWLIST)])].sort();
-    assert.deepEqual(accountedFor, allFieldNames, "every kernel RunOutcome top-level field must be either mapped or allowlisted with a reason");
-  });
-
-  test("gateSignals' own field list is fully mapped (no allowlist needed — every field carries through)", () => {
-    const mapped = [
-      "static", "coverageRatio", "branchCoverage", "changeCoverage", "bundleMutation", "branchCases", "survivorClosure", "flakyTriage", "missingCases", "reviewerCorrections",
-      "reviewerRationale",
-      "reviewerApproved", "reviewer", "flaky", "retries", "confinement", "usage", "phaseTimings", "furthestPhase",
-      "preExecAmbiguityCatches", "deterministicSelectorBlocks", "catalogGateInWindow",
-      "catalogGateAdvisory", "catalogGateFailClosed",
-      "structuralSignalBytes", "serviceLinksCount", "contractDriftCount", "crossRepoImpactedCount", "sandbox", "reviewerIndependence", "closedLoop", "agentBrowser", "coordination",
-      "coverage", "integrity", "intent", "noop", "causal", "coverageByCandidate", "routeAvailability", "stubbedState", "dataContradictions",
-    ];
-    assert.deepEqual(mapped.sort(), Object.keys(ALL_GATE_SIGNAL_FIELDS).sort(), "every gateSignals field must be mapped — toStoredRunOutcome's own header claims 100% pass-through for this nested object");
-  });
-
-  test("toStoredRunOutcome carries every top-level + gateSignals field through with its sentinel value (fully-populated kernel outcome)", () => {
-    const kernelOutcome: KernelRunOutcome = {
-      runId: S("runId"),
-      app: S("app"),
-      sha: S("sha"),
-      mode: "diff",
-      target: "e2e",
-      verdict: "pass",
-      errorClass: "E-EXEC-FAIL",
-      gateSignals: {
-        static: true,
-        coverageRatio: 0.42,
-        reviewerCorrections: [S("reviewerCorrections")],
-        reviewerRationale: S("reviewerRationale"),
-        reviewerApproved: true,
-        reviewer: { rounds: 2, modelRounds: 1, approved: false, corrections: 1, blocking: 1, durationMs: 4_000, promptBytes: 900, outputTokens: 120, costUsd: 0.01, steps: 1, preCheckRejects: 1, skippedRounds: 2 },
-        flaky: true,
-        retries: 3,
-        confinement: { strays: 1, dangerous: 0, reverted: [S("reverted")] },
-        usage: { totalTokens: 999 },
-        phaseTimings: { generate: 111 },
-        furthestPhase: "execute",
-        preExecAmbiguityCatches: 2,
-        deterministicSelectorBlocks: 1,
-        catalogGateInWindow: 5,
-        catalogGateAdvisory: 4,
-        catalogGateFailClosed: 0,
-        structuralSignalBytes: 512,
-        serviceLinksCount: 3,
-        contractDriftCount: 0,
-        crossRepoImpactedCount: 2,
-        sandbox: { egress: "enforced", denied: [S("denied host")] },
-        closedLoop: { calls: 4, devWrites: 3, closed: true },
-        agentBrowser: { calls: 9, blocks: 2, invalidations: 1, renewals: 1 },
-        coordination: { plan: "fanout", flows: 3, delivered: 2, incomplete: 1, authoring: "authenticated-browser" },
-        coverage: { stale: true },
-        integrity: { acceptances: 2, rejected: 1, proofReused: 1, capHit: true },
-        intent: { mode: "enforce", violations: 2, wouldReject: 0, clauses: 9, opaque: 1, opacityHigh: false },
-        noop: { kind: "unobservable" },
-        coverageByCandidate: [{ candidateId: "uc-0000aaaa", changedLines: 4, coveredChanged: 3, ratio: 0.75 }],
-        routeAvailability: { read: 4, unavailable: 1, byClass: { "change-introduced": 1 }, facts: [{ route: "/a", class: "change-introduced", why: "route-declaration", to: "/home" }], omitted: 0 },
-        stubbedState: { specFiles: 1, tests: 2, violations: [{ file: "a.spec.ts", kind: "har-replay" }] },
-        dataContradictions: { pages: 2, found: 1, schemaBacked: 0, facts: [{ route: "/a", key: "k", carriedBy: "GET https://x/all", missingFrom: "GET https://x/some", schemaBacked: false }], omitted: 0 },
-        causal: { reach: "in-reach", basis: "request", via: ["GET /orders"], reason: "r", cases: [{ name: "c", reach: "in-reach", basis: "request" }] },
-      },
-      at: "2026-07-02T00:00:00.000Z",
-      note: S("note"),
-    };
-
-    const out = toStoredRunOutcome(kernelOutcome);
-    const dyingLayer = "toStoredRunOutcome() -> StoredRunOutcome (src/server/run-history-sqlite-adapter.ts)";
-
-    assert.equal(out.runId, S("runId"), `runId dropped at ${dyingLayer}`);
-    assert.equal(out.app, S("app"), `app dropped at ${dyingLayer}`);
-    assert.equal(out.sha, S("sha"), `sha dropped at ${dyingLayer}`);
-    assert.equal(out.mode, "diff", `mode dropped at ${dyingLayer}`);
-    assert.equal(out.target, "e2e", `target dropped at ${dyingLayer}`);
-    assert.equal(out.verdict, "pass", `verdict dropped at ${dyingLayer}`);
-    assert.equal(out.errorClass, "E-EXEC-FAIL", `errorClass dropped at ${dyingLayer}`);
-    assert.equal(out.at, "2026-07-02T00:00:00.000Z", `at dropped at ${dyingLayer}`);
-
-    const gs = out.gateSignals;
-    assert.equal(gs.static, true, `gateSignals.static dropped at ${dyingLayer}`);
-    assert.equal(gs.coverageRatio, 0.42, `gateSignals.coverageRatio dropped at ${dyingLayer}`);
-    assert.deepEqual(gs.reviewerCorrections, [S("reviewerCorrections")], `gateSignals.reviewerCorrections dropped at ${dyingLayer}`);
-    assert.equal(gs.reviewerRationale, S("reviewerRationale"), `gateSignals.reviewerRationale dropped at ${dyingLayer}`);
-    assert.equal(gs.reviewerApproved, true, `gateSignals.reviewerApproved dropped at ${dyingLayer}`);
-    assert.deepEqual(gs.reviewer, { rounds: 2, modelRounds: 1, approved: false, corrections: 1, blocking: 1, durationMs: 4_000, promptBytes: 900, outputTokens: 120, costUsd: 0.01, steps: 1, preCheckRejects: 1, skippedRounds: 2 }, `gateSignals.reviewer dropped at ${dyingLayer}`);
-    assert.equal(gs.flaky, true, `gateSignals.flaky dropped at ${dyingLayer}`);
-    assert.equal(gs.retries, 3, `gateSignals.retries dropped at ${dyingLayer}`);
-    assert.deepEqual(gs.confinement, { strays: 1, dangerous: 0, reverted: [S("reverted")] }, `gateSignals.confinement dropped at ${dyingLayer}`);
-    assert.deepEqual(gs.usage, { totalTokens: 999 }, `gateSignals.usage dropped at ${dyingLayer}`);
-    assert.deepEqual(gs.phaseTimings, { generate: 111 }, `gateSignals.phaseTimings dropped at ${dyingLayer}`);
-    assert.equal(gs.furthestPhase, "execute", `gateSignals.furthestPhase dropped at ${dyingLayer}`);
-    assert.deepEqual(gs.noop, { kind: "unobservable" }, `gateSignals.noop dropped at ${dyingLayer}`);
-    assert.equal(gs.causal?.reach, "in-reach", `gateSignals.causal dropped at ${dyingLayer}`);
-    assert.equal(gs.routeAvailability?.facts[0]?.class, "change-introduced", `gateSignals.routeAvailability dropped at ${dyingLayer}`);
-    assert.deepEqual(gs.stubbedState, { specFiles: 1, tests: 2, violations: [{ file: "a.spec.ts", kind: "har-replay" }] }, `gateSignals.stubbedState dropped at ${dyingLayer}`);
-    assert.equal(gs.dataContradictions?.facts[0]?.key, "k", `gateSignals.dataContradictions dropped at ${dyingLayer}`);
-    assert.equal(gs.coverageByCandidate?.[0]?.ratio, 0.75, `gateSignals.coverageByCandidate dropped at ${dyingLayer}`);
-    assert.equal(gs.preExecAmbiguityCatches, 2, `gateSignals.preExecAmbiguityCatches dropped at ${dyingLayer}`);
-    assert.equal(gs.deterministicSelectorBlocks, 1, `gateSignals.deterministicSelectorBlocks dropped at ${dyingLayer}`);
-    assert.equal(gs.catalogGateInWindow, 5, `gateSignals.catalogGateInWindow dropped at ${dyingLayer}`);
-    assert.equal(gs.catalogGateAdvisory, 4, `gateSignals.catalogGateAdvisory dropped at ${dyingLayer}`);
-    assert.equal(gs.catalogGateFailClosed, 0, `gateSignals.catalogGateFailClosed dropped at ${dyingLayer}`);
-    assert.equal(gs.structuralSignalBytes, 512, `gateSignals.structuralSignalBytes dropped at ${dyingLayer}`);
-    assert.equal(gs.serviceLinksCount, 3, `gateSignals.serviceLinksCount dropped at ${dyingLayer}`);
-    assert.equal(gs.contractDriftCount, 0, `gateSignals.contractDriftCount dropped at ${dyingLayer}`);
-    assert.equal(gs.crossRepoImpactedCount, 2, `gateSignals.crossRepoImpactedCount dropped at ${dyingLayer}`);
-    assert.deepEqual(gs.sandbox, { egress: "enforced", denied: [S("denied host")] }, `gateSignals.sandbox dropped at ${dyingLayer}`);
-    assert.deepEqual(gs.closedLoop, { calls: 4, devWrites: 3, closed: true }, `gateSignals.closedLoop dropped at ${dyingLayer}`);
-    assert.deepEqual(gs.coverage, { stale: true }, `gateSignals.coverage dropped at ${dyingLayer}`);
-    assert.deepEqual(gs.integrity, { acceptances: 2, rejected: 1, proofReused: 1, capHit: true }, `gateSignals.integrity dropped at ${dyingLayer}`);
-
-    assert.equal("note" in out, false, `note IS in the allowlist as CORRECT BY DESIGN — StoredRunOutcome genuinely has no note field, see the allowlist entry's own evidence trail; if this starts failing because StoredRunOutcome gains a note field, update the allowlist entry above instead of patching the assertion`);
-  });
-
-  test("SqliteRunHistoryAdapter.save() forwards the mapped outcome to the injected saveOutcome (the seam a real caller uses)", async () => {
+describe("seam-parity: PERSISTENCE (SqliteRunHistoryAdapter.save forwards the engine outcome)", () => {
+  test("SqliteRunHistoryAdapter.save() forwards the engine outcome to the injected saveOutcome (the seam a real caller uses)", async () => {
     let captured: unknown;
     const deps: RunHistorySqliteAdapterDeps = { saveOutcome: (o) => { captured = o; } };
     const adapter = new SqliteRunHistoryAdapter(deps);
