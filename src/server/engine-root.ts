@@ -54,7 +54,7 @@ import { buildAgentTools, type AgentBrowserWiring, type ClosedLoopWiring, type C
 import { buildTestExecution } from "../../qa-engine/src/contexts/test-execution/composition/build-test-execution";
 import { buildCrossRunLearning } from "../../qa-engine/src/contexts/cross-run-learning/composition/build-cross-run-learning";
 import { type GenerationResult, type GenerateOpts } from "@contexts/generation/application/index";
-import type { OpencodeRunInput, ArchitectureContext, StepLimitFor } from "@contexts/generation/application/index";
+import type { OpencodeRunInput, StepLimitFor } from "@contexts/generation/application/index";
 import type { ContextProvenance } from "@kernel/telemetry/context-provenance";
 import type { AgentRuntimePort } from "@kernel/ports/agent-runtime.port";
 import type { PromptRenderingPort, RepairPort, VerdictParserPort } from "@contexts/generation/application/index";
@@ -199,12 +199,8 @@ export interface EngineRootDeps {
   triggerService?: { repo: string; mirrorDir: string; openapi?: string | string[] };
   /* Every declared service repo for a context-mode run (read-only working copies). Prompt-context only (GenerationTurnsAdapter → OpencodeRunInput.services). Mutually exclusive with triggerService (context mode is never service-triggered). Absent — never an empty array — when the run is not context-mode or the app has no services. */
   services?: Array<{ repo: string; mirrorDir: string; openapi?: string | string[] }>;
-  /* FE↔BE architecture map (context.json). Absent → the pack degrades to blast-radius + DOM only. */
-  contextMap?: ArchitectureContext;
   /* Where the map was effectively read from and how fresh it was. Absent: the map span carries no provenance. */
   contextMapProvenance?: () => ContextProvenance | undefined;
-  /* Union of changed files across the PR's full commit range — further filters contracts to operations the PR actually touched. Absent -> contracts are filtered by contextMap/brief alone. */
-  prChangedFiles?: string[];
 
   /* Pre-generation context pack carries no live-DOM capture when false (an A/B arm; default true). Independent of review/pre-exec DOM grounding. */
   domPack?: boolean;
@@ -396,9 +392,7 @@ function assemble(cfg: EngineRootDeps): RunOrchestrationApi {
     ...(cfg.runDeadline ? { deadline: cfg.runDeadline } : {}),
     review: { runtime: cfg.reviewRuntime as ReviewPortRuntime, ...(cfg.reviewTimeoutMs !== undefined ? { timeoutMs: cfg.reviewTimeoutMs } : {}) },
     grounding: {
-      ...(cfg.contextMap ? { contextMap: cfg.contextMap } : {}),
       ...(cfg.contextMapProvenance ? { contextMapProvenance: cfg.contextMapProvenance } : {}),
-      ...(cfg.prChangedFiles ? { prChangedFiles: cfg.prChangedFiles } : {}),
       ...(cfg.domPack !== undefined ? { domPack: cfg.domPack } : {}),
       ...(cfg.readFileAtRef ? { readAtRef: cfg.readFileAtRef } : {}),
       ...(cfg.contextPack !== undefined ? { contextPack: cfg.contextPack } : {}),

@@ -906,8 +906,7 @@ test("factory threads agentTimeout(mode) into EngineRootDeps.agentTimeoutMs", ()
    ?? {}` (and the adapters resolve an empty `{}` to the REAL buildContextPack/captureDom fns
    internally), so these were already functionally real — these tests pin that the factory now states
    that wiring EXPLICITLY (matching setupCollaborators' own visible-wiring precedent) rather than
-   relying on an implicit fallback three files away, and that contextMap/prChangedFiles stay honestly
-   absent (no static per-run source exists at composition-build time).
+   relying on an implicit fallback three files away.
 
    groundingCollaborators.contextPackDeps and reviewDomGroundingCollaborators/
    preExecGroundingCollaborators.captureDomDeps are ALWAYS overridden (authDir-aware), so DOM
@@ -988,18 +987,6 @@ test("an e2e app with services[], one with an empty services[] and one with none
     const config = buildEngineRootDeps(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
     assertRestOfGroundingWired(app, config);
   }
-});
-
-/* `config.contextMap` stays absent at composition-BUILD time. The per-run read happens in
-   PreGenerationGroundingPortAdapter: ground(specDir, ...) reads `${specDir}/.qa/context.json`
-   fresh on every run (the real per-run mirrorDir, only known post-checkout), NOT via this
-   composition config's static contextMap field. Never fabricate at composition-build time.
- */
-test("buildEngineRootDeps leaves contextMap and prChangedFiles absent (no real per-run source at composition-build time)", () => {
-  const app = cfg("factory-grounding-contextmap-absent");
-  const config = buildEngineRootDeps(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
-  assert.equal(config.contextMap, undefined, "contextMap requires reading context.json off the REAL per-run mirrorDir, unknown at composition time — never fabricated");
-  assert.equal(config.prChangedFiles, undefined, "prChangedFiles requires classifyCommit's per-run diff, unknown at composition time — never fabricated");
 });
 
 test("baseUrl and testIdAttribute reach the grounding phase via EngineRootDeps's own top-level fields (not duplicated inside groundingCollaborators)", () => {

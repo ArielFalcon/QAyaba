@@ -69,8 +69,6 @@ describe("seam-parity: COMPOSITION (EngineRootDeps vs buildEngineRootDeps)", () 
     reviewDomGroundingCollaborators: "IS supplied ({}) — asserted below as a present case.",
     serviceTopology: "supplied ONLY when app.services?.length && app.boundaries?.length are both present (asserted below as a present-when-given case, ADR-6) — legitimately absent for single-repo apps or apps that never declared a cross-service boundary profile. Mirrors the 'observer' precedent immediately below: supplied only when the caller/config provides it.",
     crossRepoImpact: "supplied ONLY under the SAME app.services?.length && app.boundaries?.length gate serviceTopology uses — legitimately absent for single-repo apps and apps with no declared boundary profile, or when the run's grounding.stitcher is false.",
-    contextMap: "DELIBERATELY absent — see this fn's own header: no per-run mirrorDir/diff exists yet at composition-build time to read e2e/.qa/context.json from. Documented graceful degradation, not a drop.",
-    prChangedFiles: "DELIBERATELY absent — same reason as contextMap (per-run intent.changedFiles doesn't exist yet at composition-build time).",
     domPack: "IS supplied (defaulted true: run.grounding.domPack ?? app.qa.domPack ?? true) — asserted below as a present case.",
     versionUrl: "supplied ONLY when app.dev?.versionUrl is present — legitimately absent for a static site (no deploy gate).",
     versionPoll: "supplied ONLY when app.dev?.versionUrl is present (paired with versionUrl above).",
@@ -201,8 +199,6 @@ describe("seam-parity: COMPOSITION (EngineRootDeps vs buildEngineRootDeps)", () 
 
     /* Deliberately-absent-at-this-call optional fields (see OPTIONAL_ALLOWLIST for why). */
     assert.equal(cfg.diff, "", "diff is deliberately static '' at composition time — see OPTIONAL_ALLOWLIST.diff");
-    assert.equal(cfg.contextMap, undefined, "contextMap is deliberately absent at composition time — see OPTIONAL_ALLOWLIST.contextMap");
-    assert.equal(cfg.prChangedFiles, undefined, "prChangedFiles is deliberately absent at composition time — see OPTIONAL_ALLOWLIST.prChangedFiles");
     assert.equal(cfg.domPack, true, "domPack is defaulted true at composition time — see OPTIONAL_ALLOWLIST.domPack");
     assert.equal(cfg.historyFilePath, undefined, "historyFilePath is the opt-OUT alternative to runHistory — absent by default, see OPTIONAL_ALLOWLIST.historyFilePath");
     assert.equal(cfg.observer, undefined, "observer is absent because this call omitted the 5th argument — see OPTIONAL_ALLOWLIST.observer");
