@@ -156,7 +156,7 @@ engine port  →  RunDeadlineRuntime (run-orchestration/infrastructure/run-deadl
 | Run deadline | diff-tiny 25 min, focused 40, broad 60, manual 45, complete 90, exhaustive 150, context 60 | `run-time-budget.ts`, env `QA_RUN_TIME_BUDGET_MS_*`. Armed **after** classification |
 | Repair turn cap | 2 min | `generation/domain/repair-turn.ts` |
 | Host prompt cap | `OPENCODE_TIMEOUT_MS` (900 s in the current env) | `agentPromptCapMs()` in `opencode-client.ts` |
-| Stall watchdog (no SSE activity) | 180 s default; 600 s in the current env | `OPENCODE_STALL_MS`. Not applied to a session opened with `liveObservation:false` (the judge's) |
+| Stall watchdog (no SSE activity) | 180 s default; 600 s in the current env | `OPENCODE_STALL_MS`. |
 | Step cap | generator 50, sidekick 60 | Read **live** from OpenCode `GET /agent` per run (`stepLimits`), not from the repo copy of `agents/opencode.json` |
 
 ### Attributes worth recording per agent turn

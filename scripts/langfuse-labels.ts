@@ -14,7 +14,6 @@
  */
 import { pathToFileURL } from "node:url";
 import { MAX_SCORE_COMMENT_CHARS, specOfScore, type ScoreSpec } from "../qa-engine/src/contexts/evaluation/application/index.ts";
-import { judgeLabelSpec } from "../qa-engine/src/contexts/evaluation/application/index.ts";
 import type { ScoreDataType, ScorePolarity } from "../qa-engine/src/contexts/evaluation/application/index.ts";
 
 export type Parsed = { ok: true; session?: string; since?: string; name?: string; dryRun: boolean } | { ok: false; problem: string };
@@ -47,7 +46,7 @@ const USAGE = [
   "  Idempotent. --dry-run counts and writes nothing. Needs LANGFUSE_BASE_URL, LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY.",
 ].join("\n");
 
-/* What a label must conform to: a catalog score's type, or an LLM judge's (a human label of a judge's score is how the judge is calibrated). */
+/* What a label must conform to: a catalog score's type. */
 type LabelSpec = Pick<ScoreSpec, "dataType" | "polarity" | "range" | "categories">;
 
 export interface LabelRow {
@@ -191,7 +190,7 @@ export async function importLabels(deps: LabelDeps, filter: LabelFilter, opts: {
       result.unmatched += 1;
       continue;
     }
-    const spec: LabelSpec | undefined = score.name.length <= MAX_NAME_CHARS ? (specOfScore(score.name) ?? judgeLabelSpec(score.name)) : undefined;
+    const spec: LabelSpec | undefined = score.name.length <= MAX_NAME_CHARS ? specOfScore(score.name) : undefined;
     const typed = spec ? typedValue(score, spec) : undefined;
     if (!spec || typed === undefined) {
       result.unsupported += 1;

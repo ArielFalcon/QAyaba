@@ -26,7 +26,6 @@ import { createDurableRunEventStore } from "./durable-run-events";
 import { serveDashboard, resolveDashboardDir } from "./static";
 import { MAX_CONTINUATION_DEPTH } from "./persistence/repositories/run.repository";
 import { createEvaluationService } from "./evaluation-service";
-import { composeJudges } from "./judges-composition";
 import { LangfuseScoreSink, scoreSinkHealthOf } from "../telemetry/langfuse-score-sink";
 import { ScoreMetricsSink, composeScoreSinks } from "../telemetry/score-metrics-sink";
 import { hashStaticPrompts, type RunConfigEnvironment } from "./effective-config";
@@ -126,11 +125,6 @@ export function wireApp(settingsStore: SettingsStore): WiredApp {
   const langfuseSink = langfuseConfig
     ? new LangfuseScoreSink({ config: langfuseConfig, traceIdOf: (runId) => getHistory().runs.getRunFacts(runId)?.traceId ?? null, sanitize: (text) => redactionPort.redact(text) })
     : undefined;
-  /*
-   * The LLM judges (docs/observability-design.md section 11.3): off unless QA_JUDGES_ENABLED=true. They run as low-priority work on the same
-   * sequential queue, so never beside a run, and only for a campaign run or a regrade that names a judge. They never gate anything.
-   */
-  const judges = composeJudges({ env: settings.environment, root: ROOT, queue, mirrorsRoot: workdirRoot() });
   /* The score metrics sink makes the grades visible in Grafana; the Langfuse mirror stays optional and human-facing. */
   const scoreMetricsSink = new ScoreMetricsSink({
     telemetry: telemetry.telemetry,
@@ -138,13 +132,11 @@ export function wireApp(settingsStore: SettingsStore): WiredApp {
     verdictOf: (runId) => getHistory().learning.getRunOutcome(runId)?.verdict ?? getHistory().runs.getRecord(runId)?.verdict,
   });
   const evaluation = createEvaluationService({
-    judges: judges.service,
     sink: composeScoreSinks([scoreMetricsSink, ...(langfuseSink ? [langfuseSink] : [])]),
   });
-  /* Hands a finished run to the deterministic graders and, for a campaign run, to the judges' low-priority job. Neither blocks the queue. */
+  /* Hands a finished run to the graders; it never blocks the queue. */
   const afterRun = (runId: string): void => {
     evaluation.scheduleGrading(runId);
-    judges.service.scheduleForRun(runId);
   };
   evaluation.recoverInterrupted();
   /* Score configs are ensured in the background at boot; the sink also retries before its first score. */

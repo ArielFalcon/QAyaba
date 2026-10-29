@@ -11,7 +11,6 @@ import { RUN_PHASES } from "@kernel/run-step";
 import { CampaignRunsSchema, CreateRunResultSchema, EvaluationCatalogSchema, RegradeJobSchema, RunDetailSchema, RunEvaluationSchema } from "../contract/commands";
 import type { RunRecord } from "../types";
 import { catalogView, type EvaluationService } from "./evaluation-service";
-import { judgeCatalog } from "@contexts/evaluation/application/index";
 import type { RunViewExtras } from "./run-view";
 
 function mkReq(method: string, url: string, body?: string): any {
@@ -88,7 +87,7 @@ const evaluation: EvaluationService = {
     return { campaignId, runs: rows, complete: rows.length > 0 && rows.every((r) => r.evaluationStatus === "complete") };
   },
   recoverInterrupted: () => 0,
-  catalog: () => catalogView(judgeCatalog("3", (name) => (name === "spec_relevance" ? "calibrated" : "experimental"))),
+  catalog: () => catalogView(),
 };
 
 function deps(over: Partial<ApiDeps> = {}): ApiDeps {
@@ -187,41 +186,6 @@ test("GET /evaluations/catalog is the grader catalog with the canonical phase or
   const mix = json.scores.find((s: { name: string }) => s.name === "step_intent_mix");
   assert.deepEqual(mix.suffixes, ["auth", "explore", "write_spec", "run_spec", "review", "other"]);
   assert.equal(mix.polarity, "none");
-});
-
-test("GET /evaluations/catalog lists each judge after the graders with its prompt-versioned grader version and its calibration status; a grader has no status", async () => {
-  const { json } = await call("GET", "/api/v1/evaluations/catalog");
-  EvaluationCatalogSchema.parse(json);
-  const byName = (name: string) => json.scores.find((s: { name: string }) => s.name === name);
-  assert.equal(byName("spec_relevance").status, "calibrated");
-  assert.equal(byName("failure_root_cause").status, "experimental");
-  assert.equal(byName("spec_relevance").graderVersion, "judge-spec_relevance@3");
-  assert.equal(byName("failure_root_cause").dataType, "CATEGORICAL");
-  assert.ok(byName("failure_root_cause").categories.includes("selector"));
-  assert.equal("status" in byName("spec_pass_rate"), false, "status is for judges only");
-});
-
-test("GET /runs/:id/evaluation carries a judge's score with its source, its prompt-versioned grader version and the model that answered", async () => {
-  const judgedEvaluation: EvaluationService = {
-    ...evaluation,
-    evaluation: (id) => ({
-      runId: id,
-      traceId: null,
-      status: "complete",
-      scores: [
-        { name: "spec_pass_rate", value: 0.5, dataType: "NUMERIC", polarity: "higher_better", source: "deterministic", graderVersion: "2" },
-        { name: "spec_relevance", value: true, dataType: "BOOLEAN", polarity: "higher_better", source: "llm_judge", graderVersion: "judge-spec_relevance@3", comment: "opens the changed page", judgeModel: "prov/judge-model" },
-      ],
-    }),
-  };
-  const { json } = await call("GET", "/api/v1/runs/run-1/evaluation", undefined, deps({ evaluation: judgedEvaluation }));
-  RunEvaluationSchema.parse(json);
-  const judged = json.scores.find((s: { name: string }) => s.name === "spec_relevance");
-  assert.equal(judged.source, "llm_judge");
-  assert.equal(judged.judgeModel, "prov/judge-model");
-  assert.equal(judged.graderVersion, "judge-spec_relevance@3");
-  const grader = json.scores.find((s: { name: string }) => s.name === "spec_pass_rate");
-  assert.equal("judgeModel" in grader, false);
 });
 
 test("POST /evaluations/regrade accepts exactly one selector and answers 202 with the job id and run count", async () => {

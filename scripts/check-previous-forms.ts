@@ -158,6 +158,14 @@ export const BANNED_RULES: BannedRule[] = [
     patterns: [/\b(?:valueScore|valueByCandidate|valueStats|valueStale|mutantCount|killedCount|CandidateValue|ValueStats|mutation_value|E-VALUE-SURVIVED)\b/],
     exemptPrefixes: [RECORDS_PREFIX, SHIPPED_SEED_REVISIONS_PREFIX, ...RETIRED_FIELD_TESTS],
   },
+  {
+    id: "llm-judges",
+    patterns: [
+      /\b(?:RunJudgesUseCase|CalibrateJudgeUseCase|JudgeService|composeJudges|JudgeAgentPort|JudgeLedgerPort|JudgeRegradePort|JudgeEvidencePort|CalibrationPairsPort|CalibrationStorePort|JudgeRepository|JudgeCatalogEntry|judgeCatalog|judgeLabelSpec|JUDGE_WORKDIR|JUDGE_NAMES|QA_JUDGES_ENABLED|QA_JUDGES_DAILY_TOKENS)\b/,
+      /\b(?:qa-judge|judge-calibrate|judge-service|judge-agent|judge-settings|judges-composition|judge-adapters|judge-calibration|enqueueIdle|abortIdle)\b/,
+    ],
+    exemptPrefixes: [RECORDS_PREFIX],
+  },
   { id: "stored-outcome-copy", patterns: [/\b(?:toStoredRunOutcome|StructuredReflection)\b/], exemptPrefixes: [RECORDS_PREFIX] },
   { id: "shell-dead-run-types", patterns: [/\bAgentResult\b/], exemptPrefixes: [RECORDS_PREFIX] },
   { id: "shell-events-reexport", patterns: [/\bsrc\/contract\/events(?:\.ts)?(?![\w.-])/], exemptPrefixes: [RECORDS_PREFIX] },

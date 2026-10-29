@@ -9,7 +9,6 @@ import { createHistory, type History } from "./index";
 import { DELETE_MAX_AGE_DAYS, pruneHistory } from "./retention";
 import { RunRepository } from "./repositories/run.repository";
 import { ContextRepository } from "./repositories/context.repository";
-import { JudgeRepository } from "./repositories/judge.repository";
 import { EvaluationRepository } from "./repositories/evaluation.repository";
 import { LearningRepository } from "./repositories/learning.repository";
 import { TelemetryRepository } from "./repositories/telemetry.repository";
@@ -51,7 +50,6 @@ const READS: Record<string, readonly string[]> = {
     "continuationDepth", "runVerdictCounts", "loadRunEvents", "runExists", "listFinishedRunIdsSince", "listSpecSnapshots", "getRunPlan",
   ],
   ContextRepository: ["isContextStale", "loadContextMap"],
-  JudgeRepository: ["lastJudgeOutcome", "latestJudgeModel", "judgeTokensUsedOn", "judgeOutcomeCounts", "latestJudgeCalibration", "listJudgeLabelPairs"],
   EvaluationRepository: ["listRunScoreRows", "getRunEvaluationStatus", "getRegradeJob"],
   LearningRepository: [
     "writeOutcome", "rowToOutcome", "listRunOutcomes", "getRunOutcome",
@@ -62,7 +60,6 @@ const READS: Record<string, readonly string[]> = {
 const REPOSITORIES = {
   RunRepository,
   ContextRepository,
-  JudgeRepository,
   EvaluationRepository,
   LearningRepository,
   TelemetryRepository,
@@ -99,9 +96,6 @@ function writingCalls(h: History): Record<string, () => unknown> {
     "ContextRepository.clearContextStale": () => h.contexts.clearContextStale("app"),
     "ContextRepository.recordContextHealRequest": () => h.contexts.recordContextHealRequest("app"),
     "ContextRepository.saveContextMap": () => h.contexts.saveContextMap("app", "abcdef1", { builtAtSha: "abcdef1", routes: [], api: [], feBe: [] }),
-    "JudgeRepository.insertJudgeAttempt": () => h.judges.insertJudgeAttempt({ runId: "r", judge: "j", promptVersion: "v1", model: null, outcome: "scored", tokens: 1, detail: null, at: AT }),
-    "JudgeRepository.insertJudgeCalibration": () =>
-      h.judges.insertJudgeCalibration({ judge: "j", promptVersion: "v1", model: "m", trainN: 1, devN: 1, testN: 1, tpr: null, tnr: null, agreement: null, status: "ok", report: "{}", computedAt: AT }),
     "EvaluationRepository.replaceRunScores": () => h.evaluations.replaceRunScores([score], AT, { runId: "r", graderVersion: "g1" }),
     "EvaluationRepository.setRunEvaluationStatus": () => h.evaluations.setRunEvaluationStatus("r", "complete", AT),
     "EvaluationRepository.saveRegradeJob": () =>

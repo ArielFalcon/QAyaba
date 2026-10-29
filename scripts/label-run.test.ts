@@ -1,4 +1,4 @@
-/* Labelling a run by hand: what it shows a person, and the human label it keeps beside the judge's score. */
+/* Labelling a run by hand: what it shows a person, and the human label it keeps. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -21,7 +21,7 @@ function rig(over: Partial<LabelRunDeps> = {}) {
     getRecord: (id) => (id === "run-1" ? { app: "shop", sha: "abcdef1234567", verdict: "pass", cases: [{ name: "cart › shows the total", status: "pass", file: "flows/cart.spec.ts" }] } : undefined),
     getRunPlan: () => PLAN,
     deliveredSpecs: () => [{ path: "flows/cart.spec.ts", text: "test.describe('cart', () => { test('shows the total', async () => {}); });" }],
-    scores: () => [{ name: "use_case_coverage", source: "llm_judge", value: false, comment: "uncovered: the fee" }, { name: "spec_pass_rate", source: "grader", value: 1, comment: null }],
+    scores: () => [{ name: "approval_consistent", source: "human", value: false, comment: "uncovered: the fee" }, { name: "spec_pass_rate", source: "grader", value: 1, comment: null }],
     references: () => [parseUseCaseReference({ app: "shop", changes: [{ sha: "abcdef12", summary: "the cart adds a fee", useCases: [{ id: "fee", description: "the total adds the fee", reachability: "dev", routes: ["/cart"] }, { id: "down", description: "a failed total shows retry", reachability: "fault-injection", why: "only on a failed request" }] }] }, "shop.json")],
     save: (rows, at) => void saved.push({ rows, at }),
     sanitize: (text) => text.replaceAll("SECRET", "[redacted]"),
@@ -32,7 +32,7 @@ function rig(over: Partial<LabelRunDeps> = {}) {
   return { deps, lines, saved, text: () => lines.join("\n") };
 }
 
-test("show prints the plan, the delivered tests with their result, the reference use cases and the judges' critiques", () => {
+test("show prints the plan, the delivered tests with their result, the reference use cases and the human labels", () => {
   const r = rig();
   assert.equal(main(["--run", "run-1", "--show"], r.deps), 0);
   const text = r.text();
@@ -43,7 +43,7 @@ test("show prints the plan, the delivered tests with their result, the reference
   assert.match(text, /reference: the cart adds a fee/);
   assert.match(text, /fee \[dev\]: the total adds the fee/);
   assert.match(text, /down \[fault-injection\]: a failed total shows retry \(only on a failed request\)/);
-  assert.match(text, /use_case_coverage \(llm_judge\) = false: uncovered: the fee/);
+  assert.match(text, /approval_consistent \(human\) = false: uncovered: the fee/);
   assert.doesNotMatch(text, /spec_pass_rate/, "a deterministic grader's score is not what a person compares against");
   assert.equal(r.saved.length, 0);
 });
@@ -55,10 +55,10 @@ test("show says when the run kept no plan and its commit has no reference", () =
   assert.match(r.text(), /reference: no use cases for shop abcdef1234567/);
 });
 
-test("a label is kept as a human row typed by the judge of its name, with a sanitized comment", () => {
+test("a label is kept as a human row typed by the catalog, with a sanitized comment", () => {
   const r = rig();
-  assert.equal(main(["--run", "run-1", "--name", "use_case_coverage", "--value", "fail", "--comment", "fee uncovered SECRET"], r.deps), 0);
-  assert.deepEqual(r.saved, [{ at: "2026-10-25T12:00:00.000Z", rows: [{ runId: "run-1", name: "use_case_coverage", graderVersion: "human", dataType: "BOOLEAN", polarity: "higher_better", source: "human", value: false, comment: "fee uncovered [redacted]", observationId: null }] }]);
+  assert.equal(main(["--run", "run-1", "--name", "approval_consistent", "--value", "fail", "--comment", "fee uncovered SECRET"], r.deps), 0);
+  assert.deepEqual(r.saved, [{ at: "2026-10-25T12:00:00.000Z", rows: [{ runId: "run-1", name: "approval_consistent", graderVersion: "human", dataType: "BOOLEAN", polarity: "higher_better", source: "human", value: false, comment: "fee uncovered [redacted]", observationId: null }] }]);
   const numeric = rig();
   assert.equal(main(["--run", "run-1", "--name", "plan_candidate_coverage", "--value", "0.5"], numeric.deps), 0);
   assert.equal(numeric.saved[0]!.rows[0]!.value, 0.5);
@@ -66,11 +66,11 @@ test("a label is kept as a human row typed by the judge of its name, with a sani
 
 test("a label the score cannot take, of an unknown score or of an unknown run is refused and nothing is kept", () => {
   for (const [argv, code, pattern] of [
-    [["--run", "run-1", "--name", "use_case_coverage", "--value", "maybe"], 2, /pass or fail/],
+    [["--run", "run-1", "--name", "approval_consistent", "--value", "maybe"], 2, /pass or fail/],
     [["--run", "run-1", "--name", "plan_candidate_coverage", "--value", "2"], 2, /out of range/],
-    [["--run", "run-1", "--name", "failure_root_cause", "--value", "gremlins"], 2, /not one of/],
-    [["--run", "run-1", "--name", "made_up", "--value", "1"], 2, /neither a score/],
-    [["--run", "run-9", "--name", "use_case_coverage", "--value", "pass"], 1, /no run run-9/],
+    [["--run", "run-1", "--name", "furthest_phase", "--value", "gremlins"], 2, /not one of/],
+    [["--run", "run-1", "--name", "made_up", "--value", "1"], 2, /not a score of the catalog/],
+    [["--run", "run-9", "--name", "approval_consistent", "--value", "pass"], 1, /no run run-9/],
   ] as const) {
     const r = rig();
     assert.equal(main(argv, r.deps), code, argv.join(" "));

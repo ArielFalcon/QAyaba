@@ -33,17 +33,6 @@ test("the context repository writes only inside transactions", (t) => {
   assert.deepEqual(writes.filter((w) => !w.inTransaction), []);
 });
 
-test("the judge repository writes only inside transactions", (t) => {
-  const { history, writes } = instrumented(t);
-  history.judges.insertJudgeAttempt({ runId: "r", judge: "j", promptVersion: "v1", model: null, outcome: "scored", tokens: 1, detail: null, at: "2026-10-01T00:00:00.000Z" });
-  history.judges.insertJudgeCalibration({
-    judge: "j", promptVersion: "v1", model: "m", trainN: 1, devN: 1, testN: 1, tpr: null, tnr: null, agreement: null, status: "ok", report: "{}", computedAt: "2026-10-01T00:00:00.000Z",
-  });
-
-  assert.equal(writes.length, 2);
-  assert.deepEqual(writes.filter((w) => !w.inTransaction), []);
-});
-
 test("the evaluation repository writes only inside transactions", (t) => {
   const { history, writes } = instrumented(t);
   const score = { runId: "r", name: "n", graderVersion: "g1", dataType: "NUMERIC", polarity: "higher", source: "code", value: 1, comment: null, observationId: null };

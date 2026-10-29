@@ -4,7 +4,6 @@ import { inspect } from "node:util";
 import { DEFAULT_PORT, resolveListenHost, resolvePort } from "../server/port";
 import { resolveToolsPort } from "../server/tools-endpoint";
 import { resolveCampaignFreeze } from "../server/campaign-freeze";
-import { resolveJudgeSwitch, type JudgeSwitch } from "../server/judge-settings";
 import { resolveEgressMode, type EgressMode } from "../server/egress-wiring";
 import { parseCampaignRetentionDays, parseRetentionDays, resolveTelemetryConfig, type TelemetryConfig } from "../telemetry/config";
 import { resolveBackendHealthConfig, type BackendHealthConfig } from "../telemetry/backend-health";
@@ -108,7 +107,6 @@ export interface Settings {
     readonly spanDays: number;
     readonly campaignDays: number;
   };
-  readonly judges: JudgeSwitch;
   /* Warnings the load produced (a rejected optional integration); the composition root logs them. */
   readonly warnings: readonly string[];
 }
@@ -246,7 +244,6 @@ export function loadSettings(env: EnvironmentMap): Settings {
       langfuse,
     },
     retention: { spanDays, campaignDays },
-    judges: r.run(["QA_JUDGES_ENABLED", "QA_JUDGES_DAILY_TOKENS"], () => resolveJudgeSwitch(env), { enabled: false, dailyTokens: 0 }),
     warnings: r.warnings,
   };
 

@@ -1,7 +1,7 @@
 /*
  * The reference set of use cases: for a change an app deployed, the use cases its code introduces, written by a person who read the
  * diff, each with whether a browser test can reach it on the live site. It is the ground truth a person labels a run against (did the
- * run's specs cover every reachable use case?), and the labels are what calibrates the `use_case_coverage` judge. The set is user data
+ * run's specs cover every reachable use case?). The set is user data
  * (`config/benchmarks/use-cases/<app>.json`); the tracked example documents the format. Pure.
  */
 

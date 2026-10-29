@@ -1,23 +1,13 @@
 /* Public surface of this context: other contexts import only from this file. It declares nothing. */
-export type { CalibrationPairsPort } from "./ports/calibration-pairs.port.ts";
-export type { CalibrationStorePort } from "./ports/calibration-store.port.ts";
 export type { EvidencePort } from "./ports/evidence.port.ts";
-export type { JudgeAgentPort } from "./ports/judge-agent.port.ts";
-export type { JudgeEvidencePort } from "./ports/judge-evidence.port.ts";
-export type { JudgeLedgerPort } from "./ports/judge-ledger.port.ts";
-export type { JudgeRegradePort } from "./ports/judge-regrade.port.ts";
 export type { RegradeJobStorePort } from "./ports/regrade-job-store.port.ts";
 export type { RunSelectorPort } from "./ports/run-selector.port.ts";
 export type { ScoreSinkPort } from "./ports/score-sink.port.ts";
 export type { ScoreStorePort } from "./ports/score-store.port.ts";
 export type { EvaluationStatus, RegradeJob } from "../domain/evidence.ts";
-export type { JudgeAnswer, JudgeAttempt, JudgeOutcome, JudgePairs } from "../domain/judge-evidence.ts";
-export { CalibrateJudgeUseCase } from "./calibrate-judge.use-case.ts";
 export { GradeRunUseCase } from "./grade-run.use-case.ts";
 export { MAX_REGRADE_RUNS, RegradeRequestError, RegradeUseCase } from "./regrade.use-case.ts";
 export type { RegradeRequest } from "./regrade.use-case.ts";
-export { RunJudgesUseCase } from "./run-judges.use-case.ts";
-export type { JudgeBatchResult, JudgeWorkItem } from "./run-judges.use-case.ts";
 export { DatasetError, datasetFileName, parseDataset, parseDatasetFileName } from "../domain/benchmark-dataset.ts";
 export type { BenchmarkDataset } from "../domain/benchmark-dataset.ts";
 export { ComparisonError, DEFAULT_BOOTSTRAP_ITERATIONS, DEFAULT_SEED, compareCampaign, renderComparisonMarkdown } from "../domain/campaign-comparison.ts";
@@ -27,10 +17,6 @@ export type { CampaignRunRow, CampaignRunView } from "../domain/campaign-runs.ts
 export { COVERAGE_CLASSES, GRADER_CATALOG, GRADER_VERSION, MAX_SCORE_COMMENT_CHARS, specOfScore } from "../domain/grader-catalog.ts";
 export type { ScoreSpec } from "../domain/grader-catalog.ts";
 export { gradeEvidence } from "../domain/graders.ts";
-export { DEFAULT_CALIBRATION, calibrate, splitOfRun } from "../domain/judge-calibration.ts";
-export type { CalibrationReport } from "../domain/judge-calibration.ts";
-export { JUDGE_NAMES, isJudgeName, judgeCatalog, judgeDefinition, judgeGraderVersion, judgeLabelSpec, judgeScore, parseJudgeGraderVersion, parseJudgePromptVersion } from "../domain/judges.ts";
-export type { JudgeCatalogEntry, JudgeEvidence, JudgeName, JudgeStatus } from "../domain/judges.ts";
 export type { ContextEvidence, ContextFreshness, DeliveredContextSource, DeliveredOmission, DeliveredSpecEvidence, PlanEvidence, ReferenceEvidence, RunEvaluationEvidence, RunSpecCallEvidence, SidekickReportEvidence } from "../domain/run-evaluation-evidence.ts";
 export type { Score, ScoreDataType, ScorePolarity, ScoreSource } from "../domain/score.ts";
 export { parseUseCaseReference, referenceFor } from "../domain/use-case-reference.ts";

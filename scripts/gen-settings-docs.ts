@@ -24,7 +24,6 @@ const GROUP_TITLES: Record<(typeof SETTING_GROUPS)[number], string> = {
   run: "Runs",
   telemetry: "Telemetry",
   retention: "Retention",
-  judges: "Judges",
 };
 
 function cell(text: string): string {

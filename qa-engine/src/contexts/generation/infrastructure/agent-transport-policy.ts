@@ -111,8 +111,6 @@ export interface AgentOpenDescriptor {
   runId?: string;
   role?: string;
   objective?: string;
-  /** `false` keeps the session out of SSE/stall-watchdog registration while its turns still persist under `runId` (mirrors the kernel port's AgentOpenDescriptor). */
-  liveObservation?: boolean;
   /** The flow of a plan the session is opened for, and the tools its run denied it (mirrors the kernel port's AgentOpenDescriptor). */
   delegationId?: string;
   denyTools?: readonly string[];
@@ -722,10 +720,8 @@ export function withStallWatchdog(
     open: async (agent, cwd, openOpts) => {
       const inner = await baseDeps.open(agent, cwd, openOpts);
 
-      /* A liveness watchdog is armed only for a session whose activity it can observe: a self-timed one
-         keeps its own clock, and one opened without live observation is never fed by the event stream, so
-         an armed timer would trip on silence nobody can see. It stays bounded by its own turn timeout. */
-      if (inner.selfTimed || openOpts?.descriptor?.liveObservation === false) return inner;
+      /* A self-timed session keeps its own clock; a liveness watchdog is armed only for a session whose activity it can observe. */
+      if (inner.selfTimed) return inner;
 
       let rejectInFlight: ((err: unknown) => void) | undefined;
 
@@ -809,10 +805,7 @@ export function withSessionRegistration(
     ...baseDeps,
     open: async (agent, cwd, opts) => {
       const inner = await baseDeps.open(agent, cwd, opts);
-      /* A run context registers the session for live observation (SSE + stall watchdog) unless the
-         descriptor opts out: such a session's turns persist under its runId, but registering it would
-         start feeding the stall watchdog and change its liveness window. */
-      const runId = opts?.descriptor?.liveObservation === false ? undefined : opts?.descriptor?.runId;
+      const runId = opts?.descriptor?.runId;
       if (runId) register(inner.id, runId, cwd);
       const boundRunId = opts?.descriptor?.runId;
       if (boundRunId) {

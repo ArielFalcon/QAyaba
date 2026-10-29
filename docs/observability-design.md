@@ -62,7 +62,7 @@ Reuse this before adding anything.
 | `run_events` table | `RunRepository.saveRunEvent` | Ingest-time `ts` per event; probe-report derives phases from it | Unstructured for tracing |
 | `gateSignals.phaseTimings` | `run-outcome.ts:35` | A slot for phase durations | **Declared and persisted, never written** |
 | `AgentTurnEvent` | `agent-transport-policy.ts:24-50` | Session id, role, round, repair, tokens (incl. reasoning and cache), cost, `sectionSizes`, call metrics, `ended`, duration | No requested or answered model, no provider, attempt, fallback flag or error class. `sectionSizes` is dropped before persistence |
-| `CallEfficiencyTracker` | `generation/infrastructure/sse/call-efficiency-tracker.ts` | Per-step tokens, tool calls, buckets, time to first call and first write | Ignores `part.state.time`. Per-step tokens are summed and discarded. A session registered with `liveObservation:false` (the judge's) is excluded |
+| `CallEfficiencyTracker` | `generation/infrastructure/sse/call-efficiency-tracker.ts` | Per-step tokens, tool calls, buckets, time to first call and first write | Ignores `part.state.time`. Per-step tokens are summed and discarded. |
 | `agent_turns` table | `TelemetryRepository.saveAgentTurn` | Redacted prompt and output text, turn metrics | 30-day retention. No model or attempt columns |
 | Section abstraction | `prompt-sections.ts:16-80` | `AssembledPrompt.sectionSizes` per section id | No section or prompt hash |
 | `SandboxReport` / exec scope (ALS) | `process-sandbox/exec-scope.ts` | Denied hosts per run, `openDeniedWindow` per login attempt, refusal reason | Denials keep the host but drop the port. Not per child |
@@ -888,7 +888,7 @@ qa-engine/src/contexts/evaluation/
 
 - A grader is `(RunEvidence) → Score[]`. A `Score` has:
   - `name`, `value`, `dataType` (`NUMERIC|BOOLEAN|CATEGORICAL`)
-  - `source` (`deterministic|llm_judge|human`)
+  - `source` (`deterministic|human`; `llm_judge` stays in the wire contract, produced by nothing)
   - `graderVersion`, `comment?`, `observationId?` (the span id)
 - **When it runs.** After a run's root ends, **off the queue path**: a background job that never
   delays the next run. It can also be triggered by `regrade`.
@@ -958,75 +958,16 @@ qa-engine/src/contexts/evaluation/
 | `sidekick_report_consistent` | BOOLEAN | No sidekick turn reported `failed`/`blocked` while its flow's last `run_spec` call had passed, or `completed` while it had not; comment lists the contradictions | Read from the delegation events' `qayaba.delegation.status` and `qayaba.delegation.last_run_spec`; `needs-lead`, `completed-with-concerns` and a turn with no call yet are not graded. Runs recorded before the events carried the status are silent |
 | `cost_per_useful_spec` | NUMERIC USD | cost / useful specs. **Useful** = valid ∧ passed on the run ∧ passed on the campaign's no-retry re-run ∧ (killed ≥ 1 mutant when the oracle ran) | Absent outside campaigns that do the re-run |
 
-### 11.3 LLM-as-judge and human labels (last)
+### 11.3 Human labels
 
-These follow Hamel Husain's evals practice.
-- **Error analysis first.** Open-code 30 or more real traces before writing any judge.
-- **Binary pass/fail plus a critique.** `failure_root_cause` is the one exception: eight binary judges would multiply the model calls
-  by eight for a question with one answer, so it is **categorical over a pinned, closed set** (`selector`, `auth`, `data_state`,
-  `timeout`, `assertion`, `infra`, `egress`, `app_defect`). An answer outside the set is unparseable, never a guess, and the set is
-  calibrated one-vs-rest. Changing the set changes the judge's meaning: bump the prompt version.
-- **The judge runs on a different model** than the generator. The model is the `qa-judge` role's assignment in `agents/opencode.json`;
-  nothing in code names one. A calibration made with a lowered bar (a `--min-n` below 20, rates below 0.8) is a diagnostic: the catalog never says `calibrated` for it. Evidence inside the prompt cannot forge the data fences (`<<<`/`>>>` are neutralized). A judge whose configured model equals `qa-author`'s is refused (logged). The model that answered is
-  recorded on every score (`judgeModel`) and the prompt version in its grader version.
-- **Judges share the provider quota** (F7). So they run **on the sequential queue**, as a low-priority job
-  (`JobQueue.enqueueIdle`): started only when no run is pending, one at a time, handed a `shouldYield` that turns true as soon as a run
-  is waiting (it stops at the next item and queues the rest again behind the run). A run that arrives while a judge call is in flight, and a queue drain, also ABORT that call: the item is handed back, not recorded as an error, and judged later. A batch cut by the day's budget, or by a failed live agent-list check (15 s limit), drops what is left; a regrade naming the judge recovers it. They draw on a per-day token budget
-  (`QA_JUDGES_DAILY_TOKENS`, default 200000; the day is UTC; a call is checked against its estimated size before it is sent; a batch
-  that hits the budget drops what is left and logs it). **Off by default**: `QA_JUDGES_ENABLED=true` turns them on. A mistyped value
-  stops the boot.
-- **What they read: stored evidence only.** `HistoryJudgeEvidence` assembles it: the commit diff as the generator's stored prompt held
-  it (the `## Commit diff` section, already capped and sanitized for prompts), the redacted spec snapshots the run delivered, the failure
-  message of each failed case, the furthest phase and the error class. Everything goes through the outbound prompt redaction again and
-  is cut at byte caps (`JUDGE_INPUT_CAPS`: diff 12 KB, 8 KB per spec and 24 KB for all, 1.5 KB per failure and 8 failures, 48 KB in all);
-  a cut is named, a text the redaction refuses is never sent, and a run with nothing to judge (no diff, no spec, no failure) is recorded
-  as not applicable and costs nothing. No mirror is read, nothing is fetched from DEV or the repository.
-- **Strict output.** The reply is exactly `{"verdict", "critique"}`: no prose around it, no extra key, a non-empty critique, a verdict from
-  the judge's closed set. Anything else produces **no score**, is recorded as `unparseable` in `judge_attempts` and is not asked again at
-  that prompt version unless a regrade names the judge. Nothing is guessed.
-- **The prompt is pinned and versioned**: `agents/agent/qa-judge.md`, whose first line is `<!-- judge-prompt-version: N -->`. A score is
-  stored under `graderVersion = judge-<name>@<N>` (so a regrade of the deterministic graders never deletes it) with `source=llm_judge`.
-- **When they run.** A finished **campaign** run is judged automatically (every judge); any other run only when a regrade names a judge
-  (`POST /evaluations/regrade {graders: ["spec_relevance"]}`, which forces a re-ask). A request naming a judge while judges cannot run
-  is a 400 with the reason. They never run for a pass in `failure_root_cause`, and never for a cancelled run.
-- **The judge is a new tool-less role, `qa-judge`**, in `agents/opencode.json`. Its `tools` deny everything (the same map as
-  `qa-assistant`, pinned by a test), so it carries no `read` block (per the credentials invariant); each prompt is also sent with
-  `withoutTools`. It is deliberately **not** in the role table (`src/agent-runtime/types.ts`): that table routes a run's roles by their
-  assignment, and a judge is routed by nobody. `createJudgeAgent` opens it by name in an empty directory
-  (`<mirrors>/.qa-judge`). It is OpenCode-only. See §19 for the owner's live step that adds it.
-- **Fail-open and inert.** A judge never changes a verdict, a decision or a run's evaluation status. It refuses to run, with a log line,
-  when the live server's agent list does not hold `qa-judge`.
-- **Calibration.** Human labels (`source=human`, `graderVersion: human`) are paired with the judge's newest scores (newest prompt version
-  and model) per (run, name). The pairs are split by a hash of the run id: 40% train, 30% dev, 30% test. Train and dev are what a prompt
-  author reads and tunes against; **only the test split decides**.
-  - Binary: the positive class is `pass`. TPR = P(judge pass | human pass), TNR = P(judge fail | human fail), agreement = accuracy.
-  - Categorical: one-vs-rest per class, over the classes the humans used on the test split; TPR and TNR are the macro averages. At least
-    two classes must be used, and every class used needs the minimum number of labels.
-  - `calibrated` needs TPR >= 0.8, TNR >= 0.8 (inclusive, configurable in the report's thresholds) and at least `--min-n` (default 20) test
-    labels in each class. Anything else is `experimental`, with the reasons listed. With no labels the rates are `null`, never 0.
-  - `npm run judge-calibrate -- --judge <name> [--min-n 20]` prints the report and saves it to `judge_calibrations` (judge, prompt
-    version, model, train/dev/test counts, TPR, TNR, agreement, status, the full report as JSON, computed_at).
-  - A calibration holds for the prompt version it was computed for **and the model that is answering now**: the catalog says `calibrated`
-    only when the newest report of the prompt in force is calibrated and its model is the model of the newest scored attempt.
-- **Uncalibrated judges are `experimental` and gate nothing; neither do calibrated ones.** `calibrated` is information for a reader. The
-  campaign report compares an LLM judge's score only when the catalog says `calibrated`.
-- **Human labels** use Langfuse annotation queues (OSS). `npm run langfuse:labels` imports them as `source=human` in `run_scores`
-  (a label of a judge's name is typed by that judge's definition), so calibration does not depend on Langfuse
-  being up.
+The LLM judges and their calibration were removed (RFC-0001 OD-1): none ever produced a score, and the deterministic graders cover the same targets.
+- **Human labels** use Langfuse annotation queues (OSS). `npm run langfuse:labels` imports them as `source=human` in `run_scores`, typed by the grader catalog.
 - **Labelling without Langfuse.** `npm run label -- --run <id> --show` prints what a person needs to judge a run: the flows of the plan
-  it kept, the tests it delivered with their result, the judges' critiques, and the use cases the **reference set** holds for its commit.
+  it kept, the tests it delivered with their result, the human labels it already has, and the use cases the **reference set** holds for its commit.
   `npm run label -- --run <id> --name <score> --value <v>` keeps the label as the same `source=human` row the Langfuse import writes.
   The reference set (`config/benchmarks/use-cases/<app>.json`, user data; the tracked `use-cases.example.json` shows the format) lists,
   per change a person read, its use cases and each one's reachability: `dev` (a browser test reaches it with real data),
-  `fault-injection` (only when a request fails), `not-observable` (the deployed site does not show it) or `not-e2e`. A run is labelled
-  `use_case_coverage=pass` when its specs cover every `dev` use case of its change.
-- Judges: `spec_relevance`, `failure_root_cause` and `use_case_coverage`.
-- **`use_case_coverage`** (binary) asks whether the delivered specs cover every use case the diff introduces that a browser can reach
-  on the live site without network mocks or injected faults. It reads the diff, the flows of the plan the run kept (`run_plans`:
-  objective and acceptance, capped at `planBytes`) and the delivered specs, and it judges a run that delivered no spec too (a change
-  whose reachable use cases nothing covers fails). Its critique lists each use case as `covered`, `uncovered` or `unreachable`. A use
-  case reachable only by forcing a failure is `unreachable` here, because the generators may not mock the network.
-- **Not mirrored to Langfuse in this slice.** The score sink emits deterministic scores only; judge scores live in `run_scores` and the API.
+  `fault-injection` (only when a request fails), `not-observable` (the deployed site does not show it) or `not-e2e`.
 
 ---
 
@@ -1119,19 +1060,7 @@ ingest times.
 - A regrade deletes the run's rows it supersedes in the same transaction (all rows of the current `graderVersion`, or only the named base names with their suffixes), so a name no grader emits any more disappears. A failed regrade never turns a `complete` evaluation into `failed`; the failure is listed on the job.
 - Regrade bounds: `since` must be ISO-8601; at most 500 runs per job (and 500 `runIds`); progress is written every 10 runs; a grader that is declared but not graded yet is refused with 400 naming it; an unknown run id is listed in the job's `failed` as `unknown run`; job errors are redacted and capped at 500 chars, and score comments are capped at 500 chars.
 
-**Additive fields of the LLM judges (S6).** Both are optional and appear only on judge entries and judge scores, so a consumer written against
-the contract above is unaffected:
-- `scores[].judgeModel` of `GET /runs/:id/evaluation`: the model that answered a `source=llm_judge` score. The prompt version is in its
-  `graderVersion` (`judge-<name>@<promptVersion>`). Absent on every other score.
-- `scores[].status` of `GET /evaluations/catalog`: `experimental | calibrated`, on the judge entries only (`spec_relevance` and `use_case_coverage`
-  BOOLEAN, `failure_root_cause` CATEGORICAL with its closed set in `categories`), which follow the graders in the list and carry the grader version
-  of the prompt in force. `experimental` is every judge's default and the only value until a calibration passes (§11.3). **No gate reads
-  it**, and an `llm_judge` score never decides a run, a PR or an Issue.
-- The judge entries are listed whenever the pinned judge prompt declares a version, whether or not judges are enabled. A consumer that
-  compares scores should compare an `llm_judge` score only when its catalog `status` is `calibrated` (the campaign report does).
-- `POST /evaluations/regrade` accepts the judge names in `graders`. They are handed to the judges' low-priority job (a forced re-ask),
-  not run inline; a request naming a judge while judges are off or refused is a 400 naming the reason. A request that names no grader
-  never runs a judge.
+**LLM judge fields (removed judges).** `source=llm_judge`, `scores[].judgeModel` of `GET /runs/:id/evaluation` and `scores[].status` of `GET /evaluations/catalog` stay in the wire contract as optional values that nothing produces since the judges were removed (RFC-0001 OD-1). `POST /evaluations/regrade` treats a judge name as an unknown grader (400).
 
 **Name deviation.** The counts are `specCounts`, not `specs`: `specs` already exists on `RunRecord` as the list of delivered specs (`SpecRecord[]`, read by the TUI), and a field cannot be both. Everything else in row 2 is additive.
 
@@ -1256,7 +1185,7 @@ their own commits.
 | **S4b Langfuse** | `langfuse` profile, score sink, score configs, usage/cost mapping | Eval UI |
 | **S2b OpenCode native spans** (not shipped) | Option A rejected: one process-wide trace with no root, and content-bearing `ai.*` spans. OpenCode's logs ship instead (R6) | F7/F8 detail comes from the orchestrator's own attempt and tool spans |
 | **S5 Campaigns** | Trigger metadata (API #1), datasets, replicate comparison report | B7 |
-| **S6 Judges** | Annotation queues, human-label import, LLM judges, calibration (§11.3). Delivered gated off: the live step of §19 enables it | Trusted LLM scores |
+| **S6 Judges** | Annotation queues and human-label import (§11.3). The LLM judges and their calibration were removed | Human labels |
 
 **S2a status (OpenCode agent turns).** Delivered: the `invoke_agent` / `qayaba.agent.attempt` / synthesized `chat` and
 `execute_tool` tree at the `AgentDeps` facade (`generation/infrastructure/telemetry/`), the `onAttempt` hook, per-layer limit
@@ -1328,7 +1257,7 @@ findings, 16 warnings and 11 suggestions. The load-bearing claims were re-verifi
 | W11 MCP tools are not in `/experimental/tool` | S0.4 must check MCP tools. Where they are missing, `tools_offered.source=estimated` covers registry tools only, and the gap is stated | §5.6 |
 | W12 token semantics, Langfuse double cost | Per-runtime normalization to semconv (inclusive) in the mapping module; Langfuse gets exclusive `usage_details`; `invoke_agent` and root set `langfuse.observation.type` (agent/span) and keep sums under `qayaba.usage.*` | §5.1, §10 |
 | W13 histogram buckets, Q12 without a collector | Explicit Views; Q12 from the ledger | §8.1 |
-| W14 judges and the quota | On the queue, budgeted, tool-less `qa-judge` role | §11.3 |
+| W14 judges and the quota | Removed with the judges (RFC-0001 OD-1) | §11.3 |
 | W15 governance list | Completed | §9.2 |
 | W16 dropped requirements | `chat` spans carry `qayaba.agent.step`, `qayaba.step.intent` and `qayaba.agent.step_budget.remaining`. `execute_tool` spans that write or run a spec carry `qayaba.context.item_ids.referenced`. Spec spans carry `qayaba.selector.strategy` (`testid\|role\|text\|css`, parsed from the locator). The root records the effective stitcher, structural-signal and curriculum flags. Turns record `qayaba.prompt.budget_bytes` vs `.bytes`. `approved_against_signals` grader added. Tests add required-attributes and a real `run_spec` hop smoke. `specs.valid` = specs delivered **by this run** that passed validation | §4–§6, §11, §15 |
 | S1 BSP env vars ignored without NodeSDK | Manual mapping | §3.3 |
@@ -1362,20 +1291,6 @@ both.
   what the model received.
 - Sandbox children are traced from the orchestrator's side only.
 - Suspend detection on Docker Desktop is unproven until S0.1.
-- LLM judges stay `experimental` until calibrated.
-- **Required live step before the judges can run (owner).** The judges ship **off and refusing**: the `qa-judge` role is not in
-  `agents/opencode.json`, because adding it changes the role roster, which `agent-tool-surface.test.ts` checks against the configuration itself. In this order:
-  1. Add the block of `agents/pending/qa-judge.opencode-block.json` under `agent` in `agents/opencode.json` (its model is a config
-     assignment: change it if you prefer, but it must differ from `qa-author`'s and `qa-lead`'s, or the judges refuse). The prompt it points at,
-     `agents/agent/qa-judge.md`, is already in place and versioned.
-  2. Run `npx tsx --test src/integrations/agent-tool-surface.test.ts` (the new role must resolve with no `ask` standing and no readable secret).
-  3. Rebuild and restart the `agents` container so the live server lists `qa-judge` (the judge job checks the live agent list and refuses,
-     with a log line, when it is missing).
-  4. Set `QA_JUDGES_ENABLED=true` (and `QA_JUDGES_DAILY_TOKENS` if the default 200000 a day is not what you want) and restart the orchestrator.
-  5. After human labels exist (`npm run langfuse:labels`), run `npm run judge-calibrate -- --judge spec_relevance` and the same for
-     `failure_root_cause`; the catalog shows the new status. Error analysis on 30 or more real traces comes before trusting the prompt.
-  Adding the role is a governance-sensitive change (agent roster, a new model call path): it is its own commit.
-- The pending block declares **no fallback model**, so a failing judge call is an `error` attempt (retried on the next automatic run). If a fallback is ever configured for the role, the score records the model that answered, and a calibration (keyed to that model) does not carry over to it.
 - **Langfuse assumptions to prove in spike S0.5** (S4b is built on them, none is checked on a real instance):
   - Langfuse prefers the explicit `langfuse.observation.usage_details` (exclusive buckets) over the inclusive `gen_ai.usage.*` on
     the same `chat` span. If it does not, cost is double-counted and the OTel keys must be dropped from the Langfuse path.

@@ -270,9 +270,6 @@ test("no dead top-level compaction/tool_output keys remain in opencode.json", ()
   assert.equal("tool_output" in raw, false, "top-level 'tool_output' is not part of AgentConfig/opencode.json's real schema and was inert");
 });
 
-/* Prompts kept for a role the roster does not declare yet: the judge waits for a second model (agents/pending/qa-judge.opencode-block.json). */
-const STAGED_PROMPTS: ReadonlySet<string> = new Set(["qa-judge"]);
-
 test("no roster entry names a prompt file that does not exist and no prompt file lacks a roster entry", () => {
   const { agents } = loadAgentConfig();
   const promptDir = join(process.cwd(), "agents", "agent");
@@ -287,7 +284,7 @@ test("no roster entry names a prompt file that does not exist and no prompt file
     named.add(file);
   }
   const onDisk = readdirSync(promptDir).filter((f) => f.endsWith(".md")).map((f) => f.slice(0, -3));
-  for (const file of onDisk) assert.ok(named.has(file) || STAGED_PROMPTS.has(file), `agents/agent/${file}.md belongs to no roster entry`);
+  for (const file of onDisk) assert.ok(named.has(file), `agents/agent/${file}.md belongs to no roster entry`);
 });
 
 test("every agent in opencode.json declares one numeric step cap", () => {

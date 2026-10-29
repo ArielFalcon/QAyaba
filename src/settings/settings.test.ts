@@ -3,7 +3,6 @@ import assert from "node:assert/strict";
 import { inspect } from "node:util";
 import { DEFAULT_PORT, DEFAULT_LISTEN_HOST } from "../server/port";
 import { DEFAULT_TOOLS_PORT } from "../server/tools-endpoint";
-import { DEFAULT_JUDGE_DAILY_TOKENS } from "../server/judge-settings";
 import { DEFAULT_CAMPAIGN_RETENTION_DAYS, DEFAULT_SERVICE_NAME, DEFAULT_SPAN_RETENTION_DAYS } from "../telemetry/config";
 import { resolveRunTimeBudgets } from "@contexts/run-orchestration/application/index";
 import { renderSettingsDocs } from "../../scripts/gen-settings-docs";
@@ -32,8 +31,6 @@ test("a minimal environment yields the defaults each parser yields on its own", 
   assert.equal(settings.telemetry.config.serviceName, DEFAULT_SERVICE_NAME);
   assert.equal(settings.retention.spanDays, DEFAULT_SPAN_RETENTION_DAYS);
   assert.equal(settings.retention.campaignDays, DEFAULT_CAMPAIGN_RETENTION_DAYS);
-  assert.equal(settings.judges.enabled, false);
-  assert.equal(settings.judges.dailyTokens, DEFAULT_JUDGE_DAILY_TOKENS);
   assert.equal(settings.telemetry.langfuse, undefined);
 });
 
@@ -51,14 +48,12 @@ test("set values reach their typed fields", () => {
     MIRROR_DIR: "/data/mirrors",
     OPENCODE_TIMEOUT_MS: "120000",
     WEBHOOK_ALLOW_UNSIGNED: "true",
-    QA_JUDGES_ENABLED: "true",
     QA_TELEMETRY_RETENTION_DAYS: "7",
   });
   assert.equal(settings.server.port, 8458);
   assert.equal(settings.git.mirrorDir, "/data/mirrors");
   assert.equal(settings.agent.timeoutMs, 120_000);
   assert.equal(settings.webhook.allowUnsigned, true);
-  assert.equal(settings.judges.enabled, true);
   assert.equal(settings.retention.spanDays, 7);
 });
 

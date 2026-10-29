@@ -138,10 +138,3 @@ The orchestrator reads its environment once, in `loadSettings(env)`. An empty va
 | --- | --- | --- | --- | --- | --- |
 | `QA_TELEMETRY_RETENTION_DAYS` | `retention.spanDays` | integer | `30` | - | Days run spans, plans and snapshots are kept (1-3650). |
 | `QA_TELEMETRY_CAMPAIGN_RETENTION_DAYS` | `retention.campaignDays` | integer | `180` | - | Days the turns and spans of a campaign-tagged run are kept (1-3650). |
-
-## Judges
-
-| Variable | Field | Type | Default | Flags | Description |
-| --- | --- | --- | --- | --- | --- |
-| `QA_JUDGES_ENABLED` | - | boolean | `false` | - | Turns the LLM judges on (true) or off (false or empty). Any other value stops the boot. |
-| `QA_JUDGES_DAILY_TOKENS` | - | integer | `200000` | - | Tokens the judges may spend per day (a positive whole number). |

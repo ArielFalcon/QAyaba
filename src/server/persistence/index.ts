@@ -3,7 +3,6 @@ import { qayabaDataDir } from "../../paths";
 import { openHistoryDatabase, type HistoryDatabase } from "./database";
 import { ContextRepository } from "./repositories/context.repository";
 import { EvaluationRepository } from "./repositories/evaluation.repository";
-import { JudgeRepository } from "./repositories/judge.repository";
 import { LearningRepository } from "./repositories/learning.repository";
 import { RunRepository } from "./repositories/run.repository";
 import { TelemetryRepository } from "./repositories/telemetry.repository";
@@ -16,7 +15,6 @@ let history: History | undefined;
 export interface History {
   readonly runs: RunRepository;
   readonly contexts: ContextRepository;
-  readonly judges: JudgeRepository;
   readonly evaluations: EvaluationRepository;
   readonly learning: LearningRepository;
   readonly telemetry: TelemetryRepository;
@@ -40,7 +38,6 @@ export function createHistory(db: HistoryDatabase): History {
         contexts.deleteApp(app);
         return removed;
       }),
-    judges: new JudgeRepository(db),
     evaluations: new EvaluationRepository(db),
     telemetry: new TelemetryRepository(db),
   };

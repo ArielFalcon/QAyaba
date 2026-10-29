@@ -6,16 +6,13 @@
  *
  * `--show` prints the run's commit and verdict, the flows of the plan it kept (objective, acceptance, the change pages each visits,
  * how it ended), the specs it delivered with their test titles, the use cases the reference set holds for its commit
- * (`config/benchmarks/use-cases/*.json`, docs/observability-design.md §11.3) and the judges' scores with their critiques. The label is
- * a `source=human` row of the run in `run_scores` (grader version `human`), typed by the catalog or by the judge of that name, the
- * same row `npm run langfuse:labels` writes: the latest label of a score on a run wins, and `npm run judge-calibrate` pairs it with
- * the judge's score of the same run.
+ * (`config/benchmarks/use-cases/*.json`, docs/observability-design.md §11.3) and the human labels the run already has. The label is
+ * a `source=human` row of the run in `run_scores` (grader version `human`), typed by the catalog: the latest label of a score on a run wins.
  *
  * It reads and writes the orchestrator's run history, so run it inside the orchestrator container, as the other operator scripts.
  */
 import { pathToFileURL } from "node:url";
 import { MAX_SCORE_COMMENT_CHARS, specOfScore } from "../qa-engine/src/contexts/evaluation/application/index.ts";
-import { judgeLabelSpec } from "../qa-engine/src/contexts/evaluation/application/index.ts";
 import { referenceFor, type UseCaseReference } from "../qa-engine/src/contexts/evaluation/application/index.ts";
 import { USE_CASES_DIR, loadReferences } from "../src/server/use-case-reference-loader.ts";
 import type { LabelRow } from "./langfuse-labels.ts";
@@ -30,7 +27,7 @@ export type Parsed =
 const USAGE = [
   "usage: npm run label -- --run <id> --show",
   "       npm run label -- --run <id> --name <score> --value <value> [--comment <text>]",
-  "  A BOOLEAN score (a binary judge's) takes pass or fail; a CATEGORICAL one a member of its set; a NUMERIC one a number in its range.",
+  "  A BOOLEAN score takes pass or fail; a CATEGORICAL one a member of its set; a NUMERIC one a number in its range.",
 ].join("\n");
 
 export function parseArguments(argv: readonly string[]): Parsed {
@@ -124,7 +121,7 @@ function show(runId: string, deps: LabelRunDeps): number {
     if (reference.useCases.length === 0) out("  no use cases: nothing to cover");
     for (const u of reference.useCases) out(`  ${u.id} [${u.reachability}]: ${u.description}${u.why ? ` (${u.why})` : ""}`);
   }
-  const judged = deps.scores(runId).filter((s) => s.source === "llm_judge" || s.source === "human");
+  const judged = deps.scores(runId).filter((s) => s.source === "human");
   if (judged.length > 0) {
     out("\njudged:");
     for (const s of judged) out(`  ${s.name} (${s.source}) = ${String(s.value)}${s.comment ? `: ${s.comment}` : ""}`);
@@ -145,9 +142,9 @@ export function main(argv: readonly string[], deps: LabelRunDeps): number {
     deps.out(`error: no run ${parsed.runId}`);
     return 1;
   }
-  const spec = specOfScore(parsed.name) ?? judgeLabelSpec(parsed.name);
+  const spec = specOfScore(parsed.name);
   if (!spec) {
-    deps.out(`error: ${parsed.name} is neither a score of the catalog nor a judge`);
+    deps.out(`error: ${parsed.name} is not a score of the catalog`);
     return 2;
   }
   const typed = typedValue(spec, parsed.value);

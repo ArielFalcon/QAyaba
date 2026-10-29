@@ -43,7 +43,7 @@ export function diffSectionMode(filePath: string): RedactionMode {
 
 const DIFF_HEADER_RE = /^diff --git /;
 
-/* The heading of the diff section of a prompt. The judges read the diff back out of a stored prompt by it (src/server/judge-evidence.ts), so the heading is one constant. */
+/* The heading of the diff section of a prompt. */
 export const COMMIT_DIFF_HEADING = "## Commit diff";
 
 /* The commit diff as a prompt section: its heading and the redacted diff in one fence, whole. A prompt over its role's window gives hunks of it up as references (diffWindowDegrade); no character count cuts it. */

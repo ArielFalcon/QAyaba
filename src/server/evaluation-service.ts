@@ -10,8 +10,6 @@ import { RegradeUseCase, MAX_REGRADE_RUNS, type RegradeRequest } from "@contexts
 import type { EvaluationStatus, RegradeJob, RegradeJobStorePort, RunSelectorPort, ScoreSinkPort, ScoreStorePort, EvidencePort } from "@contexts/evaluation/application/index.ts";
 import { campaignRunsView, type CampaignRunRow, type CampaignRunView } from "@contexts/evaluation/application/index";
 import { GRADER_CATALOG } from "@contexts/evaluation/application/index";
-import type { JudgeCatalogEntry } from "@contexts/evaluation/application/index";
-import type { JudgeRegradePort } from "@contexts/evaluation/application/index.ts";
 import type { Score, ScoreDataType, ScorePolarity, ScoreSource } from "@contexts/evaluation/application/index";
 import { RUN_PHASES } from "@kernel/run-step";
 import { HistoryEvidenceAdapter } from "./evaluation-evidence";
@@ -116,12 +114,10 @@ export interface CatalogScoreView {
   categories?: string[];
   suffixes?: string[];
   graderVersion: string;
-  /* LLM judges only (additive, section 14). */
-  status?: "experimental" | "calibrated";
 }
 
-/* The graders, then the LLM judges (when the pinned judge prompt declares a version): the machine-readable source of names, types, polarity and judge status. */
-export function catalogView(judges: readonly JudgeCatalogEntry[] = []): { phases: string[]; scores: CatalogScoreView[] } {
+/* The graders: the machine-readable source of names, types and polarity. */
+export function catalogView(): { phases: string[]; scores: CatalogScoreView[] } {
   return {
     phases: [...RUN_PHASES],
     scores: [
@@ -133,14 +129,6 @@ export function catalogView(judges: readonly JudgeCatalogEntry[] = []): { phases
         ...(s.categories ? { categories: [...s.categories] } : {}),
         ...(s.suffixes ? { suffixes: [...s.suffixes] } : {}),
         graderVersion: s.graderVersion,
-      })),
-      ...judges.map((j) => ({
-        name: j.name,
-        dataType: j.dataType,
-        polarity: j.polarity,
-        ...(j.categories ? { categories: [...j.categories] } : {}),
-        graderVersion: j.graderVersion,
-        status: j.status,
       })),
     ],
   };
@@ -192,7 +180,7 @@ export interface EvaluationService {
   campaignRuns(campaignId: string, variant: Readonly<Record<string, string>>): CampaignRunsView;
   /* Boot: ends the jobs a previous process left open. */
   recoverInterrupted(): number;
-  /* The score catalog: the graders, then the LLM judges with their status. */
+  /* The score catalog: the graders. */
   catalog(): { phases: string[]; scores: CatalogScoreView[] };
 }
 
@@ -206,8 +194,6 @@ export interface EvaluationServiceDeps {
   /* The digest of the suite a run restored, null when it recorded none. Default: the restore span in the history. */
   restoredDigest?: (runId: string) => string | null;
   sink?: ScoreSinkPort;
-  /* The LLM judges the catalog lists and a regrade may name. Absent: no judge is listed and a regrade naming one is refused. */
-  judges?: JudgeRegradePort & { catalog(): JudgeCatalogEntry[] };
   now?: () => string;
   newId?: () => string;
   /* Runs `fn` after the current call stack, off the caller's path. */
@@ -235,7 +221,6 @@ export function createEvaluationService(deps: EvaluationServiceDeps = {}): Evalu
     runs: deps.runs ?? new HistoryRunSelector(),
     jobs,
     grade,
-    ...(deps.judges ? { judges: deps.judges } : {}),
     sanitize: deps.sanitize ?? ((text: string) => redaction.redact(text)),
     newId: deps.newId ?? (() => `regrade-${Date.now().toString(36)}-${randomBytes(4).toString("hex")}`),
     now,
@@ -289,7 +274,7 @@ export function createEvaluationService(deps: EvaluationServiceDeps = {}): Evalu
       return getHistory().evaluations.failInterruptedRegradeJobs(now());
     },
     catalog() {
-      return catalogView(deps.judges?.catalog() ?? []);
+      return catalogView();
     },
   };
 }

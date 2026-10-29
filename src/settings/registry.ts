@@ -2,13 +2,12 @@
 
 import { DEFAULT_LISTEN_HOST, DEFAULT_PORT } from "../server/port";
 import { DEFAULT_TOOLS_PORT } from "../server/tools-endpoint";
-import { DEFAULT_JUDGE_DAILY_TOKENS } from "../server/judge-settings";
 import { DEFAULT_CAMPAIGN_RETENTION_DAYS, DEFAULT_SERVICE_NAME, DEFAULT_SPAN_RETENTION_DAYS } from "../telemetry/config";
 import { resolveRunTimeBudgets } from "@contexts/run-orchestration/application/index";
 
 import { DEFAULT_REVIEWER_TIMEOUT_MS, DEFAULT_SESSION_TTL_SECONDS, DEFAULT_STALL_MS } from "./defaults";
 
-export const SETTING_GROUPS = ["server", "auth", "webhook", "agent", "git", "paths", "sandbox", "run", "telemetry", "retention", "judges"] as const;
+export const SETTING_GROUPS = ["server", "auth", "webhook", "agent", "git", "paths", "sandbox", "run", "telemetry", "retention"] as const;
 export type SettingGroup = (typeof SETTING_GROUPS)[number];
 
 export type SettingType = "string" | "integer" | "boolean" | "url" | "path" | "enum" | "list";
@@ -140,9 +139,6 @@ export const SETTINGS_REGISTRY: readonly SettingDef[] = [
   entry({ env: "QA_TELEMETRY_RETENTION_DAYS", key: "spanDays", group: "retention", type: "integer", default: String(DEFAULT_SPAN_RETENTION_DAYS), description: "Days run spans, plans and snapshots are kept (1-3650)." }),
   entry({ env: "QA_TELEMETRY_CAMPAIGN_RETENTION_DAYS", key: "campaignDays", group: "retention", type: "integer", default: String(DEFAULT_CAMPAIGN_RETENTION_DAYS), description: "Days the turns and spans of a campaign-tagged run are kept (1-3650)." }),
 
-  /* judges */
-  entry({ env: "QA_JUDGES_ENABLED", key: "-", group: "judges", type: "boolean", default: "false", description: "Turns the LLM judges on (true) or off (false or empty). Any other value stops the boot." }),
-  entry({ env: "QA_JUDGES_DAILY_TOKENS", key: "-", group: "judges", type: "integer", default: String(DEFAULT_JUDGE_DAILY_TOKENS), description: "Tokens the judges may spend per day (a positive whole number)." }),
 ];
 
 const BY_ENV: ReadonlyMap<string, SettingDef> = new Map(SETTINGS_REGISTRY.map((def) => [def.env, def]));

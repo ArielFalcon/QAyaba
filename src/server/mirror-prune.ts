@@ -16,7 +16,7 @@ import { join } from "node:path";
 import { readdirSync, statSync, rmSync } from "node:fs";
 import { loadAppConfig, listAppConfigs } from "../orchestrator/config-loader";
 import { logLine } from "../integrations/redacting-logger";
-import { DELEGATIONS_DIR, EXPERIMENT_COPIES_DIR, JUDGE_WORKDIR, WARM_SNAPSHOTS_DIR } from "../paths";
+import { DELEGATIONS_DIR, EXPERIMENT_COPIES_DIR, WARM_SNAPSHOTS_DIR } from "../paths";
 import { getHistory } from "./persistence/index";
 import { activeSettings } from "../settings/store";
 
@@ -68,7 +68,7 @@ export function pruneMirrors(deps: MirrorPruneDeps): MirrorPruneResult {
   const deleted: string[] = [];
   let freedBytes = 0;
   for (const entry of entries) {
-    if (entry.name === EXPERIMENT_COPIES_DIR || entry.name === WARM_SNAPSHOTS_DIR || entry.name === DELEGATIONS_DIR || entry.name === JUDGE_WORKDIR) continue;
+    if (entry.name === EXPERIMENT_COPIES_DIR || entry.name === WARM_SNAPSHOTS_DIR || entry.name === DELEGATIONS_DIR) continue;
     if (active.has(entry.name)) continue;  /* never touch the running job's mirrors */
     const isOrphan = !configured.has(entry.name);
     const isStale = now - entry.mtimeMs > PRUNE_MAX_AGE_MS;
