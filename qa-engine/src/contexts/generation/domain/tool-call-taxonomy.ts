@@ -99,11 +99,9 @@ export function kindForTool(tool: string): AgentActivityKind {
    orchestrator's authenticated browser tools authbrowser_* (navigate, snapshot, click, type). */
 const BROWSER_TOOLS = /(^|_)(auth)?browser_/i;
 
-/* Cross-session recall: engram's MCP tools (mem_search, mem_save, mem_get_observation, …)
-   and Serena's own project-memory tools (read_memory, write_memory, list_memories,
-   delete_memory) are semantically the same bucket — the agent is recalling or
-   persisting context rather than reading the working tree. */
-const MEMORY_TOOLS = /(^|_)mem_|_memor(y|ies)$/i;
+/* Serena's own project-memory tools (read_memory, write_memory, list_memories, delete_memory), with or without the
+   server prefix: the agent is recalling or persisting context rather than reading the working tree. */
+const MEMORY_TOOLS = /_memor(y|ies)$/i;
 
 /* The native `read` tool plus Serena's code-navigation/search tools. */
 const CODE_READ_TOOLS =

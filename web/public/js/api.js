@@ -448,10 +448,8 @@ window.QayabaConsole = (function () {
       gates: [],             /* TODO(server): 4-layer quality-gate effectiveness (API.md §6) */
       histories: {},         /* TODO(server): per-app health history — per-run checkpoints (API.md §5) */
       suite: [],             /* TODO(server): committed suite per app (API.md §5) */
-      engram: [],            /* TODO(server): per-app episodic memory (API.md §5) */
       integrity: emptyIntegrity(), /* TODO(server): suite-health/trust rollup — no endpoint yet (API.md §6) */
       reports: reports,         /* insights from every app's /apps/:name/report; templates are client-side presets, never simulated data (API.md §6) */
-      modes: [], trend: { passRate: [], specs: [] }, /* unused by the current UI; kept honestly empty rather than the mock fleet trend */
     };
   }
   function mapRun(r) {

@@ -89,7 +89,6 @@ contract schema names are in (parens).
 | **Health-over-time chart + snapshot compare** | `histories[app]: [{id,sha,time,verdict,health,passRate,specs,coverage,oracle,flaky,issues,durSec}]` (one checkpoint **per run**) | — | ✗ **new (key gap)** — `TrendsView` has aggregate `series[]` but **not** per-run checkpoints with all these fields. Add `GET /api/v1/apps/{name}/history` returning the run-by-run checkpoints the compare view diffs. |
 | **Activity tab · runs** | runs for the app | `GET /api/v1/runs?app={name}` → `RunRecord[]` | ✓ |
 | **Activity tab · suite** | committed specs for the app `[{file,status,n,coverage}]` | — | ✗ new — no committed-suite endpoint. Add `GET /api/v1/apps/{name}/suite`. |
-| **What Qayaba knows (engram)** | per-app episodic memory `[{text}]` | — | ✗ new — add `GET /api/v1/apps/{name}/memory` (episodic notes). |
 | **Activity tab · map** | FE<->BE architecture map `{map:{routes,api,feBe,flows?},builtAtSha,updatedAt}` | `GET /api/v1/apps/{name}/context-map` → `ContextMapView` | ✓ wired (Batch F) — 404 (no stored map yet) renders an honest empty state; live mode never shows a mock map. |
 
 ---
@@ -107,7 +106,6 @@ contract schema names are in (parens).
 ### Engram
 | Block | Data needed | Endpoint | Status |
 |---|---|---|---|
-| Engram (all apps) | `engram: [{app,text}]` | — | ✗ new (see §5 memory). |
 
 ### Reports
 | Block | Data needed | Endpoint | Status |
@@ -171,7 +169,6 @@ consumes them and normalizes to the UI's `{onStep,onPlan,onCase,onLog,onVerdict}
 **New (✗):**
 - `GET /api/v1/apps/{name}/history` — per-run health checkpoints (App-detail compare).
 - `GET /api/v1/apps/{name}/suite` — committed spec list.
-- `GET /api/v1/apps/{name}/memory` — per-app engram notes.
 - `GET /api/v1/integrity` — fleet flaky/infra/invalid/time-to-green/determinism, phase timing, gate effectiveness, the 4-layer gate.
 - Fleet rollups: recent runs, stats (`runs7d`/`passRate`/`specsAdded`/`openIssues`), 7-day verdict mix, fleet ErrorClass, (optional) fleet report + report templates.
 

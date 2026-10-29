@@ -264,16 +264,6 @@ window.QayabaMockData = (function () {
     { v: 'skipped', n: 7 },
   ];
 
-  const trend = {
-    passRate: [0.79, 0.81, 0.80, 0.84, 0.83, 0.85, 0.82, 0.86, 0.85, 0.88, 0.86, 0.87, 0.84, 0.86],
-    specs: [2, 4, 3, 5, 6, 4, 7, 5, 8, 6, 9, 7, 4, 11],
-  };
-
-  const modes = [
-    { m: 'diff', n: 92, note: 'webhook · per commit' },
-    { m: 'manual', n: 5, note: 'operator prompt' },
-  ];
-
   /* The four-layer quality gate. Layers 1–2 block; 3 blocks only on enforce; 4 never blocks. */
   const gates = [
     { n: 1, label: 'static analysis', icon: 'file-check-2', mode: 'blocks', pass: 128, of: 128, desc: 'compiles · lint · valid test list · manifest' },
@@ -331,15 +321,6 @@ window.QayabaMockData = (function () {
     { file: 'e2e/home/hero.spec.ts', app: 'portfolio', status: 'pass', n: 2, coverage: 'unknown' },
   ];
 
-  const engram = [
-    { app: 'web-app', text: 'Login form posts to Keycloak; wait for redirect to /dashboard before asserting.' },
-    { app: 'web-app', text: 'Map tiles lazy-load — assert pins after networkidle, not on load.' },
-    { app: 'web-app', text: 'Search debounces 300ms — wait before asserting the URL query param.' },
-    { app: 'checkout-api', text: 'Cart totals round half-up; expect "12.35" not "12.345".' },
-    { app: 'checkout-api', text: 'DEV returns 503 during spring-boot restarts — treat as infra, not fail.' },
-    { app: 'portfolio', text: 'Astro bundles assets — URL→source coverage unmeasurable, report unknown.' },
-  ];
-
   const signals = {
     window: 'last 64 runs', prevWindow: 'prev 64',
     reviewerPass: { v: 0.93, prev: 0.90, series: [0.88, 0.89, 0.90, 0.89, 0.91, 0.92, 0.92, 0.93] },
@@ -382,7 +363,7 @@ window.QayabaMockData = (function () {
     ],
   };
 
-  return { models, apps, running, runs, stats, live, verdictMix, trend, modes, gates,
+  return { models, apps, running, runs, stats, live, verdictMix, gates,
     coordinationEvents, coordinationSignals,
-    histories, suite, engram, signals, fleetErrorClasses, integrity, reports };
+    histories, suite, signals, fleetErrorClasses, integrity, reports };
 })();

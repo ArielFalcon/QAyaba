@@ -59,9 +59,9 @@ test("bucketForTool refines analyzing into browser for playwright MCP tools", ()
   assert.equal(bucketForTool("browser_click"), CALL_BUCKETS.BROWSER);
 });
 
-test("bucketForTool refines analyzing into memory for engram and serena memory tools", () => {
-  assert.equal(bucketForTool("mem_search"), CALL_BUCKETS.MEMORY);
-  assert.equal(bucketForTool("mem_save"), CALL_BUCKETS.MEMORY);
+test("bucketForTool refines analyzing into memory for serena memory tools only: no memory server is configured, so a mem_ tool is just another tool", () => {
+  assert.equal(bucketForTool("mem_search"), CALL_BUCKETS.OTHER);
+  assert.equal(bucketForTool("mem_save"), CALL_BUCKETS.OTHER);
   assert.equal(bucketForTool("read_memory"), CALL_BUCKETS.MEMORY);
   assert.equal(bucketForTool("list_memories"), CALL_BUCKETS.MEMORY);
 });
@@ -76,7 +76,6 @@ test("bucketForTool refines analyzing into code_read for the native read tool an
 test("bucketForTool recognizes MCP tools whose names carry the server prefix", () => {
   assert.equal(bucketForTool("playwright_browser_navigate"), CALL_BUCKETS.BROWSER);
   assert.equal(bucketForTool("mcp__playwright__browser_snapshot"), CALL_BUCKETS.BROWSER);
-  assert.equal(bucketForTool("engram_mem_search"), CALL_BUCKETS.MEMORY);
   assert.equal(bucketForTool("serena_read_memory"), CALL_BUCKETS.MEMORY);
   assert.equal(bucketForTool("serena_find_symbol"), CALL_BUCKETS.CODE_READ);
   assert.equal(bucketForTool("serena_read_file"), CALL_BUCKETS.CODE_READ);

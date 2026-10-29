@@ -970,7 +970,6 @@
     const latest = history[history.length - 1] || {}, first = history[0] || {};
     const healthDelta = (latest.health || 0) - (first.health || 0);
     const healthMap = { healthy: 'var(--pass-500)', degraded: 'var(--flaky-500)', down: 'var(--fail-500)' };
-    const appEngram = D.engram.filter((e) => e.app === app.name);
 
     const policyCallout = Callout({
       tone: app.coverageMode === 'enforce' ? 'important' : 'note',
@@ -1018,10 +1017,7 @@
         CfgRow('qa.gate', app.gate, app.gate === 'enforce' ? 'var(--ink-900)' : 'var(--text-body)') +
         CfgRow('onFailure', 'github-issue') +
         CfgRow('shadow', app.shadow ? 'true' : 'false', app.shadow ? 'var(--flaky-600)' : 'var(--text-body)') + '</div>' }) +
-      Card({ eyebrow: 'two-model loop', title: 'Models', children: '<div>' + CfgRow('generator', D.models.generator, null, true) + CfgRow('reviewer', D.models.reviewer) + '</div>' }) +
-      Card({ eyebrow: 'engram · ' + appEngram.length + ' lessons', title: 'What Qayaba knows', bodyPadding: false, children: '<div>' + (appEngram.length
-        ? appEngram.map((e, i) => '<div style="' + sty({ display: 'flex', gap: 9, padding: '11px 18px', borderTop: i ? 'var(--border-rule)' : 0 }) + '">' + I('sparkles', 13, 'color:var(--ember-600);flex:none;margin-top:2px') + '<span style="font-size:12px;color:var(--text-body);line-height:1.45">' + esc(e.text) + '</span></div>').join('')
-        : '<div style="padding:11px 18px;font-family:var(--font-mono);font-size:11.5px;color:var(--text-faint)">not available from the API yet</div>') + '</div>' }) + '</div>';
+      Card({ eyebrow: 'two-model loop', title: 'Models', children: '<div>' + CfgRow('generator', D.models.generator, null, true) + CfgRow('reviewer', D.models.reviewer) + '</div>' }) + '</div>';
     const header = '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px">' +
       '<div style="display:flex;flex-direction:column;gap:8px;min-width:0">' + EYEBROW(app.stack) +
       '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><h2 style="' + sty({ fontSize: 26, fontWeight: 800, letterSpacing: '-0.025em', color: 'var(--text-strong)', margin: 0 }) + '">' + esc(app.name) + '</h2>' + StatusBadge(app.status) + '</div>' +
