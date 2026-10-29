@@ -1,11 +1,10 @@
-/* Single language registry for every extractor in this context. `supported` and `hasAstGrepRules` both derive from LANGS — adding a language is one record. Project-agnostic: keyed by language, never by app. */
+/* Single language registry. `supported` derives from LANGS — adding a language is one record. Project-agnostic: keyed by language, never by app. */
 export type LanguageId = "javascript" | "typescript" | "java";
 
 /* JavaScript and TypeScript share their test conventions: a `.test.` or `.spec.` file, or a file under `__tests__/`. */
 const JS_TEST_PATHS: readonly RegExp[] = [/\.(test|spec)\.[cm]?[jt]sx?$/, /(^|\/)__tests__\//];
 
 /*
- * astGrep: true → AstGrepPatternAdapter; false → regex fallback. Both `supported` and `hasAstGrepRules` derive from this record.
  * testPaths: the language's own conventions for a test file (the build tool's test source set, the test-runner's file names).
  */
 const JS_MANIFESTS: readonly string[] = ["package.json", "tsconfig.json", "jsconfig.json"];
@@ -21,10 +20,10 @@ const JS_MANIFESTS: readonly string[] = ["package.json", "tsconfig.json", "jscon
 export type DecisionSyntax = "ecmascript";
 export type StatementSyntax = "ecmascript";
 
-const LANGS: Record<LanguageId, { astGrep: boolean; testPaths: readonly RegExp[]; manifests: readonly string[]; decisions: DecisionSyntax | null; statements: StatementSyntax | null }> = {
-  javascript: { astGrep: true, testPaths: JS_TEST_PATHS, manifests: JS_MANIFESTS, decisions: "ecmascript", statements: "ecmascript" },
-  typescript: { astGrep: true, testPaths: JS_TEST_PATHS, manifests: JS_MANIFESTS, decisions: "ecmascript", statements: "ecmascript" },
-  java:       { astGrep: true, testPaths: [/(^|\/)src\/test\//, /(Test|Tests|IT)\.java$/], manifests: ["pom.xml", "build.gradle", "build.gradle.kts", "settings.gradle", "settings.gradle.kts"], decisions: null, statements: null },
+const LANGS: Record<LanguageId, { testPaths: readonly RegExp[]; manifests: readonly string[]; decisions: DecisionSyntax | null; statements: StatementSyntax | null }> = {
+  javascript: { testPaths: JS_TEST_PATHS, manifests: JS_MANIFESTS, decisions: "ecmascript", statements: "ecmascript" },
+  typescript: { testPaths: JS_TEST_PATHS, manifests: JS_MANIFESTS, decisions: "ecmascript", statements: "ecmascript" },
+  java:       { testPaths: [/(^|\/)src\/test\//, /(Test|Tests|IT)\.java$/], manifests: ["pom.xml", "build.gradle", "build.gradle.kts", "settings.gradle", "settings.gradle.kts"], decisions: null, statements: null },
 };
 
 /*
@@ -163,9 +162,5 @@ export const LanguageRegistry = {
   /* The files, by name, that configure module resolution for the languages a consumer-expectation syntax reads. */
   expectationModuleConfigs(syntax: ExpectationSyntax): readonly string[] {
     return EXPECTATIONS[syntax].moduleConfigs;
-  },
-
-  hasAstGrepRules(lang: LanguageId): boolean {
-    return LANGS[lang]?.astGrep ?? false;
   },
 } as const;

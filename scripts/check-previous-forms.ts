@@ -55,6 +55,7 @@ export const BANNED_RULES: BannedRule[] = [
     patterns: [/\b(RepoInfoPort|ComplexityExtractorPort|PatternExtractorPort|RelationExtractorPort|SemanticDiffExtractorPort|SymbolExtractorPort|ExtractorSet|StaticSignal|ExtractionContext|DomGroundingPort|PlanParserPort|CodeValidatePort)\b/],
     exemptPrefixes: [RECORDS_PREFIX],
   },
+  { id: "ast-grep-flag", patterns: [/\bhasAstGrepRules\b/, /\bastGrep\b/], exemptPrefixes: [RECORDS_PREFIX] },
   { id: "shell-dead-run-types", patterns: [/\bAgentResult\b/], exemptPrefixes: [RECORDS_PREFIX] },
   { id: "shell-events-reexport", patterns: [/\bsrc\/contract\/events(?:\.ts)?(?![\w.-])/], exemptPrefixes: [RECORDS_PREFIX] },
   {
