@@ -47,11 +47,9 @@ The orchestrator reads its environment once, in `loadSettings(env)`. An empty va
 | `AGENT_SUPERVISOR_URL` | - | url | - | - | Address of the agents service's supervisor, used to reload the runtime's configuration. |
 | `AGENT_PRIMARY_MODEL` | - | string | - | - | Overrides the model of every agent of its tier (the lead, author, explorer and proposer) as provider/model. Unset, each agent runs on the model its agents/opencode.json entry declares, and on the model the tier's namesake agent declares when it declares none. |
 | `AGENT_REVIEWER_MODEL` | - | string | - | - | Overrides the model of every agent of its tier (the reviewer) as provider/model. Unset, each agent runs on the model its agents/opencode.json entry declares, and on the model the tier's namesake agent declares when it declares none. |
-| `AGENT_CHAT_MODEL` | - | string | - | - | Overrides the model of every agent of its tier (the assistant and reflector) as provider/model. Unset, each agent runs on the model its agents/opencode.json entry declares, and on the model the tier's namesake agent declares when it declares none. |
+| `AGENT_CHAT_MODEL` | - | string | - | - | Overrides the model of every agent of its tier (the assistant) as provider/model. Unset, each agent runs on the model its agents/opencode.json entry declares, and on the model the tier's namesake agent declares when it declares none. |
 | `COORDINATION_ESCALATED_MODEL` | `agent.coordinationEscalatedModel` | string | - | - | Model a sidekick escalates to when its first attempt is judged insufficient (provider/model). Unset, no escalation model is configured. |
 | `COORDINATION_TELEMETRY_PATH` | `agent.coordinationTelemetryPath` | path | `<data>/coordination-events.jsonl` | - | File that records the lead's coordination events. |
-| `REFLECTOR_TIMEOUT_MS` | `agent.reflectorTimeoutMs` | integer | - | - | Time budget of the reflection pass in milliseconds. Unset, or a value that is not a positive number, the reflection adapter's own budget (one minute) applies. |
-| `QA_REFLECTOR_ENABLED` | `agent.reflectorEnabled` | boolean | `false` | - | Turns the cross-run reflection pass on (1 or true) or off (0, false or empty). Any other value stops the boot. |
 
 ## Git and mirrors
 

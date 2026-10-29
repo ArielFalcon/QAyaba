@@ -4,7 +4,6 @@ import { engineLog } from "@kernel/ports/process-logger.ts";
 import { CORRECTION_ORIGIN } from "@contexts/coordination/application/index.ts";
 import { stripAnsi } from "@kernel/ansi.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
-import { detectArchetype } from "@contexts/cross-run-learning/application/index.ts";
 import { MAX_STATIC_FIX_ROUNDS } from "../../../../../shared-kernel/derive-cycle-backstop.ts";
 import { staticFixAction } from "../../../domain/static-fix.ts";
 import type { ExecutionPort, ValidationPort } from "@contexts/test-execution/application/index.ts";
@@ -77,7 +76,6 @@ async function endingEvidence(state: Readonly<RunState>, ctx: WorkspaceRunContex
     /* Retrieved ids reach the persisted outcome for diagnosability only. */
     rulesRetrieved: state.grounding.retrievedRuleIds,
     diffArchetypes: state.grounding.diffArchetypes,
-    archetype: detectArchetype(state.classification.diff, state.classification.intent?.changedFiles ?? []),
     confinement: services.confinement.totals,
     /* FixLoop has not run: the tested section is the latest generation's. */
     tested: lastGenerated.specMetas,

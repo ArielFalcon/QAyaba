@@ -216,57 +216,8 @@ test("buildEngine drives a full run end-to-end through the 11 wired ports (green
   assert.equal(outcome.verdict, "pass");
 });
 
-/* threads cfg.reflectorPort through to RunQaUseCaseDeps.reflector — not just that the config TYPE
-   accepts the field. wireEngine() is not exported, so this drives a real run through the public
-   buildEngine() entry point and observes the fake reflector's own call count, exactly the same
-   black-box style the "shadow-log publication" test above uses for githubPr/githubIssue. ───────
- */
-
-test("buildEngine wires cfg.reflectorPort through to RunQaUseCase — a static-gate invalid run reaches reflector.reflect()", async () => {
-  let reflectCallCount = 0;
-  const cfg = fakeConfig({
-    validationStrategies: {
-      e2e: { validateAll: async () => ({ ok: false, errors: ["[lint] no-wait-for-timeout"], infra: false }) },
-    },
-    reflectorPort: {
-      reflect: async () => { reflectCallCount++; },
-    },
-  });
-
-  const port = buildEngine(cfg);
-  const outcome = await port.run({
-    app: "app",
-    sha: Sha.of("abc1234"),
-    changeSet: primaryChangeSet("app", Sha.of("abc1234")),
-    source: "manual",
-    mode: "diff",
-    target: "e2e",
-    runId: "engine-root-reflector-smoke",
-  });
-
-  assert.equal(outcome.verdict, "invalid");
-  assert.equal(reflectCallCount, 1, "cfg.reflectorPort must be wired through to RunQaUseCaseDeps.reflector — a static-gate invalid is gate-true (errorClass E-STATIC is not in the suppressed {E-INFRA, E-FLAKY} set)");
-});
-
-test("buildEngine omits reflector entirely when cfg.reflectorPort is absent — no behavior change on a green pass", async () => {
-  const port = buildEngine(fakeConfig());
-
-  const outcome = await port.run({
-    app: "app",
-    sha: Sha.of("abc1234"),
-    changeSet: primaryChangeSet("app", Sha.of("abc1234")),
-    source: "manual",
-    mode: "diff",
-    target: "e2e",
-    runId: "engine-root-reflector-absent-smoke",
-  });
-
-  assert.equal(outcome.verdict, "pass");
-});
-
-/* root threads cfg.processAudit through to RunQaUseCaseDeps.processAudit — mirrors the reflectorPort
-   smoke test immediately above, same black-box style through the public buildEngine() entry
-   point. ──────────────────────────────────────────────────────────────────────────────────────────
+/* root threads cfg.processAudit through to RunQaUseCaseDeps.processAudit — same black-box style
+   through the public buildEngine() entry point. ──────────────────────────────────────────────────────────────────────────────────────────
  */
 
 test("buildEngine wires cfg.processAudit through to RunQaUseCase — a static-gate invalid run reaches processAudit.audit()", async () => {
@@ -312,7 +263,7 @@ test("buildEngine omits processAudit entirely when cfg.processAudit is absent �
 });
 
 /* Root threads cfg.contextMapCapture through to RunQaUseCaseDeps.contextMapCapture — same
-   black-box style as reflectorPort/processAudit above. A clean context-mode pass (mode:"context",
+   black-box style as processAudit above. A clean context-mode pass (mode:"context",
    verdict "pass") is the ONLY case that reaches RunQaUseCase's isContextCleanPass capture call. ──
  */
 

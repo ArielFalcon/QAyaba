@@ -61,7 +61,7 @@ Two Docker services share a `mirrors` volume, which holds the working copies of 
 |---|---|---|---|
 | `qa-author` | Generation: the run's own task and every flow of a plan (one flow per sidekick, run in parallel through `FanOutDispatcher`, each its own session that pays the full tool-schema cost again) | Spec files plus a verdict JSON (`specs`, `specMetas`, `note`, `noop{reason,kind}`, `plan`) | Has per-call telemetry today (`agent_turns.tool_sequence`) |
 | `qa-reviewer` | After execute | Approve/reject plus correction classes | A different model from the generator, on purpose. No per-call data |
-| `qa-reflector`, `qa-proposer`, `qa-assistant` | Learning (off by default) / onboarding / chat | — | Lower priority |
+| `qa-proposer`, `qa-assistant` | Onboarding / chat | — | Lower priority |
 | (OpenCode) `title` | **Every session**, automatically | A session title (`small=true`) | **A hidden extra LLM call per session.** It shows up in OpenCode's log as `agent=title`. It also fails and retries when the quota is exhausted |
 
 ---
@@ -235,7 +235,7 @@ Every piece of agent-influenced code runs through the exec launcher (`qa-engine/
 | F13 | The grounding brief claimed "the front has no dedicated duplicate-address message", which was false (10-11) | The spec asserted the generic toast | A grounding turn's variance; the generator was told "do NOT re-read that code" | Brief claims versus files actually read by the grounding turn (needed per-call data) |
 | F14 | Sidekicks (September): median 65 calls, 52 reads, **0 writes** in 6 turns | No delivery | Unknown; that mode has never run live since its rebuild | Per-sidekick spans under the fan-out, with lease waits |
 | F15 | The reviewer's model was rejected by the provider at one point (October) | E-REVIEWER-UNAVAILABLE path | Model availability | Provider error class on the reviewer span |
-| F16 | Learned "experimental" rules told a shell-less generator to "run tsc" | No effect, or noise | The reflector invented a cause (the reflector is now off) | Which learned rules were injected per prompt, and the outcome per rule |
+| F16 | Learned "experimental" rules told a shell-less generator to "run tsc" | No effect, or noise | The reflector invented a cause (the reflector is removed) | Which learned rules were injected per prompt, and the outcome per rule |
 
 **What the data says about context resources** (measured over 56 runs, for your prioritisation):
 - **Live DOM (context pack): essential**, but ~65% of it is filler (redirect advisory, `/home`, login stubs).

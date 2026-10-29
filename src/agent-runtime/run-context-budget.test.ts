@@ -23,7 +23,7 @@ test("the window of a role is the one the runtime reports for the model the role
   assert.equal(run.windowTokens("author"), 300_000);
   assert.equal(run.windowTokens("lead"), 300_000);
   assert.equal(run.windowTokens("reviewer"), 120_000);
-  assert.equal(run.windowTokens("reflector"), undefined, "the chat tier reported no window");
+  assert.equal(run.windowTokens("chat"), undefined, "the chat tier reported no window");
 });
 
 test("the working room comes from the recorded turns of the role, replacing the cold start", () => {

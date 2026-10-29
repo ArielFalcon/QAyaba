@@ -116,7 +116,6 @@ export const AGENT_NAME_FOR_ROLE: Readonly<Record<AgentRole, string>> = {
   reviewer: "qa-reviewer",
   chat: "qa-assistant",
   author: "qa-author",
-  reflector: "qa-reflector",
   proposer: "qa-proposer",
 };
 
@@ -136,8 +135,6 @@ export function roleForAgentName(agent: string): AgentRole {
 export function tierForRole(role: AgentRole): AssignmentTier {
   if (role === "reviewer") return "reviewer";
   if (role === "chat") return "chat";
-  /* Reflector is a cheap read-only transform: it rides the chat tier, not the primary author. */
-  if (role === "reflector") return "chat";
   /* The roles that plan, explore, author and maintain run on the `primary` assignment: the tier the operator configures for the agents that do the run's work. */
   return "primary";
 }

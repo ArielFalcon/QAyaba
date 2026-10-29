@@ -5,7 +5,7 @@ import { RedactionPortAdapter } from "../../../orchestrator/sanitizer";
 import type { Curriculum } from "../../../qa/learning/curriculum";
 import { type Confidence, type LearningRule, type RuleStatus, type RuleUpsert } from "../../../qa/learning/learning-rule";
 import { updateScorecard, type Scorecard, type ScorecardEntry } from "../../../qa/learning/oracle-types";
-import type { RunMode, RunOutcome, RunRecord, RunVerdict, StructuredReflection, TestTarget } from "../../../types";
+import type { RunMode, RunOutcome, RunRecord, RunVerdict, TestTarget } from "../../../types";
 import type { HistoryDatabase } from "../database";
 import { parseJsonColumn } from "../json-column";
 
@@ -27,7 +27,6 @@ export class LearningRepository {
   private readonly reclassifyOutcome;
   private readonly listOutcomes;
   private readonly getOutcome;
-  private readonly setReflection;
   private readonly upsertRule;
   private readonly listRules;
   private readonly listRetrievableRules;
@@ -53,7 +52,6 @@ export class LearningRepository {
     this.reclassifyOutcome = raw.prepare("UPDATE run_outcomes SET verdict = 'infra-error', error_class = ? WHERE id = ?");
     this.listOutcomes = raw.prepare("SELECT * FROM run_outcomes WHERE app = ? ORDER BY at DESC, rowid DESC LIMIT ?");
     this.getOutcome = raw.prepare("SELECT * FROM run_outcomes WHERE id = ?");
-    this.setReflection = raw.prepare("UPDATE run_outcomes SET reflection = ? WHERE id = ?");
     this.upsertRule = raw.prepare(`
       INSERT INTO learning_rules (id, app, trigger_text, action_text, error_class, archetype, confidence, usage_count, outcome_count, oracle_outcome_count, success_rate, last_verified, source, status, at)
       VALUES (@id, @app, @trigger, @action, @errorClass, @archetype, @confidence, @usageCount, @outcomeCount, @oracleOutcomeCount, @successRate, @lastVerified, @source, @status, @at)
@@ -172,15 +170,6 @@ export class LearningRepository {
   getRunOutcome(runId: string): RunOutcome | undefined {
     const row = this.getOutcome.get(runId) as Record<string, unknown> | undefined;
     return row ? this.rowToOutcome(row) : undefined;
-  }
-
-  /*
-   * Back-fills the structured reflection onto an already-saved run outcome. The outcome row is written at verdict time, BEFORE the
-   * async best-effort reflection exists; without this the `reflection` column stays null and the reflection is computed once to
-   * distill a rule and then discarded.
-   */
-  updateRunOutcomeReflection(runId: string, reflection: StructuredReflection): void {
-    this.db.write(() => this.setReflection.run(JSON.stringify(reflection), runId));
   }
 
   upsertLearningRule(rule: RuleUpsert & { app: string; id: string; initialStatus?: RuleStatus }): void {

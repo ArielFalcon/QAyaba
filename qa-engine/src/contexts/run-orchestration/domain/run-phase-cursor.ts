@@ -6,7 +6,7 @@
  * What the record means:
  * - A timing is the time spent inside a region of the run, not the pure cost of that phase. A review-round regeneration
  *   counts under review; coverage is a region only in diff mode (elsewhere its work is inside the phase before it); the
- *   reflect and audit of a terminal path count under whichever phase was open; a regression run that generates nothing
+ *   audit of a terminal path counts under whichever phase was open; a regression run that generates nothing
  *   still enters generate, because that is where the existing suite is run.
  * - learn is entered only on the mainline path, after the run's outcome is saved. A run that ends on a terminal exit
  *   (invalid, infra-error, deadline) keeps the phase it was in as its furthest, so the funnel reads where it stopped.

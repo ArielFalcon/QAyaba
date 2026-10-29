@@ -68,9 +68,8 @@ test("the learning repository writes only inside transactions", (t) => {
   learning.saveCurriculum({ app: "app", updatedAt: "2026-10-01T00:00:00.000Z" } as never);
   learning.saveScorecardEntry({ app: "app", runId: "r", at: "2026-10-01T00:00:00.000Z", valueScore: 1 } as never);
   learning.saveRunOutcome({ runId: "r", app: "app", sha: "abcdef1", mode: "diff", target: "e2e", verdict: "pass", errorClass: null, gateSignals: { static: true, coverageRatio: null, valueScore: null, reviewerCorrections: [], flaky: false, retries: 0 }, rulesRetrieved: [], at: "2026-10-01T00:00:00.000Z" });
-  learning.updateRunOutcomeReflection("r", {} as never);
 
-  assert.ok(writes.length >= 9);
+  assert.ok(writes.length >= 8);
   assert.deepEqual(writes.filter((w) => !w.inTransaction), []);
 });
 

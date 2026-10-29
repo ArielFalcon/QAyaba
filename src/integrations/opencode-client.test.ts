@@ -448,7 +448,7 @@ test("askAssistant requests text-only output so the model's reasoning never leak
   assert.equal(seenOpts?.textOnly, true);
 });
 
-test("askAssistant opens the requested agent (reflection runs tool-less as qa-reflector; chat is the default)", async () => {
+test("askAssistant opens the requested agent (chat is the default)", async () => {
   let openedAgent: string | undefined;
   const deps: AgentDeps = {
     open: async (agent: string) => {
@@ -456,8 +456,8 @@ test("askAssistant opens the requested agent (reflection runs tool-less as qa-re
       return { id: "s", prompt: async () => "{}", dispose: async () => {} };
     },
   };
-  await askAssistant({ context: "c", question: "q", agent: "qa-reflector" }, deps, "/m");
-  assert.equal(openedAgent, "qa-reflector");
+  await askAssistant({ context: "c", question: "q", agent: "qa-proposer" }, deps, "/m");
+  assert.equal(openedAgent, "qa-proposer");
   await askAssistant({ context: "c", question: "q" }, deps, "/m");
   assert.equal(openedAgent, "qa-assistant"); /* default unchanged for the TUI chat path */
 });
@@ -579,10 +579,10 @@ test("phase-0b: askAssistant passes role (and optional runId) in the open() desc
       };
     },
   };
-  await askAssistant({ context: "ctx", question: "q?", agent: "qa-reflector", runId: "run-reflector-1" }, stub, "/tmp");
+  await askAssistant({ context: "ctx", question: "q?", agent: "qa-proposer", runId: "run-proposer-1" }, stub, "/tmp");
   await askAssistant({ context: "ctx", question: "q?" }, stub, "/tmp");
-  assert.equal(capturedDescriptors[0]?.role, "qa-reflector", "role forwarded for qa-reflector path");
-  assert.equal(capturedDescriptors[0]?.runId, "run-reflector-1", "runId forwarded when provided");
+  assert.equal(capturedDescriptors[0]?.role, "qa-proposer", "role forwarded for qa-proposer path");
+  assert.equal(capturedDescriptors[0]?.runId, "run-proposer-1", "runId forwarded when provided");
   assert.equal(capturedDescriptors[1]?.role, "qa-assistant", "role forwarded for default chat path");
   assert.equal(capturedDescriptors[1]?.runId, undefined, "runId is undefined when not provided");
 });

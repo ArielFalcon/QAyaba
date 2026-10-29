@@ -1,4 +1,4 @@
-/* The model-agnostic prompt guard: no prompt names a model. A limit, a tier or a budget comes from the runtime or from a named constant, never from which model runs, so a text that names a model id or a family is a defect wherever it stands. The guard scans the static role and shared layers, the skills and every prompt the harness sends to an agent (generator, context task, reviewer, verdict repair, sidekick, assistant, reflector, proposer), in three layers:
+/* The model-agnostic prompt guard: no prompt names a model. A limit, a tier or a budget comes from the runtime or from a named constant, never from which model runs, so a text that names a model id or a family is a defect wherever it stands. The guard scans the static role and shared layers, the skills and every prompt the harness sends to an agent (generator, context task, reviewer, verdict repair, sidekick, assistant, proposer), in three layers:
    - derived: every id and label a declared model source holds (the runtime agent config and its fallbacks, each provider's role defaults), so a model configured later is caught with no edit here. An id is forbidden anywhere, its family only next to a version chunk;
    - fixed list: well-known vendor and family names, forbidden anywhere. The list only forbids: nothing selects a prompt, a limit or a rule by it;
    - headings: the parenthetical of a role's title holds no version-like token and no letter segment of a declared id.
@@ -21,8 +21,6 @@ import { createDelegationBrief } from "@contexts/coordination/application/index.
 import { SidekickExecutor } from "@contexts/coordination/application/index.ts";
 import { renderLeadCorrection } from "@contexts/coordination/application/lead-correction.ts";
 import { renderExploreOutcome } from "@contexts/coordination/application/explore-round.ts";
-import { ReflectorPortAdapter } from "@contexts/cross-run-learning/infrastructure/reflector-port.adapter.ts";
-import type { ReflectionInput } from "@contexts/cross-run-learning/application/index.ts";
 import type { AgentRuntimePort } from "@kernel/ports/agent-runtime.port.ts";
 import { providerConfig } from "../src/agent-runtime/config.ts";
 import { AGENT_NAME_FOR_ROLE, type AgentRole } from "../src/agent-runtime/types.ts";
@@ -576,33 +574,6 @@ async function assistantPrompts(subject: string): Promise<PromptText[]> {
   return promptsSent("assistant", sent);
 }
 
-/* The reflector's prompt for a run with a suite and for a run that never wrote one. */
-async function reflectorPrompts(subject: string): Promise<PromptText[]> {
-  const sent: string[] = [];
-  const adapter = new ReflectorPortAdapter({
-    runtime: recordingRuntime(sent),
-    repo: { save: async () => {}, topRules: async () => [], applyOutcome: async () => {} },
-    backfill: () => {},
-    cwd: "/m",
-    app: "shop",
-    onReflectError: (error) => {
-      throw error;
-    },
-  });
-  const input: ReflectionInput = {
-    runId: "run-12345678",
-    app: "shop",
-    sha: "abc1234",
-    mode: "diff",
-    verdict: "fail",
-    errorClass: "E-FRAGILE-SELECTOR",
-    gateSignals: { static: true, coverageRatio: 0.5, valueScore: 0.4, reviewerCorrections: [`[fragile-selector] scope the ${subject} button`], flaky: false, retries: 1 },
-  };
-  await adapter.reflect(input);
-  await adapter.reflect({ ...input, errorClass: "E-STEP-BUDGET" });
-  return promptsSent("reflector", sent);
-}
-
 /* The onboarding proposer's prompt, on the first round and after a round that scored low. */
 async function proposerPrompts(subject: string): Promise<PromptText[]> {
   const sent: string[] = [];
@@ -632,7 +603,6 @@ const PROMPT_KINDS: readonly PromptKind[] = [
   { kind: "author", roles: ["author"], prompts: sidekickPrompts },
   { kind: "explore", roles: ["explore"], prompts: explorePrompts },
   { kind: "assistant", roles: ["chat"], prompts: assistantPrompts },
-  { kind: "reflector", roles: ["reflector"], prompts: reflectorPrompts },
   { kind: "proposer", roles: ["proposer"], prompts: proposerPrompts },
 ];
 

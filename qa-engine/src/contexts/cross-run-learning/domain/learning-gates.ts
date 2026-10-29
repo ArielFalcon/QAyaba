@@ -23,29 +23,29 @@ export interface LearningGateInput {
 export interface LearningGates {
   /** Whether the outcome feeds the deterministic learning fold. */
   fold: boolean;
-  /** Whether the outcome feeds the reflector and the process audit. */
-  reflect: boolean;
+  /** Whether the outcome feeds the process audit. */
+  audit: boolean;
 }
 
 /**
  * The one place that decides what a run's outcome may teach. A context run never teaches; every
  * other run starts from `shouldDistillLearning` (an app defect never
  * teaches). A mainline run folds whatever its class, so a green pass still counts; a terminal
- * outcome folds only when its class teaches. The reflector is stricter: never for a flaky run, and
- * only for a real class that teaches, so a green pass cannot mint a reflection rule.
+ * outcome folds only when its class teaches. The audit is stricter: never for a flaky run, and
+ * only for a real class that teaches.
  */
 export function learningGates(input: LearningGateInput): LearningGates {
   const distill = input.mode !== "context" && shouldDistillLearning(input.adjudicationClass);
   const teaches = !!input.errorClass && !NON_LEARNING.has(input.errorClass);
   return {
     fold: distill && (input.stage === "mainline" || teaches),
-    reflect: distill && input.verdict !== "flaky" && teaches,
+    audit: distill && input.verdict !== "flaky" && teaches,
   };
 }
 
 /**
  * Whether an outcome reaches the process audit for its operating signal alone: its class teaches nothing (so
- * `learningGates` keeps it out of the fold, the reflector and the audit) but its recurrence is visible. A context
+ * `learningGates` keeps it out of the fold and the audit) but its recurrence is visible. A context
  * run is never audited, as it never teaches.
  */
 export function observesOperatingSignal(input: { mode: RunMode; errorClass: string | null | undefined }): boolean {

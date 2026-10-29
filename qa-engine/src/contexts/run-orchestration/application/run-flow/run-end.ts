@@ -31,8 +31,6 @@ export interface EndEvidence {
   rulesRetrieved?: string[];
   /** The diff's structural shapes the fold attributes the retrieved rules against; absent when there is no diff. */
   diffArchetypes?: string[] | undefined;
-  /** Diff-derived archetype; null when there is no diff. */
-  archetype?: string | null;
   /** Merged confinement from the last enforcement before the end; absent if it never ran. */
   confinement?: ConfinementTotals | undefined;
   /** The latest generation's tested section; absent when there are no specMetas. */

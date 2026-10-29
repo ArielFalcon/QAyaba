@@ -25,7 +25,7 @@ test("a success before the threshold resets the failure streak", () => {
 });
 
 /* Breaker state is keyed per role: a run-away qa-reviewer must not trip the breaker a healthy
-   qa-author relies on, and a qa-reflector success must not reset a qa-author's
+   qa-author relies on, and a qa-assistant success must not reset a qa-author's
    genuinely-accumulating failure streak.
  */
 test("tripping one role's circuit does not block a different role", () => {

@@ -1,6 +1,6 @@
 /*
  * Operator switch, OFF by default, for an A/B campaign (docs/efficiency-benchmark.md, "Campaigns"): the pipeline
- * learns from every run (rule fold and retrieval, curriculum, reflector, process audit with its
+ * learns from every run (rule fold and retrieval, curriculum, process audit with its
  * context-stale flag), so a replicate would start from what the previous one left and the replicates would not be
  * comparable. With the switch on, a run reads none of that state and writes none of it.
  * Read once by the composition root; the engine never reads the environment. A mistyped value throws, as the

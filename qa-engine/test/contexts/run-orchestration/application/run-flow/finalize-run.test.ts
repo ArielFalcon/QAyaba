@@ -34,20 +34,18 @@ interface Calls {
   saved: RunOutcome[];
   folded: RunOutcome[];
   published: unknown[];
-  reflected: number;
   audited: number;
   pruned: string[];
   done: number;
 }
 
 function context(opts: { mode?: RunQaInput["mode"]; mirrorDir?: string | undefined; config?: Partial<RunQaConfig> } = {}): { ctx: RunContext; calls: Calls; state: RunState } {
-  const calls: Calls = { order: [], saved: [], folded: [], published: [], reflected: 0, audited: 0, pruned: [], done: 0 };
+  const calls: Calls = { order: [], saved: [], folded: [], published: [], audited: 0, pruned: [], done: 0 };
   const cfg: RunQaConfig = { needsReview: true, shadow: false, onFailure: "github-issue", maxRetries: 2, reviewLoopIntegrity: false, coveragePolicyMode: "signal", ...opts.config };
   const deps = {
     publication: { publish: async (input: unknown) => { calls.order.push("publish"); calls.published.push(input); return { outcome: "issue #7 opened" }; } },
     runHistory: { save: async (outcome: RunOutcome) => { calls.order.push("save"); calls.saved.push(outcome); } },
     learning: { fold: async (outcome: RunOutcome) => { calls.order.push("fold"); calls.folded.push(outcome); } },
-    reflector: { reflect: async () => { calls.order.push("reflect"); calls.reflected += 1; } },
     processAudit: { audit: async () => { calls.order.push("audit"); calls.audited += 1; } },
     observer: { onStep: (step: string) => { if (step === "done") calls.done += 1; }, onEvent: () => {} },
   } as unknown as RunQaUseCaseDeps;
@@ -137,7 +135,6 @@ test("a login that could not be completed is a recorded E-PRECONDITION that teac
   assert.equal(result.note, "the login was rejected");
   assert.equal(calls.saved.length, 1);
   assert.equal(calls.folded.length, 0);
-  assert.equal(calls.reflected, 0);
   assert.deepEqual(calls.order, ["prune", "save"]);
 });
 
@@ -154,7 +151,8 @@ for (const [generationEnd, errorClass, teaches] of [
     assert.deepEqual(result.rulesRetrieved, ["rule-1"]);
     assert.equal(calls.saved.length, 1);
     assert.equal(calls.folded.length, teaches ? 1 : 0);
-    assert.equal(calls.reflected, teaches ? 1 : 0);
+    /* The audit sees a class that teaches and the operating signal of a time-budget end, never an undecided generation. */
+    assert.equal(calls.audited, errorClass === ERROR_CLASS.NO_DECISION ? 0 : 1);
     assert.equal(calls.published.length, 0);
   });
 }
@@ -168,7 +166,7 @@ test("a static gate that refused the specs opens an Issue, records the run as E-
   assert.equal(calls.published.length, 1);
   assert.equal(calls.saved.length, 1);
   assert.equal(calls.folded.length, 1);
-  assert.deepEqual(calls.order, ["publish", "prune", "save", "fold", "reflect", "audit"]);
+  assert.deepEqual(calls.order, ["publish", "prune", "save", "fold", "audit"]);
 });
 
 test("a static gate that refused the specs of a context run opens its Issue and records nothing", async () => {
@@ -364,8 +362,8 @@ for (const row of RUN_END_ROWS) {
       assert.equal(row.expect.persisted, persists, "persisted");
       if (row.expect.publishCalled) assert.equal(effects.publish, "decision", "a run that dispatched publication ends for a reason that may");
       if (effects.publish === "none") assert.equal(row.expect.published, "none", "published");
-      if (row.expect.folded || row.expect.reflected) assert.notEqual(effects.learn, "none", "learned");
-      if (effects.learn === "none") assert.equal(row.expect.folded || row.expect.reflected, false, "learned");
+      if (row.expect.folded) assert.notEqual(effects.learn, "none", "learned");
+      if (effects.learn === "none") assert.equal(row.expect.folded, false, "learned");
       if (effects.learn === "mainline") assert.equal(reason, "decided");
     } finally {
       dispose(rig);

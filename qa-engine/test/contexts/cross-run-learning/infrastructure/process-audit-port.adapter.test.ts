@@ -2,8 +2,7 @@
    self-sources `recent` outcomes + `rules` via factory-injected reads, runs the deterministic
    auditProcess/applyAudit domain logic, and dispatches findings to 2 injected sinks
    (deprecateRule/invalidateContext) and the log. Every failure mode (a throwing read/sink,
-   a slow read past the timeout budget) is caught inline — never re-thrown — mirroring
-   ReflectorPortAdapter's own documented fault-isolation contract on the sibling port.
+   a slow read past the timeout budget) is caught inline — never re-thrown.
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";

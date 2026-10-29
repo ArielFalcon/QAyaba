@@ -8,7 +8,6 @@ test("a composition without a repository retrieves no rule and serves no optiona
   const api = buildCrossRunLearning({ appName: "app" });
 
   assert.deepEqual(await api.learning.retrieve(Sha.of("abc1234")), []);
-  assert.equal(api.reflector, undefined);
   assert.equal(api.curriculum, undefined);
   assert.equal(api.processAudit, undefined);
 });
@@ -24,13 +23,11 @@ test("the learning port retrieves through the repository it was built from, for 
 });
 
 test("the supplied optional ports are served as they are", () => {
-  const reflector = {} as never;
   const curriculum = {} as never;
   const processAudit = {} as never;
 
-  const api = buildCrossRunLearning({ appName: "app", reflector, curriculum, processAudit });
+  const api = buildCrossRunLearning({ appName: "app", curriculum, processAudit });
 
-  assert.equal(api.reflector, reflector);
   assert.equal(api.curriculum, curriculum);
   assert.equal(api.processAudit, processAudit);
 });

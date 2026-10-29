@@ -7,7 +7,6 @@
  */
 
 import { engineLog } from "@kernel/ports/process-logger.ts";
-import { detectArchetype } from "@contexts/cross-run-learning/application/index.ts";
 import { isAccepted } from "../../domain/run-decision.service.ts";
 import { learningGates } from "@contexts/cross-run-learning/application/index.ts";
 import { reviewsTests } from "./phases/review.steps.ts";
@@ -16,7 +15,7 @@ import { DETERMINISTIC_SELECTOR_BLOCKS } from "./phases/execute.steps.ts";
 import { closedLoopSignal } from "./phases/generation-services.ts";
 import { resolveTested } from "./phases/fix-loop.steps.ts";
 import type { PublicationPort } from "@contexts/workspace-and-publication/application/index.ts";
-import { deriveErrorClass, toReflectionInput, toRunOutcome } from "./outcome-assembly.ts";
+import { deriveErrorClass, toRunOutcome } from "./outcome-assembly.ts";
 import type { RunOutcome } from "@kernel/run-outcome.ts";
 import type { WorkspaceRunContext } from "./run-context.ts";
 import type { RunQaResult } from "./run-types.ts";
@@ -364,7 +363,6 @@ async function learnFromOutcome(state: Readonly<RunState>, ctx: WorkspaceRunCont
   const { deps, input } = ctx;
   const { decision } = decidedOf(state);
   const { offeredArchetypes } = state.grounding;
-  const { diff: classificationDiff, intent: classificationIntent } = state.classification;
   const { coverageStatus } = state.coverage;
   /*
    * What this outcome may teach is decided in one place (learningGates). Off-path: never gates the verdict. app_defect
@@ -394,26 +392,8 @@ async function learnFromOutcome(state: Readonly<RunState>, ctx: WorkspaceRunCont
     });
   }
 
-  /*
-   * Stricter than fold: no flaky verdict, and errorClass must be a real class that teaches (a green pass must not mint a
-   * reflection rule). Fold-on-green is unchanged. Fault-isolated in the adapter.
-   */
-  if (deps.reflector && learning.reflect) {
-    /* reflect() is awaited inline so the persisted outcome includes the back-fill before the run closes. */
-    const reflectStartedAt = Date.now();
-    /* Archetype from classificationDiff; undefined outside diff mode, never fabricated. */
-    const archetype = detectArchetype(classificationDiff, classificationIntent?.changedFiles ?? []);
-    await deps.reflector.reflect(toReflectionInput(mainlineOutcome, archetype));
-    const reflectMs = Date.now() - reflectStartedAt;
-    deps.observer?.onEvent({
-      type: "log.line",
-      level: "info",
-      text: `[qa] reflect() for run ${mainlineOutcome.runId} took ${reflectMs}ms`,
-    });
-  }
-
-  /* Same gate as reflect, so processAudit and reflector stay independently optional. */
-  if (deps.processAudit && learning.reflect) {
+  /* Stricter than fold: no flaky verdict, and errorClass must be a real class that teaches. */
+  if (deps.processAudit && learning.audit) {
     /* Audit duration on the existing log.line channel. */
     const auditStartedAt = Date.now();
     await deps.processAudit.audit(mainlineOutcome);

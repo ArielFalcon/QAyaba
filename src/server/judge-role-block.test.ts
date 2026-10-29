@@ -12,8 +12,8 @@ const json = (rel: string): any => JSON.parse(readFileSync(join(root, rel), "utf
 const block = json("agents/pending/qa-judge.opencode-block.json")["qa-judge"];
 const live = json("agents/opencode.json");
 
-test("the pending judge block is tool-less exactly as the reflector is: every tool and MCP server denied, no read block", () => {
-  assert.deepEqual(block.tools, live.agent["qa-reflector"].tools);
+test("the pending judge block is tool-less exactly as the assistant is: every tool and MCP server denied, no read block", () => {
+  assert.deepEqual(block.tools, live.agent["qa-assistant"].tools);
   assert.equal(block.permission, undefined, "a role that cannot read keeps the read denial its tools give it; a permission block would re-open it");
   assert.ok(Object.values(block.tools).every((allowed) => allowed === false));
 });

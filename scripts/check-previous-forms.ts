@@ -99,6 +99,15 @@ export const BANNED_RULES: BannedRule[] = [
     ],
     exemptPrefixes: [RECORDS_PREFIX],
   },
+  {
+    id: "reflector",
+    patterns: [
+      /\b(?:qa-reflector|QA_REFLECTOR_ENABLED|REFLECTOR_TIMEOUT_MS|REFLECTOR_ENABLED_ENV|REFLECT_TIMEOUT_MS)\b/,
+      /\b(?:reflector-switch|reflector-port\.adapter|reflector\.port|resolveReflectorEnabled|ReflectorPort|ReflectorPortAdapter|reflectorPort|reflectorEnabled|reflectorTimeoutMs)\b/,
+      /\b(?:ReflectionInput|toReflectionInput|updateRunOutcomeReflection)\b/,
+    ],
+    exemptPrefixes: [RECORDS_PREFIX],
+  },
   { id: "shell-dead-run-types", patterns: [/\bAgentResult\b/], exemptPrefixes: [RECORDS_PREFIX] },
   { id: "shell-events-reexport", patterns: [/\bsrc\/contract\/events(?:\.ts)?(?![\w.-])/], exemptPrefixes: [RECORDS_PREFIX] },
   {

@@ -48,7 +48,7 @@ qayaba turns every deploy into a QA checkpoint, automatically.
 | **Provider-agnostic runtime** | Runs on OpenCode through one facade. Every role's model is configured in `agents/opencode.json`; the primary, reviewer, and chat assignments can be overridden from the Dashboard or the environment. |
 | **Independent review** | A separate reviewer agent judges every generated test for value. Tests that click without asserting, use fragile selectors, or miss the actual change are rejected before they reach the suite. |
 | **Self-improving suite** | When tests pass and the reviewer approves, they are committed to the app's repository via PR with auto-merge. The suite grows with every deploy and never degrades into "green noise." |
-| **Learning from failures** | Every failed run is reflected on, distilled into a reusable rule, and injected into future runs. Mutation testing measures whether the tests actually catch bugs (valueScore). Rules that correlate with better outcomes are promoted; the rest decay. |
+| **Learning from failures** | Every failed run is distilled into a reusable rule and injected into future runs. Mutation testing measures whether the tests actually catch bugs (valueScore). Rules that correlate with better outcomes are promoted; the rest decay. |
 | **Multi-app, single engine** | One centralized service watches all your team's repos. Each app gets its own namespace for test data and persistent memory. |
 | **Shadow mode** | Onboard a repo without touching it: the full pipeline runs, but PRs and Issues are only logged. Flip the switch when you are ready. |
 
@@ -117,8 +117,7 @@ Every run follows the same sequence, whether triggered by a webhook or manually:
 | **5. Generation** | One author sidekick per flow, in parallel, reads the blast radius using semantic code navigation and writes tests into the repo; the lead reviews each flow and can send it back to the same sidekick or to a fresh one. |
 | **6. Static gate** | TypeScript compilation, ESLint, and Playwright's test list must pass. Invalid code is rejected before execution. |
 | **7. Execution** | Runs tests against the live DEV URL. Results are classified as pass, fail, or flaky. Repairs re-run inside the same fix loop, which owns retries, adjudication, and regression checks. |
-| **8. Reflection** | On failed runs, an LLM reflects on the error and produces a preventive rule. The rule is distilled and stored for future runs. |
-| **9. Decision** | Green and approved: PR with auto-merge. Failures: GitHub Issue. Flaky: quarantined. DEV down: infrastructure error. Every coordination decision made along the way is appended to the telemetry ledger. |
+| **8. Decision** | Green and approved: PR with auto-merge. Failures: GitHub Issue. Flaky: quarantined. DEV down: infrastructure error. Every coordination decision made along the way is appended to the telemetry ledger. |
 
 > [!NOTE]
 > **Shadow mode** (`qa.shadow: true` in the app config) runs the full pipeline but does not publish PRs or open Issues. Use this when onboarding a repo for the first time.
@@ -167,8 +166,7 @@ Beyond deciding pass/fail, qayaba learns from every run to improve future ones:
 | Component | What it does |
 |---|---|
 | **Labeler** | Classifies every run into an error class (E-STATIC, E-EXEC-FAIL, E-FALSE-POSITIVE…) — zero LLM, purely from the gates and reviewer. |
-| **Reflector** | On failed runs, an LLM analyzes the error and produces a structured reflection anchored to real artifacts (assert output, uncovered lines, reviewer corrections). |
-| **Distiller** | Converts reflections into reusable rules — deduplicated, stored, and injected into future agent prompts so the same mistake isn't made twice. |
+| **Distiller** | Converts failures into reusable rules — deduplicated, stored, and injected into future agent prompts so the same mistake isn't made twice. |
 | **Curriculum** | Tracks which scenario archetypes (invalid input, re-query-after-mutation, empty state, …) have caught real bugs. Only proven archetypes are fed to the agent. |
 | **Attribution** | When a rule was retrieved for a run, the run's valueScore updates the rule's successRate. Rules that correlate with good outcomes are promoted. |
 
@@ -252,7 +250,7 @@ The project uses provider-neutral role assignments. The roster, each role's mode
 |---|---|---|
 | `primary` | `qa-lead`, `qa-author`, `qa-explore`, `qa-proposer` | The lead plans and reviews flows (read-only); the author sidekick writes the Playwright tests; the explorer answers the lead's questions (read-only) |
 | `reviewer` | `qa-reviewer` | Read-only quality judge; rejects tests with trivial assertions or fragile patterns |
-| `chat` | `qa-assistant`, `qa-reflector` | Read-only operator assistant and the failure reflector |
+| `chat` | `qa-assistant` | Read-only operator assistant |
 
 Each run reads the context window the agent runtime reports for the models its roles are assigned (`src/agent-runtime/run-context-budget.ts`); the engine keeps no table of models, and a window the runtime does not report cuts nothing.
 

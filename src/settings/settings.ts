@@ -4,7 +4,6 @@ import { inspect } from "node:util";
 import { DEFAULT_PORT, resolveListenHost, resolvePort } from "../server/port";
 import { resolveToolsPort } from "../server/tools-endpoint";
 import { resolveCampaignFreeze } from "../server/campaign-freeze";
-import { resolveReflectorEnabled } from "../server/reflector-switch";
 import { resolveJudgeSwitch, type JudgeSwitch } from "../server/judge-settings";
 import { resolveEgressMode, type EgressMode } from "../server/egress-wiring";
 import { parseCampaignRetentionDays, parseRetentionDays, resolveTelemetryConfig, type TelemetryConfig } from "../telemetry/config";
@@ -74,9 +73,6 @@ export interface Settings {
     readonly stallMs: number;
     readonly coordinationEscalatedModel: string | undefined;
     readonly coordinationTelemetryPath: string | undefined;
-    /* Undefined: the reflector adapter's own budget applies. */
-    readonly reflectorTimeoutMs: number | undefined;
-    readonly reflectorEnabled: boolean;
   };
   readonly git: {
     readonly remoteBase: string;
@@ -218,8 +214,6 @@ export function loadSettings(env: EnvironmentMap): Settings {
       stallMs: r.lenientPositive("OPENCODE_STALL_MS") ?? DEFAULT_STALL_MS,
       coordinationEscalatedModel: r.str("COORDINATION_ESCALATED_MODEL"),
       coordinationTelemetryPath: r.str("COORDINATION_TELEMETRY_PATH"),
-      reflectorTimeoutMs: r.lenientPositive("REFLECTOR_TIMEOUT_MS"),
-      reflectorEnabled: r.run(["QA_REFLECTOR_ENABLED"], () => resolveReflectorEnabled(env), false),
     },
     git: {
       remoteBase: r.str("GIT_REMOTE_BASE") ?? "https://github.com",

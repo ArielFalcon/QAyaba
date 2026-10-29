@@ -236,7 +236,7 @@ The design uses a **phase cursor** instead, a small domain object owned by the u
   carries none of it. `gateSignals.phaseTimings` and `furthestPhase` are on the returned outcome, not on the saved one.
 - Semantics of the record:
   - A timing is time spent inside a region of the run, not the pure cost of a phase. A review-round regeneration
-    counts under `review`; `coverage` is a region only in diff mode; the reflect and audit of a terminal path count
+    counts under `review`; `coverage` is a region only in diff mode; the audit of a terminal path counts
     under whichever phase was open.
   - `generate` is also entered by a regression run that generates nothing, because the existing suite is run there.
   - `learn` is entered only on the mainline decided path, after the outcome is saved. A terminal exit (invalid,
@@ -277,7 +277,7 @@ qayaba.run
 ├─ qayaba.phase.review            invoke_agent qa-reviewer per round, review-dom grounding
 ├─ qayaba.phase.decide            verdict, decision pr|issue|shadow|none
 ├─ qayaba.phase.publish           suite_store.capture, PR/Issue
-└─ qayaba.phase.learn             fold, curriculum fold, reflect, process audit
+└─ qayaba.phase.learn             fold, curriculum fold, process audit
 ```
 
 Rules, from the brief §2.1 and the OTel spec:
@@ -994,7 +994,7 @@ These follow Hamel Husain's evals practice.
   (`POST /evaluations/regrade {graders: ["spec_relevance"]}`, which forces a re-ask). A request naming a judge while judges cannot run
   is a 400 with the reason. They never run for a pass in `failure_root_cause`, and never for a cancelled run.
 - **The judge is a new tool-less role, `qa-judge`**, in `agents/opencode.json`. Its `tools` deny everything (the same map as
-  `qa-reflector`, pinned by a test), so it carries no `read` block (per the credentials invariant); each prompt is also sent with
+  `qa-assistant`, pinned by a test), so it carries no `read` block (per the credentials invariant); each prompt is also sent with
   `withoutTools`. It is deliberately **not** in the role table (`src/agent-runtime/types.ts`): that table routes a run's roles by their
   assignment, and a judge is routed by nobody. `createJudgeAgent` opens it by name in an empty directory
   (`<mirrors>/.qa-judge`). It is OpenCode-only. See §19 for the owner's live step that adds it.

@@ -18,7 +18,7 @@ import { learningGates, observesOperatingSignal } from "@contexts/cross-run-lear
 import type { PublicationPort } from "@contexts/workspace-and-publication/application/index.ts";
 import type { RunQaResult } from "./run-types.ts";
 import type { RunContext, WorkspaceRunContext } from "./run-context.ts";
-import { deriveErrorClass, toReflectionInput, toRunOutcome } from "./outcome-assembly.ts";
+import { deriveErrorClass, toRunOutcome } from "./outcome-assembly.ts";
 import { CRASH_EVIDENCE_EFFECTS, END_EFFECTS, type EndEffects, type EndEvidence, type GroundingSignals, type RunEnd } from "./run-end.ts";
 import type { WorkspaceHandle } from "@contexts/workspace-and-publication/application/index.ts";
 import type { RunState } from "./run-state.ts";
@@ -254,13 +254,8 @@ async function learnFromTerminal(outcome: RunOutcome, terminal: TerminalShape, c
     adjudicationClass: outcome.adjudication?.class,
   });
   if (learning.fold) await deps.learning.fold(outcome);
-  if (deps.reflector && learning.reflect) {
-    const startedAt = Date.now();
-    await deps.reflector.reflect(toReflectionInput(outcome, terminal.archetype ?? null));
-    deps.observer?.onEvent({ type: "log.line", level: "info", text: `[qa] reflect() for run ${outcome.runId} took ${Date.now() - startedAt}ms` });
-  }
-  /* The audit is independently optional, and also sees the operating signal of a class that teaches nothing. */
-  if (deps.processAudit && (learning.reflect || observesOperatingSignal({ mode: input.mode, errorClass: outcome.errorClass }))) {
+  /* The audit also sees the operating signal of a class that teaches nothing. */
+  if (deps.processAudit && (learning.audit || observesOperatingSignal({ mode: input.mode, errorClass: outcome.errorClass }))) {
     const startedAt = Date.now();
     await deps.processAudit.audit(outcome);
     deps.observer?.onEvent({ type: "log.line", level: "info", text: `[qa] processAudit.audit() for run ${outcome.runId} took ${Date.now() - startedAt}ms` });

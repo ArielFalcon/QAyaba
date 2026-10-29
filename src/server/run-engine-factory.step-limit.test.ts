@@ -85,7 +85,7 @@ test("each role's limit is the one the live runtime reports for its own role, an
 
 test("a role the runtime reports no limit for has none, and a limit reported for some other role never stands in for it", async () => {
   assert.deepEqual(await limitsOf(compose(() => reporting({ author: 41 }).facade)), [41, undefined]);
-  assert.deepEqual(await limitsOf(compose(() => reporting({ chat: 5, reflector: 6, explore: 7 }).facade)), [undefined, undefined]);
+  assert.deepEqual(await limitsOf(compose(() => reporting({ chat: 5, proposer: 6, explore: 7 }).facade)), [undefined, undefined]);
 });
 
 test("ONE read of the run's directory serves every role and every prompt, however they ask", async () => {

@@ -19,7 +19,6 @@ import { enqueueTrackedRun } from "./runner";
 import type { ArchitectureContext } from "@contexts/generation/application/index.ts";
 import type { AgentDeps } from "../integrations/opencode-client";
 import { CAMPAIGN_FREEZE_ENV } from "./campaign-freeze";
-import { REFLECTOR_ENABLED_ENV } from "./reflector-switch";
 import { assertTrustedGitTree, defaultMirrorDeps, hardenGitArgs, UntrustedGitTreeError, type MirrorDeps } from "../integrations/repo-mirror";
 import { closeGitDir, GIT_ENV, makeGitlinkRepo, plantNestedRepo, ranPlantedCommand, writeMarkerCommand } from "../../qa-engine/test/shared-infrastructure/process-sandbox/git-fixtures";
 import { SqliteRunHistoryAdapter } from "./run-history-sqlite-adapter";
@@ -104,7 +103,7 @@ function stubAgentDeps(): AgentDeps {
 
 test("buildEngineRootDeps maps an e2e AppConfig into a complete EngineRootDeps", () => {
   const app = cfg("factory-e2e");
-  const config = buildEngineRootDeps(app, { getAgentDeps: stubAgentDeps, env: { [REFLECTOR_ENABLED_ENV]: "true" } }, "qa-bot-abc1234-run1", { mode: "diff" });
+  const config = buildEngineRootDeps(app, { getAgentDeps: stubAgentDeps, env: {} }, "qa-bot-abc1234-run1", { mode: "diff" });
   assert.equal(config.repo, "org/demo");
   assert.equal(config.appName, "factory-e2e");
   assert.equal(config.mode, "diff");
@@ -127,7 +126,6 @@ test("buildEngineRootDeps maps an e2e AppConfig into a complete EngineRootDeps",
   assert.ok(config.publish, "PROD-BLOCKER fix: publish wiring must be wired — without it the 'pr' route throws at publish() time instead of silently opening a PR against an unpushed branch");
   assert.equal(typeof config.checkout, "function");
   assert.ok(config.confinement, "ConfinementPort collaborator must be wired");
-  assert.ok(config.reflectorPort, "reflector-rewire: ReflectorPort collaborator must be wired");
   assert.ok(config.processAudit, "ProcessAuditPort collaborator must be wired");
 });
 
@@ -2634,11 +2632,11 @@ test("a run whose diff shapes are unknown credits every retrieved rule", async (
 
 /* Before this fix, historyLearningStore(appName) never implemented LearningStorePort.selectAllRules,
    so SqliteLearningRepository.listAll() always fell back to its own documented fail-open empty
-   set — ReflectorPortAdapter's anti-respawn dedup (decideDistill against the FULL existing-rule
+   set — the distill anti-respawn dedup (decideDistill against the FULL existing-rule
    set, incl. deprecated/superseded) was fully implemented but structurally inert in production: it
    could never actually see a prior rule to dedup against. This test walks the REAL production
    wiring end to end: upsert a DEPRECATED rule directly into the SAME learning_rules table
-   historyLearningStore(app) reads/writes, then run the distill DECISION the reflector's save path
+   historyLearningStore(app) reads/writes, then run the distill DECISION the save path
    uses (decideDistill against SqliteLearningRepository.listAll(app, ...)'s real output) and assert
    the duplicate is skipped — proving listAll surfaces real rows, not [].
  */
@@ -2686,8 +2684,7 @@ test("historyLearningStore(appName).selectAllRules wiring — SqliteLearningRepo
   assert.ok(existing.some((r) => r.id === deprecatedRuleId), "listAll() must surface the deprecated row — this is the seam the dedup check reads");
   assert.equal(existing.find((r) => r.id === deprecatedRuleId)?.status, "deprecated", "the row's real status must survive the round-trip");
 
-  /* Run the SAME distill decision the reflector's save path runs (reflector-port.adapter.ts's
-     `decideDistill(capped, existing)`), with a candidate whose trigger/action normalize onto the
+  /* Run the SAME distill decision the save path runs (`decideDistill(capped, existing)`), with a candidate whose trigger/action normalize onto the
      SAME ruleKey as the deprecated row above (differs only in casing/whitespace/punctuation).
    */
   const capped = capRuleFields({
@@ -3335,29 +3332,11 @@ test("service staging: declared services are mirrored CONCURRENTLY (Promise.all)
  * QA_CAMPAIGN_FREEZE: the operator switch that stops a run from reading or writing cross-run learning state, so
  * the replicates of an A/B campaign start from the same ground.
  */
-test("without the campaign freeze, the learning, process-audit and curriculum collaborators are wired (the reflector only when its own switch is on)", () => {
-  const config = buildEngineRootDeps(cfg("factory-freeze-off"), { getAgentDeps: stubAgentDeps, env: { [REFLECTOR_ENABLED_ENV]: "true" } }, "qa-bot-abc1234-run1", { mode: "diff" });
+test("without the campaign freeze, the learning, process-audit and curriculum collaborators are wired", () => {
+  const config = buildEngineRootDeps(cfg("factory-freeze-off"), { getAgentDeps: stubAgentDeps, env: {} }, "qa-bot-abc1234-run1", { mode: "diff" });
   assert.ok(config.learningRepo, "learning is wired");
-  assert.ok(config.reflectorPort, "the reflector is wired");
   assert.ok(config.processAudit, "the process audit is wired");
   assert.ok(config.curriculumPort, "the curriculum is wired");
-});
-
-/*
- * QA_REFLECTOR_ENABLED: off by default. The reflector pass does not run and no experiment's rule reaches a prompt,
- * while the deterministic fold and the process audit stay wired.
- */
-test("by default the reflector does not run, and the learning fold and the process audit stay wired", () => {
-  const config = buildEngineRootDeps(cfg("factory-reflector-default"), { getAgentDeps: stubAgentDeps, env: {} }, "qa-bot-abc1234-run1", { mode: "diff" });
-  assert.equal(config.reflectorPort, undefined, "no reflection is asked of an agent");
-  assert.ok(config.learningRepo, "the deterministic rule fold is still wired");
-  assert.ok(config.processAudit, "the process audit is still wired");
-});
-
-test("the reflector is wired when its switch is on, and a mistyped switch stops the composition", () => {
-  const on = buildEngineRootDeps(cfg("factory-reflector-on"), { getAgentDeps: stubAgentDeps, env: { [REFLECTOR_ENABLED_ENV]: "1" } }, "qa-bot-abc1234-run1", { mode: "diff" });
-  assert.ok(on.reflectorPort);
-  assert.throws(() => buildEngineRootDeps(cfg("factory-reflector-typo"), { getAgentDeps: stubAgentDeps, env: { [REFLECTOR_ENABLED_ENV]: "yes" } }, "qa-bot-abc1234-run1", { mode: "diff" }), new RegExp(REFLECTOR_ENABLED_ENV));
 });
 
 test("by default only a proven rule is retrieved for a prompt: a candidate, a low-confidence active rule and a quarantined one are not", async () => {
@@ -3367,17 +3346,15 @@ test("by default only a proven rule is retrieved for a prompt: a candidate, a lo
   getHistory().learning.upsertLearningRule({ id: "quarantined", app, trigger: "t-q", action: "a", errorClass: "E-STATIC", source: "r", initialStatus: "active" });
   for (let i = 0; i < 4; i++) { getHistory().learning.recordRuleOutcome("proven", 1, null, true); getHistory().learning.recordRuleOutcome("quarantined", 1, null, true); }
   getHistory().learning.quarantineLearningRules(app, ["quarantined"], "2026-10-12T00:00:00.000Z");
-  const retrieve = async (env: Record<string, string>) =>
-    (await buildEngineRootDeps(cfg(app), { getAgentDeps: stubAgentDeps, env }, "qa-bot-abc1234-run1", { mode: "diff" }).learningRepo!.topRules(app, Sha.of("abc1234"), 10)).map((r) => r.id);
-  assert.deepEqual(await retrieve({}), ["proven"]);
-  assert.deepEqual((await retrieve({ [REFLECTOR_ENABLED_ENV]: "true" })).sort(), ["cand", "proven"], "with the switch on the experiments are injected again; the quarantine still holds");
+  const retrieve = async () =>
+    (await buildEngineRootDeps(cfg(app), { getAgentDeps: stubAgentDeps, env: {} }, "qa-bot-abc1234-run1", { mode: "diff" }).learningRepo!.topRules(app, Sha.of("abc1234"), 10)).map((r) => r.id);
+  assert.deepEqual(await retrieve(), ["proven"]);
 });
 
-test("with the campaign freeze on, a run neither learns nor reflects nor audits nor reads the curriculum", () => {
+test("with the campaign freeze on, a run neither learns nor audits nor reads the curriculum", () => {
   const env = { [CAMPAIGN_FREEZE_ENV]: "1" };
   const config = buildEngineRootDeps(cfg("factory-freeze-on"), { getAgentDeps: stubAgentDeps, env }, "qa-bot-abc1234-run1", { mode: "diff" });
   assert.equal(config.learningRepo, undefined, "no rule is retrieved or folded");
-  assert.equal(config.reflectorPort, undefined, "the reflector does not run");
   assert.equal(config.processAudit, undefined, "no context is marked stale");
   assert.equal(config.curriculumPort, undefined, "no archetype is selected or folded");
   assert.ok(config.contextMapCapture, "a context-mode run still stores the map it builds");

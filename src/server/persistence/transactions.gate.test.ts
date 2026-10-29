@@ -110,7 +110,6 @@ function writingCalls(h: History): Record<string, () => unknown> {
     "EvaluationRepository.failInterruptedRegradeJobs": () => h.evaluations.failInterruptedRegradeJobs("2026-10-01T00:00:01.000Z"),
     "LearningRepository.saveRunOutcome": () => h.learning.saveRunOutcome(outcome as never),
     "LearningRepository.saveCrashedRunOutcome": () => h.learning.saveCrashedRunOutcome(h.runs.getRecord(run.id)!, "E-INFRA" as never),
-    "LearningRepository.updateRunOutcomeReflection": () => h.learning.updateRunOutcomeReflection("r", {} as never),
     "LearningRepository.upsertLearningRule": () => h.learning.upsertLearningRule({ id: "rule-1", app: "app", trigger: "t", action: "a", errorClass: "E-INFRA", source: "test" } as never),
     "LearningRepository.incrementRuleUsage": () => h.learning.incrementRuleUsage(["rule-1"]),
     "LearningRepository.recordRuleOutcome": () => h.learning.recordRuleOutcome("rule-1", 1),

@@ -257,8 +257,8 @@ describe("seam-parity: COMPOSITION (EngineRootDeps vs buildEngineRootDeps)", () 
     confinement: "IS supplied (WriteConfinementAdapter wrapping realGit + realpathSync/lstatSync) — asserted below as a present case.",
     /* (a ProcessAuditPortAdapter wrapping the learning repository's listRunOutcomes/listLearningRules reads + the
        2 sinks setRuleStatusByHuman/markContextStale) — wired UNCONDITIONALLY (fail-open
-       fault isolation, not app-config gated), the SAME "IS supplied" precedent confinement/
-       reflectorPort establish immediately above. Asserted below as a present case.
+       fault isolation, not app-config gated), the SAME "IS supplied" precedent confinement
+       establishes immediately above. Asserted below as a present case.
      */
     processAudit: "IS supplied (ProcessAuditPortAdapter wrapping learning repository reads + setRuleStatusByHuman/markContextStale sinks) — asserted below as a present case.",
     /* wrapping realGit's own local `git gc --auto --quiet`, no auth decoration) — wired

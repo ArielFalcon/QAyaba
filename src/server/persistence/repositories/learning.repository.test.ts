@@ -160,31 +160,6 @@ test("loadCurriculum: a corrupt row is logged loudly and reported as a distinct 
   }
 });
 
-test("updateRunOutcomeReflection back-fills the reflection that was null at verdict time", () => {
-  const app = "reflect-app";
-  getHistory().purgeApp(app); /* self-isolate: the history DB is a module-global singleton */
-  try {
-    const outcome: RunOutcome = {
-      runId: "run-reflect-1", app, sha: "abc1234", mode: "diff", target: "e2e",
-      verdict: "fail", errorClass: "E-EXEC-FAIL",
-      gateSignals: { static: true, coverageRatio: null, valueScore: null, reviewerCorrections: [], flaky: false, retries: 0 },
-      rulesRetrieved: [], at: "2026-06-13T00:00:00.000Z",
-    };
-    getHistory().learning.saveRunOutcome(outcome); /* persisted at verdict time WITHOUT a reflection */
-    assert.equal(getHistory().learning.listRunOutcomes(app)[0]?.reflection, undefined);
-
-    const reflection: StructuredReflection = {
-      goal: "test the discount", decision: "asserted only visibility", assumption: "button present",
-      errorClass: "E-EXEC-FAIL", gateSignal: "fail", evidence: "selector timed out",
-      rootCause: "wrong selector", preventiveRule: { trigger: "discount flow", action: "scope the locator" },
-    };
-    getHistory().learning.updateRunOutcomeReflection("run-reflect-1", reflection);
-    assert.deepEqual(getHistory().learning.listRunOutcomes(app)[0]?.reflection, reflection);
-  } finally {
-    getHistory().purgeApp(app);
-  }
-});
-
 test("getRunOutcome returns the single run's outcome and round-trips the reviewer verdict", () => {
   const app = "value-report-app";
   getHistory().purgeApp(app); /* self-isolate: the history DB is a module-global singleton */

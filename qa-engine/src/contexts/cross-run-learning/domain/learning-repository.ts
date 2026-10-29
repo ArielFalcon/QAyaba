@@ -20,32 +20,3 @@ export interface LearningRule {
   /** When an operator quarantined the rule (set aside without deleting it): a quarantined rule is never retrieved and never folded onto. Absent or null: in force. */
   quarantinedAt?: string | null;
 }
-
-export interface StructuredReflection {
-  goal: string;
-  decision: string;
-  assumption: string;
-  errorClass: ErrorClass;
-  gateSignal: string;
-  evidence: string;
-  rootCause: string;
-  preventiveRule: { trigger: string; action: string };
-}
-
-export interface ReflectionInput {
-  runId: string;
-  app: string;
-  sha: string;
-  mode: string;
-  verdict: string;
-  errorClass: ErrorClass;
-  gateSignals: {
-    static: boolean;
-    coverageRatio: number | null;
-    valueScore: number | null;
-    reviewerCorrections: string[];
-    flaky: boolean;
-    retries: number;
-  };
-  archetype?: string | null;
-}

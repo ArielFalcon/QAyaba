@@ -1,6 +1,5 @@
 /*
- * How a run's record is assembled: the error class a verdict resolves to, the outcome a run persists for its decision, and the narrow
- * view of that outcome the reflector learns from. One place, so every way a run ends describes itself in the same terms.
+ * How a run's record is assembled: the error class a verdict resolves to, and the outcome a run persists for its decision. One place, so every way a run ends describes itself in the same terms.
  */
 
 import type { RunOutcome } from "@kernel/run-outcome.ts";
@@ -9,7 +8,6 @@ import type { AgentBrowserGateSignal } from "@kernel/agent-browser.ts";
 import type { GenerationEndKind } from "@kernel/generation-end.ts";
 import type { NoopKind } from "@kernel/noop-kind.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
-import type { ReflectionInput } from "@contexts/cross-run-learning/application/index.ts";
 import { resolveErrorClass } from "@kernel/error-class.ts";
 import type { RunDecision } from "../../domain/run-decision.ts";
 import type { RunContext } from "./run-context.ts";
@@ -124,35 +122,6 @@ export function deriveErrorClass(
     ...(ends.reviewDisputed ? { reviewDisputed: true } : {}),
     ...(sandboxUnavailable ? { sandboxUnavailable: true } : {}),
   });
-}
-
-/*
- * Narrow ReflectionInput from an already-persisted RunOutcome only — no repo
- * reads. logs/note are unreachable here so a reflection prompt cannot leak them.
- * archetype is computed by the caller (outcome carries no diff).
- */
-export function toReflectionInput(outcome: RunOutcome, archetype: string | null): ReflectionInput {
-  return {
-    runId: outcome.runId,
-    app: outcome.app,
-    sha: outcome.sha,
-    mode: outcome.mode,
-    verdict: outcome.verdict,
-    /*
-     * errorClass is string | null on the outcome. Coalesce to "" defensively; the
-     * reflect gate already requires a non-null non-empty class before this is called.
-     */
-    errorClass: outcome.errorClass ?? "",
-    gateSignals: {
-      static: outcome.gateSignals.static,
-      coverageRatio: outcome.gateSignals.coverageRatio,
-      valueScore: outcome.gateSignals.valueScore,
-      reviewerCorrections: outcome.gateSignals.reviewerCorrections,
-      flaky: outcome.gateSignals.flaky,
-      retries: outcome.gateSignals.retries,
-    },
-    archetype,
-  };
 }
 
 /** The outcome the run persists for a decision, bound to this run's input. */

@@ -2,7 +2,7 @@
    orchestrator as an MCP server, but kept its best idea: "the agent only reads + proposes". The two
    dangerous ways that erodes silently are (a) adding an MCP server that can execute the
    authoritative test suite or reach the orchestrator's write path, and (b) flipping a read-only
-   judge/assistant/reflector to writable or MCP-capable. Both should force a pause.
+   judge/assistant to writable or MCP-capable. Both should force a pause.
    array. It does not exist in the OpenCode 1.17.7 SDK's `AgentConfig` — verified
    against `node_modules/@opencode-ai/sdk/dist/gen/types.gen.d.ts`, which declares `tools?:
    {[key:string]: boolean}`, `maxSteps?: number`, `permission?`, `mode?`, and NO `mcp` key. The old
@@ -478,27 +478,11 @@ test("the run-Q&A assistant is tool-less: no fs/shell tools and NO MCP at all", 
   for (const server of MCP_ALLOWLIST) assertMcpServerDenied("qa-assistant", tools, server);
 });
 
-test("the reflector is tool-less: no fs/shell tools and NO MCP at all (a pure failure->rule transform)", () => {
-  const { agents } = loadAgentConfig();
-  const reflector = agents["qa-reflector"];
-  assert.ok(reflector, "expected a qa-reflector agent");
-  const tools = agentTools(reflector);
-  assert.ok(Object.keys(tools).length > 0, "qa-reflector must declare an explicit tools block");
-  for (const cap of ["write", "edit", "bash", "read"]) {
-    assert.notEqual(tools[cap], true, `qa-reflector must not have ${cap}`);
-  }
-  /* The reflector holds NO MCP at all. Reflection is a
-     pure transform of the provided failure context into a rule; any recall/memory access would make
-     it non-deterministic and let it touch state beyond the prompt.
-   */
-  for (const server of MCP_ALLOWLIST) assertMcpServerDenied("qa-reflector", tools, server);
-});
-
 test("read-only roles in the capability policy map to non-writable OpenCode agents (no drift)", () => {
   /* Ties the provider-agnostic policy (capabilitiesForRole) to its OpenCode enforcement
      (opencode.json tools{}). Without this they could silently diverge: a role declared read-only in
      the policy could still map to a write-capable agent, re-opening exactly the gap this work closed.
-     The mutating caps (write/edit/bash) are the security-relevant ones for a read-only judge/reflector.
+     The mutating caps (write/edit/bash) are the security-relevant ones for a read-only judge.
    */
   const { agents } = loadAgentConfig();
   let checkedReadOnly = 0;
@@ -516,8 +500,7 @@ test("read-only roles in the capability policy map to non-writable OpenCode agen
       );
     }
   }
-  /* Meaningfulness guard: the loop actually exercised the read-only roles (reviewer, chat, reflector,
-     proposer).
+  /* Meaningfulness guard: the loop actually exercised the read-only roles (reviewer, chat, proposer).
    */
   assert.ok(checkedReadOnly >= 4, `expected >=4 read-only roles checked against opencode.json, got ${checkedReadOnly}`);
 });
@@ -713,7 +696,7 @@ test("no role can read an env file, a stored login session or the orchestrator's
   /* The runtime's default allows every read, asks for an env file and is followed by the role's own
      `tools.read: true` (`read * allow`): a rule that only the role's `permission` block, merged last, can outweigh. */
   const configured = recordedAgents().filter((agent) => agent.name.startsWith("qa-"));
-  assert.ok(configured.length >= 7, `expected every configured role, got ${configured.length}`);
+  assert.ok(configured.length >= 6, `expected every configured role, got ${configured.length}`);
   for (const agent of configured) {
     for (const path of SECRET_PATHS) {
       assert.equal(readDecision(agent.permission, path), "deny", `"${agent.name}" resolves a read of ${path} to ${readDecision(agent.permission, path)}`);

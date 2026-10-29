@@ -39,7 +39,7 @@ const CONFIG: AgentRuntimeConfig = {
   },
 };
 
-/* The reviewer and the chat tier (the chat role and the reflector that rides it) run on the other runtime; every other role runs on opencode. */
+/* The reviewer and the chat tier (the chat role) run on the other runtime; every other role runs on opencode. */
 const SPLIT_CONFIG: AgentRuntimeConfig = {
   assignments: {
     primary: CONFIG.assignments.primary,
@@ -47,7 +47,7 @@ const SPLIT_CONFIG: AgentRuntimeConfig = {
     chat: { provider: OTHER, model: "fixture-runtime/chat" },
   },
 };
-const RUN_BY_OTHER_IN_SPLIT_CONFIG: readonly AgentRole[] = ["reviewer", "chat", "reflector"];
+const RUN_BY_OTHER_IN_SPLIT_CONFIG: readonly AgentRole[] = ["reviewer", "chat"];
 
 function single(calls: AgentRole[] = [], models: Array<string | undefined> = []): AgentRuntimeFacade {
   return new AgentRuntimeFacade({ opencode: strategy("opencode", calls, models) }, CONFIG);

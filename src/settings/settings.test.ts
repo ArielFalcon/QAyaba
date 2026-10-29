@@ -26,7 +26,6 @@ test("a minimal environment yields the defaults each parser yields on its own", 
   assert.equal(settings.agent.reviewerTimeoutMs, DEFAULT_REVIEWER_TIMEOUT_MS);
   assert.equal(settings.agent.stallMs, DEFAULT_STALL_MS);
   assert.equal(settings.agent.timeoutMs, undefined);
-  assert.equal(settings.agent.reflectorEnabled, false);
   assert.equal(settings.sandbox.egressMode, "enforce");
   assert.equal(settings.run.campaignFrozen, false);
   assert.equal(settings.run.runTimeBudgets["diff-tiny"], resolveRunTimeBudgets({})["diff-tiny"]);

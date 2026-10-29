@@ -518,7 +518,7 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   (validation, a Playwright execution) are not cut: they have their own timeouts and the next agent turn
   meets the deadline. The deadline is the one time authority: the first generation pass is bounded by the smaller of its tier budget and what the deadline has left (`RunDeadline.allowance`), and a fix-loop regeneration starts only while the deadline has time left and the configured `wallClockBudgetMs` is not spent (`regenerationAllowed`); neither stops a turn already running. A deadline that expires after a suite ran green on its final bytes degrades the run to publication with the proven suite when no review verdict is required (`deadline-after-proof`). An audit signal, not a lesson: a streak of `E-TIME-BUDGET` ends reaches the process audit alone
   (`observesOperatingSignal`), which logs an observe-only `recurring-time-exhaustion` finding; it never
-  folds, reflects or changes a rule.
+  folds or changes a rule.
 - **Contract repair** — the re-prompt that only restates a verdict (author or reviewer) runs with tools
   disabled (`AgentPromptOpts.withoutTools`; OpenCode sends a per-prompt `tools` deny map) and under its own short timeout (`REPAIR_TURN_TIMEOUT_MS`,
   2 min, further cut to the time left). A repair that outlasts its cap leaves the first answer standing:
@@ -594,19 +594,12 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   `E-PRECONDITION`, or `BREAK_NEEDS_HUMAN` for a possible regression); the PR or Issue lists every `change-introduced`
   route and every possible regression; `gateSignals.routeAvailability` records the counts. A signal, never a gate.
 - **Cross-run learning** — `qa-engine/src/contexts/cross-run-learning/`: deterministic
-  rule fold, rule governance, curriculum, and the `qa-reflector` pass (distils
-  `candidate`/`low`-confidence rules only; flaky/infra verdicts excluded). No agent keeps a memory of its own across
+  rule fold, rule governance, curriculum and the process audit. No agent keeps a memory of its own across
   runs: an agent memory held what the agent believed, with no SHA, no expiry and no check against DEV,
   and later runs read those beliefs as facts over what the Context Pack read live; what a run reuses
-  comes from the orchestrator (the suite store, this ledger, the Context Pack). **The reflector is OFF by default** (`QA_REFLECTOR_ENABLED=true`
-  turns it back on; `src/server/reflector-switch.ts`): it was handed a fragment of a run without its
-  real error text and invented a cause from a false-positive gate signal, and the resulting rule
-  told a shell-less author to run `tsc`. With it off, no reflection is asked of an agent, and the
-  composition root builds `SqliteLearningRepository` with `{ reflectorUnproven: false }`, so a rule the
-  reflector authored reaches a prompt only once proven (active, confidence above low, earned from measured
-  outcomes); no reflector candidate or "experimental" rule is injected or credited. A rule whose `source`
-  carries the deterministic-distiller prefix keeps its normal governance (exploration slots included); every
-  other rule, those stored before authorship was recorded too, counts as the reflector's. The fold, governance and the process audit
+  comes from the orchestrator (the suite store, this ledger, the Context Pack). No agent writes a rule: the
+  composition root builds `SqliteLearningRepository` with `{ reflectorUnproven: false }`, so only a rule that earned its place
+  (active, confidence above low, earned from measured outcomes) reaches a prompt. The fold, governance and the process audit
   stay on. **Quarantine**: `npm run learning:quarantine -- --app <app> --since <ISO date> [--dry-run]`
   (inside the orchestrator container) marks every in-force rule the app learned at or after the date
   (`learning_rules.quarantined_at`; `QuarantineLearnedRulesUseCase`). It deletes nothing, is idempotent,
@@ -621,7 +614,7 @@ OpenCode is the one strategy today and another runtime is added as a strategy be
 facade. The agents are the lead (`qa-lead`, plans and reviews, read-only), the author
 (`qa-author`, the one agent that writes tests, for a flow or for the run's own task), the
 explorer (`qa-explore`, read-only, asked for by the lead before it plans) and the reviewer
-(`qa-reviewer`), beside the assistant, reflector and proposer. `agents/opencode.json`
+(`qa-reviewer`), beside the assistant and proposer. `agents/opencode.json`
 is the source of truth for the roster, models and per-role step limits (`maxSteps`). A role's model resolves in one place (`modelForRole`,
 `src/agent-runtime/types.ts`), for the session it opens, for the context window its prompts are fitted to and for the reviewer-independence
 record: a model the caller asks for (an escalated replacement) > the operator's `AGENT_<TIER>_MODEL` (or the model saved from the Agent

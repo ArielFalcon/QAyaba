@@ -151,8 +151,6 @@ import { SqliteLearningRepository } from "@contexts/cross-run-learning/infrastru
 import type { LearningStorePort } from "@contexts/cross-run-learning/application/index";
 import { resolveCampaignFreeze } from "./campaign-freeze";
 import { agentBrowserEnabled, closedLoopEnabled, serviceTopologyWired, toolsApply } from "./run-config-gates";
-import { resolveReflectorEnabled } from "./reflector-switch";
-import { ReflectorPortAdapter, REFLECT_TIMEOUT_MS } from "@contexts/cross-run-learning/infrastructure/reflector-port.adapter";
 import { ProcessAuditPortAdapter } from "@contexts/cross-run-learning/infrastructure/process-audit-port.adapter";
 import { CurriculumPortAdapter } from "@contexts/cross-run-learning/infrastructure/curriculum-port.adapter";
 import { YamlBoundaryProfileAdapter } from "@contexts/service-topology/infrastructure/yaml-boundary-profile.adapter";
@@ -736,8 +734,6 @@ export function buildEngineRootDeps(
    * composition root reads as "not wired" (a provable no-op), never as a stub that pretends to learn.
    */
   const campaignFrozen = resolveCampaignFreeze(deps.env ?? activeEnvironment());
-  /* OFF by default (QA_REFLECTOR_ENABLED, see reflector-switch.ts): no reflection pass, and only proven rules reach a prompt. */
-  const reflectorEnabled = resolveReflectorEnabled(deps.env ?? activeEnvironment());
 
   const triggerService =
     run.triggerRepo && run.triggerRepo !== app.repo
@@ -876,7 +872,7 @@ export function buildEngineRootDeps(
    * after classification and read by every agent turn of the run through the bounded runtime below, so no turn (a
    * regeneration, a fix-loop round, a repair, the coverage regen, the reviewer, a sidekick) outlives it.
    * QA_RUN_TIME_BUDGET_MS_* override a kind of run's time; read here once because qa-engine reads no environment. A
-   * mistyped value throws. The reflector keeps the unbounded runtime: it runs after the run's verdict is made.
+   * mistyped value throws.
    */
   const runDeadline = new RunDeadline({ now: deps.now ?? Date.now, budgets: resolveRunTimeBudgets(deps.env ?? activeEnvironment()) });
   const boundedRuntime = new RunDeadlineRuntime(runtimeAdapter, runDeadline, { hostPromptCapMs: agentPromptCapMs() });
@@ -983,7 +979,7 @@ export function buildEngineRootDeps(
 
 
   /* Built even when frozen (cheap, no I/O): the frozen config simply does not hand it to the engine. */
-  const learningRepo = new SqliteLearningRepository(historyLearningStore(app.name), { reflectorUnproven: reflectorEnabled }, redactionPort);
+  const learningRepo = new SqliteLearningRepository(historyLearningStore(app.name), { reflectorUnproven: false }, redactionPort);
 
 
   const setupAdapter = buildSetupAdapter(exec, codeSandbox);
@@ -1403,22 +1399,6 @@ export function buildEngineRootDeps(
     ...(deps.historyFilePath ? { historyFilePath: deps.historyFilePath } : { runHistory: new SqliteRunHistoryAdapter() }),
 
     ...(campaignFrozen ? {} : { learningRepo }),
-    /*
-     * This factory is the one module that may import both qa-engine @contexts aliases and root
-     * src/, so it is the only place that can construct ReflectorPortAdapter: same runtimeAdapter
-     * as review, same learningRepo, and host-side backfill via updateRunOutcomeReflection.
-     * REFLECTOR_TIMEOUT_MS comes from the settings; unset falls back to the adapter's REFLECT_TIMEOUT_MS.
-     */
-    ...(campaignFrozen || !reflectorEnabled ? {} : { reflectorPort: new ReflectorPortAdapter({
-      runtime: runtimeAdapter,
-      repo: learningRepo,
-
-      backfill: (runId, refl) => getHistory().learning.updateRunOutcomeReflection(runId, refl as import("../types").StructuredReflection),
-      cwd: mirrorDir,
-      app: app.name,
-      timeoutMs: activeSettings().agent.reflectorTimeoutMs ?? REFLECT_TIMEOUT_MS,
-    }) }),
-
     ...(campaignFrozen ? {} : { processAudit: new ProcessAuditPortAdapter({
       app: app.name,
       readRecentOutcomes: (a, limit) => getHistory().learning.listRunOutcomes(a, limit),

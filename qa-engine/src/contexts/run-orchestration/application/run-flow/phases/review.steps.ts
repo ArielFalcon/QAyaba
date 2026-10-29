@@ -7,7 +7,6 @@ import { BlastRadius } from "@kernel/blast-radius.ts";
 import { hasGreenBytes } from "@kernel/run-verdict.ts";
 import { correctionClassOf } from "@contexts/generation/application/index.ts";
 import { renderSpecChanges, sameReviewedSpecs, type ReviewSpecText } from "@contexts/generation/application/index.ts";
-import { detectArchetype } from "@contexts/cross-run-learning/application/index.ts";
 import type { SpecRoot } from "@kernel/ports/spec-files.port.ts";
 import { precheckSpecsAgainstDom } from "@contexts/generation/application/index.ts";
 import { specRelDirOf } from "@kernel/spec-path.ts";
@@ -46,13 +45,11 @@ const advisoryReview = (session: ReviewSession): boolean => session.finalRunVerd
 /* What the terminal exits of the review know about the run so far. */
 async function exitFactsOf(state: Readonly<RunState>, ctx: WorkspaceRunContext) {
   const { trail, services } = ctx;
-  const { diff, intent } = state.classification;
   return {
     static: state.execution.validation.ok,
     retries: state.execution.retries,
     rulesRetrieved: state.grounding.retrievedRuleIds,
     diffArchetypes: state.grounding.diffArchetypes,
-    archetype: detectArchetype(diff, intent?.changedFiles ?? []),
     confinement: services.confinement.totals,
     tested: resolveTested(state),
     closedLoop: await closedLoopSignal(state, ctx),

@@ -9,7 +9,6 @@ import { NOOP_KIND } from "@kernel/noop-kind.ts";
 import { attributeContradictions } from "../../../domain/helpers/contradiction-attribution.ts";
 import { engineSideCauseOf, terminalForGenerationEnd } from "../../../domain/helpers/generation-end-terminal.ts";
 import { checkPreExecGrounding } from "@contexts/generation/application/index.ts";
-import { detectArchetype } from "@contexts/cross-run-learning/application/index.ts";
 import type { GenerationOutput } from "@contexts/generation/application/index.ts";
 import type { CoordinateResult, FlowCandidates } from "@contexts/coordination/application/index.ts";
 import { end, type StepOutcome } from "../run-flow.ts";
@@ -174,7 +173,6 @@ export async function generateFirstPass(state: Readonly<RunState>, ctx: Workspac
 export async function settleGenerationEnd(state: Readonly<RunState>, ctx: WorkspaceRunContext): Result {
   const { deps, trail, services } = ctx;
   const { generated } = state.generation;
-  const { diff: classificationDiff, intent: classificationIntent } = state.classification;
   const { retrievedRuleIds, diffArchetypes, moreNodes: groundingMoreNodes } = state.grounding;
   const agentBrowserSignal = () => trail.agentBrowser?.signals();
   if (generated.end !== null) {
@@ -219,7 +217,6 @@ export async function settleGenerationEnd(state: Readonly<RunState>, ctx: Worksp
         note: endNote,
         rulesRetrieved: retrievedRuleIds,
         diffArchetypes,
-        archetype: detectArchetype(classificationDiff, classificationIntent?.changedFiles ?? []),
         confinement: services.confinement.totals,
         closedLoop: await closedLoopSignal(state, ctx),
         agentBrowser: agentBrowserSignal(),

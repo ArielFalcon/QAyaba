@@ -3,7 +3,7 @@
    distill-rule.ts (ruleKey/decideDistill) — the shell's dead deduplicateRules/ruleKey were already
    twins of these before a4827f5 deleted them (see that commit's own message). decideDistill is a
    per-candidate API (existingRules in, one decision out), unlike the shell's batch-shaped
-   deduplicateRules({toInsert,toSkip}) — the only live caller (ReflectorPortAdapter.reflect) never
+   deduplicateRules({toInsert,toSkip}) — the only live caller never
    distills more than one candidate per call, so there is no batch entry point to retarget the old
    "deduplicates within the same batch" case onto directly. The last test below recasts it as
    what a caller processing several candidates in one pass WOULD have to do with this API: fold

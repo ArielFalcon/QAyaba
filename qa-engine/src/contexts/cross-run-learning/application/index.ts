@@ -10,10 +10,9 @@ export type { LearningRow, ScorecardEntryInput } from "../domain/learning-store-
 export type { LearningRepositoryPort } from "./ports/learning-repository.port.ts";
 export type { LearningPort } from "./ports/learning.port.ts";
 export type { ProcessAuditPort } from "./ports/process-audit.port.ts";
-export type { ReflectorPort } from "./ports/reflector.port.ts";
 export { CURRICULUM_CORRUPT, MAX_SELECTED_EXEMPLARS } from "../domain/curriculum-model.ts";
 export type { CurriculumFoldInput } from "../domain/curriculum-model.ts";
-export type { LearningRule, ReflectionInput, RuleStatus } from "../domain/learning-repository.ts";
+export type { LearningRule, RuleStatus } from "../domain/learning-repository.ts";
 export type { RelevanceBias } from "../domain/learning.ts";
 export { QuarantineLearnedRulesUseCase } from "./quarantine-learned-rules.use-case.ts";
 export type { QuarantineReport } from "./quarantine-learned-rules.use-case.ts";

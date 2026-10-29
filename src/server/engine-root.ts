@@ -64,7 +64,7 @@ import type { E2eExecutionStrategy } from "@contexts/test-execution/infrastructu
 import type { CoveragePolicy, ChangeCoverage } from "@contexts/objective-signal/application/index";
 import type { BundleMutationPort, CoverageCollectorPort, ValueOraclePort } from "@contexts/objective-signal/application/index";
 import type { VcsReadPort } from "@contexts/change-analysis/application/index";
-import type { LearningRepositoryPort, ReflectorPort, ProcessAuditPort } from "@contexts/cross-run-learning/application/index";
+import type { LearningRepositoryPort, ProcessAuditPort } from "@contexts/cross-run-learning/application/index";
 
 /* The code graph of an app, built by its context: the factory builds a run's graph with it and onboarding builds its first index with it. */
 /* The builders and deps types the shell and its tests reach, so engine-root.ts is the one shell module that imports a composition module. */
@@ -242,8 +242,6 @@ export interface EngineRootDeps {
 
   /* LearningPort collaborator. v1 default: StubLearningRepository (a provable no-op) when absent. */
   learningRepo?: LearningRepositoryPort;
-
-  reflectorPort?: ReflectorPort;
 
   /* Write confinement. Optional, no stub: absent omits RunQaUseCaseDeps.confinement. The shell factory constructs WriteConfinementAdapter (needs src-only git/fs); this root must not import that adapter, and binds it to the run's handle. */
   confinement?: PathConfinementCollaborator;
@@ -447,7 +445,6 @@ function assemble(cfg: EngineRootDeps): RunOrchestrationApi {
   const learningApi = buildCrossRunLearning({
     appName: cfg.appName,
     ...(cfg.learningRepo ? { learningRepo: cfg.learningRepo } : {}),
-    ...(cfg.reflectorPort ? { reflector: cfg.reflectorPort } : {}),
     ...(cfg.curriculumPort ? { curriculum: cfg.curriculumPort } : {}),
     ...(cfg.processAudit ? { processAudit: cfg.processAudit } : {}),
   });
@@ -506,7 +503,6 @@ function assemble(cfg: EngineRootDeps): RunOrchestrationApi {
     ...(serviceLinks ? { serviceLinks } : {}),
     ...(crossRepoImpact ? { crossRepoImpact } : {}),
     ...(cfg.observer ? { observer: cfg.observer } : {}),
-    ...(learningApi.reflector ? { reflector: learningApi.reflector } : {}),
     /* Absent confinement and mirror gc are omitted entirely: never a fabricated no-op stub. */
     ...(workspaceAndPublication.confinement ? { confinement: workspaceAndPublication.confinement } : {}),
     ...(workspaceAndPublication.mirrorGc ? { mirrorGc: workspaceAndPublication.mirrorGc } : {}),

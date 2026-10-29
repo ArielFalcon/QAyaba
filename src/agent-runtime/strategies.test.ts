@@ -8,16 +8,16 @@ import type { AgentDeps } from "../integrations/opencode-client";
 /* Capability policy is expressed ONCE, provider-agnostic; each strategy enforces it with its own
    mechanism (OpenCode tools{} map). The judge must not be able to write.
  */
-test("capabilitiesForRole: the judge / chat / reflector are read-only; authoring roles can write", () => {
-  for (const role of ["reviewer", "chat", "reflector"] as const) {
+test("capabilitiesForRole: the judge / chat / proposer are read-only; authoring roles can write", () => {
+  for (const role of ["reviewer", "chat", "proposer"] as const) {
     assert.equal(capabilitiesForRole(role).canWrite, false, `${role} must be read-only`);
   }
   assert.equal(capabilitiesForRole("author").canWrite, true, "author must be able to write");
 });
 
-test("roleForAgentName maps qa-reflector to the read-only reflector role", () => {
-  assert.equal(roleForAgentName("qa-reflector"), "reflector");
-  assert.equal(capabilitiesForRole("reflector").canWrite, false);
+test("roleForAgentName maps qa-proposer to the read-only proposer role", () => {
+  assert.equal(roleForAgentName("qa-proposer"), "proposer");
+  assert.equal(capabilitiesForRole("proposer").canWrite, false);
 });
 
 test("roleForAgentName resolves every role's agent name back to that role", () => {

@@ -42,7 +42,7 @@ import type { TelemetryPort } from "@kernel/telemetry/telemetry.port.ts";
 import type { PreconditionKind } from "@contexts/app-catalog/application/index.ts";
 import type { CoordinationTelemetryPort } from "@contexts/coordination/application/index.ts";
 import type { IntentContractPort } from "@contexts/objective-signal/application/index.ts";
-import type { ReflectorPort, ProcessAuditPort } from "@contexts/cross-run-learning/application/index.ts";
+import type { ProcessAuditPort } from "@contexts/cross-run-learning/application/index.ts";
 
 /** A login the run could not complete: the kind, a note already scrubbed of credentials, and the attempt's duration. */
 export interface PreconditionFailure {
@@ -177,19 +177,14 @@ export interface RunQaUseCaseDeps {
    */
   crossRepoImpact?: CrossRepoImpactPort;
   /**
-   * Invoked after learning.fold(), gated stricter than the fold: no flaky/
-   * E-INFRA/E-FLAKY. Fault-isolated inside the adapter — no extra try/catch here.
-   */
-  reflector?: ReflectorPort;
-  /**
    * After every generate() and once more immediately before every publish().
    * A thrown enforce() is caught here, logged, and never alters the verdict or
    * blocks publish. Results this run are merged into one gateSignals.confinement.
    */
   confinement?: ConfinementPort;
   /**
-   * Same gate as reflector, checked independently so one collaborator being
-   * absent never affects the other. Fault-isolated inside the adapter.
+   * Gated by `learningGates().audit` (stricter than the fold: no flaky/E-INFRA/E-FLAKY) and, for the
+   * operating signal, by `observesOperatingSignal`. Fault-isolated inside the adapter.
    */
   processAudit?: ProcessAuditPort;
   /**

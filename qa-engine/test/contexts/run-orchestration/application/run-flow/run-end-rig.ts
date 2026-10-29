@@ -32,7 +32,6 @@ export interface Observed {
   result?: RunQaResult;
   saved: RunOutcome[];
   folded: RunOutcome[];
-  reflections: number;
   publishCalls: number;
 }
 
@@ -112,7 +111,6 @@ const BASE_CONFIG: Partial<RunQaConfig> = { needsReview: true, shadow: false, on
 export async function observe(rig: Rig, runId: string): Promise<Observed> {
   const saved: RunOutcome[] = [];
   const folded: RunOutcome[] = [];
-  let reflections = 0;
   let publishCalls = 0;
   const generation = reassignableGeneration(rig.author);
   let deps: RunQaUseCaseDeps = {
@@ -129,7 +127,6 @@ export async function observe(rig: Rig, runId: string): Promise<Observed> {
     specFiles: confinedSpecFiles,
     deployGate: { waitUntilServing: async () => await rig.waitUntilServing() },
     runHistory: { save: async (outcome) => { saved.push(outcome); } },
-    reflector: { reflect: async () => { reflections += 1; } },
     ...(rig.setup ? { setup: { setup: rig.setup } } : {}),
     ...(rig.store ? { suiteStore: rig.store } : {}),
     config: { ...BASE_CONFIG, ...rig.config },
@@ -139,9 +136,9 @@ export async function observe(rig: Rig, runId: string): Promise<Observed> {
   const input: RunQaInput = { ...BASE_INPUT, runId, ...rig.input };
   try {
     const result = await new RunQaUseCase(deps).run(input, rig.abort.signal);
-    return { result, saved, folded, reflections, publishCalls };
+    return { result, saved, folded, publishCalls };
   } catch (threw) {
-    return { threw, saved, folded, reflections, publishCalls };
+    return { threw, saved, folded, publishCalls };
   }
 }
 
@@ -154,7 +151,6 @@ export interface EndFacts {
   published: string;
   publishCalled: boolean;
   folded: boolean;
-  reflected: boolean;
   note: string;
 }
 
@@ -169,7 +165,6 @@ export function factsOf(observed: Observed): EndFacts {
     published,
     publishCalled: observed.publishCalls > 0,
     folded: observed.folded.length > 0,
-    reflected: observed.reflections > 0,
     note: result?.note ?? (observed.threw instanceof Error ? observed.threw.message : ""),
   };
 }
