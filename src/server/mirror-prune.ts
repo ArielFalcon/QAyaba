@@ -7,8 +7,7 @@
  * (neither as the primary `repo` nor in `services[].repo`), and
  * (b) configured mirrors not modified for more than PRUNE_MAX_AGE_MS
  * (the next run simply re-clones — an accepted cost).
- * It NEVER deletes a mirror belonging to the currently-running job, nor the
- * protected self-maintenance mirror. All side effects are injected
+ * It NEVER deletes a mirror belonging to the currently-running job. All side effects are injected
  * (MirrorPruneDeps) so every branch is unit-testable; defaultMirrorPruneDeps
  * wires the real fs, config loader and run history.
  */

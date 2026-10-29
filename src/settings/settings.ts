@@ -14,6 +14,7 @@ import { resolveDiffTimeBudgets } from "@contexts/generation/application/index";
 import { resolveExecSandboxMode, type ExecSandboxMode } from "../../qa-engine/src/shared-infrastructure/process-sandbox/exec-sandbox";
 import { DEFAULT_DRAIN_MS, DEFAULT_REVIEWER_TIMEOUT_MS, DEFAULT_SESSION_TTL_SECONDS, DEFAULT_STALL_MS } from "./defaults";
 import { SETTINGS_REGISTRY, settingDef } from "./registry";
+import { retiredSettingWarnings } from "./retired";
 
 type RunTimeBudgets = ReturnType<typeof resolveRunTimeBudgets>;
 type DiffTimeBudgets = ReturnType<typeof resolveDiffTimeBudgets>;
@@ -185,6 +186,7 @@ export function loadSettings(env: EnvironmentMap): Settings {
   const campaignDays = r.run(["QA_TELEMETRY_CAMPAIGN_RETENTION_DAYS"], () => parseCampaignRetentionDays(env.QA_TELEMETRY_CAMPAIGN_RETENTION_DAYS), 0);
   const backendHealth = resolveBackendHealthConfig(env);
   const langfuse = resolveLangfuseConfig(env, (message) => r.warnings.push(message));
+  r.warnings.push(...retiredSettingWarnings(env));
 
   const settings: Settings = {
     environment: env,

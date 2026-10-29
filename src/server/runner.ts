@@ -829,7 +829,7 @@ export function finalizeInterruptedRuns(deps: Pick<RunnerDeps, "runEvents" | "af
   appLogger.info(`[qa] recovering ${zombies.length} interrupted run(s) from previous process...`);
   for (const r of zombies) {
     finalizeUnfinished(r.id, "process restarted — run was interrupted", deps, false);
-    appLogger.info(`[qa]   finalized ${r.id} (${r.app}@${r.sha.slice(0, 7)}) as infra-error (was ${r.status}, step ${r.step ?? "unknown"})`);
+    appLogger.info(`[qa]   finalized ${r.id} (${r.app}@${r.sha.slice(0, 7)}) as infra-error (was ${r.status}, step ${r.step ?? "unknown"})`, { ship: true });
   }
   appLogger.info(`[qa] recovery complete — ${zombies.length} run(s) marked as infra-error`);
 }

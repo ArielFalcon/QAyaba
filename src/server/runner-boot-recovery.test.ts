@@ -7,6 +7,7 @@ import assert from "node:assert/strict";
 import { finalizeInterruptedRuns } from "./runner";
 import { createDurableRunEventStore } from "./durable-run-events";
 import { getHistory } from "./persistence/index";
+import { installLogShipper, type ShippedLine } from "../integrations/redacting-logger";
 
 test("a run interrupted by a restart is finalized and its event stream ends with a verdict a resuming client sees", () => {
   const rec = getHistory().runs.createRecord({ app: "boot-zombie", sha: "eee5555", target: "e2e", mode: "diff" });
@@ -39,4 +40,20 @@ test("a run interrupted by a restart is announced in the log with the status and
     console.log = originalLog;
   }
   assert.ok(lines.some((l) => l.includes(`finalized ${rec.id} (boot-zombie-line@fff6666) as infra-error (was running, step validate)`)), `no recovery line in: ${JSON.stringify(lines)}`);
+});
+
+test("the recovery line of an interrupted run ships to the log store, since no span records a run the process died under", () => {
+  const rec = getHistory().runs.createRecord({ app: "boot-zombie-ship", sha: "aaa7777", target: "e2e", mode: "diff" });
+  getHistory().runs.updateRecord(rec.id, { status: "running", step: "generate" });
+  const shipped: ShippedLine[] = [];
+  installLogShipper((line) => shipped.push(line));
+  const originalLog = console.log;
+  console.log = () => {};
+  try {
+    finalizeInterruptedRuns({ runEvents: createDurableRunEventStore() });
+  } finally {
+    console.log = originalLog;
+    installLogShipper(undefined);
+  }
+  assert.ok(shipped.some((l) => l.message.includes(`finalized ${rec.id}`) && l.message.includes("step generate")), `shipped: ${JSON.stringify(shipped.map((l) => l.message))}`);
 });

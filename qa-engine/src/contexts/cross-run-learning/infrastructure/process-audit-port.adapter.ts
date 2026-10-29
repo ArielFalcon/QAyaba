@@ -22,7 +22,8 @@ export class ProcessAuditPortAdapter {
 
   async audit(outcome: RunOutcome): Promise<void> {
     const { app, readRecentOutcomes, invalidateContext, timeoutMs } = this.deps;
-    const log = this.deps.log ?? ((line: string) => engineLog.info(line));
+    /* No span records an audit finding, so the line is the only trace of it: it ships to the log store. */
+    const log = this.deps.log ?? ((line: string) => engineLog.info(line, { ship: true }));
     const reportError = this.deps.onAuditError ?? ((e: unknown) => engineLog.error("[ProcessAuditPortAdapter] audit failed (off-path, swallowed):", { error: e }));
     const budget = timeoutMs ?? PROCESS_AUDIT_TIMEOUT_MS;
 

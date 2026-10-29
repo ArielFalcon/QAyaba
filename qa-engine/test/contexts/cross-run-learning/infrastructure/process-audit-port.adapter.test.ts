@@ -8,6 +8,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { ProcessAuditPortAdapter, PROCESS_AUDIT_TIMEOUT_MS } from "@contexts/cross-run-learning/infrastructure/process-audit-port.adapter.ts";
 import type { RunOutcome } from "@kernel/run-outcome.ts";
+import { installProcessLogger, resetProcessLoggerForTests } from "@kernel/ports/process-logger.ts";
+import type { LoggerPort } from "@kernel/ports/logger.port.ts";
 import { NON_LEARNING, OBSERVED_OPERATING } from "@contexts/cross-run-learning/domain/learning-gates.ts";
 
 function outcome(over: Partial<RunOutcome> = {}): RunOutcome {
@@ -286,4 +288,25 @@ test("three unavailable-reviewer runs in a row are made visible as an observe-on
   const { adapter, logs } = auditing([current, unavailable("b"), unavailable("c")]);
   await adapter.audit(current);
   assert.equal(logs.filter((l) => l.includes("[audit] observe (recurring-reviewer-unavailable)")).length, 1);
+});
+
+test("an observe finding written through the engine logger ships to the log store: no span records it", async () => {
+  const lines: Array<{ level: string; message: string; ship: unknown }> = [];
+  const recorder = (level: string) => (message: string, fields?: Record<string, unknown>): void => void lines.push({ level, message, ship: fields?.ship });
+  const logger: LoggerPort = { debug: recorder("debug"), info: recorder("info"), warn: recorder("warn"), error: recorder("error"), child: () => logger };
+  installProcessLogger(logger);
+  try {
+    const current = outcome({ errorClass: "E-STATIC", verdict: "invalid" });
+    const adapter = new ProcessAuditPortAdapter({
+      app: "petclinic",
+      readRecentOutcomes: () => [current, outcome({ errorClass: "E-STATIC", sha: "b" }), outcome({ errorClass: "E-STATIC", sha: "c" })],
+      invalidateContext: () => false,
+    });
+    await adapter.audit(current);
+  } finally {
+    resetProcessLoggerForTests();
+  }
+  const finding = lines.find((l) => l.message.includes("[audit] observe (recurring-error-class)"));
+  assert.ok(finding, JSON.stringify(lines));
+  assert.equal(finding.ship, true);
 });

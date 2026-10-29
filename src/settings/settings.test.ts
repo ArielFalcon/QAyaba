@@ -181,3 +181,12 @@ test("a settings document that differs from the registry is stale and a missing 
     /does not exist/,
   );
 });
+
+test("each retired variable that is still set is reported once at load; an unset or empty one is not", () => {
+  const retired = ["SELF_MAINTAINER_AUTOMERGE", "SELF_MAINTAINER_CI_CHECK", "QAYABA_REPO", "QA_REFLECTOR_ENABLED"];
+  assert.deepEqual(loadSettings({}).warnings, []);
+  assert.deepEqual(loadSettings(Object.fromEntries(retired.map((name) => [name, ""]))).warnings, []);
+  const warnings = loadSettings(Object.fromEntries(retired.map((name) => [name, "true"]))).warnings;
+  assert.equal(warnings.length, retired.length);
+  for (const name of retired) assert.equal(warnings.filter((w) => w.startsWith(`${name} is set but no longer read`)).length, 1, name);
+});
