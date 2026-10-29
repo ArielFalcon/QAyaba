@@ -42,7 +42,7 @@ export interface OpencodeRunInput {
   /* The step limit the runtime enforces for the session this input's prompt is built for: the generator's. Absent = the runtime enforces none or could not be read, and no prompt states one. */
   stepLimit?: number;
   contextPack?: string;
-  /* The grounding ids and omissions of the context pack, computed at pack-build time from the kept lines (packDeliveredItemIds). Threaded alongside the pack text so the prompt's delivered span is read from the assembly, never parsed from the text. */
+  /* The grounding ids and omissions of the context pack, listing the trees the pack text prints, computed at pack-build time (packDeliveredItemIds). Threaded alongside the pack text so the prompt's delivered span is read from the assembly, never parsed from the text. */
   contextPackItemIds?: readonly string[];
   contextPackOmissions?: readonly Omission[];
   /* Facts about the suite's harness (test-id attribute, fixtures exports), rendered as data only. Absent = no section. */

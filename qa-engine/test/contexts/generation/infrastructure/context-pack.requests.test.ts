@@ -18,8 +18,8 @@ function captureDeps(pages: CapturedPage[], report = "route /map:\n  heading: Ma
   };
 }
 
-const map: CapturedPage = { route: "/map", grounded: true, links: [], nodes: ["heading: Map"], requests: { listed: [{ method: "GET", url: STYLE, count: 1 }, { method: "GET", url: "https://dev.example/api/places", count: 2 }], omitted: 0 } };
-const home: CapturedPage = { route: "/home", grounded: true, links: [], nodes: ["heading: Home"] };
+const map: CapturedPage = { route: "/map", grounded: true, printed: true, links: [], nodes: ["heading: Map"], requests: { listed: [{ method: "GET", url: STYLE, count: 1 }, { method: "GET", url: "https://dev.example/api/places", count: 2 }], omitted: 0 } };
+const home: CapturedPage = { route: "/home", grounded: true, printed: true, links: [], nodes: ["heading: Home"] };
 const input = { baseUrl: "http://dev.example", e2eDir: "/tmp/e2e", routes: ["/map", "/home"] };
 
 const sectionOf = (text: string | undefined): string => (text ?? "").split(/^### /m).find((part) => part.startsWith(PACK_HEADINGS.requests)) ?? "";
@@ -61,7 +61,7 @@ test("a pack whose pages made no request has no requests section, as before", as
 });
 
 test("a page the pack was only given for the links it shows is not listed, and a pack with the DOM capture off lists none", async () => {
-  const seed: CapturedPage = { route: "/", grounded: true, links: [], nodes: ["heading: Root"], requests: { listed: [{ method: "GET", url: "https://dev.example/api/boot", count: 1 }], omitted: 0 } };
+  const seed: CapturedPage = { route: "/", grounded: true, printed: false, links: [], nodes: ["heading: Root"], requests: { listed: [{ method: "GET", url: "https://dev.example/api/boot", count: 1 }], omitted: 0 } };
   const deps = captureDeps([map, home, seed]);
   const listed = await buildContextPack(input, deps);
   assert.equal(sectionOf(listed.text).includes("/api/boot"), false);

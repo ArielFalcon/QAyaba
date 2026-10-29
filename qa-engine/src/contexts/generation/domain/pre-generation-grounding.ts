@@ -6,7 +6,7 @@ import type { DecisionListing } from "@kernel/changed-decision.ts";
 export interface GroundingResult {
   /** Assembled context-pack text. Absent when the pack build failed or produced nothing. */
   contextPack?: string;
-  /** The pack's delivered grounding ids and omissions, computed from the kept lines (packDeliveredItemIds). Threaded with the pack text so the prompt's delivered span is read from the assembly. */
+  /** The pack's delivered grounding ids and omissions, listing the trees the pack text prints (packDeliveredItemIds). Threaded with the pack text so the prompt's delivered span is read from the assembly. */
   contextPackItemIds?: readonly string[];
   contextPackOmissions?: readonly GroundingOmission[];
   /**

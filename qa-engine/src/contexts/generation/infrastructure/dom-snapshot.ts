@@ -325,6 +325,17 @@ export function formatDomSnapshot(snaps: RouteSnapshot[], changed?: ChangedEleme
   return lines.join("\n");
 }
 
+/* The path a redirect reached when the advisory block prints that page's tree. None for a capture that failed, a render that came back empty or a route that did not redirect. */
+function reachedPathOf(s: RouteSnapshot): string | undefined {
+  if (s.error || s.nodes === undefined || s.nodes.length === 0) return undefined;
+  return buildRouteCatalog(s).redirectedTo;
+}
+
+/** The route the report prints the tree of a page asked for under: its own route (the template it was opened from, when it was) when the page is grounded, the path it reached when a redirect's tree is in the advisory block, none when the report prints no tree for it. The renderer and the pack's record of what it delivered both read this. */
+export function reportedRouteOf(snap: RouteSnapshot, template?: string): string | undefined {
+  return buildRouteCatalog(snap).status === ROUTE_STATUS.CAPTURED ? (template ?? snap.route) : reachedPathOf(snap);
+}
+
 /* How the advisory block introduces itself: plain facts about what follows, in no trust vocabulary and with no directive. */
 export const REDIRECT_ADVISORY_INTRO = "These routes sent the browser to another page. Each block below lists the page it reached, for orientation only: it is not the page of the route that was asked for.";
 
@@ -332,10 +343,9 @@ export const REDIRECT_ADVISORY_INTRO = "These routes sent the browser to another
 export function formatRedirectAdvisory(snaps: RouteSnapshot[]): string {
   const pages = new Map<string, { path: string; snap: RouteSnapshot; routes: string[] }>();
   for (const s of snaps) {
-    if (s.error || s.nodes === undefined || s.nodes.length === 0) continue;
-    const path = buildRouteCatalog(s).redirectedTo;
+    const path = reachedPathOf(s);
     if (path === undefined) continue;
-    const key = `${path}\n${s.nodes.join("\n")}`;
+    const key = `${path}\n${(s.nodes ?? []).join("\n")}`;
     const page = pages.get(key);
     if (page) page.routes.push(s.route);
     else pages.set(key, { path, snap: s, routes: [s.route] });
@@ -401,6 +411,10 @@ export interface CapturedPage {
   links: string[];
   /* For a page opened from a route template of the map, that template: the trace names the page's elements by it. */
   template?: string;
+  /* Whether the report prints a tree for this page: false for a link seed, a failed capture and an empty render. */
+  printed: boolean;
+  /* The path a redirect reached, when the report prints that page's tree (once, in the advisory block) in place of the asked route's. */
+  reached?: string;
   /* The test ids the page carries, when it carries any (for the trace's change-value facts). */
   testIds?: string[];
   /* The delivery the trace needs: the kept nodes/test ids and the node→test-id map, for the delivered DOM ids. */
@@ -428,6 +442,11 @@ export interface CapturedPage {
   requests?: PageRequests;
   /* The shapes of the JSON responses the page's code read while it was captured. Absent when none was read. */
   shapes?: PageDataShapes;
+}
+
+/** The route the report prints this page's tree under, or undefined when it prints none: the one name the record of what the pack delivered gives the page's elements. */
+export function reportedRoute(page: CapturedPage): string | undefined {
+  return page.printed ? (page.reached ?? page.template ?? page.route) : undefined;
 }
 
 /* What one captured page supplied and lost, for the trace: the kept nodes and test ids (within the node safety bound), the node→test-id map, and how many the bound left out. What a prompt shows of the page is the window's to decide, and its prompt records what the window left out. */
@@ -472,12 +491,16 @@ export async function captureDomForRoutes(
     const probe = [...new Set((changed ?? []).flatMap((c) => c.scope?.[0] ?? []))];
     const snaps = await deps.render(input.e2eDir, input.baseUrl, asked, input.testIdAttribute, probe);
     warnOnDegradedRoutes(snaps);
+    const isSeed = (snap: RouteSnapshot): boolean => seeds.includes(snap.route);
     input.onPages?.(snaps.map((snap) => {
       const template = input.instanceOf?.get(snap.route);
       const delivery = pageDeliveryOf(snap, template);
+      const reportedAs = isSeed(snap) ? undefined : reportedRouteOf(snap, template);
       return {
         route: snap.route,
         grounded: buildRouteCatalog(snap).status === ROUTE_STATUS.CAPTURED,
+        printed: reportedAs !== undefined,
+        ...(reportedAs !== undefined && reportedAs !== (template ?? snap.route) ? { reached: reportedAs } : {}),
         links: snap.links ?? [],
         nodes: snap.nodes ?? [],
         ...(template !== undefined ? { template } : {}),
@@ -501,7 +524,7 @@ export async function captureDomForRoutes(
       };
     }));
     const reported = snaps
-      .filter((snap) => !seeds.includes(snap.route))
+      .filter((snap) => !isSeed(snap))
       .map((snap) => {
         const template = input.instanceOf?.get(snap.route);
         return template === undefined ? snap : { ...snap, template };

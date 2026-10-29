@@ -30,7 +30,8 @@ function siteShowing(pages: ReadonlyArray<{ route: string; nodes: string[]; grou
     captureDomForRoutes: async (routes, input) => {
       input.onPages?.([...routes, ...(input.linkSeeds ?? [])].map((route) => {
         const page = pages.find((candidate) => candidate.route === route);
-        return { route, grounded: page?.grounded ?? true, links: [], nodes: page?.nodes ?? [] };
+        const grounded = page?.grounded ?? true;
+        return { route, grounded, printed: grounded, links: [], nodes: page?.nodes ?? [] };
       }));
       return routes.map((route) => `route ${route}:\n${(pages.find((p) => p.route === route)?.nodes ?? []).map((n) => `  ${n}`).join("\n")}`).join("\n");
     },

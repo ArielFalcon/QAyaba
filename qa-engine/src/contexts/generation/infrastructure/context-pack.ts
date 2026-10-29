@@ -2,7 +2,7 @@
 
 import { engineLog } from "@kernel/ports/process-logger.ts";
 import { sanitizeText } from "../../../shared-infrastructure/redaction/pattern-redaction.adapter.ts";
-import { captureDomForRoutes, defaultCaptureDomDeps, MAX_ROUTES, MAX_ROUTES_PER_CHANGE, REDIRECT_ADVISORY_INTRO } from "./dom-snapshot.ts";
+import { captureDomForRoutes, defaultCaptureDomDeps, MAX_ROUTES, MAX_ROUTES_PER_CHANGE, REDIRECT_ADVISORY_INTRO, reportedRoute } from "./dom-snapshot.ts";
 import type { CapturedPage, CaptureDomDeps, CaptureRoutesInput, PageDelivery } from "./dom-snapshot.ts";
 import { loggableRoutes } from "./loggable-route.ts";
 import type { ArchitectureContext, ApiOperation } from "../domain/generation-input.ts";
@@ -104,7 +104,7 @@ export interface ContextPackTrace {
   capturablePages: number;
   /* The pages the capture returned. */
   pages: CapturedPage[];
-  /* Each captured page as it delivered: kept nodes/test ids and the node→test-id map. */
+  /* Each tree the report prints, once: kept nodes/test ids and the node→test-id map. */
   pageDeliveries: PageDelivery[];
   /* The test ids the change added (ChangedElement), for the present or absent fact of each. */
   changedTestIds: string[];
@@ -114,19 +114,22 @@ export interface ContextPackTrace {
   omittedLines: number;
 }
 
-/* The pack's grounding ids: the DOM ids per page, the change-value facts and the contracts, with what the per-page node safety bound left out. The pack holds every page whole, so what it delivers is what it produced; what a prompt shows of it is the window's to decide, and the prompt records what its window left out. */
+/* The pack's grounding ids: the DOM ids of each tree the report prints (once, under the route it prints it under), the change-value facts of those pages and the contracts, with what the per-page node safety bound left out. The pack holds every page whole, so what it delivers is what it produced; what a prompt shows of it is the window's to decide, and the prompt records what its window left out. */
 function packItemIds(assembly: ContextPackAssembly): { ids: string[]; omissions: Omission[] } {
   const trace = assembly.trace;
   if (!trace) return { ids: [], omissions: [] };
   const deliveries = trace.pageDeliveries ?? [];
   const domIds = domItemIds(deliveries.map((p) => ({ route: p.route, nodes: p.keptNodes, testIdOfNode: p.testIdOfNode, testIds: p.keptTestIds })));
-  const factIds = changedValueFactIds(trace.pages.map((page) => ({ route: page.template ?? page.route, ...(page.testIds ? { testIds: page.testIds } : {}), unconfirmed: page.dataStateUnconfirmed === true })), trace.changedTestIds);
+  const factIds = changedValueFactIds(trace.pages.flatMap((page) => {
+    const route = reportedRoute(page);
+    return route === undefined ? [] : [{ route, ...(page.testIds ? { testIds: page.testIds } : {}), unconfirmed: page.dataStateUnconfirmed === true }];
+  }), trace.changedTestIds);
   const opIds = trace.contractIds.map(itemId.op);
   const omissions: Omission[] = [];
   for (const p of deliveries) {
     if (p.nodeCapOmitted > 0) omissions.push({ class: "truncation", reason: NODE_SAFETY_BOUND_REASON, count: p.nodeCapOmitted, route: p.route });
   }
-  return { ids: [...domIds, ...factIds, ...opIds], omissions };
+  return { ids: [...new Set([...domIds, ...factIds, ...opIds])], omissions };
 }
 
 /* The omission reason of the per-page node safety bound (MAX_NODES_PER_PAGE). */
@@ -137,7 +140,7 @@ export function packProducedItemIds(assembly: ContextPackAssembly): { ids: strin
   return packItemIds(assembly);
 }
 
-/* What the pack delivered to the prompts: the same as what it produced, since no line count cuts the pack. */
+/* What the pack delivered to the prompts: the same as what it produced, since the pack is the report's trees whole. */
 export function packDeliveredItemIds(assembly: ContextPackAssembly): { ids: string[]; omissions: Omission[] } {
   return packItemIds(assembly);
 }
@@ -379,8 +382,16 @@ export async function buildContextPack(
   let renderedRoutes = 0;
   /* The routes the report covers: a page rendered only for its links is no part of it. */
   const reportedRoutes = new Set<string>();
+  /* Every page stays in `pages`; a delivery is kept only for a tree the report prints, once however many routes led to it. */
+  const recordPage = (page: CapturedPage): void => {
+    pages.set(page.route, page);
+    const route = reportedRoute(page);
+    if (route === undefined) return;
+    const keptNodes = page.keptNodes ?? [];
+    deliveries.set(`${route}\n${keptNodes.join("\n")}`, { route, ...(page.template !== undefined && page.reached === undefined ? { template: page.template } : {}), keptNodes, keptTestIds: page.keptTestIds ?? [], testIdOfNode: page.testIdOfNode ?? new Map(), nodeCapOmitted: page.nodeCapOmitted ?? 0 });
+  };
   const capture = async (routes: string[], captureInput: CaptureRoutesInput): Promise<void> => {
-    const rawCaptured = await deps.captureDomForRoutes(routes, { ...captureInput, onPages: (reported) => { for (const page of reported) { pages.set(page.route, page); deliveries.set(page.route, { route: page.template ?? page.route, ...(page.template !== undefined ? { template: page.template } : {}), keptNodes: page.keptNodes ?? [], keptTestIds: page.keptTestIds ?? [], testIdOfNode: page.testIdOfNode ?? new Map(), nodeCapOmitted: page.nodeCapOmitted ?? 0 }); } } }, deps.domDeps, input.changedElements);
+    const rawCaptured = await deps.captureDomForRoutes(routes, { ...captureInput, onPages: (reported) => reported.forEach(recordPage) }, deps.domDeps, input.changedElements);
     const raw = rawCaptured ? sanitizeText(rawCaptured, "model").text : rawCaptured;
     if (!raw) return;
     const { grounded, advisory } = splitRedirectSection(raw);

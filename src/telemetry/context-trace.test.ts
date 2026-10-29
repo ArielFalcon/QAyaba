@@ -232,7 +232,7 @@ function groundingFixture(telemetry: TelemetryPort, opts: { trace?: boolean } = 
   const e2eDir = mkdtempSync(join(tmpdir(), "ground-trace-"));
   const packDeps: ContextPackDeps = {
     captureDomForRoutes: async (routes, input) => {
-      input.onPages?.(routes.map((route) => ({ route, grounded: true, links: [], testIds: route === "/orders" ? ["save-btn", "other"] : [] })));
+      input.onPages?.(routes.map((route) => ({ route, grounded: true, printed: true, links: [], testIds: route === "/orders" ? ["save-btn", "other"] : [] })));
       return routes.map((route) => `route ${route}:\n  button: Save`).join("\n");
     },
     domDeps: { render: async () => [] },
@@ -393,7 +393,7 @@ test("a page opened from a route template is named by the template, in its eleme
       text: "pack",
       domBytes: 1,
       contractBytes: 0,
-      trace: { rankedRoutes: [], capturablePages: 0, pages: [{ route: "/orders/42", template: "/orders/:id", grounded: true, links: [], testIds: ["row-x"] }], pageDeliveries: [], changedTestIds: ["row-x"], contractIds: [], omittedLines: 0 },
+      trace: { rankedRoutes: [], capturablePages: 0, pages: [{ route: "/orders/42", template: "/orders/:id", grounded: true, printed: true, links: [], testIds: ["row-x"] }], pageDeliveries: [], changedTestIds: ["row-x"], contractIds: [], omittedLines: 0 },
     });
   });
   const ids = contextSpan(h, "dom-capture").attributes["qayaba.context.item_ids"] as string[];

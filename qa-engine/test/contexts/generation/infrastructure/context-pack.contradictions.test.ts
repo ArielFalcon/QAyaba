@@ -29,8 +29,8 @@ function captureDeps(pages: CapturedPage[], report = "route /browse:\n  heading:
   };
 }
 
-const browse: CapturedPage = { route: "/browse", grounded: true, links: [], nodes: ["heading: Browse"], shapes: { listed: [shape(ALL, 40, [...COMMON, "category"]), shape(BY_REGION, 12, COMMON)], omitted: 0 } };
-const home: CapturedPage = { route: "/home", grounded: true, links: [], nodes: ["heading: Home"] };
+const browse: CapturedPage = { route: "/browse", grounded: true, printed: true, links: [], nodes: ["heading: Browse"], shapes: { listed: [shape(ALL, 40, [...COMMON, "category"]), shape(BY_REGION, 12, COMMON)], omitted: 0 } };
+const home: CapturedPage = { route: "/home", grounded: true, printed: true, links: [], nodes: ["heading: Home"] };
 const input = { baseUrl: "http://dev.example", e2eDir: "/tmp/e2e", routes: ["/browse", "/home"] };
 
 const sectionOf = (text: string | undefined): string => (text ?? "").split(/^### /m).find((part) => part.startsWith(PACK_HEADINGS.contradictions)) ?? "";

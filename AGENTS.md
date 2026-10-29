@@ -280,7 +280,9 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   commits (`run-orchestration/domain/context-map-validity.ts`; otherwise the run grounds without it and a rebuild at
   the run's sha is requested, recorded as `recapture` requested/skipped, see `docs/observability-design.md`),
   context pack (live DOM per route, the data requests each page made, the data contradictions they show, redirect advisory, relevant API contracts, routes not
-  capturable — `generation/infrastructure/context-pack.ts`), harness facts
+  capturable — `generation/infrastructure/context-pack.ts`; the record of the element ids it delivered lists the trees its text
+  prints, each once, by the renderer's own decision `reportedRouteOf`: a grounded page under its route, a redirect's reached page
+  under the path it reached, no link seed and no route that redirected), harness facts
   (`generation/domain/harness-facts.ts`: the test-id attribute, the fixtures module's exports with their declared
   signatures and the fixtures a test receives, the Playwright config's testDir/testMatch/storageState/projects, all read
   through the confined reader; a flow sidekick's brief carries them with the suite listing), existing-suite manifest.

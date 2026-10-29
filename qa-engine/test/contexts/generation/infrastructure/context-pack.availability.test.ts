@@ -10,9 +10,9 @@ const nav = (route: string, finalPath: string): RouteNavigation => ({ route, cap
 /* A capture of three routes: one rendered, two sent to /home. */
 function captureDeps(): ContextPackDeps {
   const pages: CapturedPage[] = [
-    { route: "/orders", grounded: true, links: [], nodes: ["heading: Orders"], navigation: nav("/orders", "/orders") },
-    { route: "/upload-menu/preview", grounded: false, links: [], nodes: ["heading: Home"], navigation: nav("/upload-menu/preview", "/home") },
-    { route: "/login", grounded: false, links: [], nodes: ["heading: Home"], navigation: nav("/login", "/home") },
+    { route: "/orders", grounded: true, printed: true, links: [], nodes: ["heading: Orders"], navigation: nav("/orders", "/orders") },
+    { route: "/upload-menu/preview", grounded: false, printed: false, links: [], nodes: ["heading: Home"], navigation: nav("/upload-menu/preview", "/home") },
+    { route: "/login", grounded: false, printed: false, links: [], nodes: ["heading: Home"], navigation: nav("/login", "/home") },
   ];
   return {
     captureDomForRoutes: async (_routes, input) => {
@@ -58,7 +58,7 @@ test("a capture where every route rendered asks for no change evidence", async (
   const allRendered: ContextPackDeps = {
     ...deps,
     captureDomForRoutes: async (_routes, captureInput) => {
-      captureInput.onPages?.([{ route: "/orders", grounded: true, links: [], nodes: ["heading: Orders"], navigation: nav("/orders", "/orders") }]);
+      captureInput.onPages?.([{ route: "/orders", grounded: true, printed: true, links: [], nodes: ["heading: Orders"], navigation: nav("/orders", "/orders") }]);
       return "route /orders:\n  heading: Orders";
     },
   };

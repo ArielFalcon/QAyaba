@@ -5,11 +5,15 @@ import assert from "node:assert/strict";
 import { buildContextPack, deriveClaimsFromPackText, withoutPackSection, MAX_LISTED_UNCAPTURABLE, NODE_SAFETY_BOUND_REASON, PACK_HEADINGS, TEMPLATE_LEFT_OUT, packDeliveredItemIds, packProducedItemIds, type ContextPackAssembly, type ContextPackDeps } from "@contexts/generation/infrastructure/context-pack.ts";
 import { itemId } from "@kernel/context-item-ids.ts";
 import { countDirectives, hasTrustLanguage, type FactId, type PromptClaim } from "@contexts/generation/domain/prompt-contract-lint.ts";
-import { MAX_ROUTES, MAX_ROUTES_PER_CHANGE, REDIRECT_ADVISORY_INTRO, type CaptureDomDeps } from "@contexts/generation/infrastructure/dom-snapshot.ts";
+import { captureDomForRoutes, MAX_ROUTES, MAX_ROUTES_PER_CHANGE, REDIRECT_ADVISORY_INTRO, type CaptureDomDeps } from "@contexts/generation/infrastructure/dom-snapshot.ts";
 import { ROUTE_REASON } from "@kernel/route-capturability.ts";
 import { ROUTE_LINK_FIELDS } from "@contexts/generation/domain/route-ranking.ts";
 import type { ArchitectureContext } from "@contexts/generation/domain/generation-input.ts";
 import type { ChangedElement } from "@kernel/diff-parser/changed-element.ts";
+import type { RouteSnapshot } from "@contexts/generation/domain/route-snapshot.ts";
+import { gradeEvidence } from "@contexts/evaluation/domain/graders.ts";
+import type { ContextEvidence } from "@contexts/evaluation/domain/run-evaluation-evidence.ts";
+import { evidence } from "../../evaluation/evidence-fixtures.ts";
 
 function stubDomDeps(result: string | undefined): CaptureDomDeps {
   return {
@@ -53,7 +57,7 @@ test("packDeliveredItemIds: delivered ids come from the kept nodes, with the nod
     trace: {
       rankedRoutes: ["/home"],
       capturablePages: 1,
-      pages: [{ route: "/home", grounded: true, links: [], testIds: ["save-btn", "other"] }],
+      pages: [{ route: "/home", grounded: true, printed: true, links: [], testIds: ["save-btn", "other"] }],
       pageDeliveries: [{
         route: "/home",
         keptNodes: ["button: Save"],
@@ -82,7 +86,7 @@ test("packDeliveredItemIds: a node the node safety bound left out is neither del
     trace: {
       rankedRoutes: ["/home"],
       capturablePages: 1,
-      pages: [{ route: "/home", grounded: true, links: [], testIds: [] }],
+      pages: [{ route: "/home", grounded: true, printed: true, links: [], testIds: [] }],
       pageDeliveries: [{
         route: "/home",
         /* Only the kept node is here: the cut node is already gone from keptNodes. */
@@ -110,7 +114,7 @@ test("packDeliveredItemIds: a page opened from a template is named by the templa
     trace: {
       rankedRoutes: [],
       capturablePages: 0,
-      pages: [{ route: "/shops/madrid/madrid", template: "/shops/:province/:city", grounded: true, links: [], testIds: ["shop-row"] }],
+      pages: [{ route: "/shops/madrid/madrid", template: "/shops/:province/:city", grounded: true, printed: true, links: [], testIds: ["shop-row"] }],
       pageDeliveries: [{
         route: "/shops/:province/:city",
         keptNodes: ["button: View shop"],
@@ -134,7 +138,7 @@ test("buildContextPack: a capture of many pages reaches the pack whole, and what
   const nodesOf = (route: string): string[] => Array.from({ length: 200 }, (_, i) => `button: ${route.slice(1)}-${i}`);
   const deps: ContextPackDeps = {
     captureDomForRoutes: async (routes, input) => {
-      input.onPages?.(routes.map((route) => ({ route, grounded: true, links: [], keptNodes: nodesOf(route), keptTestIds: [], testIdOfNode: new Map(), nodeCapOmitted: 0 })));
+      input.onPages?.(routes.map((route) => ({ route, grounded: true, printed: true, links: [], keptNodes: nodesOf(route), keptTestIds: [], testIdOfNode: new Map(), nodeCapOmitted: 0 })));
       return routes.flatMap((route) => [`route ${route}:`, ...nodesOf(route).map((n) => `  ${n}`)]).join("\n");
     },
     domDeps: stubDomDeps(undefined),
@@ -744,6 +748,7 @@ test("a page whose data state is unconfirmed gets an explicit capture-state line
       input.onPages?.([{
         route: "/home",
         grounded: true,
+        printed: true,
         links: [],
         dataState: true,
         resultExpected: true,
@@ -776,6 +781,7 @@ test("a page with a confirmed data state reports its result count and effective 
       input.onPages?.([{
         route: "/home",
         grounded: true,
+        printed: true,
         links: [],
         dataState: true,
         resultExpected: true,
@@ -803,6 +809,7 @@ test("a page whose empty state was confirmed says so, and is not called unconfir
       input.onPages?.([{
         route: "/list",
         grounded: true,
+        printed: true,
         links: [],
         dataState: true,
         resultExpected: true,
@@ -948,7 +955,7 @@ function siteWithLinks(
       if (options.failSecond && calls.length > 1) throw new Error("browser gone");
       /* A capture that renders nothing (a timed-out or unreadable run) answers no text and tells nobody of any page. */
       if (options.silentFrom !== undefined && calls.length >= options.silentFrom) return undefined;
-      onPages?.([...routes, ...linkSeeds].map((route) => ({ route, grounded: !(options.ungrounded ?? []).includes(route), links: linksOf[route] ?? [], nodes: options.nodesOf?.(route) ?? [`button: on ${route}`] })));
+      onPages?.([...routes, ...linkSeeds].map((route) => ({ route, grounded: !(options.ungrounded ?? []).includes(route), printed: !(options.ungrounded ?? []).includes(route), links: linksOf[route] ?? [], nodes: options.nodesOf?.(route) ?? [`button: on ${route}`] })));
       if (routes.length === 0) return undefined;
       const blocks = routes.map((route) => `route ${route}${instanceOf.has(route) ? ` (instance of ${instanceOf.get(route)})` : ""}:\n  button: on ${route}`);
       return [...blocks, ...(options.redirectAdvisory && calls.length === 1 ? [`### ${PACK_HEADINGS.redirected} (ADVISORY)\nintro\n${options.redirectAdvisory}`] : [])].join("\n\n");
@@ -1268,4 +1275,117 @@ test("buildContextPack: when the first capture throws, every template meant to b
   for (const template of [LIST_TEMPLATE, "/a/:x"]) {
     assert.ok(logs.some((message) => message.includes(template) && message.includes(TEMPLATE_LEFT_OUT.NO_PAGE_TO_LOOK_AT)), template);
   }
+});
+
+/* ── The record of what the pack delivered lists what the report prints ── */
+
+const SITE = "http://localhost:3000";
+const buttons = (prefix: string, count: number): string[] => Array.from({ length: count }, (_, i) => `button: ${prefix} ${i}`);
+const HOME_NODES = buttons("Home action", 6);
+
+/* The page the browser rendered at `route`: its own tree, or the tree of the page it ended on when it was sent elsewhere. */
+function rendered(route: string, nodes: string[], options: { sentTo?: string; testIds?: string[]; links?: string[] } = {}): RouteSnapshot {
+  return {
+    route,
+    nodes,
+    finalUrl: `${SITE}${options.sentTo ?? route}`,
+    ...(options.testIds ? { testIds: new Map(options.testIds.map((id) => [id, 1])) } : {}),
+    ...(options.links ? { links: options.links } : {}),
+  };
+}
+
+/* The real capture and the real pack over a browser that answers `pages`; an address no page answers renders nothing. */
+function siteRendering(pages: readonly RouteSnapshot[]): ContextPackDeps {
+  return {
+    captureDomForRoutes,
+    domDeps: { render: async (_e2eDir, _baseUrl, asked) => asked.map((route) => pages.find((page) => page.route === route) ?? { route, nodes: [] }) },
+    log: () => {},
+  };
+}
+
+/* The routes the pack text prints a tree for: the grounded routes (an opened template page by its template) and the pages redirects reached. */
+function printedRoutes(text: string | undefined): Set<string> {
+  const printed = new Set<string>();
+  for (const line of (text ?? "").split("\n")) {
+    const grounded = /^route (\S+)(?: \(instance of (\S+)\))?:/.exec(line);
+    if (grounded && !line.includes("(redirected to")) printed.add(grounded[2] ?? grounded[1]!);
+    const reached = /^reached (\S+), asked for /.exec(line);
+    if (reached) printed.add(reached[1]!);
+  }
+  return printed;
+}
+
+const routeOfId = (id: string): string => id.slice(id.indexOf(":") + 1, id.indexOf("#"));
+const routesOfIds = (ids: readonly string[]): string[] => [...new Set(ids.filter((id) => id.startsWith("dom:") || id.startsWith("fact:")).map(routeOfId))].filter((route) => route !== "*").sort();
+const GUARDED = ["/upload-menu/preview", "/upload-menu", "/login"];
+const guardedPages = (): RouteSnapshot[] => [rendered("/home", HOME_NODES), ...GUARDED.map((route) => rendered(route, HOME_NODES, { sentTo: "/home" }))];
+
+test("the delivered record names a route only when the pack text prints its tree: a route that redirected has no ids of its own", async () => {
+  const result = await buildContextPack({ routes: ["/home", ...GUARDED], ...PACK_INPUT }, siteRendering(guardedPages()));
+  const { ids } = packDeliveredItemIds(result);
+  assert.deepEqual(routesOfIds(ids), ["/home"]);
+  assert.equal(ids.filter((id) => id.startsWith("dom:")).length, HOME_NODES.length, "the page every redirect reached is listed once");
+});
+
+test("a page a redirect reached and nobody asked for is listed once, under the path it reached", async () => {
+  const result = await buildContextPack({ routes: GUARDED, ...PACK_INPUT }, siteRendering(guardedPages()));
+  const { ids } = packDeliveredItemIds(result);
+  assert.deepEqual(routesOfIds(ids), ["/home"]);
+  assert.equal(new Set(ids).size, ids.length, "no id is listed twice");
+  assert.equal(ids.filter((id) => id.startsWith("dom:")).length, HOME_NODES.length);
+});
+
+test("a link seed that is a landing page has no ids: the pack text prints none of it", async () => {
+  const landing = rendered("/", buttons("Landing", 30), { links: [] });
+  const pages = [rendered("/a", buttons("A", 3)), landing];
+  const result = await buildContextPack({ routes: ["/a", LIST_TEMPLATE], ...PACK_INPUT }, siteRendering(pages));
+  assert.ok(!(result.text ?? "").includes("Landing"), "the seed is not in the text");
+  assert.deepEqual(routesOfIds(packDeliveredItemIds(result).ids), ["/a"]);
+});
+
+test("a changed test id on a page a redirect reached makes one fact for that page, not one per route asked", async () => {
+  const changed: ChangedElement[] = [{ file: "src/save.html", line: 3, testId: "save-btn", raw: "<button data-testid=\"save-btn\">" }];
+  const withTestId = (route: string, sentTo?: string): RouteSnapshot => rendered(route, HOME_NODES, { testIds: ["save-btn"], ...(sentTo ? { sentTo } : {}) });
+  const pages = [withTestId("/home"), ...GUARDED.map((route) => withTestId(route, "/home"))];
+  const result = await buildContextPack({ routes: ["/home", ...GUARDED], changedElements: changed, ...PACK_INPUT }, siteRendering(pages));
+  const facts = packDeliveredItemIds(result).ids.filter((id) => id.startsWith("fact:"));
+  assert.deepEqual(facts, ["fact:/home#save-btn:present"]);
+});
+
+const SHAPES: ReadonlyArray<{ shape: string; routes: string[]; pages: () => RouteSnapshot[] }> = [
+  { shape: "no redirect", routes: ["/a", "/b"], pages: () => [rendered("/a", buttons("A", 4)), rendered("/b", buttons("B", 5))] },
+  { shape: "redirects to an asked page", routes: ["/home", ...GUARDED], pages: guardedPages },
+  { shape: "redirects to a page nobody asked for", routes: GUARDED, pages: guardedPages },
+  { shape: "a link seed", routes: ["/a", LIST_TEMPLATE], pages: () => [rendered("/a", buttons("A", 4)), rendered("/", buttons("Landing", 8))] },
+  { shape: "a template page opened through a link", routes: ["/a", LIST_TEMPLATE], pages: () => [rendered("/a", buttons("A", 4), { links: ["/shops/madrid/madrid"] }), rendered("/", buttons("Landing", 8), { links: ["/shops/madrid/madrid"] }), { ...rendered("/shops/madrid/madrid", buttons("Shop", 5)), template: LIST_TEMPLATE }] },
+];
+
+for (const { shape, routes, pages } of SHAPES) {
+  test(`the delivered record never names a route the pack text does not print (${shape})`, async () => {
+    const result = await buildContextPack({ routes, ...PACK_INPUT }, siteRendering(pages()));
+    const listed = routesOfIds(packDeliveredItemIds(result).ids);
+    assert.ok(listed.length > 0, "the record lists the pages the text prints");
+    const printed = printedRoutes(result.text);
+    for (const route of listed) assert.ok(printed.has(route), `${route} is listed but not printed (printed: ${[...printed].join(", ")})`);
+    for (const route of printed) assert.ok(listed.includes(route), `${route} is printed but not listed`);
+  });
+}
+
+test("change_pages_grounded does not count a change page that only a redirect sent the browser away from as grounded", async () => {
+  const result = await buildContextPack({ routes: ["/home", ...GUARDED], ...PACK_INPUT }, siteRendering(guardedPages()));
+  const changePages = ["/upload-menu/preview", "/upload-menu", "/home"];
+  const context: ContextEvidence = {
+    delivered: [{ source: "context-pack", ids: packDeliveredItemIds(result).ids, bytes: 1, omitted: 0, omissions: [] }],
+    relevantIds: changePages.map((route) => `route:${route}`),
+    relevantGroups: [],
+    changedTestIds: [],
+    changedElement: undefined,
+    snapshots: [],
+    toolSequence: [],
+    fileReads: undefined,
+    freshness: undefined,
+  };
+  const score = gradeEvidence(evidence({ context }), ["change_pages_grounded"]).find((s) => s.name === "change_pages_grounded");
+  assert.equal(score?.value, 1 / 3);
+  assert.equal(score?.comment, "not grounded: /upload-menu/preview, /upload-menu");
 });
