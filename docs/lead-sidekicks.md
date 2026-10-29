@@ -183,10 +183,10 @@ that depends on another location pins it with `setLocation(context, latitude, lo
 
 ## DEV access
 
-Every action against DEV holds its test account's lease from the orchestrator (`DevLease`, an `AccountLock`).
-Actions on one account are serialized; the lease can admit concurrent read-only actions on distinct accounts, but
-the egress proxy has no read-only mode today, so every action is exclusive in practice and flows queue behind
-each other on one account. The queue between runs stays sequential. Agent-declared tags never decide isolation.
+Each `run_spec` call and each authenticated browser action holds the orchestrator's lease on DEV (`DevLease`, an `AccountLock`
+that also holds DEV alone): the account's turn first, then DEV, first come first served. The egress proxy has no read-only
+mode, so no action is admitted beside another, whatever the account, and flows queue behind each other. The run's own steps
+(the Context Pack capture, the suite execution) take no lease. The queue between runs stays sequential. Agent-declared tags never decide isolation.
 
 ## The lead's review
 

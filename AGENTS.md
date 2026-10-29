@@ -454,8 +454,8 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   numbers of their findings, recorded as `window-fit`; surviving mutants join the same gap regeneration as findings on the
   spec that reached them); what no flow takes follows
   the same rule, and once the run's budget of corrections through the lead is spent the findings are recorded unrouted ("lead
-  correction budget spent") and nothing regenerates. The lead's own correction turns never spend the room the flows they order need: at the one shared point every caller meets (`correct`), a turn and its re-ask are held to the room less `MIN_FLOW_MS`, and one that cannot leave it is not sent (each finding goes to its default owner, or the first answer stands, on the record). The run's acceptance of the round is unchanged. The run releases the pass after the review and in its `finally`. DEV access: every action holds its account's lease (`DevLease`, an `AccountLock`
-  whose read-only concurrency is gated by the proxy; the proxy has no read-only mode yet, so today every action is exclusive).
+  correction budget spent") and nothing regenerates. The lead's own correction turns never spend the room the flows they order need: at the one shared point every caller meets (`correct`), a turn and its re-ask are held to the room less `MIN_FLOW_MS`, and one that cannot leave it is not sent (each finding goes to its default owner, or the first answer stands, on the record). The run's acceptance of the round is unchanged. The run releases the pass after the review and in its `finally`. DEV access: every `run_spec` call and authenticated browser action holds its account's lease (`DevLease`, an `AccountLock`
+  that also holds DEV alone; the proxy has no read-only mode, so no two actions overlap).
   Workspaces are removed in a `finally` and swept at boot. `gateSignals.coordination { plan, refusal, flows, delivered,
   incomplete, authoring, review, corrections }`. `docs/lead-sidekicks.md`.
 - **Authoring location (`dev.geolocation`)** — the app declares a durable browser position (the suite, `run_spec` and the
@@ -736,10 +736,10 @@ test, and the verdict is its last action.
   on, reads are capped; its header lists what it covers), never a bare `fs` call.
 - **Governance-sensitive changes ship alone** — security invariants, agent write
   authority, production activation switches: their own PR.
-- **Sequential queue** — one run at a time; runs never overlap against DEV. Within a run, every DEV action (a spec
-  execution or an authenticated agent-browser action) holds its test account's lease from the orchestrator: actions on
-  one account are serialized; actions run concurrently only on distinct accounts and only under the proxy's read-only
-  enforcement; an action that may write holds DEV exclusively. Agent-declared tags never decide isolation.
+- **Sequential queue** — one run at a time; runs never overlap against DEV. Within a run, every `run_spec` call and
+  authenticated agent-browser action holds its test account's lease from the orchestrator (`DevLease`): one action at a
+  time holds DEV, whatever the account, because the proxy has no read-only mode. The run's own steps (the Context Pack
+  capture, the suite execution) take no lease. Agent-declared tags never decide isolation.
 - **Honor the explicit no-op.** Declared `noop` + reason + zero specs is a valid
   `skipped`. Silence is not a decision (`E-NO-DECISION` / `E-STEP-BUDGET` / `E-TIME-BUDGET`). `approved`
   is never a no-op signal.

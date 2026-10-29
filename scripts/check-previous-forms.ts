@@ -183,6 +183,11 @@ export const BANNED_RULES: BannedRule[] = [
     exemptPrefixes: [RECORDS_PREFIX],
   },
   {
+    id: "dev-lease-shared",
+    patterns: [/\b(?:DevLeasePort|DevAccess|DevLeaseOptions|readOnlyEnforced)\b/, /\bwithLease\b/],
+    exemptPrefixes: [RECORDS_PREFIX],
+  },
+  {
     id: "langfuse-sink",
     patterns: [
       /\b(?:LangfuseScoreSink|LangfuseConfig|resolveLangfuseConfig|scoreSinkHealthOf|ScoreSinkHealth|scoreConfigsOfCatalog|langfuseScoreId|getRunIdByTraceId)\b/,
