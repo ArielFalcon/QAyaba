@@ -10,7 +10,7 @@ export const TOOL_SEQUENCE_MAX_ENTRIES = 200;
 /** The longest target one entry keeps, after redaction. */
 export const TOOL_TARGET_MAX_CHARS = 200;
 
-/** One call of a turn, in the order the agent made it. `target` is null when the call points at nothing; `scope` is the path a search ran in; `denied` marks a call the runtime refused; `outcome` says how a call that did not complete ended, and `attempted` is the tool an invalid call tried to use. */
+/** One call of a turn, in the order the agent made it. `target` is null when the call points at nothing; `scope` is the path a search ran in; `denied` marks a call the runtime refused; `outcome` says how a call ended when it did not complete (failed, denied or invalid); it is absent for a call that completed, for one the stream showed running when the turn ended, and for an entry stored before the field existed, so absence never states a success. `attempted` is the tool an invalid call tried to use. */
 export interface ToolSequenceEntry {
   tool: string;
   target: string | null;

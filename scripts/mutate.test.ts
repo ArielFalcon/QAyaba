@@ -186,6 +186,9 @@ test("the agent-efficiency preset mutates the pure classification modules and th
   }
   assert.ok(sources.some((s) => s.endsWith("sse/call-efficiency-tracker.ts")), "the tracker is mutated");
   assert.ok(sources.some((s) => s.endsWith("sse/call-fingerprint.ts")), "the tracker's call identity is mutated");
+  assert.ok(sources.some((s) => s.endsWith("generation/domain/tool-outcome.ts")), "the outcome derivation is mutated");
+  assert.ok(sources.some((s) => s.endsWith("sse/opencode-tool-outcome.ts")), "the runtime-wording classifier is mutated");
+  assert.ok(preset.tests.some((t) => t.endsWith("domain/tool-outcome.test.ts")) && preset.tests.some((t) => t.endsWith("sse/opencode-tool-outcome.test.ts")), "the outcome's own tests run against every mutant");
   assert.ok(preset.tests.some((t) => t.endsWith("sse/call-fingerprint.test.ts")), "the call identity's own tests run against every mutant");
   assert.ok(preset.tests.some((t) => t.endsWith("agent-efficiency-reconcile.contract.test.ts")), "the fine/coarse reconciliation contract runs against every mutant");
   assert.equal(preset.thresholds.break, null, "a new preset starts in signal mode");

@@ -84,6 +84,13 @@ test("a pattern secret in a tool's error never reaches the event", () => {
   assert.ok(!event!.detail.includes("abc.def.ghi"));
 });
 
+test("a credential straddling the event's 200-character cut never reaches the event, not even in part", () => {
+  const filler = "the file is missing in the working copy; ".repeat(5).slice(0, 190);
+  const [event] = mapValid(toolEvent({ status: "error", input: {}, error: `${filler}Bearer abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGH` }, { tool: "bash" })) as Array<{ detail: string }>;
+  assert.equal(event!.detail.length, 200);
+  assert.ok(!/Bearer abc|abcdefghij/.test(event!.detail));
+});
+
 test("pending tools and prose parts are dropped", () => {
   assert.deepEqual(mapValid(toolEvent({ status: "pending" }, { tool: "read" })), []);
   assert.deepEqual(mapValid({ type: "message.part.updated", properties: { part: { type: "text", sessionID: "sess_1", text: "ok, let me check the..." } } }), []);

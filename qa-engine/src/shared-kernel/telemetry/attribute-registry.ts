@@ -280,7 +280,7 @@ export const ATTRIBUTES = {
   "qayaba.tool.bucket": str("The call bucket: code_read, code_graph, browser, write, validate_run, script_run, memory, subagent or other."),
   "qayaba.tool.status": str("How the call ended: completed, error (failed, or a call the runtime replaced with its invalid-call tool), denied (refused under a permission rule) or running (never finished)."),
   "qayaba.tool.error": text("The runtime's message for a failed, denied or invalid call, redacted and capped."),
-  "qayaba.tool.attempted": str("The tool an invalid call tried to use.", "high"),
+  "qayaba.tool.attempted": text("The tool an invalid call tried to use, as the agent named it, redacted and capped."),
   "qayaba.nav.outcome": str("What a browser navigation came to: ok, auth_challenge, http_error, blocked or unknown."),
   "qayaba.step.intent": str("What a step was for: write_spec, auth, run_spec, explore, review or other."),
   "qayaba.agent.step": int("The step's number within its turn, from 1."),

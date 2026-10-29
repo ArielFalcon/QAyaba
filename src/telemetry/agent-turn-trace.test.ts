@@ -616,3 +616,25 @@ test("in off capture mode a tool's error text does not leave", async () => {
   assert.equal(attr(span, "qayaba.tool.status"), "error");
   assert.equal(attr(span, "qayaba.tool.error"), undefined);
 });
+
+test("the tool an invalid call attempted is agent-chosen text: metadata capture emits it and off capture does not", async () => {
+  const attemptedIn = async (captureMode: "off" | "metadata"): Promise<unknown> => {
+    const harness = (await import("./trace-harness")).traceHarness({ captureMode });
+    const input = { tool: "readfile", error: "filePath is required" };
+    const r = rig({
+      telemetry: harness.telemetry,
+      promptSession: async ({ stream }) => {
+        stream(stepStart("a"));
+        stream(tool("c1", "invalid", "running", { start: 1 }, input));
+        stream(tool("c1", "invalid", "completed", { start: 1, end: 2 }, input, "The arguments provided to the tool are invalid"));
+        stream(stepFinish("fa", "stop", { input: 1, output: 1 }, 0.01));
+        return answered();
+      },
+    });
+    const session = await r.deps.open("qa-author", CWD, { descriptor: { runId: "run-1", role: "qa-author" } });
+    await session.prompt("hello");
+    return attr(harness.named("execute_tool invalid")[0]!, "qayaba.tool.attempted");
+  };
+  assert.equal(await attemptedIn("metadata"), "readfile");
+  assert.equal(await attemptedIn("off"), undefined);
+});

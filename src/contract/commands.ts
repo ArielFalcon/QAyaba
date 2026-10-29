@@ -947,7 +947,7 @@ export const TurnUsageViewSchema = z.object({
   steps: z.number().int().nonnegative(),
 });
 
-/** One call of a turn's tool sequence: the tool, what it pointed at (null when it pointed at nothing), the path a search ran in, the part of the file a read asked for (absent for the whole file), whether the runtime refused it, and, for a call that did not complete, how it ended (failed, denied or invalid; absent for a completed call) and, for an invalid call, the tool it attempted. The runtime's message for the ending is on the call's span, never here. */
+/** One call of a turn's tool sequence: the tool, what it pointed at (null when it pointed at nothing), the path a search ran in, the part of the file a read asked for (absent for the whole file), whether the runtime refused it, and, for a call that did not complete, how it ended (failed, denied or invalid; absent for a completed call, for a call still running when the turn ended and for an entry stored before the field existed, so absence never states a success) and, for an invalid call, the tool it attempted. The runtime's message for the ending is on the call's span, never here. */
 export const ToolSequenceEntryViewSchema = z.object({
   tool: z.string(),
   target: z.string().nullable(),

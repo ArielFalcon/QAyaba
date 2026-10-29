@@ -99,7 +99,8 @@ processors:
           - 'delete_matching_keys(log.attributes, "^ai\\.(prompt.*|response\\..*|toolCall\\.(args|result))$")'
           - set(log.attributes["qayaba.trust"], "agent")
           # OpenCode names the session inside the message body, and its own process-wide trace id joins nothing. The id
-          # becomes an attribute so a provider failure or tool error is found by the session the orchestrator's turn span records.
+          # becomes an attribute so a provider failure is found by the session the orchestrator's turn span records. The runtime logs
+          # no tool failure: a failed, denied or invalid tool call says why on its own `execute_tool` span (`qayaba.tool.error`).
           - 'set(log.attributes["opencode.session_id"], ExtractPatterns(log.body, "session\\.id\\W+(?P<id>ses_[A-Za-z0-9]+)")["id"]) where IsString(log.body) and IsMatch(log.body, "session\\.id\\W+ses_")'
 
   # A trace of one process, without a root or a link to the run it served, is not evidence. Dropping it keeps Tempo
@@ -112,7 +113,7 @@ processors:
 
   # OpenCode logs every internal step at INFO (a prompt loop, a model selection, a file touch, a snapshot hash): ~99% of
   # what Loki stored, none of it evidence a run is diagnosed from. WARN and above (and a record with no severity) are
-  # kept: that is where a tool refusal, a provider failure or a crash shows. The orchestrator's own turn/attempt spans
+  # kept: that is where a provider failure or a crash shows. The orchestrator's own turn/attempt spans
   # and `run_events` carry the phase and agent events.
   filter/drop_opencode_info_logs:
     error_mode: ignore

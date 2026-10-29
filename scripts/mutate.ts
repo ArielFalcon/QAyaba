@@ -134,7 +134,7 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
     thresholds: DEFAULT_THRESHOLDS,
   },
   "agent-efficiency": {
-    description: "agent efficiency metrics: tool taxonomy, call sequence/redundancy, prompt-provided reads, step exhaustion, coarse windows, turn summary, and the in-session call tracker with its call identity",
+    description: "agent efficiency metrics: tool taxonomy, call sequence/redundancy, a call's outcome and the adapter that reads it off the runtime's part, prompt-provided reads, step exhaustion, coarse windows, turn summary, and the in-session call tracker with its call identity",
     mutate: [
       `${GEN}/domain/tool-call-taxonomy.ts`,
       `${GEN}/domain/shell-command-class.ts`,
@@ -144,8 +144,10 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
       `${GEN}/domain/coarse-run-efficiency.ts`,
       `${GEN}/domain/turn-efficiency-summary.ts`,
       `${GEN}/domain/tool-sequence.ts`,
+      `${GEN}/domain/tool-outcome.ts`,
       `${GEN}/infrastructure/sse/call-efficiency-tracker.ts`,
       `${GEN}/infrastructure/sse/call-fingerprint.ts`,
+      `${GEN}/infrastructure/sse/opencode-tool-outcome.ts`,
     ],
     tests: [
       `${GEN_TEST}/domain/tool-call-taxonomy.test.ts`,
@@ -156,8 +158,10 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
       `${GEN_TEST}/domain/coarse-run-efficiency.test.ts`,
       `${GEN_TEST}/domain/turn-efficiency-summary.test.ts`,
       `${GEN_TEST}/domain/tool-sequence.test.ts`,
+      `${GEN_TEST}/domain/tool-outcome.test.ts`,
       `${GEN_TEST}/infrastructure/sse/call-efficiency-tracker.test.ts`,
       `${GEN_TEST}/infrastructure/sse/call-fingerprint.test.ts`,
+      `${GEN_TEST}/infrastructure/sse/opencode-tool-outcome.test.ts`,
       `${GEN_TEST}/infrastructure/sse/event-stream.test.ts`,
       `${GEN_TEST}/infrastructure/agent-transport-policy.test.ts`,
       "qa-engine/test/contract/agent-efficiency-reconcile.contract.test.ts",
