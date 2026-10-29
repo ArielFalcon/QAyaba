@@ -610,7 +610,7 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   and later runs read those beliefs as facts over what the Context Pack read live; what a run reuses
   comes from the orchestrator (the suite store, the Context Pack). The tables the removed loop wrote
   (`learning_rules`, `curriculum`, `scorecard`) and the `rules_retrieved` and `reflection` columns of `run_outcomes` stay in the schema,
-  unread; the scorecard rows the signals view reads are the ones earlier runs left.
+  unread.
 
 ### The agent and its prompts
 

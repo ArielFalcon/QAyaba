@@ -149,22 +149,6 @@ export function toReportView(trends: TrendsView, opts?: { weights?: Record<strin
 
   insights.push(
     metricInsight({
-      id: "value-oracle",
-      title: "Value-oracle (mutation kill rate)",
-      intent: trends.valueOracle.series.length > 1 ? "trend" : "comparison",
-      chart: trends.valueOracle.series.length > 1 ? "line" : "paired-bars",
-      value: trends.valueOracle.avgScore,
-      previous: trends.valueOracle.previousAvgScore,
-      unit: "ratio",
-      goodWhen: "up",
-      weight: W("value-oracle", 1),
-      sample: trends.valueOracle.series.length,
-      series: trends.valueOracle.series,
-    }),
-  );
-
-  insights.push(
-    metricInsight({
       id: "reviewer-pass-rate",
       title: "Reviewer pass-rate",
       intent: "single-value",
@@ -299,7 +283,6 @@ export function reportToCsv(report: ReportView): string {
 export function trendsToCsv(trends: TrendsView): string {
   const rows: Array<[string, unknown, unknown]> = [
     ["coverage.ratio", trends.coverage.ratio, trends.coverage.previousRatio],
-    ["valueOracle.avgScore", trends.valueOracle.avgScore, trends.valueOracle.previousAvgScore],
     ["reviewerPassRate", trends.reviewerPassRate, null],
     ["flaky.rate", trends.flaky.rate, trends.flaky.previousRate],
     ["duration.avgMs", trends.duration.avgMs, trends.duration.previousMs],

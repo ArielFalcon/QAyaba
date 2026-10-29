@@ -158,15 +158,15 @@ func (c *Client) GetApp(ctx context.Context, name string) (contract.AppView, err
 	return out, err
 }
 
-/* GetSignals fetches the fleet-wide integrity readout (ground-truth value-oracle vs.
-   proxy pass-rate) that backs the dashboard's SIGNALS panel. */
+/* GetSignals fetches the fleet-wide integrity readout (reviewer pass-rate and
+   measured change-coverage) that backs the dashboard's SIGNALS panel. */
 func (c *Client) GetSignals(ctx context.Context) (contract.SignalsView, error) {
 	var out contract.SignalsView
 	err := c.do(ctx, http.MethodGet, "/api/v1/signals", nil, &out)
 	return out, err
 }
 
-/* GetTrends fetches the period-over-period trends for an app (change-coverage, value-oracle,
+/* GetTrends fetches the period-over-period trends for an app (change-coverage,
    verdict mix, flaky rate, error classes) — the source data the report ranks. */
 func (c *Client) GetTrends(ctx context.Context, app string) (contract.TrendsView, error) {
 	var out contract.TrendsView

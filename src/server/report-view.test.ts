@@ -18,12 +18,6 @@ function trends(over: Partial<TrendsView> = {}): TrendsView {
       minRatio: 0.7,
       series: [0.5, 0.55, 0.6, 0.65, 0.7, 0.72, 0.74, 0.76, 0.78, 0.8],
     },
-    valueOracle: {
-      measured: true,
-      avgScore: 0.7,
-      previousAvgScore: 0.5,
-      series: [0.5, 0.52, 0.55, 0.58, 0.6, 0.62, 0.64, 0.66, 0.68, 0.7],
-    },
     verdictMix: { pass: 7, fail: 2, flaky: 1 },
     reviewerPassRate: 0.7,
     flaky: { rate: 0.1, previousRate: 0.1, runs: 10 },
@@ -61,12 +55,6 @@ test("toReportView ranks a from-zero climb first and headlines it honestly", () 
         minRatio: 0.7,
         series: [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.75, 0.8],
       },
-      valueOracle: {
-        measured: true,
-        avgScore: 0.5,
-        previousAvgScore: 0.5,
-        series: [0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5],
-      },
       flaky: { rate: 0.1, previousRate: 0.1, runs: 10 },
     }),
   );
@@ -88,12 +76,6 @@ test("toReportView scales a from-zero move by magnitude — a tiny blip does NOT
         previousRatio: 0,
         minRatio: 0.7,
         series: [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.75, 0.8],
-      },
-      valueOracle: {
-        measured: true,
-        avgScore: 0.5,
-        previousAvgScore: 0.5,
-        series: [0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5],
       },
       flaky: { rate: 0.1, previousRate: 0, runs: 10 },
     }),
@@ -121,7 +103,6 @@ test("toReportView is honest when nothing moved (no baseline)", () => {
   const report = toReportView(
     trends({
       coverage: { measured: false, ratio: null, previousRatio: null, minRatio: 0.7, series: [] },
-      valueOracle: { measured: false, avgScore: null, previousAvgScore: null, series: [] },
       verdictMix: {},
       reviewerPassRate: null,
       flaky: { rate: null, previousRate: null, runs: 0 },
@@ -155,4 +136,11 @@ test("toReportView applies per-app weight overrides (qa.reports.weights)", () =>
   const covDe = deweighted.insights.find((i) => i.id === "change-coverage")!.score;
   assert.equal(covDe, 0); /* weight 0 → score 0 regardless of how much it moved */
   assert.notEqual(deweighted.insights[0]?.id, "change-coverage"); /* and it no longer headlines */
+});
+
+test("toReportView carries no value-oracle insight and trendsToCsv no value-oracle row", () => {
+  const t = trends();
+  const report = toReportView(t);
+  assert.equal(report.insights.some((i) => i.id === "value-oracle"), false);
+  assert.doesNotMatch(trendsToCsv(t), /valueOracle/);
 });

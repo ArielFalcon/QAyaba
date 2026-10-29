@@ -1001,23 +1001,14 @@ func (m dashboardModel) providerDot(provider string) string {
 	return healthDot(h.Status)
 }
 
-/* renderSignals is the integrity panel — the anti-Goodhart readout. It juxtaposes the
-   ground-truth value-oracle (◆, real: do the tests catch injected bugs?) against the proxy
-   the rest of the board shows everywhere (◇ pass rate), and states precisely where
+/* renderSignals is the integrity panel — the anti-Goodhart readout. It shows the proxy
+   the rest of the board shows everywhere (◇ reviewer pass rate) and states precisely where
    change-coverage stands: measured per run, but not yet a fleet-level merge gate (⚠) —
    the keystone. Every number is real or honestly absent; nothing inert is dressed up. */
 func (m dashboardModel) renderSignals(w int) string {
 	var b strings.Builder
 	b.WriteString(labelRule(w, "integrity", renderSegs("", sg("◆ truth ", colPass), sg("◇ proxy", colFlaky))) + "\n")
 	b.WriteString("  " + hintStyle.Render("does the suite catch real bugs, or only pass review?") + "\n")
-
-	/* ◆ value oracle — ground truth. */
-	oracle := shadowStyle.Render("not measured yet ⚠")
-	if m.signals != nil && m.signals.ValueOracle.Measured && m.signals.ValueOracle.AvgScore != nil {
-		oracle = renderSegs("", sg("◆ ", colPass)) + okStyle.Render(fmt.Sprintf("%.2f", *m.signals.ValueOracle.AvgScore)) +
-			hintStyle.Render("  "+pluralize(m.signals.ValueOracle.MeasuredRuns, "run", "runs"))
-	}
-	b.WriteString("  " + labelStyle.Render(padRight("value oracle", 13)) + " " + oracle + "\n")
 
 	/* ◇ reviewer — the proxy gate (pass rate over quality-verdict runs). */
 	proxy := hintStyle.Render("reviewer · LLM ") + renderSegs("", sg("◇", colFlaky))

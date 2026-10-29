@@ -51,7 +51,7 @@ export interface ApiDeps {
    */
   contextMap?: (app: string) => z.infer<typeof ContextMapViewSchema> | null;
   /*
-   * Read-only fleet-wide integrity readout (ground-truth value-oracle vs. proxy pass-rate).
+   * Read-only fleet-wide integrity readout (reviewer pass-rate and measured change-coverage).
    * Absent ⇒ the /signals route returns 501.
    */
   signals?: () => z.infer<typeof SignalsViewSchema>;

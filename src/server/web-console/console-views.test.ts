@@ -331,9 +331,8 @@ test("the live run's elapsed time counts from the run's start, not from its curr
 
 /* SignalsView carries current-window values only — there is no previous window to compare to. */
 const currentWindowSignals = {
-  valueOracle: { measured: true, avgScore: 0.8, measuredRuns: 4, totalRuns: 6 },
   reviewer: { passRate: 0.75, runs: 4 },
-  coverage: { measured: false, avgRatio: null, measuredRuns: 0, totalRuns: 6 },
+  coverage: { measured: true, avgRatio: 0.8, measuredRuns: 4, totalRuns: 6 },
 };
 
 test("fleet KPIs show no period-over-period change when the API has no previous window", async () => {
@@ -350,7 +349,8 @@ test("fleet KPIs show no period-over-period change when the API has no previous 
   const text = h.text();
   assert.match(text, /75%/, "the current reviewer pass-rate is shown");
   assert.doesNotMatch(text, /[+-]\d+ pts/, "no pass-rate change against a window that does not exist");
-  assert.doesNotMatch(text, /×\d/, "no value-oracle multiplier against a missing baseline");
+  assert.doesNotMatch(text, /×\d/, "no multiplier against a missing baseline");
+  assert.doesNotMatch(text, /value-oracle|kill-rate/i, "the console has no value-oracle tile");
   assert.doesNotMatch(text, /\+0\b/, "no zero change fabricated from the current value");
 });
 

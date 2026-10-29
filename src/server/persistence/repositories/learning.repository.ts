@@ -1,18 +1,16 @@
 import type { ErrorClass } from "@kernel/error-class";
-import type { Scorecard } from "../../../qa/learning/oracle-types";
 import type { RunMode, RunOutcome, RunRecord, RunVerdict, TestTarget } from "../../../types";
 import type { HistoryDatabase } from "../database";
 import { parseJsonColumn } from "../json-column";
 
 const EMPTY_GATE_SIGNALS: RunOutcome["gateSignals"] = { static: false, coverageRatio: null, valueScore: null, reviewerCorrections: [], flaky: false, retries: 0 };
 
-/* What a run taught: run_outcomes (append-only), and the scorecard, which only the signals view reads. The learning_rules, curriculum and scorecard tables and the rules_retrieved and reflection columns of run_outcomes are no longer written; the schema keeps them, and purging an app still empties its rows. */
+/* What a run taught: run_outcomes (append-only). The learning_rules, curriculum and scorecard tables and the rules_retrieved and reflection columns of run_outcomes are no longer written or read; the schema keeps them, and purging an app still empties its rows. */
 export class LearningRepository {
   private readonly insertOutcome;
   private readonly reclassifyOutcome;
   private readonly listOutcomes;
   private readonly getOutcome;
-  private readonly loadScorecardRow;
 
   constructor(private readonly db: HistoryDatabase) {
     const raw = db.raw;
@@ -23,7 +21,6 @@ export class LearningRepository {
     this.reclassifyOutcome = raw.prepare("UPDATE run_outcomes SET verdict = 'infra-error', error_class = ? WHERE id = ?");
     this.listOutcomes = raw.prepare("SELECT * FROM run_outcomes WHERE app = ? ORDER BY at DESC, rowid DESC LIMIT ?");
     this.getOutcome = raw.prepare("SELECT * FROM run_outcomes WHERE id = ?");
-    this.loadScorecardRow = raw.prepare("SELECT data FROM scorecard WHERE app = ?");
   }
 
   /* Removes what an app's runs taught: outcomes, rules, curriculum and scorecard rows. Returns nothing; a table that holds no row for the app is left as it is. */
@@ -103,9 +100,4 @@ export class LearningRepository {
     return row ? this.rowToOutcome(row) : undefined;
   }
 
-  loadScorecard(app: string): Scorecard | null {
-    const row = this.loadScorecardRow.get(app) as { data: string } | undefined;
-    if (!row) return null;
-    return parseJsonColumn<Scorecard | null>(row.data, null, { table: "scorecard", column: "data", id: app });
-  }
 }

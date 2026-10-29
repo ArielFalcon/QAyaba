@@ -400,7 +400,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Period-over-period trends for an app: coverage, value-oracle, verdicts, error classes (read-only) */
+        /** Period-over-period trends for an app: coverage, verdicts, error classes (read-only) */
         get: operations["getAppTrends"];
         put?: never;
         post?: never;
@@ -451,7 +451,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Fleet-wide integrity readout: ground-truth value-oracle vs. proxy pass-rate (read-only) */
+        /** Fleet-wide integrity readout: reviewer pass-rate and measured change-coverage (read-only) */
         get: operations["getSignals"];
         put?: never;
         post?: never;
@@ -1082,12 +1082,6 @@ export interface components {
             model: string;
         };
         SignalsView: {
-            valueOracle: {
-                measured: boolean;
-                avgScore: number | null;
-                measuredRuns: number;
-                totalRuns: number;
-            };
             reviewer: {
                 passRate: number | null;
                 runs: number;
@@ -1142,12 +1136,6 @@ export interface components {
             minRatio: number;
             series: number[];
         };
-        ValueTrend: {
-            measured: boolean;
-            avgScore: number | null;
-            previousAvgScore: number | null;
-            series: number[];
-        };
         FlakyTrend: {
             rate: number | null;
             previousRate: number | null;
@@ -1164,7 +1152,6 @@ export interface components {
             generatedAt: string;
             window: components["schemas"]["TrendWindow"];
             coverage: components["schemas"]["CoverageTrend"];
-            valueOracle: components["schemas"]["ValueTrend"];
             verdictMix: {
                 [key: string]: number;
             };

@@ -23,7 +23,7 @@ for (const verdicts of [
 ]) {
   test(`the fleet pass rate reads the same as the signals view for ${verdicts.join(", ")}`, async () => {
     const { model, runs } = await fleetModel(verdicts);
-    const server = toSignalsView([{ scorecard: null, runs: runs as unknown as RunRecord[] }]).reviewer.passRate;
+    const server = toSignalsView([{ runs: runs as unknown as RunRecord[] }]).reviewer.passRate;
 
     if (server === null) {
       assert.equal(model.stats.passRate, null, "no quality verdict → no rate, never 0%");

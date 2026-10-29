@@ -274,7 +274,6 @@ func TestOnboardingJobStatusDecodesResolutionSummaryFromServerJSON(t *testing.T)
    struct shape to the contract — the same no-drift guarantee as the other decode tests in this file. */
 func TestSignalsViewDecodesCoordinationFromServerJSON(t *testing.T) {
 	const payload = `{
-		"valueOracle":{"measured":true,"avgScore":0.8,"measuredRuns":10,"totalRuns":20},
 		"reviewer":{"passRate":0.9,"runs":20},
 		"coverage":{"measured":true,"avgRatio":0.75,"measuredRuns":10,"totalRuns":20},
 		"coordination":{
@@ -309,7 +308,6 @@ func TestSignalsViewDecodesCoordinationFromServerJSON(t *testing.T) {
    as nil, not a zero-valued struct, so the console can tell "unmeasured" from "no coordination". */
 func TestSignalsViewCoordinationAbsentWhenNotYetAdopted(t *testing.T) {
 	const payload = `{
-		"valueOracle":{"measured":false,"avgScore":null,"measuredRuns":0,"totalRuns":0},
 		"reviewer":{"passRate":null,"runs":0},
 		"coverage":{"measured":false,"avgRatio":null,"measuredRuns":0,"totalRuns":0}
 	}`

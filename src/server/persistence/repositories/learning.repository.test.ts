@@ -5,28 +5,28 @@ import Database from "better-sqlite3";
 import { getHistory } from "../index";
 import type { RunOutcome } from "../../../types";
 
-test("loadScorecard reads the row earlier runs left, reports an app with none as null, and a purge removes it", () => {
-  const app = "hist-scorecard-read";
-  assert.equal(getHistory().learning.loadScorecard(app), null);
-  const scorecard = {
-    app,
-    updatedAt: "2026-06-13T00:00:00.000Z",
-    entries: [{ runId: "r1", app, sha: "abc", target: "e2e", valueScore: 0.5, mutantCount: 4, killedCount: 2, at: "2026-06-13T00:00:00.000Z" }],
-    summary: { totalRuns: 1, measuredRuns: 1, avgValueScore: 0.5, lastValueScore: 0.5 },
-  };
-  /* Nothing writes a scorecard any more: the row is left by a second connection to the same on-disk db, as an earlier version of the engine left it. */
+test("purging an app removes the scorecard row earlier runs left", () => {
+  const app = "hist-scorecard-purge";
+  /* Nothing reads or writes a scorecard any more: the row is left by a second connection to the same on-disk db, as an earlier version of the engine left it. */
   const dbPath = process.env.HISTORY_DB_PATH ?? join(process.env.QAYABA_ROOT ?? process.cwd(), "data", "qayaba.db");
+  const countRows = (): number => {
+    const raw = new Database(dbPath);
+    try {
+      return (raw.prepare("SELECT COUNT(*) AS n FROM scorecard WHERE app = ?").get(app) as { n: number }).n;
+    } finally {
+      raw.close();
+    }
+  };
   const raw = new Database(dbPath);
   try {
-    raw.prepare("INSERT INTO scorecard (app, data, updated_at) VALUES (?, ?, ?)").run(app, JSON.stringify(scorecard), scorecard.updatedAt);
+    raw.prepare("INSERT INTO scorecard (app, data, updated_at) VALUES (?, ?, ?)").run(app, "{}", "2026-06-13T00:00:00.000Z");
   } finally {
     raw.close();
   }
-
-  assert.deepEqual(getHistory().learning.loadScorecard(app), scorecard);
+  assert.equal(countRows(), 1);
 
   getHistory().purgeApp(app);
-  assert.equal(getHistory().learning.loadScorecard(app), null);
+  assert.equal(countRows(), 0);
 });
 
 test("getRunOutcome returns the single run's outcome and round-trips the reviewer verdict", () => {

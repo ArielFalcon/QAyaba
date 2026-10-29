@@ -112,3 +112,8 @@ test("toTrendsView reports coverage as not measured when no run carried a ratio"
   assert.equal(v.coverage.ratio, null);
   assert.deepEqual(v.coverage.series, []);
 });
+
+test("toTrendsView carries no value-oracle trend", () => {
+  const v = toTrendsView({ app: "a", outcomes: [outcome({ verdict: "pass", coverageRatio: 0.5 })], now: "2026-06-14T00:00:00Z" });
+  assert.equal("valueOracle" in v, false);
+});

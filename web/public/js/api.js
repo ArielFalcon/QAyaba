@@ -352,13 +352,11 @@ window.QayabaConsole = (function () {
       status: a.shadow ? 'shadow' : 'live',
       /* TODO(server): vmix, value, coverage, reviewerPass, errClasses, trend come from /apps/:name/trends */
       vmix: trendVmix(raw.trendsByApp[a.name]) || [],
-      value: pick(raw.trendsByApp[a.name], 'valueOracle.avgScore'),
       coverage: pick(raw.trendsByApp[a.name], 'coverage.measured') ? pick(raw.trendsByApp[a.name], 'coverage.ratio') : null,
       coverageMin: pick(raw.trendsByApp[a.name], 'coverage.minRatio', 0.7),
       reviewerPass: pick(raw.trendsByApp[a.name], 'reviewerPassRate', 0),
       errClasses: (pick(raw.trendsByApp[a.name], 'errorClasses', []) || []).map((e) => [e.errorClass, e.count]),
       coverageMode: 'signal', oracle: 'e2e',
-      valueSeries: pick(raw.trendsByApp[a.name], 'valueOracle.series', null),
       coverageSeries: pick(raw.trendsByApp[a.name], 'coverage.series', null),
       /* Stored FE<->BE architecture map. null when the app has never completed a
          mode:context run — the console renders that as an honest empty state, never a mock map. */
@@ -535,7 +533,6 @@ window.QayabaConsole = (function () {
    */
   function emptySignals() {
     return {
-      valueOracle: { v: null, prev: null, baseline: null, series: [] },
       reviewerPass: { v: null, prev: null, series: [] },
       runs: { measured: 0, total: 0, prevMeasured: null, prevTotal: null, series: [] },
       coordination: null,
@@ -552,17 +549,15 @@ window.QayabaConsole = (function () {
        are NOT in SignalsView today → see API.md "Overview gap". Report them honestly
        unavailable instead of the mock demo numbers.
      */
-    const vo = s.valueOracle || {};
     const rp = s.reviewer || {};
-    const score = vo.avgScore;
+    const cv = s.coverage || {};
     const passRate = rp.passRate;
     /* Current-window values only: there is no previous window or baseline to compare against, so
        prev/baseline stay null (the console then shows no change) — never the current value
        copied in, which rendered a fabricated "+0 pts" / "×1.0". */
     const base = emptySignals();
-    base.valueOracle = { v: score == null ? null : score, prev: null, baseline: null, series: score == null ? [] : [score] };
     base.reviewerPass = { v: passRate == null ? null : passRate, prev: null, series: passRate == null ? [] : [passRate] };
-    base.runs = { measured: vo.measuredRuns || 0, total: vo.totalRuns || 0, prevMeasured: null, prevTotal: null, series: [vo.measuredRuns || 0] };
+    base.runs = { measured: cv.measuredRuns || 0, total: cv.totalRuns || 0, prevMeasured: null, prevTotal: null, series: [cv.measuredRuns || 0] };
     base.coordination = s.coordination || null;
     return base;
   }

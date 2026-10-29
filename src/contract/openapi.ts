@@ -20,7 +20,7 @@ import {
   AgentProviderHealthSchema, AgentModelInfoSchema, RoleAssignmentSchema,
   SignalsViewSchema,
   CoordinationEventSchema, CoordinationEventsViewSchema,
-  TrendWindowSchema, CoverageTrendSchema, ValueTrendSchema, FlakyTrendSchema, ErrorClassCountSchema,
+  TrendWindowSchema, CoverageTrendSchema, FlakyTrendSchema, ErrorClassCountSchema,
   TrendsViewSchema, ReportInsightSchema, ReportViewSchema, RunReportViewSchema,
   ArchitectureContextSchema, ContextMapViewSchema,
   AgentTurnViewSchema, AppTelemetryViewSchema, TelemetryHealthSchema,
@@ -76,7 +76,6 @@ const NAMED_SCHEMAS = {
   CoordinationEventsView: CoordinationEventsViewSchema,
   TrendWindow: TrendWindowSchema,
   CoverageTrend: CoverageTrendSchema,
-  ValueTrend: ValueTrendSchema,
   FlakyTrend: FlakyTrendSchema,
   ErrorClassCount: ErrorClassCountSchema,
   TrendsView: TrendsViewSchema,
@@ -395,7 +394,7 @@ function paths(): Record<string, unknown> {
     "/api/v1/apps/{name}/trends": {
       get: {
         operationId: "getAppTrends",
-        summary: "Period-over-period trends for an app: coverage, value-oracle, verdicts, error classes (read-only)",
+        summary: "Period-over-period trends for an app: coverage, verdicts, error classes (read-only)",
         parameters: [nameParam, windowParam, formatParam],
         responses: {
           "200": { description: "trends view", content: jsonBody("TrendsView") },
@@ -431,7 +430,7 @@ function paths(): Record<string, unknown> {
     "/api/v1/signals": {
       get: {
         operationId: "getSignals",
-        summary: "Fleet-wide integrity readout: ground-truth value-oracle vs. proxy pass-rate (read-only)",
+        summary: "Fleet-wide integrity readout: reviewer pass-rate and measured change-coverage (read-only)",
         responses: { "200": { description: "signals view", content: jsonBody("SignalsView") } },
       },
     },

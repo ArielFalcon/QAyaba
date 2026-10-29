@@ -150,23 +150,22 @@ func TestDashboardTabFocusesModelsAndEnterOpensSwitcher(t *testing.T) {
 	}
 }
 
-func TestDashboardSignalsRenderGroundTruthVsProxy(t *testing.T) {
+func TestDashboardSignalsRenderProxyAndCoverage(t *testing.T) {
 	m := dashWith([]contract.AppView{{Name: "portfolio"}})
-	avg := float32(0.82)
 	pass := float32(0.9)
 	m.signals = &contract.SignalsView{}
-	m.signals.ValueOracle.Measured = true
-	m.signals.ValueOracle.AvgScore = &avg
-	m.signals.ValueOracle.MeasuredRuns = 7
 	m.signals.Reviewer.PassRate = &pass
 	m.signals.Reviewer.Runs = 10
 	out := m.renderSignals(96)
-	/* ◆ value-oracle truth, ◇ proxy pass-rate, and coverage stated precisely (measured per
-	   run, not yet a gate) — never a flat "not measured" that contradicts the live run. */
-	for _, want := range []string{"0.82", "90% pass", "per run", "gate not built ⚠"} {
+	/* ◇ proxy pass-rate and coverage stated precisely (measured per run, not yet a gate) —
+	   never a flat "not measured" that contradicts the live run. */
+	for _, want := range []string{"90% pass", "per run", "gate not built ⚠"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("signals readout missing %q:\n%s", want, out)
 		}
+	}
+	if strings.Contains(out, "value oracle") {
+		t.Fatalf("signals readout still shows a value oracle row:\n%s", out)
 	}
 }
 

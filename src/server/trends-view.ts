@@ -1,6 +1,6 @@
 /*
  * toTrendsView splits an app's run outcomes (and run records) into a current vs previous window and
- * computes the period-over-period readings the report surface needs (change-coverage, value-oracle,
+ * computes the period-over-period readings the report surface needs (change-coverage,
  * verdict mix, flaky rate, error-class distribution, suite duration, per-flow stability). Pure (no
  * I/O), so it is unit-tested directly; the orchestrator injects the real history reads + clock at the
  * call site. Every reading is null/0 when its source is absent — nothing is invented, and absence is
@@ -20,15 +20,6 @@ function ratios(outcomes: RunOutcome[]): number[] {
   for (const o of outcomes) {
     const r = o.gateSignals.coverageRatio;
     if (r !== null && r !== undefined) out.push(r);
-  }
-  return out;
-}
-
-function scores(outcomes: RunOutcome[]): number[] {
-  const out: number[] = [];
-  for (const o of outcomes) {
-    const s = o.gateSignals.valueScore;
-    if (s !== null && s !== undefined) out.push(s);
   }
   return out;
 }
@@ -116,14 +107,6 @@ export function toTrendsView(input: TrendsInput) {
     series: [...curRatios].reverse(),  /* oldest → newest for a line chart */
   };
 
-  const curScores = scores(current);
-  const valueOracle = {
-    measured: curScores.length > 0,
-    avgScore: mean(curScores),
-    previousAvgScore: mean(scores(previous)),
-    series: [...curScores].reverse(),
-  };
-
   const verdictMix: Record<string, number> = {};
   for (const o of current) verdictMix[o.verdict] = (verdictMix[o.verdict] ?? 0) + 1;
 
@@ -172,7 +155,6 @@ export function toTrendsView(input: TrendsInput) {
     generatedAt: input.now,
     window: { current: current.length, previous: previous.length },
     coverage,
-    valueOracle,
     verdictMix,
     reviewerPassRate,
     flaky,

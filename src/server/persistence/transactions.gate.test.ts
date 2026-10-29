@@ -54,7 +54,7 @@ const READS: Record<string, readonly string[]> = {
   JudgeRepository: ["lastJudgeOutcome", "latestJudgeModel", "judgeTokensUsedOn", "judgeOutcomeCounts", "latestJudgeCalibration", "listJudgeLabelPairs"],
   EvaluationRepository: ["listRunScoreRows", "getRunEvaluationStatus", "getRegradeJob"],
   LearningRepository: [
-    "writeOutcome", "rowToOutcome", "listRunOutcomes", "getRunOutcome", "loadScorecard",
+    "writeOutcome", "rowToOutcome", "listRunOutcomes", "getRunOutcome",
   ],
   TelemetryRepository: ["listRunSpans", "getAgentTurns", "getAgentRoleFacts", "getRecentTurnFigures","getAgentTurnTraces", "computeTelemetryAnalysis"],
 };

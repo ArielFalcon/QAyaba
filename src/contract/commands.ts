@@ -746,14 +746,8 @@ export const CoordinationSignalsSchema = z.object({
 
 export type CoordinationSignals = z.infer<typeof CoordinationSignalsSchema>;
 
-/** ── Signals (fleet-wide integrity readout — the anti-Goodhart panel) ─────────────── The honest answer to "can I trust the fleet's green?". It juxtaposes the ground-truth value-oracle (◆, real, from the aggregated scorecards) against the proxy the rest of the console shows everywhere (◇ pass rate), and states plainly that change-coverage is not measured yet (⚠). Every field is derived from persisted data — nothing is invented. */
+/** ── Signals (fleet-wide integrity readout — the anti-Goodhart panel) ─────────────── The honest answer to "can I trust the fleet's green?". It juxtaposes the reviewer pass rate (◇ proxy) with the change-coverage the engine measured (◆), and states plainly when coverage is not measured (⚠). Every field is derived from persisted data — nothing is invented. */
 export const SignalsViewSchema = z.object({
-  valueOracle: z.object({
-    measured: z.boolean(),
-    avgScore: z.number().nullable(),
-    measuredRuns: z.number().int().nonnegative(),
-    totalRuns: z.number().int().nonnegative(),
-  }),
   reviewer: z.object({
     passRate: z.number().nullable(),
     runs: z.number().int().nonnegative(),
@@ -812,13 +806,6 @@ export const CoverageTrendSchema = z.object({
   series: z.array(z.number()),
 });
 
-export const ValueTrendSchema = z.object({
-  measured: z.boolean(),
-  avgScore: z.number().nullable(),
-  previousAvgScore: z.number().nullable(),
-  series: z.array(z.number()),
-});
-
 export const FlakyTrendSchema = z.object({
   rate: z.number().nullable(),
   previousRate: z.number().nullable(),
@@ -850,7 +837,6 @@ export const TrendsViewSchema = z.object({
   generatedAt: z.string(),
   window: TrendWindowSchema,
   coverage: CoverageTrendSchema,
-  valueOracle: ValueTrendSchema,
   verdictMix: z.record(z.string(), z.number().int().nonnegative()),
   reviewerPassRate: z.number().nullable(),
   flaky: FlakyTrendSchema,

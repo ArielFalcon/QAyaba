@@ -2683,12 +2683,6 @@ type SignalsView struct {
 		PassRate *float32 `json:"passRate"`
 		Runs     int      `json:"runs"`
 	} `json:"reviewer"`
-	ValueOracle struct {
-		AvgScore     *float32 `json:"avgScore"`
-		Measured     bool     `json:"measured"`
-		MeasuredRuns int      `json:"measuredRuns"`
-		TotalRuns    int      `json:"totalRuns"`
-	} `json:"valueOracle"`
 }
 
 // SpecRecord defines model for SpecRecord.
@@ -2795,7 +2789,6 @@ type TrendsView struct {
 	} `json:"flows"`
 	GeneratedAt      string         `json:"generatedAt"`
 	ReviewerPassRate *float32       `json:"reviewerPassRate"`
-	ValueOracle      ValueTrend     `json:"valueOracle"`
 	VerdictMix       map[string]int `json:"verdictMix"`
 	Window           TrendWindow    `json:"window"`
 }
@@ -2818,14 +2811,6 @@ type UpdateAppInput struct {
 
 // UpdateAppInputTarget defines model for UpdateAppInput.Target.
 type UpdateAppInputTarget string
-
-// ValueTrend defines model for ValueTrend.
-type ValueTrend struct {
-	AvgScore         *float32  `json:"avgScore"`
-	Measured         bool      `json:"measured"`
-	PreviousAvgScore *float32  `json:"previousAvgScore"`
-	Series           []float32 `json:"series"`
-}
 
 // VersionInfo defines model for VersionInfo.
 type VersionInfo struct {

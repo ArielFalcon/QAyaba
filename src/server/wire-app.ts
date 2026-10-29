@@ -634,7 +634,7 @@ export function wireApp(settingsStore: SettingsStore): WiredApp {
       return { app, map: stored.data, builtAtSha: stored.builtAtSha, updatedAt: stored.updatedAt };
     },
     signals: () => toSignalsView(
-      listAppConfigs().map((a) => ({ scorecard: getHistory().learning.loadScorecard(a.name), runs: getHistory().runs.listRecords(a.name, 50), outcomes: getHistory().learning.listRunOutcomes(a.name, 50) })),
+      listAppConfigs().map((a) => ({ runs: getHistory().runs.listRecords(a.name, 50), outcomes: getHistory().learning.listRunOutcomes(a.name, 50) })),
       toCoordinationSignals(readRecentCoordinationEvents({ limit: 1000 }).events),
     ),
     /*

@@ -134,14 +134,13 @@ test("GET /api/signals returns the fleet integrity view, or 501 when not wired",
   const res = mkRes();
   await routeApi(mkReq("GET", "/api/v1/signals"), res, deps({
     signals: () => ({
-      valueOracle: { measured: true, avgScore: 0.8, measuredRuns: 10, totalRuns: 20 },
       reviewer: { passRate: 0.5, runs: 4 },
       coverage: { measured: false, avgRatio: null, measuredRuns: 0, totalRuns: 0 },
     }),
   }));
   assert.equal(res.status, 200);
   const view = JSON.parse(res.body);
-  assert.equal(view.valueOracle.avgScore, 0.8);
+  assert.equal(view.reviewer.passRate, 0.5);
   assert.equal(view.coverage.measured, false);
 });
 

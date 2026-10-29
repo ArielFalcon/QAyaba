@@ -368,11 +368,6 @@
         : '') + '</div>';
   }
   function AppFleetCard(app) {
-    const valueBlock = app.value != null
-      ? '<span style="' + sty({ fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 30, letterSpacing: '-0.02em', color: 'var(--text-strong)', lineHeight: 1 }) + '">' + app.value.toFixed(2) + '</span>' +
-        '<span style="font-family:var(--font-mono);font-size:10.5px;color:var(--text-muted)">mutation kill-rate</span>'
-      : '<span style="' + sty({ fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 26, letterSpacing: '-0.02em', color: 'var(--ink-400)', lineHeight: 1 }) + '">n/a</span>' +
-        '<span style="font-family:var(--font-mono);font-size:10.5px;color:var(--text-faint)">oracle off</span>';
     const right = CoverageGauge(app.coverage, app.coverageMin, 92, app.coverage == null ? 'bundled assets' : null);
     return '<button class="fleet-card" data-action="open-app" data-id="' + esc(app.name) + '" style="' + sty({ display: 'flex', flexDirection: 'column', gap: 14, textAlign: 'left', padding: 0, border: 'var(--border-rule)', borderRadius: 'var(--radius-md)', background: 'var(--surface-raised)', cursor: 'pointer', overflow: 'hidden', transition: 'box-shadow var(--dur-base), border-color var(--dur-base), transform var(--dur-base)' }) + '">' +
       '<div style="display:flex;flex-direction:column;gap:14px;padding:15px 18px 0">' +
@@ -381,8 +376,7 @@
       '<span style="' + sty({ fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 19, letterSpacing: '-0.02em', color: 'var(--text-strong)' }) + '">' + esc(app.name) + '</span></div>' +
       StatusBadge(app.status, 'sm') + '</div>' +
       '<div style="display:flex;align-items:center;gap:14px;min-height:92px">' +
-      '<div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:3px">' +
-      '<span style="' + sty({ fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-muted)' }) + '">value-oracle</span>' + valueBlock + '</div>' + right + '</div>' +
+      '<div style="flex:1;min-width:0;display:flex;justify-content:center">' + right + '</div></div>' +
       '<div style="display:flex;flex-direction:column;gap:8px">' + VerdictBar(app.vmix, 8) +
       '<div style="display:flex;flex-wrap:wrap;gap:4px 12px">' + app.vmix.map((s) =>
         '<span style="display:inline-flex;align-items:center;gap:5px;font-family:var(--font-mono);font-size:10.5px;color:var(--text-muted)"><span style="width:7px;height:7px;border-radius:2px;background:' + VERDICT_FILL[s.v] + '"></span>' + esc(s.v) + ' ' + s.n + '</span>').join('') + '</div></div></div>' +
@@ -403,7 +397,7 @@
       '<span style="font-family:var(--font-mono);font-size:11px;color:var(--text-faint);flex:none">' + esc(r.time) + '</span></button>';
   }
   function viewOverview() {
-    const s = D.signals, vo = s.valueOracle, rp = s.reviewerPass, rn = s.runs, sg = s.suitesGreen, pr = s.prsAutoMerged, io = s.issuesOpen;
+    const s = D.signals, rp = s.reviewerPass, rn = s.runs, sg = s.suitesGreen, pr = s.prsAutoMerged, io = s.issuesOpen;
     const co = (D.coordination && D.coordination.signals) || (s && s.coordination) || null;
     const delegationKpi = (co && co.measured)
       ? KpiCard({ label: 'delegated runs', value: co.delegateRuns, unit: ' / ' + co.totalRuns, dir: 'flat', good: null,
@@ -413,7 +407,6 @@
     const kpis = '<div class="pa-stagger" style="display:grid;grid-template-columns:repeat(auto-fit, minmax(168px, 1fr));gap:var(--space-3)">' +
       /* A change chip needs a real previous value; without one (live SignalsView has no previous
          window yet) the chip is omitted rather than computed against the current value. */
-      KpiCard({ big: true, label: 'value-oracle · fleet', value: F.fixed(vo.v, 2), dir: 'up', good: true, deltaText: (vo.v == null || vo.baseline == null) ? null : F.multiplierLabel(vo.v, vo.baseline), series: vo.series, seriesColor: 'var(--pass-500)', sub: 'mutation kill-rate vs baseline' }) +
       KpiCard({ label: 'reviewer pass-rate', value: rp.v == null ? 'n/a' : Math.round(rp.v * 100) + '%', dir: 'up', good: true, deltaText: (rp.v == null || rp.prev == null) ? null : '+' + pctPts(rp.v, rp.prev) + ' pts', series: rp.series, seriesColor: 'var(--pass-500)', sub: 'quality verdicts passed' }) +
       KpiCard({ label: 'runs measured', value: rn.measured, unit: '/ ' + rn.total, dir: 'up', good: true, deltaText: rn.prevMeasured == null ? null : '+' + (rn.measured - rn.prevMeasured), series: rn.series, seriesColor: 'var(--ember-500)', sub: 'of total this window' }) +
       KpiCard({ label: 'suites green', value: sg.v == null ? 'n/a' : sg.v, unit: sg.v == null ? '' : '/ ' + sg.total, dir: 'flat', good: null,
@@ -1004,17 +997,6 @@
           (app.coverageSeries
             ? EYEBROW('coverage trend') + Sparkline(app.coverageSeries, { w: 200, h: 34, color: 'var(--pass-500)', responsive: true }) + '<span style="font-size:12px;color:var(--text-muted);line-height:1.4">Share of the commit\'s changed lines actually exercised by the generated tests — above the ' + Math.round(app.coverageMin * 100) + '% floor.</span>'
             : '<span style="font-size:12px;color:var(--text-muted);line-height:1.45">Astro bundles assets, so the URL→source mapping isn\'t measurable. Coverage is reported <strong>unknown</strong> — never faked as 0% or green, and never blocks a PR.</span>') + '</div></div>') + '</div>';
-    const valKeystone = '<div style="background:var(--surface-raised);border:var(--border-rule);border-radius:var(--radius-md);overflow:hidden">' +
-      '<div style="padding:13px 18px;border-bottom:var(--border-rule)">' + EYEBROW('keystone · value-oracle') +
-      '<div style="font-family:var(--font-display);font-weight:700;font-size:15px;letter-spacing:-0.015em;color:var(--text-strong);margin-top:2px">Are the tests meaningful?</div></div>' +
-      (app.value != null
-        ? '<div style="padding:18px;display:flex;flex-direction:column;gap:10px"><div style="display:flex;align-items:baseline;gap:10px">' +
-          '<span style="' + sty({ fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 40, letterSpacing: '-0.02em', color: 'var(--text-strong)', lineHeight: 0.9 }) + '">' + app.value.toFixed(2) + '</span>' +
-          (app.valueSeries ? DeltaChip('up', true, '+' + (app.value - app.valueSeries[0]).toFixed(2)) : '') +
-          '<span style="font-family:var(--font-mono);font-size:11px;color:var(--text-muted)">kill-rate</span></div>' +
-          (app.valueSeries ? Sparkline(app.valueSeries, { w: 220, h: 34, color: 'var(--pass-500)', responsive: true }) : '') +
-          '<span style="font-size:12px;color:var(--text-muted);line-height:1.4">Mutation kill-rate — the fraction of injected bugs the tests caught. The ground-truth that they verify behaviour, not just run green.</span></div>'
-        : '<div style="padding:18px">' + UnknownPanel('oracle not run', 'The oracle is off in shadow mode for this app; promotion falls back to the prevention signal.', 'bug') + '</div>') + '</div>';
     const vmixCard = Card({ eyebrow: 'composition', title: 'Verdict mix', children: '<div style="display:flex;align-items:center;gap:16px">' + VerdictDonut(app.vmix, 104) +
       '<div style="display:flex;flex-direction:column;gap:6px;min-width:0">' + app.vmix.map((s) => '<span style="display:inline-flex;align-items:center;gap:7px;font-family:var(--font-mono);font-size:11.5px;color:var(--text-body)"><span style="width:9px;height:9px;border-radius:2px;background:' + VERDICT_FILL[s.v] + ';flex:none"></span>' + esc(s.v) + '<span style="color:var(--text-faint);margin-left:auto">' + s.n + '</span></span>').join('') + '</div></div>' });
     const reviewerCard = Card({ eyebrow: 'independent review', title: 'Reviewer pass-rate', children: '<div style="display:flex;flex-direction:column;gap:6px">' +
@@ -1055,7 +1037,7 @@
       '<div style="display:flex;gap:8px;flex:none">' + Button({ variant: 'ghost', size: 'sm', leadingIcon: 'settings-2', label: 'Configure' }) + Button({ variant: 'primary', size: 'sm', leadingIcon: 'play', label: 'Run QA', action: 'trigger' }) + '</div></div>';
     return '<div style="padding:20px 28px 36px;display:flex;flex-direction:column;gap:var(--space-5)">' +
       backBtn('back-fleet', 'Fleet', '<span style="color:var(--text-faint)">/ ' + esc(app.name) + '</span>') + header + policyCallout +
-      '<div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(290px,1fr));gap:var(--space-4)">' + covKeystone + valKeystone + '</div>' +
+      '<div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(290px,1fr));gap:var(--space-4)">' + covKeystone + '</div>' +
       '<div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(258px,1fr));gap:var(--space-4);align-items:stretch">' + vmixCard + reviewerCard + errCard + '</div>' +
       '<div style="display:flex;flex-wrap:wrap;gap:var(--space-4);align-items:flex-start">' +
       '<div style="display:flex;flex-direction:column;gap:var(--space-4);min-width:0;flex:1 1 540px">' + healthCard + cmpCard + activityCard + '</div>' + rail + '</div></div>';
@@ -1123,7 +1105,7 @@
       '<div style="flex:none;width:140px;display:flex;align-items:center;justify-content:center">' + viz + '</div></div>';
   }
   function poster() {
-    /* The poster's figures (value-oracle multiplier, mutation kill-rate, coverage/flaky/PR deltas)
+    /* The poster's figures (coverage/flaky/PR deltas)
        have no live data source (API.md §6 only feeds D.reports.insights, not this layout) — they
        were a hardcoded illustration. Render them only in mock mode; live mode gets an honest
        "not available" panel instead of fabricated numbers.
@@ -1131,14 +1113,14 @@
     if (CFG.mode === 'live') {
       return '<div style="' + sty({ padding: '48px 30px', textAlign: 'center', background: 'var(--surface-raised)', border: 'var(--border-rule)', borderRadius: 'var(--radius-md)', fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-faint)' }) + '">not available from the API yet</div>';
     }
-    const grid = [['92%', 'change-coverage', 'above the 70% floor'], ['5.5%', 'flaky rate', 'down from 7.0%'], ['+23', 'PRs auto-merged', 'tests committed']]
+    const grid = [['5.5%', 'flaky rate', 'down from 7.0%'], ['+23', 'PRs auto-merged', 'tests committed']]
       .map(([v, l, s]) => '<div style="display:flex;flex-direction:column;gap:3px"><span style="font-family:var(--font-display);font-weight:800;font-size:34px;letter-spacing:-0.02em;color:var(--bone-50);line-height:1">' + v + '</span><span style="font-family:var(--font-mono);font-size:11px;color:var(--ember-400)">' + l + '</span><span style="font-family:var(--font-mono);font-size:10.5px;color:var(--ink-400)">' + s + '</span></div>').join('');
     return '<div class="pa-ticks pa-ticks--ink" style="position:relative;background:var(--ink-900);border-radius:var(--radius-md);border:1px solid var(--ink-700);overflow:hidden;padding:28px 30px;background-image:repeating-linear-gradient(0deg, rgba(194,78,44,0.07) 0 1px, transparent 1px 40px), repeating-linear-gradient(90deg, rgba(194,78,44,0.07) 0 1px, transparent 1px 40px)">' +
       '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:22px"><div style="display:flex;align-items:center;gap:10px"><img src="' + MARK_LIGHT + '" alt="" style="width:24px;height:24px"><span style="font-family:var(--font-mono);font-size:11px;letter-spacing:0.1em;text-transform:uppercase;color:var(--ember-400)">qa value report</span></div><span style="font-family:var(--font-mono);font-size:11px;color:var(--ink-400)">web-app · this sprint</span></div>' +
-      '<div style="display:flex;align-items:baseline;gap:14px;margin-bottom:6px"><span style="font-family:var(--font-display);font-weight:800;font-size:88px;letter-spacing:-0.03em;color:var(--bone-50);line-height:0.85">×1.6</span><span style="font-family:var(--font-display);font-weight:800;font-size:22px;letter-spacing:-0.01em;color:var(--ember-400)">value-oracle vs last sprint</span></div>' +
-      '<p style="font-size:14px;color:var(--bone-300);max-width:560px;line-height:1.5;margin:0 0 22px">Mutation kill-rate <strong style="color:var(--bone-50)">0.78</strong> — the generated tests are catching real injected bugs, not just running green.</p>' +
-      '<div style="display:grid;grid-template-columns:repeat(3, 1fr);gap:22px;margin-bottom:22px">' + grid + '</div>' +
-      '<div style="border-top:1px solid var(--ink-700);padding-top:16px;display:flex;align-items:center;gap:10px"><span style="font-family:var(--font-mono);font-size:11px;letter-spacing:0.08em;text-transform:uppercase;color:var(--ember-400);flex:none">takeaway</span><span style="font-size:13.5px;color:var(--bone-100);line-height:1.45">The suite is getting more meaningful and more stable at once — value up 1.6×, flakiness down, coverage holding above the gate.</span></div></div>';
+      '<div style="display:flex;align-items:baseline;gap:14px;margin-bottom:6px"><span style="font-family:var(--font-display);font-weight:800;font-size:88px;letter-spacing:-0.03em;color:var(--bone-50);line-height:0.85">92%</span><span style="font-family:var(--font-display);font-weight:800;font-size:22px;letter-spacing:-0.01em;color:var(--ember-400)">change-coverage this sprint</span></div>' +
+      '<p style="font-size:14px;color:var(--bone-300);max-width:560px;line-height:1.5;margin:0 0 22px">Share of the changed lines the generated tests exercised — <strong style="color:var(--bone-50)">above the 70% floor</strong>, not just running green.</p>' +
+      '<div style="display:grid;grid-template-columns:repeat(2, 1fr);gap:22px;margin-bottom:22px">' + grid + '</div>' +
+      '<div style="border-top:1px solid var(--ink-700);padding-top:16px;display:flex;align-items:center;gap:10px"><span style="font-family:var(--font-mono);font-size:11px;letter-spacing:0.08em;text-transform:uppercase;color:var(--ember-400);flex:none">takeaway</span><span style="font-size:13.5px;color:var(--bone-100);line-height:1.45">The suite is getting more stable — flakiness down, coverage holding above the gate.</span></div></div>';
   }
   function viewReports() {
     const tpl = state.repTpl, view = state.repView;
