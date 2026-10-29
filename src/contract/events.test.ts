@@ -70,7 +70,7 @@ test("agent.activity carries only structured fields (no prose passthrough)", () 
 test("enums stay in lockstep with src/types.ts (drift guard during migration)", () => {
   assert.deepEqual([...RunModeSchema.options], [...RUN_MODES]);
   assert.deepEqual([...RunVerdictSchema.options], ["pass", "fail", "flaky", "invalid", "infra-error", "skipped"]);
-  assert.deepEqual([...TestTargetSchema.options], ["e2e", "code"]);
+  assert.deepEqual([...TestTargetSchema.options], ["e2e"]);
 });
 
 test("RunStepSchema accepts 'coverage' — needed by the coverage phase stepper", () => {

@@ -328,7 +328,7 @@ function enqueueLoginBootstrapFirst(queue: JobQueue, req: RunRequest, deps: Runn
   if (loginBootstrapAsked.has(req.app)) return;
   try {
     const app = (deps.loadApp ?? loadAppConfig)(req.app);
-    if (app.code === true || app.auth === undefined || holds(req.app)) return;
+    if (app.auth === undefined || holds(req.app)) return;
     const id = enqueueLoginBootstrapRun(queue, req.app, req.sha, deps);
     appLogger.info(`[qa] login bootstrap: ${req.app} declares a login and its suite store holds no verified one; queued ${id} ahead of this ${req.mode} run at ${req.sha.slice(0, 7)} (once per process; ask POST /api/apps/${req.app}/login-bootstrap to repeat it)`);
   } catch (err) {

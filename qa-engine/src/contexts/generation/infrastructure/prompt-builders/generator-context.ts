@@ -93,7 +93,7 @@ export interface PromptContext {
 export function derivePromptContext(input: OpencodeRunInput, opts: BuildPromptAssembledOpts = {}): PromptContext {
   const isGenerationMode = input.mode !== "context";
   const openapiHint = Array.isArray(input.openapi) ? input.openapi.join(", ") : input.openapi;
-  const isCode = input.target === "code";
+  const isCode = false;
   const isReGen = isGenerationMode && isReGenTurn(input);
 
   const sanitizedDomSnapshot = input.domSnapshot ? sanitizeText(input.domSnapshot, "model").text : undefined;

@@ -23,7 +23,7 @@ type dashFocus int
 
 const (
 	focusNow    dashFocus = iota /* the active run · ↵ watch · x stop (only when one is running) */
-	focusFleet                   /* pick a project · ← → mode · t target · ↵ launch */
+	focusFleet                   /* pick a project · ← → mode · ↵ launch */
 	focusModels                  /* pick a role · ↵ open the model switcher */
 	focusRecent                  /* pick a recent run · ↵ open it (only when the feed is non-empty) */
 	dashFocusCount
@@ -51,10 +51,9 @@ type dashboardModel struct {
 	status  string /* transient success line (e.g. after onboarding) */
 
 	/* Interaction state: which panel is focused, and the FLEET quick-launch config the
-	   focused project row edits in place (← → mode · t target · ↵ launch). */
+	   focused project row edits in place (← → mode · ↵ launch). */
 	focus        dashFocus
 	launchMode   string /* one of launchModes */
-	launchTarget string /* "" → the app's natural target; t toggles to an explicit e2e/code */
 	launchArmed  bool   /* a heavy mode needs a second Enter to confirm (whole-suite/repo runs) */
 	stopArmed    bool   /* 'x' on the active run pressed once; a second 'x' confirms the stop */
 	modelCursor  int    /* MODELS: selected role row */
@@ -345,7 +344,7 @@ func (m dashboardModel) handleNowKey(k tea.KeyMsg) (dashboardModel, tea.Cmd) {
 }
 
 /* handleFleetKey drives the FLEET panel: pick a project (↑↓), edit its quick-launch
-   config in place (← → mode · t target), and launch or watch it (↵). The per-app actions
+   config in place (← → mode), and launch or watch it (↵). The per-app actions
    (history/intelligence/edit/delete) act on the selected project. */
 func (m dashboardModel) handleFleetKey(k tea.KeyMsg) (dashboardModel, tea.Cmd) {
 	switch k.String() {
@@ -353,14 +352,6 @@ func (m dashboardModel) handleFleetKey(k tea.KeyMsg) (dashboardModel, tea.Cmd) {
 		m.launchMode = cycleMode(m.launchMode, -1)
 	case "right":
 		m.launchMode = cycleMode(m.launchMode, +1)
-	case "t":
-		if a, ok := m.selectedApp(); ok {
-			if m.effectiveTarget(a) == "e2e" {
-				m.launchTarget = "code"
-			} else {
-				m.launchTarget = "e2e"
-			}
-		}
 	case "x":
 		/* Stop the active run when its project is the selection (the running row surfaces
 		   "x stop"); two-press confirm, shared with the NOW panel. */
@@ -444,21 +435,9 @@ func cycleMode(cur string, delta int) string {
 	return launchModes[(idx+delta+n)%n]
 }
 
-/* effectiveTarget is the target a FLEET launch would use: the explicit override the user
-   toggled with t, or the app's natural target (code apps run code; everything else e2e). */
-func (m dashboardModel) effectiveTarget(a contract.AppView) string {
-	if m.launchTarget != "" {
-		return m.launchTarget
-	}
-	if a.Code {
-		return "code"
-	}
-	return "e2e"
-}
-
 /* launchSelected acts on the FLEET selection: watch it if it is the running run, route to
    the wizard when the mode needs a guidance string (manual), else fire a direct run with
-   the in-place [mode · target] config. Shadow is left unset so the app's own config governs. */
+   the in-place mode config. Shadow is left unset so the app's own config governs. */
 func (m dashboardModel) launchSelected() (dashboardModel, tea.Cmd) {
 	a, ok := m.selectedApp()
 	if !ok {
@@ -479,7 +458,6 @@ func (m dashboardModel) launchSelected() (dashboardModel, tea.Cmd) {
 	m.launchArmed = false
 	in := contract.CreateRunInput{
 		App:    a.Name,
-		Target: contract.CreateRunInputTarget(m.effectiveTarget(a)),
 		Mode:   contract.CreateRunInputMode(m.launchMode),
 	}
 	return m, func() tea.Msg { return launchMsg{input: in} }
@@ -750,7 +728,7 @@ func (m dashboardModel) footerHints() string {
 	case focusRecent:
 		return "tab panel · ↑↓ run · ↵ open" + tail
 	default:
-		return "tab panel · ↑↓ move · ← → mode · t target · ↵ launch" + tail
+		return "tab panel · ↑↓ move · ← → mode · ↵ launch" + tail
 	}
 }
 
@@ -864,9 +842,9 @@ func panelRule(w int, focused bool, title, right string) string {
 	return labelRule(w, title, right)
 }
 
-/* renderFleet is the per-app health board AND the quick launcher: target, the last few
+/* renderFleet is the per-app health board AND the quick launcher: the last few
    verdicts, a pass rate, and a quality trend sparkline. When FLEET is focused, the
-   selected row also shows the in-place launch config (← → mode · t target · ↵ launch). */
+   selected row also shows the in-place launch config (← → mode · ↵ launch). */
 func (m dashboardModel) renderFleet(w int) string {
 	focused := m.focus == focusFleet
 	var b strings.Builder
@@ -880,10 +858,6 @@ func (m dashboardModel) renderFleet(w int) string {
 	}
 	for i, a := range m.sys.apps {
 		st := computeFleetStats(m.fleet[a.Name], fleetWindow)
-		target, tcol := "e2e", colInfra
-		if a.Code {
-			target, tcol = "code", colFlaky
-		}
 		selected := i == m.cursor
 		bar, name := "   ", labelStyle.Render(padRight(a.Name, 14))
 		if selected && focused {
@@ -913,7 +887,6 @@ func (m dashboardModel) renderFleet(w int) string {
 				lipgloss.NewStyle().Foreground(colDim).Render(st.spark)
 		}
 		row := bar + name + " " +
-			renderSegs("", sg(padRight(target, 5), tcol)) + " " +
 			status
 		if a.Shadow {
 			row += "  " + shadowStyle.Render("shadow")
@@ -928,7 +901,7 @@ func (m dashboardModel) renderFleet(w int) string {
 					row += "   " + hintStyle.Render("↵ watch · x stop")
 				}
 			} else {
-				row += "   " + renderSegs("", sg("‹ ", colEmber), sgb(m.launchMode, colFg), sg(" · ", colFaint), sgb(m.effectiveTarget(a), colFg), sg(" ›", colEmber))
+				row += "   " + renderSegs("", sg("‹ ", colEmber), sgb(m.launchMode, colFg), sg(" ›", colEmber))
 			}
 		}
 		b.WriteString(row + "\n")

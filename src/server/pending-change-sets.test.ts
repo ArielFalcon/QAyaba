@@ -100,7 +100,6 @@ test("only an e2e webhook diff run without a continuation, purpose, guidance or 
     { source: "manual" as const },
     { mode: "manual" as const },
     { mode: "complete" as const },
-    { target: "code" as const },
     { guidance: "test the form" },
     { parentRunId: "run-0" },
     { purpose: "login-bootstrap" as RunRequest["purpose"] },

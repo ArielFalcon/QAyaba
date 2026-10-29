@@ -127,12 +127,10 @@ test("the lookup leaves the task's text as well as its claims: only a prompt tha
 });
 
 test("a structural signal with symbol blocks lets a regeneration say the blast radius was explored, and the signal is what backs the statement", () => {
-  for (const [label, base] of [["e2e", {}], ["code", { target: "code" as const }]] as const) {
-    const a = buildPromptAssembled(mkInput({ ...base, ...FIX, ...signalOf(SYMBOLS) }));
-    assert.equal(claimsExploredBlastRadius(a), true, `${label}: the regeneration section speaks of an explored blast radius`);
-    assert.deepEqual(providersOf(a, "structural-signal"), ["static-signal"], label);
-    assert.deepEqual(findingsOf(a, true), [], `${label}: the statement has its provider`);
-  }
+  const a = buildPromptAssembled(mkInput({ ...FIX, ...signalOf(SYMBOLS) }));
+  assert.equal(claimsExploredBlastRadius(a), true, "the regeneration section speaks of an explored blast radius");
+  assert.deepEqual(providersOf(a, "structural-signal"), ["static-signal"]);
+  assert.deepEqual(findingsOf(a, true), [], "the statement has its provider");
 });
 
 test("a co-change-only signal on a first pass keeps the lookup, provides co-change and claims no explored blast radius", () => {
@@ -146,12 +144,10 @@ test("a co-change-only signal on a first pass keeps the lookup, provides co-chan
 });
 
 test("a co-change-only signal on a regeneration claims no explored blast radius, and the cell is clean", () => {
-  for (const [label, base] of [["e2e", {}], ["code", { target: "code" as const }]] as const) {
-    const a = buildPromptAssembled(mkInput({ ...base, ...FIX, ...signalOf(CO_CHANGE) }));
-    assert.equal(claimsExploredBlastRadius(a), false, `${label}: no statement that the blast radius was explored`);
-    assert.deepEqual(providersOf(a, "co-change"), ["static-signal"], label);
-    assert.deepEqual(findingsOf(a, true), [], label);
-  }
+  const a = buildPromptAssembled(mkInput({ ...FIX, ...signalOf(CO_CHANGE) }));
+  assert.equal(claimsExploredBlastRadius(a), false, "no statement that the blast radius was explored");
+  assert.deepEqual(providersOf(a, "co-change"), ["static-signal"]);
+  assert.deepEqual(findingsOf(a, true), []);
 });
 
 test("a prompt that keeps the lookup does not title its co-change signal as a blast radius, so the words and the claims say the same thing", () => {
@@ -312,8 +308,6 @@ test("a complete, exhaustive, manual or context run, a code run and a regenerati
     ["exhaustive", { mode: "exhaustive" }],
     ["manual", { mode: "manual", guidance: "cover the cart" }],
     ["context", { mode: "context" }],
-    ["code first pass", { target: "code" }],
-    ["code regeneration", { target: "code", ...FIX }],
     ["e2e regeneration", FIX],
   ];
   for (const [sizeLabel, , change] of [SIZES[1]!, SIZES[6]!]) {
@@ -375,11 +369,10 @@ test("a diff first pass sends the agent to the existing specs only when no listi
   assert.equal(taskSizeOf({ existingSpecFiles: LISTING.slice(0, 1) }), taskSizeOf({ existingSpecFiles: LISTING }), "the task does not repeat what the listing carries");
 });
 
-test("an empty listing supplies no suite: a diff first pass still reads the existing specs, and a code run never declares that read", () => {
+test("an empty listing supplies no suite: a diff first pass still reads the existing specs", () => {
   const empty = buildPromptAssembled(mkInput({ existingSpecFiles: [] }));
   assert.equal(directsRead(empty, "existing-suite"), true);
   assert.equal(taskSizeOf({ existingSpecFiles: [] }), taskSizeOf({}));
-  assert.equal(directsRead(buildPromptAssembled(mkInput({ target: "code" })), "existing-suite"), false);
 });
 
 test("no regeneration and no other mode gains a read of the existing specs from the diff first pass's scope budget", () => {

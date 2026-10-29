@@ -40,8 +40,6 @@ const claimsOf = (a: AssembledPrompt, id: string): readonly PromptClaim[] => a.c
 const directs = (a: AssembledPrompt, id: string, action: string): boolean =>
   claimsOf(a, id).some((c) => c.kind === "directs" && c.action === action);
 const allClaims = (a: AssembledPrompt): PromptClaim[] => Object.values(a.claims).flat();
-const provides = (a: AssembledPrompt, fact: string): boolean =>
-  allClaims(a).some((c) => c.kind === "provides" && c.fact === fact);
 
 /* ── one predicate decides regeneration ── */
 
@@ -105,31 +103,6 @@ test("a diff regeneration no longer repeats the first-pass scope budget, the reg
   assert.equal(directs(regen, "task", "orient"), false, "a regeneration does not");
   assert.equal(directs(regen, "task", "read"), false, "and does not send the agent to read the map again");
   assert.ok(regen.sectionSizes["regen-discipline"] !== undefined);
-});
-
-/* ── code target ── */
-
-test("a code regeneration carries no whole-repository task, no diff, and keeps the changed files", () => {
-  for (const mode of ["diff", "complete", "exhaustive", "manual"] as const) {
-    const regen = buildPromptAssembled(
-      mkInput({ target: "code", mode, guidance: GUIDANCE, reviewCorrections: ["[other] fix it"] }),
-    );
-    assert.equal(directs(regen, "task", "analyze-repo"), false, `${mode}: no whole-repository task`);
-    assert.equal(provides(regen, "diff"), false, `${mode}: the diff is not re-embedded`);
-    for (const file of CHANGED) assert.ok(regen.text.includes(file), `${mode}: keeps ${file}`);
-  }
-});
-
-test("a code first pass still carries its task: the repository analysis in whole-repo modes and the diff in diff mode", () => {
-  for (const mode of ["complete", "exhaustive", "manual"] as const) {
-    assert.ok(directs(buildPromptAssembled(mkInput({ target: "code", mode, guidance: GUIDANCE })), "task", "analyze-repo"), mode);
-  }
-  assert.ok(provides(buildPromptAssembled(mkInput({ target: "code" })), "diff"));
-});
-
-test("a code regeneration keeps the guidance in manual mode", () => {
-  const regen = buildPromptAssembled(mkInput({ target: "code", mode: "manual", guidance: GUIDANCE, coverageGap: "gap" }));
-  assert.ok(regen.text.includes(GUIDANCE));
 });
 
 /* ── a regeneration never points at a tree that is not in the prompt ── */

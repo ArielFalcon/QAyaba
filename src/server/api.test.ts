@@ -459,6 +459,15 @@ test("POST /api/v1/runs is served and its response validates against the contrac
   CreateRunResultSchema.parse(JSON.parse(res.body));
 });
 
+test("POST /api/v1/runs refuses a target other than e2e instead of running something else", async () => {
+  let enqueued = 0;
+  const res = mkRes();
+  await routeApi(mkReq("POST", "/api/v1/runs", JSON.stringify({ app: "demo", sha: "abc1234", mode: "diff", target: "code" })), res, deps({ enqueue: () => { enqueued += 1; return "r1"; } }));
+  assert.equal(res.status, 400);
+  assert.match(JSON.parse(res.body).error, /target/);
+  assert.equal(enqueued, 0);
+});
+
 test("POST /api/v1/runs forwards a baseSha to the enqueue so the run's diff spans baseSha..sha", async () => {
   let seenBaseSha: string | undefined;
   const res = mkRes();
@@ -1673,7 +1682,7 @@ test("POST /api/apps/:name/boundaries/confirm forwards :name into deps.boundarie
 
 const formLoginApp: any = { ...appConfig, baseBranch: "develop", auth: { kind: "form", usernameEnv: "U", passwordEnv: "P" } };
 const loginDeps = (over: Partial<ApiDeps> = {}): ApiDeps =>
-  deps({ loadApp: (n) => { if (n === "demo") return formLoginApp; if (n === "pub") return appConfig; if (n === "cli") return { ...formLoginApp, code: true }; throw new AppNotFoundError(n); }, ...over });
+  deps({ loadApp: (n) => { if (n === "demo") return formLoginApp; if (n === "pub") return appConfig; throw new AppNotFoundError(n); }, ...over });
 
 test("POST /api/apps/:name/login-bootstrap enqueues the login run at the base branch head and answers 202 with the run", async () => {
   const resolved: string[][] = [];
@@ -1699,9 +1708,6 @@ test("login-bootstrap refuses what has no login to bootstrap: an unknown app (40
   await routeApi(mkReq("POST", "/api/apps/pub/login-bootstrap"), pub, loginDeps(over));
   assert.equal(pub.status, 409);
   assert.match(JSON.parse(pub.body).error, /form login/);
-  const code = mkRes();
-  await routeApi(mkReq("POST", "/api/apps/cli/login-bootstrap"), code, loginDeps(over));
-  assert.equal(code.status, 409);
   assert.equal(enqueued, 0);
 });
 

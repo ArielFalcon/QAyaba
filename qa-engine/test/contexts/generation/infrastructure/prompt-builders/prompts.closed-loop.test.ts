@@ -93,7 +93,3 @@ test("the heading is an assembled artifact static role text must not name, and t
 test("a context run never states a budget, whatever it is handed", () => {
   assert.equal(sectionOf(assemble({ mode: "context", closedLoop: LIMITS })), undefined);
 });
-
-test("a code run never states a budget, whatever it is handed", () => {
-  assert.equal(sectionOf(assemble({ target: "code", baseUrl: undefined, closedLoop: LIMITS })), undefined);
-});

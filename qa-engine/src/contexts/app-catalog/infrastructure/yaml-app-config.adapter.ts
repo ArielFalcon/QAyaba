@@ -6,7 +6,7 @@ import { RepoResolutionService } from "../domain/repo-resolution.service.ts";
 
 /* Local shape of the injected loader result so this adapter never imports src/. A service may declare one openapi glob or several. */
 interface LoadedAppConfig {
-  name: string; repo: string; baseBranch?: string; code?: boolean;
+  name: string; repo: string; baseBranch?: string;
   qa?: { shadow?: boolean }; services?: { repo: string; openapi?: string | string[]; versionUrl?: string }[];
   dev?: { versionUrl?: string };
 }
@@ -26,13 +26,13 @@ const defaultConfigSkipLogger: ConfigSkipLogger = (name, err) => {
 function toSnapshot(cfg: LoadedAppConfig): AppConfigSnapshot {
   const app = App.fromConfig({
     name: cfg.name, repo: cfg.repo, baseBranch: cfg.baseBranch ?? "main",
-    code: cfg.code ?? false, shadow: cfg.qa?.shadow ?? false,
+    shadow: cfg.qa?.shadow ?? false,
     services: cfg.services ?? [],
     dev: cfg.dev,
   });
   return {
     name: app.name, repo: app.primaryRepo, baseBranch: app.baseBranch,
-    code: app.isCode, shadow: app.isShadow,
+    shadow: app.isShadow,
     services: (cfg.services ?? []).map((s) => ({ repo: s.repo, ...(s.openapi ? { openapi: s.openapi } : {}), ...(s.versionUrl ? { versionUrl: s.versionUrl } : {}) })),
   };
 }
@@ -60,7 +60,7 @@ export class YamlAppConfigAdapter implements AppRepositoryPort {
       try {
         apps.push(App.fromConfig({
           name: c.name, repo: c.repo, baseBranch: c.baseBranch ?? "main",
-          code: c.code ?? false, shadow: c.qa?.shadow ?? false, services: c.services ?? [], dev: c.dev,
+          shadow: c.qa?.shadow ?? false, services: c.services ?? [], dev: c.dev,
         }));
       } catch (err) {
         this.onConfigSkip(c.name, err);

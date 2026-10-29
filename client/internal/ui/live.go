@@ -847,11 +847,7 @@ func (m liveModel) header() string {
 
 	left := renderSegs("", sgb("run  ", colEmber), sgb(m.app, colFg))
 	if m.target != "" {
-		tgtCol := colInfra
-		if m.target == "code" {
-			tgtCol = colFlaky
-		}
-		left += renderSegs("", sg("   target ", colFaint), sg(m.target, tgtCol), sg(" · ", colFaint), sg(m.mode, colDim))
+		left += renderSegs("", sg("   target ", colFaint), sg(m.target, colInfra), sg(" · ", colFaint), sg(m.mode, colDim))
 	}
 	word := "running"
 	icon := m.spin.View() + " "
@@ -1184,7 +1180,7 @@ func (m liveModel) renderWhatHappened(w int) string {
 		}
 		list("generated", okStyle.Render(pluralize(len(m.specs), "spec", "specs")), names, 8)
 	}
-	/* "wrote" lists the non-spec files (config, fixtures, context.json, code-mode tests)
+	/* "wrote" lists the non-spec files (config, fixtures, context.json)
 	   — anything written that the "generated" row did not already name. */
 	var wrote []string
 	for _, f := range m.wroteAll {

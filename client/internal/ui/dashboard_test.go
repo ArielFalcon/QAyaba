@@ -69,7 +69,7 @@ func dashWith(apps []contract.AppView) dashboardModel {
 }
 
 func TestDashboardRendersSections(t *testing.T) {
-	m := dashWith([]contract.AppView{{Name: "portfolio"}, {Name: "qayaba", Code: true}})
+	m := dashWith([]contract.AppView{{Name: "portfolio"}, {Name: "qayaba"}})
 	m.fleet = map[string][]contract.RunRecord{
 		"portfolio": {{App: "portfolio", Verdict: vptr(contract.RunRecordVerdictPass), At: "2026-06-13T14:00:00Z"}},
 	}
@@ -91,16 +91,15 @@ func TestDashboardEnterQuickLaunchesSelectedApp(t *testing.T) {
 	if !ok {
 		t.Fatalf("enter should fire a direct launch with the in-place config, got %#v", cmd())
 	}
-	if msg.input.App != "portfolio" || string(msg.input.Mode) != "diff" || string(msg.input.Target) != "e2e" {
+	if msg.input.App != "portfolio" || string(msg.input.Mode) != "diff" {
 		t.Fatalf("launch config wrong: %+v", msg.input)
 	}
 }
 
-func TestDashboardFleetCyclesModeAndTarget(t *testing.T) {
-	m := dashWith([]contract.AppView{{Name: "portfolio"}}) /* e2e app → natural target e2e */
-	/* → advances the mode (diff → complete); t flips the target to code. */
+func TestDashboardFleetCyclesMode(t *testing.T) {
+	m := dashWith([]contract.AppView{{Name: "portfolio"}})
+	/* → advances the mode (diff → complete). */
 	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRight})
-	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("t")})
 	/* complete is a heavy mode → the first Enter arms a confirmation, the second launches. */
 	m, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	if cmd != nil || !m.launchArmed {
@@ -111,8 +110,8 @@ func TestDashboardFleetCyclesModeAndTarget(t *testing.T) {
 	if !ok {
 		t.Fatalf("the second Enter should launch, got %#v", cmd())
 	}
-	if string(msg.input.Mode) != "complete" || string(msg.input.Target) != "code" {
-		t.Fatalf("← →/t must edit the launch config: %+v", msg.input)
+	if string(msg.input.Mode) != "complete" {
+		t.Fatalf("← → must edit the launch config: %+v", msg.input)
 	}
 }
 

@@ -298,9 +298,9 @@ export class GenerateTestsUseCase {
     const mainExhausted = mainTurn?.exhausted === true;
     const repairExhausted = repairTurn?.exhausted === true;
 
-    /* Spec paths are suite-relative (as the runner reports failing files); a code-target run has no suite dir to resolve names against. */
+    /* Spec paths are suite-relative (as the runner reports failing files). */
     const specDir = `${input.mirrorDir}/${input.e2eRelDir}`;
-    const deliverable = verdicts.parseGenerator(generatorOutput, input.target === "code" ? undefined : specDir);
+    const deliverable = verdicts.parseGenerator(generatorOutput, specDir);
 
     /* A spec in specs[] with no specMetas[] entry gets no manifest row — silent, because the spec file is what execution needs. */
     /* mutation-scope:begin intent-change-type */
@@ -315,7 +315,7 @@ export class GenerateTestsUseCase {
       changeRef: { sha: input.sha, type: changeType },
       ...(m.sha256 ? { sha256: m.sha256 } : {}),
     }));
-    const reconciledEntries = input.target === "code" ? rawEntries : await manifest.reconcile({ mirrorDir: input.mirrorDir, specDir }, rawEntries);
+    const reconciledEntries = await manifest.reconcile({ mirrorDir: input.mirrorDir, specDir }, rawEntries);
 
     const end = classifyGenerationEnd({
       specCount: deliverable.specs.length,

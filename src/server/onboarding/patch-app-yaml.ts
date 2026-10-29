@@ -24,7 +24,6 @@
 
 import { Scalar, YAMLMap, YAMLSeq, isAlias, isMap, isScalar, isSeq, parseDocument } from "yaml";
 import { expandEnv } from "../../orchestrator/config-loader";
-import type { TestTarget } from "../../types";
 import type { OnboardAuthInput, OnboardServiceInput } from "../onboard";
 
 export interface AppYamlPatch {
@@ -33,8 +32,6 @@ export interface AppYamlPatch {
   baseUrl?: string;
   /** An empty string removes the key. */
   versionUrl?: string;
-  /** Applies the rules `buildYaml` applies for that target: a code app has no DEV version url, login or services. */
-  target?: TestTarget;
   needsReview?: boolean;
   shadow?: boolean;
   testDataPrefix?: string;
@@ -146,22 +143,10 @@ export function patchAppYaml(rawYaml: string, patch: AppYamlPatch, options: AppY
     pair.key = keyNode;
   };
 
-  const isCode = (): boolean => alreadyReads(doc.get("code"), true);
-  const target: TestTarget = patch.target ?? (isCode() ? "code" : "e2e");
-
-  if (patch.target === "code") {
-    setBoolean(["code"], true);
-    remove(["dev", "versionUrl"]);
-    remove(["auth"]);
-    remove(["services"]);
-  } else if (patch.target === "e2e" && isCode()) {
-    remove(["code"]);
-  }
-
   if (patch.repo !== undefined) setString(["repo"], patch.repo);
   if (patch.baseBranch !== undefined) setString(["baseBranch"], patch.baseBranch);
   if (patch.baseUrl !== undefined) setString(["dev", "baseUrl"], patch.baseUrl);
-  if (patch.versionUrl !== undefined && target !== "code") {
+  if (patch.versionUrl !== undefined) {
     if (patch.versionUrl === "") remove(["dev", "versionUrl"]);
     else setString(["dev", "versionUrl"], patch.versionUrl);
   }
@@ -169,11 +154,9 @@ export function patchAppYaml(rawYaml: string, patch: AppYamlPatch, options: AppY
   if (patch.shadow !== undefined) setBoolean(["qa", "shadow"], patch.shadow);
   if (patch.testDataPrefix !== undefined) setString(["qa", "testDataPrefix"], patch.testDataPrefix);
 
-  if (target !== "code") {
-    if (patch.clearAuth) remove(["auth"]);
-    else if (patch.auth) patchAuth(patch.auth);
-    if (patch.services) patchServices(patch.services);
-  }
+  if (patch.clearAuth) remove(["auth"]);
+  else if (patch.auth) patchAuth(patch.auth);
+  if (patch.services) patchServices(patch.services);
 
   return changed ? doc.toString({ lineWidth: 0 }) : rawYaml;
 

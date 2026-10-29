@@ -708,21 +708,6 @@ test("after indexing the next observed state is mapping, never a premature done"
   await job.settled();
 });
 
-test("isCodeApp true skips mapping — enqueue is never called, phase ends done after indexing", async () => {
-  let enqueued = 0;
-  const job = createOnboardingJob(buildMappedDeps({
-    isCodeApp: () => true,
-    enqueueContextRun: () => { enqueued += 1; return "run_map_1"; },
-  }));
-  await job.propose({ app: "nname", repo: "ArielFalcon/nname-gateway", services: [] });
-  job.confirm();
-  await job.settled();
-
-  assert.equal(enqueued, 0);
-  assert.equal(job.status().state, ONBOARD_STATE.done);
-  assert.equal(job.status().mappingProgress, undefined);
-});
-
 test("enqueueContextRun throws — fail-open done/winner with error, never failed, and the failure is logged once (redacted) instead of swallowed silently", async () => {
   const originalWarn = console.warn;
   const logged: string[] = [];
@@ -822,22 +807,6 @@ test("enqueue returns empty string (shutdown) — skip mapping, done/winner, no 
   assert.equal(status.state, ONBOARD_STATE.done);
   assert.equal(status.outcome, "winner");
   assert.equal(status.error, undefined, "empty enqueue is a skip, not a fail-open warning");
-});
-
-test("isCodeApp throw skips mapping (fail-open skip), enqueue never called", async () => {
-  let enqueued = 0;
-  const job = createOnboardingJob(buildMappedDeps({
-    isCodeApp: () => { throw new Error("config unreadable"); },
-    enqueueContextRun: () => { enqueued += 1; return "run_map_1"; },
-  }));
-  await job.propose({ app: "nname", repo: "ArielFalcon/nname-gateway", services: [] });
-  job.confirm();
-  await job.settled();
-
-  assert.equal(enqueued, 0);
-  assert.equal(job.status().state, ONBOARD_STATE.done);
-  assert.equal(job.status().outcome, "winner");
-  assert.equal(job.status().mappingProgress, undefined);
 });
 
 test("getContextRun missing after enqueue — fail-open done/winner with error, never failed", async () => {
@@ -1005,10 +974,9 @@ test("an empty run id (the service is shutting down) leaves no login progress an
   assert.equal(job.status().loginProgress, undefined);
 });
 
-test("an app without a form login, a code app, and a job without enqueueLoginRun never start the login phase", async () => {
+test("an app without a form login and a job without enqueueLoginRun never start the login phase", async () => {
   for (const [name, over] of [
     ["no login", { hasLogin: () => false }],
-    ["code app", { isCodeApp: () => true }],
     ["hasLogin throws", { hasLogin: () => { throw new Error("config gone"); } }],
     ["not wired", { enqueueLoginRun: undefined }],
   ] as const) {

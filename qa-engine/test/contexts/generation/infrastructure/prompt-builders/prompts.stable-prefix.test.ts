@@ -40,7 +40,6 @@ const shapes: Record<string, (n: number) => Partial<OpencodeRunInput>> = {
   "author, regeneration": (n) => ({ fixCases: [{ name: `case ${n}`, status: "fail", detail: `locator ${n} not found` }], reviewCorrections: [`[other] fix ${n}`] }),
   "lead, planning turn": () => ({ planning: PLANNING }),
   "author, manual": (n) => ({ mode: "manual", guidance: `test the cart ${n}` }),
-  "author, code target": () => ({ target: "code" }),
   "context run": () => ({ mode: "context" }),
 };
 

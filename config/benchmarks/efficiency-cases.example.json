@@ -18,7 +18,6 @@
     "app": "example-app-b",
     "sha": "0000000000000000000000000000000000000d",
     "mode": "manual",
-    "target": "code",
     "guidance": "Describe what the run should focus on."
   },
   {

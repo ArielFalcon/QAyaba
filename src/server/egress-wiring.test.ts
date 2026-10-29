@@ -22,12 +22,6 @@ test("an e2e run's installs reach the npm registry and the app's own extra regis
   assert.deepEqual(origins.install, ["https://registry.npmjs.org", "https://npm.internal.example.com"]);
 });
 
-test("a code run has no DEV site and its toolchain reaches every registry group, since the ecosystem is found in the repository", () => {
-  const origins = resolveRunOrigins({}, "code", REGISTRIES);
-  assert.deepEqual(origins.dev, []);
-  assert.deepEqual(origins.install, ["https://registry.npmjs.org", "https://repo.maven.apache.org", "https://pypi.org"]);
-});
-
 test("the app's own origin is not repeated when it also declares it", () => {
   const origins = resolveRunOrigins({ dev: { baseUrl: "https://dev.example.com", allowedOrigins: ["https://dev.example.com"] } }, "e2e", REGISTRIES);
   assert.deepEqual(origins.dev, ["https://dev.example.com"]);

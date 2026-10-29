@@ -34,14 +34,6 @@ export class ExecutionPortAdapter implements ExecutionPort {
 
   async execute(specDir: string, opts?: AbortSignal | ExecutionOpts): ReturnType<ExecutionPort["execute"]> {
     const o = normalizeOpts(opts);
-    if (this.ctx.target === "code") {
-      /* specFiles is e2e-only filtered-retry. Code-mode never forwards it; CodeExecutionStrategy uses changedFiles (which files changed, not which specs failed). */
-      return this.strategies.code.run({
-        specDir,
-        namespace: o.namespace ?? this.ctx.namespace,
-        ...(o.signal ? { signal: o.signal } : {}),
-      });
-    }
     return this.strategies.e2e.run({
       specDir,
       namespace: o.namespace ?? this.ctx.namespace,

@@ -200,11 +200,9 @@ test("a signal of co-change files alone is titled with the name the lint knows i
   assert.deepEqual(lintWithReference(buildPromptAssembled(mkInput())).map((f) => [f.rule, f.artifact]), [["R13", "co-change"]], "with no block in the prompt the reference dangles");
 });
 
-test("an empty listing supplies nothing, so the manual first pass still reads the suite; a code run's manual task never declares that read", () => {
+test("an empty listing supplies nothing, so the manual first pass still reads the suite", () => {
   const empty = buildPromptAssembled(mkInput({ mode: "manual", guidance: "cover the form", existingSpecFiles: [] }));
   assert.equal(directsRead(empty, "task", "existing-suite"), true);
-  const code = buildPromptAssembled(mkInput({ mode: "manual", guidance: "cover the form", target: "code", existingSpecFiles: [] }));
-  assert.equal(directsRead(code, "task", "existing-suite"), false);
 });
 
 test("a prompt over its window declares claims only for the sections it still carries, and a section given a smaller render keeps its claims", () => {

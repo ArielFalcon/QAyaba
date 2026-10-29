@@ -15,9 +15,8 @@ import (
 type launchStep int
 
 const (
-	stepTarget launchStep = iota
-	stepMode
-	stepGuidance /* only for mode=manual */
+	stepMode     launchStep = iota
+	stepGuidance            /* only for mode=manual */
 	stepShadow
 	launchStepCount
 )
@@ -28,8 +27,7 @@ type option struct {
 }
 
 var (
-	targetOptions = []option{{"e2e   — browser tests against DEV", "e2e"}, {"code  — source-logic tests, no browser", "code"}}
-	modeOptions   = []option{
+	modeOptions = []option{
 		{"diff        — the blast radius of one commit", "diff"},
 		{"complete    — important uncovered flows", "complete"},
 		{"exhaustive  — re-evaluate the whole suite", "exhaustive"},
@@ -39,13 +37,12 @@ var (
 	shadowOptions = []option{{"no   — publish PRs and open Issues", "false"}, {"yes  — shadow run, no side effects", "true"}}
 )
 
-/* launcherModel walks target → mode → (guidance, if manual) → shadow, then emits a
+/* launcherModel walks mode → (guidance, if manual) → shadow, then emits a
    launchMsg. Pure UI: the root holds the client and performs CreateRun. */
 type launcherModel struct {
 	app           string
 	step          launchStep
 	cursor        int
-	target        string
 	mode          string
 	guidance      string
 	guidanceInput textinput.Model
@@ -95,8 +92,6 @@ func continueCmd(c *api.Client, id string, cases []string) tea.Cmd {
 
 func (m launcherModel) options() []option {
 	switch m.step {
-	case stepTarget:
-		return targetOptions
 	case stepMode:
 		return modeOptions
 	case stepShadow:
@@ -149,10 +144,8 @@ func (m launcherModel) back() (launcherModel, tea.Cmd) {
 	m.err = ""
 	m.cursor = 0
 	switch m.step {
-	case stepTarget:
-		return m, func() tea.Msg { return backMsg{} }
 	case stepMode:
-		m.step = stepTarget
+		return m, func() tea.Msg { return backMsg{} }
 	case stepShadow:
 		if m.mode == "manual" {
 			m.step = stepGuidance
@@ -168,10 +161,6 @@ func (m launcherModel) choose(value string) (launcherModel, tea.Cmd) {
 	m.err = ""
 	m.cursor = 0
 	switch m.step {
-	case stepTarget:
-		m.target = value
-		m.step = stepMode
-		return m, nil
 	case stepMode:
 		m.mode = value
 		if value == "manual" {
@@ -185,7 +174,6 @@ func (m launcherModel) choose(value string) (launcherModel, tea.Cmd) {
 		shadow := value == "true"
 		in := contract.CreateRunInput{
 			App:    m.app,
-			Target: contract.CreateRunInputTarget(m.target),
 			Mode:   contract.CreateRunInputMode(m.mode),
 			Shadow: &shadow,
 		}
@@ -231,7 +219,7 @@ func (m launcherModel) View() string {
 		return screenStyle.Render(b.String())
 	}
 
-	titles := map[launchStep]string{stepTarget: "test target", stepMode: "run mode", stepShadow: "shadow mode"}
+	titles := map[launchStep]string{stepMode: "run mode", stepShadow: "shadow mode"}
 	b.WriteString(labelRule(w, titles[m.step], "") + "\n")
 	opts := m.options()
 	for i, o := range opts {
@@ -262,7 +250,6 @@ func (m launcherModel) breadcrumb() string {
 		step  launchStep
 		label string
 	}{
-		{stepTarget, m.target},
 		{stepMode, m.mode},
 	}
 	var parts []string

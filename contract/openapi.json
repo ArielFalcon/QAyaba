@@ -1742,8 +1742,7 @@
               "target": {
                 "type": "string",
                 "enum": [
-                  "e2e",
-                  "code"
+                  "e2e"
                 ]
               }
             },
@@ -2179,8 +2178,7 @@
           "target": {
             "type": "string",
             "enum": [
-              "e2e",
-              "code"
+              "e2e"
             ]
           },
           "mode": {
@@ -2467,9 +2465,6 @@
           "versionUrl": {
             "type": "string"
           },
-          "code": {
-            "type": "boolean"
-          },
           "shadow": {
             "type": "boolean"
           },
@@ -2498,7 +2493,6 @@
           "repo",
           "baseUrl",
           "versionUrl",
-          "code",
           "shadow",
           "needsReview",
           "testDataPrefix",
@@ -2651,8 +2645,7 @@
           "target": {
             "type": "string",
             "enum": [
-              "e2e",
-              "code"
+              "e2e"
             ]
           },
           "mode": {
@@ -2770,8 +2763,7 @@
           "target": {
             "type": "string",
             "enum": [
-              "e2e",
-              "code"
+              "e2e"
             ]
           },
           "mode": {
@@ -2958,8 +2950,7 @@
           "target": {
             "type": "string",
             "enum": [
-              "e2e",
-              "code"
+              "e2e"
             ]
           },
           "needsReview": {
@@ -3017,8 +3008,7 @@
           "target": {
             "type": "string",
             "enum": [
-              "e2e",
-              "code"
+              "e2e"
             ]
           },
           "needsReview": {
@@ -5897,8 +5887,7 @@
           "target": {
             "type": "string",
             "enum": [
-              "e2e",
-              "code"
+              "e2e"
             ]
           },
           "mode": {

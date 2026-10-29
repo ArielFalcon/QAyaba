@@ -79,20 +79,6 @@ describe("agent prompt guard", () => {
   });
 
 
-  it("qa-reviewer.md carries the code-mode anti-mock rubric", () => {
-    for (const rel of ["agents/agent/qa-reviewer.md"]) {
-      const content = readFile(rel);
-      assert.ok(
-        content.includes("Code-mode review (target: code)"),
-        `${rel} is missing the "## Code-mode review (target: code)" section (the anti-mock rubric).`,
-      );
-      assert.ok(
-        /mock/i.test(content) && /unit under test/i.test(content),
-        `${rel} must reject tests that mock the unit under test (the anti-mock rubric wording).`,
-      );
-    }
-  });
-
   it("every layer that states the one allowed mock teaches the shape the stubbed-test detector accepts", () => {
     for (const rel of ["agents/agent/qa-author.md", "agents/skill/playwright-authoring/SKILL.md"]) {
       const content = readFile(rel);
@@ -338,8 +324,8 @@ describe("agent prompt guard", () => {
   interface OwnedRule {
     rule: string;
     pattern: RegExp;
-    /* The assembled prompt the rule is counted in: the first pass of a code run or its regeneration; an e2e diff run whose page the prompt supplies a tree for, or a pack with a live DOM; an e2e diff run of an app that declares an OpenAPI contract and supplies no tree; an e2e diff run whose change is broad; a regeneration of an e2e diff run; a complete run's first pass, which analyzes and writes no tests, or its regeneration, which writes them; or a context run, which maps the architecture. */
-    shape: "code" | "code-regen" | "tree" | "pack" | "openapi" | "broad" | "regen" | "complete" | "complete-regen" | "context";
+    /* The assembled prompt the rule is counted in: an e2e diff run whose page the prompt supplies a tree for, or a pack with a live DOM; an e2e diff run of an app that declares an OpenAPI contract and supplies no tree; an e2e diff run whose change is broad; a regeneration of an e2e diff run; a complete run's first pass, which analyzes and writes no tests, or its regeneration, which writes them; or a context run, which maps the architecture. */
+    shape: "tree" | "pack" | "openapi" | "broad" | "regen" | "complete" | "complete-regen" | "context";
     inStatic: number;
     /* Exactly this many statements in the assembled prompt of its shape, or at least this many. */
     inAssembled: { exactly: number } | { atLeast: number };
@@ -370,21 +356,14 @@ describe("agent prompt guard", () => {
   const EFFORT_CEILING = /Expected effort \((?:tiny|focused|broad) change\): at most\b/g;
   /* The listing of the existing suite carries paths, a flow and an objective, never a spec's content, so the one spec a run updates is read first. The shared layer's reuse protocol owns that read; no assembled prompt repeats it. */
   const READ_BEFORE_UPDATE = phrasePattern("read it, and update it");
-  /* A code run reads existing test files for the repo's conventions once, on its first pass; a regeneration works from the failing tests and the code under test, and keeps the statement that the orchestrator compiles and runs what it writes. */
-  const CONVENTIONS_READ = phrasePattern("existing test files for conventions");
-  const CONVENTIONS_MATCH = phrasePattern("Match them exactly");
-  const FRAMEWORK_DETECTION = phrasePattern("Detect the test framework from the repo's dependencies");
-  /* The generator has no shell, so a code run says who compiles and runs its tests, and names no compile command for it to run. */
-  const ORCHESTRATOR_COMPILES = phrasePattern("the orchestrator compiles and runs the tests");
-  const COMPILE_COMMAND = /cargo check --tests|mvn -B test-compile/gi;
   /* No role keeps a memory across runs: no layer names the memory server or one of its tools. */
   const MEMORY_SERVER = /\bengram\b|\bmem_[a-z_]+\b|\btopic_key\b/gi;
   /* The words the builder renders the statement of the limit and each outcome of a milestone with, so the pins read the production table and re-type no wording. */
   const STEP_LIMIT_STATEMENT = new RegExp(`^## ${PROMPT_HEADINGS.stepLimit}$`, "gm");
   const outcomePattern = (outcome: MilestoneOutcome): RegExp => phrasePattern(MILESTONE_OUTCOME_PHRASES[outcome]);
   /* The shapes by what their turn does: a diff first pass writes tests, a regeneration writes them, and a complete run's first pass and a context run write none. */
-  const FIRST_PASS_SHAPES = ["code", "tree", "pack", "openapi", "broad"] as const;
-  const REGENERATION_SHAPES = ["code-regen", "regen", "complete-regen"] as const;
+  const FIRST_PASS_SHAPES = ["tree", "pack", "openapi", "broad"] as const;
+  const REGENERATION_SHAPES = ["regen", "complete-regen"] as const;
   const WRITES_NONE_SHAPES = ["complete", "context"] as const;
   /* One rule per shape: counted `counts.*` times in the prompt built with a limit, never in the one built without. */
   const limitRules = (rule: string, pattern: RegExp, counts: { firstPass: number; regeneration: number; writesNone: number }): OwnedRule[] => [
@@ -392,7 +371,7 @@ describe("agent prompt guard", () => {
     ...REGENERATION_SHAPES.map((shape): OwnedRule => ({ rule, pattern, shape, inStatic: 0, inAssembled: { exactly: 0 }, withLimit: { exactly: counts.regeneration } })),
     ...WRITES_NONE_SHAPES.map((shape): OwnedRule => ({ rule, pattern, shape, inStatic: 0, inAssembled: { exactly: 0 }, withLimit: { exactly: counts.writesNone } })),
   ];
-  /* A test is never weakened to make it pass: the assembled task states the rule on every turn that writes tests, and no layer else does. The question of the outcome the task asks beside it is the turn's, not the rule's: a first pass asks it (a code run on a diff has never), and so does a regeneration whose specs under correction have no objective their lead declared. The words are the builder's own constants, so the pins read production and re-type none. */
+  /* A test is never weakened to make it pass: the assembled task states the rule on every turn that writes tests, and no layer else does. The question of the outcome the task asks beside it is the turn's, not the rule's: a first pass asks it, and so does a regeneration whose specs under correction have no objective their lead declared. The words are the builder's own constants, so the pins read production and re-type none. */
   const ANTI_WEAKENING_STATEMENT = phrasePattern(ANTI_WEAKENING_RULE);
   const OBJECTIVE_QUESTION_STATEMENT = phrasePattern(OBJECTIVE_QUESTION);
   const WRITES_TESTS_SHAPES = [...FIRST_PASS_SHAPES, ...REGENERATION_SHAPES] as const;
@@ -404,30 +383,17 @@ describe("agent prompt guard", () => {
       pattern: OBJECTIVE_QUESTION_STATEMENT,
       shape,
       inStatic: 0,
-      inAssembled: { exactly: shape === "code" ? 0 : 1 },
+      inAssembled: { exactly: 1 },
     })),
     ...WRITES_NONE_SHAPES.map((shape): OwnedRule => ({ rule: "asking for the outcome the tests assert (a turn that writes none)", pattern: OBJECTIVE_QUESTION_STATEMENT, shape, inStatic: 0, inAssembled: { exactly: 0 } })),
-    { rule: "who compiles and runs a code run's tests", pattern: ORCHESTRATOR_COMPILES, shape: "code", inStatic: 0, inAssembled: { exactly: 1 } },
-    { rule: "who compiles and runs a code regeneration's tests", pattern: ORCHESTRATOR_COMPILES, shape: "code-regen", inStatic: 0, inAssembled: { exactly: 1 } },
-    { rule: "a compile command for a code run to run", pattern: COMPILE_COMMAND, shape: "code", inStatic: 0, inAssembled: { exactly: 0 } },
-    { rule: "a compile command for a code regeneration to run", pattern: COMPILE_COMMAND, shape: "code-regen", inStatic: 0, inAssembled: { exactly: 0 } },
     /* The conventions of the repo's tests are read once, on the first pass; the framework is detected on every pass. */
-    { rule: "reading existing test files for conventions (code first pass)", pattern: CONVENTIONS_READ, shape: "code", inStatic: 0, inAssembled: { exactly: 1 } },
-    { rule: "reading existing test files for conventions (code regeneration)", pattern: CONVENTIONS_READ, shape: "code-regen", inStatic: 0, inAssembled: { exactly: 0 } },
-    { rule: "matching the conventions read exactly (code first pass)", pattern: CONVENTIONS_MATCH, shape: "code", inStatic: 0, inAssembled: { exactly: 1 } },
-    { rule: "matching the conventions read exactly (code regeneration)", pattern: CONVENTIONS_MATCH, shape: "code-regen", inStatic: 0, inAssembled: { exactly: 0 } },
-    { rule: "detecting the test framework from the repo's dependencies (code first pass)", pattern: FRAMEWORK_DETECTION, shape: "code", inStatic: 0, inAssembled: { exactly: 1 } },
-    { rule: "detecting the test framework from the repo's dependencies (code regeneration)", pattern: FRAMEWORK_DETECTION, shape: "code-regen", inStatic: 0, inAssembled: { exactly: 1 } },
     { rule: "the selector priority", pattern: /STARTS WITH the configured testIdAttribute name/gi, shape: "tree", inStatic: 1, inAssembled: { exactly: 0 } },
     { rule: "the dynamic DOM caveat", pattern: /STATIC snapshot of initial load/gi, shape: "tree", inStatic: 1, inAssembled: { exactly: 0 } },
     { rule: "not re-navigating a route the tree covers", pattern: /(?:do not|never)[^.\n]*(?:re-navigate|browser_navigate|browser_snapshot)/gi, shape: "tree", inStatic: 0, inAssembled: { atLeast: 1 } },
     { rule: "a memory that outlives the run", pattern: MEMORY_SERVER, shape: "tree", inStatic: 0, inAssembled: { exactly: 0 } },
-    { rule: "a memory that outlives the run (code)", pattern: MEMORY_SERVER, shape: "code", inStatic: 0, inAssembled: { exactly: 0 } },
     /* The verdict ends the turn: the static stop rule is the only owner, whether the specs are written or the no-op is decided. */
     { rule: "the verdict being the last action (e2e)", pattern: LAST_ACTION_RULE, shape: "tree", inStatic: 1, inAssembled: { exactly: 0 } },
-    { rule: "the verdict being the last action (code)", pattern: LAST_ACTION_RULE, shape: "code", inStatic: 1, inAssembled: { exactly: 0 } },
     { rule: "the verdict following a declared no-op (e2e)", pattern: DECLARED_NO_OP_RULE, shape: "tree", inStatic: 1, inAssembled: { exactly: 0 } },
-    { rule: "the verdict following a declared no-op (code)", pattern: DECLARED_NO_OP_RULE, shape: "code", inStatic: 1, inAssembled: { exactly: 0 } },
     /* What the prompt carries comes first, and only what it lacks is looked up: orientation and memory follow that one rule. */
     { rule: "using what the prompt supplies and looking up only what it lacks", pattern: phrasePattern("What the prompt supplies comes first"), shape: "tree", inStatic: 1, inAssembled: { exactly: 0 } },
     /* The shared layer and the generator's first step each say so once; the assembled prompt carries the framing itself. */
@@ -442,7 +408,7 @@ describe("agent prompt guard", () => {
     { rule: "never asserting a pre-existing element with the changed label", pattern: phrasePattern("Never assert a pre-existing element"), shape: "tree", inStatic: 1, inAssembled: { exactly: 0 } },
     /* The generator role owns the sentence that names the second reason of the no-op; the one place an assembled prompt offers the no-op (the effort of a diff's first pass) quotes it, and no other turn does. */
     ...(["tree", "pack", "openapi", "broad"] as const).map((shape): OwnedRule => ({ rule: `the no-op for a change DEV cannot show (a diff's first pass, ${shape})`, pattern: UNOBSERVABLE_NOOP_REASON, shape, inStatic: 1, inAssembled: { exactly: 1 } })),
-    ...(["code", "code-regen", "regen", "complete", "complete-regen", "context"] as const).map((shape): OwnedRule => ({ rule: `the no-op for a change DEV cannot show (${shape}, which offers no effort)`, pattern: UNOBSERVABLE_NOOP_REASON, shape, inStatic: 1, inAssembled: { exactly: 0 } })),
+    ...(["regen", "complete", "complete-regen", "context"] as const).map((shape): OwnedRule => ({ rule: `the no-op for a change DEV cannot show (${shape}, which offers no effort)`, pattern: UNOBSERVABLE_NOOP_REASON, shape, inStatic: 1, inAssembled: { exactly: 0 } })),
     { rule: "the generator naming the kind of its no-op in the verdict", pattern: phrasePattern("`noop.kind` names the one that holds"), shape: "tree", inStatic: 1, inAssembled: { exactly: 0 } },
     { rule: "an unobservable no-op naming the element and the evidence it relied on", pattern: phrasePattern("names the element and the evidence it relied on"), shape: "tree", inStatic: 1, inAssembled: { exactly: 0 } },
     { rule: "reading the existing spec of a flow before updating it", pattern: READ_BEFORE_UPDATE, shape: "tree", inStatic: 1, inAssembled: { exactly: 0 } },
@@ -537,8 +503,6 @@ describe("agent prompt guard", () => {
   /* The shapes a turn that writes tests takes (a diff first pass, or a regeneration) and the two that do not (a complete run's first pass, which analyzes, and a context run, which maps the architecture). */
   const e2eInput = { ...assembledInput, target: "e2e", baseUrl: "http://localhost:3000" };
   const SHAPE_INPUTS: Record<OwnedRule["shape"], object> = {
-    code: { ...assembledInput, target: "code" },
-    "code-regen": { ...assembledInput, target: "code", fixCases: [FAILING_CASE] },
     openapi: { ...e2eInput, openapi: "api-definition.yaml" },
     pack: { ...e2eInput, contextPack: PACK_WITH_LIVE_DOM },
     broad: { ...e2eInput, diff: BROAD_DIFF },
@@ -586,10 +550,8 @@ describe("agent prompt guard", () => {
     }
   });
 
-  /* Every mode a generator prompt is built for, with both targets; a context run maps the architecture and never writes code tests. */
-  const GENERATOR_SHAPES = RUN_MODES.flatMap((mode) =>
-    (["e2e", "code"] as const).filter((target) => !(mode === "context" && target === "code")).map((target) => ({ mode, target })),
-  );
+  /* Every mode a generator prompt is built for. */
+  const GENERATOR_SHAPES = RUN_MODES.map((mode) => ({ mode, target: "e2e" as const }));
   const generatorPromptFor = ({ mode, target }: (typeof GENERATOR_SHAPES)[number], extra: Record<string, unknown> = {}): string =>
     buildPrompt({
       ...assembledInput,
@@ -614,20 +576,6 @@ describe("agent prompt guard", () => {
     ["a coverage gap", { coverageGap: "src/cart.ts: lines 10-14 were not executed" }],
     ["selector contradictions", { selectorContradictions: ["button:Apply is NOT in the captured tree"] }],
   ];
-
-  it("a code run reads existing test files for conventions on its first pass in every generation mode, and no regeneration of it does, whatever signal made it one", () => {
-    const codeModes = RUN_MODES.filter((mode) => mode !== "context");
-    assert.ok(codeModes.length > 0, "setup: the generation modes are known");
-    for (const mode of codeModes) {
-      assert.equal(countOf(generatorPromptFor({ mode, target: "code" }), CONVENTIONS_READ), 1, `${mode}: first pass`);
-      for (const [signal, extra] of REGEN_SIGNALS) {
-        const regeneration = generatorPromptFor({ mode, target: "code" }, extra);
-        assert.equal(countOf(regeneration, CONVENTIONS_READ), 0, `${mode} regeneration (${signal}): reads no conventions`);
-        assert.equal(countOf(regeneration, ORCHESTRATOR_COMPILES), 1, `${mode} regeneration (${signal}): keeps the statement of who compiles`);
-        assert.equal(countOf(regeneration, COMPILE_COMMAND), 0, `${mode} regeneration (${signal}): names no compile command`);
-      }
-    }
-  });
 
   it("a diff first pass bounds the run to the pages the change affects whatever else the prompt supplies", () => {
     const supplied: ReadonlyArray<[string, Record<string, unknown>]> = [
@@ -657,7 +605,7 @@ describe("agent prompt guard", () => {
       const where = `${shape.mode}/${shape.target}`;
       const prompt = generatorPromptFor(shape, { openapi: hint });
       assert.equal(countOf(prompt, CONTRACT_READ_RULE), 0, `${where}: directs reading the matching operation`);
-      /* The context run states its own hint while it builds the map; a code run has no contract to read. */
+      /* The context run states its own hint while it builds the map. */
       if (shape.target === "e2e" && shape.mode !== "context") assert.equal(prompt.split(hint).length - 1, 1, `${where}: gives the spec location once`);
     }
   });
@@ -734,19 +682,6 @@ describe("agent prompt guard", () => {
 });
 
 describe("agent-guidance-runtime-semantics drift guard", () => {
-  it("test-value-review/SKILL.md carries the code-mode anti-mock rubric ", () => {
-    const content = readFile("agents/skill/test-value-review/SKILL.md");
-    assert.ok(
-      /mock/i.test(content) && /unit under test/i.test(content),
-      "test-value-review/SKILL.md must reject tests that mock the unit under test (the anti-mock rubric), " +
-        "for code-mode reviews.",
-    );
-    assert.ok(
-      /duplicate/i.test(content) && /implementation/i.test(content),
-      "test-value-review/SKILL.md must reject tests that duplicate the implementation as the expectation.",
-    );
-  });
-
   /* The context run records the map; the pack's route ranking reads three of its fields. The skill that teaches the map names the same fields the reader takes, so a run that follows it records links the ranking can use. What this change adds to it stays within a small budget. */
   const MAP_FIELDS_ADDED_BY_RANKING = [ROUTE_LINK_FIELDS.implementationFiles, ROUTE_LINK_FIELDS.spec];
   const MAP_FIELDS_ADDED_BUDGET_BYTES = 200;

@@ -161,7 +161,7 @@ func TestIntelligenceScorecardEntryRendersRealAndUnmeasuredCounts(t *testing.T) 
 				Target      string   `json:"target"`
 				ValueScore  *float32 `json:"valueScore"`
 			}{
-				{At: "2026-09-01T00:00:00Z", KilledCount: &killed, MutantCount: &mutants, Target: "code", ValueScore: &avg},
+				{At: "2026-09-01T00:00:00Z", KilledCount: &killed, MutantCount: &mutants, Target: "e2e", ValueScore: &avg},
 				{At: "2026-09-02T00:00:00Z", KilledCount: nil, MutantCount: nil, Target: "e2e", ValueScore: nil},
 			},
 		},

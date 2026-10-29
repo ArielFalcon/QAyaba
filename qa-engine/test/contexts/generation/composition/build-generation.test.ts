@@ -1,4 +1,4 @@
-/* buildGeneration: the generation and review ports reach the run's agent runtime, an e2e run is grounded three ways and a code run none, and the trace wrappers exist only with telemetry. */
+/* buildGeneration: the generation and review ports reach the run's agent runtime, an e2e run is grounded three ways, and the trace wrappers exist only with telemetry. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { buildGeneration, type GenerationDeps } from "@contexts/generation/composition/build-generation.ts";
@@ -21,14 +21,6 @@ test("an e2e run is grounded before generation, before execution and before revi
   assert.ok(api.preGenerationGrounding);
   assert.ok(api.preExecGrounding);
   assert.ok(api.reviewDomGrounding);
-});
-
-test("a code run is grounded on nothing", () => {
-  const api = buildGeneration(deps({}, { isCode: true, target: "code" }));
-
-  assert.equal(api.preGenerationGrounding, undefined);
-  assert.equal(api.preExecGrounding, undefined);
-  assert.equal(api.reviewDomGrounding, undefined);
 });
 
 test("generating reaches the injected use case", async () => {

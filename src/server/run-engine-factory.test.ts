@@ -336,11 +336,6 @@ test("an e2e app with no login declared never starts discovery", async () => {
   assert.equal(seeded, false);
 });
 
-test("a code-mode app composes no auth session at all", () => {
-  const config = buildEngineRootDeps({ name: "discovery-code", repo: "org/demo", code: true, qa: { needsReview: true, testDataPrefix: "qa-bot", shadow: true }, report: { onFailure: "github-issue" } }, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
-  assert.equal(config.authSession, undefined);
-});
-
 /* ── Curriculum wiring: the per-app scenario-archetype prior, backed by the learning repository's store ────────
    Wired UNCONDITIONALLY (no config flag): the port is measure-and-rank only — it never gates a
    verdict, a publish decision or a coverage decision, so there is no risk surface a flag would
@@ -363,14 +358,12 @@ test("buildEngineRootDeps wires a ContextMapCapturePort backed by the history st
   assert.ok(config.contextMapCapture, "contextMapCapture must be wired unconditionally");
 });
 
-/* The accepted e2e suite is kept in the data volume for every e2e run, shadow or not; the code target has no e2e suite. */
-test("buildEngineRootDeps wires the suite store for an e2e run and leaves it out of a code run", () => {
+/* The accepted e2e suite is kept in the data volume for every e2e run, shadow or not. */
+test("buildEngineRootDeps wires the suite store for an e2e run, shadow or not", () => {
   const e2e = buildEngineRootDeps(cfg("suite-store-e2e"), { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
   assert.ok(e2e.suiteStore, "an e2e run keeps its suite");
   const shadow = buildEngineRootDeps({ ...cfg("suite-store-shadow"), qa: { ...cfg("suite-store-shadow").qa, shadow: true } }, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
   assert.ok(shadow.suiteStore, "a shadow run keeps its suite too: nothing else would");
-  const code = buildEngineRootDeps(cfg("suite-store-code"), { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff", target: "code" });
-  assert.equal(code.suiteStore, undefined);
 });
 
 test("the suite store starts a cold working copy from the engine's seed project before the stored files go over it", async () => {
@@ -615,16 +608,6 @@ for (const [label, enqueueContextRun] of [
   });
 }
 
-test("buildEngineRootDeps — a code-mode app never requests a heal (context maps are e2e-only)", () => {
-  const app: AppConfig = { ...cfg(`factory-contextmap-stale-code-${Date.now().toString(36)}`), code: true, dev: undefined };
-  getHistory().contexts.markContextStale(app.name);
-
-  let requested = 0;
-  buildEngineRootDeps(app, { getAgentDeps: stubAgentDeps, enqueueContextRun: () => { requested += 1; return "run-heal-1"; } }, "qa-bot-abc1234-run1", { mode: "diff", target: "code", sha: "abc1234" });
-  assert.equal(requested, 0);
-  assert.equal(getHistory().contexts.isContextStale(app.name), true, "the flag stays armed for the next real e2e generating run");
-});
-
 test("buildEngineRootDeps — a mode:context run never requests its own heal (it is the rebuild)", () => {
   const app = cfg(`factory-contextmap-stale-context-mode-${Date.now().toString(36)}`);
   getHistory().contexts.markContextStale(app.name);
@@ -831,10 +814,6 @@ test("the composed engine hands the host the app's own step classification, and 
   assert.deepEqual(specTargets, { kind: "dir", relDir: "e2e" });
   assert.deepEqual([authFiles, loginUrls, reviewAgents], [["e2e/auth.setup.ts"], ["https://dev.example.com/entrar"], ["qa-reviewer"]]);
   assert.equal((opened[0] as { timeLimit?: string }).timeLimit, "session-timeout");
-
-  const code = buildEngineRootDeps({ ...cfg("factory-turn-intent-code"), code: true, dev: undefined }, { getAgentDeps: host as never }, "ns-intent-code", { mode: "manual", target: "code" });
-  await (await code.reviewRuntime.runtime.openSession("reviewer", "/m")).dispose();
-  assert.deepEqual((seen[1] as { intent: { specTargets: unknown } }).intent.specTargets, { kind: "any-write" });
 });
 
 test("engineAgentDeps traces a prompt as an invoke_agent turn when the host has a telemetry port, and adds nothing when it has none", async () => {
@@ -933,12 +912,6 @@ test("buildEngineRootDeps sets baseUrl from app.dev.baseUrl (the live E2eExecuti
   const app = cfg("factory-baseurl");
   const config = buildEngineRootDeps(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
   assert.equal(config.baseUrl, "https://dev", "baseUrl must be threaded from app.dev.baseUrl into EngineRootDeps, not just the FaultInjectionOracle");
-});
-
-test("buildEngineRootDeps leaves baseUrl absent for a code-mode app (no dev block)", () => {
-  const app: AppConfig = { ...cfg("factory-baseurl-code"), code: true, dev: undefined };
-  const config = buildEngineRootDeps(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
-  assert.equal(config.baseUrl, undefined);
 });
 
 /* The factory must supply the purpose-built REVIEWER_TIMEOUT_MS (6min) as EngineRootDeps.
@@ -1046,19 +1019,6 @@ test("an e2e app with services[], one with an empty services[] and one with none
     const config = buildEngineRootDeps(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
     assertRestOfGroundingWired(app, config);
   }
-});
-
-test("buildEngineRootDeps still wires groundingCollaborators for a code-mode app (engine-root.ts's own isCode guard is the actual skip point, not the factory)", () => {
-  const app: AppConfig = { ...cfg("factory-grounding-code"), code: true, dev: undefined };
-  const config = buildEngineRootDeps(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
-  /* The factory's own mapping is target-agnostic here — wireEngine()'s `!cfg.isCode` guard is what
-     actually skips constructing both grounding ports for a code target (engine-root.ts), so
-     asserting the factory's OWN output stays the same shape whether or not isCode is true is the
-     faithful way to pin "the factory does not need its own target check — it already exists downstream".
-   */
-  assert.ok(config.groundingCollaborators?.contextPackDeps);
-  assert.ok(config.reviewDomGroundingCollaborators?.captureDomDeps);
-  assert.equal(config.isCode, true, "isCode is what engine-root.ts's wireEngine() reads to skip both grounding ports on this target");
 });
 
 /* `config.contextMap` stays absent at composition-BUILD time. The per-run read happens in
@@ -1332,30 +1292,9 @@ test("createRunEngineFactory forwards its 4th (observer) argument to buildEngine
   assert.doesNotThrow(() => factory(app, "qa-bot-abc1234-run1", { mode: "diff" }, observer));
 });
 
-/* Per-run --target (CLI / TUI `t`) is the product switch; YAML `code: true` is only the
-   default when the run omits target. An e2e-configured app MUST still compose the code
-   pipeline when the run says target:"code" — otherwise the operator launches "code" and
-   Playwright still runs against DEV.
- */
-test("buildEngineRootDeps honors per-run target code on an e2e-configured app", () => {
-  const app: AppConfig = {
-    ...cfg("factory-run-target-code"),
-    qa: { ...cfg("factory-run-target-code").qa, shadow: true, valueOracle: "signal" },
-  };
-  const config = buildEngineRootDeps(app, { getAgentDeps: stubAgentDeps }, "qa-bot-tgtcode-run", { mode: "diff", target: "code" });
-  assert.equal(config.target, "code");
-  assert.equal(config.isCode, true);
-  assert.equal(
-    config.objectiveSignal.oracle.constructor.name,
-    "StrykerMutationOracleAdapter",
-    "code-target composition must pick the code oracle, not e2e fault-injection",
-  );
-});
-
-test("buildEngineRootDeps honors per-run target e2e on a code:true app", () => {
+test("buildEngineRootDeps honors per-run target e2e", () => {
   const app: AppConfig = {
     ...cfg("factory-run-target-e2e"),
-    code: true,
     qa: { ...cfg("factory-run-target-e2e").qa, shadow: true, valueOracle: "signal" },
   };
   const config = buildEngineRootDeps(app, { getAgentDeps: stubAgentDeps }, "qa-bot-tgte2e-run", { mode: "diff", target: "e2e" });
@@ -1364,17 +1303,8 @@ test("buildEngineRootDeps honors per-run target e2e on a code:true app", () => {
   assert.equal(
     config.objectiveSignal.oracle.constructor.name,
     "FaultInjectionOracleAdapter",
-    "e2e-target composition must pick fault-injection even when the YAML says code: true",
+    "e2e-target composition must pick fault-injection",
   );
-});
-
-test("buildEngineRootDeps selects the code target + Stryker oracle for a code:true app", () => {
-  const app: AppConfig = { ...cfg("factory-code"), code: true, dev: undefined };
-  const config = buildEngineRootDeps(app, { getAgentDeps: stubAgentDeps }, "qa-bot-def5678-run2", { mode: "diff" });
-  assert.equal(config.target, "code");
-  assert.equal(config.isCode, true);
-  assert.equal(config.versionUrl, undefined, "a code-mode app has no dev.versionUrl — no deploy gate");
-  assert.equal(config.versionPoll, undefined);
 });
 
 /*
@@ -1449,27 +1379,14 @@ test("e2e + valueOracle signal wires FaultInjectionOracleAdapter even in shadow"
   assert.equal(config.objectiveSignal.oracle.constructor.name, "FaultInjectionOracleAdapter");
 });
 
-test("the mutation pass is wired for an e2e app whose value oracle is on, and not when it is off or the target is code", () => {
-  const mutationOf = (app: AppConfig, target?: "e2e" | "code") =>
-    buildEngineRootDeps(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff", ...(target ? { target } : {}) }).objectiveSignal.mutation?.constructor.name;
+test("the mutation pass is wired for an e2e app whose value oracle is on, and not when it is off", () => {
+  const mutationOf = (app: AppConfig) =>
+    buildEngineRootDeps(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" }).objectiveSignal.mutation?.constructor.name;
   const on: AppConfig = { ...cfg("factory-mutation-on"), qa: { ...cfg("factory-mutation-on").qa, shadow: true, valueOracle: "signal" } };
   const off: AppConfig = { ...cfg("factory-mutation-off"), qa: { ...cfg("factory-mutation-off").qa, valueOracle: "off" } };
   assert.equal(mutationOf(on), "BundleMutationOracleAdapter");
   assert.equal(mutationOf(off), undefined);
   assert.equal(mutationOf(cfg("factory-mutation-shadow-default")), undefined, "the shadow-aware default keeps it off");
-  assert.equal(mutationOf(on, "code"), undefined);
-});
-
-test("code + valueOracle off wires NullValueOracleAdapter (no Stryker)", () => {
-  const app: AppConfig = { ...cfg("factory-oracle-code-off"), code: true, dev: undefined, qa: { ...cfg("factory-oracle-code-off").qa, valueOracle: "off" } };
-  const config = buildEngineRootDeps(app, { getAgentDeps: stubAgentDeps }, "qa-bot-def5678-run2", { mode: "diff" });
-  assert.equal(config.objectiveSignal.oracle.constructor.name, "NullValueOracleAdapter");
-});
-
-test("code + valueOracle signal wires StrykerMutationOracleAdapter", () => {
-  const app: AppConfig = { ...cfg("factory-oracle-code-signal"), code: true, dev: undefined, qa: { ...cfg("factory-oracle-code-signal").qa, shadow: false, valueOracle: "signal" } };
-  const config = buildEngineRootDeps(app, { getAgentDeps: stubAgentDeps }, "qa-bot-def5678-run2", { mode: "diff" });
-  assert.equal(config.objectiveSignal.oracle.constructor.name, "StrykerMutationOracleAdapter");
 });
 
 test("buildEngineRootDeps honors coveragePolicy from app.qa.changeCoverage", () => {
@@ -1714,15 +1631,15 @@ test("a bare commit hard-fails 'Author identity unknown')", async () => {
 
 test("CRITICAL commit-identity: GIT_AUTHOR_NAME/GIT_AUTHOR_EMAIL override the fallbacks", async () => {
   await withEnv({ GIT_AUTHOR_NAME: "qa-ops", GIT_AUTHOR_EMAIL: "qa-ops@example.com" }, async () => {
-    const { git, calls } = fakeGit(" M src/orders.ts");
-    const vcsWrite = publishStep(true, "diff", git, () => {});
+    const { git, calls } = fakeGit(" M e2e/login.spec.ts");
+    const vcsWrite = publishStep(false, "diff", git, () => {});
 
-    await vcsWrite.publish({ mirrorDir: "/mirrors/org/qayaba", branch: "qa-bot/def5678", sha: "def5678" });
+    await vcsWrite.publish({ mirrorDir: "/mirrors/org/app", branch: "qa-bot/abc1234", sha: "abc1234" });
 
     const commit = calls.find((c) => subcommandOf(c) === "commit");
     assert.deepEqual(
       commit,
-      ["-c", "user.name=qa-ops", "-c", "user.email=qa-ops@example.com", "commit", "-m", "test(code): automated QA"],
+      ["-c", "user.name=qa-ops", "-c", "user.email=qa-ops@example.com", "commit", "-m", "test(e2e): automated QA"],
       "explicit GIT_AUTHOR_* env values must win over the qayaba fallbacks",
     );
   });
@@ -1742,17 +1659,6 @@ test("CRITICAL decorations are scoped: status/checkout/add stay UNDECORATED", as
     assert.equal(carriesAuthOrIdentity(calls[1] ?? []), false, "checkout must stay undecorated — a local branch op needs neither auth nor identity");
     assert.deepEqual(calls[2], ["add", "--", "e2e"], "add must stay bare");
   });
-});
-
-test("the publish step (code target): changes anywhere -> stages the whole tree pathspec '.', not 'e2e'", async () => {
-  const { git, calls } = fakeGit(" M src/orders.ts");
-  const vcsWrite = publishStep(true, "diff", git, () => {});
-
-  const result = await vcsWrite.publish({ mirrorDir: "/mirrors/org/qayaba", branch: "qa-bot/def5678", sha: "def5678" });
-
-  assert.deepEqual(result, { changed: true, revertedDenylisted: [], revertedDangerous: [] });
-  assert.deepEqual(calls[0]?.slice(-2), ["--", "."], "code target's status check scopes to '.', not 'e2e' (the whole tree, per publishCode's own CODE_ADD)");
-  assert.deepEqual(calls[2], ["add", "--", "."], "code target stages the whole tree");
 });
 
 test("the publish step writes gitignore-style excludes BEFORE checking for changes (so an ignored path like node_modules/ never fails `git add`)", async () => {
@@ -1783,27 +1689,6 @@ test("the publish step never writes its local excludes through a git dir the san
 
     assert.equal(existsSync(join(sandboxGit, "info", "exclude")), false, "nothing was written through the link");
     assert.equal(calls.length, 0, "no git command ran against the swapped git dir");
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
-});
-
-test("the publish step (code target) refuses to stage the whole tree when the sandbox populated a committed gitlink, and no git command runs", async () => {
-  const root = mkdtempSync(join(tmpdir(), "publish-gitlink-"));
-  try {
-    const { marker, command } = writeMarkerCommand(root);
-    const fixture = makeGitlinkRepo(root);
-    plantNestedRepo(fixture, command);
-    writeFileSync(join(fixture.repo, "orders.test.ts"), "test('x', () => {});\n");
-    const git = async (args: string[], cwd?: string): Promise<string> => {
-      const dir = cwd ?? fixture.repo;
-      return execFileSync("git", hardenGitArgs(args, dir), { cwd: dir, env: GIT_ENV, encoding: "utf8" });
-    };
-    const vcsWrite = publishStep(true, "diff", git);
-
-    await assert.rejects(vcsWrite.publish({ mirrorDir: fixture.repo, branch: "qa-bot/def5678", sha: "def5678" }), UntrustedGitTreeError);
-
-    assert.equal(ranPlantedCommand(marker), false, "git entered the planted submodule");
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -2176,15 +2061,6 @@ test("buildEngineRootDeps's coverage collector for an e2e app does NOT trigger r
   assert.deepEqual(report.scripts, { total: 0, withSourceMap: 0 });
 });
 
-test("buildEngineRootDeps's coverage collector for a code:true app runs best-effort (never throws even with no c8/no test command)", async () => {
-  const app: AppConfig = { ...cfg("factory-code-coverage-trigger"), code: true, dev: undefined };
-  const config = buildEngineRootDeps(app, { getAgentDeps: stubAgentDeps }, "qa-bot-def5678-run2", { mode: "diff" });
-  /* — best-effort, BEFORE the lcov/Istanbul readers run. A bogus mirrorDir (no repo, no c8, no test
-     command) must degrade the whole collect() call to an empty report, never throw.
-   */
-  await assert.doesNotReject(() => config.objectiveSignal.collector.collect("/tmp/does-not-exist/e2e", "qa-bot-def5678-run2"));
-});
-
 test("the runner reaches the real factory and never bypasses it", async () => {
   const queue = new JobQueue();
   let factoryInvoked = false;
@@ -2501,7 +2377,7 @@ test("recordOutcome persists the REAL mutantCount/killedCount from gateSignals, 
   const store = historyLearningStore(app);
 
   foldRunOutcome(store, {
-    runId: "run-scorecard-mutant-1", app, sha: "abc1234567", mode: "diff", target: "code", verdict: "pass",
+    runId: "run-scorecard-mutant-1", app, sha: "abc1234567", mode: "diff", target: "e2e", verdict: "pass",
     errorClass: null,
     gateSignals: { static: true, coverageRatio: null, valueScore: 0.85, mutantCount: 20, killedCount: 17, reviewerCorrections: [], flaky: false, retries: 0 },
     rulesRetrieved: [],
@@ -3432,21 +3308,6 @@ test("cross-repo: checkout(sha) stages sibling services at branch HEAD without r
 
 /* ── Service staging as a qa-engine workspace adapter (MultiRepoCheckoutAdapter) ─────────────── */
 
-test("code target: checkout(sha) never stages declared services (no e2e dir concept for target=code)", async () => {
-  const app: AppConfig = { ...cfg("factory-code-skip-staging"), code: true, dev: undefined, services: [{ repo: "org/orders-svc" }] };
-  const { mirror, ensureMirrorAtBranchCalls } = spyMirrorDeps();
-  const { stageServiceContext, calls } = spyStageServiceContext();
-  const config = buildEngineRootDeps(
-    app,
-    { getAgentDeps: stubAgentDeps, mirror, stageServiceContext },
-    "qa-bot-abc1234-run1",
-    { mode: "diff" },
-  );
-  await config.checkout(Sha.of("abc1234567"));
-  assert.deepEqual(ensureMirrorAtBranchCalls, [], "a code-target run must never mirror declared services");
-  assert.deepEqual(calls, [], "a code-target run must never stage declared services");
-});
-
 test("service staging: declared services are mirrored CONCURRENTLY (Promise.all), not one-at-a-time", async () => {
   const app: AppConfig = { ...cfg("factory-service-staging-parallel"), services: [{ repo: "org/svc-a" }, { repo: "org/svc-b" }] };
   const { mirror } = spyMirrorDeps();
@@ -3714,7 +3575,7 @@ test("an e2e app composes the run_spec loop only when the host has a registry, d
   assert.equal(withLoop.closedLoop?.generatorRuntimeCanCall(), true);
 });
 
-test("the loop is on for an app that says nothing, off for one that turns it off, and never composed for a code app", async () => {
+test("the loop is on for an app that says nothing, off for one that turns it off", async () => {
   const { ClosedLoopRegistry } = await import("@contexts/agent-tools/infrastructure/closed-loop-registry");
   const registry = new ClosedLoopRegistry();
   const silent = buildEngineRootDeps(cfg("loop-default"), { getAgentDeps: stubAgentDeps, closedLoopRegistry: registry, getAgentFacade: agentFacadeFor("opencode") }, "ns", { mode: "diff" });
@@ -3723,10 +3584,6 @@ test("the loop is on for an app that says nothing, off for one that turns it off
   const optedOut = { ...cfg("loop-off"), qa: { ...cfg("loop-off").qa, closedLoop: { enabled: false } } };
   const off = buildEngineRootDeps(optedOut, { getAgentDeps: stubAgentDeps, closedLoopRegistry: registry, getAgentFacade: agentFacadeFor("opencode") }, "ns", { mode: "diff" });
   assert.equal(off.closedLoop?.setting.enabled, false);
-
-  const code: AppConfig = { name: "loop-code", repo: "org/demo", code: true, qa: { needsReview: true, testDataPrefix: "qa-bot", closedLoop: { enabled: true } }, report: { onFailure: "github-issue" } };
-  const composed = buildEngineRootDeps(code, { getAgentDeps: stubAgentDeps, closedLoopRegistry: registry, getAgentFacade: agentFacadeFor("opencode") }, "ns", { mode: "diff", target: "code" });
-  assert.equal(composed.closedLoop, undefined);
 });
 
 test("only an OpenCode generator, as the facade assigns it now, can call the tool", async () => {
@@ -3777,7 +3634,7 @@ test("an e2e app composes the agent browser only when the host has a registry, w
   assert.equal(typeof wired.agentBrowser?.launcher.launch, "function");
 });
 
-test("the agent browser is on for an app that says nothing, off for one that turns it off, and never composed for a code app", async () => {
+test("the agent browser is on for an app that says nothing, off for one that turns it off", async () => {
   const { AgentBrowserRegistry } = await import("@contexts/agent-tools/infrastructure/agent-browser-registry");
   const registry = new AgentBrowserRegistry();
   const host = { getAgentDeps: stubAgentDeps, agentBrowserRegistry: registry, getAgentFacade: agentFacadeFor("opencode") };
@@ -3787,9 +3644,6 @@ test("the agent browser is on for an app that says nothing, off for one that tur
   const base = cfg("browser-off");
   const off = buildEngineRootDeps({ ...base, dev: { baseUrl: "https://dev.example.com" }, qa: { ...base.qa, agentBrowser: { enabled: false } } }, host, "ns", { mode: "diff" });
   assert.equal(off.agentBrowser?.setting.enabled, false);
-
-  const code: AppConfig = { name: "browser-code", repo: "org/demo", code: true, qa: { needsReview: true, testDataPrefix: "qa-bot", agentBrowser: { enabled: true } }, report: { onFailure: "github-issue" } };
-  assert.equal(buildEngineRootDeps(code, host, "ns", { mode: "diff", target: "code" }).agentBrowser, undefined);
 });
 
 test("only an OpenCode generator, as the facade assigns it now, is granted the browser", async () => {
@@ -3929,12 +3783,9 @@ test("an e2e app composes the lead/sidekick mode over a workspace root beside th
   const wired = buildEngineRootDeps(cfg("deleg-app"), { getAgentDeps: stubAgentDeps, getAgentFacade: agentFacadeFor("opencode"), mirrorRoot: "/mirrors" }, "ns", { mode: "diff" });
   assert.equal(wired.delegation?.workspaceRoot, "/mirrors/.qa-delegations");
   assert.ok(wired.delegation?.deadline, "the run's deadline, as the agents' turns read it");
-
-  const code = buildEngineRootDeps({ ...cfg("deleg-code"), code: true }, { getAgentDeps: stubAgentDeps, mirrorRoot: "/mirrors" }, "ns", { mode: "diff", target: "code" });
-  assert.equal(code.delegation, undefined);
 });
 
-test("the authoring location is composed from the app's declared position and places, and never for a code app", async () => {
+test("the authoring location is composed from the app's declared position and places", async () => {
   const { GeolocationRegistry } = await import("@contexts/agent-tools/infrastructure/geolocation-registry");
   const barcelona = { latitude: 41.3874, longitude: 2.1686 };
   const app: AppConfig = {
@@ -3948,9 +3799,6 @@ test("the authoring location is composed from the app's declared position and pl
   const wired = buildEngineRootDeps(app, { getAgentDeps: stubAgentDeps, geolocationRegistry: registry }, "ns", { mode: "diff" });
   assert.equal(wired.geolocation?.registry, registry);
   assert.deepEqual(wired.geolocation?.setting, { default: { latitude: 40.4168, longitude: -3.7038 }, places: { barcelona } });
-
-  const code: AppConfig = { ...app, code: true, qa: { ...app.qa, needsReview: true, testDataPrefix: "qa-bot" } };
-  assert.equal(buildEngineRootDeps(code, { getAgentDeps: stubAgentDeps, geolocationRegistry: registry }, "ns", { mode: "diff", target: "code" }).geolocation, undefined);
 });
 
 test("the factory tells the geolocation registry about a sidekick's session of a flow through the transport", async () => {

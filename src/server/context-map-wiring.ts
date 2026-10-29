@@ -36,7 +36,6 @@ export function contextMapNeedsRebuildFor(env: Record<string, string | undefined
   if (resolveCampaignFreeze(env)) return undefined;
   return async (appName, sha) => {
     const app = deps.loadApp(appName);
-    if (app.code === true) return false;
     const stored = deps.loadStoredMap(appName);
     if (!stored || deps.isStale(appName)) return true;
     if (stored.builtAtSha === sha) return false;

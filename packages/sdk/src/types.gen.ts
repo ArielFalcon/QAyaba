@@ -610,7 +610,7 @@ export interface components {
             /** @enum {string} */
             mode: "diff" | "complete" | "exhaustive" | "manual" | "context";
             /** @enum {string} */
-            target: "e2e" | "code";
+            target: "e2e";
         } | {
             /** @enum {string} */
             type: "step.changed";
@@ -701,7 +701,7 @@ export interface components {
             sha: string;
             ref?: string;
             /** @enum {string} */
-            target: "e2e" | "code";
+            target: "e2e";
             /** @enum {string} */
             mode: "diff" | "complete" | "exhaustive" | "manual" | "context";
             /** @enum {string} */
@@ -769,7 +769,6 @@ export interface components {
             repo: string;
             baseUrl: string;
             versionUrl: string;
-            code: boolean;
             shadow: boolean;
             needsReview: boolean;
             testDataPrefix: string;
@@ -813,7 +812,7 @@ export interface components {
         CreateRunInput: {
             app: string;
             /** @enum {string} */
-            target: "e2e" | "code";
+            target: "e2e";
             /** @enum {string} */
             mode: "diff" | "complete" | "exhaustive" | "manual" | "context";
             sha?: string;
@@ -846,7 +845,7 @@ export interface components {
             app: string;
             sha: string;
             /** @enum {string} */
-            target: "e2e" | "code";
+            target: "e2e";
             /** @enum {string} */
             mode: "diff" | "complete" | "exhaustive" | "manual" | "context";
             status: string;
@@ -893,7 +892,7 @@ export interface components {
             baseUrl?: string;
             versionUrl?: string;
             /** @enum {string} */
-            target?: "e2e" | "code";
+            target?: "e2e";
             needsReview?: boolean;
             shadow?: boolean;
             testDataPrefix?: string;
@@ -910,7 +909,7 @@ export interface components {
             baseUrl?: string;
             versionUrl?: string;
             /** @enum {string} */
-            target?: "e2e" | "code";
+            target?: "e2e";
             needsReview?: boolean;
             shadow?: boolean;
             testDataPrefix?: string;
@@ -1547,7 +1546,7 @@ export interface components {
             sha: string;
             ref?: string;
             /** @enum {string} */
-            target: "e2e" | "code";
+            target: "e2e";
             /** @enum {string} */
             mode: "diff" | "complete" | "exhaustive" | "manual" | "context";
             /** @enum {string} */

@@ -82,7 +82,7 @@ export const DIMENSIONS = {
   phase: ["first", "regen-fix", "regen-review", "regen-coverage", "selector-fix"],
   tree: ["none", "failure", "live"],
   grounding: ["none", "pack"],
-  target: ["e2e", "code"],
+  target: ["e2e"],
   contextMap: [false, true],
   /* What the structural signal holds: nothing, symbol blocks (impacted symbols and callers), or co-change files alone, which are no blast radius. */
   structuralSignal: ["none", "symbols", "co-change"],
@@ -113,16 +113,10 @@ const DIMENSION_NAMES = Object.keys(DIMENSIONS) as DimensionName[];
 /* Combinations that cannot reach the agent are filtered out, not linted. */
 export function isValidSpec(spec: CellSpec): boolean {
   const isContext = spec.mode === "context";
-  const isCode = spec.target === "code";
   const regenWithTree = spec.phase === "regen-fix" || spec.phase === "selector-fix";
   if (isContext) {
     if (spec.phase !== "first" || spec.tree !== "none" || spec.grounding !== "none") return false;
-    if (isCode || spec.structuralSignal !== "none" || spec.authSeedUnauthored || spec.serviceLinks || spec.harnessFacts) return false;
-  }
-  if (isCode) {
-    if (spec.tree !== "none" || spec.contextMap || spec.authSeedUnauthored || spec.serviceLinks || spec.harnessFacts || spec.service) return false;
-    if (spec.grounding === "pack") return false;
-    if (spec.phase === "selector-fix") return false;
+    if (spec.structuralSignal !== "none" || spec.authSeedUnauthored || spec.serviceLinks || spec.harnessFacts) return false;
   }
   if (spec.tree !== "none" && !regenWithTree) return false;
   const hasPack = spec.grounding === "pack";
@@ -150,14 +144,14 @@ export function isValidSpec(spec: CellSpec): boolean {
   }
   /* The budget is one small block that bears on no other decision: it meets every phase, tree and grounding of an e2e run that writes tests, with the plain signals and none of the optional blocks. */
   if (spec.closedLoop) {
-    if (isContext || isCode || spec.contextMap || spec.authSeedUnauthored || spec.serviceLinks || spec.harnessFacts || spec.service || spec.packRedirect) return false;
+    if (isContext || spec.contextMap || spec.authSeedUnauthored || spec.serviceLinks || spec.harnessFacts || spec.service || spec.packRedirect) return false;
     if (spec.structuralSignal !== "none" || !spec.packDom || spec.suite !== "listed") return false;
   }
   /* The browser's budget meets exactly the shapes the run_spec budget does, and is granted on top of it. */
   if (spec.agentBrowser && !spec.closedLoop) return false;
   /* The plan contract is one block that bears on no other decision: it meets the first pass of an e2e run that writes tests, over every grounding, with the plain signals and none of the optional blocks, and apart from the tool budgets. */
   if (spec.planning) {
-    if (isContext || isCode || spec.phase !== "first" || spec.tree !== "none" || spec.closedLoop || spec.agentBrowser) return false;
+    if (isContext || spec.phase !== "first" || spec.tree !== "none" || spec.closedLoop || spec.agentBrowser) return false;
     if (spec.contextMap || spec.authSeedUnauthored || spec.serviceLinks || spec.harnessFacts || spec.service || spec.packRedirect) return false;
     if (spec.structuralSignal !== "none" || !spec.packDom || spec.suite !== "listed") return false;
   }
@@ -391,7 +385,6 @@ export const MATRIX_PLANNING = { maxFlows: DEFAULT_COORDINATION_SETTINGS.maxFlow
 
 /* The run input of a combination; `stepLimit` is the cap the runtime resolved for the generator, absent when it states none. */
 export async function buildInput(spec: CellSpec, stepLimit?: number): Promise<OpencodeRunInput> {
-  const isCode = spec.target === "code";
   const suiteLines = suiteLinesFor(spec);
   const deliveredSpecs = deliveredSpecsFor(spec);
   const input: OpencodeRunInput = {
@@ -404,7 +397,7 @@ export async function buildInput(spec: CellSpec, stepLimit?: number): Promise<Op
     target: spec.target,
     mode: spec.mode,
     appName: "shop",
-    ...(isCode ? {} : { baseUrl: "http://localhost:3000" }),
+    baseUrl: "http://localhost:3000",
     openapi: "api-definition.yaml",
     intent: {
       type: "feat",
@@ -790,7 +783,7 @@ export async function matrixDigests(): Promise<DigestSet> {
 }
 
 const REVIEW_MODES = ["diff", "complete", "exhaustive", "manual"] as const;
-const REVIEW_TARGETS = ["e2e", "code"] as const;
+const REVIEW_TARGETS = ["e2e"] as const;
 
 /* A reviewer input whose spec contents are large (two specs of about 25 KB), written under `mirror`. */
 export function largeSpecsReviewerInput(mirror: string): ReviewInput {

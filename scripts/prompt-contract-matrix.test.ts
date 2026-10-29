@@ -68,18 +68,11 @@ test("only combinations that can reach the agent are in the matrix", () => {
   const valid = allValidSpecs();
   assert.ok(valid.length > 0 && valid.every(isValidSpec));
   assert.ok(valid.every((s) => s.mode !== "context" || (s.phase === "first" && s.grounding === "none" && s.tree === "none")));
-  assert.ok(valid.every((s) => s.target !== "code" || (s.tree === "none" && !s.contextMap && !s.authSeedUnauthored && !s.harnessFacts && !s.service)));
   assert.ok(valid.every((s) => s.mode !== "context" || !s.harnessFacts));
   assert.ok(valid.every((s) => s.tree === "none" || s.phase === "regen-fix" || s.phase === "selector-fix"));
   assert.ok(valid.every((s) => s.packDom || (s.grounding === "pack" && s.contextMap)));
   assert.ok(valid.every((s) => !s.packRedirect || (s.grounding === "pack" && s.packDom)));
   assert.equal(new Set(valid.map(cellName)).size, valid.length, "cell names are unique");
-});
-
-test("a code run can be asked to cover a change it already tested, but never to fix a selector", () => {
-  const codePhases = new Set(allValidSpecs().filter((s) => s.target === "code").map((s) => s.phase));
-  assert.ok(codePhases.has("regen-coverage"));
-  assert.equal(codePhases.has("selector-fix"), false);
 });
 
 test("the matrix holds every valid combination against the static layer", async () => {
@@ -106,7 +99,7 @@ test("an OpenCode cell is assembled with the step limit that runtime enforces, o
 test("the input of a limited cell is the same run input plus the step limit, and an input built without one has no such key", async () => {
   const specs = [
     allValidSpecs().find((s) => s.mode === "diff" && s.target === "e2e" && s.phase === "first")!,
-    allValidSpecs().find((s) => s.mode === "diff" && s.target === "code" && s.phase === "regen-fix")!,
+    allValidSpecs().find((s) => s.mode === "diff" && s.phase === "regen-fix")!,
     allValidSpecs().find((s) => s.mode === "context")!,
   ];
   for (const spec of specs) {
@@ -366,7 +359,7 @@ test("the budgets of the worst-case listing are above those of every ordinary li
   const valid = allValidSpecs();
   const budgetOf = (suite: CellSpec["suite"], phase: CellSpec["phase"], target: CellSpec["target"]): number =>
     Math.max(...valid.filter((s) => s.suite === suite && s.phase === phase && s.target === target && !s.closedLoop && !s.planning).map((s) => baseline.buckets[bucketOf(s)]!.bytes));
-  for (const [phase, target] of [["regen-coverage", "e2e"], ["regen-coverage", "code"], ["selector-fix", "e2e"]] as const) {
+  for (const [phase, target] of [["regen-coverage", "e2e"], ["selector-fix", "e2e"]] as const) {
     assert.ok(budgetOf("large", phase, target) > budgetOf("listed", phase, target), `${phase}, ${target}`);
   }
   assert.ok(baseline.ceiling.bytes >= Math.max(...valid.filter((s) => s.suite === "large").map((s) => baseline.buckets[bucketOf(s, true)]!.bytes)));

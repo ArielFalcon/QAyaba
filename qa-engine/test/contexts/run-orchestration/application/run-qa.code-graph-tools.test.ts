@@ -74,10 +74,7 @@ test("the lead's code-graph tools are granted before the first generation and re
   assert.equal(r.events.filter((e) => e === "close").length, 1);
 });
 
-test("no code-graph tools for a code run, a context run, a regression run or a login bootstrap", async () => {
-  const code = rig();
-  await new RunQaUseCase(code.deps({ config: { needsReview: true, shadow: false, onFailure: "github-issue", maxRetries: 2, isCode: true } })).run({ ...INPUT, target: "code" });
-  assert.equal(code.events.some((e) => e.startsWith("open")), false, "code");
+test("no code-graph tools for a context run, a regression run or a login bootstrap", async () => {
   const context = rig();
   await new RunQaUseCase(context.deps({ ...served({ author: async () => scriptedGeneration({ specs: [".qa/context.json"], note: "map" }) }) })).run({ ...INPUT, mode: "context" });
   assert.equal(context.events.some((e) => e.startsWith("open")), false, "context");

@@ -110,9 +110,8 @@ test("the section provides the plan contract and the lint finds nothing in a pla
   assert.deepEqual(findings.filter((f) => f.sections.includes(LEAD_PLAN_SECTION_ID)), []);
 });
 
-test("a context run and a code run never carry the contract, whatever they are handed", () => {
+test("a context run never carries the contract, whatever it is handed", () => {
   assert.equal(sectionOf(assemble({ mode: "context", planning: PLANNING })), undefined);
-  assert.equal(sectionOf(assemble({ target: "code", baseUrl: undefined, planning: PLANNING })), undefined);
 });
 
 test("a regeneration never carries the contract: only the first pass is planned", () => {

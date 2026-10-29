@@ -34,7 +34,6 @@ Usage: qa <command> [options]
 
 Commands:
   run <app>       Trigger a QA run
-    --target <t>    e2e | code (default: e2e)
     --ref <ref>     Branch or tag to resolve to a SHA (default: main)
     --latest        Shorthand for --ref main
     --sha <sha>     Specific commit SHA (overrides --ref)
@@ -54,8 +53,7 @@ Commands:
 Env: QA_HOST (default localhost:458) · QA_API_TOKEN (if the service requires auth)
 
 Examples:
-  qa run portfolio --latest --target e2e --mode complete --watch
-  qa run qayaba --latest --target code --mode diff --watch
+  qa run portfolio --latest --mode complete --watch
   qa run portfolio --ref feature/x --watch
   qa status
   qa logs portfolio --last 2
@@ -99,10 +97,9 @@ api() {
 # ── commands ──
 
 cmd_run() {
-  local app="" target="e2e" ref="" sha="" mode="diff" guidance="" watch=false json=false
+  local app="" ref="" sha="" mode="diff" guidance="" watch=false json=false
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      --target)   need_value "$1" "${2:-}"; target="$2"; shift 2 ;;
       --ref)      need_value "$1" "${2:-}"; ref="$2"; shift 2 ;;
       --latest)   ref="main"; shift ;;
       --sha)      need_value "$1" "${2:-}"; sha="$2"; shift 2 ;;
@@ -115,13 +112,12 @@ cmd_run() {
     esac
   done
   [[ -n "$app" ]] || die "<app> is required (e.g. 'qa run portfolio --latest')"
-  case "$target" in e2e|code) ;; *) die "invalid --target '$target' (e2e|code)" ;; esac
   case "$mode" in diff|complete|exhaustive|manual) ;; *) die "invalid --mode '$mode' (diff|complete|exhaustive|manual)" ;; esac
   [[ -z "$sha" && -z "$ref" ]] && ref="main"
 
   local body
-  body=$(jq -nc --arg app "$app" --arg target "$target" --arg mode "$mode" --arg sha "$sha" --arg ref "$ref" --arg guidance "$guidance" '
-    {app:$app, target:$target, mode:$mode}
+  body=$(jq -nc --arg app "$app" --arg mode "$mode" --arg sha "$sha" --arg ref "$ref" --arg guidance "$guidance" '
+    {app:$app, mode:$mode}
     + (if $sha != "" then {sha:$sha} elif $ref != "" then {ref:$ref} else {} end)
     + (if $guidance != "" then {guidance:$guidance} else {} end)')
 
@@ -132,7 +128,7 @@ cmd_run() {
     printf '%s\n' "$resp"
   else
     local rsha; rsha=$(printf '%s' "$resp" | jq -r '.sha')
-    echo "${ARROW} ${app} · ${ref:-$sha} → ${rsha:0:7} · ${target}/${mode}  (${id})"
+    echo "${ARROW} ${app} · ${ref:-$sha} → ${rsha:0:7} · ${mode}  (${id})"
   fi
 
   $watch && watch_run "$id" "$json"
@@ -161,11 +157,11 @@ watch_run() {
 
 render_dashboard() {
   local data="$1"
-  local app sha target mode step verdict passed failed total
-  eval "$(printf '%s' "$data" | jq -r '@sh "app=\(.app) sha=\(.sha) target=\(.target//"e2e") mode=\(.mode) step=\(.step//"") verdict=\(.verdict//"") passed=\(.passed//0) failed=\(.failed//0) total=\(.cases|length)"')"
+  local app sha mode step verdict passed failed total
+  eval "$(printf '%s' "$data" | jq -r '@sh "app=\(.app) sha=\(.sha) mode=\(.mode) step=\(.step//"") verdict=\(.verdict//"") passed=\(.passed//0) failed=\(.failed//0) total=\(.cases|length)"')"
 
   echo ""
-  echo " ${BOLD}${app}${NC} · ${sha:0:7} · ${target}/${mode}"
+  echo " ${BOLD}${app}${NC} · ${sha:0:7} · ${mode}"
   echo ""
 
   case "$step" in

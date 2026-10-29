@@ -96,7 +96,6 @@ export const AppViewSchema = z.object({
   repo: z.string(),
   baseUrl: z.string(),
   versionUrl: z.string(),
-  code: z.boolean(),
   shadow: z.boolean(),
   needsReview: z.boolean(),
   testDataPrefix: z.string(),

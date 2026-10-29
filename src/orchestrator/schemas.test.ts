@@ -43,24 +43,17 @@ test("auth.loginPath is only for a form login", () => {
   assert.throws(() => AppConfigSchema.parse({ ...base, auth: { kind: "mtls", certEnv: "QA_CERT", certPassEnv: "QA_CERT_PASS", loginPath: "/signin" } }));
 });
 
-test("auth is optional and code-mode stays valid without it", () => {
-  const cfg = AppConfigSchema.parse({ ...base, code: true, dev: undefined });
+test("auth is optional", () => {
+  const cfg = AppConfigSchema.parse(base);
   assert.equal(cfg.auth, undefined);
+});
+
+test("dev is required: an app without a dev block is refused", () => {
+  assert.throws(() => AppConfigSchema.parse({ ...base, dev: undefined }), /dev is required/);
 });
 
 test("auth.kind mtls requires certEnv", () => {
   assert.throws(() => AppConfigSchema.parse({ ...base, auth: { kind: "mtls" } }));
-});
-
-test("auth is rejected on a code-mode app", () => {
-  assert.throws(() =>
-    AppConfigSchema.parse({
-      ...base,
-      code: true,
-      dev: undefined,
-      auth: { kind: "form", usernameEnv: "QA_SHOP_TEST_USER", passwordEnv: "QA_SHOP_TEST_PASS" },
-    }),
-  );
 });
 
 test("accepts an app with services[] (repo + optional openapi/versionUrl/baseBranch)", () => {
@@ -79,17 +72,6 @@ test("accepts an app with services[] (repo + optional openapi/versionUrl/baseBra
 test("an app without services still parses (backward compatible)", () => {
   const cfg = AppConfigSchema.parse(base);
   assert.equal(cfg.services, undefined);
-});
-
-test("rejects services on a code-mode app", () => {
-  assert.throws(() =>
-    AppConfigSchema.parse({
-      ...base,
-      dev: undefined,
-      code: true,
-      services: [{ repo: "org/orders-svc" }],
-    }),
-  );
 });
 
 test("rejects a service repo that duplicates the primary repo", () => {
@@ -259,17 +241,6 @@ test("boundaries[]: an entry with an unknown transport THROWS (discriminated uni
 
 test("boundaries[]: no boundaries key at all -> AppConfig.boundaries is undefined (not [], no throw)", () => {
   const cfg = AppConfigSchema.parse(base);
-  assert.equal(cfg.boundaries, undefined);
-});
-
-test("boundaries[]: code:true app with non-empty boundaries[] THROWS (boundaries are e2e-only)", () => {
-  assert.throws(() =>
-    AppConfigSchema.parse({ ...base, dev: undefined, code: true, boundaries: [httpBoundary] }),
-  );
-});
-
-test("boundaries[]: code:true app with NO boundaries[] still parses (empty/absent never blocked by the refine)", () => {
-  const cfg = AppConfigSchema.parse({ ...base, dev: undefined, code: true });
   assert.equal(cfg.boundaries, undefined);
 });
 

@@ -49,14 +49,13 @@ func nextRole(r string) string {
 	}
 }
 
-/* Form field indices — fixed layout. version & prefix are optional (blank for code apps).
+/* Form field indices — fixed layout. version & prefix are optional.
    Environment Basic and app login are independent layers. Their credential rows are skipped
    when that layer is off (see moveFormFocus). */
 const (
 	fName = iota
 	fURL
 	fVersion
-	fTarget
 	fShadow
 	fReview
 	fPrefix
@@ -89,7 +88,6 @@ type appAdminModel struct {
 	manualInput  textinput.Model /* "/" opens this to type a repo slug by hand */
 	manualActive bool
 	repo         string
-	target       string
 	shadow       bool
 	needsReview  bool
 	purge        bool
@@ -110,7 +108,7 @@ type appAdminModel struct {
 }
 
 func newOnboardModel(client *api.Client) appAdminModel {
-	m := appAdminModel{client: client, mode: appAdminCreate, step: appStepOwner, target: "e2e", shadow: true, needsReview: true}
+	m := appAdminModel{client: client, mode: appAdminCreate, step: appStepOwner, shadow: true, needsReview: true}
 	m.ownerInput = appTextInput("owner/org", 28)
 	m.nameInput = appTextInput("app-name", 28)
 	m.baseInput = appTextInput("https://dev.example.com", 42)
@@ -133,10 +131,6 @@ func newEditAppModel(client *api.Client, app contract.AppView) appAdminModel {
 	m.step = appStepForm
 	m.app = &app
 	m.repo = app.Repo
-	m.target = "e2e"
-	if app.Code {
-		m.target = "code"
-	}
 	m.shadow = app.Shadow
 	m.needsReview = app.NeedsReview
 	m.nameInput.SetValue(app.Name)
@@ -509,12 +503,6 @@ func (m appAdminModel) skipsCredential(cursor int) bool {
 
 func (m *appAdminModel) toggleFormValue() {
 	switch m.formCursor {
-	case fTarget:
-		if m.target == "e2e" {
-			m.target = "code"
-		} else {
-			m.target = "e2e"
-		}
 	case fShadow:
 		m.shadow = !m.shadow
 	case fReview:
@@ -560,8 +548,8 @@ func (m appAdminModel) save() (appAdminModel, tea.Cmd) {
 		return m, nil
 	}
 	baseURL := strings.TrimSpace(m.baseInput.Value())
-	if m.target == "e2e" && baseURL == "" {
-		m.err = "base url is required for e2e apps"
+	if baseURL == "" {
+		m.err = "base url is required"
 		return m, nil
 	}
 	versionURL := strings.TrimSpace(m.versionInput.Value())
@@ -576,9 +564,9 @@ func (m appAdminModel) save() (appAdminModel, tea.Cmd) {
 	auth := m.authDeclaration()
 	clearAuth := m.mode == appAdminEdit && m.storedAuth != "" && m.authMode == "disabled"
 	if m.mode == appAdminEdit {
-		return m, updateAppCmd(m.client, m.appName(), name, m.repo, baseURL, versionURL, m.target, prefix, m.shadow, m.needsReview, env, auth, clearAuth)
+		return m, updateAppCmd(m.client, m.appName(), name, m.repo, baseURL, versionURL, prefix, m.shadow, m.needsReview, env, auth, clearAuth)
 	}
-	in := buildCreateInput(m.selected, name, baseURL, versionURL, m.target, prefix, m.shadow, m.needsReview, env)
+	in := buildCreateInput(m.selected, name, baseURL, versionURL, prefix, m.shadow, m.needsReview, env)
 	in.Auth = auth
 	return m, createAppCmd(m.client, in, name)
 }
@@ -632,9 +620,6 @@ func (m appAdminModel) storedAuthMode() string {
 }
 
 func (m appAdminModel) collectedEnv() (map[string]string, error) {
-	if m.target == "code" {
-		return nil, nil
-	}
 	/* An edit with blank fields keeps the secrets already stored — but only when the auth
 	   mode itself did not change this session. Turning app login on (or switching its kind)
 	   during an edit has nothing stored to keep, so blank credentials there must error like
@@ -676,11 +661,11 @@ func (m appAdminModel) collectedEnv() (map[string]string, error) {
 	return out, nil
 }
 
-/* authDeclaration is nil for disabled and code mode. An edit that does not re-enter
+/* authDeclaration is nil when login is disabled. An edit that does not re-enter
    credentials also sends nil so the server keeps the env-var names already stored.
    Turning app login off on an app that had one sets clearAuth instead. */
 func (m appAdminModel) authDeclaration() *contract.AppAuthInput {
-	if m.target == "code" || m.authMode == "disabled" {
+	if m.authMode == "disabled" {
 		return nil
 	}
 	if m.mode == appAdminEdit && strings.TrimSpace(m.userInput.Value()) == "" {
@@ -916,7 +901,6 @@ func (m appAdminModel) renderForm() string {
 		{fName, nameRow},
 		{fURL, labelStyle.Render("url     ") + m.baseInput.View()},
 		{fVersion, labelStyle.Render("version ") + m.versionInput.View()},
-		{fTarget, labelStyle.Render("target  ") + m.target},
 		{fShadow, labelStyle.Render("shadow  ") + yesNo(m.shadow)},
 		{fReview, labelStyle.Render("review  ") + yesNo(m.needsReview)},
 		{fPrefix, labelStyle.Render("prefix  ") + m.prefixInput.View()},
@@ -947,7 +931,7 @@ func (m appAdminModel) renderForm() string {
 		text := row.text
 		if row.cursor == m.formCursor {
 			marker = lipgloss.NewStyle().Foreground(colEmber).Render("▸ ")
-			if row.cursor == fTarget || row.cursor == fShadow || row.cursor == fReview || row.cursor == fEnvAuth || row.cursor == fAuth || row.cursor == fSave {
+			if row.cursor == fShadow || row.cursor == fReview || row.cursor == fEnvAuth || row.cursor == fAuth || row.cursor == fSave {
 				text = lipgloss.NewStyle().Bold(true).Render(text)
 			}
 		}
@@ -980,11 +964,9 @@ func appFieldHelp(cursor int, editing bool) string {
 	case fName:
 		return "a short id for this app — lowercase, used in commands and config paths"
 	case fURL:
-		return "the DEV base URL the suite runs against (required for e2e) — where the deployed app lives"
+		return "the DEV base URL the suite runs against (required) — where the deployed app lives"
 	case fVersion:
 		return "optional /version endpoint; when set, the deploy gate waits until DEV serves the commit"
-	case fTarget:
-		return "e2e = browser tests against DEV · code = source-logic tests in the repo's own framework"
 	case fShadow:
 		return "shadow = run the full pipeline but publish nothing — safe to onboard without touching the repo"
 	case fReview:
@@ -1060,7 +1042,7 @@ func listReposCmd(c *api.Client, owner string, page int) tea.Cmd {
 }
 
 /* Maps the wizard's selection + form into the wire input: the one frontend (validateSelection guarantees exactly one) becomes Repo, every service becomes a Services[] entry in selection order. env is attached only when non-empty. */
-func buildCreateInput(sel []repoRole, name, baseURL, versionURL, target, prefix string, shadow, needsReview bool, env map[string]string) contract.CreateAppInput {
+func buildCreateInput(sel []repoRole, name, baseURL, versionURL, prefix string, shadow, needsReview bool, env map[string]string) contract.CreateAppInput {
 	var repo string
 	var services []contract.OnboardServiceInput
 	for _, s := range sel {
@@ -1081,8 +1063,6 @@ func buildCreateInput(sel []repoRole, name, baseURL, versionURL, target, prefix 
 		Shadow:         &shadow,
 		NeedsReview:    &needsReview,
 	}
-	t := contract.CreateAppInputTarget(target)
-	in.Target = &t
 	if len(services) > 0 {
 		in.Services = &services
 	}
@@ -1110,7 +1090,7 @@ func createAppCmd(c *api.Client, in contract.CreateAppInput, name string) tea.Cm
    handling: env is attached only when non-empty (m.envVars() already resolves basic-auth-off or
    an empty user to nil), so an edit made with auth left disabled sends no Env and never wipes
    DEV Basic Auth creds already stored server-side. */
-func buildUpdateInput(repo, baseURL, versionURL, target, prefix string, shadow, needsReview bool, env map[string]string) contract.UpdateAppInput {
+func buildUpdateInput(repo, baseURL, versionURL, prefix string, shadow, needsReview bool, env map[string]string) contract.UpdateAppInput {
 	in := contract.UpdateAppInput{
 		Repo:           stringPtrOrNil(repo),
 		BaseUrl:        stringPtrOrNil(baseURL),
@@ -1119,19 +1099,17 @@ func buildUpdateInput(repo, baseURL, versionURL, target, prefix string, shadow, 
 		Shadow:         &shadow,
 		NeedsReview:    &needsReview,
 	}
-	t := contract.UpdateAppInputTarget(target)
-	in.Target = &t
 	if len(env) > 0 {
 		in.Env = &env
 	}
 	return in
 }
 
-func updateAppCmd(c *api.Client, originalName, name, repo, baseURL, versionURL, target, prefix string, shadow, needsReview bool, env map[string]string, auth *contract.AppAuthInput, clearAuth bool) tea.Cmd {
+func updateAppCmd(c *api.Client, originalName, name, repo, baseURL, versionURL, prefix string, shadow, needsReview bool, env map[string]string, auth *contract.AppAuthInput, clearAuth bool) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
-		input := buildUpdateInput(repo, baseURL, versionURL, target, prefix, shadow, needsReview, env)
+		input := buildUpdateInput(repo, baseURL, versionURL, prefix, shadow, needsReview, env)
 		input.Auth = auth
 		if clearAuth {
 			input.ClearAuth = &clearAuth

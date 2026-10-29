@@ -13,7 +13,7 @@ window.QayabaMockData = (function () {
       devUrl: 'dev.portfolio.internal', gate: 'signal', oracle: 'off',
       lastVerdict: 'skipped', passRate: 0.91, specs: 6,
       trend: [0.88, 0.9, 0.89, 0.92, 0.9, 0.93, 0.91],
-      target: 'e2e', status: 'shadow', value: null, coverage: null,
+      status: 'shadow', value: null, coverage: null,
       coverageMode: 'signal', coverageMin: 0.7, reviewerPass: 0.94,
       valueSeries: null, coverageSeries: null,
       vmix: [{ v: 'pass', n: 14 }, { v: 'skipped', n: 22 }, { v: 'flaky', n: 1 }],
@@ -22,11 +22,11 @@ window.QayabaMockData = (function () {
     {
       name: 'checkout-api', repo: 'acme/checkout-api', stack: 'Spring · K8s',
       shadow: false, watching: true, health: 'degraded', baseBranch: 'main',
-      devUrl: 'dev.checkout-api.internal', gate: 'enforce', oracle: 'code',
+      devUrl: 'dev.checkout-api.internal', gate: 'enforce', oracle: 'e2e',
       lastVerdict: 'fail', passRate: 0.78, specs: 14,
       trend: [0.82, 0.8, 0.79, 0.77, 0.81, 0.76, 0.78],
-      target: 'code', status: 'code-mode', value: null, coverage: null,
-      coverageMode: 'off', coverageMin: 0.7, reviewerPass: 0.88,
+      status: 'live', value: null, coverage: null,
+      coverageMode: 'signal', coverageMin: 0.7, reviewerPass: 0.88,
       valueSeries: null, coverageSeries: null,
       vmix: [{ v: 'pass', n: 9 }, { v: 'fail', n: 5 }, { v: 'infra-error', n: 2 }],
       errClasses: [['assertion-trivial', 5], ['env-drift', 3], ['auth-flow', 2]],
@@ -37,7 +37,7 @@ window.QayabaMockData = (function () {
       devUrl: 'dev.web-app.internal', gate: 'enforce', oracle: 'e2e',
       lastVerdict: 'pass', passRate: 0.89, specs: 21,
       trend: [0.84, 0.85, 0.86, 0.85, 0.88, 0.87, 0.89],
-      target: 'e2e', status: 'live', value: 0.82, coverage: 0.92,
+      status: 'live', value: 0.82, coverage: 0.92,
       coverageMode: 'enforce', coverageMin: 0.7, reviewerPass: 0.91,
       valueSeries: [0.69, 0.72, 0.74, 0.70, 0.76, 0.79, 0.82],
       coverageSeries: [0.84, 0.86, 0.80, 0.88, 0.90, 0.90, 0.92],
@@ -280,7 +280,6 @@ window.QayabaMockData = (function () {
     { m: 'complete', n: 21, note: 'coverage gaps' },
     { m: 'exhaustive', n: 6, note: 'full audit' },
     { m: 'manual', n: 5, note: 'operator prompt' },
-    { m: 'code', n: 4, note: 'backend suite' },
   ];
 
   const flywheel = [

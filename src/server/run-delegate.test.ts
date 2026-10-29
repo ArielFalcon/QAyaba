@@ -70,8 +70,8 @@ test("delegateRun sends a baseSha so the service's diff spans baseSha..sha", asy
 test("delegateRun sends no target when none is given, so the service defaults it from the app's config", async () => {
   const body = await createBodyOf({ app: "demo", sha: "abc1234", mode: "diff" });
   assert.equal("target" in body, false);
-  const explicit = await createBodyOf({ app: "demo", sha: "abc1234", mode: "diff", target: "code" });
-  assert.equal(explicit.target, "code");
+  const explicit = await createBodyOf({ app: "demo", sha: "abc1234", mode: "diff", target: "e2e" });
+  assert.equal(explicit.target, "e2e");
 });
 
 test("delegateRun sends no baseSha field when none is given", async () => {

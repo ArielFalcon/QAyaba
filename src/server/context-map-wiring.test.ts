@@ -46,7 +46,6 @@ test("a missing map, a map marked stale, a changed route declaration or commits 
   assert.deepEqual(unsafe.synced, []);
 });
 
-test("a code app never needs a map, and the campaign freeze wires no question", async () => {
-  assert.equal(await rig({ loadApp: () => app({ code: true }) }).ask("demo", RUN), false);
+test("the campaign freeze wires no question", async () => {
   assert.equal(contextMapNeedsRebuildFor({ QA_CAMPAIGN_FREEZE: "true" }), undefined);
 });

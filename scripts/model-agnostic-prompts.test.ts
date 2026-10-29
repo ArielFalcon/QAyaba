@@ -448,7 +448,6 @@ async function reviewerPrompts(subject: string): Promise<PromptText[]> {
     };
     const variants: Array<[string, ReviewInput]> = [
       ["diff", review()],
-      ["code diff", review({ target: "code" })],
       ["manual", review({ mode: "manual", guidance: "cover the coupon form" })],
       ["complete", review({ mode: "complete" })],
       ["exhaustive", review({ mode: "exhaustive" })],
@@ -553,7 +552,7 @@ async function leadPrompts(subject: string): Promise<PromptText[]> {
   ];
 }
 
-/* The read-only assistant's answer prompt over the run context of an e2e run and of a code run. */
+/* The read-only assistant's answer prompt over the run context of an e2e run. */
 async function assistantPrompts(subject: string): Promise<PromptText[]> {
   const sent: string[] = [];
   const record = (target: RunRecord["target"]): RunRecord => ({
@@ -572,10 +571,8 @@ async function assistantPrompts(subject: string): Promise<PromptText[]> {
     logs: ["generate: wrote 1 spec", "execute: 1 failed"],
     at: "2026-01-01T00:00:00.000Z",
   });
-  for (const target of ["e2e", "code"] as const) {
-    const context = [buildRunChatContext(), buildRunContext(record(target), undefined, { repo: "org/app", baseUrl: "http://localhost:3000" }, "writing specs")].join("\n\n");
-    await askAssistant({ context, question: `why did the ${subject} spec fail?` }, recordingDeps(sent), "/m");
-  }
+  const context = [buildRunChatContext(), buildRunContext(record("e2e"), undefined, { repo: "org/app", baseUrl: "http://localhost:3000" }, "writing specs")].join("\n\n");
+  await askAssistant({ context, question: `why did the ${subject} spec fail?` }, recordingDeps(sent), "/m");
   return promptsSent("assistant", sent);
 }
 

@@ -575,7 +575,6 @@ export function wireApp(settingsStore: SettingsStore): WiredApp {
       if (!rec) return undefined;
       return { runId: rec.id, status: rec.status, step: rec.step, verdict: rec.verdict };
     },
-    isCodeApp: (app) => Boolean(loadAppConfig(app).code),
     /*
      * The login phase after the map: a manual run for the login purpose at the mirror's HEAD, under the app's own qa.shadow. Same
      * shutdown guard as the map's enqueue; "" is a clean skip for the job. An accepted run keeps the login and its smoke spec in

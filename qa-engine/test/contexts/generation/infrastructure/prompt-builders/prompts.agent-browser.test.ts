@@ -95,10 +95,6 @@ test("a context run never states a budget, whatever it is handed", () => {
   assert.equal(sectionOf(assemble({ mode: "context", agentBrowser: LIMITS })), undefined);
 });
 
-test("a code run never states a budget, whatever it is handed", () => {
-  assert.equal(sectionOf(assemble({ target: "code", baseUrl: undefined, agentBrowser: LIMITS })), undefined);
-});
-
 test("the browser section and the run_spec section are independent: each renders alone, and both can render together", () => {
   const both = assemble({ agentBrowser: LIMITS, closedLoop: { maxCalls: 8, perCallMs: 120_000, maxDevWrites: 20 } });
   assert.ok(sectionOf(both));

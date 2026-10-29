@@ -115,7 +115,7 @@ function changedFilesLine(input: OpencodeRunInput, label: string): string {
 /* The objective part of a task: the rule against weakening a test on every turn that writes tests, and the question of the outcome ahead of it, with its heading and its claim, only where the turn asks it. A regeneration asks unless the listing found every spec under correction to have an objective its lead declared and nobody disputes; a first pass asks, except a code run on a diff, whose first pass has never asked for it. A turn that writes no tests says nothing of either. */
 function objectivePart(input: OpencodeRunInput, guards: TaskGuards): TaskParts {
   if (!isTestWritingTurn(input)) return { text: "", claims: [] };
-  const asked = isReGenTurn(input) ? guards.reaskObjective : !(input.target === "code" && input.mode === "diff");
+  const asked = isReGenTurn(input) ? guards.reaskObjective : true;
   return asked
     ? { text: [OBJECTIVE_HEADING, OBJECTIVE_QUESTION, ANTI_WEAKENING_RULE].join("\n"), claims: [claim.directs("state-outcome")] }
     : { text: ANTI_WEAKENING_RULE, claims: [] };
@@ -319,7 +319,6 @@ export function buildTask(input: OpencodeRunInput, guards: TaskGuards): TaskPart
   if (input.mode === "context") {
     return { text: buildContextTask(input), claims: [claim.directs("analyze-repo"), ...(input.services?.length ? [claim.provides("staged-service-snapshot")] : [])] };
   }
-  if (input.target === "code") return buildCodeTask(input, guards);
   if (isReGenTurn(input)) return buildRegenTask(input, guards);
   if (input.mode === "complete" || input.mode === "exhaustive") {
     const text = [

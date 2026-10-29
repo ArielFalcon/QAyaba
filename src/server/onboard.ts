@@ -1,7 +1,6 @@
 /* Pure onboarding logic: YAML generation and config file writing. */
 import { writeFileSync, existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
-import { TestTarget } from "../types";
 
 export interface OnboardServiceInput {
   repo: string;
@@ -25,12 +24,11 @@ export interface OnboardInput {
   baseBranch: string;
   baseUrl: string;
   versionUrl?: string;
-  target: TestTarget;
   needsReview: boolean;
   shadow: boolean;
   testDataPrefix: string;
   services?: OnboardServiceInput[];
-  /** Absent = public app. Omitted in code mode even if set. */
+  /** Absent = public app. */
   auth?: OnboardAuthInput;
 }
 
@@ -41,24 +39,17 @@ export function buildYaml(input: OnboardInput): string {
     `baseBranch: "${input.baseBranch}"`,
   ];
 
-  if (input.target === "code") {
-    lines.push("", "code: true");
-  }
-
   lines.push(
     "",
     "dev:",
     `  baseUrl: "${input.baseUrl}"`,
-    ...(input.target === "code"
-      ? [`  # code mode — no web UI, but the config structure requires it`]
-      : []),
   );
 
-  if (input.versionUrl && input.target !== "code") {
+  if (input.versionUrl) {
     lines.push(`  versionUrl: "${input.versionUrl}"`);
   }
 
-  if (input.target !== "code" && input.auth) {
+  if (input.auth) {
     lines.push("", "auth:", `  kind: ${input.auth.kind}`);
     if (input.auth.usernameEnv) lines.push(`  usernameEnv: "${input.auth.usernameEnv}"`);
     if (input.auth.passwordEnv) lines.push(`  passwordEnv: "${input.auth.passwordEnv}"`);
@@ -67,7 +58,7 @@ export function buildYaml(input: OnboardInput): string {
     if (input.auth.kind === "form" && input.auth.loginPath) lines.push(`  loginPath: ${JSON.stringify(input.auth.loginPath)}`);
   }
 
-  if (input.target !== "code" && input.services?.length) {
+  if (input.services?.length) {
     lines.push("", "services:");
     for (const s of input.services) {
       lines.push(`  - repo: "${s.repo}"`);

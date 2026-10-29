@@ -64,14 +64,12 @@ export function sanitizeRecord(record: RunRecord): RunRecord {
   };
 }
 
-export function appView(app: AppConfig): { name: string; repo: string; baseUrl: string; versionUrl: string; code: boolean; shadow: boolean; needsReview: boolean; testDataPrefix: string; services: Array<{ repo: string; openapi?: string; versionUrl?: string }>; authKind?: "form" | "mtls" } {
-  /* Code-mode apps have no dev environment (and no baseUrl). */
+export function appView(app: AppConfig): { name: string; repo: string; baseUrl: string; versionUrl: string; shadow: boolean; needsReview: boolean; testDataPrefix: string; services: Array<{ repo: string; openapi?: string; versionUrl?: string }>; authKind?: "form" | "mtls" } {
   return {
     name: app.name,
     repo: app.repo,
     baseUrl: app.dev?.baseUrl ?? "",
     versionUrl: app.dev?.versionUrl ?? "",
-    code: app.code ?? false,
     shadow: app.qa.shadow ?? false,
     needsReview: app.qa.needsReview,
     testDataPrefix: app.qa.testDataPrefix,

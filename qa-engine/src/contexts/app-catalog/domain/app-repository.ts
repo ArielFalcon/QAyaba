@@ -6,5 +6,5 @@ export type RepoRole = "primary" | "service";
 
 export interface AppConfigSnapshot {
   name: string; repo: string; baseBranch: string;
-  code: boolean; shadow: boolean; services: ServiceConfig[];
+  shadow: boolean; services: ServiceConfig[];
 }

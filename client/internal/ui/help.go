@@ -115,7 +115,7 @@ func (m helpModel) Update(msg tea.Msg) (helpModel, tea.Cmd) {
 func (m helpModel) conversation(w int) string {
 	var b strings.Builder
 	if len(m.entries) == 0 {
-		b.WriteString(hintStyle.Render("qayaba drives autonomous E2E QA: pick a project, choose a target and mode,") + "\n")
+		b.WriteString(hintStyle.Render("qayaba drives autonomous E2E QA: pick a project, choose a mode,") + "\n")
 		b.WriteString(hintStyle.Render("and watch the agent generate, run and review Playwright tests against DEV.") + "\n\n")
 		b.WriteString(labelStyle.Render("modes  ") + hintStyle.Render("diff · complete · exhaustive · manual · context") + "\n")
 		b.WriteString(labelStyle.Render("shadow ") + hintStyle.Render("runs the full pipeline but publishes nothing — safe to demo") + "\n")

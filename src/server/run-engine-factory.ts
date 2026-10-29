@@ -653,7 +653,7 @@ export function buildAcceptanceHarness(input: AcceptanceHarnessInput): Acceptanc
   const getAgentDeps = input.getAgentDeps;
   /* The reviewer's steps are classified from the app's own configuration here too. */
   const acceptanceTurn: TurnTelemetryContext = {
-    intent: stepIntentContextFor({ target: "e2e", e2eRelDir, ...(baseUrl ? { baseUrl } : {}), ...(app.auth?.loginPath !== undefined ? { loginPath: app.auth.loginPath } : {}), reviewAgents: [roleToAgentName("reviewer")] }),
+    intent: stepIntentContextFor({ e2eRelDir, ...(baseUrl ? { baseUrl } : {}), ...(app.auth?.loginPath !== undefined ? { loginPath: app.auth.loginPath } : {}), reviewAgents: [roleToAgentName("reviewer")] }),
   };
   const review = getAgentDeps
     ? new ReviewPortAdapter(
@@ -678,8 +678,8 @@ export function buildEngineRootDeps(
 
   observer?: ObserverPort,
 ): EngineRootDeps {
-  const target: TestTarget = run.target ?? (app.code === true ? "code" : "e2e");
-  const isCode = target === "code";
+  const target: TestTarget = run.target ?? "e2e";
+  const isCode = false;
   /* The pre-generation context pack's live-DOM arm (an A/B lever): the resolved effective config already carries it, so this is always a boolean here. */
   const domPack = run.grounding?.domPack ?? app.qa.domPack ?? true;
   if (domPack === false) {
@@ -691,7 +691,7 @@ export function buildEngineRootDeps(
    */
   if (!isCode && !app.dev?.baseUrl) {
     throw new Error(
-      `App "${app.name}" has target "e2e" but no dev.baseUrl configured — set dev.baseUrl in config/apps/${app.name}.yaml or run with --target code.`,
+      `App "${app.name}" has target "e2e" but no dev.baseUrl configured — set dev.baseUrl in config/apps/${app.name}.yaml.`,
     );
   }
   const e2eRelDir = "e2e";
@@ -870,7 +870,6 @@ export function buildEngineRootDeps(
   /* What classifies this run's agent steps in its trace: the app's own configuration, never a name. */
   const turnTelemetry: TurnTelemetryContext = {
     intent: stepIntentContextFor({
-      target,
       e2eRelDir,
       ...(app.dev?.baseUrl ? { baseUrl: app.dev.baseUrl } : {}),
       ...(app.auth?.loginPath !== undefined ? { loginPath: app.auth.loginPath } : {}),

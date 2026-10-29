@@ -85,7 +85,7 @@ function workspace(t: import("node:test").TestContext, cases: unknown): { casesP
 const threeCases = [
   { name: "auth-range", app: "demo", sha: "aaaaaaa", baseSha: "bbbbbbb", mode: "diff" },
   { name: "checkout", app: "demo", sha: "ccccccc" },
-  { name: "search", app: "demo", sha: "ddddddd", guidance: "test the search box", mode: "manual", target: "code" },
+  { name: "search", app: "demo", sha: "ddddddd", guidance: "test the search box", mode: "manual", target: "e2e" },
 ];
 
 test("cases run one at a time: each finishes before the next is submitted", async (t) => {
@@ -110,7 +110,7 @@ test("each case is submitted with its own sha, range start, mode, target and gui
   assert.equal(service.posts[0]!.mode, "diff");
   assert.equal("baseSha" in service.posts[1]!, false);
   assert.equal(service.posts[2]!.guidance, "test the search box");
-  assert.equal(service.posts[2]!.target, "code");
+  assert.equal(service.posts[2]!.target, "e2e");
 });
 
 test("a case's declared tier is the benchmark's own bookkeeping: the service never receives it", async (t) => {

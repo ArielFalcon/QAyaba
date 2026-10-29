@@ -19,7 +19,7 @@ test("toIntelligenceView projects rules, scorecard and curriculum", () => {
   const scorecard = {
     app: "qayaba", updatedAt: "2026-01-02",
     entries: [
-      { runId: "x", app: "qayaba", sha: "s", target: "code", valueScore: 0.82, mutantCount: 50, killedCount: 41, at: "2026-01-02" },
+      { runId: "x", app: "qayaba", sha: "s", target: "e2e", valueScore: 0.82, mutantCount: 50, killedCount: 41, at: "2026-01-02" },
     ],
     summary: { totalRuns: 1, measuredRuns: 1, avgValueScore: 0.82, lastValueScore: 0.82 },
   } as never;

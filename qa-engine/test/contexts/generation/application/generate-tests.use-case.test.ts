@@ -109,54 +109,6 @@ test("the files the rendered prompt already carries are handed to the session wi
   assert.equal("providedPaths" in (seenOpts[1] ?? {}), false);
 });
 
-test("code target skips manifest reconciliation entirely and passes specMetas through raw", async () => {
-  const calls: string[] = [];
-  const ports: AuthoringPorts = {
-    runtime: {
-      openSession: async () => ({
-        prompt: async () => ({ output: '{"specs":["src/foo.test.ts"]}' }),
-        dispose: () => {},
-      }),
-    },
-    rendering: {
-      render: () => "",
-      renderMain: () => ({ text: "PROMPT", sectionSizes: {} }),
-      renderReviewer: () => ({ text: "", sectionSizes: {} }),
-      specFileForFlow: (flow) => `flows/${flow}.spec.ts`,
-    },
-    verdicts: {
-      parseGenerator: () => ({
-        specs: ["src/foo.test.ts"],
-        specMetas: [{ flow: "foo", file: "src/foo.test.ts", objective: "cover foo", targets: ["src/foo.ts"] }],
-        parsed: true,
-      }),
-      parseReview: () => ({ approved: true, corrections: [], valid: true, issues: [] }),
-    },
-    manifest: {
-      read: async () => [],
-      reconcile: async (_d, e) => { calls.push("reconcile"); return [...e] as ManifestEntry[]; },
-    },
-  };
-
-  const out = await new GenerateTestsUseCase(ports).author({
-    repo: "org/demo",
-    sha: "abc",
-    diff: "d",
-    mirrorDir: "/m",
-    e2eRelDir: "e2e",
-    namespace: "ns",
-    target: "code",
-    mode: "diff",
-    appName: "a",
-  });
-
-  /* NOTE: the needsReview:false bail-early return deliberately carries no specMetas (pre-existing
-     contract) — the load-bearing assertion here is that the e2e manifest is never touched for code.
-   */
-  assert.ok(!calls.includes("reconcile"), "code target must never touch the e2e manifest (no e2e/ dir exists for code apps)");
-  assert.deepEqual(out.specs, ["src/foo.test.ts"]);
-});
-
 test("fires exactly ONE bounded repair when checkGenerator returns valid:false", async () => {
   const promptTexts: string[] = [];
   let sessionPromptCount = 0;
@@ -674,7 +626,7 @@ test("assembled manifest entries satisfy the real ManifestEntrySchema shape (obj
 });
 
 /* The generator reports "login.spec.ts" for the spec it wrote at e2e/flows/login.spec.ts. */
-async function reportedSpecsFor(target: "e2e" | "code"): Promise<string[]> {
+async function reportedSpecs(): Promise<string[]> {
   const mirrorDir = mkdtempSync(join(tmpdir(), "generate-suite-paths-"));
   try {
     mkdirSync(join(mirrorDir, "e2e", "flows"), { recursive: true });
@@ -695,7 +647,7 @@ async function reportedSpecsFor(target: "e2e" | "code"): Promise<string[]> {
     };
     const out = await new GenerateTestsUseCase(ports).author({
       repo: "org/demo", sha: "abc", diff: "d", mirrorDir, e2eRelDir: "e2e", namespace: "ns",
-      target, mode: "diff", appName: "a",
+      target: "e2e", mode: "diff", appName: "a",
     });
     return out.specs;
   } finally {
@@ -703,9 +655,8 @@ async function reportedSpecsFor(target: "e2e" | "code"): Promise<string[]> {
   }
 }
 
-test("an e2e generation reports its specs as suite-relative paths; a code generation keeps the names it was given", async () => {
-  assert.deepEqual(await reportedSpecsFor("e2e"), ["flows/login.spec.ts"]);
-  assert.deepEqual(await reportedSpecsFor("code"), ["login.spec.ts"]);
+test("an e2e generation reports its specs as suite-relative paths", async () => {
+  assert.deepEqual(await reportedSpecs(), ["flows/login.spec.ts"]);
 });
 
 /* A prompt that states a step limit is sent with that limit as an option, so the turn it starts is classified against the number the prompt stated. The generator's prompt carries its own; a verdict repair says nothing of it but runs in the same session under the same limit, so it is sent with the number of the prompt it repairs. */

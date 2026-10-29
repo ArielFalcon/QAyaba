@@ -173,8 +173,6 @@ export interface OnboardingJobDeps {
   enqueueContextRun?(input: ContextMapRunRequest): string | Promise<string>;
   /** OPTIONAL: poll the enqueued context run. Missing after a successful enqueue is fail-open. */
   getContextRun?(runId: string): ContextMapRunSnapshot | undefined;
-  /** OPTIONAL: true for code-mode apps (no e2e/.qa/context.json). Missing ⇒ treat as e2e. */
-  isCodeApp?(app: string): boolean;
   mappingPollMs?: number;
   mappingTimeoutMs?: number;
   /** OPTIONAL: enqueue the run that authors the app's login and proves it (purpose login-bootstrap), after mapping.
@@ -264,25 +262,12 @@ export function createOnboardingJob(deps: OnboardingJobDeps): OnboardingJob {
     status = { ...status, state: ONBOARD_STATE.failed, error, finishedAt: new Date().toISOString() };
   }
 
-  function shouldMap(app: string): boolean {
-    if (!deps.enqueueContextRun) return false;
-    if (!deps.isCodeApp) return true;
-    try {
-      return !deps.isCodeApp(app);
-    } catch {
-      return false;
-    }
+  function shouldMap(): boolean {
+    return deps.enqueueContextRun !== undefined;
   }
 
   function shouldLogin(app: string): boolean {
     if (!deps.enqueueLoginRun) return false;
-    if (deps.isCodeApp) {
-      try {
-        if (deps.isCodeApp(app)) return false;
-      } catch {
-        return false;
-      }
-    }
     if (!deps.hasLogin) return true;
     try {
       return deps.hasLogin(app);
@@ -447,8 +432,8 @@ export function createOnboardingJob(deps: OnboardingJobDeps): OnboardingJob {
       }
       const app = status.app ?? "";
       const front = repoRefs[0];
-      if (front && (shouldMap(app) || shouldLogin(app))) {
-        await runTail(app, front.mirrorDir, shouldMap(app));
+      if (front && (shouldMap() || shouldLogin(app))) {
+        await runTail(app, front.mirrorDir, shouldMap());
       } else {
         finishDone();
       }
@@ -559,13 +544,13 @@ export function createOnboardingJob(deps: OnboardingJobDeps): OnboardingJob {
           }
         }
         status = { ...status, state: ONBOARD_STATE.done, outcome: ONBOARD_OUTCOME.winner, resolvedProfile: result.profile, resolution, finishedAt };
-      } else if ((shouldMap(req.app) || shouldLogin(req.app)) && lastRepoRefs.length > 0) {
+      } else if ((shouldMap() || shouldLogin(req.app)) && lastRepoRefs.length > 0) {
         /*
          * Set the tail's first state (mapping, or login for an app that is not mapped) BEFORE run() returns so the TUI never
          * observes a premature done/no-profile and stops polling. busy is released in finally; propose()'s continuation then
          * runs the tail.
          */
-        status = { ...status, state: shouldMap(req.app) ? ONBOARD_STATE.mapping : ONBOARD_STATE.login, outcome: ONBOARD_OUTCOME.noProfile };
+        status = { ...status, state: shouldMap() ? ONBOARD_STATE.mapping : ONBOARD_STATE.login, outcome: ONBOARD_OUTCOME.noProfile };
         pendingNoProfileTail = true;
       } else {
         status = { ...status, state: ONBOARD_STATE.done, outcome: ONBOARD_OUTCOME.noProfile, finishedAt };
@@ -609,7 +594,7 @@ export function createOnboardingJob(deps: OnboardingJobDeps): OnboardingJob {
           pendingNoProfileTail = false;
           const front = lastRepoRefs[0];
           const app = status.app ?? req.app;
-          if (front) await runTail(app, front.mirrorDir, shouldMap(app));
+          if (front) await runTail(app, front.mirrorDir, shouldMap());
         }
         return { ok: true };
       });
@@ -646,7 +631,7 @@ export function createOnboardingJob(deps: OnboardingJobDeps): OnboardingJob {
        * job stays done.
        */
       const wantsIndex = Boolean(deps.indexRepo && lastRepoRefs.length > 0);
-      const wantsMap = shouldMap(resolvedApp) && lastRepoRefs.length > 0;
+      const wantsMap = shouldMap() && lastRepoRefs.length > 0;
       const wantsLogin = shouldLogin(resolvedApp) && lastRepoRefs.length > 0;
       if (wantsIndex || wantsMap || wantsLogin) {
         inFlight = runPostConfirm(lastRepoRefs);

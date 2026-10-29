@@ -7,7 +7,6 @@ import {
   type AssembledPrompt,
 } from "@contexts/generation/infrastructure/prompt-builders/prompts.ts";
 import { PACK_HEADINGS } from "@contexts/generation/domain/prompt-headings.ts";
-import { LIVE_BROWSERS } from "@contexts/generation/infrastructure/prompt-builders/generator-context.ts";
 import { PACK_CONTRACTS_NOUN } from "@contexts/generation/infrastructure/prompt-builders/generator-sections.ts";
 import { ARTIFACT_REFERENCES } from "@contexts/generation/domain/prompt-artifact-references.ts";
 import { lintCell, type LintSection } from "@contexts/generation/domain/prompt-contract-lint.ts";
@@ -44,9 +43,6 @@ function sectionText(assembled: AssembledPrompt, id: string): string {
   return "";
 }
 
-/* The tools a turn reads a page with, whichever of the two browsers it was given. */
-const BROWSER_TOOL = new RegExp(`\\b(${Object.values(LIVE_BROWSERS).flatMap((browser) => [browser.navigate, browser.snapshot]).join("|")})\\b`);
-
 const PACK_HEAD = `## ${PACK_HEADINGS.pack} (pushed by the orchestrator)\n\n`;
 const DOM_SECTION = `### ${PACK_HEADINGS.liveDom} (a11y tree)\nroute /cart:\n  button: Apply coupon`;
 const CONTRACTS_SECTION = `### ${PACK_HEADINGS.contracts}\n- \`applyCoupon\`: POST /cart/coupon`;
@@ -59,22 +55,6 @@ test("the working rules describe the pack by the sections it holds: a pack with 
   assert.doesNotMatch(domOnly, new RegExp(PACK_CONTRACTS_NOUN, "i"));
   const both = sectionText(buildPromptAssembled(mkInput({ contextPack: `${PACK_HEAD}${DOM_SECTION}\n\n${CONTRACTS_SECTION}` })), "working-rules");
   assert.match(both, new RegExp(PACK_CONTRACTS_NOUN, "i"));
-});
-
-test("a code run is never sent to a browser tool, whichever correction it is asked to make", () => {
-  const corrections: Array<Partial<OpencodeRunInput>> = [
-    { fixCases: [{ name: "cart total", status: "fail", detail: "expected 3 to equal 4" }] },
-    { reviewCorrections: ["[false-positive] cart.test.ts: assert the total"] },
-    { coverageGap: "src/app/cart/cart.service.ts: lines 10-14 were not executed" },
-  ];
-  for (const correction of corrections) {
-    for (const mode of ["diff", "complete", "manual"] as const) {
-      const { baseUrl: _unused, ...codeInput } = mkInput({ target: "code", mode, guidance: "cover the total", ...correction });
-      void _unused;
-      const assembled = buildPromptAssembled(codeInput);
-      assert.doesNotMatch(assembled.text, BROWSER_TOOL, `${Object.keys(correction)[0]} in ${mode} mode`);
-    }
-  }
 });
 
 function lintSectionsOf(assembled: AssembledPrompt): LintSection[] {
@@ -106,7 +86,6 @@ test("a regeneration refers only to the blast radius, tree and diff its prompt c
     ["a pack with a DOM", { contextPack: PACK_WITH_DOM }],
     ["a live tree", { domSnapshot: "route /cart:\n  button: Apply coupon" }],
     ["a failure tree", { domSnapshot: "route /cart:\n  button: Apply coupon", failureSourced: true }],
-    ["a code run", { target: "code" }],
   ];
   for (const [shape, base] of shapes) {
     for (const correction of CORRECTIONS) {

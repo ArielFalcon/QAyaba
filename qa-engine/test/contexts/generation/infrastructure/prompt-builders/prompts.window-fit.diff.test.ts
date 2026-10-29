@@ -55,12 +55,6 @@ test("the author's diff reaches its prompt whole, however large, while the windo
   }
 });
 
-test("the code run's diff reaches its prompt whole, however large, while the window holds it", () => {
-  const prompt = buildPromptAssembled(generator({ target: "code" }), { fit: roomy });
-  for (let i = 0; i < FILES; i++) assert.ok(prompt.text.includes(lastLine(i)), `file ${i} is whole`);
-  assert.doesNotMatch(prompt.text, /diff truncated for the prompt/);
-});
-
 test("the reviewer's diff objective reaches its prompt whole, however large, while the window is unknown or holds it", () => {
   for (const opts of [{}, { fit: roomy }]) {
     const prompt = buildReviewerPromptAssembled(review(), opts);
@@ -77,15 +71,6 @@ test("the author's diff over its window names every changed file and shows the l
   assert.ok(prompt.text.includes(`src/big-file-${FILES - 1}.ts:1-${LINES}`), "it is named by file and range");
   const diff = prompt.sectionItems["diff"]?.omissions ?? [];
   assert.ok(diff.some((o) => o.reason === WINDOW_FIT_REASON && o.count > 0), "what it left out is recorded");
-});
-
-test("the code run's diff over its window gives hunks up as references", () => {
-  const input = generator({ target: "code" });
-  const whole = buildPromptAssembled(input, { fit: roomy });
-  const prompt = buildPromptAssembled(input, { fit: windowOf(bytesOf(whole.text) - 2 * 150_000) });
-  assert.equal(prompt.text.includes(lastLine(FILES - 1)), false);
-  assert.ok(prompt.text.includes(`src/big-file-${FILES - 1}.ts:1-${LINES}`));
-  assert.ok(prompt.text.includes(lastLine(0)));
 });
 
 test("the reviewer's diff objective over its window gives hunks up as references and records them", () => {

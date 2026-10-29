@@ -88,25 +88,6 @@ const provided = (assembled: AssembledPrompt, id: string): FactId[] =>
 const directs = (assembled: AssembledPrompt, id: string, action: ClaimAction, target?: FactId): boolean =>
   claimsOf(assembled, id).some((c) => isDeepStrictEqual(c, claim.directs(action, target)));
 
-/* ── Code mode: the generator has no shell, so it is never told to compile or to run the repo's tests: the orchestrator's static gate and
-   execution do both. A code task is the diff and nothing of the e2e exploration. ──
- */
-test("code mode embeds the diff in its task, renders no separate diff section and directs no live exploration", () => {
-  const assembled = buildPromptAssembled(mkInput({ target: "code" }));
-  assert.equal(assembled.sectionSizes["diff"], undefined, "the e2e diff section is not rendered for code");
-  assert.notEqual(assembled.sectionSizes["task"], undefined);
-  assert.deepEqual(assembled.claims["task"], [claim.provides("diff"), claim.directs("consult", "diff")], "the code task carries the diff and none of the e2e task's directives");
-  assert.deepEqual(assembled.claims["working-rules"], [claim.provides("orchestrator-validation")], "code mode directs no live-page exploration");
-});
-
-test("code mode working-rules: the generator is not told to compile or run anything, and is told the orchestrator does", () => {
-  for (const isReGen of [false, true]) {
-    const input = mkInput({ target: "code", ...(isReGen ? { fixCases: [failingCase] } : {}) });
-    assert.doesNotMatch(buildPrompt(input), /test-compile|testClasses|go vet|cargo check|tsc --noEmit/, "no per-ecosystem compile command");
-    assert.deepEqual(claimsOf(buildPromptAssembled(input), "working-rules"), [claim.provides("orchestrator-validation")], "the prompt says who validates what the agent writes");
-  }
-});
-
 /* ── App login: a declared login whose stock auth.setup.ts did not sign in is a fact about the run,
    not grounding — it must reach the generator without pretending a live-DOM Context Pack exists. ── */
 
@@ -726,17 +707,15 @@ test("file-aware redaction: a headerless diff fixture (no 'diff --git' at all) k
   assert.ok(text.includes(ORDINARY_CREDENTIAL), "with no file header to key a mode off, the whole text must still fall back to model mode (prior behavior, unchanged)");
 });
 
-/* A structural signal renders as its own section in either target, and an absent one adds no empty section. */
-test("a structural signal renders the static-signal section in code and e2e mode, and an absent one renders none", () => {
-  for (const target of ["code", "e2e"] as const) {
-    const withSignal = buildPromptAssembled(mkInput({ target, staticSignal: "## Static signal\n\nsymbol: Foo.bar" }));
-    assert.notEqual(withSignal.sectionSizes["static-signal"], undefined, `${target}: the section is rendered`);
-    assert.ok(withSignal.text.includes("Foo.bar"), `${target}: the signal's symbol reaches the prompt`);
-    assert.equal(provided(withSignal, "static-signal").length, 1, `${target}: the section declares the one fact it provides`);
-    const withoutSignal = buildPromptAssembled(mkInput({ target }));
-    assert.equal(withoutSignal.sectionSizes["static-signal"], undefined, `${target}: no empty section without a signal`);
-    assert.equal(withoutSignal.claims["static-signal"], undefined);
-  }
+/* A structural signal renders as its own section, and an absent one adds no empty section. */
+test("a structural signal renders the static-signal section, and an absent one renders none", () => {
+  const withSignal = buildPromptAssembled(mkInput({ staticSignal: "## Static signal\n\nsymbol: Foo.bar" }));
+  assert.notEqual(withSignal.sectionSizes["static-signal"], undefined, "the section is rendered");
+  assert.ok(withSignal.text.includes("Foo.bar"), "the signal's symbol reaches the prompt");
+  assert.equal(provided(withSignal, "static-signal").length, 1, "the section declares the one fact it provides");
+  const withoutSignal = buildPromptAssembled(mkInput());
+  assert.equal(withoutSignal.sectionSizes["static-signal"], undefined, "no empty section without a signal");
+  assert.equal(withoutSignal.claims["static-signal"], undefined);
 });
 
 /* "Cross-service links (deterministic)" section of the generator prompt.

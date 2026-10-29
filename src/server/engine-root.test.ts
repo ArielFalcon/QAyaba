@@ -399,7 +399,7 @@ test("a shadow composition publishes to the shadow log — no PR/Issue collabora
   assert.equal(issueCalled, false);
 });
 
-test("buildEngine selects NullDeployGateAdapter when versionUrl is absent (static/code target)", async () => {
+test("buildEngine selects NullDeployGateAdapter when versionUrl is absent (static app)", async () => {
   const cfg = fakeConfig({ versionUrl: undefined });
   const port = buildEngine(cfg);
 
@@ -499,123 +499,6 @@ test("buildEngine wires setupCollaborators.e2e into the run when target is 'e2e'
 
   assert.equal(setupCalled, true, "the e2e setup collaborator must run before generation when setupCollaborators is wired");
   assert.equal(outcome.verdict, "pass");
-});
-
-test("buildEngine wires setupCollaborators.code into the run when target is 'code'", async () => {
-  let setupCalled = false;
-  const cfg = fakeConfig({
-    target: "code",
-    isCode: true,
-    setupCollaborators: {
-      e2e: async () => { throw new Error("must not be called for target 'code'"); },
-      code: async () => { setupCalled = true; },
-    },
-  });
-  const port = buildEngine(cfg);
-
-  const outcome = await port.run({
-    app: "app",
-    sha: Sha.of("abc1234"),
-    changeSet: primaryChangeSet("app", Sha.of("abc1234")),
-    source: "manual",
-    mode: "diff",
-    target: "code",
-    runId: "engine-root-setup-code",
-  });
-
-  assert.equal(setupCalled, true, "the code setup collaborator must run before generation when setupCollaborators is wired");
-  assert.equal(outcome.verdict, "pass");
-});
-
-test("buildEngine composes specDir as the bare mirrorDir for a code:true app (WorkspacePortAdapter target-awareness)", async () => {
-  let capturedSpecDir: string | undefined;
-  const cfg = fakeConfig({
-    target: "code",
-    isCode: true,
-    mirrorDir: "/mirrors/org/code-app",
-    checkout: async () => "/mirrors/org/code-app",
-    setupCollaborators: {
-      e2e: async () => { throw new Error("must not be called for target 'code'"); },
-      code: async (specDir) => { capturedSpecDir = specDir; },
-    },
-  });
-  const port = buildEngine(cfg);
-
-  const outcome = await port.run({
-    app: "app",
-    sha: Sha.of("abc1234"),
-    changeSet: primaryChangeSet("app", Sha.of("abc1234")),
-    source: "manual",
-    mode: "diff",
-    target: "code",
-    runId: "engine-root-specdir-code",
-  });
-
-  assert.equal(capturedSpecDir, "/mirrors/org/code-app", "code target: specDir must be the bare mirrorDir, never mirrorDir/e2e");
-  assert.equal(outcome.verdict, "pass");
-});
-
-test("buildEngine dispatches ValidationPort to the code strategy for a code:true app — a toolchain failure resolves to infra-error, never reaches execute()", async () => {
-  let executeCalled = false;
-  const cfg = fakeConfig({
-    target: "code",
-    isCode: true,
-    validationStrategies: {
-      e2e: { validateAll: async () => { throw new Error("must not be called for target 'code'"); } },
-      code: { validate: async () => ({ ok: false, errors: ["[compile] JAVA_HOME is not set"], infra: true }) },
-    },
-    executionStrategies: {
-      e2e: { run: async () => { throw new Error("must not be called for target 'code'"); } },
-      code: { run: async () => { executeCalled = true; return { verdict: "pass", cases: [], logs: "" }; } },
-    },
-  });
-  const port = buildEngine(cfg);
-
-  const outcome = await port.run({
-    app: "app",
-    sha: Sha.of("abc1234"),
-    changeSet: primaryChangeSet("app", Sha.of("abc1234")),
-    source: "manual",
-    mode: "diff",
-    target: "code",
-    runId: "engine-root-code-validate-infra",
-  });
-
-  assert.equal(outcome.verdict, "infra-error", "a code-target compile-gate toolchain failure must resolve to infra-error, not invalid");
-  assert.equal(executeCalled, false, "a validation failure must block BEFORE execution, never call it");
-});
-
-/* a code-target review must render the
-   "tests" framing (buildReviewerPromptAssembled's own `input.target === "code" ? "tests" : "E2E
-   tests"`), not "E2E tests" — closes the ReviewPortAdapter wiring gap (target was never threaded).
- */
-test("buildEngine threads cfg.target:'code' onto ReviewInput.target — the code-mode review no longer renders 'E2E tests' framing", async () => {
-  let seenTarget: string | undefined;
-  const cfg = fakeConfig({
-    target: "code",
-    isCode: true,
-    needsReview: true,
-    reviewRuntime: {
-      runtime: { openSession: async () => ({ prompt: async () => ({ output: "{}" }), dispose: async () => {} }) },
-      rendering: {
-        renderReviewer: (input: { target?: string }) => { seenTarget = input.target; return { text: "", sectionSizes: {} }; },
-      },
-      verdicts: { parseReview: () => ({ approved: true, corrections: [], parsed: true, valid: true, issues: [] }) },
-    },
-  });
-  const port = buildEngine(cfg);
-
-  await port.run({
-    app: "app",
-    sha: Sha.of("abc1234"),
-    changeSet: primaryChangeSet("app", Sha.of("abc1234")),
-    source: "manual",
-    mode: "diff",
-    target: "code",
-    runId: "engine-root-review-target-code",
-  });
-
-  assert.equal(seenTarget, "code", "ReviewInput.target must be 'code' for a code-target run");
 });
 
 /* buildEngine must thread cfg.reviewTimeoutMs into the ReviewPortAdapter it constructs.
@@ -824,32 +707,6 @@ test("buildEngine wires groundingCollaborators.buildContextPack into the run whe
   assert.equal(buildCalled, true, "the injected buildContextPack collaborator must have run before the initial generate() call");
   assert.ok(seenContextPacks.length > 0, "generationUseCase.generate must have been invoked");
   assert.equal(seenContextPacks[0], "## Context Pack\n\nwired");
-  assert.equal(outcome.verdict, "pass");
-});
-
-test("buildEngine does NOT wire grounding on the code target, even when groundingCollaborators is supplied (isCode has no DOM/routes to ground)", async () => {
-  let buildCalled = false;
-  const cfg = fakeConfig({
-    target: "code",
-    isCode: true,
-    groundingCollaborators: {
-      buildContextPack: async () => { buildCalled = true; return { text: "should never run", blastRadiusBytes: 0, domBytes: 0, contractBytes: 0 }; },
-    },
-    setupCollaborators: { e2e: async () => {}, code: async () => {} },
-  });
-  const port = buildEngine(cfg);
-
-  const outcome = await port.run({
-    app: "app",
-    sha: Sha.of("abc1234"),
-    changeSet: primaryChangeSet("app", Sha.of("abc1234")),
-    source: "manual",
-    mode: "diff",
-    target: "code",
-    runId: "engine-root-grounding-code-skip",
-  });
-
-  assert.equal(buildCalled, false, "groundingCollaborators must never be invoked on the code target");
   assert.equal(outcome.verdict, "pass");
 });
 
@@ -1380,32 +1237,6 @@ test("buildEngine wires preExecGrounding into the run when target is 'e2e' and a
   }
 });
 
-test("buildEngine does NOT wire preExecGrounding on the code target, even when preExecGroundingCollaborators is supplied (isCode has no DOM/routes to ground)", async () => {
-  let captureCalled = false;
-  const cfg = fakeConfig({
-    target: "code",
-    isCode: true,
-    preExecGroundingCollaborators: {
-      captureRouteTrees: async () => { captureCalled = true; return []; },
-    },
-    setupCollaborators: { e2e: async () => {}, code: async () => {} },
-  });
-  const port = buildEngine(cfg);
-
-  const outcome = await port.run({
-    app: "app",
-    sha: Sha.of("abc1234"),
-    changeSet: primaryChangeSet("app", Sha.of("abc1234")),
-    source: "manual",
-    mode: "diff",
-    target: "code",
-    runId: "engine-root-preexec-grounding-code-skip",
-  });
-
-  assert.equal(captureCalled, false, "preExecGroundingCollaborators must never be invoked on the code target");
-  assert.equal(outcome.verdict, "pass");
-});
-
 test("buildEngine runs without preExecGroundingCollaborators (absent -> no-op, backward compatible)", async () => {
   const cfg = fakeConfig({ target: "e2e", isCode: false }); /* fakeConfig()'s base never supplies it */
   const port = buildEngine(cfg);
@@ -1563,17 +1394,6 @@ test("wireEngine builds the run_spec loop port from cfg.closedLoop and omits it 
   await handle?.close();
 });
 
-test("a code-target composition never gets the run_spec loop, whatever the config says", async () => {
-  const { ClosedLoopRegistry } = await import("@contexts/agent-tools/infrastructure/closed-loop-registry");
-  const { AccountLock } = await import("@contexts/test-execution/application/index");
-  const wired = wireEngine(fakeConfig({
-    isCode: true,
-    target: "code",
-    closedLoop: { registry: new ClosedLoopRegistry(), setting: { enabled: true, limits: { maxCalls: 3, perCallMs: 30_000, maxDevWrites: 5 } }, generatorRuntimeCanCall: () => true, account: "a", lock: new AccountLock(), redact: (t) => t },
-  }));
-  assert.equal("closedLoop" in wired, false);
-});
-
 /* The authenticated agent browser is wired only when the shell hands the root its registry, and only for an e2e app with a DEV url. */
 test("wireEngine builds the agent browser port from cfg.agentBrowser and omits it when the config has none", async () => {
   const { AgentBrowserRegistry } = await import("@contexts/agent-tools/infrastructure/agent-browser-registry");
@@ -1595,17 +1415,15 @@ test("wireEngine builds the agent browser port from cfg.agentBrowser and omits i
   assert.equal(await wired.agentBrowser!.open({ runId: "r1", app: "app", mode: "diff", specDir: "/m/e2e" }), undefined, "the port is there and applies its own conditions");
 
   assert.equal("agentBrowser" in wireEngine(fakeConfig({ agentBrowser: wiring })), false, "an app with no DEV url has nothing to browse");
-  assert.equal("agentBrowser" in wireEngine(fakeConfig({ isCode: true, target: "code", baseUrl: "https://dev.example.com", agentBrowser: wiring })), false, "a code target never gets it");
 });
 
 /* The lead's code-graph tool is wired from the run's explore port and the shell's registry, for an e2e app only. */
-test("wireEngine builds the lead's code-graph tool over cfg.codeExplore and omits it without the explore, the wiring or for a code target", async () => {
+test("wireEngine builds the lead's code-graph tool over cfg.codeExplore and omits it without the explore or the wiring", async () => {
   const { CodeGraphToolRegistry } = await import("@contexts/agent-tools/infrastructure/code-graph-tool-registry");
   const explore = { explore: async () => ok({ text: "**Exploration: x**", indexedSha: "abc1234" }) };
   const wiring = { registry: new CodeGraphToolRegistry(), generatorRuntimeCanCall: () => true, redact: (text: string) => text };
   assert.equal("codeGraphTools" in wireEngine(fakeConfig({ codeGraphTools: wiring })), false, "no explore, no tool");
   assert.equal("codeGraphTools" in wireEngine(fakeConfig({ codeExplore: explore })), false, "no wiring, no tool");
-  assert.equal("codeGraphTools" in wireEngine(fakeConfig({ isCode: true, target: "code", codeExplore: explore, codeGraphTools: wiring })), false, "a code target never gets it");
 
   const wired = wireEngine(fakeConfig({ codeExplore: explore, codeGraphTools: wiring }));
   const handle = await wired.codeGraphTools!.open({ runId: "r1" });
@@ -1632,10 +1450,7 @@ test("wireEngine wires the lead/sidekick mode only for an e2e run whose shell na
   const wired = wireEngine(fakeConfig({ delegation }));
   assert.equal(typeof wired.leadSidekicks?.coordinate, "function");
 
-  const code = wireEngine(fakeConfig({ delegation, isCode: true }));
-  assert.equal("leadSidekicks" in code, false);
-
-  for (const deps of [none, wired, code]) {
+  for (const deps of [none, wired]) {
     assert.equal("coordination" in deps, false, "no proposer decides who authors a change");
     assert.equal("coordinationEnabledPoints" in deps, false);
     assert.equal("sidekick" in deps, false);
@@ -1664,5 +1479,4 @@ const noSpecSnapshots: SpecSnapshotPort = { record: () => {} };
 test("spec snapshots wrap the validation of an e2e run only, and only when a snapshot port is supplied", () => {
   assert.ok(wireEngine(fakeConfig({ specSnapshots: noSpecSnapshots })).validation instanceof SpecSnapshotValidationPort);
   assert.equal(wireEngine(fakeConfig()).validation instanceof SpecSnapshotValidationPort, false);
-  assert.equal(wireEngine(fakeConfig({ specSnapshots: noSpecSnapshots, isCode: true, target: "code" })).validation instanceof SpecSnapshotValidationPort, false);
 });

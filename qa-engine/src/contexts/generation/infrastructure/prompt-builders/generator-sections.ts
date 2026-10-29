@@ -722,7 +722,7 @@ export const GENERATOR_SECTIONS: readonly PromptSectionDef<PromptContext>[] = [
     id: "diff",
     tier: "task",
     priority: 2, stability: "run", reason: "The commit diff a diff run's first pass tests, relevance-ordered (178a8ea2)",
-    applies: (ctx) => ctx.isGenerationMode && ctx.input.target !== "code" && ctx.input.mode === "diff" && !ctx.isReGen,
+    applies: (ctx) => ctx.isGenerationMode && ctx.input.mode === "diff" && !ctx.isReGen,
     /* The lead's planning diff is fitted to its window by the builder (planDiffShown); the author's is whole, and over the window gives hunks up as references. */
     render: (ctx) => ({ content: ctx.planDiff ? ctx.planDiff.render(ctx.planDiffShown) : buildDiffSection(ctx.input), shedAs: "semi-stable", claims: [claim.provides("diff")], ...(ctx.planDiff ? {} : { degrade: diffWindowDegrade(ctx.input.diff) }) }),
   },

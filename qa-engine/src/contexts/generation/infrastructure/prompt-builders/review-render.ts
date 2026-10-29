@@ -10,7 +10,7 @@ import { COMMIT_DIFF_HEADING, redactedDiffText } from "./prompt-text.ts";
 
 /* Whether the review judges a commit's change by flow under review (a planned e2e diff run with a change view) instead of its whole diff. */
 export function reviewsByFlow(input: ReviewInput): input is ReviewInput & { changeView: NonNullable<ReviewInput["changeView"]> } {
-  return input.mode === "diff" && input.target !== "code" && input.changeView !== undefined;
+  return input.mode === "diff" && input.changeView !== undefined;
 }
 
 /* `diff` is set when the objective carries the whole commit diff: the part of it a prompt over its window gives up first. */
@@ -55,7 +55,7 @@ export function reviewObjective(input: ReviewInput): { subject: string; heading:
       targetNoun: "the change",
     };
   }
-  if (input.mode === "diff" || input.target === "code") return commitDiffObjective();
+  if (input.mode === "diff") return commitDiffObjective();
   engineLog.warn(`[qa] reviewObjective: unhandled review mode ${JSON.stringify(input.mode)} — defaulting to the commit-diff objective`);
   return commitDiffObjective();
 }

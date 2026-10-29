@@ -1,7 +1,7 @@
-/* The step limit a prompt states when its runtime enforces one. A generator prompt carries it in a section of its own that provides the fact and holds nothing else, in every mode and target and on a first pass and on a regeneration; a turn that writes tests also carries a milestone, a second section that names the step by which something should be written. Neither section renders without a limit. Asserted on section ids, claims, the declared milestone data, numbers computed from imported constants and lint findings, never on prompt wording. */
+/* The step limit a prompt states when its runtime enforces one. A generator prompt carries it in a section of its own that provides the fact and holds nothing else, in every mode and on a first pass and on a regeneration; a turn that writes tests also carries a milestone, a second section that names the step by which something should be written. Neither section renders without a limit. Asserted on section ids, claims, the declared milestone data, numbers computed from imported constants and lint findings, never on prompt wording. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { RUN_MODES, type RunMode, type TestTarget } from "@kernel/run-mode.ts";
+import { RUN_MODES, type RunMode } from "@kernel/run-mode.ts";
 import {
   buildPromptAssembled,
   buildReviewerPromptAssembled,
@@ -69,23 +69,19 @@ const REGEN_SIGNALS: ReadonlyArray<readonly [string, Partial<OpencodeRunInput>]>
 interface Turn {
   label: string;
   mode: RunMode;
-  target: TestTarget;
   over: Partial<OpencodeRunInput>;
   regen: boolean;
 }
 
-/* Every kind of turn a generator prompt is built for: the first pass of each mode in each target that has it, and each kind of regeneration. */
+/* Every kind of turn a generator prompt is built for: the first pass of each mode, and each kind of regeneration. */
 function turns(): Turn[] {
   const out: Turn[] = [];
-  for (const target of ["e2e", "code"] as const) {
-    for (const mode of RUN_MODES) {
-      if (mode === "context" && target === "code") continue;
-      const over: Partial<OpencodeRunInput> = { mode, target, ...(mode === "manual" ? { guidance: "cover the coupon form" } : {}), ...(target === "code" ? { baseUrl: undefined } : {}) };
-      out.push({ label: `${mode}/${target} first pass`, mode, target, over, regen: false });
-      if (mode === "context") continue;
-      for (const [signal, extra] of REGEN_SIGNALS) {
-        out.push({ label: `${mode}/${target} regeneration (${signal})`, mode, target, over: { ...over, ...extra }, regen: true });
-      }
+  for (const mode of RUN_MODES) {
+    const over: Partial<OpencodeRunInput> = { mode, target: "e2e", ...(mode === "manual" ? { guidance: "cover the coupon form" } : {}) };
+    out.push({ label: `${mode} first pass`, mode, over, regen: false });
+    if (mode === "context") continue;
+    for (const [signal, extra] of REGEN_SIGNALS) {
+      out.push({ label: `${mode} regeneration (${signal})`, mode, over: { ...over, ...extra }, regen: true });
     }
   }
   return out;
@@ -198,7 +194,6 @@ test("the diff and manual first passes and every regeneration carry the mileston
   const has = (over: Partial<OpencodeRunInput>): boolean => assemble(over, LIMIT).sectionSizes[STEP_MILESTONE_SECTION_ID] !== undefined;
   assert.equal(has({ mode: "diff" }), true);
   assert.equal(has({ mode: "manual", guidance: "cover the coupon form" }), true);
-  assert.equal(has({ mode: "diff", target: "code" }), true);
   assert.equal(has({ mode: "complete", ...FIX }), true, "a regeneration of a complete run writes tests");
   assert.equal(has({ mode: "exhaustive", ...FIX }), true);
   assert.equal(has({ mode: "complete" }), false);
@@ -315,7 +310,6 @@ test("the reviewer's step-limit section, linted as a cell of its own that may ca
 test("a reviewer prompt without a limit has no such section, and with one it gains that section and nothing else", () => {
   const variants: ReadonlyArray<readonly [string, Partial<ReviewInput>]> = [
     ["a diff review", {}],
-    ["a code review", { target: "code" }],
     ["a guided review", { mode: "manual", guidance: "cover the coupon form" }],
     ["a re-review", { priorCorrections: ["[fragile-selector] cart.spec.ts: scope the button"], domSnapshot: "heading: Cart", baseUrl: "http://localhost:3000" }],
   ];

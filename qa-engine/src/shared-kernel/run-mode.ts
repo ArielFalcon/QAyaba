@@ -1,6 +1,6 @@
 /* Run mode, target, and trigger source — orthogonal axes. Only `diff` runs classifyCommit; the others always generate. */
 
-export type TestTarget = "e2e" | "code";
+export type TestTarget = "e2e";
 export type TriggerSource = "webhook" | "manual";
 /*
  * Execution mode for a run (taken from the POST body; defaults to "diff").

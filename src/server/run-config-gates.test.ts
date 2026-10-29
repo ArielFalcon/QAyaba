@@ -8,9 +8,8 @@ const app = (over: Record<string, unknown> = {}, qa: Record<string, unknown> = {
   ({ name: "a", repo: "o/a", dev: { baseUrl: "https://dev" }, qa: { needsReview: true, testDataPrefix: "qa", ...qa }, report: { onFailure: "x" }, ...over }) as AppConfig;
 const env: RunConfigEnvironment = { runtime: () => null, staticPromptHash: () => null, toolsGranted: true, reflectorEnabled: false, campaignFrozen: false, maxCapture: "metadata" };
 
-test("the tools apply to an e2e run of an app with a DEV address, and to nothing else", () => {
+test("the tools apply to a run of an app with a DEV address, and to nothing else", () => {
   assert.equal(toolsApply("e2e", app()), true);
-  assert.equal(toolsApply("code", app()), false);
   assert.equal(toolsApply("e2e", app({ dev: undefined })), false);
 });
 
@@ -35,19 +34,12 @@ test("the service topology is wired only with services and boundaries", () => {
 });
 
 test("effectiveConfig reports exactly what the predicates wire, for every combination", () => {
-  for (const target of ["e2e", "code"] as const) {
-    for (const dev of [true, false]) {
-      for (const boundaries of [true, false]) {
-        const a = app({ ...(dev ? {} : { dev: undefined }), services: [{ repo: "o/s" }], ...(boundaries ? { boundaries: [{}] } : {}) });
-        const c = resolveRunConfig(a, target, { closedLoop: true, agentBrowser: true }, "metadata", env);
-        assert.equal(c.levers.closedLoop !== null, toolsApply(target, a));
-        assert.equal(c.grounding.stitcher !== null, serviceTopologyWired(a));
-      }
+  for (const dev of [true, false]) {
+    for (const boundaries of [true, false]) {
+      const a = app({ ...(dev ? {} : { dev: undefined }), services: [{ repo: "o/s" }], ...(boundaries ? { boundaries: [{}] } : {}) });
+      const c = resolveRunConfig(a, "e2e", { closedLoop: true, agentBrowser: true }, "metadata", env);
+      assert.equal(c.levers.closedLoop !== null, toolsApply("e2e", a));
+      assert.equal(c.grounding.stitcher !== null, serviceTopologyWired(a));
     }
   }
-});
-
-test("a code-target run reports no tool levers even for an app not marked as code", () => {
-  const c = resolveRunConfig(app(), "code", { closedLoop: true }, "metadata", env);
-  assert.deepEqual([c.levers.closedLoop, c.levers.agentBrowser], [null, null]);
 });

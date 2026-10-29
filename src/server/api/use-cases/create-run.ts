@@ -11,8 +11,6 @@ import { apiRunRequest } from "../run-request";
 import { reply, type ApiResult } from "../respond";
 import { loadApp, redactionPort } from "../support";
 
-const TARGETS: readonly TestTarget[] = ["e2e", "code"];
-
 const SHA_PATTERN = /^[0-9a-f]{7,40}$/i;
 
 /* The longest guidance a run request carries. */
@@ -24,12 +22,8 @@ export async function createRun(deps: ApiDeps, body: Record<string, unknown>): P
 
   const appConfig = loadApp(deps, appName);
 
-  const target: TestTarget =
-    typeof body.target === "string" && (TARGETS as readonly string[]).includes(body.target)
-      ? (body.target as TestTarget)
-      : appConfig.code
-        ? "code"  /* default to code mode for code-mode apps */
-        : "e2e";
+  const target: TestTarget = "e2e";
+  if (body.target !== undefined && body.target !== target) throw new ApiError(400, `'target' must be "${target}" (it is the only target)`);
   const mode: RunMode =
     typeof body.mode === "string" && (RUN_MODES as readonly string[]).includes(body.mode) ? (body.mode as RunMode) : "diff";
   const guidance = typeof body.guidance === "string" ? body.guidance.slice(0, MAX_GUIDANCE_LENGTH) : undefined;

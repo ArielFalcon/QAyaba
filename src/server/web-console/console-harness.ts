@@ -77,7 +77,7 @@ export function controlApi(fleet: {
 
 export function appView(name: string, extra: Record<string, unknown> = {}): Record<string, unknown> {
   return {
-    name, repo: `org/${name}`, baseUrl: `https://dev.${name}.test`, versionUrl: "", code: false, shadow: true,
+    name, repo: `org/${name}`, baseUrl: `https://dev.${name}.test`, versionUrl: "", shadow: true,
     needsReview: true, testDataPrefix: "qa", services: [], ...extra,
   };
 }

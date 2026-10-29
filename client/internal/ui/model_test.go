@@ -54,9 +54,8 @@ func TestLauncherWalksToLaunchMsg(t *testing.T) {
 	m := newLauncherModel("portfolio")
 	enter := tea.KeyMsg{Type: tea.KeyEnter}
 
-	m, _ = m.Update(enter) /* target → e2e */
-	if m.step != stepMode || m.target != "e2e" {
-		t.Fatalf("after target: step=%d target=%q", m.step, m.target)
+	if m.step != stepMode {
+		t.Fatalf("the wizard must start at the mode step, got step=%d", m.step)
 	}
 	m, _ = m.Update(enter) /* mode → diff */
 	if m.step != stepShadow || m.mode != "diff" {
@@ -70,7 +69,7 @@ func TestLauncherWalksToLaunchMsg(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected launchMsg, got %T", cmd())
 	}
-	if lm.input.App != "portfolio" || lm.input.Target != "e2e" || lm.input.Mode != "diff" {
+	if lm.input.App != "portfolio" || lm.input.Mode != "diff" {
 		t.Fatalf("launch input: %+v", lm.input)
 	}
 	if lm.input.Shadow == nil || *lm.input.Shadow {
@@ -80,7 +79,6 @@ func TestLauncherWalksToLaunchMsg(t *testing.T) {
 
 func TestLauncherDiffCommitsAdjustableWithArrows(t *testing.T) {
 	m := newLauncherModel("portfolio")
-	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter}) /* target → e2e, now stepMode (cursor on diff) */
 	if m.step != stepMode || m.diffCommits != 1 {
 		t.Fatalf("want stepMode + diffCommits 1, got step=%d commits=%d", m.step, m.diffCommits)
 	}
@@ -118,9 +116,9 @@ func TestLauncherEscStepsBackThenLeaves(t *testing.T) {
 	m := newLauncherModel("portfolio")
 	enter := tea.KeyMsg{Type: tea.KeyEnter}
 	esc := tea.KeyMsg{Type: tea.KeyEsc}
-	m, _ = m.Update(enter) /* → stepMode */
-	m, _ = m.Update(esc)   /* back to stepTarget */
-	if m.step != stepTarget {
+	m, _ = m.Update(enter) /* mode → diff, now stepShadow */
+	m, _ = m.Update(esc)   /* back to stepMode */
+	if m.step != stepMode {
 		t.Fatalf("esc did not step back: step=%d", m.step)
 	}
 	_, cmd := m.Update(esc) /* at step 0 → leave */
@@ -135,7 +133,6 @@ func TestLauncherEscStepsBackThenLeaves(t *testing.T) {
 func TestLauncherManualCollectsGuidance(t *testing.T) {
 	m := newLauncherModel("portfolio")
 	enter := tea.KeyMsg{Type: tea.KeyEnter}
-	m, _ = m.Update(enter) /* target → e2e */
 	for i := 0; i < 3; i++ {
 		m, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown}) /* mode cursor → manual (index 3) */
 	}
@@ -287,12 +284,12 @@ func TestSummarySurfacesInfraErrorNote(t *testing.T) {
 	}
 }
 
-/* A code/context run carries no Playwright test list, so the recap's substance is the
+/* A context run carries no Playwright test list, so the recap's substance is the
    files it wrote and commands it ran — these must be listed BY NAME, not as bare counts. */
-func TestSummaryListsWrittenFilesByNameForCodeRun(t *testing.T) {
+func TestSummaryListsWrittenFilesByNameForContextRun(t *testing.T) {
 	m := newLiveModel("r", "qayaba", make(chan events.RunEvent, 1), func() {}, 0, 0)
 	for _, ev := range []events.RunEvent{
-		{Type: "run.started", Body: events.RunStarted{Sha: "abc", Target: "code", Mode: "context"}},
+		{Type: "run.started", Body: events.RunStarted{Sha: "abc", Target: "e2e", Mode: "context"}},
 		{Type: "agent.activity", Body: events.AgentActivity{Kind: "writing", Target: "e2e/.qa/context.json", Status: "completed"}},
 		{Type: "agent.activity", Body: events.AgentActivity{Kind: "writing", Target: "src/auth/login.test.ts", Status: "completed"}},
 		{Type: "agent.activity", Body: events.AgentActivity{Kind: "command", Target: "npm test", Status: "completed"}},
@@ -304,7 +301,7 @@ func TestSummaryListsWrittenFilesByNameForCodeRun(t *testing.T) {
 	out := m.View()
 	for _, want := range []string{"WHAT HAPPENED", "context.json", "login.test.ts", "npm test"} {
 		if !strings.Contains(out, want) {
-			t.Fatalf("code-run recap must list what it produced by name, missing %q:\n%s", want, out)
+			t.Fatalf("context-run recap must list what it produced by name, missing %q:\n%s", want, out)
 		}
 	}
 }
@@ -694,21 +691,8 @@ func TestAppAdminFormTogglesAndValidates(t *testing.T) {
 	m.repo = "org/shop"
 	m.nameInput.SetValue("shop")
 	m.baseInput.SetValue("")
-	m.formCursor = fTarget
-	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{' '}})
-	if m.target != "code" {
-		t.Fatalf("target=%q, want code", m.target)
-	}
 	m.formCursor = fSave
-	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	if cmd == nil {
-		t.Fatal("code app save should produce command even without base url")
-	}
-
-	m.target = "e2e"
-	m.baseInput.SetValue("")
-	m.formCursor = fSave
-	m, cmd = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	if cmd != nil || !strings.Contains(m.err, "base url") {
 		t.Fatalf("expected base url validation, cmd=%v err=%q", cmd, m.err)
 	}

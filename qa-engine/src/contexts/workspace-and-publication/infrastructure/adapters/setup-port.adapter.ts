@@ -20,7 +20,7 @@ export class SetupPortAdapter implements SetupPort {
   ) {}
 
   async setup(specDir: string, signal?: AbortSignal): Promise<void> {
-    const fn = this.ctx.target === "code" ? this.collaborators.code : this.collaborators.e2e;
+    const fn = this.collaborators.e2e;
     await fn(specDir, { ...(signal ? { signal } : {}) });
   }
 }

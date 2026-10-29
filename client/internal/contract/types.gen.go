@@ -386,15 +386,12 @@ func (e CoordinationEventKind) Valid() bool {
 
 // Defines values for CreateAppInputTarget.
 const (
-	CreateAppInputTargetCode CreateAppInputTarget = "code"
-	CreateAppInputTargetE2e  CreateAppInputTarget = "e2e"
+	CreateAppInputTargetE2e CreateAppInputTarget = "e2e"
 )
 
 // Valid indicates whether the value is a known member of the CreateAppInputTarget enum.
 func (e CreateAppInputTarget) Valid() bool {
 	switch e {
-	case CreateAppInputTargetCode:
-		return true
 	case CreateAppInputTargetE2e:
 		return true
 	default:
@@ -452,15 +449,12 @@ func (e CreateRunInputMode) Valid() bool {
 
 // Defines values for CreateRunInputTarget.
 const (
-	CreateRunInputTargetCode CreateRunInputTarget = "code"
-	CreateRunInputTargetE2e  CreateRunInputTarget = "e2e"
+	CreateRunInputTargetE2e CreateRunInputTarget = "e2e"
 )
 
 // Valid indicates whether the value is a known member of the CreateRunInputTarget enum.
 func (e CreateRunInputTarget) Valid() bool {
 	switch e {
-	case CreateRunInputTargetCode:
-		return true
 	case CreateRunInputTargetE2e:
 		return true
 	default:
@@ -512,15 +506,12 @@ func (e CreateRunResultSchemaVersion) Valid() bool {
 
 // Defines values for CreateRunResultTarget.
 const (
-	CreateRunResultTargetCode CreateRunResultTarget = "code"
-	CreateRunResultTargetE2e  CreateRunResultTarget = "e2e"
+	CreateRunResultTargetE2e CreateRunResultTarget = "e2e"
 )
 
 // Valid indicates whether the value is a known member of the CreateRunResultTarget enum.
 func (e CreateRunResultTarget) Valid() bool {
 	switch e {
-	case CreateRunResultTargetCode:
-		return true
 	case CreateRunResultTargetE2e:
 		return true
 	default:
@@ -1199,15 +1190,12 @@ func (e RunDetailStatus) Valid() bool {
 
 // Defines values for RunDetailTarget.
 const (
-	RunDetailTargetCode RunDetailTarget = "code"
-	RunDetailTargetE2e  RunDetailTarget = "e2e"
+	RunDetailTargetE2e RunDetailTarget = "e2e"
 )
 
 // Valid indicates whether the value is a known member of the RunDetailTarget enum.
 func (e RunDetailTarget) Valid() bool {
 	switch e {
-	case RunDetailTargetCode:
-		return true
 	case RunDetailTargetE2e:
 		return true
 	default:
@@ -1367,15 +1355,12 @@ func (e RunRecordStatus) Valid() bool {
 
 // Defines values for RunRecordTarget.
 const (
-	RunRecordTargetCode RunRecordTarget = "code"
-	RunRecordTargetE2e  RunRecordTarget = "e2e"
+	RunRecordTargetE2e RunRecordTarget = "e2e"
 )
 
 // Valid indicates whether the value is a known member of the RunRecordTarget enum.
 func (e RunRecordTarget) Valid() bool {
 	switch e {
-	case RunRecordTargetCode:
-		return true
 	case RunRecordTargetE2e:
 		return true
 	default:
@@ -1583,15 +1568,12 @@ func (e TelemetryHealthSchemaVersion) Valid() bool {
 
 // Defines values for UpdateAppInputTarget.
 const (
-	UpdateAppInputTargetCode UpdateAppInputTarget = "code"
-	UpdateAppInputTargetE2e  UpdateAppInputTarget = "e2e"
+	UpdateAppInputTargetE2e UpdateAppInputTarget = "e2e"
 )
 
 // Valid indicates whether the value is a known member of the UpdateAppInputTarget enum.
 func (e UpdateAppInputTarget) Valid() bool {
 	switch e {
-	case UpdateAppInputTargetCode:
-		return true
 	case UpdateAppInputTargetE2e:
 		return true
 	default:
@@ -1892,7 +1874,6 @@ type AppTelemetryView struct {
 type AppView struct {
 	AuthKind       *AppViewAuthKind `json:"authKind,omitempty"`
 	BaseUrl        string           `json:"baseUrl"`
-	Code           bool             `json:"code"`
 	Name           string           `json:"name"`
 	NeedsReview    bool             `json:"needsReview"`
 	Repo           string           `json:"repo"`
@@ -1953,6 +1934,7 @@ type CampaignRuns struct {
 		EvaluationStatus CampaignRunsRunsEvaluationStatus `json:"evaluationStatus"`
 		Id               string                           `json:"id"`
 		Replicate        int                              `json:"replicate"`
+		RestoredDigest   *string                          `json:"restoredDigest,omitempty"`
 		Status           CampaignRunsRunsStatus           `json:"status"`
 		Variant          map[string]string                `json:"variant"`
 		Verdict          *CampaignRunsRunsVerdict         `json:"verdict,omitempty"`

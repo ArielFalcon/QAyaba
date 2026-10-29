@@ -116,14 +116,14 @@ test("RunPipelineAdapter: green-pr — fully stubbed ports, returns RunOutcome v
   assert.equal(outcome.verdict, "pass");
 });
 
-/* 10-scenario parity for RunQaUseCase) — drives ALL 10 scenarios.ts goldens through
+/* scenario parity for RunQaUseCase) — drives ALL the scenarios.ts goldens through
    RunPipelineAdapter.run(), asserting the resulting RunOutcome.verdict equals the golden.
    The adapter's OWN job is proving the RunInput -> RunQaUseCase -> RunOutcome MAPPING is faithful —
    not re-deriving decide()'s policy (already proven by run-decision.scenarios.test.ts) or the use-case's
    own wiring (already proven by run-qa.use-case.test.ts). ─────────────────────────────────────────
  */
 
-interface TenScenarioCase {
+interface GoldenScenarioCase {
   scenario: string;
   overrides: Partial<{
     classify: ChangeAnalysisPort["classify"];
@@ -135,11 +135,11 @@ interface TenScenarioCase {
     waitUntilServing: DeployGatePort["waitUntilServing"];
   }>;
   config: { needsReview: boolean; shadow: boolean; onFailure: string; maxRetries: number; isCode: boolean };
-  input: Partial<{ mode: "diff" | "complete" | "exhaustive" | "manual" | "context"; target: "e2e" | "code" }>;
+  input: Partial<{ mode: "diff" | "complete" | "exhaustive" | "manual" | "context"; target: "e2e" }>;
   expectedVerdict: string;
 }
 
-const tenScenarios: TenScenarioCase[] = [
+const goldenScenarios: GoldenScenarioCase[] = [
   {
     /* scenarioApp (needsReview:true), makeDeps({}) — generated (approved:true), passing(). Source:
      */
@@ -205,16 +205,6 @@ const tenScenarios: TenScenarioCase[] = [
     expectedVerdict: "infra-error",
   },
   {
-    /* codeApp (needsReview:true), makeDeps({ isCodeMode: true }) — code mode reuses the SAME
-       pass-path chain.
-     */
-    scenario: "code-mode",
-    overrides: {},
-    config: { ...baseConfig, isCode: true },
-    input: { target: "code" },
-    expectedVerdict: "pass",
-  },
-  {
     /* crossApp (needsReview:false, shadow:false explicit), makeDeps({ isCrossRepo: true }). Source:
      */
     scenario: "cross-repo",
@@ -244,12 +234,12 @@ const tenScenarios: TenScenarioCase[] = [
   },
 ];
 
-test("RunPipelineAdapter 10-scenario equivalence: the golden set is non-trivial (guards against an accidentally-empty pin)", () => {
-  assert.equal(tenScenarios.length, 10, "expected exactly the 10 scenarios.ts goldens");
+test("RunPipelineAdapter scenario equivalence: the golden set is non-trivial (guards against an accidentally-empty pin)", () => {
+  assert.equal(goldenScenarios.length, 9, "expected exactly the 9 goldens");
 });
 
-for (const c of tenScenarios) {
-  test(`RunPipelineAdapter 10-scenario equivalence — ${c.scenario}: RunOutcome.verdict matches the golden`, async () => {
+for (const c of goldenScenarios) {
+  test(`RunPipelineAdapter scenario equivalence — ${c.scenario}: RunOutcome.verdict matches the golden`, async () => {
     const { ports } = stubPorts(c.overrides);
     const adapter = new RunPipelineAdapter({ ...ports, config: c.config });
 

@@ -976,7 +976,7 @@ export async function defaultDeps(env: Record<string, string | undefined> = proc
     },
     loadApp: (name) => {
       const app = loadAppConfig(name);
-      if (app.code === true || !app.dev?.baseUrl) throw new Error(`app '${name}' has no DEV site to test against`);
+      if (!app.dev?.baseUrl) throw new Error(`app '${name}' has no DEV site to test against`);
       if (app.auth?.kind === "mtls") throw new Error(`app '${name}' logs in with a client certificate, whose passphrase would have to reach the agent's shell: the baseline does not support it`);
       return {
         name: app.name, repo: app.repo, baseUrl: app.dev.baseUrl, testDataPrefix: app.qa.testDataPrefix, baseBranch: app.baseBranch ?? "main", services: (app.services ?? []).map((s) => s.repo),

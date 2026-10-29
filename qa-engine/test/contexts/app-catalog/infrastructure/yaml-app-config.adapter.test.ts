@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { YamlAppConfigAdapter } from "@contexts/app-catalog/infrastructure/yaml-app-config.adapter.ts";
 
-const raw = { name: "portfolio", repo: "org/portfolio", baseBranch: "main", code: false, qa: { shadow: true }, services: [{ repo: "org/api" }], dev: { versionUrl: "https://dev" } };
+const raw = { name: "portfolio", repo: "org/portfolio", baseBranch: "main", qa: { shadow: true }, services: [{ repo: "org/api" }], dev: { versionUrl: "https://dev" } };
 
 test("load maps a config to an AppConfigSnapshot", async () => {
   const adapter = new YamlAppConfigAdapter({ load: (n) => ({ ...raw, name: n }), list: () => [raw] });
@@ -24,31 +24,30 @@ test("resolveByRepo finds the owning app + role across all configs", async () =>
   assert.deepEqual(await adapter.resolveByRepo("org/nope"), []);
 });
 
-/* Pin the code-mode path and the baseBranch ?? 'main' default applied at toSnapshot (the YAML
+/* Pin the baseBranch ?? 'main' default applied at toSnapshot (the YAML
    schema leaves baseBranch optional). A future edit that removes or misplaces the default would
    pass CI silently without these tests.
  */
-test("a code-mode app (no dev, no baseBranch) maps to code:true and defaults baseBranch to 'main'", async () => {
-  const codeCfg = { name: "lib", repo: "org/lib", code: true };
-  const adapter = new YamlAppConfigAdapter({ load: () => codeCfg, list: () => [codeCfg] });
+test("an app with no baseBranch defaults baseBranch to 'main' and no services", async () => {
+  const cfg = { name: "lib", repo: "org/lib", dev: { versionUrl: "https://dev" } };
+  const adapter = new YamlAppConfigAdapter({ load: () => cfg, list: () => [cfg] });
   const snap = await adapter.load("lib");
-  assert.equal(snap.code, true, "code must be true for a code-mode app");
   assert.equal(snap.baseBranch, "main", "baseBranch must default to 'main' when absent from config");
   assert.deepEqual(snap.services, [], "services must be empty when absent from config");
 });
 
 test("an app with baseBranch absent from config gets baseBranch defaulted to 'main' by the adapter", async () => {
-  const noBranchCfg = { name: "portfolio", repo: "org/portfolio", code: false, dev: { versionUrl: "https://dev" } };
+  const noBranchCfg = { name: "portfolio", repo: "org/portfolio", dev: { versionUrl: "https://dev" } };
   const adapter = new YamlAppConfigAdapter({ load: () => noBranchCfg, list: () => [noBranchCfg] });
   const snap = await adapter.load("portfolio");
   assert.equal(snap.baseBranch, "main", "adapter must apply ?? 'main' when baseBranch is absent");
 });
 
 test("resolveByRepo fans out a repo that is primary of one app AND service of another", async () => {
-  /* A repo can be the primary of its own code-mode app AND a service of another app's e2e suite —
+  /* A repo can be the primary of its own app AND a service of another app's e2e suite —
      BOTH webhook runs must be enqueued, so the adapter must return BOTH matches, not the first.
    */
-  const ordersCfg = { name: "orders", repo: "org/orders-svc", code: true };
+  const ordersCfg = { name: "orders", repo: "org/orders-svc", dev: { versionUrl: "https://dev" } };
   const shopCfg = { name: "shop", repo: "org/shop-front", services: [{ repo: "org/orders-svc" }], dev: { versionUrl: "https://dev" } };
   const adapter = new YamlAppConfigAdapter({ load: () => ordersCfg, list: () => [ordersCfg, shopCfg] });
   const matches = await adapter.resolveByRepo("org/orders-svc");

@@ -724,7 +724,7 @@ test("REVIEWER DOM GROUNDING: aborting during capture() (signal fires inside the
   assert.equal(out.decision.sideEffect, "none");
 });
 
-/* Drives ALL 10 scenarios.ts goldens through RunQaUseCase, with per-scenario stub ports built from
+/* Drives ALL the scenarios.ts goldens through RunQaUseCase, with per-scenario stub ports built from
    the SAME fixture semantics scenarios.ts's makeDeps() encodes (never a new, invented behavior) —
    asserting RunDecision (verdict + sideEffect) equals the EXPECTED_VERDICT/EXPECTED_SIDE_EFFECT
    golden-outcome.test.ts already proves (and run-decision.scenarios.test.ts
@@ -732,7 +732,7 @@ test("REVIEWER DOM GROUNDING: aborting during capture() (signal fires inside the
    same decision — not re-deriving decide()'s policy.
  */
 
-interface TenScenarioCase {
+interface GoldenScenarioCase {
   scenario: string;
   overrides: Partial<{
     classify: ChangeAnalysisPort["classify"];
@@ -744,14 +744,14 @@ interface TenScenarioCase {
     waitUntilServing: DeployGatePort["waitUntilServing"];
   }>;
   config: { needsReview: boolean; shadow: boolean; onFailure: string; maxRetries: number; isCode: boolean };
-  input: Partial<{ mode: "diff" | "complete" | "exhaustive" | "manual" | "context"; target: "e2e" | "code" }>;
+  input: Partial<{ mode: "diff" | "complete" | "exhaustive" | "manual" | "context"; target: "e2e" }>;
   expectedVerdict: string;
   expectedSideEffect: string;
 }
 
 const baseConfig = { needsReview: true, shadow: false, onFailure: "github-issue", maxRetries: 2, isCode: false };
 
-const tenScenarios: TenScenarioCase[] = [
+const goldenScenarios: GoldenScenarioCase[] = [
   {
     /* scenarioApp (needsReview:true), makeDeps({}) — generated (approved:true), passing(). Source:
      */
@@ -823,17 +823,6 @@ const tenScenarios: TenScenarioCase[] = [
     expectedSideEffect: "none",
   },
   {
-    /* codeApp (needsReview:true), makeDeps({ isCodeMode: true }) — code mode reuses the SAME
-       pass-path chain (report()/decide are verdict-shaped, not e2e-vs-code-shaped). Source:
-     */
-    scenario: "code-mode",
-    overrides: {},
-    config: { ...baseConfig, isCode: true },
-    input: { target: "code" },
-    expectedVerdict: "pass",
-    expectedSideEffect: "pr",
-  },
-  {
     /* This row does not set triggerRepo — it pins needsReview-skip of the cross-repo shape only. */
     scenario: "cross-repo",
     overrides: {},
@@ -865,12 +854,12 @@ const tenScenarios: TenScenarioCase[] = [
   },
 ];
 
-test("RunQaUseCase 10-scenario parity: the golden set is non-trivial (guards against an accidentally-empty pin)", () => {
-  assert.equal(tenScenarios.length, 10, "expected exactly the 10 scenarios.ts goldens");
+test("RunQaUseCase scenario parity: the golden set is non-trivial (guards against an accidentally-empty pin)", () => {
+  assert.equal(goldenScenarios.length, 9, "expected exactly the 9 goldens");
 });
 
-for (const c of tenScenarios) {
-  test(`RunQaUseCase 10-scenario parity — ${c.scenario}: RunDecision matches the golden verdict + side effect`, async () => {
+for (const c of goldenScenarios) {
+  test(`RunQaUseCase scenario parity — ${c.scenario}: RunDecision matches the golden verdict + side effect`, async () => {
     const { ports } = stubPorts(c.overrides);
     const useCase = new RunQaUseCase({ ...ports, config: c.config });
 
@@ -1087,28 +1076,7 @@ test("RunQaUseCase — invalid-issue: execute() is NEVER called (static gate blo
   assert.equal(executeCallCount, 0, "a static-gate failure must block BEFORE execution, never call it");
 });
 
-/* `infra:true` (a broken/missing toolchain — e.g. JAVA_HOME misconfigured) must resolve to
-   "infra-error", not "invalid" — the compile gate itself could not run, so the failure is
-   inconclusive infrastructure, never a code defect blamed on the agent. Empirically verified
-   (grep-traced) BEFORE this fix: run-qa.use-case.ts's static-gate branch returned "invalid"
-   unconditionally regardless of validation.infra — this test would have failed pre-fix.
- */
-test("RunQaUseCase — a code-target validation failure with infra:true resolves to infra-error, not invalid", async () => {
-  let executeCallCount = 0;
-  const { ports } = stubPorts({
-    validate: async () => ({ ok: false, errors: ["[compile] JAVA_HOME is not set and could not be found."], infra: true }),
-  });
-  ports.execution.execute = async () => { executeCallCount++; return { verdict: "pass", cases: [], logs: "" }; };
-  const useCase = new RunQaUseCase({ ...ports, config: { ...baseConfig, isCode: true } });
-
-  const out = await useCase.run({ ...baseInput, target: "code", runId: "code-infra-error" });
-
-  assert.equal(out.decision.verdict, "infra-error", "a broken toolchain (validation.infra:true) must map to infra-error, never invalid");
-  assert.equal(executeCallCount, 0, "an infra-error validation failure must block BEFORE execution, never call it");
-});
-
-/* e2e parity: an e2e static-gate failure whose infra:true is ALSO infra-error today (the same fix
-   applies uniformly — the verdict-mapping branch is target-agnostic, only validation.infra matters).
+/* An e2e static-gate failure whose infra:true is infra-error: the verdict-mapping branch reads only validation.infra.
  */
 test("RunQaUseCase — an e2e-target validation failure with infra:true ALSO resolves to infra-error (target-agnostic fix)", async () => {
   const { ports } = stubPorts({
@@ -2165,23 +2133,6 @@ test("reflector-rewire: app_defect adjudication — NEITHER learning.fold() NOR 
   assert.equal(out.decision.verdict, "fail");
   assert.equal(foldCallCount, 0, "learning.fold() must NOT be called when adjudication.class is app_defect");
   assert.equal(reflectCallCount, 0, "reflector.reflect() must NOT be called when adjudication.class is app_defect (shouldDistillLearning is false, which the reflect gate ANDs on top of)");
-});
-
-test("reflector-rewire: code-mode fail (isCode && verdict===\"fail\") — NEITHER learning.fold() NOR reflector.reflect() is called", async () => {
-  let foldCallCount = 0;
-  let reflectCallCount = 0;
-  const { ports } = stubPorts({
-    execute: async () => ({ verdict: "fail" as const, cases: [{ name: "unit-test", status: "fail" as const }], logs: "x" }),
-  });
-  ports.learning.fold = async () => { foldCallCount++; };
-  const reflector = makeFakeReflector(() => { reflectCallCount++; });
-  const useCase = new RunQaUseCase({ ...ports, reflector, config: { ...baseConfig, isCode: true } });
-
-  const out = await useCase.run({ ...baseInput, runId: "reflector-code-fail-neither-called" });
-
-  assert.equal(out.decision.verdict, "fail");
-  assert.equal(foldCallCount, 0, "learning.fold() must NOT be called on a code-mode fail (shouldDistillLearning's isCode+fail rule)");
-  assert.equal(reflectCallCount, 0, "reflector.reflect() must NOT be called on a code-mode fail either");
 });
 
 test("reflector-rewire: static-gate invalid (errorClass=E-STATIC) — learning.fold() AND reflector.reflect() are BOTH called, with the narrow ReflectionInput", async () => {
@@ -3647,9 +3598,9 @@ test("KEYSTONE: measure() receives the run's REAL BlastRadius (changedFiles from
       return { status: "unknown", ratio: null };
     },
   });
-  const useCase = new RunQaUseCase({ ...ports, config: { ...baseConfig, isCode: true } });
+  const useCase = new RunQaUseCase({ ...ports, config: baseConfig });
 
-  await useCase.run({ ...baseInput, target: "code", mode: "diff", runId: "real-blast-radius" });
+  await useCase.run({ ...baseInput, mode: "diff", runId: "real-blast-radius" });
 
   /* BlastRadius.of() sorts+dedupes its changedFiles (see blast-radius.ts) — assert set equality,
      not literal array order.
@@ -5213,18 +5164,6 @@ test("CLEANUP: cleanup() is SKIPPED when previousNamespace is absent (the common
   assert.equal(out.decision.verdict, "pass", "a run with no cleanup work must proceed normally");
 });
 
-test("CLEANUP: cleanup() is SKIPPED on the code target, even with a previousNamespace present", async () => {
-  let cleanupCalled = false;
-  const { ports } = stubPorts({
-    cleanup: async () => { cleanupCalled = true; },
-  });
-  const useCase = new RunQaUseCase({ ...ports, config: { ...baseConfig, isCode: true } });
-
-  await useCase.run({ ...baseInput, runId: "cleanup-skipped-code-target", target: "code", previousNamespace: "qa-portfolio-abc123-run42" });
-
-  assert.equal(cleanupCalled, false, "cleanup must never fire for the code target —");
-});
-
 test("CLEANUP: an absent CleanupPort (deps.cleanup undefined) is a no-op — generation still runs (backward compatible)", async () => {
   const { ports } = stubPorts();
   const { cleanup: _unused, ...portsWithoutCleanup } = ports;
@@ -6579,23 +6518,6 @@ test("confinement wiring: publish() with no revertedDenylisted (the common case)
   await useCase.run({ ...baseInput, runId: "confinement-vcswrite-no-revert" });
 
   assert.equal(savedOutcomes[0]?.gateSignals.confinement, undefined, "no ConfinementPort wired and no revertedDenylisted -> gateSignals.confinement must stay entirely absent");
-});
-
-test("confinement wiring: code target — enforce() receives isCode:true", async () => {
-  const calls: Array<{ mirrorDir: string; isCode: boolean }> = [];
-  const { ports, ws } = stubPorts();
-  /* A code run's workspace adapter issues a code handle: the target rides on the handle, not on a flag the caller passes. */
-  ports.workspace = { ...ports.workspace, prepare: async () => fakeHandle({ specDir: ws.specDir, mirrorDir: ws.mirrorDir }, "code") };
-  const confinement = makeFakeConfinement((mirrorDir, isCode) => {
-    calls.push({ mirrorDir, isCode });
-    return { strays: 0, dangerous: 0, reverted: [] };
-  });
-  const useCase = new RunQaUseCase({ ...ports, confinement, config: { ...baseConfig, isCode: true } });
-
-  await useCase.run({ ...baseInput, runId: "confinement-code-target", target: "code" });
-
-  assert.ok(calls.length >= 1);
-  for (const call of calls) assert.equal(call.isCode, true);
 });
 
 test("confinement wiring: a regression run (generating:false) makes no enforce() call for the (never-invoked) initial generate, but still enforces once before publish", async () => {

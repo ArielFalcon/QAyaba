@@ -99,11 +99,7 @@ test("a per-run choice reaches the port", async () => {
   assert.equal(r.opened[0]!.enabled, false);
 });
 
-test("no browser for a code run, a context run, a regression run, a login bootstrap, or a login the generator still has to write", async () => {
-  const code = rig();
-  await new RunQaUseCase(code.deps({ config: { needsReview: true, shadow: false, onFailure: "github-issue", maxRetries: 2, isCode: true } })).run({ ...INPUT, target: "code" });
-  assert.equal(code.opened.length, 0, "code");
-
+test("no browser for a context run, a regression run, a login bootstrap, or a login the generator still has to write", async () => {
   const context = rig();
   await new RunQaUseCase(context.deps({ ...served({ author: async () => scriptedGeneration({ specs: [".qa/context.json"], note: "map" }) }) })).run({ ...INPUT, mode: "context" });
   assert.equal(context.opened.length, 0, "context");

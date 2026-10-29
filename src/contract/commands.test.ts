@@ -67,9 +67,10 @@ test("app onboarding command schemas parse create/update/delete/repo list payloa
   }));
   assert.doesNotThrow(() => UpdateAppInputSchema.parse({
     baseUrl: "https://new.dev.shop.test",
-    target: "code",
+    target: "e2e",
     shadow: false,
   }));
+  assert.throws(() => UpdateAppInputSchema.parse({ baseUrl: "https://new.dev.shop.test", target: "code" }));
   assert.doesNotThrow(() => CreateAppResultSchema.parse({
     ok: true,
     name: "shop",

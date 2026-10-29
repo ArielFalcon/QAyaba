@@ -7,14 +7,14 @@ import { reply, type ApiResult } from "../respond";
 import { loadApp, redactionPort } from "../support";
 
 /*
- * Only a form login is authored (a client certificate needs no login script, a public app no login, a code app no browser),
+ * Only a form login is authored (a client certificate needs no login script, a public app no login),
  * so anything else is a 409 rather than a run that could only fail.
  */
 export async function startLoginBootstrap(deps: ApiDeps, name: string): Promise<ApiResult> {
   const bootstrapLogin = deps.bootstrapLogin;
   if (!bootstrapLogin) throw new ApiError(501, "login bootstrap is not available");
   const appConfig = loadApp(deps, name);
-  if (appConfig.code === true || appConfig.auth?.kind !== "form") {
+  if (appConfig.auth?.kind !== "form") {
     throw new ApiError(409, `app '${name}' declares no form login to bootstrap`);
   }
   let sha: string;

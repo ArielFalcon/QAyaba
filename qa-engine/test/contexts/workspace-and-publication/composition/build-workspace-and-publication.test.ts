@@ -26,15 +26,6 @@ test("the workspace resolves a checkout into the e2e spec directory under the mi
   assert.deepEqual(api.workspace.readRoots(handle), { mirrorDir: "/mirror", specDir: "/mirror/e2e" });
 });
 
-test("a code run's spec directory is the bare mirror and it builds no cleanup", async () => {
-  const api = buildWorkspaceAndPublication(deps({ cleanup: { e2e: async () => undefined } as never }, { isCode: true, target: "code" }));
-
-  const handle = await api.workspace.prepare(sha);
-
-  assert.equal(api.workspace.readRoots(handle).specDir, "/mirror");
-  assert.equal(api.cleanup, undefined);
-});
-
 test("a shadow run publishes a passing run to the shadow log and opens nothing on the repo", async () => {
   const api = buildWorkspaceAndPublication(deps());
   const handle = await api.workspace.prepare(sha);

@@ -111,12 +111,10 @@ test("the editable label is the one place a regeneration is told to read the spe
     ["a coverage gap", { coverageGap: "src/cart.ts: lines 10-14" }],
     ["a selector contradiction", { selectorContradictions: ["button:Apply is NOT in the captured tree"], attributedSpecFiles: ["flows/a.spec.ts"] }],
   ];
-  for (const target of ["e2e", "code"] as const) {
-    for (const [what, signal] of signals) {
-      const a = buildPromptAssembled(mkInput({ target, deliveredSpecs: [A, B], ...signal }));
-      assert.equal(countOf(a.text, SUITE_LISTING_LABELS.editable), 1, `${target}, ${what}: one read directive for the specs to change`);
-      assert.equal(countOf(a.text, FIX_STEPS.readTestFile), 0, `${target}, ${what}: no read step beside it`);
-    }
+  for (const [what, signal] of signals) {
+    const a = buildPromptAssembled(mkInput({ deliveredSpecs: [A, B], ...signal }));
+    assert.equal(countOf(a.text, SUITE_LISTING_LABELS.editable), 1, `${what}: one read directive for the specs to change`);
+    assert.equal(countOf(a.text, FIX_STEPS.readTestFile), 0, `${what}: no read step beside it`);
   }
 });
 
@@ -143,17 +141,15 @@ test("a fix turn lists as editable only the specs its failing cases name: none t
     ["a static gate whose output names none", [staticGate("error TS2322: Type 'string' is not assignable to type 'number'.")], []],
   ];
   const everySpec = ["flows/a.spec.ts", "flows/b.spec.ts", "flows/c.spec.ts", "flows/d.spec.ts"];
-  for (const target of ["e2e", "code"] as const) {
-    for (const mode of ["diff", "manual", "exhaustive"] as const) {
-      for (const [what, fixCases, editable] of fixes) {
-        const label = `${target}, ${mode}, ${what}`;
-        const a = buildPromptAssembled(mkInput({ target, mode, guidance: GUIDANCE, existingSpecFiles: [C_LINE], deliveredSpecs: [A, B, SIDEKICK], fixCases }));
-        assert.ok(a.sectionSizes["fix-cases"] !== undefined, `${label}: setup, the turn tells the agent to fix only the failing tests`);
-        const listed = editableIn(sectionText(a, SUITE_ID));
-        for (const file of everySpec) assert.equal(mentions(listed, file), editable.includes(file), `${label}: ${file}`);
-        assert.equal(listed.length, editable.length, label);
-        assert.equal(countOf(a.text, SUITE_LISTING_LABELS.editable), editable.length > 0 ? 1 : 0, label);
-      }
+  for (const mode of ["diff", "manual", "exhaustive"] as const) {
+    for (const [what, fixCases, editable] of fixes) {
+      const label = `${mode}, ${what}`;
+      const a = buildPromptAssembled(mkInput({ mode, guidance: GUIDANCE, existingSpecFiles: [C_LINE], deliveredSpecs: [A, B, SIDEKICK], fixCases }));
+      assert.ok(a.sectionSizes["fix-cases"] !== undefined, `${label}: setup, the turn tells the agent to fix only the failing tests`);
+      const listed = editableIn(sectionText(a, SUITE_ID));
+      for (const file of everySpec) assert.equal(mentions(listed, file), editable.includes(file), `${label}: ${file}`);
+      assert.equal(listed.length, editable.length, label);
+      assert.equal(countOf(a.text, SUITE_LISTING_LABELS.editable), editable.length > 0 ? 1 : 0, label);
     }
   }
 });
@@ -342,7 +338,7 @@ const TURN_SIGNALS: Array<[string, Partial<OpencodeRunInput>]> = [
   ["a selector contradiction", { selectorContradictions: ["button:Apply is NOT in the captured tree"] }],
 ];
 
-test("the rule against weakening a test is on every turn that writes tests, once, in both targets, and on no other", () => {
+test("the rule against weakening a test is on every turn that writes tests, once, and on no other", () => {
   const first: Array<[string, Partial<OpencodeRunInput>, number]> = [
     ["a diff run", {}, 1],
     ["a manual run", { mode: "manual", guidance: GUIDANCE }, 1],
@@ -350,44 +346,36 @@ test("the rule against weakening a test is on every turn that writes tests, once
     ["an exhaustive run", { mode: "exhaustive" }, 0],
     ["a context run", { mode: "context" }, 0],
   ];
-  for (const target of ["e2e", "code"] as const) {
-    for (const [what, extra, expected] of first) {
-      if (target === "code" && extra.mode === "context") continue;
-      const a = buildPromptAssembled(mkInput({ target, ...extra }));
-      assert.equal(countOf(a.text, ANTI_WEAKENING_RULE), expected, `${target}, first pass of ${what}`);
-    }
-    for (const mode of ["diff", "manual", "complete", "exhaustive"] as const) {
-      for (const [what, signal] of TURN_SIGNALS) {
-        const a = buildPromptAssembled(mkInput({ target, mode, guidance: GUIDANCE, deliveredSpecs: [A], ...signal }));
-        assert.equal(countOf(a.text, ANTI_WEAKENING_RULE), 1, `${target}, ${mode} regeneration with ${what}`);
-        assert.equal(countOf(sectionText(a, "task"), ANTI_WEAKENING_RULE), 1, `${target}, ${mode} regeneration with ${what}: the task owns it`);
-      }
+  for (const [what, extra, expected] of first) {
+    const a = buildPromptAssembled(mkInput({ ...extra }));
+    assert.equal(countOf(a.text, ANTI_WEAKENING_RULE), expected, `first pass of ${what}`);
+  }
+  for (const mode of ["diff", "manual", "complete", "exhaustive"] as const) {
+    for (const [what, signal] of TURN_SIGNALS) {
+      const a = buildPromptAssembled(mkInput({ mode, guidance: GUIDANCE, deliveredSpecs: [A], ...signal }));
+      assert.equal(countOf(a.text, ANTI_WEAKENING_RULE), 1, `${mode} regeneration with ${what}`);
+      assert.equal(countOf(sectionText(a, "task"), ANTI_WEAKENING_RULE), 1, `${mode} regeneration with ${what}: the task owns it`);
     }
   }
 });
 
-test("the rule against weakening a test is on exactly the turns the domain says write tests, in every mode and target", () => {
+test("the rule against weakening a test is on exactly the turns the domain says write tests, in every mode", () => {
   const signals: Array<Partial<OpencodeRunInput>> = [{}, ...TURN_SIGNALS.map(([, signal]) => signal)];
-  for (const target of ["e2e", "code"] as const) {
-    for (const mode of ["diff", "manual", "complete", "exhaustive", "context"] as const) {
-      if (mode === "context" && target === "code") continue;
-      for (const signal of signals) {
-        const input = mkInput({ target, mode, guidance: GUIDANCE, deliveredSpecs: [A], ...signal });
-        const expected = isTestWritingTurn(input) ? 1 : 0;
-        assert.equal(countOf(buildPromptAssembled(input).text, ANTI_WEAKENING_RULE), expected, `${target}, ${mode}, ${Object.keys(signal).join("+") || "first pass"}`);
-      }
+  for (const mode of ["diff", "manual", "complete", "exhaustive", "context"] as const) {
+    for (const signal of signals) {
+      const input = mkInput({ mode, guidance: GUIDANCE, deliveredSpecs: [A], ...signal });
+      const expected = isTestWritingTurn(input) ? 1 : 0;
+      assert.equal(countOf(buildPromptAssembled(input).text, ANTI_WEAKENING_RULE), expected, `${mode}, ${Object.keys(signal).join("+") || "first pass"}`);
     }
   }
 });
 
-test("the first pass of a diff or manual e2e run, and of a manual code run, asks for the outcome; a code diff run's first pass does not", () => {
+test("the first pass of a diff or manual run asks for the outcome; the first pass of a complete or exhaustive run does not", () => {
   const asks: Array<[string, Partial<OpencodeRunInput>, boolean]> = [
     ["e2e diff", {}, true],
     ["e2e manual", { mode: "manual", guidance: GUIDANCE }, true],
-    ["code manual", { target: "code", mode: "manual", guidance: GUIDANCE }, true],
-    ["code diff", { target: "code" }, false],
     ["e2e complete", { mode: "complete" }, false],
-    ["code exhaustive", { target: "code", mode: "exhaustive" }, false],
+    ["e2e exhaustive", { mode: "exhaustive" }, false],
   ];
   for (const [what, extra, asked] of asks) {
     const a = buildPromptAssembled(mkInput(extra));
@@ -398,14 +386,12 @@ test("the first pass of a diff or manual e2e run, and of a manual code run, asks
 });
 
 test("a regeneration whose specs under correction all have an objective their lead declared, undisputed, does not ask for the outcome again, and still states the rule", () => {
-  for (const target of ["e2e", "code"] as const) {
-    for (const [what, signal] of TURN_SIGNALS) {
-      const a = buildPromptAssembled(mkInput({ target, deliveredSpecs: [A, B], ...signal }));
-      assert.equal(countOf(a.text, OBJECTIVE_QUESTION), 0, `${target}, ${what}`);
-      assert.equal(countOf(a.text, OBJECTIVE_HEADING), 0, `${target}, ${what}: no heading without the question`);
-      assert.equal(directs(a, "task", "state-outcome"), false, `${target}, ${what}`);
-      assert.equal(countOf(a.text, ANTI_WEAKENING_RULE), 1, `${target}, ${what}`);
-    }
+  for (const [what, signal] of TURN_SIGNALS) {
+    const a = buildPromptAssembled(mkInput({ deliveredSpecs: [A, B], ...signal }));
+    assert.equal(countOf(a.text, OBJECTIVE_QUESTION), 0, `${what}`);
+    assert.equal(countOf(a.text, OBJECTIVE_HEADING), 0, `${what}: no heading without the question`);
+    assert.equal(directs(a, "task", "state-outcome"), false, `${what}`);
+    assert.equal(countOf(a.text, ANTI_WEAKENING_RULE), 1, `${what}`);
   }
 });
 
@@ -418,13 +404,11 @@ test("a regeneration asks for the outcome again when a spec under correction has
     ["a failing file no entry matches", { deliveredSpecs: [A], fixCases: [failing("flows/new.spec.ts")] }],
     ["no spec under correction", { fixCases: [failing(undefined, "the page timed out")] }],
   ];
-  for (const target of ["e2e", "code"] as const) {
-    for (const [what, signal] of asked) {
-      const a = buildPromptAssembled(mkInput({ target, ...signal }));
-      assert.equal(countOf(a.text, OBJECTIVE_QUESTION), 1, `${target}, ${what}`);
-      assert.equal(directs(a, "task", "state-outcome"), true, `${target}, ${what}`);
-      assert.equal(countOf(a.text, ANTI_WEAKENING_RULE), 1, `${target}, ${what}`);
-    }
+  for (const [what, signal] of asked) {
+    const a = buildPromptAssembled(mkInput({ ...signal }));
+    assert.equal(countOf(a.text, OBJECTIVE_QUESTION), 1, `${what}`);
+    assert.equal(directs(a, "task", "state-outcome"), true, `${what}`);
+    assert.equal(countOf(a.text, ANTI_WEAKENING_RULE), 1, `${what}`);
   }
 });
 
@@ -437,16 +421,14 @@ test("the rule against weakening a test is stated by the task alone: the fix sec
 /* ── the specs only the fallback made editable, and the allowance of a new spec ── */
 
 test("a coverage regeneration states once, in its listing, that a new spec is allowed for a flow nothing listed covers, and no other turn does", () => {
-  for (const target of ["e2e", "code"] as const) {
-    for (const mode of ["diff", "manual", "complete", "exhaustive"] as const) {
-      const a = buildPromptAssembled(mkInput({ target, mode, guidance: GUIDANCE, existingSpecFiles: [C_LINE], deliveredSpecs: [A, B], coverageGap: "src/cart.ts: lines 10-14" }));
-      assert.equal(countOf(a.text, SUITE_LISTING_LABELS.newSpec), 1, `${target}, ${mode}`);
-      assert.equal(countOf(sectionText(a, SUITE_ID), SUITE_LISTING_LABELS.newSpec), 1, `${target}, ${mode}: the listing owns it, so it goes with the listing`);
-      for (const [what, signal] of TURN_SIGNALS) {
-        if (signal.coverageGap !== undefined) continue;
-        const other = buildPromptAssembled(mkInput({ target, mode, guidance: GUIDANCE, existingSpecFiles: [C_LINE], deliveredSpecs: [A, B], ...signal }));
-        assert.equal(countOf(other.text, SUITE_LISTING_LABELS.newSpec), 0, `${target}, ${mode}, ${what}`);
-      }
+  for (const mode of ["diff", "manual", "complete", "exhaustive"] as const) {
+    const a = buildPromptAssembled(mkInput({ mode, guidance: GUIDANCE, existingSpecFiles: [C_LINE], deliveredSpecs: [A, B], coverageGap: "src/cart.ts: lines 10-14" }));
+    assert.equal(countOf(a.text, SUITE_LISTING_LABELS.newSpec), 1, `${mode}`);
+    assert.equal(countOf(sectionText(a, SUITE_ID), SUITE_LISTING_LABELS.newSpec), 1, `${mode}: the listing owns it, so it goes with the listing`);
+    for (const [what, signal] of TURN_SIGNALS) {
+      if (signal.coverageGap !== undefined) continue;
+      const other = buildPromptAssembled(mkInput({ mode, guidance: GUIDANCE, existingSpecFiles: [C_LINE], deliveredSpecs: [A, B], ...signal }));
+      assert.equal(countOf(other.text, SUITE_LISTING_LABELS.newSpec), 0, `${mode}, ${what}`);
     }
   }
 });
@@ -494,7 +476,6 @@ test("the steps of a fix are numbered from one without a gap, with or without th
     ["a failure tree", { domSnapshot: "  button: Apply coupon", failureSourced: true }],
     ["a live tree", { domSnapshot: "  button: Apply coupon" }],
     ["no tree", {}],
-    ["a code run", { target: "code" }],
   ];
   for (const [what, extra] of branches) {
     for (const [variant, fix] of [["editable", FIX_WITH_EDITABLE], ["not editable", FIX_WITHOUT_EDITABLE]] as const) {
@@ -508,11 +489,7 @@ test("the steps of a fix are numbered from one without a gap, with or without th
   }
 });
 
-test("a code fix keeps the read of the code under test whether or not the listing carries the read of the tests", () => {
-  for (const fix of [FIX_WITH_EDITABLE, FIX_WITHOUT_EDITABLE]) {
-    const a = buildPromptAssembled(mkInput({ target: "code", ...fix }));
-    assert.equal(countOf(sectionText(a, "fix-cases"), FIX_STEPS.readCodeUnderTest), 1);
-  }
+test("an e2e fix never reads code under test", () => {
   const e2e = buildPromptAssembled(mkInput(FIX_WITH_EDITABLE));
   assert.equal(countOf(e2e.text, FIX_STEPS.readCodeUnderTest), 0, "an e2e run reads no code under test");
 });
@@ -693,12 +670,10 @@ test("asking for the outcome again never costs the prompt a section: at any wind
 
 /* ── the contract ── */
 
-test("a regeneration with a listing is clean under the lint, in both targets and every signal", () => {
-  for (const target of ["e2e", "code"] as const) {
-    for (const [what, signal] of TURN_SIGNALS) {
-      const a = buildPromptAssembled(mkInput({ target, existingSpecFiles: [C_LINE], deliveredSpecs: [A, SIDEKICK], ...signal }));
-      assert.deepEqual(findingsOf(a, true), [], `${target}, ${what}`);
-    }
+test("a regeneration with a listing is clean under the lint, in every signal", () => {
+  for (const [what, signal] of TURN_SIGNALS) {
+    const a = buildPromptAssembled(mkInput({ existingSpecFiles: [C_LINE], deliveredSpecs: [A, SIDEKICK], ...signal }));
+    assert.deepEqual(findingsOf(a, true), [], `${what}`);
   }
 });
 

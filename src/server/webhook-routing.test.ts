@@ -35,10 +35,11 @@ report:
   onFailure: "github-issue"
 `;
 
-const ORDERS_CODE = `
+const ORDERS = `
 name: "orders"
 repo: "org/orders-svc"
-code: true
+dev:
+  baseUrl: "https://dev.orders.io"
 qa:
   needsReview: false
   testDataPrefix: "qa-orders"
@@ -63,7 +64,7 @@ test("resolveWebhookDispatch: single-app primary-repo webhook", async () => {
 });
 
 test("resolveWebhookDispatch: multi-app repo (primary of A, service of B)", async () => {
-  const root = makeRoot({ "shop.yaml": SHOP, "orders.yaml": ORDERS_CODE });
+  const root = makeRoot({ "shop.yaml": SHOP, "orders.yaml": ORDERS });
   try {
     const adapter = new YamlAppConfigAdapter({ load: (name) => loadAppConfig(name, root), list: () => listAppConfigs(root) });
     const opts = { mode: "diff" as const };
@@ -71,7 +72,7 @@ test("resolveWebhookDispatch: multi-app repo (primary of A, service of B)", asyn
     const actual = await resolveWebhookDispatch(adapter, "org/orders-svc", opts);
 
     assert.deepEqual(sorted(actual), [
-      { app: "orders", target: "code", mode: "diff" },
+      { app: "orders", target: "e2e", mode: "diff" },
       { app: "shop", target: "e2e", mode: "diff", triggerRepo: "org/orders-svc" },
     ]);
   } finally { rmSync(root, { recursive: true, force: true }); }
@@ -101,14 +102,14 @@ test("resolveWebhookDispatch: a malformed config is skipped — the healthy app 
 });
 
 test("resolveWebhookDispatch: a service push keeps the webhook's base", async () => {
-  const root = makeRoot({ "shop.yaml": SHOP, "orders.yaml": ORDERS_CODE });
+  const root = makeRoot({ "shop.yaml": SHOP, "orders.yaml": ORDERS });
   try {
     const adapter = new YamlAppConfigAdapter({ load: (name) => loadAppConfig(name, root), list: () => listAppConfigs(root) });
 
     const actual = await resolveWebhookDispatch(adapter, "org/orders-svc", { mode: "diff", baseSha: "base123" });
 
     assert.deepEqual(sorted(actual), [
-      { app: "orders", target: "code", mode: "diff", baseSha: "base123" },
+      { app: "orders", target: "e2e", mode: "diff", baseSha: "base123" },
       { app: "shop", target: "e2e", mode: "diff", triggerRepo: "org/orders-svc", baseSha: "base123" },
     ]);
   } finally { rmSync(root, { recursive: true, force: true }); }

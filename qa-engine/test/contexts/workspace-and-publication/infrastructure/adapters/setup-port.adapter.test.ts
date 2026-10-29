@@ -1,39 +1,24 @@
 /* test/contexts/run-orchestration/infrastructure/adapters/setup-port.adapter.test.ts
    callbacks matching setupE2eProject/setupCodeProject's call shape). THIN — no new policy: this
-   adapter only selects the collaborator by target and forwards specDir/signal.
+   adapter only forwards specDir/signal to the e2e collaborator.
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { SetupPortAdapter } from "@contexts/workspace-and-publication/infrastructure/adapters/setup-port.adapter.ts";
 
-test("setup() dispatches to the e2e collaborator for target 'e2e' and forwards specDir", async () => {
+test("setup() dispatches to the e2e collaborator and forwards specDir", async () => {
   let capturedDir: string | undefined;
   const e2e = async (dir: string) => {
     capturedDir = dir;
   };
   const code = async () => {
-    throw new Error("must not be called for target 'e2e'");
+    throw new Error("must not be called");
   };
   const adapter = new SetupPortAdapter({ e2e, code }, { target: "e2e" });
 
   await adapter.setup("/mirrors/org/app/e2e");
 
   assert.equal(capturedDir, "/mirrors/org/app/e2e");
-});
-
-test("setup() dispatches to the code collaborator for target 'code' and forwards specDir", async () => {
-  let capturedDir: string | undefined;
-  const e2e = async () => {
-    throw new Error("must not be called for target 'code'");
-  };
-  const code = async (dir: string) => {
-    capturedDir = dir;
-  };
-  const adapter = new SetupPortAdapter({ e2e, code }, { target: "code" });
-
-  await adapter.setup("/mirrors/org/app");
-
-  assert.equal(capturedDir, "/mirrors/org/app");
 });
 
 test("setup() forwards an AbortSignal into the e2e collaborator", async () => {
@@ -48,20 +33,6 @@ test("setup() forwards an AbortSignal into the e2e collaborator", async () => {
   await adapter.setup("/mirrors/org/app/e2e", controller.signal);
 
   assert.equal(capturedSignal, controller.signal, "the SAME AbortSignal instance passed to setup() must reach the e2e collaborator, not be dropped at the adapter");
-});
-
-test("setup() forwards an AbortSignal into the code collaborator", async () => {
-  const controller = new AbortController();
-  let capturedSignal: AbortSignal | undefined;
-  const e2e = async () => {};
-  const code = async (_dir: string, opts?: { signal?: AbortSignal }) => {
-    capturedSignal = opts?.signal;
-  };
-  const adapter = new SetupPortAdapter({ e2e, code }, { target: "code" });
-
-  await adapter.setup("/mirrors/org/app", controller.signal);
-
-  assert.equal(capturedSignal, controller.signal, "the SAME AbortSignal instance passed to setup() must reach the code collaborator, not be dropped at the adapter");
 });
 
 test("setup() with no signal at all leaves opts.signal undefined (no fabricated AbortSignal)", async () => {
@@ -87,12 +58,3 @@ test("setup() propagates a throw from the e2e collaborator verbatim (never swall
   await assert.rejects(() => adapter.setup("/mirrors/org/app/e2e"), /npm ci failed/);
 });
 
-test("setup() propagates a throw from the code collaborator verbatim (never swallowed)", async () => {
-  const e2e = async () => {};
-  const code = async () => {
-    throw new Error("code-mode install timeout after 600000ms");
-  };
-  const adapter = new SetupPortAdapter({ e2e, code }, { target: "code" });
-
-  await assert.rejects(() => adapter.setup("/mirrors/org/app"), /timeout/);
-});

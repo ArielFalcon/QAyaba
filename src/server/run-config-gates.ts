@@ -7,7 +7,7 @@ import type { AppConfig } from "../orchestrator/config-loader";
 
 /* The run_spec loop and the authenticated browser exist only for an e2e run of an app with a DEV address. */
 export function toolsApply(target: TestTarget, app: Pick<AppConfig, "dev">): boolean {
-  return target !== "code" && Boolean(app.dev?.baseUrl);
+  return Boolean(app.dev?.baseUrl);
 }
 
 /* The service-topology collaborator and cross-repo impact (the "stitcher") are wired only for an app with services and declared boundaries. */

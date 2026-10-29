@@ -22,7 +22,7 @@ contract schema names are in (parens).
 
 | Need | Endpoint | Status | Notes |
 |---|---|---|---|
-| Watched apps (sidebar, fleet) | `GET /api/v1/apps` → `AppView[]` | ✓ | `AppView` lacks a human **`stack`** label ("Astro · Vercel") and a **`status`** is derived from `code`/`shadow`. |
+| Watched apps (sidebar, fleet) | `GET /api/v1/apps` → `AppView[]` | ✓ | `AppView` lacks a human **`stack`** label ("Astro · Vercel") and a **`status`** is derived from `shadow`. |
 | Model ids (generator/reviewer) | `GET /api/v1/agent/config` → `PublicAgentConfig` | ✓ wired | Console maps `models.generator`/`models.reviewer` from `assignments.primary.model` / `assignments.reviewer.model`. |
 | Auth | — | — | Static shell public at `/app`; `/api/v1/*` Bearer-protected. The console sends `credentials:'include'` + optional `Authorization`. |
 
@@ -81,7 +81,7 @@ contract schema names are in (parens).
 
 | Block | Data needed | Endpoint | Status |
 |---|---|---|---|
-| **Header / config rail** | `stack, status, target, repo, health, baseBranch, devUrl, gate, oracle, onFailure, shadow, coverageMode, coverageMin` | `GET /api/v1/apps/{name}` → `AppView` | ⚠ extend — `AppView` has `repo, baseUrl, code, shadow`. Missing **`stack`, `health`, `baseBranch`, `gate`, `oracle`, `onFailure`, `coverageMode`, `coverageMin`** (the watched-app config). Surface the app's `config/apps/<name>.yaml` here. |
+| **Header / config rail** | `stack, status, repo, health, baseBranch, devUrl, gate, oracle, onFailure, shadow, coverageMode, coverageMin` | `GET /api/v1/apps/{name}` → `AppView` | ⚠ extend — `AppView` has `repo, baseUrl, shadow`. Missing **`stack`, `health`, `baseBranch`, `gate`, `oracle`, `onFailure`, `coverageMode`, `coverageMin`** (the watched-app config). Surface the app's `config/apps/<name>.yaml` here. |
 | **Coverage keystone** | `coverage` ratio + `coverageMin` + `coverageSeries` + measured/unknown | `GET /api/v1/apps/{name}/trends` → `TrendsView.coverage{measured,ratio,minRatio,series}` | ✓ |
 | **Value-oracle keystone** | `value` + `valueSeries` (+ unknown state) | `TrendsView.valueOracle{measured,avgScore,series}` | ✓ |
 | **Verdict mix donut** | `vmix: [{v,n}]` | `TrendsView.verdictMix` | ✓ |
@@ -152,7 +152,7 @@ consumes them and normalizes to the UI's `{onStep,onPlan,onCase,onLog,onVerdict}
 
 | Action | Endpoint | Status |
 |---|---|---|
-| Trigger run (dialog) | `POST /api/v1/runs` (`CreateRunInput{app,target,mode,sha}`) → `CreateRunResult` | ✓ (`api.createRun`) |
+| Trigger run (dialog) | `POST /api/v1/runs` (`CreateRunInput{app,mode,sha}`) → `CreateRunResult` | ✓ (`api.createRun`) |
 | Cancel run | `DELETE /api/v1/runs/{id}` | ✓ (`api.cancelRun`) |
 | Ask about a run | `POST /api/v1/runs/{id}/ask` → `AskResponse` | ✓ (`api.ask`) |
 | Continue/re-run | `POST /api/v1/runs/{id}/continue` | ✓ wired — the run-detail "Re-run failed cases" button (offered only for a finished run with failed cases, the only runs the server continues) calls `api.continueRun`; on a new run id it reloads the fleet and follows the verdict via `queueVerdictWatch` (same flow as the trigger dialog); a refusal shows the server's reason. |

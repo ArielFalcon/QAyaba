@@ -189,9 +189,8 @@ export const RUNTIME_SIGNALS_LINES: readonly string[] = [
   `  required fields, error responses — not invented contracts).`,
 ];
 
-/* The diff of an authoring turn. Returns empty string for all non-diff modes, code mode, and re-generation passes (where the diff is already distilled in the grounding above and repeating it burns tokens). A lead's planning turn renders its own section from the change map (plan-diff-section.ts). */
+/* The diff of an authoring turn. Returns empty string for all non-diff modes and re-generation passes (where the diff is already distilled in the grounding above and repeating it burns tokens). A lead's planning turn renders its own section from the change map (plan-diff-section.ts). */
 export function buildDiffSection(input: OpencodeRunInput): string {
-  if (input.target === "code") return "";
   if (input.mode !== "diff") return "";
   if (isReGenTurn(input)) return "";
   return commitDiffBlock(input.diff);

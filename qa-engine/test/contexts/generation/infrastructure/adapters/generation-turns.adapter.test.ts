@@ -999,14 +999,6 @@ test("a signed-in auth seed leaves auth.setup.ts out of the generator prompt", a
   assert.ok(!prompt.includes("auth.setup.ts"));
 });
 
-test("a code-target run never renders the app login section, even with an unauthored seed", async () => {
-  const prompt = await generatorPromptFor({ e2eRelDir: "e2e", target: "code" }, { authSeedUnauthored: true });
-
-  assert.ok(prompt.length > 0, "the generator was prompted");
-  assert.doesNotMatch(prompt, /^## App login$/m);
-  assert.ok(!prompt.includes("auth.setup.ts"));
-});
-
 /* The step limit the agent runtime enforces reaches each input: the author's on every authoring call, the lead's on a planning turn.
    The resolver is the shell's; with none, or with no limit for a role, the input carries no key at all (absence is what
    tells a prompt not to state a limit). */

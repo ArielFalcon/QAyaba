@@ -7,7 +7,7 @@ import type { RunMode } from "../types";
 
 export interface WebhookDispatch {
   app: string;
-  target: "code" | "e2e";
+  target: "e2e";
   mode: RunMode;
   guidance?: string;
   triggerRepo?: string;
@@ -24,7 +24,7 @@ export async function resolveWebhookDispatch(
     m.role === "primary"
       ? {
           app: m.app.name,
-          target: m.app.code ? "code" : "e2e",
+          target: "e2e",
           mode: opts.mode,
           ...(opts.guidance !== undefined ? { guidance: opts.guidance } : {}),
           ...(opts.baseSha !== undefined ? { baseSha: opts.baseSha } : {}),

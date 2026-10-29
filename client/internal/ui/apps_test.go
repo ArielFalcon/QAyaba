@@ -112,7 +112,7 @@ func TestRepoStepViewMarksFrontendRepoDistinctly(t *testing.T) {
 
 func TestCreateInputSplitsFrontendAndServices(t *testing.T) {
 	sel := []repoRole{{"org/web", "frontend"}, {"org/svc-a", "service"}, {"org/svc-b", "service"}}
-	in := buildCreateInput(sel, "shop", "https://dev", "", "e2e", "qa", true, true, nil)
+	in := buildCreateInput(sel, "shop", "https://dev", "", "qa", true, true, nil)
 	if in.Repo != "org/web" {
 		t.Fatalf("frontend must be the primary Repo; got %q", in.Repo)
 	}
@@ -128,7 +128,7 @@ func TestCreateInputSplitsFrontendAndServices(t *testing.T) {
 }
 
 func TestCreateInputNoServicesWhenSingleFrontend(t *testing.T) {
-	in := buildCreateInput([]repoRole{{"org/only", "frontend"}}, "solo", "https://dev", "", "e2e", "qa", false, false, nil)
+	in := buildCreateInput([]repoRole{{"org/only", "frontend"}}, "solo", "https://dev", "", "qa", false, false, nil)
 	if in.Repo != "org/only" {
 		t.Fatalf("Repo=%q", in.Repo)
 	}
@@ -251,7 +251,7 @@ func TestSelectionSummaryShowsOffListRepos(t *testing.T) {
    locks the contract so the two never silently diverge. */
 func TestCreateInputTakesFirstFrontendWhenMultiplePresent(t *testing.T) {
 	sel := []repoRole{{"org/first", "frontend"}, {"org/second", "frontend"}}
-	in := buildCreateInput(sel, "shop", "https://dev", "", "e2e", "qa", true, true, nil)
+	in := buildCreateInput(sel, "shop", "https://dev", "", "qa", true, true, nil)
 	if in.Repo != "org/first" {
 		t.Fatalf("expected the first frontend to win; got %q", in.Repo)
 	}
@@ -459,7 +459,7 @@ func TestEnvBasicAndFormCanBeCollectedTogether(t *testing.T) {
 
 /* The edit form reuses the create form, so it shows the DEV Basic Auth fields. buildUpdateInput must thread env exactly like buildCreateInput: non-nil only when the caller passes a non-empty map (m.envVars()'s contract — basic auth on with a non-empty user), so an edit with auth left disabled sends no Env and never wipes creds already stored server-side. */
 func TestBuildUpdateInputCarriesEnvWhenBasicAuth(t *testing.T) {
-	in := buildUpdateInput("org/web", "https://dev", "", "e2e", "qa", true, true, map[string]string{"DEV_ENV_USER": "u", "DEV_ENV_PASS": "p"})
+	in := buildUpdateInput("org/web", "https://dev", "", "qa", true, true, map[string]string{"DEV_ENV_USER": "u", "DEV_ENV_PASS": "p"})
 	if in.Env == nil {
 		t.Fatal("edit input must carry env when basic auth is set")
 	}
@@ -469,7 +469,7 @@ func TestBuildUpdateInputCarriesEnvWhenBasicAuth(t *testing.T) {
 }
 
 func TestBuildUpdateInputOmitsEnvWhenNone(t *testing.T) {
-	in := buildUpdateInput("org/web", "https://dev", "", "e2e", "qa", true, true, nil)
+	in := buildUpdateInput("org/web", "https://dev", "", "qa", true, true, nil)
 	if in.Env != nil {
 		t.Fatalf("no env expected (must not wipe existing creds); got %+v", *in.Env)
 	}

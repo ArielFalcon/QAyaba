@@ -19,8 +19,8 @@ test("the request's lever wins over the app's setting, and the app's setting dec
 test("a lever that cannot take effect is not reported as applied", () => {
   const asked = { closedLoop: true, agentBrowser: true };
   assert.deepEqual(resolveRunConfig(app(), "e2e", asked, "metadata", { ...env, toolsGranted: false }).levers.closedLoop, false);
-  const code = resolveRunConfig(app({ code: true, dev: undefined }), "code", asked, "metadata", env).levers;
-  assert.deepEqual([code.closedLoop, code.agentBrowser], [null, null]);
+  const noDev = resolveRunConfig(app({ dev: undefined }), "e2e", asked, "metadata", env).levers;
+  assert.deepEqual([noDev.closedLoop, noDev.agentBrowser], [null, null]);
 });
 
 test("grounding and policy are what the run's app declares, with the engine's defaults where it declares nothing", () => {

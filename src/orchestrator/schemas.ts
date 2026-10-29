@@ -114,11 +114,7 @@ export const AppConfigSchema = z
         }),
       )
       .optional(),
-    /*
-     * `dev` is OPTIONAL: code-mode apps (code: true) test source-code logic with no
-     * web environment, so they have no DEV URL. The refine below enforces presence
-     * for e2e apps.
-     */
+    /* `dev` is the live site every run tests; the refine below requires it. */
     dev: z
       .object({
         baseUrl: z.url({ error: "dev.baseUrl must be a valid URL" }),
@@ -213,8 +209,8 @@ export const AppConfigSchema = z
       })
       .optional(),
     /*
-     * Extra origins for the package-manager and toolchain children (the e2e project's `npm ci`, a code-mode app's
-     * install and test command), on top of the registries in config/egress/registries.yaml: a private registry or mirror.
+     * Extra origins for the e2e project's `npm ci`, on top of the registries in config/egress/registries.yaml: a private
+     * registry or mirror.
      */
     egress: z.object({ installOrigins: OriginListSchema.optional() }).optional(),
     qa: z.object({
@@ -379,7 +375,6 @@ export const AppConfigSchema = z
         loginPath: LoginPathSchema.optional(),
       })
       .optional(),
-    code: z.boolean().optional(),
     /*
      * Stitcher → Generation seam: the app's declared cross-service call conventions
      * (HTTP boundary or event boundary). Absent -> undefined (no cross-service graph
@@ -393,21 +388,9 @@ export const AppConfigSchema = z
     }),
   })
 
-  .refine((c) => c.code === true || c.dev !== undefined, {
-    error: "dev is required unless code: true (code mode has no web environment)",
+  .refine((c) => c.dev !== undefined, {
+    error: "dev is required",
     path: ["dev"],
-  })
-  .refine((c) => !(c.code === true && (c.services?.length ?? 0) > 0), {
-    error: "services are only valid for e2e apps (code-mode apps have no E2E suite)",
-    path: ["services"],
-  })
-  .refine((c) => !(c.code === true && (c.boundaries?.length ?? 0) > 0), {
-    error: "boundaries are only valid for e2e apps (code-mode apps have no cross-service graph)",
-    path: ["boundaries"],
-  })
-  .refine((c) => !(c.code === true && c.auth !== undefined), {
-    error: "auth is only valid for e2e apps (code-mode apps have no browser session)",
-    path: ["auth"],
   })
   .refine((c) => c.auth?.kind !== "form" || (!!c.auth.usernameEnv && !!c.auth.passwordEnv), {
     error: "auth.kind form requires usernameEnv and passwordEnv",
@@ -455,7 +438,6 @@ export type { ManifestEntry as ValidatedManifestEntry } from "../../qa-engine/sr
 export const WebhookPayloadSchema = z.object({
   repo: z.string().min(1),
   sha: z.string().min(7),
-  target: z.enum(["e2e", "code"]).optional(),
   mode: z.enum(["diff", "complete", "exhaustive", "manual", "context"]).optional(),
   guidance: z.string().optional(),
 });

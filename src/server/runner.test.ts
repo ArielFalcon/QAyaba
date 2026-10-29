@@ -145,7 +145,7 @@ test("a run refused because the working copy's git dir is untrusted is finalized
   try {
     const id = enqueueTrackedRun(
       queue,
-      { app: "runner-untrusted-git-tree", sha: "abc1234", target: "code", mode: "diff", source: "webhook" },
+      { app: "runner-untrusted-git-tree", sha: "abc1234", target: "e2e", mode: "diff", source: "webhook" },
       { loadApp: cfg, engineFactory: () => port },
     );
     await queue.drain();
@@ -256,7 +256,6 @@ test("no bootstrap is queued for a public app, an app that already holds a verif
   assert.equal(none(frozen), 0, "a campaign controls warmth itself");
 
   const other = bootstrapRig();
-  other.run("runner-boot-code", { target: "code" });
   other.run("runner-boot-context", { mode: "context" });
   other.run("runner-boot-service", { triggerRepo: "org/service" });
   other.run("runner-boot-continue", { parentRunId: "run-earlier" });
@@ -421,7 +420,7 @@ test("the runner passes req.target to engineFactory's 3rd (run) argument", async
   let receivedTarget: string | undefined;
   const id = enqueueTrackedRun(
     queue,
-    { app: "runner-target-code", sha: "def5678", target: "code", mode: "diff", source: "manual" },
+    { app: "runner-target-e2e", sha: "def5678", target: "e2e", mode: "diff", source: "manual" },
     {
       loadApp: cfg,
       engineFactory: (_appConfig, _namespace, run) => {
@@ -432,7 +431,7 @@ test("the runner passes req.target to engineFactory's 3rd (run) argument", async
   );
   await queue.drain();
   assert.equal(getHistory().runs.getRecord(id)!.verdict, "pass");
-  assert.equal(receivedTarget, "code", "engineFactory must receive req.target — YAML code:true is only the default when --target is omitted");
+  assert.equal(receivedTarget, "e2e", "engineFactory must receive req.target");
 });
 
 test("engineFactory's run.guidance is absent (not an empty string) when req.guidance is omitted", async () => {
@@ -1813,7 +1812,6 @@ test("no rebuild runs when the map fits, for a run that cannot use a map, when t
 
   const others = mapRig(async () => true);
   others.run("runner-map-others", { mode: "context" });
-  others.run("runner-map-others", { target: "code" });
   others.run("runner-map-others", { triggerRepo: "org/svc" });
   others.run("runner-map-others", { purpose: "login-bootstrap", mode: "manual" });
   await others.queue.drain();
@@ -1958,14 +1956,13 @@ test("a push that lands after the run started queues a run of its own", async ()
   assert.equal(rig.calls[0]!.changeSet.entries.length, 1);
 });
 
-test("a manual run, a guided run and a code-target run never join a queued run", async () => {
+test("a manual run and a guided run never join a queued run", async () => {
   const rig = coalescingRig("coalesce-refused");
   const first = enqueueTrackedRun(rig.queue, frontPush(rig.app), rig.deps);
   const manual = enqueueTrackedRun(rig.queue, { ...servicePush(rig.app), source: "manual" }, rig.deps);
   const guided = enqueueTrackedRun(rig.queue, { ...servicePush(rig.app), guidance: "test the form" }, rig.deps);
-  const code = enqueueTrackedRun(rig.queue, { ...servicePush(rig.app), target: "code" }, rig.deps);
 
-  assert.equal(new Set([first, manual, guided, code]).size, 4);
+  assert.equal(new Set([first, manual, guided]).size, 3);
   rig.release();
   await rig.queue.drain();
 });

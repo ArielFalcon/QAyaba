@@ -124,9 +124,9 @@ test("the sample carries a diff first pass with no listing, a regeneration of ev
   for (const target of DIMENSIONS.target) assert.ok(specs.some((s) => s.suite === "listed" && s.mode === "exhaustive" && s.phase === "regen-fix" && s.target === target), `${target}: an exhaustive fix over the cap`);
 });
 
-test("the sample carries the worst case of a listing for each regeneration that cannot say which spec to change, in the targets that have it", () => {
+test("the sample carries the worst case of a listing for each regeneration that cannot say which spec to change", () => {
   const worst = sampleSpecs().filter((s) => s.suite === "large");
-  for (const [phase, target] of [["regen-coverage", "e2e"], ["regen-coverage", "code"], ["selector-fix", "e2e"]] as const) {
+  for (const [phase, target] of [["regen-coverage", "e2e"], ["selector-fix", "e2e"]] as const) {
     assert.ok(worst.some((s) => s.phase === phase && s.target === target), `${phase}, ${target}`);
   }
 });

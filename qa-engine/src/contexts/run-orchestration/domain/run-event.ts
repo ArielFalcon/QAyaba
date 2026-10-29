@@ -6,7 +6,7 @@ export type { AgentRole, RoleAssignment, AgentProvider } from "../../../shared-k
 const RunVerdictSchema = z.enum(["pass", "fail", "flaky", "invalid", "infra-error", "skipped"]);
 const RunEngineStatusSchema = z.enum(["success", "error"]);
 const RunModeSchema = z.enum(["diff", "complete", "exhaustive", "manual", "context"]);
-const TestTargetSchema = z.enum(["e2e", "code"]);
+const TestTargetSchema = z.enum(["e2e"]);
 const RunStepSchema = z.enum([
   "gate", "classify", "setup", "generate", "validate", "health", "execute", "coverage", "retry", "decide", "done",
 ]);

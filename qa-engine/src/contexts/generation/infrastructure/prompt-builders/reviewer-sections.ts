@@ -51,7 +51,7 @@ export interface BuildReviewerPromptOpts {
 export function deriveReviewerContext(input: ReviewInput, opts: ReviewerContextOpts = {}): ReviewerContext {
   const changeType = input.intent?.type ?? input.mode;
   const { text: specBlock, contents: specContents } = reviewSpecsOutcome(input, { asReferences: opts.specsAsReferences === true });
-  const kind = input.target === "code" ? "tests" : "E2E tests";
+  const kind = "E2E tests";
   const obj = reviewObjective(input);
   return { input, changeType, specBlock, specContents, kind, obj, degraded: new Set() };
 }

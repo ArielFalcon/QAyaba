@@ -21,16 +21,13 @@ export class ValidationPortAdapter implements ValidationPort {
   ) {}
 
   async validate(specDir: string, changedFiles?: string[], _run?: ValidationRunInfo): Promise<{ ok: boolean; errors: string[]; infra?: boolean }> {
-    const result =
-      this.ctx.target === "code"
-        ? await this.strategies.code.validate(specDir, changedFiles)
-        : await this.strategies.e2e.validateAll(specDir);
+    const result = await this.strategies.e2e.validateAll(specDir);
     return { ok: result.ok, errors: result.errors, infra: result.infra };
   }
 
   /* Only the e2e gate has a linter with fixes of its own. */
   async autofix(specDir: string, run: ValidationRunInfo): Promise<string[]> {
-    if (this.ctx.target === "code" || !this.strategies.e2e.autofix) return [];
+    if (!this.strategies.e2e.autofix) return [];
     return await this.strategies.e2e.autofix(specDir, run.deliveredSpecs ?? []);
   }
 }

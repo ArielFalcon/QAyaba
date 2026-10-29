@@ -57,7 +57,7 @@ export interface EfficiencyBenchmarkCase {
 const HEX_COMMIT_ID = /^[0-9a-f]{7,40}$/i;
 
 const RUN_MODES: ReadonlySet<string> = new Set<RunMode>(["diff", "complete", "exhaustive", "manual", "context"]);
-const TEST_TARGETS: ReadonlySet<string> = new Set<TestTarget>(["e2e", "code"]);
+const TEST_TARGETS: ReadonlySet<string> = new Set<TestTarget>(["e2e"]);
 const SIZE_CLASSES: ReadonlySet<string> = new Set<string>(DIFF_TIER_NAMES);
 
 function isDiffTier(value: unknown): value is DiffTier {

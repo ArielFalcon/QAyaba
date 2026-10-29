@@ -73,6 +73,11 @@ export const BANNED_RULES: BannedRule[] = [
     ],
     exemptPrefixes: [RECORDS_PREFIX],
   },
+  {
+    id: "code-target",
+    patterns: [/--target\s+["']?code\b/, /^\s*#?\s*code:\s*true\s*$/, /\bisCodeApp\b/],
+    exemptPrefixes: [RECORDS_PREFIX],
+  },
   { id: "shell-dead-run-types", patterns: [/\bAgentResult\b/], exemptPrefixes: [RECORDS_PREFIX] },
   { id: "shell-events-reexport", patterns: [/\bsrc\/contract\/events(?:\.ts)?(?![\w.-])/], exemptPrefixes: [RECORDS_PREFIX] },
   {

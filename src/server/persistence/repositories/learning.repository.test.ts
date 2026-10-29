@@ -121,8 +121,8 @@ test("scorecard persists oracle outcomes and aggregates valueScore across runs",
      APPENDS (by design), so a fixed app name would accumulate entries and break absolute counts.
    */
   const app = `hist-sc-${Date.now().toString(36)}`;
-  getHistory().learning.saveScorecardEntry({ runId: "r1", app, sha: "s1", target: "code", valueScore: 0.5, mutantCount: 10, killedCount: 5, at: "t1" });
-  getHistory().learning.saveScorecardEntry({ runId: "r2", app, sha: "s2", target: "code", valueScore: 0.7, mutantCount: 10, killedCount: 7, at: "t2" });
+  getHistory().learning.saveScorecardEntry({ runId: "r1", app, sha: "s1", target: "e2e", valueScore: 0.5, mutantCount: 10, killedCount: 5, at: "t1" });
+  getHistory().learning.saveScorecardEntry({ runId: "r2", app, sha: "s2", target: "e2e", valueScore: 0.7, mutantCount: 10, killedCount: 7, at: "t2" });
   const sc = getHistory().learning.loadScorecard(app);
   assert.ok(sc, "scorecard should exist");
   assert.equal(sc!.entries.length, 2);

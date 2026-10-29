@@ -103,11 +103,7 @@ test("the suite is restored after the checkout and before the project setup", as
   assert.deepEqual(r.events.slice(0, 3), ["prepare", "restore", "setup"]);
 });
 
-test("a code run, a context run and a run that ends at classification never touch the e2e suite store", async () => {
-  const code = rig();
-  await new RunQaUseCase(code.deps(withConfig({ isCode: true }))).run({ ...INPUT, target: "code" });
-  assert.equal(code.events.includes("restore") || code.events.includes("capture"), false, "code");
-
+test("a context run and a run that ends at classification never touch the e2e suite store", async () => {
   const context = rig();
   await new RunQaUseCase(context.deps({ ...served({ author: async () => scriptedGeneration({ specs: [".qa/context.json"], note: "map" }) }) })).run({ ...INPUT, mode: "context" });
   assert.equal(context.events.includes("restore") || context.events.includes("capture"), false, "context");

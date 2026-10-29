@@ -62,13 +62,13 @@ test("loadEfficiencyBenchmarkCases: accepts the optional baseSha/mode/target/gui
   writeFileSync(
     goodPath,
     JSON.stringify([
-      { name: "full-case", app: "demo", sha: "abc1234", baseSha: "def5678", mode: "manual", target: "code", guidance: "test checkout" },
+      { name: "full-case", app: "demo", sha: "abc1234", baseSha: "def5678", mode: "manual", target: "e2e", guidance: "test checkout" },
     ]),
   );
   const cases = loadEfficiencyBenchmarkCases(goodPath);
   assert.equal(cases[0]?.baseSha, "def5678");
   assert.equal(cases[0]?.mode, "manual");
-  assert.equal(cases[0]?.target, "code");
+  assert.equal(cases[0]?.target, "e2e");
   assert.equal(cases[0]?.guidance, "test checkout");
 });
 

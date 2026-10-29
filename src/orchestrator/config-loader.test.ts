@@ -38,17 +38,6 @@ report:
   onFailure: "github-issue"
 `;
 
-const ORDERS_CODE = `
-name: "orders"
-repo: "org/orders-svc"
-code: true
-qa:
-  needsReview: false
-  testDataPrefix: "qa-orders"
-report:
-  onFailure: "github-issue"
-`;
-
 describe_loadAppConfig();
 
 function describe_loadAppConfig(): void {
@@ -156,6 +145,30 @@ report:
       assert.match(unknown[0]?.message ?? "", /'shop'/);
       assert.match(unknown[0]?.message ?? "", /'typo_key'/);
       assert.ok(!JSON.stringify(unknown[0]).includes("s3cr3t-unknown-value"));
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("loadAppConfig warns that the retired code key is ignored and still loads the e2e app that carries it", () => {
+    const lines = captureWarnings();
+    const { root } = loadWith("code: true\n");
+    try {
+      assert.equal(loadAppConfig("shop", root).repo, "org/shop-front");
+      const unknown = lines.filter((l) => /unknown key/.test(l.message));
+      assert.equal(unknown.length, 1);
+      assert.match(unknown[0]?.message ?? "", /'code'/);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("loadAppConfig refuses an app that declared code: true and has no dev block", () => {
+    captureWarnings();
+    const noDev = VALID_APP.replace('dev:\n  baseUrl: "https://dev.shop.io"\n', "").replace('services:\n  - repo: "org/orders-svc"\n', "");
+    const root = makeRoot({ "shop.yaml": `${noDev}code: true\n` });
+    try {
+      assert.throws(() => loadAppConfig("shop", root), (err) => err instanceof AppConfigInvalidError && /dev is required/.test(err.reason));
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

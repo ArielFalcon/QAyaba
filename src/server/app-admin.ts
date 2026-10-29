@@ -9,7 +9,6 @@ import { AppConfigInvalidError, AppNotFoundError, expandEnv, type AppConfig } fr
 import { buildYaml, suggestName, type OnboardAuthInput, type OnboardInput, type OnboardServiceInput } from "./onboard";
 import { patchAppYaml } from "./onboarding/patch-app-yaml";
 import type { RepoInfo } from "../integrations/github";
-import type { TestTarget } from "../types";
 
 const NAME_RE = /^[a-z0-9][a-z0-9-]*$/;
 
@@ -38,7 +37,6 @@ export interface CreateAppInput {
   name?: string;
   baseUrl?: string;
   versionUrl?: string;
-  target?: TestTarget;
   needsReview?: boolean;
   shadow?: boolean;
   testDataPrefix?: string;
@@ -54,7 +52,6 @@ export interface UpdateAppInput {
   repo?: string;
   baseUrl?: string;
   versionUrl?: string;
-  target?: TestTarget;
   needsReview?: boolean;
   shadow?: boolean;
   testDataPrefix?: string;
@@ -97,7 +94,6 @@ export async function createApp(input: CreateAppInput, deps: AppAdminDeps): Prom
     baseBranch: repoInfo.defaultBranch,
     baseUrl: input.baseUrl || `https://github.com/${repoInfo.fullName}`,
     versionUrl: input.versionUrl || undefined,
-    target: input.target ?? "e2e",
     needsReview: input.needsReview ?? true,
     shadow: input.shadow ?? true,
     testDataPrefix: input.testDataPrefix || "qa-bot",
@@ -163,7 +159,6 @@ export async function updateApp(input: UpdateAppInput, deps: AppAdminDeps): Prom
       ...(repoInfo ? { repo: repoInfo.fullName, baseBranch: repoInfo.defaultBranch } : {}),
       ...(input.baseUrl !== undefined ? { baseUrl: input.baseUrl } : {}),
       ...(input.versionUrl !== undefined ? { versionUrl: input.versionUrl } : {}),
-      ...(input.target !== undefined ? { target: input.target } : {}),
       ...(input.needsReview !== undefined ? { needsReview: input.needsReview } : {}),
       ...(input.shadow !== undefined ? { shadow: input.shadow } : {}),
       ...(input.testDataPrefix !== undefined ? { testDataPrefix: input.testDataPrefix } : {}),

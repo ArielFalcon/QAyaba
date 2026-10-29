@@ -3,7 +3,7 @@
  * manual run is queued, recorded in history and addressable. It then drains the queue and
  * exits with the run's verdict.
  * npm run qa -- --app <app> --sha <sha> [--mode diff|complete|exhaustive|manual|context]
- * [--target e2e|code] [--guidance "..."] [--closed-loop on|off]
+ * [--guidance "..."] [--closed-loop on|off]
  * [--agent-browser on|off] [--dom-pack on|off]
  * npm run qa -- --app <app> --learning   → show learning state (outcomes, rules, curriculum)
  * IMPORTANT: this CLI uses its OWN in-process queue. If the long-lived service is also
@@ -29,7 +29,7 @@ import { LEARNING_RULE_LEDGER_LIMIT } from "./server/persistence/repositories/le
 import { CURRICULUM_CORRUPT } from "@contexts/cross-run-learning/application/index";
 import { loadAppConfig } from "./orchestrator/config-loader";
 import { resolveValueOraclePolicy } from "./orchestrator/schemas";
-import { RUN_MODES, RunMode, TestTarget } from "./types";
+import { RUN_MODES, RunMode } from "./types";
 import { runSucceeded } from "./cli-exit";
 import type { GroundingInput } from "./contract/commands";
 import { renderRunReport } from "./qa/value-report";
@@ -110,13 +110,12 @@ function cliApiToken(): string | undefined {
 /** The run handed to the service. Carries --base-sha so the delegated run's diff spans the same range the standalone CLI and the webhook use. */
 export function delegateRunInput(
   args: { app: string; sha: string; baseSha?: string; mode: RunMode; guidance?: string; closedLoop?: boolean; agentBrowser?: boolean; domPack?: boolean },
-  target: TestTarget,
 ): DelegateRunInput {
   return {
     app: args.app,
     sha: args.sha,
     ...(args.baseSha ? { baseSha: args.baseSha } : {}),
-    target,
+    target: "e2e",
     mode: args.mode,
     guidance: args.guidance,
     ...(args.closedLoop !== undefined ? { closedLoop: args.closedLoop } : {}),
@@ -133,11 +132,9 @@ function groundingOf(args: { domPack?: boolean }): { grounding?: GroundingInput 
   return Object.keys(grounding).length > 0 ? { grounding } : {};
 }
 
-async function runViaService(args: { app: string; sha: string; baseSha?: string; mode: RunMode; target?: TestTarget; guidance?: string; closedLoop?: boolean; agentBrowser?: boolean; domPack?: boolean }): Promise<void> {
+async function runViaService(args: { app: string; sha: string; baseSha?: string; mode: RunMode; guidance?: string; closedLoop?: boolean; agentBrowser?: boolean; domPack?: boolean }): Promise<void> {
   const port = cliSettings().server.port;
   const baseUrl = `http://localhost:${port}`;
-  const appCfg = loadAppConfig(args.app);
-  const target = args.target ?? (appCfg.code ? "code" : "e2e");
   console.log("[qa] the service is running — delegating this run to it (one queue against DEV; watch it live in the TUI).");
   /*
    * Explicitly typed: the catch terminates via process.exit, so result is always assigned past the
@@ -146,7 +143,7 @@ async function runViaService(args: { app: string; sha: string; baseSha?: string;
   let result: DelegateRunResult;
   try {
     result = await delegateRun(
-      delegateRunInput(args, target),
+      delegateRunInput(args),
       {
         fetch,
         baseUrl,
@@ -203,17 +200,12 @@ async function main(): Promise<void> {
      * on an empty stream.
      */
     const runEvents = createDurableRunEventStore();
-    /*
-     * When --target is not given, derive it from the app config: a `code: true` app must run
-     * code mode (running e2e against it would hit the no-dev defensive infra-error).
-     */
     const appCfg = loadAppConfig(args.app);
-    const target = args.target ?? (appCfg.code ? "code" : "e2e");
     const id = enqueueTrackedRun(queue, {
       app: args.app,
       sha: args.sha,
       baseSha: args.baseSha,
-      target,
+      target: "e2e",
       mode: args.mode,
       guidance: args.guidance,
       source: "manual",
@@ -280,12 +272,10 @@ function printRunReport(record: RunRecord, appCfg: ReturnType<typeof loadAppConf
   console.log("\n" + report + "\n");
 }
 
-const TARGETS: TestTarget[] = ["e2e", "code"];
-
 /** Every flag the CLI reads; any other is refused rather than silently ignored. */
-const KNOWN_FLAGS: ReadonlySet<string> = new Set(["app", "sha", "base-sha", "mode", "target", "guidance", "closed-loop", "agent-browser", "dom-pack", "learning"]);
+const KNOWN_FLAGS: ReadonlySet<string> = new Set(["app", "sha", "base-sha", "mode", "guidance", "closed-loop", "agent-browser", "dom-pack", "learning"]);
 
-export function parseArgs(argv: string[]): { app: string; sha: string; baseSha?: string; mode: RunMode; target?: TestTarget; guidance?: string; closedLoop?: boolean; agentBrowser?: boolean; domPack?: boolean; learning: boolean } {
+export function parseArgs(argv: string[]): { app: string; sha: string; baseSha?: string; mode: RunMode; guidance?: string; closedLoop?: boolean; agentBrowser?: boolean; domPack?: boolean; learning: boolean } {
   const out: Record<string, string> = {};
   let learning = false;
   for (let i = 0; i < argv.length; i++) {
@@ -300,7 +290,7 @@ export function parseArgs(argv: string[]): { app: string; sha: string; baseSha?:
   }
   if (!learning && (!out.app || !out.sha)) {
     console.error(
-      `Usage: npm run qa -- --app <app> --sha <sha> [--base-sha <sha>] [--mode ${RUN_MODES.join("|")}] [--target e2e|code] [--guidance "..."] [--closed-loop on|off] [--agent-browser on|off] [--dom-pack on|off]`,
+      `Usage: npm run qa -- --app <app> --sha <sha> [--base-sha <sha>] [--mode ${RUN_MODES.join("|")}] [--guidance "..."] [--closed-loop on|off] [--agent-browser on|off] [--dom-pack on|off]`,
     );
     console.error('       npm run qa -- --app <app> --learning');
     process.exit(2);
@@ -310,8 +300,6 @@ export function parseArgs(argv: string[]): { app: string; sha: string; baseSha?:
     process.exit(2);
   }
   const mode = (RUN_MODES as readonly string[]).includes(out.mode ?? "") ? (out.mode as RunMode) : "diff";
-  /* Undefined when not passed → the caller derives it from the app config (code vs e2e). */
-  const target = (TARGETS as string[]).includes(out.target ?? "") ? (out.target as TestTarget) : undefined;
   /* The run's own choice about the run_spec loop; absent unless given, so the app's setting decides. */
   const closedLoop = out["closed-loop"] === "on" ? true : out["closed-loop"] === "off" ? false : undefined;
   if (out["closed-loop"] !== undefined && closedLoop === undefined) {
@@ -330,7 +318,7 @@ export function parseArgs(argv: string[]): { app: string; sha: string; baseSha?:
     console.error('--dom-pack takes "on" or "off"');
     process.exit(2);
   }
-  return { app: out.app ?? "", sha: out.sha ?? "", baseSha: out["base-sha"] || undefined, mode, target, guidance: out.guidance, ...(closedLoop !== undefined ? { closedLoop } : {}), ...(agentBrowser !== undefined ? { agentBrowser } : {}), ...(domPack !== undefined ? { domPack } : {}), learning };
+  return { app: out.app ?? "", sha: out.sha ?? "", baseSha: out["base-sha"] || undefined, mode, guidance: out.guidance, ...(closedLoop !== undefined ? { closedLoop } : {}), ...(agentBrowser !== undefined ? { agentBrowser } : {}), ...(domPack !== undefined ? { domPack } : {}), learning };
 }
 
 function showLearning(app: string): void {

@@ -73,11 +73,9 @@ auth:`,
 const ALIGNED = CONFIG.replace('repo: "org/demo" # primary repo', 'repo: "org/demo"      # primary repo');
 const ALIGNED_WITH_SERVICES = WITH_SERVICES.replace('repo: "org/demo" # primary repo', 'repo: "org/demo"      # primary repo');
 
-const CODE_CONFIG = `name: "lib"
+const NO_DEV_CONFIG = `name: "lib"
 repo: "org/lib"
 baseBranch: "main"
-
-code: true
 
 qa:
   needsReview: true
@@ -171,7 +169,7 @@ test("auth: supplied keys overwrite, absent keys are kept, and keys the patcher 
 });
 
 test("auth: a form login added to a config that had none is written under a blank line", () => {
-  const out = patchAppYaml(CODE_CONFIG.replace("code: true\n\n", ""), {
+  const out = patchAppYaml(NO_DEV_CONFIG, {
     baseUrl: "https://dev.demo.example",
     auth: { kind: "form", usernameEnv: "NEW_USER", passwordEnv: "NEW_PASS" },
   });
@@ -226,30 +224,6 @@ test("clearAuth removes the auth block and leaves the rest alone", () => {
   const out = patchAppYaml(CONFIG, { clearAuth: true });
   assert.equal(raw(out)["auth"], undefined);
   assert.equal(out, CONFIG.replace(/auth:\n {2}kind: form\n {2}usernameEnv: DEMO_USER\n {2}passwordEnv: DEMO_PASS\n {2}futureOption: keep-me\n\n/, ""));
-});
-
-test("a code target sets code: true and drops the keys a code app cannot have", () => {
-  const out = patchAppYaml(WITH_SERVICES, { target: "code" });
-  const cfg = raw(out);
-  assert.equal(cfg["code"], true);
-  assert.equal(cfg["auth"], undefined);
-  assert.equal(cfg["services"], undefined);
-  assert.equal((cfg["dev"] as Record<string, unknown>)["versionUrl"], undefined);
-  assert.ok(out.includes("baseUrl: ${DEMO_DEV_URL}"));
-  assert.deepEqual(cfg["boundaries"], raw(CONFIG)["boundaries"]);
-});
-
-test("an auth or services patch on a code app is not written", () => {
-  const out = patchAppYaml(CODE_CONFIG, { auth: { kind: "form", usernameEnv: "X_USER", passwordEnv: "X_PASS" }, services: [{ repo: "org/svc" }] });
-  assert.equal(out, CODE_CONFIG);
-});
-
-test("an e2e target on a code app removes code: true and writes the DEV url it was given", () => {
-  const out = patchAppYaml(CODE_CONFIG, { target: "e2e", baseUrl: "https://dev.demo.example" });
-  const cfg = raw(out);
-  assert.equal(cfg["code"], undefined);
-  assert.equal((cfg["dev"] as Record<string, unknown>)["baseUrl"], "https://dev.demo.example");
-  assert.equal(load(out).code, undefined);
 });
 
 test("services: the supplied list is the list, and a kept service keeps the keys the patcher does not manage", () => {
@@ -381,23 +355,6 @@ test("a value equal to the expansion under any of the environments given is not 
   assert.equal(patchAppYaml(PLACEHOLDER_CONFIG, { baseUrl: PLACEHOLDER_ENV.DEMO_DEV_URL }, { expandWith: [{}, PLACEHOLDER_ENV] }), PLACEHOLDER_CONFIG);
 });
 
-test("a code flag written as a placeholder is read through its expansion when the target is resent", () => {
-  const config = CODE_CONFIG.replace("code: true", "code: ${DEMO_CODE}");
-  const codeOn = { expandWith: [{ DEMO_CODE: "true" }] };
-  const codeOff = { expandWith: [{ DEMO_CODE: "false" }] };
-  assert.equal(patchAppYaml(config, { target: "code" }, codeOn), config);
-  assert.equal(patchAppYaml(config, { target: "e2e" }, codeOff), config);
-  assert.equal(raw(patchAppYaml(config, { target: "e2e", baseUrl: "https://dev.demo.example" }, codeOn))["code"], undefined);
-  assert.equal(raw(patchAppYaml(config, { target: "code" }, codeOff))["code"], true);
-});
-
-test("a code flag written as a placeholder decides whether a version url applies when no target is supplied", () => {
-  const config = CODE_CONFIG.replace("code: true", "code: ${DEMO_CODE}");
-  assert.equal(patchAppYaml(config, { versionUrl: "https://dev.demo.example/version" }, { expandWith: [{ DEMO_CODE: "true" }] }), config);
-  const written = patchAppYaml(config, { versionUrl: "https://dev.demo.example/version" }, { expandWith: [{ DEMO_CODE: "false" }] });
-  assert.equal((raw(written)["dev"] as Record<string, unknown>)["versionUrl"], "https://dev.demo.example/version");
-});
-
 test("a value read through an alias is not a change when it equals the expansion, and replaces the alias when it does not", () => {
   const config = 'name: "demo"\nrepo: "org/demo"\nhost: &host ${DEMO_DEV_URL}\ndev:\n  baseUrl: *host\n';
   assert.equal(patchAppYaml(config, { baseUrl: PLACEHOLDER_ENV.DEMO_DEV_URL }, READ_WITH), config);
@@ -407,25 +364,21 @@ test("a value read through an alias is not a change when it equals the expansion
 });
 
 /* The library throws when a container above the key it writes or deletes is missing, empty or an alias. */
-test("a code app with no dev block takes the code target and an empty versionUrl without failing", () => {
-  assert.equal(patchAppYaml(CODE_CONFIG, { target: "code" }), CODE_CONFIG);
-  const tuned = CODE_CONFIG.replace("  needsReview: true\n", "  needsReview: true\n  shadow: true\n");
-  assert.equal(patchAppYaml(tuned, { target: "code", shadow: true, needsReview: true, testDataPrefix: "qa-lib" }), tuned);
-  const e2e = CODE_CONFIG.replace("code: true\n\n", "");
-  assert.equal(patchAppYaml(e2e, { versionUrl: "" }), e2e);
+test("a config with no dev block takes an empty versionUrl without failing", () => {
+  assert.equal(patchAppYaml(NO_DEV_CONFIG, { versionUrl: "" }), NO_DEV_CONFIG);
 });
 
 test("a config with no dev block takes a dev url and a version url", () => {
-  const e2e = CODE_CONFIG.replace("code: true\n\n", "");
+  const e2e = NO_DEV_CONFIG;
   const dev = raw(patchAppYaml(e2e, { baseUrl: "https://dev.demo.example", versionUrl: "https://dev.demo.example/version" }))["dev"];
   assert.deepEqual(dev, { baseUrl: "https://dev.demo.example", versionUrl: "https://dev.demo.example/version" });
 });
 
 test("a block with nothing under it takes the field written into it as a mapping", () => {
-  const bareQa = CODE_CONFIG.replace("qa:\n  needsReview: true\n  testDataPrefix: \"qa-lib\"\n", "qa:\n");
+  const bareQa = NO_DEV_CONFIG.replace("qa:\n  needsReview: true\n  testDataPrefix: \"qa-lib\"\n", "qa:\n");
   const out = patchAppYaml(bareQa, { shadow: true, testDataPrefix: "qa-lib" });
   assert.deepEqual(raw(out)["qa"], { shadow: true, testDataPrefix: "qa-lib" });
-  assert.deepEqual(raw(out)["report"], raw(CODE_CONFIG)["report"]);
+  assert.deepEqual(raw(out)["report"], raw(NO_DEV_CONFIG)["report"]);
 });
 
 test("a dev block with every child commented out takes the url and keeps the comment", () => {
@@ -501,7 +454,7 @@ test("a value that is itself an alias is removed or replaced, and the value it p
 });
 
 test("services: a list added to a config that had none is written under a blank line", () => {
-  const none = CODE_CONFIG.replace("code: true\n\n", "");
+  const none = NO_DEV_CONFIG;
   const out = patchAppYaml(none, { services: [{ repo: "org/svc-a", openapi: "api/*.yaml" }] });
   assert.deepEqual(raw(out)["services"], [{ repo: "org/svc-a", openapi: "api/*.yaml" }]);
   assert.match(out, /\n\nservices:\n/);

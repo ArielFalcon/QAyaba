@@ -89,7 +89,6 @@
   const STATUS_META = {
     live: { c: 'var(--pass-600)', bg: 'var(--pass-100)', ic: 'radio', label: 'live' },
     shadow: { c: 'var(--ink-700)', bg: 'var(--skip-100)', ic: 'eye', label: 'shadow' },
-    'code-mode': { c: 'var(--infra-600)', bg: 'var(--infra-100)', ic: 'terminal', label: 'code-mode' },
     idle: { c: 'var(--ink-400)', bg: 'var(--bone-200)', ic: 'pause', label: 'idle' },
   };
   const PHASE_COLORS = { classify: 'var(--ink-400)', generate: 'var(--ember-500)', validate: 'var(--flaky-500)', execute: 'var(--pass-500)', coverage: 'var(--infra-500)' };
@@ -369,17 +368,12 @@
         : '') + '</div>';
   }
   function AppFleetCard(app) {
-    const isCode = app.target === 'code';
     const valueBlock = app.value != null
       ? '<span style="' + sty({ fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 30, letterSpacing: '-0.02em', color: 'var(--text-strong)', lineHeight: 1 }) + '">' + app.value.toFixed(2) + '</span>' +
         '<span style="font-family:var(--font-mono);font-size:10.5px;color:var(--text-muted)">mutation kill-rate</span>'
       : '<span style="' + sty({ fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 26, letterSpacing: '-0.02em', color: 'var(--ink-400)', lineHeight: 1 }) + '">n/a</span>' +
-        '<span style="font-family:var(--font-mono);font-size:10.5px;color:var(--text-faint)">' + (isCode ? 'no mutation (java)' : 'oracle off') + '</span>';
-    const right = isCode
-      ? '<div style="' + sty({ width: 100, flex: 'none', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }) + '">' +
-        '<span style="' + sty({ display: 'inline-flex', width: 44, height: 44, alignItems: 'center', justifyContent: 'center', borderRadius: 'var(--radius-sm)', background: 'var(--infra-100)', color: 'var(--infra-600)' }) + '">' + I('terminal', 20) + '</span>' +
-        '<span style="font-family:var(--font-mono);font-size:9.5px;color:var(--text-faint);text-align:center;line-height:1.3">code target · exit-code</span></div>'
-      : CoverageGauge(app.coverage, app.coverageMin, 92, app.coverage == null ? 'bundled assets' : null);
+        '<span style="font-family:var(--font-mono);font-size:10.5px;color:var(--text-faint)">oracle off</span>';
+    const right = CoverageGauge(app.coverage, app.coverageMin, 92, app.coverage == null ? 'bundled assets' : null);
     return '<button class="fleet-card" data-action="open-app" data-id="' + esc(app.name) + '" style="' + sty({ display: 'flex', flexDirection: 'column', gap: 14, textAlign: 'left', padding: 0, border: 'var(--border-rule)', borderRadius: 'var(--radius-md)', background: 'var(--surface-raised)', cursor: 'pointer', overflow: 'hidden', transition: 'box-shadow var(--dur-base), border-color var(--dur-base), transform var(--dur-base)' }) + '">' +
       '<div style="display:flex;flex-direction:column;gap:14px;padding:15px 18px 0">' +
       '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px">' +
@@ -998,23 +992,19 @@
     const appEngram = D.engram.filter((e) => e.app === app.name);
 
     const policyCallout = Callout({
-      tone: app.target === 'code' ? 'note' : app.coverageMode === 'enforce' ? 'important' : 'note',
-      label: 'coverage policy · ' + (app.target === 'code' ? 'code target' : app.coverageMode),
+      tone: app.coverageMode === 'enforce' ? 'important' : 'note',
+      label: 'coverage policy · ' + app.coverageMode,
       icon: 'shield-half',
-      children: app.target === 'code'
-        ? "Code target — no deploy gate and no change-coverage. Verdicts are binary pass/fail from the repo's own test exit code; the mutation oracle runs only on JS/TS."
-        : app.coverageMode === 'enforce'
-          ? 'Change-coverage is <strong>enforcing</strong>: a PR is blocked unless the generated tests exercise the lines the commit changed (min ' + Math.round(app.coverageMin * 100) + '%).'
-          : app.coverageMode === 'signal'
-            ? 'Change-coverage runs in <strong>signal</strong> mode — measured and recorded, but not gating PRs' + (app.shadow ? '. Shadow mode: PRs and Issues are simulated, not real.' : '') + '.'
-            : 'Change-coverage is off for this app.',
+      children: app.coverageMode === 'enforce'
+        ? 'Change-coverage is <strong>enforcing</strong>: a PR is blocked unless the generated tests exercise the lines the commit changed (min ' + Math.round(app.coverageMin * 100) + '%).'
+        : app.coverageMode === 'signal'
+          ? 'Change-coverage runs in <strong>signal</strong> mode — measured and recorded, but not gating PRs' + (app.shadow ? '. Shadow mode: PRs and Issues are simulated, not real.' : '') + '.'
+          : 'Change-coverage is off for this app.',
     });
     const covKeystone = '<div style="background:var(--surface-raised);border:var(--border-rule);border-radius:var(--radius-md);overflow:hidden">' +
       '<div style="padding:13px 18px;border-bottom:var(--border-rule)">' + EYEBROW('keystone · change-coverage') +
       '<div style="font-family:var(--font-display);font-weight:700;font-size:15px;letter-spacing:-0.015em;color:var(--text-strong);margin-top:2px">Did the tests exercise the diff?</div></div>' +
-      (app.target === 'code'
-        ? '<div style="padding:18px">' + UnknownPanel('not applicable · code target', 'Code-target runs have no URL→source mapping. Trust here comes from the repo\'s own suite and the mutation oracle, not coverage.', 'terminal') + '</div>'
-        : '<div style="display:flex;align-items:center;gap:18px;padding:18px">' + CoverageGauge(app.coverage, app.coverageMin, 132, app.coverage == null ? 'bundled assets' : null) +
+      ('<div style="display:flex;align-items:center;gap:18px;padding:18px">' + CoverageGauge(app.coverage, app.coverageMin, 132, app.coverage == null ? 'bundled assets' : null) +
           '<div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:8px">' +
           (app.coverageSeries
             ? EYEBROW('coverage trend') + Sparkline(app.coverageSeries, { w: 200, h: 34, color: 'var(--pass-500)', responsive: true }) + '<span style="font-size:12px;color:var(--text-muted);line-height:1.4">Share of the commit\'s changed lines actually exercised by the generated tests — above the ' + Math.round(app.coverageMin * 100) + '% floor.</span>'
@@ -1029,7 +1019,7 @@
           '<span style="font-family:var(--font-mono);font-size:11px;color:var(--text-muted)">kill-rate</span></div>' +
           (app.valueSeries ? Sparkline(app.valueSeries, { w: 220, h: 34, color: 'var(--pass-500)', responsive: true }) : '') +
           '<span style="font-size:12px;color:var(--text-muted);line-height:1.4">Mutation kill-rate — the fraction of injected bugs the tests caught. The ground-truth that they verify behaviour, not just run green.</span></div>'
-        : '<div style="padding:18px">' + UnknownPanel('oracle not run', app.target === 'code' ? 'Java target — mutation testing runs only on JS/TS repos.' : 'The oracle is off in shadow mode for this app; promotion falls back to the prevention signal.', 'bug') + '</div>') + '</div>';
+        : '<div style="padding:18px">' + UnknownPanel('oracle not run', 'The oracle is off in shadow mode for this app; promotion falls back to the prevention signal.', 'bug') + '</div>') + '</div>';
     const vmixCard = Card({ eyebrow: 'composition', title: 'Verdict mix', children: '<div style="display:flex;align-items:center;gap:16px">' + VerdictDonut(app.vmix, 104) +
       '<div style="display:flex;flex-direction:column;gap:6px;min-width:0">' + app.vmix.map((s) => '<span style="display:inline-flex;align-items:center;gap:7px;font-family:var(--font-mono);font-size:11.5px;color:var(--text-body)"><span style="width:9px;height:9px;border-radius:2px;background:' + VERDICT_FILL[s.v] + ';flex:none"></span>' + esc(s.v) + '<span style="color:var(--text-faint);margin-left:auto">' + s.n + '</span></span>').join('') + '</div></div>' });
     const reviewerCard = Card({ eyebrow: 'independent review', title: 'Reviewer pass-rate', children: '<div style="display:flex;flex-direction:column;gap:6px">' +
@@ -1062,10 +1052,9 @@
       Card({ eyebrow: 'engram · ' + appEngram.length + ' lessons', title: 'What Qayaba knows', bodyPadding: false, children: '<div>' + (appEngram.length
         ? appEngram.map((e, i) => '<div style="' + sty({ display: 'flex', gap: 9, padding: '11px 18px', borderTop: i ? 'var(--border-rule)' : 0 }) + '">' + I('sparkles', 13, 'color:var(--ember-600);flex:none;margin-top:2px') + '<span style="font-size:12px;color:var(--text-body);line-height:1.45">' + esc(e.text) + '</span></div>').join('')
         : '<div style="padding:11px 18px;font-family:var(--font-mono);font-size:11.5px;color:var(--text-faint)">not available from the API yet</div>') + '</div>' }) + '</div>';
-    const targetChip = '<span style="' + sty({ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '3px 9px', borderRadius: 'var(--radius-xs)', border: '1px solid var(--bone-400)', fontFamily: 'var(--font-mono)', fontSize: 10.5, letterSpacing: '0.05em', textTransform: 'uppercase', color: 'var(--text-muted)' }) + '">' + I(app.target === 'code' ? 'terminal' : 'globe', 11) + esc(app.target) + '</span>';
     const header = '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px">' +
       '<div style="display:flex;flex-direction:column;gap:8px;min-width:0">' + EYEBROW(app.stack) +
-      '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><h2 style="' + sty({ fontSize: 26, fontWeight: 800, letterSpacing: '-0.025em', color: 'var(--text-strong)', margin: 0 }) + '">' + esc(app.name) + '</h2>' + StatusBadge(app.status) + targetChip + '</div>' +
+      '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><h2 style="' + sty({ fontSize: 26, fontWeight: 800, letterSpacing: '-0.025em', color: 'var(--text-strong)', margin: 0 }) + '">' + esc(app.name) + '</h2>' + StatusBadge(app.status) + '</div>' +
       '<div style="display:flex;align-items:center;gap:14px;font-family:var(--font-mono);font-size:12px"><span style="color:var(--text-muted)">' + esc(app.repo) + '</span>' +
       '<span style="display:inline-flex;align-items:center;gap:6px;color:var(--text-body)"><span style="width:8px;height:8px;border-radius:50%;background:' + (healthMap[app.health] || 'var(--bone-400)') + '"></span>' + esc(app.health) + '</span></div></div>' +
       '<div style="display:flex;gap:8px;flex:none">' + Button({ variant: 'ghost', size: 'sm', leadingIcon: 'settings-2', label: 'Configure' }) + Button({ variant: 'primary', size: 'sm', leadingIcon: 'play', label: 'Run QA', action: 'trigger' }) + '</div></div>';
@@ -1269,8 +1258,7 @@
       '<span class="fbtitle">' + I('sliders-horizontal', 13) + 'filters</span>' +
       fbSelect('window', ['last 64 runs', 'last 7d', 'last 30d', 'date range']) +
       fbSelect('app', ['all apps'].concat(D.apps.map((a) => a.name))) +
-      fbSelect('mode', ['all', 'diff', 'complete', 'exhaustive', 'manual', 'code']) +
-      fbSelect('target', ['all', 'e2e', 'code']) +
+      fbSelect('mode', ['all', 'diff', 'complete', 'exhaustive', 'manual']) +
       fbSelect('verdict', ['all', 'pass', 'fail', 'flaky', 'invalid', 'infra-error', 'skipped']) +
       '<span class="fbprev">' + I('git-compare-arrows', 13) + 'vs previous window</span>' +
       '<button class="fbexport">' + I('download', 13) + 'CSV · JSON</button></div>';

@@ -2,7 +2,7 @@
    (E2eExecutionStrategy / CodeExecutionStrategy), both implementing ExecutionStrategyPort.run(req).
    THIN — no new policy: this adapter only maps ExecutionPort.execute(specDir) onto the richer
    ExecutionRequest shape (baseUrl/namespace held as static per-run context) and selects the
-   strategy by target ("e2e" vs "code").
+   strategy.
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -55,22 +55,6 @@ test("execute() dispatches to E2eExecutionStrategy for target 'e2e' and forwards
   assert.equal((capturedOpts as { namespace: string }).namespace, "qa-bot-abc1234");
 });
 
-test("execute() dispatches to CodeExecutionStrategy for target 'code' (no baseUrl required)", async () => {
-  let called = false;
-  const e2e = new E2eExecutionStrategy(async () => ({ verdict: "pass", cases: [], logs: "" }));
-  const code = new CodeExecutionStrategy(async (repoDir, opts) => {
-    called = true;
-    return { verdict: "fail", cases: [{ name: "unit test A", status: "fail", detail: "AssertionError" }], logs: `code run ${repoDir} ns=${opts.namespace}` };
-  });
-  const adapter = new ExecutionPortAdapter({ e2e, code }, { target: "code", namespace: "qa-bot-def5678" });
-
-  const result = await adapter.execute("/mirrors/org/app");
-
-  assert.equal(called, true);
-  assert.equal(result.verdict, "fail");
-  assert.equal(result.cases.length, 1);
-});
-
 /* already forward ExecutionRequest.signal into runE2E/runCodeTests's own opts.signal — this
    adapter is the ONLY missing link. It must declare + forward the signal, or the queue's
    AbortSignal is silently dropped before it ever reaches Playwright/the code runner.
@@ -89,21 +73,6 @@ test("execute() forwards an AbortSignal into the e2e strategy's ExecutionRequest
   await adapter.execute("/mirrors/org/app/e2e", controller.signal);
 
   assert.equal(capturedSignal, controller.signal, "the SAME AbortSignal instance passed to execute() must reach the e2e strategy's ExecutionRequest.signal, not be dropped at the adapter");
-});
-
-test("execute() forwards an AbortSignal into the code strategy's ExecutionRequest", async () => {
-  const controller = new AbortController();
-  let capturedSignal: AbortSignal | undefined;
-  const e2e = new E2eExecutionStrategy(async () => ({ verdict: "pass", cases: [], logs: "" }));
-  const code = new CodeExecutionStrategy(async (_repoDir, opts) => {
-    capturedSignal = opts.signal;
-    return { verdict: "pass", cases: [], logs: "" };
-  });
-  const adapter = new ExecutionPortAdapter({ e2e, code }, { target: "code", namespace: "qa-bot-def5678" });
-
-  await adapter.execute("/mirrors/org/app", controller.signal);
-
-  assert.equal(capturedSignal, controller.signal, "the SAME AbortSignal instance passed to execute() must reach the code strategy's ExecutionRequest.signal, not be dropped at the adapter");
 });
 
 /* testIdAttribute must reach the e2e strategy so PW_TEST_ID_ATTRIBUTE is set for the verdictual
@@ -224,21 +193,6 @@ test("execute() forwards onCase/onRunning/onDiscovered live-progress callbacks i
   assert.deepEqual(seenDiscovered, [["checkout", "checkout.spec.ts"]]);
 });
 
-test("execute() does NOT forward specFiles to the code strategy (E2E-only concept, distinct from changedFiles)", async () => {
-  let capturedOpts: unknown;
-  const e2e = new E2eExecutionStrategy(async () => ({ verdict: "pass", cases: [], logs: "" }));
-  const code = new CodeExecutionStrategy(async (_repoDir, opts) => {
-    capturedOpts = opts;
-    return { verdict: "pass", cases: [], logs: "" };
-  });
-  const adapter = new ExecutionPortAdapter({ e2e, code }, { target: "code", namespace: "qa-bot-def5678" });
-
-  await adapter.execute("/mirrors/org/app", { specFiles: ["a.spec.ts"] });
-
-  assert.equal((capturedOpts as { changedFiles?: string[] }).changedFiles, undefined);
-  assert.equal((capturedOpts as { specFiles?: string[] }).specFiles, undefined);
-});
-
 /* The enforce-mode coverage regen re-executes under a DEDICATED namespace
    (`${runId}-coverage-regen`) so its coverage dumps never collide with / get shadowed by the first
    run's dumps. Without an override every call falls back to ctx.namespace (the static per-run
@@ -259,33 +213,14 @@ test("execute() forwards opts.namespace to the e2e strategy, overriding ctx.name
   assert.equal((capturedOpts as { namespace: string }).namespace, "qa-bot-abc1234-coverage-regen", "opts.namespace must override ctx.namespace for the e2e strategy");
 });
 
-test("execute() forwards opts.namespace to the code strategy, overriding ctx.namespace", async () => {
-  let capturedOpts: unknown;
-  const e2e = new E2eExecutionStrategy(async () => ({ verdict: "pass", cases: [], logs: "" }));
-  const code = new CodeExecutionStrategy(async (_repoDir, opts) => {
-    capturedOpts = opts;
-    return { verdict: "pass", cases: [], logs: "" };
-  });
-  const adapter = new ExecutionPortAdapter({ e2e, code }, { target: "code", namespace: "qa-bot-def5678" });
-
-  await adapter.execute("/mirrors/org/app", { namespace: "qa-bot-def5678-coverage-regen" });
-
-  assert.equal((capturedOpts as { namespace: string }).namespace, "qa-bot-def5678-coverage-regen", "opts.namespace must override ctx.namespace for the code strategy");
-});
-
-test("execute() falls back to ctx.namespace when opts.namespace is absent (backward compatible, both branches)", async () => {
+test("execute() falls back to ctx.namespace when opts.namespace is absent (backward compatible)", async () => {
   let e2eOpts: unknown;
-  let codeOpts: unknown;
   const e2e = new E2eExecutionStrategy(async (_specDir, opts) => { e2eOpts = opts; return { verdict: "pass", cases: [], logs: "" }; });
-  const code = new CodeExecutionStrategy(async (_repoDir, opts) => { codeOpts = opts; return { verdict: "pass", cases: [], logs: "" }; });
+  const code = new CodeExecutionStrategy(async () => ({ verdict: "pass", cases: [], logs: "" }));
 
   const e2eAdapter = new ExecutionPortAdapter({ e2e, code }, { target: "e2e", baseUrl: "https://dev.example.com", namespace: "qa-bot-abc1234" });
   await e2eAdapter.execute("/mirrors/org/app/e2e");
   assert.equal((e2eOpts as { namespace: string }).namespace, "qa-bot-abc1234");
-
-  const codeAdapter = new ExecutionPortAdapter({ e2e, code }, { target: "code", namespace: "qa-bot-def5678" });
-  await codeAdapter.execute("/mirrors/org/app");
-  assert.equal((codeOpts as { namespace: string }).namespace, "qa-bot-def5678");
 });
 
 test("execute() forwards a single-attempt, title-filtered run to the strategy and hands back the writes it counted", async () => {

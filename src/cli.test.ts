@@ -5,16 +5,16 @@ import { parseArgs, delegateRunInput } from "./cli";
 describe("delegateRunInput", () => {
   it("carries --base-sha into the run delegated to the service, so its diff spans the range like the standalone and webhook paths", () => {
     const args = parseArgs(["--app", "x", "--sha", "bbbb222", "--base-sha", "aaaa111", "--mode", "diff"]);
-    const input = delegateRunInput(args, "e2e");
+    const input = delegateRunInput(args);
     assert.equal(input.baseSha, "aaaa111");
     assert.equal(input.sha, "bbbb222");
     assert.equal(input.target, "e2e");
   });
 
   it("leaves baseSha out when --base-sha is not given (a single-commit run is unchanged)", () => {
-    const input = delegateRunInput(parseArgs(["--app", "x", "--sha", "bbbb222"]), "code");
+    const input = delegateRunInput(parseArgs(["--app", "x", "--sha", "bbbb222"]));
     assert.equal("baseSha" in input, false);
-    assert.equal(input.target, "code");
+    assert.equal(input.target, "e2e");
   });
 });
 
@@ -31,8 +31,8 @@ describe("--closed-loop", () => {
     assert.equal(parseArgs(["--app", "x", "--sha", "bbbb222", "--closed-loop", "off"]).closedLoop, false);
     const plain = parseArgs(["--app", "x", "--sha", "bbbb222"]);
     assert.equal("closedLoop" in plain, false);
-    assert.equal(delegateRunInput(parseArgs(["--app", "x", "--sha", "bbbb222", "--closed-loop", "off"]), "e2e").closedLoop, false);
-    assert.equal("closedLoop" in delegateRunInput(plain, "e2e"), false);
+    assert.equal(delegateRunInput(parseArgs(["--app", "x", "--sha", "bbbb222", "--closed-loop", "off"])).closedLoop, false);
+    assert.equal("closedLoop" in delegateRunInput(plain), false);
   });
 });
 
@@ -42,8 +42,8 @@ describe("--agent-browser", () => {
     assert.equal(parseArgs(["--app", "x", "--sha", "bbbb222", "--agent-browser", "off"]).agentBrowser, false);
     const plain = parseArgs(["--app", "x", "--sha", "bbbb222"]);
     assert.equal("agentBrowser" in plain, false);
-    assert.equal(delegateRunInput(parseArgs(["--app", "x", "--sha", "bbbb222", "--agent-browser", "off"]), "e2e").agentBrowser, false);
-    assert.equal("agentBrowser" in delegateRunInput(plain, "e2e"), false);
+    assert.equal(delegateRunInput(parseArgs(["--app", "x", "--sha", "bbbb222", "--agent-browser", "off"])).agentBrowser, false);
+    assert.equal("agentBrowser" in delegateRunInput(plain), false);
   });
 });
 
@@ -53,8 +53,8 @@ describe("--dom-pack", () => {
     assert.equal(parseArgs(["--app", "x", "--sha", "bbbb222", "--dom-pack", "off"]).domPack, false);
     const plain = parseArgs(["--app", "x", "--sha", "bbbb222"]);
     assert.equal("domPack" in plain, false);
-    assert.deepEqual(delegateRunInput(parseArgs(["--app", "x", "--sha", "bbbb222", "--dom-pack", "off"]), "e2e").grounding, { domPack: false });
-    assert.equal("grounding" in delegateRunInput(plain, "e2e"), false);
+    assert.deepEqual(delegateRunInput(parseArgs(["--app", "x", "--sha", "bbbb222", "--dom-pack", "off"])).grounding, { domPack: false });
+    assert.equal("grounding" in delegateRunInput(plain), false);
   });
 
   it("rejects any value other than on or off", () => {
@@ -71,15 +71,16 @@ describe("--dom-pack", () => {
 });
 
 describe("flags the CLI does not know", () => {
-  it("are refused with the usage and exit code 2, the removed grounding flags included", () => {
+  it("are refused with the usage and exit code 2, the removed grounding flags and --target included", () => {
     const exit = mock.method(process, "exit", () => { throw new Error("process.exit called"); });
     const error = mock.method(console, "error", () => {});
     try {
       assert.throws(() => parseArgs(["--app", "x", "--sha", "bbbb222", "--structural-signal", "off"]));
       assert.throws(() => parseArgs(["--app", "x", "--sha", "bbbb222", "--dossier", "off"]));
       assert.throws(() => parseArgs(["--app", "x", "--sha", "bbbb222", "--allow-concurrent"]));
-      assert.equal(exit.mock.callCount(), 3);
-      assert.deepEqual(exit.mock.calls.map((c) => c.arguments[0]), [2, 2, 2]);
+      assert.throws(() => parseArgs(["--app", "x", "--sha", "bbbb222", "--target", "code"]));
+      assert.equal(exit.mock.callCount(), 4);
+      assert.deepEqual(exit.mock.calls.map((c) => c.arguments[0]), [2, 2, 2, 2]);
     } finally {
       exit.mock.restore();
       error.mock.restore();
@@ -87,7 +88,7 @@ describe("flags the CLI does not know", () => {
   });
 
   it("leave the grounding choices that remain (--dom-pack) reaching the service as before", () => {
-    assert.deepEqual(delegateRunInput(parseArgs(["--app", "x", "--sha", "bbbb222", "--dom-pack", "off"]), "e2e").grounding, { domPack: false });
-    assert.equal("grounding" in delegateRunInput(parseArgs(["--app", "x", "--sha", "bbbb222"]), "e2e"), false);
+    assert.deepEqual(delegateRunInput(parseArgs(["--app", "x", "--sha", "bbbb222", "--dom-pack", "off"])).grounding, { domPack: false });
+    assert.equal("grounding" in delegateRunInput(parseArgs(["--app", "x", "--sha", "bbbb222"])), false);
   });
 });

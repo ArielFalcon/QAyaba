@@ -35,7 +35,6 @@ const STOCK_ONBOARD: OnboardInput = {
   repo: "org/shop-front",
   baseBranch: "main",
   baseUrl: "https://x",
-  target: "e2e",
   needsReview: true,
   shadow: true,
   testDataPrefix: "qa",
@@ -132,7 +131,7 @@ test("dryRun returns the YAML (with services) without writing", async () => {
   const deps = makeDeps();
   const r = await createApp(
     {
-      repo: "org/shop-front", name: "shop", baseUrl: "https://dev.shop.io", target: "e2e",
+      repo: "org/shop-front", name: "shop", baseUrl: "https://dev.shop.io",
       needsReview: true, shadow: true, testDataPrefix: "qa-shop",
       services: [{ repo: "org/orders-svc", openapi: "api/*.yaml" }],
       dryRun: true,
@@ -148,7 +147,7 @@ test("dryRun writes an auth block the app schema accepts", async () => {
   const deps = makeDeps();
   const r = await createApp(
     {
-      repo: "org/shop-front", name: "shop", baseUrl: "https://dev.shop.io", target: "e2e",
+      repo: "org/shop-front", name: "shop", baseUrl: "https://dev.shop.io",
       needsReview: true, shadow: true, testDataPrefix: "qa-shop",
       auth: { kind: "form", usernameEnv: "QA_SHOP_TEST_USER", passwordEnv: "QA_SHOP_TEST_PASS" },
       dryRun: true,
@@ -266,7 +265,6 @@ const RESENT = {
   repo: "org/shop-front",
   baseUrl: PLACEHOLDER_ENV.SHOP_DEV_URL,
   versionUrl: PLACEHOLDER_ENV.SHOP_VERSION_URL,
-  target: "e2e",
   testDataPrefix: PLACEHOLDER_ENV.SHOP_PREFIX,
   needsReview: true,
   shadow: true,
@@ -314,14 +312,6 @@ test("updateApp of a url equal to what a variable set in the same call expands t
   assert.equal(deps.written["shop"], PLACEHOLDER_YAML);
 });
 
-test("updateApp of a code app from the edit form, which sends the target every time, updates it without a DEV block", async () => {
-  const codeYaml = 'name: "shop"\nrepo: "org/shop-front"\nbaseBranch: "main"\n\ncode: true\n\nqa:\n  needsReview: true\n  shadow: true\n  testDataPrefix: "qa-shop"\n\nreport:\n  onFailure: "github-issue"\n';
-  const deps = makeDeps(withConfig(codeYaml, {}));
-  const r = await updateApp({ name: "shop", repo: "org/shop-front", testDataPrefix: "qa-shop", shadow: false, needsReview: true, target: "code" }, deps);
-  assert.equal(r.ok, true, JSON.stringify(r.errors));
-  assert.equal(deps.written["shop"], codeYaml.replace("shadow: true", "shadow: false"));
-});
-
 test("updateApp reports a config that shares a block through an alias, and writes nothing", async () => {
   const aliased = 'name: "shop"\nrepo: "org/shop-front"\nbaseBranch: "main"\nbase: &base\n  baseUrl: "https://x"\ndev: *base\nqa:\n  needsReview: true\n  testDataPrefix: "qa"\nreport:\n  onFailure: "github-issue"\n';
   const deps = makeDeps(withConfig(aliased, {}));
@@ -352,16 +342,6 @@ test("updateApp with a new repo writes that repo and the default branch the look
   assert.deepEqual(written["auth"], parse(SHOP_YAML).auth);
 });
 
-test("updateApp switching an app to the code target drops the login and keeps the rest, and the result is valid", async () => {
-  const deps = makeDeps(withConfig(SHOP_YAML));
-  const r = await updateApp({ name: "shop", target: "code" }, deps);
-  assert.equal(r.ok, true, JSON.stringify(r.errors));
-  const written = writtenConfig(deps);
-  assert.equal(written["code"], true);
-  assert.equal(written["auth"], undefined);
-  assert.deepEqual(written["openapi"], parse(SHOP_YAML).openapi);
-});
-
 test("updateApp reports a config it cannot read, and writes nothing", async () => {
   const deps = makeDeps({ readConfig: () => { throw new Error("EACCES"); } });
   const r = await updateApp({ name: "shop", shadow: false }, deps);
@@ -386,7 +366,7 @@ test("create applies env FIRST, validates the expanded YAML, then writes", async
   });
   const r = await createApp(
     {
-      repo: "org/shop-front", name: "shop", baseUrl: "https://dev.shop.io", target: "e2e",
+      repo: "org/shop-front", name: "shop", baseUrl: "https://dev.shop.io",
       needsReview: true, shadow: true, testDataPrefix: "qa-shop",
       env: { SHOP_TOKEN: "t" },
     },
@@ -401,7 +381,7 @@ test("create applies env FIRST, validates the expanded YAML, then writes", async
 test("invalid config returns the Zod errors and writes nothing", async () => {
   const deps = makeDeps();
   const r = await createApp(
-    { repo: "org/shop-front", name: "shop", baseUrl: "not-a-url", target: "e2e", needsReview: true, shadow: true, testDataPrefix: "qa" },
+    { repo: "org/shop-front", name: "shop", baseUrl: "not-a-url", needsReview: true, shadow: true, testDataPrefix: "qa" },
     deps,
   );
   assert.equal(r.ok, false);
@@ -411,12 +391,12 @@ test("invalid config returns the Zod errors and writes nothing", async () => {
 
 test("duplicate name or invalid name is rejected", async () => {
   const dup = await createApp(
-    { repo: "o/r", name: "shop", baseUrl: "https://x", target: "e2e", needsReview: true, shadow: true, testDataPrefix: "qa" },
+    { repo: "o/r", name: "shop", baseUrl: "https://x", needsReview: true, shadow: true, testDataPrefix: "qa" },
     makeDeps({ configExists: () => true }),
   );
   assert.equal(dup.ok, false);
   const bad = await createApp(
-    { repo: "o/r", name: "../evil", baseUrl: "https://x", target: "e2e", needsReview: true, shadow: true, testDataPrefix: "qa" },
+    { repo: "o/r", name: "../evil", baseUrl: "https://x", needsReview: true, shadow: true, testDataPrefix: "qa" },
     makeDeps(),
   );
   assert.equal(bad.ok, false);

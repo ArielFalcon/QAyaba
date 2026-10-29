@@ -7,7 +7,7 @@ function entry(overrides: Partial<ScorecardEntry> = {}): ScorecardEntry {
     runId: "run-1",
     app: "test-app",
     sha: "abc123",
-    target: "code",
+    target: "e2e",
     valueScore: null,
     mutantCount: 0,
     killedCount: 0,

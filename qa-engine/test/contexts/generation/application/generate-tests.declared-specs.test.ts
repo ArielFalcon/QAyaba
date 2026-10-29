@@ -63,11 +63,6 @@ test(`the join is on the resolved file, however the meta spells it`, async () =>
   assert.deepEqual(result.declaredSpecs, [{ file: "flows/login.spec.ts", flow: "login", objective: "the user signs in" }]);
 });
 
-test(`a code target declares its specs too`, async () => {
-  const result = await generate({ specs: ["src/foo.test.ts"], specMetas: [meta("src/foo.test.ts", "foo", "foo adds")], parsed: true }, { target: "code" });
-  assert.deepEqual(result.declaredSpecs, [{ file: "src/foo.test.ts", flow: "foo", objective: "foo adds" }]);
-});
-
 test("the declaration comes from the verdict, not from what the manifest kept of it", async () => {
   const result = await generate(DELIVERED, { reconcile: () => [] });
   assert.deepEqual(result.declaredSpecs, DECLARED);

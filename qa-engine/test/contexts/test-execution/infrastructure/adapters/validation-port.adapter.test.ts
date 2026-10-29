@@ -18,7 +18,7 @@ function fakeChecks(validateAllResult: ValidationResult): StaticGateChecks {
 
 function e2eOnlyAdapter(validateAllResult: ValidationResult): ValidationPortAdapter {
   const e2e = new StaticGateAdapter(fakeChecks(validateAllResult));
-  const code = new CodeValidationStrategy(async () => { throw new Error("must not be called for target 'e2e'"); });
+  const code = new CodeValidationStrategy(async () => { throw new Error("must not be called"); });
   return new ValidationPortAdapter({ e2e, code }, { target: "e2e" });
 }
 
@@ -58,63 +58,11 @@ test("validate() surfaces infra:true when the gate's own failures are all infras
   assert.equal(result.infra, true);
 });
 
-/* ── code target — dispatches to CodeValidationStrategy instead of StaticGateAdapter ────────────── */
-
-function codeOnlyAdapter(codeResult: ValidationResult, capture?: (dir: string, changedFiles?: string[]) => void): ValidationPortAdapter {
-  const e2e = new StaticGateAdapter(fakeChecks({ ok: true, errors: [], infra: false }));
-  /* Cast: production wiring always passes a real StaticGateAdapter for e2e — never called on this path. */
-  const throwingE2e = { validateAll: async () => { throw new Error("must not be called for target 'code'"); } } as unknown as StaticGateAdapter;
-  void e2e;
-  const code = new CodeValidationStrategy(async (dir, opts) => {
-    capture?.(dir, opts.changedFiles);
-    return codeResult;
-  });
-  return new ValidationPortAdapter({ e2e: throwingE2e, code }, { target: "code" });
-}
-
-test("validate() dispatches to CodeValidationStrategy for the code target — never StaticGateAdapter", async () => {
-  const adapter = codeOnlyAdapter({ ok: true, errors: [], infra: false });
-
-  const result = await adapter.validate("/mirrors/org/code-app");
-
-  assert.equal(result.ok, true);
-});
-
-test("validate() surfaces a code-target compile error as ok:false, infra:false", async () => {
-  const adapter = codeOnlyAdapter({ ok: false, errors: ["[compile] cannot find symbol"], infra: false });
-
-  const result = await adapter.validate("/mirrors/org/code-app");
-
-  assert.equal(result.ok, false);
-  assert.equal(result.infra, false);
-  assert.deepEqual(result.errors, ["[compile] cannot find symbol"]);
-});
-
-test("validate() surfaces a code-target broken toolchain as infra:true", async () => {
-  const adapter = codeOnlyAdapter({ ok: false, errors: ["[compile] JAVA_HOME is not set"], infra: true });
-
-  const result = await adapter.validate("/mirrors/org/code-app");
-
-  assert.equal(result.infra, true);
-});
-
-test("validate() threads changedFiles through to the code strategy", async () => {
-  let captured: string[] | undefined;
-  const adapter = codeOnlyAdapter({ ok: true, errors: [], infra: false }, (_dir, changedFiles) => { captured = changedFiles; });
-
-  await adapter.validate("/mirrors/org/code-app", ["src/orders.ts"]);
-
-  assert.deepEqual(captured, ["src/orders.ts"]);
-});
-
-test("autofix() asks the e2e gate's linter for the run's delivered specs, and a code target has none", async () => {
+test("autofix() asks the e2e gate's linter for the run's delivered specs", async () => {
   const asked: Array<[string, readonly string[]]> = [];
   const checks = { ...fakeChecks({ ok: true, errors: [], infra: false }), autofix: async (dir: string, specs: readonly string[]) => { asked.push([dir, specs]); return [...specs]; } };
   const code = new CodeValidationStrategy(async () => { throw new Error("not called"); });
   const e2e = new ValidationPortAdapter({ e2e: new StaticGateAdapter(checks), code }, { target: "e2e" });
   assert.deepEqual(await e2e.autofix("/m/e2e", { deliveredSpecs: ["flows/a.spec.ts"] }), ["flows/a.spec.ts"]);
   assert.deepEqual(asked, [["/m/e2e", ["flows/a.spec.ts"]]]);
-  const codeTarget = new ValidationPortAdapter({ e2e: new StaticGateAdapter(checks), code }, { target: "code" });
-  assert.deepEqual(await codeTarget.autofix("/m", { deliveredSpecs: ["x.test.ts"] }), []);
-  assert.equal(asked.length, 1);
 });

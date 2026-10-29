@@ -292,7 +292,6 @@ window.QayabaConsole = (function () {
       app: input.app,
       mode: input.mode,
       sha: input.sha || undefined,
-      target: input.target || 'e2e',
       commits: input.commits || undefined,
       guidance: input.guidance || undefined,
     }); },
@@ -351,8 +350,8 @@ window.QayabaConsole = (function () {
     const apps = raw.apps.map((a) => ({
       name: a.name, repo: a.repo, stack: '', /* TODO(server): AppView has no `stack` label */
       shadow: a.shadow, watching: true,
-      baseBranch: 'main', devUrl: a.baseUrl, target: a.code ? 'code' : 'e2e',
-      status: a.shadow ? 'shadow' : a.code ? 'code-mode' : 'live',
+      baseBranch: 'main', devUrl: a.baseUrl,
+      status: a.shadow ? 'shadow' : 'live',
       /* TODO(server): vmix, value, coverage, reviewerPass, errClasses, trend come from /apps/:name/trends + /intelligence */
       vmix: trendVmix(raw.trendsByApp[a.name]) || [],
       value: pick(raw.trendsByApp[a.name], 'valueOracle.avgScore'),
@@ -360,7 +359,7 @@ window.QayabaConsole = (function () {
       coverageMin: pick(raw.trendsByApp[a.name], 'coverage.minRatio', 0.7),
       reviewerPass: pick(raw.trendsByApp[a.name], 'reviewerPassRate', 0),
       errClasses: (pick(raw.trendsByApp[a.name], 'errorClasses', []) || []).map((e) => [e.errorClass, e.count]),
-      coverageMode: a.code ? 'off' : 'signal', oracle: a.code ? 'code' : 'e2e',
+      coverageMode: 'signal', oracle: 'e2e',
       valueSeries: pick(raw.trendsByApp[a.name], 'valueOracle.series', null),
       coverageSeries: pick(raw.trendsByApp[a.name], 'coverage.series', null),
       /* Stored FE<->BE architecture map. null when the app has never completed a

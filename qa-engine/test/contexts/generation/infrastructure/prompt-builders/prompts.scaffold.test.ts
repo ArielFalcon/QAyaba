@@ -106,8 +106,7 @@ test("the runtime-signals rule is present only when no DOM tree is in the prompt
   assert.equal(withRule({ domSnapshot: TREE, failureSourced: true, fixCases: [{ name: "t", status: "fail" }] }), false, "a failure tree");
 });
 
-test("code and context runs never carry the runtime-signals rule", () => {
-  assert.equal(directs(buildPromptAssembled(mkInput({ target: "code" })), "working-rules", "use-runtime-signals"), false);
+test("context runs never carry the runtime-signals rule", () => {
   assert.equal(directs(buildPromptAssembled(mkInput({ mode: "context" })), "working-rules", "use-runtime-signals"), false);
 });
 
@@ -126,7 +125,6 @@ test("the working rules carry the runtime-signals lines exactly when they direct
 test("the same input assembles an identical prompt whether or not review is enabled", () => {
   const shapes: Array<Partial<OpencodeRunInput>> = [
     {},
-    { target: "code" },
     { mode: "context" },
     { mode: "manual", guidance: "cover the form" },
     { fixCases: [{ name: "t", status: "fail", detail: "boom" }] },

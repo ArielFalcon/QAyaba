@@ -218,7 +218,7 @@ describe("seam-parity: COMPOSITION (EngineRootDeps vs buildEngineRootDeps)", () 
   const OPTIONAL_ALLOWLIST: Record<string, string> = {
     guidance: "supplied by buildEngineRootDeps ONLY when run.guidance is present (asserted below as a present-when-given case) — legitimately absent for diff-mode runs with no manual guidance.",
     diff: "DELIBERATELY static '' — see this fn's own header 'difference #2': GenerationTurnsAdapter/ReviewPortAdapter both resolve the REAL per-run diff dynamically from ChangeAnalysisPort.classify() instead, since no per-run diff exists yet at composition-build time.",
-    baseUrl: "supplied ONLY when app.dev?.baseUrl is present (asserted below as a present-when-given case) — legitimately absent for code-mode apps (no dev: block).",
+    baseUrl: "supplied ONLY when app.dev?.baseUrl is present (asserted below as a present-when-given case).",
     testIdAttribute: "supplied ONLY when app.e2e?.testIdAttribute is present (asserted below as a present-when-given case) — deliberately NO 'data-testid' default applied here (the seed playwright.config.ts already defaults it); legitimately absent when the app declares none.",
     readSpecSource: "DELIBERATELY absent — the shell passes no spec reader. The composition root defaults to the confined reader (asserted below by reading real specs through the wired the authoring port), so FixLoop's Lever-2 selector-contradiction check still receives specSources on the real production path, and a path the agent reported is never read by a bare fs call that follows a symlink out of the spec directory.",
     stepLimitFor: "supplied ONLY when the host wires getAgentFacade: the per-run memo over the live runtime's step limits (asserted below as a present-when-given case that reaches the generation and review inputs). Legitimately absent when the host wires none: absent means no prompt of the run states a step limit, never a stand-in number.",
@@ -231,7 +231,7 @@ describe("seam-parity: COMPOSITION (EngineRootDeps vs buildEngineRootDeps)", () 
     contextMap: "DELIBERATELY absent — see this fn's own header: no per-run mirrorDir/diff exists yet at composition-build time to read e2e/.qa/context.json from. Documented graceful degradation, not a drop.",
     prChangedFiles: "DELIBERATELY absent — same reason as contextMap (per-run intent.changedFiles doesn't exist yet at composition-build time).",
     domPack: "IS supplied (defaulted true: run.grounding.domPack ?? app.qa.domPack ?? true) — asserted below as a present case.",
-    versionUrl: "supplied ONLY when app.dev?.versionUrl is present — legitimately absent for code-mode/static apps (no deploy gate).",
+    versionUrl: "supplied ONLY when app.dev?.versionUrl is present — legitimately absent for a static site (no deploy gate).",
     versionPoll: "supplied ONLY when app.dev?.versionUrl is present (paired with versionUrl above).",
     deployGateIntervalMs: "IS supplied (defaulted via ?? DEFAULT) — asserted below as a present case.",
     deployGateTimeoutMs: "IS supplied (defaulted via ?? DEFAULT) — asserted below as a present case.",
@@ -527,19 +527,14 @@ describe("seam-parity: COMPOSITION (EngineRootDeps vs buildEngineRootDeps)", () 
     }
   });
 
-  test("buildEngineRootDeps leaves guidance/baseUrl/testIdAttribute/versionUrl/observer absent when the AppConfig/caller omits them (never fabricated)", () => {
-    /* CODE-target run: dev.baseUrl is conceptually absent for code mode (no live DEV URL), so this
-       app config is legal and the factory must NOT throw the new composition-time baseUrl guard.
-       Any e2e-target build must still declare dev.baseUrl — see the guard's own test.
-     */
+  test("buildEngineRootDeps leaves guidance/testIdAttribute/versionUrl/observer absent when the AppConfig/caller omits them (never fabricated)", () => {
     const cfg = buildEngineRootDeps(
-      fakeAppConfig({ dev: undefined, e2e: undefined, code: true } as Partial<AppConfig>),
+      fakeAppConfig({ dev: { baseUrl: "https://dev.example.test" }, e2e: undefined } as Partial<AppConfig>),
       fakeFactoryDeps(),
       S("namespace"),
       { mode: "diff" },
     );
     assert.equal(cfg.guidance, undefined);
-    assert.equal(cfg.baseUrl, undefined);
     assert.equal(cfg.testIdAttribute, undefined);
     assert.equal(cfg.versionUrl, undefined);
     assert.equal(cfg.versionPoll, undefined);
