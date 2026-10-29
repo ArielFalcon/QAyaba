@@ -1346,14 +1346,23 @@ test("e2e + valueOracle signal wires FaultInjectionOracleAdapter even in shadow"
   assert.equal(config.objectiveSignal.oracle.constructor.name, "FaultInjectionOracleAdapter");
 });
 
-test("the mutation pass is wired for an e2e app whose value oracle is on, and not when it is off", () => {
+test("the mutation pass runs under qa.changeCoverage.bundleMutation: on by default, shadow or not, and off when the key says off", () => {
   const mutationOf = (app: AppConfig) =>
     buildEngineRootDeps(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" }).objectiveSignal.mutation?.constructor.name;
-  const on: AppConfig = { ...cfg("factory-mutation-on"), qa: { ...cfg("factory-mutation-on").qa, shadow: true, valueOracle: "signal" } };
-  const off: AppConfig = { ...cfg("factory-mutation-off"), qa: { ...cfg("factory-mutation-off").qa, valueOracle: "off" } };
-  assert.equal(mutationOf(on), "BundleMutationOracleAdapter");
-  assert.equal(mutationOf(off), undefined);
-  assert.equal(mutationOf(cfg("factory-mutation-shadow-default")), undefined, "the shadow-aware default keeps it off");
+  const withCoverage = (name: string, changeCoverage: NonNullable<AppConfig["qa"]["changeCoverage"]>, shadow?: boolean): AppConfig => ({
+    ...cfg(name),
+    qa: { ...cfg(name).qa, ...(shadow !== undefined ? { shadow } : {}), changeCoverage },
+  });
+  assert.equal(mutationOf(cfg("factory-mutation-shadow-default")), "BundleMutationOracleAdapter", "a shadow app with no key gets it");
+  assert.equal(mutationOf(withCoverage("factory-mutation-production", {}, false)), "BundleMutationOracleAdapter");
+  assert.equal(mutationOf(withCoverage("factory-mutation-signal", { bundleMutation: "signal" }, true)), "BundleMutationOracleAdapter");
+  assert.equal(mutationOf(withCoverage("factory-mutation-off", { bundleMutation: "off" }, false)), undefined);
+});
+
+test("qa.valueOracle no longer switches the mutation pass", () => {
+  const app: AppConfig = { ...cfg("factory-mutation-oracle-off"), qa: { ...cfg("factory-mutation-oracle-off").qa, valueOracle: "off" } };
+  const config = buildEngineRootDeps(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
+  assert.equal(config.objectiveSignal.mutation?.constructor.name, "BundleMutationOracleAdapter");
 });
 
 test("buildEngineRootDeps honors coveragePolicy from app.qa.changeCoverage", () => {

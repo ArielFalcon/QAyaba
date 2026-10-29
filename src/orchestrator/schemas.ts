@@ -231,6 +231,8 @@ export const AppConfigSchema = z
           minRatio: z.number().min(0).max(1).optional(),
           /* regenerate (default) = one regeneration from the arms of the changed code no test ran; off = none. */
           branchCases: z.enum(["regenerate", "off"]).optional(),
+          /* signal (default, shadow or not) = after a green diff whose change was measured, re-run the specs that reached up to three mutants of the changed code in the served script and record how many a test noticed; off = none. Never a gate. */
+          bundleMutation: z.enum(["signal", "off"]).optional(),
         })
         .optional(),
       /*

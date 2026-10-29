@@ -134,6 +134,10 @@ qa:
     mode: signal               # off | signal (measure+record only) | enforce (close the gap, block if still low)
     minRatio: 0.7              # fraction of changed lines that must be exercised to "pass"
     # branchCases: regenerate  # regenerate (one turn at the arms no test ran) | off
+    # Bundle mutation: after a green diff whose change was measured, up to three mutants of the changed
+    # code in the served script, each re-running only the spec files whose tests reached it (needs the
+    # source maps above). Recorded only, never a gate; on for every e2e app, shadow or not.
+    # bundleMutation: signal   # signal | off
   # Test-intent lock: what a delivered test is FOR, derived by the orchestrator from the change
   # itself (string literals on added diff lines). A regeneration that drops an assertion, weakens a
   # matcher, flips a negation, replaces scope with a positional step, loses the anchor or changes an
@@ -141,14 +145,12 @@ qa:
   # intentLock:
   #   mode: signal             # off | signal (record would-be rejections) | enforce (reject, restore bytes)
   #   opacityFlagRatio: 0.5    # flag a contract whose unreadable clauses cross this ratio; never blocks
-  # Value oracle — the ground-truth that lets the learning flywheel PROMOTE rules (not just
-  # accumulate them). Response fault-injection, which RE-RUNS the suite
-  # against DEV once per green diff (≈2× execution — that is the cost of ground-truth), plus up to
-  # three mutants of the changed code in the served script, each re-running only the spec files
-  # whose tests reached it (needs the source maps above).
-  # Default is shadow-aware: OFF while `shadow: true` (don't double-run DEV during onboarding),
-  # ON once you go to production (`shadow: false`). Set explicitly to override — e.g. a static
-  # site with no backend should set "off" (fault-injection has nothing meaningful to corrupt).
+  # Value oracle — response fault-injection, which RE-RUNS the suite against DEV once per green
+  # diff (≈2× execution — that is the cost of ground-truth). Default is shadow-aware: OFF while
+  # `shadow: true` (don't double-run DEV during onboarding), ON once you go to production
+  # (`shadow: false`). Set explicitly to override — e.g. a static site with no backend should set
+  # "off" (fault-injection has nothing meaningful to corrupt). Bundle mutation has its own key,
+  # `changeCoverage.bundleMutation`.
   # valueOracle: signal        # off | signal  (omit to use the shadow-aware default)
 
 report:

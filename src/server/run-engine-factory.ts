@@ -874,11 +874,11 @@ export function buildEngineRootDeps(
     ? new NullValueOracleAdapter()
     : new FaultInjectionOracleAdapter(runCorruptedFaultInjection, readFaultCounters, app.dev?.baseUrl ?? "");
   /*
-   * The mutation pass: an app whose value oracle is on re-runs, for each of a few mutants of the changed code in the served
+   * The mutation pass: unless `qa.changeCoverage.bundleMutation` is off, an app re-runs, for each of a few mutants of the changed code in the served
    * script, the spec files that reached it, once (no retry: a mutant that fails a test once was noticed). Its counters sit beside
    * the response oracle's.
    */
-  const mutation = valueOraclePolicy === "off"
+  const mutation = app.qa.changeCoverage?.bundleMutation === "off"
     ? undefined
     : new BundleMutationOracleAdapter(
         ({ dir, baseUrl, namespace, mutant, specFiles, observe }) => runE2E(dir, { baseUrl, namespace, specFiles, retries: 0, ...(mutant !== undefined ? { mutant } : {}), ...(observe ? { observe: true } : {}) }, e2eExecuteDeps),

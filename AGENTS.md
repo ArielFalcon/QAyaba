@@ -951,7 +951,7 @@ that catches nothing. The objective signal that breaks the circle is **change-co
   `armsProvenByMutation` keep apart what only a mutant ran. A line behind no changed decision a mutant can force stays
   uncovered. A recount adds the proofs of the spec files it did not re-run, and keeps the previous measurement when one
   of its dump sources could not be read.
-- **Bundle mutation** (signal, never a gate; on with `qa.valueOracle`): up to three mutants of the changed
+- **Bundle mutation** (signal, never a gate; on for every e2e app, shadow or not, unless `qa.changeCoverage.bundleMutation` is `off`): up to three mutants of the changed
   code in the served script (a negated condition, a swapped comparison or logical operator), each one
   re-run, through the seed's `_mutate` fixture (`PW_MUTANT`), of the tests whose coverage dumps ran it (the
   fixture skips the others; when the dumps do not name their tests, every test of their spec files). A site is

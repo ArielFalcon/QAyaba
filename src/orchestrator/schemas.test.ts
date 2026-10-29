@@ -125,6 +125,15 @@ test("qa: an unknown key (e.g. a since-removed schema-only flag) is silently str
   assert.equal("specTriage" in cfg.qa, false);
 });
 
+test("qa.changeCoverage.bundleMutation accepts signal and off, is optional, and refuses another value", () => {
+  for (const value of ["signal", "off"] as const) {
+    const cfg = AppConfigSchema.parse({ ...base, qa: { ...base.qa, changeCoverage: { bundleMutation: value } } });
+    assert.equal(cfg.qa.changeCoverage?.bundleMutation, value);
+  }
+  assert.equal(AppConfigSchema.parse({ ...base, qa: { ...base.qa, changeCoverage: {} } }).qa.changeCoverage?.bundleMutation, undefined);
+  assert.throws(() => AppConfigSchema.parse({ ...base, qa: { ...base.qa, changeCoverage: { bundleMutation: "enforce" } } }), /bundleMutation/);
+});
+
 const manifestEntry = {
   id: "login",
   objective: "valid credentials reach the dashboard",
