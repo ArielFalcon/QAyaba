@@ -649,7 +649,7 @@ threat-model header first) and a canary-before-promote hot-swap.
 - The suite's source of truth is **git** (app repo `e2e/`). Run history and the learning ledger
   (`qayaba-data` volume) are the only non-regenerable data; Serena index and mirrors are caches.
 - The history database carries a schema version (`PRAGMA user_version`). Opening never prunes; retention (`pruneHistory`) runs at boot and every 24 h. A file that does not match schema 1 is refused at start with `history database at <path> predates schema 1 and cannot be adopted; remove or move it aside`; nothing deletes it.
-- Onboarding an app = `config/apps/<app>.yaml` + `.env`. `${VARS}` expand from the env.
+- Onboarding an app = `config/apps/<app>.yaml` + `.env`. `${VARS}` expand from the env. The schema is not strict: a key it does not declare is dropped and the default applies, and the loader logs one warning per process for each such key, naming the app and the key path and never the value (`src/orchestrator/config-loader.ts`), so a typo of a threshold key is visible.
 - **Suite store** (`qa-engine/src/contexts/workspace-and-publication/infrastructure/suite-store.adapter.ts`,
   `data/suites/<app>/` in the qayaba-data volume, never mounted into the agents container): the accepted
   suite of an app that git does not hold yet. Shadow mode never publishes and a PR may not be merged

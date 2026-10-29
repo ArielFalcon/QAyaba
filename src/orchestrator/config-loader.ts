@@ -42,11 +42,41 @@ export function describeAppLoadFailure(name: string, err: unknown): string | und
 export function loadAppConfig(name: string, root = ROOT): ValidatedAppConfig {
   const path = join(root, "config", "apps", `${name}.yaml`);
   if (!existsSync(path)) throw new AppNotFoundError(name);
+  let document: unknown;
+  let config: ValidatedAppConfig;
   try {
-    const raw = expandEnv(readFileSync(path, "utf8"));
-    return AppConfigSchema.parse(parse(raw));
+    document = parse(expandEnv(readFileSync(path, "utf8")));
+    config = AppConfigSchema.parse(document);
   } catch (err) {
     throw new AppConfigInvalidError(name, err instanceof Error ? err.message : String(err), { cause: err });
+  }
+  warnDroppedKeys(name, root, droppedKeyPaths(document, config));
+  return config;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/* The paths of the keys the schema dropped: present in the parsed YAML, absent from the validated config. Paths only, never values. */
+function droppedKeyPaths(document: unknown, kept: unknown, prefix = ""): string[] {
+  if (Array.isArray(document) && Array.isArray(kept)) return document.flatMap((item, i) => droppedKeyPaths(item, kept[i], `${prefix}[${i}]`));
+  if (!isRecord(document) || !isRecord(kept)) return [];
+  return Object.keys(document).flatMap((key) => {
+    const path = prefix === "" ? key : `${prefix}.${key}`;
+    return Object.hasOwn(kept, key) ? droppedKeyPaths(document[key], kept[key], path) : [path];
+  });
+}
+
+/* A config is read on every request that names its app, so a dropped key is reported once per process, not once per read. */
+const warnedKeys = new Set<string>();
+
+function warnDroppedKeys(app: string, root: string, paths: readonly string[]): void {
+  for (const key of paths) {
+    const id = `${root}\0${app}\0${key}`;
+    if (warnedKeys.has(id)) continue;
+    warnedKeys.add(id);
+    appLogger.warn(`[qa] app config '${app}': unknown key '${key}' is ignored (the schema does not declare it; a typo falls back to the default)`, { app, key });
   }
 }
 

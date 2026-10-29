@@ -1,8 +1,9 @@
-import { test } from "node:test";
+import { afterEach, test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { installLogShipper, type ShippedLine } from "../integrations/redacting-logger";
 import { AppConfigInvalidError, AppNotFoundError, describeAppLoadFailure, expandEnv, loadAppConfig } from "./config-loader";
 
 test("expandEnv resolves mixed-case ${Var} names, not just UPPERCASE", () => {
@@ -114,6 +115,102 @@ report:
     }
   });
 }
+
+function describe_unknownKeys(): void {
+  const VALID_APP = `
+name: "shop"
+repo: "org/shop-front"
+dev:
+  baseUrl: "https://dev.shop.io"
+services:
+  - repo: "org/orders-svc"
+qa:
+  needsReview: true
+  testDataPrefix: "qa-shop"
+report:
+  onFailure: "github-issue"
+`;
+
+  function captureWarnings(): ShippedLine[] {
+    const lines: ShippedLine[] = [];
+    installLogShipper((line) => {
+      if (line.level === "warn") lines.push(line);
+    });
+    return lines;
+  }
+  afterEach(() => installLogShipper(undefined));
+
+  function loadWith(extra: string, files = VALID_APP): { root: string; yaml: string } {
+    const yaml = `${files}${extra}`;
+    return { root: makeRoot({ "shop.yaml": yaml }), yaml };
+  }
+
+  test("loadAppConfig warns once for an unknown key, naming the app and the key path and never a value", () => {
+    const lines = captureWarnings();
+    const { root } = loadWith('typo_key: "s3cr3t-unknown-value"\n');
+    try {
+      loadAppConfig("shop", root);
+      loadAppConfig("shop", root);
+      const unknown = lines.filter((l) => /unknown key/.test(l.message));
+      assert.equal(unknown.length, 1);
+      assert.match(unknown[0]?.message ?? "", /'shop'/);
+      assert.match(unknown[0]?.message ?? "", /'typo_key'/);
+      assert.ok(!JSON.stringify(unknown[0]).includes("s3cr3t-unknown-value"));
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("loadAppConfig names an unknown key nested in an object and in a list by its full path", () => {
+    const lines = captureWarnings();
+    const yaml = VALID_APP.replace("  needsReview: true", "  needsReview: true\n  testDataPrefixx: oops").replace('  - repo: "org/orders-svc"', '  - repo: "org/orders-svc"\n    verionUrl: "https://v.example"');
+    const root = makeRoot({ "shop.yaml": yaml });
+    try {
+      loadAppConfig("shop", root);
+      const messages = lines.map((l) => l.message).join("\n");
+      assert.match(messages, /'qa\.testDataPrefixx'/);
+      assert.match(messages, /'services\[0\]\.verionUrl'/);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("loadAppConfig warns for each distinct unknown key of the same file", () => {
+    const lines = captureWarnings();
+    const { root } = loadWith("first_typo: 1\nsecond_typo: 2\n");
+    try {
+      loadAppConfig("shop", root);
+      const keys = lines.filter((l) => /unknown key/.test(l.message)).map((l) => /'(first_typo|second_typo)'/.exec(l.message)?.[1]);
+      assert.deepEqual(keys.sort(), ["first_typo", "second_typo"]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("loadAppConfig warns about nothing for a config that declares only known keys", () => {
+    const lines = captureWarnings();
+    const root = makeRoot({ "shop.yaml": VALID_APP });
+    try {
+      loadAppConfig("shop", root);
+      assert.deepEqual(lines, []);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("loadAppConfig returns the same config with an unknown key as without it", () => {
+    captureWarnings();
+    const withKey = loadWith('typo_key: "x"\n');
+    const without = makeRoot({ "shop.yaml": VALID_APP });
+    try {
+      assert.equal(JSON.stringify(loadAppConfig("shop", withKey.root)), JSON.stringify(loadAppConfig("shop", without)));
+    } finally {
+      rmSync(withKey.root, { recursive: true, force: true });
+      rmSync(without, { recursive: true, force: true });
+    }
+  });
+}
+describe_unknownKeys();
 
 test("describeAppLoadFailure words an absent app and an unloadable config, and leaves any other failure to the caller", () => {
   assert.equal(describeAppLoadFailure("shop", new AppNotFoundError("shop")), "app not found: 'shop'");
