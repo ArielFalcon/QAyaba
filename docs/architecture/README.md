@@ -109,7 +109,7 @@ Decisions (ADR):
 | [ADR-0009](adr/0009-campaign-freeze-on-server.md) | The server freezes campaign runs | Accepted | D10 |
 | [ADR-0010](adr/0010-maintainer-removal.md) | Remove the self-maintainer | Accepted | D11 |
 | [ADR-0011](adr/0011-root-cause-fix-policy.md) | Root-cause fix policy and measurement conditions | Accepted | D12, D13 |
-| [ADR-0012](adr/0012-owner-decisions-rfc-0002-0010.md) | Owner decisions on RFC-0002 to RFC-0010 | Accepted | The 56 open questions of RFC-0002 to RFC-0010 |
+| [ADR-0012](adr/0012-owner-decisions-rfc-0002-0010.md) | Owner decisions on RFC-0002 to RFC-0010 | Accepted | The 60 open questions of RFC-0002 to RFC-0010 (Correction 2026-10-29: this index said 56) |
 | [ADR-0013](adr/0013-owner-decisions-remaining-questions.md) | Owner decisions on the remaining open questions | Accepted | RFC-0001 OD-1 to OD-20, the open points of ADR-0001 to ADR-0011, the README's open questions |
 
 Proposals (RFC):

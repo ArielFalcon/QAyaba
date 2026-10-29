@@ -219,4 +219,4 @@ Plausible neighbours of the same family, not confirmed by N06 and so not fixed h
 - The snapshot table's `delivered` flag, written at validation and never retracted (`spec-snapshot-validation.adapter.ts:76`), which over-counted rolled-back bytes in the quality strand (#23, #24). A measurement-tool defect, not an engine verdict; open question.
 - Whether the stale-coverage flag after a review acceptance should be a recount (the `remeasure-stale-coverage` step, `review.steps.ts:615`). Not part of N06.
 - Whether stale or dropped cases changed any published test. Not shown.
-- The review answer crossing the pipeline whole (N02, [RFC-0006](./0006-review-answer-crosses-whole.md)): a different mechanism in the same phase; separate commit.
+- The review answer crossing the pipeline whole (N02, [RFC-0006](./0006-review-answer-crosses-whole.md)): a different mechanism in the same phase; separate commit. (Correction 2026-10-29: the slices are not independent. This slice's test fake returns the reviewer shape `corrections`, which RFC-0006 changes to `findings`; whichever slice lands second ports the fake.)

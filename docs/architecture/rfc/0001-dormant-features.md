@@ -113,7 +113,7 @@ The owner approved D1-D13 together on 2026-10-28 15:32Z (translated): "Regarding
 | D10 | The server freezes every campaign-tagged run by default; a learning experiment declares its arm | 1.15 | [ADR-0009](../adr/0009-campaign-freeze-on-server.md) |
 | D11 | Remove the self-maintainer and its mirror with step 1; the GitHub clean-up needs the owner's explicit go | 4.1, 4.2 | [ADR-0010](../adr/0010-maintainer-removal.md) |
 | D12 | Only confirmed causes get a fix; an unconfirmed family gets no family slice | placement of every member below | [ADR-0011](../adr/0011-root-cause-fix-policy.md) |
-| D13 | After-measurement conditions: same suite (12 of 13 snapshot entries), same freeze (off). The baseline is one replicate by the owner's instruction; the count for after-measurements is not decided | Measurement | ADR-0011 |
+| D13 | After-measurement conditions: same suite (12 of 13 snapshot entries), same freeze (off). The baseline is one replicate by the owner's instruction; the count for after-measurements is one per version (Correction 2026-10-29: decided as recommended, [ADR-0013](../adr/0013-owner-decisions-remaining-questions.md)) | Measurement | ADR-0011 |
 
 D2 and the GitHub part of D11 land with step 1.
 
@@ -218,7 +218,7 @@ Member ids (1.1 to 8.9) number the 46 members by group G1 to G8. "Settled by" is
 | Learning precondition | Per run, by lesson kind: each kind declares which states it admits, and a left-out run carries the state as its typed reason | D14 admits facts by their own state, never by a global rule |
 | Waiting | Wait only when the run is deploy-triggered and the state is `behind`; record only on a manual or campaign run | A replay cannot become `equal` by waiting. The trigger source already exists (`qa-engine/src/shared-kernel/run-mode.ts:4`). |
 
-Not proposed here: the declaration's config format and which port implementations ship first (ADR-0008 keeps them), reading the endpoint with the DEV gate credentials (hypothesis that the endpoint sits behind it; DEV was not probed), and waiting outside the queue slot (a later change). The span attribute that the design names for this fact, "deploy verified" (`docs/observability-design.md:249`), is set by no code.
+Not proposed here: the declaration's config format and which port implementations ship first (ADR-0008 keeps them; Correction 2026-10-29: ADR-0008 in turn left them to the standalone change, so the point was circular; recommended in [ADR-0013](../adr/0013-owner-decisions-remaining-questions.md), decided when T19 lands), reading the endpoint with the DEV gate credentials (hypothesis that the endpoint sits behind it; DEV was not probed), and waiting outside the queue slot (a later change). The span attribute that the design names for this fact, "deploy verified" (`docs/observability-design.md:249`), is set by no code.
 
 ### Where the redesigned members live
 
@@ -281,7 +281,7 @@ The cause is carrying cost and false signals, so the signals are structural and 
 | Runs recording a served-version state | 0 of 34 | Every run |
 | Unknown config key reported | Never | Reported by name |
 
-Before and after for run behavior follow ADR-0011: before is the one baseline replicate run-ed28973-mvs7oo0f-17041c71 (pass, line coverage 0.630 marked stale, branch 55 of 126, bundle mutation 0 of 3 killed, 56 min, $0.45, engine 4105c582); after is one replicate of the version under test (the recommended count, which the owner has not confirmed for after-measurements), same launch parameters, same 12-entry suite, freeze off. The owner's words on the count concern the baseline (2026-10-28 14:29Z, translated): "the replicates will take too long, the 3 separately one after another, launch just 1". It shows a direction only. Cycle 3 ran the same input three times on one commit (40513c1e) and spread from 0.738 to 0.904 in line coverage and 0 to 1 of 3 kills. The lead prompt of the after replicate differs from the baseline by the missing curriculum section, an intended and recorded difference.
+Before and after for run behavior follow ADR-0011: before is the one baseline replicate run-ed28973-mvs7oo0f-17041c71 (pass, line coverage 0.630 marked stale, branch 55 of 126, bundle mutation 0 of 3 killed, 56 min, $0.45, engine 4105c582); after is one replicate of the version under test (one per version; Correction 2026-10-29: decided as recommended in ADR-0013), same launch parameters, same 12-entry suite, freeze off. The owner's words on the count concern the baseline (2026-10-28 14:29Z, translated): "the replicates will take too long, the 3 separately one after another, launch just 1". It shows a direction only. Cycle 3 ran the same input three times on one commit (40513c1e) and spread from 0.738 to 0.904 in line coverage and 0 to 1 of 3 kills. The lead prompt of the after replicate differs from the baseline by the missing curriculum section, an intended and recorded difference.
 
 Run quality is unproven by design for this RFC.
 

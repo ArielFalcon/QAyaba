@@ -192,7 +192,7 @@ The 12-entry snapshot is taken from the live store by the export verb, with `flo
 
 - **Unproven on a run, by design.** The trigger needs a second replicate after an accepted capture that replaces an entry. With one replicate the after-run shows only that the start is whole. The tests carry the proof of the trigger; the run is reported as a direction, never proof (ADR-0011, rule 3).
 - **No verdict or coverage effect is expected.** Do not read a coverage difference between the two replicates as this fix. Identical inputs spread widely (cycle 3: line coverage 0.738 to 0.904).
-- **The before is the baseline** unless the owner makes the replicate after platform step 1 the new before (ADR-0011, not decided there). Either way the start is the 12-entry set.
+- **The before is the baseline** unless the owner makes the replicate after platform step 1 the new before (ADR-0011, not decided there; Correction 2026-10-29: decided as recommended in ADR-0013, the replicate after step 1 is the new before). Either way the start is the 12-entry set.
 
 ## Owner decisions needed
 

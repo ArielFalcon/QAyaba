@@ -1,13 +1,13 @@
 # ADR-0012: Owner decisions on RFC-0002 to RFC-0010
 
 - **Status:** Accepted, 2026-10-28, owner
-- **Decision source:** the owner's answer of 2026-10-28, "I approve all the decisions with your recommendation" (translated), to the question whether the recommended answers to the 56 open questions of RFC-0002 to RFC-0010 were approved as written, six of them named.
+- **Decision source:** the owner's answer of 2026-10-28, "I approve all the decisions with your recommendation" (translated), to the question whether the recommended answers to the 60 open questions of RFC-0002 to RFC-0010 (Correction 2026-10-29: this record said 56; the RFCs' own lists hold 60: RFC-0002 15, RFC-0003 5, RFC-0004 5, RFC-0005 5, RFC-0006 5, RFC-0007 6, RFC-0008 5, RFC-0009 6, RFC-0010 8) were approved as written, six of them named.
 - **Code references at:** 4105c582
 - **Related:** [RFC-0002](../rfc/0002-platform-steps-0-1.md), [RFC-0003](../rfc/0003-coverage-dump-harvest.md), [RFC-0004](../rfc/0004-log-level-from-outcome.md), [RFC-0005](../rfc/0005-suite-store-single-writer.md), [RFC-0006](../rfc/0006-review-answer-crosses-whole.md), [RFC-0007](../rfc/0007-dev-write-attribution.md), [RFC-0008](../rfc/0008-acceptance-records-what-it-ran.md), [RFC-0009](../rfc/0009-pack-record-matches-prompt.md), [RFC-0010](../rfc/0010-tool-call-record-outcome.md), [ADR-0011](0011-root-cause-fix-policy.md)
 
 ## Context
 
-RFC-0002 (platform steps 0-1) and RFC-0003 to RFC-0010 (the eight root causes confirmed and alive on main: H06, H11, H20, N02, N04, N06, N09, N12) left 56 questions under "Owner decisions needed", each with a recommended answer. To save time, the owner was asked to answer them at once ("speed the process up a bit, the quota limit is close", translated), with six named because they reopen an earlier decision, read a rule of the investigation, change a guard, or touch stored data.
+RFC-0002 (platform steps 0-1) and RFC-0003 to RFC-0010 (the eight root causes confirmed and alive on main: H06, H11, H20, N02, N04, N06, N09, N12) left 60 questions (Correction 2026-10-29: 56 before) under "Owner decisions needed", each with a recommended answer. To save time, the owner was asked to answer them at once ("speed the process up a bit, the quota limit is close", translated), with six named because they reopen an earlier decision, read a rule of the investigation, change a guard, or touch stored data.
 
 ## Decision
 
@@ -33,4 +33,4 @@ The RED tests named in each RFC's test plan, added with the commit that lands it
 
 ## Alternatives considered
 
-Deciding the 56 questions one at a time: set aside by the owner to save time.
+Deciding the 60 questions one at a time: set aside by the owner to save time.

@@ -11,7 +11,7 @@
   - Docs: `AGENTS.md:126`, `docs/observability-design.md:249`, `docs/observability-context.md:79`, `docs/efficiency-benchmark.md:322-323`
 - **Related:** [ADR-0001](0001-design-pillars.md), [ADR-0003](0003-learning-layer-rebuild.md), [ADR-0011](0011-root-cause-fix-policy.md), [RFC-0001](../rfc/0001-dormant-features.md)
 
-**In one line:** the product tells qayaba which commit its DEV serves; qayaba never infers it, and records "version unknown" until the product does.
+**In one line:** the product tells qayaba which commit its DEV serves; qayaba never infers it, and records "version unknown" until the product does (Correction 2026-10-29: "version unknown" is not a state of the closed set accepted in RFC-0001 OD-10 (`undeclared`, `unreadable`, `equal`, `behind`, `ahead`, `unrelated`). Read it as `undeclared`: no source is declared. A declared source that cannot be read is `unreadable`, with a typed reason.).
 
 ## Context
 
@@ -53,7 +53,7 @@ The version source is a change in the product, which only its owner can make. qa
 - The closed set of states and the field that records them, for example whether a known version that differs from the run's sha is a state of its own (RFC-0001).
 - Whether the learning precondition applies per run or per app (ADR-0003, RFC-0001).
 - Whether the gate keeps waiting for the commit on a deploy-triggered run and only records on a replay (RFC-0001).
-- The declaration's config format, and which port implementations ship first.
+- The declaration's config format, and which port implementations ship first. (Correction 2026-10-29: no answer existed; recommended in [ADR-0013](0013-owner-decisions-remaining-questions.md), "Correction 2026-10-29": extend `versionUrl`, one reader first; decided when T19 lands.)
 
 ## Consequences
 
