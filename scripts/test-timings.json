@@ -667,7 +667,6 @@
   "src/server/signals-view.test.ts": 0,
   "src/server/spec-snapshot.test.ts": 82,
   "src/server/static.test.ts": 4,
-  "src/server/telemetry.test.ts": 8,
   "src/server/tools-endpoint.test.ts": 202,
   "src/server/trends-view.test.ts": 1,
   "src/server/turn-telemetry-config.test.ts": 0,

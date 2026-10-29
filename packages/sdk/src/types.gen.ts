@@ -410,23 +410,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/apps/{name}/telemetry": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Prompt-size, grounding, repair and wall-clock aggregates over an app's agent turns, plus agent-efficiency aggregates (read-only) */
-        get: operations["getAppTelemetry"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v1/apps/{name}/report": {
         parameters: {
             query?: never;
@@ -1296,36 +1279,6 @@ export interface components {
                 cost: number;
                 steps: number;
             } | null;
-        };
-        AppTelemetryView: {
-            app: string;
-            generatedAt: string;
-            windowDays: number | null;
-            runCount: number;
-            byRole: {
-                role: string;
-                medianPromptBytes: number | null;
-                p95PromptBytes: number | null;
-                medianCacheHitRate: number | null;
-                turnCount: number;
-            }[];
-            reviewerConvergence: {
-                avgCorrectionsRound0: number | null;
-                avgCorrectionsRound1: number | null;
-                approveRate: number | null;
-            };
-            groundingPresence: number | null;
-            repairFraction: number | null;
-            medianTurnsPerRun: number | null;
-            medianWallClockSec: number | null;
-            p95WallClockSec: number | null;
-            efficiency: {
-                turnsMeasured: number;
-                medianCallsBeforeFirstWrite: number | null;
-                exhaustedRate: number | null;
-                redundantReadRatio: number | null;
-                duplicateRatio: number | null;
-            };
         };
         TelemetryHealth: {
             /** @enum {number} */
@@ -2569,48 +2522,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TrendsView"];
-                };
-            };
-            /** @description app not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiError"];
-                };
-            };
-            /** @description app config invalid: the app has a config file that cannot be loaded */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiError"];
-                };
-            };
-        };
-    };
-    getAppTelemetry: {
-        parameters: {
-            query?: {
-                window?: number;
-            };
-            header?: never;
-            path: {
-                name: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description app telemetry */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AppTelemetryView"];
                 };
             };
             /** @description app not found */

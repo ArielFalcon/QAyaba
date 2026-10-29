@@ -23,7 +23,7 @@ import {
   TrendWindowSchema, CoverageTrendSchema, FlakyTrendSchema, ErrorClassCountSchema,
   TrendsViewSchema, ReportInsightSchema, ReportViewSchema, RunReportViewSchema,
   ArchitectureContextSchema, ContextMapViewSchema,
-  AgentTurnViewSchema, AppTelemetryViewSchema, TelemetryHealthSchema,
+  AgentTurnViewSchema, TelemetryHealthSchema,
   ApiErrorSchema, ScoreSchema, RunEvaluationSchema, EvaluationCatalogSchema, RegradeRequestSchema, RegradeStartedSchema, RegradeJobSchema, RunDetailSchema, CampaignRunsSchema,
 } from "./commands";
 
@@ -85,7 +85,6 @@ const NAMED_SCHEMAS = {
   ArchitectureContext: ArchitectureContextSchema,
   ContextMapView: ContextMapViewSchema,
   AgentTurnView: AgentTurnViewSchema,
-  AppTelemetryView: AppTelemetryViewSchema,
   TelemetryHealth: TelemetryHealthSchema,
   ApiError: ApiErrorSchema,
   Score: ScoreSchema,
@@ -398,18 +397,6 @@ function paths(): Record<string, unknown> {
         parameters: [nameParam, windowParam, formatParam],
         responses: {
           "200": { description: "trends view", content: jsonBody("TrendsView") },
-          "404": { description: "app not found", content: jsonBody("ApiError") },
-          "422": { description: "app config invalid: the app has a config file that cannot be loaded", content: jsonBody("ApiError") },
-        },
-      },
-    },
-    "/api/v1/apps/{name}/telemetry": {
-      get: {
-        operationId: "getAppTelemetry",
-        summary: "Prompt-size, grounding, repair and wall-clock aggregates over an app's agent turns, plus agent-efficiency aggregates (read-only)",
-        parameters: [nameParam, windowParam],
-        responses: {
-          "200": { description: "app telemetry", content: jsonBody("AppTelemetryView") },
           "404": { description: "app not found", content: jsonBody("ApiError") },
           "422": { description: "app config invalid: the app has a config file that cannot be loaded", content: jsonBody("ApiError") },
         },

@@ -3,7 +3,6 @@ import type { ToolSequenceEntry, TurnCallMetrics, TurnUsage } from "@contexts/ge
 import type { TimeLimitSource, TurnLimit } from "@kernel/turn-limit";
 import type { HistoryDatabase } from "../database";
 import { parseJsonColumn } from "../json-column";
-import { computeTelemetryAnalysis, type TelemetryAnalysis } from "../telemetry-analysis.query";
 
 export interface AgentTurnRecord {
   runId: string | null;        /* maps to RunRecord.id; null for turns with no parent run */
@@ -448,11 +447,6 @@ export class TelemetryRepository {
       limitApplied: (r.limit_applied as string | null) ?? null,
       limitFired: (r.limit_fired as string | null) ?? null,
     }));
-  }
-
-  /* Per-role prompt sizes, cache use, reviewer convergence and efficiency over the app's turns and outcomes, optionally within the last `windowDays`. */
-  computeTelemetryAnalysis(app: string, windowDays?: number): TelemetryAnalysis {
-    return computeTelemetryAnalysis(this.db, app, windowDays);
   }
 }
 

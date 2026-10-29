@@ -1,7 +1,6 @@
 /* Read-only views: an app's context map, trends, report and telemetry; a run's report; fleet signals and coordination events. */
 
 import {
-  AppTelemetryViewSchema,
   ContextMapViewSchema,
   CoordinationEventsViewSchema,
   ReportViewSchema,
@@ -60,18 +59,6 @@ export function runReport(ctx: ApiContext): ApiResult {
    */
   if (ctx.url.searchParams.get("format") === "csv") return reply.text(200, CSV, reportToCsv(report.current));
   return reply.contract(200, RunReportViewSchema, report);
-}
-
-export function appTelemetry(ctx: ApiContext): ApiResult {
-  const { telemetryAnalysis } = ctx.deps;
-  if (!telemetryAnalysis) throw new ApiError(501, "telemetry analysis is not available");
-  const name = param(ctx, "name");
-  loadApp(ctx.deps, name);
-  try {
-    return reply.contract(200, AppTelemetryViewSchema, telemetryAnalysis(name, parseWindow(ctx.url.searchParams.get("window"))));
-  } catch (err) {
-    throw new ApiError(500, `telemetry query failed: ${redactionPort.redactError(err)}`);
-  }
 }
 
 export function signals(ctx: ApiContext): ApiResult {

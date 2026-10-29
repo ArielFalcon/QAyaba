@@ -606,7 +606,6 @@ export function wireApp(settingsStore: SettingsStore): WiredApp {
     runExtras: (runId) => buildRunViewExtras(runId, runViewDeps),
     evaluation,
 
-    telemetryAnalysis: (app, windowDays) => getHistory().telemetry.computeTelemetryAnalysis(app, windowDays),
     resolveRef: (repo, ref) => resolveRef(repo, ref, defaultMirrorDeps),
     getRecord: (id) => getHistory().runs.getRecord(id),
     listRecords: (app, limit) => getHistory().runs.listRecords(app, limit),

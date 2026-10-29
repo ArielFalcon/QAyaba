@@ -1,9 +1,9 @@
-/* Drift guard: what the telemetry repository really returns for agent turns and app telemetry must be
-   exactly what the published contract documents — a column added to a turn or an aggregate
-   added to the telemetry without a matching schema change fails here, not in a client. */
+/* Drift guard: what the telemetry repository really returns for agent turns must be
+   exactly what the published contract documents — a column added to a turn without a matching
+   schema change fails here, not in a client. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { AgentTurnViewSchema, AppTelemetryViewSchema } from "../contract/commands";
+import { AgentTurnViewSchema } from "../contract/commands";
 import type { AgentTurnEvent } from "@contexts/generation/infrastructure/agent-transport-policy";
 import type { RunOutcome } from "../types";
 import { getHistory } from "./persistence/index";
@@ -70,22 +70,4 @@ test("every stored turn, measured or not, validates against the documented turn 
   const turns = getHistory().telemetry.getAgentTurns(runId);
   assert.equal(turns.length, 2);
   for (const turn of turns) assert.doesNotThrow(() => AgentTurnViewSchema.strict().parse(turn));
-});
-
-test("the app telemetry, with measured and unmeasured turns, validates against the documented telemetry schema with no undocumented aggregate", () => {
-  const app = `contract-app-${Date.now()}`;
-  const runId = `run-contract-telemetry-${Date.now()}`;
-  getHistory().learning.saveRunOutcome(outcome(runId, app));
-  getHistory().telemetry.saveAgentTurnEvent(turnEvent(runId, { stepBudget: { maxSteps: 50, exhausted: true }, callMetrics: measuredMetrics }));
-  getHistory().telemetry.saveAgentTurnEvent(turnEvent(runId));
-
-  const analysis = getHistory().telemetry.computeTelemetryAnalysis(app);
-  assert.doesNotThrow(() => AppTelemetryViewSchema.strict().parse(analysis));
-  assert.doesNotThrow(() => AppTelemetryViewSchema.shape.efficiency.strict().parse(analysis.efficiency));
-  assert.equal(analysis.efficiency.turnsMeasured, 1);
-});
-
-test("the telemetry of an app with no turns still validates against the documented schema", () => {
-  const analysis = getHistory().telemetry.computeTelemetryAnalysis(`contract-empty-${Date.now()}`);
-  assert.doesNotThrow(() => AppTelemetryViewSchema.strict().parse(analysis));
 });

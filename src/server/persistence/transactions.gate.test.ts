@@ -54,7 +54,7 @@ const READS: Record<string, readonly string[]> = {
   LearningRepository: [
     "writeOutcome", "rowToOutcome", "listRunOutcomes", "getRunOutcome",
   ],
-  TelemetryRepository: ["listRunSpans", "getAgentTurns", "getAgentRoleFacts", "getRecentTurnFigures","getAgentTurnTraces", "computeTelemetryAnalysis"],
+  TelemetryRepository: ["listRunSpans", "getAgentTurns", "getAgentRoleFacts", "getRecentTurnFigures","getAgentTurnTraces"],
 };
 
 const REPOSITORIES = {

@@ -23,16 +23,14 @@ test("the OpenAPI document is well-formed and exposes the v1 surface", () => {
   }
 });
 
-test("the OpenAPI document documents the run turns and app telemetry reads with named response schemas", () => {
+test("the OpenAPI document documents the run turns read with a named response schema", () => {
   const doc = buildOpenApiDocument() as Doc;
   const turns = doc.paths["/api/v1/runs/{id}/turns"] as { get?: { responses: Record<string, unknown> } };
-  const telemetry = doc.paths["/api/v1/apps/{name}/telemetry"] as { get?: { responses: Record<string, unknown> } };
   assert.ok(turns?.get, "missing GET /api/v1/runs/{id}/turns");
-  assert.ok(telemetry?.get, "missing GET /api/v1/apps/{name}/telemetry");
+  assert.equal(doc.paths["/api/v1/apps/{name}/telemetry"], undefined, "the per-app telemetry read is retired");
   assert.match(JSON.stringify(turns.get.responses["200"]), /#\/components\/schemas\/AgentTurnView/);
-  assert.match(JSON.stringify(telemetry.get.responses["200"]), /#\/components\/schemas\/AppTelemetryView/);
   assert.ok(doc.components.schemas.AgentTurnView, "missing component AgentTurnView");
-  assert.ok(doc.components.schemas.AppTelemetryView, "missing component AppTelemetryView");
+  assert.equal(doc.components.schemas.AppTelemetryView, undefined, "the per-app telemetry schema is retired");
 });
 
 test("the OpenAPI document exposes app onboarding verbs for codegen clients", () => {

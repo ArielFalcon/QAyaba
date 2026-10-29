@@ -203,6 +203,11 @@ export const BANNED_RULES: BannedRule[] = [
     exemptPrefixes: [RECORDS_PREFIX, "src/orchestrator/config-loader.test.ts"],
   },
   {
+    id: "app-telemetry-route",
+    patterns: [/\b(?:AppTelemetryView|AppTelemetryViewSchema|getAppTelemetry|computeTelemetryAnalysis|TelemetryAnalysis|TelemetryRoleStat|TelemetryEfficiency)\b/, /\/apps\/(?::name|\{name\}|[\w-]+)\/telemetry\b/],
+    exemptPrefixes: [RECORDS_PREFIX, "src/server/api.test.ts", "src/contract/openapi.test.ts"],
+  },
+  {
     id: "langfuse-sink",
     patterns: [
       /\b(?:LangfuseScoreSink|LangfuseConfig|resolveLangfuseConfig|scoreSinkHealthOf|ScoreSinkHealth|scoreConfigsOfCatalog|langfuseScoreId|getRunIdByTraceId)\b/,

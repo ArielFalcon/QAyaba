@@ -26,7 +26,6 @@ import type { TelemetryHealth } from "../telemetry/telemetry-health";
 import { RunEventSchema, RunEvent } from "@kernel/contract/events";
 import { createRunEventStore, RunEventStore } from "./run-events";
 import type { AgentTurnRecord } from "./persistence/repositories/telemetry.repository";
-import type { TelemetryAnalysis } from "./persistence/telemetry-analysis.query";
 
 function mkReq(method: string, url: string, body?: string, headers?: Record<string, string>): any {
   const r: any = Readable.from(body != null ? [body] : []);
@@ -368,35 +367,11 @@ test("GET /api/v1/runs/:id/turns returns each turn with its efficiency fields, n
   assert.equal(second.callBuckets, null);
 });
 
-test("GET /api/v1/apps/:name/telemetry returns the efficiency aggregates alongside the existing analysis", async () => {
-  const analysis: TelemetryAnalysis = {
-    app: "demo", generatedAt: "2026-09-28T10:00:00.000Z", windowDays: null, runCount: 2,
-    byRole: [{ role: "qa-author", medianPromptBytes: 200, p95PromptBytes: 300, medianCacheHitRate: null, turnCount: 4 }],
-    reviewerConvergence: { avgCorrectionsRound0: null, avgCorrectionsRound1: null, approveRate: 0.5 },
-    groundingPresence: 1, repairFraction: 0, medianTurnsPerRun: 2, medianWallClockSec: 30, p95WallClockSec: 40,
-    efficiency: { turnsMeasured: 3, medianCallsBeforeFirstWrite: 8, exhaustedRate: 1 / 3, redundantReadRatio: 0.15, duplicateRatio: 0.1 },
-  };
+test("GET /api/v1/apps/:name/telemetry is retired: no route matches the path, so the API leaves it unhandled", async () => {
   const r = mkRes();
-  await routeApi(mkReq("GET", "/api/v1/apps/demo/telemetry"), r, deps({ telemetryAnalysis: () => analysis }));
-  assert.equal(r.status, 200);
-  const body = JSON.parse(r.body);
-  assert.equal(body.efficiency.medianCallsBeforeFirstWrite, 8);
-  assert.equal(body.efficiency.exhaustedRate, 1 / 3);
-  assert.equal(body.byRole[0].turnCount, 4, "existing fields are unchanged");
-  assert.equal(body.runCount, 2);
-});
-
-test("GET /api/v1/apps/:name/telemetry answers 500, never a partial body, when the analysis drifts from the contract", async () => {
-  const drifted = { app: "demo", generatedAt: "now", windowDays: null, runCount: 0, byRole: [] } as unknown as TelemetryAnalysis;
-  const r = mkRes();
-  const originalError = console.error;
-  console.error = () => {};
-  try {
-    await routeApi(mkReq("GET", "/api/v1/apps/demo/telemetry"), r, deps({ telemetryAnalysis: () => drifted }));
-  } finally {
-    console.error = originalError;
-  }
-  assert.equal(r.status, 500);
+  const handled = await routeApi(mkReq("GET", "/api/v1/apps/demo/telemetry"), r, deps());
+  assert.equal(handled, false);
+  assert.equal(r.status, 0, "nothing was written to the response");
 });
 
 test("GET /trends?format=csv returns a flat CSV", async () => {
@@ -1773,7 +1748,6 @@ const APP_ROUTES: ReadonlyArray<{ route: string; method: string; path: string; b
   { route: "context map", method: "GET", path: "/api/v1/apps/ghost/context-map", over: { contextMap: () => null } },
   { route: "trends", method: "GET", path: "/api/v1/apps/ghost/trends", over: { trends: () => { throw new Error("not reached"); } } },
   { route: "report", method: "GET", path: "/api/v1/apps/ghost/report", over: { report: () => { throw new Error("not reached"); } } },
-  { route: "telemetry analysis", method: "GET", path: "/api/v1/apps/ghost/telemetry", over: { telemetryAnalysis: () => { throw new Error("not reached"); } } },
   { route: "login bootstrap", method: "POST", path: "/api/v1/apps/ghost/login-bootstrap", over: { bootstrapLogin: () => "run-login-1" } },
 ];
 

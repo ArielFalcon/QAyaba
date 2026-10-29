@@ -22,7 +22,6 @@ import type {
 } from "../../contract/commands";
 import type { RunEventStore } from "../run-events";
 import type { AgentTurnRecord } from "../persistence/repositories/telemetry.repository";
-import type { TelemetryAnalysis } from "../persistence/telemetry-analysis.query";
 import type { EvaluationService } from "../evaluation-service";
 import type { RunViewExtras } from "../run-view";
 import type { ApiRunRequest } from "./run-request";
@@ -111,7 +110,6 @@ export interface ApiDeps {
   /* The evaluation context (scores, catalog, regrade). Absent: those routes answer 501. */
   evaluation?: EvaluationService;
 
-  telemetryAnalysis?: (app: string, windowDays?: number) => TelemetryAnalysis;
   /*
    * Cadence (ms) of the SSE durable-poll loop in handleRunEvents. Injected so tests can drive
    * the poll fast; production uses DEFAULT_SSE_POLL_MS.

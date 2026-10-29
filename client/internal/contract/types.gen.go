@@ -1769,38 +1769,6 @@ type AppService struct {
 	VersionUrl *string `json:"versionUrl,omitempty"`
 }
 
-// AppTelemetryView defines model for AppTelemetryView.
-type AppTelemetryView struct {
-	App    string `json:"app"`
-	ByRole []struct {
-		MedianCacheHitRate *float32 `json:"medianCacheHitRate"`
-		MedianPromptBytes  *float32 `json:"medianPromptBytes"`
-		P95PromptBytes     *float32 `json:"p95PromptBytes"`
-		Role               string   `json:"role"`
-		TurnCount          int      `json:"turnCount"`
-	} `json:"byRole"`
-	Efficiency struct {
-		DuplicateRatio              *float32 `json:"duplicateRatio"`
-		ExhaustedRate               *float32 `json:"exhaustedRate"`
-		MedianCallsBeforeFirstWrite *float32 `json:"medianCallsBeforeFirstWrite"`
-		RedundantReadRatio          *float32 `json:"redundantReadRatio"`
-		TurnsMeasured               int      `json:"turnsMeasured"`
-	} `json:"efficiency"`
-	GeneratedAt         string   `json:"generatedAt"`
-	GroundingPresence   *float32 `json:"groundingPresence"`
-	MedianTurnsPerRun   *float32 `json:"medianTurnsPerRun"`
-	MedianWallClockSec  *float32 `json:"medianWallClockSec"`
-	P95WallClockSec     *float32 `json:"p95WallClockSec"`
-	RepairFraction      *float32 `json:"repairFraction"`
-	ReviewerConvergence struct {
-		ApproveRate          *float32 `json:"approveRate"`
-		AvgCorrectionsRound0 *float32 `json:"avgCorrectionsRound0"`
-		AvgCorrectionsRound1 *float32 `json:"avgCorrectionsRound1"`
-	} `json:"reviewerConvergence"`
-	RunCount   int  `json:"runCount"`
-	WindowDays *int `json:"windowDays"`
-}
-
 // AppView defines model for AppView.
 type AppView struct {
 	AuthKind       *AppViewAuthKind `json:"authKind,omitempty"`
@@ -2819,11 +2787,6 @@ type GetAppReportParams struct {
 
 // GetAppReportParamsFormat defines parameters for GetAppReport.
 type GetAppReportParamsFormat string
-
-// GetAppTelemetryParams defines parameters for GetAppTelemetry.
-type GetAppTelemetryParams struct {
-	Window *int `form:"window,omitempty" json:"window,omitempty"`
-}
 
 // GetAppTrendsParams defines parameters for GetAppTrends.
 type GetAppTrendsParams struct {

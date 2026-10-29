@@ -1011,45 +1011,6 @@ export const AgentTurnViewSchema = z.object({
 });
 
 export type AgentTurnView = z.infer<typeof AgentTurnViewSchema>;
-
-export const TelemetryRoleStatSchema = z.object({
-  role: z.string(),
-  medianPromptBytes: z.number().nullable(),
-  p95PromptBytes: z.number().nullable(),
-  medianCacheHitRate: z.number().nullable(),
-  turnCount: z.number().int().nonnegative(),
-});
-
-/** Aggregates over the turns' persisted efficiency measurements; turns a runtime could not measure are left out of every figure, never counted as zero. */
-export const TelemetryEfficiencySchema = z.object({
-  turnsMeasured: z.number().int().nonnegative(),
-  medianCallsBeforeFirstWrite: z.number().nullable(),
-  exhaustedRate: z.number().nullable(),
-  redundantReadRatio: z.number().nullable(),
-  duplicateRatio: z.number().nullable(),
-});
-
-/** ── App telemetry (GET /apps/:name/telemetry) ─────────────────────────────────────── Prompt-size, grounding, repair and wall-clock aggregates over the app's agent turns, plus the agent-efficiency aggregates. */
-export const AppTelemetryViewSchema = z.object({
-  app: z.string(),
-  generatedAt: z.string(),
-  windowDays: z.number().int().nullable(),
-  runCount: z.number().int().nonnegative(),
-  byRole: z.array(TelemetryRoleStatSchema),
-  reviewerConvergence: z.object({
-    avgCorrectionsRound0: z.number().nullable(),
-    avgCorrectionsRound1: z.number().nullable(),
-    approveRate: z.number().nullable(),
-  }),
-  groundingPresence: z.number().nullable(),
-  repairFraction: z.number().nullable(),
-  medianTurnsPerRun: z.number().nullable(),
-  medianWallClockSec: z.number().nullable(),
-  p95WallClockSec: z.number().nullable(),
-  efficiency: TelemetryEfficiencySchema,
-});
-
-export type AppTelemetryView = z.infer<typeof AppTelemetryViewSchema>;
 export type ApiError = z.infer<typeof ApiErrorSchema>;
 export type Score = z.infer<typeof ScoreSchema>;
 export type RunEvaluation = z.infer<typeof RunEvaluationSchema>;
