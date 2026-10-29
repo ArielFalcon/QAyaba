@@ -12,7 +12,7 @@ import { fileURLToPath } from "node:url";
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const SCANNED = ["src", "qa-engine/src"];
 
-const ALLOWED: readonly string[] = ["src/agent-runtime/opencode-strategy.ts", "src/server/onboarding/llm-profile-proposer.adapter.ts"];
+const ALLOWED: readonly string[] = ["src/server/onboarding/llm-profile-proposer.adapter.ts"];
 
 /* A model id is `<provider>/<name>`; the providers are the ones agents/opencode.json declares models of. */
 function declaredProviderPrefixes(): string[] {

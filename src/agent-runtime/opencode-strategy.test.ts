@@ -1,79 +1,15 @@
-/* modelsFromOpenCodeConfig only falls back to FALLBACK_MODELS when agents/opencode.json is
-   missing or unreadable. That is rare in production (the file ships with the image), but when it
-   DOES fire, the fallback roster must not reject the actual default primary model — a stale
-   roster naming models the live config no longer has is worse than an empty list, because it
-   looks authoritative while being wrong.
- */
-
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync, writeFileSync, mkdtempSync, rmSync } from "node:fs";
+import { writeFileSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { OpenCodeRuntimeStrategy } from "./opencode-strategy";
 import { AGENT_NAME_FOR_ROLE, AGENT_ROLES } from "./types";
 
-/* Repo root relative to this test file (src/agent-runtime/ → two levels up), for reading the
-   REAL agents/opencode.json in the structural anti-drift test below.
- */
-const REPO_ROOT = join(import.meta.dirname ?? __dirname, "..", "..");
-
-describe("OpenCodeRuntimeStrategy.listModels fallback roster", () => {
-  it("the fallback roster includes the LIVE default primary model (from agents/opencode.json), not a stale one", async () => {
-    /* Point at a config path that does not exist, forcing the FALLBACK_MODELS path. */
-    const strategy = new OpenCodeRuntimeStrategy({
-      env: { OPENCODE_API_KEY: "test-key" },
-      configPath: "/nonexistent/opencode/config/path.json",
-    });
-
-    const models = await strategy.listModels();
-    const ids = models.map((m) => m.id);
-
-    const liveConfig = JSON.parse(readFileSync(join(REPO_ROOT, "agents", "opencode.json"), "utf8")) as {
-      agent?: Record<string, { model?: string }>;
-    };
-    const livePrimary = liveConfig.agent?.["qa-author"]?.model;
-    assert.ok(livePrimary, "agents/opencode.json must declare a qa-author model");
-    assert.ok(
-      ids.includes(livePrimary),
-      `the fallback roster must include the live qa-author default (${livePrimary}). Got: ${ids.join(", ")}`,
-    );
-  });
-
-  it("structural anti-drift: EVERY fallback roster entry appears in the REAL agents/opencode.json roster", async () => {
-    /* Read the actual shipped config — not a hand-transcribed copy — and assert the fallback list
-       is a subset of the models genuinely assigned there. If someone retires a model from
-       opencode.json without updating FALLBACK_MODELS, this fails; no manual transcription to rot.
-     */
-    const livePath = join(REPO_ROOT, "agents", "opencode.json");
-    const liveConfig = JSON.parse(readFileSync(livePath, "utf8")) as {
-      agent?: Record<string, { model?: string }>;
-    };
-    const liveModels = new Set(
-      Object.values(liveConfig.agent ?? {})
-        .map((a) => a.model)
-        .filter((m): m is string => typeof m === "string"),
-    );
-    assert.ok(liveModels.size > 0, `agents/opencode.json must assign at least one model (read from ${livePath})`);
-
-    const strategy = new OpenCodeRuntimeStrategy({
-      env: { OPENCODE_API_KEY: "test-key" },
-      configPath: "/nonexistent/opencode/config/path.json",
-    });
-    const fallbackIds = (await strategy.listModels()).map((m) => m.id);
-
-    for (const id of fallbackIds) {
-      assert.ok(
-        liveModels.has(id),
-        `FALLBACK_MODELS entry "${id}" is not assigned to any agent in the live agents/opencode.json — ` +
-          `the fallback roster has drifted from the live config. Live roster: ${[...liveModels].sort().join(", ")}`,
-      );
-    }
-  });
-
+describe("OpenCodeRuntimeStrategy.listModels", () => {
   it("parsing logic: distinct agent models in a config are surfaced exactly (temp-config shape test)", async () => {
     /* Build a tiny temp config mirroring the SHAPE this parser reads (agent -> model) and confirm
-       the LIVE-config parse path (not the fallback) surfaces exactly the distinct assigned ids.
+       the parse path surfaces exactly the distinct assigned ids.
      */
     const dir = mkdtempSync(join(tmpdir(), "opencode-config-test-"));
     const configPath = join(dir, "opencode.json");
@@ -109,29 +45,23 @@ describe("OpenCodeRuntimeStrategy.listModels fallback roster", () => {
     }
   });
 
-  it("a malformed/unreadable config also falls back to the roster that includes the live default primary", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "opencode-config-test-"));
-    const configPath = join(dir, "opencode.json");
-    try {
-      writeFileSync(configPath, "{ not valid json");
-      const strategy = new OpenCodeRuntimeStrategy({
-        env: { OPENCODE_API_KEY: "test-key" },
-        configPath,
-      });
-      const ids = (await strategy.listModels()).map((m) => m.id);
-      const liveConfig = JSON.parse(readFileSync(join(REPO_ROOT, "agents", "opencode.json"), "utf8")) as {
-        agent?: Record<string, { model?: string }>;
-      };
-      const livePrimary = liveConfig.agent?.["qa-author"]?.model;
-      assert.ok(livePrimary, "agents/opencode.json must declare a qa-author model");
-      assert.ok(
-        ids.includes(livePrimary),
-        `malformed-config fallback must still include the live default primary (${livePrimary}). Got: ${ids.join(", ")}`,
-      );
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
-  });
+  for (const [name, content] of [
+    ["is missing", undefined],
+    ["cannot be parsed", "{ not valid json"],
+    ["assigns no model", JSON.stringify({ agent: { "qa-author": {} } })],
+  ] as const) {
+    it(`lists no model when the roster ${name}`, async () => {
+      const dir = mkdtempSync(join(tmpdir(), "opencode-config-test-"));
+      try {
+        const configPath = join(dir, "opencode.json");
+        if (content !== undefined) writeFileSync(configPath, content);
+        const strategy = new OpenCodeRuntimeStrategy({ env: { OPENCODE_API_KEY: "test-key" }, configPath });
+        assert.deepEqual(await strategy.listModels(), []);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+  }
 });
 
 describe("OpenCodeRuntimeStrategy.stepLimits", () => {

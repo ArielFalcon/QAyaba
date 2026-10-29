@@ -45,13 +45,6 @@ interface OpenCodeRuntimeStrategyOptions {
   listModelWindows?: (directory: string) => Promise<ModelWindows>;
 }
 
-/* Used only when opencode.json is missing; keep aligned with agents/opencode.json. */
-const FALLBACK_MODELS: AgentModelInfo[] = [
-  { id: "opencode-go/deepseek-v4.1-flash", label: "DeepSeek V4.1 Flash" },
-  { id: "opencode-go/glm-5.3-flash", label: "GLM 5.3 Flash" },
-  { id: "opencode-go/minimax-m3.1-flash", label: "MiniMax M3.1 Flash" },
-];
-
 export class OpenCodeRuntimeStrategy implements AgentRuntimeStrategy {
   readonly provider = "opencode" as const;
   private depsPromise: Promise<AgentDeps> | undefined;
@@ -215,16 +208,17 @@ async function supervisorRestart(
   return body.health;
 }
 
+/* The models agents/opencode.json assigns; a roster that is missing, unreadable or assigns none lists none. */
 function modelsFromOpenCodeConfig(path: string): AgentModelInfo[] {
-  if (!existsSync(path)) return FALLBACK_MODELS;
+  if (!existsSync(path)) return [];
   try {
     const raw = JSON.parse(readFileSync(path, "utf8")) as { agent?: Record<string, { model?: string }> };
     const ids = new Set<string>();
     for (const agent of Object.values(raw.agent ?? {})) {
       if (agent.model) ids.add(agent.model);
     }
-    return (ids.size ? [...ids].map((id) => ({ id })) : FALLBACK_MODELS).sort((a, b) => a.id.localeCompare(b.id));
+    return [...ids].map((id) => ({ id })).sort((a, b) => a.id.localeCompare(b.id));
   } catch {
-    return FALLBACK_MODELS;
+    return [];
   }
 }

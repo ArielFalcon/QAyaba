@@ -25,8 +25,7 @@ import { ReflectorPortAdapter } from "@contexts/cross-run-learning/infrastructur
 import type { ReflectionInput } from "@contexts/cross-run-learning/application/index.ts";
 import type { AgentRuntimePort } from "@kernel/ports/agent-runtime.port.ts";
 import { providerConfig } from "../src/agent-runtime/config.ts";
-import { OpenCodeRuntimeStrategy } from "../src/agent-runtime/opencode-strategy.ts";
-import { AGENT_NAME_FOR_ROLE, type AgentModelInfo, type AgentRole } from "../src/agent-runtime/types.ts";
+import { AGENT_NAME_FOR_ROLE, type AgentRole } from "../src/agent-runtime/types.ts";
 import { askAssistant, type AgentDeps } from "../src/integrations/opencode-client.ts";
 import { repairInstruction } from "../src/integrations/verdict-validate.ts";
 import { createMaintainerRuntime, type MaintainerConfig, type MaintainerSideEffects } from "../src/server/maintainer-runtime.ts";
@@ -214,9 +213,6 @@ async function readDeclaredModelSources(root: string = ROOT): Promise<Record<str
     model_fallback?: Record<string, unknown>;
   };
   const strings = (values: readonly unknown[]): string[] => values.filter((v): v is string => typeof v === "string" && v.length > 0);
-  const withLabels = (models: readonly AgentModelInfo[]): string[] => strings(models.flatMap((m) => [m.id, m.label]));
-  /* A path nothing creates: the strategy then answers with its built-in fallback list. */
-  const absentConfig = join(tmpdir(), "model-agnostic-prompts-no-such-dir", "opencode.json");
   return {
     "agents/opencode.json": strings([
       ...Object.values(opencode.agent ?? {}).map((a) => a.model),
@@ -225,7 +221,6 @@ async function readDeclaredModelSources(root: string = ROOT): Promise<Record<str
     "provider role defaults": (["opencode"] as const).flatMap((p) =>
       Object.values(providerConfig(p, {}).assignments).map((a) => a.model),
     ),
-    "OpenCode fallback list": withLabels(await new OpenCodeRuntimeStrategy({ configPath: absentConfig }).listModels()),
     "proposer pin": [PROPOSER_MODEL],
   };
 }
