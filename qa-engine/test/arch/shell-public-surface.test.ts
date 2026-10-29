@@ -80,9 +80,9 @@ test("only the engine root imports a composition builder", () => {
   assert.match(r.output, /composition-only-from-shell-root/);
 });
 
-test("the frozen exception list only shrinks and every entry still imports an infrastructure file", () => {
+test("the frozen exception list is exactly as long as its ceiling and every entry still imports an infrastructure file", () => {
   const entries = JSON.parse(readFileSync(join(repoRoot, EXCEPTIONS_REL), "utf8")) as string[];
-  assert.ok(entries.length <= SHELL_INFRASTRUCTURE_EXCEPTIONS_CEILING, `${entries.length} entries, ceiling ${SHELL_INFRASTRUCTURE_EXCEPTIONS_CEILING}`);
+  assert.equal(entries.length, SHELL_INFRASTRUCTURE_EXCEPTIONS_CEILING, "the ceiling is the list length: lower it in the commit that removes an entry");
   assert.deepEqual(entries, [...entries].sort());
   const INFRASTRUCTURE_IMPORT = /["'][^"']*contexts\/[^/"']+\/(infrastructure|bridges|adapters)\//;
   for (const entry of entries) {
