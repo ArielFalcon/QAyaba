@@ -181,7 +181,7 @@ the rows for the decisions it touches, with the rule and the record that settled
 
 `RunQaUseCase` (`qa-engine/src/contexts/run-orchestration/application/run-qa.use-case.ts`)
 is the only engine; webhook (`src/server/webhook-handler.ts`, wired by `src/server/wire-app.ts`) and CLI (`src/cli.ts`) both enter through
-`enqueueTrackedRun`. It walks a table of 49 named steps in 15 phases (`application/run-flow/run-steps.ts`, ids in `step-ids.ts`); a step returns one closed outcome (go on, go to a step, or end the run for a reason), every end goes through `finalizeRun` (`run-flow/finalize-run.ts`), the only place a run is saved, published, audited and pruned, and every fault a step lets escape is classified by `failure-policy.ts` into rethrow, end, carry on or degrade. `diff` mode:
+`enqueueTrackedRun`. It walks a table of 47 named steps in 15 phases (`application/run-flow/run-steps.ts`, ids in `step-ids.ts`); a step returns one closed outcome (go on, go to a step, or end the run for a reason), every end goes through `finalizeRun` (`run-flow/finalize-run.ts`), the only place a run is saved, published, audited and pruned, and every fault a step lets escape is classified by `failure-policy.ts` into rethrow, end, carry on or degrade. `diff` mode:
 
 1. **Gate** — wait until DEV serves this SHA (`dev.versionUrl`; skipped when absent).
 2. **Classify** — checkout, diff + message, `classifyCommit` (Conventional Commits
@@ -593,9 +593,9 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   settles a failure that ended where its route sends the client by the fact's class, with no re-read (a correction, an
   `E-PRECONDITION`, or `BREAK_NEEDS_HUMAN` for a possible regression); the PR or Issue lists every `change-introduced`
   route and every possible regression; `gateSignals.routeAvailability` records the counts. A signal, never a gate.
-- **Cross-run learning** — `qa-engine/src/contexts/cross-run-learning/`: the learning gates, the curriculum and the
+- **Cross-run learning** — `qa-engine/src/contexts/cross-run-learning/`: the learning gates and the
   process audit. The rule loop (the rule ledger and its fold, governance, retrieval and injection, the reflector and the
-  quarantine and ledger commands) is deleted ([ADR-0003](docs/architecture/adr/0003-learning-layer-rebuild.md)): a
+  quarantine and ledger commands) and the curriculum (the scenario archetypes, the exemplar templates and the diff keyword detector) are deleted ([ADR-0003](docs/architecture/adr/0003-learning-layer-rebuild.md)): a
   run reads no lesson and writes none, and what replaces it is built separately against a frozen arm. What stays: the
   run outcomes (`run_outcomes`), which every run persists and the process audit reads; the learning gates
   (`learning-gates.ts`), which decide which outcomes reach the audit; the process audit
@@ -604,7 +604,7 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   runs: an agent memory held what the agent believed, with no SHA, no expiry and no check against DEV,
   and later runs read those beliefs as facts over what the Context Pack read live; what a run reuses
   comes from the orchestrator (the suite store, the Context Pack). The tables the removed loop wrote
-  (`learning_rules`, `scorecard`) and the `rules_retrieved` and `reflection` columns of `run_outcomes` stay in the schema,
+  (`learning_rules`, `curriculum`, `scorecard`) and the `rules_retrieved` and `reflection` columns of `run_outcomes` stay in the schema,
   unread; the scorecard rows the signals view reads are the ones earlier runs left.
 
 ### The agent and its prompts

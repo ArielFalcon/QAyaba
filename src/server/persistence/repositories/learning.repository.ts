@@ -1,25 +1,17 @@
-import { CURRICULUM_CORRUPT } from "@contexts/cross-run-learning/application/index";
 import type { ErrorClass } from "@kernel/error-class";
-import { logJson } from "../../../integrations/logger";
-import { RedactionPortAdapter } from "../../../orchestrator/sanitizer";
-import type { Curriculum } from "../../../qa/learning/curriculum";
 import type { Scorecard } from "../../../qa/learning/oracle-types";
 import type { RunMode, RunOutcome, RunRecord, RunVerdict, TestTarget } from "../../../types";
 import type { HistoryDatabase } from "../database";
 import { parseJsonColumn } from "../json-column";
 
-const redactionPort = new RedactionPortAdapter();
-
 const EMPTY_GATE_SIGNALS: RunOutcome["gateSignals"] = { static: false, coverageRatio: null, valueScore: null, reviewerCorrections: [], flaky: false, retries: 0 };
 
-/* What a run taught: run_outcomes (append-only), the curriculum and the scorecard (read-only: nothing writes it any more). The learning_rules table and the rules_retrieved and reflection columns of run_outcomes are no longer read or written; the schema keeps them. */
+/* What a run taught: run_outcomes (append-only), and the scorecard, which only the signals view reads. The learning_rules, curriculum and scorecard tables and the rules_retrieved and reflection columns of run_outcomes are no longer written; the schema keeps them, and purging an app still empties its rows. */
 export class LearningRepository {
   private readonly insertOutcome;
   private readonly reclassifyOutcome;
   private readonly listOutcomes;
   private readonly getOutcome;
-  private readonly loadCurriculumRow;
-  private readonly saveCurriculumRow;
   private readonly loadScorecardRow;
 
   constructor(private readonly db: HistoryDatabase) {
@@ -31,12 +23,10 @@ export class LearningRepository {
     this.reclassifyOutcome = raw.prepare("UPDATE run_outcomes SET verdict = 'infra-error', error_class = ? WHERE id = ?");
     this.listOutcomes = raw.prepare("SELECT * FROM run_outcomes WHERE app = ? ORDER BY at DESC, rowid DESC LIMIT ?");
     this.getOutcome = raw.prepare("SELECT * FROM run_outcomes WHERE id = ?");
-    this.loadCurriculumRow = raw.prepare("SELECT data, updated_at FROM curriculum WHERE app = ?");
-    this.saveCurriculumRow = raw.prepare("INSERT INTO curriculum (app, data, updated_at) VALUES (?, ?, ?) ON CONFLICT(app) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at");
     this.loadScorecardRow = raw.prepare("SELECT data FROM scorecard WHERE app = ?");
   }
 
-  /* Removes what an app's runs taught: outcomes, rules, curriculum and scorecard. Returns nothing; a table that holds no row for the app is left as it is. */
+  /* Removes what an app's runs taught: outcomes, rules, curriculum and scorecard rows. Returns nothing; a table that holds no row for the app is left as it is. */
   deleteApp(app: string): void {
     this.db.write(() => {
       for (const table of ["run_outcomes", "learning_rules", "curriculum", "scorecard"]) this.db.statement(`DELETE FROM ${table} WHERE app = ?`).run(app);
@@ -111,24 +101,6 @@ export class LearningRepository {
   getRunOutcome(runId: string): RunOutcome | undefined {
     const row = this.getOutcome.get(runId) as Record<string, unknown> | undefined;
     return row ? this.rowToOutcome(row) : undefined;
-  }
-
-  loadCurriculum(app: string): Curriculum | null | typeof CURRICULUM_CORRUPT {
-    const row = this.loadCurriculumRow.get(app) as { data: string; updated_at: string } | undefined;
-    if (!row) return null;
-    try {
-      return JSON.parse(row.data) as Curriculum;
-    } catch (err) {
-      logJson("warn", `corrupt curriculum row for app '${app}' — refusing to silently reset it with a fresh curriculum`, {
-        app,
-        error: redactionPort.redactError(err),
-      });
-      return CURRICULUM_CORRUPT;
-    }
-  }
-
-  saveCurriculum(curriculum: Curriculum): void {
-    this.db.write(() => this.saveCurriculumRow.run(curriculum.app, JSON.stringify(curriculum), curriculum.updatedAt));
   }
 
   loadScorecard(app: string): Scorecard | null {

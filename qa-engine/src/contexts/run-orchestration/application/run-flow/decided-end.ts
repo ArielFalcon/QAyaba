@@ -300,7 +300,7 @@ async function persistOutcome(state: Readonly<RunState>, ctx: WorkspaceRunContex
   const run = runOf(state);
   const { coverageRatio, valueScore, mutantCount, killedCount, branchCoverage, bundleMutation, branchCases, survivorClosure, flakyTriage, changeCoverage } = state.coverage;
   const { finalReviewerCorrections, reviewerSignal, missingCases } = state.review;
-  const { diffArchetypes, blastRadiusSignal, serviceLinks, contractDrift, crossRepoImpact } = state.grounding;
+  const { blastRadiusSignal, serviceLinks, contractDrift, crossRepoImpact } = state.grounding;
   const { preExecAmbiguityCatches, catalogGateInWindow, catalogGateAdvisory, catalogGateFailClosed } = state.generation;
   const loopSignal = await closedLoopSignal(state, ctx);
   /* Thread the review loop's real final-round corrections into errorClass derivation. */
@@ -330,7 +330,6 @@ async function persistOutcome(state: Readonly<RunState>, ctx: WorkspaceRunContex
     ...(reviewerSignal !== undefined ? { reviewer: reviewerSignal } : {}),
     /* Publish outcome string, never fabricated when publish() was not called. */
     ...(publishOutcome !== undefined ? { note: publishOutcome } : {}),
-    ...(diffArchetypes ? { diffArchetypes } : {}),
     /* Real pre-exec counters, not a hardcoded 0. */
     preExecAmbiguityCatches,
     deterministicSelectorBlocks: DETERMINISTIC_SELECTOR_BLOCKS,
@@ -360,8 +359,6 @@ async function persistOutcome(state: Readonly<RunState>, ctx: WorkspaceRunContex
 async function learnFromOutcome(state: Readonly<RunState>, ctx: WorkspaceRunContext, mainlineOutcome: NonNullable<Persisted["mainlineOutcome"]>): Promise<void> {
   const { deps, input } = ctx;
   const { decision } = decidedOf(state);
-  const { offeredArchetypes } = state.grounding;
-  const { coverageStatus } = state.coverage;
   /*
    * What this outcome may teach is decided in one place (learningGates). Off-path: never gates the verdict. app_defect
    * suppresses the fold so the flywheel never learns to weaken a test that caught a real bug.
@@ -373,20 +370,7 @@ async function learnFromOutcome(state: Readonly<RunState>, ctx: WorkspaceRunCont
     errorClass: mainlineOutcome.errorClass,
     adjudicationClass: mainlineOutcome.adjudication?.class,
   });
-  /*
-   * Off-path. Deliberately NOT gated on the learning gates: app_defect is the curriculum's strongest positive signal. Only the
-   * mainline exit folds: invalid/infra-error never executed a suite.
-   */
-  if (offeredArchetypes.length > 0) {
-    await deps.curriculum?.fold({
-      offered: offeredArchetypes,
-      verdict: decision.verdict,
-      ...(mainlineOutcome.adjudication?.class !== undefined ? { adjudicationClass: mainlineOutcome.adjudication.class } : {}),
-      ...(coverageStatus !== undefined ? { coverageStatus } : {}),
-    });
-  }
-
-  /* Stricter than fold: no flaky verdict, and errorClass must be a real class that teaches. */
+  /* No flaky verdict, and errorClass must be a real class that teaches. */
   if (deps.processAudit && learning.audit) {
     /* Audit duration on the existing log.line channel. */
     const auditStartedAt = Date.now();

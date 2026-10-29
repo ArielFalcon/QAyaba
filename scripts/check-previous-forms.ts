@@ -119,6 +119,15 @@ export const BANNED_RULES: BannedRule[] = [
     ],
     exemptPrefixes: [RECORDS_PREFIX],
   },
+  {
+    id: "curriculum",
+    patterns: [
+      /\b(?:CurriculumPortAdapter|CurriculumPort|TracedCurriculumPort|CurriculumFoldInput|foldCurriculum|initCurriculum|loadCurriculum|saveCurriculum|CURRICULUM_CORRUPT|MAX_SELECTED_EXEMPLARS)\b/,
+      /\b(?:SelectedExemplar|SkillExemplar|skillExemplars|selectedExemplars|offeredArchetypes|diffArchetypes|renderExemplarsForPrompt|matchExemplars|BUILT_IN_EXEMPLARS|ALL_ARCHETYPES|ScenarioArchetype|detectStructuralPatterns)\b/,
+      /\b(?:read-diff-shapes|select-exemplars|readDiffShapes|selectExemplars|skill-exemplars|scenario-catalog|scenario-archetype|structural-pattern|learned-rule|curriculum-port\.adapter|curriculum-model|db:curriculum)\b/,
+    ],
+    exemptPrefixes: [RECORDS_PREFIX],
+  },
   { id: "shell-dead-run-types", patterns: [/\bAgentResult\b/], exemptPrefixes: [RECORDS_PREFIX] },
   { id: "shell-events-reexport", patterns: [/\bsrc\/contract\/events(?:\.ts)?(?![\w.-])/], exemptPrefixes: [RECORDS_PREFIX] },
   {

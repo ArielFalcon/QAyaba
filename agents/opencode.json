@@ -184,7 +184,7 @@
       }
     },
     "qa-assistant": {
-      "description": "Read-only run Q&A for the interactive layer (TUI chat). Tool-less: answers ONLY from the run context injected in the prompt (src/server/chat.ts buildRunChatContext deterministically embeds run outcomes, learning rules and curriculum as text). ALL MCP toolsets (serena/playwright) are explicitly denied.",
+      "description": "Read-only run Q&A for the interactive layer (TUI chat). Tool-less: answers ONLY from the run context injected in the prompt (src/server/chat.ts buildRunChatContext deterministically embeds run outcomes as text). ALL MCP toolsets (serena/playwright) are explicitly denied.",
       "mode": "primary",
       "model": "opencode-go/glm-5.3-flash",
       "prompt": "{file:./agent/qa-assistant.md}",

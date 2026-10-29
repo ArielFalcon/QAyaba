@@ -471,7 +471,7 @@ test("the run-Q&A assistant is tool-less: no fs/shell tools and NO MCP at all", 
   /* The assistant holds NO MCP. Its own prompt (agents/agent/qa-assistant.md:
      "You have no tools — do not read files, run commands, or call any MCP") and the orchestrator's
      chat context builder (src/server/chat.ts buildRunChatContext: "You have NO tools") both declare
-     it tool-less; the run outcomes / learning rules / curriculum it answers about are injected
+     it tool-less; the run outcomes it answers about are injected
      deterministically as TEXT by chat.ts, and an MCP grant would contradict the
      prompt contract and widen the surface for no functional reason.
    */

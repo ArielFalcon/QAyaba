@@ -6,7 +6,7 @@
  * publishing e2e/.qa/context.json via PR stays independently shadow-gated (buildVcsPublish), but the
  * stored map must survive regardless, since the mirror's e2e/.qa/context.json is wiped by the next
  * run's `git checkout -f` + `git clean -fd`. Off-path: a capture fault is fault-isolated inside the
- * adapter (never gates a verdict or publish), same contract as CurriculumPort.fold above.
+ * adapter (never gates a verdict or publish).
  */
 export interface ContextMapCapturePort {
   capture(specDir: string, app: string, sha: string): Promise<void>;

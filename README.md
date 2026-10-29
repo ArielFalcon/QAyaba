@@ -78,7 +78,6 @@ flowchart LR
     RV --> DEC[PR with auto-merge / Issue]
     DEC -->|run outcomes| LD[(Run History)]
     DEC -->|telemetry events| TL[(Coordination Telemetry JSONL)]
-    LD -->|proven archetypes injected into prompt| PL
 ```
 
 <table>
@@ -112,12 +111,11 @@ Every run follows the same sequence, whether triggered by a webhook or manually:
 |---|---|
 | **1. Deploy gate** | Waits until DEV reports the right commit SHA and is healthy. Skipped if no health endpoint is configured. |
 | **2. Classification** | Reads the commit message and diff. Conventional Commits like `style:` with no logic changes are skipped before spending a single token. |
-| **3. Retrieval** | Loads structural patterns and proven scenario archetypes from past runs — injects them into the agent prompt. |
-| **4. Coordination** | The lead is asked for a plan of independent flows, the orchestrator admits it (or refuses the run with a recorded reason: `E-NO-AUTHOR`), and each flow is handed to an author sidekick. |
-| **5. Generation** | One author sidekick per flow, in parallel, reads the blast radius using semantic code navigation and writes tests into the repo; the lead reviews each flow and can send it back to the same sidekick or to a fresh one. |
-| **6. Static gate** | TypeScript compilation, ESLint, and Playwright's test list must pass. Invalid code is rejected before execution. |
-| **7. Execution** | Runs tests against the live DEV URL. Results are classified as pass, fail, or flaky. Repairs re-run inside the same fix loop, which owns retries, adjudication, and regression checks. |
-| **8. Decision** | Green and approved: PR with auto-merge. Failures: GitHub Issue. Flaky: quarantined. DEV down: infrastructure error. Every coordination decision made along the way is appended to the telemetry ledger. |
+| **3. Coordination** | The lead is asked for a plan of independent flows, the orchestrator admits it (or refuses the run with a recorded reason: `E-NO-AUTHOR`), and each flow is handed to an author sidekick. |
+| **4. Generation** | One author sidekick per flow, in parallel, reads the blast radius using semantic code navigation and writes tests into the repo; the lead reviews each flow and can send it back to the same sidekick or to a fresh one. |
+| **5. Static gate** | TypeScript compilation, ESLint, and Playwright's test list must pass. Invalid code is rejected before execution. |
+| **6. Execution** | Runs tests against the live DEV URL. Results are classified as pass, fail, or flaky. Repairs re-run inside the same fix loop, which owns retries, adjudication, and regression checks. |
+| **7. Decision** | Green and approved: PR with auto-merge. Failures: GitHub Issue. Flaky: quarantined. DEV down: infrastructure error. Every coordination decision made along the way is appended to the telemetry ledger. |
 
 > [!NOTE]
 > **Shadow mode** (`qa.shadow: true` in the app config) runs the full pipeline but does not publish PRs or open Issues. Use this when onboarding a repo for the first time.
@@ -161,12 +159,7 @@ Optional environment tuning (defaults are production-safe, no configuration requ
 
 ### The learning layer
 
-Beyond deciding pass/fail, qayaba keeps what it can measure from every run:
-
-| Component | What it does |
-|---|---|
-| **Labeler** | Classifies every run into an error class (E-STATIC, E-EXEC-FAIL, E-FALSE-POSITIVE…) — zero LLM, purely from the gates and reviewer. |
-| **Curriculum** | Tracks which scenario archetypes (invalid input, re-query-after-mutation, empty state, …) have caught real bugs. Only proven archetypes are fed to the agent. |
+Beyond deciding pass/fail, qayaba classifies every run into an error class (E-STATIC, E-EXEC-FAIL, E-FALSE-POSITIVE…), with no LLM, purely from the gates and the reviewer, and keeps the outcome in the run history. The process audit reads those outcomes. No lesson is injected into a later run's prompt.
 
 <details>
 <summary>Execution modes</summary>

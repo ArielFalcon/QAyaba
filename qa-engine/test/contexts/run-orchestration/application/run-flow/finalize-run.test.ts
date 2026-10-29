@@ -79,7 +79,7 @@ async function end(reason: RunEnd, ctxOpts?: Parameters<typeof context>[0]): Pro
   return { result: await finalizeRun(reason, ctx, state), calls };
 }
 
-const EVIDENCE = { diffArchetypes: ["form-change"], archetype: "form-change", retries: 1 };
+const EVIDENCE = { retries: 1 };
 
 test("an aborted run is an infra-error with no note, nothing recorded or published, and its working copy pruned", async () => {
   const { result, calls } = await end(runEnd("aborted"));

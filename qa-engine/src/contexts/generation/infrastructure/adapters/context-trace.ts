@@ -8,14 +8,12 @@
 
 import { engineLog } from "@kernel/ports/process-logger.ts";
 import type { CrossRepoImpact, ServiceLink } from "@kernel/service-links.ts";
-import type { SelectedExemplar } from "@kernel/learned-rule.ts";
 import { recordContextSpan } from "../../../../shared-infrastructure/telemetry/run-spans.ts";
 import { advisoryLineIds, contextMapItemIds, itemId } from "@kernel/context-item-ids.ts";
 import { packProducedItemIds } from "@contexts/generation/infrastructure/context-pack.ts";
 import type { TelemetryPort } from "@kernel/telemetry/telemetry.port.ts";
 import type { ContextProvenance } from "@kernel/telemetry/context-provenance.ts";
 import type { CrossRepoImpactPort, ServiceLinksPort } from "@contexts/service-topology/application/index.ts";
-import type { CurriculumFoldInput, CurriculumPort } from "@contexts/cross-run-learning/application/index.ts";
 import type { StructuralSignalPort, StructuralSignalResult } from "@kernel/ports/structural-signal.port.ts";
 import type { GroundingTrace } from "./pre-generation-grounding-port.adapter.ts";
 
@@ -90,23 +88,6 @@ export function telemetryGroundingTrace(telemetry: TelemetryPort, mapProvenance?
       });
     }),
   };
-}
-
-export class TracedCurriculumPort implements CurriculumPort {
-  constructor(
-    private readonly inner: CurriculumPort,
-    private readonly telemetry: TelemetryPort,
-  ) {}
-
-  fold(input: CurriculumFoldInput): Promise<void> {
-    return this.inner.fold(input);
-  }
-
-  async select(diff: string | undefined, changedFiles: readonly string[]): Promise<readonly SelectedExemplar[]> {
-    const exemplars = await this.inner.select(diff, changedFiles);
-    safely(() => recordContextSpan(this.telemetry, { source: "curriculum", ids: exemplars.map((e) => itemId.exemplar(e.id)), bytes: exemplars.reduce((sum, e) => sum + bytesOf(e.template), 0), freshness: provenanceOf("db:curriculum", exemplars.length) }));
-    return exemplars;
-  }
 }
 
 export class TracedServiceLinksPort implements ServiceLinksPort {

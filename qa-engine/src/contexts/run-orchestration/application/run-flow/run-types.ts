@@ -21,7 +21,6 @@ import type { AuthorPort, LeadPort, ReviewPort, PreExecGroundingPort, PreGenerat
 import type { ValidationPort, ExecutionPort } from "@contexts/test-execution/application/index.ts";
 import type { ObjectiveSignalPort } from "@contexts/objective-signal/application/index.ts";
 import type { PublicationPort } from "@contexts/workspace-and-publication/application/index.ts";
-import type { CurriculumPort } from "@contexts/cross-run-learning/application/index.ts";
 import type { WorkspacePort } from "@contexts/workspace-and-publication/application/index.ts";
 import type { SpecFilesPort } from "@kernel/ports/spec-files.port.ts";
 import type { DeployGatePort } from "@kernel/ports/deploy-gate.port.ts";
@@ -191,8 +190,6 @@ export interface RunQaUseCaseDeps {
    * and the run is bounded only by its per-turn limits.
    */
   runDeadline?: RunDeadlinePort;
-  /** Off-path. Fault-isolated inside the adapter — neither call site needs a try/catch. */
-  curriculum?: CurriculumPort;
   /**
    * Write side of the FE<->BE architecture map. Invoked once per clean context-mode pass
    * (isContextCleanPass), before publication, in BOTH shadow and non-shadow runs. Off-path: the

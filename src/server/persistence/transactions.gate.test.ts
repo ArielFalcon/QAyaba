@@ -54,7 +54,7 @@ const READS: Record<string, readonly string[]> = {
   JudgeRepository: ["lastJudgeOutcome", "latestJudgeModel", "judgeTokensUsedOn", "judgeOutcomeCounts", "latestJudgeCalibration", "listJudgeLabelPairs"],
   EvaluationRepository: ["listRunScoreRows", "getRunEvaluationStatus", "getRegradeJob"],
   LearningRepository: [
-    "writeOutcome", "rowToOutcome", "listRunOutcomes", "getRunOutcome", "loadCurriculum", "loadScorecard",
+    "writeOutcome", "rowToOutcome", "listRunOutcomes", "getRunOutcome", "loadScorecard",
   ],
   TelemetryRepository: ["listRunSpans", "getAgentTurns", "getAgentRoleFacts", "getRecentTurnFigures","getAgentTurnTraces", "computeTelemetryAnalysis"],
 };
@@ -109,7 +109,6 @@ function writingCalls(h: History): Record<string, () => unknown> {
     "EvaluationRepository.failInterruptedRegradeJobs": () => h.evaluations.failInterruptedRegradeJobs("2026-10-01T00:00:01.000Z"),
     "LearningRepository.saveRunOutcome": () => h.learning.saveRunOutcome(outcome as never),
     "LearningRepository.saveCrashedRunOutcome": () => h.learning.saveCrashedRunOutcome(h.runs.getRecord(run.id)!, "E-INFRA" as never),
-    "LearningRepository.saveCurriculum": () => h.learning.saveCurriculum({ app: "app", updatedAt: AT } as never),
     "TelemetryRepository.commitRunSpans": () =>
       h.telemetry.commitRunSpans([{ traceId: "t", spanId: "s", parentSpanId: null, runId: null, name: "n", kind: "internal", startNs: 1n, endNs: null, status: "unset", statusMessage: null, attrs: "{}", events: "[]", links: "[]" }]),
     "TelemetryRepository.saveAgentTurn": () => h.telemetry.saveAgentTurn(turn),

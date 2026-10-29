@@ -528,7 +528,6 @@ and restart it. It is read once, in the composition root (`src/server/campaign-f
 | Skips | Because |
 |---|---|
 | rule retrieval and the rule fold (`learningRepo` is not wired, so the engine uses its no-op repository) | a rule learned in replicate 1 would ground replicate 2. The per-run value scorecard goes through the same repository, so it is not recorded either |
-| the curriculum select and fold | the archetypes offered to the generator would drift |
 | the process audit (no rule is deprecated; the context map is not marked stale) | an audit finding from a campaign run must not change the system under test |
 | the suite store's writes (it stays readable: the campaign seeds it before every arm-run) | the suite a replicate was accepted with would start the next one; a read-only store restores and captures nothing |
 | the context-map rebuild a stale flag requests | it would put a run that is not part of the campaign on the queue. A flag armed before the campaign is still read (the stored map is not used), the same for every replicate: clear it first by running `mode: context` once |

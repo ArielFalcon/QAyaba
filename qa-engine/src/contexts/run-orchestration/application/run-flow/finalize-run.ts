@@ -226,7 +226,6 @@ function outcomeOf(shape: Shape, decision: RunDecision, note: string | undefined
     note,
     ...(terminal.reviewerRationale !== undefined ? { reviewerRationale: terminal.reviewerRationale } : {}),
     ...(terminal.groundingSignals ?? NO_GROUNDING_SIGNALS),
-    ...(terminal.diffArchetypes ? { diffArchetypes: terminal.diffArchetypes } : {}),
     ...(terminal.confinement !== undefined ? { confinement: terminal.confinement } : {}),
     ...(terminal.closedLoop ? { closedLoop: terminal.closedLoop } : {}),
     ...(terminal.agentBrowser ? { agentBrowser: terminal.agentBrowser } : {}),

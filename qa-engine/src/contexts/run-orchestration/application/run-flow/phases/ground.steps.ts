@@ -1,11 +1,10 @@
-/* The ground phase of a run: what the agent is handed before it writes anything. The curriculum's exemplars are chosen, the repository grounded, and the blast radius, the service links and the cross-repo impact resolved; together they make the enrichment every generation starts from. */
+/* The ground phase of a run: what the agent is handed before it writes anything. The blast radius, the service links and the cross-repo impact resolved; together they make the enrichment every generation starts from. */
 
 import { engineLog } from "@kernel/ports/process-logger.ts";
 import type { ServiceLink, ContractDrift, CrossRepoImpact } from "@kernel/service-links.ts";
 import { PRE_GENERATION_GROUNDING_STEP_DETAIL } from "@kernel/run-step.ts";
 import { BlastRadius } from "@kernel/blast-radius.ts";
 import { DiffParserService } from "@kernel/diff-parser/diff-parser.service.ts";
-import { detectStructuralPatterns } from "@kernel/structural-pattern.ts";
 import type { DecisionListing } from "@kernel/changed-decision.ts";
 import type { ChangeScope, ChangeScopeRepo, ReachTier, UseCaseCandidate } from "@contexts/change-analysis/application/index.ts";
 import type { StepOutcome } from "../run-flow.ts";
@@ -16,33 +15,6 @@ import { carryOn } from "../failure-policy.ts";
 import { availabilityGroundingOf, withRouteConfigCandidates } from "../route-availability-grounding.ts";
 
 type Result = Promise<StepOutcome<RunState>>;
-
-/*
- * The diff's structural shapes, read once: they ride on the run's outcome. Undefined outside diff mode
- * (only "diff" classifies): no diff, no shape, never fabricated.
- */
-export async function readDiffShapes(state: Readonly<RunState>, _ctx: WorkspaceRunContext): Result {
-  const { diff: classificationDiff, intent: classificationIntent } = state.classification;
-  const diffArchetypes = classificationDiff
-    ? detectStructuralPatterns(classificationDiff, classificationIntent?.changedFiles ?? []).map((p) => p.kind)
-    : undefined;
-  return { update: { grounding: { ...state.grounding, diffArchetypes } } };
-}
-
-/*
- * Settled before any prompt is built. The fold must credit exactly the
- * archetypes this prompt carried. A regression run never calls generate(), so
- * the set stays empty — including any later coverage regen on that run.
- */
-export async function selectExemplars(state: Readonly<RunState>, ctx: WorkspaceRunContext): Result {
-  const { deps } = ctx;
-  const { diff: classificationDiff, intent: classificationIntent, generating } = state.classification;
-  const selectedExemplars = generating && deps.curriculum
-    ? await deps.curriculum.select(classificationDiff, classificationIntent?.changedFiles ?? [])
-    : [];
-  const offeredArchetypes = selectedExemplars.map((e) => e.archetype);
-  return { update: { grounding: { ...state.grounding, selectedExemplars, offeredArchetypes } } };
-}
 
 /*
  * Once after setup, before the first generate(); reused unchanged on regen.
@@ -326,7 +298,7 @@ export async function assembleEnrichment(state: Readonly<RunState>, ctx: Workspa
   const { input, trail } = ctx;
   const { intent: classificationIntent, reason: classificationReason, contradiction: classificationContradiction } = state.classification;
   const { closedLoop, agentBrowser } = trail;
-  const { contextPack, contextPackItemIds, contextPackOmissions, existingSpecFiles, contextMap, harnessFacts, blastRadiusSignal, blastRadiusSignalHasSymbols, blastRadiusSignalFiles, selectedExemplars, serviceLinks, contractDrift, crossRepoImpact } = state.grounding;
+  const { contextPack, contextPackItemIds, contextPackOmissions, existingSpecFiles, contextMap, harnessFacts, blastRadiusSignal, blastRadiusSignalHasSymbols, blastRadiusSignalFiles, serviceLinks, contractDrift, crossRepoImpact } = state.grounding;
   const baseEnrichment = {
     sha: input.sha.toString(),
     runId: input.runId,
@@ -341,7 +313,6 @@ export async function assembleEnrichment(state: Readonly<RunState>, ctx: Workspa
     ...(blastRadiusSignal
       ? { staticSignal: blastRadiusSignal, ...(blastRadiusSignalHasSymbols ? { staticSignalHasSymbols: true } : {}), ...(blastRadiusSignalFiles.length ? { staticSignalFiles: blastRadiusSignalFiles } : {}) }
       : {}),
-    ...(selectedExemplars.length ? { skillExemplars: selectedExemplars } : {}),
     ...(closedLoop ? { closedLoop: closedLoop.limits } : {}),
     ...(agentBrowser ? { agentBrowser: agentBrowser.limits } : {}),
     ...(serviceLinks.length ? { serviceLinks } : {}),

@@ -52,14 +52,6 @@ export interface ArchitectureContext {
   flows?: FlowEntry[];
 }
 
-export type StructuralPattern =
-  | { kind: "form"; hasOnSubmit: boolean; hasValidation: boolean }
-  | { kind: "api-call"; method: string; hasRequestBody: boolean; hasErrorHandling: boolean }
-  | { kind: "stateful-cache"; sourceType: string; hasIndependentWritePath: boolean }
-  | { kind: "auth-flow"; hasLogin: boolean; hasSessionToken: boolean }
-  | { kind: "data-list"; hasFilter: boolean; hasPagination: boolean; hasEmptyState: boolean }
-  | { kind: "generic" };
-
 /* The roles whose step limit a prompt can state: the shell resolves each one from the live agent runtime. */
 export type StepLimitRole = "author" | "lead" | "reviewer";
 

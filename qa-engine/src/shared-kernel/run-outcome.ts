@@ -138,8 +138,6 @@ export interface RunOutcome {
     /* How the run's regeneration acceptance spent its proof ledger: how many regenerations were accepted (and how many of those reused a closed-loop proof instead of executing), how many were rejected, and whether the per-run execution cap was hit. Persist-only; never read by decide/verdict/gate/publish. */
     integrity?: { acceptances: number; rejected: number; proofReused: number; capHit: boolean };
   };
-  /* Structural pattern kinds of the run's diff (detectStructuralPatterns, "generic" included). Absent when the run had no diff to read (non-diff modes). Not stored in the run_outcomes row. */
-  diffArchetypes?: string[];
   /* Human-readable terminal reason. Absent means no diagnostic was captured — never a fabricated empty string. */
   note?: string;
   at: string;

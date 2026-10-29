@@ -1,7 +1,6 @@
 /* The data a run carries from one phase to the next. Each section is written by the phase that owns it and read by the later ones; it holds no live object, so it can be recorded as it stands. */
 
 import type { ContractDrift, CrossRepoImpact, ServiceLink } from "@kernel/service-links.ts";
-import type { SelectedExemplar } from "@kernel/learned-rule.ts";
 import type { ArchitectureContext, GroundingOmission, HarnessFacts } from "@kernel/grounding.ts";
 import type { RouteAvailabilityFact } from "@kernel/route-availability.ts";
 import type { DataContradiction } from "@kernel/data-contradiction.ts";
@@ -60,11 +59,6 @@ export interface SetupOutcome {
 
 /* What the ground phase gathered for the prompts and for the run's evidence. */
 export interface Grounding {
-  /** The diff's structural shapes; undefined outside diff mode. They ride on the run's outcome. */
-  diffArchetypes: string[] | undefined;
-  selectedExemplars: readonly SelectedExemplar[];
-  /** The archetypes the prompt carried, which the fold credits. */
-  offeredArchetypes: string[];
   contextPack: string | undefined;
   contextPackItemIds: readonly string[] | undefined;
   contextPackOmissions: readonly GroundingOmission[] | undefined;
@@ -379,9 +373,6 @@ export function initialRunState(): RunState {
     classification: { generating: true },
     setup: { suiteRestored: false, storeRestoredLogin: false, authSeedUnauthored: false },
     grounding: {
-      diffArchetypes: undefined,
-      selectedExemplars: [],
-      offeredArchetypes: [],
       contextPack: undefined,
       contextPackItemIds: undefined,
       contextPackOmissions: undefined,

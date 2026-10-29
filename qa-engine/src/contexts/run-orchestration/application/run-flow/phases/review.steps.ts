@@ -48,7 +48,6 @@ async function exitFactsOf(state: Readonly<RunState>, ctx: WorkspaceRunContext) 
   return {
     static: state.execution.validation.ok,
     retries: state.execution.retries,
-    diffArchetypes: state.grounding.diffArchetypes,
     confinement: services.confinement.totals,
     tested: resolveTested(state),
     closedLoop: await closedLoopSignal(state, ctx),

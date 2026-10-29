@@ -86,7 +86,6 @@ test("CoordinationContext is a minimal projection — no OpencodeRunInput fields
     "domSnapshot",
     "contextPack",
     "staticSignal",
-    "archetypes",
     "serviceLinks",
     "contractDrift",
     "model",

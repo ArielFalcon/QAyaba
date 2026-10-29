@@ -460,12 +460,3 @@ export class TelemetryRepository {
 function toolSequenceOrNull(value: unknown): ToolSequenceEntry[] | null {
   return Array.isArray(value) ? (value as ToolSequenceEntry[]) : null;
 }
-
-/*
- * A corrupt row (exists but fails to parse) is a DISTINCT outcome from "no row yet" — returning
- * null for both let CurriculumPortAdapter.read() silently `initCurriculum` a corrupt app's
- * history, and the next successful fold() would persist that fresh curriculum right over the
- * corrupt row, permanently discarding whatever evidence it held with nothing logged anywhere.
- * CURRICULUM_CORRUPT routes the adapter's read() to throw instead, which its existing
- * try/catch (onError, no save) already fault-isolates — see curriculum-port.adapter.ts.
- */

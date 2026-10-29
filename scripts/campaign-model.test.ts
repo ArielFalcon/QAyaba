@@ -69,11 +69,11 @@ test("the arms, the cap and the overrides are read from the command line", () =>
   assert.ok(parsed.args.allowNonShadow && parsed.args.skipEnvChecks && parsed.args.dryRun);
 });
 
-test("--grounding takes the stitcher and curriculum levers and refuses any other key", () => {
-  const parsed = parseArguments(argv("--grounding", "stitcher=off,curriculum=on"));
+test("--grounding takes the stitcher lever and refuses any other key", () => {
+  const parsed = parseArguments(argv("--grounding", "stitcher=off"));
   assert.ok(parsed.ok);
-  assert.deepEqual(parsed.args.grounding, { stitcher: false, curriculum: true });
-  for (const key of ["structuralSignal", "dossier"]) assert.equal(parseArguments(argv("--grounding", `${key}=off`)).ok, false);
+  assert.deepEqual(parsed.args.grounding, { stitcher: false });
+  for (const key of ["structuralSignal", "dossier", "curriculum"]) assert.equal(parseArguments(argv("--grounding", `${key}=off`)).ok, false);
 });
 
 test("bad arguments are refused with a reason", () => {

@@ -28,8 +28,6 @@ export interface EndEvidence {
   /** Static-fix retries consumed before the end. */
   retries?: number;
   groundingSignals?: GroundingSignals;
-  /** The diff's structural shapes the fold attributes the retrieved rules against; absent when there is no diff. */
-  diffArchetypes?: string[] | undefined;
   /** Merged confinement from the last enforcement before the end; absent if it never ran. */
   confinement?: ConfinementTotals | undefined;
   /** The latest generation's tested section; absent when there are no specMetas. */

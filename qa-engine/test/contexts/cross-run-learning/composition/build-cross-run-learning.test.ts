@@ -1,4 +1,4 @@
-/* buildCrossRunLearning: each optional port is served only when supplied. */
+/* buildCrossRunLearning: the optional port is served only when supplied. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { buildCrossRunLearning } from "@contexts/cross-run-learning/composition/build-cross-run-learning.ts";
@@ -6,16 +6,13 @@ import { buildCrossRunLearning } from "@contexts/cross-run-learning/composition/
 test("a composition with no collaborator serves no port", () => {
   const api = buildCrossRunLearning({});
 
-  assert.equal(api.curriculum, undefined);
   assert.equal(api.processAudit, undefined);
 });
 
-test("the supplied optional ports are served as they are", () => {
-  const curriculum = {} as never;
+test("the supplied port is served as it is", () => {
   const processAudit = {} as never;
 
-  const api = buildCrossRunLearning({ curriculum, processAudit });
+  const api = buildCrossRunLearning({ processAudit });
 
-  assert.equal(api.curriculum, curriculum);
   assert.equal(api.processAudit, processAudit);
 });

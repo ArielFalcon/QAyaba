@@ -1,33 +1,23 @@
 /*
  * The learning context the run assistant answers from (buildLearningContext) over the real history
- * store. A corrupt stored curriculum is simulated by overwriting its row in this test process's own
- * database (test-setup.mjs gives each test file a temporary one).
+ * store (test-setup.mjs gives each test file a temporary one).
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import Database from "better-sqlite3";
 import { buildLearningContext } from "./chat";
-import { initCurriculum } from "../qa/learning/curriculum";
 import { getHistory } from "./persistence/index";
 
-function storeCorruptCurriculum(app: string): void {
-  getHistory().learning.saveCurriculum(initCurriculum(app));
-  const raw = new Database(process.env.HISTORY_DB_PATH!);
-  try {
-    raw.prepare("UPDATE curriculum SET data = ? WHERE app = ?").run('{"app":', app);
-  } finally {
-    raw.close();
-  }
-}
-
-test("the assistant is told an app's stored curriculum is corrupt, not that it has none", () => {
-  const app = `chat-corrupt-${Math.random().toString(36).slice(2)}`;
-  storeCorruptCurriculum(app);
+test("the assistant is told the recent outcomes an app's runs left", () => {
+  const app = `chat-outcomes-${Math.random().toString(36).slice(2)}`;
+  getHistory().learning.saveRunOutcome({
+    runId: `${app}-1`, app, sha: "abcdef1234", mode: "diff", target: "e2e", verdict: "fail", errorClass: "E-EXEC-FAIL",
+    gateSignals: { static: true, coverageRatio: null, valueScore: 0.5, reviewerCorrections: [], flaky: false, retries: 0 }, at: "2026-10-01T00:00:00.000Z",
+  });
 
   const context = buildLearningContext(app);
 
-  assert.ok(context, "a corrupt curriculum is learning state worth reporting");
-  assert.match(context, /corrupt/i);
+  assert.ok(context, "an app with an outcome has learning state worth reporting");
+  assert.match(context, /fail E-EXEC-FAIL valueScore=50% \(diff\/e2e, abcdef1\)/);
 });
 
 test("an app with no learning state at all gives the assistant no learning context", () => {

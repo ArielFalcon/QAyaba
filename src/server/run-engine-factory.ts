@@ -150,7 +150,6 @@ import { SqliteRunHistoryAdapter } from "./run-history-sqlite-adapter";
 import { resolveCampaignFreeze } from "./campaign-freeze";
 import { agentBrowserEnabled, closedLoopEnabled, serviceTopologyWired, toolsApply } from "./run-config-gates";
 import { ProcessAuditPortAdapter } from "@contexts/cross-run-learning/infrastructure/process-audit-port.adapter";
-import { CurriculumPortAdapter } from "@contexts/cross-run-learning/infrastructure/curriculum-port.adapter";
 import { YamlBoundaryProfileAdapter } from "@contexts/service-topology/infrastructure/yaml-boundary-profile.adapter";
 import { expandEnv } from "../orchestrator/config-loader";
 import { getHistory } from "./persistence/index";
@@ -1340,14 +1339,8 @@ export function buildEngineRootDeps(
       },
     }) }),
     /*
-     * CurriculumPort — per-app scenario-archetype prior. Constructed here because its store is
-     * the history repositories (src-only; qa-engine may never import them). Wired unconditionally: measure-and-rank
-     * only, never gates a verdict, publish, or coverage decision. Left out under QA_CAMPAIGN_FREEZE.
-     */
-    ...(campaignFrozen ? {} : { curriculumPort: new CurriculumPortAdapter(app.name, (name) => getHistory().learning.loadCurriculum(name), (curriculum) => getHistory().learning.saveCurriculum(curriculum)) }),
-    /*
      * ContextMapCapturePort — write side of the FE<->BE architecture map. Constructed here for the
-     * same reason curriculumPort is: its store is the history repositories (src-only; qa-engine may never import
+     * same reason processAudit is: its store is the history repositories (src-only; qa-engine may never import
      * it). Wired unconditionally: a clean context-mode pass is the only run that ever invokes it.
      * Storing a fresh map disarms the process audit's stale flag, whoever started the context run
      * (a heal, a manual or onboarding run, the server or the CLI). Only a map the run wrote is

@@ -4,9 +4,6 @@ import { join } from "node:path";
 import Database from "better-sqlite3";
 import { getHistory } from "../index";
 import type { RunOutcome } from "../../../types";
-import { CURRICULUM_CORRUPT } from "@contexts/cross-run-learning/application/index";
-import { initCurriculum } from "@contexts/cross-run-learning/application/index";
-
 
 test("loadScorecard reads the row earlier runs left, reports an app with none as null, and a purge removes it", () => {
   const app = "hist-scorecard-read";
@@ -30,35 +27,6 @@ test("loadScorecard reads the row earlier runs left, reports an app with none as
 
   getHistory().purgeApp(app);
   assert.equal(getHistory().learning.loadScorecard(app), null);
-});
-
-test("loadCurriculum: a corrupt row is logged loudly and reported as a distinct fault, never silently treated as absent/fresh", () => {
-  const app = `hist-curriculum-corrupt-${Date.now().toString(36)}`;
-  getHistory().learning.saveCurriculum(initCurriculum(app));
-  assert.ok(getHistory().learning.loadCurriculum(app), "sanity: the valid row round-trips before corruption");
-
-  /* Corrupt the row directly (bypassing saveCurriculum, which only ever writes valid JSON) —
-     a second connection to the SAME on-disk db (WAL mode allows this). */
-  const dbPath = process.env.HISTORY_DB_PATH ?? join(process.env.QAYABA_ROOT ?? process.cwd(), "data", "qayaba.db");
-  const raw = new Database(dbPath);
-  try {
-    raw.prepare("UPDATE curriculum SET data = ? WHERE app = ?").run("{not valid json", app);
-  } finally {
-    raw.close();
-  }
-
-  const originalWarn = console.warn;
-  const logged: string[] = [];
-  console.warn = (...args: unknown[]) => { logged.push(args.map(String).join(" ")); };
-  try {
-    const result = getHistory().learning.loadCurriculum(app);
-    assert.equal(result, CURRICULUM_CORRUPT, "a corrupt row must be reported as a distinct fault, never treated as null/absent (which a fold() would silently overwrite with a fresh curriculum)");
-    assert.equal(logged.length, 1, "the corrupt row must be logged exactly once, not swallowed silently");
-    assert.match(logged[0] ?? "", /corrupt/i, "the log line must be identifiable as a corrupt-curriculum fault");
-    assert.match(logged[0] ?? "", new RegExp(app), "the log line must identify which app's row is corrupt");
-  } finally {
-    console.warn = originalWarn;
-  }
 });
 
 test("getRunOutcome returns the single run's outcome and round-trips the reviewer verdict", () => {

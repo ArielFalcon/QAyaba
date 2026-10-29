@@ -168,8 +168,6 @@ export class GenerationTurnsAdapter implements LeadPort, AuthorPort {
             ...(enrichment.staticSignalFiles?.length ? { staticSignalFiles: [...enrichment.staticSignalFiles] } : {}),
           }
         : {}),
-      /* Curriculum-ranked exemplars. Absent/empty → omitted, never []. */
-      ...(enrichment?.skillExemplars?.length ? { skillExemplars: enrichment.skillExemplars.map((e) => ({ ...e })) } : {}),
       /* Service links / contract drift. Absent/empty → omitted, never []. */
       ...(enrichment?.serviceLinks?.length ? { serviceLinks: [...enrichment.serviceLinks] } : {}),
       ...(enrichment?.contractDrift?.length ? { contractDrift: [...enrichment.contractDrift] } : {}),

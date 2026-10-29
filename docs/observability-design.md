@@ -248,7 +248,7 @@ The design uses a **phase cursor** instead, a small domain object owned by the u
 qayaba.run
 ├─ qayaba.phase.gate              deploy verified | unverified | skipped-no-version-url
 ├─ qayaba.phase.workspace         checkout, mirror, index sync
-├─ qayaba.phase.classify          action, archetypes, tier
+├─ qayaba.phase.classify          action, tier
 ├─ qayaba.phase.setup
 │  ├─ qayaba.suite_store.restore  restored, overlaid, tracked_wins, auth_restored
 │  ├─ qayaba.setup.seed
@@ -256,7 +256,7 @@ qayaba.run
 │  ├─ qayaba.setup.orphan_cleanup
 │  └─ qayaba.auth.login           attempt n: outcome kind, denied hosts, demoted?
 ├─ qayaba.phase.ground
-│  ├─ qayaba.context.<source>     (§4.4) curriculum, context-map, route-ranking,
+│  ├─ qayaba.context.<source>     (§4.4) context-map, route-ranking,
 │  │                               dom-capture (per route: events), context-pack, stitcher,
 │  │                               structural-signal, cross-repo-impact
 │  └─ qayaba.exec offline|suite   (DOM capture child)
@@ -277,7 +277,7 @@ qayaba.run
 ├─ qayaba.phase.review            invoke_agent qa-reviewer per round, review-dom grounding
 ├─ qayaba.phase.decide            verdict, decision pr|issue|shadow|none
 ├─ qayaba.phase.publish           suite_store.capture, PR/Issue
-└─ qayaba.phase.learn             fold, curriculum fold, process audit
+└─ qayaba.phase.learn             process audit
 ```
 
 Rules, from the brief §2.1 and the OTel spec:
@@ -361,7 +361,6 @@ produced**, are deterministic, and are identical across runs:
 | API operation | `op:<operationId>` | OpenAPI ingress |
 | FE↔BE link | `link:<route>→<operationId>` | `feBe[]` |
 | Flow | `flow:<id>` | `flows[].id` |
-| Exemplar | `exemplar:<id>` | `scenario-catalog.ts` literals |
 | Provided file | `file:<repo-relative path>` | `AssembledPrompt.providedPaths` |
 | Changed value fact | `fact:<route>#<testid>:<present\|absent>` | the pack's "Changed values" |
 
@@ -431,7 +430,6 @@ invoke_agent qa-author               INTERNAL  one per prompt (turn)
 | Limits | `qayaba.limit.applied` (the smallest that applied), `qayaba.limit.applied_ms`, `qayaba.limit.fired`, `qayaba.agent.end` (`completed\|exhausted\|timeout\|aborted`) |
 | Verdict | `qayaba.agent.verdict.specs`, `.noop_kind` (`not-worth\|unobservable\|unspecified`), `.parse` (`ok\|repaired\|unreadable`) |
 | Prompt | `qayaba.prompt.hash`, `qayaba.prompt.bytes`, `qayaba.prompt.section.<id>.bytes` and `.hash`, `qayaba.prompt.stable_prefix.bytes` (the bytes of the static sections the prompt opens with, its stable prefix; every role prompt assembled from a registry reports it, 0 when the prompt opens with a run fact), the context fit (`qayaba.prompt.context.fit` = fits\|over\|unknown, `.window_tokens`, `.window_unknown`, `.working_room_tokens`, `.room_basis` = history\|cold-start: the role's window and the working room estimated from recorded turns, or from its live step limit when there are none; `.prompt_tokens`, the prompt's tokens as the fit judged them, on a coordination event of a flow not sent), `qayaba.prompt.tools_offered.count` and `.bytes` (§5.6) |
-| Rules | `qayaba.context.item_ids` for the rules and exemplars this prompt carried (F16) |
 | Error | `error.type`=`quota_exceeded\|rate_limited\|auth\|socket_closed\|provider_5xx\|output_length\|aborted\|timeout\|circuit_open\|unknown`. Added to `agentErrorToInfra` and the transport throw path, where today only the message carries it |
 
 **Answering Q4 ("same prompt?").** `context-assembler` computes a sha256 of the **redacted** text
@@ -919,7 +917,7 @@ qa-engine/src/contexts/evaluation/
   | `dom:` | `getByTestId`, plus `getByRole(role, {name})` matched to the capture's role/name | |
   | `op:` | contract paths in `waitForResponse`/URL literals | rare under the UI-only policy; low recall is expected |
   | `file:` | read tool-call targets | reported separately as `prompt_provided_reread`, a **waste** signal, not as use |
-  | `brief:`, `fact:`, `exemplar:` | **not extractable** | `n/a`. Exemplar tags in the manifest are agent self-report (brief §3 forbids that); brief-claim hashes are not stable across runs |
+  | `brief:`, `fact:` | **not extractable** | `n/a`. Brief-claim hashes are not stable across runs |
 - **`context_utilization` measures recall over change-relevant items**: items tied to the diff's
   ranked routes, not every provided test id. Hundreds of incidental ids would otherwise push the
   ratio toward 0.

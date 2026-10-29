@@ -1,6 +1,5 @@
 /* The grounding sources as context spans: what each supplied, as stable ids, under the phase that is open, over the real telemetry adapter. */
 import type { CrossRepoImpact, ServiceLink } from "@kernel/service-links";
-import type { SelectedExemplar } from "@kernel/learned-rule";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -8,7 +7,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   TracedCrossRepoImpactPort,
-  TracedCurriculumPort,
   TracedServiceLinksPort,
   TracedStructuralSignalPort,
   telemetryGroundingTrace,
@@ -16,7 +14,6 @@ import {
 import { PreGenerationGroundingPortAdapter } from "../../qa-engine/src/contexts/generation/infrastructure/adapters/pre-generation-grounding-port.adapter";
 import type { UseCaseCandidate } from "@kernel/use-case-candidate.ts";
 import type { ServiceLinksPort } from "@contexts/service-topology/application/index.ts";
-import type { CurriculumPort } from "@contexts/cross-run-learning/application/index.ts";
 import type { StructuralSignalPort } from "@kernel/ports/structural-signal.port.ts";
 import { buildContextPack, type ContextPackDeps } from "@contexts/generation/infrastructure/context-pack";
 import { createCaptureDomDeps } from "@contexts/generation/infrastructure/dom-snapshot";
@@ -37,8 +34,8 @@ import type { OpencodeRunInput } from "@contexts/generation/application/index.ts
 /* The roster is an input here: window budgets resolve from the roster fixture, never the deployable agents/opencode.json. */
 
 
-const exemplar = (id: string): SelectedExemplar => ({ id, name: `name ${id}`, template: `template ${id}`, archetype: "form", proven: false, promotionCount: 0 });
-const curriculumOf = (exemplars: readonly SelectedExemplar[]): CurriculumPort => ({ select: async () => exemplars, fold: async () => {} });
+const linkNamed = (symbol: string): ServiceLink => ({ from: { repo: "o/web", file: "a.ts", symbol }, to: { repo: "o/api", file: "b.ts", symbol: "handler" }, transport: "http", confidence: 0.9, source: "t" });
+const linksOf = (links: readonly ServiceLink[]): ServiceLinksPort => ({ resolve: async () => ({ links: [...links], drift: [] }) });
 
 function inPhase<T>(h: ReturnType<typeof traceHarness>, fn: () => T): T {
   const phase = h.telemetry.startSpan("qayaba.phase.ground");
@@ -54,38 +51,39 @@ function contextSpan(h: ReturnType<typeof traceHarness>, source: string) {
   return h.only(`qayaba.context.${source}`);
 }
 
-test("the exemplars a run was offered are a span under the phase with their ids, count and size", async () => {
+test("the links a run was offered are a span under the phase with their ids, count and size", async () => {
   const h = traceHarness();
-  await inPhase(h, () => new TracedCurriculumPort(curriculumOf([exemplar("e-1"), exemplar("e-2")]), h.telemetry).select("diff", ["a.ts"]));
-  const span = contextSpan(h, "curriculum");
+  const links = [linkNamed("call-1"), linkNamed("call-2")];
+  await inPhase(h, () => new TracedServiceLinksPort(linksOf(links), h.telemetry).resolve());
+  const span = contextSpan(h, "service-links");
   assert.equal(span.parentSpanContext?.spanId, h.only("qayaba.phase.ground").spanContext().spanId);
-  assert.deepEqual(span.attributes["qayaba.context.item_ids"], ["exemplar:e-1", "exemplar:e-2"]);
+  assert.deepEqual(span.attributes["qayaba.context.item_ids"], ["svc-link:o/web/call-1→o/api/handler", "svc-link:o/web/call-2→o/api/handler"]);
   assert.equal(span.attributes["qayaba.context.items.count"], 2);
-  assert.equal(span.attributes["qayaba.context.source"], "curriculum");
-  assert.equal(span.attributes["qayaba.context.bytes"], Buffer.byteLength("template e-1template e-2"));
-  assert.deepEqual(h.measurements.filter((m) => m.name === "qayaba.context.bytes").map((m) => m.attrs), [{ "qayaba.context.source": "curriculum", "qayaba.context.stage": "produced" }]);
-  assert.deepEqual(h.measurements.filter((m) => m.name === "qayaba.context.items").map((m) => m.attrs), [{ "qayaba.context.source": "curriculum", "qayaba.context.stage": "produced" }]);
+  assert.equal(span.attributes["qayaba.context.source"], "service-links");
+  assert.equal(span.attributes["qayaba.context.bytes"], Buffer.byteLength(JSON.stringify(links)));
+  assert.deepEqual(h.measurements.filter((m) => m.name === "qayaba.context.bytes").map((m) => m.attrs), [{ "qayaba.context.source": "service-links", "qayaba.context.stage": "produced" }]);
+  assert.deepEqual(h.measurements.filter((m) => m.name === "qayaba.context.items").map((m) => m.attrs), [{ "qayaba.context.source": "service-links", "qayaba.context.stage": "produced" }]);
 });
 
 test("the same sources in two runs have the same ids", async () => {
   const idsOfRun = async (): Promise<unknown> => {
     const h = traceHarness();
     await inPhase(h, async () => {
-      await new TracedCurriculumPort(curriculumOf([{ id: "form-submit", name: "form", template: "tpl", archetype: "form", proven: false, promotionCount: 0 }]), h.telemetry).select("diff", ["a.ts"]);
+      await new TracedServiceLinksPort(linksOf([linkNamed("form-submit")]), h.telemetry).resolve();
     });
     return h.spans().filter((s) => s.name.startsWith("qayaba.context.")).map((s) => [s.name, s.attributes["qayaba.context.item_ids"]]);
   };
   assert.deepEqual(await idsOfRun(), await idsOfRun());
   assert.deepEqual((await idsOfRun()) as unknown[], [
-    ["qayaba.context.curriculum", ["exemplar:form-submit"]],
+    ["qayaba.context.service-links", ["svc-link:o/web/form-submit→o/api/handler"]],
   ]);
 });
 
 test("a source with more items than a span carries keeps the first 200 ids and counts the rest", async () => {
   const h = traceHarness();
-  const many = Array.from({ length: MAX_ITEM_IDS + 50 }, (_, i) => exemplar(`e-${i}`));
-  await inPhase(h, () => new TracedCurriculumPort(curriculumOf(many), h.telemetry).select("diff", ["a.ts"]));
-  const span = contextSpan(h, "curriculum");
+  const many = Array.from({ length: MAX_ITEM_IDS + 50 }, (_, i) => linkNamed(`call-${i}`));
+  await inPhase(h, () => new TracedServiceLinksPort(linksOf(many), h.telemetry).resolve());
+  const span = contextSpan(h, "service-links");
   assert.equal((span.attributes["qayaba.context.item_ids"] as string[]).length, MAX_ITEM_IDS);
   assert.equal(span.attributes["qayaba.context.item_ids.overflow"], 50);
   assert.equal(span.attributes["qayaba.context.items.count"], MAX_ITEM_IDS + 50);
@@ -111,14 +109,14 @@ test("a run's own secret inside an id is taken out of the exported span", async 
   const h = traceHarness();
   const secrets = createRunSecretScope();
   secrets.addAccountSecrets(["hunter2-secret-value"]);
-  await withRunSecretScope(secrets, () => inPhase(h, () => new TracedCurriculumPort(curriculumOf([exemplar("hunter2-secret-value")]), h.telemetry).select("diff", ["a.ts"])));
-  assert.equal(JSON.stringify(contextSpan(h, "curriculum").attributes).includes("hunter2-secret-value"), false);
+  await withRunSecretScope(secrets, () => inPhase(h, () => new TracedServiceLinksPort(linksOf([linkNamed("hunter2-secret-value")]), h.telemetry).resolve()));
+  assert.equal(JSON.stringify(contextSpan(h, "service-links").attributes).includes("hunter2-secret-value"), false);
 });
 
 test("a port traced by a telemetry that throws returns what it returned, and an error of the port goes on", async () => {
   const broken = new ThrowingTelemetry();
-  const exemplars = [exemplar("e-1")];
-  assert.deepEqual(await new TracedCurriculumPort(curriculumOf(exemplars), broken).select(undefined, []), exemplars);
+  const resolved = { links: [linkNamed("call-1")], drift: [] };
+  assert.deepEqual(await new TracedServiceLinksPort({ resolve: async () => resolved }, broken).resolve(), resolved);
   const failing: StructuralSignalPort = { render: async () => { throw new Error("graph down"); } };
   await assert.rejects(new TracedStructuralSignalPort(failing, traceHarness().telemetry).render("/repo", BlastRadius.of(Sha.of("abc1234"), [])), /graph down/);
 });

@@ -48,7 +48,6 @@ import { REDACTED } from "@kernel/ports/redaction.port.ts";
 import type { OpencodeRunInput } from "@contexts/generation/domain/opencode-run-input.ts";
 import type { ReviewInput, ArchitectureContext } from "@contexts/generation/domain/generation-input.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
-import { BUILT_IN_EXEMPLARS } from "@kernel/scenario-catalog.ts";
 
 /* The roster is an input here: window budgets resolve from the roster fixture, never the deployable agents/opencode.json. */
 
@@ -557,76 +556,6 @@ test("a large coverage gap and a large DOM snapshot both reach the prompt whole:
 
 /* The selector priority is unconditional craft: the generator role prompt's Procedure owns it (pinned by
    agents-prompts.test.ts), so the assembled working rules never restate it (prompts.scaffold.test.ts). */
-
-/* The skill-exemplars section carries exactly the templates the curriculum selected (input.skillExemplars), in its order, with the marker of each pattern that has caught a defect. It is the only source: the learning fold credits those templates, so the prompt never derives others from the diff. */
-const SKILL_EXEMPLARS_ID = "skill-exemplars";
-const CURRICULUM_API_CALL_DIFF = [
-  "diff --git a/src/api.ts b/src/api.ts",
-  '+const res = await fetch("/api/orders", { method: "POST", body: JSON.stringify(payload) });',
-  '+if (!res.ok) throw new Error("failed");',
-].join("\n");
-
-const asSelected = (exemplars: readonly (typeof BUILT_IN_EXEMPLARS)[number][]): NonNullable<OpencodeRunInput["skillExemplars"]> =>
-  exemplars.map(({ id, name, template, archetype }) => ({ id, name, template, archetype, proven: false, promotionCount: 0 }));
-
-test("no skillExemplars, or an empty list, renders no skill-exemplars section (never fabricated)", () => {
-  for (const input of [mkInput(), mkInput({ skillExemplars: [] })]) {
-    const assembled = buildPromptAssembled(input);
-    assert.equal(assembled.sectionSizes[SKILL_EXEMPLARS_ID], undefined);
-    assert.equal(assembled.claims[SKILL_EXEMPLARS_ID], undefined);
-  }
-});
-
-test("a diff that matches a structural archetype renders no template the curriculum did not select", () => {
-  const assembled = buildPromptAssembled(mkInput({ diff: CURRICULUM_API_CALL_DIFF }));
-  assert.equal(assembled.sectionSizes[SKILL_EXEMPLARS_ID], undefined, "the diff alone derives nothing: what the generator is shown is what the fold credits");
-  for (const exemplar of BUILT_IN_EXEMPLARS) assert.ok(!assembled.text.includes(exemplar.name), `${exemplar.name} is not derived from the diff`);
-});
-
-test("a context run renders no exemplars even when some are supplied", () => {
-  const assembled = buildPromptAssembled(mkInput({ mode: "context", skillExemplars: asSelected(BUILT_IN_EXEMPLARS.slice(0, 1)) }));
-  assert.equal(assembled.sectionSizes[SKILL_EXEMPLARS_ID], undefined);
-});
-
-test("the selected exemplars reach the prompt whole, with no fixed byte budget, and over the window are named as a reference", () => {
-  const input = mkInput({ skillExemplars: asSelected(BUILT_IN_EXEMPLARS) });
-  const whole = buildPromptAssembled(input);
-  for (const exemplar of BUILT_IN_EXEMPLARS) assert.ok(whole.text.includes(exemplar.name), `${exemplar.name} reaches the prompt`);
-  assert.deepEqual(provided(whole, SKILL_EXEMPLARS_ID), ["exemplars"]);
-  const tight = buildPromptAssembled(input, { fit: () => "over" });
-  assert.match(tight.text, new RegExp(`${BUILT_IN_EXEMPLARS.length} test template\\(s\\) for the patterns this change shows are not shown here, to fit the window`));
-  assert.ok(!tight.text.includes(BUILT_IN_EXEMPLARS[0]!.template));
-});
-
-/* The supplied order below is deliberately at odds with EVERY ordering this renderer could
-   plausibly impose on its own: it is neither ascending nor descending by catalog index (0, 4, 3),
-   by name (F, D, R), by id (f, d, s) or by archetype (i, e, r), and the only PROVEN entry sits in
-   the MIDDLE, so a "proven first" re-sort would fail too. Ranking already happened in the adapter;
-   any sort here would decouple "what the generator was shown" from "what the curriculum folds".
-   Three entries is also the realistic maximum payload (MAX_SELECTED_EXEMPLARS).
- */
-test("curriculum: a supplied skillExemplars list renders in the SUPPLIED order, with the inline PROVEN marker", () => {
-  const supplied: NonNullable<OpencodeRunInput["skillExemplars"]> = [
-    { id: "ex-form-invalid-input", name: "Form invalid input", template: "TEMPLATE-A", archetype: "invalid-input", proven: false, promotionCount: 0 },
-    { id: "ex-data-list-empty", name: "Data list empty state", template: "TEMPLATE-B", archetype: "empty-state", proven: true, promotionCount: 2 },
-    { id: "ex-stateful-re-query", name: "Re-query after mutation", template: "TEMPLATE-C", archetype: "re-query-after-mutation", proven: false, promotionCount: 0 },
-  ];
-  const assembled = buildPromptAssembled(mkInput({ diff: CURRICULUM_API_CALL_DIFF, skillExemplars: supplied }));
-  const { text } = assembled;
-  assert.deepEqual(provided(assembled, SKILL_EXEMPLARS_ID), ["exemplars"]);
-  const headingOf = (name: string): string | undefined => text.split("\n").find((line) => line.includes(name));
-  assert.ok(headingOf("Data list empty state")?.includes("PROVEN"), "the proven entry carries the inline marker");
-  assert.ok(!headingOf("Form invalid input")?.includes("PROVEN"), "an unproven entry carries none");
-  assert.ok(!headingOf("Re-query after mutation")?.includes("PROVEN"), "an unproven entry carries none");
-  assert.ok(
-    text.indexOf("TEMPLATE-A") < text.indexOf("TEMPLATE-B") && text.indexOf("TEMPLATE-B") < text.indexOf("TEMPLATE-C"),
-    "the supplied order must be preserved — a renderer that sorts internally must fail here",
-  );
-  const suppliedNames = new Set(supplied.map((exemplar) => exemplar.name));
-  for (const exemplar of BUILT_IN_EXEMPLARS.filter((candidate) => !suppliedNames.has(candidate.name))) {
-    assert.ok(!text.includes(exemplar.name), `${exemplar.name}: a supplied list is all the prompt renders, whatever the diff would match`);
-  }
-});
 
 /* cappedDiffText — THE single way every prompt embeds a commit diff — now sanitizes in "model" mode
    runs the post-redaction fail-loud guard (assertNoSecretLeak) immediately after.

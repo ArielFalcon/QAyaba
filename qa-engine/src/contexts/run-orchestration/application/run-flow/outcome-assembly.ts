@@ -44,7 +44,6 @@ export interface OutcomeExtras {
   stubbedState?: RunOutcome["gateSignals"]["stubbedState"];
   dataContradictions?: RunOutcome["gateSignals"]["dataContradictions"];
   note?: string;
-  diffArchetypes?: string[];
   preExecAmbiguityCatches?: number;
   deterministicSelectorBlocks?: number;
   catalogGateInWindow?: number;
@@ -201,7 +200,6 @@ export function toRunOutcome(
       ...(extra?.valueStats !== undefined ? { valueStats: extra.valueStats } : {}),
       ...(coordination ? { coordination } : {}),
     },
-    ...(extra?.diffArchetypes !== undefined ? { diffArchetypes: extra.diffArchetypes } : {}),
     ...(input.purpose !== undefined || extra?.note !== undefined ? { note: [input.purpose !== undefined ? `[${input.purpose}]` : undefined, extra?.note].filter((part) => part !== undefined).join(" ") } : {}),
     at: new Date().toISOString(),
     /* Persist the same cases + logs the returned result carries. Non-execute callers pass []. */

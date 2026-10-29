@@ -5,14 +5,14 @@
 
 export interface ContextProvenance {
   /* The effective location: db:context_maps, file:e2e/.qa/context.json, live:dev, mirror:stitcher,
-   * graph:codegraph, or db:curriculum. */
+   * or graph:codegraph. */
   location?: string;
   /* When the source was captured, ISO-8601. */
   capturedAt?: string;
   /* The SHA the source was built from, when it has one. */
   capturedSha?: string;
   ageMs?: number;
-  /* Routes+operations+links+flows, pages, claims, lines, rules or exemplars. */
+  /* Routes+operations+links+flows, pages, claims, lines or DOM data results. */
   resultCount?: number;
   stale?: boolean;
   staleReason?: string;

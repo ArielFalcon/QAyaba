@@ -318,19 +318,8 @@ test("an e2e app with no login declared never starts discovery", async () => {
   assert.equal(seeded, false);
 });
 
-/* ── Curriculum wiring: the per-app scenario-archetype prior, backed by the learning repository's store ────────
-   Wired UNCONDITIONALLY (no config flag): the port is measure-and-rank only — it never gates a
-   verdict, a publish decision or a coverage decision, so there is no risk surface a flag would
-   protect. Without this wiring loadCurriculum returns null forever, which is exactly the dead-module
-   state this integration exists to end.
- */
-test("buildEngineRootDeps wires a CurriculumPort backed by the history store", () => {
-  const config = buildEngineRootDeps(cfg("curriculum-app"), { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
-  assert.ok(config.curriculumPort, "curriculumPort must be wired unconditionally");
-});
-
 /* ── context-map capture + DB-first grounding — wired UNCONDITIONALLY, same rationale as
-   curriculumPort above: contextMapCapture is off-path (never gates a verdict/publish/coverage
+   the process audit: contextMapCapture is off-path (never gates a verdict/publish/coverage
    decision), and groundingCollaborators.loadContextMap only ever WIDENS today's disk-only fallback
    (it still calls loadContextMapFromDisk when no stored map exists), so there is no risk surface a
    config flag would protect.
@@ -2627,20 +2616,18 @@ test("service staging: declared services are mirrored CONCURRENTLY (Promise.all)
 });
 
 /*
- * QA_CAMPAIGN_FREEZE: the operator switch that stops a run from reading or writing cross-run learning state, so
+ * QA_CAMPAIGN_FREEZE: the operator switch that stops a run from reading or writing cross-run state, so
  * the replicates of an A/B campaign start from the same ground.
  */
-test("without the campaign freeze, the process-audit and curriculum collaborators are wired", () => {
+test("without the campaign freeze, the process-audit collaborator is wired", () => {
   const config = buildEngineRootDeps(cfg("factory-freeze-off"), { getAgentDeps: stubAgentDeps, env: {} }, "qa-bot-abc1234-run1", { mode: "diff" });
   assert.ok(config.processAudit, "the process audit is wired");
-  assert.ok(config.curriculumPort, "the curriculum is wired");
 });
 
-test("with the campaign freeze on, a run neither audits nor reads the curriculum", () => {
+test("with the campaign freeze on, a run does not audit", () => {
   const env = { [CAMPAIGN_FREEZE_ENV]: "1" };
   const config = buildEngineRootDeps(cfg("factory-freeze-on"), { getAgentDeps: stubAgentDeps, env }, "qa-bot-abc1234-run1", { mode: "diff" });
   assert.equal(config.processAudit, undefined, "no context is marked stale");
-  assert.equal(config.curriculumPort, undefined, "no archetype is selected or folded");
   assert.ok(config.contextMapCapture, "a context-mode run still stores the map it builds");
 });
 

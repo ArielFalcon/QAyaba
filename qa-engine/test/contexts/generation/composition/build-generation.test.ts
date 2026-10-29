@@ -32,9 +32,9 @@ test("generating reaches the injected use case", async () => {
 });
 
 test("the trace wrappers return the port itself without telemetry and a decorator with it", () => {
-  const port = { select: async () => [] } as never;
+  const port = { read: async () => ({ text: "" }) } as never;
   const telemetry = { startSpan: () => ({}) } as never;
 
-  assert.equal(buildGeneration(deps()).traced.curriculum(port), port);
-  assert.notEqual(buildGeneration(deps({ telemetry })).traced.curriculum(port), port);
+  assert.equal(buildGeneration(deps()).traced.structuralSignal(port), port);
+  assert.notEqual(buildGeneration(deps({ telemetry })).traced.structuralSignal(port), port);
 });

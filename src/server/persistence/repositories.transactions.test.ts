@@ -59,10 +59,9 @@ test("the evaluation repository writes only inside transactions", (t) => {
 test("the learning repository writes only inside transactions", (t) => {
   const { history, writes } = instrumented(t);
   const learning = history.learning;
-  learning.saveCurriculum({ app: "app", updatedAt: "2026-10-01T00:00:00.000Z" } as never);
   learning.saveRunOutcome({ runId: "r", app: "app", sha: "abcdef1", mode: "diff", target: "e2e", verdict: "pass", errorClass: null, gateSignals: { static: true, coverageRatio: null, valueScore: null, reviewerCorrections: [], flaky: false, retries: 0 },at: "2026-10-01T00:00:00.000Z" });
 
-  assert.ok(writes.length >= 2);
+  assert.ok(writes.length >= 1);
   assert.deepEqual(writes.filter((w) => !w.inTransaction), []);
 });
 

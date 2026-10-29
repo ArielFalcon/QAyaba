@@ -28,7 +28,6 @@ import { GENERATION_END } from "@kernel/generation-end";
 import { resolveCoordinationSettings } from "@kernel/coordination";
 import { NoopTelemetry } from "@kernel/telemetry/noop-telemetry";
 import type { SpecSnapshotPort } from "@kernel/ports/spec-snapshot.port";
-import { TracedCurriculumPort } from "@contexts/generation/infrastructure/adapters/context-trace";
 import { SpecSnapshotValidationPort } from "@contexts/workspace-and-publication/infrastructure/adapters/spec-snapshot-validation.adapter";
 import { TracedSuiteStore } from "@contexts/workspace-and-publication/infrastructure/adapters/suite-store-trace";
 import { SuiteStoreAdapter } from "@contexts/workspace-and-publication/infrastructure/suite-store.adapter";
@@ -1390,14 +1389,11 @@ test("wireEngine wires the lead/sidekick mode only for an e2e run whose shell na
 
 /* ── Observability: the sources, the suite store and the validation are traced only when the shell supplied a telemetry port. ── */
 
-test("with a telemetry port the curriculum and suite store ports are traced, and without one they are the plain adapters", () => {
-  const curriculumPort = { select: async () => [], fold: async () => {} };
+test("with a telemetry port the suite store port is traced, and without one it is the plain adapter", () => {
   const suiteStore = { restore: async () => ({ restored: 0, trackedWins: 0, overlaid: 0, authRestored: false }), fingerprint: async () => new Map(), capture: async () => ({ entries: 0, admitted: 0, dropped: 0, skipped: [] }), demoteAuth: async () => {} };
-  const traced = wireEngine(fakeConfig({ telemetry: new NoopTelemetry(), curriculumPort, suiteStore }));
-  assert.ok(traced.curriculum instanceof TracedCurriculumPort);
+  const traced = wireEngine(fakeConfig({ telemetry: new NoopTelemetry(), suiteStore }));
   assert.ok(traced.suiteStore instanceof TracedSuiteStore);
-  const plain = wireEngine(fakeConfig({ curriculumPort, suiteStore }));
-  assert.equal(plain.curriculum, curriculumPort);
+  const plain = wireEngine(fakeConfig({ suiteStore }));
   assert.equal(plain.suiteStore, suiteStore);
 });
 

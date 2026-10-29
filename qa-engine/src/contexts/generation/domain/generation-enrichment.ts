@@ -1,4 +1,3 @@
-import type { SelectedExemplar } from "@kernel/learned-rule.ts";
 import type { ServiceLink, ContractDrift, ImpactedLink } from "@kernel/service-links.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 import type { ClosedLoopLimits } from "@kernel/closed-loop.ts";
@@ -114,11 +113,6 @@ export interface GenerationEnrichment {
   staticSignalHasSymbols?: boolean;
   /** The files the static signal's dossier shows verbatim (repo-relative). Present only alongside `staticSignal`. */
   staticSignalFiles?: readonly string[];
-  /**
-   * Curriculum-ranked authoring templates. Absent lets the prompt builder fall
-   * back to its local derivation.
-   */
-  skillExemplars?: readonly SelectedExemplar[];
   /**
    * Structured FE→BE links. Rendering belongs at the prompt boundary, not here.
    * Absent means no key (not an empty array). Advisory only.

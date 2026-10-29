@@ -4,7 +4,6 @@ import type { RunMode } from "@kernel/run-mode";
 import type { RunPipelinePort } from "../../qa-engine/src/contexts/run-orchestration/application/index";
 import type { ObserverPort } from "../../qa-engine/src/contexts/run-orchestration/application/index";
 import type { RunHistoryPort } from "../../qa-engine/src/contexts/run-orchestration/application/index";
-import type { CurriculumPort } from "@contexts/cross-run-learning/application/index";
 import type { ContextMapCapturePort } from "@contexts/generation/application/index";
 import type { RunDeadlinePort } from "../../qa-engine/src/contexts/run-orchestration/application/index";
 import type { SuiteStorePort } from "@kernel/ports/suite-store.port";
@@ -250,8 +249,6 @@ export interface EngineRootDeps {
   /* Process audit. Optional, no stub: absent omits RunQaUseCaseDeps.processAudit. The shell factory constructs ProcessAuditPortAdapter (src-only sinks). */
   processAudit?: ProcessAuditPort;
 
-  curriculumPort?: CurriculumPort;
-
   /* Write side of the FE<->BE architecture map (context_maps SQLite store). Optional, no stub:
      absent omits RunQaUseCaseDeps.contextMapCapture (no capture, same as today). The shell factory
      constructs ContextMapCapturePortAdapter backed by ContextRepository.saveContextMap. */
@@ -441,7 +438,6 @@ function assemble(cfg: EngineRootDeps): RunOrchestrationApi {
   const objectiveSignal: ObjectiveSignalPort = cfg.telemetry ? new TracedObjectiveSignalPort(plainObjectiveSignal, cfg.telemetry) : plainObjectiveSignal;
 
   const learningApi = buildCrossRunLearning({
-    ...(cfg.curriculumPort ? { curriculum: cfg.curriculumPort } : {}),
     ...(cfg.processAudit ? { processAudit: cfg.processAudit } : {}),
   });
 
@@ -505,8 +501,6 @@ function assemble(cfg: EngineRootDeps): RunOrchestrationApi {
     ...(cfg.runDeadline ? { runDeadline: cfg.runDeadline } : {}),
     ...(cfg.telemetry ? { telemetry: cfg.telemetry } : {}),
     ...(cfg.clock ? { phaseClock: cfg.clock } : {}),
-    /* Absent curriculumPort is omitted entirely — never a fabricated no-op stub (select() returns nothing; the fold never fires). */
-    ...(learningApi.curriculum ? { curriculum: generationApi.traced.curriculum(learningApi.curriculum) } : {}),
     /* Absent contextMapCapture is omitted entirely — never a fabricated no-op stub. */
     ...(cfg.contextMapCapture ? { contextMapCapture: cfg.contextMapCapture } : {}),
     /* Absent suiteStore is omitted entirely — never a fabricated no-op stub (a stub that restores nothing would hide that no suite persists). */

@@ -65,9 +65,6 @@ export interface OpencodeRunInput {
   staticSignalHasSymbols?: boolean;
   /* The files the static signal's dossier shows verbatim (repo-relative): listed as prompt-provided while the section survives. */
   staticSignalFiles?: readonly string[];
-  skillExemplars?: readonly {
-    id: string; name: string; template: string; archetype: string; proven: boolean; promotionCount: number;
-  }[];
   existingSpecFiles?: string[];
   service?: { repo: string; mirrorDir: string; openapi?: string | string[] };
   services?: Array<{ repo: string; mirrorDir: string; openapi?: string | string[] }>;

@@ -35,7 +35,7 @@ const S = (field: string): string => `__SENTINEL__${field}__`;
 describe("seam-parity: PERSISTENCE (kernel RunOutcome vs toStoredRunOutcome)", () => {
   const ALL_TOP_FIELDS = {
     runId: true, app: true, sha: true, mode: true, target: true, verdict: true, errorClass: true,
-    gateSignals: true, diffArchetypes: true, at: true, note: true, cases: true,
+    gateSignals: true, at: true, note: true, cases: true,
     logs: true, adjudication: true,
   } satisfies Record<keyof KernelRunOutcome, true>;
 
@@ -59,7 +59,6 @@ describe("seam-parity: PERSISTENCE (kernel RunOutcome vs toStoredRunOutcome)", (
     note: "CORRECT BY DESIGN (not a drop): toStoredRunOutcome never carries outcome.note through because StoredRunOutcome (src/types.ts's RunOutcome interface) has NO note field to carry it TO — grep/read-confirmed against the full interface. The kernel RunOutcome.note reaches the run record through a SEPARATE seam (QaRunResult.note -> RunRecord.note, src/server/runner.ts's own header), never through this mapping fn's run_outcomes row. Diagnostic-only either way (never gates verdict/publish).",
     cases: "DELIBERATELY not persisted via toStoredRunOutcome — StoredRunOutcome (src/types.ts) has NO cases field at all (grep-confirmed); this field exists on the kernel RunOutcome ONLY for a DIFFERENT driving-side consumer (src/server/runner.ts's runViaEngine threads it into history.addCase() calls directly, per this file's own header comment), not for the run_outcomes row this adapter writes. Comparator-blind by the kernel type's own documented construction.",
     logs: "DELIBERATELY not persisted via toStoredRunOutcome",
-    diffArchetypes: "CORRECT BY DESIGN (not a drop): the diff's structural shapes ride on the kernel outcome only; StoredRunOutcome (src/types.ts) has no field for them.",
     adjudication: "CORRECT BY DESIGN (not a drop): StoredRunOutcome (src/types.ts) has NO adjudication field at all. This is a REWRITTEN-ONLY field: the kernel type carries it (wide, optional",
   };
 
@@ -261,12 +260,6 @@ describe("seam-parity: COMPOSITION (EngineRootDeps vs buildEngineRootDeps)", () 
        precedent confinement/processAudit establish immediately above. Asserted below as a present case.
      */
     mirrorGc: "IS supplied (MirrorGcAdapter wrapping realGit's local `git gc --auto --quiet`) — asserted below as a present case.",
-    /* loadCurriculum/saveCurriculum) — wired UNCONDITIONALLY (measure-and-rank only: it never gates
-       a verdict, a publish decision or a coverage decision, so there is no risk surface a config
-       flag would protect), the SAME "IS supplied" precedent processAudit/mirrorGc establish
-       immediately above. Asserted below as a present case.
-     */
-    curriculumPort: "IS supplied (CurriculumPortAdapter over the learning repository's loadCurriculum/saveCurriculum) — asserted below as a present case.",
     codeGraph: "IS supplied for every app — the run's one code-graph adapter, indexed by the index phase and read by the structural signal and the cross-repo impact. Asserted below as a present-when-default case.",
     codeExplore: "IS supplied with codeGraph (the same code-graph adapter instance, so it reads the index the run built) — the lead's code-graph tool and the change dossier read it. Asserted below as a present-when-default case.",
     coChange: "IS supplied with codeGraph (GitCoChangeAdapter over the trusted git runner). Asserted below as a present-when-default case.",
@@ -350,12 +343,6 @@ describe("seam-parity: COMPOSITION (EngineRootDeps vs buildEngineRootDeps)", () 
        as confinement/processAudit immediately above.
      */
     assert.notEqual(cfg.mirrorGc, undefined, `mirrorGc (mirror-lifecycle wiring) dropped at ${dyingLayer}`);
-    /* curriculumPort must be wired unconditionally — the SAME "IS supplied" assertion pattern as
-       processAudit/mirrorGc immediately above. A dropped port here is silent by construction (the
-       curriculum simply stays empty forever), which is why this present-case assertion is the gate
-       rather than a runtime failure.
-     */
-    assert.notEqual(cfg.curriculumPort, undefined, `curriculumPort (curriculum wiring) dropped at ${dyingLayer}`);
     assert.notEqual(cfg.codeExplore, undefined, `codeExplore (the lead's code-graph tool reads it, default mode signal) dropped at ${dyingLayer}`);
     assert.notEqual(cfg.codeGraph, undefined, `codeGraph (the run's code graph, default mode signal) dropped at ${dyingLayer}`);
     assert.notEqual(cfg.codeExplore, undefined, `codeExplore (the engine's explore over the run's index, default mode signal) dropped at ${dyingLayer}`);

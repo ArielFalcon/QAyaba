@@ -1,7 +1,6 @@
 /* The sections of a generator prompt, in prompt order. Each declares when it applies and how it renders from the turn's PromptContext; buildPromptAssembled filters and renders them. Never import src/. */
 
 import { sanitizeText } from "../../../../shared-infrastructure/redaction/pattern-redaction.adapter.ts";
-import { renderExemplarsForPrompt } from "@kernel/scenario-catalog.ts";
 import { advisoryLineIds, itemId } from "@kernel/context-item-ids.ts";
 import { PROMPT_HEADINGS } from "@contexts/generation/domain/prompt-headings.ts";
 import {
@@ -232,22 +231,6 @@ function renderServiceLinks(ctx: PromptContext): SectionRender {
     claims: serviceLinksClaims,
     ...(hasServiceLinks ? { itemIds: itemsOf(orderedLinks) } : {}),
     ...(present ? { degrade } : {}),
-  };
-}
-
-function renderSkillExemplars(ctx: PromptContext): SectionRender {
-  const { input, isGenerationMode } = ctx;
-  const skillExemplarsContent = (() => {
-    if (!isGenerationMode || !input.skillExemplars?.length) return "";
-    const proven: Record<string, number> = {};
-    for (const e of input.skillExemplars) if (e.proven && e.promotionCount > 0) proven[e.archetype] = e.promotionCount;
-    return renderExemplarsForPrompt(input.skillExemplars, { proven });
-  })();
-  const exemplars = input.skillExemplars?.length ?? 0;
-  return {
-    content: skillExemplarsContent,
-    claims: [claim.provides("exemplars")],
-    degrade: referenceDegrade(`## Skill exemplars for the detected structural patterns\n${exemplars} test template(s) for the patterns this change shows are ${NOT_SHOWN}.`, exemplars),
   };
 }
 
@@ -634,7 +617,6 @@ export const GENERATOR_SECTIONS: readonly PromptSectionDef<PromptContext>[] = [
     applies: (ctx) => (Boolean(ctx.input.serviceLinks?.length) || Boolean(ctx.input.contractDrift?.length)) && ctx.isGenerationMode,
     render: renderServiceLinks,
   },
-  { id: "skill-exemplars", tier: "semi-stable", priority: 3, stability: "run", reason: "Proven test archetypes matched to the change; restored in 8379da09 to give its module a caller, no observed failure behind it", applies: (ctx) => ctx.isGenerationMode && Boolean(ctx.input.skillExemplars?.length), render: renderSkillExemplars },
   {
     id: APP_LOGIN_SECTION_ID,
     tier: "volatile",

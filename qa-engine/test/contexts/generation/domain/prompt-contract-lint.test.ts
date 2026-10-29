@@ -684,11 +684,11 @@ test("the polarity lexicons detect their phrases case-insensitively and repeated
   }
 });
 
-/* ── the step limit, the suite listing, the exemplars and the co-change files: one provider each, framed at most once, and referred to only where carried ── */
+/* ── the step limit, the suite listing and the co-change files: one provider each, framed at most once, and referred to only where carried ── */
 
-const ONCE_PROVIDED_FACTS = ["step-limit", "existing-suite", "exemplars", "co-change"] as const;
+const ONCE_PROVIDED_FACTS = ["step-limit", "existing-suite", "co-change"] as const;
 
-test("each of the step limit, the existing suite, the exemplars and the co-change files has one provider: a second is reported with both sections", () => {
+test("each of the step limit, the existing suite and the co-change files has one provider: a second is reported with both sections", () => {
   for (const fact of ONCE_PROVIDED_FACTS) {
     const duplicated = lintCell(cell([sec("b", [provides(fact)]), sec("a", [provides(fact)]), sec("c")]));
     assert.deepEqual(duplicated.map((f) => [f.rule, f.fact, ...f.sections]), [["R2", fact, "a", "b"]], fact);
@@ -795,15 +795,9 @@ const NEW_REFERENCE_CASES: readonly ReferenceCase[] = [
     refers: [`The ${PROMPT_HEADINGS.coChangeFiles} above are only a hint.`, `Skim the ${PROMPT_HEADINGS.coChangeFiles.toUpperCase()} first.`],
     unrelated: ["Files that change together in a pull request.", "Keep the history of the repository clean."],
   },
-  {
-    artifact: "exemplars",
-    provider: sec("skill-exemplars", [provides("exemplars")]),
-    refers: ["Follow the exemplars below.", "Adapt one exemplar to the change.", "Apply these test templates.", "Exemplars below match this change's shape."],
-    unrelated: ["An exemplary change.", "Page templates are rendered by the app."],
-  },
 ];
 
-test("a section that points at the step limit, the suite listing, the exemplars or the co-change files needs that artifact in the cell", () => {
+test("a section that points at the step limit, the suite listing or the co-change files needs that artifact in the cell", () => {
   const references = { artifactReferences: ARTIFACT_REFERENCES };
   for (const { artifact, provider, refers } of NEW_REFERENCE_CASES) {
     for (let round = 0; round < 3; round++) {
