@@ -121,3 +121,9 @@ test("a dead path or citation outside docs/architecture still fails, including a
     assert.deepEqual(rules, ["dead-path", "dead-citation"], path);
   }
 });
+
+test("a retired name fails outside docs/architecture and passes in the records, which cite it on purpose", () => {
+  const retired = "the taxonomy in src/errors.ts";
+  assert.deepEqual(check([file("docs/guide.md", retired)]).violations.map((v) => v.rule), ["shell-error-taxonomy"]);
+  assert.deepEqual(check([file("docs/architecture/adr/0001-x.md", retired)]).violations, []);
+});

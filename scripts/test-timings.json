@@ -605,7 +605,6 @@
   "src/contract/events.test.ts": 4,
   "src/contract/learning-rule-status.contract.test.ts": 1,
   "src/contract/openapi.test.ts": 800,
-  "src/errors.test.ts": 1,
   "src/integrations/agent-credential-isolation.test.ts": 110,
   "src/integrations/agent-tool-surface.test.ts": 97,
   "src/integrations/github.test.ts": 14,

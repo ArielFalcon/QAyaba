@@ -8,6 +8,8 @@ import { fileURLToPath } from "node:url";
 export interface BannedRule {
   id: string;
   patterns: RegExp[];
+  /** Folders where the rule does not apply: the records cite a retired name on purpose. */
+  exemptPrefixes?: string[];
 }
 
 export interface AllowEntry {
@@ -35,6 +37,8 @@ export interface CheckResult {
   unusedAllow: AllowEntry[];
 }
 
+const RECORDS_PREFIX = "docs/architecture/";
+
 export const BANNED_RULES: BannedRule[] = [
   { id: "engine-flag", patterns: [/PIPELINE_ENGINE/i, /pipeline-engine-flag/i, /selectEngine/i] },
   { id: "rewritten-name", patterns: [/Rewritten[A-Z]/, /rewritten-(engine|orchestrator)/i, /rewritten (engine|path|adapters?|orchestrator|publish)/i] },
@@ -45,6 +49,7 @@ export const BANNED_RULES: BannedRule[] = [
   { id: "router-kind", patterns: [/"router"/i, /orchestration-router/i, /RETIRED_EXPLORER_ROLE/i, /coordinationMode/i, /qa\.explorer/i] },
   { id: "claude-md", patterns: [/CLAUDE\.md/i] },
   { id: "codebase-memory", patterns: [/codebase-memory/i] },
+  { id: "shell-error-taxonomy", patterns: [/\bsrc\/errors\b/], exemptPrefixes: [RECORDS_PREFIX] },
   {
     id: "narration",
     patterns: [/migration-tier/i, /\bSlice \d/i, /\bcutover\b/i, /deleted twin/i, /frozen oracle/i, /the (old|earlier|former) (engine|pipeline|loader|path|build)/i, /\bcharacterization\b/i, /\bported (from|to)\b/i],
@@ -69,7 +74,7 @@ const TEST_FILE = /\.test\.(ts|mjs)$/;
    the test runner's recorded file costs may name a test file deleted since they were recorded (the runner ignores such an entry), and
    the architecture records cite the code as it was when they were written, which later deletions remove. The banned terms still apply to all of them. */
 const REFERENCE_CHECK_SKIPPED = (path: string): boolean =>
-  path.includes("/__fixtures__/") || path === ".gitignore" || path === "scripts/test-timings.json" || path.startsWith("docs/architecture/");
+  path.includes("/__fixtures__/") || path === ".gitignore" || path === "scripts/test-timings.json" || path.startsWith(RECORDS_PREFIX);
 const FIXTURE_ROOTS = ["web/src/app/"];
 
 export function isScanned(path: string): boolean {
@@ -113,6 +118,7 @@ export function checkPreviousForms(
     lines.forEach((text, index) => {
       const line = index + 1;
       for (const rule of BANNED_RULES) {
+        if (rule.exemptPrefixes?.some((prefix) => file.path.startsWith(prefix))) continue;
         if (rule.patterns.some((pattern) => pattern.test(text))) hits.push({ rule: rule.id, path: file.path, line, text: text.trim() });
       }
       const referencesChecked = !REFERENCE_CHECK_SKIPPED(file.path);

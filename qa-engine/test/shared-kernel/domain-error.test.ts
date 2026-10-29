@@ -16,6 +16,15 @@ test("isInfraError recognizes the taxonomy by instanceof", () => {
   assert.equal(isInfraError(new Error("ordinary")), false);
 });
 
+test("an agent call that exceeded its deadline is infrastructure", () => {
+  assert.equal(isInfraError(new AgentTimeoutError("generate: timed out after 900000ms")), true);
+});
+
+test("a thrown value that is not an Error is not infrastructure", () => {
+  assert.equal(isInfraError("boom"), false);
+  assert.equal(isInfraError(undefined), false);
+});
+
 test("isInfraError falls back to name + operator-cancel message across realms", () => {
   const crossRealm = new Error("oops");
   crossRealm.name = "StalledAgentError";

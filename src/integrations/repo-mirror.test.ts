@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { hardenGitArgs as engineHardenGitArgs, UntrustedGitTreeError } from "../../qa-engine/src/shared-infrastructure/process-sandbox/git-hardening";
 import { hardenDetachedGitArgs as engineHardenDetachedGitArgs } from "../../qa-engine/src/shared-infrastructure/process-sandbox/detached-git-hardening";
 import { closeGitDir, GIT_ENV, indexedGitlinks, makeEmbeddedRepo, makeGitlinkRepo, plantNestedRepo, ranPlantedCommand, writeMarkerCommand } from "../../qa-engine/test/shared-infrastructure/process-sandbox/git-fixtures";
+import { InfraError } from "@kernel/domain-error";
 import { defaultMirrorDeps, realGit, ensureMirror, ensureMirrorAtBranch, getCommitDiff, listChangedSpecs, getCommitMessage, getHeadSha, resolveRef, hardenGitArgs, hardenDetachedGitArgs, MirrorDeps } from "./repo-mirror";
 
 /* authHeaderArgs() depends on GITHUB_TOKEN and the remote URL on GIT_REMOTE_BASE;
@@ -480,6 +481,11 @@ test("realGit scrubs the raw GITHUB_TOKEN value (no x-access-token prefix) from 
     if (previousToken === undefined) delete process.env.GITHUB_TOKEN;
     else process.env.GITHUB_TOKEN = previousToken;
   }
+});
+
+test("realGit reports a git failure as the kernel's InfraError, never as a code fault", async () => {
+  const { realGit } = await import("./repo-mirror");
+  await assert.rejects(realGit(["clone", "file:///nonexistent/definitely-missing.git", join(tmpdir(), "qa-infra-error-probe-target")], undefined), (err: unknown) => err instanceof InfraError);
 });
 
 /* The sandbox owns a working copy after a code/e2e run and can swap the root-owned `.git` for one of its own;
