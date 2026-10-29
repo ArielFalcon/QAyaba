@@ -129,7 +129,7 @@ Every e2e run is coordinated this way; `qa.coordination` only tunes its limits. 
 | **Lead plan** | The lead returns a plan of independent flows instead of specs. The plan is untrusted input: the orchestrator keeps only what its shape and the run's limits allow (`maxFlows`, a deterministic spec path per flow) and otherwise refuses the run, with the reason recorded (`E-NO-AUTHOR`). |
 | **Author sidekick (bounded executor)** | Authors one flow in a copy of what the run may read, using the harness, fixtures, and selector discipline of the suite; it runs its own spec through `run_spec` until it passes. Only the file its brief names is taken back; any other change is listed as a proposal and never applied. |
 | **Fan-out** | A bounded pool (`maxParallel`) with a signal and a time budget per flow. DEV access is serialized per test account by the orchestrator's lease. |
-| **Lead review** | The lead reviews each delivered flow and answers `accept`, `revise` (the same sidekick session), `replace` (a fresh sidekick on the escalated model) or `drop`, decided on what the orchestrator saw of the flow's `run_spec` calls, never on the sidekick's word. |
+| **Lead review** | The lead reviews each delivered flow and answers `accept`, `revise` (the same sidekick session), `replace` (a fresh sidekick on the flow's brief) or `drop`, decided on what the orchestrator saw of the flow's `run_spec` calls, never on the sidekick's word. |
 | **Independent reviewer** | Never merged with, influenced by, or executed from the coordinator — whoever wrote the specs, the reviewer judges the same way. |
 
 Every flow's result must be earned: a claimed file the brief did not name is not taken back, and the run's gates (validation, execution, change-coverage, review) are the same for every spec.
@@ -145,7 +145,6 @@ Optional environment tuning (defaults are production-safe, no configuration requ
 | Env var | Default | Purpose |
 |---|---|---|
 | `COORDINATION_TELEMETRY_PATH` | `data/coordination-events.jsonl` | Durable sink for coordination events (e.g. point to a mounted volume). |
-| `COORDINATION_ESCALATED_MODEL` | unset (no escalation model) | Optional stronger model for escalated sidekick sessions; it must be a model of the provider the primary role is assigned to. |
 
 ### What happens at the end
 
@@ -236,8 +235,6 @@ The project uses provider-neutral role assignments. The roster, each role's mode
 | `chat` | `qa-assistant` | Read-only operator assistant |
 
 Each run reads the context window the agent runtime reports for the models its roles are assigned (`src/agent-runtime/run-context-budget.ts`); the engine keeps no table of models, and a window the runtime does not report cuts nothing.
-
-Assign a stronger model to escalated sidekick sessions via `COORDINATION_ESCALATED_MODEL` when you want a replaced flow to run on a different capacity.
 
 > [!TIP]
 > `qayaba agent` prints the current runtime config; `qayaba agent models [provider]` lists a provider's models.

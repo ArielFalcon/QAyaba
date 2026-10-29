@@ -13,6 +13,7 @@ const RETIRED_SETTINGS: ReadonlyArray<{ readonly name: string; readonly gone: st
   { name: "LANGFUSE_PUBLIC_KEY", gone: "the Langfuse score sink was removed" },
   { name: "LANGFUSE_SECRET_KEY", gone: "the Langfuse score sink was removed" },
   { name: "LANGFUSE_ALLOW_EXTERNAL", gone: "the Langfuse score sink was removed" },
+  { name: "COORDINATION_ESCALATED_MODEL", gone: "a replaced flow starts a fresh sidekick on the same model as the first" },
 ];
 
 export function retiredSettingWarnings(env: Readonly<Record<string, string | undefined>>): string[] {

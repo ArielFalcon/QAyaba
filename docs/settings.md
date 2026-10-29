@@ -48,7 +48,6 @@ The orchestrator reads its environment once, in `loadSettings(env)`. An empty va
 | `AGENT_PRIMARY_MODEL` | - | string | - | - | Overrides the model of every agent of its tier (the lead, author and proposer) as provider/model. Unset, each agent runs on the model its agents/opencode.json entry declares, and on the model the tier's namesake agent declares when it declares none. |
 | `AGENT_REVIEWER_MODEL` | - | string | - | - | Overrides the model of every agent of its tier (the reviewer) as provider/model. Unset, each agent runs on the model its agents/opencode.json entry declares, and on the model the tier's namesake agent declares when it declares none. |
 | `AGENT_CHAT_MODEL` | - | string | - | - | Overrides the model of every agent of its tier (the assistant) as provider/model. Unset, each agent runs on the model its agents/opencode.json entry declares, and on the model the tier's namesake agent declares when it declares none. |
-| `COORDINATION_ESCALATED_MODEL` | `agent.coordinationEscalatedModel` | string | - | - | Model a sidekick escalates to when its first attempt is judged insufficient (provider/model). Unset, no escalation model is configured. |
 | `COORDINATION_TELEMETRY_PATH` | `agent.coordinationTelemetryPath` | path | `<data>/coordination-events.jsonl` | - | File that records the lead's coordination events. |
 
 ## Git and mirrors

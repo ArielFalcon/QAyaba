@@ -175,6 +175,14 @@ export const BANNED_RULES: BannedRule[] = [
     exemptPrefixes: [RECORDS_PREFIX],
   },
   {
+    id: "escalated-model",
+    patterns: [
+      /\b(?:resolveSidekickModel|SIDEKICK_TIER|SidekickTier|sidekickEscalatedModel|coordinationEscalatedModel)\b/,
+      /\bresolve-sidekick-model\b/,
+    ],
+    exemptPrefixes: [RECORDS_PREFIX],
+  },
+  {
     id: "langfuse-sink",
     patterns: [
       /\b(?:LangfuseScoreSink|LangfuseConfig|resolveLangfuseConfig|scoreSinkHealthOf|ScoreSinkHealth|scoreConfigsOfCatalog|langfuseScoreId|getRunIdByTraceId)\b/,

@@ -39,10 +39,10 @@ export class AgentRuntimeFacade implements AgentFacade {
       open: async (agent, cwd, opts) => {
         const role = roleForAgentName(agent);
         const assignment = assignmentForRole(this.config, role);
-        /* The assignment picks the provider; a model the caller asked for wins over the one the role resolves to. */
+        /* The assignment picks the provider and the role resolves the model. */
         const session: AgentSession = await this.strategies[assignment.provider].openSession(role, cwd, {
           ...opts,
-          model: opts?.model ?? modelForRole(this.config, role, this.declaredModels),
+          model: modelForRole(this.config, role, this.declaredModels),
         });
         return session;
       },

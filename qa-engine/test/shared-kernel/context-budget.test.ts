@@ -5,8 +5,8 @@ import type { ContextWindowPort } from "@kernel/ports/context-window.port.ts";
 import type { AgentRole } from "@kernel/agent-role.ts";
 import { COLD_START_STEP_GROWTH_TOKENS, estimateWorkingRoom, turnSample, type TurnSample } from "@kernel/working-room.ts";
 
-const windows = (byRole: Partial<Record<AgentRole, number>>, byModel: Record<string, number> = {}): ContextWindowPort => ({
-  windowTokens: (role, model) => (model !== undefined ? byModel[model] : byRole[role]),
+const windows = (byRole: Partial<Record<AgentRole, number>>): ContextWindowPort => ({
+  windowTokens: (role) => byRole[role],
 });
 
 const fixedRoom = (growth: number, steps: number) => ({ forRole: () => ({ growthTokensPerStep: growth, steps, basis: "history" as const, samples: 9 }) });
@@ -39,12 +39,6 @@ test("an unknown working room is unknown even with a known window", () => {
   const fit = budget.fit({ prompt: { tokens: 1 }, role: "lead" });
   assert.equal(fit.outcome, "unknown");
   assert.equal(fit.windowTokens, 1_000_000);
-});
-
-test("an explicit model asks the port for that model's window", () => {
-  const budget = new ContextBudget(windows({ author: 1_000 }, { "p/escalated": 50_000 }), fixedRoom(10, 10));
-  assert.equal(budget.fit({ prompt: { tokens: 10_000 }, role: "author", model: "p/escalated" }).outcome, "fits");
-  assert.equal(budget.fit({ prompt: { tokens: 10_000 }, role: "author" }).outcome, "over");
 });
 
 test("two budgets over different per-run ports do not interfere", () => {

@@ -91,7 +91,6 @@ export interface OpenSessionOpts {
   timeoutMs?: number;
   /** Which limit `timeoutMs` is. Only a name for the trace. */
   timeLimit?: TimeLimitSource;
-  model?: string;
   onUsage?: (u: UsageSnapshot) => void;
   onTurn?: (t: AgentTurnEvent) => void;
   descriptor?: AgentOpenDescriptor;

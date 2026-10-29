@@ -19,12 +19,6 @@ function positiveWindow(tokens: number | undefined): number | undefined {
   return tokens !== undefined && Number.isSafeInteger(tokens) && tokens > 0 ? tokens : undefined;
 }
 
-/* The `provider/` a model reference carries, "" for a bare model id. */
-function providerPrefix(modelRef: string): string {
-  const slash = modelRef.indexOf("/");
-  return slash < 0 ? "" : modelRef.slice(0, slash + 1);
-}
-
 /* The role a recorded turn ran as. A turn records the role or the agent name, depending on who opened its session. */
 export function roleOfRecordedTurn(recorded: string): AgentRole | undefined {
   return AGENT_ROLES.find((role) => role === recorded || AGENT_NAME_FOR_ROLE[role] === recorded);
@@ -75,10 +69,8 @@ export class RunContextBudget implements ContextWindowPort {
     this.room = estimateWorkingRoom({ turns: samplesOfRecordedTurns(history), stepLimitFor: (role) => stepLimits[role] });
   }
 
-  windowTokens(role: AgentRole, model?: string): number | undefined {
+  windowTokens(role: AgentRole): number | undefined {
     const assigned = this.config ? modelForRole(this.config, role, this.declaredModels) : undefined;
-    if (model === undefined) return assigned === undefined ? undefined : positiveWindow(this.windows[assigned]);
-    /* A model the caller picked: as written, else under the provider of the role's own model. */
-    return positiveWindow(this.windows[model]) ?? (assigned === undefined ? undefined : positiveWindow(this.windows[`${providerPrefix(assigned)}${model}`]));
+    return assigned === undefined ? undefined : positiveWindow(this.windows[assigned]);
   }
 }

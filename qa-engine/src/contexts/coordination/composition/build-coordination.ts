@@ -36,9 +36,7 @@ export interface CoordinationDeps {
   /* The outbound sanitizer for the plan a run keeps; with `planSnapshots`, otherwise nothing is kept. */
   sanitize?: (text: string) => string;
   planSnapshots?: PlanSnapshotPort;
-  /* The model a fresh sidekick the lead's review starts on a flow runs with. */
-  escalatedModel?: string;
-  /* The run's context budget: the window of the lead, the author and the reviewer, and of the escalated model above, with the working room a turn needs. Absent: no window is known. */
+  /* The run's context budget: the window of the lead, the author and the reviewer, with the working room a turn needs. Absent: no window is known. */
   contextBudget?: ContextBudget;
   /* Durable JSONL sink for the decision ledger; absent: memory-only. */
   telemetryPath?: string;
@@ -79,7 +77,6 @@ export function buildCoordination(deps: CoordinationDeps): CoordinationApi {
           return undefined;
         }
       },
-      ...(deps.escalatedModel ? { escalatedModel: deps.escalatedModel } : {}),
       ...(delegation.deadline ? { deadline: delegation.deadline } : {}),
     }),
   };

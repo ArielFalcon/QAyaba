@@ -40,7 +40,7 @@ import { admitLeadReview, candidateGapsOf, assembleLeadReview, MAX_REVIEW_TURNS,
 import type { CoordinationTelemetryEvent, CoordinationTelemetryPort } from "./coordination-telemetry.ts";
 import { PLAN_SNAPSHOT_KIND, type PlanSnapshotCandidate, type PlanSnapshotFlow, type PlanSnapshotKind, type PlanSnapshotPort } from "@kernel/ports/plan-snapshot.port.ts";
 import { authorTask } from "./author-task.ts";
-import { SIDEKICK_KIND, SIDEKICK_TIER, type SidekickKind, type SidekickTier } from "./sidekick-kinds.ts";
+import { SIDEKICK_KIND, type SidekickKind } from "./sidekick-kinds.ts";
 import type { EvidenceRef } from "./evidence-ref.ts";
 import { evidenceFromEmptyRead, evidenceFromPackDataRoutes } from "./evidence-from.ts";
 import type { DevStateGround } from "./dev-state-backing.ts";
@@ -49,7 +49,6 @@ import { AUTHORING_FAILURE, authoringFailureFeedback, classifyAuthoringFailure, 
 import { FanOutDispatcher, FLOW_RESULT, type TimerPort } from "./fan-out-dispatcher.ts";
 import { aggregateFlowOutcomes, FLOW_OUTCOME, type AggregatedFlows, type FlowOutcome } from "./flow-outcomes.ts";
 import { admitLeadPlan, LEAD_PLAN_KIND, PLAN_DOWNGRADE, PLAN_REJECTED, assembleRejectedPlanRequest, type AdmittedFlow, type AdmittedPlan } from "./lead-plan.ts";
-import { resolveSidekickModel } from "./resolve-sidekick-model.ts";
 import { SIDEKICK_AUTHORING, sidekickAuthoring, sidekickDeniedTools, type SidekickAuthoringMode } from "./sidekick-authoring.ts";
 import type { SidekickExecutor, SidekickSession } from "./sidekick-executor.ts";
 import { packPagesFor, recordedRequestsFor } from "@contexts/generation/application/index.ts";
@@ -91,8 +90,6 @@ export interface LeadSidekicksDeps {
   /* Where the run keeps the plan it admitted and how its flows ended, for grading after the fact; absent: nothing is kept. */
   planSnapshots?: PlanSnapshotPort;
   now?: () => number;
-  /* The model a fresh sidekick the lead's review starts on a flow runs with; absent: the same as the first. */
-  escalatedModel?: string;
   /* The spec a flow delivered, as it is in the run's working copy, read through the confined reader; absent or unreadable: the review shows none. */
   readSpec?(root: { mirrorDir: string; specDir: string }, specFile: string): Promise<string | undefined>;
   /* The spec file, relative to the spec directory, that a flow's id names. */
@@ -219,7 +216,6 @@ interface LiveFlow {
   writesWithheld?: true;
   geolocation?: FlowGeolocationHandle;
   session?: SidekickSession;
-  tier: SidekickTier;
   turns: number;
   last?: DelegationResult;
   /* Whether a turn of the flow ever put its spec in the working copy: those bytes stay there whatever a later turn does. */
@@ -568,7 +564,7 @@ export class LeadSidekicks {
       throw new Error(`flow ${flow.id} was stopped before it started`);
     }
     const geolocation = input.geolocation?.openFlow(delegationId, flow.location);
-    const entry: LiveFlow = { flow, delegationId, workspace, request, tier: SIDEKICK_TIER.STANDARD, turns: 0, opens: 0, delivered: false, ...(geolocation ? { geolocation } : {}) };
+    const entry: LiveFlow = { flow, delegationId, workspace, request, turns: 0, opens: 0, delivered: false, ...(geolocation ? { geolocation } : {}) };
     live.set(flow.id, entry);
     const probePath = `${PROBE_REL_DIR}/${posix.basename(flow.specFile)}`;
     if (input.closedLoop && flow.runSpecCalls > 0) {
@@ -600,10 +596,9 @@ export class LeadSidekicks {
    * its change named by reference is not sent: the flow ends over-window, recorded with the numbers it was judged by.
    */
   private async freshTurn(entry: LiveFlow, context: FlowContext, signal: AbortSignal, timeoutMs: number, feedback?: string): Promise<FlowReport> {
-    const model = resolveSidekickModel(entry.tier, this.deps.escalatedModel);
-    const { brief, contextFit, fit } = this.briefOf(entry, context, model);
+    const { brief, contextFit, fit } = this.briefOf(entry, context);
     if (contextFit?.outcome === "over") return this.overWindow(entry, context.input, contextFit);
-    const result = await this.openSession(entry, context, brief, model, contextFit, fit, signal, timeoutMs, feedback);
+    const result = await this.openSession(entry, context, brief, contextFit, fit, signal, timeoutMs, feedback);
     return this.assess(entry, context, result, signal);
   }
 
@@ -617,13 +612,12 @@ export class LeadSidekicks {
   }
 
   /* A fresh sidekick session on the brief, with the feedback when there is some; the session is kept on the flow. */
-  private async openSession(entry: LiveFlow, context: FlowContext, brief: DelegationBrief, model: string | undefined, contextFit: ContextFit | undefined, fit: ((bytes: number) => WindowFitOutcome) | undefined, signal: AbortSignal, timeoutMs: number, feedback?: string): Promise<DelegationResult> {
+  private async openSession(entry: LiveFlow, context: FlowContext, brief: DelegationBrief, contextFit: ContextFit | undefined, fit: ((bytes: number) => WindowFitOutcome) | undefined, signal: AbortSignal, timeoutMs: number, feedback?: string): Promise<DelegationResult> {
     const seq = ++entry.opens;
     const session = await this.deps.sidekick.open(brief, {
       cwd: entry.workspace.dir,
       kind: entry.flow.kind,
       keepStopped: true,
-      ...(model ? { model } : {}),
       signal,
       timeoutMs: Math.max(1, timeoutMs),
       delegationId: entry.delegationId,
@@ -649,10 +643,10 @@ export class LeadSidekicks {
 
   /*
    * The flow author's brief: the flow's slice of the change, its own pages' facts and the tools its turn grants. The slice's owned
-   * hunks are preloaded while the whole brief fits the author's window (the model the session runs on); what does not fit is named
+   * hunks are preloaded while the whole brief fits the author's window; what does not fit is named
    * by file and range. The fit it was judged by rides on the turn's telemetry.
    */
-  private briefOf(entry: LiveFlow, context: FlowContext, model: string | undefined): { brief: DelegationBrief; contextFit?: ContextFit; fit?: (bytes: number) => WindowFitOutcome } {
+  private briefOf(entry: LiveFlow, context: FlowContext): { brief: DelegationBrief; contextFit?: ContextFit; fit?: (bytes: number) => WindowFitOutcome } {
     const { input, mode } = context;
     const { flow } = entry;
     const browser = mode === SIDEKICK_AUTHORING.AUTHENTICATED_BROWSER && input.agentBrowser !== undefined;
@@ -689,7 +683,7 @@ export class LeadSidekicks {
       });
     const budget = this.deps.contextBudget;
     if (!budget) return { brief: build(derived.change) };
-    const fitOf = (bytes: number): ContextFit => budget.fit({ prompt: { bytes }, role: "author", ...(model ? { model } : {}) });
+    const fitOf = (bytes: number): ContextFit => budget.fit({ prompt: { bytes }, role: "author" });
     const fit = (bytes: number): WindowFitOutcome => fitOf(bytes).outcome;
     /* The owned hunks give way first, judged on the whole brief; once they are all references, the sections that can (the suite listing, then the flow's pages) give way to the window as the brief is rendered, and the fit it is sent with is the one it comes to then. */
     const measure = (change: BriefChange | undefined): ContextFit => fitOf(Buffer.byteLength(assembleSidekickBrief(this.deps.redaction, build(change)).text, "utf8"));
@@ -710,7 +704,7 @@ export class LeadSidekicks {
   /* What one turn of a sidekick came to, from what the orchestrator sees: the workspace, the flow's run_spec ledger and the Context Pack's reads. */
   private async assess(entry: LiveFlow, context: FlowContext, result: DelegationResult, signal: AbortSignal): Promise<FlowReport> {
     const { input } = context;
-    const { flow, delegationId, tier } = entry;
+    const { flow, delegationId } = entry;
     const sidekickKind = flow.kind;
     entry.turns += 1;
     entry.last = result;
@@ -737,7 +731,6 @@ export class LeadSidekicks {
       kind: "delegation",
       action: "delegate",
       sidekickKind,
-      tier,
       reason: result.readMiss ? `flow ${flow.id} turn ${attempt}: sidekick answer ${result.readMiss}${copied ? ", file taken back" : ""}` : `flow ${flow.id} turn ${attempt}: sidekick status=${result.status}${copied ? ", file taken back" : ""}`,
       delegationId,
       attempt,
@@ -757,11 +750,11 @@ export class LeadSidekicks {
     if (appDefect) entry.appDefect = failure!.reason;
     if (copied) {
       entry.delivered = true;
-      if (appDefect) this.record(input, { kind: "delegation", action: "delegate", sidekickKind, tier, reason: `flow ${flow.id}: ${appDefect}; the spec that showed it is taken back`, delegationId, attempt, flowId: flow.id, failureClass: AUTHORING_FAILURE.APP_DEFECT });
+      if (appDefect) this.record(input, { kind: "delegation", action: "delegate", sidekickKind, reason: `flow ${flow.id}: ${appDefect}; the spec that showed it is taken back`, delegationId, attempt, flowId: flow.id, failureClass: AUTHORING_FAILURE.APP_DEFECT });
       return { outcome: { id: flow.id, kind: FLOW_OUTCOME.DELIVERED, specs: [flow.specFile] }, proposals };
     }
     if (appDefect) {
-      this.record(input, { kind: "delegation", action: "delegate", sidekickKind, tier, reason: `flow ${flow.id}: ${appDefect}; the spec that showed it is no longer the sidekick's, and no attempt is made to make it pass`, delegationId, attempt, flowId: flow.id, failureClass: AUTHORING_FAILURE.APP_DEFECT });
+      this.record(input, { kind: "delegation", action: "delegate", sidekickKind, reason: `flow ${flow.id}: ${appDefect}; the spec that showed it is no longer the sidekick's, and no attempt is made to make it pass`, delegationId, attempt, flowId: flow.id, failureClass: AUTHORING_FAILURE.APP_DEFECT });
       return this.keepDelivered(entry, { outcome: { id: flow.id, kind: FLOW_OUTCOME.FAILED, reason: `${appDefect}; the spec that showed it is no longer in the workspace` }, proposals: undefined });
     }
     /* What the run knows beside what the sidekick says: the pages the Context Pack read with results, and the pages the flow's own run_spec calls read empty. */
@@ -841,7 +834,7 @@ export class LeadSidekicks {
     }
   }
 
-  /* One revision the lead ordered: its instruction, with the orchestrator's facts, to the sidekick's own session; or to a fresh one, on the escalated capability. */
+  /* One revision the lead ordered: its instruction, with the orchestrator's facts, to the sidekick's own session; or to a fresh one. */
   private async revise(entry: LiveFlow, order: ReviewOrder, timeoutMs: number, context: FlowContext, signal: AbortSignal): Promise<FlowReport> {
     const instruction = [order.instruction, orchestratorFacts(entry, await this.currentSpecSha(entry, context.input))].filter(Boolean).join("\n");
     if (order.action === REVIEW_ACTION.REVISE && entry.session) {
@@ -849,7 +842,6 @@ export class LeadSidekicks {
       return this.assess(entry, context, result, signal);
     }
     await this.closeSession(entry);
-    entry.tier = SIDEKICK_TIER.ESCALATED;
     return this.freshTurn(entry, context, signal, timeoutMs, instruction);
   }
 

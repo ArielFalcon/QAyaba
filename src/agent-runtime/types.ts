@@ -145,8 +145,7 @@ export function assignmentForRole(config: AgentRuntimeConfig, role: AgentRole): 
 /*
  * The one resolution of the model a role runs on, for the session it opens, for the context window it is sized by and for
  * the reviewer's independence: the operator's tier model when the operator chose one, else the model the role's own agent
- * declares in agents/opencode.json, else the tier's default (the model its namesake agent declares). A model a caller asks for on a session wins over all of these
- * and is applied by the caller.
+ * declares in agents/opencode.json, else the tier's default (the model its namesake agent declares).
  */
 export function modelForRole(config: AgentRuntimeConfig, role: AgentRole, declared: DeclaredModels): string {
   const assignment = assignmentForRole(config, role);

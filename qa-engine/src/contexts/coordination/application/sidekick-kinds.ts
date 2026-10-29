@@ -16,10 +16,6 @@ import { AUTHOR_SIDEKICK, REVIEW_SIDEKICK } from "@kernel/sidekick-session.ts";
 export const SIDEKICK_KIND = { AUTHOR: "author", REVIEW: "review" } as const;
 export type SidekickKind = (typeof SIDEKICK_KIND)[keyof typeof SIDEKICK_KIND];
 
-/* The capacity a session runs at: the escalated one is a fresh sidekick the lead's review starts on a flow that is stuck. */
-export const SIDEKICK_TIER = { STANDARD: "standard", ESCALATED: "escalated" } as const;
-export type SidekickTier = (typeof SIDEKICK_TIER)[keyof typeof SIDEKICK_TIER];
-
 /* The tool families a kind may hold. A roster tool maps to one: `write` and `edit` to `write`, `authbrowser_*` to `authbrowser`, `codegraph_explore` to `codegraph`, `playwright*` to `playwright`. */
 export const AGENT_TOOL = {
   READ: "read",
@@ -46,8 +42,6 @@ interface SidekickKindBase {
   readonly agent: string;
   readonly role: AgentRole;
   readonly tools: readonly AgentTool[];
-  /* The capacities the kind may run at. */
-  readonly tiers: readonly SidekickTier[];
   readonly workspace: SidekickWorkspace;
   readonly budget: SidekickBudget;
 }
@@ -72,7 +66,6 @@ const AUTHOR: DelegatingKindSpec = {
   id: SIDEKICK_KIND.AUTHOR,
   ...AUTHOR_SIDEKICK,
   tools: [AGENT_TOOL.READ, AGENT_TOOL.WRITE, AGENT_TOOL.RUN_SPEC, AGENT_TOOL.AUTHBROWSER, AGENT_TOOL.SET_GEOLOCATION, AGENT_TOOL.PLAYWRIGHT],
-  tiers: [SIDEKICK_TIER.STANDARD, SIDEKICK_TIER.ESCALATED],
   workspace: SIDEKICK_WORKSPACE.ISOLATED_SPEC_FILE,
   budget: SIDEKICK_BUDGET.FLOW,
   render: (redaction, brief, fit) => renderSidekickBrief(redaction, brief, fit),
@@ -106,7 +99,6 @@ const REVIEW: ReviewKindSpec = {
   id: SIDEKICK_KIND.REVIEW,
   ...REVIEW_SIDEKICK,
   tools: [AGENT_TOOL.READ],
-  tiers: [SIDEKICK_TIER.STANDARD],
   workspace: SIDEKICK_WORKSPACE.WORKING_COPY,
   budget: SIDEKICK_BUDGET.REVIEW,
 };

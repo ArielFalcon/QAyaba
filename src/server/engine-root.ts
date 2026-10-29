@@ -141,7 +141,7 @@ export interface EngineRootDeps {
   readSpecSource?: GenerationTurnsCollaborators["readSpecSource"];
   /* The step limit the agent runtime enforces for a role this run, shared by every prompt of the run (the shell reads it once). It resolves undefined when the runtime enforces none for the role or cannot be read, and never rejects. Optional, no stub: absent, no prompt of the run states a step limit. */
   stepLimitFor?: StepLimitFor;
-  /* This run's context budget (per-run windows of the lead, author, reviewer and the escalated model, and the working room a turn needs). Built by the shell, never shared between runs; absent when the host has no live runtime, and then no window is known. */
+  /* This run's context budget (per-run windows of the lead, author, reviewer, and the working room a turn needs). Built by the shell, never shared between runs; absent when the host has no live runtime, and then no window is known. */
   contextBudget?: ContextBudget;
 
   /* ReviewPort collaborator — the SAME 3 generation-owned primitives the adapter composes standalone. */
@@ -275,8 +275,6 @@ export interface EngineRootDeps {
   /* Per-run observer (RunRecord + event store live in the shell). Optional: absent → onStep() is a no-op. */
   observer?: ObserverPort;
 
-  /* Multi-agent coordination is ALWAYS wired (see assemble below). Infra-only model id for sidekick-escalated sessions (env/YAML). Domain never reads this. */
-  sidekickEscalatedModel?: string;
   /* Durable JSONL sink for coordination telemetry: events appended here survive process restarts so routing/cost signals can be analyzed offline. Absent -> memory-only. */
   coordinationTelemetryPath?: string;
   /* How the app's runs are coordinated (qa.coordination, limits defaulted). Absent: the defaults. */
@@ -446,7 +444,6 @@ function assemble(cfg: EngineRootDeps): RunOrchestrationApi {
     specFileFor: specFileForFlow,
     ...(cfg.sanitize ? { sanitize: cfg.sanitize } : {}),
     ...(cfg.planSnapshots ? { planSnapshots: cfg.planSnapshots } : {}),
-    ...(cfg.sidekickEscalatedModel ? { escalatedModel: cfg.sidekickEscalatedModel } : {}),
     ...(cfg.contextBudget ? { contextBudget: cfg.contextBudget } : {}),
     ...(cfg.coordinationTelemetryPath ? { telemetryPath: cfg.coordinationTelemetryPath } : {}),
     ...(cfg.telemetry ? { telemetry: cfg.telemetry } : {}),

@@ -252,8 +252,6 @@ test("the run's one read of its runtime also installs the window of each role's 
   assert.equal(config.contextBudget.windowTokens("author"), 500_000);
   assert.equal(config.contextBudget.windowTokens("lead"), 500_000, "the lead runs on the primary tier");
   assert.equal(config.contextBudget.windowTokens("reviewer"), 200_000);
-  assert.equal(config.contextBudget.windowTokens("author", "primary-model"), 500_000, "a model the caller picked, named without its provider, is found under the role's provider");
-  assert.equal(config.contextBudget.windowTokens("author", "p/reviewer-model"), 200_000);
 });
 
 test("two runs read their own windows: a later run's read never changes an earlier run's budget", async () => {

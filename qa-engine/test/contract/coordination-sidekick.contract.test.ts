@@ -319,44 +319,6 @@ test("SidekickExecutor adopts long camelCase and digit-bearing spec paths it wro
   }
 });
 
-test("SidekickExecutor passes escalated model via OpenSessionOpts without naming it in domain", async () => {
-  let seenModel: string | undefined;
-  const session: AgentSession = {
-    async prompt() {
-      return {
-        output: JSON.stringify({
-          delegationId: "d1",
-          runId: "r1",
-          status: "needs-lead",
-          summary: "architecture ambiguous",
-          filesChanged: [],
-          evidence: [],
-          concerns: [],
-          unresolvedQuestions: ["which layout?"],
-          recommendation: "escalate",
-        }),
-      };
-    },
-    async dispose() {},
-  };
-  const executor = new SidekickExecutor({ redaction,
-    runtime: {
-      openSession: async (_role, _cwd, opts) => {
-        seenModel = opts?.model;
-        return session;
-      },
-    },
-    render: (brief) => renderSidekickBrief(redaction, brief),
-  });
-  const result = await executor.execute(brief(), {
-    cwd: "/tmp",
-    kind: "author",
-    model: "configured-externally",
-  });
-  assert.equal(seenModel, "configured-externally");
-  assert.equal(result.status, "needs-lead");
-});
-
 /* ── the per-criterion acceptance report ─────────────────────────────────────────────────────── */
 
 const TWO_CRITERIA = ["Failing cases pass on re-execute", "No writes outside scope"];

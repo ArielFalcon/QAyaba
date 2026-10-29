@@ -423,8 +423,7 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   once; then the lead **reviews** the flows in its planning session (kept open by the plan, asked read-only, at most `MAX_REVIEW_TURNS`
   turns inside the run's deadline and reserve; `lead-review.ts`): it sees each flow's objective, outcome, the sidekick's summary, the
   `run_spec` facts and the delivered spec (through the confined reader), and answers per flow `accept`, `revise` (its instruction to the
-  SAME sidekick session, which is kept with its workspace and loop until the pass ends), `replace` (a fresh sidekick on the escalated
-  model) or `drop`. Its answer is untrusted and the orchestrator's facts decide over it: an `accept` of a spec that has not passed
+  SAME sidekick session, which is kept with its workspace and loop until the pass ends), `replace` (a fresh sidekick on the flow's brief) or `drop`. Its answer is untrusted and the orchestrator's facts decide over it: an `accept` of a spec that has not passed
   `run_spec` on its current bytes is sent back while it can run and a turn is left (a flow refused for writes cannot run: the review's facts say so and its accept stands); an app defect (5xx, uncaught runtime error, by the
   fixed rules of `authoring-failure.ts`) is never sent back to be made green (the spec that showed it is delivered); what a sidekick wrote is taken back whatever its turn ended in; a
   delivered spec is never dropped. A criterion a sidekick reports `unmet` blocks its result unless the entry carries the typed cause
@@ -619,7 +618,7 @@ facade. The agents are the lead (`qa-lead`, plans and reviews, read-only), the a
 (`qa-reviewer`), beside the assistant and proposer. `agents/opencode.json`
 is the source of truth for the roster, models and per-role step limits (`maxSteps`). A role's model resolves in one place (`modelForRole`,
 `src/agent-runtime/types.ts`), for the session it opens, for the context window its prompts are fitted to and for the reviewer-independence
-record: a model the caller asks for (an escalated replacement) > the operator's `AGENT_<TIER>_MODEL` (or the model saved from the Agent
+record: the operator's `AGENT_<TIER>_MODEL` (or the model saved from the Agent
 Runtime view) for the tier the role rides (`primary`, `reviewer`, `chat`) > the model the role's own agent declares in `agents/opencode.json` >
 the tier's default, which is the model the tier's namesake agent declares there (`qa-author`, `qa-reviewer`, `qa-assistant`); no model id is
 named in code (`src/no-model-literals.test.ts`). A tier no operator chose is `defaulted` in the runtime config and yields to each agent's declared model; only the

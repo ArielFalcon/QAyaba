@@ -73,7 +73,6 @@ export {
   REGISTERED_SIDEKICK_KINDS,
   SIDEKICK_BUDGET,
   SIDEKICK_KIND,
-  SIDEKICK_TIER,
   SIDEKICK_WORKSPACE,
   authorTargetSpec,
   delegatingKindSpec,
@@ -85,7 +84,6 @@ export {
   type ReviewKindSpec,
   type SidekickKind,
   type SidekickKindSpec,
-  type SidekickTier,
 } from "./sidekick-kinds.ts";
 export {
   SidekickExecutor,
@@ -101,7 +99,6 @@ export {
   type PushbackReason,
 } from "./pushback.ts";
 export { isPathWithinWritableRoots } from "./path-scope.ts";
-export { resolveSidekickModel } from "./resolve-sidekick-model.ts";
 export {
   CoordinationTelemetryRecorder,
   type CoordinationTelemetryEvent,

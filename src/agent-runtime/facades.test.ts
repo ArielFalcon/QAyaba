@@ -72,16 +72,10 @@ test("the facade rejects an unknown agent name without opening any session", asy
   assert.deepEqual(calls, []);
 });
 
-test("the facade opens a session on the role assignment's model when the caller names none", async () => {
+test("the facade opens a session on the role assignment's model", async () => {
   const models: Array<string | undefined> = [];
   await (await single([], models).deps().open("qa-author", "/tmp/repo")).dispose();
   assert.deepEqual(models, [CONFIG.assignments.primary.model]);
-});
-
-test("the facade opens a session on the model the caller asked for, not the role assignment's", async () => {
-  const models: Array<string | undefined> = [];
-  await (await single([], models).deps().open("qa-author", "/tmp/repo", { model: "opencode-go/escalated" })).dispose();
-  assert.deepEqual(models, ["opencode-go/escalated"]);
 });
 
 test("the facade opens each role on the strategy its assignment names", async () => {
@@ -94,15 +88,6 @@ test("the facade opens each role on the strategy its assignment names", async ()
   await (await deps.open("qa-assistant", "/tmp/repo")).dispose();
   assert.deepEqual(openCalls, ["author"]);
   assert.deepEqual(otherCalls, ["reviewer", "chat"]);
-});
-
-test("the facade opens a session on the model the caller asked for, on the provider the role is assigned to", async () => {
-  const openModels: Array<string | undefined> = [];
-  const otherModels: Array<string | undefined> = [];
-  const facade = new AgentRuntimeFacade({ opencode: strategy("opencode", [], openModels), [OTHER_NAME]: strategy(OTHER, [], otherModels) } as Record<AgentProvider, AgentRuntimeStrategy>, SPLIT_CONFIG);
-  await (await facade.deps().open("qa-reviewer", "/tmp/repo", { model: "fixture-runtime/escalated" })).dispose();
-  assert.deepEqual(otherModels, ["fixture-runtime/escalated"]);
-  assert.deepEqual(openModels, []);
 });
 
 test("getStatus reports the providers the facade runs", async () => {
@@ -195,10 +180,6 @@ test("an agent on a defaulted tier opens on the model its own opencode.json entr
 test("an operator's model for the tier wins over the model the agent declares", async () => {
   const overridden: AgentRuntimeConfig = { ...CONFIG, defaulted: ["chat"] };
   assert.equal(await openedModel(overridden, "qa-lead"), CONFIG.assignments.primary.model);
-});
-
-test("the model a caller asks for wins over the one the agent declares", async () => {
-  assert.equal(await openedModel(DEFAULTED_CONFIG, "qa-lead", { model: "opencode-go/escalated" }), "opencode-go/escalated");
 });
 
 test("an agent whose declared model is its tier's default opens on that model, as before", async () => {

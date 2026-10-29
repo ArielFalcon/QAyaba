@@ -163,7 +163,6 @@ function rig(scriptOver: Partial<Script> = {}): Rig {
     telemetry: { record: (event) => void r.events.push(event) },
     planSnapshots: { record: (snapshot) => void r.plans.push(snapshot) },
     now: () => clock.now,
-    escalatedModel: "escalated/model",
     specFileFor: (id) => `flows/${id}.spec.ts`,
     log: (text) => void r.logs.push(text),
   };
@@ -593,7 +592,7 @@ test("a revise reaches the same sidekick session with the lead's instruction and
   assert.deepEqual([...r.sessionsDisposed].sort(), [1, 2], "every sidekick session ends with the pass, once");
 });
 
-test("a replace starts a fresh sidekick on the escalated model with the brief and the lead's instruction, and ends the old session", async () => {
+test("a replace starts a fresh sidekick with the brief and the lead's instruction, and ends the old session", async () => {
   const lead = leadWith([[{ flow: "cart", action: "replace", instruction: "Start from the cart page, not the home page." }], []]);
   const r = rig({ answers: { cart: [{ status: "blocked", summary: "stuck", filesChanged: [] }, { writes: true }] }, hasFile: new Set(["login"]) });
   const outcome = await new LeadSidekicks(r.deps).coordinate(input(r, { plan: lead.plan, closedLoop: undefined }));
@@ -603,25 +602,9 @@ test("a replace starts a fresh sidekick on the escalated model with the brief an
   assert.notEqual(cart[1]!.session, cart[0]!.session);
   assert.equal(cart[1]!.opts.kind, "author");
 
-  assert.equal(cart[1]!.opts.model, "escalated/model");
   assert.match(cart[1]!.opts.feedback ?? "", /Start from the cart page/);
   assert.ok(r.sessionsDisposed.includes(cart[0]!.session), "the stuck session was ended");
   assert.equal(outcome.action === "fanout" ? outcome.aggregated.incompleteFlows.length : -1, 0);
-});
-
-test("a replace whose brief is over the escalated model's known window is not sent, and the spec the flow already delivered stays delivered", async () => {
-  const lead = leadWith([[{ flow: "cart", action: "replace", instruction: "again" }], []]);
-  const r = rig();
-  /* The standard model's window is unknown (sent, fail open); the escalated one's is far too small for any brief. */
-  const windows = { windowTokens: (_role: string, model?: string) => (model === "escalated/model" ? 10 : undefined) };
-  const noRoom = { forRole: () => ({ growthTokensPerStep: 0, steps: 0, basis: "cold-start" as const, samples: 0 }) };
-  const outcome = await new LeadSidekicks({ ...r.deps, contextBudget: new ContextBudget(windows, noRoom) }).coordinate(input(r, { plan: lead.plan, closedLoop: undefined }));
-  if (outcome.action !== "fanout") return assert.fail(`fanout expected, got ${outcome.action}`);
-  await outcome.pass?.release();
-  assert.equal(r.executed.filter((e) => e.brief.delegationId === "run-1-flow-cart").length, 1, "the replacement was never sent");
-  assert.deepEqual(outcome.aggregated.specs.sort(), ["flows/cart.spec.ts", "flows/login.spec.ts"]);
-  assert.deepEqual(outcome.aggregated.incompleteFlows, []);
-  assert.ok(r.events.some((e) => e.flowId === "cart" && e.overWindow?.includes("cart")));
 });
 
 test("an accept of a spec that has not passed run_spec on its current bytes is sent back to the same sidekick with the failure the orchestrator saw", async () => {

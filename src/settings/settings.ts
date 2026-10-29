@@ -70,7 +70,6 @@ export interface Settings {
     readonly timeoutMs: number | undefined;
     readonly reviewerTimeoutMs: number;
     readonly stallMs: number;
-    readonly coordinationEscalatedModel: string | undefined;
     readonly coordinationTelemetryPath: string | undefined;
   };
   readonly git: {
@@ -209,7 +208,6 @@ export function loadSettings(env: EnvironmentMap): Settings {
       timeoutMs: r.lenientPositive("OPENCODE_TIMEOUT_MS"),
       reviewerTimeoutMs: r.lenientPositive("OPENCODE_REVIEWER_TIMEOUT_MS") ?? DEFAULT_REVIEWER_TIMEOUT_MS,
       stallMs: r.lenientPositive("OPENCODE_STALL_MS") ?? DEFAULT_STALL_MS,
-      coordinationEscalatedModel: r.str("COORDINATION_ESCALATED_MODEL"),
       coordinationTelemetryPath: r.str("COORDINATION_TELEMETRY_PATH"),
     },
     git: {

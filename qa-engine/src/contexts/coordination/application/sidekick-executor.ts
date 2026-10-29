@@ -1,4 +1,4 @@
-/* Sidekick executor: owns an AgentRuntimePort session for one DelegationBrief. Does not modify GenerateTestsUseCase. Model names stay out of this module — callers pass OpenSessionOpts.model for escalated capacity from external config. Free-form DelegationResult fields are scrubbed on parse — they re-enter lead context / notes. filesChanged paths are authority inputs (scope check, on-disk adoption) and stay raw; they are scrubbed only where echoed into a summary or concern. */
+/* Sidekick executor: owns an AgentRuntimePort session for one DelegationBrief. Does not modify GenerateTestsUseCase. Model names stay out of this module. Free-form DelegationResult fields are scrubbed on parse — they re-enter lead context / notes. filesChanged paths are authority inputs (scope check, on-disk adoption) and stay raw; they are scrubbed only where echoed into a summary or concern. */
 import type { ContextFit } from "@kernel/context-budget.ts";
 import type { AgentRuntimePort } from "@kernel/ports/agent-runtime.port.ts";
 import type { RedactionPort } from "@kernel/ports/redaction.port.ts";
@@ -26,7 +26,6 @@ export interface SidekickExecuteOpts {
   cwd: string;
   /* The kind of sidekick the session is for: the registry says which agent runs it, how its brief is rendered and how its answer is read. */
   kind: SidekickKind;
-  model?: string;
   signal?: AbortSignal;
   timeoutMs?: number;
   feedback?: string;
@@ -78,7 +77,6 @@ export class SidekickExecutor {
     const session = await this.deps.runtime.openSession(role, opts.cwd, {
       signal: opts.signal,
       timeoutMs: opts.timeoutMs,
-      model: opts.model,
       descriptor: {
         runId: brief.runId,
         role,

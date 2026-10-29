@@ -31,8 +31,6 @@ export type PromptSize = { readonly tokens: number } | { readonly bytes: number 
 export interface FitRequest {
   readonly prompt: PromptSize;
   readonly role: AgentRole;
-  /* A model the caller picked itself; absent, the role's own. */
-  readonly model?: string;
 }
 
 export interface ContextFit {
@@ -49,14 +47,14 @@ export class ContextBudget {
     private readonly room: WorkingRoomEstimate,
   ) {}
 
-  /* The run's window of a role (or of a model the caller picked), in tokens; undefined when not known. */
-  windowTokens(role: AgentRole, model?: string): number | undefined {
-    return this.windows.windowTokens(role, model);
+  /* The run's window of a role, in tokens; undefined when not known. */
+  windowTokens(role: AgentRole): number | undefined {
+    return this.windows.windowTokens(role);
   }
 
-  fit({ prompt, role, model }: FitRequest): ContextFit {
+  fit({ prompt, role }: FitRequest): ContextFit {
     const promptTokens = "tokens" in prompt ? prompt.tokens : tokensOfBytes(prompt.bytes);
-    const windowTokens = this.windows.windowTokens(role, model);
+    const windowTokens = this.windows.windowTokens(role);
     const room = this.room.forRole(role);
     const workingRoomTokens = room ? roomTokens(room) : undefined;
     const known = {

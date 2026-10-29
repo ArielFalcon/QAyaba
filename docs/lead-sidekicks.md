@@ -227,8 +227,7 @@ the transport, as the sidekick's brief and its feedback do. It answers per flow:
   loop and location, until the coordinated pass ends. A flow that ran out of its time (or was stopped) keeps its session
   too, idle and aborted, so a `revise` of it reaches that session instead of becoming a `replace`: the stop of a flow
   aborts its prompt and never deletes the session;
-- `replace`: the old session is ended and a fresh sidekick takes the flow from its brief and the instruction, on the
-  escalated capability (and `COORDINATION_ESCALATED_MODEL` when set);
+- `replace`: the old session is ended and a fresh sidekick takes the flow from its brief and the instruction;
 - `drop`: a flow that delivered nothing is settled with the lead's reason.
 
 The answer is untrusted, and the orchestrator's facts decide over it:
@@ -307,7 +306,7 @@ findings, the run asks the lead, in the same planning session, instead of regene
 
 1. The lead is shown each flow that a finding cites (by the spec its citation names, or its text), with the spec as the working
    copy holds it, and the findings that cite no flow, numbered.
-2. It answers per flow `revise` (the same sidekick session) or `replace` (a fresh sidekick on the escalated model), naming which
+2. It answers per flow `revise` (the same sidekick session) or `replace` (a fresh sidekick on the flow's brief), naming which
    loose findings go with it, and per finding a rebuttal with its basis (`execution` and a test of this run, or `contract` and a
    clause).
 3. The orchestrator's facts decide: a flow is always sent the findings that cite it, a finding that cites one flow is never moved

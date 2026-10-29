@@ -17,7 +17,6 @@ export class AgentRuntimeAdapter implements AgentRuntimePort {
       ...(opts?.signal ? { signal: opts.signal } : {}),
       ...(opts?.timeoutMs !== undefined ? { timeoutMs: opts.timeoutMs } : {}),
       ...(opts?.timeLimit ? { timeLimit: opts.timeLimit } : {}),
-      ...(opts?.model ? { model: opts.model } : {}),
       ...(opts?.onUsage ? { onUsage: opts.onUsage } : {}),
       ...(opts?.onTurn ? { onTurn: opts.onTurn } : {}),
       ...(opts?.descriptor ? { descriptor: opts.descriptor } : {}),

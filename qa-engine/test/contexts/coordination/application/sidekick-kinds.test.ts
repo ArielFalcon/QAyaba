@@ -3,9 +3,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { AGENT_TOOL, REGISTERED_SIDEKICK_KINDS, SIDEKICK_KIND, SIDEKICK_TIER, sidekickKindSpec, delegatingKindSpec, type AgentTool } from "@contexts/coordination/application/sidekick-kinds.ts";
+import { AGENT_TOOL, REGISTERED_SIDEKICK_KINDS, SIDEKICK_KIND, sidekickKindSpec, delegatingKindSpec, type AgentTool } from "@contexts/coordination/application/sidekick-kinds.ts";
 import { REVIEW_SIDEKICK } from "@kernel/sidekick-session.ts";
-import { resolveSidekickModel } from "@contexts/coordination/application/resolve-sidekick-model.ts";
 import { PatternRedactionAdapter } from "../../../../src/shared-infrastructure/redaction/pattern-redaction.adapter.ts";
 
 const ROOT = fileURLToPath(new URL("../../../../../", import.meta.url));
@@ -51,11 +50,6 @@ test("the author kind\'s brief names its one writable file", () => {
   assert.ok(spec.tools.includes(AGENT_TOOL.WRITE));
 });
 
-test("an escalated tier resolves the escalated model and a standard tier none", () => {
-  assert.equal(resolveSidekickModel(SIDEKICK_TIER.ESCALATED, " big "), "big");
-  assert.equal(resolveSidekickModel(SIDEKICK_TIER.STANDARD, "big"), undefined);
-});
-
 test("a kind that is not registered is refused loudly", () => {
   assert.throws(() => sidekickKindSpec("unknown" as never), /no sidekick kind/);
 });
@@ -67,7 +61,6 @@ test("the review kind is the read-only reviewer agent working in the working cop
   assert.deepEqual([...spec.tools], [AGENT_TOOL.READ]);
   assert.equal(spec.workspace, "working-copy");
   assert.equal(spec.budget, "review-timeout");
-  assert.deepEqual([...spec.tiers], [SIDEKICK_TIER.STANDARD]);
 });
 
 test("the author kind reads an unreadable answer as a failed result", () => {

@@ -786,7 +786,6 @@ export function buildEngineRootDeps(
           ...(opts?.signal ? { signal: opts.signal } : {}),
           ...(opts?.timeoutMs !== undefined ? { timeoutMs: opts.timeoutMs } : {}),
           ...(opts?.timeLimit ? { timeLimit: opts.timeLimit } : {}),
-          ...(opts?.model ? { model: opts.model } : {}),
           ...(opts?.onUsage ? { onUsage: opts.onUsage } : {}),
           ...(opts?.descriptor ? { descriptor: opts.descriptor } : {}),
         });
@@ -915,13 +914,6 @@ export function buildEngineRootDeps(
      * COORDINATION_TELEMETRY_PATH overrides (e.g. a mounted volume).
      */
     coordinationTelemetryPath: resolveCoordinationTelemetryPath(),
-    /*
-     * Escalated sidekick model — infra only; threaded as OpenSessionOpts.model when capability is
-     * sidekick-escalated. Absent → same worker model as sidekick-standard.
-     */
-    ...(activeSettings().agent.coordinationEscalatedModel
-      ? { sidekickEscalatedModel: activeSettings().agent.coordinationEscalatedModel }
-      : {}),
     /*
      * Per-delegation wall-clock cap — env-tunable here (the shell), never read by qa-engine's
      * engine-root itself. Absent → engine-root's own hardcoded default (420_000).
