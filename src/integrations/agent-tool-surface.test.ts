@@ -811,7 +811,7 @@ test("every agent that holds an MCP server denies exactly the tools its exemptio
     }
   }
   /* Meaningfulness guard: agents do hold servers, and the exemption lists are exercised. */
-  assert.ok(checked >= 4, `expected >=4 (agent, held server) pairs checked, got ${checked}`);
+  assert.ok(checked >= 3, `expected >=3 (agent, held server) pairs checked, got ${checked}`);
   assert.ok(Object.keys(DELIBERATE_MCP_TOOL_DENIALS["qa-author"] ?? {}).length > 0);
 });
 
@@ -847,16 +847,6 @@ test("the exemption list of a held server is enforced both ways", () => {
   const withStrayDenial = { ...denied, playwright_browser_navigate: false };
   assert.throws(() => allowed(withStrayDenial), /denies its prefixed tool/);
   assert.throws(() => exact(withStrayDenial));
-});
-
-test("qa-maintainer keeps serena but denies playwright (never drives a browser)", () => {
-  const { agents } = loadAgentConfig();
-  const maintainer = agents["qa-maintainer"];
-  assert.ok(maintainer, "expected a qa-maintainer agent");
-  const tools = agentTools(maintainer);
-  assert.equal(tools.write, true, "qa-maintainer must have write");
-  assertMcpServerAllowed("qa-maintainer", tools, "serena");
-  assertMcpServerDenied("qa-maintainer", tools, "playwright");
 });
 
 test("qa-reviewer's mode matches how it is actually invoked (direct prompt, not subagent delegation)", () => {

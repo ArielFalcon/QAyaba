@@ -20,7 +20,7 @@ describe("OpenCodeRuntimeStrategy.listModels", () => {
           agent: {
             "qa-author": { model: "opencode-go/deepseek-v4-pro" },
             "qa-reviewer": { model: "opencode-go/minimax-m3" },
-            "qa-maintainer": { model: "opencode-go/kimi-k2.7-code" },
+            "qa-lead": { model: "opencode-go/kimi-k2.7-code" },
             "qa-assistant": { model: "opencode-go/deepseek-v4-flash" },
           },
         }),

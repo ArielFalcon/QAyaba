@@ -641,7 +641,7 @@ const PROMPT_KINDS: readonly PromptKind[] = [
 
 test("every role the runtime opens a session for is sent a kind of prompt the guard scans", () => {
   const reached = new Set(PROMPT_KINDS.flatMap((k) => k.roles));
-  const unreached = (Object.keys(AGENT_NAME_FOR_ROLE) as AgentRole[]).filter((role) => !reached.has(role) && role !== "maintainer");
+  const unreached = (Object.keys(AGENT_NAME_FOR_ROLE) as AgentRole[]).filter((role) => !reached.has(role));
   assert.deepEqual(unreached, [], `roles with no scanned prompt kind: ${unreached.join(", ")}`);
 });
 

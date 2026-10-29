@@ -431,8 +431,7 @@ test("ensureMirrorAtBranch propagates git checkout failure", async () => {
 });
 
 /* Security: a failing git spawn's error message includes the FULL command line — including the
-   -c url.insteadOf config that carries the inline token. That error propagates to logs (the
-   maintainer's session-failed handler logged a real PAT in plaintext). realGit must scrub any
+   -c url.insteadOf config that carries the inline token. That error propagates to logs. realGit must scrub any
    inline credential from the error before it escapes the spawn boundary.
  */
 test("realGit scrubs inline x-access-token credentials from a failing spawn's error message", async () => {

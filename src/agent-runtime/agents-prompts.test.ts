@@ -764,7 +764,7 @@ describe("agent-guidance-runtime-semantics drift guard", () => {
   });
 
   /* The authoring skill is loaded by more than one role (the generator and the sidekick), so it cannot lean on one role's prompt: it names no role prompt and no step of one. */
-  const ROLE_PROMPT_REFERENCE = /\b(?:generator|reviewer|worker|proposer|sidekick|maintainer)\s+role\b|\brole prompt\b|\bProcedure \(step \d+\)/i;
+  const ROLE_PROMPT_REFERENCE = /\b(?:generator|reviewer|worker|proposer|sidekick)\s+role\b|\brole prompt\b|\bProcedure \(step \d+\)/i;
 
   it("no file of the playwright-authoring skill refers to a role's prompt or to a step of it", () => {
     for (const rel of PLAYWRIGHT_AUTHORING_FILES) {

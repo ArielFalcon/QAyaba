@@ -22,7 +22,7 @@ test("the two authoring roles of a run find its browser and no other role does",
   registry.register(browser);
   registry.bindSession({ sessionId: "gen", runId: "r1", agent: "qa-author" });
   registry.bindSession({ sessionId: "side", runId: "r1", agent: "qa-author" });
-  for (const agent of ["qa-reviewer", "qa-worker", "qa-assistant", "qa-reflector", "qa-maintainer", "qa-proposer", "qa-worker-code"]) {
+  for (const agent of ["qa-reviewer", "qa-worker", "qa-assistant", "qa-reflector", "qa-proposer", "qa-worker-code"]) {
     registry.bindSession({ sessionId: `x-${agent}`, runId: "r1", agent });
     assert.equal(registry.find(`x-${agent}`), undefined, agent);
   }

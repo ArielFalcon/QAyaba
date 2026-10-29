@@ -118,5 +118,11 @@
     "path": "src/settings/compose-parity.test.ts",
     "contains": "SELF_MAINTAINER_AUTOMERGE",
     "reason": "Names the variable .env.example still assigns although nothing reads it (a pending edit of the operator-owned file, ADR-0013 point 3). Remove this entry with that edit."
+  },
+  {
+    "rule": "self-maintainer-runtime",
+    "path": "docs/landing-page/DESIGN_BRIEF.md",
+    "contains": "qa-maintainer",
+    "reason": "Product copy that describes the removed agent as a feature; whether it is edited is the owner's call (ADR-0010). Remove this entry with that edit."
   }
 ]

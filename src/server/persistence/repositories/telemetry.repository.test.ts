@@ -237,7 +237,7 @@ test("saveAgentTurnEvent keeps a turn whose exhaustion is unknown apart from one
 
 test("saveAgentTurn stores null-runId turns (sessions with no parent run)", () => {
   const turn = makeTurn({ runId: null, sessionId: "sess-no-run" });
-  /* Should not throw — null runId is explicitly valid (e.g. maintainer, chat sessions). */
+  /* Should not throw — null runId is explicitly valid (e.g. chat sessions). */
   assert.doesNotThrow(() => getHistory().telemetry.saveAgentTurn(turn));
 });
 

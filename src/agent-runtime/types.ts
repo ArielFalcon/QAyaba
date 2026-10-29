@@ -116,7 +116,6 @@ export const AGENT_NAME_FOR_ROLE: Readonly<Record<AgentRole, string>> = {
   reviewer: "qa-reviewer",
   chat: "qa-assistant",
   author: "qa-author",
-  maintainer: "qa-maintainer",
   reflector: "qa-reflector",
   proposer: "qa-proposer",
 };

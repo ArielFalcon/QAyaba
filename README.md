@@ -253,7 +253,7 @@ The project uses provider-neutral role assignments. The roster, each role's mode
 
 | Role | Agent | Purpose |
 |---|---|---|
-| `primary` | `qa-lead`, `qa-author`, `qa-explore`, `qa-maintainer`, `qa-proposer` | The lead plans and reviews flows (read-only); the author sidekick writes the Playwright tests; the explorer answers the lead's questions (read-only) |
+| `primary` | `qa-lead`, `qa-author`, `qa-explore`, `qa-proposer` | The lead plans and reviews flows (read-only); the author sidekick writes the Playwright tests; the explorer answers the lead's questions (read-only) |
 | `reviewer` | `qa-reviewer` | Read-only quality judge; rejects tests with trivial assertions or fragile patterns |
 | `chat` | `qa-assistant`, `qa-reflector` | Read-only operator assistant and the failure reflector |
 

@@ -81,7 +81,7 @@ test("ActivityRouter demuxes interleaved sessions and counts unknown-session dro
   router.register("sB", "run-B");
   assert.equal(router.route({ type: "todo.updated", properties: { sessionID: "sA", todos: [{ content: "x", status: "pending" }] } })[0]!.runId, "run-A");
   assert.equal(router.route({ type: "todo.updated", properties: { sessionID: "sB", todos: [{ content: "y", status: "pending" }] } })[0]!.runId, "run-B");
-  assert.equal(router.route({ type: "command.executed", properties: { sessionID: "maintainer", name: "x", arguments: "" } }).length, 0);
+  assert.equal(router.route({ type: "command.executed", properties: { sessionID: "unregistered", name: "x", arguments: "" } }).length, 0);
   assert.equal(router.drops["unknown-session"], 1);
 });
 

@@ -69,6 +69,7 @@ export const BANNED_RULES: BannedRule[] = [
       /\b(QAYABA_REPO|DEFAULT_SELF_REPO|selfRepo|PROTECTED_MIRROR_NAMES|PROTECTED_PATHS)\b/,
       /\b(recordIncident|recordEngineIncident|triggerMaintainer|handleMaintainerApi|getMaintainerStatus|createMaintainerRuntime|installUnhandledRejectionRecorder)\b/,
       /\/api\/maintainer\b/,
+      /\bqa-maintainer\b/,
     ],
     exemptPrefixes: [RECORDS_PREFIX],
   },
