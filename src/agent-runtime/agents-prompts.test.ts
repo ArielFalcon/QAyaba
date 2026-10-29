@@ -105,23 +105,8 @@ describe("agent prompt guard", () => {
     assert.deepEqual(report.tests.map((t) => t.response), ["a response with no items"]);
   });
 
-  it("qa-reviewer.md rejects on sight a ledger-bypassing 'learned habit' spec comment", () => {
-    for (const rel of ["agents/agent/qa-reviewer.md"]) {
-      const content = readFile(rel);
-      assert.ok(
-        /ledger-bypassing/i.test(content) && /learned habit/i.test(content),
-        `${rel} must reject a spec comment citing a remembered habit as the source of a test-authoring ` +
-          `rule (the governed ledger owns test-authoring rules).`,
-      );
-    }
-  });
-
-  it("agents/agent/qa-reviewer.md contains the app-agnostic warning and ARIA-role selector guidance", () => {
+  it("agents/agent/qa-reviewer.md contains ARIA-role selector guidance", () => {
     const reviewer = readFile("agents/agent/qa-reviewer.md");
-    assert.ok(
-      reviewer.includes("app-agnostic") || reviewer.includes("App-specific"),
-      'agents/agent/qa-reviewer.md must contain the app-agnostic warning block.',
-    );
     /* ARIA / role selector guidance (getByRole is the canonical Playwright ARIA selector) */
     assert.ok(
       reviewer.includes("getByRole") || reviewer.includes("ARIA"),

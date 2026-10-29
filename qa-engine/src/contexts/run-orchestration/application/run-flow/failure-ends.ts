@@ -20,7 +20,6 @@ const messageOf = (err: unknown): string => (err instanceof Error ? err.message 
 
 export function failureEnd(reason: EndReason, err: unknown, run: { deps: RunQaUseCaseDeps }, state: Readonly<RunState>): RunEnd {
   const { deps } = run;
-  const rules = state.run.rulesRetrieved ? { rulesRetrieved: state.run.rulesRetrieved } : {};
   switch (reason) {
     case "aborted":
       return runEnd("aborted");
@@ -42,7 +41,7 @@ export function failureEnd(reason: EndReason, err: unknown, run: { deps: RunQaUs
         level: "error",
         text: `[qa] the run ended on its time budget (${ERROR_CLASS.TIME_BUDGET}): an engine-side limit on how long the agents may take, not a fault of the app under test`,
       });
-      return runEnd("run-deadline", { note, generationEnd: GENERATION_END.TIME_BUDGET, ...rules });
+      return runEnd("run-deadline", { note, generationEnd: GENERATION_END.TIME_BUDGET });
     }
     case "sandbox-unavailable": {
       /*
@@ -53,7 +52,7 @@ export function failureEnd(reason: EndReason, err: unknown, run: { deps: RunQaUs
       const note = `The run could not execute the tests safely and ended without running them (${ERROR_CLASS.SANDBOX}): ${messageOf(err)}`;
       engineLog.error(`[qa] ${note}`);
       deps.observer?.onEvent({ type: "agent.error", detail: note });
-      return runEnd("sandbox-unavailable", { note, ...rules });
+      return runEnd("sandbox-unavailable", { note });
     }
     case "no-author": {
       /* No author sidekick could run: the run ends as a persisted infra-error of its own class, E-NO-AUTHOR, and the lead authors nothing in its place. */
@@ -63,14 +62,14 @@ export function failureEnd(reason: EndReason, err: unknown, run: { deps: RunQaUs
       deps.observer?.onEvent({ type: "agent.error", detail: note });
       deps.observer?.onEvent({ type: "log.line", level: "error", text: `[qa] the run ended with no author sidekick (${ERROR_CLASS.NO_AUTHOR}): an engine-side condition, not a fault of the app under test` });
       recordRunFact(state, "generationEnd", GENERATION_END.NO_AUTHOR);
-      return runEnd("no-author", { refusal: err.refusal, note, ...rules });
+      return runEnd("no-author", { refusal: err.refusal, note });
     }
     case "probe-sweep-failed": {
       /* The throwaway specs of the closed loop could not be swept: nothing in the working copy can be trusted to be a deliverable, so the run ends as a persisted infra-error before it validates, executes or publishes anything. */
       const note = messageOf(err);
       engineLog.error(`[qa] ${note}`);
       deps.observer?.onEvent({ type: "agent.error", detail: note });
-      return runEnd("probe-sweep-failed", { note, ...rules });
+      return runEnd("probe-sweep-failed", { note });
     }
     default:
       throw new Error(`no end is built for a failure that ends the run as "${reason}"`);

@@ -1,6 +1,6 @@
 /* The grounding sources as context spans: what each supplied, as stable ids, under the phase that is open, over the real telemetry adapter. */
 import type { CrossRepoImpact, ServiceLink } from "@kernel/service-links";
-import type { RetrievedRule, SelectedExemplar } from "@kernel/learned-rule";
+import type { SelectedExemplar } from "@kernel/learned-rule";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -9,7 +9,6 @@ import { join } from "node:path";
 import {
   TracedCrossRepoImpactPort,
   TracedCurriculumPort,
-  TracedLearningPort,
   TracedServiceLinksPort,
   TracedStructuralSignalPort,
   telemetryGroundingTrace,
@@ -17,7 +16,7 @@ import {
 import { PreGenerationGroundingPortAdapter } from "../../qa-engine/src/contexts/generation/infrastructure/adapters/pre-generation-grounding-port.adapter";
 import type { UseCaseCandidate } from "@kernel/use-case-candidate.ts";
 import type { ServiceLinksPort } from "@contexts/service-topology/application/index.ts";
-import type { CurriculumPort, LearningPort } from "@contexts/cross-run-learning/application/index.ts";
+import type { CurriculumPort } from "@contexts/cross-run-learning/application/index.ts";
 import type { StructuralSignalPort } from "@kernel/ports/structural-signal.port.ts";
 import { buildContextPack, type ContextPackDeps } from "@contexts/generation/infrastructure/context-pack";
 import { createCaptureDomDeps } from "@contexts/generation/infrastructure/dom-snapshot";
@@ -38,7 +37,8 @@ import type { OpencodeRunInput } from "@contexts/generation/application/index.ts
 /* The roster is an input here: window budgets resolve from the roster fixture, never the deployable agents/opencode.json. */
 
 
-const rule = (id: string): RetrievedRule => ({ id, trigger: `trigger ${id}`, action: `action ${id}`, errorClass: "selector", status: "active", confidence: "high" });
+const exemplar = (id: string): SelectedExemplar => ({ id, name: `name ${id}`, template: `template ${id}`, archetype: "form", proven: false, promotionCount: 0 });
+const curriculumOf = (exemplars: readonly SelectedExemplar[]): CurriculumPort => ({ select: async () => exemplars, fold: async () => {} });
 
 function inPhase<T>(h: ReturnType<typeof traceHarness>, fn: () => T): T {
   const phase = h.telemetry.startSpan("qayaba.phase.ground");
@@ -54,42 +54,38 @@ function contextSpan(h: ReturnType<typeof traceHarness>, source: string) {
   return h.only(`qayaba.context.${source}`);
 }
 
-test("the learned rules a run was given are a span under the phase with their ids, count and size", async () => {
+test("the exemplars a run was offered are a span under the phase with their ids, count and size", async () => {
   const h = traceHarness();
-  const inner: LearningPort = { fold: async () => {}, retrieve: async () => [rule("r-1"), rule("r-2")] };
-  await inPhase(h, () => new TracedLearningPort(inner, h.telemetry).retrieve(Sha.of("abc1234")));
-  const span = contextSpan(h, "learning");
+  await inPhase(h, () => new TracedCurriculumPort(curriculumOf([exemplar("e-1"), exemplar("e-2")]), h.telemetry).select("diff", ["a.ts"]));
+  const span = contextSpan(h, "curriculum");
   assert.equal(span.parentSpanContext?.spanId, h.only("qayaba.phase.ground").spanContext().spanId);
-  assert.deepEqual(span.attributes["qayaba.context.item_ids"], ["rule:r-1", "rule:r-2"]);
+  assert.deepEqual(span.attributes["qayaba.context.item_ids"], ["exemplar:e-1", "exemplar:e-2"]);
   assert.equal(span.attributes["qayaba.context.items.count"], 2);
-  assert.equal(span.attributes["qayaba.context.source"], "learning");
-  assert.equal(span.attributes["qayaba.context.bytes"], Buffer.byteLength("trigger r-1action r-1trigger r-2action r-2"));
-  assert.deepEqual(h.measurements.filter((m) => m.name === "qayaba.context.bytes").map((m) => m.attrs), [{ "qayaba.context.source": "learning", "qayaba.context.stage": "produced" }]);
-  assert.deepEqual(h.measurements.filter((m) => m.name === "qayaba.context.items").map((m) => m.attrs), [{ "qayaba.context.source": "learning", "qayaba.context.stage": "produced" }]);
+  assert.equal(span.attributes["qayaba.context.source"], "curriculum");
+  assert.equal(span.attributes["qayaba.context.bytes"], Buffer.byteLength("template e-1template e-2"));
+  assert.deepEqual(h.measurements.filter((m) => m.name === "qayaba.context.bytes").map((m) => m.attrs), [{ "qayaba.context.source": "curriculum", "qayaba.context.stage": "produced" }]);
+  assert.deepEqual(h.measurements.filter((m) => m.name === "qayaba.context.items").map((m) => m.attrs), [{ "qayaba.context.source": "curriculum", "qayaba.context.stage": "produced" }]);
 });
 
 test("the same sources in two runs have the same ids", async () => {
   const idsOfRun = async (): Promise<unknown> => {
     const h = traceHarness();
     await inPhase(h, async () => {
-      await new TracedLearningPort({ fold: async () => {}, retrieve: async () => [rule("r-9"), rule("r-3")] }, h.telemetry).retrieve(Sha.of("abc1234"));
-      const exemplar: SelectedExemplar = { id: "form-submit", name: "form", template: "tpl", archetype: "form", proven: false, promotionCount: 0 };
-      await new TracedCurriculumPort({ select: async () => [exemplar], fold: async () => {} }, h.telemetry).select("diff", ["a.ts"]);
+      await new TracedCurriculumPort(curriculumOf([{ id: "form-submit", name: "form", template: "tpl", archetype: "form", proven: false, promotionCount: 0 }]), h.telemetry).select("diff", ["a.ts"]);
     });
     return h.spans().filter((s) => s.name.startsWith("qayaba.context.")).map((s) => [s.name, s.attributes["qayaba.context.item_ids"]]);
   };
   assert.deepEqual(await idsOfRun(), await idsOfRun());
   assert.deepEqual((await idsOfRun()) as unknown[], [
-    ["qayaba.context.learning", ["rule:r-9", "rule:r-3"]],
     ["qayaba.context.curriculum", ["exemplar:form-submit"]],
   ]);
 });
 
 test("a source with more items than a span carries keeps the first 200 ids and counts the rest", async () => {
   const h = traceHarness();
-  const many = Array.from({ length: MAX_ITEM_IDS + 50 }, (_, i) => rule(`r-${i}`));
-  await inPhase(h, () => new TracedLearningPort({ fold: async () => {}, retrieve: async () => many }, h.telemetry).retrieve(Sha.of("abc1234")));
-  const span = contextSpan(h, "learning");
+  const many = Array.from({ length: MAX_ITEM_IDS + 50 }, (_, i) => exemplar(`e-${i}`));
+  await inPhase(h, () => new TracedCurriculumPort(curriculumOf(many), h.telemetry).select("diff", ["a.ts"]));
+  const span = contextSpan(h, "curriculum");
   assert.equal((span.attributes["qayaba.context.item_ids"] as string[]).length, MAX_ITEM_IDS);
   assert.equal(span.attributes["qayaba.context.item_ids.overflow"], 50);
   assert.equal(span.attributes["qayaba.context.items.count"], MAX_ITEM_IDS + 50);
@@ -115,16 +111,14 @@ test("a run's own secret inside an id is taken out of the exported span", async 
   const h = traceHarness();
   const secrets = createRunSecretScope();
   secrets.addAccountSecrets(["hunter2-secret-value"]);
-  await withRunSecretScope(secrets, () => inPhase(h, () => new TracedLearningPort({ fold: async () => {}, retrieve: async () => [rule("hunter2-secret-value")] }, h.telemetry).retrieve(Sha.of("abc1234"))));
-  assert.equal(JSON.stringify(contextSpan(h, "learning").attributes).includes("hunter2-secret-value"), false);
+  await withRunSecretScope(secrets, () => inPhase(h, () => new TracedCurriculumPort(curriculumOf([exemplar("hunter2-secret-value")]), h.telemetry).select("diff", ["a.ts"])));
+  assert.equal(JSON.stringify(contextSpan(h, "curriculum").attributes).includes("hunter2-secret-value"), false);
 });
 
 test("a port traced by a telemetry that throws returns what it returned, and an error of the port goes on", async () => {
   const broken = new ThrowingTelemetry();
-  const rules = [rule("r-1")];
-  assert.deepEqual(await new TracedLearningPort({ fold: async () => {}, retrieve: async () => rules }, broken).retrieve(Sha.of("abc1234")), rules);
-  const curriculum: CurriculumPort = { select: async () => [], fold: async () => {} };
-  assert.deepEqual(await new TracedCurriculumPort(curriculum, broken).select(undefined, []), []);
+  const exemplars = [exemplar("e-1")];
+  assert.deepEqual(await new TracedCurriculumPort(curriculumOf(exemplars), broken).select(undefined, []), exemplars);
   const failing: StructuralSignalPort = { render: async () => { throw new Error("graph down"); } };
   await assert.rejects(new TracedStructuralSignalPort(failing, traceHarness().telemetry).render("/repo", BlastRadius.of(Sha.of("abc1234"), [])), /graph down/);
 });

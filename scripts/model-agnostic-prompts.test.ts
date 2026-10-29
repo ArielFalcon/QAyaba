@@ -440,7 +440,6 @@ async function reviewerPrompts(subject: string): Promise<PromptText[]> {
     const grounded: Partial<ReviewInput> = {
       baseUrl: "http://localhost:3000",
       domSnapshot: "heading: Cart",
-      learnedRules: "## Learned rules\n- prefer role locators",
       priorCorrections: ["[fragile-selector] cart.spec.ts: scope the button"],
       executionResult: renderExecutionResult({ verdict: "pass", cases: [{ name: "cart shows the total", httpStatus: 200 }] }),
     };

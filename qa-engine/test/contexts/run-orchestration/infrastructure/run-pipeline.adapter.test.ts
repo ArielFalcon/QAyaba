@@ -12,7 +12,6 @@ import type { AuthorPort, LeadPort, ReviewPort } from "@contexts/generation/appl
 import type { ValidationPort, ExecutionPort } from "@contexts/test-execution/application/index.ts";
 import type { ObjectiveSignalPort } from "@contexts/objective-signal/application/index.ts";
 import type { PublicationPort } from "@contexts/workspace-and-publication/application/index.ts";
-import type { LearningPort } from "@contexts/cross-run-learning/application/index.ts";
 import type { WorkspacePort } from "@contexts/workspace-and-publication/application/index.ts";
 import type { DeployGatePort } from "@kernel/ports/deploy-gate.port.ts";
 import type { RunHistoryPort } from "@contexts/run-orchestration/application/ports/run-history.port.ts";
@@ -40,15 +39,12 @@ function stubPorts(overrides: Partial<{
   measure: ObjectiveSignalPort["measure"];
   blocks: ObjectiveSignalPort["blocks"];
   publish: PublicationPort["publish"];
-  fold: LearningPort["fold"];
-  retrieve: LearningPort["retrieve"];
   prepare: WorkspacePort["prepare"];
   waitUntilServing: DeployGatePort["waitUntilServing"];
   save: RunHistoryPort["save"];
 }> = {}) {
   const ws = runWorkspace("qa-adapter-");
   const savedOutcomes: RunOutcome[] = [];
-  const foldedOutcomes: RunOutcome[] = [];
 
   const changeAnalysis: ChangeAnalysisPort = {
     classify: overrides.classify ?? (async () => ({ action: "generate", reason: "diff touches src/x.ts", diff: "" })),
@@ -73,10 +69,6 @@ function stubPorts(overrides: Partial<{
   const publication: PublicationPort = {
     publish: overrides.publish ?? (async () => ({ outcome: "pr" })),
   };
-  const learning: LearningPort = {
-    fold: overrides.fold ?? (async (outcome) => { foldedOutcomes.push(outcome); }),
-    retrieve: overrides.retrieve ?? (async () => []),
-  };
   const workspace: WorkspacePort = {
     readRoots: rootsOf,
     prepare: overrides.prepare ?? (async () => fakeHandle({ specDir: ws.specDir, mirrorDir: ws.mirrorDir })),
@@ -89,9 +81,8 @@ function stubPorts(overrides: Partial<{
   };
 
   return {
-    ports: { changeAnalysis, generation, leadSidekicks, review, validation, execution, objectiveSignal, publication, learning, workspace, specFiles: confinedSpecFiles, deployGate, runHistory, suiteStore: ws.suiteStore },
+    ports: { changeAnalysis, generation, leadSidekicks, review, validation, execution, objectiveSignal, publication, workspace, specFiles: confinedSpecFiles, deployGate, runHistory, suiteStore: ws.suiteStore },
     savedOutcomes,
-    foldedOutcomes,
   };
 }
 
@@ -284,7 +275,6 @@ test("RunPipelineAdapter — invalid: still returns a well-formed RunOutcome eve
   assert.equal(outcome.verdict, "invalid");
   assert.equal(outcome.mode, "diff");
   assert.equal(outcome.target, "e2e");
-  assert.deepEqual(outcome.rulesRetrieved, [], "rulesRetrieved must be a well-formed array, not undefined");
 });
 
 test("RunPipelineAdapter — infra-error (entry gate): DeployGatePort failure surfaces as a RunOutcome, not a thrown error", async () => {

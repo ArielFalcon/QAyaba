@@ -686,7 +686,7 @@ test("reviewer Instructions are position-independent and precede the specs/DOM t
   mkdirSync(join(dir, "e2e"), { recursive: true });
   writeFileSync(join(dir, "e2e", "login.spec.ts"), "// SPEC_BODY_MARKER\ntest('x', async () => {});");
   try {
-    const p = buildReviewerPrompt(makeReviewInput(dir, { domSnapshot: "button: Submit", learnedRules: "- avoid waitForTimeout" }));
+    const p = buildReviewerPrompt(makeReviewInput(dir, { domSnapshot: "button: Submit" }));
 
     /* Isolate the Instructions section (up to the next "## " heading) so a legitimate "above" in a
        later section (e.g. spec contents referencing the DOM) cannot mask a stale instruction.
@@ -710,20 +710,6 @@ test("reviewer Instructions are position-independent and precede the specs/DOM t
     const specsIdx = p.indexOf("## Specs to review");
     assert.ok(domIdx > instrStart, "Live DEV DOM must appear AFTER the Instructions section");
     assert.ok(specsIdx > instrStart, "Specs must appear AFTER the Instructions section");
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
-});
-
-test("buildReviewerPrompt injects learnedRules when present and adds the extra rule instruction", () => {
-  const dir = mkdtempSync(join(tmpdir(), "qa-rev-prompt-rules-"));
-  mkdirSync(join(dir, "e2e"), { recursive: true });
-  writeFileSync(join(dir, "e2e", "login.spec.ts"), "// spec");
-  try {
-    const p = buildReviewerPrompt(makeReviewInput(dir, { learnedRules: "- RULE_MARKER avoid waitForTimeout" }));
-    assert.match(p, /RULE_MARKER avoid waitForTimeout/);
-    assert.match(p, /7\. Also REJECT/);
-    assert.doesNotMatch(buildReviewerPrompt(makeReviewInput(dir)), /7\. Also REJECT/, "no extra instruction without rules");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -841,19 +827,19 @@ test("buildPromptAssembled fits a normal prompt to the author's window — nothi
   assert.deepEqual(windowFit, { outcome: "fits", degraded: [] });
 });
 
-test("buildReviewerPromptAssembled sheds no section for its size — an oversized learnedRules section reaches the reviewer whole, over the window too", () => {
+test("buildReviewerPromptAssembled sheds nothing for its size — an oversized spec-changes section reaches the reviewer whole unless the window is over, where it gives way to a reference", () => {
   const dir = mkdtempSync(join(tmpdir(), "qa-rev-budget-"));
   mkdirSync(join(dir, "e2e"), { recursive: true });
   writeFileSync(join(dir, "e2e", "login.spec.ts"), "// spec\ntest('login', async () => {});");
 
-  const rule = "- rule: scope the coupon button to the cart form. ";
-  const hugeLearnedRules = rule.repeat(Math.ceil(700_000 / rule.length));
+  const line = "+ await expect(page.getByRole(\"button\")).toBeVisible();\n";
+  const hugeSpecChanges = line.repeat(Math.ceil(700_000 / line.length));
 
   try {
     for (const [what, opts] of [["no window", {}], ["a window that holds it", fitsWindow], ["a window it is over", overWindow]] as const) {
-      const { text, sectionSizes } = buildReviewerPromptAssembled(makeReviewInput(dir, { learnedRules: hugeLearnedRules }), opts);
-      assert.ok(text.includes(hugeLearnedRules.trim()), `${what}: the learned rules are whole`);
-      assert.ok("reviewer-learned-rules" in sectionSizes, `${what}: the section stands`);
+      const { text, sectionSizes } = buildReviewerPromptAssembled(makeReviewInput(dir, { specChanges: hugeSpecChanges }), opts);
+      assert.equal(text.includes(hugeSpecChanges.trim()), opts !== overWindow, `${what}: the spec changes are whole exactly while the window is not over`);
+      assert.ok("reviewer-spec-change" in sectionSizes, `${what}: the section stands`);
       assert.match(text, /Independent review/, `${what}: role-framing section must survive`);
       assert.match(text, /\{"approved":false/, `${what}: output-contract section must survive`);
     }

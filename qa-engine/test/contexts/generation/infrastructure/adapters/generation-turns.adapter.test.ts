@@ -7,7 +7,6 @@
    omits it — the FixLoop's own documented contract treats absent as 0 (the safe default), never a
    fabricated number.
  */
-import type { RetrievedRule } from "@kernel/learned-rule";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
@@ -895,56 +894,6 @@ test("author() with no ctx.services OMITS the services key entirely from Opencod
   } finally {
     GenerateTestsUseCase.prototype.author = originalGenerate;
   }
-});
-
-/* The generator receives the retrieved rules, unproven candidates included, as hints. Driven through the real adapter, use case and prompt builders; only the agent runtime (the LLM boundary) is faked. */
-
-const provenRule: RetrievedRule = {
-  id: "rule-proven", trigger: "the diff touches the owner search form",
-  action: "assert the owners table lists the searched last name", errorClass: "E-FALSE-POSITIVE",
-  status: "active", confidence: "high",
-};
-const unprovenRule: RetrievedRule = {
-  id: "rule-unproven", trigger: "the diff renders a paginated visit history",
-  action: "assert exactly five visit rows are listed", errorClass: "E-WRONG-OBJECTIVE",
-  status: "candidate", confidence: "low",
-};
-
-async function generatorPromptWith(rules: readonly RetrievedRule[]): Promise<string> {
-  let generatorPrompt = "";
-  const useCase = new GenerateTestsUseCase({
-    runtime: {
-      openSession: async () => ({
-        prompt: async (text: string) => {
-          generatorPrompt = text;
-          return { output: '{"specs":["flows/search.spec.ts"]}' };
-        },
-        dispose: async () => {},
-      }),
-    },
-    rendering: new PromptRenderingAdapter({
-      buildPromptAssembled, buildReviewerPromptAssembled, specFileForFlow,
-    }),
-    verdicts: {
-      parseGenerator: () => ({ specs: ["flows/search.spec.ts"], parsed: true }),
-      parseReview: () => ({ approved: true, corrections: [], parsed: true, valid: true, issues: [] }),
-    },
-    manifest: { read: async () => [], reconcile: async (_specDir, entries) => [...entries] },
-  });
-  const adapter = new GenerationTurnsAdapter(useCase, {
-    repo: "org/app", appName: "app", mirrorDir: "/nonexistent/mirror", e2eRelDir: "e2e",
-    namespace: "qa-bot-abc1234", mode: "diff",
-    diff: "diff --git a/src/owners.ts b/src/owners.ts\n+export const search = () => [];\n",
-  });
-  await adapter.author("/nonexistent/mirror/e2e", undefined, undefined, rules.length ? { learnedRules: rules } : undefined);
-  return generatorPrompt;
-}
-
-test("the generator receives unproven candidates as hints beside the proven rules", async () => {
-  const generatorPrompt = await generatorPromptWith([provenRule, unprovenRule]);
-
-  assert.ok(generatorPrompt.includes(unprovenRule.action));
-  assert.ok(generatorPrompt.includes(provenRule.action));
 });
 
 /* A stock auth seed that did not sign in is a run fact the use case hands to generation; it must

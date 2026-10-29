@@ -58,7 +58,7 @@ function outcome(runId: string, app: string): RunOutcome {
   return {
     runId, app, sha: "abc1234", mode: "diff", target: "e2e", verdict: "pass", errorClass: null,
     gateSignals: { static: true, coverageRatio: null, valueScore: null, reviewerCorrections: [], flaky: false, retries: 0 },
-    rulesRetrieved: [], at: new Date().toISOString(),
+at: new Date().toISOString(),
   };
 }
 

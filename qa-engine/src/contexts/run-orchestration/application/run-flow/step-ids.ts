@@ -15,7 +15,6 @@ export const STEP_IDS = [
   "clean-prior-run",
   "open-authoring-handles",
   "read-diff-shapes",
-  "retrieve-rules",
   "select-exemplars",
   "resolve-blast-radius",
   "resolve-service-links",

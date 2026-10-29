@@ -4,7 +4,7 @@ import type { RunMode } from "@kernel/run-mode";
 import type { RunPipelinePort } from "../../qa-engine/src/contexts/run-orchestration/application/index";
 import type { ObserverPort } from "../../qa-engine/src/contexts/run-orchestration/application/index";
 import type { RunHistoryPort } from "../../qa-engine/src/contexts/run-orchestration/application/index";
-import type { CurriculumPort, LearningPort } from "@contexts/cross-run-learning/application/index";
+import type { CurriculumPort } from "@contexts/cross-run-learning/application/index";
 import type { ContextMapCapturePort } from "@contexts/generation/application/index";
 import type { RunDeadlinePort } from "../../qa-engine/src/contexts/run-orchestration/application/index";
 import type { SuiteStorePort } from "@kernel/ports/suite-store.port";
@@ -64,7 +64,7 @@ import type { E2eExecutionStrategy } from "@contexts/test-execution/infrastructu
 import type { CoveragePolicy, ChangeCoverage } from "@contexts/objective-signal/application/index";
 import type { BundleMutationPort, CoverageCollectorPort, ValueOraclePort } from "@contexts/objective-signal/application/index";
 import type { VcsReadPort } from "@contexts/change-analysis/application/index";
-import type { LearningRepositoryPort, ProcessAuditPort } from "@contexts/cross-run-learning/application/index";
+import type { ProcessAuditPort } from "@contexts/cross-run-learning/application/index";
 
 /* The code graph of an app, built by its context: the factory builds a run's graph with it and onboarding builds its first index with it. */
 /* The builders and deps types the shell and its tests reach, so engine-root.ts is the one shell module that imports a composition module. */
@@ -240,8 +240,6 @@ export interface EngineRootDeps {
   /* Post-redaction fail-loud check on the "issue" route. Optional at the type; production composition always supplies RedactionPort.containsSecret alongside sanitize. */
   containsSecret?: (text: string) => boolean;
 
-  /* LearningPort collaborator. v1 default: StubLearningRepository (a provable no-op) when absent. */
-  learningRepo?: LearningRepositoryPort;
 
   /* Write confinement. Optional, no stub: absent omits RunQaUseCaseDeps.confinement. The shell factory constructs WriteConfinementAdapter (needs src-only git/fs); this root must not import that adapter, and binds it to the run's handle. */
   confinement?: PathConfinementCollaborator;
@@ -443,13 +441,9 @@ function assemble(cfg: EngineRootDeps): RunOrchestrationApi {
   const objectiveSignal: ObjectiveSignalPort = cfg.telemetry ? new TracedObjectiveSignalPort(plainObjectiveSignal, cfg.telemetry) : plainObjectiveSignal;
 
   const learningApi = buildCrossRunLearning({
-    appName: cfg.appName,
-    ...(cfg.learningRepo ? { learningRepo: cfg.learningRepo } : {}),
     ...(cfg.curriculumPort ? { curriculum: cfg.curriculumPort } : {}),
     ...(cfg.processAudit ? { processAudit: cfg.processAudit } : {}),
   });
-  const plainLearning = learningApi.learning;
-  const learning: LearningPort = generationApi.traced.learning(plainLearning);
 
   const coordination = buildCoordination({
     ...(cfg.delegation ? { delegation: cfg.delegation } : {}),
@@ -473,7 +467,6 @@ function assemble(cfg: EngineRootDeps): RunOrchestrationApi {
     execution,
     objectiveSignal,
     publication,
-    learning,
     workspace,
     specFiles: confinedSpecFiles,
     /* The intent lock's parser: pure, no I/O, so one instance serves every run. */

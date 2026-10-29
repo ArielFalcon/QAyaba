@@ -44,7 +44,6 @@ function outcome(over: Partial<RunOutcome["gateSignals"]> = {}, top: Partial<Run
       retries: 0,
       ...over,
     },
-    rulesRetrieved: [],
     at: "2026-06-14T10:00:00.000Z",
     ...top,
   };

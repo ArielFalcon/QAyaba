@@ -31,7 +31,6 @@ function outcome(runId: string, app: string, overrides: Partial<RunOutcome> = {}
       flaky: false,
       retries: 0,
     },
-    rulesRetrieved: [],
     at: new Date().toISOString(),
     ...overrides,
   };

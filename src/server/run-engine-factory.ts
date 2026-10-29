@@ -147,8 +147,6 @@ import { RedactionPortAdapter, redactSourceForModel } from "../orchestrator/sani
 import { ensureMirror, ensureMirrorAtBranch, defaultMirrorDeps, workdirRoot, realGit, authHeaderArgs, hardenGitArgs, assertTrustedGitTree } from "../integrations/repo-mirror";
 import { stageServiceContext, serviceContextDir } from "./service-context";
 import { SqliteRunHistoryAdapter } from "./run-history-sqlite-adapter";
-import { SqliteLearningRepository } from "@contexts/cross-run-learning/infrastructure/sqlite-learning-repository.adapter";
-import type { LearningStorePort } from "@contexts/cross-run-learning/application/index";
 import { resolveCampaignFreeze } from "./campaign-freeze";
 import { agentBrowserEnabled, closedLoopEnabled, serviceTopologyWired, toolsApply } from "./run-config-gates";
 import { ProcessAuditPortAdapter } from "@contexts/cross-run-learning/infrastructure/process-audit-port.adapter";
@@ -279,72 +277,6 @@ async function fetchVersion(url: string): Promise<{ sha?: string; healthy?: bool
   } catch {
     return null;
   }
-}
-
-
-export function historyLearningStore(appName: string): LearningStorePort {
-  return {
-    /*
-     * Dedicated governance-path read, NOT listLearningRules(app, LEARNING_RULE_LEDGER_LIMIT) —
-     * that shared-limit, actives-first-ranked query could exhaust its LIMIT on active rows alone,
-     * never even fetching a fresh candidate into memory for RuleGovernanceService.topRules (the
-     * single ranking truth) to rank. See listLearningRulesForGovernance's own header in LearningRepository.
-     */
-    selectRules: (app) =>
-      getHistory().learning.listLearningRulesForGovernance(app).map((r) => ({
-        id: r.id,
-        trigger_text: r.trigger,
-        action_text: r.action,
-        error_class: r.errorClass,
-        archetype: r.archetype ?? null,
-        status: r.status,
-        confidence: r.confidence,
-        usage_count: r.usageCount,
-        outcome_count: r.outcomeCount,
-        oracle_outcome_count: r.oracleOutcomeCount,
-        success_rate: r.successRate,
-        last_verified: r.lastVerified,
-        source: r.source,
-        at: r.at,
-      })),
-    /* Unfiltered list (all statuses, including deprecated) so distill dedup can see existing rules. */
-    selectAllRules: (app, limit) =>
-      getHistory().learning.listAllLearningRules(app, limit).map((r) => ({
-        id: r.id,
-        trigger_text: r.trigger,
-        action_text: r.action,
-        error_class: r.errorClass,
-        archetype: r.archetype ?? null,
-        status: r.status,
-        confidence: r.confidence,
-        usage_count: r.usageCount,
-        outcome_count: r.outcomeCount,
-        oracle_outcome_count: r.oracleOutcomeCount,
-        success_rate: r.successRate,
-        last_verified: r.lastVerified,
-        source: r.source,
-        at: r.at,
-        quarantined_at: r.quarantinedAt ?? null,
-      })),
-    quarantine: (app, ids, at) => getHistory().learning.quarantineLearningRules(app, ids, at),
-    upsert: (rule) =>
-      getHistory().learning.upsertLearningRule({
-        id: rule.id,
-        app: appName,
-        trigger: rule.trigger,
-        action: rule.action,
-        /* LearningRepository stores ErrorClass; the port types it as string. Taxonomy is the producer. */
-        errorClass: rule.errorClass as import("@kernel/error-class").ErrorClass,
-        archetype: rule.archetype ?? null,
-        source: rule.source,
-      }),
-    saveScorecardEntry: (entry) => getHistory().learning.saveScorecardEntry(entry),
-    /* By id within this app, uncapped (getLearningRule), never via a bulk list. */
-    findRule: (id) => getHistory().learning.getLearningRule(appName, id),
-    recordRuleOutcome: (ruleId, score, coverageCreditConfirmed, isOracleScore) => getHistory().learning.recordRuleOutcome(ruleId, score, coverageCreditConfirmed, isOracleScore),
-
-    incrementUsage: (ids) => getHistory().learning.incrementRuleUsage([...ids]),
-  };
 }
 
 /*
@@ -978,10 +910,6 @@ export function buildEngineRootDeps(
   const checkout = (checkoutSha: Sha): Promise<string> => multiRepoCheckout.checkout(checkoutSha);
 
 
-  /* Built even when frozen (cheap, no I/O): the frozen config simply does not hand it to the engine. */
-  const learningRepo = new SqliteLearningRepository(historyLearningStore(app.name), { reflectorUnproven: false }, redactionPort);
-
-
   const setupAdapter = buildSetupAdapter(exec, codeSandbox);
 
   return {
@@ -1398,12 +1326,9 @@ export function buildEngineRootDeps(
 
     ...(deps.historyFilePath ? { historyFilePath: deps.historyFilePath } : { runHistory: new SqliteRunHistoryAdapter() }),
 
-    ...(campaignFrozen ? {} : { learningRepo }),
     ...(campaignFrozen ? {} : { processAudit: new ProcessAuditPortAdapter({
       app: app.name,
       readRecentOutcomes: (a, limit) => getHistory().learning.listRunOutcomes(a, limit),
-      readRules: (a, limit) => getHistory().learning.listLearningRules(a, limit),
-      deprecateRule: (ruleId) => { getHistory().learning.setRuleStatusByHuman(ruleId, "deprecated"); },
       invalidateContext: (reason) => {
         try {
           getHistory().contexts.markContextStale(app.name);

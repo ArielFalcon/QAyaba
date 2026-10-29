@@ -1,13 +1,12 @@
 /* qa-engine/test/contexts/cross-run-learning/infrastructure/process-audit-port.adapter.test.ts
-   self-sources `recent` outcomes + `rules` via factory-injected reads, runs the deterministic
-   auditProcess/applyAudit domain logic, and dispatches findings to 2 injected sinks
-   (deprecateRule/invalidateContext) and the log. Every failure mode (a throwing read/sink,
+   self-sources `recent` outcomes via a factory-injected read, runs the deterministic
+   auditProcess/applyAudit domain logic, and dispatches findings to the injected sink
+   (invalidateContext) and the log. Every failure mode (a throwing read/sink,
    a slow read past the timeout budget) is caught inline — never re-thrown.
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { ProcessAuditPortAdapter, PROCESS_AUDIT_TIMEOUT_MS } from "@contexts/cross-run-learning/infrastructure/process-audit-port.adapter.ts";
-import type { RuleView } from "@contexts/cross-run-learning/domain/process-audit.ts";
 import type { RunOutcome } from "@kernel/run-outcome.ts";
 import { NON_LEARNING, OBSERVED_OPERATING } from "@contexts/cross-run-learning/domain/learning-gates.ts";
 
@@ -21,12 +20,9 @@ function outcome(over: Partial<RunOutcome> = {}): RunOutcome {
     verdict: over.verdict ?? "fail",
     errorClass: over.errorClass ?? "E-EXEC-FAIL",
     gateSignals: { static: false, coverageRatio: null, valueScore: null, reviewerCorrections: [], flaky: false, retries: 0, ...over.gateSignals },
-    rulesRetrieved: [],
     at: over.at ?? "2026-06-13T00:00:00Z",
   };
 }
-
-const rule = (over: Partial<RuleView>): RuleView => ({ id: "ru1", errorClass: "E-EXEC-FAIL", status: "candidate", usageCount: 0, successRate: null, ...over });
 
 test("a recurring engine-defect class is logged as an observe finding, and the run verdict is unaffected (nothing thrown)", async () => {
   const current = outcome({ errorClass: "E-STATIC", verdict: "invalid" });
@@ -34,8 +30,6 @@ test("a recurring engine-defect class is logged as an observe finding, and the r
   const adapter = new ProcessAuditPortAdapter({
     app: "petclinic",
     readRecentOutcomes: () => [current, outcome({ errorClass: "E-STATIC", sha: "b" }), outcome({ errorClass: "E-STATIC", sha: "c" })],
-    readRules: () => [],
-    deprecateRule: () => { throw new Error("must not be called"); },
     invalidateContext: () => { throw new Error("must not be called"); },
     log: (line) => logged.push(line),
   });
@@ -59,8 +53,6 @@ test("runs that decided nothing, like outages and flaky runs, are left out of th
       outcome({ errorClass: "E-FLAKY", verdict: "flaky", sha: "f" }),
       outcome({ errorClass: "E-STATIC", verdict: "invalid", sha: "c" }),
     ],
-    readRules: () => [],
-    deprecateRule: () => {},
     invalidateContext: () => false,
     log: (line) => logged.push(line),
   });
@@ -74,8 +66,6 @@ test("a step-budget run stays in the streak window, so recurring exhaustion can 
   const adapter = new ProcessAuditPortAdapter({
     app: "petclinic",
     readRecentOutcomes: () => [current, outcome({ errorClass: "E-STEP-BUDGET", verdict: "infra-error", sha: "b" }), outcome({ errorClass: "E-STEP-BUDGET", verdict: "infra-error", sha: "c" })],
-    readRules: () => [],
-    deprecateRule: () => { throw new Error("must not be called"); },
     invalidateContext: () => { throw new Error("must not be called"); },
     log: (line) => logged.push(line),
   });
@@ -90,8 +80,6 @@ test("the streak window drops exactly the classes the learning gates treat as no
     const adapter = new ProcessAuditPortAdapter({
       app: "petclinic",
       readRecentOutcomes: () => [current, outcome({ errorClass, verdict: "infra-error", sha: "b" }), outcome({ errorClass, verdict: "infra-error", sha: "c" })],
-      readRules: () => [],
-      deprecateRule: () => {},
       invalidateContext: () => false,
       log: (line) => observed.push(`${errorClass}: ${line}`),
     });
@@ -100,32 +88,12 @@ test("the streak window drops exactly the classes the learning gates treat as no
   assert.deepEqual(observed, [], "a streak made only of non-learning runs is invisible to the audit");
 });
 
-test("ledger-heal finding deprecates the rule(s), no context call", async () => {
-  const current = outcome({ errorClass: "E-FRAGILE-SELECTOR" });
-  const deprecated: Array<{ id: string; reason: string }> = [];
-  const adapter = new ProcessAuditPortAdapter({
-    app: "petclinic",
-    readRecentOutcomes: () => [current, outcome({ errorClass: "E-FRAGILE-SELECTOR", sha: "b" }), outcome({ errorClass: "E-FRAGILE-SELECTOR", sha: "c" })],
-    readRules: () => [rule({ id: "noise1", errorClass: "E-FRAGILE-SELECTOR", usageCount: 4, status: "candidate" })],
-    deprecateRule: (id, reason) => deprecated.push({ id, reason }),
-    invalidateContext: () => true,
-  });
-
-  await adapter.audit(current);
-
-  assert.equal(deprecated.length, 1);
-  assert.equal(deprecated[0]!.id, "noise1");
-  assert.match(deprecated[0]!.reason, /noise-rule/);
-});
-
-test("context-heal finding invalidates the architecture map, no deprecate call", async () => {
+test("context-heal finding invalidates the architecture map", async () => {
   const current = outcome({ errorClass: "E-FRAGILE-SELECTOR" });
   let invalidatedReason: string | undefined;
   const adapter = new ProcessAuditPortAdapter({
     app: "petclinic",
     readRecentOutcomes: () => [current, outcome({ errorClass: "E-FRAGILE-SELECTOR", sha: "b" }), outcome({ errorClass: "E-FRAGILE-SELECTOR", sha: "c" })],
-    readRules: () => [],
-    deprecateRule: () => { throw new Error("must not be called"); },
     invalidateContext: (reason) => { invalidatedReason = reason; return true; },
   });
 
@@ -140,8 +108,6 @@ test("observe finding calls no sink at all", async () => {
   const adapter = new ProcessAuditPortAdapter({
     app: "petclinic",
     readRecentOutcomes: () => [current],
-    readRules: () => [],
-    deprecateRule: () => { throw new Error("must not be called"); },
     invalidateContext: () => { throw new Error("must not be called"); },
   });
 
@@ -153,8 +119,6 @@ test("no findings at all → no sink call, resolves cleanly", async () => {
   const adapter = new ProcessAuditPortAdapter({
     app: "petclinic",
     readRecentOutcomes: () => [current],
-    readRules: () => [],
-    deprecateRule: () => { throw new Error("must not be called"); },
     invalidateContext: () => { throw new Error("must not be called"); },
   });
 
@@ -179,8 +143,6 @@ test("two-layer gating: flaky/infra-class outcomes are excluded from the recent-
   const adapter = new ProcessAuditPortAdapter({
     app: "petclinic",
     readRecentOutcomes: () => rawRecent,
-    readRules: () => [],
-    deprecateRule: () => {},
     invalidateContext: () => true,
     log: (line) => logged.push(line),
   });
@@ -202,8 +164,6 @@ test("two-layer gating: an E-INFRA recent entry is also excluded from the streak
   const adapter = new ProcessAuditPortAdapter({
     app: "petclinic",
     readRecentOutcomes: () => rawRecent,
-    readRules: () => [],
-    deprecateRule: () => {},
     invalidateContext: () => true,
     log: (line) => logged.push(line),
   });
@@ -219,8 +179,6 @@ test("fault isolation: a throwing readRecentOutcomes is caught, never rethrown, 
   const adapter = new ProcessAuditPortAdapter({
     app: "petclinic",
     readRecentOutcomes: () => { throw new Error("db exploded"); },
-    readRules: () => [],
-    deprecateRule: () => {},
     invalidateContext: () => true,
     onAuditError: (e) => { reportedError = e; },
   });
@@ -235,8 +193,6 @@ test("fault isolation: a throwing sink is caught, never rethrown", async () => {
   const adapter = new ProcessAuditPortAdapter({
     app: "petclinic",
     readRecentOutcomes: () => [current, outcome({ errorClass: "E-FRAGILE-SELECTOR", sha: "b" }), outcome({ errorClass: "E-FRAGILE-SELECTOR", sha: "c" })],
-    readRules: () => [],
-    deprecateRule: () => {},
     invalidateContext: () => { throw new Error("context sink exploded"); },
   });
 
@@ -249,8 +205,6 @@ test("timeout-capped: a hanging read never blocks audit() past the configured ti
   const adapter = new ProcessAuditPortAdapter({
     app: "petclinic",
     readRecentOutcomes: () => new Promise<RunOutcome[]>(() => {}), /* never resolves */
-    readRules: () => [],
-    deprecateRule: () => {},
     invalidateContext: () => true,
     timeoutMs: 20,
     log: (line) => lines.push(line),
@@ -274,17 +228,14 @@ function timeBudget(sha: string): RunOutcome {
 
 function auditing(recent: RunOutcome[]) {
   const logs: string[] = [];
-  const deprecated: string[] = [];
   let invalidated = 0;
   const adapter = new ProcessAuditPortAdapter({
     app: "petclinic",
     readRecentOutcomes: () => recent,
-    readRules: () => [],
-    deprecateRule: (id) => { deprecated.push(id); },
     invalidateContext: () => { invalidated++; return true; },
     log: (line) => logs.push(line),
   });
-  return { adapter, logs, deprecated, invalidated: () => invalidated };
+  return { adapter, logs, invalidated: () => invalidated };
 }
 
 test("three time-budget ends in a row are made visible as an observe-only finding", async () => {
@@ -295,11 +246,11 @@ test("three time-budget ends in a row are made visible as an observe-only findin
   assert.match(logs.join("\n"), /E-TIME-BUDGET 3 runs in a row/);
 });
 
-test("a recurring time-budget end never deprecates a rule or rebuilds the map", async () => {
+test("a recurring time-budget end never rebuilds the map", async () => {
   const current = timeBudget("a");
-  const { adapter, deprecated, invalidated } = auditing([current, timeBudget("b"), timeBudget("c")]);
+  const { adapter, invalidated } = auditing([current, timeBudget("b"), timeBudget("c")]);
   await adapter.audit(current);
-  assert.deepEqual([deprecated.length, invalidated()], [0, 0]);
+  assert.equal(invalidated(), 0);
 });
 
 test("two time-budget ends in a row are not yet a streak", async () => {

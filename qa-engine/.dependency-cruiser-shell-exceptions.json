@@ -3,7 +3,6 @@
   "scripts/baseline-agent.ts",
   "scripts/campaign.ts",
   "scripts/harness-auth.ts",
-  "scripts/learning-quarantine.ts",
   "scripts/model-agnostic-prompts.test.ts",
   "scripts/onboard-app.ts",
   "scripts/prompt-contract-matrix.sample.test.ts",

@@ -29,7 +29,7 @@ function outcomeOf(input: RunInput): RunOutcome {
   return {
     runId: input.runId, app: input.app, sha: input.sha.value, mode: input.mode, target: input.target, verdict: "pass", errorClass: null,
     gateSignals: { static: true, coverageRatio: null, valueScore: null, reviewerCorrections: [], flaky: false, retries: 0 },
-    rulesRetrieved: [], at: new Date(0).toISOString(),
+at: new Date(0).toISOString(),
   };
 }
 

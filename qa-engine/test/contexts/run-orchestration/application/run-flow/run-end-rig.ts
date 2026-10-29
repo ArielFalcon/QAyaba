@@ -31,7 +31,6 @@ export interface Observed {
   threw?: unknown;
   result?: RunQaResult;
   saved: RunOutcome[];
-  folded: RunOutcome[];
   publishCalls: number;
 }
 
@@ -110,7 +109,6 @@ const BASE_CONFIG: Partial<RunQaConfig> = { needsReview: true, shadow: false, on
 /** Runs one run through the rig and reports what it did. The rig is the caller's to dispose. */
 export async function observe(rig: Rig, runId: string): Promise<Observed> {
   const saved: RunOutcome[] = [];
-  const folded: RunOutcome[] = [];
   let publishCalls = 0;
   const generation = reassignableGeneration(rig.author);
   let deps: RunQaUseCaseDeps = {
@@ -122,7 +120,6 @@ export async function observe(rig: Rig, runId: string): Promise<Observed> {
     execution: { execute: rig.execute },
     objectiveSignal: { measure: rig.measure, blocks: rig.blocks },
     publication: { publish: async (input) => { publishCalls += 1; return await rig.publish(input); } },
-    learning: { fold: async (outcome) => { folded.push(outcome); }, retrieve: async () => [] },
     workspace: { prepare: rig.prepare, readRoots: rootsOf },
     specFiles: confinedSpecFiles,
     deployGate: { waitUntilServing: async () => await rig.waitUntilServing() },
@@ -136,9 +133,9 @@ export async function observe(rig: Rig, runId: string): Promise<Observed> {
   const input: RunQaInput = { ...BASE_INPUT, runId, ...rig.input };
   try {
     const result = await new RunQaUseCase(deps).run(input, rig.abort.signal);
-    return { result, saved, folded, publishCalls };
+    return { result, saved, publishCalls };
   } catch (threw) {
-    return { threw, saved, folded, publishCalls };
+    return { threw, saved, publishCalls };
   }
 }
 
@@ -150,7 +147,6 @@ export interface EndFacts {
   persisted: boolean;
   published: string;
   publishCalled: boolean;
-  folded: boolean;
   note: string;
 }
 
@@ -164,7 +160,6 @@ export function factsOf(observed: Observed): EndFacts {
     persisted: observed.saved.length > 0,
     published,
     publishCalled: observed.publishCalls > 0,
-    folded: observed.folded.length > 0,
     note: result?.note ?? (observed.threw instanceof Error ? observed.threw.message : ""),
   };
 }

@@ -205,34 +205,6 @@ test("review() with no enrichment argument omits priorCorrections (unchanged pro
   assert.equal(seenInput?.priorCorrections, undefined);
 });
 
-/* enrichment.learnedRules is rendered via the reviewer-specific renderer
-   (renderLearnedRulesForReviewer) — active-only, NOT the generator's proven/experimental renderer.
- */
-
-test("review() renders enrichment.learnedRules via the reviewer-specific (active-only) faithful renderer", async () => {
-  let seenInput: { learnedRules?: string } | undefined;
-  const rendering: PromptRenderingPort = {
-    ...fakeRendering(),
-    renderReviewer: (input) => { seenInput = input as { learnedRules?: string }; return { text: "reviewer-prompt", sectionSizes: {} }; },
-  };
-  const verdicts = fakeVerdicts({ approved: true, corrections: [], parsed: true, valid: true, issues: [] });
-  const adapter = new ReviewPortAdapter({ runtime: fakeRuntime("verdict-json"), rendering, verdicts }, {
-    diff: "", mirrorDir: "/mirrors/org/app", e2eRelDir: "e2e", appName: "app", mode: "diff",
-  });
-
-  await adapter.review("/mirrors/org/app/e2e", cases, undefined, {
-    learnedRules: [
-      { id: "rule-active", trigger: "selector absent", action: "use role+name", errorClass: "E-EXEC-FAIL", status: "active", confidence: "high" },
-      { id: "rule-candidate", trigger: "flaky wait", action: "use expect.poll", errorClass: "E-FLAKY", status: "candidate", confidence: "low" },
-    ],
-  });
-
-  assert.ok(seenInput?.learnedRules?.includes("- selector absent → use role+name (E-EXEC-FAIL)"));
-  assert.ok(!seenInput?.learnedRules?.includes("flaky wait"), "candidate rules must never reach the reviewer's reject-on-sight list");
-  assert.ok(seenInput?.learnedRules?.includes("Each was learned from a real failure and proven by the value oracle or sustained prevention."));
-  assert.ok(seenInput?.learnedRules?.includes("Treat them as an extension of the anti-pattern catalog: if a spec violates one, REJECT."));
-});
-
 /* previously passed NO timeoutMs into openSession(), so the reviewer silently inherited the
    dispatcher's ~25.5min ceiling instead of the purpose-built REVIEWER_TIMEOUT_MS (6min) — a hung
    reviewer could hold the sequential queue 25-50min. ReviewPortStaticContext.timeoutMs (optional,
@@ -505,23 +477,6 @@ test("review() maps enrichment.specChanges onto ReviewInput.specChanges verbatim
   await adapter.review("/mirrors/org/app/e2e", cases, undefined, { specChanges: "### a.spec.ts\n- old\n+ new" });
 
   assert.equal(seenInput?.specChanges, "### a.spec.ts\n- old\n+ new");
-});
-
-/* The review is the publish gate, so it may only reject on PROVEN (active) learned rules: unproven candidates are generator hints, never grounds for rejection. */
-test("review() hands the reviewer the proven learned rules and never an unproven candidate", async () => {
-  let seenInput: { learnedRules?: string } | undefined;
-  const rendering: PromptRenderingPort = {
-    ...fakeRendering(),
-    renderReviewer: (input) => { seenInput = input as { learnedRules?: string }; return { text: "reviewer-prompt", sectionSizes: {} }; },
-  };
-  const adapter = new ReviewPortAdapter({ runtime: fakeRuntime("verdict-json"), rendering, verdicts: approving }, REVIEW_CONTEXT);
-  const proven = { id: "p", trigger: "the diff touches the search form", action: "assert the owners table lists the name", errorClass: "E-FALSE-POSITIVE", status: "active", confidence: "high" } as const;
-  const unproven = { id: "u", trigger: "the diff renders a visit history", action: "assert exactly five visit rows", errorClass: "E-WRONG-OBJECTIVE", status: "candidate", confidence: "low" } as const;
-
-  await adapter.review("/mirrors/org/app/e2e", cases, undefined, { learnedRules: [proven, unproven] });
-
-  assert.ok(seenInput?.learnedRules?.includes(proven.action), "a proven rule reaches the reviewer");
-  assert.ok(!seenInput?.learnedRules?.includes(unproven.action), "an unproven candidate never does");
 });
 
 test("review() opens its session for the review kind: the reviewer role, the reviewer agent and the review timeout", async () => {

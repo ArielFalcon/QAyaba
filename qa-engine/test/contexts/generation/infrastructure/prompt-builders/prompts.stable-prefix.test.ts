@@ -27,7 +27,6 @@ function run(n: number, overrides: Partial<OpencodeRunInput> = {}): OpencodeRunI
     baseUrl: "http://localhost:3000",
     intent: { type: n % 2 ? "feat" : "fix", breaking: false, message: `change ${n}`, changedFiles: [`src/cart${n}.ts`] },
     domSnapshot: `route /cart:\n  button: Pay ${n}`,
-    learnedRules: `## Learned rules\n- rule ${n}`,
     ...overrides,
   };
 }

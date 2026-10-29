@@ -1,4 +1,3 @@
-import type { RetrievedRule } from "@kernel/learned-rule";
 import type { ServiceLink } from "@kernel/service-links";
 import { mock, test } from "node:test";
 import { inspect } from "node:util";
@@ -31,7 +30,7 @@ import type { AuthorPort, LeadPort, ReviewPort, PreExecGroundingPort, PreGenerat
 import type { ValidationPort, ExecutionPort } from "@contexts/test-execution/application/index.ts";
 import type { ObjectiveSignalPort } from "@contexts/objective-signal/application/index.ts";
 import type { PublicationPort } from "@contexts/workspace-and-publication/application/index.ts";
-import type { LearningPort, CurriculumPort, CurriculumFoldInput, RelevanceBias } from "@contexts/cross-run-learning/application/index.ts";
+import type { CurriculumPort, CurriculumFoldInput } from "@contexts/cross-run-learning/application/index.ts";
 import type { WorkspacePort } from "@contexts/workspace-and-publication/application/index.ts";
 import type { DeployGatePort } from "@kernel/ports/deploy-gate.port.ts";
 import type { RunHistoryPort } from "@contexts/run-orchestration/application/ports/run-history.port.ts";
@@ -42,10 +41,9 @@ import type { ConfinementPort } from "@contexts/workspace-and-publication/applic
 import type { MirrorGcPort } from "@contexts/workspace-and-publication/application/index.ts";
 import type { RunDeadlinePort } from "@contexts/run-orchestration/application/ports/run-deadline.port.ts";
 import type { SuiteStorePort } from "@kernel/ports/suite-store.port.ts";
-import type { LearningRule, ProcessAuditPort } from "@contexts/cross-run-learning/application/index.ts";
+import type { ProcessAuditPort } from "@contexts/cross-run-learning/application/index.ts";
 import { ok, err } from "@kernel/result.ts";
 import type { RunOutcome } from "@kernel/run-outcome.ts";
-import { attributableRules } from "@contexts/cross-run-learning/domain/rule-fold.ts";
 import type { CodeGraphPort } from "@kernel/ports/code-graph.port.ts";
 import type { CodeGraphIndexRecord } from "@kernel/code/index.ts";
 import { GenerationTurnsAdapter } from "@contexts/generation/infrastructure/adapters/generation-turns.adapter.ts";
@@ -63,7 +61,7 @@ import { confinedSpecFiles } from "../../../../src/shared-infrastructure/spec-fi
 import { ChangeSet } from "@contexts/change-analysis/application/index.ts";
 import { primaryChangeSet } from "../../../support/change-set.ts";
 /* Ports through the full lifecycle. NO inline IO, NO prompt strings, NO learning side-effects on
-   the verdict path (LearningPort.fold is off-path). Drives the SAME stub shapes scenarios.ts
+   the verdict path (the process audit is off-path). Drives the SAME stub shapes scenarios.ts
    provides for the equivalent runPipeline scenario.
  */
 
@@ -85,8 +83,6 @@ function stubPorts(overrides: Partial<{
   recount: NonNullable<ObjectiveSignalPort["recount"]>;
   recheckSurvivors: NonNullable<ObjectiveSignalPort["recheckSurvivors"]>;
   publish: PublicationPort["publish"];
-  fold: LearningPort["fold"];
-  retrieve: LearningPort["retrieve"];
   prepare: WorkspacePort["prepare"];
   waitUntilServing: DeployGatePort["waitUntilServing"];
   save: RunHistoryPort["save"];
@@ -95,8 +91,7 @@ function stubPorts(overrides: Partial<{
   capture: PreExecGroundingPort["capture"];
   ground: PreGenerationGroundingPort["ground"];
   captureReviewDom: ReviewDomGroundingPort["capture"];
-  /* Port-shaped, not method-shaped like its siblings above: CurriculumPort.fold would collide with
-     LearningPort["fold"] in this flat, method-keyed override map. Absent -> the port is omitted
+  /* Port-shaped, not method-shaped like its siblings above. Absent -> the port is omitted
      entirely from `ports`.
    */
   curriculum: CurriculumPort;
@@ -105,7 +100,6 @@ function stubPorts(overrides: Partial<{
 }> = {}) {
   const ws = runWorkspace("qa-golden-");
   const savedOutcomes: RunOutcome[] = [];
-  const foldedOutcomes: RunOutcome[] = [];
 
   const changeAnalysis: ChangeAnalysisPort = {
     classify: overrides.classify ?? (async () => ({ action: "generate", reason: "diff touches src/x.ts", diff: "" })),
@@ -134,10 +128,6 @@ function stubPorts(overrides: Partial<{
   };
   const publication: PublicationPort = {
     publish: overrides.publish ?? (async () => ({ outcome: "pr" })),
-  };
-  const learning: LearningPort = {
-    fold: overrides.fold ?? (async (outcome) => { foldedOutcomes.push(outcome); }),
-    retrieve: overrides.retrieve ?? (async () => []),
   };
   const workspace: WorkspacePort = {
     readRoots: rootsOf,
@@ -169,7 +159,7 @@ function stubPorts(overrides: Partial<{
 
   return {
     ports: {
-      changeAnalysis, generation, review, validation, execution, objectiveSignal, publication, learning, workspace, specFiles: confinedSpecFiles, deployGate, runHistory, setup, cleanup, suiteStore,
+      changeAnalysis, generation, review, validation, execution, objectiveSignal, publication, workspace, specFiles: confinedSpecFiles, deployGate, runHistory, setup, cleanup, suiteStore,
       leadSidekicks: coordinatorOver(generation),
       ...(preExecGrounding ? { preExecGrounding } : {}),
       ...(preGenerationGrounding ? { preGenerationGrounding } : {}),
@@ -178,7 +168,6 @@ function stubPorts(overrides: Partial<{
       ...(overrides.contextMapCapture ? { contextMapCapture: overrides.contextMapCapture } : {}),
     },
     savedOutcomes,
-    foldedOutcomes,
     ws,
   };
 }
@@ -1694,55 +1683,46 @@ test("coveragePolicyMode:\"off\" threads coverageWillMeasure:false into the FixL
   assert.equal(capturedCoverageWillMeasure, false, "coveragePolicyMode:'off' must never claim coverage will measure this run");
 });
 
-/* agent-no-op skip -> persistOutcome save YES, foldRunLearning NO
-   classify-skip -> bare return, save NO, fold NO (DISTINCT from agent-no-op)
-   invalid -> persistOutcome save YES, foldRunLearning YES
-   infra-error -> persistOutcome save YES, foldRunLearning NO
+/* agent-no-op skip -> persistOutcome save YES
+   classify-skip -> bare return, save NO (DISTINCT from agent-no-op)
+   invalid -> persistOutcome save YES
+   infra-error -> persistOutcome save YES
  */
 
-test("agent no-op skip calls runHistory.save() but NOT learning.fold()", async () => {
+test("agent no-op skip calls runHistory.save()", async () => {
   let saveCallCount = 0;
-  let foldCallCount = 0;
   const { ports } = stubPorts({ generate: async () => (scriptedGeneration({ specs: [], end: GENERATION_END.DECLARED_NOOP, note: "nothing in this change is worth a test" })) });
   ports.runHistory.save = async () => { saveCallCount++; };
-  ports.learning.fold = async () => { foldCallCount++; };
   const useCase = new RunQaUseCase({ ...ports, config: baseConfig });
 
   const out = await useCase.run({ ...baseInput, runId: "fix-e-agent-no-op-skip" });
 
   assert.equal(out.decision.verdict, "skipped");
   assert.equal(saveCallCount, 1, "agent no-op skip must call runHistory.save() exactly once");
-  assert.equal(foldCallCount, 0, "agent no-op skip must NEVER call learning.fold()");
 });
 
-test("classify-skip does NOT call runHistory.save() or learning.fold() (distinct from the agent no-op skip source)", async () => {
+test("classify-skip does NOT call runHistory.save() (distinct from the agent no-op skip source)", async () => {
   let saveCallCount = 0;
-  let foldCallCount = 0;
   const { ports } = stubPorts({ classify: async () => ({ action: "skip", reason: "docs-only commit", diff: "" }) });
   ports.runHistory.save = async () => { saveCallCount++; };
-  ports.learning.fold = async () => { foldCallCount++; };
   const useCase = new RunQaUseCase({ ...ports, config: baseConfig });
 
   const out = await useCase.run({ ...baseInput, runId: "fix-e-classify-skip", mode: "diff" });
 
   assert.equal(out.decision.verdict, "skipped");
   assert.equal(saveCallCount, 0, "it must NOT call runHistory.save()");
-  assert.equal(foldCallCount, 0, "classify-skip must NOT call learning.fold()");
 });
 
-test("invalid calls BOTH runHistory.save() AND learning.fold()", async () => {
+test("invalid calls runHistory.save()", async () => {
   let saveCallCount = 0;
-  let foldCallCount = 0;
   const { ports } = stubPorts({ validate: async () => ({ ok: false, errors: ["[lint] no-wait-for-timeout"] }) });
   ports.runHistory.save = async () => { saveCallCount++; };
-  ports.learning.fold = async () => { foldCallCount++; };
   const useCase = new RunQaUseCase({ ...ports, config: baseConfig });
 
   const out = await useCase.run({ ...baseInput, runId: "fix-e-invalid" });
 
   assert.equal(out.decision.verdict, "invalid");
   assert.equal(saveCallCount, 1, "invalid must call runHistory.save() exactly once");
-  assert.equal(foldCallCount, 1, "invalid must call learning.fold() exactly once");
 });
 
 /* The FixLoop's own adjudicator verdict threads into the persisted RunOutcome.adjudication, and
@@ -1753,8 +1733,7 @@ test("invalid calls BOTH runHistory.save() AND learning.fold()", async () => {
    threads FixLoopGenerateResult.specSources back into the FixLoop.
  */
 
-test("mainline fold — app_defect (via an attributed 5xx) suppresses learning.fold(); ledger untouched", async () => {
-  let foldCallCount = 0;
+test("mainline — an attributed 5xx persists the adjudicator's app_defect class on the outcome", async () => {
   let savedAdjudicationClass: string | undefined;
   const { ports } = stubPorts({
     /* Every execute() call (initial + every FixLoop retry) fails with a case carrying an attributed
@@ -1768,18 +1747,15 @@ test("mainline fold — app_defect (via an attributed 5xx) suppresses learning.f
     }),
   });
   ports.runHistory.save = async (outcome) => { savedAdjudicationClass = outcome.adjudication?.class; };
-  ports.learning.fold = async () => { foldCallCount++; };
   const useCase = new RunQaUseCase({ ...ports, config: baseConfig });
 
   const out = await useCase.run({ ...baseInput, runId: "app-defect-suppresses-fold" });
 
   assert.equal(out.decision.verdict, "fail");
   assert.equal(savedAdjudicationClass, "app_defect", "the persisted RunOutcome must carry the adjudicator's app_defect classification");
-  assert.equal(foldCallCount, 0, "learning.fold() must NOT be called when the mainline outcome's adjudication.class is app_defect");
 });
 
-test("mainline fold — generated_test_defect (the default fallthrough) still folds; ledger updated", async () => {
-  let foldCallCount = 0;
+test("mainline — generated_test_defect (the default fallthrough) is persisted on the outcome", async () => {
   let savedAdjudicationClass: string | undefined;
   const { ports } = stubPorts({
     /* A generic, non-infra, non-value-mismatch failure detail never matches any adjudicate.service.ts
@@ -1792,14 +1768,13 @@ test("mainline fold — generated_test_defect (the default fallthrough) still fo
       logs: "x",
     }),
   });
-  ports.learning.fold = async (outcome) => { foldCallCount++; savedAdjudicationClass = outcome.adjudication?.class; };
+  ports.runHistory.save = async (outcome) => { savedAdjudicationClass = outcome.adjudication?.class; };
   const useCase = new RunQaUseCase({ ...ports, config: baseConfig });
 
-  const out = await useCase.run({ ...baseInput, runId: "generated-test-defect-still-folds" });
+  const out = await useCase.run({ ...baseInput, runId: "generated-test-defect-persisted" });
 
   assert.equal(out.decision.verdict, "fail");
   assert.equal(savedAdjudicationClass, "generated_test_defect", "the persisted RunOutcome must carry the adjudicator's generated_test_defect classification");
-  assert.equal(foldCallCount, 1, "learning.fold() must still be called when adjudication.class is generated_test_defect (only app_defect suppresses)");
 });
 
 test("a failing diff run hands the change's own files to the adjudicator, so an objective gap can be named", async () => {
@@ -1837,34 +1812,16 @@ test("a failing diff run hands the change's own files to the adjudicator, so an 
   );
 });
 
-test("a run whose FixLoop never invoked the adjudicator (passed first try) persists adjudication:undefined and still folds", async () => {
-  let foldCallCount = 0;
+test("a run whose FixLoop never invoked the adjudicator (passed first try) persists adjudication:undefined", async () => {
   let savedOutcome: { adjudication?: { class: string } } | undefined;
   const { ports } = stubPorts();
   ports.runHistory.save = async (outcome) => { savedOutcome = outcome; };
-  ports.learning.fold = async () => { foldCallCount++; };
   const useCase = new RunQaUseCase({ ...ports, config: baseConfig });
 
   const out = await useCase.run({ ...baseInput, runId: "no-adjudication-on-clean-pass" });
 
   assert.equal(out.decision.verdict, "pass");
   assert.equal(savedOutcome?.adjudication, undefined, "a clean pass never engages the FixLoop, so adjudication must be absent — never fabricated");
-  assert.equal(foldCallCount, 1, "a clean pass with no adjudication must still fold (unaffected by the app-defect fold guard)");
-});
-
-test("terminal-invalid fold site carries the SAME app_defect guard (structurally a no-op today — no FixLoop runs before a static-gate invalid)", async () => {
-  let foldCallCount = 0;
-  let savedAdjudication: unknown;
-  const { ports } = stubPorts({ validate: async () => ({ ok: false, errors: ["[lint] no-wait-for-timeout"] }) });
-  ports.runHistory.save = async (outcome) => { savedAdjudication = outcome.adjudication; };
-  ports.learning.fold = async () => { foldCallCount++; };
-  const useCase = new RunQaUseCase({ ...ports, config: baseConfig });
-
-  const out = await useCase.run({ ...baseInput, runId: "terminal-invalid-guard-noop-today" });
-
-  assert.equal(out.decision.verdict, "invalid");
-  assert.equal(savedAdjudication, undefined, "the static-gate invalid path never reaches the FixLoop, so terminalOutcome.adjudication stays undefined today");
-  assert.equal(foldCallCount, 1, "the terminal-invalid fold must still fire — the app_defect guard is structurally a no-op on this path today (regression pin: a future reorder that routes an adjudicated outcome here must not silently bypass the guard)");
 });
 
 /* The FixLoop's last adjudicator verdict must reach PublicationPort.publish() as the OPTIONAL
@@ -1977,16 +1934,15 @@ test("an unavailable reviewer ends the run at once: no regeneration round is bur
   assert.deepEqual([generated, reviews, pruned], [1, 1, [ws.mirrorDir]]);
 });
 
-test("an unavailable reviewer teaches nothing but is audited as an operating signal", async () => {
-  const learned: { folded: RunOutcome[]; audited: RunOutcome[] } = { folded: [], audited: [] };
+test("an unavailable reviewer is audited as an operating signal", async () => {
+  const learned: { audited: RunOutcome[] } = { audited: [] };
   const { ports } = stubPorts({ review: reviewerDown });
-  ports.learning.fold = async (o) => { learned.folded.push(o); };
   await new RunQaUseCase({
     ...ports,
     processAudit: makeFakeProcessAudit((o) => { learned.audited.push(o); }),
     config: baseConfig,
   }).run({ ...baseInput, runId: "reviewer-down-learning" });
-  assert.deepEqual([learned.folded.length, learned.audited.length], [0, 1]);
+  assert.equal(learned.audited.length, 1);
   assert.equal(learned.audited[0]!.errorClass, ERROR_CLASS.REVIEWER_UNAVAILABLE);
 });
 
@@ -2074,9 +2030,8 @@ test("follow-up #28: a normal rejection does NOT populate gateSignals.reviewerRa
   assert.equal(saved!.gateSignals.reviewerRationale, undefined, "a genuine rejection must not populate reviewerRationale — this slot is scoped to the reviewer-unavailable case only");
 });
 
-/* processAudit is optional and invoked at BOTH fold sites under shouldDistillLearning(...) AND
-   verdict !== "flaky" AND errorClass not in {E-INFRA, E-FLAKY}. The fold gate is UNCHANGED (still
-   fires on flaky). Fault isolation/timeouts are the ADAPTER's own contract (see
+/* processAudit is optional and invoked at BOTH outcome sites under shouldDistillLearning(...) AND
+   verdict !== "flaky" AND errorClass not in {E-INFRA, E-FLAKY}. Fault isolation/timeouts are the ADAPTER's own contract (see
    process-audit-port.adapter.test.ts) — this use-case awaits audit() with no extra try/catch of its own.
  */
 
@@ -2086,50 +2041,42 @@ function makeFakeProcessAudit(onAudit: (outcome: RunOutcome) => void): ProcessAu
   };
 }
 
-test("process-audit: flaky verdict — learning.fold() IS called (fold gate unchanged), processAudit.audit() is NOT called (stricter gate)", async () => {
-  let foldCallCount = 0;
+test("process-audit: flaky verdict — processAudit.audit() is NOT called", async () => {
   let auditCallCount = 0;
   const { ports } = stubPorts({
     execute: async () => ({ verdict: "flaky", cases: [{ name: "checkout", status: "flaky" as const }], logs: "" }),
   });
-  ports.learning.fold = async () => { foldCallCount++; };
   const processAudit = makeFakeProcessAudit(() => { auditCallCount++; });
   const useCase = new RunQaUseCase({ ...ports, processAudit, config: baseConfig });
 
-  const out = await useCase.run({ ...baseInput, runId: "process-audit-flaky-fold-yes-audit-no" });
+  const out = await useCase.run({ ...baseInput, runId: "process-audit-flaky-no-audit" });
 
   assert.equal(out.decision.verdict, "flaky");
-  assert.equal(foldCallCount, 1, "learning.fold() must still be called on a flaky verdict");
-  assert.equal(auditCallCount, 0, "processAudit.audit() must NOT be called on a flaky verdict — the audit gate is stricter than the fold gate");
+  assert.equal(auditCallCount, 0, "processAudit.audit() must NOT be called on a flaky verdict");
 });
 
-test("process-audit: static-gate invalid (errorClass=E-STATIC, TERMINAL fold site) — learning.fold() AND processAudit.audit() are BOTH called with the persisted outcome", async () => {
-  let foldCallCount = 0;
+test("process-audit: static-gate invalid (errorClass=E-STATIC, terminal site) — processAudit.audit() is called with the persisted outcome", async () => {
   let capturedOutcome: RunOutcome | undefined;
   const { ports } = stubPorts({ validate: async () => ({ ok: false, errors: ["[lint] no-wait-for-timeout"] }) });
-  ports.learning.fold = async () => { foldCallCount++; };
   const processAudit = makeFakeProcessAudit((outcome) => { capturedOutcome = outcome; });
   const useCase = new RunQaUseCase({ ...ports, processAudit, config: baseConfig });
 
-  const out = await useCase.run({ ...baseInput, runId: "process-audit-static-invalid-terminal-both-called" });
+  const out = await useCase.run({ ...baseInput, runId: "process-audit-static-invalid-terminal-called" });
 
   assert.equal(out.decision.verdict, "invalid");
   assert.equal(out.errorClass, "E-STATIC");
-  assert.equal(foldCallCount, 1, "learning.fold() must be called on a static-gate invalid");
-  assert.ok(capturedOutcome, "processAudit.audit() must be called on a static-gate invalid (the TERMINAL fold site)");
+  assert.ok(capturedOutcome, "processAudit.audit() must be called on a static-gate invalid (the terminal site)");
   assert.equal(capturedOutcome?.verdict, "invalid");
   assert.equal(capturedOutcome?.errorClass, "E-STATIC");
-  assert.equal(capturedOutcome?.runId, "process-audit-static-invalid-terminal-both-called");
+  assert.equal(capturedOutcome?.runId, "process-audit-static-invalid-terminal-called");
 });
 
-test("process-audit: fail run with a real errorClass (E-EXEC-FAIL, MAINLINE fold site) — learning.fold() AND processAudit.audit() are BOTH called", async () => {
-  let foldCallCount = 0;
+test("process-audit: fail run with a real errorClass (E-EXEC-FAIL, mainline site) — processAudit.audit() is called", async () => {
   let auditCallCount = 0;
   let capturedOutcome: RunOutcome | undefined;
   const { ports } = stubPorts({
     execute: async () => ({ verdict: "fail" as const, cases: [{ name: "checkout", status: "fail" as const, detail: "assertion failed" }], logs: "x" }),
   });
-  ports.learning.fold = async () => { foldCallCount++; };
   const processAudit = makeFakeProcessAudit((outcome) => { auditCallCount++; capturedOutcome = outcome; });
   const useCase = new RunQaUseCase({ ...ports, processAudit, config: baseConfig });
 
@@ -2137,38 +2084,31 @@ test("process-audit: fail run with a real errorClass (E-EXEC-FAIL, MAINLINE fold
 
   assert.equal(out.decision.verdict, "fail");
   assert.equal(out.errorClass, "E-EXEC-FAIL");
-  assert.equal(foldCallCount, 1, "learning.fold() must be called on a genuine failure (MAINLINE fold site)");
-  assert.equal(auditCallCount, 1, "processAudit.audit() must be called on a genuine failure (MAINLINE fold site)");
+  assert.equal(auditCallCount, 1, "processAudit.audit() must be called on a genuine failure (mainline site)");
   assert.equal(capturedOutcome?.errorClass, "E-EXEC-FAIL");
 });
 
-test("process-audit: a clean green run (errorClass:null) — learning.fold() IS called, processAudit.audit() is NOT called (the audit gate requires a real error class)", async () => {
-  let foldCallCount = 0;
+test("process-audit: a clean green run (errorClass:null) — processAudit.audit() is NOT called (the audit gate requires a real error class)", async () => {
   let auditCallCount = 0;
   const { ports } = stubPorts(); /* default execute() => clean pass, coverageRatio stays null */
-  ports.learning.fold = async () => { foldCallCount++; };
   const processAudit = makeFakeProcessAudit(() => { auditCallCount++; });
   const useCase = new RunQaUseCase({ ...ports, processAudit, config: baseConfig });
 
-  const out = await useCase.run({ ...baseInput, runId: "process-audit-clean-pass-fold-yes-audit-no" });
+  const out = await useCase.run({ ...baseInput, runId: "process-audit-clean-pass-no-audit" });
 
   assert.equal(out.decision.verdict, "pass");
   assert.equal(out.errorClass, null);
-  assert.equal(foldCallCount, 1, "learning.fold() must still be called on a clean pass");
   assert.equal(auditCallCount, 0, "processAudit.audit() must NOT be called on a clean pass — no qualifying failure to audit");
 });
 
-test("process-audit: processAudit dep ABSENT ([SWAP]-optional) — a gate-true outcome still runs fold, audit is skipped without error", async () => {
-  let foldCallCount = 0;
+test("process-audit: processAudit dep ABSENT ([SWAP]-optional) — a gate-true outcome is persisted, audit is skipped without error", async () => {
   const { ports } = stubPorts({ validate: async () => ({ ok: false, errors: ["[lint] no-wait-for-timeout"] }) });
-  ports.learning.fold = async () => { foldCallCount++; };
   /* No `processAudit` key at all — mirrors every pre-existing composition that has not wired one yet. */
   const useCase = new RunQaUseCase({ ...ports, config: baseConfig });
 
   const out = await useCase.run({ ...baseInput, runId: "process-audit-absent-no-behavior-change" });
 
   assert.equal(out.decision.verdict, "invalid");
-  assert.equal(foldCallCount, 1, "learning.fold() must still run when processAudit is unwired");
 });
 
 /* ── SETUP phase (AGENTS.md run-flow step 3): "bootstrap the config/e2e seed into e2e/, then npm ci;
@@ -2987,20 +2927,17 @@ test("a context-mode INVALID result neither saves run history nor folds learning
      run history or folding learning — unlike an invalid in any other mode, which is saved (next
      test). */
   let saveCallCount = 0;
-  let foldCallCount = 0;
   const { ports } = stubPorts({
     generate: async () => (scriptedGeneration({ specs: [".qa/context.json"], note: "tried" })),
     validate: async () => ({ ok: false, errors: ["feBe[0]: route '/ghost' is not declared in 'routes'"] }),
   });
   ports.runHistory.save = async () => { saveCallCount++; };
-  ports.learning.fold = async () => { foldCallCount++; };
   const useCase = new RunQaUseCase({ ...ports, config: baseConfig });
 
   const out = await useCase.run({ ...baseInput, runId: "context-invalid-no-persist", mode: "context" });
 
   assert.equal(out.decision.verdict, "invalid");
   assert.equal(saveCallCount, 0, "a context-mode invalid (validateContextFn's own context-specific validation) must NOT call runHistory.save() — a context-mode invalid files an Issue but is never saved");
-  assert.equal(foldCallCount, 0, "a context-mode invalid must NOT call learning.fold() either");
 });
 
 test("a GENERIC (non-context-mode) invalid is still saved to run history exactly once", async () => {
@@ -3216,9 +3153,8 @@ test("run() aborted mid-repair inside the static-fix loop stops before consuming
   assert.ok(validateCallCount <= 2, `the static-fix loop must stop re-validating once the signal aborts — expected at most 2 validate() calls, got ${validateCallCount}`);
 });
 
-test("infra-error calls runHistory.save() but NOT learning.fold()", async () => {
+test("infra-error calls runHistory.save()", async () => {
   let saveCallCount = 0;
-  let foldCallCount = 0;
   /* Both this use-case's entry gate AND its mid-run pre-flight derive from the SAME
      DeployGatePort.waitUntilServing — so the first call must succeed (passes the entry gate) and
      only the SECOND call (the mid-run pre-flight, after validate) must fail, to exercise the
@@ -3232,14 +3168,12 @@ test("infra-error calls runHistory.save() but NOT learning.fold()", async () => 
     },
   });
   ports.runHistory.save = async () => { saveCallCount++; };
-  ports.learning.fold = async () => { foldCallCount++; };
   const useCase = new RunQaUseCase({ ...ports, config: baseConfig });
 
   const out = await useCase.run({ ...baseInput, runId: "fix-e-infra-error" });
 
   assert.equal(out.decision.verdict, "infra-error");
   assert.equal(saveCallCount, 1, "infra-error must call runHistory.save() exactly once");
-  assert.equal(foldCallCount, 0, "infra-error must NEVER call learning.fold()");
 });
 
 /* ── Change-coverage keystone: classificationDiff threading into ObjectiveSignalPort.measure() ───
@@ -4392,296 +4326,6 @@ test("a non-diff mode never calls classify(), so generate() receives no intent (
   }
 });
 
-/* LearningPort.retrieve(sha) is called and threaded into generate()/review()'s
-   enrichment.learnedRules, and the persisted/returned rulesRetrieved carries what retrieve()
-   returned. retrieve() returns structured RetrievedRule[] (trigger/action/errorClass/status/
-   confidence), not bare trigger strings. RunOutcome.rulesRetrieved persists IDS, not trigger text
-   (persisting trigger text would starve the by-id fold at the consumer, freezing outcome_count at
-   0 forever). The default id here is DELIBERATELY DIFFERENT from trigger (`id-<trigger>`, never
-   equal) so a regression that persists trigger text instead of ids fails loudly.
- */
-const makeRetrievedRule = (trigger: string, overrides: Partial<RetrievedRule> = {}): RetrievedRule => ({
-  id: overrides.id ?? `id-${trigger}`,
-  trigger,
-  action: overrides.action ?? "default action",
-  errorClass: overrides.errorClass ?? "E-EXEC-FAIL",
-  status: overrides.status ?? "active",
-  confidence: overrides.confidence ?? "high",
-});
-
-test("learning.retrieve(sha) is called before the first generate(), and its result reaches generate()'s enrichment.learnedRules", async () => {
-  let retrieveCalledWithSha: string | undefined;
-  const capturedLearnedRules: (readonly RetrievedRule[] | undefined)[] = [];
-  const rules = [makeRetrievedRule("selector absent"), makeRetrievedRule("use role+name")];
-  const { ports } = stubPorts({
-    retrieve: async (sha) => { retrieveCalledWithSha = sha.toString(); return rules; },
-  });
-  ports.generation.author = async (_specDir, _signal, _diff, enrichment) => {
-    capturedLearnedRules.push(enrichment?.learnedRules);
-    return scriptedGeneration({ specs: ["a.spec.ts"]});
-  };
-  const useCase = new RunQaUseCase({ ...ports, config: baseConfig });
-
-  await useCase.run({ ...baseInput, runId: "w3-f2-retrieve-into-generate" });
-
-  assert.equal(retrieveCalledWithSha, "abc1234", "retrieve() must be called with the run's sha");
-  assert.ok(capturedLearnedRules.length > 0, "generate() must have been called at least once");
-  for (const captured of capturedLearnedRules) {
-    assert.deepEqual(captured, rules, "every generate() call must receive the SAME retrieved rules");
-  }
-});
-
-test("retrieved rules also reach review()'s enrichment.learnedRules", async () => {
-  const capturedLearnedRules: (readonly RetrievedRule[] | undefined)[] = [];
-  const rules = [makeRetrievedRule("never invent a test-id")];
-  const { ports } = stubPorts({
-    retrieve: async () => rules,
-  });
-  ports.review.review = async (_specDir, _cases, _diff, enrichment) => {
-    capturedLearnedRules.push(enrichment?.learnedRules);
-    return { approved: true, corrections: [], blockingCount: 0, parsed: true };
-  };
-  const useCase = new RunQaUseCase({ ...ports, config: baseConfig });
-
-  await useCase.run({ ...baseInput, runId: "w3-f2-retrieve-into-review" });
-
-  assert.ok(capturedLearnedRules.length > 0, "review() must have been called (needsReview:true, clean pass)");
-  assert.deepEqual(capturedLearnedRules[0], rules);
-});
-
-test("an empty retrieve() result omits enrichment.learnedRules entirely (never a fabricated empty marker)", async () => {
-  const capturedLearnedRules: (readonly RetrievedRule[] | undefined)[] = [];
-  const { ports } = stubPorts({ retrieve: async () => [] });
-  ports.generation.author = async (_specDir, _signal, _diff, enrichment) => {
-    capturedLearnedRules.push(enrichment?.learnedRules);
-    return scriptedGeneration({ specs: ["a.spec.ts"]});
-  };
-  const useCase = new RunQaUseCase({ ...ports, config: baseConfig });
-
-  await useCase.run({ ...baseInput, runId: "w3-f2-empty-retrieve" });
-
-  for (const captured of capturedLearnedRules) {
-    assert.equal(captured, undefined, "an empty retrieval must not fabricate a present-but-empty learnedRules field");
-  }
-});
-
-test("a retrieve() failure does not abort the run — generation still proceeds ungrounded", async () => {
-  const { ports } = stubPorts({
-    retrieve: async () => { throw new Error("learning store unavailable"); },
-  });
-  const useCase = new RunQaUseCase({ ...ports, config: baseConfig });
-
-  const out = await useCase.run({ ...baseInput, runId: "w3-f2-retrieve-failure" });
-
-  assert.equal(out.decision.verdict, "pass", "a retrieval failure must be swallowed, not propagated as a run failure");
-});
-
-test("the retrieved rule IDS (not trigger text) reach the persisted RunOutcome.rulesRetrieved on the mainline exit", async () => {
-  let savedRulesRetrieved: string[] | undefined;
-  const rule = makeRetrievedRule("fabricated-testid-guard", { id: "rule-id-001" });
-  const { ports } = stubPorts({ retrieve: async () => [rule] });
-  ports.runHistory.save = async (outcome) => { savedRulesRetrieved = outcome.rulesRetrieved; };
-  const useCase = new RunQaUseCase({ ...ports, config: baseConfig });
-
-  await useCase.run({ ...baseInput, runId: "w3-f2-persisted-rules-retrieved" });
-
-  assert.deepEqual(savedRulesRetrieved, ["rule-id-001"], "the persisted rulesRetrieved must carry the rule's ID (the fold-attribution key), not its trigger text");
-});
-
-test("the returned RunQaResult also carries rulesRetrieved as IDS (RunPipelineAdapter's own read-back path)", async () => {
-  const ruleA = makeRetrievedRule("rule-a-trigger-text", { id: "rule-a-id" });
-  const ruleB = makeRetrievedRule("rule-b-trigger-text", { id: "rule-b-id" });
-  const { ports } = stubPorts({ retrieve: async () => [ruleA, ruleB] });
-  const useCase = new RunQaUseCase({ ...ports, config: baseConfig });
-
-  const out = await useCase.run({ ...baseInput, runId: "w3-f2-returned-rules-retrieved" });
-
-  assert.deepEqual(out.rulesRetrieved, ["rule-a-id", "rule-b-id"]);
-});
-
-/* The
-   terminal `learning.fold()` call (run-qa.use-case.ts ~:2032/2047) was a STRUCTURAL no-op whenever
-   retrieval genuinely happened before this terminal exit, because rulesRetrieved.length===0 is what
-   the factory-level fold consumer treats as "nothing to fold" (no rule ids to attribute outcome_count
-   against). A static-gate "invalid" run in which retrieved rules failed to prevent the E-STATIC
-   verdict is legitimate fold evidence — retrieval happens strictly BEFORE the static gate can ever
-   run (see run-qa.use-case.ts's own retrievedRuleIds derivation, ordered before generate()), so both
-   terminalResult("invalid", ...) call sites (static-gate invalid, mid-run health-preflight
-   infra-error) are POST-retrieval and now thread the real ids through.
- */
-test("an invalid-verdict run that HAD retrieved rules persists a terminal outcome whose rulesRetrieved carries the ids, and learning.fold() receives it (suppression matrix: invalid folds AND audits, unchanged)", async () => {
-  let savedRulesRetrieved: string[] | undefined;
-  let foldedRulesRetrieved: string[] | undefined;
-  let foldCallCount = 0;
-  let auditCallCount = 0;
-  const rule = makeRetrievedRule("would-be-injected-rule", { id: "rule-terminal-001" });
-  const { ports } = stubPorts({
-    retrieve: async () => [rule],
-    validate: async () => ({ ok: false, errors: ["[lint] no-wait-for-timeout"] }),
-  });
-  ports.runHistory.save = async (outcome) => { savedRulesRetrieved = outcome.rulesRetrieved; };
-  ports.learning.fold = async (outcome) => { foldCallCount++; foldedRulesRetrieved = outcome.rulesRetrieved; };
-  const processAudit = makeFakeProcessAudit(() => { auditCallCount++; });
-  const useCase = new RunQaUseCase({ ...ports, processAudit, config: baseConfig });
-
-  const out = await useCase.run({ ...baseInput, runId: "invalid-exit-carries-rules" });
-
-  assert.equal(out.decision.verdict, "invalid");
-  assert.deepEqual(savedRulesRetrieved, ["rule-terminal-001"], "the persisted terminal RunOutcome.rulesRetrieved must carry the retrieved rule's id — retrieval happened strictly before the static gate that produced this invalid verdict");
-  assert.equal(foldCallCount, 1, "learning.fold() must still be called on an invalid verdict (suppression matrix: invalid folds, unchanged)");
-  assert.deepEqual(foldedRulesRetrieved, ["rule-terminal-001"], "learning.fold() must receive the SAME non-empty rulesRetrieved the terminal outcome was persisted with — this is the fix: previously rulesRetrieved was always [], making the fold a structural no-op for rule-outcome attribution");
-  assert.equal(auditCallCount, 1, "processAudit.audit() must still be called on an invalid verdict (suppression matrix: invalid audits too)");
-});
-
-/* retrieve()'s relevance bias must be fed from deterministic signals RunQaUseCase already has
-   at retrieval time — restored from the deleted shell's selectForRetrieval bias (src/qa/learning/
-   retrieval.ts): the CURRENT diff's structural archetypes (detected the
-   SAME way generation's own curriculum.select()/detectArchetype() calls already detect them —
-   qa-engine/src/shared-kernel/structural-pattern.ts). The shell ALSO biased on the app's most
-   recent PERSISTED errorClass (deps.recentErrorClass) — RunHistoryPort is save-only (no read-back;
-   see run-pipeline.adapter.ts's own header), so that signal has no equivalent source at
-   this point in the current flow and is deliberately left unwired (never invented) — see the
-   commit body.
- */
-test("learning.retrieve(sha, relevance) receives archetypes detected from the classified diff's structural shape", async () => {
-  let capturedRelevance: RelevanceBias | undefined;
-  const { ports } = stubPorts({
-    classify: async () => ({
-      action: "generate",
-      reason: "diff touches src/login.ts",
-      diff: "await fetch('/api/login');",
-      intent: { type: "feat", breaking: false, message: "add login call", changedFiles: ["src/login.ts"] },
-    }),
-    retrieve: async (_sha, relevance) => { capturedRelevance = relevance; return []; },
-  });
-  const useCase = new RunQaUseCase({ ...ports, config: baseConfig });
-
-  await useCase.run({ ...baseInput, runId: "retrieve-archetype-bias" });
-
-  assert.deepEqual(
-    capturedRelevance,
-    { archetypes: ["api-call", "auth-flow"] },
-    "the diff's own structural patterns (fetch -> api-call, login -> auth-flow) must reach retrieve() as the relevance bias, with no errorClass fabricated",
-  );
-});
-
-test("a generic diff (no structural pattern detected) omits the relevance argument entirely — no fabricated empty bias", async () => {
-  let retrieveCallCount = 0;
-  let capturedRelevance: RelevanceBias | undefined = { errorClass: "should-not-survive" };
-  const { ports } = stubPorts({
-    retrieve: async (_sha, relevance) => { retrieveCallCount++; capturedRelevance = relevance; return []; },
-  });
-  const useCase = new RunQaUseCase({ ...ports, config: baseConfig });
-
-  await useCase.run({ ...baseInput, runId: "retrieve-generic-diff-no-bias" });
-
-  assert.equal(retrieveCallCount, 1, "retrieve() must still be called exactly once");
-  assert.equal(capturedRelevance, undefined, "the default stub classify() returns an empty diff — no structural pattern to bias with, so relevance must stay undefined, not a fabricated {}");
-});
-
-test("outside diff mode (no classification, no diff available) retrieve() receives no relevance bias — never invented from nothing", async () => {
-  let capturedRelevance: RelevanceBias | undefined = { errorClass: "should-not-survive" };
-  const { ports } = stubPorts({
-    retrieve: async (_sha, relevance) => { capturedRelevance = relevance; return []; },
-  });
-  const useCase = new RunQaUseCase({ ...ports, config: baseConfig });
-
-  await useCase.run({ ...baseInput, mode: "complete", runId: "retrieve-non-diff-mode-no-bias" });
-
-  assert.equal(capturedRelevance, undefined, "complete/exhaustive/manual modes never classify, so there is no diff to derive archetypes from — relevance must stay undefined, not invented");
-});
-
-/* The learning fold credits only the retrieved rules attributable to the run diff's structural
-   shapes, so every folded outcome must carry those shapes — derived from the classified diff, on
-   the mainline and on the invalid exit alike. Outside diff mode there is no diff to read, so the
-   outcome carries none and the fold keeps every retrieved rule attributable. */
-const loginDiffClassification: ChangeAnalysisPort["classify"] = async () => ({
-  action: "generate",
-  reason: "diff touches src/login.ts",
-  diff: "await fetch('/api/login');",
-  intent: { type: "feat", breaking: false, message: "add login call", changedFiles: ["src/login.ts"] },
-});
-
-test("the folded outcome of a diff run carries the diff's structural shapes", async () => {
-  const { ports, foldedOutcomes } = stubPorts({
-    classify: loginDiffClassification,
-    retrieve: async () => [makeRetrievedRule("login rule")],
-  });
-
-  await new RunQaUseCase({ ...ports, config: baseConfig }).run({ ...baseInput, runId: "fold-carries-diff-shapes" });
-
-  assert.equal(foldedOutcomes.length, 1);
-  assert.ok(foldedOutcomes[0]!.diffArchetypes?.includes("api-call"), `got ${JSON.stringify(foldedOutcomes[0]!.diffArchetypes)}`);
-});
-
-test("the folded outcome of an invalid run carries the diff's structural shapes", async () => {
-  const { ports, foldedOutcomes } = stubPorts({
-    classify: loginDiffClassification,
-    retrieve: async () => [makeRetrievedRule("login rule")],
-    validate: async () => ({ ok: false, errors: ["[lint] no-wait-for-timeout"] }),
-  });
-
-  const out = await new RunQaUseCase({ ...ports, config: baseConfig }).run({ ...baseInput, runId: "invalid-fold-carries-diff-shapes" });
-
-  assert.equal(out.decision.verdict, "invalid");
-  assert.ok(foldedOutcomes[0]?.diffArchetypes?.includes("api-call"), `got ${JSON.stringify(foldedOutcomes[0]?.diffArchetypes)}`);
-});
-
-/* The retrieved rules the learning fold would credit from a folded outcome, through the fold's own
-   attribution filter: one rule tagged for forms, one untagged. */
-function creditedByFold(outcome: RunOutcome): string[] {
-  const rule = (id: string, archetype: string | null): LearningRule => ({
-    id, trigger: "t", action: "a", errorClass: "E-FRAGILE-SELECTOR", archetype, status: "active", confidence: "low",
-    usageCount: 0, outcomeCount: 0, oracleOutcomeCount: 0, successRate: null, lastVerified: null, source: "test", at: "2026-01-01T00:00:00.000Z",
-  });
-  const rules = [rule("form-rule", "form"), rule("untagged-rule", null)];
-  return attributableRules(rules, { diffArchetypes: outcome.diffArchetypes ?? [] }).map((r) => r.id);
-}
-
-test("a generic-only diff never lets the fold credit a form-tagged rule; an untagged rule stays credited", async () => {
-  const { ports, foldedOutcomes } = stubPorts({
-    classify: async () => ({
-      action: "generate",
-      reason: "diff touches src/title.ts",
-      diff: "export const pageTitle = 'Owners';",
-      intent: { type: "feat", breaking: false, message: "rename the page title", changedFiles: ["src/title.ts"] },
-    }),
-    retrieve: async () => [makeRetrievedRule("title rule")],
-  });
-
-  await new RunQaUseCase({ ...ports, config: baseConfig }).run({ ...baseInput, runId: "generic-diff-attribution" });
-
-  assert.equal(foldedOutcomes.length, 1);
-  assert.deepEqual(creditedByFold(foldedOutcomes[0]!), ["untagged-rule"]);
-});
-
-test("outside diff mode the folded outcome carries no diff shapes, so the fold credits every retrieved rule", async () => {
-  const { ports, foldedOutcomes } = stubPorts({
-    retrieve: async () => [makeRetrievedRule("any rule")],
-  });
-
-  await new RunQaUseCase({ ...ports, config: baseConfig }).run({ ...baseInput, mode: "complete", runId: "non-diff-fold-no-shapes" });
-
-  assert.equal(foldedOutcomes.length, 1);
-  assert.deepEqual(creditedByFold(foldedOutcomes[0]!), ["form-rule", "untagged-rule"]);
-});
-
-test("regression pin: a pre-retrieval exit (classify-skip) still persists nothing — rulesRetrieved threading never reaches an exit that fires before retrieve() runs", async () => {
-  let saveCallCount = 0;
-  const { ports } = stubPorts({
-    classify: async () => ({ action: "skip", reason: "docs-only change", diff: "" }),
-    retrieve: async () => [makeRetrievedRule("would-be-injected-rule")],
-  });
-  ports.runHistory.save = async () => { saveCallCount++; };
-  const useCase = new RunQaUseCase({ ...ports, config: baseConfig });
-
-  const out = await useCase.run({ ...baseInput, runId: "classify-skip-still-empty" });
-
-  assert.equal(out.decision.verdict, "skipped");
-  assert.deepEqual(out.rulesRetrieved, [], "a classify-skip returns before learning.retrieve() is ever called (see run-qa.use-case.ts's classify-skip bare-return, strictly before the retrievedRuleIds derivation) — it must stay [], never fabricated");
-  assert.equal(saveCallCount, 0, "a classify-skip never calls runHistory.save() at all —");
-});
-
 /* serviceLinksCount/contractDriftCount telemetry must survive from the mainline `extra?` bag into
    the RETURNED gateSignals literal `toRunOutcome` constructs — this is the exact gap a prior
    design revision left as dead code (fields typed+mapped for persistence, but the construction
@@ -4759,7 +4403,7 @@ test("an early-exit terminal (static-gate invalid) never reaches the mainline te
   const out = await useCase.run({ ...baseInput, runId: "telemetry-invalid-exit" });
 
   assert.equal(out.decision.verdict, "invalid");
-  assert.equal(savedGateSignals!.structuralSignalBytes, undefined, "the invalid-exit path never reaches the mainline extra? wiring — telemetry stays undefined, matching the mainline-only precedent catalogGate*/rulesRetrieved already established");
+  assert.equal(savedGateSignals!.structuralSignalBytes, undefined, "the invalid-exit path never reaches the mainline extra? wiring — telemetry stays undefined, matching the mainline-only precedent catalogGate* already established");
   assert.equal(savedGateSignals!.serviceLinksCount, undefined);
   assert.equal(savedGateSignals!.contractDriftCount, undefined);
 });
@@ -6912,7 +6556,7 @@ test("curriculum: select() receives the CLASSIFIED diff and changed files, not a
   assert.deepEqual(calls[0]?.changedFiles, ["src/api.ts"]);
 });
 
-/* ── Curriculum fold (the evidence ladder): CurriculumPort.fold() after the learning fold ─────
+/* ── Curriculum fold (the evidence ladder): CurriculumPort.fold() ─────
    The fold credits EXACTLY the archetypes select() offered, labelled with evidence the run has
    ALREADY computed deterministically — DecideCoverageService's own coverage status and the
    adjudicator's own class. Never a green verdict alone, never an LLM judgement.
@@ -6951,14 +6595,14 @@ test("curriculum: nothing offered, nothing folded — the curriculum only ever c
   assert.equal(folds.length, 0);
 });
 
-test("curriculum: the fold is NOT gated on shouldDistillLearning — an app_defect run suppresses the learning fold but MUST credit the curriculum", async () => {
+test("curriculum: the fold is NOT gated on shouldDistillLearning — an app_defect run MUST credit the curriculum", async () => {
   const folds: CurriculumFoldInput[] = [];
   /* Drives adjudicate()'s Rule 2.5 (an attributed 5xx) deterministically: a failure detail that is
      NOT a Playwright launcher signature (so Rule 1 cannot fire), the stubbed deploy gate serving
      (so devHealthy is true and Rule 2 cannot fire), and one failed
      case carrying httpStatus 500 -> app_defect/high/break-issue at round 0 of the FixLoop.
    */
-  const { ports, foldedOutcomes } = stubPorts({
+  const { ports } = stubPorts({
     execute: async () => ({
       verdict: "fail",
       cases: [{ name: "t", status: "fail", detail: "expected 3 received 4", file: "t.spec.ts", httpStatus: 500 }],
@@ -6974,7 +6618,6 @@ test("curriculum: the fold is NOT gated on shouldDistillLearning — an app_defe
 
   await new RunQaUseCase(ports).run({ ...baseInput, runId: "curriculum-fold-app-defect" });
 
-  assert.equal(foldedOutcomes.length, 0, "app_defect must suppress the learning fold");
   assert.equal(folds.length, 1, "app_defect must still credit the curriculum");
   assert.equal(folds[0]!.adjudicationClass, "app_defect");
 });
@@ -7281,10 +6924,10 @@ test("auth session failure before generate is infra-error and does not generate"
 
 /* A login that breaks between generation and execute is the same class of failure as DEV going
    down at that point: the run already generated specs, so it is recorded like any other terminal. */
-test("a pre-execute auth failure is only recorded: an infra-error outcome is persisted, never executed, published or folded", async () => {
+test("a pre-execute auth failure is only recorded: an infra-error outcome is persisted, never executed or published", async () => {
   let executed = 0;
   let published = 0;
-  const { ports, savedOutcomes, foldedOutcomes } = stubPorts({
+  const { ports, savedOutcomes } = stubPorts({
     execute: async () => { executed += 1; return { verdict: "pass", cases: [], logs: "" }; },
     publish: async () => { published += 1; return { outcome: "pr" }; },
   });
@@ -7308,7 +6951,6 @@ test("a pre-execute auth failure is only recorded: an infra-error outcome is per
   assert.equal(savedOutcomes.length, 1);
   assert.equal(savedOutcomes[0]?.verdict, "infra-error");
   assert.match(savedOutcomes[0]?.note ?? "", /login form not found/);
-  assert.deepEqual(foldedOutcomes, []);
 });
 
 test("a pre-execute auth failure reverts writes outside the suite before the run ends", async () => {
@@ -7367,7 +7009,7 @@ const REJECTED = { kind: PRECONDITION_KIND.CREDENTIALS_REJECTED, note: "the logi
 
 /* The fake session port throws the typed precondition error at the phases the caller names. */
 function preconditionRun(opts: { failAt: readonly ("pre-generate" | "pre-execute")[]; classify?: ChangeAnalysisPort["classify"]; mode?: "diff" | "context"; error?: () => Error }) {
-  const seen = { generated: 0, executed: 0, published: 0, folded: 0, audited: 0, prepared: [] as string[] };
+  const seen = { generated: 0, executed: 0, published: 0, audited: 0, prepared: [] as string[] };
   const { ports, savedOutcomes } = stubPorts({
     generate: async () => {
       seen.generated += 1;
@@ -7375,7 +7017,6 @@ function preconditionRun(opts: { failAt: readonly ("pre-generate" | "pre-execute
     },
     execute: async () => { seen.executed += 1; return { verdict: "pass", cases: [], logs: "" }; },
     publish: async () => { seen.published += 1; return { outcome: "pr" }; },
-    fold: async () => { seen.folded += 1; },
     ...(opts.classify ? { classify: opts.classify } : {}),
   });
   const { observer, events } = fakeObserver();
@@ -7410,12 +7051,12 @@ test("a login that fails before generation ends the run as a persisted precondit
   assert.ok((savedOutcomes[0]!.note ?? "").includes(REJECTED.kind), "the persisted note names it too");
 });
 
-test("a precondition failure opens no Issue and teaches nothing: no fold, no process audit", async () => {
+test("a precondition failure opens no Issue and teaches nothing: no process audit", async () => {
   for (const failAt of [["pre-generate"], ["pre-execute"]] as const) {
     const { run, seen } = preconditionRun({ failAt });
     const out = await run(`precondition-teaches-nothing-${failAt[0]}`);
     assert.equal(out.decision.sideEffect, "none", failAt[0]);
-    assert.deepEqual([seen.published, seen.folded, seen.audited], [0, 0, 0], failAt[0]);
+    assert.deepEqual([seen.published, seen.audited], [0, 0], failAt[0]);
   }
 });
 
@@ -7853,30 +7494,21 @@ test("a regression run, which generates nothing, is not read as a generation end
 /* ── What each generation end teaches the engine ───────────────────────────────────────────────── */
 
 interface Learned {
-  folded: RunOutcome[];
   audited: RunOutcome[];
 }
 
 async function learnFrom(generation: ReturnType<typeof scriptedGeneration>, input: Parameters<RunQaUseCase["run"]>[0] = baseInput): Promise<Learned> {
-  const learned: Learned = { folded: [], audited: [] };
+  const learned: Learned = { audited: [] };
   const { ports } = stubPorts({ generate: async () => generation });
-  ports.learning.fold = async (outcome) => { learned.folded.push(outcome); };
   const processAudit = makeFakeProcessAudit((outcome) => { learned.audited.push(outcome); });
   await new RunQaUseCase({ ...ports, processAudit, config: baseConfig }).run(input);
   return learned;
 }
 
-test("a generation that ran out of steps feeds the fold and the process audit, under its own class", async () => {
+test("a generation that ran out of steps feeds the process audit, under its own class", async () => {
   const learned = await learnFrom(scriptedGeneration({ specs: [], end: GENERATION_END.EXHAUSTED, note: EXHAUSTED_NOTE, turn: EXHAUSTED_TURN }));
-  assert.equal(learned.folded.length, 1);
-  assert.equal(learned.folded[0]!.errorClass, ERROR_CLASS.STEP_BUDGET);
   assert.equal(learned.audited.length, 1);
   assert.equal(learned.audited[0]!.errorClass, ERROR_CLASS.STEP_BUDGET);
-});
-
-test("a generation cut off by its time budget teaches nothing: wall-clock exhaustion is confounded by DEV latency", async () => {
-  const learned = await learnFrom(scriptedGeneration({ specs: [], parsed: false, end: GENERATION_END.TIME_BUDGET, note: TIME_BUDGET_NOTE }));
-  assert.deepEqual([learned.folded.length], [0]);
 });
 
 test("a time-budget end reaches the process audit alone, so a recurring one is visible, under its own class", async () => {
@@ -7885,16 +7517,15 @@ test("a time-budget end reaches the process audit alone, so a recurring one is v
   assert.equal(learned.audited[0]!.errorClass, ERROR_CLASS.TIME_BUDGET);
 });
 
-test("a run ended by the run-level deadline is audited as a time-budget end too, and still folds nothing", async () => {
-  const learned: { folded: RunOutcome[]; audited: RunOutcome[] } = { folded: [], audited: [] };
+test("a run ended by the run-level deadline is audited as a time-budget end too", async () => {
+  const learned: { audited: RunOutcome[] } = { audited: [] };
   const { ports } = stubPorts({ generate: async () => { throw deadlineExceeded("primary"); } });
-  ports.learning.fold = async (o) => { learned.folded.push(o); };
   await new RunQaUseCase({
     ...ports,
     processAudit: makeFakeProcessAudit((o) => { learned.audited.push(o); }),
     config: baseConfig,
   }).run(baseInput);
-  assert.deepEqual([learned.folded.length, learned.audited.length], [0, 1]);
+  assert.equal(learned.audited.length, 1);
   assert.equal(learned.audited[0]!.errorClass, ERROR_CLASS.TIME_BUDGET);
 });
 
@@ -7905,12 +7536,12 @@ test("a context run that ended on its time budget is not audited either", async 
   assert.equal(audited.length, 0);
 });
 
-test("a context-mode generation that ran out of steps teaches nothing, like every other context-mode terminal", async () => {
+test("a context-mode generation that ran out of steps is not audited, like every other context-mode terminal", async () => {
   const learned = await learnFrom(
     scriptedGeneration({ specs: [], end: GENERATION_END.EXHAUSTED, note: EXHAUSTED_NOTE, turn: EXHAUSTED_TURN }),
     { ...baseInput, mode: "context" },
   );
-  assert.deepEqual([learned.folded.length, learned.audited.length], [0, 0]);
+  assert.equal(learned.audited.length, 0);
 });
 
 test("a context-mode generation that ran out of steps still ends loudly as a persisted infra-error with its note", async () => {
@@ -7925,64 +7556,59 @@ test("a context-mode generation that ran out of steps still ends loudly as a per
   assert.equal(savedOutcomes[0]!.errorClass, ERROR_CLASS.STEP_BUDGET);
 });
 
-test("a generation that decided nothing never feeds the fold or the process audit", async () => {
+test("a generation that decided nothing never feeds the process audit", async () => {
   const learned = await learnFrom(scriptedGeneration({ specs: [], end: GENERATION_END.UNDECIDED_EMPTY, note: "no decision" }));
-  assert.equal(learned.folded.length, 0);
   assert.equal(learned.audited.length, 0);
 });
 
-test("a declared no-op and a generation with no readable verdict teach nothing either", async () => {
+test("a declared no-op and a generation with no readable verdict are not audited either", async () => {
   for (const generation of [
     scriptedGeneration({ specs: [], end: GENERATION_END.DECLARED_NOOP, note: "nothing to test" }),
     scriptedGeneration({ specs: [], parsed: false, end: GENERATION_END.NO_VERDICT }),
   ]) {
     const learned = await learnFrom(generation);
-    assert.deepEqual([learned.folded.length, learned.audited.length], [0, 0], generation.end);
+    assert.equal(learned.audited.length, 0, generation.end);
   }
 });
 
-test("an infrastructure failure before execution still teaches nothing, while a static-gate rejection still does", async () => {
-  const infra = { folded: 0, audited: 0 };
+test("an infrastructure failure before execution is not audited, while a static-gate rejection is", async () => {
+  const infra = { audited: 0 };
   const { ports: infraPorts } = stubPorts({ waitUntilServing: async () => ({ ok: false, error: new Error("DEV unhealthy") }) });
-  infraPorts.learning.fold = async () => { infra.folded++; };
   await new RunQaUseCase({
     ...infraPorts,
     processAudit: makeFakeProcessAudit(() => { infra.audited++; }),
     config: baseConfig,
   }).run(baseInput);
-  assert.deepEqual(infra, { folded: 0, audited: 0 });
+  assert.deepEqual(infra, { audited: 0 });
 
-  const invalid = { folded: 0, audited: 0 };
+  const invalid = { audited: 0 };
   const { ports: invalidPorts } = stubPorts({ validate: async () => ({ ok: false, errors: ["[lint] no-wait-for-timeout"] }) });
-  invalidPorts.learning.fold = async () => { invalid.folded++; };
   await new RunQaUseCase({
     ...invalidPorts,
     processAudit: makeFakeProcessAudit(() => { invalid.audited++; }),
     config: baseConfig,
   }).run(baseInput);
-  assert.deepEqual(invalid, { folded: 1, audited: 1 });
+  assert.deepEqual(invalid, { audited: 1 });
 });
 
-test("a green run still folds but does not audit, and a flaky one still folds without auditing", async () => {
-  const green = { folded: 0, audited: 0 };
+test("neither a green run nor a flaky one is audited", async () => {
+  const green = { audited: 0 };
   const { ports: greenPorts } = stubPorts();
-  greenPorts.learning.fold = async () => { green.folded++; };
   await new RunQaUseCase({
     ...greenPorts,
     processAudit: makeFakeProcessAudit(() => { green.audited++; }),
     config: baseConfig,
   }).run(baseInput);
-  assert.deepEqual(green, { folded: 1, audited: 0 });
+  assert.deepEqual(green, { audited: 0 });
 
-  const flaky = { folded: 0, audited: 0 };
+  const flaky = { audited: 0 };
   const { ports: flakyPorts } = stubPorts({ execute: async () => ({ verdict: "flaky", cases: [{ name: "checkout", status: "flaky" as const }], logs: "" }) });
-  flakyPorts.learning.fold = async () => { flaky.folded++; };
   await new RunQaUseCase({
     ...flakyPorts,
     processAudit: makeFakeProcessAudit(() => { flaky.audited++; }),
     config: baseConfig,
   }).run(baseInput);
-  assert.deepEqual(flaky, { folded: 1, audited: 0 });
+  assert.deepEqual(flaky, { audited: 0 });
 });
 
 /* ── Coordination telemetry reports the review outcome only when a reviewer ran ────────────────── */
@@ -8108,15 +7734,13 @@ test("a commit the classifier skips never arms the deadline: it spends no agent 
 async function runEndedByDeadline(over: Parameters<typeof stubPorts>[0], config: Record<string, unknown> = baseConfig) {
   let published = 0;
   const pruned: string[] = [];
-  const learned = { folded: [] as RunOutcome[] };
   const { ports, savedOutcomes, ws } = stubPorts({
     publish: async () => { published++; return { outcome: "issue" }; },
-    fold: async (o) => { learned.folded.push(o); },
     ...over,
   });
   const { observer, events } = fakeObserver();
   const out = await new RunQaUseCase({ ...ports, observer, config, mirrorGc: { prune: async (w: WorkspaceHandle) => { pruned.push(rootsOf(w).mirrorDir); } } }).run(baseInput);
-  return { out, savedOutcomes, events, published: () => published, pruned, learned, mirrorDir: ws.mirrorDir };
+  return { out, savedOutcomes, events, published: () => published, pruned, mirrorDir: ws.mirrorDir };
 }
 
 test("a first generation stopped by the run's deadline ends the run as a persisted infra-error under the time-budget class, with a note that says so", async () => {
@@ -8132,11 +7756,10 @@ test("a first generation stopped by the run's deadline ends the run as a persist
   assert.ok((run.out.note ?? "").includes("Run time budget of 25 min"));
 });
 
-test("a run ended by its deadline publishes nothing, teaches nothing, prunes its working copy and says loudly that the cause is engine-side time", async () => {
+test("a run ended by its deadline publishes nothing, prunes its working copy and says loudly that the cause is engine-side time", async () => {
   const run = await runEndedByDeadline({ generate: async () => { throw deadlineExceeded("primary", "before-turn"); } });
   assert.equal(run.out.decision.sideEffect, "none");
   assert.equal(run.published(), 0, "no Issue and no PR");
-  assert.deepEqual([run.learned.folded.length], [0]);
   assert.deepEqual(run.pruned, [run.mirrorDir]);
   assert.ok(run.events.some((e) => e.type === "agent.error" && /next primary turn was not started/.test(e.detail)));
   const engineSide = run.events.filter((e) => e.type === "log.line" && e.text.includes(ERROR_CLASS.TIME_BUDGET));
@@ -9074,7 +8697,7 @@ function rebuttingGeneration(rebuttal: (correction: string) => object, specsAtPr
 }
 
 function disputedPorts(fixtures: ReturnType<typeof reviewFixtures>, generate: () => Promise<ReturnType<typeof scriptedGeneration>>, review: ReviewPort["review"]) {
-  const { ports, savedOutcomes, foldedOutcomes } = stubPorts({
+  const { ports, savedOutcomes } = stubPorts({
     prepare: async () => fakeHandle({ specDir: fixtures.specDir, mirrorDir: fixtures.mirrorDir }),
     execute: async () => ({
       verdict: "pass" as const,
@@ -9084,13 +8707,13 @@ function disputedPorts(fixtures: ReturnType<typeof reviewFixtures>, generate: ()
     review,
   });
   ports.generation.author = generate as AuthorPort["author"];
-  return { ports, savedOutcomes, foldedOutcomes };
+  return { ports, savedOutcomes };
 }
 
-test("a verified blocking finding whose rebuttal is not verified ends the run as E-REVIEW-DISPUTED — no PR, no Issue, nothing learned", async () => {
+test("a verified blocking finding whose rebuttal is not verified ends the run as E-REVIEW-DISPUTED — no PR, no Issue", async () => {
   const { fixtures, generate } = rebuttingGeneration((finding) => ({ finding, basis: "execution", ref: "flows/absent.spec.ts", reason: "the case passed" }));
   try {
-    const { ports, savedOutcomes, foldedOutcomes } = disputedPorts(fixtures, generate, disputedFinding({ kind: "execution", ref: "flows/checkout.spec.ts" }) as ReviewPort["review"]);
+    const { ports, savedOutcomes } = disputedPorts(fixtures, generate, disputedFinding({ kind: "execution", ref: "flows/checkout.spec.ts" }) as ReviewPort["review"]);
     const out = await new RunQaUseCase({ ...ports, config: { ...baseConfig, reviewLoopIntegrity: true } }).run({ ...baseInput, runId: "review-disputed" });
 
     assert.equal(out.decision.verdict, "infra-error");
@@ -9100,8 +8723,7 @@ test("a verified blocking finding whose rebuttal is not verified ends the run as
     assert.equal(savedOutcomes[0]!.errorClass, ERROR_CLASS.REVIEW_DISPUTED);
     assert.match(savedOutcomes[0]!.note ?? "", /could not settle/);
     assert.match(savedOutcomes[0]!.note ?? "", /the discount is never asserted/, "the record names the finding that stayed open");
-    assert.deepEqual(foldedOutcomes, [], "a dispute teaches nothing");
-  } finally {
+    } finally {
     fixtures.cleanup();
   }
 });

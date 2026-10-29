@@ -38,7 +38,6 @@ export function buildRunChatContext(): string {
 export function buildLearningContext(app: string): string | null {
   try {
     const outcomes = getHistory().learning.listRunOutcomes(app, 10);
-    const rules = getHistory().learning.listLearningRules(app, 20);
     /*
      * A corrupt row (logged by loadCurriculum() itself) is stated as corrupt, never folded into
      * "no curriculum yet": the operator asking why archetype guidance is missing needs the real
@@ -48,7 +47,7 @@ export function buildLearningContext(app: string): string | null {
     const curriculumCorrupt = curriculumRaw === CURRICULUM_CORRUPT;
     const curriculum = curriculumCorrupt ? null : curriculumRaw;
 
-    if (outcomes.length === 0 && rules.length === 0 && !curriculum && !curriculumCorrupt) return null;
+    if (outcomes.length === 0 && !curriculum && !curriculumCorrupt) return null;
 
     const lines: string[] = ["## Learning state for this app", ""];
 
@@ -58,18 +57,6 @@ export function buildLearningContext(app: string): string | null {
         const vs = o.gateSignals.valueScore !== null ? ` valueScore=${(o.gateSignals.valueScore * 100).toFixed(0)}%` : "";
         const ec = o.errorClass ? ` ${o.errorClass}` : "";
         lines.push(`- ${o.verdict}${ec}${vs} (${o.mode}/${o.target}, ${o.sha.slice(0, 7)})`);
-      }
-      lines.push("");
-    }
-
-    if (rules.length > 0) {
-      const active = rules.filter((r) => r.status === "active" || r.status === "candidate");
-      lines.push(`### Learned rules (${active.length} active/candidate):`);
-      for (const r of active.slice(0, 5)) {
-        const sr = r.successRate !== null ? ` successRate=${(r.successRate * 100).toFixed(0)}%` : "";
-        lines.push(`- [${r.status}] ${r.errorClass} (${r.confidence}${sr}, used ${r.usageCount}x)`);
-        lines.push(`  trigger: ${r.trigger.slice(0, 120)}`);
-        lines.push(`  action: ${r.action.slice(0, 120)}`);
       }
       lines.push("");
     }

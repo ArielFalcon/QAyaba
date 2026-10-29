@@ -181,7 +181,7 @@ the rows for the decisions it touches, with the rule and the record that settled
 
 `RunQaUseCase` (`qa-engine/src/contexts/run-orchestration/application/run-qa.use-case.ts`)
 is the only engine; webhook (`src/server/webhook-handler.ts`, wired by `src/server/wire-app.ts`) and CLI (`src/cli.ts`) both enter through
-`enqueueTrackedRun`. It walks a table of 50 named steps in 15 phases (`application/run-flow/run-steps.ts`, ids in `step-ids.ts`); a step returns one closed outcome (go on, go to a step, or end the run for a reason), every end goes through `finalizeRun` (`run-flow/finalize-run.ts`), the only place a run is saved, published, learned from and pruned, and every fault a step lets escape is classified by `failure-policy.ts` into rethrow, end, carry on or degrade. `diff` mode:
+`enqueueTrackedRun`. It walks a table of 49 named steps in 15 phases (`application/run-flow/run-steps.ts`, ids in `step-ids.ts`); a step returns one closed outcome (go on, go to a step, or end the run for a reason), every end goes through `finalizeRun` (`run-flow/finalize-run.ts`), the only place a run is saved, published, audited and pruned, and every fault a step lets escape is classified by `failure-policy.ts` into rethrow, end, carry on or degrade. `diff` mode:
 
 1. **Gate** — wait until DEV serves this SHA (`dev.versionUrl`; skipped when absent).
 2. **Classify** — checkout, diff + message, `classifyCommit` (Conventional Commits
@@ -593,19 +593,19 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   settles a failure that ended where its route sends the client by the fact's class, with no re-read (a correction, an
   `E-PRECONDITION`, or `BREAK_NEEDS_HUMAN` for a possible regression); the PR or Issue lists every `change-introduced`
   route and every possible regression; `gateSignals.routeAvailability` records the counts. A signal, never a gate.
-- **Cross-run learning** — `qa-engine/src/contexts/cross-run-learning/`: deterministic
-  rule fold, rule governance, curriculum and the process audit. No agent keeps a memory of its own across
+- **Cross-run learning** — `qa-engine/src/contexts/cross-run-learning/`: the learning gates, the curriculum and the
+  process audit. The rule loop (the rule ledger and its fold, governance, retrieval and injection, the reflector and the
+  quarantine and ledger commands) is deleted ([ADR-0003](docs/architecture/adr/0003-learning-layer-rebuild.md)): a
+  run reads no lesson and writes none, and what replaces it is built separately against a frozen arm. What stays: the
+  run outcomes (`run_outcomes`), which every run persists and the process audit reads; the learning gates
+  (`learning-gates.ts`), which decide which outcomes reach the audit; the process audit
+  (`process-audit.ts`), which observes a streak of one error class and marks the architecture map stale for the
+  classes a stale map explains; and the campaign freeze. No agent keeps a memory of its own across
   runs: an agent memory held what the agent believed, with no SHA, no expiry and no check against DEV,
   and later runs read those beliefs as facts over what the Context Pack read live; what a run reuses
-  comes from the orchestrator (the suite store, this ledger, the Context Pack). No agent writes a rule: the
-  composition root builds `SqliteLearningRepository` with `{ reflectorUnproven: false }`, so only a rule that earned its place
-  (active, confidence above low, earned from measured outcomes) reaches a prompt. The fold, governance and the process audit
-  stay on. **Quarantine**: `npm run learning:quarantine -- --app <app> --since <ISO date> [--dry-run]`
-  (inside the orchestrator container) marks every in-force rule the app learned at or after the date
-  (`learning_rules.quarantined_at`; `QuarantineLearnedRulesUseCase`). It deletes nothing, is idempotent,
-  and a quarantined rule is excluded from governance retrieval, the live ledger and
-  `recordRuleOutcome`; `ledger-cli show` lists it under QUARANTINED and `ledger-cli release <ruleId>`
-  lifts it.
+  comes from the orchestrator (the suite store, the Context Pack). The tables the removed loop wrote
+  (`learning_rules`, `scorecard`) and the `rules_retrieved` and `reflection` columns of `run_outcomes` stay in the schema,
+  unread; the scorecard rows the signals view reads are the ones earlier runs left.
 
 ### The agent and its prompts
 
@@ -633,8 +633,8 @@ test, and the verdict is its last action.
 
 ### Persistence & onboarding
 
-- The suite's source of truth is **git** (app repo `e2e/`). Run history and the learning ledger
-  (`qayaba-data` volume) are the only non-regenerable data; Serena index and mirrors are caches.
+- The suite's source of truth is **git** (app repo `e2e/`). Run history
+  (`qayaba-data` volume) is the only non-regenerable data; Serena index and mirrors are caches.
 - The history database carries a schema version (`PRAGMA user_version`). Opening never prunes; retention (`pruneHistory`) runs at boot and every 24 h. A file that does not match schema 1 is refused at start with `history database at <path> predates schema 1 and cannot be adopted; remove or move it aside`; nothing deletes it.
 - Onboarding an app = `config/apps/<app>.yaml` + `.env`. `${VARS}` expand from the env. The schema is not strict: a key it does not declare is dropped and the default applies, and the loader logs one warning per process for each such key, naming the app and the key path and never the value (`src/orchestrator/config-loader.ts`), so a typo of a threshold key is visible.
 - **Suite store** (`qa-engine/src/contexts/workspace-and-publication/infrastructure/suite-store.adapter.ts`,

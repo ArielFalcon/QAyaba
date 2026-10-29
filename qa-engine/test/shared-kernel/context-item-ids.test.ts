@@ -35,8 +35,7 @@ test("a map without flows yields no flow ids", () => {
   assert.equal(contextMapItemIds(rest).some((id) => id.startsWith("flow:")), false);
 });
 
-test("a rule and an exemplar are named by their own ids", () => {
-  assert.equal(itemId.rule("r-12"), "rule:r-12");
+test("an exemplar is named by its own id", () => {
   assert.equal(itemId.exemplar("form-submit"), "exemplar:form-submit");
 });
 
@@ -101,7 +100,7 @@ test("an id holds no line break and is bounded, keeping a hash of the whole so t
   const b = itemId.route(`/${"a".repeat(499)}b`);
   assert.ok(a.length <= MAX_ITEM_ID_CHARS);
   assert.notEqual(a, b);
-  assert.equal(itemId.rule("x\ny").includes("\n"), false);
+  assert.equal(itemId.exemplar("x\ny").includes("\n"), false);
 });
 
 test("the cap keeps the first ids in order, removes repeats and counts the rest", () => {

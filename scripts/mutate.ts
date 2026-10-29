@@ -103,18 +103,6 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
     /* The keystone was already an enforced gate; every other preset starts in signal mode. */
     thresholds: { high: 90, low: 80, break: 80 },
   },
-  "rule-learning": {
-    description: "cross-run learning: rule governance (promotion/demotion) and the outcome fold",
-    mutate: [`${LEARN}/rule-governance.service.ts`, `${LEARN}/rule-fold.ts`],
-    tests: [
-      `${LEARN_TEST}/rule-governance.service.test.ts`,
-      `${LEARN_TEST}/rule-fold.test.ts`,
-      "qa-engine/test/contexts/cross-run-learning/infrastructure/sqlite-learning-repository.adapter.test.ts",
-      `${CROSS_RUN_LEARNING_CTX_TEST}/infrastructure/adapters/learning-port.adapter.test.ts`,
-      "src/server/persistence/repositories/learning.repository.test.ts",
-    ],
-    thresholds: DEFAULT_THRESHOLDS,
-  },
   "fix-loop": {
     description: "FixLoop aggregate: adjudicate → regen → re-execute, filtered-retry scope, regression guard",
     mutate: [`${ORCH}/domain/fix-loop.aggregate.ts`],

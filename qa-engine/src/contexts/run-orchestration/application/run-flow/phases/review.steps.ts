@@ -48,7 +48,6 @@ async function exitFactsOf(state: Readonly<RunState>, ctx: WorkspaceRunContext) 
   return {
     static: state.execution.validation.ok,
     retries: state.execution.retries,
-    rulesRetrieved: state.grounding.retrievedRuleIds,
     diffArchetypes: state.grounding.diffArchetypes,
     confinement: services.confinement.totals,
     tested: resolveTested(state),
@@ -123,13 +122,11 @@ export async function reviewRound(state: Readonly<RunState>, ctx: WorkspaceRunCo
   const session = sessionOf(state);
   const { round } = session;
   const { diff: classificationDiff } = state.classification;
-  const { retrievedRules } = state.grounding;
   const run = runOf(state);
   const { stats: reviewStats, existingSpecFiles } = session;
   /* Separate from generation enrichment: ReviewEnrichment has no sha/contextPack. domSnapshot is captured per review round on the current specs. */
   const baseReviewEnrichment = {
     runId: input.runId,
-    ...(retrievedRules.length ? { learnedRules: retrievedRules } : {}),
   };
   const specRoot: SpecRoot = services.specRoot;
   const reviewCases = session.reviewCases;

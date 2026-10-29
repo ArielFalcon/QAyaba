@@ -16,7 +16,6 @@ const SCANNED = ["src", "qa-engine/src"];
 /* Output the operator reads as the product, the JSON logger's own mirror. */
 const ALLOWED: readonly string[] = [
   "src/cli.ts",
-  "src/qa/learning/ledger-cli.ts",
   "src/integrations/logger.ts",
   "qa-engine/src/shared-kernel/ports/process-logger.ts",
 ];

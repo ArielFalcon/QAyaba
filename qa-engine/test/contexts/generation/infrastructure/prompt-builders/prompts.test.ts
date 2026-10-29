@@ -538,19 +538,19 @@ test("FE↔BE appears at most twice when contextPack is present", () => {
 
 /* ── Priority pinning: pin REAL production priority scalars ────────── */
 
-/* Generator path: no section is cut for the size of the prompt. A large learnedRules and a large coverageGap both reach the prompt whole,
+/* Generator path: no section is cut for the size of the prompt. A large domSnapshot and a large coverageGap both reach the prompt whole,
    with an unknown window and with a window that holds them. */
-test("a large coverage gap and large learned rules both reach the prompt whole: nothing is shed for size", () => {
-  const LEARNED_MARKER = "PINNING_LEARNED_RULES_MARKER";
+test("a large coverage gap and a large DOM snapshot both reach the prompt whole: nothing is shed for size", () => {
+  const DOM_MARKER = "PINNING_DOM_SNAPSHOT_MARKER";
   const GAP_MARKER = "PINNING_COVERAGE_GAP_MARKER";
-  const learnedContent = padTo(LEARNED_MARKER, 100_000);
+  const domContent = padTo(DOM_MARKER, 100_000);
   const gapContent = padTo(GAP_MARKER, 100_000);
-  const input = mkInput({ mode: "diff", learnedRules: learnedContent, coverageGap: gapContent });
+  const input = mkInput({ mode: "diff", domSnapshot: domContent, coverageGap: gapContent });
 
   for (const opts of [{}, { fit: () => "unknown" as const }, { fit: () => "fits" as const }]) {
     const result = buildPromptAssembled(input, opts);
     assert.ok(result.text.includes(GAP_MARKER), `the coverage gap is whole. sectionSizes: ${JSON.stringify(result.sectionSizes)}`);
-    assert.ok(result.text.includes(LEARNED_MARKER), `the learned rules are whole. sectionSizes: ${JSON.stringify(result.sectionSizes)}`);
+    assert.ok(result.text.includes(DOM_MARKER), `the DOM snapshot is whole. sectionSizes: ${JSON.stringify(result.sectionSizes)}`);
     assert.ok(result.text.length > 200_000);
   }
 });
@@ -960,16 +960,14 @@ test("coverage-gap survives when other volatile content is large enough to force
   /* qa-author's real budget is deepseek-v4-pro's window (64,000 tokens x 0.75 safety margin x 4
      bytes/token = 192,000 bytes) — the payload below must genuinely exceed that so the assembler's
      global-budget pass actually sheds something, not merely construct a payload that already fits.
-     learnedRules (volatile priority 2, sheds AFTER coverage-gap under the OLD priority-5 ordering)
-     plus a large domSnapshot (volatile priority 1, sheds even later) together blow the real budget;
+     a large domSnapshot (volatile priority 1, sheds after coverage-gap under the OLD priority-5 ordering)
+     alone blows the real budget;
      if coverage-gap is not promoted to the critical-recap shed band, it sheds FIRST and is lost.
    */
-  const bigLearnedRules = "## Lessons\n" + "x".repeat(120_000);
-  const bigDom = "button: Submit\n" + "row: item ".repeat(15_000);
+  const bigDom = "button: Submit\n" + "row: item ".repeat(40_000);
   const coverageGapText = "## COVERAGE_GAP_UNIQUE_MARKER\nsrc/checkout.ts:42-58 not exercised by the green run.";
   const text = buildPrompt(mkInput({
     coverageGap: coverageGapText,
-    learnedRules: bigLearnedRules,
     domSnapshot: bigDom,
   }));
   assert.ok(text.includes("COVERAGE_GAP_UNIQUE_MARKER"), "the coverage-gap section must survive assembly even under real budget pressure");

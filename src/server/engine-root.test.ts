@@ -28,7 +28,7 @@ import { GENERATION_END } from "@kernel/generation-end";
 import { resolveCoordinationSettings } from "@kernel/coordination";
 import { NoopTelemetry } from "@kernel/telemetry/noop-telemetry";
 import type { SpecSnapshotPort } from "@kernel/ports/spec-snapshot.port";
-import { TracedCurriculumPort, TracedLearningPort } from "@contexts/generation/infrastructure/adapters/context-trace";
+import { TracedCurriculumPort } from "@contexts/generation/infrastructure/adapters/context-trace";
 import { SpecSnapshotValidationPort } from "@contexts/workspace-and-publication/infrastructure/adapters/spec-snapshot-validation.adapter";
 import { TracedSuiteStore } from "@contexts/workspace-and-publication/infrastructure/adapters/suite-store-trace";
 import { SuiteStoreAdapter } from "@contexts/workspace-and-publication/infrastructure/suite-store.adapter";
@@ -95,11 +95,6 @@ function fakeConfig(overrides: Partial<EngineRootDeps> = {}): EngineRootDeps {
       oracle: { measure: async () => ({ valueScore: null, mutantCount: 0, killedCount: 0, details: "" }) },
     },
     coveragePolicy: { mode: "signal", minRatio: 0.7 },
-    learningRepo: {
-      save: async () => {},
-      topRules: async () => [],
-      applyOutcome: async () => {},
-    },
     checkout: async () => MIRROR,
     suiteStore: SUITE_STORE,
     versionUrl: undefined,
@@ -1395,15 +1390,13 @@ test("wireEngine wires the lead/sidekick mode only for an e2e run whose shell na
 
 /* ── Observability: the sources, the suite store and the validation are traced only when the shell supplied a telemetry port. ── */
 
-test("with a telemetry port the learning, curriculum and suite store ports are traced, and without one they are the plain adapters", () => {
+test("with a telemetry port the curriculum and suite store ports are traced, and without one they are the plain adapters", () => {
   const curriculumPort = { select: async () => [], fold: async () => {} };
   const suiteStore = { restore: async () => ({ restored: 0, trackedWins: 0, overlaid: 0, authRestored: false }), fingerprint: async () => new Map(), capture: async () => ({ entries: 0, admitted: 0, dropped: 0, skipped: [] }), demoteAuth: async () => {} };
   const traced = wireEngine(fakeConfig({ telemetry: new NoopTelemetry(), curriculumPort, suiteStore }));
-  assert.ok(traced.learning instanceof TracedLearningPort);
   assert.ok(traced.curriculum instanceof TracedCurriculumPort);
   assert.ok(traced.suiteStore instanceof TracedSuiteStore);
   const plain = wireEngine(fakeConfig({ curriculumPort, suiteStore }));
-  assert.equal(plain.learning instanceof TracedLearningPort, false);
   assert.equal(plain.curriculum, curriculumPort);
   assert.equal(plain.suiteStore, suiteStore);
 });

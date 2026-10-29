@@ -46,7 +46,6 @@ async function runOnce(runId: string, observe: { atGenerate?: RunSecretScope | u
       },
       objectiveSignal: { measure: async () => ({ status: "unknown", ratio: null }), blocks: () => false },
       publication: { publish: async () => ({ outcome: "pr" }) },
-      learning: { fold: async () => {}, retrieve: async () => [] },
       workspace: fakeWorkspace(ws),
       specFiles: confinedSpecFiles,
       suiteStore: ws.suiteStore,

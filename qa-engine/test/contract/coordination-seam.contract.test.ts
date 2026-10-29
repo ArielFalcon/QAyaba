@@ -83,7 +83,6 @@ test("CoordinationContext is a minimal projection — no OpencodeRunInput fields
   for (const leak of [
     "diff",
     "existingSpecs",
-    "learnedRules",
     "domSnapshot",
     "contextPack",
     "staticSignal",

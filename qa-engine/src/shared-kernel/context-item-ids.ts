@@ -15,7 +15,6 @@
 import { createHash } from "node:crypto";
 
 export const CONTEXT_SOURCES = [
-  "learning",
   "curriculum",
   "context-map",
   "route-ranking",
@@ -32,7 +31,7 @@ export const MAX_ITEM_IDS = 200; /* the registry's arrayCap for qayaba.context.i
 /* One id is never longer than this: a longer one keeps its head and ends with a hash of the whole, so it stays unique and stable. */
 export const MAX_ITEM_ID_CHARS = 200;
 
-export const ID_KIND = ["route", "dom", "op", "link", "flow", "rule", "exemplar", "fact", "signal", "svc-link", "impact"] as const;
+export const ID_KIND = ["route", "dom", "op", "link", "flow", "exemplar", "fact", "signal", "svc-link", "impact"] as const;
 export type IdKind = (typeof ID_KIND)[number];
 
 /* The first eight hex digits of the sha256 of the text with its whitespace collapsed and its case folded. */
@@ -54,7 +53,6 @@ export const itemId = {
   op: (operationId: string): string => clean(`op:${operationId}`),
   link: (route: string, operationId: string): string => clean(`link:${route}→${operationId}`),
   flow: (id: string): string => clean(`flow:${id}`),
-  rule: (ruleId: string): string => clean(`rule:${ruleId}`),
   exemplar: (id: string): string => clean(`exemplar:${id}`),
   dom: (route: string, testId: string): string => clean(`dom:${route}#${testId}`),
   domRole: (route: string, role: string, accessibleName: string): string => clean(`dom:${route}#role:${role}:${hash8(accessibleName)}`),

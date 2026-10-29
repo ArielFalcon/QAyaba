@@ -300,7 +300,7 @@ async function persistOutcome(state: Readonly<RunState>, ctx: WorkspaceRunContex
   const run = runOf(state);
   const { coverageRatio, valueScore, mutantCount, killedCount, branchCoverage, bundleMutation, branchCases, survivorClosure, flakyTriage, changeCoverage } = state.coverage;
   const { finalReviewerCorrections, reviewerSignal, missingCases } = state.review;
-  const { retrievedRuleIds, diffArchetypes, blastRadiusSignal, serviceLinks, contractDrift, crossRepoImpact } = state.grounding;
+  const { diffArchetypes, blastRadiusSignal, serviceLinks, contractDrift, crossRepoImpact } = state.grounding;
   const { preExecAmbiguityCatches, catalogGateInWindow, catalogGateAdvisory, catalogGateFailClosed } = state.generation;
   const loopSignal = await closedLoopSignal(state, ctx);
   /* Thread the review loop's real final-round corrections into errorClass derivation. */
@@ -330,8 +330,6 @@ async function persistOutcome(state: Readonly<RunState>, ctx: WorkspaceRunContex
     ...(reviewerSignal !== undefined ? { reviewer: reviewerSignal } : {}),
     /* Publish outcome string, never fabricated when publish() was not called. */
     ...(publishOutcome !== undefined ? { note: publishOutcome } : {}),
-    /* Rule ids on the mainline persist only. Other exits omit them. */
-    ...(retrievedRuleIds.length ? { rulesRetrieved: retrievedRuleIds } : {}),
     ...(diffArchetypes ? { diffArchetypes } : {}),
     /* Real pre-exec counters, not a hardcoded 0. */
     preExecAmbiguityCatches,
@@ -375,10 +373,6 @@ async function learnFromOutcome(state: Readonly<RunState>, ctx: WorkspaceRunCont
     errorClass: mainlineOutcome.errorClass,
     adjudicationClass: mainlineOutcome.adjudication?.class,
   });
-  if (learning.fold) {
-    await deps.learning.fold(mainlineOutcome);
-  }
-
   /*
    * Off-path. Deliberately NOT gated on the learning gates: app_defect is the curriculum's strongest positive signal. Only the
    * mainline exit folds: invalid/infra-error never executed a suite.
@@ -424,8 +418,6 @@ function resultOf(state: Readonly<RunState>, ctx: WorkspaceRunContext, persisted
     ...(mainlineOutcome ? { outcome: mainlineOutcome } : {}),
     /* Same publish outcome on the returned result for callers with no history read-back. */
     ...(publishOutcome !== undefined ? { note: publishOutcome } : {}),
-    /* A clean context pass never persists, so the returned result must not report retrieved rules either. */
-    rulesRetrieved: isContextCleanPass ? [] : state.grounding.retrievedRuleIds,
     gateSignals: {
       /* Clean context pass reports static:false: nothing was genuinely persisted. */
       static: isContextCleanPass ? false : validation.ok,

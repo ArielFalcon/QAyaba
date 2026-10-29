@@ -11,7 +11,7 @@ function fakeOutcome(runId: string): RunOutcome {
     runId, app: "app", sha: "abc1234", mode: "diff", target: "e2e", verdict: "pass",
     errorClass: null,
     gateSignals: { static: true, coverageRatio: null, valueScore: null, reviewerCorrections: [], flaky: false, retries: 0 },
-    rulesRetrieved: [], at: new Date().toISOString(),
+    at: new Date().toISOString(),
   };
 }
 

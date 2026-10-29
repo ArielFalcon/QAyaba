@@ -3,132 +3,33 @@ import assert from "node:assert/strict";
 import { join } from "node:path";
 import Database from "better-sqlite3";
 import { getHistory } from "../index";
-import { LEARNING_RULE_LEDGER_LIMIT } from "./learning.repository";
-import type { RunOutcome, StructuredReflection } from "../../../types";
+import type { RunOutcome } from "../../../types";
 import { CURRICULUM_CORRUPT } from "@contexts/cross-run-learning/application/index";
 import { initCurriculum } from "@contexts/cross-run-learning/application/index";
-import type { RuleStatus } from "../../../qa/learning/learning-rule";
 
 
-test("recordRuleOutcome accumulates a running mean and earns promotion (never overwrites)", () => {
-  const app = "hist-learn-1";
-  getHistory().learning.upsertLearningRule({ id: "lr-1", app, trigger: "t", action: "a", errorClass: "E-FALSE-POSITIVE", source: "run-x" });
-  getHistory().learning.recordRuleOutcome("lr-1", 0.8, null, true);
-  getHistory().learning.recordRuleOutcome("lr-1", 0.8, null, true);
-  getHistory().learning.recordRuleOutcome("lr-1", 0.8, null, true);
-  const r = getHistory().learning.listLearningRules(app, 10).find((x) => x.id === "lr-1");
-  assert.ok(r, "rule should still exist");
-  assert.equal(r!.outcomeCount, 3); /* accumulated across outcomes, not overwritten */
-  assert.ok(Math.abs(r!.successRate! - 0.8) < 1e-9, `expected ~0.8, got ${r!.successRate}`);
-  assert.equal(r!.oracleOutcomeCount, 3, "all three outcomes were oracle-scored");
-  assert.equal(r!.status, "active"); /* promotion earned from objective outcomes */
-});
+test("loadScorecard reads the row earlier runs left, reports an app with none as null, and a purge removes it", () => {
+  const app = "hist-scorecard-read";
+  assert.equal(getHistory().learning.loadScorecard(app), null);
+  const scorecard = {
+    app,
+    updatedAt: "2026-06-13T00:00:00.000Z",
+    entries: [{ runId: "r1", app, sha: "abc", target: "e2e", valueScore: 0.5, mutantCount: 4, killedCount: 2, at: "2026-06-13T00:00:00.000Z" }],
+    summary: { totalRuns: 1, measuredRuns: 1, avgValueScore: 0.5, lastValueScore: 0.5 },
+  };
+  /* Nothing writes a scorecard any more: the row is left by a second connection to the same on-disk db, as an earlier version of the engine left it. */
+  const dbPath = process.env.HISTORY_DB_PATH ?? join(process.env.QAYABA_ROOT ?? process.cwd(), "data", "qayaba.db");
+  const raw = new Database(dbPath);
+  try {
+    raw.prepare("INSERT INTO scorecard (app, data, updated_at) VALUES (?, ?, ?)").run(app, JSON.stringify(scorecard), scorecard.updatedAt);
+  } finally {
+    raw.close();
+  }
 
-test("recordRuleOutcome does NOT promote on good outcomes alone when none are oracle-scored", () => {
-  const app = "hist-learn-no-oracle";
-  getHistory().learning.upsertLearningRule({ id: "lr-no-oracle", app, trigger: "t", action: "a", errorClass: "E-FALSE-POSITIVE", source: "run-x" });
-  getHistory().learning.recordRuleOutcome("lr-no-oracle", 0.8);
-  getHistory().learning.recordRuleOutcome("lr-no-oracle", 0.8);
-  getHistory().learning.recordRuleOutcome("lr-no-oracle", 0.8);
-  const r = getHistory().learning.listLearningRules(app, 10).find((x) => x.id === "lr-no-oracle");
-  assert.ok(r, "rule should still exist");
-  assert.equal(r!.outcomeCount, 3);
-  assert.equal(r!.oracleOutcomeCount, 0, "isOracleScore was never passed — defaults to false");
-  assert.equal(r!.status, "candidate", "zero objective evidence — must not promote regardless of successRate");
-});
+  assert.deepEqual(getHistory().learning.loadScorecard(app), scorecard);
 
-test("listLearningRulesForGovernance: excludes deprecated/superseded rows, same retrievable set as listLearningRules", () => {
-  const app = "hist-governance-status-filter";
-  getHistory().learning.upsertLearningRule({ id: "gov-active", app, trigger: "t", action: "a", errorClass: "E-EXEC-FAIL", source: "run", initialStatus: "active" });
-  getHistory().learning.upsertLearningRule({ id: "gov-candidate", app, trigger: "t", action: "a", errorClass: "E-EXEC-FAIL", source: "run" });
-  getHistory().learning.upsertLearningRule({ id: "gov-deprecated", app, trigger: "t", action: "a", errorClass: "E-EXEC-FAIL", source: "run", initialStatus: "deprecated" });
-
-  const ids = getHistory().learning.listLearningRulesForGovernance(app).map((r) => r.id);
-
-  assert.ok(ids.includes("gov-active"));
-  assert.ok(ids.includes("gov-candidate"));
-  assert.ok(!ids.includes("gov-deprecated"), "deprecated rows must never reach governance retrieval");
-});
-
-/* ── Quarantine: a rule set aside, never deleted ───────────────────────────────────────────────── */
-
-const QUARANTINE_AT = "2026-10-12T10:00:00.000Z";
-
-function seedQuarantineApp(app: string): void {
-  getHistory().learning.upsertLearningRule({ id: `${app}-cand`, app, trigger: "t1", action: "a", errorClass: "E-STATIC", source: "run-1" });
-  getHistory().learning.upsertLearningRule({ id: `${app}-act`, app, trigger: "t2", action: "a", errorClass: "E-STATIC", source: "run-2", initialStatus: "active" });
-  getHistory().learning.upsertLearningRule({ id: `${app}-other`, app, trigger: "t3", action: "a", errorClass: "E-STATIC", source: "run-3" });
-}
-
-test("quarantineLearningRules marks the named rules, keeps them in the ledger and returns how many it newly marked", () => {
-  const app = "hist-quarantine-mark";
-  seedQuarantineApp(app);
-  assert.equal(getHistory().learning.quarantineLearningRules(app, [`${app}-cand`, `${app}-act`], QUARANTINE_AT), 2);
-  assert.equal(getHistory().learning.getLearningRule(app, `${app}-cand`)?.quarantinedAt, QUARANTINE_AT);
-  assert.equal(getHistory().learning.getLearningRule(app, `${app}-act`)?.quarantinedAt, QUARANTINE_AT);
-  assert.equal(getHistory().learning.getLearningRule(app, `${app}-other`)?.quarantinedAt, null, "a rule not named is left in force");
-  assert.equal(getHistory().learning.listAllLearningRules(app).length, 3, "nothing is deleted");
-});
-
-test("a quarantined rule is never retrieved, listed as live or folded onto, whatever its status", () => {
-  const app = "hist-quarantine-excluded";
-  seedQuarantineApp(app);
-  getHistory().learning.quarantineLearningRules(app, [`${app}-cand`, `${app}-act`], QUARANTINE_AT);
-  assert.deepEqual(getHistory().learning.listLearningRulesForGovernance(app).map((r) => r.id), [`${app}-other`]);
-  assert.deepEqual(getHistory().learning.listLearningRules(app, 50).map((r) => r.id), [`${app}-other`]);
-  getHistory().learning.recordRuleOutcome(`${app}-cand`, 1);
-  getHistory().learning.recordRuleOutcome(`${app}-act`, 1);
-  assert.equal(getHistory().learning.getLearningRule(app, `${app}-cand`)?.outcomeCount, 0, "a run that retrieved the rule before the quarantine credits it nothing");
-  assert.equal(getHistory().learning.getLearningRule(app, `${app}-act`)?.outcomeCount, 0);
-});
-
-test("quarantining again marks nothing and keeps the first mark: the command is idempotent", () => {
-  const app = "hist-quarantine-idempotent";
-  seedQuarantineApp(app);
-  assert.equal(getHistory().learning.quarantineLearningRules(app, [`${app}-cand`], QUARANTINE_AT), 1);
-  assert.equal(getHistory().learning.quarantineLearningRules(app, [`${app}-cand`], "2026-12-01T00:00:00.000Z"), 0);
-  assert.equal(getHistory().learning.getLearningRule(app, `${app}-cand`)?.quarantinedAt, QUARANTINE_AT);
-});
-
-test("a quarantine reaches only the app it was given, even for an id that exists in another app", () => {
-  seedQuarantineApp("hist-quarantine-a");
-  seedQuarantineApp("hist-quarantine-b");
-  assert.equal(getHistory().learning.quarantineLearningRules("hist-quarantine-a", ["hist-quarantine-b-cand"], QUARANTINE_AT), 0);
-  assert.equal(getHistory().learning.getLearningRule("hist-quarantine-b", "hist-quarantine-b-cand")?.quarantinedAt, null);
-});
-
-test("saving a rule again (a fold's upsert) does not lift its quarantine", () => {
-  const app = "hist-quarantine-upsert";
-  seedQuarantineApp(app);
-  getHistory().learning.quarantineLearningRules(app, [`${app}-cand`], QUARANTINE_AT);
-  getHistory().learning.upsertLearningRule({ id: `${app}-cand`, app, trigger: "t1", action: "a", errorClass: "E-STATIC", source: "run-1" });
-  assert.equal(getHistory().learning.getLearningRule(app, `${app}-cand`)?.quarantinedAt, QUARANTINE_AT);
-});
-
-test("releasing a quarantined rule puts it back in force, and an unknown or unquarantined rule is reported as such", () => {
-  const app = "hist-quarantine-release";
-  seedQuarantineApp(app);
-  getHistory().learning.quarantineLearningRules(app, [`${app}-cand`], QUARANTINE_AT);
-  assert.equal(getHistory().learning.releaseLearningRuleQuarantine(`${app}-cand`), true);
-  assert.equal(getHistory().learning.getLearningRule(app, `${app}-cand`)?.quarantinedAt, null);
-  assert.ok(getHistory().learning.listLearningRulesForGovernance(app).some((r) => r.id === `${app}-cand`));
-  assert.equal(getHistory().learning.releaseLearningRuleQuarantine(`${app}-cand`), false, "nothing to release the second time");
-  assert.equal(getHistory().learning.releaseLearningRuleQuarantine("no-such-rule"), false);
-});
-
-test("scorecard persists oracle outcomes and aggregates valueScore across runs", () => {
-  /* Unique app per run: the on-disk DB persists across test-suite runs and saveScorecardEntry
-     APPENDS (by design), so a fixed app name would accumulate entries and break absolute counts.
-   */
-  const app = `hist-sc-${Date.now().toString(36)}`;
-  getHistory().learning.saveScorecardEntry({ runId: "r1", app, sha: "s1", target: "e2e", valueScore: 0.5, mutantCount: 10, killedCount: 5, at: "t1" });
-  getHistory().learning.saveScorecardEntry({ runId: "r2", app, sha: "s2", target: "e2e", valueScore: 0.7, mutantCount: 10, killedCount: 7, at: "t2" });
-  const sc = getHistory().learning.loadScorecard(app);
-  assert.ok(sc, "scorecard should exist");
-  assert.equal(sc!.entries.length, 2);
-  assert.equal(sc!.summary.measuredRuns, 2);
-  assert.ok(Math.abs(sc!.summary.avgValueScore! - 0.6) < 1e-9, `expected ~0.6, got ${sc!.summary.avgValueScore}`);
-  assert.equal(sc!.summary.lastValueScore, 0.7);
+  getHistory().purgeApp(app);
+  assert.equal(getHistory().learning.loadScorecard(app), null);
 });
 
 test("loadCurriculum: a corrupt row is logged loudly and reported as a distinct fault, never silently treated as absent/fresh", () => {
@@ -168,7 +69,7 @@ test("getRunOutcome returns the single run's outcome and round-trips the reviewe
       runId: "run-value-1", app, sha: "deadbeef0", mode: "diff", target: "e2e",
       verdict: "pass", errorClass: null,
       gateSignals: { static: true, coverageRatio: 0.82, valueScore: null, reviewerCorrections: [], reviewerRationale: "covers the new validation branch", reviewerApproved: true, flaky: false, retries: 0 },
-      rulesRetrieved: [], at: "2026-06-13T00:00:00.000Z",
+      at: "2026-06-13T00:00:00.000Z",
     };
     getHistory().learning.saveRunOutcome(outcome);
 
@@ -190,7 +91,7 @@ test("a crash reclassifies the outcome the engine persisted, keeping the evidenc
     getHistory().learning.saveRunOutcome({
       runId: withEvidence.id, app, sha: "abcdef1234", mode: "diff", target: "e2e", verdict: "infra-error", errorClass: "E-INFRA",
       gateSignals: { static: false, coverageRatio: null, valueScore: null, reviewerCorrections: [], flaky: false, retries: 0, mutantCount: 7 },
-      rulesRetrieved: [], at: "2026-10-19T00:00:00.000Z",
+      at: "2026-10-19T00:00:00.000Z",
     });
 
     getHistory().learning.saveCrashedRunOutcome(getHistory().runs.getRecord(withEvidence.id)!, "internal-error");

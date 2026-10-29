@@ -1,7 +1,7 @@
 /* Builds the generation context: the generation and review ports over the run's agent runtime, the three groundings (before generation, before execution, before review) and the spans that tell what each grounding source supplied. */
 
 import { join, relative, sep } from "node:path";
-import type { CurriculumPort, LearningPort } from "@contexts/cross-run-learning/application/index.ts";
+import type { CurriculumPort } from "@contexts/cross-run-learning/application/index.ts";
 import type { StructuralSignalPort } from "@kernel/ports/structural-signal.port.ts";
 import type { CrossRepoImpactPort, ProviderDocumentsPort, ServiceLinksPort } from "@contexts/service-topology/application/index.ts";
 import type { ContextProvenance } from "@kernel/telemetry/context-provenance.ts";
@@ -20,7 +20,6 @@ import { ReviewPortAdapter, type ReviewPortRuntime } from "../infrastructure/ada
 import {
   TracedCrossRepoImpactPort,
   TracedCurriculumPort,
-  TracedLearningPort,
   TracedServiceLinksPort,
   TracedStructuralSignalPort,
   telemetryGroundingTrace,
@@ -86,7 +85,6 @@ export interface GenerationApi {
     structuralSignal(port: StructuralSignalPort): StructuralSignalPort;
     serviceLinks(port: ServiceLinksPort): ServiceLinksPort;
     crossRepoImpact(port: CrossRepoImpactPort): CrossRepoImpactPort;
-    learning(port: LearningPort): LearningPort;
     curriculum(port: CurriculumPort): CurriculumPort;
   };
 }
@@ -166,7 +164,6 @@ export function buildGeneration(deps: GenerationDeps): GenerationApi {
       structuralSignal: (port) => (telemetry ? new TracedStructuralSignalPort(port, telemetry) : port),
       serviceLinks: (port) => (telemetry ? new TracedServiceLinksPort(port, telemetry) : port),
       crossRepoImpact: (port) => (telemetry ? new TracedCrossRepoImpactPort(port, telemetry) : port),
-      learning: (port) => (telemetry ? new TracedLearningPort(port, telemetry) : port),
       curriculum: (port) => (telemetry ? new TracedCurriculumPort(port, telemetry) : port),
     },
   };

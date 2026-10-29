@@ -78,7 +78,6 @@ export interface ReviewInput {
   guidance?: string;
   appName: string;
   mode: RunMode;
-  learnedRules?: string;
   /* A DETERMINISTIC snapshot of the live DEV DOM (roles + accessible names of the routes the spec targets), captured by the ORCHESTRATOR — not the generator, so independence holds. It grounds the reviewer's UI-fact claims (labels, button/link text) in reality instead of its training memory of "similar apps", which is what made it hallucinate corrections (e.g. "the button says Add Owner" when DEV says "Submit"). Absent when capture is unavailable. */
   domSnapshot?: string;
   runId?: string;

@@ -256,7 +256,7 @@ qayaba.run
 │  ├─ qayaba.setup.orphan_cleanup
 │  └─ qayaba.auth.login           attempt n: outcome kind, denied hosts, demoted?
 ├─ qayaba.phase.ground
-│  ├─ qayaba.context.<source>     (§4.4) learning, curriculum, context-map, route-ranking,
+│  ├─ qayaba.context.<source>     (§4.4) curriculum, context-map, route-ranking,
 │  │                               dom-capture (per route: events), context-pack, stitcher,
 │  │                               structural-signal, cross-repo-impact
 │  └─ qayaba.exec offline|suite   (DOM capture child)
@@ -361,7 +361,6 @@ produced**, are deterministic, and are identical across runs:
 | API operation | `op:<operationId>` | OpenAPI ingress |
 | FE↔BE link | `link:<route>→<operationId>` | `feBe[]` |
 | Flow | `flow:<id>` | `flows[].id` |
-| Learned rule | `rule:<ruleId>` | `learning_rules.id` (stable for the rule's life) |
 | Exemplar | `exemplar:<id>` | `scenario-catalog.ts` literals |
 | Provided file | `file:<repo-relative path>` | `AssembledPrompt.providedPaths` |
 | Changed value fact | `fact:<route>#<testid>:<present\|absent>` | the pack's "Changed values" |
@@ -920,7 +919,7 @@ qa-engine/src/contexts/evaluation/
   | `dom:` | `getByTestId`, plus `getByRole(role, {name})` matched to the capture's role/name | |
   | `op:` | contract paths in `waitForResponse`/URL literals | rare under the UI-only policy; low recall is expected |
   | `file:` | read tool-call targets | reported separately as `prompt_provided_reread`, a **waste** signal, not as use |
-  | `brief:`, `rule:`, `fact:`, `exemplar:` | **not extractable** | `n/a`. Exemplar tags in the manifest are agent self-report (brief §3 forbids that); brief-claim hashes are not stable across runs |
+  | `brief:`, `fact:`, `exemplar:` | **not extractable** | `n/a`. Exemplar tags in the manifest are agent self-report (brief §3 forbids that); brief-claim hashes are not stable across runs |
 - **`context_utilization` measures recall over change-relevant items**: items tied to the diff's
   ranked routes, not every provided test id. Hundreds of incidental ids would otherwise push the
   ratio toward 0.

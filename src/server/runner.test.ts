@@ -47,7 +47,6 @@ function fakePort(outcome: Partial<RunOutcome> = {}): { port: RunPipelinePort; c
         verdict: "pass",
         errorClass: null,
         gateSignals: { static: true, coverageRatio: null, valueScore: null, reviewerCorrections: [], flaky: false, retries: 0 },
-        rulesRetrieved: [],
         at: new Date().toISOString(),
         ...outcome,
       };
@@ -710,7 +709,6 @@ test("a port that drives ObserverPort.onStep mid-run updates the record's step +
         verdict: "pass",
         errorClass: null,
         gateSignals: { static: true, coverageRatio: null, valueScore: null, reviewerCorrections: [], flaky: false, retries: 0 },
-        rulesRetrieved: [],
         at: new Date().toISOString(),
       };
     },
@@ -761,7 +759,6 @@ test("ObserverPort.onStep('retry', detail) sets record.stepDetail and record.ret
         verdict: "pass",
         errorClass: null,
         gateSignals: { static: true, coverageRatio: null, valueScore: null, reviewerCorrections: [], flaky: false, retries: 1 },
-        rulesRetrieved: [],
         at: new Date().toISOString(),
       };
     },
@@ -818,7 +815,6 @@ test("a port that drives ObserverPort.onStep, where runEvents.publish throws on 
         verdict: "pass",
         errorClass: null,
         gateSignals: { static: true, coverageRatio: null, valueScore: null, reviewerCorrections: [], flaky: false, retries: 0 },
-        rulesRetrieved: [],
         at: new Date().toISOString(),
       };
     },
@@ -896,7 +892,6 @@ test("cancelTrackedRun aborts the port's in-flight run.run() AND the record is n
         verdict: "pass",
         errorClass: null,
         gateSignals: { static: true, coverageRatio: null, valueScore: null, reviewerCorrections: [], flaky: false, retries: 0 },
-        rulesRetrieved: [],
         at: new Date().toISOString(),
       };
     },
@@ -1005,7 +1000,7 @@ test("a green run publishes live RunEvents for steps and the final verdict", asy
         runId: input.runId, app: input.app, sha: input.sha.value, mode: input.mode, target: input.target,
         verdict: "pass", errorClass: null,
         gateSignals: { static: true, coverageRatio: null, valueScore: null, reviewerCorrections: [], flaky: false, retries: 0 },
-        rulesRetrieved: [], at: new Date().toISOString(),
+at: new Date().toISOString(),
         cases: [{ name: "checkout", status: "pass" }],
       };
     },
@@ -1306,7 +1301,7 @@ test("liveAnnounced dedup — a case announced live with a MATCHING final status
         runId: input.runId, app: input.app, sha: input.sha.value, mode: input.mode, target: input.target,
         verdict: "pass", errorClass: null,
         gateSignals: { static: true, coverageRatio: null, valueScore: null, reviewerCorrections: [], flaky: false, retries: 0 },
-        rulesRetrieved: [], at: new Date().toISOString(),
+at: new Date().toISOString(),
         cases: [{ name: "login flow", status: "pass", durationMs: 500 }],
       };
     },
@@ -1349,7 +1344,7 @@ test("liveAnnounced dedup — the flaky divergence: live announces failed then p
         runId: input.runId, app: input.app, sha: input.sha.value, mode: input.mode, target: input.target,
         verdict: "flaky", errorClass: null,
         gateSignals: { static: true, coverageRatio: null, valueScore: null, reviewerCorrections: [], flaky: true, retries: 1 },
-        rulesRetrieved: [], at: new Date().toISOString(),
+at: new Date().toISOString(),
         cases: [{ name: "checkout flow", status: "flaky" }],
       };
     },
@@ -1413,7 +1408,7 @@ test("liveAnnounced dedup — addCase (the record-store write) always runs regar
         runId: input.runId, app: input.app, sha: input.sha.value, mode: input.mode, target: input.target,
         verdict: "pass", errorClass: null,
         gateSignals: { static: true, coverageRatio: null, valueScore: null, reviewerCorrections: [], flaky: false, retries: 0 },
-        rulesRetrieved: [], at: new Date().toISOString(),
+at: new Date().toISOString(),
         cases: [
           { name: "case A", status: "pass" },
           { name: "case B", status: "pass" },
@@ -1634,7 +1629,6 @@ test("multi-run FIFO during onboarding: several runs enqueued while onboarding i
         verdict: "pass",
         errorClass: null,
         gateSignals: { static: true, coverageRatio: null, valueScore: null, reviewerCorrections: [], flaky: false, retries: 0 },
-        rulesRetrieved: [],
         at: new Date().toISOString(),
       };
     },

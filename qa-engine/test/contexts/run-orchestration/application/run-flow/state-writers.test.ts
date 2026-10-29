@@ -30,7 +30,7 @@ const WRITERS: Record<string, Record<string, readonly string[]>> = {
     rollbackDelivered: ["run-flow/phases/coverage.steps.ts", "run-flow/phases/review.steps.ts"],
   },
   proof: { recordProof: ["run-qa.use-case.ts"] },
-  run: { recordRunFact: ["run-flow/failure-ends.ts", "run-flow/phases/generate.steps.ts", "run-flow/phases/ground.steps.ts", "run-qa.use-case.ts"] },
+  run: { recordRunFact: ["run-flow/failure-ends.ts", "run-flow/phases/generate.steps.ts", "run-qa.use-case.ts"] },
   coordination: { recordCoordination: ["run-qa.use-case.ts"] },
 };
 

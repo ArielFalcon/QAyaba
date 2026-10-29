@@ -32,7 +32,6 @@ const MIRROR = "/mirrors/org__app";
 interface Calls {
   order: string[];
   saved: RunOutcome[];
-  folded: RunOutcome[];
   published: unknown[];
   audited: number;
   pruned: string[];
@@ -40,12 +39,11 @@ interface Calls {
 }
 
 function context(opts: { mode?: RunQaInput["mode"]; mirrorDir?: string | undefined; config?: Partial<RunQaConfig> } = {}): { ctx: RunContext; calls: Calls; state: RunState } {
-  const calls: Calls = { order: [], saved: [], folded: [], published: [], audited: 0, pruned: [], done: 0 };
+  const calls: Calls = { order: [], saved: [], published: [], audited: 0, pruned: [], done: 0 };
   const cfg: RunQaConfig = { needsReview: true, shadow: false, onFailure: "github-issue", maxRetries: 2, reviewLoopIntegrity: false, coveragePolicyMode: "signal", ...opts.config };
   const deps = {
     publication: { publish: async (input: unknown) => { calls.order.push("publish"); calls.published.push(input); return { outcome: "issue #7 opened" }; } },
     runHistory: { save: async (outcome: RunOutcome) => { calls.order.push("save"); calls.saved.push(outcome); } },
-    learning: { fold: async (outcome: RunOutcome) => { calls.order.push("fold"); calls.folded.push(outcome); } },
     processAudit: { audit: async () => { calls.order.push("audit"); calls.audited += 1; } },
     observer: { onStep: (step: string) => { if (step === "done") calls.done += 1; }, onEvent: () => {} },
   } as unknown as RunQaUseCaseDeps;
@@ -81,7 +79,7 @@ async function end(reason: RunEnd, ctxOpts?: Parameters<typeof context>[0]): Pro
   return { result: await finalizeRun(reason, ctx, state), calls };
 }
 
-const EVIDENCE = { rulesRetrieved: ["rule-1"], diffArchetypes: ["form-change"], archetype: "form-change", retries: 1 };
+const EVIDENCE = { diffArchetypes: ["form-change"], archetype: "form-change", retries: 1 };
 
 test("an aborted run is an infra-error with no note, nothing recorded or published, and its working copy pruned", async () => {
   const { result, calls } = await end(runEnd("aborted"));
@@ -134,30 +132,27 @@ test("a login that could not be completed is a recorded E-PRECONDITION that teac
   assert.equal(result.errorClass, ERROR_CLASS.PRECONDITION);
   assert.equal(result.note, "the login was rejected");
   assert.equal(calls.saved.length, 1);
-  assert.equal(calls.folded.length, 0);
   assert.deepEqual(calls.order, ["prune", "save"]);
 });
 
-for (const [generationEnd, errorClass, teaches] of [
-  [GENERATION_END.UNDECIDED_EMPTY, ERROR_CLASS.NO_DECISION, false],
-  [GENERATION_END.EXHAUSTED, ERROR_CLASS.STEP_BUDGET, true],
-  [GENERATION_END.TIME_BUDGET, ERROR_CLASS.TIME_BUDGET, false],
+for (const [generationEnd, errorClass] of [
+  [GENERATION_END.UNDECIDED_EMPTY, ERROR_CLASS.NO_DECISION],
+  [GENERATION_END.EXHAUSTED, ERROR_CLASS.STEP_BUDGET],
+  [GENERATION_END.TIME_BUDGET, ERROR_CLASS.TIME_BUDGET],
 ] as const) {
-  test(`a generation that ended ${generationEnd} without specs is a recorded ${errorClass}${teaches ? " that teaches" : " that teaches nothing"}`, async () => {
+  test(`a generation that ended ${generationEnd} without specs is a recorded ${errorClass}`, async () => {
     const { result, calls } = await end(runEnd("generation-ended-without-specs", { generationEnd, note: "no specs", ...EVIDENCE }));
     assert.equal(result.decision.verdict, "infra-error");
     assert.equal(result.errorClass, errorClass);
     assert.equal(result.note, "no specs");
-    assert.deepEqual(result.rulesRetrieved, ["rule-1"]);
     assert.equal(calls.saved.length, 1);
-    assert.equal(calls.folded.length, teaches ? 1 : 0);
     /* The audit sees a class that teaches and the operating signal of a time-budget end, never an undecided generation. */
     assert.equal(calls.audited, errorClass === ERROR_CLASS.NO_DECISION ? 0 : 1);
     assert.equal(calls.published.length, 0);
   });
 }
 
-test("a static gate that refused the specs opens an Issue, records the run as E-STATIC and learns from it", async () => {
+test("a static gate that refused the specs opens an Issue, records the run as E-STATIC and audits it", async () => {
   const { result, calls } = await end(runEnd("static-gate-failed", { generating: true, note: "[lint] no-wait-for-timeout", ...EVIDENCE }));
   assert.equal(result.decision.verdict, "invalid");
   assert.equal(result.decision.sideEffect, "issue");
@@ -165,8 +160,7 @@ test("a static gate that refused the specs opens an Issue, records the run as E-
   assert.equal(result.note, "[lint] no-wait-for-timeout\n\nissue #7 opened");
   assert.equal(calls.published.length, 1);
   assert.equal(calls.saved.length, 1);
-  assert.equal(calls.folded.length, 1);
-  assert.deepEqual(calls.order, ["publish", "prune", "save", "fold", "audit"]);
+  assert.deepEqual(calls.order, ["publish", "prune", "save", "audit"]);
 });
 
 test("a static gate that refused the specs of a context run opens its Issue and records nothing", async () => {
@@ -175,11 +169,9 @@ test("a static gate that refused the specs of a context run opens its Issue and 
   assert.equal(result.decision.sideEffect, "issue");
   assert.equal(result.errorClass, null);
   assert.equal(result.outcome, undefined);
-  assert.deepEqual(result.rulesRetrieved, []);
   assert.equal(result.note, undefined);
   assert.equal(calls.published.length, 1);
   assert.equal(calls.saved.length, 0);
-  assert.equal(calls.folded.length, 0);
   assert.deepEqual(calls.order, ["publish", "prune"]);
 });
 
@@ -190,7 +182,6 @@ test("a run that could not reach execution is a recorded infra-error that publis
   assert.equal(result.note, "DEV went down mid-run");
   assert.equal(calls.published.length, 0);
   assert.equal(calls.saved.length, 1);
-  assert.equal(calls.folded.length, 0);
 });
 
 test("a run whose login failed before execute is a recorded E-PRECONDITION", async () => {
@@ -207,7 +198,6 @@ test("a reviewer that could not be reached is a recorded E-REVIEWER-UNAVAILABLE 
   assert.equal(calls.saved[0]!.gateSignals.reviewerRationale, "the reviewer session failed");
   assert.equal(calls.saved[0]!.gateSignals.static, true);
   assert.equal(calls.published.length, 0);
-  assert.equal(calls.folded.length, 0);
   assert.equal(calls.audited, 1, "its recurrence is an operating signal the audit alone sees");
 });
 
@@ -217,18 +207,15 @@ test("an unsettled review dispute is a recorded E-REVIEW-DISPUTED carrying the f
   assert.equal(result.errorClass, ERROR_CLASS.REVIEW_DISPUTED);
   assert.match(result.note ?? "", /could not settle 1 finding\(s\).*the discount is never asserted.*the case passed/);
   assert.equal(calls.published.length, 0);
-  assert.equal(calls.folded.length, 0);
 });
 
 test("a spent run deadline is a recorded E-TIME-BUDGET with the budget's note, published and learned nowhere", async () => {
-  const { result, calls } = await end(runEnd("run-deadline", { note: "the run budget (diff-tiny) was spent", generationEnd: GENERATION_END.TIME_BUDGET, rulesRetrieved: ["rule-1"] }));
+  const { result, calls } = await end(runEnd("run-deadline", { note: "the run budget (diff-tiny) was spent", generationEnd: GENERATION_END.TIME_BUDGET }));
   assert.equal(result.decision.verdict, "infra-error");
   assert.equal(result.errorClass, ERROR_CLASS.TIME_BUDGET);
   assert.equal(result.note, "the run budget (diff-tiny) was spent");
-  assert.deepEqual(result.rulesRetrieved, ["rule-1"]);
   assert.equal(calls.saved.length, 1);
   assert.equal(calls.published.length, 0);
-  assert.equal(calls.folded.length, 0);
 });
 
 for (const reason of ["sandbox-unavailable", "probe-sweep-failed"] as const) {
@@ -238,7 +225,6 @@ for (const reason of ["sandbox-unavailable", "probe-sweep-failed"] as const) {
     assert.equal(result.note, `${reason} note`);
     assert.equal(calls.saved.length, 1);
     assert.equal(calls.published.length, 0);
-    assert.equal(calls.folded.length, 0);
   });
 }
 
@@ -249,7 +235,6 @@ function decidedRun(opts: { verdict: "pass" | "fail"; mode?: RunQaInput["mode"];
   const state = initialRunState();
   state.execution = { ...state.execution, run: run as never, validation: { ok: true, errors: [] } as never, lastGenerated: { specMetas: [] } as never };
   state.review = { ...state.review, reviewerApproved: opts.reviewerApproved ?? true };
-  state.grounding = { ...state.grounding, retrievedRuleIds: ["rule-1"] };
   const evidence: RunEvidence = {
     verdict: opts.verdict,
     generating: true,
@@ -267,15 +252,14 @@ function decidedRun(opts: { verdict: "pass" | "fail"; mode?: RunQaInput["mode"];
   return { ctx: wctx, state, calls };
 }
 
-test("a decided green run opens its pull request after the last confinement pass, prunes, saves its record and folds it, which a pass does without reflecting", async () => {
+test("a decided green run opens its pull request after the last confinement pass, prunes and saves its record", async () => {
   const { ctx, state, calls } = decidedRun({ verdict: "pass" });
   const result = await finalizeRun(runEnd("decided"), ctx, state);
   assert.equal(result.decision.verdict, "pass");
   assert.equal(result.decision.sideEffect, "pr");
   assert.equal(result.note, "issue #7 opened");
-  assert.deepEqual(result.rulesRetrieved, ["rule-1"]);
   assert.equal(result.outcome, calls.saved[0]);
-  assert.deepEqual(calls.order, ["enforce", "publish", "prune", "save", "fold"]);
+  assert.deepEqual(calls.order, ["enforce", "publish", "prune", "save"]);
   assert.equal(calls.done, 1);
 });
 
@@ -310,14 +294,12 @@ test("a clean context pass publishes its map, persists nothing and reports no re
   const { ctx, state, calls } = decidedRun({ verdict: "pass", mode: "context" });
   const result = await finalizeRun(runEnd("context-pass"), ctx, state);
   assert.equal(result.outcome, undefined);
-  assert.deepEqual(result.rulesRetrieved, []);
   assert.equal(result.gateSignals.static, false);
   assert.equal(calls.saved.length, 0);
-  assert.equal(calls.folded.length, 0);
   assert.equal(calls.order.includes("prune"), true);
 });
 
-test("a publication that throws after the verdict keeps the decided verdict, records the run with the failure as its note and learns from it", async () => {
+test("a publication that throws after the verdict keeps the decided verdict, records the run with the failure as its note", async () => {
   const { ctx, state, calls } = decidedRun({ verdict: "pass", publishFails: true });
   const result = await finalizeRun(runEnd("decided"), ctx, state);
   assert.equal(result.decision.verdict, "pass");
@@ -325,8 +307,7 @@ test("a publication that throws after the verdict keeps the decided verdict, rec
   assert.equal(calls.saved.length, 1);
   assert.equal(calls.saved[0]!.verdict, "pass");
   assert.equal(calls.saved[0]!.note, result.note);
-  assert.equal(calls.folded.length, 1);
-  assert.deepEqual(calls.order, ["enforce", "publish", "prune", "save", "fold"]);
+  assert.deepEqual(calls.order, ["enforce", "publish", "prune", "save"]);
 });
 
 test("a run cannot be decided before its working copy is prepared", async () => {
@@ -340,7 +321,6 @@ test("an error nothing handles leaves the evidence of its sandbox as a recorded 
   assert.equal(calls.saved.length, 1);
   assert.match(calls.saved[0]!.note ?? "", /ended on TypeError/);
   assert.equal(calls.published.length, 0);
-  assert.equal(calls.folded.length, 0);
   assert.deepEqual(calls.order, ["prune", "save"]);
 });
 
@@ -362,8 +342,6 @@ for (const row of RUN_END_ROWS) {
       assert.equal(row.expect.persisted, persists, "persisted");
       if (row.expect.publishCalled) assert.equal(effects.publish, "decision", "a run that dispatched publication ends for a reason that may");
       if (effects.publish === "none") assert.equal(row.expect.published, "none", "published");
-      if (row.expect.folded) assert.notEqual(effects.learn, "none", "learned");
-      if (effects.learn === "none") assert.equal(row.expect.folded, false, "learned");
       if (effects.learn === "mainline") assert.equal(reason, "decided");
     } finally {
       dispose(rig);

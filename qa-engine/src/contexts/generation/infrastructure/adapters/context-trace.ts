@@ -8,14 +8,14 @@
 
 import { engineLog } from "@kernel/ports/process-logger.ts";
 import type { CrossRepoImpact, ServiceLink } from "@kernel/service-links.ts";
-import type { RetrievedRule, SelectedExemplar } from "@kernel/learned-rule.ts";
+import type { SelectedExemplar } from "@kernel/learned-rule.ts";
 import { recordContextSpan } from "../../../../shared-infrastructure/telemetry/run-spans.ts";
 import { advisoryLineIds, contextMapItemIds, itemId } from "@kernel/context-item-ids.ts";
 import { packProducedItemIds } from "@contexts/generation/infrastructure/context-pack.ts";
 import type { TelemetryPort } from "@kernel/telemetry/telemetry.port.ts";
 import type { ContextProvenance } from "@kernel/telemetry/context-provenance.ts";
 import type { CrossRepoImpactPort, ServiceLinksPort } from "@contexts/service-topology/application/index.ts";
-import type { CurriculumFoldInput, CurriculumPort, LearningPort, RelevanceBias } from "@contexts/cross-run-learning/application/index.ts";
+import type { CurriculumFoldInput, CurriculumPort } from "@contexts/cross-run-learning/application/index.ts";
 import type { StructuralSignalPort, StructuralSignalResult } from "@kernel/ports/structural-signal.port.ts";
 import type { GroundingTrace } from "./pre-generation-grounding-port.adapter.ts";
 
@@ -90,23 +90,6 @@ export function telemetryGroundingTrace(telemetry: TelemetryPort, mapProvenance?
       });
     }),
   };
-}
-
-export class TracedLearningPort implements LearningPort {
-  constructor(
-    private readonly inner: LearningPort,
-    private readonly telemetry: TelemetryPort,
-  ) {}
-
-  fold(outcome: Parameters<LearningPort["fold"]>[0]): Promise<void> {
-    return this.inner.fold(outcome);
-  }
-
-  async retrieve(sha: Parameters<LearningPort["retrieve"]>[0], relevance?: RelevanceBias): Promise<RetrievedRule[]> {
-    const rules = await this.inner.retrieve(sha, relevance);
-    safely(() => recordContextSpan(this.telemetry, { source: "learning", ids: rules.map((rule) => itemId.rule(rule.id)), bytes: rules.reduce((sum, rule) => sum + bytesOf(rule.trigger) + bytesOf(rule.action), 0), freshness: provenanceOf("db:learning_rules", rules.length) }));
-    return rules;
-  }
 }
 
 export class TracedCurriculumPort implements CurriculumPort {

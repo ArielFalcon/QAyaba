@@ -1,7 +1,7 @@
 /* The data a run carries from one phase to the next. Each section is written by the phase that owns it and read by the later ones; it holds no live object, so it can be recorded as it stands. */
 
 import type { ContractDrift, CrossRepoImpact, ServiceLink } from "@kernel/service-links.ts";
-import type { RetrievedRule, SelectedExemplar } from "@kernel/learned-rule.ts";
+import type { SelectedExemplar } from "@kernel/learned-rule.ts";
 import type { ArchitectureContext, GroundingOmission, HarnessFacts } from "@kernel/grounding.ts";
 import type { RouteAvailabilityFact } from "@kernel/route-availability.ts";
 import type { DataContradiction } from "@kernel/data-contradiction.ts";
@@ -9,7 +9,6 @@ import type { ChangeScope, UseCaseCandidate } from "@contexts/change-analysis/ap
 import type { CommitIntent } from "@kernel/commit-intent.ts";
 import type { GenerationEnrichment, GenerationOutput } from "@contexts/generation/application/index.ts";
 import type { ExecutionPort, ValidationPort } from "@contexts/test-execution/application/index.ts";
-import type { RelevanceBias } from "@contexts/cross-run-learning/application/index.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 import type { ChangedDecision } from "@kernel/changed-decision.ts";
 import type { DeliveredSpec } from "@kernel/delivered-spec.ts";
@@ -61,12 +60,8 @@ export interface SetupOutcome {
 
 /* What the ground phase gathered for the prompts and for the run's evidence. */
 export interface Grounding {
-  /** The diff's structural shapes; undefined outside diff mode. They bias retrieval and ride on every folded outcome. */
+  /** The diff's structural shapes; undefined outside diff mode. They ride on the run's outcome. */
   diffArchetypes: string[] | undefined;
-  /** The bias retrieval was asked with: the diff's specific shapes, absent when there are none. */
-  retrievalRelevance: RelevanceBias | undefined;
-  retrievedRules: RetrievedRule[];
-  retrievedRuleIds: string[];
   selectedExemplars: readonly SelectedExemplar[];
   /** The archetypes the prompt carried, which the fold credits. */
   offeredArchetypes: string[];
@@ -341,11 +336,10 @@ export interface Degradation {
   note: string;
 }
 
-/* What the run's trace and its crash records say, once known: how generation ended, the limit that stopped the run, which rules were retrieved. */
+/* What the run's trace and its crash records say, once known: how generation ended and the limit that stopped the run. */
 export interface RunFacts {
   generationEnd: string | undefined;
   limit: { fired: string; role: string } | undefined;
-  rulesRetrieved: string[] | undefined;
   /** Why the run ended, once it did. */
   endReason: EndReason | undefined;
   /** Whether a reviewer was due for the run, as the generation decides it. */
@@ -386,9 +380,6 @@ export function initialRunState(): RunState {
     setup: { suiteRestored: false, storeRestoredLogin: false, authSeedUnauthored: false },
     grounding: {
       diffArchetypes: undefined,
-      retrievalRelevance: undefined,
-      retrievedRules: [],
-      retrievedRuleIds: [],
       selectedExemplars: [],
       offeredArchetypes: [],
       contextPack: undefined,
@@ -462,7 +453,7 @@ export function initialRunState(): RunState {
     decided: undefined,
     loops: initialLoopCounters(),
     degraded: [],
-    run: { generationEnd: undefined, limit: undefined, rulesRetrieved: undefined, endReason: undefined, reviewRequired: undefined },
+    run: { generationEnd: undefined, limit: undefined, endReason: undefined, reviewRequired: undefined },
     coordination: undefined,
     proof: {},
   };

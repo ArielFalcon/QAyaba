@@ -13,7 +13,7 @@ test("kernel RunOutcome.gateSignals accepts catalogGateInWindow/Advisory/FailClo
       reviewerApproved: true, flaky: false, retries: 0,
       catalogGateInWindow: 3, catalogGateAdvisory: 1, catalogGateFailClosed: 0,
     },
-    rulesRetrieved: [], at: "2026-06-24T00:00:00.000Z",
+    at: "2026-06-24T00:00:00.000Z",
   };
   assert.equal(kernel.gateSignals.catalogGateInWindow, 3);
   assert.equal(kernel.gateSignals.catalogGateAdvisory, 1);
@@ -39,7 +39,7 @@ test("kernel RunOutcome accepts an optional adjudication field, widely typed (cl
     runId: "r1", app: "demo", sha: "abc1234", mode: "diff", target: "e2e",
     verdict: "fail", errorClass: null,
     gateSignals: { static: true, coverageRatio: null, valueScore: null, reviewerCorrections: [], flaky: false, retries: 1 },
-    rulesRetrieved: [], at: "2026-06-24T00:00:00.000Z",
+    at: "2026-06-24T00:00:00.000Z",
     adjudication: { class: "app_defect", confidence: "high", action: "break-issue", reason: "5xx" },
   };
   assert.equal(withAdjudication.adjudication?.class, "app_defect");
@@ -49,7 +49,7 @@ test("kernel RunOutcome accepts an optional adjudication field, widely typed (cl
     runId: "r2", app: "demo", sha: "abc1234", mode: "diff", target: "e2e",
     verdict: "pass", errorClass: null,
     gateSignals: { static: true, coverageRatio: 0.9, valueScore: null, reviewerCorrections: [], flaky: false, retries: 0 },
-    rulesRetrieved: [], at: "2026-06-24T00:00:00.000Z",
+    at: "2026-06-24T00:00:00.000Z",
   };
   assert.equal(withoutAdjudication.adjudication, undefined);
 

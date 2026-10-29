@@ -53,7 +53,7 @@ function finishedRun(app: string, over: { verdict?: RunOutcome["verdict"]; decis
   const outcome: RunOutcome = {
     runId: r.id, app, sha: "abcdef1234", mode: "diff", target: "e2e", verdict, errorClass: verdict === "infra-error" ? "E-TIME-BUDGET" : null,
     gateSignals: { static: true, coverageRatio: 0.9, valueScore: null, reviewerCorrections: [], reviewerApproved: true, flaky: false, retries: 0 },
-    rulesRetrieved: [], at: "2026-10-17T10:00:00.000Z",
+at: "2026-10-17T10:00:00.000Z",
   };
   getHistory().learning.saveRunOutcome(outcome);
   getHistory().telemetry.saveAgentTurn({

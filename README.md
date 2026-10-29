@@ -29,7 +29,7 @@
 
 ---
 
-**Autonomous QA that watches your repos, tests every deploy, and learns from every failure.**
+**Autonomous QA that watches your repos, tests every deploy, and keeps its suite honest.**
 
 When a commit lands on DEV, an AI agent reads the change, writes Playwright tests for what could break, runs them against the live environment, and either opens a PR against the app's repository with the new tests or files a GitHub Issue if something fails.
 
@@ -48,7 +48,7 @@ qayaba turns every deploy into a QA checkpoint, automatically.
 | **Provider-agnostic runtime** | Runs on OpenCode through one facade. Every role's model is configured in `agents/opencode.json`; the primary, reviewer, and chat assignments can be overridden from the Dashboard or the environment. |
 | **Independent review** | A separate reviewer agent judges every generated test for value. Tests that click without asserting, use fragile selectors, or miss the actual change are rejected before they reach the suite. |
 | **Self-improving suite** | When tests pass and the reviewer approves, they are committed to the app's repository via PR with auto-merge. The suite grows with every deploy and never degrades into "green noise." |
-| **Learning from failures** | Every failed run is distilled into a reusable rule and injected into future runs. Mutation testing measures whether the tests actually catch bugs (valueScore). Rules that correlate with better outcomes are promoted; the rest decay. |
+| **Measured value** | Mutation testing measures whether the tests actually catch bugs (valueScore), and every run's outcome is kept in the run history. |
 | **Multi-app, single engine** | One centralized service watches all your team's repos. Each app gets its own namespace for test data and persistent memory. |
 | **Shadow mode** | Onboard a repo without touching it: the full pipeline runs, but PRs and Issues are only logged. Flip the switch when you are ready. |
 
@@ -76,9 +76,9 @@ flowchart LR
     SK -->|"only the files each brief names"| V{{"Same deterministic gates\nstatic · execution · coverage"}}
     V -->|green| RV[Independent Reviewer]
     RV --> DEC[PR with auto-merge / Issue]
-    DEC -->|outcomes + rules| LD[(Learning Ledger)]
+    DEC -->|run outcomes| LD[(Run History)]
     DEC -->|telemetry events| TL[(Coordination Telemetry JSONL)]
-    LD -->|retrieval injected into prompt| PL
+    LD -->|proven archetypes injected into prompt| PL
 ```
 
 <table>
@@ -88,7 +88,7 @@ flowchart LR
 ### Orchestrator
 **Node.js** deterministic infrastructure.
 
-Receives webhooks, manages the sequential queue, clones repos, runs Playwright against DEV, publishes results. It admits the lead's plan, runs the flows through a bounded pool and takes back only what each brief names. Runs mutation testing to measure test quality (valueScore), maintains the learning ledger, and appends every coordination decision to a durable telemetry ledger. Every side-effecting step is dependency-injected and unit-tested with stubs.
+Receives webhooks, manages the sequential queue, clones repos, runs Playwright against DEV, publishes results. It admits the lead's plan, runs the flows through a bounded pool and takes back only what each brief names. Runs mutation testing to measure test quality (valueScore), keeps the run history, and appends every coordination decision to a durable telemetry ledger. Every side-effecting step is dependency-injected and unit-tested with stubs.
 
 </td>
 <td width="50%" valign="top">
@@ -112,7 +112,7 @@ Every run follows the same sequence, whether triggered by a webhook or manually:
 |---|---|
 | **1. Deploy gate** | Waits until DEV reports the right commit SHA and is healthy. Skipped if no health endpoint is configured. |
 | **2. Classification** | Reads the commit message and diff. Conventional Commits like `style:` with no logic changes are skipped before spending a single token. |
-| **3. Retrieval** | Loads learned rules, structural patterns, and proven scenario archetypes from past runs — injects them into the agent prompt. |
+| **3. Retrieval** | Loads structural patterns and proven scenario archetypes from past runs — injects them into the agent prompt. |
 | **4. Coordination** | The lead is asked for a plan of independent flows, the orchestrator admits it (or refuses the run with a recorded reason: `E-NO-AUTHOR`), and each flow is handed to an author sidekick. |
 | **5. Generation** | One author sidekick per flow, in parallel, reads the blast radius using semantic code navigation and writes tests into the repo; the lead reviews each flow and can send it back to the same sidekick or to a fresh one. |
 | **6. Static gate** | TypeScript compilation, ESLint, and Playwright's test list must pass. Invalid code is rejected before execution. |
@@ -161,22 +161,12 @@ Optional environment tuning (defaults are production-safe, no configuration requ
 
 ### The learning layer
 
-Beyond deciding pass/fail, qayaba learns from every run to improve future ones:
+Beyond deciding pass/fail, qayaba keeps what it can measure from every run:
 
 | Component | What it does |
 |---|---|
 | **Labeler** | Classifies every run into an error class (E-STATIC, E-EXEC-FAIL, E-FALSE-POSITIVE…) — zero LLM, purely from the gates and reviewer. |
-| **Distiller** | Converts failures into reusable rules — deduplicated, stored, and injected into future agent prompts so the same mistake isn't made twice. |
 | **Curriculum** | Tracks which scenario archetypes (invalid input, re-query-after-mutation, empty state, …) have caught real bugs. Only proven archetypes are fed to the agent. |
-| **Attribution** | When a rule was retrieved for a run, the run's valueScore updates the rule's successRate. Rules that correlate with good outcomes are promoted. |
-
-Inspect the learning state at any time:
-
-```bash
-npm run qa -- --app my-app --learning
-```
-
-Or ask the TUI chat: *"¿qué reglas ha aprendido el sistema?"*
 
 <details>
 <summary>Execution modes</summary>
@@ -396,9 +386,6 @@ A run that tries a host it did not declare is not failed for it: the host is lis
 
 ```bash
 npm run qa -- --app my-app --sha <commit-sha>
-
-# Inspect what the system has learned across runs
-npm run qa -- --app my-app --learning
 ```
 
 <details>
@@ -462,7 +449,7 @@ The orchestrator writes under `<QAYABA_ROOT>/data/` (the `qayaba-data` volume in
 | Env var | Default | Purpose |
 |---|---|---|
 | `QAYABA_ROOT` | the working directory | Root the orchestrator resolves `config/` and `data/` against. |
-| `HISTORY_DB_PATH` | `<QAYABA_ROOT>/data/qayaba.db` | SQLite run history and learning ledger. Its directory is created on first use. The daily backup still goes to `<QAYABA_ROOT>/data/backups/`. |
+| `HISTORY_DB_PATH` | `<QAYABA_ROOT>/data/qayaba.db` | SQLite run history. Its directory is created on first use. The daily backup still goes to `<QAYABA_ROOT>/data/backups/`. |
 | `QAYABA_LOG_DIR` | `<QAYABA_ROOT>/data/logs` | Structured JSON log files, rotated by size and pruned by count. |
 
 </details>

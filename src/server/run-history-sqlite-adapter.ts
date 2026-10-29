@@ -19,7 +19,7 @@ export const defaultRunHistorySqliteAdapterDeps: RunHistorySqliteAdapterDeps = {
 
 /*
  * Maps the kernel RunOutcome onto the shell history store's shape. Optional/unknown
- * fields (errorClass, reflection, usage) are produced by the same taxonomy as the history repositories.
+ * fields (errorClass, usage) are produced by the same taxonomy as the history repositories.
  */
 export function toStoredRunOutcome(outcome: KernelRunOutcome): StoredRunOutcome {
   return {
@@ -82,8 +82,6 @@ export function toStoredRunOutcome(outcome: KernelRunOutcome): StoredRunOutcome 
       ...(outcome.gateSignals.stubbedState !== undefined ? { stubbedState: outcome.gateSignals.stubbedState } : {}),
       ...(outcome.gateSignals.dataContradictions !== undefined ? { dataContradictions: outcome.gateSignals.dataContradictions } : {}),
     },
-    rulesRetrieved: outcome.rulesRetrieved,
-    ...(outcome.reflection !== undefined ? { reflection: outcome.reflection as StoredRunOutcome["reflection"] } : {}),
     at: outcome.at,
   };
 }

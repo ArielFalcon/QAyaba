@@ -60,7 +60,6 @@ async function runChecked(input: RunQaInput, execute: RunQaUseCaseDeps["executio
     execution: { execute },
     objectiveSignal: { measure: async () => ({ status: "unknown", ratio: null }), blocks: () => false },
     publication: { publish: async () => ({ outcome: "pr" }) },
-    learning: { fold: async () => {}, retrieve: async () => [] },
     workspace: fakeWorkspace(ws),
     specFiles: confinedSpecFiles,
     suiteStore: ws.suiteStore,

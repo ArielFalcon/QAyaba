@@ -209,18 +209,5 @@ export interface RunOutcome {
     /* The test-intent lock: derived clauses, deltas and would-be rejections, with the opacity flag. Persist-only. */
     intent?: { mode: string; violations: number; wouldReject: number; clauses: number; opaque: number; opacityHigh: boolean };
   };
-  rulesRetrieved: string[];
-  reflection?: StructuredReflection;
   at: string;
-}
-
-export interface StructuredReflection {
-  goal: string;
-  decision: string;
-  assumption: string;
-  errorClass: import("@kernel/error-class").ErrorClass;
-  gateSignal: string;
-  evidence: string;
-  rootCause: string;
-  preventiveRule: { trigger: string; action: string };
 }

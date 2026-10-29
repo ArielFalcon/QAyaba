@@ -51,7 +51,7 @@ services:
       QA_RUN_TIME_BUDGET_MS_COMPLETE: ${QA_RUN_TIME_BUDGET_MS_COMPLETE:-}
       QA_RUN_TIME_BUDGET_MS_EXHAUSTIVE: ${QA_RUN_TIME_BUDGET_MS_EXHAUSTIVE:-}
       QA_RUN_TIME_BUDGET_MS_CONTEXT: ${QA_RUN_TIME_BUDGET_MS_CONTEXT:-}
-      # Stops a run from reading or writing cross-run learning state (rule fold and retrieval, curriculum,
+      # Stops a run from reading or writing cross-run learning state (curriculum,
       # process audit with its context-stale flag), so the replicates of an A/B
       # campaign start from the same ground. Empty is off (docs/efficiency-benchmark.md, "Campaigns").
       QA_CAMPAIGN_FREEZE: ${QA_CAMPAIGN_FREEZE:-}

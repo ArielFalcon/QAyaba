@@ -18,7 +18,6 @@ export type FactId =
   | "geolocation"
   | "lead-plan"
   | "existing-suite"
-  | "learned-rules"
   | "exemplars"
   | "diff"
   /* A failure of the static gate (compile, lint), which nothing executed. */

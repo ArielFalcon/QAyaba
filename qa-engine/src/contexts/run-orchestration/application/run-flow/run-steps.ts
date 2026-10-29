@@ -12,7 +12,7 @@ import type { FlowStep } from "./run-flow.ts";
 import type { RunContext, WorkspaceRunContext } from "./run-context.ts";
 import { runOf, type RunState } from "./run-state.ts";
 import { cleanPriorRun, openAuthoringHandles, prepareLogin, restoreAcceptedSuite, setUpProject } from "./phases/setup.steps.ts";
-import { assembleEnrichment, computeChangeScope, groundRepository, readDiffShapes, resolveBlastRadius, resolveCrossRepoImpact, resolveServiceLinks, retrieveRules, selectExemplars } from "./phases/ground.steps.ts";
+import { assembleEnrichment, computeChangeScope, groundRepository, readDiffShapes, resolveBlastRadius, resolveCrossRepoImpact, resolveServiceLinks, selectExemplars } from "./phases/ground.steps.ts";
 import {
   generateFirstPass,
   groundBeforeExecution,
@@ -41,8 +41,7 @@ export const IN_WORKSPACE: ReadonlyArray<FlowStep<RunState, WorkspaceRunContext>
   { id: "clean-prior-run", writes: [], run: cleanPriorRun },
   { id: "open-authoring-handles", writes: [], run: openAuthoringHandles },
   { id: "read-diff-shapes", writes: ["grounding"], run: readDiffShapes },
-  { id: "retrieve-rules", writes: ["grounding"], phase: "ground", run: retrieveRules },
-  { id: "select-exemplars", writes: ["grounding"], run: selectExemplars },
+  { id: "select-exemplars", writes: ["grounding"], phase: "ground", run: selectExemplars },
   /* The links and the cross-repo impact come before the grounding: the change's pages are joined over them (S10). */
   { id: "resolve-blast-radius", writes: ["grounding"], run: resolveBlastRadius },
   { id: "resolve-service-links", writes: ["grounding"], run: resolveServiceLinks },

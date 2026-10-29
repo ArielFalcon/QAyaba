@@ -48,18 +48,18 @@ test("the lead's plan prompt is fitted to the lead's own window, an authoring pr
 });
 
 test("no share of the window cuts a prompt that fits it: a prompt above 0.75 of its window reaches the agent whole", () => {
-  const rule = "- rule: scope the coupon button to the cart form. ";
-  const learnedRules = rule.repeat(Math.ceil(1_300_000 / rule.length));
+  const line = "- gap: src/cart.ts:12 is not exercised by the green run. ";
+  const coverageGap = line.repeat(Math.ceil(1_300_000 / line.length));
   const rendering = new PromptRenderingAdapter(
     { buildPromptAssembled, buildReviewerPromptAssembled, specFileForFlow: (flow) => flow },
     new ContextBudget(windows({ author: 400_000 }), cold),
   );
 
-  const main = rendering.renderMain(input({ learnedRules }));
+  const main = rendering.renderMain(input({ coverageGap }));
 
   assert.ok(Buffer.byteLength(main.text, "utf8") > 0.75 * 400_000 * 4, "setup: the prompt is above three quarters of the window");
   assert.equal(main.contextFit?.outcome, "fits", "setup: it fits the window");
-  assert.ok(main.text.includes(learnedRules.trim()), "the learned rules are whole");
+  assert.ok(main.text.includes(coverageGap.trim()), "the coverage gap is whole");
   assert.doesNotMatch(main.text, /capped at|Budget: these context sections/);
 });
 

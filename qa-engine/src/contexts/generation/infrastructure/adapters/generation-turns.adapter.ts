@@ -4,7 +4,6 @@ import type { LeadPort } from "../../application/ports/lead.port.ts";
 import type { AuthorPort } from "../../application/ports/author.port.ts";
 import type { GenerationEnrichment } from "../../domain/generation-enrichment.ts";
 import type { GenerationOutput } from "../../domain/generation.ts";
-import { renderLearnedRules } from "@contexts/cross-run-learning/application/index.ts";
 import type { PlanOutput } from "@kernel/plan-output.ts";
 import { GenerateTestsUseCase } from "@contexts/generation/application/index.ts";
 import type { OpencodeRunInput, StepLimitFor, CommitIntent as GenerationCommitIntent } from "@contexts/generation/application/index.ts";
@@ -151,7 +150,6 @@ export class GenerationTurnsAdapter implements LeadPort, AuthorPort {
       ...(enrichment?.coverageGap && enrichment.coverageGapReference ? { coverageGapReference: enrichment.coverageGapReference } : {}),
       ...(enrichment?.contractFeedback?.length ? { contractFeedback: enrichment.contractFeedback.map((violation) => ({ ...violation })) } : {}),
       ...(enrichment?.intent ? { intent: toGenerationIntent(enrichment.intent) } : {}),
-      ...(enrichment?.learnedRules?.length ? { learnedRules: renderLearnedRules(enrichment.learnedRules) } : {}),
       ...(enrichment?.contextPack ? { contextPack: enrichment.contextPack } : {}),
       ...(enrichment?.contextPackItemIds ? { contextPackItemIds: enrichment.contextPackItemIds } : {}),
       ...(enrichment?.contextPackOmissions ? { contextPackOmissions: enrichment.contextPackOmissions } : {}),

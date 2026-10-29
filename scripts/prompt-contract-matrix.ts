@@ -798,7 +798,7 @@ export function plannedReviewerInput(mirror: string): ReviewInput {
   return { diff, specs: ["flows/cart.spec.ts"], mirrorDir: mirror, e2eRelDir: "e2e", appName: "shop", mode: "diff", baseUrl: "http://localhost:3000", ...(changeView ? { changeView } : {}) };
 }
 
-/* The reviewer prompts over every mode and combination of its six optional inputs; the step limit alternates. */
+/* The reviewer prompts over every mode and combination of its five optional inputs; the step limit alternates. */
 export function reviewerDigests(): DigestSet {
   const mirror = mkdtempSync(join(tmpdir(), "prompt-digests-"));
   try {
@@ -807,7 +807,7 @@ export function reviewerDigests(): DigestSet {
     const set: DigestSet = { keys: [], digests: [] };
     let index = 0;
     for (const mode of REVIEW_MODES) {
-      for (let flags = 0; flags < 64; flags++, index++) {
+      for (let flags = 0; flags < 32; flags++, index++) {
         const has = (bit: number): boolean => (flags & (1 << bit)) !== 0;
         const input: ReviewInput = {
           diff: "diff --git a/src/cart.ts b/src/cart.ts\n--- a/src/cart.ts\n+++ b/src/cart.ts\n@@ -1 +1 @@\n+export const total = 1;\n",
@@ -820,11 +820,10 @@ export function reviewerDigests(): DigestSet {
           intent: { type: "feat", breaking: false, message: "feat(cart): show the total", changedFiles: ["src/cart.ts"] },
           ...(mode === "manual" ? { guidance: "cover the coupon form" } : {}),
           ...(has(0) ? { domSnapshot: "heading: Cart\nbutton: Apply coupon" } : {}),
-          ...(has(1) ? { learnedRules: "## Learned rules\n- prefer getByRole" } : {}),
-          ...(has(2) ? { priorCorrections: ["[fragile-selector] cart.spec.ts: scope the button"] } : {}),
-          ...(has(3) ? { specChanges: "+ await expect(total).toBeVisible();" } : {}),
-          ...(has(4) ? { executionResult: "## RUNTIME EXECUTION RESULT\n- applies a coupon" } : {}),
-          ...(has(5) ? { existingSpecFiles: ["flows/other.spec.ts"] } : {}),
+          ...(has(1) ? { priorCorrections: ["[fragile-selector] cart.spec.ts: scope the button"] } : {}),
+          ...(has(2) ? { specChanges: "+ await expect(total).toBeVisible();" } : {}),
+          ...(has(3) ? { executionResult: "## RUNTIME EXECUTION RESULT\n- applies a coupon" } : {}),
+          ...(has(4) ? { existingSpecFiles: ["flows/other.spec.ts"] } : {}),
           ...(index % 2 === 0 ? { stepLimit: 30 } : {}),
         };
         set.keys.push(`reviewer|${mode}|${flags}|${index % 2 === 0 ? "limit" : "no-limit"}`);

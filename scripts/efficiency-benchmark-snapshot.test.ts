@@ -40,7 +40,7 @@ function outcome(overrides: Partial<RunOutcome["gateSignals"]> = {}, verdict: Ru
   return {
     runId: "run-1", app: "demo", sha: "abc1234", mode: "diff", target: "e2e", verdict, errorClass: null,
     gateSignals: { static: true, coverageRatio: 0.8, valueScore: null, reviewerCorrections: [], reviewerApproved: true, flaky: false, retries: 0, ...overrides },
-    rulesRetrieved: [], at: "2026-09-28T10:00:00.000Z",
+    at: "2026-09-28T10:00:00.000Z",
   };
 }
 

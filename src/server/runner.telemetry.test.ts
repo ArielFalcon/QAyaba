@@ -39,7 +39,6 @@ function outcomeOf(input: RunInput, patch: Partial<RunOutcome> = {}, facts?: Run
     verdict: "pass",
     errorClass: null,
     gateSignals: { static: true, coverageRatio: null, valueScore: null, reviewerCorrections: [], flaky: false, retries: 0 },
-    rulesRetrieved: [],
     at: new Date(0).toISOString(),
     ...patch,
   };

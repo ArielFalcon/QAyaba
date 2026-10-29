@@ -54,8 +54,7 @@ const READS: Record<string, readonly string[]> = {
   JudgeRepository: ["lastJudgeOutcome", "latestJudgeModel", "judgeTokensUsedOn", "judgeOutcomeCounts", "latestJudgeCalibration", "listJudgeLabelPairs"],
   EvaluationRepository: ["listRunScoreRows", "getRunEvaluationStatus", "getRegradeJob"],
   LearningRepository: [
-    "writeOutcome", "rowToOutcome", "listRunOutcomes", "getRunOutcome", "rowToRule", "listLearningRules", "getLearningRule", "listLearningRulesForGovernance",
-    "listAllLearningRules", "loadCurriculum", "loadScorecard",
+    "writeOutcome", "rowToOutcome", "listRunOutcomes", "getRunOutcome", "loadCurriculum", "loadScorecard",
   ],
   TelemetryRepository: ["listRunSpans", "getAgentTurns", "getAgentRoleFacts", "getRecentTurnFigures","getAgentTurnTraces", "computeTelemetryAnalysis"],
 };
@@ -82,7 +81,7 @@ function writingCalls(h: History): Record<string, () => unknown> {
   };
   const outcome = {
     runId: "r", app: "app", sha: "abcdef1", mode: "diff", target: "e2e", verdict: "pass", errorClass: null,
-    gateSignals: { static: true, coverageRatio: null, valueScore: null, reviewerCorrections: [], flaky: false, retries: 0 }, rulesRetrieved: [], at: AT,
+    gateSignals: { static: true, coverageRatio: null, valueScore: null, reviewerCorrections: [], flaky: false, retries: 0 },at: AT,
   };
   return {
     "RunRepository.createRecord": () => h.runs.createRecord({ app: "app", sha: "abcdef2345", target: "e2e", mode: "diff" }),
@@ -110,14 +109,7 @@ function writingCalls(h: History): Record<string, () => unknown> {
     "EvaluationRepository.failInterruptedRegradeJobs": () => h.evaluations.failInterruptedRegradeJobs("2026-10-01T00:00:01.000Z"),
     "LearningRepository.saveRunOutcome": () => h.learning.saveRunOutcome(outcome as never),
     "LearningRepository.saveCrashedRunOutcome": () => h.learning.saveCrashedRunOutcome(h.runs.getRecord(run.id)!, "E-INFRA" as never),
-    "LearningRepository.upsertLearningRule": () => h.learning.upsertLearningRule({ id: "rule-1", app: "app", trigger: "t", action: "a", errorClass: "E-INFRA", source: "test" } as never),
-    "LearningRepository.incrementRuleUsage": () => h.learning.incrementRuleUsage(["rule-1"]),
-    "LearningRepository.recordRuleOutcome": () => h.learning.recordRuleOutcome("rule-1", 1),
-    "LearningRepository.setRuleStatusByHuman": () => h.learning.setRuleStatusByHuman("rule-1", "active"),
-    "LearningRepository.quarantineLearningRules": () => h.learning.quarantineLearningRules("app", ["rule-1"], AT),
-    "LearningRepository.releaseLearningRuleQuarantine": () => h.learning.releaseLearningRuleQuarantine("rule-1"),
     "LearningRepository.saveCurriculum": () => h.learning.saveCurriculum({ app: "app", updatedAt: AT } as never),
-    "LearningRepository.saveScorecardEntry": () => h.learning.saveScorecardEntry({ app: "app", runId: "r", at: AT, valueScore: 1 } as never),
     "TelemetryRepository.commitRunSpans": () =>
       h.telemetry.commitRunSpans([{ traceId: "t", spanId: "s", parentSpanId: null, runId: null, name: "n", kind: "internal", startNs: 1n, endNs: null, status: "unset", statusMessage: null, attrs: "{}", events: "[]", links: "[]" }]),
     "TelemetryRepository.saveAgentTurn": () => h.telemetry.saveAgentTurn(turn),
@@ -146,10 +138,9 @@ test("every public repository method is either a read or driven by the gate", ()
 test("no repository method writes outside a transaction", (t) => {
   const { history, writes } = instrumented(t);
   const calls = writingCalls(history);
-  /* A learning rule exists before the calls that update it, and the run table is cleared last. */
-  const first = "LearningRepository.upsertLearningRule";
+  /* The run table is cleared last. */
   const last = "RunRepository.clearDatabase";
-  const order = [first, ...Object.keys(calls).filter((k) => k !== first && k !== last), last];
+  const order = [...Object.keys(calls).filter((k) => k !== last), last];
   for (const key of order) {
     const before = writes.length;
     calls[key]!();

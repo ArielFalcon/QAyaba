@@ -1,4 +1,3 @@
-import type { RetrievedRule } from "@kernel/learned-rule.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 import type { ReviewChangeView } from "./review-change-view.ts";
 
@@ -21,12 +20,6 @@ export interface ReviewEnrichment {
   specChanges?: string;
   /* Paths of the suite's existing specs: context only, never a target and never a reason to reject. */
   existingSpecFiles?: readonly string[];
-  /**
-   * Same retrieved rules the generator saw. The adapter renders only active
-   * rules; candidates are for the generator to explore, never for the judge to
-   * gate on.
-   */
-  learnedRules?: readonly RetrievedRule[];
   /**
    * Live DEV a11y snapshot of routes under review. Absent: the reviewer defers
    * on unverifiable UI facts.

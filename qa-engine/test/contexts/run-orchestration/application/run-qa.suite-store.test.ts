@@ -81,7 +81,6 @@ function rig(opts: { authRestored?: boolean; restoreThrows?: Error; captureThrow
     execution: { execute: async () => ({ verdict: "pass", cases: PASSING, logs: "" }) },
     objectiveSignal: { measure: async () => ({ status: "unknown", ratio: null }), blocks: () => false },
     publication: { publish: async () => (events.push("publish"), { outcome: "pr" }) },
-    learning: { fold: async () => {}, retrieve: async () => [] },
     workspace: { readRoots: rootsOf, prepare: async () => (events.push("prepare"), fakeHandle({ specDir: ws.specDir, mirrorDir: ws.mirrorDir })) },
     specFiles: confinedSpecFiles,
     deployGate: { waitUntilServing: async () => ok(true) },
@@ -302,11 +301,9 @@ test("a restored login that fails because the egress filter refused its hosts is
       throw new AuthPreconditionError(PRECONDITION_KIND.EGRESS_DENIED, "the egress filter refused the login's browser 1 host(s): idp.example.test. Declare their origins in dev.allowedOrigins", 30_000);
     },
   };
-  let folded = 0;
   const out = await new RunQaUseCase(r.deps({
     authSession,
     authContext: { baseUrl: "https://dev.example", auth: { kind: "form", usernameEnv: "U", passwordEnv: "P" } },
-    learning: { fold: async () => void (folded += 1), retrieve: async () => [] },
   })).run(INPUT);
 
   assert.equal(out.decision.verdict, "infra-error");
@@ -317,7 +314,6 @@ test("a restored login that fails because the egress filter refused its hosts is
   assert.deepEqual(attempts, ["pre-generate"], "no second login with the stock seed");
   assert.equal(r.events.filter((e) => e === "setup").length, 1);
   assert.equal(r.events.includes("publish"), false, "no Issue, no PR");
-  assert.equal(folded, 0);
 });
 
 test("a run without a suite store has no proof and fails closed before deciding", async () => {

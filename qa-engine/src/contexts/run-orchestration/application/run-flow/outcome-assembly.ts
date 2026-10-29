@@ -16,7 +16,7 @@ import type { RunContext } from "./run-context.ts";
 const DEFAULT_MIN_COVERAGE_RATIO = 0.7;
 
 /*
- * What a persisted outcome may carry beyond the decision. reviewerApproved, valueScore and rulesRetrieved are optional: early exits
+ * What a persisted outcome may carry beyond the decision. reviewerApproved and valueScore are optional: early exits
  * never reached those phases and must not fabricate them. Pre-exec counters default to 0 (not undefined) when the gate never ran.
  */
 export interface OutcomeExtras {
@@ -44,7 +44,6 @@ export interface OutcomeExtras {
   stubbedState?: RunOutcome["gateSignals"]["stubbedState"];
   dataContradictions?: RunOutcome["gateSignals"]["dataContradictions"];
   note?: string;
-  rulesRetrieved?: string[];
   diffArchetypes?: string[];
   preExecAmbiguityCatches?: number;
   deterministicSelectorBlocks?: number;
@@ -202,7 +201,6 @@ export function toRunOutcome(
       ...(extra?.valueStats !== undefined ? { valueStats: extra.valueStats } : {}),
       ...(coordination ? { coordination } : {}),
     },
-    rulesRetrieved: extra?.rulesRetrieved ?? [],
     ...(extra?.diffArchetypes !== undefined ? { diffArchetypes: extra.diffArchetypes } : {}),
     ...(input.purpose !== undefined || extra?.note !== undefined ? { note: [input.purpose !== undefined ? `[${input.purpose}]` : undefined, extra?.note].filter((part) => part !== undefined).join(" ") } : {}),
     at: new Date().toISOString(),

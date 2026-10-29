@@ -52,7 +52,6 @@ function toOutcome(input: RunInput, result: RunQaResult): RunOutcome {
       ...(result.gateSignals.phaseTimings !== undefined ? { phaseTimings: result.gateSignals.phaseTimings } : {}),
       ...(result.gateSignals.furthestPhase !== undefined ? { furthestPhase: result.gateSignals.furthestPhase } : {}),
     },
-    rulesRetrieved: result.rulesRetrieved,
     ...(result.note !== undefined ? { note: result.note } : {}),
     at: new Date().toISOString(),
     cases: result.cases,

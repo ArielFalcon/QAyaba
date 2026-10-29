@@ -42,7 +42,6 @@ async function runWith(options: { execScope?: ExecScopePort; observer?: Observer
       execution: { execute: options.execute },
       objectiveSignal: { measure: async () => ({ status: "unknown", ratio: null }), blocks: () => false },
       publication: { publish: async () => ({ outcome: "pr" }) },
-      learning: { fold: async () => {}, retrieve: async () => [] },
       workspace: fakeWorkspace(ws),
       specFiles: confinedSpecFiles,
       suiteStore: ws.suiteStore,

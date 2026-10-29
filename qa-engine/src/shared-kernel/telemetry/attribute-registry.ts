@@ -302,13 +302,13 @@ export const ATTRIBUTES = {
   "qayaba.error.message": text("A redacted, capped failure message."),
 
   /* Context spans (design §4.4): one per grounding source, with the ids of what it supplied. */
-  "qayaba.context.source": str("The grounding source: learning, curriculum, context-map, route-ranking, dom-capture, context-pack, service-links, structural-signal, cross-repo-impact."),
+  "qayaba.context.source": str("The grounding source: curriculum, context-map, route-ranking, dom-capture, context-pack, service-links, structural-signal, cross-repo-impact."),
   "qayaba.context.stage": str("Which side of the supply a context span records: produced or delivered."),
   "qayaba.context.status": str("What a produced source came to: delivered, empty, skipped or failed."),
   "qayaba.context.reason": str("Why a produced source came to that status, from a closed set (no-map, capture-failed, disabled, ...)."),
   "qayaba.context.cut_class": str("The kind of loss a cut was: selection or truncation."),
   "qayaba.context.cut_reason": str("The closed reason a cut happened: route-cut, node-safety-bound, window-fit, map-safety-bound, evidence-safety-bound, ..."),
-  "qayaba.context.location": str("The effective location a source was read from: db:context_maps, file:e2e/.qa/context.json, live:dev, mirror:stitcher, graph:codegraph, db:learning_rules, or db:curriculum."),
+  "qayaba.context.location": str("The effective location a source was read from: db:context_maps, file:e2e/.qa/context.json, live:dev, mirror:stitcher, graph:codegraph, or db:curriculum."),
   "qayaba.context.effective_location": text("The effective location the DOM capture read, the first non-empty across routes."),
   "qayaba.context.captured_at": str("When a source was captured, ISO-8601.", "high"),
   "qayaba.context.captured_sha": str("The SHA a source was built from, when it has one.", "high"),

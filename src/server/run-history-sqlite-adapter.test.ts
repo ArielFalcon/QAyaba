@@ -21,7 +21,6 @@ function kernelOutcome(overrides: Partial<KernelRunOutcome> = {}): KernelRunOutc
       flaky: false,
       retries: 0,
     },
-    rulesRetrieved: [],
     at: "2026-07-02T00:00:00.000Z",
     ...overrides,
   };
@@ -45,7 +44,6 @@ test("SqliteRunHistoryAdapter.save() delegates to the injected saveOutcome", asy
   assert.equal(captured!.verdict, "pass");
   assert.equal(captured!.gateSignals.coverageRatio, 0.85);
   assert.equal(captured!.gateSignals.valueScore, 0.5);
-  assert.deepEqual(captured!.rulesRetrieved, []);
   assert.equal(captured!.at, "2026-07-02T00:00:00.000Z");
 });
 
@@ -167,24 +165,4 @@ test("toStoredRunOutcome forwards mutantCount/killedCount faithfully when presen
   );
   assert.equal(out.gateSignals.mutantCount, 20);
   assert.equal(out.gateSignals.killedCount, 0, "a genuine 0 (measured, none killed) must round-trip as 0, not be dropped or coerced to undefined");
-});
-
-test("toStoredRunOutcome forwards rulesRetrieved and reflection when present", () => {
-  const out = toStoredRunOutcome(
-    kernelOutcome({
-      rulesRetrieved: ["selector absent", "use role+name"],
-      reflection: {
-        goal: "test the login form",
-        decision: "used role+name selector",
-        assumption: "form is server-rendered",
-        errorClass: "E-EXEC-FAIL",
-        gateSignal: "execution failed",
-        evidence: "timeout waiting for selector",
-        rootCause: "selector targeted a client-rendered element",
-        preventiveRule: { trigger: "client-rendered form", action: "wait for hydration" },
-      },
-    }),
-  );
-  assert.deepEqual(out.rulesRetrieved, ["selector absent", "use role+name"]);
-  assert.equal(out.reflection?.rootCause, "selector targeted a client-rendered element");
 });

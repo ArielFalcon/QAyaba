@@ -21,7 +21,7 @@ function port(patch: Partial<RunOutcome> = {}, facts?: Parameters<typeof attachT
       const outcome: RunOutcome = {
         runId: input.runId, app: input.app, sha: input.sha.value, mode: input.mode, target: input.target, verdict: "pass", errorClass: null,
         gateSignals: { static: true, coverageRatio: null, valueScore: null, reviewerCorrections: [], flaky: false, retries: 0 },
-        rulesRetrieved: [], at: new Date(0).toISOString(), ...patch,
+at: new Date(0).toISOString(), ...patch,
       };
       return facts ? attachTraceFacts(outcome, facts) : outcome;
     },

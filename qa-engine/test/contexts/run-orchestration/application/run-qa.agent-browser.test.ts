@@ -51,7 +51,6 @@ function rig(opts: { openThrows?: boolean; grant?: boolean; executeThrows?: bool
     execution: { execute: async () => { events.push("execute"); if (opts.executeThrows) throw new Error("runner exploded"); return { verdict: "pass", cases: PASS, logs: "" }; } },
     objectiveSignal: { measure: async () => ({ status: "unknown", ratio: null }), blocks: () => false },
     publication: { publish: async () => ({ outcome: "pr" }) },
-    learning: { fold: async () => {}, retrieve: async () => [] },
     workspace: fakeWorkspace(ws),
     specFiles: confinedSpecFiles,
     suiteStore: ws.suiteStore,

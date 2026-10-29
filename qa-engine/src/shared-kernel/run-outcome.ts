@@ -1,4 +1,4 @@
-/* Immutable record of a finished run — consumed by run-orchestration and cross-run-learning (neither depends on the other). errorClass/usage/reflection/adjudication stay wide so the kernel does not import those types from src/ or downstream contexts. */
+/* Immutable record of a finished run — consumed by run-orchestration and cross-run-learning (neither depends on the other). errorClass/usage/adjudication stay wide so the kernel does not import those types from src/ or downstream contexts. */
 
 import type { RunMode, TestTarget } from "./run-mode.ts";
 import type { RunVerdict } from "./run-verdict.ts";
@@ -138,11 +138,8 @@ export interface RunOutcome {
     /* How the run's regeneration acceptance spent its proof ledger: how many regenerations were accepted (and how many of those reused a closed-loop proof instead of executing), how many were rejected, and whether the per-run execution cap was hit. Persist-only; never read by decide/verdict/gate/publish. */
     integrity?: { acceptances: number; rejected: number; proofReused: number; capHit: boolean };
   };
-  rulesRetrieved: string[];
-  /* Structural pattern kinds of the run's diff (detectStructuralPatterns, "generic" included). The learning fold credits a retrieved rule only when it is attributable to them — untagged, or tagged with one of these kinds. Absent when the run had no diff to read (non-diff modes): every retrieved rule then stays attributable. Fold input only; the run_outcomes row does not store it. */
+  /* Structural pattern kinds of the run's diff (detectStructuralPatterns, "generic" included). Absent when the run had no diff to read (non-diff modes). Not stored in the run_outcomes row. */
   diffArchetypes?: string[];
-  /* Real type is cross-run-learning's StructuredReflection; unknown for the same layering reason. */
-  reflection?: unknown;
   /* Human-readable terminal reason. Absent means no diagnostic was captured — never a fabricated empty string. */
   note?: string;
   at: string;

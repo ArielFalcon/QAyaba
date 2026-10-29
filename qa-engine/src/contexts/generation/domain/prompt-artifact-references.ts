@@ -43,7 +43,6 @@ export const ARTIFACT_REFERENCES: readonly ArtifactReference[] = [
   { artifact: "agent-browser", pattern: named(PROMPT_HEADINGS.agentBrowser), provider: { section: AGENT_BROWSER_SECTION_ID } },
   { artifact: "lead-plan", pattern: named(PROMPT_HEADINGS.leadPlan), provider: { section: LEAD_PLAN_SECTION_ID } },
   { artifact: "existing-suite", pattern: new RegExp(`\\bsuite (?:listed|listing)\\b|${escape(PROMPT_HEADINGS.existingSuiteManifest)}`, "i"), provider: { facts: ["existing-suite"] } },
-  { artifact: "learned-rules", pattern: /\b(?:learned|proven|experimental) rules\b/i, provider: { facts: ["learned-rules"] } },
   { artifact: "exemplars", pattern: /\btest templates\b|\bexemplars?\b/i, provider: { facts: ["exemplars"] } },
   /* The reviewer's instruction that the spec contents are in the prompt: true only while the specs section inlines them. */
   { artifact: "spec-contents", pattern: /\bspec contents are provided in this prompt\b/i, provider: { facts: ["spec-contents-inline"] } },

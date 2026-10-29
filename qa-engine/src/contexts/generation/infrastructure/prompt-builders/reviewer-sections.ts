@@ -80,9 +80,6 @@ function renderInstructions(ctx: ReviewerContext): SectionRender {
   const specsInstruction = specContents === "inline"
     ? `1. The spec contents are provided in this prompt — no need to read files.`
     : `1. The spec contents are not in this prompt — read each listed spec file with the read tool.`;
-  const rulesInstruction = input.learnedRules
-    ? [`7. Also REJECT if any spec violates an app-specific reject-on-sight rule provided in this prompt.`]
-    : [];
   const instructionsContent = [
     `## Instructions`,
     specsInstruction,
@@ -97,7 +94,6 @@ function renderInstructions(ctx: ReviewerContext): SectionRender {
       + ` wrong objective, missing cleanup), not on guessed app specifics.`,
     `6. The "Specs under review" are the specs this run delivered. The "Existing suite" section is`
       + ` context only: never reject a spec because an existing suite file does not cover this change.`,
-    ...rulesInstruction,
   ].join("\n");
   /* The instruction refers to the spec contents only while the specs section provides them (R13: `spec-contents-inline`). */
   return { content: instructionsContent };
@@ -304,13 +300,6 @@ export const REVIEWER_SECTIONS: readonly PromptSectionDef<ReviewerContext>[] = [
   { id: "reviewer-execution-result", tier: "volatile", priority: 1.5, stability: "run", reason: "Runtime server-error evidence, weighed before the test code (f8fa33f8)", applies: ({ input }) => Boolean(input.executionResult), render: ({ input }) => renderExecutionResultSection(input.executionResult ?? "") },
   { id: "reviewer-specs", tier: "volatile", priority: 2, stability: "run", reason: "The specs under review, inline or to be read, from the one outcome the instructions also render from", applies: () => true, render: ({ specBlock, specContents }) => ({ content: specBlock, overflow: "summarize", ...(specContents === "inline" ? { claims: [claim.provides(SPEC_CONTENTS_INLINE_FACT)] } : {}) }) },
   { id: "reviewer-existing-suite", tier: "volatile", priority: 3, stability: "run", reason: "Existing specs as context only: the reviewer judges only what this run delivered (8fea750c)", applies: ({ input }) => Boolean(input.existingSpecFiles?.length), render: renderExistingSuite },
-  {
-    id: "reviewer-learned-rules",
-    tier: "volatile",
-    priority: 3, stability: "run", reason: "The app's reject-on-sight rules from the learning ledger",
-    applies: ({ input }) => Boolean(input.learnedRules),
-    render: ({ input }) => ({ content: [``, input.learnedRules].join("\n") }),
-  },
   /* The arms of the changed code no delivered test ran, measured by the orchestrator: a missing case cites one of them, and it is a record, never a reason to reject. */
   { id: REVIEWER_MISSING_CASES_SECTION_ID, tier: "volatile", priority: 3, stability: "run", reason: "The arms no test ran, so a missing case cites a measured arm and never gates (d717095d)", applies: ({ input }) => Boolean(input.untakenArms?.length), render: renderMissingCases },
   /* Where the routes the capture could not show at their own address end, and why: an `availability` citation names one. */

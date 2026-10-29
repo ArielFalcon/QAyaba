@@ -34,7 +34,7 @@ test("dispatching an author hands the author port the spec directory, the signal
   const { port, calls } = recordingAuthor();
   const controller = new AbortController();
 
-  const out = await dispatchAuthor(port, { target: AUTHOR_TARGET.E2E, specDir: "/m/e2e", signal: controller.signal, diff: "the diff", enrichment: { sha: "abc1234", learnedRules: [] } });
+  const out = await dispatchAuthor(port, { target: AUTHOR_TARGET.E2E, specDir: "/m/e2e", signal: controller.signal, diff: "the diff", enrichment: { sha: "abc1234" } });
 
   assert.deepEqual(out.specs, ["a.spec.ts"]);
   assert.equal(calls.length, 1);

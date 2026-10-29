@@ -45,7 +45,6 @@ function rig(opts: { openThrows?: boolean; generateThrows?: boolean; closeThrows
       execution: { execute: async () => ({ verdict: "pass", cases: PASS, logs: "" }) },
       objectiveSignal: { measure: async () => ({ status: "unknown", ratio: null }), blocks: () => false },
       publication: { publish: async () => ({ outcome: "pr" }) },
-      learning: { fold: async () => {}, retrieve: async () => [] },
       workspace: fakeWorkspace(ws),
       specFiles: confinedSpecFiles,
       suiteStore: ws.suiteStore,

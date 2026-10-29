@@ -21,7 +21,7 @@ import type { AuthorPort, LeadPort, ReviewPort, PreExecGroundingPort, PreGenerat
 import type { ValidationPort, ExecutionPort } from "@contexts/test-execution/application/index.ts";
 import type { ObjectiveSignalPort } from "@contexts/objective-signal/application/index.ts";
 import type { PublicationPort } from "@contexts/workspace-and-publication/application/index.ts";
-import type { LearningPort, CurriculumPort } from "@contexts/cross-run-learning/application/index.ts";
+import type { CurriculumPort } from "@contexts/cross-run-learning/application/index.ts";
 import type { WorkspacePort } from "@contexts/workspace-and-publication/application/index.ts";
 import type { SpecFilesPort } from "@kernel/ports/spec-files.port.ts";
 import type { DeployGatePort } from "@kernel/ports/deploy-gate.port.ts";
@@ -112,7 +112,6 @@ export interface RunQaUseCaseDeps {
   execution: ExecutionPort;
   objectiveSignal: ObjectiveSignalPort;
   publication: PublicationPort;
-  learning: LearningPort;
   workspace: WorkspacePort;
   /** The only way the flow reads or lists files below the spec directory. */
   specFiles: SpecFilesPort;
@@ -349,8 +348,6 @@ export interface RunQaResult {
   cases: QaCase[];
   /** One-shot post-execution string. Absent on early exits that never reached execute(). */
   logs?: string;
-  /** Retrieved rule ids (not trigger text) for by-id fold attribution. */
-  rulesRetrieved: string[];
   /**
    * Diagnostic note. Two sources, never both: an infra-error/invalid message, or
    * the publish outcome string. Absent when neither applies; never fabricated.

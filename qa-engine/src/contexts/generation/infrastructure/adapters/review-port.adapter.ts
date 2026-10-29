@@ -10,7 +10,6 @@ import type { AgentRuntimePort, AgentSession } from "@kernel/ports/agent-runtime
 import type { PromptRenderingPort, RepairPort, VerdictParserPort } from "@contexts/generation/application/index.ts";
 import type { ReviewInput, StepLimitFor } from "@contexts/generation/application/index.ts";
 import type { RunMode } from "@kernel/run-mode.ts";
-import { renderLearnedRulesForReviewer } from "@contexts/cross-run-learning/application/index.ts";
 import { promptFactsOpts } from "@contexts/generation/application/index.ts";
 import { renderExecutionResult, type ExecutionResultCase } from "@contexts/generation/infrastructure/prompt-builders/review-render.ts";
 import { normalizeSpecPath } from "@kernel/spec-path.ts";
@@ -82,7 +81,6 @@ export class ReviewPortAdapter implements ReviewPort {
       ...(this.ctx.guidance ? { guidance: this.ctx.guidance } : {}),
       ...(enrichment?.priorCorrections?.length ? { priorCorrections: [...enrichment.priorCorrections] } : {}),
       ...(enrichment?.specChanges ? { specChanges: enrichment.specChanges } : {}),
-      ...(enrichment?.learnedRules?.length ? { learnedRules: renderLearnedRulesForReviewer(enrichment.learnedRules) } : {}),
       ...(enrichment?.domSnapshot ? { domSnapshot: enrichment.domSnapshot } : {}),
       ...(enrichment?.untakenArms?.length ? { untakenArms: [...enrichment.untakenArms] } : {}),
       ...(enrichment?.routeAvailability?.length ? { routeAvailability: enrichment.routeAvailability } : {}),

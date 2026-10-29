@@ -46,7 +46,7 @@ describe("StoredRunOutcome", () => {
       runId: "r1", app: "demo", sha: "abc1234", mode: "diff", target: "e2e",
       verdict: "pass", errorClass: null,
       gateSignals: { static: true, coverageRatio: 0.8, valueScore: null, reviewerCorrections: [], reviewerApproved: true, flaky: false, retries: 0 },
-      rulesRetrieved: [], at: "2026-06-24T00:00:00.000Z",
+at: "2026-06-24T00:00:00.000Z",
     };
     const asKernel: KernelRunOutcome = stored;
     assert.equal(asKernel.verdict, "pass");

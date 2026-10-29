@@ -510,7 +510,7 @@ function quietly<T>(run: () => T): T {
 const listingGaveUp = (a: AssembledPrompt): boolean => a.windowFit?.degraded.some((section) => section.id === SUITE_ID) === true;
 
 /* The sections of a regeneration that carry the failure and its evidence. */
-const VOLATILE_SECTIONS = ["dom-snapshot", "selector-contradictions", "fix-cases", "reviewer-corrections", "learned-rules"] as const;
+const VOLATILE_SECTIONS = ["dom-snapshot", "selector-contradictions", "fix-cases", "reviewer-corrections"] as const;
 
 test("a first pass whose listing is over the window is given the directories of the suite instead, and says the specs are not shown", () => {
   const lines = Array.from({ length: 20 }, (_, index) => `flows/f${index}.spec.ts — flow: f${index}, objective: o${index}`);
@@ -537,7 +537,6 @@ test("a regeneration's listing is never lost to the window, however small, and i
     fixCases: [failing("flows/a.spec.ts")],
     reviewCorrections: corrections,
     selectorContradictions: ["button:Apply is NOT in the captured tree"],
-    learnedRules: "## Learned rules\n- scope the coupon button to the cart form",
     domSnapshot: "  button: Apply coupon",
     failureSourced: true,
   });

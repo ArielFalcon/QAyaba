@@ -37,8 +37,6 @@ export interface OpencodeRunInput {
   deliveredSpecs?: readonly DeliveredSpec[];
   /* The specs whose source raised one of `selectorContradictions`, since a contradiction names no file itself: the listing marks them editable. Absent when none could be attributed. */
   attributedSpecFiles?: readonly string[];
-  /* Generator render of the retrieved rules: proven rules plus unproven candidates framed as hints. */
-  learnedRules?: string;
   domSnapshot?: string;
   failureSourced?: boolean;
   runId?: string;

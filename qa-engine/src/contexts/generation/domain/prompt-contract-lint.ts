@@ -117,7 +117,6 @@ const SINGLE_SOURCE_FACTS: readonly FactId[] = [
   "agent-browser",
   "geolocation",
   "existing-suite",
-  "learned-rules",
   "exemplars",
   "co-change",
 ];

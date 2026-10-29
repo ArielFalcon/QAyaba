@@ -28,7 +28,6 @@ export interface EndEvidence {
   /** Static-fix retries consumed before the end. */
   retries?: number;
   groundingSignals?: GroundingSignals;
-  rulesRetrieved?: string[];
   /** The diff's structural shapes the fold attributes the retrieved rules against; absent when there is no diff. */
   diffArchetypes?: string[] | undefined;
   /** Merged confinement from the last enforcement before the end; absent if it never ran. */
@@ -58,7 +57,7 @@ export type RunEnd =
   /** The generation delivered no specs and decided nothing; `generationEnd` names how it ended. */
   | ({ reason: "generation-ended-without-specs"; generationEnd: GenerationEndKind; note: string } & EndEvidence)
   /** No author sidekick could run: `refusal` is the code (`AUTHORING_REFUSAL`) the coordination recorded. */
-  | { reason: "no-author"; refusal: string; note: string; rulesRetrieved?: string[] }
+  | { reason: "no-author"; refusal: string; note: string }
   /** The static gate refused the specs. */
   | ({ reason: "static-gate-failed"; generating: boolean; note: string | undefined } & EndEvidence)
   /** The run could not execute the specs it validated: the static gate itself could not run, DEV is down, or the login before execute failed. */
@@ -68,8 +67,8 @@ export type RunEnd =
   /** A green run whose reviewer and generator could not settle a verified finding. */
   | ({ reason: "review-disputed"; disputed: readonly DisputedFinding[]; passedCases: number; static: boolean } & EndEvidence)
   /** The run's time was spent. */
-  | { reason: "run-deadline"; note: string; generationEnd: GenerationEndKind; rulesRetrieved?: string[] }
-  | { reason: UnreachedVerdict; note: string; rulesRetrieved?: string[] }
+  | { reason: "run-deadline"; note: string; generationEnd: GenerationEndKind }
+  | { reason: UnreachedVerdict; note: string }
   /** The run reached its decision (`state.decided`); `finalizeRun` carries it out. */
   | { reason: "decided" }
   | { reason: "context-pass" };

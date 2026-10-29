@@ -1,4 +1,4 @@
-import type { RetrievedRule, SelectedExemplar } from "@kernel/learned-rule.ts";
+import type { SelectedExemplar } from "@kernel/learned-rule.ts";
 import type { ServiceLink, ContractDrift, ImpactedLink } from "@kernel/service-links.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 import type { ClosedLoopLimits } from "@kernel/closed-loop.ts";
@@ -72,11 +72,6 @@ export interface GenerationEnrichment {
   sha?: string;
   /** Per-run id for the generator SSE session descriptor. */
   runId?: string;
-  /**
-   * Structured rules from LearningPort.retrieve. The adapter renders them;
-   * absent/empty leaves the prompt unchanged.
-   */
-  learnedRules?: readonly RetrievedRule[];
   /**
    * First-write context pack, built once before the initial generate() and reused
    * unchanged on every regeneration in the same run. Absent falls back to live-MCP

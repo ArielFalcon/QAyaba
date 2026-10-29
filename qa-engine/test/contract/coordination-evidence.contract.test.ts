@@ -43,7 +43,6 @@ test("evidence adapters produce refs with stable kinds and no OpencodeRunInput f
     assert.ok(ref.confidence);
     assert.equal(Object.hasOwn(ref, "diff"), false);
     assert.equal(Object.hasOwn(ref, "existingSpecs"), false);
-    assert.equal(Object.hasOwn(ref, "learnedRules"), false);
   }
   assert.equal(evidenceFromChangeAnalysis(redaction, { action: "skip", reason: "docs", fileCount: 0 }).confidence, "deterministic");
   assert.equal(evidenceFromGeneration(redaction, { specs: 0, approved: true }).confidence, "observed");

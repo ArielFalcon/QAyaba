@@ -54,7 +54,6 @@ async function runOf(input: RunQaInput, execute?: RunQaUseCaseDeps["execution"][
     execution: { execute: execute ?? (async () => ({ verdict: "pass", cases: [], logs: "" })) },
     objectiveSignal: { measure: async () => ({ status: "unknown", ratio: null }), blocks: () => false },
     publication: { publish: async () => ({ outcome: "pr" }) },
-    learning: { fold: async () => {}, retrieve: async () => [] },
     workspace: fakeWorkspace(ws),
     specFiles: confinedSpecFiles,
     suiteStore: ws.suiteStore,
@@ -88,7 +87,7 @@ test("a green diff run reports the steps it ran, and the ones it passed over, by
   const input: RunQaInput = { ...base, mode: "diff", runId: "sequence-ids-diff" };
   assert.deepEqual(await idsOf(input, "ran"), [
     "wait-for-deploy", "classify-change", "arm-run-deadline", "index-mirror", "restore-accepted-suite", "set-up-project", "prepare-login", "clean-prior-run",
-    "open-authoring-handles", "read-diff-shapes", "retrieve-rules", "select-exemplars", "resolve-blast-radius", "resolve-service-links", "resolve-cross-repo-impact", "compute-change-scope", "ground-repository",
+    "open-authoring-handles", "read-diff-shapes", "select-exemplars", "resolve-blast-radius", "resolve-service-links", "resolve-cross-repo-impact", "compute-change-scope", "ground-repository",
     "assemble-enrichment", "generate-first-pass", "settle-generation-end", "ground-before-execution", "pre-exec-regenerate", "validate-statically", "static-fix-round", "check-health", "prepare-execute-auth", "announce-execution",
     "execute-specs", "fingerprint-green-suite", "announce-coverage", "measure-coverage", "review-tests", "review-round", "review-settle", "release-coordinated-pass", "guard-final-proof",
   ]);

@@ -59,17 +59,10 @@ test("the evaluation repository writes only inside transactions", (t) => {
 test("the learning repository writes only inside transactions", (t) => {
   const { history, writes } = instrumented(t);
   const learning = history.learning;
-  learning.upsertLearningRule({ id: "rule-1", app: "app", trigger: "t", action: "a", errorClass: "E-INFRA", source: "test" } as never);
-  learning.incrementRuleUsage(["rule-1"]);
-  learning.recordRuleOutcome("rule-1", 1);
-  learning.setRuleStatusByHuman("rule-1", "active");
-  learning.quarantineLearningRules("app", ["rule-1"], "2026-10-01T00:00:00.000Z");
-  learning.releaseLearningRuleQuarantine("rule-1");
   learning.saveCurriculum({ app: "app", updatedAt: "2026-10-01T00:00:00.000Z" } as never);
-  learning.saveScorecardEntry({ app: "app", runId: "r", at: "2026-10-01T00:00:00.000Z", valueScore: 1 } as never);
-  learning.saveRunOutcome({ runId: "r", app: "app", sha: "abcdef1", mode: "diff", target: "e2e", verdict: "pass", errorClass: null, gateSignals: { static: true, coverageRatio: null, valueScore: null, reviewerCorrections: [], flaky: false, retries: 0 }, rulesRetrieved: [], at: "2026-10-01T00:00:00.000Z" });
+  learning.saveRunOutcome({ runId: "r", app: "app", sha: "abcdef1", mode: "diff", target: "e2e", verdict: "pass", errorClass: null, gateSignals: { static: true, coverageRatio: null, valueScore: null, reviewerCorrections: [], flaky: false, retries: 0 },at: "2026-10-01T00:00:00.000Z" });
 
-  assert.ok(writes.length >= 8);
+  assert.ok(writes.length >= 2);
   assert.deepEqual(writes.filter((w) => !w.inTransaction), []);
 });
 

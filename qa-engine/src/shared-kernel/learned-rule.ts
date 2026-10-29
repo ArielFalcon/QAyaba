@@ -1,22 +1,4 @@
-/* What a retrieved learning rule and a selected exemplar look like where the ledger, the run flow and the generation prompt meet. */
-
-/**
- * Port-boundary projection of a retrieved learning rule. `status` is only
- * "active" | "candidate" because deprecated/superseded rules are never retrieved.
- */
-export interface RetrievedRule {
-  /**
-   * Ledger primary key for outcome-fold attribution. Never rendered into a
-   * prompt. `trigger` is the prompt-facing text and must never be used for fold
-   * attribution.
-   */
-  id: string;
-  trigger: string;
-  action: string;
-  errorClass: string;
-  status: "active" | "candidate";
-  confidence: "low" | "medium" | "high";
-}
+/* What a selected exemplar looks like where the curriculum, the run flow and the generation prompt meet. */
 
 export interface SelectedExemplar {
   id: string;

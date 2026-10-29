@@ -74,8 +74,7 @@ async function enforcedEnd<E extends Exclude<RunEnd, { reason: "decided" | "cont
  * child ran, the evidence the scope holds is kept as a persisted infra-error before the error goes on; the caller rethrows.
  */
 export async function recordCrashEvidence(note: string, ctx: RunContext, state: Readonly<RunState>): Promise<void> {
-  const { rulesRetrieved } = state.run;
-  await finalizeShape({ kind: "terminal", terminal: { verdict: "infra-error", generating: true, static: false, note, ...(rulesRetrieved ? { rulesRetrieved } : {}) } }, CRASH_EVIDENCE_EFFECTS, ctx, state);
+  await finalizeShape({ kind: "terminal", terminal: { verdict: "infra-error", generating: true, static: false, note } }, CRASH_EVIDENCE_EFFECTS, ctx, state);
 }
 
 async function finalizeShape(shape: Shape, effects: EndEffects, ctx: RunContext, state: Readonly<RunState>): Promise<RunQaResult> {
@@ -160,12 +159,12 @@ function shapeOf(end: Exclude<RunEnd, { reason: "decided" | "context-pass" }>, c
       return { kind: "terminal", terminal: { verdict: "infra-error", generating: true, static: staticOk, ...evidence, note, reviewDisputed: true } };
     }
     case "no-author":
-      return { kind: "terminal", terminal: { verdict: "infra-error", generating: true, static: false, note: end.note, generationEnd: GENERATION_END.NO_AUTHOR, ...(end.rulesRetrieved ? { rulesRetrieved: end.rulesRetrieved } : {}) } };
+      return { kind: "terminal", terminal: { verdict: "infra-error", generating: true, static: false, note: end.note, generationEnd: GENERATION_END.NO_AUTHOR } };
     case "run-deadline":
-      return { kind: "terminal", terminal: { verdict: "infra-error", generating: true, static: false, note: end.note, generationEnd: end.generationEnd, ...(end.rulesRetrieved ? { rulesRetrieved: end.rulesRetrieved } : {}) } };
+      return { kind: "terminal", terminal: { verdict: "infra-error", generating: true, static: false, note: end.note, generationEnd: end.generationEnd } };
     case "sandbox-unavailable":
     case "probe-sweep-failed":
-      return { kind: "terminal", terminal: { verdict: "infra-error", generating: true, static: false, note: end.note, ...(end.rulesRetrieved ? { rulesRetrieved: end.rulesRetrieved } : {}) } };
+      return { kind: "terminal", terminal: { verdict: "infra-error", generating: true, static: false, note: end.note } };
   }
 }
 
@@ -222,14 +221,11 @@ function outcomeOf(shape: Shape, decision: RunDecision, note: string | undefined
   }
   if (shape.kind === "failure") return undefined;
   const { terminal } = shape;
-  const rulesRetrieved = terminal.rulesRetrieved ?? [];
   return toRunOutcome(ctx, decision, [], terminal.retries ?? 0, null, errorClassOf(terminal, ctx), {
     staticOk: terminal.static,
     note,
     ...(terminal.reviewerRationale !== undefined ? { reviewerRationale: terminal.reviewerRationale } : {}),
     ...(terminal.groundingSignals ?? NO_GROUNDING_SIGNALS),
-    /* Empty retrieved ids omit the override; non-empty reach persist so the terminal fold can attribute. */
-    ...(rulesRetrieved.length ? { rulesRetrieved } : {}),
     ...(terminal.diffArchetypes ? { diffArchetypes: terminal.diffArchetypes } : {}),
     ...(terminal.confinement !== undefined ? { confinement: terminal.confinement } : {}),
     ...(terminal.closedLoop ? { closedLoop: terminal.closedLoop } : {}),
@@ -253,7 +249,6 @@ async function learnFromTerminal(outcome: RunOutcome, terminal: TerminalShape, c
     errorClass: outcome.errorClass,
     adjudicationClass: outcome.adjudication?.class,
   });
-  if (learning.fold) await deps.learning.fold(outcome);
   /* The audit also sees the operating signal of a class that teaches nothing. */
   if (deps.processAudit && (learning.audit || observesOperatingSignal({ mode: input.mode, errorClass: outcome.errorClass }))) {
     const startedAt = Date.now();
@@ -271,7 +266,6 @@ function resultOf(shape: Shape, decision: RunDecision, outcome: RunOutcome | und
       errorClass: deriveErrorClass("infra-error", null, null, [], { sandboxRefused: ctx.host.sandboxRefused() }),
       gateSignals: { static: false, coverageRatio: null, valueScore: null, retries: 0, ...NO_GROUNDING_SIGNALS },
       cases: [],
-      rulesRetrieved: [],
       ...(shape.note !== undefined ? { note: shape.note } : {}),
     };
   }
@@ -289,8 +283,6 @@ function resultOf(shape: Shape, decision: RunDecision, outcome: RunOutcome | und
         ...NO_GROUNDING_SIGNALS,
       },
       cases: [],
-      /* Neither skip source persists retrieved rule ids. */
-      rulesRetrieved: [],
     };
     return outcome ? { ...result, outcome } : result;
   }
@@ -317,7 +309,6 @@ function resultOf(shape: Shape, decision: RunDecision, outcome: RunOutcome | und
       ...(persisted && coordination ? { coordination } : {}),
     },
     cases: [],
-    rulesRetrieved: persisted ? (terminal.rulesRetrieved ?? []) : [],
     ...(persisted && note !== undefined ? { note } : {}),
   };
 }

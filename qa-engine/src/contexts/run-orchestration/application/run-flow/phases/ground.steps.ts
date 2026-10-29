@@ -1,67 +1,32 @@
-/* The ground phase of a run: what the agent is handed before it writes anything. The learned rules are retrieved, the curriculum's exemplars chosen, the repository grounded, and the blast radius, the service links and the cross-repo impact resolved; together they make the enrichment every generation starts from. */
+/* The ground phase of a run: what the agent is handed before it writes anything. The curriculum's exemplars are chosen, the repository grounded, and the blast radius, the service links and the cross-repo impact resolved; together they make the enrichment every generation starts from. */
 
 import { engineLog } from "@kernel/ports/process-logger.ts";
-import type { RetrievedRule } from "@kernel/learned-rule.ts";
 import type { ServiceLink, ContractDrift, CrossRepoImpact } from "@kernel/service-links.ts";
 import { PRE_GENERATION_GROUNDING_STEP_DETAIL } from "@kernel/run-step.ts";
 import { BlastRadius } from "@kernel/blast-radius.ts";
 import { DiffParserService } from "@kernel/diff-parser/diff-parser.service.ts";
 import { detectStructuralPatterns } from "@kernel/structural-pattern.ts";
 import type { DecisionListing } from "@kernel/changed-decision.ts";
-import type { RelevanceBias } from "@contexts/cross-run-learning/application/index.ts";
 import type { ChangeScope, ChangeScopeRepo, ReachTier, UseCaseCandidate } from "@contexts/change-analysis/application/index.ts";
 import type { StepOutcome } from "../run-flow.ts";
 import { throwIfAborted } from "../abort.ts";
 import type { WorkspaceRunContext } from "../run-context.ts";
 import type { RunState } from "../run-state.ts";
-import { recordRunFact } from "../reducers.ts";
 import { carryOn } from "../failure-policy.ts";
 import { availabilityGroundingOf, withRouteConfigCandidates } from "../route-availability-grounding.ts";
 
 type Result = Promise<StepOutcome<RunState>>;
 
 /*
- * Bias retrieval toward the CURRENT diff's structural shape, using the SAME detector generation's own curriculum/archetype calls already use (detectArchetype
- * below, curriculum.select() above) so the offered archetypes never silently diverge from what
- * biases retrieval. The diff is undefined outside diff mode (only "diff" classifies), so there is no signal to bias with there; never fabricated.
- *
- * Retrieval is NOT biased by the app's most recent persisted errorClass: RunHistoryPort is
- * save-only (no read-back — see run-pipeline.adapter.ts's own header note), and no
- * port wired into this use-case at this point in the flow can answer "what was this app's
- * last outcome's errorClass", so that signal is left unwired rather than invented.
- *
- * The diff's structural shapes, read once: they bias retrieval (specific shapes only) and ride
- * on every folded outcome so the fold credits only the retrieved rules attributable to them.
- * Undefined outside diff mode — no diff, no shape, never fabricated.
+ * The diff's structural shapes, read once: they ride on the run's outcome. Undefined outside diff mode
+ * (only "diff" classifies): no diff, no shape, never fabricated.
  */
 export async function readDiffShapes(state: Readonly<RunState>, _ctx: WorkspaceRunContext): Result {
   const { diff: classificationDiff, intent: classificationIntent } = state.classification;
   const diffArchetypes = classificationDiff
     ? detectStructuralPatterns(classificationDiff, classificationIntent?.changedFiles ?? []).map((p) => p.kind)
     : undefined;
-  const retrievalArchetypes = (diffArchetypes ?? []).filter((k) => k !== "generic");
-  const retrievalRelevance: RelevanceBias | undefined =
-    retrievalArchetypes.length > 0 ? { archetypes: retrievalArchetypes } : undefined;
-  return { update: { grounding: { ...state.grounding, diffArchetypes, retrievalRelevance } } };
-}
-
-/*
- * sha is always present so manifest changeRef.sha is never empty.
- * retrieve() is enrichment, not a requirement: failure is caught and generation
- * continues. Prompt renderers use trigger/action; retrievedRuleIds (r.id) are
- * for by-id fold attribution — never conflate the two.
- */
-export async function retrieveRules(state: Readonly<RunState>, ctx: WorkspaceRunContext): Result {
-  const { deps, input } = ctx;
-  let retrievedRules: RetrievedRule[] = [];
-  try {
-    retrievedRules = await deps.learning.retrieve(input.sha, state.grounding.retrievalRelevance);
-  } catch (err) {
-    engineLog.error("[qa] learning retrieval failed (non-fatal, generation continues ungrounded):", { error: err });
-  }
-  const retrievedRuleIds = retrievedRules.map((r) => r.id);
-  recordRunFact(state, "rulesRetrieved", retrievedRuleIds);
-  return { update: { grounding: { ...state.grounding, retrievedRules, retrievedRuleIds } } };
+  return { update: { grounding: { ...state.grounding, diffArchetypes } } };
 }
 
 /*
@@ -361,12 +326,11 @@ export async function assembleEnrichment(state: Readonly<RunState>, ctx: Workspa
   const { input, trail } = ctx;
   const { intent: classificationIntent, reason: classificationReason, contradiction: classificationContradiction } = state.classification;
   const { closedLoop, agentBrowser } = trail;
-  const { retrievedRules, contextPack, contextPackItemIds, contextPackOmissions, existingSpecFiles, contextMap, harnessFacts, blastRadiusSignal, blastRadiusSignalHasSymbols, blastRadiusSignalFiles, selectedExemplars, serviceLinks, contractDrift, crossRepoImpact } = state.grounding;
+  const { contextPack, contextPackItemIds, contextPackOmissions, existingSpecFiles, contextMap, harnessFacts, blastRadiusSignal, blastRadiusSignalHasSymbols, blastRadiusSignalFiles, selectedExemplars, serviceLinks, contractDrift, crossRepoImpact } = state.grounding;
   const baseEnrichment = {
     sha: input.sha.toString(),
     runId: input.runId,
     ...(classificationIntent ? { intent: classificationIntent } : {}),
-    ...(retrievedRules.length ? { learnedRules: retrievedRules } : {}),
     ...(contextPack ? { contextPack } : {}),
     ...(contextPackItemIds ? { contextPackItemIds } : {}),
     ...(contextPackOmissions ? { contextPackOmissions } : {}),

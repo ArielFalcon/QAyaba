@@ -74,7 +74,6 @@ async function endingEvidence(state: Readonly<RunState>, ctx: WorkspaceRunContex
     retries,
     groundingSignals: { preExecAmbiguityCatches, deterministicSelectorBlocks: DETERMINISTIC_SELECTOR_BLOCKS, catalogGateInWindow, catalogGateAdvisory, catalogGateFailClosed },
     /* Retrieved ids reach the persisted outcome for diagnosability only. */
-    rulesRetrieved: state.grounding.retrievedRuleIds,
     diffArchetypes: state.grounding.diffArchetypes,
     confinement: services.confinement.totals,
     /* FixLoop has not run: the tested section is the latest generation's. */

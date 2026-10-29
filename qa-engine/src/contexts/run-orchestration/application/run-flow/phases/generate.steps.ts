@@ -173,7 +173,7 @@ export async function generateFirstPass(state: Readonly<RunState>, ctx: Workspac
 export async function settleGenerationEnd(state: Readonly<RunState>, ctx: WorkspaceRunContext): Result {
   const { deps, trail, services } = ctx;
   const { generated } = state.generation;
-  const { retrievedRuleIds, diffArchetypes, moreNodes: groundingMoreNodes } = state.grounding;
+  const { diffArchetypes, moreNodes: groundingMoreNodes } = state.grounding;
   const agentBrowserSignal = () => trail.agentBrowser?.signals();
   if (generated.end !== null) {
     recordRunFact(state, "generationEnd", generated.end);
@@ -215,7 +215,6 @@ export async function settleGenerationEnd(state: Readonly<RunState>, ctx: Worksp
       return end("generation-ended-without-specs", {
         generationEnd: generated.end,
         note: endNote,
-        rulesRetrieved: retrievedRuleIds,
         diffArchetypes,
         confinement: services.confinement.totals,
         closedLoop: await closedLoopSignal(state, ctx),

@@ -8,7 +8,6 @@ import { getHistory, getHistoryDatabase } from "../index";
 import { backupDatabase } from "../backup";
 import { SpecRecordSchema } from "../../../contract/commands";
 import type { RunOutcome } from "../../../types";
-import { LEARNING_RULE_LEDGER_LIMIT } from "./learning.repository";
 
 test("createRecord stores an enqueued record findable by id", () => {
   const r = getHistory().runs.createRecord({ target: "e2e",  app: "hist-a", sha: "abcdef1234", mode: "diff" });
@@ -170,28 +169,6 @@ test("childrenOf lists the runs that name a parent, newest first, and none for a
   assert.equal(getHistory().runs.childrenOf(heal.id).length, 0, "a leaf run has no children");
 });
 
-/* The governance read feeds RuleGovernanceService (the single ranking truth) and must hand it the
-   whole retrievable ledger: a large active set must neither crowd candidates out nor be truncated
-   itself before governance ranks anything. */
-test("listLearningRulesForGovernance: returns every active and candidate row however large the ledger", () => {
-  const app = "hist-governance-no-starve";
-  const activeTotal = LEARNING_RULE_LEDGER_LIMIT + 3;
-  for (let i = 0; i < activeTotal; i++) {
-    getHistory().learning.upsertLearningRule({
-      id: `active-${i}`, app, trigger: `t${i}`, action: `a${i}`,
-      errorClass: "E-EXEC-FAIL", source: "run", initialStatus: "active",
-    });
-  }
-  getHistory().learning.upsertLearningRule({ id: "candidate-fresh-1", app, trigger: "fresh1", action: "a", errorClass: "E-EXEC-FAIL", source: "run" });
-  getHistory().learning.upsertLearningRule({ id: "candidate-fresh-2", app, trigger: "fresh2", action: "a", errorClass: "E-EXEC-FAIL", source: "run" });
-
-  const rows = getHistory().learning.listLearningRulesForGovernance(app);
-
-  const candidateIds = rows.filter((r) => r.status === "candidate").map((r) => r.id);
-  assert.deepEqual(new Set(candidateIds), new Set(["candidate-fresh-1", "candidate-fresh-2"]));
-  assert.equal(rows.filter((r) => r.status === "active").length, activeTotal);
-});
-
 test("createRecord persists triggerRepo and getRecord returns it", () => {
   const rec = getHistory().runs.createRecord({ app: "shop", sha: "a1b2c3d", target: "e2e", mode: "diff", triggerRepo: "org/orders-svc" });
   assert.equal(getHistory().runs.getRecord(rec.id)?.triggerRepo, "org/orders-svc");
@@ -291,7 +268,7 @@ function finishedRun(app: string, verdict: RunOutcome["verdict"], furthestPhase:
     getHistory().learning.saveRunOutcome({
       runId: r.id, app, sha: "abcdef1234", mode: "diff", target: "e2e", verdict, errorClass: errorClass as RunOutcome["errorClass"],
       gateSignals: { static: true, coverageRatio: null, valueScore: null, reviewerCorrections: [], flaky: false, retries: 0 },
-      rulesRetrieved: [], at: at ?? new Date().toISOString(),
+at: at ?? new Date().toISOString(),
     });
   }
   return r.id;

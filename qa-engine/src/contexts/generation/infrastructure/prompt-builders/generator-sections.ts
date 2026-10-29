@@ -669,13 +669,6 @@ export const GENERATOR_SECTIONS: readonly PromptSectionDef<PromptContext>[] = [
     render: renderContractFeedback,
   },
   { id: "coverage-gap", tier: "volatile", priority: 5, stability: "run", reason: "The changed lines and arms no test ran: the one coverage or branch-case regeneration (change-coverage)", applies: (ctx) => Boolean(ctx.input.coverageGap) && ctx.isGenerationMode, render: renderCoverageGap },
-  {
-    id: "learned-rules",
-    tier: "volatile",
-    priority: 2, stability: "run", reason: "Proven rules of the app's cross-run learning ledger",
-    applies: (ctx) => Boolean(ctx.input.learnedRules) && ctx.isGenerationMode,
-    render: (ctx) => ({ content: [ctx.input.learnedRules, ``].join("\n"), claims: [claim.provides("learned-rules")] }),
-  },
   { id: "task", tier: "task", priority: 1, stability: "run", reason: "The turn's task and procedure for its mode, with the run's change and guidance", applies: () => true, render: renderTask },
   {
     id: "diff",

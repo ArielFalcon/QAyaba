@@ -107,7 +107,6 @@ async function run(scenario: Scenario): Promise<GenerationEnrichment[]> {
       execution: { execute: scenario.execute ?? PASSING },
       objectiveSignal: { measure: scenario.measure ?? (async () => ({ status: "unknown", ratio: null })), blocks: scenario.blocks ?? (() => false) },
       publication: { publish: async () => ({ outcome: "pr" }) },
-      learning: { fold: async () => {}, retrieve: async () => [] },
       workspace: fakeWorkspace(ws),
       specFiles: confinedSpecFiles,
       suiteStore: ws.suiteStore,

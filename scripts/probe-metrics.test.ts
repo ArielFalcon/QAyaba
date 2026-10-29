@@ -184,7 +184,7 @@ function outcome(over: Partial<RunOutcome["gateSignals"]> = {}, errorClass: RunO
   return {
     runId: RUN_ID, app: "demo", sha: "abc1234", mode: "diff", target: "e2e", verdict: "pass", errorClass,
     gateSignals: { static: true, coverageRatio: null, valueScore: null, reviewerCorrections: [], flaky: false, retries: 0, ...over },
-    rulesRetrieved: [], at: "2026-10-11T10:00:00.000Z",
+    at: "2026-10-11T10:00:00.000Z",
   };
 }
 

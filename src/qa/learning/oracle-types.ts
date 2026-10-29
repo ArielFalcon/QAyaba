@@ -1,4 +1,4 @@
-/* Scorecard types for the shell learning store (history + control-plane views). */
+/* Scorecard types for the shell learning store (history + control-plane views). Nothing writes a scorecard any more; the signals view still reads the rows runs left behind. */
 import type { TestTarget } from "../../types";
 
 export interface ScorecardEntry {
@@ -23,25 +23,5 @@ export interface Scorecard {
     measuredRuns: number;
     avgValueScore: number | null;
     lastValueScore: number | null;
-  };
-}
-
-export function updateScorecard(prev: Scorecard | null, entry: ScorecardEntry): Scorecard {
-  const entries = [...(prev?.entries ?? []), entry];
-  const measured = entries.filter((e) => e.valueScore !== null);
-  const lastMeasured = measured[measured.length - 1] ?? null;
-
-  return {
-    app: entry.app,
-    updatedAt: new Date().toISOString(),
-    entries,
-    summary: {
-      totalRuns: entries.length,
-      measuredRuns: measured.length,
-      avgValueScore: measured.length > 0
-        ? measured.reduce((s, e) => s + (e.valueScore ?? 0), 0) / measured.length
-        : null,
-      lastValueScore: lastMeasured?.valueScore ?? null,
-    },
   };
 }

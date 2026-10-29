@@ -108,6 +108,17 @@ export const BANNED_RULES: BannedRule[] = [
     ],
     exemptPrefixes: [RECORDS_PREFIX],
   },
+  {
+    id: "rule-loop",
+    patterns: [
+      /\b(?:renderLearnedRules|renderLearnedRulesForReviewer|RuleGovernanceService|FoldRunOutcome|QuarantineLearnedRulesUseCase|LearningPortAdapter|StubLearningRepository|SqliteLearningRepository|LearningRepositoryPort|LearningStorePort|LearningPort|historyLearningStore|reflectorUnproven|attributableRules|LEARNING_RULE_LEDGER_LIMIT|showLearning|TracedLearningPort)\b/,
+      /\b(?:rule-fold|rule-governance|render-learned-rules|learning-quarantine|ledger-cli|ledger-report|learning-rule|learning-port\.adapter|learned-rule-model|distill-rule)\b/,
+      /\b(?:learned-rules|reviewer-learned-rules|learnedRules|rulesRetrieved|retrievedRuleIds|retrievedRules|retrievalRelevance|rule-learning|learning:quarantine)\b/,
+      /\b(?:retrieve-rules|LearningRule|RetrievedRule|RuleView|readRules|deprecateRule|ledger-heal|noise-rule)\b/,
+      /--learning\b/,
+    ],
+    exemptPrefixes: [RECORDS_PREFIX],
+  },
   { id: "shell-dead-run-types", patterns: [/\bAgentResult\b/], exemptPrefixes: [RECORDS_PREFIX] },
   { id: "shell-events-reexport", patterns: [/\bsrc\/contract\/events(?:\.ts)?(?![\w.-])/], exemptPrefixes: [RECORDS_PREFIX] },
   {

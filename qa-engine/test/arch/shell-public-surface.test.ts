@@ -14,7 +14,7 @@ const CONFIG_REL = join("qa-engine", ".dependency-cruiser.cjs");
 const EXCEPTIONS_REL = join("qa-engine", ".dependency-cruiser-shell-exceptions.json");
 
 /** Entries the frozen list holds today; a shrinking commit lowers it, raising it is a visible review event. */
-export const SHELL_INFRASTRUCTURE_EXCEPTIONS_CEILING = 46;
+export const SHELL_INFRASTRUCTURE_EXCEPTIONS_CEILING = 45;
 
 function treeWith(files: Record<string, string>, exceptions: string[] = []): string {
   const treeRoot = mkdtempSync(join(tmpdir(), "shell-surface-"));

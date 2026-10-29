@@ -21,7 +21,6 @@ function build(config: Partial<RunQaConfig>, measure: RunQaUseCaseDeps["objectiv
     execution: { execute: async () => ({ verdict, cases: [], logs: "" }) },
     objectiveSignal: { measure, blocks: () => false },
     publication: { publish: async () => ({ outcome: "pr" }) },
-    learning: { fold: async () => {}, retrieve: async () => [] },
     workspace: fakeWorkspace(ws),
     specFiles: confinedSpecFiles,
     suiteStore: ws.suiteStore,

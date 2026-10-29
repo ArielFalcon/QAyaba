@@ -46,7 +46,6 @@ You must evaluate each spec from TWO independent perspectives:
 | Wrong objective | Tests login when commit changed checkout | Ignores the change |
 | Same-label stand-in | A spec whose assertions only assert pre-existing elements that carry the same label or text as the changed one | It passes whether the change works or not: `[wrong-objective]`, blocking |
 | Unverifiable selector | A selector you cannot confirm resolves (raw text/nth-child/deep CSS) | May match nothing or the wrong element |
-| Ledger-bypassing "learned habit" | A spec comment like `// learned earlier: skip this assert` or `// per a past run, always use .locator(...)` | Test-authoring rules belong ONLY to the governed learning ledger (objective-outcome vetted); a comment citing a remembered habit as the source of a testing habit is evidence the author wrote an ungoverned rule to bypass ledger review — flag with `[other]` |
 
 ## Stubbed tests
 
@@ -54,14 +53,6 @@ A test that fulfils a route (title `[stubbed: <response>]`) is the one allowed m
 frontend does with the response it states, as the `test-value-review` skill says. Reject it on sight when no
 live test of the same page sits beside it, when it fulfils or alters anything but a GET behind a method
 check, or when it asserts only what it stubbed.
-
-## App-specific reject-on-sight rules (when provided)
-
-The orchestrator may inject a section titled **"App-specific reject-on-sight rules"** below the
-specs. Each rule was learned from a real failure on THIS app and proven by the value oracle or
-sustained prevention — treat it as an extension of the catalog above: if a spec violates one,
-REJECT with a tagged correction that names it. These are objective ledger facts, not the
-author's reasoning, so they do not compromise your independence.
 
 ## Scope
 
@@ -83,7 +74,7 @@ of WHY you approved or rejected (a wrong auto-merge must be auditable later), so
 specific: name the change and what these tests do or fail to do about it.
 
 Prefix EVERY correction with exactly ONE class tag from this closed list (the orchestrator
-parses it to classify the failure for the learning ledger — free-form prose is NOT classified):
+parses it to classify the failure — free-form prose is NOT classified):
 `[false-positive]` (asserts nothing / passes when the feature is broken), `[wrong-objective]`
 (does not test the change), `[fragile-selector]` (ambiguous or brittle locator), `[no-cleanup]`
 (leaves test data behind), or `[other]` — and, for a missing case only (below), `[missing-case]`.

@@ -5,7 +5,6 @@
  * npm run qa -- --app <app> --sha <sha> [--mode diff|complete|exhaustive|manual|context]
  * [--guidance "..."] [--closed-loop on|off]
  * [--agent-browser on|off] [--dom-pack on|off]
- * npm run qa -- --app <app> --learning   → show learning state (outcomes, rules, curriculum)
  * IMPORTANT: this CLI uses its OWN in-process queue. If the long-lived service is also
  * running on this host it has a SEPARATE queue, so a CLI run could execute QA against DEV
  * concurrently with a service run — breaking the "one run at a time against DEV" invariant.
@@ -25,8 +24,6 @@ import { delegateRun, type DelegateRunInput, type DelegateRunResult } from "./se
 import { discoverApiToken } from "./server/api-token";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { LEARNING_RULE_LEDGER_LIMIT } from "./server/persistence/repositories/learning.repository";
-import { CURRICULUM_CORRUPT } from "@contexts/cross-run-learning/application/index";
 import { loadAppConfig } from "./orchestrator/config-loader";
 import { resolveValueOraclePolicy } from "./orchestrator/schemas";
 import { RUN_MODES, RunMode } from "./types";
@@ -171,11 +168,6 @@ async function runViaService(args: { app: string; sha: string; baseSha?: string;
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
 
-  if (args.learning) {
-    showLearning(args.app);
-    return;
-  }
-
   if (await localServiceIsRunning()) {
     /*
      * The service owns the only queue against DEV. Rather than refuse (or race it with a second
@@ -273,30 +265,23 @@ function printRunReport(record: RunRecord, appCfg: ReturnType<typeof loadAppConf
 }
 
 /** Every flag the CLI reads; any other is refused rather than silently ignored. */
-const KNOWN_FLAGS: ReadonlySet<string> = new Set(["app", "sha", "base-sha", "mode", "guidance", "closed-loop", "agent-browser", "dom-pack", "learning"]);
+const KNOWN_FLAGS: ReadonlySet<string> = new Set(["app", "sha", "base-sha", "mode", "guidance", "closed-loop", "agent-browser", "dom-pack"]);
 
-export function parseArgs(argv: string[]): { app: string; sha: string; baseSha?: string; mode: RunMode; guidance?: string; closedLoop?: boolean; agentBrowser?: boolean; domPack?: boolean; learning: boolean } {
+export function parseArgs(argv: string[]): { app: string; sha: string; baseSha?: string; mode: RunMode; guidance?: string; closedLoop?: boolean; agentBrowser?: boolean; domPack?: boolean } {
   const out: Record<string, string> = {};
-  let learning = false;
   for (let i = 0; i < argv.length; i++) {
     const key = argv[i]?.replace(/^--/, "");
     if (key && !KNOWN_FLAGS.has(key)) {
       console.error(`Unknown argument --${key}`);
       process.exit(2);
     }
-    if (key === "learning") { learning = true; continue; }
     if (key) out[key] = argv[i + 1] ?? "";
     if (key) i++;  /* skip value */
   }
-  if (!learning && (!out.app || !out.sha)) {
+  if (!out.app || !out.sha) {
     console.error(
       `Usage: npm run qa -- --app <app> --sha <sha> [--base-sha <sha>] [--mode ${RUN_MODES.join("|")}] [--guidance "..."] [--closed-loop on|off] [--agent-browser on|off] [--dom-pack on|off]`,
     );
-    console.error('       npm run qa -- --app <app> --learning');
-    process.exit(2);
-  }
-  if (learning && !out.app) {
-    console.error("Usage: npm run qa -- --app <app> --learning");
     process.exit(2);
   }
   const mode = (RUN_MODES as readonly string[]).includes(out.mode ?? "") ? (out.mode as RunMode) : "diff";
@@ -318,77 +303,7 @@ export function parseArgs(argv: string[]): { app: string; sha: string; baseSha?:
     console.error('--dom-pack takes "on" or "off"');
     process.exit(2);
   }
-  return { app: out.app ?? "", sha: out.sha ?? "", baseSha: out["base-sha"] || undefined, mode, guidance: out.guidance, ...(closedLoop !== undefined ? { closedLoop } : {}), ...(agentBrowser !== undefined ? { agentBrowser } : {}), ...(domPack !== undefined ? { domPack } : {}), learning };
-}
-
-function showLearning(app: string): void {
-  console.log(`\n📊 Learning state for "${app}"\n`);
-
-  const outcomes = getHistory().learning.listRunOutcomes(app, 20);
-  console.log(`── RunOutcomes (${outcomes.length} most recent) ──`);
-  if (outcomes.length === 0) {
-    console.log("  (none — run the pipeline first)\n");
-  } else {
-    for (const o of outcomes) {
-      const vs = o.gateSignals.valueScore !== null ? ` valueScore=${(o.gateSignals.valueScore * 100).toFixed(0)}%` : "";
-      const ec = o.errorClass ? ` ${o.errorClass}` : "";
-      const rules = o.rulesRetrieved.length > 0 ? ` rules=${o.rulesRetrieved.length}` : "";
-      console.log(`  ${o.at.slice(0, 19)}  ${o.verdict}${ec}${vs}${rules}  ${o.sha.slice(0, 9)}  ${o.mode}/${o.target}`);
-    }
-    console.log("");
-  }
-
-  /* Same LEARNING_RULE_LEDGER_LIMIT the TUI/API intelligence view reads — the live ledger, not a
-   * truncated preview that silently drops rules beyond a smaller cap. */
-  const rules = getHistory().learning.listLearningRules(app, LEARNING_RULE_LEDGER_LIMIT);
-  console.log(`── Learning Rules (${rules.length} active/candidate) ──`);
-  if (rules.length === 0) {
-    console.log("  (none — failures will create rules via reflection)\n");
-  } else {
-    for (const r of rules) {
-      const sr = r.successRate !== null ? ` sr=${(r.successRate * 100).toFixed(0)}%` : "";
-      console.log(`  ${r.status} ${r.confidence}${sr} uses=${r.usageCount}  ${r.errorClass}`);
-      console.log(`    trigger: ${r.trigger.slice(0, 100)}`);
-      console.log(`    action:  ${r.action.slice(0, 100)}`);
-    }
-    console.log("");
-  }
-
-  const curriculumRaw = getHistory().learning.loadCurriculum(app);
-  const curriculumCorrupt = curriculumRaw === CURRICULUM_CORRUPT;
-  const curriculum = curriculumCorrupt ? null : curriculumRaw;
-  console.log(`── Curriculum ──`);
-  if (curriculumCorrupt) {
-    console.log("  (corrupt row on disk — see server logs; refusing to display or silently reset it)\n");
-  } else if (!curriculum) {
-    console.log("  (none — will be created on first run)\n");
-  } else {
-    const proven = curriculum.archetypes.filter((a) => a.caughtRealBug);
-    console.log(`  ${proven.length}/${curriculum.archetypes.length} archetypes proven by real bugs:`);
-    for (const a of curriculum.archetypes) {
-      /*
-       * "covered" is the credited/evaluated rate: of the runs that offered this archetype AND
-       * produced a determinable coverage signal, how many actually covered the change. evaluated 0
-       * means never offered or never determinable — it is stated as absent evidence, never as the
-       * rate 0/0, which would read as a measured failure the system never observed.
-       */
-      const rate = a.evaluated > 0 ? `${a.credited}/${a.evaluated} covered` : "no evidence yet";
-      const mark = a.caughtRealBug ? `PROVEN (${a.promotionCount} ${a.promotionCount === 1 ? "bug" : "bugs"})` : "unproven";
-      const since = a.firstCaughtAt ? `  first ${a.firstCaughtAt.slice(0, 10)}` : "";
-      console.log(`    ${a.archetype.padEnd(26)} ${mark.padEnd(20)} ${rate}${since}`);
-    }
-    console.log("");
-  }
-
-  console.log("── Summary ──");
-  const runsWithError = outcomes.filter((o) => o.errorClass !== null).length;
-  const runsWithValue = outcomes.filter((o) => o.gateSignals.valueScore !== null).length;
-  const rulesWithAttribution = rules.filter((r) => r.successRate !== null).length;
-  console.log(`  total outcomes: ${outcomes.length}`);
-  console.log(`  with errorClass: ${runsWithError}`);
-  console.log(`  with valueScore: ${runsWithValue}`);
-  console.log(`  rules with attribution: ${rulesWithAttribution}/${rules.length}`);
-  console.log(`  archetypes proven: ${curriculum?.archetypes.filter((a) => a.caughtRealBug).length ?? 0}/${curriculum?.archetypes.length ?? 10}`);
+  return { app: out.app ?? "", sha: out.sha ?? "", baseSha: out["base-sha"] || undefined, mode, guidance: out.guidance, ...(closedLoop !== undefined ? { closedLoop } : {}), ...(agentBrowser !== undefined ? { agentBrowser } : {}), ...(domPack !== undefined ? { domPack } : {}) };
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {

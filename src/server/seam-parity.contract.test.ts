@@ -35,7 +35,7 @@ const S = (field: string): string => `__SENTINEL__${field}__`;
 describe("seam-parity: PERSISTENCE (kernel RunOutcome vs toStoredRunOutcome)", () => {
   const ALL_TOP_FIELDS = {
     runId: true, app: true, sha: true, mode: true, target: true, verdict: true, errorClass: true,
-    gateSignals: true, rulesRetrieved: true, diffArchetypes: true, reflection: true, at: true, note: true, cases: true,
+    gateSignals: true, diffArchetypes: true, at: true, note: true, cases: true,
     logs: true, adjudication: true,
   } satisfies Record<keyof KernelRunOutcome, true>;
 
@@ -59,12 +59,12 @@ describe("seam-parity: PERSISTENCE (kernel RunOutcome vs toStoredRunOutcome)", (
     note: "CORRECT BY DESIGN (not a drop): toStoredRunOutcome never carries outcome.note through because StoredRunOutcome (src/types.ts's RunOutcome interface) has NO note field to carry it TO — grep/read-confirmed against the full interface. The kernel RunOutcome.note reaches the run record through a SEPARATE seam (QaRunResult.note -> RunRecord.note, src/server/runner.ts's own header), never through this mapping fn's run_outcomes row. Diagnostic-only either way (never gates verdict/publish).",
     cases: "DELIBERATELY not persisted via toStoredRunOutcome — StoredRunOutcome (src/types.ts) has NO cases field at all (grep-confirmed); this field exists on the kernel RunOutcome ONLY for a DIFFERENT driving-side consumer (src/server/runner.ts's runViaEngine threads it into history.addCase() calls directly, per this file's own header comment), not for the run_outcomes row this adapter writes. Comparator-blind by the kernel type's own documented construction.",
     logs: "DELIBERATELY not persisted via toStoredRunOutcome",
-    diffArchetypes: "CORRECT BY DESIGN (not a drop): a fold-only attribution input. The learning fold reads it in-process from the outcome it is handed (historyLearningStore.recordOutcome) to credit only the retrieved rules attributable to the diff's structural shapes; LearningPort.fold receives the kernel outcome directly, never a persisted row, and StoredRunOutcome (src/types.ts) has no field for it.",
+    diffArchetypes: "CORRECT BY DESIGN (not a drop): the diff's structural shapes ride on the kernel outcome only; StoredRunOutcome (src/types.ts) has no field for them.",
     adjudication: "CORRECT BY DESIGN (not a drop): StoredRunOutcome (src/types.ts) has NO adjudication field at all. This is a REWRITTEN-ONLY field: the kernel type carries it (wide, optional",
   };
 
   test("kernel RunOutcome's own top-level field list matches the allowlist + the mapping fn's carried set exactly", () => {
-    const mapped = ["runId", "app", "sha", "mode", "target", "verdict", "errorClass", "gateSignals", "rulesRetrieved", "reflection", "at"];
+    const mapped = ["runId", "app", "sha", "mode", "target", "verdict", "errorClass", "gateSignals", "at"];
     const allFieldNames = Object.keys(ALL_TOP_FIELDS).sort();
     const accountedFor = [...new Set([...mapped, ...Object.keys(ALLOWLIST)])].sort();
     assert.deepEqual(accountedFor, allFieldNames, "every kernel RunOutcome top-level field must be either mapped or allowlisted with a reason");
@@ -132,8 +132,6 @@ describe("seam-parity: PERSISTENCE (kernel RunOutcome vs toStoredRunOutcome)", (
         valueByCandidate: [{ candidateId: "uc-0000aaaa", exposed: 2, killed: 1, ratio: 0.5 }],
         causal: { reach: "in-reach", basis: "request", via: ["GET /orders"], reason: "r", cases: [{ name: "c", reach: "in-reach", basis: "request" }] },
       },
-      rulesRetrieved: [S("rulesRetrieved")],
-      reflection: { rootCause: S("reflection.rootCause") },
       at: "2026-07-02T00:00:00.000Z",
       note: S("note"),
     };
@@ -148,8 +146,6 @@ describe("seam-parity: PERSISTENCE (kernel RunOutcome vs toStoredRunOutcome)", (
     assert.equal(out.target, "e2e", `target dropped at ${dyingLayer}`);
     assert.equal(out.verdict, "pass", `verdict dropped at ${dyingLayer}`);
     assert.equal(out.errorClass, "E-EXEC-FAIL", `errorClass dropped at ${dyingLayer}`);
-    assert.deepEqual(out.rulesRetrieved, [S("rulesRetrieved")], `rulesRetrieved dropped at ${dyingLayer}`);
-    assert.equal((out.reflection as { rootCause?: string } | undefined)?.rootCause, S("reflection.rootCause"), `reflection dropped at ${dyingLayer}`);
     assert.equal(out.at, "2026-07-02T00:00:00.000Z", `at dropped at ${dyingLayer}`);
 
     const gs = out.gateSignals;
@@ -199,7 +195,7 @@ describe("seam-parity: PERSISTENCE (kernel RunOutcome vs toStoredRunOutcome)", (
       runId: S("runId"), app: S("app"), sha: S("sha"), mode: "diff", target: "e2e", verdict: "pass",
       errorClass: null,
       gateSignals: { static: true, coverageRatio: null, valueScore: null, reviewerCorrections: [], flaky: false, retries: 0 },
-      rulesRetrieved: [], at: "2026-07-02T00:00:00.000Z",
+      at: "2026-07-02T00:00:00.000Z",
     });
     assert.equal((captured as { runId: string }).runId, S("runId"), "SqliteRunHistoryAdapter.save() dropped runId before it reached saveOutcome");
   });
@@ -249,10 +245,9 @@ describe("seam-parity: COMPOSITION (EngineRootDeps vs buildEngineRootDeps)", () 
        establishes. Asserted below as a present case.
      */
     containsSecret: "IS supplied (RedactionPortAdapter.containsSecret, wired alongside sanitize) — asserted below as a present case.",
-    learningRepo: "IS supplied (SqliteLearningRepository) — asserted below as a present case.",
     /* (a WriteConfinementAdapter wrapping realGit — local ops, NO auth decoration — + node:fs
        realpathSync/lstatSync) — asserted below as a present case, the SAME "IS supplied" precedent as
-       sanitize/learningRepo/assembleChangeCoverage immediately above.
+       sanitize/assembleChangeCoverage immediately above.
      */
     confinement: "IS supplied (WriteConfinementAdapter wrapping realGit + realpathSync/lstatSync) — asserted below as a present case.",
     /* (a ProcessAuditPortAdapter wrapping the learning repository's listRunOutcomes/listLearningRules reads + the
@@ -340,10 +335,9 @@ describe("seam-parity: COMPOSITION (EngineRootDeps vs buildEngineRootDeps)", () 
        sanitize — the SAME "IS supplied" assertion pattern immediately above.
      */
     assert.notEqual(cfg.containsSecret, undefined, `containsSecret (logs→Issue egress boundary) dropped at ${dyingLayer}`);
-    assert.notEqual(cfg.learningRepo, undefined, `learningRepo dropped at ${dyingLayer}`);
     /* confinement must be wired unconditionally (fail-open
-       fault isolation, not app-config gated) — the SAME "IS supplied" assertion pattern as sanitize/
-       learningRepo immediately above.
+       fault isolation, not app-config gated) — the SAME "IS supplied" assertion pattern as sanitize
+       immediately above.
      */
     assert.notEqual(cfg.confinement, undefined, `confinement (write-confinement wiring) dropped at ${dyingLayer}`);
     /* processAudit must be wired unconditionally (fail-

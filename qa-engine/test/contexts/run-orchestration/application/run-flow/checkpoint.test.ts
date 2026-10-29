@@ -31,7 +31,6 @@ function depsFor(ws: RunWorkspace, seen: RunCheckpoint[], over: Partial<RunQaUse
     execution: { execute: async () => ({ verdict: "pass", cases: [], logs: `login with ${SECRET} worked` }) },
     objectiveSignal: { measure: async () => ({ status: "unknown", ratio: null }), blocks: () => false },
     publication: { publish: async () => ({ outcome: "pr" }) },
-    learning: { fold: async () => {}, retrieve: async () => [] },
     workspace: fakeWorkspace(ws),
     specFiles: confinedSpecFiles,
     suiteStore: ws.suiteStore,
