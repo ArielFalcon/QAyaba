@@ -57,8 +57,3 @@ export function loadOrCreateApiToken(root: string, deps: ApiTokenDeps = {}): str
   log(`[qa] auto-generated QA_API_TOKEN → ${path}`);
   return token;
 }
-
-/* The token the service authenticates with: QA_API_TOKEN when it pins one, else the data directory's. */
-export function resolveApiToken(env: Record<string, string | undefined>, root: string, deps: ApiTokenDeps = {}): string {
-  return env.QA_API_TOKEN || loadOrCreateApiToken(root, deps);
-}
