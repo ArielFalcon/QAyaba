@@ -604,3 +604,21 @@ export function deleteSuiteStoreDir(storeDir: string): void {
   if (!statSync(storeDir).isDirectory()) throw new Error(`${storeDir} is not a directory`);
   rmSync(storeDir, { recursive: true, force: true });
 }
+
+/** The folder of the data directory, beside the stores, that holds an app's store snapshots (<data>/suite-snapshots/<app>/<label>). A snapshot holds the stored login, so it lives where the agents container never mounts. */
+export const SUITE_SNAPSHOTS_DIR = "suite-snapshots";
+
+const SNAPSHOT_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+
+/** Where an app's snapshot `label` lives below `dataDir`, or the folder of all the app's snapshots without a label. */
+export function suiteSnapshotDir(dataDir: string, app: string, label?: string): string {
+  for (const [what, name] of [["app", app], ["label", label]] as const) {
+    if (name !== undefined && (!SNAPSHOT_NAME.test(name) || name === "..")) throw new Error(`invalid ${what} '${name}' for a suite snapshot`);
+  }
+  return label === undefined ? join(dataDir, SUITE_SNAPSHOTS_DIR, app) : join(dataDir, SUITE_SNAPSHOTS_DIR, app, label);
+}
+
+/** Removes every store snapshot of an app (a purge of the app). An app with none is already purged. */
+export function deleteSuiteSnapshots(dataDir: string, app: string): void {
+  deleteSuiteStoreDir(suiteSnapshotDir(dataDir, app));
+}

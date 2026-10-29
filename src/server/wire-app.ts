@@ -36,7 +36,7 @@ import { longestRunTimeBudgetMs, type ContextHealRunRequest } from "@contexts/ru
 import { egressGateFor } from "./egress-wiring";
 import { SandboxedBinaryRunnerAdapter } from "../../qa-engine/src/shared-infrastructure/process-sandbox/sandboxed-binary-runner.adapter";
 import { ProcessKillAdapter } from "../../qa-engine/src/shared-infrastructure/process-sandbox/process-kill.adapter";
-import { deleteSuiteStoreDir } from "@contexts/workspace-and-publication/infrastructure/suite-store.adapter";
+import { deleteSuiteSnapshots, deleteSuiteStoreDir } from "@contexts/workspace-and-publication/infrastructure/suite-store.adapter";
 import { pruneMirrors, defaultMirrorPruneDeps, getDirectorySize } from "./mirror-prune";
 import { buildArtifactBytesMetrics, type ArtifactSizeCache } from "./metrics";
 import { installHttpDispatcher } from "../util/net";
@@ -446,6 +446,7 @@ export function wireApp(settingsStore: SettingsStore): WiredApp {
     deleteHistory: (app) => getHistory().purgeApp(app),
     deleteAuthMaterial: (app) => rmSync(appAuthDir(ROOT, app), { recursive: true, force: true }),
     deleteSuiteStore: (app) => deleteSuiteStoreDir(appSuiteStoreDir(ROOT, app)),
+    deleteSuiteSnapshots: (app) => deleteSuiteSnapshots(qayabaDataDir(), app),
     deleteCodeGraphCache: (app) => rmSync(join(qayabaDataDir(), "code-graph", app), { recursive: true, force: true }),
     applyEnv: (vars) => {
       const applied = applyEnvVars(vars, { fs: defaultEnvStoreFs(), env: settings.environment });

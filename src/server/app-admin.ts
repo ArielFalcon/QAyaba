@@ -23,6 +23,8 @@ export interface AppAdminDeps {
   deleteAuthMaterial(app: string): void;
   /** Removes the app's suite store (its accepted e2e suite and proven login, in the qayaba-data volume). */
   deleteSuiteStore(app: string): void;
+  /** Removes the app's suite store snapshots (they hold the stored login, so a purge forgets them with the store). */
+  deleteSuiteSnapshots(app: string): void;
   /** Removes the app's code-graph store cache (regenerable: the next run indexes from nothing). */
   deleteCodeGraphCache(app: string): void;
   applyEnv(vars: Record<string, string>): string[];
@@ -208,6 +210,8 @@ export function deleteApp(name: string, purge: boolean, deps: AppAdminDeps): { r
     /* The accepted suite is what a re-onboarded app of the same name would restore: a plain delete keeps it, like the mirror and the history, and a purge is the delete that means to forget the app. */
     deps.deleteSuiteStore(name);
     removed.push(`suite:${name}`);
+    deps.deleteSuiteSnapshots(name);
+    removed.push(`suite-snapshots:${name}`);
     deps.deleteCodeGraphCache(name);
     removed.push(`code-graph:${name}`);
   }

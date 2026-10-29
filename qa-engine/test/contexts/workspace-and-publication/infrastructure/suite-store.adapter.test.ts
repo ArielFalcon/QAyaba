@@ -6,7 +6,7 @@ import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSyn
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import {
-  AUTH_SETUP_PATH, SuiteStoreAdapter, deleteSuiteStoreDir, suiteStoreHoldsVerifiedLogin, gitBlobOid, gitListTracked, parseStagedListing, suiteEntryKind,
+  AUTH_SETUP_PATH, SuiteStoreAdapter, deleteSuiteSnapshots, deleteSuiteStoreDir, suiteSnapshotDir, suiteStoreHoldsVerifiedLogin, gitBlobOid, gitListTracked, parseStagedListing, suiteEntryKind,
   type SuiteManifest, type SuiteStoreLimits, type TrackedFile,
 } from "../../../../src/contexts/workspace-and-publication/infrastructure/suite-store.adapter.ts";
 import type { SuiteCaptureInput } from "../../../../src/shared-kernel/ports/suite-store.port.ts";
@@ -842,4 +842,23 @@ test("a restore fails when the manifest it wrote names another set than the snap
     write.call(store, { ...manifest, entries: manifest.entries.map((e) => (e.path === "flows/y.spec.ts" ? { ...e, path: "flows/z.spec.ts" } : e)) }, fresh));
 
   assert.throws(() => store.restoreSnapshot(snapshot), /digest/);
+});
+
+test("a purge removes the app's suite snapshots and no other app's, and an app with none is already purged", async (t) => {
+  const r = rig(t);
+  const dataDir = join(r.base, "data");
+  const mine = suiteSnapshotDir(dataDir, "demo", "w12");
+  const other = suiteSnapshotDir(dataDir, "other", "w12");
+  r.put("flows/a.spec.ts", "a");
+  await r.capture({ executedGreen: ["flows/a.spec.ts"] });
+  r.store().exportSnapshot(mine);
+  r.store().exportSnapshot(other);
+  assert.equal(mine.startsWith(join(dataDir, "suite-snapshots")), true);
+
+  deleteSuiteSnapshots(dataDir, "demo");
+
+  assert.equal(existsSync(join(dataDir, "suite-snapshots", "demo")), false);
+  assert.equal(existsSync(other), true);
+  assert.doesNotThrow(() => deleteSuiteSnapshots(dataDir, "demo"));
+  assert.throws(() => deleteSuiteSnapshots(dataDir, "../suites/demo"), /invalid/);
 });

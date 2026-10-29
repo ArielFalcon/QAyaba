@@ -40,6 +40,7 @@ import { pathToFileURL } from "node:url";
 import { isStockAuthSetup } from "../qa-engine/src/shared-infrastructure/e2e-seed/auth-setup-seed.ts";
 import { readOwnedSpecFile, writeOwnedSpecFile } from "../qa-engine/src/shared-infrastructure/spec-path-confinement.ts";
 import { MAX_FILE_BYTES, NODE_MODULES, assertRealDirectory, assertSafeRelative, exclusionReason, looksLikeSessionState, readStrict, walkTree } from "../qa-engine/src/shared-infrastructure/suite-tree.ts";
+import { suiteSnapshotDir } from "../qa-engine/src/contexts/workspace-and-publication/infrastructure/suite-store.adapter.ts";
 import { WARM_SNAPSHOTS_DIR, qayabaDataDir } from "../src/paths.ts";
 import { DEFAULT_SUITE_DIR } from "./probe-metrics.ts";
 import { assertFileName } from "./probe-report.ts";
@@ -54,8 +55,6 @@ export const AUTH_SETUP_FILE = "auth.setup.ts";
 /** The first-line marker of the stock login seed (config/e2e/auth.setup.ts). */
 export const STOCK_SEED_MARKER = "qa-auth-setup-seed";
 const MAX_MANIFEST_BYTES = 8 * 1024 * 1024;
-/** The folder of the data volume, beside `suites/`, that holds the suite store snapshots. */
-const STORE_SNAPSHOTS_DIR = "suite-snapshots";
 
 export interface ManifestFile {
   path: string;
@@ -500,7 +499,7 @@ export async function seedSuiteStore(app: string, files: ReadonlyMap<string, Buf
 export function storeSnapshotDir(app: string, label: string): string {
   assertFileName(app, "app");
   assertFileName(label, "label");
-  return join(qayabaDataDir(), STORE_SNAPSHOTS_DIR, app, label);
+  return suiteSnapshotDir(qayabaDataDir(), app, label);
 }
 
 export async function exportSuiteStore(app: string, label: string, leaveOut: readonly string[]): Promise<{ entries: number; digest: string }> {
