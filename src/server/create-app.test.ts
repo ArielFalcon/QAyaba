@@ -29,7 +29,7 @@ describe("createApp", () => {
     enqueued: unknown[][];
     shutdowns: string[];
     listened: number;
-    setShuttingDown(value: boolean): void;
+    beginShutdown(): void;
   }
 
   async function start(over: { webhook?: Partial<AppDeps["webhook"]>; matches?: number } = {}): Promise<Probe> {
@@ -63,7 +63,7 @@ describe("createApp", () => {
         ...over.webhook,
       },
       toolsServer: createServer(),
-      lifecycle: { shuttingDown: () => shuttingDown, setShuttingDown: (v) => { shuttingDown = v; }, shutdown: async (reason) => { shutdowns.push(reason); } },
+      lifecycle: { shuttingDown: () => shuttingDown, shutdown: async (reason) => { shutdowns.push(reason); } },
       listen: { port: 0, host: "127.0.0.1", toolsPort: 0, toolsHost: "127.0.0.1", apiAuthOn: true },
       onListening: () => { probe.listened++; },
       log: () => {},
@@ -74,7 +74,7 @@ describe("createApp", () => {
     await app.listen();
     probe.app = app;
     probe.base = `http://127.0.0.1:${(app.server.address() as AddressInfo).port}`;
-    probe.setShuttingDown = (v) => { shuttingDown = v; };
+    probe.beginShutdown = () => { shuttingDown = true; };
     return probe;
   }
 
@@ -91,7 +91,7 @@ describe("createApp", () => {
       control: { authorize: () => false, metrics: () => "", api: async () => false, dashboard: async () => false, shouldLogApiRequest, log: () => {}, now: () => 0 },
       webhook: { secret: SECRET, allowUnsigned: false, catalog: { load: async () => { throw new Error("unused"); }, list: async () => [], resolveByRepo: async () => [] }, enqueue: (() => "") as never, shuttingDown: () => false, log: () => {} },
       toolsServer: createServer(),
-      lifecycle: { shuttingDown: () => false, setShuttingDown: () => {}, shutdown: async () => {} },
+      lifecycle: { shuttingDown: () => false, shutdown: async () => {} },
       listen: { port: 0, host: "127.0.0.1", toolsPort: 0, toolsHost: "127.0.0.1", apiAuthOn: false },
       onListening: () => {},
       log: () => {},
@@ -148,7 +148,7 @@ describe("createApp", () => {
 
   test("a delivery during shutdown answers 503 and enqueues nothing", async () => {
     const probe = await start({ webhook: { secret: SECRET } });
-    probe.setShuttingDown(true);
+    probe.beginShutdown();
     const body = JSON.stringify({ repo: "o/r", sha: SHA });
     const res = await fetch(`${probe.base}/`, { method: "POST", body, headers: { "x-hub-signature-256": sign(body) } });
     assert.equal(res.status, 503);
@@ -169,7 +169,7 @@ describe("createApp", () => {
       control: { authorize: () => false, metrics: () => "", api: async () => false, dashboard: async () => false, shouldLogApiRequest, log: () => {}, now: () => 0 },
       webhook: { secret: SECRET, allowUnsigned: false, catalog: { load: async () => { throw new Error("unused"); }, list: async () => [], resolveByRepo: async () => [] }, enqueue: (() => "") as never, shuttingDown: () => false, log: () => {} },
       toolsServer: createServer(),
-      lifecycle: { shuttingDown: () => false, setShuttingDown: () => {}, shutdown: async () => {} },
+      lifecycle: { shuttingDown: () => false, shutdown: async () => {} },
       listen: { port: (taken.address() as AddressInfo).port, host: "127.0.0.1", toolsPort: 0, toolsHost: "127.0.0.1", apiAuthOn: false },
       onListening: () => {},
       log: () => {},

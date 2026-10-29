@@ -23,9 +23,8 @@ export interface SignalSource {
 }
 
 export interface Lifecycle {
-  /* True once a shutdown began, or once `setShuttingDown(true)` marked the process as going away: new work is refused. */
+  /* True once a shutdown began: new work is refused. */
   shuttingDown(): boolean;
-  setShuttingDown(value: boolean): void;
   /* Runs the shutdown for a signal and resolves after `exit` was called. A second call while one runs joins it. */
   shutdown(signal: string): Promise<void>;
 }
@@ -69,9 +68,6 @@ export function installShutdown(deps: ShutdownDeps, signals: SignalSource = proc
 
   return {
     shuttingDown: () => refusing,
-    setShuttingDown: (value) => {
-      refusing = value;
-    },
     shutdown,
   };
 }

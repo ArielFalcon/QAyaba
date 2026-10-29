@@ -44,12 +44,9 @@ test("a drain that outlives its window flushes the span ledger and exits 1", asy
   assert.ok(!calls.includes("telemetry.shutdown"));
 });
 
-test("the lifecycle refuses new work from the first signal and while setShuttingDown(true) holds it", async () => {
+test("the lifecycle refuses new work from the first signal", async () => {
   const { lifecycle } = setup();
   assert.equal(lifecycle.shuttingDown(), false);
-  lifecycle.setShuttingDown(true);
-  assert.equal(lifecycle.shuttingDown(), true);
-  lifecycle.setShuttingDown(false);
   const done = lifecycle.shutdown("SIGTERM");
   assert.equal(lifecycle.shuttingDown(), true);
   await done;
