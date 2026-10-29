@@ -15,7 +15,7 @@
 
 import type { Context } from "@opentelemetry/api";
 import { SeverityNumber, type Logger } from "@opentelemetry/api-logs";
-import type { LogLevel } from "../integrations/logger";
+import type { LogLevel } from "@kernel/ports/logger.port";
 import type { LogShipper } from "../integrations/redacting-logger";
 import { TEXT_CAP_CHARS, type CaptureMode } from "./otel-telemetry.adapter";
 

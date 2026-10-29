@@ -2,6 +2,7 @@ import { createWriteStream, mkdirSync, readdirSync, statSync, unlinkSync, type W
 import { join } from "node:path";
 import { qayabaDataDir } from "../paths";
 import { finished } from "node:stream/promises";
+import type { LogLevel } from "@kernel/ports/logger.port";
 
 /* JSON-structured logger: a single stream so logs ship without interleaving stdout noise. */
 
@@ -15,7 +16,6 @@ const RECENT_WRITE_GRACE_MS = 60 * 60 * 1000;
 /* app-<timestamp>-p<pid>.log; files from before the owner pid was recorded have no -p<pid>. */
 const LOG_FILE_RE = /^app-.+?(?:-p(\d+))?\.log$/;
 
-export type LogLevel = "debug" | "info" | "warn" | "error";
 
 export interface JsonLoggerOptions {
   dir: string;

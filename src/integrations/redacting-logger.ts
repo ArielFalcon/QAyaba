@@ -1,6 +1,6 @@
-import { logJson, type LogLevel } from "./logger";
+import { logJson } from "./logger";
 import { RedactionPortAdapter } from "../orchestrator/sanitizer";
-import type { LogFields, LoggerPort } from "../../qa-engine/src/shared-kernel/ports/logger.port";
+import type { LogFields, LoggerPort, LogLevel } from "../../qa-engine/src/shared-kernel/ports/logger.port";
 import type { RedactionPort } from "../../qa-engine/src/shared-kernel/ports/redaction.port";
 
 /*
