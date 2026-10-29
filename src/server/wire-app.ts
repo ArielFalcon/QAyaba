@@ -390,16 +390,18 @@ export function wireApp(settingsStore: SettingsStore): WiredApp {
   const SESSION_IDLE_BUFFER_MS = 5 * 60 * 1000;
   const MAX_SESSION_IDLE_MS = Math.max(longestRunTimeBudgetMs(settings.run.runTimeBudgets), settings.agent.timeoutMs ?? 0) + SESSION_IDLE_BUFFER_MS;
 
-  async function cleanupOrphanedSessions(): Promise<void> {
+  async function cleanupOrphanedSessions(): Promise<number> {
     const deps = currentAgentDeps();
-    if (!deps.cleanupOrphans) return;
+    if (!deps.cleanupOrphans) return 0;
     try {
       const cleaned = await deps.cleanupOrphans(MAX_SESSION_IDLE_MS);
       if (cleaned > 0) {
         recordIncident({ source: "health-check", severity: "warn", summary: `cleaned up ${cleaned} orphaned OpenCode session(s)` });
       }
+      return cleaned;
     } catch (err) {
       appLogger.warn(`[qa] orphan session cleanup failed: ${err instanceof Error ? err.message : String(err)}`);
+      return 0;
     }
   }
 

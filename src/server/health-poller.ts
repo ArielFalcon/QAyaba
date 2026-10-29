@@ -9,12 +9,13 @@ export interface HealthPollerDeps {
   hasPendingIncidents(): boolean;
   maintainerIdle(): boolean;
   triggerMaintainer(): void;
-  cleanupOrphanedSessions(): Promise<void>;
+  /* Collects the agent sessions no run owns and answers how many it collected. */
+  cleanupOrphanedSessions(): Promise<number>;
   /* Deletes the history the retention windows no longer keep. Logs its own failure. */
   runHistoryRetention(): void;
   backupDatabase(): Promise<{ backedUp: boolean; path?: string; error?: string }>;
   pruneMirrors(): void;
-  log(level: "info" | "warn", message: string, meta?: Record<string, unknown>): void;
+  log(level: "info" | "warn" | "error", message: string, meta?: Record<string, unknown>): void;
   /* Runs `tick` every `intervalMs`; the default is setInterval. */
   schedule?(tick: () => Promise<void>, intervalMs: number): unknown;
 }
@@ -41,16 +42,23 @@ export function startHealthPoller(deps: HealthPollerDeps): void {
     } catch {
       fails++;
       if (fails === 3) {
-        deps.recordIncident({ source: "health-check", severity: "critical", summary: "orchestrator health check failing (3 consecutive failures)" });
+        const summary = "orchestrator health check failing (3 consecutive failures)";
+        deps.recordIncident({ source: "health-check", severity: "critical", summary });
+        deps.log("error", summary);
       }
       if (fails === 10) {
-        deps.recordIncident({ source: "health-check", severity: "critical", summary: "orchestrator health check failing (10 consecutive failures — likely crashed)" });
+        const summary = "orchestrator health check failing (10 consecutive failures — likely crashed)";
+        deps.recordIncident({ source: "health-check", severity: "critical", summary });
+        deps.log("error", summary);
       }
     }
-    await deps.cleanupOrphanedSessions();
+    const cleaned = await deps.cleanupOrphanedSessions();
+    if (cleaned > 0) deps.log("warn", `cleaned up ${cleaned} orphaned OpenCode session(s)`, { cleaned });
     const depth = deps.queueSize();
     if (depth > DEEP_QUEUE && lastQueueWarn <= DEEP_QUEUE) {
-      deps.recordIncident({ source: "health-check", severity: "warn", summary: `queue depth is ${depth} (possible stuck job)` });
+      const summary = `queue depth is ${depth} (possible stuck job)`;
+      deps.recordIncident({ source: "health-check", severity: "warn", summary });
+      deps.log("warn", summary, { depth });
     }
     lastQueueWarn = depth;
 

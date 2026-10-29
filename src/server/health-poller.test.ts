@@ -5,6 +5,7 @@ import { BACKUP_INTERVAL_TICKS, HEALTH_POLL_INTERVAL_MS, PRUNE_INTERVAL_TICKS, s
 function harness(over: Partial<HealthPollerDeps> = {}) {
   const incidents: Array<{ severity: string; summary: string }> = [];
   const log: string[] = [];
+  const logged: Array<{ level: string; message: string }> = [];
   const calls = { retention: 0, backup: 0, prune: 0, maintainer: 0, orphans: 0 };
   let tick: (() => Promise<void>) | undefined;
   let interval = 0;
@@ -16,16 +17,16 @@ function harness(over: Partial<HealthPollerDeps> = {}) {
     hasPendingIncidents: () => false,
     maintainerIdle: () => true,
     triggerMaintainer: () => { calls.maintainer++; },
-    cleanupOrphanedSessions: async () => { calls.orphans++; },
+    cleanupOrphanedSessions: async () => { calls.orphans++; return 0; },
     runHistoryRetention: () => { calls.retention++; },
     backupDatabase: async () => { calls.backup++; return { backedUp: true, path: "/backups/x.db" }; },
     pruneMirrors: () => { calls.prune++; },
-    log: (_level, message) => log.push(message),
+    log: (level, message) => { log.push(message); logged.push({ level, message }); },
     schedule: (fn, ms) => { tick = fn; interval = ms; },
     ...over,
   };
   startHealthPoller(deps);
-  return { run: async (times = 1) => { for (let i = 0; i < times; i++) await tick!(); }, incidents, log, calls, interval: () => interval };
+  return { run: async (times = 1) => { for (let i = 0; i < times; i++) await tick!(); }, incidents, log, logged, calls, interval: () => interval };
 }
 
 test("the poll runs once a minute", () => {
@@ -50,6 +51,26 @@ test("three consecutive failed probes raise one critical incident and ten raise 
   assert.equal(h.incidents.length, 2);
 });
 
+test("the third consecutive failed probe logs an error", async () => {
+  const h = harness({ fetch: async () => ({ ok: false, status: 503 }) });
+  await h.run(2);
+  assert.equal(h.logged.length, 0);
+  await h.run(1);
+  assert.equal(h.logged.length, 1);
+  assert.equal(h.logged[0]?.level, "error");
+  assert.match(h.logged[0]?.message ?? "", /3 consecutive/);
+});
+
+test("the tenth consecutive failed probe logs a second error", async () => {
+  const h = harness({ fetch: async () => ({ ok: false, status: 503 }) });
+  await h.run(9);
+  assert.equal(h.logged.length, 1);
+  await h.run(1);
+  assert.equal(h.logged.length, 2);
+  assert.equal(h.logged[1]?.level, "error");
+  assert.match(h.logged[1]?.message ?? "", /10 consecutive/);
+});
+
 test("a probe that recovers resets the failure count", async () => {
   let up = false;
   const h = harness({ fetch: async () => ({ ok: up, status: up ? 200 : 503 }) });
@@ -71,6 +92,32 @@ test("a queue deeper than ten raises one warning until it drains", async () => {
   depth = 12;
   await h.run(1);
   assert.equal(h.incidents.filter((incident) => incident.severity === "warn").length, 2);
+});
+
+test("a queue deeper than ten logs one warning until it drains", async () => {
+  let depth = 11;
+  const h = harness({ queueSize: () => depth });
+  await h.run(3);
+  assert.equal(h.logged.length, 1);
+  assert.equal(h.logged[0]?.level, "warn");
+  assert.match(h.logged[0]?.message ?? "", /queue depth is 11/);
+  depth = 0;
+  await h.run(1);
+  depth = 12;
+  await h.run(1);
+  assert.equal(h.logged.length, 2);
+});
+
+test("a sweep that cleaned sessions logs a warning with the count, and one that cleaned none logs nothing", async () => {
+  let cleaned = 0;
+  const h = harness({ cleanupOrphanedSessions: async () => cleaned });
+  await h.run(1);
+  assert.equal(h.logged.length, 0);
+  cleaned = 2;
+  await h.run(1);
+  assert.equal(h.logged.length, 1);
+  assert.equal(h.logged[0]?.level, "warn");
+  assert.match(h.logged[0]?.message ?? "", /cleaned up 2 orphaned/);
 });
 
 test("pending incidents reach the maintainer only while it is idle", async () => {
