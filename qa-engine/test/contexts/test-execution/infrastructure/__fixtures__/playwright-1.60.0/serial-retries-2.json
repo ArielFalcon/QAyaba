@@ -1,0 +1,727 @@
+{
+ "config": {
+  "configFile": "/work/e2e/playwright.config.ts",
+  "rootDir": "/work/e2e",
+  "forbidOnly": false,
+  "fullyParallel": false,
+  "globalSetup": null,
+  "globalTeardown": null,
+  "globalTimeout": 0,
+  "grep": {},
+  "grepInvert": null,
+  "maxFailures": 0,
+  "metadata": {
+   "actualWorkers": 1
+  },
+  "preserveOutput": "always",
+  "projects": [
+   {
+    "outputDir": "/work/e2e/test-results",
+    "repeatEach": 1,
+    "retries": 2,
+    "metadata": {
+     "actualWorkers": 1
+    },
+    "id": "",
+    "name": "",
+    "testDir": "/work/e2e",
+    "testIgnore": [],
+    "testMatch": [
+     "**/*.spec.ts"
+    ],
+    "timeout": 30000
+   }
+  ],
+  "quiet": false,
+  "reporter": [
+   [
+    "json",
+    {
+     "outputFile": "/work/reports/serial-r2.json"
+    }
+   ]
+  ],
+  "reportSlowTests": {
+   "max": 5,
+   "threshold": 300000
+  },
+  "shard": null,
+  "tags": [],
+  "updateSnapshots": "missing",
+  "updateSourceMethod": "patch",
+  "version": "1.60.0",
+  "workers": 1,
+  "webServer": null
+ },
+ "suites": [
+  {
+   "title": "flows/beforeall.spec.ts",
+   "file": "flows/beforeall.spec.ts",
+   "column": 0,
+   "line": 0,
+   "specs": [
+    {
+     "title": "outside the group",
+     "ok": true,
+     "tags": [],
+     "tests": [
+      {
+       "timeout": 30000,
+       "annotations": [],
+       "expectedStatus": "passed",
+       "projectId": "",
+       "projectName": "",
+       "results": [
+        {
+         "workerIndex": 3,
+         "parallelIndex": 0,
+         "status": "passed",
+         "duration": 2,
+         "errors": [],
+         "stdout": [],
+         "stderr": [],
+         "retry": 0,
+         "startTime": "2026-10-30T21:43:30.304Z",
+         "annotations": [],
+         "attachments": []
+        }
+       ],
+       "status": "expected"
+      }
+     ],
+     "id": "84b7f9a50c591f129a4b-c8a7d7b807faa4c1f154",
+     "file": "flows/beforeall.spec.ts",
+     "line": 8,
+     "column": 1
+    }
+   ],
+   "suites": [
+    {
+     "title": "orders",
+     "file": "flows/beforeall.spec.ts",
+     "line": 2,
+     "column": 6,
+     "specs": [
+      {
+       "title": "lists the order",
+       "ok": false,
+       "tags": [],
+       "tests": [
+        {
+         "timeout": 30000,
+         "annotations": [],
+         "expectedStatus": "passed",
+         "projectId": "",
+         "projectName": "",
+         "results": [
+          {
+           "workerIndex": 0,
+           "parallelIndex": 0,
+           "status": "failed",
+           "duration": 0,
+           "error": {
+            "message": "Error: could not seed the order",
+            "stack": "Error: could not seed the order\n    at /work/e2e/flows/beforeall.spec.ts:3:62",
+            "location": {
+             "file": "/work/e2e/flows/beforeall.spec.ts",
+             "column": 62,
+             "line": 3
+            },
+            "snippet": "  1 | import { test, expect } from \"@playwright/test\";\n  2 | test.describe(\"orders\", () => {\n> 3 |   test.beforeAll(async () => { if (!process.env.FIXED) throw new Error(\"could not seed the order\"); });\n    |                                                              ^\n  4 |   test(\"lists the order\", async () => { expect(1).toBe(1); });\n  5 |   test(\"opens the order\", async () => { expect(1).toBe(1); });\n  6 |   test(\"cancels the order\", async () => { expect(1).toBe(1); });"
+           },
+           "errors": [
+            {
+             "location": {
+              "file": "/work/e2e/flows/beforeall.spec.ts",
+              "column": 62,
+              "line": 3
+             },
+             "message": "Error: could not seed the order\n\n  1 | import { test, expect } from \"@playwright/test\";\n  2 | test.describe(\"orders\", () => {\n> 3 |   test.beforeAll(async () => { if (!process.env.FIXED) throw new Error(\"could not seed the order\"); });\n    |                                                              ^\n  4 |   test(\"lists the order\", async () => { expect(1).toBe(1); });\n  5 |   test(\"opens the order\", async () => { expect(1).toBe(1); });\n  6 |   test(\"cancels the order\", async () => { expect(1).toBe(1); });\n    at /work/e2e/flows/beforeall.spec.ts:3:62"
+            }
+           ],
+           "stdout": [],
+           "stderr": [],
+           "retry": 0,
+           "startTime": "2026-10-30T21:43:29.429Z",
+           "annotations": [],
+           "attachments": [
+            {
+             "name": "error-context",
+             "contentType": "text/markdown",
+             "path": "/work/e2e/test-results/flows-beforeall-orders-lists-the-order/error-context.md"
+            }
+           ],
+           "errorLocation": {
+            "file": "/work/e2e/flows/beforeall.spec.ts",
+            "column": 62,
+            "line": 3
+           }
+          },
+          {
+           "workerIndex": 1,
+           "parallelIndex": 0,
+           "status": "failed",
+           "duration": 0,
+           "error": {
+            "message": "Error: could not seed the order",
+            "stack": "Error: could not seed the order\n    at /work/e2e/flows/beforeall.spec.ts:3:62",
+            "location": {
+             "file": "/work/e2e/flows/beforeall.spec.ts",
+             "column": 62,
+             "line": 3
+            },
+            "snippet": "  1 | import { test, expect } from \"@playwright/test\";\n  2 | test.describe(\"orders\", () => {\n> 3 |   test.beforeAll(async () => { if (!process.env.FIXED) throw new Error(\"could not seed the order\"); });\n    |                                                              ^\n  4 |   test(\"lists the order\", async () => { expect(1).toBe(1); });\n  5 |   test(\"opens the order\", async () => { expect(1).toBe(1); });\n  6 |   test(\"cancels the order\", async () => { expect(1).toBe(1); });"
+           },
+           "errors": [
+            {
+             "location": {
+              "file": "/work/e2e/flows/beforeall.spec.ts",
+              "column": 62,
+              "line": 3
+             },
+             "message": "Error: could not seed the order\n\n  1 | import { test, expect } from \"@playwright/test\";\n  2 | test.describe(\"orders\", () => {\n> 3 |   test.beforeAll(async () => { if (!process.env.FIXED) throw new Error(\"could not seed the order\"); });\n    |                                                              ^\n  4 |   test(\"lists the order\", async () => { expect(1).toBe(1); });\n  5 |   test(\"opens the order\", async () => { expect(1).toBe(1); });\n  6 |   test(\"cancels the order\", async () => { expect(1).toBe(1); });\n    at /work/e2e/flows/beforeall.spec.ts:3:62"
+            }
+           ],
+           "stdout": [],
+           "stderr": [],
+           "retry": 1,
+           "startTime": "2026-10-30T21:43:29.725Z",
+           "annotations": [],
+           "attachments": [
+            {
+             "name": "error-context",
+             "contentType": "text/markdown",
+             "path": "/work/e2e/test-results/flows-beforeall-orders-lists-the-order-retry1/error-context.md"
+            }
+           ],
+           "errorLocation": {
+            "file": "/work/e2e/flows/beforeall.spec.ts",
+            "column": 62,
+            "line": 3
+           }
+          },
+          {
+           "workerIndex": 2,
+           "parallelIndex": 0,
+           "status": "failed",
+           "duration": 0,
+           "error": {
+            "message": "Error: could not seed the order",
+            "stack": "Error: could not seed the order\n    at /work/e2e/flows/beforeall.spec.ts:3:62",
+            "location": {
+             "file": "/work/e2e/flows/beforeall.spec.ts",
+             "column": 62,
+             "line": 3
+            },
+            "snippet": "  1 | import { test, expect } from \"@playwright/test\";\n  2 | test.describe(\"orders\", () => {\n> 3 |   test.beforeAll(async () => { if (!process.env.FIXED) throw new Error(\"could not seed the order\"); });\n    |                                                              ^\n  4 |   test(\"lists the order\", async () => { expect(1).toBe(1); });\n  5 |   test(\"opens the order\", async () => { expect(1).toBe(1); });\n  6 |   test(\"cancels the order\", async () => { expect(1).toBe(1); });"
+           },
+           "errors": [
+            {
+             "location": {
+              "file": "/work/e2e/flows/beforeall.spec.ts",
+              "column": 62,
+              "line": 3
+             },
+             "message": "Error: could not seed the order\n\n  1 | import { test, expect } from \"@playwright/test\";\n  2 | test.describe(\"orders\", () => {\n> 3 |   test.beforeAll(async () => { if (!process.env.FIXED) throw new Error(\"could not seed the order\"); });\n    |                                                              ^\n  4 |   test(\"lists the order\", async () => { expect(1).toBe(1); });\n  5 |   test(\"opens the order\", async () => { expect(1).toBe(1); });\n  6 |   test(\"cancels the order\", async () => { expect(1).toBe(1); });\n    at /work/e2e/flows/beforeall.spec.ts:3:62"
+            }
+           ],
+           "stdout": [],
+           "stderr": [],
+           "retry": 2,
+           "startTime": "2026-10-30T21:43:30.012Z",
+           "annotations": [],
+           "attachments": [
+            {
+             "name": "error-context",
+             "contentType": "text/markdown",
+             "path": "/work/e2e/test-results/flows-beforeall-orders-lists-the-order-retry2/error-context.md"
+            }
+           ],
+           "errorLocation": {
+            "file": "/work/e2e/flows/beforeall.spec.ts",
+            "column": 62,
+            "line": 3
+           }
+          }
+         ],
+         "status": "unexpected"
+        }
+       ],
+       "id": "84b7f9a50c591f129a4b-011e1f93ec0e9a1c1234",
+       "file": "flows/beforeall.spec.ts",
+       "line": 4,
+       "column": 3
+      },
+      {
+       "title": "opens the order",
+       "ok": true,
+       "tags": [],
+       "tests": [
+        {
+         "timeout": 30000,
+         "annotations": [],
+         "expectedStatus": "passed",
+         "projectId": "",
+         "projectName": "",
+         "results": [
+          {
+           "workerIndex": -1,
+           "parallelIndex": -1,
+           "status": "skipped",
+           "duration": 0,
+           "errors": [],
+           "stdout": [],
+           "stderr": [],
+           "retry": 0,
+           "startTime": "2026-10-30T21:43:29.452Z",
+           "annotations": [],
+           "attachments": []
+          },
+          {
+           "workerIndex": -1,
+           "parallelIndex": -1,
+           "status": "skipped",
+           "duration": 0,
+           "errors": [],
+           "stdout": [],
+           "stderr": [],
+           "retry": 1,
+           "startTime": "2026-10-30T21:43:29.745Z",
+           "annotations": [],
+           "attachments": []
+          },
+          {
+           "workerIndex": -1,
+           "parallelIndex": -1,
+           "status": "skipped",
+           "duration": 0,
+           "errors": [],
+           "stdout": [],
+           "stderr": [],
+           "retry": 2,
+           "startTime": "2026-10-30T21:43:30.033Z",
+           "annotations": [],
+           "attachments": []
+          }
+         ],
+         "status": "skipped"
+        }
+       ],
+       "id": "84b7f9a50c591f129a4b-78985124b298b8391e07",
+       "file": "flows/beforeall.spec.ts",
+       "line": 5,
+       "column": 3
+      },
+      {
+       "title": "cancels the order",
+       "ok": true,
+       "tags": [],
+       "tests": [
+        {
+         "timeout": 30000,
+         "annotations": [],
+         "expectedStatus": "passed",
+         "projectId": "",
+         "projectName": "",
+         "results": [
+          {
+           "workerIndex": -1,
+           "parallelIndex": -1,
+           "status": "skipped",
+           "duration": 0,
+           "errors": [],
+           "stdout": [],
+           "stderr": [],
+           "retry": 0,
+           "startTime": "2026-10-30T21:43:29.452Z",
+           "annotations": [],
+           "attachments": []
+          },
+          {
+           "workerIndex": -1,
+           "parallelIndex": -1,
+           "status": "skipped",
+           "duration": 0,
+           "errors": [],
+           "stdout": [],
+           "stderr": [],
+           "retry": 1,
+           "startTime": "2026-10-30T21:43:29.745Z",
+           "annotations": [],
+           "attachments": []
+          },
+          {
+           "workerIndex": -1,
+           "parallelIndex": -1,
+           "status": "skipped",
+           "duration": 0,
+           "errors": [],
+           "stdout": [],
+           "stderr": [],
+           "retry": 2,
+           "startTime": "2026-10-30T21:43:30.033Z",
+           "annotations": [],
+           "attachments": []
+          }
+         ],
+         "status": "skipped"
+        }
+       ],
+       "id": "84b7f9a50c591f129a4b-4fa4982238994e4f3fc2",
+       "file": "flows/beforeall.spec.ts",
+       "line": 6,
+       "column": 3
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "title": "flows/serial.spec.ts",
+   "file": "flows/serial.spec.ts",
+   "column": 0,
+   "line": 0,
+   "specs": [
+    {
+     "title": "step 1 opens the cart",
+     "ok": true,
+     "tags": [],
+     "tests": [
+      {
+       "timeout": 30000,
+       "annotations": [],
+       "expectedStatus": "passed",
+       "projectId": "",
+       "projectName": "",
+       "results": [
+        {
+         "workerIndex": 3,
+         "parallelIndex": 0,
+         "status": "passed",
+         "duration": 0,
+         "errors": [],
+         "stdout": [],
+         "stderr": [],
+         "retry": 0,
+         "startTime": "2026-10-30T21:43:30.328Z",
+         "annotations": [],
+         "attachments": []
+        },
+        {
+         "workerIndex": 4,
+         "parallelIndex": 0,
+         "status": "passed",
+         "duration": 3,
+         "errors": [],
+         "stdout": [],
+         "stderr": [],
+         "retry": 1,
+         "startTime": "2026-10-30T21:43:30.615Z",
+         "annotations": [],
+         "attachments": []
+        },
+        {
+         "workerIndex": 5,
+         "parallelIndex": 0,
+         "status": "passed",
+         "duration": 2,
+         "errors": [],
+         "stdout": [],
+         "stderr": [],
+         "retry": 2,
+         "startTime": "2026-10-30T21:43:30.919Z",
+         "annotations": [],
+         "attachments": []
+        }
+       ],
+       "status": "expected"
+      }
+     ],
+     "id": "065fd9815b5e397b06b5-0fc5071817edf571f655",
+     "file": "flows/serial.spec.ts",
+     "line": 3,
+     "column": 1
+    },
+    {
+     "title": "step 2 adds an item",
+     "ok": false,
+     "tags": [],
+     "tests": [
+      {
+       "timeout": 30000,
+       "annotations": [],
+       "expectedStatus": "passed",
+       "projectId": "",
+       "projectName": "",
+       "results": [
+        {
+         "workerIndex": 3,
+         "parallelIndex": 0,
+         "status": "failed",
+         "duration": 1,
+         "error": {
+          "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m2\u001b[39m\nReceived: \u001b[31m1\u001b[39m",
+          "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m2\u001b[39m\nReceived: \u001b[31m1\u001b[39m\n    at /work/e2e/flows/serial.spec.ts:4:77",
+          "location": {
+           "file": "/work/e2e/flows/serial.spec.ts",
+           "column": 77,
+           "line": 4
+          },
+          "snippet": "  2 | test.describe.configure({ mode: \"serial\" });\n  3 | test(\"step 1 opens the cart\", async () => { expect(1).toBe(1); });\n> 4 | test(\"step 2 adds an item\", async () => { expect(process.env.FIXED ? 2 : 1).toBe(2); });\n    |                                                                             ^\n  5 | test(\"step 3 pays\", async () => { expect(3).toBe(3); });\n  6 | test(\"step 4 shows the receipt\", async () => { expect(4).toBe(4); });\n  7 |"
+         },
+         "errors": [
+          {
+           "location": {
+            "file": "/work/e2e/flows/serial.spec.ts",
+            "column": 77,
+            "line": 4
+           },
+           "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m2\u001b[39m\nReceived: \u001b[31m1\u001b[39m\n\n  2 | test.describe.configure({ mode: \"serial\" });\n  3 | test(\"step 1 opens the cart\", async () => { expect(1).toBe(1); });\n> 4 | test(\"step 2 adds an item\", async () => { expect(process.env.FIXED ? 2 : 1).toBe(2); });\n    |                                                                             ^\n  5 | test(\"step 3 pays\", async () => { expect(3).toBe(3); });\n  6 | test(\"step 4 shows the receipt\", async () => { expect(4).toBe(4); });\n  7 |\n    at /work/e2e/flows/serial.spec.ts:4:77"
+          }
+         ],
+         "stdout": [],
+         "stderr": [],
+         "retry": 0,
+         "startTime": "2026-10-30T21:43:30.333Z",
+         "annotations": [],
+         "attachments": [
+          {
+           "name": "error-context",
+           "contentType": "text/markdown",
+           "path": "/work/e2e/test-results/flows-serial-step-2-adds-an-item/error-context.md"
+          }
+         ],
+         "errorLocation": {
+          "file": "/work/e2e/flows/serial.spec.ts",
+          "column": 77,
+          "line": 4
+         }
+        },
+        {
+         "workerIndex": 4,
+         "parallelIndex": 0,
+         "status": "failed",
+         "duration": 2,
+         "error": {
+          "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m2\u001b[39m\nReceived: \u001b[31m1\u001b[39m",
+          "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m2\u001b[39m\nReceived: \u001b[31m1\u001b[39m\n    at /work/e2e/flows/serial.spec.ts:4:77",
+          "location": {
+           "file": "/work/e2e/flows/serial.spec.ts",
+           "column": 77,
+           "line": 4
+          },
+          "snippet": "  2 | test.describe.configure({ mode: \"serial\" });\n  3 | test(\"step 1 opens the cart\", async () => { expect(1).toBe(1); });\n> 4 | test(\"step 2 adds an item\", async () => { expect(process.env.FIXED ? 2 : 1).toBe(2); });\n    |                                                                             ^\n  5 | test(\"step 3 pays\", async () => { expect(3).toBe(3); });\n  6 | test(\"step 4 shows the receipt\", async () => { expect(4).toBe(4); });\n  7 |"
+         },
+         "errors": [
+          {
+           "location": {
+            "file": "/work/e2e/flows/serial.spec.ts",
+            "column": 77,
+            "line": 4
+           },
+           "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m2\u001b[39m\nReceived: \u001b[31m1\u001b[39m\n\n  2 | test.describe.configure({ mode: \"serial\" });\n  3 | test(\"step 1 opens the cart\", async () => { expect(1).toBe(1); });\n> 4 | test(\"step 2 adds an item\", async () => { expect(process.env.FIXED ? 2 : 1).toBe(2); });\n    |                                                                             ^\n  5 | test(\"step 3 pays\", async () => { expect(3).toBe(3); });\n  6 | test(\"step 4 shows the receipt\", async () => { expect(4).toBe(4); });\n  7 |\n    at /work/e2e/flows/serial.spec.ts:4:77"
+          }
+         ],
+         "stdout": [],
+         "stderr": [],
+         "retry": 1,
+         "startTime": "2026-10-30T21:43:30.634Z",
+         "annotations": [],
+         "attachments": [
+          {
+           "name": "error-context",
+           "contentType": "text/markdown",
+           "path": "/work/e2e/test-results/flows-serial-step-2-adds-an-item-retry1/error-context.md"
+          }
+         ],
+         "errorLocation": {
+          "file": "/work/e2e/flows/serial.spec.ts",
+          "column": 77,
+          "line": 4
+         }
+        },
+        {
+         "workerIndex": 5,
+         "parallelIndex": 0,
+         "status": "failed",
+         "duration": 1,
+         "error": {
+          "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m2\u001b[39m\nReceived: \u001b[31m1\u001b[39m",
+          "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m2\u001b[39m\nReceived: \u001b[31m1\u001b[39m\n    at /work/e2e/flows/serial.spec.ts:4:77",
+          "location": {
+           "file": "/work/e2e/flows/serial.spec.ts",
+           "column": 77,
+           "line": 4
+          },
+          "snippet": "  2 | test.describe.configure({ mode: \"serial\" });\n  3 | test(\"step 1 opens the cart\", async () => { expect(1).toBe(1); });\n> 4 | test(\"step 2 adds an item\", async () => { expect(process.env.FIXED ? 2 : 1).toBe(2); });\n    |                                                                             ^\n  5 | test(\"step 3 pays\", async () => { expect(3).toBe(3); });\n  6 | test(\"step 4 shows the receipt\", async () => { expect(4).toBe(4); });\n  7 |"
+         },
+         "errors": [
+          {
+           "location": {
+            "file": "/work/e2e/flows/serial.spec.ts",
+            "column": 77,
+            "line": 4
+           },
+           "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m2\u001b[39m\nReceived: \u001b[31m1\u001b[39m\n\n  2 | test.describe.configure({ mode: \"serial\" });\n  3 | test(\"step 1 opens the cart\", async () => { expect(1).toBe(1); });\n> 4 | test(\"step 2 adds an item\", async () => { expect(process.env.FIXED ? 2 : 1).toBe(2); });\n    |                                                                             ^\n  5 | test(\"step 3 pays\", async () => { expect(3).toBe(3); });\n  6 | test(\"step 4 shows the receipt\", async () => { expect(4).toBe(4); });\n  7 |\n    at /work/e2e/flows/serial.spec.ts:4:77"
+          }
+         ],
+         "stdout": [],
+         "stderr": [],
+         "retry": 2,
+         "startTime": "2026-10-30T21:43:30.937Z",
+         "annotations": [],
+         "attachments": [
+          {
+           "name": "error-context",
+           "contentType": "text/markdown",
+           "path": "/work/e2e/test-results/flows-serial-step-2-adds-an-item-retry2/error-context.md"
+          }
+         ],
+         "errorLocation": {
+          "file": "/work/e2e/flows/serial.spec.ts",
+          "column": 77,
+          "line": 4
+         }
+        }
+       ],
+       "status": "unexpected"
+      }
+     ],
+     "id": "065fd9815b5e397b06b5-34e0ef3a3f181e124546",
+     "file": "flows/serial.spec.ts",
+     "line": 4,
+     "column": 1
+    },
+    {
+     "title": "step 3 pays",
+     "ok": true,
+     "tags": [],
+     "tests": [
+      {
+       "timeout": 30000,
+       "annotations": [],
+       "expectedStatus": "passed",
+       "projectId": "",
+       "projectName": "",
+       "results": [
+        {
+         "workerIndex": -1,
+         "parallelIndex": -1,
+         "status": "skipped",
+         "duration": 0,
+         "errors": [],
+         "stdout": [],
+         "stderr": [],
+         "retry": 0,
+         "startTime": "2026-10-30T21:43:30.342Z",
+         "annotations": [],
+         "attachments": []
+        },
+        {
+         "workerIndex": -1,
+         "parallelIndex": -1,
+         "status": "skipped",
+         "duration": 0,
+         "errors": [],
+         "stdout": [],
+         "stderr": [],
+         "retry": 1,
+         "startTime": "2026-10-30T21:43:30.643Z",
+         "annotations": [],
+         "attachments": []
+        },
+        {
+         "workerIndex": -1,
+         "parallelIndex": -1,
+         "status": "skipped",
+         "duration": 0,
+         "errors": [],
+         "stdout": [],
+         "stderr": [],
+         "retry": 2,
+         "startTime": "2026-10-30T21:43:30.945Z",
+         "annotations": [],
+         "attachments": []
+        }
+       ],
+       "status": "skipped"
+      }
+     ],
+     "id": "065fd9815b5e397b06b5-af844a54bd74f8e5bfd4",
+     "file": "flows/serial.spec.ts",
+     "line": 5,
+     "column": 1
+    },
+    {
+     "title": "step 4 shows the receipt",
+     "ok": true,
+     "tags": [],
+     "tests": [
+      {
+       "timeout": 30000,
+       "annotations": [],
+       "expectedStatus": "passed",
+       "projectId": "",
+       "projectName": "",
+       "results": [
+        {
+         "workerIndex": -1,
+         "parallelIndex": -1,
+         "status": "skipped",
+         "duration": 0,
+         "errors": [],
+         "stdout": [],
+         "stderr": [],
+         "retry": 0,
+         "startTime": "2026-10-30T21:43:30.342Z",
+         "annotations": [],
+         "attachments": []
+        },
+        {
+         "workerIndex": -1,
+         "parallelIndex": -1,
+         "status": "skipped",
+         "duration": 0,
+         "errors": [],
+         "stdout": [],
+         "stderr": [],
+         "retry": 1,
+         "startTime": "2026-10-30T21:43:30.643Z",
+         "annotations": [],
+         "attachments": []
+        },
+        {
+         "workerIndex": -1,
+         "parallelIndex": -1,
+         "status": "skipped",
+         "duration": 0,
+         "errors": [],
+         "stdout": [],
+         "stderr": [],
+         "retry": 2,
+         "startTime": "2026-10-30T21:43:30.945Z",
+         "annotations": [],
+         "attachments": []
+        }
+       ],
+       "status": "skipped"
+      }
+     ],
+     "id": "065fd9815b5e397b06b5-240156f7af47f0602f44",
+     "file": "flows/serial.spec.ts",
+     "line": 6,
+     "column": 1
+    }
+   ]
+  }
+ ],
+ "errors": [],
+ "stats": {
+  "startTime": "2026-10-30T21:43:29.141Z",
+  "duration": 1810.796,
+  "expected": 2,
+  "skipped": 4,
+  "unexpected": 2,
+  "flaky": 0
+ }
+}

@@ -54,6 +54,25 @@ const OK_STATUSES = new Set(["passed", "expected"]);
 
 type SpecOutcome = CaseStatus | "skipped";
 
+/*
+ * What became of each test of a spec, by what its author declared and not by how it ended. Playwright reports a test its author skipped
+ * (`test.skip`, `test.fixme`, `testInfo.skip()`, a skipping condition) with `expectedStatus: "skipped"`, even when an attempt failed
+ * first; a test that never ran because another failed (a serial step after a failing one, everything under a failing `beforeAll`) is
+ * `status: "skipped"` too, but with `expectedStatus: "passed"` and no annotation. The report that states no expectedStatus is read as the
+ * author's skip, the side that refuses.
+ */
+function split(spec: PwSpec): { ran: PwTest[]; declaredSkip: PwTest[] } {
+  const ran: PwTest[] = [];
+  const declaredSkip: PwTest[] = [];
+  for (const t of spec.tests ?? []) {
+    if (t.expectedStatus === "skipped") declaredSkip.push(t);
+    else if (t.status === "skipped" && t.expectedStatus !== "passed" && t.expectedStatus !== "failed") declaredSkip.push(t);
+    else if (t.status === "skipped") continue;
+    else ran.push(t);
+  }
+  return { ran, declaredSkip };
+}
+
 export function parsePlaywrightReport(json: unknown): ParsedReport {
   const report = (json ?? {}) as PwReport;
   const cases: PwCase[] = [];
@@ -63,23 +82,34 @@ export function parsePlaywrightReport(json: unknown): ParsedReport {
     for (const suite of suites ?? []) {
       const title = [prefix, suite.title].filter(Boolean).join(" › ");
       for (const spec of suite.specs ?? []) {
-        const outcome = specOutcome(spec);
+        const name = [title, spec.title].filter(Boolean).join(" › ");
+        const { ran, declaredSkip } = split(spec);
+        const noTests = (spec.tests ?? []).length === 0;
+        const skip = (tests: PwTest[]): void => {
+          const annotation = skipAnnotation({ ...spec, tests });
+          skippedTests.push({ name, ...(file ? { file } : {}), ...(annotation ? { annotation } : {}) });
+        };
+        if (declaredSkip.length > 0) skip(declaredSkip);
+        /* A test that did not run because another failed (a serial step after a failing one, everything under a failing beforeAll) is neither a case nor a skip its author wrote: it proves nothing and is not refused. */
+        if (ran.length === 0 && !noTests) continue;
+        const ranSpec: PwSpec = noTests ? spec : { ...spec, tests: ran };
+        const outcome = specOutcome(ranSpec);
         if (outcome === "skipped") {
-          const annotation = skipAnnotation(spec);
-          skippedTests.push({ name: [title, spec.title].filter(Boolean).join(" › "), ...(file ? { file } : {}), ...(annotation ? { annotation } : {}) });
+          /* The spec-level fields alone, or results that all skipped, say it did not run. */
+          if (declaredSkip.length === 0) skip(ran);
           continue;
         }
-        const declared = declaredStatus(spec);
+        const declared = declaredStatus(ranSpec);
         const c: PwCase & Pick<QaCase, "file"> = {
-          name: [title, spec.title].filter(Boolean).join(" › "),
+          name,
           status: outcome,
           ...(declared ? { expectedStatus: declared } : {}),
           detail:
             outcome === "pass"
               ? undefined
               : outcome === "flaky"
-                ? `flaky — passed only after a retry; first-attempt failure: ${firstError(spec) ?? "(no error captured in the report)"}`
-                : firstError(spec),
+                ? `flaky — passed only after a retry; first-attempt failure: ${firstError(ranSpec) ?? "(no error captured in the report)"}`
+                : firstError(ranSpec),
           ...(file ? { file } : {}),
         };
         cases.push(c);

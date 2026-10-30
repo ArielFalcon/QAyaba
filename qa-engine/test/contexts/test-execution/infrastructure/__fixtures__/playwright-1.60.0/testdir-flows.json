@@ -1,0 +1,426 @@
+{
+ "config": {
+  "configFile": "/work/e2e/playwright.config.ts",
+  "rootDir": "/work/e2e/flows",
+  "forbidOnly": false,
+  "fullyParallel": false,
+  "globalSetup": null,
+  "globalTeardown": null,
+  "globalTimeout": 0,
+  "grep": {},
+  "grepInvert": null,
+  "maxFailures": 0,
+  "metadata": {
+   "actualWorkers": 1
+  },
+  "preserveOutput": "always",
+  "projects": [
+   {
+    "outputDir": "/work/e2e/test-results",
+    "repeatEach": 1,
+    "retries": 2,
+    "metadata": {
+     "actualWorkers": 1
+    },
+    "id": "",
+    "name": "",
+    "testDir": "/work/e2e/flows",
+    "testIgnore": [],
+    "testMatch": [
+     "**/*.spec.ts"
+    ],
+    "timeout": 30000
+   }
+  ],
+  "quiet": false,
+  "reporter": [
+   [
+    "json",
+    {
+     "outputFile": "/work/reports/td-flows.json"
+    }
+   ]
+  ],
+  "reportSlowTests": {
+   "max": 5,
+   "threshold": 300000
+  },
+  "shard": null,
+  "tags": [],
+  "updateSnapshots": "missing",
+  "updateSourceMethod": "patch",
+  "version": "1.60.0",
+  "workers": 1,
+  "webServer": null
+ },
+ "suites": [
+  {
+   "title": "only-fail.spec.ts",
+   "file": "only-fail.spec.ts",
+   "column": 0,
+   "line": 0,
+   "specs": [
+    {
+     "title": "known app bug",
+     "ok": true,
+     "tags": [],
+     "tests": [
+      {
+       "timeout": 30000,
+       "annotations": [
+        {
+         "type": "fail",
+         "location": {
+          "file": "/work/e2e/flows/only-fail.spec.ts",
+          "line": 2,
+          "column": 6
+         }
+        }
+       ],
+       "expectedStatus": "failed",
+       "projectId": "",
+       "projectName": "",
+       "results": [
+        {
+         "workerIndex": 0,
+         "parallelIndex": 0,
+         "status": "failed",
+         "duration": 3,
+         "error": {
+          "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m2\u001b[39m\nReceived: \u001b[31m1\u001b[39m",
+          "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m2\u001b[39m\nReceived: \u001b[31m1\u001b[39m\n    at /work/e2e/flows/only-fail.spec.ts:2:52",
+          "location": {
+           "file": "/work/e2e/flows/only-fail.spec.ts",
+           "column": 52,
+           "line": 2
+          },
+          "snippet": "  1 | import { test, expect } from \"@playwright/test\";\n> 2 | test.fail(\"known app bug\", async () => { expect(1).toBe(2); });\n    |                                                    ^\n  3 |"
+         },
+         "errors": [
+          {
+           "location": {
+            "file": "/work/e2e/flows/only-fail.spec.ts",
+            "column": 52,
+            "line": 2
+           },
+           "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m2\u001b[39m\nReceived: \u001b[31m1\u001b[39m\n\n  1 | import { test, expect } from \"@playwright/test\";\n> 2 | test.fail(\"known app bug\", async () => { expect(1).toBe(2); });\n    |                                                    ^\n  3 |\n    at /work/e2e/flows/only-fail.spec.ts:2:52"
+          }
+         ],
+         "stdout": [],
+         "stderr": [],
+         "retry": 0,
+         "startTime": "2026-10-30T21:31:51.370Z",
+         "annotations": [
+          {
+           "type": "fail",
+           "location": {
+            "file": "/work/e2e/flows/only-fail.spec.ts",
+            "line": 2,
+            "column": 6
+           }
+          }
+         ],
+         "attachments": [
+          {
+           "name": "error-context",
+           "contentType": "text/markdown",
+           "path": "/work/e2e/test-results/only-fail-known-app-bug/error-context.md"
+          }
+         ],
+         "errorLocation": {
+          "file": "/work/e2e/flows/only-fail.spec.ts",
+          "column": 52,
+          "line": 2
+         }
+        }
+       ],
+       "status": "expected"
+      }
+     ],
+     "id": "670e1b5d726b24f4741d-41b4ba6187ee3191a73b",
+     "file": "only-fail.spec.ts",
+     "line": 2,
+     "column": 6
+    }
+   ]
+  },
+  {
+   "title": "plain.spec.ts",
+   "file": "plain.spec.ts",
+   "column": 0,
+   "line": 0,
+   "specs": [
+    {
+     "title": "passes",
+     "ok": true,
+     "tags": [],
+     "tests": [
+      {
+       "timeout": 30000,
+       "annotations": [],
+       "expectedStatus": "passed",
+       "projectId": "",
+       "projectName": "",
+       "results": [
+        {
+         "workerIndex": 0,
+         "parallelIndex": 0,
+         "status": "passed",
+         "duration": 0,
+         "errors": [],
+         "stdout": [],
+         "stderr": [],
+         "retry": 0,
+         "startTime": "2026-10-30T21:31:51.408Z",
+         "annotations": [],
+         "attachments": []
+        }
+       ],
+       "status": "expected"
+      }
+     ],
+     "id": "a39a117ae5161479d67f-52d28694fd49ef56e13a",
+     "file": "plain.spec.ts",
+     "line": 2,
+     "column": 1
+    },
+    {
+     "title": "fails",
+     "ok": false,
+     "tags": [],
+     "tests": [
+      {
+       "timeout": 30000,
+       "annotations": [],
+       "expectedStatus": "passed",
+       "projectId": "",
+       "projectName": "",
+       "results": [
+        {
+         "workerIndex": 0,
+         "parallelIndex": 0,
+         "status": "failed",
+         "duration": 0,
+         "error": {
+          "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m2\u001b[39m\nReceived: \u001b[31m1\u001b[39m",
+          "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m2\u001b[39m\nReceived: \u001b[31m1\u001b[39m\n    at /work/e2e/flows/plain.spec.ts:3:39",
+          "location": {
+           "file": "/work/e2e/flows/plain.spec.ts",
+           "column": 39,
+           "line": 3
+          },
+          "snippet": "  1 | import { test, expect } from \"@playwright/test\";\n  2 | test(\"passes\", async () => { expect(1).toBe(1); });\n> 3 | test(\"fails\", async () => { expect(1).toBe(2); });\n    |                                       ^\n  4 | test(\"flaky\", async ({}, testInfo) => { expect(testInfo.retry).toBeGreaterThan(0); });\n  5 |"
+         },
+         "errors": [
+          {
+           "location": {
+            "file": "/work/e2e/flows/plain.spec.ts",
+            "column": 39,
+            "line": 3
+           },
+           "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m2\u001b[39m\nReceived: \u001b[31m1\u001b[39m\n\n  1 | import { test, expect } from \"@playwright/test\";\n  2 | test(\"passes\", async () => { expect(1).toBe(1); });\n> 3 | test(\"fails\", async () => { expect(1).toBe(2); });\n    |                                       ^\n  4 | test(\"flaky\", async ({}, testInfo) => { expect(testInfo.retry).toBeGreaterThan(0); });\n  5 |\n    at /work/e2e/flows/plain.spec.ts:3:39"
+          }
+         ],
+         "stdout": [],
+         "stderr": [],
+         "retry": 0,
+         "startTime": "2026-10-30T21:31:51.414Z",
+         "annotations": [],
+         "attachments": [
+          {
+           "name": "error-context",
+           "contentType": "text/markdown",
+           "path": "/work/e2e/test-results/plain-fails/error-context.md"
+          }
+         ],
+         "errorLocation": {
+          "file": "/work/e2e/flows/plain.spec.ts",
+          "column": 39,
+          "line": 3
+         }
+        },
+        {
+         "workerIndex": 1,
+         "parallelIndex": 0,
+         "status": "failed",
+         "duration": 4,
+         "error": {
+          "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m2\u001b[39m\nReceived: \u001b[31m1\u001b[39m",
+          "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m2\u001b[39m\nReceived: \u001b[31m1\u001b[39m\n    at /work/e2e/flows/plain.spec.ts:3:39",
+          "location": {
+           "file": "/work/e2e/flows/plain.spec.ts",
+           "column": 39,
+           "line": 3
+          },
+          "snippet": "  1 | import { test, expect } from \"@playwright/test\";\n  2 | test(\"passes\", async () => { expect(1).toBe(1); });\n> 3 | test(\"fails\", async () => { expect(1).toBe(2); });\n    |                                       ^\n  4 | test(\"flaky\", async ({}, testInfo) => { expect(testInfo.retry).toBeGreaterThan(0); });\n  5 |"
+         },
+         "errors": [
+          {
+           "location": {
+            "file": "/work/e2e/flows/plain.spec.ts",
+            "column": 39,
+            "line": 3
+           },
+           "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m2\u001b[39m\nReceived: \u001b[31m1\u001b[39m\n\n  1 | import { test, expect } from \"@playwright/test\";\n  2 | test(\"passes\", async () => { expect(1).toBe(1); });\n> 3 | test(\"fails\", async () => { expect(1).toBe(2); });\n    |                                       ^\n  4 | test(\"flaky\", async ({}, testInfo) => { expect(testInfo.retry).toBeGreaterThan(0); });\n  5 |\n    at /work/e2e/flows/plain.spec.ts:3:39"
+          }
+         ],
+         "stdout": [],
+         "stderr": [],
+         "retry": 1,
+         "startTime": "2026-10-30T21:31:51.716Z",
+         "annotations": [],
+         "attachments": [
+          {
+           "name": "error-context",
+           "contentType": "text/markdown",
+           "path": "/work/e2e/test-results/plain-fails-retry1/error-context.md"
+          }
+         ],
+         "errorLocation": {
+          "file": "/work/e2e/flows/plain.spec.ts",
+          "column": 39,
+          "line": 3
+         }
+        },
+        {
+         "workerIndex": 2,
+         "parallelIndex": 0,
+         "status": "failed",
+         "duration": 4,
+         "error": {
+          "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m2\u001b[39m\nReceived: \u001b[31m1\u001b[39m",
+          "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m2\u001b[39m\nReceived: \u001b[31m1\u001b[39m\n    at /work/e2e/flows/plain.spec.ts:3:39",
+          "location": {
+           "file": "/work/e2e/flows/plain.spec.ts",
+           "column": 39,
+           "line": 3
+          },
+          "snippet": "  1 | import { test, expect } from \"@playwright/test\";\n  2 | test(\"passes\", async () => { expect(1).toBe(1); });\n> 3 | test(\"fails\", async () => { expect(1).toBe(2); });\n    |                                       ^\n  4 | test(\"flaky\", async ({}, testInfo) => { expect(testInfo.retry).toBeGreaterThan(0); });\n  5 |"
+         },
+         "errors": [
+          {
+           "location": {
+            "file": "/work/e2e/flows/plain.spec.ts",
+            "column": 39,
+            "line": 3
+           },
+           "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m2\u001b[39m\nReceived: \u001b[31m1\u001b[39m\n\n  1 | import { test, expect } from \"@playwright/test\";\n  2 | test(\"passes\", async () => { expect(1).toBe(1); });\n> 3 | test(\"fails\", async () => { expect(1).toBe(2); });\n    |                                       ^\n  4 | test(\"flaky\", async ({}, testInfo) => { expect(testInfo.retry).toBeGreaterThan(0); });\n  5 |\n    at /work/e2e/flows/plain.spec.ts:3:39"
+          }
+         ],
+         "stdout": [],
+         "stderr": [],
+         "retry": 2,
+         "startTime": "2026-10-30T21:31:52.067Z",
+         "annotations": [],
+         "attachments": [
+          {
+           "name": "error-context",
+           "contentType": "text/markdown",
+           "path": "/work/e2e/test-results/plain-fails-retry2/error-context.md"
+          }
+         ],
+         "errorLocation": {
+          "file": "/work/e2e/flows/plain.spec.ts",
+          "column": 39,
+          "line": 3
+         }
+        }
+       ],
+       "status": "unexpected"
+      }
+     ],
+     "id": "a39a117ae5161479d67f-806cdfe5836c3243cabe",
+     "file": "plain.spec.ts",
+     "line": 3,
+     "column": 1
+    },
+    {
+     "title": "flaky",
+     "ok": true,
+     "tags": [],
+     "tests": [
+      {
+       "timeout": 30000,
+       "annotations": [],
+       "expectedStatus": "passed",
+       "projectId": "",
+       "projectName": "",
+       "results": [
+        {
+         "workerIndex": 3,
+         "parallelIndex": 0,
+         "status": "failed",
+         "duration": 3,
+         "error": {
+          "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBeGreaterThan\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m\n\nExpected: > \u001b[32m0\u001b[39m\nReceived:   \u001b[31m0\u001b[39m",
+          "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBeGreaterThan\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m\n\nExpected: > \u001b[32m0\u001b[39m\nReceived:   \u001b[31m0\u001b[39m\n    at /work/e2e/flows/plain.spec.ts:4:64",
+          "location": {
+           "file": "/work/e2e/flows/plain.spec.ts",
+           "column": 64,
+           "line": 4
+          },
+          "snippet": "  2 | test(\"passes\", async () => { expect(1).toBe(1); });\n  3 | test(\"fails\", async () => { expect(1).toBe(2); });\n> 4 | test(\"flaky\", async ({}, testInfo) => { expect(testInfo.retry).toBeGreaterThan(0); });\n    |                                                                ^\n  5 |"
+         },
+         "errors": [
+          {
+           "location": {
+            "file": "/work/e2e/flows/plain.spec.ts",
+            "column": 64,
+            "line": 4
+           },
+           "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBeGreaterThan\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m\n\nExpected: > \u001b[32m0\u001b[39m\nReceived:   \u001b[31m0\u001b[39m\n\n  2 | test(\"passes\", async () => { expect(1).toBe(1); });\n  3 | test(\"fails\", async () => { expect(1).toBe(2); });\n> 4 | test(\"flaky\", async ({}, testInfo) => { expect(testInfo.retry).toBeGreaterThan(0); });\n    |                                                                ^\n  5 |\n    at /work/e2e/flows/plain.spec.ts:4:64"
+          }
+         ],
+         "stdout": [],
+         "stderr": [],
+         "retry": 0,
+         "startTime": "2026-10-30T21:31:52.397Z",
+         "annotations": [],
+         "attachments": [
+          {
+           "name": "error-context",
+           "contentType": "text/markdown",
+           "path": "/work/e2e/test-results/plain-flaky/error-context.md"
+          }
+         ],
+         "errorLocation": {
+          "file": "/work/e2e/flows/plain.spec.ts",
+          "column": 64,
+          "line": 4
+         }
+        },
+        {
+         "workerIndex": 4,
+         "parallelIndex": 0,
+         "status": "passed",
+         "duration": 7,
+         "errors": [],
+         "stdout": [],
+         "stderr": [],
+         "retry": 1,
+         "startTime": "2026-10-30T21:31:52.755Z",
+         "annotations": [],
+         "attachments": []
+        }
+       ],
+       "status": "flaky"
+      }
+     ],
+     "id": "a39a117ae5161479d67f-2cffe27c0c0d7b194820",
+     "file": "plain.spec.ts",
+     "line": 4,
+     "column": 1
+    }
+   ]
+  }
+ ],
+ "errors": [],
+ "stats": {
+  "startTime": "2026-10-30T21:31:51.001Z",
+  "duration": 1795.7749999999999,
+  "expected": 2,
+  "skipped": 0,
+  "unexpected": 1,
+  "flaky": 1
+ }
+}

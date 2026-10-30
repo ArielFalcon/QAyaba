@@ -3,6 +3,7 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { parsePlaywrightReport } from "@contexts/test-execution/infrastructure/playwright-report.ts";
 import { LOAD_ERROR_MESSAGE_SAFETY_BOUND } from "@contexts/test-execution/domain/spec-load-error.ts";
 import { createRunSecretScope, withRunSecretScope } from "../../../../src/shared-kernel/run-secret-redaction.ts";
@@ -270,4 +271,54 @@ test("every case carries the status its test declared: passed by default, failed
       ["flows/a.spec.ts › no declaration", "pass", undefined],
     ],
   );
+});
+
+/* Reports Playwright 1.60.0 wrote for real specs (see __fixtures__/playwright-1.60.0): the shapes a rule about skipped, expected-to-fail and never-run tests must read, not shapes invented to fit it. */
+const fixture = (name: string): unknown => JSON.parse(readFileSync(new URL(`./__fixtures__/playwright-1.60.0/${name}.json`, import.meta.url), "utf8"));
+
+test("real report: every form of a declared skip is a skipped test with its annotation, and none of them is a case", () => {
+  const parsed = parsePlaywrightReport(fixture("main"));
+  const skipped = parsed.skippedTests.map((t) => `${t.file} › ${t.name.split(" › ").slice(1).join(" › ")}:${t.annotation}`);
+  for (const declared of ["static skip:skip", "conditional skip true in body:skip", "static fixme:fixme", "fixme in body:fixme", "testInfo.skip():skip", "test.info().skip():skip", "alias skip:skip"]) {
+    assert.ok(skipped.some((s) => s.endsWith(`› ${declared}`)), declared);
+  }
+  assert.ok(parsed.skippedTests.some((t) => t.name.endsWith("in skipped modifier group")), "a skipped describe group");
+  assert.equal(parsed.cases.some((c) => /static skip|static fixme|alias skip/.test(c.name)), false);
+});
+
+test("real report: a test skipped after a failing attempt is a declared skip, not a flaky case", () => {
+  const parsed = parsePlaywrightReport(fixture("main"));
+  assert.ok(parsed.skippedTests.some((t) => t.name.endsWith("skip after a failing assertion attempt")));
+  assert.equal(parsed.cases.some((c) => c.name.endsWith("skip after a failing assertion attempt")), false);
+});
+
+test("real report: a conditional skip whose condition is false ran and is an ordinary case", () => {
+  const parsed = parsePlaywrightReport(fixture("main"));
+  const ran = parsed.cases.find((c) => c.name.endsWith("conditional skip false in body"));
+  assert.deepEqual([ran?.status, ran?.expectedStatus], ["pass", "passed"]);
+});
+
+test("real report: test.fail() forms are cases that declared failed, and an unexpected pass of one is a failure", () => {
+  const parsed = parsePlaywrightReport(fixture("main"));
+  const byName = (end: string) => parsed.cases.find((c) => c.name.endsWith(end));
+  assert.deepEqual([byName("declared fail that fails")?.status, byName("declared fail that fails")?.expectedStatus], ["pass", "failed"]);
+  assert.deepEqual([byName("fail in body that fails")?.status, byName("fail in body that fails")?.expectedStatus], ["pass", "failed"]);
+  assert.deepEqual([byName("testInfo.fail() in body that fails")?.status, byName("testInfo.fail() in body that fails")?.expectedStatus], ["pass", "failed"]);
+  assert.deepEqual([byName("declared fail that passes")?.status, byName("declared fail that passes")?.expectedStatus], ["fail", "failed"]);
+});
+
+test("real report: tests that did not run because an earlier one failed are neither cases nor declared skips, and the failing one keeps its mode", () => {
+  const parsed = parsePlaywrightReport(fixture("serial-retries-2"));
+  assert.deepEqual(parsed.skippedTests, [], "a test that never ran was not skipped by its author");
+  const serial = parsed.cases.filter((c) => c.name.startsWith("flows/serial.spec.ts"));
+  assert.deepEqual(serial.map((c) => [c.name.split(" › ")[1], c.status, c.expectedStatus]), [["step 1 opens the cart", "pass", "passed"], ["step 2 adds an item", "fail", "passed"]]);
+  const hook = parsed.cases.filter((c) => c.name.startsWith("flows/beforeall.spec.ts")).map((c) => [c.status, c.expectedStatus]);
+  assert.deepEqual(hook, [["pass", "passed"], ["fail", "passed"]], "tests under a failing beforeAll did not run either");
+  assert.equal(parsed.verdict, "fail");
+});
+
+test("real report: a project listed twice reports its skip and its test.fail() once per spec, whatever the project", () => {
+  const parsed = parsePlaywrightReport(fixture("two-projects"));
+  assert.equal(parsed.skippedTests.filter((t) => t.name.endsWith("static skip")).length, 1);
+  assert.deepEqual(parsed.cases.filter((c) => c.name.endsWith("known app bug")).map((c) => c.expectedStatus), ["failed"]);
 });

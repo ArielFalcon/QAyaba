@@ -1,0 +1,1315 @@
+{
+ "config": {
+  "configFile": "/work/e2e/playwright.config.ts",
+  "rootDir": "/work/e2e",
+  "forbidOnly": false,
+  "fullyParallel": false,
+  "globalSetup": null,
+  "globalTeardown": null,
+  "globalTimeout": 0,
+  "grep": {},
+  "grepInvert": null,
+  "maxFailures": 0,
+  "metadata": {
+   "actualWorkers": 1
+  },
+  "preserveOutput": "always",
+  "projects": [
+   {
+    "outputDir": "/work/e2e/test-results",
+    "repeatEach": 1,
+    "retries": 2,
+    "metadata": {
+     "actualWorkers": 1
+    },
+    "id": "a",
+    "name": "a",
+    "testDir": "/work/e2e",
+    "testIgnore": [],
+    "testMatch": [
+     "**/*.spec.ts"
+    ],
+    "timeout": 30000
+   },
+   {
+    "outputDir": "/work/e2e/test-results",
+    "repeatEach": 1,
+    "retries": 2,
+    "metadata": {
+     "actualWorkers": 1
+    },
+    "id": "b",
+    "name": "b",
+    "testDir": "/work/e2e",
+    "testIgnore": [],
+    "testMatch": [
+     "**/*.spec.ts"
+    ],
+    "timeout": 30000
+   }
+  ],
+  "quiet": false,
+  "reporter": [
+   [
+    "json",
+    {
+     "outputFile": "/work/reports/two-projects.json"
+    }
+   ]
+  ],
+  "reportSlowTests": {
+   "max": 5,
+   "threshold": 300000
+  },
+  "shard": null,
+  "tags": [],
+  "updateSnapshots": "missing",
+  "updateSourceMethod": "patch",
+  "version": "1.60.0",
+  "workers": 1,
+  "webServer": null
+ },
+ "suites": [
+  {
+   "title": "flows/only-fail.spec.ts",
+   "file": "flows/only-fail.spec.ts",
+   "column": 0,
+   "line": 0,
+   "specs": [
+    {
+     "title": "known app bug",
+     "ok": true,
+     "tags": [],
+     "tests": [
+      {
+       "timeout": 30000,
+       "annotations": [
+        {
+         "type": "fail",
+         "location": {
+          "file": "/work/e2e/flows/only-fail.spec.ts",
+          "line": 2,
+          "column": 6
+         }
+        }
+       ],
+       "expectedStatus": "failed",
+       "projectId": "a",
+       "projectName": "a",
+       "results": [
+        {
+         "workerIndex": 0,
+         "parallelIndex": 0,
+         "status": "failed",
+         "duration": 4,
+         "error": {
+          "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m2\u001b[39m\nReceived: \u001b[31m1\u001b[39m",
+          "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m2\u001b[39m\nReceived: \u001b[31m1\u001b[39m\n    at /work/e2e/flows/only-fail.spec.ts:2:52",
+          "location": {
+           "file": "/work/e2e/flows/only-fail.spec.ts",
+           "column": 52,
+           "line": 2
+          },
+          "snippet": "  1 | import { test, expect } from \"@playwright/test\";\n> 2 | test.fail(\"known app bug\", async () => { expect(1).toBe(2); });\n    |                                                    ^\n  3 |"
+         },
+         "errors": [
+          {
+           "location": {
+            "file": "/work/e2e/flows/only-fail.spec.ts",
+            "column": 52,
+            "line": 2
+           },
+           "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m2\u001b[39m\nReceived: \u001b[31m1\u001b[39m\n\n  1 | import { test, expect } from \"@playwright/test\";\n> 2 | test.fail(\"known app bug\", async () => { expect(1).toBe(2); });\n    |                                                    ^\n  3 |\n    at /work/e2e/flows/only-fail.spec.ts:2:52"
+          }
+         ],
+         "stdout": [],
+         "stderr": [],
+         "retry": 0,
+         "startTime": "2026-10-30T21:31:53.535Z",
+         "annotations": [
+          {
+           "type": "fail",
+           "location": {
+            "file": "/work/e2e/flows/only-fail.spec.ts",
+            "line": 2,
+            "column": 6
+           }
+          }
+         ],
+         "attachments": [
+          {
+           "name": "error-context",
+           "contentType": "text/markdown",
+           "path": "/work/e2e/test-results/flows-only-fail-known-app-bug-a/error-context.md"
+          }
+         ],
+         "errorLocation": {
+          "file": "/work/e2e/flows/only-fail.spec.ts",
+          "column": 52,
+          "line": 2
+         }
+        }
+       ],
+       "status": "expected"
+      },
+      {
+       "timeout": 30000,
+       "annotations": [
+        {
+         "type": "fail",
+         "location": {
+          "file": "/work/e2e/flows/only-fail.spec.ts",
+          "line": 2,
+          "column": 6
+         }
+        }
+       ],
+       "expectedStatus": "failed",
+       "projectId": "b",
+       "projectName": "b",
+       "results": [
+        {
+         "workerIndex": 2,
+         "parallelIndex": 0,
+         "status": "failed",
+         "duration": 4,
+         "error": {
+          "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m2\u001b[39m\nReceived: \u001b[31m1\u001b[39m",
+          "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m2\u001b[39m\nReceived: \u001b[31m1\u001b[39m\n    at /work/e2e/flows/only-fail.spec.ts:2:52",
+          "location": {
+           "file": "/work/e2e/flows/only-fail.spec.ts",
+           "column": 52,
+           "line": 2
+          },
+          "snippet": "  1 | import { test, expect } from \"@playwright/test\";\n> 2 | test.fail(\"known app bug\", async () => { expect(1).toBe(2); });\n    |                                                    ^\n  3 |"
+         },
+         "errors": [
+          {
+           "location": {
+            "file": "/work/e2e/flows/only-fail.spec.ts",
+            "column": 52,
+            "line": 2
+           },
+           "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m2\u001b[39m\nReceived: \u001b[31m1\u001b[39m\n\n  1 | import { test, expect } from \"@playwright/test\";\n> 2 | test.fail(\"known app bug\", async () => { expect(1).toBe(2); });\n    |                                                    ^\n  3 |\n    at /work/e2e/flows/only-fail.spec.ts:2:52"
+          }
+         ],
+         "stdout": [],
+         "stderr": [],
+         "retry": 0,
+         "startTime": "2026-10-30T21:31:54.280Z",
+         "annotations": [
+          {
+           "type": "fail",
+           "location": {
+            "file": "/work/e2e/flows/only-fail.spec.ts",
+            "line": 2,
+            "column": 6
+           }
+          }
+         ],
+         "attachments": [
+          {
+           "name": "error-context",
+           "contentType": "text/markdown",
+           "path": "/work/e2e/test-results/flows-only-fail-known-app-bug-b/error-context.md"
+          }
+         ],
+         "errorLocation": {
+          "file": "/work/e2e/flows/only-fail.spec.ts",
+          "column": 52,
+          "line": 2
+         }
+        }
+       ],
+       "status": "expected"
+      }
+     ],
+     "id": "79b2d986d7a2cab57ce1-c4996704b76a0672c837",
+     "file": "flows/only-fail.spec.ts",
+     "line": 2,
+     "column": 6
+    }
+   ]
+  },
+  {
+   "title": "flows/skips.spec.ts",
+   "file": "flows/skips.spec.ts",
+   "column": 0,
+   "line": 0,
+   "specs": [
+    {
+     "title": "runs",
+     "ok": true,
+     "tags": [],
+     "tests": [
+      {
+       "timeout": 30000,
+       "annotations": [],
+       "expectedStatus": "passed",
+       "projectId": "a",
+       "projectName": "a",
+       "results": [
+        {
+         "workerIndex": 0,
+         "parallelIndex": 0,
+         "status": "passed",
+         "duration": 0,
+         "errors": [],
+         "stdout": [],
+         "stderr": [],
+         "retry": 0,
+         "startTime": "2026-10-30T21:31:53.564Z",
+         "annotations": [],
+         "attachments": []
+        }
+       ],
+       "status": "expected"
+      },
+      {
+       "timeout": 30000,
+       "annotations": [],
+       "expectedStatus": "passed",
+       "projectId": "b",
+       "projectName": "b",
+       "results": [
+        {
+         "workerIndex": 2,
+         "parallelIndex": 0,
+         "status": "passed",
+         "duration": 0,
+         "errors": [],
+         "stdout": [],
+         "stderr": [],
+         "retry": 0,
+         "startTime": "2026-10-30T21:31:54.310Z",
+         "annotations": [],
+         "attachments": []
+        }
+       ],
+       "status": "expected"
+      }
+     ],
+     "id": "0ed2e69bfbfc381c2d57-8ed00241f60d1f99bed6",
+     "file": "flows/skips.spec.ts",
+     "line": 2,
+     "column": 1
+    },
+    {
+     "title": "static skip",
+     "ok": true,
+     "tags": [],
+     "tests": [
+      {
+       "timeout": 30000,
+       "annotations": [
+        {
+         "type": "skip",
+         "location": {
+          "file": "/work/e2e/flows/skips.spec.ts",
+          "line": 3,
+          "column": 6
+         }
+        }
+       ],
+       "expectedStatus": "skipped",
+       "projectId": "a",
+       "projectName": "a",
+       "results": [
+        {
+         "workerIndex": 0,
+         "parallelIndex": 0,
+         "status": "skipped",
+         "duration": 0,
+         "errors": [],
+         "stdout": [],
+         "stderr": [],
+         "retry": 0,
+         "startTime": "2026-10-30T21:31:53.571Z",
+         "annotations": [
+          {
+           "type": "skip",
+           "location": {
+            "file": "/work/e2e/flows/skips.spec.ts",
+            "line": 3,
+            "column": 6
+           }
+          }
+         ],
+         "attachments": []
+        }
+       ],
+       "status": "skipped"
+      },
+      {
+       "timeout": 30000,
+       "annotations": [
+        {
+         "type": "skip",
+         "location": {
+          "file": "/work/e2e/flows/skips.spec.ts",
+          "line": 3,
+          "column": 6
+         }
+        }
+       ],
+       "expectedStatus": "skipped",
+       "projectId": "b",
+       "projectName": "b",
+       "results": [
+        {
+         "workerIndex": 2,
+         "parallelIndex": 0,
+         "status": "skipped",
+         "duration": 0,
+         "errors": [],
+         "stdout": [],
+         "stderr": [],
+         "retry": 0,
+         "startTime": "2026-10-30T21:31:54.316Z",
+         "annotations": [
+          {
+           "type": "skip",
+           "location": {
+            "file": "/work/e2e/flows/skips.spec.ts",
+            "line": 3,
+            "column": 6
+           }
+          }
+         ],
+         "attachments": []
+        }
+       ],
+       "status": "skipped"
+      }
+     ],
+     "id": "0ed2e69bfbfc381c2d57-3bb909c28a11dfbf85a7",
+     "file": "flows/skips.spec.ts",
+     "line": 3,
+     "column": 6
+    },
+    {
+     "title": "conditional skip true in body",
+     "ok": true,
+     "tags": [],
+     "tests": [
+      {
+       "timeout": 30000,
+       "annotations": [
+        {
+         "type": "skip",
+         "description": "cond",
+         "location": {
+          "file": "/work/e2e/flows/skips.spec.ts",
+          "line": 4,
+          "column": 58
+         }
+        }
+       ],
+       "expectedStatus": "skipped",
+       "projectId": "a",
+       "projectName": "a",
+       "results": [
+        {
+         "workerIndex": 0,
+         "parallelIndex": 0,
+         "status": "skipped",
+         "duration": 0,
+         "errors": [],
+         "stdout": [],
+         "stderr": [],
+         "retry": 0,
+         "startTime": "2026-10-30T21:31:53.571Z",
+         "annotations": [
+          {
+           "type": "skip",
+           "description": "cond",
+           "location": {
+            "file": "/work/e2e/flows/skips.spec.ts",
+            "line": 4,
+            "column": 58
+           }
+          }
+         ],
+         "attachments": []
+        }
+       ],
+       "status": "skipped"
+      },
+      {
+       "timeout": 30000,
+       "annotations": [
+        {
+         "type": "skip",
+         "description": "cond",
+         "location": {
+          "file": "/work/e2e/flows/skips.spec.ts",
+          "line": 4,
+          "column": 58
+         }
+        }
+       ],
+       "expectedStatus": "skipped",
+       "projectId": "b",
+       "projectName": "b",
+       "results": [
+        {
+         "workerIndex": 2,
+         "parallelIndex": 0,
+         "status": "skipped",
+         "duration": 0,
+         "errors": [],
+         "stdout": [],
+         "stderr": [],
+         "retry": 0,
+         "startTime": "2026-10-30T21:31:54.316Z",
+         "annotations": [
+          {
+           "type": "skip",
+           "description": "cond",
+           "location": {
+            "file": "/work/e2e/flows/skips.spec.ts",
+            "line": 4,
+            "column": 58
+           }
+          }
+         ],
+         "attachments": []
+        }
+       ],
+       "status": "skipped"
+      }
+     ],
+     "id": "0ed2e69bfbfc381c2d57-50386895ecaa26ae901e",
+     "file": "flows/skips.spec.ts",
+     "line": 4,
+     "column": 1
+    },
+    {
+     "title": "conditional skip false in body",
+     "ok": true,
+     "tags": [],
+     "tests": [
+      {
+       "timeout": 30000,
+       "annotations": [],
+       "expectedStatus": "passed",
+       "projectId": "a",
+       "projectName": "a",
+       "results": [
+        {
+         "workerIndex": 0,
+         "parallelIndex": 0,
+         "status": "passed",
+         "duration": 0,
+         "errors": [],
+         "stdout": [],
+         "stderr": [],
+         "retry": 0,
+         "startTime": "2026-10-30T21:31:53.577Z",
+         "annotations": [],
+         "attachments": []
+        }
+       ],
+       "status": "expected"
+      },
+      {
+       "timeout": 30000,
+       "annotations": [],
+       "expectedStatus": "passed",
+       "projectId": "b",
+       "projectName": "b",
+       "results": [
+        {
+         "workerIndex": 2,
+         "parallelIndex": 0,
+         "status": "passed",
+         "duration": 0,
+         "errors": [],
+         "stdout": [],
+         "stderr": [],
+         "retry": 0,
+         "startTime": "2026-10-30T21:31:54.322Z",
+         "annotations": [],
+         "attachments": []
+        }
+       ],
+       "status": "expected"
+      }
+     ],
+     "id": "0ed2e69bfbfc381c2d57-e8e2d44efdb1c69e9a5a",
+     "file": "flows/skips.spec.ts",
+     "line": 5,
+     "column": 1
+    },
+    {
+     "title": "static fixme",
+     "ok": true,
+     "tags": [],
+     "tests": [
+      {
+       "timeout": 30000,
+       "annotations": [
+        {
+         "type": "fixme",
+         "location": {
+          "file": "/work/e2e/flows/skips.spec.ts",
+          "line": 6,
+          "column": 6
+         }
+        }
+       ],
+       "expectedStatus": "skipped",
+       "projectId": "a",
+       "projectName": "a",
+       "results": [
+        {
+         "workerIndex": 0,
+         "parallelIndex": 0,
+         "status": "skipped",
+         "duration": 0,
+         "errors": [],
+         "stdout": [],
+         "stderr": [],
+         "retry": 0,
+         "startTime": "2026-10-30T21:31:53.583Z",
+         "annotations": [
+          {
+           "type": "fixme",
+           "location": {
+            "file": "/work/e2e/flows/skips.spec.ts",
+            "line": 6,
+            "column": 6
+           }
+          }
+         ],
+         "attachments": []
+        }
+       ],
+       "status": "skipped"
+      },
+      {
+       "timeout": 30000,
+       "annotations": [
+        {
+         "type": "fixme",
+         "location": {
+          "file": "/work/e2e/flows/skips.spec.ts",
+          "line": 6,
+          "column": 6
+         }
+        }
+       ],
+       "expectedStatus": "skipped",
+       "projectId": "b",
+       "projectName": "b",
+       "results": [
+        {
+         "workerIndex": 2,
+         "parallelIndex": 0,
+         "status": "skipped",
+         "duration": 0,
+         "errors": [],
+         "stdout": [],
+         "stderr": [],
+         "retry": 0,
+         "startTime": "2026-10-30T21:31:54.328Z",
+         "annotations": [
+          {
+           "type": "fixme",
+           "location": {
+            "file": "/work/e2e/flows/skips.spec.ts",
+            "line": 6,
+            "column": 6
+           }
+          }
+         ],
+         "attachments": []
+        }
+       ],
+       "status": "skipped"
+      }
+     ],
+     "id": "0ed2e69bfbfc381c2d57-76a09a931258c8280b2a",
+     "file": "flows/skips.spec.ts",
+     "line": 6,
+     "column": 6
+    },
+    {
+     "title": "fixme in body",
+     "ok": true,
+     "tags": [],
+     "tests": [
+      {
+       "timeout": 30000,
+       "annotations": [
+        {
+         "type": "fixme",
+         "location": {
+          "file": "/work/e2e/flows/skips.spec.ts",
+          "line": 7,
+          "column": 42
+         }
+        }
+       ],
+       "expectedStatus": "skipped",
+       "projectId": "a",
+       "projectName": "a",
+       "results": [
+        {
+         "workerIndex": 0,
+         "parallelIndex": 0,
+         "status": "skipped",
+         "duration": 0,
+         "errors": [],
+         "stdout": [],
+         "stderr": [],
+         "retry": 0,
+         "startTime": "2026-10-30T21:31:53.583Z",
+         "annotations": [
+          {
+           "type": "fixme",
+           "location": {
+            "file": "/work/e2e/flows/skips.spec.ts",
+            "line": 7,
+            "column": 42
+           }
+          }
+         ],
+         "attachments": []
+        }
+       ],
+       "status": "skipped"
+      },
+      {
+       "timeout": 30000,
+       "annotations": [
+        {
+         "type": "fixme",
+         "location": {
+          "file": "/work/e2e/flows/skips.spec.ts",
+          "line": 7,
+          "column": 42
+         }
+        }
+       ],
+       "expectedStatus": "skipped",
+       "projectId": "b",
+       "projectName": "b",
+       "results": [
+        {
+         "workerIndex": 2,
+         "parallelIndex": 0,
+         "status": "skipped",
+         "duration": 0,
+         "errors": [],
+         "stdout": [],
+         "stderr": [],
+         "retry": 0,
+         "startTime": "2026-10-30T21:31:54.328Z",
+         "annotations": [
+          {
+           "type": "fixme",
+           "location": {
+            "file": "/work/e2e/flows/skips.spec.ts",
+            "line": 7,
+            "column": 42
+           }
+          }
+         ],
+         "attachments": []
+        }
+       ],
+       "status": "skipped"
+      }
+     ],
+     "id": "0ed2e69bfbfc381c2d57-a140ab7e98604e4b8822",
+     "file": "flows/skips.spec.ts",
+     "line": 7,
+     "column": 1
+    },
+    {
+     "title": "testInfo.skip()",
+     "ok": true,
+     "tags": [],
+     "tests": [
+      {
+       "timeout": 30000,
+       "annotations": [
+        {
+         "type": "skip",
+         "location": {
+          "file": "/work/e2e/flows/skips.spec.ts",
+          "line": 8,
+          "column": 60
+         }
+        }
+       ],
+       "expectedStatus": "skipped",
+       "projectId": "a",
+       "projectName": "a",
+       "results": [
+        {
+         "workerIndex": 0,
+         "parallelIndex": 0,
+         "status": "skipped",
+         "duration": 0,
+         "errors": [],
+         "stdout": [],
+         "stderr": [],
+         "retry": 0,
+         "startTime": "2026-10-30T21:31:53.591Z",
+         "annotations": [
+          {
+           "type": "skip",
+           "location": {
+            "file": "/work/e2e/flows/skips.spec.ts",
+            "line": 8,
+            "column": 60
+           }
+          }
+         ],
+         "attachments": []
+        }
+       ],
+       "status": "skipped"
+      },
+      {
+       "timeout": 30000,
+       "annotations": [
+        {
+         "type": "skip",
+         "location": {
+          "file": "/work/e2e/flows/skips.spec.ts",
+          "line": 8,
+          "column": 60
+         }
+        }
+       ],
+       "expectedStatus": "skipped",
+       "projectId": "b",
+       "projectName": "b",
+       "results": [
+        {
+         "workerIndex": 2,
+         "parallelIndex": 0,
+         "status": "skipped",
+         "duration": 0,
+         "errors": [],
+         "stdout": [],
+         "stderr": [],
+         "retry": 0,
+         "startTime": "2026-10-30T21:31:54.336Z",
+         "annotations": [
+          {
+           "type": "skip",
+           "location": {
+            "file": "/work/e2e/flows/skips.spec.ts",
+            "line": 8,
+            "column": 60
+           }
+          }
+         ],
+         "attachments": []
+        }
+       ],
+       "status": "skipped"
+      }
+     ],
+     "id": "0ed2e69bfbfc381c2d57-08e025ced4fa823630df",
+     "file": "flows/skips.spec.ts",
+     "line": 8,
+     "column": 1
+    },
+    {
+     "title": "test.info().skip()",
+     "ok": true,
+     "tags": [],
+     "tests": [
+      {
+       "timeout": 30000,
+       "annotations": [
+        {
+         "type": "skip",
+         "location": {
+          "file": "/work/e2e/flows/skips.spec.ts",
+          "line": 9,
+          "column": 54
+         }
+        }
+       ],
+       "expectedStatus": "skipped",
+       "projectId": "a",
+       "projectName": "a",
+       "results": [
+        {
+         "workerIndex": 0,
+         "parallelIndex": 0,
+         "status": "skipped",
+         "duration": 0,
+         "errors": [],
+         "stdout": [],
+         "stderr": [],
+         "retry": 0,
+         "startTime": "2026-10-30T21:31:53.596Z",
+         "annotations": [
+          {
+           "type": "skip",
+           "location": {
+            "file": "/work/e2e/flows/skips.spec.ts",
+            "line": 9,
+            "column": 54
+           }
+          }
+         ],
+         "attachments": []
+        }
+       ],
+       "status": "skipped"
+      },
+      {
+       "timeout": 30000,
+       "annotations": [
+        {
+         "type": "skip",
+         "location": {
+          "file": "/work/e2e/flows/skips.spec.ts",
+          "line": 9,
+          "column": 54
+         }
+        }
+       ],
+       "expectedStatus": "skipped",
+       "projectId": "b",
+       "projectName": "b",
+       "results": [
+        {
+         "workerIndex": 2,
+         "parallelIndex": 0,
+         "status": "skipped",
+         "duration": 0,
+         "errors": [],
+         "stdout": [],
+         "stderr": [],
+         "retry": 0,
+         "startTime": "2026-10-30T21:31:54.342Z",
+         "annotations": [
+          {
+           "type": "skip",
+           "location": {
+            "file": "/work/e2e/flows/skips.spec.ts",
+            "line": 9,
+            "column": 54
+           }
+          }
+         ],
+         "attachments": []
+        }
+       ],
+       "status": "skipped"
+      }
+     ],
+     "id": "0ed2e69bfbfc381c2d57-61322c923f9b6b96840c",
+     "file": "flows/skips.spec.ts",
+     "line": 9,
+     "column": 1
+    },
+    {
+     "title": "alias skip",
+     "ok": true,
+     "tags": [],
+     "tests": [
+      {
+       "timeout": 30000,
+       "annotations": [
+        {
+         "type": "skip",
+         "description": "data not ready",
+         "location": {
+          "file": "/work/e2e/flows/skips.spec.ts",
+          "line": 11,
+          "column": 34
+         }
+        }
+       ],
+       "expectedStatus": "skipped",
+       "projectId": "a",
+       "projectName": "a",
+       "results": [
+        {
+         "workerIndex": 0,
+         "parallelIndex": 0,
+         "status": "skipped",
+         "duration": 0,
+         "errors": [],
+         "stdout": [],
+         "stderr": [],
+         "retry": 0,
+         "startTime": "2026-10-30T21:31:53.601Z",
+         "annotations": [
+          {
+           "type": "skip",
+           "description": "data not ready",
+           "location": {
+            "file": "/work/e2e/flows/skips.spec.ts",
+            "line": 11,
+            "column": 34
+           }
+          }
+         ],
+         "attachments": []
+        }
+       ],
+       "status": "skipped"
+      },
+      {
+       "timeout": 30000,
+       "annotations": [
+        {
+         "type": "skip",
+         "description": "data not ready",
+         "location": {
+          "file": "/work/e2e/flows/skips.spec.ts",
+          "line": 11,
+          "column": 34
+         }
+        }
+       ],
+       "expectedStatus": "skipped",
+       "projectId": "b",
+       "projectName": "b",
+       "results": [
+        {
+         "workerIndex": 2,
+         "parallelIndex": 0,
+         "status": "skipped",
+         "duration": 0,
+         "errors": [],
+         "stdout": [],
+         "stderr": [],
+         "retry": 0,
+         "startTime": "2026-10-30T21:31:54.347Z",
+         "annotations": [
+          {
+           "type": "skip",
+           "description": "data not ready",
+           "location": {
+            "file": "/work/e2e/flows/skips.spec.ts",
+            "line": 11,
+            "column": 34
+           }
+          }
+         ],
+         "attachments": []
+        }
+       ],
+       "status": "skipped"
+      }
+     ],
+     "id": "0ed2e69bfbfc381c2d57-8719cc42f192909be477",
+     "file": "flows/skips.spec.ts",
+     "line": 11,
+     "column": 1
+    },
+    {
+     "title": "skip after a failing assertion attempt",
+     "ok": true,
+     "tags": [],
+     "tests": [
+      {
+       "timeout": 30000,
+       "annotations": [
+        {
+         "type": "skip",
+         "description": "skip on retry",
+         "location": {
+          "file": "/work/e2e/flows/skips.spec.ts",
+          "line": 16,
+          "column": 124
+         }
+        }
+       ],
+       "expectedStatus": "skipped",
+       "projectId": "a",
+       "projectName": "a",
+       "results": [
+        {
+         "workerIndex": 0,
+         "parallelIndex": 0,
+         "status": "failed",
+         "duration": 0,
+         "error": {
+          "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m2\u001b[39m\nReceived: \u001b[31m1\u001b[39m",
+          "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m2\u001b[39m\nReceived: \u001b[31m1\u001b[39m\n    at /work/e2e/flows/skips.spec.ts:16:110",
+          "location": {
+           "file": "/work/e2e/flows/skips.spec.ts",
+           "column": 110,
+           "line": 16
+          },
+          "snippet": "  14 |   test(\"in skipped modifier group\", async () => {});\n  15 | });\n> 16 | test(\"skip after a failing assertion attempt\", async ({}, testInfo) => { if (testInfo.retry === 0) expect(1).toBe(2); test.skip(true, \"skip on retry\"); });\n     |                                                                                                              ^\n  17 |"
+         },
+         "errors": [
+          {
+           "location": {
+            "file": "/work/e2e/flows/skips.spec.ts",
+            "column": 110,
+            "line": 16
+           },
+           "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m2\u001b[39m\nReceived: \u001b[31m1\u001b[39m\n\n  14 |   test(\"in skipped modifier group\", async () => {});\n  15 | });\n> 16 | test(\"skip after a failing assertion attempt\", async ({}, testInfo) => { if (testInfo.retry === 0) expect(1).toBe(2); test.skip(true, \"skip on retry\"); });\n     |                                                                                                              ^\n  17 |\n    at /work/e2e/flows/skips.spec.ts:16:110"
+          }
+         ],
+         "stdout": [],
+         "stderr": [],
+         "retry": 0,
+         "startTime": "2026-10-30T21:31:53.622Z",
+         "annotations": [],
+         "attachments": [
+          {
+           "name": "error-context",
+           "contentType": "text/markdown",
+           "path": "/work/e2e/test-results/flows-skips-skip-after-a-failing-assertion-attempt-a/error-context.md"
+          }
+         ],
+         "errorLocation": {
+          "file": "/work/e2e/flows/skips.spec.ts",
+          "column": 110,
+          "line": 16
+         }
+        },
+        {
+         "workerIndex": 1,
+         "parallelIndex": 0,
+         "status": "skipped",
+         "duration": 1,
+         "errors": [],
+         "stdout": [],
+         "stderr": [],
+         "retry": 1,
+         "startTime": "2026-10-30T21:31:53.957Z",
+         "annotations": [
+          {
+           "type": "skip",
+           "description": "skip on retry",
+           "location": {
+            "file": "/work/e2e/flows/skips.spec.ts",
+            "line": 16,
+            "column": 124
+           }
+          }
+         ],
+         "attachments": []
+        }
+       ],
+       "status": "flaky"
+      },
+      {
+       "timeout": 30000,
+       "annotations": [
+        {
+         "type": "skip",
+         "description": "skip on retry",
+         "location": {
+          "file": "/work/e2e/flows/skips.spec.ts",
+          "line": 16,
+          "column": 124
+         }
+        }
+       ],
+       "expectedStatus": "skipped",
+       "projectId": "b",
+       "projectName": "b",
+       "results": [
+        {
+         "workerIndex": 2,
+         "parallelIndex": 0,
+         "status": "failed",
+         "duration": 0,
+         "error": {
+          "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m2\u001b[39m\nReceived: \u001b[31m1\u001b[39m",
+          "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m2\u001b[39m\nReceived: \u001b[31m1\u001b[39m\n    at /work/e2e/flows/skips.spec.ts:16:110",
+          "location": {
+           "file": "/work/e2e/flows/skips.spec.ts",
+           "column": 110,
+           "line": 16
+          },
+          "snippet": "  14 |   test(\"in skipped modifier group\", async () => {});\n  15 | });\n> 16 | test(\"skip after a failing assertion attempt\", async ({}, testInfo) => { if (testInfo.retry === 0) expect(1).toBe(2); test.skip(true, \"skip on retry\"); });\n     |                                                                                                              ^\n  17 |"
+         },
+         "errors": [
+          {
+           "location": {
+            "file": "/work/e2e/flows/skips.spec.ts",
+            "column": 110,
+            "line": 16
+           },
+           "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m2\u001b[39m\nReceived: \u001b[31m1\u001b[39m\n\n  14 |   test(\"in skipped modifier group\", async () => {});\n  15 | });\n> 16 | test(\"skip after a failing assertion attempt\", async ({}, testInfo) => { if (testInfo.retry === 0) expect(1).toBe(2); test.skip(true, \"skip on retry\"); });\n     |                                                                                                              ^\n  17 |\n    at /work/e2e/flows/skips.spec.ts:16:110"
+          }
+         ],
+         "stdout": [],
+         "stderr": [],
+         "retry": 0,
+         "startTime": "2026-10-30T21:31:54.373Z",
+         "annotations": [],
+         "attachments": [
+          {
+           "name": "error-context",
+           "contentType": "text/markdown",
+           "path": "/work/e2e/test-results/flows-skips-skip-after-a-failing-assertion-attempt-b/error-context.md"
+          }
+         ],
+         "errorLocation": {
+          "file": "/work/e2e/flows/skips.spec.ts",
+          "column": 110,
+          "line": 16
+         }
+        },
+        {
+         "workerIndex": 3,
+         "parallelIndex": 0,
+         "status": "skipped",
+         "duration": 1,
+         "errors": [],
+         "stdout": [],
+         "stderr": [],
+         "retry": 1,
+         "startTime": "2026-10-30T21:31:54.697Z",
+         "annotations": [
+          {
+           "type": "skip",
+           "description": "skip on retry",
+           "location": {
+            "file": "/work/e2e/flows/skips.spec.ts",
+            "line": 16,
+            "column": 124
+           }
+          }
+         ],
+         "attachments": []
+        }
+       ],
+       "status": "flaky"
+      }
+     ],
+     "id": "0ed2e69bfbfc381c2d57-f98b36b6b9b5284dd139",
+     "file": "flows/skips.spec.ts",
+     "line": 16,
+     "column": 1
+    }
+   ],
+   "suites": [
+    {
+     "title": "modifier group",
+     "file": "flows/skips.spec.ts",
+     "line": 12,
+     "column": 6,
+     "specs": [
+      {
+       "title": "in skipped modifier group",
+       "ok": true,
+       "tags": [],
+       "tests": [
+        {
+         "timeout": 30000,
+         "annotations": [
+          {
+           "type": "skip",
+           "description": "modifier",
+           "location": {
+            "file": "/work/e2e/flows/skips.spec.ts",
+            "line": 13,
+            "column": 8
+           }
+          }
+         ],
+         "expectedStatus": "skipped",
+         "projectId": "a",
+         "projectName": "a",
+         "results": [
+          {
+           "workerIndex": 0,
+           "parallelIndex": 0,
+           "status": "skipped",
+           "duration": 0,
+           "errors": [],
+           "stdout": [],
+           "stderr": [],
+           "retry": 0,
+           "startTime": "2026-10-30T21:31:53.616Z",
+           "annotations": [
+            {
+             "type": "skip",
+             "description": "modifier",
+             "location": {
+              "file": "/work/e2e/flows/skips.spec.ts",
+              "line": 13,
+              "column": 8
+             }
+            }
+           ],
+           "attachments": []
+          }
+         ],
+         "status": "skipped"
+        },
+        {
+         "timeout": 30000,
+         "annotations": [
+          {
+           "type": "skip",
+           "description": "modifier",
+           "location": {
+            "file": "/work/e2e/flows/skips.spec.ts",
+            "line": 13,
+            "column": 8
+           }
+          }
+         ],
+         "expectedStatus": "skipped",
+         "projectId": "b",
+         "projectName": "b",
+         "results": [
+          {
+           "workerIndex": 2,
+           "parallelIndex": 0,
+           "status": "skipped",
+           "duration": 0,
+           "errors": [],
+           "stdout": [],
+           "stderr": [],
+           "retry": 0,
+           "startTime": "2026-10-30T21:31:54.366Z",
+           "annotations": [
+            {
+             "type": "skip",
+             "description": "modifier",
+             "location": {
+              "file": "/work/e2e/flows/skips.spec.ts",
+              "line": 13,
+              "column": 8
+             }
+            }
+           ],
+           "attachments": []
+          }
+         ],
+         "status": "skipped"
+        }
+       ],
+       "id": "0ed2e69bfbfc381c2d57-4b603464b349b4ebae9b",
+       "file": "flows/skips.spec.ts",
+       "line": 14,
+       "column": 3
+      }
+     ]
+    }
+   ]
+  }
+ ],
+ "errors": [],
+ "stats": {
+  "startTime": "2026-10-30T21:31:53.215Z",
+  "duration": 1512.15,
+  "expected": 6,
+  "skipped": 16,
+  "unexpected": 0,
+  "flaky": 2
+ }
+}
