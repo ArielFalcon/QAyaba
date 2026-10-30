@@ -349,7 +349,7 @@ const testIdAttr = process.env.PW_TEST_ID_ATTRIBUTE || "data-testid";
           if (settings.locationSelector) {
             try {
               const raw = await page.locator(settings.locationSelector).first().innerText({ timeout: left() });
-              const cleaned = (raw || "").replace(/\s+/g, " ").trim().slice(0, 200);
+              const cleaned = (raw || "").replace(/\s+/g, " ").trim().slice(0, limits.maxTextChars);
               if (cleaned) effectiveLocation = cleaned;
             } catch(_e) { /* no location text: effectiveLocation stays unset */ }
           }
@@ -509,7 +509,7 @@ const testIdAttr = process.env.PW_TEST_ID_ATTRIBUTE || "data-testid";
           entry.captureAttempts = retry ? 2 : 1;
         }
         return entry;
-      } catch (/** @type {any} */ e) { return { route, error: String(e && e.message || e).slice(0, 200), runtimeErrors: currentRouteErrors, ms: Date.now() - routeStartedAt }; }
+      } catch (/** @type {any} */ e) { return { route, error: String(e && e.message || e).slice(0, limits.maxTextChars), runtimeErrors: currentRouteErrors, ms: Date.now() - routeStartedAt }; }
     }
     /* Each route is written as one JSON line as soon as it is read, so a capture killed at its time limit keeps the routes it finished. */
     for (const route of routes) {

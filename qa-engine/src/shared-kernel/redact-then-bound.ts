@@ -7,6 +7,9 @@ import { MAX_SECRET_VALUE_CHARS } from "./run-secret-redaction.ts";
 /* How much text past the bound the redactor sees. Redaction needs the END of what it must take out: a run secret by value (up to MAX_SECRET_VALUE_CHARS, and a spelling of it that doubles it: an HTML, JSON or URL escaping) and the patterns that close on a delimiter (a private key's PEM block, about 3,300 characters for the largest RSA key; a quoted credential). A pattern that only runs on (a token, a base64 run, a `\S+` value) still matches the part the window holds, so a window that ends inside it loses nothing. Past this lookahead a secret that needs its end is left whole in the window and cut with it: the longest span redaction promises to close. */
 export const REDACTION_LOOKAHEAD_CHARS = 2 * MAX_SECRET_VALUE_CHARS;
 
+/* The most characters a process that cannot redact (the browser capture, the seed's fixtures: they do not hold the run's secrets and must not) keeps of one piece of text it hands to the orchestrator. It is a memory bound, not a limit on what a prompt or a record shows: it holds the bound any orchestrator site applies to such text (every one is far below the lookahead) plus the lookahead, so the orchestrator's redact-then-bound sees the text whole. A text of at least this length may have been cut by its producer, and its bound is applied as for a window (`BoundOptions.rawIsWindow`). The seed's copy of the failure capture (config/e2e/fixtures.ts) repeats this number, because it is spliced into an app's own file and imports nothing; a test pins that they agree. */
+export const PRODUCER_MEMORY_BOUND_CHARS = 2 * REDACTION_LOOKAHEAD_CHARS;
+
 /* What stands for text whose redaction failed: never the raw text. */
 export const REDACTION_FAILED = "[redacted]";
 

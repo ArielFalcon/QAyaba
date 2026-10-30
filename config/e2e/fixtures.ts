@@ -346,8 +346,17 @@ function matchDataState(routes: Record<string, { resultSelector?: string; result
   }
   return undefined;
 }
-// Reduces a URL to origin + pathname so a query string or fragment never reaches the dump.
-function networkUrl(raw: string): string { try { const u = new URL(raw); const url = u.origin + u.pathname; return url.length > 300 ? url.slice(0, 300) : url; } catch { return ""; } }
+// The most characters of one piece of text this block keeps in a dump. It is a memory bound, not the length a
+// prompt or a record shows: the block holds none of the run's secrets, so it cannot redact, and the
+// orchestrator redacts what it reads and only then cuts it to the bound it shows. The bound is therefore far
+// above any of those (it must stay at or above the orchestrator's longest bound plus the redaction lookahead:
+// PRODUCER_MEMORY_BOUND_CHARS in qa-engine/src/shared-kernel/redact-then-bound.ts, which a test keeps equal).
+const QA_TEXT_MEMORY_BOUND_CHARS = 16384;
+// Reduces a URL to origin + pathname so a query string or fragment never reaches the dump. The address of a
+// DEV write is an identity (the control of the run cuts it at the same length, so a request has one key in both)
+// and is cut at 300; the address of a failed request is text the orchestrator will redact and then cut to the
+// bound it shows, so it is kept up to the memory bound.
+function networkUrl(raw: string, max = 300): string { try { const u = new URL(raw); const url = u.origin + u.pathname; return url.length > max ? url.slice(0, max) : url; } catch { return ""; } }
 // DEV-write counter, on only when the orchestrator asks (PW_COUNT_DEV_WRITES=1, for a spec it executes on the
 // generator's behalf): the mutating requests (POST, PUT, PATCH, DELETE) of a test's page and context that a server
 // answered, kept per test in a ledger file in the capture directory so the orchestrator can hold what a spec does
@@ -596,10 +605,10 @@ async function qaFailureCaptureStart(page: QaCapturePage, request: QaCaptureRequ
         const type = r.resourceType();
         if (!isPageDependent(type)) { noteBackgroundFailure(r.url()); return; }
         if (failedRequests.length >= 50) return;
-        const url = networkUrl(r.url());
+        const url = networkUrl(r.url(), QA_TEXT_MEMORY_BOUND_CHARS);
         if (!url) return;
         const errorText = r.failure()?.errorText ?? "request failed";
-        failedRequests.push({ url, errorText: errorText.length > 160 ? errorText.slice(0, 160) : errorText, resourceType: r.resourceType().slice(0, 40) });
+        failedRequests.push({ url, errorText: errorText.length > QA_TEXT_MEMORY_BOUND_CHARS ? errorText.slice(0, QA_TEXT_MEMORY_BOUND_CHARS) : errorText, resourceType: r.resourceType().slice(0, QA_TEXT_MEMORY_BOUND_CHARS) });
       } catch {}
     });
   } catch {}
@@ -722,10 +731,9 @@ async function qaFailureCaptureFinish(page: QaCapturePage, testInfo: QaCaptureTe
     let dedupedRuntimeErrors: { type: string; text: string }[] = [];
     try {
       const RUNTIME_ERRORS_CAP = 15;
-      const RUNTIME_ERROR_TEXT_CAP = 200;
       const seen = new Set<string>();
       for (const e of runtimeErrors) {
-        const text = e.text.length > RUNTIME_ERROR_TEXT_CAP ? e.text.slice(0, RUNTIME_ERROR_TEXT_CAP) : e.text;
+        const text = e.text.length > QA_TEXT_MEMORY_BOUND_CHARS ? e.text.slice(0, QA_TEXT_MEMORY_BOUND_CHARS) : e.text;
         const key = `${e.type} ${text}`;
         if (seen.has(key)) continue;
         seen.add(key);
@@ -744,11 +752,11 @@ async function qaFailureCaptureFinish(page: QaCapturePage, testInfo: QaCaptureTe
       const merged: { url: string; status?: number; errorText?: string; resourceType: string }[] = [];
       for (const e of errorResponses) {
         if (!isPageDependent(e.resourceType)) { noteBackgroundFailure(e.url); continue; }
-        const url = networkUrl(e.url);
+        const url = networkUrl(e.url, QA_TEXT_MEMORY_BOUND_CHARS);
         if (url) merged.push({ url, status: e.status, resourceType: e.resourceType });
       }
       for (const e of failedRequests) {
-        const url = networkUrl(e.url);
+        const url = networkUrl(e.url, QA_TEXT_MEMORY_BOUND_CHARS);
         if (url) merged.push({ url, errorText: e.errorText, resourceType: e.resourceType });
       }
       for (const e of merged) {

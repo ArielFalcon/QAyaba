@@ -31,8 +31,8 @@ import { activeExecScope } from "../../../shared-infrastructure/process-sandbox/
 import { MAX_DEV_WRITE_REQUESTS, noteDevWriteRequest, type DevWriteRequest } from "../domain/dev-write-request.ts";
 import { chargeTestWrites, type RecordedWrite, type TestWriteLedger } from "../domain/dev-write-charge.ts";
 import { isSuiteRelative, type SpecLoadError } from "../domain/spec-load-error.ts";
-import { redactAndBound } from "../../../shared-infrastructure/redaction/redact-and-bound.ts";
-import { redactThenBound } from "../../../shared-kernel/redact-then-bound.ts";
+import { boundProducerText } from "../../../shared-infrastructure/redaction/redact-and-bound.ts";
+import { PRODUCER_MEMORY_BOUND_CHARS, redactThenBound } from "../../../shared-kernel/redact-then-bound.ts";
 import { buildControlConfig, buildControlTest, controlArgs, controlLoadMs } from "./control-load.ts";
 
 export const DEFAULT_E2E_TIMEOUT_MS = 900_000;
@@ -747,6 +747,7 @@ export function readFailureDumps(dir: string, limits: RunOutputLimits = FAILURE_
 function parseRuntimeErrors(v: unknown): { type: string; text: string }[] {
   if (!Array.isArray(v)) return [];
   const out: { type: string; text: string }[] = [];
+  const seen = new Set<string>();
   for (const entry of v) {
     if (
       entry &&
@@ -754,7 +755,13 @@ function parseRuntimeErrors(v: unknown): { type: string; text: string }[] {
       typeof (entry as { type?: unknown }).type === "string" &&
       typeof (entry as { text?: unknown }).text === "string"
     ) {
-      out.push({ type: (entry as { type: string }).type, text: (entry as { text: string }).text });
+      /* The fixture keeps the text up to its memory bound (it holds no run secret to redact with); the bound a prompt line carries is applied here, after redaction. */
+      const type = (entry as { type: string }).type;
+      const text = boundProducerText((entry as { text: string }).text, RUNTIME_ERROR_TEXT_CAP);
+      if (!seen.has(`${type} ${text}`)) {
+        seen.add(`${type} ${text}`);
+        out.push({ type, text });
+      }
     }
   }
   return out;
@@ -772,6 +779,8 @@ function parseBackgroundNetwork(v: unknown): FailureDump["backgroundNetwork"] {
   const hosts = Array.isArray(b.hosts) ? b.hosts.filter((h): h is string => typeof h === "string" && h !== "").map((h) => h.slice(0, BACKGROUND_HOST_CAP)).slice(0, MAX_BACKGROUND_HOSTS) : [];
   return { count: b.count, hosts };
 }
+/* The most of one runtime error's text a case carries. */
+const RUNTIME_ERROR_TEXT_CAP = 200;
 const NETWORK_ERROR_URL_CAP = 300;
 const NETWORK_ERROR_TEXT_CAP = 160;
 const NETWORK_ERROR_RESOURCE_CAP = 40;
@@ -783,7 +792,7 @@ function sanitizeNetworkErrorUrl(raw: unknown): string | undefined {
   try { u = new URL(raw); } catch { return undefined; }
   if (u.protocol !== "http:" && u.protocol !== "https:") return undefined;
   const url = `${u.origin}${u.pathname}`;
-  return redactThenBound(url, NETWORK_ERROR_URL_CAP, redactByValue);
+  return redactThenBound(url, NETWORK_ERROR_URL_CAP, redactByValue, { rawIsWindow: url.length >= PRODUCER_MEMORY_BOUND_CHARS });
 }
 
 /* Defensively parses the `networkErrors` field of a capture dump, at the same trust boundary as parseRuntimeErrors: array only, each entry an object with a string `url` (re-sanitized), an integer 100-599 `status`, a capped string `errorText` and a capped string `resourceType`; deduped by status|errorText|url|resourceType, capped at MAX_NETWORK_ERRORS, and undefined when empty. Never throws. */
@@ -798,8 +807,8 @@ function parseNetworkErrors(v: unknown): QaCase["networkErrors"] {
     const url = sanitizeNetworkErrorUrl(e.url);
     if (url === undefined) continue;
     const status = typeof e.status === "number" && Number.isInteger(e.status) && e.status >= 100 && e.status <= 599 ? e.status : undefined;
-    const errorText = typeof e.errorText === "string" ? redactAndBound(e.errorText, NETWORK_ERROR_TEXT_CAP) : undefined;
-    const resourceType = typeof e.resourceType === "string" ? redactAndBound(e.resourceType, NETWORK_ERROR_RESOURCE_CAP) : undefined;
+    const errorText = typeof e.errorText === "string" ? boundProducerText(e.errorText, NETWORK_ERROR_TEXT_CAP) : undefined;
+    const resourceType = typeof e.resourceType === "string" ? boundProducerText(e.resourceType, NETWORK_ERROR_RESOURCE_CAP) : undefined;
     const dedupe = `${status ?? ""}|${errorText ?? ""}|${url}|${resourceType ?? ""}`;
     if (seen.has(dedupe)) continue;
     seen.add(dedupe);

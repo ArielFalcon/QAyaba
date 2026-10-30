@@ -5,7 +5,8 @@ import { AsyncResource } from "node:async_hooks";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { redactByValue } from "../../../shared-kernel/run-secret-redaction.ts";
-import { redactAndBound } from "../../../shared-infrastructure/redaction/redact-and-bound.ts";
+import { PRODUCER_MEMORY_BOUND_CHARS } from "../../../shared-kernel/redact-then-bound.ts";
+import { boundProducerText } from "../../../shared-infrastructure/redaction/redact-and-bound.ts";
 import { MAX_LOGGED_PATH_CHARS, MAX_LOGGED_REQUESTS, RequestLedger, requestAddress, type ObservedRequest } from "@kernel/observed-requests.ts";
 import type { ExecSandboxPort } from "../../../shared-infrastructure/process-sandbox/exec-sandbox.ts";
 import { ProcessKillAdapter } from "../../../shared-infrastructure/process-sandbox/process-kill.adapter.ts";
@@ -691,6 +692,7 @@ export const CAPTURE_LIMITS = {
   shapeReadTimeoutMs: SHAPE_READ_TIMEOUT_MS,
   maxScopeChars: MAX_SCOPE_CHARS,
   maxScopeDepth: MAX_SCOPE_DEPTH,
+  maxTextChars: PRODUCER_MEMORY_BOUND_CHARS,
 } as const;
 
 /* The script is a typed, linted source file of its own (embedded/capture-dom.script.cjs); it is read once and handed to the launcher as text, with the one path it cannot know prepended. */
@@ -716,12 +718,13 @@ function resultCountOf(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) && value >= 0 ? Math.floor(value) : undefined;
 }
 
-/* The most characters of a data state's effective location. */
+/* The most characters of a data state's effective location, and of the reason a route could not be read: the script keeps these texts up to its memory bound (PRODUCER_MEMORY_BOUND_CHARS) and the bound applies here, on redacted text. */
 const MAX_EFFECTIVE_LOCATION_CHARS = 200;
+const MAX_ROUTE_ERROR_CHARS = 200;
 /* A data state's effective location: page text, redacted and then capped (the one rule: redact-then-bound.ts), whitespace collapsed, non-empty. */
 function effectiveLocationOf(value: unknown): string | undefined {
   if (typeof value !== "string") return undefined;
-  const cleaned = redactAndBound(value, MAX_EFFECTIVE_LOCATION_CHARS).replace(/\s+/g, " ").trim();
+  const cleaned = boundProducerText(value, MAX_EFFECTIVE_LOCATION_CHARS).replace(/\s+/g, " ").trim();
   return cleaned || undefined;
 }
 
@@ -952,7 +955,7 @@ export function createCaptureDomDeps(
             if (unread.length > 0) engineLog.warn(`[qa] WARNING: DOM capture ended before it read ${unread.length} route(s) [${loggableRoutes(unread)}] — those routes are not grounded.`);
             done(raw.map((r) => {
               if (r.error) {
-                const errored: RouteSnapshot = { route: r.route, error: r.error };
+                const errored: RouteSnapshot = { route: r.route, error: boundProducerText(String(r.error), MAX_ROUTE_ERROR_CHARS) };
                 if (r.runtimeErrors && r.runtimeErrors.length > 0) errored.runtimeErrors = r.runtimeErrors;
                 const erroredMs = routeMs(r.ms);
                 if (erroredMs !== undefined) errored.ms = erroredMs;

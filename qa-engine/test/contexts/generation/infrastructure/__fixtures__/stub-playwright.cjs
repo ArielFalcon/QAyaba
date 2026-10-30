@@ -56,6 +56,8 @@ const chromium = {
               async goto(target) {
                 url = target;
                 record({ goto: target });
+                /* `gotoError`: the navigation fails with this message. */
+                if (page.gotoError) throw new Error(page.gotoError);
                 if (page.dataRequestInFlight) for (const handler of handlers.request || []) handler({ resourceType: () => "fetch" });
                 /* `requests`: what the page asks the network on opening; one marked `failed` is then reported failed. */
                 for (const spec of page.requests || []) {
