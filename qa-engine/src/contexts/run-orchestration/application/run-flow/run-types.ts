@@ -175,7 +175,7 @@ export interface RunQaUseCaseDeps {
    */
   confinement?: ConfinementPort;
   /**
-   * Gated by `learningGates().audit` (stricter than the fold: no flaky/E-INFRA/E-FLAKY) and, for the
+   * Gated by `learningGates().audit` (no flaky run and no E-INFRA/E-FLAKY class) and, for the
    * operating signal, by `observesOperatingSignal`. Fault-isolated inside the adapter.
    */
   processAudit?: ProcessAuditPort;

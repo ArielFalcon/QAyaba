@@ -242,7 +242,6 @@ function errorClassOf(terminal: TerminalShape, ctx: RunContext): string | null {
 async function learnFromTerminal(outcome: RunOutcome, terminal: TerminalShape, ctx: RunContext): Promise<void> {
   const { deps, input } = ctx;
   const learning = learningGates({
-    stage: "terminal",
     mode: input.mode,
     verdict: terminal.verdict,
     errorClass: outcome.errorClass,

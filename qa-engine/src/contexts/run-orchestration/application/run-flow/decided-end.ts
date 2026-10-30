@@ -147,7 +147,7 @@ async function recordCoordinationOutcome(state: Readonly<RunState>, ctx: Workspa
  * A clean context-mode pass wrote the FE<->BE architecture map to the mirror's e2e/.qa/context.json. That file does not survive the
  * mirror's next `git checkout -f` + `git clean -fd`, so the orchestrator captures it into the durable store BEFORE publication, in
  * both shadow and non-shadow runs, whatever publish() then does with a context.json PR (including throwing). Off-path: a capture
- * fault is logged and never changes the verdict. A clean context pass neither persists nor folds: it produced a map, not tests.
+ * fault is logged and never changes the verdict. A clean context pass neither persists nor teaches: it produced a map, not tests.
  */
 async function captureContextMap(state: Readonly<RunState>, ctx: WorkspaceRunContext): Promise<void> {
   const { deps, input, workspace } = ctx;
@@ -351,11 +351,10 @@ async function learnFromOutcome(state: Readonly<RunState>, ctx: WorkspaceRunCont
   const { deps, input } = ctx;
   const { decision } = decidedOf(state);
   /*
-   * What this outcome may teach is decided in one place (learningGates). Off-path: never gates the verdict. app_defect
-   * suppresses the fold so the flywheel never learns to weaken a test that caught a real bug.
+   * Whether this outcome reaches the process audit is decided in one place (learningGates). Off-path: never gates the verdict. app_defect
+   * keeps it out of the audit, so a test that caught a real bug is never counted as an engine defect.
    */
   const learning = learningGates({
-    stage: "mainline",
     mode: input.mode,
     verdict: decision.verdict,
     errorClass: mainlineOutcome.errorClass,
