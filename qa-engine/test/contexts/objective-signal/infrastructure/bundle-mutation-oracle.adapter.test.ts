@@ -121,6 +121,18 @@ test("a surviving mutant keeps the spec files that reached it and the edit it ma
   assert.ok(survivor!.original!.length <= 121 && survivor!.replacement!.length <= 121, "cut");
 });
 
+test("a surviving mutant's edit keeps no part of a credential that straddles the cut of the text a finding carries", async () => {
+  const key = `sk-${"Q7x9Zk2M".repeat(6)}`;
+  const m = mutant(5);
+  m.site.original = `token === "${"the page header ".repeat(7).slice(0, 100)}${key}" && ready`;
+  m.site.edit = { ...m.site.edit, replacement: `!(${m.site.original})` };
+  const oracle = new BundleMutationOracleAdapter(async () => ({ verdict: "pass", cases: [pass("t")] }), () => 1, "https://dev.example");
+
+  const [survivor] = (await oracle.measure([m], "/e2e", "run", ["t"]))!.survived;
+
+  assert.doesNotMatch(`${survivor!.original} ${survivor!.replacement}`, /sk-|Q7x9/);
+});
+
 test("a mutant that names the tests that reached it hands them to the suite's mutation fixture, and one that names none re-runs every test of its spec files", async () => {
   const sent: Array<{ tests?: string[] }> = [];
   const oracle = new BundleMutationOracleAdapter(async ({ mutant: m }) => (sent.push(JSON.parse(m!)), { verdict: "pass", cases: [pass("t")] }), () => 1, "https://dev.example");

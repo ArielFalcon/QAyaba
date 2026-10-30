@@ -5,6 +5,7 @@ import { diffObservations, movedBySpecFile } from "../domain/observed-difference
 import type { ObservedPage } from "../domain/observed-page.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 import { engineLog } from "@kernel/ports/process-logger.ts";
+import { redactAndBound } from "../../../shared-infrastructure/redaction/redact-and-bound.ts";
 
 /* A re-run of `specFiles`: with `mutant` applied (or, for the unmutated re-runs a survivor is compared with, none, or one that edits no script and only names the tests to run); `observe` has the fixtures record the pages of its tests. */
 type RunMutant = (args: { dir: string; baseUrl: string; namespace: string; mutant?: string; specFiles: string[]; observe?: boolean }) => Promise<{ verdict: string; cases: QaCase[]; observations?: ObservedPage[] }>;
@@ -13,11 +14,8 @@ type CountMutated = (e2eDir: string, namespace: string) => number | undefined;
 
 /* The longest text of an edit a finding or a record carries. */
 const MAX_EDIT_TEXT_CHARS = 120;
-/* Source text on one line and cut: it is shown to an author and persisted, never inlined whole. */
-const oneLine = (text: string): string => {
-  const flat = text.replace(/\s+/g, " ").trim();
-  return flat.length > MAX_EDIT_TEXT_CHARS ? `${flat.slice(0, MAX_EDIT_TEXT_CHARS)}…` : flat;
-};
+/* Source text on one line, redacted and then cut (the one rule: shared-kernel/redact-then-bound.ts): it is shown to an author and persisted, never inlined whole, and a cut that came first would leave the head of a literal no pattern still matches. The expression and source line a site carries for choosing mutants stay as written: they are compared with each other and leave nowhere. */
+const oneLine = (text: string): string => redactAndBound(text.replace(/\s+/g, " ").trim(), MAX_EDIT_TEXT_CHARS, { marker: () => "…" });
 
 /* What a re-run recorded: the pages of its tests (undefined when it left none), the tests that passed in it, and the spec file of each test it ran. */
 interface SurvivorPages {
