@@ -880,7 +880,7 @@ test("the composed RepairPort drives GenerateTestsUseCase's generator-contract-c
 test("buildEngineRootDeps sets baseUrl from app.dev.baseUrl (the live E2eExecutionStrategy crash fix)", () => {
   const app = cfg("factory-baseurl");
   const config = buildEngineRootDeps(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
-  assert.equal(config.baseUrl, "https://dev", "baseUrl must be threaded from app.dev.baseUrl into EngineRootDeps, not just the FaultInjectionOracle");
+  assert.equal(config.baseUrl, "https://dev", "baseUrl must be threaded from app.dev.baseUrl into EngineRootDeps, not just the code that reads the live site");
 });
 
 /* The factory must supply the purpose-built REVIEWER_TIMEOUT_MS (6min) as EngineRootDeps.
