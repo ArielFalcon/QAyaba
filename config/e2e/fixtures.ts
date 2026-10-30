@@ -364,12 +364,12 @@ function networkUrl(raw: string): string { try { const u = new URL(raw); const u
 // own requests to other hosts (analytics, error reporters) write nothing to DEV. Without a readable list every write
 // counts. The counter decides nothing about who caused a request: it records each distinct counted request of a test (the
 // first DEV_WRITE_REQUESTS_CAP of them) beside its count, by method, origin + pathname (never the query or the body) and
-// sender (`page` for the test's page and context, `api` for an API client), with how many times it was sent. The page
-// also sends requests on its own, with no spec action (a token renewal when it loads, a heartbeat): the first test of a
-// worker therefore runs a control load before anything else, a load of the launch URL in a context of its own made from
-// the project's options (the same saved session), until the network is idle, and records the mutating requests DEV answered
-// to `control-p<pid>-w<worker>.json` (method, origin + pathname, count). The orchestrator charges a test's page requests
-// only beyond what its worker's control saw, and an API client's requests in full.
+// sender (`page` for the test's page and context, `api` for an API client), with how many times it was sent, and names the
+// project the test belongs to. The page also sends requests on its own, with no spec action (a token renewal when it loads, a
+// heartbeat): the orchestrator measures that before any spec code runs, by a control load of the launch URL in a Playwright
+// process of its own, not from this file, whose code a spec's module or hooks run before (the orchestrator writes and
+// runs it, see its control load). It charges a test's page requests only beyond what the control of the test's project
+// saw, and an API client's requests in full.
 let devWrites = 0;
 let devWritesPending = 0;
 type DevWriteSender = 'page' | 'api';
@@ -383,6 +383,7 @@ let ledgerFs: typeof import('node:fs') | undefined;
 let ledgerFile: string | undefined;
 let ledgerTemp: string | undefined;
 let ledgerDone = false;
+let ledgerProject: string | undefined;
 let ledgerSeq = 0;
 let ledgerEpoch = 0;
 const DEV_WRITE_REQUESTS_CAP = 20;
@@ -424,7 +425,7 @@ function isDevWrite(raw: string | undefined): boolean {
 function flushLedger(): void {
   if (!ledgerFs || !ledgerFile || !ledgerTemp) return;
   try {
-    ledgerFs.writeFileSync(ledgerTemp, JSON.stringify({ v: 2, writes: devWrites, pending: devWritesPending, done: ledgerDone, ...(devWriteRequests.length > 0 ? { requests: devWriteRequests } : {}) }));
+    ledgerFs.writeFileSync(ledgerTemp, JSON.stringify({ v: 2, writes: devWrites, pending: devWritesPending, done: ledgerDone, ...(ledgerProject !== undefined ? { project: ledgerProject } : {}), ...(devWriteRequests.length > 0 ? { requests: devWriteRequests } : {}) }));
     ledgerFs.renameSync(ledgerTemp, ledgerFile);
   } catch {}
 }
@@ -435,6 +436,7 @@ async function openLedger(): Promise<void> {
   ledgerFile = undefined;
   ledgerTemp = undefined;
   ledgerDone = false;
+  ledgerProject = undefined;
   ledgerEpoch++;
   try {
     const dir = process.env.QA_FAILURE_CAPTURE_DIR;
@@ -445,8 +447,17 @@ async function openLedger(): Promise<void> {
     ledgerFile = join(dir, 'ledger-' + name + '.json');
     ledgerTemp = join(dir, '.ledger-' + name + '.tmp');
     ledgerFs = fs;
+    ledgerProject = projectOfRunningTest();
     flushLedger();
   } catch { ledgerFs = undefined; }
+}
+// The name of the project the running test belongs to, cut where the orchestrator's reader cuts it: the key the test's ledger is charged against the control of. Not known outside a test.
+const MAX_PROJECT_CHARS = 200;
+function projectOfRunningTest(): string | undefined {
+  try {
+    const name = (test as unknown as { info(): { project: { name: unknown } } }).info().project.name;
+    return typeof name === 'string' ? name.slice(0, MAX_PROJECT_CHARS) : undefined;
+  } catch { return undefined; }
 }
 // Adds one sighting of a request to a list of distinct requests, merged with an equal one; past the cap a new request is not kept.
 function recordWrite(into: RecordedDevWrite[], sender: DevWriteSender, method: string, url: string): void {
@@ -521,73 +532,6 @@ function countWrites(api: WriteCountable | undefined): void {
   };
 }
 
-// The control load, run once per worker before its first test (see the counter's description above). What it needs from the
-// test runner it reads structurally, so this block stays self-contained: the running test's info (the project's context options
-// and the test's timeout) and the browser the test's page belongs to. It runs in a context of its own, so none of its requests
-// reach a test's ledger, and the first test's timeout is extended by the time the load took: the load is the harness's, not the
-// spec's. Best effort: a load that fails or never reaches an idle network leaves the writes it saw, and one that cannot start
-// leaves no file, which makes the orchestrator charge every request of the worker.
-interface QaControlRequest { method(): string; url(): string }
-interface QaControlContext {
-  on(event: 'requestfinished', listener: (request: QaControlRequest) => unknown): unknown;
-  newPage(): Promise<{ goto(url: string, options: { waitUntil: 'networkidle'; timeout: number }): Promise<unknown> }>;
-  close(): Promise<void>;
-}
-interface QaControlBrowser { newContext(options: Record<string, unknown>): Promise<QaControlContext> }
-interface QaControlInfo { timeout: number; project: { use: Record<string, unknown> }; setTimeout(timeout: number): void }
-// The control waits for an idle network because what it asks is what the page sends by itself, which is known only once the
-// page has gone quiet. (The suite's lint rule against waiting for an idle network is for a spec's assertions, which this is not.)
-const QA_CONTROL_LOAD = { waitUntil: 'networkidle' } as const;
-let controlStarted = false;
-async function qaControlLoad(page: QaCapturePage): Promise<void> {
-  if (controlStarted) return;
-  controlStarted = true;
-  const dir = process.env.QA_FAILURE_CAPTURE_DIR;
-  if (!dir || !launchBaseUrl) return;
-  const began = Date.now();
-  let info: QaControlInfo | undefined;
-  let ran = false;
-  const seen: Array<{ method: string; url: string; count: number }> = [];
-  try {
-    info = (test as unknown as { info(): QaControlInfo }).info();
-    const browser = (page.context() as unknown as { browser(): QaControlBrowser | null }).browser();
-    if (!browser) return;
-    const context = await browser.newContext({ ...info.project.use });
-    ran = true;
-    try {
-      context.on('requestfinished', (r) => {
-        try {
-          const method = r.method();
-          if (!/^(?:POST|PUT|PATCH|DELETE)$/.test(method)) return;
-          const url = r.url();
-          if (!isDevWrite(url)) return;
-          const known = networkUrl(url);
-          if (!known) return;
-          const same = seen.find((q) => q.method === method && q.url === known);
-          if (same) same.count++;
-          else if (seen.length < DEV_WRITE_REQUESTS_CAP) seen.push({ method, url: known, count: 1 });
-        } catch {}
-      });
-      const controlPage = await context.newPage();
-      await controlPage.goto(launchBaseUrl, { ...QA_CONTROL_LOAD, timeout: info.timeout });
-    } finally {
-      await context.close().catch(() => {});
-    }
-  } catch {} finally {
-    try {
-      if (ran) {
-        const fs = await import("node:fs");
-        const { join } = await import("node:path");
-        const name = 'p' + process.pid + '-w' + (process.env.TEST_WORKER_INDEX ?? '0');
-        const temp = join(dir, '.control-' + name + '.tmp');
-        fs.writeFileSync(temp, JSON.stringify({ v: 1, requests: seen }));
-        fs.renameSync(temp, join(dir, 'control-' + name + '.json'));
-      }
-      info?.setTimeout(info.timeout + (Date.now() - began));
-    } catch {}
-  }
-}
-
 // Page observation, on only when the orchestrator asks (PW_OBSERVE=1: the re-run of a mutant of the served script and the
 // unmutated re-run it is compared with). For each test that ran, the requests its page depended on (the resource types of
 // PAGE_DEPENDENT_TYPES, whatever the host) by method and origin + pathname with a count, never the query, the fragment, the
@@ -624,7 +568,6 @@ async function qaFailureCaptureStart(page: QaCapturePage, request: QaCaptureRequ
   }
   if (process.env.PW_COUNT_DEV_WRITES === '1') {
     await openLedger();
-    await qaControlLoad(page);
     try {
       const context = page.context();
       if (!countedContexts.has(context)) {

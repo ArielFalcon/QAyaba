@@ -1572,16 +1572,20 @@ test("the default runner starts the child with the narrowing options and the wri
   };
   try {
     const deps = createDefaultE2eExecuteDeps(new ProcessKillAdapter(), 5_000, exec as never);
-    await deps.runSuite({ dir: workRoot, baseUrl: "https://dev", namespace: "ns", specFiles: ["a.spec.ts"], retries: 0, grep: "x", countWrites: true });
+    await deps.runSuite({ dir: workRoot, baseUrl: "https://dev", namespace: "ns", specFiles: ["a.spec.ts"], retries: 0, grep: "x", countWrites: true, failureCaptureDir: join(workRoot, "dumps") });
     await deps.runSuite({ dir: workRoot, baseUrl: "https://dev", namespace: "ns" });
   } finally {
     rmSync(workRoot, { recursive: true, force: true });
   }
+  assert.equal(spawned.length, 3, "the counted run's control, its spec child, and the uncounted run's only child");
+  assert.ok(spawned[0]!.args.some((a) => a.startsWith("--config=")), "the counted run starts with its control");
+  spawned.splice(0, 1);
   assert.ok(spawned[0]!.args.includes("--retries=0"));
   assert.ok(spawned[0]!.args.includes("--grep=x"));
-  assert.equal(written.length, 1, "only the run that names spec files writes a list");
-  assert.equal(written[0]!.content, "a.spec.ts\n");
-  assert.ok(spawned[0]!.args.includes(`--test-list=${written[0]!.path}`), "the spec is selected by the exact list, not by a pattern");
+  const list = written.filter((w) => w.name === "spec-list.txt");
+  assert.equal(list.length, 1, "only the run that names spec files writes a list");
+  assert.equal(list[0]!.content, "a.spec.ts\n");
+  assert.ok(spawned[0]!.args.includes(`--test-list=${list[0]!.path}`), "the spec is selected by the exact list, not by a pattern");
   assert.equal(spawned[0]!.args.includes("a.spec.ts"), false, "no bare argument: Playwright reads it as an unanchored pattern over the whole path");
   assert.equal(spawned[1]!.args.some((a) => a.startsWith("--test-list")), false);
   assert.equal(spawned[0]!.extraEnv?.PW_COUNT_DEV_WRITES, "1");
@@ -1589,6 +1593,119 @@ test("the default runner starts the child with the narrowing options and the wri
   assert.equal(spawned[1]!.args.some((a) => a.startsWith("--retries") || a.startsWith("--grep")), false);
   assert.equal(spawned[1]!.extraEnv?.PW_COUNT_DEV_WRITES, undefined);
   assert.equal(spawned[1]!.extraEnv?.PW_COVERAGE, undefined);
+});
+
+/* A launcher whose children are driven by hand: every spawn is recorded with its arguments and environment, and the test closes each child when it wants it gone. */
+function handDrivenExec() {
+  const workRoot = mkdtempSync(join(tmpdir(), "qa-control-exec-"));
+  const spawned: Array<{ args: readonly string[]; env: Record<string, string>; child: EventEmitter & { stdout: PassThrough; stderr: PassThrough } }> = [];
+  const written: Array<{ name: string; content: string; path: string }> = [];
+  const exec = {
+    isolated: false,
+    workDir: () => workRoot,
+    allocDir: (prefix: string, subdirs: readonly string[] = []) => {
+      const dir = mkdtempSync(join(workRoot, `${prefix}-`));
+      for (const sub of subdirs) mkdirSync(join(dir, sub), { recursive: true });
+      return dir;
+    },
+    writeScript: (name: string, content: string) => {
+      const path = join(workRoot, `written-${written.length}-${name}`);
+      writeFileSync(path, content);
+      written.push({ name, content, path });
+      return path;
+    },
+    spawn: (_cmd: string, args: readonly string[], options: { extraEnv?: Record<string, string> }) => {
+      const child = new EventEmitter() as EventEmitter & { stdout: PassThrough; stderr: PassThrough };
+      child.stdout = new PassThrough();
+      child.stderr = new PassThrough();
+      spawned.push({ args, env: options.extraEnv ?? {}, child });
+      return child;
+    },
+  };
+  return { exec: exec as never, workRoot, spawned, written, cleanup: () => rmSync(workRoot, { recursive: true, force: true }) };
+}
+const tick = (): Promise<void> => new Promise((resolve) => setImmediate(resolve));
+
+test("a counted run measures its control in a Playwright child of its own, before any spec code, and starts the spec child only once the control is gone", async () => {
+  const hand = handDrivenExec();
+  try {
+    const deps = createDefaultE2eExecuteDeps(new ProcessKillAdapter(), 60_000, hand.exec, undefined, () => ({ ran: true, report: { stats: { expected: 1 } } }));
+    const running = deps.runSuite({ dir: hand.workRoot, baseUrl: "https://dev", namespace: "ns", specFiles: ["a.spec.ts"], retries: 2, countWrites: true, timeoutMs: 40_000, failureCaptureDir: join(hand.workRoot, "dumps") });
+    await tick();
+    assert.equal(hand.spawned.length, 1, "only the control is out while it runs: no spec code has started");
+    const control = hand.spawned[0]!;
+    const config = hand.written.find((w) => /config/.test(w.name));
+    assert.ok(config, "the orchestrator writes the control's Playwright config itself");
+    assert.ok(control.args.includes(`--config=${config.path}`), "the control runs under its own config, not the repo's");
+    assert.equal(control.args.some((a) => a.startsWith("--test-list") || a.startsWith("--retries")), false, "it is not the spec's run: no spec list, no retry");
+    assert.equal(control.env.PW_COUNT_DEV_WRITES, undefined, "it counts nothing");
+    assert.equal(control.env.QA_FAILURE_CAPTURE_DIR, join(hand.workRoot, "dumps"), "it leaves its file where the ledgers are read");
+    control.child.emit("close", 0, null);
+    await tick();
+    assert.equal(hand.spawned.length, 2, "the spec child starts after the control ended");
+    assert.equal(hand.spawned[1]!.env.PW_COUNT_DEV_WRITES, "1");
+    assert.ok(hand.spawned[1]!.args.some((a) => a.startsWith("--test-list")));
+    assert.ok(hand.spawned[1]!.args.includes("--retries=2"));
+    hand.spawned[1]!.child.emit("close", 0, null);
+    await running;
+  } finally {
+    hand.cleanup();
+  }
+});
+
+test("the control is bound by the call's time, paid once however many retries the spec child is given, and ends with the call", async () => {
+  const hand = handDrivenExec();
+  const killed: unknown[] = [];
+  try {
+    const kill = { killTree: (child: EventEmitter) => { killed.push(child); setImmediate(() => child.emit("close", null, "SIGKILL")); } };
+    const deps = createDefaultE2eExecuteDeps(kill as never, 60_000, hand.exec, undefined, undefined, 25);
+    const out = await deps.runSuite({ dir: hand.workRoot, baseUrl: "https://dev", namespace: "ns", retries: 2, countWrites: true, timeoutMs: 80, failureCaptureDir: join(hand.workRoot, "dumps") });
+    assert.equal(hand.spawned[0]!.env.PW_CONTROL_TIMEOUT_MS, "80", "the control may take what the call has, with no constant of its own");
+    assert.equal(hand.spawned.length, 1, "a call whose time ran out in its control never starts the spec child");
+    assert.deepEqual(killed, [hand.spawned[0]!.child]);
+    assert.equal(out.ran, false);
+    assert.match(out.logs, /timed out after 80ms/);
+  } finally {
+    hand.cleanup();
+  }
+});
+
+test("a control that fails does not stop the run, and the run says that its page traffic will be charged in full", async () => {
+  const hand = handDrivenExec();
+  const warned = mock.method(console, "warn", () => {});
+  try {
+    const deps = createDefaultE2eExecuteDeps(new ProcessKillAdapter(), 60_000, hand.exec, undefined, () => ({ ran: true, report: { stats: { expected: 1 } } }));
+    const running = deps.runSuite({ dir: hand.workRoot, baseUrl: "https://dev", namespace: "ns", countWrites: true, failureCaptureDir: join(hand.workRoot, "dumps") });
+    await tick();
+    hand.spawned[0]!.child.stderr.write("Error: cannot load the project's config\n");
+    hand.spawned[0]!.child.emit("close", 1, null);
+    await tick();
+    assert.equal(hand.spawned.length, 2, "the spec child starts all the same");
+    hand.spawned[1]!.child.emit("close", 0, null);
+    await running;
+    const said = warned.mock.calls.map((c) => String(c.arguments[0])).join("\n");
+    assert.match(said, /control/);
+    assert.match(said, /cannot load the project's config/);
+  } finally {
+    warned.mock.restore();
+    hand.cleanup();
+  }
+});
+
+test("a run that does not count writes starts no control", async () => {
+  const hand = handDrivenExec();
+  try {
+    const deps = createDefaultE2eExecuteDeps(new ProcessKillAdapter(), 60_000, hand.exec, undefined, () => ({ ran: true, report: { stats: { expected: 1 } } }));
+    const running = deps.runSuite({ dir: hand.workRoot, baseUrl: "https://dev", namespace: "ns" });
+    await tick();
+    assert.equal(hand.spawned.length, 1);
+    assert.equal(hand.spawned[0]!.env.PW_CONTROL_TIMEOUT_MS, undefined);
+    hand.spawned[0]!.child.emit("close", 0, null);
+    await running;
+    assert.equal(hand.written.length, 0);
+  } finally {
+    hand.cleanup();
+  }
 });
 
 test("the default runner leads the dump folders to the work dir while the child runs, and carries over only a valid dump once it has gone", async () => {
@@ -1824,8 +1941,8 @@ test("runE2E hands the app's declared data state to the suite child", async () =
 /* A test's ledger as the seed writes it: the requests it recorded by sender, with how many times each was sent. */
 const TOKEN = "https://id.example.com/oauth/token";
 const ORDERS = "https://dev.example.com/api/orders";
-const ledgerOf = (writes: number, requests: Array<{ method: string; url: string; sender: "page" | "api"; count: number }>) => JSON.stringify({ v: 2, writes, pending: 0, done: true, requests });
-const controlOf = (requests: Array<{ method: string; url: string; count: number }>) => JSON.stringify({ v: 1, requests });
+const ledgerOf = (writes: number, requests: Array<{ method: string; url: string; sender: "page" | "api"; count: number }>, project: string | null = "desktop") => JSON.stringify({ v: 2, writes, pending: 0, done: true, ...(project !== null ? { project } : {}), requests });
+const controlOf = (requests: Array<{ method: string; url: string; count: number }>, project = "desktop") => JSON.stringify({ v: 1, project, requests });
 
 async function chargedBy(files: Record<string, string>): Promise<{ devWrites?: number; devWriteRequests?: unknown; controlRequests?: unknown }> {
   const ledger = withLedgerDir(files);
@@ -1838,7 +1955,7 @@ async function chargedBy(files: Record<string, string>): Promise<{ devWrites?: n
   }
 }
 
-test("runE2E does not charge a page request the worker's control load also sent, whatever its protocol shape", async () => {
+test("runE2E does not charge a page request the control load of its project also sent, whatever its protocol shape", async () => {
   const shapes = [
     { method: "POST", url: TOKEN },
     { method: "POST", url: "https://dev.example.com/api/auth/refresh" },
@@ -1847,7 +1964,7 @@ test("runE2E does not charge a page request the worker's control load also sent,
   ];
   for (const shape of shapes) {
     const out = await chargedBy({
-      "control-p1-w0.json": controlOf([{ ...shape, count: 1 }]),
+      "control-a.json": controlOf([{ ...shape, count: 1 }]),
       "ledger-p1-w0-1.json": ledgerOf(1, [{ ...shape, sender: "page", count: 1 }]),
       "ledger-p1-w0-2.json": ledgerOf(1, [{ ...shape, sender: "page", count: 1 }]),
     });
@@ -1859,7 +1976,7 @@ test("runE2E does not charge a page request the worker's control load also sent,
 
 test("runE2E charges a test only for the page requests beyond what the control saw, and the spec's own requests in full", async () => {
   const out = await chargedBy({
-    "control-p1-w0.json": controlOf([{ method: "POST", url: TOKEN, count: 1 }, { method: "POST", url: ORDERS, count: 1 }]),
+    "control-a.json": controlOf([{ method: "POST", url: TOKEN, count: 1 }, { method: "POST", url: ORDERS, count: 1 }]),
     "ledger-p1-w0-1.json": ledgerOf(3, [{ method: "POST", url: TOKEN, sender: "page", count: 3 }]),
     "ledger-p1-w0-2.json": ledgerOf(2, [{ method: "POST", url: ORDERS, sender: "api", count: 1 }, { method: "POST", url: TOKEN, sender: "page", count: 1 }]),
   });
@@ -1868,16 +1985,17 @@ test("runE2E charges a test only for the page requests beyond what the control s
   assert.deepEqual(out.controlRequests, [{ method: "POST", url: TOKEN, count: 2 }]);
 });
 
-test("runE2E charges every request when the worker has no control, or its control cannot be trusted", async () => {
+test("runE2E charges every request when its project has no control, or the control cannot be trusted", async () => {
   const ledgers = { "ledger-p1-w0-1.json": ledgerOf(4, [{ method: "POST", url: TOKEN, sender: "page", count: 4 }]) };
-  const control = controlOf([{ method: "POST", url: TOKEN, count: 4 }]);
   const cases: Record<string, Record<string, string>> = {
     "no control file": ledgers,
-    "the control of another worker": { ...ledgers, "control-p1-w1.json": control },
-    "an unreadable control": { ...ledgers, "control-p1-w0.json": "{not json" },
-    "a control that records a read": { ...ledgers, "control-p1-w0.json": controlOf([{ method: "GET", url: TOKEN, count: 4 }]) },
-    "an oversized control": { ...ledgers, "control-p1-w0.json": controlOf([{ method: "POST", url: TOKEN, count: 4 }]) + " ".repeat(100_000) },
-    "a control of another version": { ...ledgers, "control-p1-w0.json": JSON.stringify({ v: 9, requests: [{ method: "POST", url: TOKEN, count: 4 }] }) },
+    "the control of another project": { ...ledgers, "control-b.json": controlOf([{ method: "POST", url: TOKEN, count: 4 }], "mobile") },
+    "an unreadable control": { ...ledgers, "control-a.json": "{not json" },
+    "a control that records a read": { ...ledgers, "control-a.json": controlOf([{ method: "GET", url: TOKEN, count: 4 }]) },
+    "an oversized control": { ...ledgers, "control-a.json": controlOf([{ method: "POST", url: TOKEN, count: 4 }]) + " ".repeat(100_000) },
+    "a control that names no project": { ...ledgers, "control-a.json": JSON.stringify({ v: 1, requests: [{ method: "POST", url: TOKEN, count: 4 }] }) },
+    "a control whose project name is past the bound": { ...ledgers, "control-a.json": controlOf([{ method: "POST", url: TOKEN, count: 4 }], "p".repeat(201)) },
+    "a control of another version": { ...ledgers, "control-a.json": JSON.stringify({ v: 9, project: "desktop", requests: [{ method: "POST", url: TOKEN, count: 4 }] }) },
   };
   for (const [name, files] of Object.entries(cases)) {
     const out = await chargedBy(files);
@@ -1886,9 +2004,30 @@ test("runE2E charges every request when the worker has no control, or its contro
   }
 });
 
+test("runE2E charges a test against the control of its own project and no other, and a test that names no project against none", async () => {
+  const out = await chargedBy({
+    "control-a.json": JSON.stringify({ v: 1, project: "desktop", requests: [{ method: "POST", url: TOKEN, count: 1 }] }),
+    "control-b.json": JSON.stringify({ v: 1, project: "mobile", requests: [{ method: "POST", url: TOKEN, count: 5 }] }),
+    "ledger-p1-w0-1.json": ledgerOf(3, [{ method: "POST", url: TOKEN, sender: "page", count: 3 }], "desktop"),
+    "ledger-p1-w1-1.json": ledgerOf(3, [{ method: "POST", url: TOKEN, sender: "page", count: 3 }], "mobile"),
+    "ledger-p1-w2-1.json": ledgerOf(3, [{ method: "POST", url: TOKEN, sender: "page", count: 3 }], null),
+  });
+  assert.equal(out.devWrites, 2 + 0 + 3, "desktop: 3 less its control's 1; mobile: 3 less its control's 5 (none left); no project: all 3");
+  assert.deepEqual(out.controlRequests, [{ method: "POST", url: TOKEN, count: 4 }]);
+});
+
+test("runE2E trusts no control when two of them claim the same project", async () => {
+  const out = await chargedBy({
+    "control-a.json": JSON.stringify({ v: 1, project: "desktop", requests: [{ method: "POST", url: TOKEN, count: 1 }] }),
+    "control-b.json": JSON.stringify({ v: 1, project: "desktop", requests: [{ method: "POST", url: TOKEN, count: 9 }] }),
+    "ledger-p1-w0-1.json": ledgerOf(3, [{ method: "POST", url: TOKEN, sender: "page", count: 3 }], "desktop"),
+  });
+  assert.equal(out.devWrites, 3);
+});
+
 test("runE2E never exempts a request whose sender is not the page: the api client's, and one recorded without a sender", async () => {
   const out = await chargedBy({
-    "control-p1-w0.json": controlOf([{ method: "POST", url: TOKEN, count: 5 }]),
+    "control-a.json": controlOf([{ method: "POST", url: TOKEN, count: 5 }]),
     "ledger-p1-w0-1.json": ledgerOf(2, [{ method: "POST", url: TOKEN, sender: "api", count: 2 }]),
     "ledger-p1-w0-2.json": JSON.stringify({ v: 2, writes: 1, pending: 0, done: true, requests: [{ method: "POST", url: TOKEN }] }),
   });
@@ -1898,9 +2037,9 @@ test("runE2E never exempts a request whose sender is not the page: the api clien
 
 test("runE2E charges the writes a ledger could not record beyond its distinct cap, and an unfinished test's pending requests", async () => {
   const out = await chargedBy({
-    "control-p1-w0.json": controlOf([{ method: "POST", url: TOKEN, count: 9 }]),
+    "control-a.json": controlOf([{ method: "POST", url: TOKEN, count: 9 }]),
     "ledger-p1-w0-1.json": ledgerOf(30, [{ method: "POST", url: TOKEN, sender: "page", count: 9 }]),
-    "ledger-p1-w0-2.json": JSON.stringify({ v: 2, writes: 1, pending: 2, done: false, requests: [{ method: "POST", url: TOKEN, sender: "page", count: 1 }] }),
+    "ledger-p1-w0-2.json": JSON.stringify({ v: 2, writes: 1, pending: 2, done: false, project: "desktop", requests: [{ method: "POST", url: TOKEN, sender: "page", count: 1 }] }),
   });
   assert.equal(out.devWrites, 21 + 2, "30 less the 9 the control saw, and 1 less the 1 it saw, plus 2 still out");
 });

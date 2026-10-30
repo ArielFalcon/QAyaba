@@ -1,4 +1,4 @@
-/* A DEV write is charged to the spec only with evidence the spec caused it: a page request the worker's control load, run with no spec action, also sent is the page's own upkeep, exempt up to the count the control saw; every other write is charged. */
+/* A DEV write is charged to the spec only with evidence the spec caused it: a page request the control load of its project, run with no spec action, also sent is the page's own upkeep, exempt up to the count the control saw; every other write is charged. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { chargeTestWrites, type RecordedWrite, type TestWriteLedger } from "@contexts/test-execution/domain/dev-write-charge.ts";
@@ -33,6 +33,13 @@ test("a request is exempt up to the count the control saw: the rest of what the 
   assert.equal(out.charged, 2);
   assert.deepEqual(out.exemptRequests, [{ method: "POST", url, count: 1 }]);
   assert.deepEqual(out.chargedRequests, [{ method: "POST", url, count: 2 }]);
+});
+
+test("what the control saw is exempted once in all, even when a ledger lists the same request twice", () => {
+  const url = `${DEV}/api/auth/refresh`;
+  const out = chargeTestWrites(ledger([page("POST", url, 1), page("POST", url, 1)]), [{ method: "POST", url, count: 1 }]);
+  assert.equal(out.charged, 1);
+  assert.deepEqual(out.exemptRequests, [{ method: "POST", url, count: 1 }]);
 });
 
 test("a page request the control did not send is charged whatever its body would have said: fifty of them cost fifty", () => {

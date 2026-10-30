@@ -468,7 +468,7 @@ The join is **in-process**:
    - `qayaba.lease.refused` (DEV busy)
    - `qayaba.namespace`, the spec path and its sha256
    - for run_spec: `qayaba.tool.dev_writes` (the writes to DEV the seed's fixtures counted: a mutating request answered by
-     one of the run's DEV origins, `PW_DEV_ORIGINS`, that the control load of the test's worker does not account for) and
+     one of the run's DEV origins, `PW_DEV_ORIGINS`, that the control load of the test's project does not account for) and
      `qayaba.tool.dev_write_requests` (each charged request as
      `METHOD origin/pathname[ ×count]`, no query or body, redacted, at most 20 distinct; the same list is on the call's
      ledger entry), and `qayaba.tool.dev_control_requests` (the same shape, for the page requests the control load also sent,

@@ -40,35 +40,15 @@ function requestOf(sent: Sent): { method(): string; url(): string; postData(): s
 }
 
 /* The bookkeeping of a ledger a finished test left with nothing in flight (the version the runner reads, no pending request, done). */
-const FINISHED = { v: 2, pending: 0, done: true };
+const FINISHED = { v: 2, pending: 0, done: true, project: "desktop" };
 
 const FINISH_INFO = { status: "passed", expectedStatus: "passed", titlePath: ["", "orders.spec.ts", "lists orders"], project: { name: "desktop" }, file: "/e2e/orders.spec.ts", retry: 0, testId: "t1", workerIndex: 0 };
 
-/* The browser a control load is made with, driven by hand: it records the options a context was made with, the pages visited, the contexts closed and the timeouts set, and answers the requests the visited page "sends" when it is told to. */
-interface ControlScript { requests?: Sent[]; gotoFails?: boolean; newContextFails?: boolean }
-function controlBrowser(script: ControlScript) {
-  const log = { contexts: [] as Array<Record<string, unknown>>, visits: [] as Array<{ url: string; options: unknown }>, closed: 0, timeouts: [] as number[] };
-  const browser = {
-    newContext: async (options: Record<string, unknown>) => {
-      if (script.newContextFails) throw new Error("browser closed");
-      log.contexts.push(options);
-      const listeners: Listener[] = [];
-      return {
-        on: (event: string, fn: Listener) => { if (event === "requestfinished") listeners.push(fn); },
-        newPage: async () => ({
-          goto: async (url: string, options: unknown) => {
-            log.visits.push({ url, options });
-            for (const sent of script.requests ?? []) for (const fn of listeners) fn(requestOf(sent));
-            if (script.gotoFails) throw new Error("Timeout 30000ms exceeded");
-          },
-        }),
-        close: async () => { log.closed++; },
-      };
-    },
-  };
-  return { browser, log };
+/* The browser of a worker whose `newContext` a spec patched before its first test (its module code or a beforeAll can): it counts the contexts anything asks it for, and answers none. */
+function patchedBrowser() {
+  const asked: Array<Record<string, unknown>> = [];
+  return { browser: { newContext: async (options: Record<string, unknown>) => { asked.push(options); throw new Error("a context the spec's patch would shape"); } }, asked };
 }
-const PROJECT_USE = { baseURL: DEV, storageState: "/run/auth/session.json", trace: "on-first-retry", actionTimeout: 8000 };
 
 /* One test of a spec, driven by hand: the context emits the request events, the `request` fixture fetches, and the ledger can be read at any point. */
 async function withRig<T>(origins: string | undefined, run: (rig: {
@@ -80,25 +60,24 @@ async function withRig<T>(origins: string | undefined, run: (rig: {
   ledger(): Record<string, unknown>;
   files(): string[];
   afterLoad(fn: () => void): void;
-  /* The files the counter left that are not a test's ledger (the worker's control), by name. */
-  control(): Record<string, unknown> | undefined;
-  controlFiles(): string[];
-}) => Promise<T>, control?: ReturnType<typeof controlBrowser>, launchUrl: string | null = DEV): Promise<T> {
+  /* The files the counter left that are not a test's ledger, by name. */
+  others(): string[];
+}) => Promise<T>, worker?: ReturnType<typeof patchedBrowser>): Promise<T> {
   const dir = mkdtempSync(join(tmpdir(), "seed-dev-writes-"));
   const keys = ["QA_FAILURE_CAPTURE_DIR", "PW_COUNT_DEV_WRITES", "PW_DEV_ORIGINS", "PW_BASE_URL", "TEST_WORKER_INDEX"] as const;
   const saved = Object.fromEntries(keys.map((k) => [k, process.env[k]]));
   process.env.QA_FAILURE_CAPTURE_DIR = dir;
   process.env.PW_COUNT_DEV_WRITES = "1";
-  if (launchUrl === null) delete process.env.PW_BASE_URL; else process.env.PW_BASE_URL = launchUrl;
+  process.env.PW_BASE_URL = DEV;
   process.env.TEST_WORKER_INDEX = "3";
   if (origins === undefined) delete process.env.PW_DEV_ORIGINS; else process.env.PW_DEV_ORIGINS = origins;
   try {
     const listeners = new Map<string, Listener[]>();
     let answer: () => Promise<unknown> = async () => ({ ok: () => true });
-    const context = { on: (event: string, fn: Listener) => { listeners.set(event, [...(listeners.get(event) ?? []), fn]); }, request: { fetch: async () => ({}) }, browser: () => control?.browser ?? null };
+    const context = { on: (event: string, fn: Listener) => { listeners.set(event, [...(listeners.get(event) ?? []), fn]); }, request: { fetch: async () => ({}) }, browser: () => worker?.browser ?? null };
     const page = { on() {}, url: () => `${DEV}/orders`, context: () => context, locator: () => ({ ariaSnapshot: async () => "- main" }) };
     const request = { fetch: async (_target: unknown, _options?: { method?: string }) => answer() };
-    const info = { timeout: 30_000, project: { use: PROJECT_USE }, setTimeout: (ms: number) => { control?.log.timeouts.push(ms); } };
+    const info = { timeout: 30_000, project: { name: "desktop" } };
     const { start, finish } = await loadCapture({ info: () => info });
     return await run({
       start: () => start(page, request),
@@ -112,11 +91,7 @@ async function withRig<T>(origins: string | undefined, run: (rig: {
         return JSON.parse(readFileSync(join(dir, name), "utf8")) as Record<string, unknown>;
       },
       files: () => readdirSync(dir),
-      control: () => {
-        const name = readdirSync(dir).find((n) => n.startsWith("control-"));
-        return name ? (JSON.parse(readFileSync(join(dir, name), "utf8")) as Record<string, unknown>) : undefined;
-      },
-      controlFiles: () => readdirSync(dir).filter((n) => n.startsWith("control-") || n.startsWith(".control-")),
+      others: () => readdirSync(dir).filter((n) => !n.startsWith("ledger-")),
       afterLoad: (fn) => fn(),
     });
   } finally {
@@ -241,73 +216,21 @@ test("a ledger carries nothing about session traffic: no field of it is read by 
   assert.equal("controlRequests" in ledger, false);
 });
 
-/* ── the control load: what the page sends with no spec action, recorded once per worker before the first test ────── */
+/* ── the control load is not the block's: it runs in a process of its own before the spec child (control-load.run.cjs) ────── */
 
-const CONTROL_REQUESTS: Sent[] = [
-  { method: "POST", url: `${TOKEN}?x=1` },
-  { method: "POST", url: TOKEN },
-  { method: "POST", url: `${DEV}/api/auth/refresh` },
-  { method: "GET", url: `${DEV}/api/orders` },
-  { method: "POST", url: "https://errors.tracker.example/api/1/envelope" },
-];
-
-test("the first test of a worker runs a control load of the launch URL in a context of its own, built from the project's options, and records the writes DEV answered", async () => {
-  const control = controlBrowser({ requests: CONTROL_REQUESTS });
+test("the capture block opens no context of its own and leaves no control: a control made inside the worker could be shaped by the code that ran before the first test", async () => {
+  const worker = patchedBrowser();
   await withRig(WITH_IDP, async (rig) => {
     await rig.start();
-    assert.deepEqual(control.log.contexts, [PROJECT_USE], "a context made with the project's own use options, so the same saved session");
-    assert.deepEqual(control.log.visits, [{ url: DEV, options: { waitUntil: "networkidle", timeout: 30_000 } }], "the launch URL, until the network is idle, for at most the test's timeout");
-    assert.equal(control.log.closed, 1);
-    assert.deepEqual(rig.control(), { v: 1, requests: [{ method: "POST", url: TOKEN, count: 2 }, { method: "POST", url: `${DEV}/api/auth/refresh`, count: 1 }] });
-    assert.match(rig.controlFiles().join(), new RegExp(`^control-p${process.pid}-w3\\.json$`));
-    assert.equal(rig.controlFiles().length, 1, "the temporary file is gone");
-  }, control);
+    assert.deepEqual(worker.asked, [], "a spec's module code or beforeAll that patched the worker's browser sees no context made by the block");
+    assert.deepEqual(rig.others(), [], "the control is the orchestrator's, measured in a process no spec code shares");
+  }, worker);
 });
 
-test("the control load's traffic is not the test's: its ledger starts at nothing, and its time is not taken from the test's timeout", async () => {
-  const control = controlBrowser({ requests: CONTROL_REQUESTS });
-  await withRig(WITH_IDP, async (rig) => {
+test("a test's ledger names the project its test belongs to, so the orchestrator charges it against the control of that project", async () => {
+  await withRig(DEV_ORIGINS, async (rig) => {
     await rig.start();
-    assert.deepEqual(rig.ledger(), { v: 2, writes: 0, pending: 0, done: false });
-    assert.equal(control.log.timeouts.length, 1);
-    assert.ok(control.log.timeouts[0]! >= 30_000, "the timeout is extended by the time the control took");
-  }, control);
-});
-
-test("a worker runs its control once, however many tests it runs", async () => {
-  const control = controlBrowser({ requests: CONTROL_REQUESTS });
-  await withRig(WITH_IDP, async (rig) => {
-    await rig.start();
-    await rig.finish();
-    await rig.start();
-    assert.equal(control.log.contexts.length, 1);
-  }, control);
-});
-
-test("a control load that does not reach an idle network leaves the writes it saw, and one that cannot start leaves nothing", async () => {
-  const slow = controlBrowser({ requests: CONTROL_REQUESTS, gotoFails: true });
-  await withRig(WITH_IDP, async (rig) => {
-    await rig.start();
-    assert.deepEqual(rig.control(), { v: 1, requests: [{ method: "POST", url: TOKEN, count: 2 }, { method: "POST", url: `${DEV}/api/auth/refresh`, count: 1 }] });
-    assert.equal(slow.log.closed, 1, "the context is closed whatever happened");
-  }, slow);
-  const broken = controlBrowser({ newContextFails: true });
-  await withRig(WITH_IDP, async (rig) => {
-    await rig.start();
-    assert.equal(rig.control(), undefined);
-    assert.deepEqual(rig.ledger(), { v: 2, writes: 0, pending: 0, done: false }, "the test goes on");
-  }, broken);
-});
-
-test("a control load needs the launch URL, the capture directory and the counter asked for, and a page that belongs to a browser", async () => {
-  const control = controlBrowser({ requests: CONTROL_REQUESTS });
-  await withRig(WITH_IDP, async (rig) => {
-    await rig.start();
-    assert.equal(control.log.contexts.length, 0, "no launch URL: nothing to load");
-  }, control, null);
-  await withRig(WITH_IDP, async (rig) => {
-    await rig.start();
-    assert.equal(rig.control(), undefined, "no browser behind the page: no control, and the test goes on");
+    assert.equal(rig.ledger().project, "desktop");
   });
 });
 
@@ -316,7 +239,7 @@ test("a control load needs the launch URL, the capture directory and the counter
 test("a test's ledger is on disk from its start, before any write: nothing counted, nothing pending, not done", async () => {
   await withRig(DEV_ORIGINS, async (rig) => {
     await rig.start();
-    assert.deepEqual(rig.ledger(), { v: 2, writes: 0, pending: 0, done: false });
+    assert.deepEqual(rig.ledger(), { v: 2, writes: 0, pending: 0, done: false, project: "desktop" });
   });
 });
 

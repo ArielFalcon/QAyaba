@@ -359,21 +359,21 @@ function executorOver(t: TestContext, files: Record<string, string>): RunSpecDep
 }
 
 const RENEWAL = { method: "POST", url: "https://dev.example.com/api/auth/refresh" };
-const upkeepLedger = JSON.stringify({ v: 2, writes: 4, pending: 0, done: true, requests: [{ ...RENEWAL, sender: "page", count: 4 }] });
+const upkeepLedger = JSON.stringify({ v: 2, writes: 4, pending: 0, done: true, project: "desktop", requests: [{ ...RENEWAL, sender: "page", count: 4 }] });
 
-test("six calls whose tests only renew the session are charged nothing when the worker's control saw the renewal, and the same calls are refused at the cap when it saw none", async (t) => {
+test("six calls whose tests only renew the session are charged nothing when the control of their project saw the renewal, and the same calls are refused at the cap when it saw none", async (t) => {
   const sixCalls = (): RunSpecCapability => {
     const capability = new RunSpecCapability({ runId: "run-1", limits: { ...LIMITS, maxCalls: 6 }, expiresAtMs: Number.MAX_SAFE_INTEGER, now: () => 0 });
     capability.bindSession("ses-1");
     return capability;
   };
   const capability = sixCalls();
-  const controlled = harness(t, { capability, executor: executorOver(t, { "ledger-p1-w0-1.json": upkeepLedger, "control-p1-w0.json": JSON.stringify({ v: 1, requests: [{ ...RENEWAL, count: 4 }] }) }) });
+  const controlled = harness(t, { capability, executor: executorOver(t, { "ledger-p1-w0-1.json": upkeepLedger, "control-a.json": JSON.stringify({ v: 1, project: "desktop", requests: [{ ...RENEWAL, count: 4 }] }) }) });
   for (let n = 0; n < 6; n++) assert.ok((await call(controlled, "flows/a.spec.ts")).ok, `call ${n + 1}`);
   assert.equal(capability.devWrites, 0);
   assert.equal(capability.budget(undefined).devWritesLeft, LIMITS.maxDevWrites);
 
-  const uncontrolled = harness(t, { executor: executorOver(t, { "ledger-p1-w0-1.json": upkeepLedger, "control-p1-w0.json": JSON.stringify({ v: 1, requests: [] }) }) });
+  const uncontrolled = harness(t, { executor: executorOver(t, { "ledger-p1-w0-1.json": upkeepLedger, "control-a.json": JSON.stringify({ v: 1, project: "desktop", requests: [] }) }) });
   const answers: string[] = [];
   for (let n = 0; n < 3; n++) { const r = await call(uncontrolled, "flows/a.spec.ts"); answers.push(r.ok ? "ok" : r.code); }
   assert.deepEqual(answers, ["ok", "ok", CLOSED_LOOP_REFUSAL.NO_WRITES], "four writes a call against a cap of five");
@@ -382,8 +382,8 @@ test("six calls whose tests only renew the session are charged nothing when the 
 test("a write the spec made to the app is charged once, whatever the control saw", async (t) => {
   const orders = { method: "POST", url: "https://dev.example.com/api/orders" };
   const h = harness(t, { executor: executorOver(t, {
-    "ledger-p1-w0-1.json": JSON.stringify({ v: 2, writes: 2, pending: 0, done: true, requests: [{ ...orders, sender: "api", count: 1 }, { ...RENEWAL, sender: "page", count: 1 }] }),
-    "control-p1-w0.json": JSON.stringify({ v: 1, requests: [{ ...RENEWAL, count: 1 }] }),
+    "ledger-p1-w0-1.json": JSON.stringify({ v: 2, writes: 2, pending: 0, done: true, project: "desktop", requests: [{ ...orders, sender: "api", count: 1 }, { ...RENEWAL, sender: "page", count: 1 }] }),
+    "control-a.json": JSON.stringify({ v: 1, project: "desktop", requests: [{ ...RENEWAL, count: 1 }] }),
   }) });
   assert.ok((await call(h, "flows/a.spec.ts")).ok);
   assert.equal(h.capability.devWrites, 1);

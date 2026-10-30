@@ -27,6 +27,7 @@ import { activeExecScope } from "../../../shared-infrastructure/process-sandbox/
 import { MAX_DEV_WRITE_REQUESTS, noteDevWriteRequest, type DevWriteRequest } from "../domain/dev-write-request.ts";
 import { chargeTestWrites, type RecordedWrite, type TestWriteLedger } from "../domain/dev-write-charge.ts";
 import { isSuiteRelative, type SpecLoadError } from "../domain/spec-load-error.ts";
+import { buildControlConfig, buildControlTest, controlArgs } from "./control-load.ts";
 
 export const DEFAULT_E2E_TIMEOUT_MS = 900_000;
 
@@ -91,7 +92,7 @@ export interface E2eExecuteOptions {
   retries?: number;
   /* A literal title filter, escaped for Playwright's --grep by the caller. */
   grep?: string;
-  /* Have the fixtures count the mutating requests the specs send to DEV, and run a control load per worker (PW_COUNT_DEV_WRITES), and report in `devWrites` the writes the control does not account for. Such a run is a spec the generator is trying, not the suite: it is not measured for change-coverage (PW_COVERAGE=0), which would only slow it. */
+  /* Have the fixtures count the mutating requests the specs send to DEV, and run a control load (a Playwright child of its own, before the spec child) whose findings the fixtures' ledgers are charged against (PW_COUNT_DEV_WRITES), and report in `devWrites` the writes the control does not account for. Such a run is a spec the generator is trying, not the suite: it is not measured for change-coverage (PW_COVERAGE=0), which would only slow it. */
   countWrites?: boolean;
   /* Run as the dedicated cleanup pass: the child is handed PW_CLEANUP=1, which the seed's cleanup.spec.ts needs to do anything (it skips otherwise), and `namespace` is then the BASE data prefix to clean. */
   cleanupPass?: boolean;
@@ -192,13 +193,13 @@ export interface E2eRunResult {
   cases: QaCase[];
   logs: string;
   note?: string;
-  /* Mutating requests the specs caused to DEV: those the fixtures counted that the workers' control loads do not account for; absent when nothing trustworthy was counted. */
+  /* Mutating requests the specs caused to DEV: those the fixtures counted that the control load does not account for; absent when nothing trustworthy was counted. */
   devWrites?: number;
   /* How many of the tests behind that count had not finished when the run ended (stopped, crashed): each is charged its answered writes plus the requests it still had out. Absent when every test finished. */
   unfinishedTests?: number;
   /* The requests behind that count, by method and origin and pathname, at most MAX_DEV_WRITE_REQUESTS distinct; present with a count the fixtures recorded requests for. */
   devWriteRequests?: DevWriteRequest[];
-  /* The requests the tests' pages sent that the worker's control load (the same session and app with no spec action) also sent, up to the counts it saw: autonomous traffic the spec did not cause, which `devWrites` does not charge, by method and origin and pathname, at most MAX_DEV_WRITE_REQUESTS distinct; present when any was accounted for. */
+  /* The requests the tests' pages sent that the control load of their project (the same session and app with no spec action) also sent, up to the counts it saw: autonomous traffic the spec did not cause, which `devWrites` does not charge, by method and origin and pathname, at most MAX_DEV_WRITE_REQUESTS distinct; present when any was accounted for. */
   controlRequests?: DevWriteRequest[];
   /* What the report says stopped a spec from loading (its top-level errors), relative to the spec directory and redacted by value. Present only on a run that executed no test. */
   loadErrors?: SpecLoadError[];
@@ -448,11 +449,11 @@ export async function runE2E(
   }
 }
 
-/* The writes to DEV the specs of a run caused, from the ledger files the fixtures left in the failure-capture directory and the control file of each worker beside them, the requests behind the charge (method, origin and pathname, re-derived here and redacted, so a query never leaves), how many ledger files that was (one per test that began) and how many of those tests had not finished. The seed writes a test's ledger when the test starts and rewrites it on every write (see config/e2e/fixtures.ts), so a test that was killed has left what it did: a finished test is charged its answered `writes`, an unfinished one its `writes` plus the requests it still had out (`pending`, which may have reached DEV). A ledger without a version is the earlier seed's, written when the test finished. The ledger says who sent each request it recorded and how often; a page request that the control of the test's own worker (`control-p<pid>-w<worker>.json`, written once before that worker's first test by a load of the launch URL with no spec action) also sent is the page's own upkeep and is not charged, up to the count the control saw (`chargeTestWrites`); a worker without a readable control, or any control that cannot be trusted, exempts nothing. The directory is the child's, so it is read strictly (see readRunOutputDir) and all or nothing: a forged, oversized or unreadable ledger makes the whole count unknown (undefined) and never a smaller one; a directory with no ledger at all is a count of none, which the caller believes only for a run in which no test began. The counter itself runs inside the suite's own fixtures, which is agent-editable code, so a ledger and a control are evidence of what the spec did only against an honest spec; the hard bound on what a call can do to DEV is the call cap times the per-call time, and the egress filter. A write sent outside any test (a module's top level, a worker's setup) is in no ledger. */
+/* The writes to DEV the specs of a run caused, from the ledger files the fixtures left in the failure-capture directory and the control file of each project beside them, the requests behind the charge (method, origin and pathname, re-derived here and redacted, so a query never leaves), how many ledger files that was (one per test that began) and how many of those tests had not finished. The seed writes a test's ledger when the test starts and rewrites it on every write (see config/e2e/fixtures.ts), so a test that was killed has left what it did: a finished test is charged its answered `writes`, an unfinished one its `writes` plus the requests it still had out (`pending`, which may have reached DEV). A ledger without a version is the earlier seed's, written when the test finished. The ledger says who sent each request it recorded and how often; a page request that the control of the test's own project (`control-<id>.json`, written before the spec child started, by a load of the launch URL with no spec action in a Playwright child of its own: see control-load.ts) also sent is the page's own upkeep and is not charged, up to the count the control saw (`chargeTestWrites`); a test that names no project, a project without a readable control, or any control that cannot be trusted (two claim one project) exempts nothing. The directory is the child's, so it is read strictly (see readRunOutputDir) and all or nothing: a forged, oversized or unreadable ledger makes the whole count unknown (undefined) and never a smaller one; a directory with no ledger at all is a count of none, which the caller believes only for a run in which no test began. The counter itself runs inside the suite's own fixtures, which is agent-editable code, so a ledger and a control are evidence of what the spec did only against an honest spec (the control is measured where no spec code runs, but it is written where the spec's sandbox can write); the hard bound on what a call can do to DEV is the call cap times the per-call time, and the egress filter. A write sent outside any test (a module's top level, a worker's setup) is in no ledger. */
 const LEDGER_FILE_RE = /^ledger-[A-Za-z0-9_-]+\.json$/;
-/* The worker a ledger belongs to, from its name: process and worker index, as the control file of that worker is named. */
-const LEDGER_WORKER_RE = /^ledger-(p\d+-w\d+)-\d+\.json$/;
-const CONTROL_FILE_RE = /^control-(p\d+-w\d+)\.json$/;
+const CONTROL_FILE_RE = /^control-[A-Za-z0-9_-]{1,64}\.json$/;
+/* The longest project name a ledger or a control carries; the seed and the control cut a name there, so the two keys stay equal. */
+const MAX_PROJECT_CHARS = 200;
 const LEDGER_LIMITS: RunOutputLimits = { maxFileBytes: 16_384, maxTotalBytes: 4 * 1024 * 1024, maxFiles: 4_096 };
 const MAX_LEDGER_WRITES = 1_000_000;
 /* What one ledger file may record: the seed keeps the first MAX_DEV_WRITE_REQUESTS distinct requests of a test, each URL cut at 300 characters. */
@@ -460,7 +461,7 @@ const MAX_LEDGER_URL_CHARS = 300;
 const WRITE_METHOD_RE = /^(?:POST|PUT|PATCH|DELETE)$/;
 /* The ledger version the seed writes now; a ledger with none is version 1. */
 const LEDGER_VERSION = 2;
-/* The control file version the seed writes. */
+/* The control file version the control load writes. */
 const CONTROL_VERSION = 1;
 
 /* One recorded request, or a throw that makes the whole ledger untrusted: a method that does not write, or a URL that is not one. */
@@ -493,28 +494,35 @@ function recordedSender(raw: unknown): RecordedWrite["sender"] {
   return raw;
 }
 
-/* The control of one worker, by the worker's name; undefined when no control can be trusted (none written, or a file that is forged, oversized or unreadable), which charges every request. */
+/* A project name as a ledger or a control carries it: text within the bound, or a throw that makes the file untrusted. */
+function projectName(raw: unknown): string {
+  if (typeof raw !== "string" || raw.length > MAX_PROJECT_CHARS) throw new Error("not a project name");
+  return raw;
+}
+
+/* The control of each project, by the project's name; undefined when no control can be trusted (none written, a file that is forged, oversized or unreadable, or two that claim one project), which charges every request. */
 function readControls(dir: string, root: string | undefined): Map<string, DevWriteRequest[]> | undefined {
   const base = root ?? dir;
-  const files = readRunOutputDir({ mirrorDir: base, specDir: base }, relative(base, dir) || ".", (name) => CONTROL_FILE_RE.test(name), (name, bytes) => {
-    const parsed = JSON.parse(bytes.toString("utf8")) as { v?: unknown; requests?: unknown };
+  const files = readRunOutputDir({ mirrorDir: base, specDir: base }, relative(base, dir) || ".", (name) => CONTROL_FILE_RE.test(name), (_name, bytes) => {
+    const parsed = JSON.parse(bytes.toString("utf8")) as { v?: unknown; project?: unknown; requests?: unknown };
     if (parsed.v !== CONTROL_VERSION || !Array.isArray(parsed.requests) || parsed.requests.length > MAX_DEV_WRITE_REQUESTS) throw new Error("not a control this runner reads");
     const requests: DevWriteRequest[] = [];
     for (const raw of parsed.requests) {
       const { method, url } = ledgerRequest(raw);
       noteDevWriteRequest(requests, method, url, recordedCount((raw as { count?: unknown }).count));
     }
-    return { worker: CONTROL_FILE_RE.exec(name)![1]!, requests };
+    return { project: projectName(parsed.project), requests };
   }, LEDGER_LIMITS);
   if (files === undefined) return undefined;
-  return new Map(files.map((f) => [f.worker, f.requests]));
+  const controls = new Map(files.map((f) => [f.project, f.requests] as const));
+  return controls.size === files.length ? controls : undefined;
 }
 
 function readDevWrites(dir: string | undefined, root: string | undefined): { writes: number; files: number; unfinished: number; requests: DevWriteRequest[]; exempt: DevWriteRequest[] } | undefined {
   if (dir === undefined) return undefined;
   const base = root ?? dir;
-  const files = readRunOutputDir({ mirrorDir: base, specDir: base }, relative(base, dir) || ".", (name) => LEDGER_FILE_RE.test(name), (name, bytes) => {
-    const parsed = JSON.parse(bytes.toString("utf8")) as { v?: unknown; writes?: unknown; pending?: unknown; done?: unknown; requests?: unknown };
+  const files = readRunOutputDir({ mirrorDir: base, specDir: base }, relative(base, dir) || ".", (name) => LEDGER_FILE_RE.test(name), (_name, bytes) => {
+    const parsed = JSON.parse(bytes.toString("utf8")) as { v?: unknown; writes?: unknown; pending?: unknown; done?: unknown; project?: unknown; requests?: unknown };
     const writes = ledgerCount(parsed.writes);
     let pending = 0;
     let done = true;
@@ -530,15 +538,15 @@ function readDevWrites(dir: string | undefined, root: string | undefined): { wri
       return { ...ledgerRequest(raw), sender: recordedSender(sender), count: recordedCount(count) };
     });
     if (requests.reduce((sum, r) => sum + r.count, 0) > writes) throw new Error("more requests recorded than counted");
-    return { worker: LEDGER_WORKER_RE.exec(name)?.[1], ledger: { writes, pending, done, requests } satisfies TestWriteLedger };
+    return { project: parsed.project === undefined ? undefined : projectName(parsed.project), ledger: { writes, pending, done, requests } satisfies TestWriteLedger };
   }, LEDGER_LIMITS);
   if (files === undefined) return undefined;
-  const controls = files.some((f) => f.worker !== undefined && f.ledger.requests.some((r) => r.sender === "page")) ? readControls(dir, root) : undefined;
+  const controls = files.some((f) => f.project !== undefined && f.ledger.requests.some((r) => r.sender === "page")) ? readControls(dir, root) : undefined;
   const requests: DevWriteRequest[] = [];
   const exempt: DevWriteRequest[] = [];
   let writes = 0;
   for (const file of files) {
-    const charge = chargeTestWrites(file.ledger, file.worker === undefined ? undefined : controls?.get(file.worker));
+    const charge = chargeTestWrites(file.ledger, file.project === undefined ? undefined : controls?.get(file.project));
     writes += charge.charged;
     for (const r of charge.chargedRequests) noteDevWriteRequest(requests, r.method, r.url, r.count);
     for (const r of charge.exemptRequests) noteDevWriteRequest(exempt, r.method, r.url, r.count);
@@ -979,14 +987,8 @@ export function createDefaultE2eExecuteDeps(
           }
         };
 
-        /* QA_FAILURE_CAPTURE_DIR: the qa-failure-capture afterEach fixture writes per-case aria snapshot dumps here on failure; the orchestrator harvests them post-run to populate QaCase.failureDom for the fix-loop grounding prompt. PW_TEST_ID_ATTRIBUTE: threads the configured testIdAttribute into the runner so playwright.config.ts resolves getByTestId correctly for the app's convention. PW_ACTION_TIMEOUT_MS: optional per-target override of the seed's action auto-wait bound (default 8000) so a slower DEV can widen it without editing the seed config — injected from the composition root (env-read confinement, this file's header). */
-        const child = exec.spawn("npx", playwrightArgs(reporterPath, project, testListPath, join(work, "results"), { retries, grep }), {
-          cwd: dir,
-          profile: "suite",
-          commandClass: "playwright-test",
-          ...(geolocation ? { geolocation } : {}),
-          extraEnv: { PW_BASE_URL: baseUrl, PW_NAMESPACE: namespace, PLAYWRIGHT_JSON_OUTPUT_NAME: jsonPath, ...(cleanupPass ? { PW_CLEANUP: "1" } : {}), ...(countWrites ? { PW_COUNT_DEV_WRITES: "1", PW_COVERAGE: "0" } : {}), ...(testIdAttribute ? { PW_TEST_ID_ATTRIBUTE: testIdAttribute } : {}), ...(actionTimeoutMs ? { PW_ACTION_TIMEOUT_MS: actionTimeoutMs } : {}), ...(mutant ? { PW_MUTANT: mutant } : {}), ...(observe ? { PW_OBSERVE: "1" } : {}), ...(failureCaptureDir ? { QA_FAILURE_CAPTURE_DIR: failureCaptureDir } : {}), ...(failureCaptureDir && dataState ? { PW_DATA_STATE: JSON.stringify(dataState) } : {}) },
-        });
+        /* What both children are given: where the app is, the run's namespace and the knobs of the seed's config. The spec child adds what is its own. QA_FAILURE_CAPTURE_DIR: the qa-failure-capture afterEach fixture writes per-case aria snapshot dumps here on failure; the orchestrator harvests them post-run to populate QaCase.failureDom for the fix-loop grounding prompt, and reads the ledgers and the control of a counted run from it. PW_TEST_ID_ATTRIBUTE: threads the configured testIdAttribute into the runner so playwright.config.ts resolves getByTestId correctly for the app's convention. PW_ACTION_TIMEOUT_MS: optional per-target override of the seed's action auto-wait bound (default 8000) so a slower DEV can widen it without editing the seed config — injected from the composition root (env-read confinement, this file's header). */
+        const sharedEnv: Record<string, string> = { PW_BASE_URL: baseUrl, PW_NAMESPACE: namespace, ...(testIdAttribute ? { PW_TEST_ID_ATTRIBUTE: testIdAttribute } : {}), ...(actionTimeoutMs ? { PW_ACTION_TIMEOUT_MS: actionTimeoutMs } : {}), ...(failureCaptureDir ? { QA_FAILURE_CAPTURE_DIR: failureCaptureDir } : {}) };
 
         const stderr = new BoundedOutputTail(E2E_STDERR_KEEP_CHARS);
         const events = new BoundedLineReader(MAX_STREAM_EVENT_LINE_CHARS, (line) => {
@@ -1005,7 +1007,8 @@ export function createDefaultE2eExecuteDeps(
           fn();
         };
 
-        /* A stopped run (timed out or cancelled) kills the child's tree and then waits, for a bounded time, for the child to exit before it settles: the ledgers it leaves are final only once its processes are gone. Its report is never read. */
+        /* The child that is running now: the control load of a counted run, then the spec child. A stopped run (timed out or cancelled) kills the child's tree and then waits, for a bounded time, for the spec child to exit before it settles: the ledgers it leaves are final only once its processes are gone. Its report is never read. */
+        let running: ReturnType<ExecSandboxPort["spawn"]> | undefined;
         let stopping = false;
         let exited!: () => void;
         const exit = new Promise<void>((resolve) => { exited = resolve; });
@@ -1013,7 +1016,7 @@ export function createDefaultE2eExecuteDeps(
           if (stopping || settled) return;
           stopping = true;
           disarm();
-          processKill.killTree(child);
+          if (running) processKill.killTree(running);
           void closeDumps(false);
           let wait: ReturnType<typeof setTimeout> | undefined;
           void Promise.race([exit, new Promise<void>((resolve) => { wait = setTimeout(resolve, exitWaitMs); })]).then(() => {
@@ -1021,6 +1024,7 @@ export function createDefaultE2eExecuteDeps(
             settle(() => resolve({ report: {}, logs: `${what}\n${stderr.text()}`, ran: false }));
           });
         };
+        /* One time bounds the whole call, its control load included. */
         const ms = timeoutMs ?? defaultTimeoutMs;
         const timer = setTimeout(() => stop(`playwright runner timed out after ${ms}ms — killed`), ms);
 
@@ -1029,28 +1033,94 @@ export function createDefaultE2eExecuteDeps(
           : undefined;
         if (onAbort) signal!.addEventListener("abort", onAbort, { once: true });
 
-        child.stdout!.setEncoding("utf8");
-        child.stderr!.setEncoding("utf8");
-        child.stdout!.on("data", (d: string) => events.feed(d));
-        child.stderr!.on("data", (d: string) => stderr.append(d));
-        child.on("error", (err) => { void closeDumps(false); try { rmSync(work, { recursive: true, force: true }); } catch { /* best-effort */ } settle(() => reject(err)); });
-        child.on("close", (code, signal) => {
-          /* The child is gone, and the path it was handed is the one thing it could still have changed: the report is read strictly (see readPlaywrightReport), never waited on and never followed. A run that is stopped already (it timed out or the operator cancelled, and the child was killed) is waited for by nobody, so its report is not read: parsing one made slow on purpose would only hold the orchestrator after the deadline. */
-          const finished = !settled && !stopping;
-          const read = finished ? readReport(jsonPath, workRoot) : undefined;
-          /* From here the timeout and the cancel bound the child, which is gone, and not the work on its dumps: a finished run is never turned into a stopped one. */
-          if (finished) {
-            disarm();
-            onChildClosed?.();
-          }
-          void closeDumps(finished).then(() => {
-            try { rmSync(work, { recursive: true, force: true }); } catch { /* best-effort */ }
-            exited();
-            if (read === undefined) return;
-            const refusal = !read.ran && "reason" in read ? `\n[qa] the Playwright report was not read (${read.reason}); this run has no result.` : "";
-            settle(() => resolve({ report: read.ran ? read.report : {}, logs: stderr.text() + refusal, ran: read.ran, exitCode: code ?? undefined, ...(signal ? { signal } : {}) }));
+        const startSuite = (): void => {
+          const child = exec.spawn("npx", playwrightArgs(reporterPath, project, testListPath, join(work, "results"), { retries, grep }), {
+            cwd: dir,
+            profile: "suite",
+            commandClass: "playwright-test",
+            ...(geolocation ? { geolocation } : {}),
+            extraEnv: { ...sharedEnv, PLAYWRIGHT_JSON_OUTPUT_NAME: jsonPath, ...(cleanupPass ? { PW_CLEANUP: "1" } : {}), ...(countWrites ? { PW_COUNT_DEV_WRITES: "1", PW_COVERAGE: "0" } : {}), ...(mutant ? { PW_MUTANT: mutant } : {}), ...(observe ? { PW_OBSERVE: "1" } : {}), ...(failureCaptureDir && dataState ? { PW_DATA_STATE: JSON.stringify(dataState) } : {}) },
           });
-        });
+          running = child;
+          child.stdout!.setEncoding("utf8");
+          child.stderr!.setEncoding("utf8");
+          child.stdout!.on("data", (d: string) => events.feed(d));
+          child.stderr!.on("data", (d: string) => stderr.append(d));
+          child.on("error", (err) => { void closeDumps(false); try { rmSync(work, { recursive: true, force: true }); } catch { /* best-effort */ } settle(() => reject(err)); });
+          child.on("close", (code, signal) => {
+            /* The child is gone, and the path it was handed is the one thing it could still have changed: the report is read strictly (see readPlaywrightReport), never waited on and never followed. A run that is stopped already (it timed out or the operator cancelled, and the child was killed) is waited for by nobody, so its report is not read: parsing one made slow on purpose would only hold the orchestrator after the deadline. */
+            const finished = !settled && !stopping;
+            const read = finished ? readReport(jsonPath, workRoot) : undefined;
+            /* From here the timeout and the cancel bound the child, which is gone, and not the work on its dumps: a finished run is never turned into a stopped one. */
+            if (finished) {
+              disarm();
+              onChildClosed?.();
+            }
+            void closeDumps(finished).then(() => {
+              try { rmSync(work, { recursive: true, force: true }); } catch { /* best-effort */ }
+              exited();
+              if (read === undefined) return;
+              const refusal = !read.ran && "reason" in read ? `\n[qa] the Playwright report was not read (${read.reason}); this run has no result.` : "";
+              settle(() => resolve({ report: read.ran ? read.report : {}, logs: stderr.text() + refusal, ran: read.ran, exitCode: code ?? undefined, ...(signal ? { signal } : {}) }));
+            });
+          });
+        };
+
+        /* The control load (RFC-0007): what the page sends with no spec action, measured before any spec code runs, in a Playwright child of its own, so that nothing a spec does in its process or its browser can shape it. It ends before the spec child starts, and it is bound by the time this call has. A control that fails leaves no file: the page requests of the call's tests are charged in full, and the run says so. */
+        const startControl = (): void => {
+          const testPath = exec.writeScript("control-load.run.cjs", buildControlTest());
+          const configPath = exec.writeScript("control-load.config.cjs", buildControlConfig(testPath));
+          const control = exec.spawn("npx", controlArgs(configPath, join(work, "results"), project), {
+            cwd: dir,
+            profile: "suite",
+            commandClass: "playwright-test",
+            ...(geolocation ? { geolocation } : {}),
+            extraEnv: { ...sharedEnv, PW_CONTROL_TIMEOUT_MS: String(ms) },
+          });
+          running = control;
+          const said = new BoundedOutputTail(E2E_STDERR_KEEP_CHARS);
+          control.stdout?.resume();
+          control.stderr?.setEncoding("utf8");
+          control.stderr?.on("data", (d: string) => said.append(d));
+          let ended = false;
+          const over = (why: string | undefined): void => {
+            if (ended) return;
+            ended = true;
+            if (stopping || settled) {
+              void closeDumps(false).then(() => {
+                try { rmSync(work, { recursive: true, force: true }); } catch { /* best-effort */ }
+                exited();
+              });
+              return;
+            }
+            if (why !== undefined) engineLog.warn(`[qa] the control load of this run ${why}, so the page requests of its tests are charged in full:\n${said.text()}`);
+            try {
+              startSuite();
+            } catch (err) {
+              void closeDumps(false);
+              try { rmSync(work, { recursive: true, force: true }); } catch { /* best-effort */ }
+              settle(() => reject(err));
+            }
+          };
+          control.on("error", (err) => over(`could not start (${err.message})`));
+          control.on("close", (code, signal) => over(code === 0 ? undefined : `ended with ${signal ?? `status ${code ?? "unknown"}`}`));
+        };
+
+        if (countWrites && failureCaptureDir) {
+          try {
+            startControl();
+          } catch (err) {
+            disarm();
+            throw err;
+          }
+        } else {
+          try {
+            startSuite();
+          } catch (err) {
+            disarm();
+            throw err;
+          }
+        }
       }),
   };
 }

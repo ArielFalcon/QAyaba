@@ -2,7 +2,7 @@
  * What one test's DEV writes are charged to the spec. A write the spec caused is a mutating request that would not have been
  * sent had the spec stopped before its first action. The page, the browser and the app's session code send some on their own
  * (a token renewal on load, a heartbeat); the engine holds evidence of them only from a control load: the same session and
- * app with no spec action, run once per worker before its first test, which records the mutating requests DEV answered. A page
+ * app with no spec action, run in a process of its own before any spec code, which records the mutating requests DEV answered. A page
  * request the control also sent is that traffic, exempt up to the count the control saw for the same method and address;
  * every other write is charged. The request an API client sent is never exempt (the spec made that call by construction), and
  * neither is one whose sender was not recorded. No protocol, header, body, path or origin role is read. Pure.
@@ -39,7 +39,7 @@ export interface TestCharge {
 
 const keyOf = (method: string, url: string): string => `${method} ${url}`;
 
-/* Charges one test against the control of its worker; no control (missing or untrusted) charges everything. */
+/* Charges one test against the control of its project; no control (missing or untrusted) charges everything. What the control saw of a request is drawn down as it is exempted, so a ledger that lists one request twice (the seed never writes one, a forged file may) is exempt once up to the control's count in all. */
 export function chargeTestWrites(ledger: TestWriteLedger, control: readonly DevWriteRequest[] | undefined): TestCharge {
   const seen = new Map<string, number>();
   for (const r of control ?? []) seen.set(keyOf(r.method, r.url), (seen.get(keyOf(r.method, r.url)) ?? 0) + r.count);

@@ -36,13 +36,13 @@ export interface ExecutionResult {
   verdict: RunVerdict;
   cases: QaCase[];
   logs: string;
-  /** Mutating requests to DEV the specs are charged: those the fixtures counted that the workers' control loads do not account for. Absent: not counted. */
+  /** Mutating requests to DEV the specs are charged: those the fixtures counted that the control load does not account for. Absent: not counted. */
   devWrites?: number;
   /** How many of the tests behind `devWrites` had not finished when the run ended. Absent: every test finished. */
   unfinishedTests?: number;
   /** The requests behind `devWrites`, by method and origin and pathname. Absent: none recorded. */
   devWriteRequests?: DevWriteRequest[];
-  /** The requests the tests' pages sent that the workers' control loads also sent, which the spec did not cause and `devWrites` leaves out. Absent: none recorded. */
+  /** The requests the tests' pages sent that the control load of their project also sent, which the spec did not cause and `devWrites` leaves out. Absent: none recorded. */
   controlRequests?: DevWriteRequest[];
   /** What the report says stopped a spec from loading, relative to the spec directory. Present only on a run that executed no test. */
   loadErrors?: SpecLoadError[];
