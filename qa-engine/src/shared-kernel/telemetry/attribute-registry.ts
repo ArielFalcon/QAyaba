@@ -63,7 +63,7 @@ export const ATTRIBUTES = {
   "qayaba.coverage.covered_lines": int("Changed lines the green run executed."),
   "qayaba.coverage.changed_files": int("Files the change adds or modifies."),
   "qayaba.coverage.mapped_files": int("Changed files the executed code was mapped to."),
-  "qayaba.coverage.unmeasured": str("Why the measurement decides nothing: no-diff, not-assembled, no-changed-lines, deletion-only, no-changed-file-mapped or no-source-maps (the scripts the page ran carried no source map)."),
+  "qayaba.coverage.unmeasured": str("Why the measurement decides nothing: no-diff, not-assembled, no-changed-lines, deletion-only, no-changed-file-mapped, no-source-maps (the scripts the page ran carried no source map), no-dumps (the run left no coverage dump) or how the read of the dumps failed: decode-aborted, decode-heap-limit, decode-crashed, decode-unavailable, dumps-over-cap or dumps-unusable."),
   "qayaba.coverage.changed_branches": int("Arms of the decisions on changed lines (then/else, both sides of a conditional, a short circuit, each switch clause); absent when no decision was seen on a changed line."),
   "qayaba.coverage.taken_branches": int("Arms of the decisions on changed lines that ran in at least one test."),
   "qayaba.coverage.no_code_files": spec("string[]", "Unloaded changed files left out of the measurement because none of their changed lines is code (a re-export-only module, say), by the language's statement syntax.", "high", "none", 20),
