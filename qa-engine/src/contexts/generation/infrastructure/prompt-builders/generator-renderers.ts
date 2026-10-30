@@ -132,9 +132,9 @@ function reachedClause(reach: ImpactReach, s: (x: unknown) => string): string {
   return `reached ${reach.direction}${through.length > 0 ? ` through ${through.join(", then ")}` : ""}`;
 }
 
-/* A hop of the cross-repo walk that could not be finished: one line, framed as unverified because what lies beyond it was neither found nor ruled out. */
-export function renderImpactStopLine(stop: { repo: string; direction: string; reason: string }, s: (x: unknown) => string): string {
-  return `- ${s(stop.direction)} hop through ${s(stop.repo)} was not walked: ${s(stop.reason)} (links beyond it are unverified, not absent)`;
+/* A hop of the cross-repo walk that could not be finished: one line, framed as unverified because what lies beyond it was neither found nor ruled out. A hop walked and left partial says so: the links it reached are listed. */
+export function renderImpactStopLine(stop: { repo: string; direction: string; reason: string; partial?: true }, s: (x: unknown) => string): string {
+  return `- ${s(stop.direction)} hop through ${s(stop.repo)} was ${stop.partial ? "walked partially" : "not walked"}: ${s(stop.reason)} (links beyond it are unverified, not absent)`;
 }
 
 /* The labels of the evidence lines a failing case carries that a reader tells apart: the HTTP line of a case that reached a page without a status, and how the capture at the failure point says it settled. */

@@ -327,8 +327,9 @@ Rules, from the brief §2.1 and the OTel spec:
 - **Cross-repo impact hops** (RFC-0011). `gateSignals.crossRepoImpactedCount` is the number of impacted links over every hop
   and both directions, and is set when the change is the app alone and a chain of links starts at it; runs before the change
   count first-hop links only (an epoch break: never pool the two). A repo a hop walks that the change did not reach is indexed
-  on demand and leaves a `qayaba.code_graph.index` span like any other. The hops a walk could not finish are
-  `qayaba.change_scope.degraded` entries read `hop upstream: ...` or `hop downstream: ...`; the cross-repo reach entries
+  on demand and leaves a `qayaba.code_graph.index` span like any other. The upstream hops a walk could not finish are
+  `qayaba.change_scope.degraded` entries read `hop upstream: ...` (a downstream hop reaches no page and is no gap of the scope: it
+  is one line of the prompt); the cross-repo reach entries
   (`qayaba.change_scope.cross_repo`) carry the chain of links in their proofs.
 
 ### 4.3 Root attributes

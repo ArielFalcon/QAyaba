@@ -39,8 +39,8 @@ export class ChangeScopePortAdapter implements ChangeScopePort {
   constructor(private readonly deps: ChangeScopePortAdapterDeps) {}
 
   async resolve(request: ChangeScopeRequest): Promise<ChangeScope> {
-    /* A hop of the cross-repo walk that could not be finished is as much a gap of the scope as an index that did not answer. */
-    const degraded: Array<{ repo: string; reason: string }> = (request.crossRepoImpact?.stops ?? []).map((stop) => ({ repo: stop.repo, reason: `hop ${stop.direction}: ${stop.reason}` }));
+    /* An upstream hop of the cross-repo walk that could not be finished is as much a gap of the scope as an index that did not answer: the page it would have reached is missing. A downstream hop reaches no page, candidate or operation (grounding only), so it is no gap of the scope; the prompt and the run record carry it. */
+    const degraded: Array<{ repo: string; reason: string }> = (request.crossRepoImpact?.stops ?? []).filter((stop) => stop.direction === "upstream").map((stop) => ({ repo: stop.repo, reason: `hop ${stop.direction}: ${stop.reason}` }));
     const repos: RepoScope[] = [];
     const walks: ProofWalk[] = [];
     const routesByDir = new Map<string, GraphRoute[]>();

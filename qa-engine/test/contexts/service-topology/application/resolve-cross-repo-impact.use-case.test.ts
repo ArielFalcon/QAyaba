@@ -219,7 +219,7 @@ test("a walk the budget left partial returns the links it reached and says how m
   const { codeGraph } = hopGraph({ callers: reachedAs([reachedHandler([{ ...CALL, hops: 1 }])], true, [OTHER_CALL]) });
   const hop = await hopUseCase(codeGraph).resolveUpstreamHop({ repo: BACKEND, repoDir: "/m/b", links: [into, fed.link], fed: [fed] });
   assert.equal(hop.links.length, 1);
-  assert.deepEqual(hop.stops, [{ repo: BACKEND, direction: "upstream", reason: "partial: 1 of 1 seed(s) left open at the expansion budget" }]);
+  assert.deepEqual(hop.stops, [{ repo: BACKEND, direction: "upstream", reason: "partial: 1 of 1 seed(s) left open at the expansion budget", partial: true }]);
 });
 
 test("without a code graph a later hop is a stop", async () => {

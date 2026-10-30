@@ -192,3 +192,17 @@ test("downstream, the second operation a changed call site calls leads on to the
     dispose(w.rig);
   }
 });
+
+test("a downstream walk left partial is told to the agent and recorded, and is no gap of the change scope", async () => {
+  const w = world({
+    repos: [APP, "org/b", "org/c"], links: [appToList, bToC], changed: [{ repo: APP, role: "primary", file: X.file }],
+    indexes: { [APP]: { partial: 1, ...APP_INDEX } },
+  });
+  try {
+    await observe(w.rig, "links-downstream-partial");
+    assert.deepEqual(w.enrichments[0]?.crossRepoImpact?.stops, [{ repo: APP, direction: "downstream", reason: "partial: 1 seed(s) left open at the expansion budget", partial: true }]);
+    assert.deepEqual(w.scopes[0]!.degraded, [], "a downstream link is grounding only: no page is missed because of it");
+  } finally {
+    dispose(w.rig);
+  }
+});

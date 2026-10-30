@@ -1272,6 +1272,15 @@ test("a hop the walk could not finish is one unverified line naming the repo and
   assert.equal(noStops, buildPrompt(mkInput({ serviceLinks: [link1], crossRepoImpact: { impactedLinks: [{ link: link1, tier: "impacted-symbol" }] } })));
 });
 
+test("a hop walked and left partial says it was walked partially, not that it was not walked", () => {
+  const stops = [{ repo: "org/orders", direction: "downstream" as const, reason: "partial: 1 seed(s) left open at the expansion budget", partial: true as const }];
+  const text = buildPrompt(mkInput({ serviceLinks: [link1], crossRepoImpact: { impactedLinks: [{ link: link1, tier: "impacted-symbol" }], stops } }));
+  const lines = text.split("\n").filter((l) => l.includes("org/orders") && l.includes("hop through"));
+  assert.equal(lines.length, 1);
+  assert.match(lines[0]!, /was walked partially: partial: 1 seed\(s\) left open.*unverified, not absent/);
+  assert.doesNotMatch(lines[0]!, /not walked/);
+});
+
 test("two links of one call site to two operations of one service are marked impacted each by its own tier", () => {
   const list = { ...link1, to: { ...link1.to, symbol: "list" }, contractRef: "list", operation: { verb: "GET", path: "/orders" } };
   const get = { ...link1, to: { ...link1.to, symbol: "get" }, contractRef: "get", operation: { verb: "GET", path: "/orders/{id}" } };

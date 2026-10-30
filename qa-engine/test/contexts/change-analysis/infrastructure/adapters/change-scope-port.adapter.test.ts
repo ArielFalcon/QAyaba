@@ -247,10 +247,7 @@ test("a link reached downstream seeds no walk and is no operation entry", async 
   assert.deepEqual(scope.reach, []);
 });
 
-test("the stops of the impact are degraded entries of the scope", async () => {
-  const scope = await withProofs(graph()).resolve(request([], { stops: [{ repo: "org/b", direction: "upstream", reason: "the repo has no mirror to index in this run" }, { repo: "org/c", direction: "downstream", reason: "partial: 2 of 3 seed(s) left open at the expansion budget" }] }));
-  assert.deepEqual(scope.degraded, [
-    { repo: "org/b", reason: "hop upstream: the repo has no mirror to index in this run" },
-    { repo: "org/c", reason: "hop downstream: partial: 2 of 3 seed(s) left open at the expansion budget" },
-  ]);
+test("an upstream stop of the impact is a degraded entry of the scope, and a downstream one is not: it reaches no page", async () => {
+  const scope = await withProofs(graph()).resolve(request([], { stops: [{ repo: "org/b", direction: "upstream", reason: "the repo has no mirror to index in this run" }, { repo: "org/c", direction: "downstream", reason: "partial: 2 of 3 seed(s) left open at the expansion budget", partial: true }] }));
+  assert.deepEqual(scope.degraded, [{ repo: "org/b", reason: "hop upstream: the repo has no mirror to index in this run" }]);
 });

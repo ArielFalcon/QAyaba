@@ -56,6 +56,8 @@ export interface ImpactStop {
   repo: string;
   direction: ImpactDirection;
   reason: string;
+  /** The hop was walked and the walk left seeds open at its budget: the links it reached stand, others may be missing. Absent: the hop was not walked. */
+  partial?: true;
 }
 
 /** tier is a closed, code-defined literal — never a sanitizer-sentinel string and never attacker/agent-controlled. */

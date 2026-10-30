@@ -158,7 +158,7 @@ export class ResolveCrossRepoImpactUseCase {
       const walk = await codeGraph.callersOf(repoDir, seeds, DEFAULT_WALK_POLICY);
       if (!walk.ok) return stop(`walk: ${walk.error.reason}`);
       const stops: ImpactStop[] = walk.value.truncated
-        ? [{ repo, direction: "upstream", reason: `partial: ${walk.value.partialSeeds?.length ?? 0} of ${seeds.length} seed(s) left open at the expansion budget` }]
+        ? [{ repo, direction: "upstream", reason: `partial: ${walk.value.partialSeeds?.length ?? 0} of ${seeds.length} seed(s) left open at the expansion budget`, partial: true }]
         : [];
       const served = await this.endpointsReached(repoDir, walk.value.symbols, new LinkGraph(links).into(repo));
       const impacted: ImpactedLink[] = [];
@@ -189,7 +189,7 @@ export class ResolveCrossRepoImpactUseCase {
       const walk = await codeGraph.impactedSymbols(repoDir, blast, DEFAULT_WALK_POLICY);
       if (!walk.ok) return stop(`walk: ${walk.error.reason}`);
       const reached = new Set(walk.value.symbols.map(refKey));
-      const stops: ImpactStop[] = walk.value.truncated ? [{ repo, direction: "downstream", reason: `partial: ${walk.value.partialSeeds?.length ?? 0} seed(s) left open at the expansion budget` }] : [];
+      const stops: ImpactStop[] = walk.value.truncated ? [{ repo, direction: "downstream", reason: `partial: ${walk.value.partialSeeds?.length ?? 0} seed(s) left open at the expansion budget`, partial: true }] : [];
       const impacted: ImpactedLink[] = out.filter((link) => reached.has(refKey(link.from))).map((link) => ({ link, tier: MATCH_TIER.IMPACTED_SYMBOL, reach: { direction: "downstream", via: [] } }));
       return { links: impacted, stops };
     } catch (err) {
@@ -216,7 +216,7 @@ export class ResolveCrossRepoImpactUseCase {
       const walk = await codeGraph.callersOf(repoDir, seeds, DEFAULT_WALK_POLICY);
       if (!walk.ok) return stop(`walk: ${walk.error.reason}`);
       const stops: ImpactStop[] = walk.value.truncated
-        ? [{ repo, direction: "downstream", reason: `partial: ${walk.value.partialSeeds?.length ?? 0} of ${seeds.length} seed(s) left open at the expansion budget` }]
+        ? [{ repo, direction: "downstream", reason: `partial: ${walk.value.partialSeeds?.length ?? 0} of ${seeds.length} seed(s) left open at the expansion budget`, partial: true }]
         : [];
       const served = await this.endpointsReached(repoDir, walk.value.symbols, fed.map(({ link }) => link));
       const impacted: ImpactedLink[] = [];
