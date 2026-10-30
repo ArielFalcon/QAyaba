@@ -17,7 +17,7 @@ Each base cause is one task, fixed once across the whole codebase; no finding is
 |---|---|---|
 | R1. An ending without a typed record | Every way a turn, flow, phase or run ends is a typed outcome recorded at the one place that ends it, on the record and on the trace; nothing about an ending is found only in a log line | T32 |
 | R2. More than one time authority | The run deadline is the one authority; it allots time by purpose, and every other budget is an input to it or is deleted | T33 (RFC-0012 first) |
-| R3. A test case's identity is lossy and keyed on its title | Every execution records each case's declared mode; one proof rule serves every path; rules read modes and counts per file, never titles; the engine is the one skip authority for every app | T34 |
+| R3. A test case's identity is lossy and keyed on its title | Every execution records each case's declared mode; one proof rule serves every path (the first pass, `run_spec`, the regeneration acceptance, the experiment acceptance, the review's green files, the mutation baselines); rules read modes and counts per file, never titles; a case names its suite-relative file; the engine is the one skip authority for every app | T34 |
 | R4. Agent answers read by several readers | One reader with RFC-0006's contract for every agent answer; a finding has an id from admission | T35 |
 | R5. A turn fault read as a dead session | A turn ends with a typed end; a session is disposed only when the runtime says it is gone | T35 |
 | R6. One rule, two copies | One copy per rule, each searched across the whole codebase | T36 |
