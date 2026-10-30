@@ -16,7 +16,6 @@ import { SERENA_WRITE_TOOL_NAMES } from "@contexts/generation/application/index"
 import { callEfficiencyTracker } from "@contexts/generation/infrastructure/sse/call-efficiency-tracker";
 import { agentTurnTraces } from "@contexts/generation/infrastructure/telemetry/turn-trace-registry";
 
-import { installHttpDispatcher } from "../util/net";
 import { enforcedStepLimit } from "../agent-runtime/step-limit";
 import { openCodeServerAuth } from "./opencode-server-auth";
 import { AGENT_BROWSER_AGENTS, GEOLOCATION_AGENTS } from "@contexts/test-execution/application/index";
@@ -692,12 +691,9 @@ export function answeredFrom(info: { modelID?: unknown; providerID?: unknown; fi
 }
 
 /**
- * The longest a single prompt may run: the deadline of the agent transport, and so the ceiling for any
- * per-turn bound a caller sets (a bound above it could never fire). The undici transport timeout must
- * exceed EVERY per-prompt withTimeout, or it aborts the request before our own deadline fires. The
- * reviewer has its OWN budget (REVIEWER_TIMEOUT_MS) independent of the generator's; if an operator sets a small
- * OPENCODE_TIMEOUT_MS (or raises a per-role one) it must NOT drag the transport below either of them.
- * Take the max + headroom.
+ * The limit of a prompt that states none of its own: the generator's budget or the reviewer's, whichever is longer, plus
+ * headroom. It is a policy limit, enforced by the turn itself (the prompt is aborted on the server when it runs out); the
+ * agent transport holds no deadline of its own (src/util/net.ts), so a turn given a longer limit keeps it.
  */
 export function agentPromptCapMs(): number {
   const generatorMax = activeSettings().agent.timeoutMs ?? MAX_AGENT_TIMEOUT_MS;
@@ -705,13 +701,10 @@ export function agentPromptCapMs(): number {
 }
 
 export async function defaultAgentDeps(): Promise<AgentDeps> {
-  const dispatcherTimeoutMs = agentPromptCapMs();
-  await installHttpDispatcher(dispatcherTimeoutMs);
-
   const raw = await buildRawAgentTransport();
 
   return createAgentDeps(raw, {
-    defaultPromptTimeoutMs: dispatcherTimeoutMs,
+    defaultPromptTimeoutMs: agentPromptCapMs(),
     getFallbackModel,
     persistTurn: (turn) => getHistory().telemetry.saveAgentTurnEvent(turn),
     takeTurnCalls: (sessionId, promptText, providedPaths) => callEfficiencyTracker.take(sessionId, promptText, providedPaths),

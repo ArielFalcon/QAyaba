@@ -6,6 +6,7 @@
  */
 
 import { activeEnvironment } from "../settings/active";
+import { agentTransportFetch } from "../util/net";
 
 export const OPENCODE_SERVER_PASSWORD_ENV = "OPENCODE_SERVER_PASSWORD";
 const OPENCODE_SERVER_USER = "opencode";
@@ -25,7 +26,7 @@ export interface OpenCodeServerAuth {
 
 export function openCodeServerAuth(
   env: Readonly<Record<string, string | undefined>> = activeEnvironment(),
-  inner: (request: Request) => Promise<Response> = (request) => fetch(request),
+  inner: (request: Request) => Promise<Response> = agentTransportFetch,
 ): OpenCodeServerAuth {
   const password = env[OPENCODE_SERVER_PASSWORD_ENV]?.trim();
   if (!password) {

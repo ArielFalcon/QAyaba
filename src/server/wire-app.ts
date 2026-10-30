@@ -740,10 +740,9 @@ export function wireApp(settingsStore: SettingsStore): WiredApp {
     onListening: () => {
       /*
        * Make global fetch proxy-aware (HTTP(S)_PROXY/NO_PROXY) from boot, before any GitHub API or
-       * health call. No-op when no proxy is configured. (A per-run build refines the timeouts.)
+       * health call. No-op when no proxy is configured. The agent transport has its own dispatcher (src/util/net.ts).
        */
-      const startupTimeout = settings.agent.timeoutMs ?? 900_000;
-      installHttpDispatcher(startupTimeout).catch((err) => appLogger.warn("HTTP dispatcher setup failed", { error: err instanceof Error ? err.message : String(err) }));
+      installHttpDispatcher();
       /*
        * Start the SSE event stream from OpenCode so agent activity (tool calls,
        * file edits, streaming text) is routed to RunRecord logs in real time.

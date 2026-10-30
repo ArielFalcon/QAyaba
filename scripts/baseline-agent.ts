@@ -927,6 +927,7 @@ export async function defaultDeps(env: Record<string, string | undefined> = proc
   const { runE2E, createDefaultE2eExecuteDeps, e2eTimeoutMs } = await import("../qa-engine/src/contexts/test-execution/infrastructure/e2e-execution.runner.ts");
   const { ProcessKillAdapter } = await import("../qa-engine/src/shared-infrastructure/process-sandbox/process-kill.adapter.ts");
   const { installHttpDispatcher } = await import("../src/util/net.ts");
+  installHttpDispatcher();
 
   const script = buildScriptExec(env as NodeJS.ProcessEnv, resolveCodeSandbox(env as NodeJS.ProcessEnv), egressGateFor(env as NodeJS.ProcessEnv, resolveCodeSandbox(env as NodeJS.ProcessEnv)));
   const service = await defaultService(env);
@@ -1073,7 +1074,6 @@ export async function defaultDeps(env: Record<string, string | undefined> = proc
       prepareHarnessAuth({ appName: app.name, baseUrl: app.baseUrl, ...(app.testIdAttribute !== undefined ? { testIdAttribute: app.testIdAttribute } : {}), specDir: join(plan.copyDir, SUITE_DIR), authDir: plan.authDir, phase }),
 
     runAgent: async ({ copyDir, prompt, timeoutMs, keepSession }) => {
-      await installHttpDispatcher(timeoutMs + 60_000);
       const { createOpencodeClient } = await import("@opencode-ai/sdk");
       const client = createOpencodeClient({ baseUrl: serveUrl, headers: serverAuth.headers, fetch: serverAuth.fetch as typeof fetch });
       const created = await client.session.create({ query: { directory: copyDir } });

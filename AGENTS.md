@@ -801,8 +801,9 @@ test, and the verdict is its last action.
   app YAML): the agent reads the matching operation only for a contract fact the prompt lacks
   (fields, enums, error responses) and exercises the backend **through the UI**, never the API
   directly.
-- **Long agent turns:** `src/util/net.ts` raises undici's header/body timeouts above the
-  agent timeout so `withTimeout` is the real deadline.
+- **Long agent turns:** every request to `opencode serve` goes through the agent transport's own dispatcher
+  (`src/util/net.ts`), which has no headers or body deadline: a turn ends only by its own limit or the run's
+  deadline (the prompt is aborted on the server), never by a transport timeout under a limit nobody set.
 - **Serena needs a language server per watched language** — add it in `agents/Dockerfile`
   when extending the language scope.
 
