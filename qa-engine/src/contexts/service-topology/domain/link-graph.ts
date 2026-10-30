@@ -3,14 +3,9 @@
  * ends of a `ServiceLink`. A walk over it ends because a link enters the answer once and the links are a finite set; no hop
  * count or size constant bounds it.
  */
-import type { ImpactDirection, ImpactedLink, ServiceLink } from "@kernel/service-links.ts";
+import { linkIdentity, type ImpactDirection, type ImpactedLink, type ServiceLink } from "@kernel/service-links.ts";
 
-/** One link of the graph by its call site and the repo it targets. */
-export function linkKey(link: ServiceLink): string {
-  return `${link.from.repo}/${link.from.file}#${link.from.symbol}->${link.to.repo}`;
-}
-
-const byKey = (a: ServiceLink, b: ServiceLink): number => (linkKey(a) < linkKey(b) ? -1 : linkKey(a) > linkKey(b) ? 1 : 0);
+const byKey = (a: ServiceLink, b: ServiceLink): number => (linkIdentity(a) < linkIdentity(b) ? -1 : linkIdentity(a) > linkIdentity(b) ? 1 : 0);
 
 /** The repos a hop walks next and the links that feed each. */
 export interface FrontierRepo {
@@ -29,12 +24,12 @@ export class LinkGraph {
     }
   }
 
-  /** The links whose call lands in `repo`, in key order. */
+  /** The links whose call lands in `repo`, in identity order. */
   into(repo: string): ServiceLink[] {
     return [...(this.intoRepo.get(repo) ?? [])];
   }
 
-  /** The links whose call site is in `repo`, in key order. */
+  /** The links whose call site is in `repo`, in identity order. */
   outOf(repo: string): ServiceLink[] {
     return [...(this.outOfRepo.get(repo) ?? [])];
   }
@@ -66,30 +61,17 @@ export class LinkWalk {
 
   constructor(readonly direction: ImpactDirection) {}
 
-  /** The links not admitted before, in key order; they are admitted now. */
+  /** The links not admitted before, in identity order; they are admitted now. */
   admit(links: readonly ImpactedLink[]): ImpactedLink[] {
     const fresh: ImpactedLink[] = [];
     for (const impacted of [...links].sort((a, b) => byKey(a.link, b.link))) {
-      const key = linkKey(impacted.link);
+      const key = linkIdentity(impacted.link);
       if (this.seen.has(key)) continue;
       this.seen.add(key);
       fresh.push(impacted);
     }
     return fresh;
   }
-}
-
-/** The impacted links of several changed repos, a link reached twice in one direction listed once, the first reach standing. */
-export function mergeImpactedLinks(lists: ReadonlyArray<readonly ImpactedLink[]>): ImpactedLink[] {
-  const seen = new Set<string>();
-  const merged: ImpactedLink[] = [];
-  for (const impacted of lists.flat()) {
-    const key = `${impacted.reach?.direction ?? "upstream"} ${linkKey(impacted.link)}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    merged.push(impacted);
-  }
-  return merged;
 }
 
 function push<T>(map: Map<string, T[]>, key: string, value: T): void {

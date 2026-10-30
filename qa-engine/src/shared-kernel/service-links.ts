@@ -19,6 +19,16 @@ export interface ServiceLink {
   source: string;
 }
 
+/**
+ * What makes two links one: both ends (repo, file, symbol), the transport, the contract operation they name and the operation
+ * the call makes. A call site that calls two operations of one service, or one operation of two, holds two links. The one
+ * definition every de-duplication of links uses; a key that left out a part would drop a distinct link.
+ */
+export function linkIdentity(link: ServiceLink): string {
+  const { from, to, transport, contractRef, operation } = link;
+  return JSON.stringify([from.repo, from.file, from.symbol, to.repo, to.file, to.symbol, transport, contractRef ?? null, operation?.verb ?? null, operation?.path ?? null]);
+}
+
 /** A detected FE↔BE contract drift: the frontend calls an endpoint the backend contract does not declare. */
 export interface ContractDrift {
   from: ServiceSymbolRef;

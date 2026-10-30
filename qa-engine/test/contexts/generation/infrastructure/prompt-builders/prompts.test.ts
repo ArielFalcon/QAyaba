@@ -1272,6 +1272,15 @@ test("a hop the walk could not finish is one unverified line naming the repo and
   assert.equal(noStops, buildPrompt(mkInput({ serviceLinks: [link1], crossRepoImpact: { impactedLinks: [{ link: link1, tier: "impacted-symbol" }] } })));
 });
 
+test("two links of one call site to two operations of one service are marked impacted each by its own tier", () => {
+  const list = { ...link1, to: { ...link1.to, symbol: "list" }, contractRef: "list", operation: { verb: "GET", path: "/orders" } };
+  const get = { ...link1, to: { ...link1.to, symbol: "get" }, contractRef: "get", operation: { verb: "GET", path: "/orders/{id}" } };
+  const text = buildPrompt(mkInput({ serviceLinks: [list, get], crossRepoImpact: { impactedLinks: [{ link: get, tier: "impacted-symbol" }] } }));
+  const lines = text.split("\n").filter((l) => l.includes(LINK1_SUBJECT));
+  assert.equal(lines.filter((l) => l.includes("[IMPACTED:")).length, 1, "only the link the walk reached is marked");
+  assert.match(lines.find((l) => l.includes("[IMPACTED:"))!, /\bget\b/);
+});
+
 test("a stop with no impacted link still reaches the section", () => {
   const text = buildPrompt(mkInput({ serviceLinks: [link1], crossRepoImpact: { impactedLinks: [], stops: [{ repo: "org/orders", direction: "downstream", reason: "the repo has no mirror to index in this run" }] } }));
   assert.ok(text.includes("not walked"));

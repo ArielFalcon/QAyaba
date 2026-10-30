@@ -1,8 +1,8 @@
 /* The links of a run as a graph over repositories: what enters and leaves a repo, the repos a hop walks next, and a walk that admits each link once. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import type { ImpactedLink, ServiceLink } from "@kernel/service-links.ts";
-import { LinkGraph, LinkWalk, linkKey, mergeImpactedLinks } from "@contexts/service-topology/domain/link-graph.ts";
+import { linkIdentity, type ImpactedLink, type ServiceLink } from "@kernel/service-links.ts";
+import { LinkGraph, LinkWalk } from "@contexts/service-topology/domain/link-graph.ts";
 
 const link = (from: string, to: string, symbol = "call"): ServiceLink => ({
   from: { repo: from, file: `${from}/src.ts`, symbol },
@@ -31,7 +31,7 @@ test("a repo is onward when one of its outgoing links reaches a repo with outgoi
 
 test("the next repos of an upstream hop are the origins of the fresh links that some link targets, each with the links that feed it", () => {
   const graph = new LinkGraph([appToB, bToC]);
-  assert.deepEqual(graph.frontier("upstream", [impacted(bToC)]).map((f) => [f.repo, f.fed.map((x) => linkKey(x.link))]), [["b", [linkKey(bToC)]]]);
+  assert.deepEqual(graph.frontier("upstream", [impacted(bToC)]).map((f) => [f.repo, f.fed.map((x) => linkIdentity(x.link))]), [["b", [linkIdentity(bToC)]]]);
   assert.deepEqual(graph.frontier("upstream", [impacted(appToB)]), [], "nothing targets the app");
 });
 
@@ -44,19 +44,22 @@ test("the next repos of a downstream hop are the targets of the fresh links that
 test("a walk admits each link once per direction, so a cycle of links ends", () => {
   const cToB = link("c", "b");
   const walk = new LinkWalk("upstream");
-  assert.deepEqual(walk.admit([impacted(bToC)]).map((x) => linkKey(x.link)), [linkKey(bToC)]);
-  assert.deepEqual(walk.admit([impacted(cToB), impacted(bToC)]).map((x) => linkKey(x.link)), [linkKey(cToB)]);
+  assert.deepEqual(walk.admit([impacted(bToC)]).map((x) => linkIdentity(x.link)), [linkIdentity(bToC)]);
+  assert.deepEqual(walk.admit([impacted(cToB), impacted(bToC)]).map((x) => linkIdentity(x.link)), [linkIdentity(cToB)]);
   assert.deepEqual(walk.admit([impacted(cToB)]), []);
 });
 
-test("two changed repos that reach the same link list it once, the first reach standing", () => {
-  const first = impacted(bToC, { reach: { direction: "upstream", via: [] } });
-  const second = impacted(bToC, { tier: "contract-file" });
-  const merged = mergeImpactedLinks([[first], [second, impacted(appToB, { reach: { direction: "upstream", via: [bToC] } })]]);
-  assert.deepEqual(merged.map((x) => [linkKey(x.link), x.tier]), [[linkKey(bToC), "impacted-symbol"], [linkKey(appToB), "impacted-symbol"]]);
+const withOperation = (l: ServiceLink, symbol: string, verb: string, path: string): ServiceLink => ({ ...l, to: { ...l.to, symbol }, contractRef: symbol, operation: { verb, path } });
+
+test("two links of one call site to two operations of one service are two links, to a graph and to a walk", () => {
+  const list = withOperation(appToB, "list", "GET", "/orders");
+  const get = withOperation(appToB, "get", "GET", "/orders/{id}");
+  assert.notEqual(linkIdentity(list), linkIdentity(get));
+  assert.deepEqual(new LinkGraph([list, get]).into("b").map((l) => l.contractRef), ["get", "list"]);
+  assert.deepEqual(new LinkWalk("upstream").admit([impacted(list), impacted(get), impacted(list)]).map((x) => x.link.contractRef), ["get", "list"]);
 });
 
-test("the same link reached in both directions is listed in each", () => {
-  const merged = mergeImpactedLinks([[impacted(appToB)], [impacted(appToB, { reach: { direction: "downstream", via: [] } })]]);
-  assert.equal(merged.length, 2);
+test("two links that differ only by the verb or the path of the operation they call are two links", () => {
+  assert.notEqual(linkIdentity(withOperation(appToB, "op", "GET", "/orders")), linkIdentity(withOperation(appToB, "op", "POST", "/orders")));
+  assert.notEqual(linkIdentity(withOperation(appToB, "op", "GET", "/orders")), linkIdentity(withOperation(appToB, "op", "GET", "/orders/{id}")));
 });

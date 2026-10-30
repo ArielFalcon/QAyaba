@@ -13,7 +13,7 @@ import type { WorkspaceRunContext } from "../run-context.ts";
 import type { RunState } from "../run-state.ts";
 import { carryOn } from "../failure-policy.ts";
 import { indexOne } from "./opening.steps.ts";
-import { LinkGraph, LinkWalk, mergeImpactedLinks, type HopResult } from "@contexts/service-topology/application/index.ts";
+import { LinkGraph, LinkWalk, type HopResult } from "@contexts/service-topology/application/index.ts";
 import { Sha } from "@kernel/sha.ts";
 import { availabilityGroundingOf, withRouteConfigCandidates } from "../route-availability-grounding.ts";
 
@@ -212,9 +212,8 @@ async function followDownstream(state: Readonly<RunState>, ctx: WorkspaceRunCont
       stops.push({ repo: r.repo, direction: "downstream", reason: `walk failed: ${err instanceof Error ? err.message : String(err)}` });
     }
   }
-  const firstHop = mergeImpactedLinks([first]);
-  const beyond = await walkHops(ctx, graph, "downstream", firstHop, indexes, (request) => port.resolveDownstreamHop!({ ...request, links }));
-  return { links: [...firstHop, ...beyond.links], stops: [...stops, ...beyond.stops] };
+  const beyond = await walkHops(ctx, graph, "downstream", first, indexes, (request) => port.resolveDownstreamHop!({ ...request, links }));
+  return { links: [...first, ...beyond.links], stops: [...stops, ...beyond.stops] };
 }
 
 interface WalkedLinks {
@@ -304,10 +303,11 @@ async function indexMirrorOf(ctx: WorkspaceRunContext, repo: string): Promise<Ho
   return { ok: true, repoDir: mirror.repoDir };
 }
 
+/* The first hops of several changed services. Each link has one target repo, so the lists of two services cannot hold the same link: nothing is de-duplicated here. */
 function mergeImpacts(impacts: readonly CrossRepoImpact[]): CrossRepoImpact {
   const stops = impacts.flatMap((i) => i.stops ?? []);
   return {
-    impactedLinks: mergeImpactedLinks(impacts.map((i) => i.impactedLinks)),
+    impactedLinks: impacts.flatMap((i) => i.impactedLinks),
     ...(stops.length > 0 ? { stops } : {}),
   };
 }

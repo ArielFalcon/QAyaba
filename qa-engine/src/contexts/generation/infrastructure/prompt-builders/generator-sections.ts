@@ -1,6 +1,6 @@
 /* The sections of a generator prompt, in prompt order. Each declares when it applies and how it renders from the turn's PromptContext; buildPromptAssembled filters and renders them. Never import src/. */
 
-import type { ImpactReach } from "@kernel/service-links.ts";
+import { linkIdentity, type ImpactReach, type ServiceLink } from "@kernel/service-links.ts";
 import { sanitizeText } from "../../../../shared-infrastructure/redaction/pattern-redaction.adapter.ts";
 import { advisoryLineIds, itemId } from "@kernel/context-item-ids.ts";
 import { PROMPT_HEADINGS } from "@contexts/generation/domain/prompt-headings.ts";
@@ -172,15 +172,12 @@ function renderServiceLinks(ctx: PromptContext): SectionRender {
   const s = (x: unknown): string => sanitizeText(String(x ?? "")).text;
   const hasServiceLinks = Boolean(input.serviceLinks?.length);
   const hasContractDrift = Boolean(input.contractDrift?.length);
-  const linkKey = (l: { from: { repo: string; file: string; symbol: string }; to: { repo: string } }): string =>
-    `${l.from.repo}/${l.from.file}#${l.from.symbol}->${l.to.repo}`;
   /* A link reached in two ways lists the first (hop one upstream before the later hops, in the order the walk found them). */
   const impactedByKey = new Map<string, { tier: string; reach?: ImpactReach }>();
-  for (const { link, tier, reach } of input.crossRepoImpact?.impactedLinks ?? []) if (!impactedByKey.has(linkKey(link))) impactedByKey.set(linkKey(link), { tier, ...(reach ? { reach } : {}) });
+  for (const { link, tier, reach } of input.crossRepoImpact?.impactedLinks ?? []) if (!impactedByKey.has(linkIdentity(link))) impactedByKey.set(linkIdentity(link), { tier, ...(reach ? { reach } : {}) });
   const impactedTierByKey = new Map([...impactedByKey].map(([key, hit]) => [key, hit.tier] as const));
-  const tierFor = (l: { from: { repo: string; file: string; symbol: string }; to: { repo: string } }): string | undefined =>
-    impactedTierByKey.get(linkKey(l));
-  const reachFor = (l: { from: { repo: string; file: string; symbol: string }; to: { repo: string } }): ImpactReach | undefined => impactedByKey.get(linkKey(l))?.reach;
+  const tierFor = (l: ServiceLink): string | undefined => impactedTierByKey.get(linkIdentity(l));
+  const reachFor = (l: ServiceLink): ImpactReach | undefined => impactedByKey.get(linkIdentity(l))?.reach;
   const orderedLinks =
     impactedTierByKey.size > 0 && hasServiceLinks
       ? [

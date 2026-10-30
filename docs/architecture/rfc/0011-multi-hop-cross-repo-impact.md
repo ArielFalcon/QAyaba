@@ -98,7 +98,7 @@ The graph and the order.
 
 1. Hop 1 is today's `resolve` for each changed service repo (upstream) plus the downstream pass over each changed repo, the primary included. Its output for a one-hop app is today's output.
 2. Frontier: the repos named by the `from` of upstream links (for the upstream pass), or the `to` of downstream links (for the downstream pass), that no earlier hop walked in that direction. For each: ensure its index; ask `callersOf` once per repo and hop with every seed of the frontier together (the policy scales its budget with the seed count, `expansionBudget`); match; the new links are the next frontier.
-3. Stop when no link is new. Termination does not depend on a constant: a link enters the answer once (`linkKey`, `use-case.ts:133`), the links are a finite set, and a repo is walked once per direction and hop.
+3. Stop when no link is new. Termination does not depend on a constant: a link enters the answer once per direction, by its identity (`linkIdentity`, `shared-kernel/service-links.ts`: both ends, the transport, the contract operation and the operation the call makes; a call site that calls two operations holds two links, so a key of the call site and the target repo alone would drop one), the links are a finite set, and a repo is walked once per direction and hop.
 4. Each link carries how it was reached: the links crossed from the changed repo, in order, and the direction. Hop one has none.
 
 When a hop cannot be walked. The repo has no index and cannot be indexed (no mirror, the build failed or timed out), or `callersOf` answers unavailable: the hop is not walked, the repo and reason are returned as a stop of the impact (`stops: [{ repo, direction, reason }]`), and the links beyond it are not claimed. A walk the policy left partial returns the links it did reach, the stop says `partial` with the seed count, and the claim is a lower bound, exactly as the existing walk's `truncated` is logged at `use-case.ts:80-81`. The change scope copies each stop into its `degraded` list (the field and its span attribute exist: `change-scope.ts:70`, `ground.steps.ts:248`).
@@ -133,7 +133,7 @@ None to remove. Three places change meaning, each in the same commit as its test
 
 - `callSiteWalk` stops seeding links whose `from.repo` is not the app's repo (`change-scope-port.adapter.ts:167-176`): fixes the latent defect above for the one-hop case too.
 - The step's prefilter and the "primary is never asked" rule (`ground.steps.ts:153-159`) give way to a per-direction frontier.
-- `mergeImpacts` merges `stops` and de-duplicates links reached from two changed repos (`ground.steps.ts:173-179`).
+- `mergeImpacts` merges `stops` and concatenates the first hops of the changed repos (`ground.steps.ts:173-179`): each link has one target repo, so the lists of two changed services cannot overlap, and the later hops admit each link once through `LinkWalk`.
 
 ## Test plan
 

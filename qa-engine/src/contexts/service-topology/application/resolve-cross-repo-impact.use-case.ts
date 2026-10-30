@@ -1,7 +1,6 @@
 /* Cross-repo impact for a triggering service, and the later hops of the same walk (RFC-0011): per-service VCS read plus a repo-agnostic code graph. resolve() fails open (→ null) on any error but one: UntrustedGitTreeError means untrusted code replaced the mirror's git dir, so it is rethrown, never turned into "no impact". Cheap pre-filter when no link targets the trigger repo. Best-effort git fetch before the diff; its result is unread. */
 import { engineLog } from "@kernel/ports/process-logger.ts";
-import type { ServiceLink } from "@kernel/service-links.ts";
-import { MATCH_TIER, type CrossRepoImpact, type ImpactedLink, type ImpactStop } from "@kernel/service-links.ts";
+import { MATCH_TIER, linkIdentity, type ServiceLink, type CrossRepoImpact, type ImpactedLink, type ImpactStop } from "@kernel/service-links.ts";
 import { existsSync } from "node:fs";
 import type { BlastRadius } from "../../../shared-kernel/blast-radius.ts";
 import { Sha } from "../../../shared-kernel/sha.ts";
@@ -10,7 +9,7 @@ import { DEFAULT_WALK_POLICY, type ImpactedSymbol, type LocalSymbolRef } from ".
 import { rethrowIfUntrusted } from "../../../shared-kernel/domain-error.ts";
 import type { MirrorRefreshPort } from "./ports/mirror-refresh.port.ts";
 import { routeServesOperation } from "../domain/cross-repo-impact.ts";
-import { LinkGraph, linkKey } from "../domain/link-graph.ts";
+import { LinkGraph } from "../domain/link-graph.ts";
 import { diffOperations, type OperationChange } from "../domain/operation-diff.ts";
 import { parse as parseYaml } from "yaml";
 
@@ -92,13 +91,13 @@ export class ResolveCrossRepoImpactUseCase {
         const operation = link.operation;
         if (changes === undefined || operation === undefined) {
           impactedLinks.push({ link, tier: MATCH_TIER.CONTRACT_FILE, basis: "contract-file" });
-          matchedKeys.add(linkKey(link));
+          matchedKeys.add(linkIdentity(link));
           continue;
         }
         const change = changes.find((c) => c.verb === operation.verb.toUpperCase() && samePath(c.path, operation.path));
         if (change) {
           impactedLinks.push({ link, tier: MATCH_TIER.CONTRACT_FILE, operationChange: change.change });
-          matchedKeys.add(linkKey(link));
+          matchedKeys.add(linkIdentity(link));
         }
       }
 
@@ -110,12 +109,12 @@ export class ResolveCrossRepoImpactUseCase {
       const impactedRes = this.codeGraph ? await this.codeGraph.impactedSymbols(mirrorDir, blast, DEFAULT_WALK_POLICY) : undefined;
       if (impactedRes && !impactedRes.ok) engineLog.warn(`[qa] WARNING: the index did not answer the cross-repo impact walk of ${triggerRepo}, so only the contract-file tier applies (non-blocking): ${impactedRes.error.reason}`);
       if (impactedRes?.ok && impactedRes.value.truncated) engineLog.warn(`[qa] WARNING: the cross-repo impact walk of ${triggerRepo} left ${impactedRes.value.partialSeeds?.length ?? 0} seed(s) partial at its expansion budget; a link one of them would reach may be missing (non-blocking).`);
-      const pending = candidateLinks.filter((l) => !matchedKeys.has(linkKey(l)));
+      const pending = candidateLinks.filter((l) => !matchedKeys.has(linkIdentity(l)));
       const served = await this.endpointsReached(mirrorDir, impactedRes?.ok ? impactedRes.value.symbols : [], pending);
       for (const link of pending) {
         if (!served.has(link)) continue;
         impactedLinks.push({ link, tier: MATCH_TIER.IMPACTED_SYMBOL });
-        matchedKeys.add(linkKey(link));
+        matchedKeys.add(linkIdentity(link));
       }
 
       if (impactedLinks.length === 0) return null;
