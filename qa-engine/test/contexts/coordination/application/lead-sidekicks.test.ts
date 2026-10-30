@@ -570,7 +570,7 @@ test("the lead reviews every flow in its planning session: what it asked for, wh
   assert.equal(outcome.action, "fanout");
   assert.equal(lead.asked.length, 1);
   for (const expected of ["`cart`", "the cart total", "`login`", "sign in works", "// flows/cart.spec.ts", "Outcome: delivered", "run_spec: not available"]) assert.ok(lead.asked[0]!.includes(expected), expected);
-  assert.deepEqual(outcome.signal.review, { turns: 1, accepted: 2, revised: 0, replaced: 0, dropped: 0, refused: 0, unreadable: 0, repairs: 0 });
+  assert.deepEqual(outcome.signal.review, { turns: 1, accepted: 2, revised: 0, replaced: 0, dropped: 0, refused: 0, unreadable: 0, repairs: 0, notCarriedOut: 0 });
   assert.equal(lead.disposed(), 1, "the lead's session ends with the pass");
 });
 
@@ -1293,6 +1293,43 @@ test("a run stopped while a kept sidekick session answers a revision closes that
   if (outcome.action === "fanout") await outcome.pass?.release();
   const cart = r.executed.find((e) => !e.asked && e.brief.delegationId === "run-1-flow-cart")!;
   assert.ok(r.sessionsDisposed.includes(cart.session), "the session answering the revision is closed");
+});
+
+test("an order the lead gave in its review that the run has no room left to carry out is on the record and counted, never dropped in silence", async () => {
+  let left = 3_600_000;
+  const plan: CoordinateInput["plan"] = async () => ({
+    plan: FANOUT_PLAN, parsed: true, timedOut: false,
+    lead: {
+      askForPlan: noPlanAnswer,
+      ask: async () => {
+        left = MIN_FLOW_MS - 1;
+        return { output: JSON.stringify({ review: [{ flow: "cart", action: "revise", instruction: "assert the total" }, { flow: "login", action: "replace", instruction: "again" }] }), timedOut: false };
+      },
+      dispose: async () => {},
+    },
+  });
+  const r = rig({ answers: { cart: [{ status: "failed", summary: "x", filesChanged: [] }], login: [{ status: "failed", summary: "x", filesChanged: [] }] }, hasFile: new Set() });
+  const outcome = await new LeadSidekicks(r.deps).coordinate(input(r, { plan, closedLoop: undefined, deadline: { remainingMs: () => left } }));
+  if (outcome.action === "fanout") await outcome.pass?.release();
+  assert.equal(r.executed.some((e) => e.asked), false, "no order was carried out");
+  const dropped = r.events.filter((e) => e.kind === "lead-decision" && e.overridden === true && e.overrideReason === "no-time");
+  assert.deepEqual(dropped.map((e) => [e.flowId, e.decision]).sort(), [["cart", "revise"], ["login", "replace"]], "each order the lead gave is said, with what it was");
+  assert.equal(outcome.signal.review?.notCarriedOut, 2, "and counted");
+});
+
+test("an order the lead gave in its review for a flow whose workspace was never made is on the record and counted too", async () => {
+  const lead = leadWith([[{ flow: "cart", action: "revise", instruction: "assert the total" }], []]);
+  const r = rig({ hasFile: new Set(["login"]) });
+  const create = r.deps.workspaces.create;
+  r.deps.workspaces.create = async (request) => {
+    if (request.delegationId.endsWith("-cart")) throw new Error("disk full");
+    return create(request);
+  };
+  const outcome = await new LeadSidekicks(r.deps).coordinate(input(r, { plan: lead.plan, closedLoop: undefined }));
+  if (outcome.action === "fanout") await outcome.pass?.release();
+  const dropped = r.events.filter((e) => e.kind === "lead-decision" && e.flowId === "cart" && e.overrideReason === "flow-not-live");
+  assert.equal(dropped.length, 1);
+  assert.equal(outcome.signal.review?.notCarriedOut, 1);
 });
 
 test("findings the lead sends to a flow when too little of the run is left for it come back unrouted", async () => {

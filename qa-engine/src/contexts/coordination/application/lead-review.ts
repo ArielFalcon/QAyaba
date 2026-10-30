@@ -55,6 +55,9 @@ export const REVIEW_OVERRIDE = {
   NEEDS_INSTRUCTION: "needs-instruction",
   DELIVERED_DROP: "delivered-drop",
   SESSION_GONE: "session-gone",
+  /* An order admitted and then not carried out. */
+  NO_TIME: "no-time",
+  FLOW_NOT_LIVE: "flow-not-live",
 } as const;
 
 export interface ReviewAdmission {

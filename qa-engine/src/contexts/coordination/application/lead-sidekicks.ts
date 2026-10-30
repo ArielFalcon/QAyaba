@@ -37,7 +37,7 @@ import { candidateSlicesOf, changeViewOf, ownedSliceOf, type ChangeView } from "
 import { flowCapacity } from "./flow-capacity.ts";
 import type { CandidateClaim, DelegationResult } from "./delegation-result.ts";
 import { classifyDelegationFailure } from "./delegation-failure-class.ts";
-import { admitLeadReview, assembleUnreadableReviewRequest, candidateGapsOf, assembleLeadReview, MAX_REVIEW_TURNS, REVIEW_ACTION, withSpecDigests, type FailureBytes, type FlowUnderReview, type NoWritesLeft, type ReviewOrder, type SeenSpecs } from "./lead-review.ts";
+import { admitLeadReview, assembleUnreadableReviewRequest, candidateGapsOf, assembleLeadReview, MAX_REVIEW_TURNS, REVIEW_ACTION, REVIEW_OVERRIDE, withSpecDigests, type FailureBytes, type FlowUnderReview, type NoWritesLeft, type ReviewOrder, type SeenSpecs } from "./lead-review.ts";
 import type { CoordinationTelemetryEvent, CoordinationTelemetryPort } from "./coordination-telemetry.ts";
 import { PLAN_SNAPSHOT_KIND, type PlanSnapshotCandidate, type PlanSnapshotFlow, type PlanSnapshotKind, type PlanSnapshotPort } from "@kernel/ports/plan-snapshot.port.ts";
 import { authorTask } from "./author-task.ts";
@@ -256,6 +256,8 @@ interface ReviewTally {
   /* Entries of the review answers the reader could not read after the one repair turn, and the repair turns asked. */
   unreadable: number;
   repairs: number;
+  /* Orders the lead gave and the orchestrator admitted that were not carried out: the run had no room left, or the flow holds nothing to carry them out in. */
+  notCarriedOut: number;
 }
 
 export class LeadSidekicks {
@@ -502,7 +504,7 @@ export class LeadSidekicks {
       const results = await this.dispatcher.run(flows, { maxParallel: parallel, ...(input.signal ? { signal: input.signal } : {}) }, (flow, signal) => this.author(flow, context, live, signal));
       await this.settle(input, results, live, reports);
 
-      const tally: ReviewTally = { turns: 0, accepted: 0, revised: 0, replaced: 0, dropped: 0, refused: 0, unreadable: 0, repairs: 0 };
+      const tally: ReviewTally = { turns: 0, accepted: 0, revised: 0, replaced: 0, dropped: 0, refused: 0, unreadable: 0, repairs: 0, notCarriedOut: 0 };
       if (how.lead && !input.signal?.aborted) await this.review(how.lead, flows, parallel, context, live, reports, tally, decided);
 
       const outcomes = flows.map((flow) => reports.get(flow.id)?.outcome ?? { id: flow.id, kind: FLOW_OUTCOME.FAILED, reason: "no attempt could be made" });
@@ -826,7 +828,10 @@ export class LeadSidekicks {
     const seen: SeenSpecs = new Map();
     for (let turn = 1; turn <= MAX_REVIEW_TURNS; turn++) {
       const room = this.room(input);
-      if (room !== undefined && room < MIN_FLOW_MS) break;
+      if (room !== undefined && room < MIN_FLOW_MS) {
+        this.record(input, { kind: "lead-decision", reason: `review turn ${turn}: too little of the run is left (${room} ms, under the ${MIN_FLOW_MS} ms a flow needs) to ask the lead; the flows stand as they are` });
+        break;
+      }
       const underReview = await Promise.all(flows.map((flow) => this.underReview(flow, live.get(flow.id), reports.get(flow.id)!, input)));
       const gaps = candidateGapsOf(decided.admission, dropped, flows.map((flow, i) => ({ routes: flow.routes, candidates: flow.candidates, review: underReview[i]! })));
       let reply: { output: string; timedOut: boolean };
@@ -884,9 +889,14 @@ export class LeadSidekicks {
         this.record(input, { kind: "lead-decision", flowId: d.flowId, decision: REVIEW_ACTION.DROP, overridden: false, reason: `review turn ${turn}: flow ${d.flowId} dropped: ${d.reason}` });
       }
       const orders = admission.orders.filter((o) => live.has(o.flowId));
+      const notLive = admission.orders.filter((o) => !live.has(o.flowId));
+      this.leaveUncarried(input, turn, notLive, REVIEW_OVERRIDE.FLOW_NOT_LIVE, "the flow holds no workspace to carry it out in", tally);
       if (orders.length === 0) break;
       const after = this.room(input);
-      if (after !== undefined && after < MIN_FLOW_MS) break;
+      if (after !== undefined && after < MIN_FLOW_MS) {
+        this.leaveUncarried(input, turn, orders, REVIEW_OVERRIDE.NO_TIME, `too little of the run is left (${after} ms, under the ${MIN_FLOW_MS} ms a flow needs)`, tally);
+        break;
+      }
       const slots = orders.map((order) => {
         const flow = live.get(order.flowId)!.flow;
         return { ...order, id: order.flowId, budgetMs: Math.min(flow.budgetMs, after ?? flow.budgetMs) };
@@ -899,6 +909,14 @@ export class LeadSidekicks {
       const results = await this.dispatcher.run(slots, { maxParallel: parallel, ...(input.signal ? { signal: input.signal } : {}) }, (slot, signal) => this.revise(live.get(slot.flowId)!, slot, slot.budgetMs, context, signal));
       await this.settle(input, results, live, reports);
       if (input.signal?.aborted) break;
+    }
+  }
+
+  /* Orders the lead gave and the orchestrator admitted that are not carried out: each is said in the run's decisions with what it was and why, and all are counted. */
+  private leaveUncarried(input: CoordinateInput, turn: number, orders: readonly ReviewOrder[], code: string, why: string, tally: ReviewTally): void {
+    for (const order of orders) {
+      tally.notCarriedOut += 1;
+      this.record(input, { kind: "lead-decision", flowId: order.flowId, decision: order.action, overridden: true, overrideReason: code, reason: `review turn ${turn}: flow ${order.flowId} ${order.action} not carried out: ${why}` });
     }
   }
 

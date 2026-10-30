@@ -258,8 +258,8 @@ Every answer of the coordination crosses whole (RFC-0006), through one reader (`
 
 Every revision carries the orchestrator's facts beside the lead's instruction. A sidekick that writes nothing and says
 why (the change needs no test of its own) is a declined flow, not a failure. When every flow comes back empty, the run ends `E-NO-DECISION`; the lead does not take the change over. The review is counted in
-`gateSignals.coordination.review { turns, accepted, revised, replaced, dropped, refused, unreadable, repairs }` and each decision is a
-`lead-decision` event of the coordination telemetry.
+`gateSignals.coordination.review { turns, accepted, revised, replaced, dropped, refused, unreadable, repairs, notCarriedOut }` and each decision is a
+`lead-decision` event of the coordination telemetry. An order the orchestrator admitted and then did not carry out (the run has under `MIN_FLOW_MS` of room left once the lead answered, or the flow holds no workspace) is a `lead-decision` event with `overridden` and the code `no-time` or `flow-not-live`, and is counted in `notCarriedOut`; time is not allotted differently for it (RFC-0012).
 
 A `run_spec` call keeps the facts of each failing test in the ledger (`failures`: its error, redacted and bounded; the
 page it ended on, by pathname; the results the app's declared data state showed there; the server status; the runtime
