@@ -17,6 +17,11 @@ const RETIRED_SETTINGS: ReadonlyArray<{ readonly name: string; readonly gone: st
   { name: "QA_RUN_TIME_BUDGET_MS_COMPLETE", gone: "the complete and exhaustive modes were removed" },
   { name: "QA_RUN_TIME_BUDGET_MS_EXHAUSTIVE", gone: "the complete and exhaustive modes were removed" },
   { name: "COORDINATION_ESCALATED_MODEL", gone: "a replaced flow starts a fresh sidekick on the same model as the first" },
+  { name: "AGENT_RUNTIME_MODE", gone: "every role runs on the one agent runtime" },
+  { name: "AGENT_SINGLE_PROVIDER", gone: "every role runs on the one agent runtime" },
+  { name: "AGENT_PRIMARY_PROVIDER", gone: "every role runs on the one agent runtime" },
+  { name: "AGENT_REVIEWER_PROVIDER", gone: "every role runs on the one agent runtime" },
+  { name: "AGENT_CHAT_PROVIDER", gone: "every role runs on the one agent runtime" },
 ];
 
 export function retiredSettingWarnings(env: Readonly<Record<string, string | undefined>>): string[] {

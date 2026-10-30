@@ -43,7 +43,7 @@ import { installHttpDispatcher } from "../util/net";
 import { resolveRef, defaultMirrorDeps, ensureMirrorAtBranch, getHeadSha } from "../integrations/repo-mirror";
 import { askAssistant, AgentDeps, getOpenSessionCount, defaultAgentDeps, setAgentBrowserGrantLookup, setCodeGraphGrantLookup, setGeolocationGrantLookup } from "../integrations/opencode-client";
 import { createAgentRuntimeManager, logAgentConfigWarnings } from "./agent-runtime";
-import { keyPresence, retiredSelectorWarnings, validateAgentRuntimeConfig } from "../agent-runtime/config";
+import { keyPresence, validateAgentRuntimeConfig } from "../agent-runtime/config";
 import { OpenCodeRuntimeStrategy } from "../agent-runtime";
 import { getHistoryDatabase } from "./persistence/index";
 import { pruneHistory, retentionPolicyFrom } from "./persistence/retention";
@@ -217,10 +217,7 @@ export function wireApp(settingsStore: SettingsStore): WiredApp {
     hasOpenSessions: () => getOpenSessionCount() > 0,
   });
 
-  logAgentConfigWarnings([
-    ...validateAgentRuntimeConfig(agentRuntime.current(), keyPresence(settings.environment)).warnings,
-    ...retiredSelectorWarnings(settings.environment),
-  ]);
+  logAgentConfigWarnings(validateAgentRuntimeConfig(agentRuntime.current(), keyPresence(settings.environment)).warnings);
 
   function currentAgentDeps(): AgentDeps {
     return agentRuntime.facade().deps();
