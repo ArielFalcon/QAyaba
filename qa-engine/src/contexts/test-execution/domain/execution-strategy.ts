@@ -41,7 +41,6 @@ export interface ExecutionResult {
   cases: QaCase[];
   /** The tests the report says were skipped: no case, but their spec file loaded. Absent: none was skipped. */
   skippedTests?: SkippedTest[];
-  /** The cases that ran with `expectedStatus: "failed"` (`test.fail()`): their pass is the failure they expect. Absent: none did. */
   logs: string;
   /** Mutating requests to DEV the specs are charged: those the fixtures counted that the control load does not account for. Absent: not counted. */
   devWrites?: number;

@@ -110,7 +110,7 @@ export class AcceptDeliveredSpecsUseCase {
       const cases = [...judged.cases, ...judged.refused];
       /* A runner that says pass over a refused test, or over a delivered spec with no real passing case, has not shown the suite passing. */
       const unproven = result.verdict === "pass" && !input.specs.every((spec) => hasProof(spec, judged.cases));
-      const runVerdict: RunVerdict = unproven ? "fail" : verdictAfterRefusal(result.verdict, judged.refused.length);
+      const runVerdict: RunVerdict = unproven ? "fail" : verdictAfterRefusal(result.verdict, judged);
       executions.push({ verdict: runVerdict, cases });
       runs.push({ verdict: runVerdict, passed: cases.filter(isRealPass).length, failed: count(cases, "fail"), flaky: count(cases, "flaky"), ms: now() - started });
     }

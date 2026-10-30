@@ -222,7 +222,7 @@ export async function executeSpecs(state: Readonly<RunState>, ctx: WorkspaceRunC
   const run =
     judged.refused.length === 0
       ? reported
-      : { ...reported, verdict: verdictAfterRefusal(reported.verdict, judged.refused.length), cases: [...judged.cases, ...judged.refused], skippedTests: judged.skippedTests };
+      : { ...reported, verdict: verdictAfterRefusal(reported.verdict, judged), cases: [...judged.cases, ...judged.refused], skippedTests: judged.skippedTests };
   if (judged.refused.length > 0) deps.observer?.onEvent({ type: "log.line", level: "info", text: `[qa] ${judged.refused.length} skipped or test.fail() test(s) in the delivered specs are not a pass and are handed to the fix loop as failures` });
   /* The primary pass just ran: its bytes fix the contract every later regeneration is measured against (A5). */
   await services.primeIntentBaseline();

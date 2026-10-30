@@ -92,7 +92,19 @@ test("a pass that names no file proves no file, whatever else the run reported",
 });
 
 test("a refused test fails a run that passed, was flaky or executed nothing, and leaves a failure or a crash with no refusal as it was", () => {
-  assert.deepEqual((["pass", "flaky", "infra-error"] as const).map((v) => verdictAfterRefusal(v, 1)), ["fail", "fail", "fail"]);
-  assert.deepEqual((["pass", "flaky", "infra-error", "fail"] as const).map((v) => verdictAfterRefusal(v, 0)), ["pass", "flaky", "infra-error", "fail"]);
-  assert.equal(verdictAfterRefusal("skipped", 1), "skipped");
+  const refusedOnly = refuseOutright({ cases: [{ name: "known bug", status: "pass", expectedStatus: "failed", file: "flows/a.spec.ts" }] });
+  assert.deepEqual((["pass", "flaky"] as const).map((v) => verdictAfterRefusal(v, refusedOnly)), ["fail", "fail"]);
+  const allSkipped = refuseOutright({ cases: [], skippedTests: [{ name: "later", file: "flows/a.spec.ts" }] });
+  assert.equal(verdictAfterRefusal("infra-error", allSkipped), "fail", "a run that executed nothing because every test it found was skipped");
+  const none = refuseOutright({ cases: [{ name: "works", status: "pass", file: "flows/a.spec.ts" }] });
+  assert.deepEqual((["pass", "flaky", "infra-error", "fail"] as const).map((v) => verdictAfterRefusal(v, none)), ["pass", "flaky", "infra-error", "fail"]);
+  assert.equal(verdictAfterRefusal("skipped", refusedOnly), "skipped");
+});
+
+test("an infrastructure fault that executed tests stays one, whatever a refused test in it says", () => {
+  /* The browser could not launch: the tests that ran failed on the runner, and Playwright counts a declared test.fail() as the failure it expected. */
+  const launchFault = refuseOutright({ cases: [{ name: "works", status: "fail", file: "flows/a.spec.ts" }, { name: "known bug", status: "pass", expectedStatus: "failed", file: "flows/a.spec.ts" }] });
+  assert.equal(verdictAfterRefusal("infra-error", launchFault), "infra-error");
+  const onlyMarked = refuseOutright({ cases: [{ name: "known bug", status: "pass", expectedStatus: "failed", file: "flows/a.spec.ts" }] });
+  assert.equal(verdictAfterRefusal("infra-error", onlyMarked), "infra-error", "a test that ran is no sign the run executed nothing");
 });

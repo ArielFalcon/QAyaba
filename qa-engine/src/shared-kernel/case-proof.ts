@@ -128,8 +128,13 @@ export function refuseOutright(reported: ReportedTests, files?: readonly string[
 
 /*
  * The verdict of an execution once its refused tests are counted: a pass or a flaky run that holds a refused test fails, and so does a
- * run that executed nothing because every test it found was refused (a suite of skipped tests reports no case, which the runner calls
- * infrastructure). A report that parsed is the only one that names tests, so an infrastructure error with refused tests is that run.
+ * run that executed nothing because every test it found was a refused skip (a suite of skipped tests reports no case, which the runner
+ * calls infrastructure). An infrastructure fault that executed a test stays one: when the browser cannot launch, the tests that ran fail
+ * on the runner and Playwright counts a declared `test.fail()` as the failure it expected, which says nothing about the suite.
  */
-export const verdictAfterRefusal = (verdict: RunVerdict, refused: number): RunVerdict =>
-  refused > 0 && (verdict === "pass" || verdict === "flaky" || verdict === "infra-error") ? "fail" : verdict;
+export function verdictAfterRefusal(verdict: RunVerdict, judged: RefusedTests): RunVerdict {
+  if (judged.refused.length === 0) return verdict;
+  if (verdict === "pass" || verdict === "flaky") return "fail";
+  const executedNothing = judged.cases.length === 0 && judged.refused.every((c) => c.expectedStatus === "skipped");
+  return verdict === "infra-error" && executedNothing ? "fail" : verdict;
+}

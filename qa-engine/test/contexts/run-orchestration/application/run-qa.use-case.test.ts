@@ -2725,6 +2725,23 @@ test("errorClass is E-INFRA on an infra-error verdict", async () => {
   assert.equal(saved!.errorClass, "E-INFRA", "a mid-run infra-error verdict must derive errorClass:E-INFRA");
 });
 
+test("a browser that could not launch stays an infrastructure fault when a delivered spec holds a test.fail() test", async () => {
+  let published = 0;
+  const { ports } = stubPorts({
+    generate: async () => scriptedGeneration({ specs: ["flows/a.spec.ts"] }),
+    execute: async () => ({
+      verdict: "infra-error" as const,
+      cases: [{ name: "works", status: "fail" as const, file: "flows/a.spec.ts" }, { name: "known bug", status: "pass" as const, expectedStatus: "failed" as const, file: "flows/a.spec.ts" }],
+      logs: "browserType.launch: Executable doesn't exist",
+    }),
+  });
+  ports.publication.publish = async () => { published++; return { outcome: "issue" }; };
+  const out = await new RunQaUseCase({ ...ports, config: { ...baseConfig, needsReview: false, maxRetries: 0 } }).run({ ...baseInput, runId: "launch-fault-with-test-fail" });
+  assert.equal(out.decision.verdict, "infra-error");
+  assert.equal(out.errorClass, ERROR_CLASS.INFRA);
+  assert.equal(published, 0, "an infrastructure fault opens no Issue");
+});
+
 test("errorClass is E-FLAKY on a flaky verdict", async () => {
   let saved: import("@kernel/run-outcome.ts").RunOutcome | undefined;
   const { ports } = stubPorts({

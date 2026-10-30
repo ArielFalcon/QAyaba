@@ -340,7 +340,7 @@ export class RunSpecUseCase {
   }
 
   private statusOf(result: SpecExecutionResult, judged: RefusedTests): RunSpecStatus {
-    const verdict = verdictAfterRefusal(result.verdict, judged.refused.length);
+    const verdict = verdictAfterRefusal(result.verdict, judged);
     if (verdict === "pass" && hasRealPass(judged.cases)) return RUN_SPEC_STATUS.PASSED;
     if (verdict === "fail" || verdict === "flaky") return RUN_SPEC_STATUS.FAILED;
     if (result.verdict === "infra-error" && /timed out after/i.test(result.logs)) return RUN_SPEC_STATUS.TIMED_OUT;
