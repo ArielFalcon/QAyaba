@@ -42,10 +42,11 @@ const handlerRoute = (target: LocalSymbolRef, method: string, path: string): Gra
 interface Dirs { app: string; b: string; c: string }
 
 /* A code graph per repo directory: what each index would answer for the chain app -> B -> C. */
-function chainGraph(dirs: Dirs, indexed: string[]): CodeGraphPort {
+function chainGraph(dirs: Dirs, indexed: string[], events: string[]): CodeGraphPort {
   return {
     syncTo: async (repoDir, sha) => {
       indexed.push(`${repoDir}@${sha}`);
+      events.push(`index ${repoDir}`);
       return { repo: repoDir, engine: "fake", engineVersion: "1", sha, outcome: "built", durationMs: 0, nodeCount: 1, edgeCount: 0 };
     },
     impactedSymbols: async (repoDir) => {
@@ -54,6 +55,7 @@ function chainGraph(dirs: Dirs, indexed: string[]): CodeGraphPort {
       throw new Error(`no walk of a change expected in ${repoDir}`);
     },
     callersOf: async (repoDir, seeds) => {
+      events.push(`callers ${repoDir}`);
       if (repoDir === dirs.b) {
         assert.deepEqual(seeds, [B_CALL]);
         return report([sym(B_CALL, 0), sym(B_HANDLER, 1, { via: B_CALL, seeds: [{ ...B_CALL, hops: 1 }] })]);
@@ -73,7 +75,7 @@ function chainGraph(dirs: Dirs, indexed: string[]): CodeGraphPort {
   };
 }
 
-interface World { dirs: Dirs; indexed: string[]; scopes: ChangeScope[]; impacts: Array<CrossRepoImpact | null | undefined>; rig: Rig }
+interface World { dirs: Dirs; indexed: string[]; events: string[]; scopes: ChangeScope[]; impacts: Array<CrossRepoImpact | null | undefined>; rig: Rig }
 
 /* The run's two steps over the real use case and the real scope adapter; `changed` is the repo the run's change is in. */
 function world(links: readonly ServiceLink[], changed: "c" | "app"): World {
@@ -82,7 +84,8 @@ function world(links: readonly ServiceLink[], changed: "c" | "app"): World {
   const dirs: Dirs = { app: join(root, "app"), b: join(root, "b"), c: join(root, "c") };
   for (const dir of Object.values(dirs)) mkdirSync(dir, { recursive: true });
   const indexed: string[] = [];
-  const graph = chainGraph(dirs, indexed);
+  const events: string[] = [];
+  const graph = chainGraph(dirs, indexed, events);
   const mirrors = { mirrorDir: async (repo: string) => (repo === APP ? dirs.app : repo === B ? dirs.b : dirs.c) };
   const runner: SandboxedBinaryRunner = { run: async () => ({ exitCode: 0, stdout: "", stderr: "", timedOut: false }) };
   const sha = changed === "c" ? C_SHA : APP_SHA;
@@ -106,7 +109,7 @@ function world(links: readonly ServiceLink[], changed: "c" | "app"): World {
     ...(changed === "c" ? { codeGraphPrimary: { repo: APP, repoDir: dirs.app, headSha: async () => APP_SHA.toString() } } : {}),
     codeGraphMirrors: new Map([[B, { repoDir: dirs.b, headSha: async () => "b222222" }]]),
   };
-  return { dirs, indexed, scopes, impacts, rig };
+  return { dirs, indexed, events, scopes, impacts, rig };
 }
 
 const pageEntries = (scope: ChangeScope) => scope.reach.filter((r) => r.entry.kind === "page");
@@ -175,6 +178,8 @@ test("the unchanged service a hop walks through is indexed once, at the commit i
   try {
     await observe(w.rig, "hops-index-on-demand");
     assert.deepEqual(w.indexed.filter((x) => x.startsWith(w.dirs.b)), [`${w.dirs.b}@b222222`]);
+    const events = w.events.filter((e) => e.endsWith(w.dirs.b));
+    assert.deepEqual(events, [`index ${w.dirs.b}`, `callers ${w.dirs.b}`], "the repo is indexed, then walked");
   } finally {
     dispose(w.rig);
   }
