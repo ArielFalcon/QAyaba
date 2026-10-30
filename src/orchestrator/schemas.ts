@@ -235,12 +235,13 @@ export const AppConfigSchema = z
         .optional(),
       /*
        * Test-intent lock. off = the contract is not derived; signal (default) = derive it and record
-       * the would-be rejections. opacityFlagRatio flags a contract whose statically unreadable clauses
-       * cross it; the flag never blocks.
+       * the would-be rejections. The retired value `enforce` is still accepted and runs as `signal`: the
+       * loader warns, so an app left on it keeps being watched (config-loader.ts). opacityFlagRatio flags a
+       * contract whose statically unreadable clauses cross it; the flag never blocks.
        */
       intentLock: z
         .object({
-          mode: z.enum(["off", "signal"]).optional(),
+          mode: z.enum(["off", "signal", "enforce"]).transform((mode) => (mode === "enforce" ? "signal" : mode)).optional(),
           opacityFlagRatio: z.number().min(0).max(1).optional(),
         })
         .optional(),

@@ -51,6 +51,7 @@ export function loadAppConfig(name: string, root = ROOT): ValidatedAppConfig {
     throw new AppConfigInvalidError(name, err instanceof Error ? err.message : String(err), { cause: err });
   }
   warnDroppedKeys(name, root, droppedKeyPaths(document, config));
+  warnRetiredValues(name, root, document);
   return config;
 }
 
@@ -83,6 +84,22 @@ function warnDroppedKeys(app: string, root: string, paths: readonly string[]): v
     const advice = RETIRED_KEY_ADVICE.get(key);
     if (advice) appLogger.warn(`[qa] app config '${app}': key '${key}' is retired; ${advice}`, { app, key });
     else appLogger.warn(`[qa] app config '${app}': unknown key '${key}' is ignored (the schema does not declare it; a typo falls back to the default)`, { app, key });
+  }
+}
+
+/* A value the schema still accepts but no longer honours: the app keeps loading (a refused config silently stops watching it) and runs on the value named here. */
+const RETIRED_VALUES: readonly { readonly path: readonly string[]; readonly value: string; readonly now: string }[] = [
+  { path: ["qa", "intentLock", "mode"], value: "enforce", now: "signal" },
+];
+
+function warnRetiredValues(app: string, root: string, document: unknown): void {
+  for (const { path, value, now } of RETIRED_VALUES) {
+    const key = path.join(".");
+    const set = path.reduce<unknown>((at, part) => (isRecord(at) ? at[part] : undefined), document);
+    const id = `${root}\0${app}\0${key}\0${value}`;
+    if (set !== value || warnedKeys.has(id)) continue;
+    warnedKeys.add(id);
+    appLogger.warn(`[qa] app config '${app}': value '${value}' of '${key}' is retired; the app runs as '${now}' (the intent lock only records would-be rejections)`, { app, key });
   }
 }
 

@@ -4,7 +4,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { installLogShipper, type ShippedLine } from "../integrations/redacting-logger";
-import { AppConfigInvalidError, AppNotFoundError, describeAppLoadFailure, expandEnv, loadAppConfig } from "./config-loader";
+import { AppConfigInvalidError, AppNotFoundError, describeAppLoadFailure, expandEnv, listAppConfigs, loadAppConfig } from "./config-loader";
 
 test("expandEnv resolves mixed-case ${Var} names, not just UPPERCASE", () => {
   const out = expandEnv("a: ${myToken}\nb: ${UPPER}", { myToken: "x", UPPER: "y" });
@@ -191,19 +191,30 @@ report:
     }
   });
 
-  test("loadAppConfig refuses the retired enforce value of qa.intentLock.mode and still accepts signal", () => {
+  test("loadAppConfig loads an app that still sets the retired enforce value of qa.intentLock.mode, runs it as signal and warns", () => {
     const withMode = (mode: string) => VALID_APP.replace("  needsReview: true", `  needsReview: true\n  intentLock:\n    mode: ${mode}`);
-    const refused = loadWith("", withMode("enforce"));
+    const lines = captureWarnings();
+    const retired = loadWith("", withMode("enforce"));
     try {
-      assert.throws(() => loadAppConfig("shop", refused.root), (err: unknown) => err instanceof AppConfigInvalidError && /"intentLock"[\s\S]*"mode"/.test(err.message));
+      assert.equal(loadAppConfig("shop", retired.root).qa.intentLock?.mode, "signal");
+      loadAppConfig("shop", retired.root);
+      const warned = lines.filter((l) => /intentLock/.test(l.message));
+      assert.equal(warned.length, 1);
+      assert.match(warned[0]?.message ?? "", /'shop'/);
+      assert.match(warned[0]?.message ?? "", /'enforce'/);
+      assert.match(warned[0]?.message ?? "", /runs as 'signal'/);
+      assert.deepEqual(listAppConfigs(retired.root).map((app) => app.name), ["shop"]);
     } finally {
-      rmSync(refused.root, { recursive: true, force: true });
+      rmSync(retired.root, { recursive: true, force: true });
     }
-    const accepted = loadWith("", withMode("signal"));
-    try {
-      assert.equal(loadAppConfig("shop", accepted.root).qa.intentLock?.mode, "signal");
-    } finally {
-      rmSync(accepted.root, { recursive: true, force: true });
+    for (const mode of ["signal", "off"]) {
+      const accepted = loadWith("", withMode(mode));
+      try {
+        assert.equal(loadAppConfig("shop", accepted.root).qa.intentLock?.mode, mode);
+        assert.equal(lines.filter((l) => /intentLock/.test(l.message)).length, 1, `${mode} adds no warning`);
+      } finally {
+        rmSync(accepted.root, { recursive: true, force: true });
+      }
     }
   });
 
