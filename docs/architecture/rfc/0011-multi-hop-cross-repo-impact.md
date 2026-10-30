@@ -158,7 +158,7 @@ Further tests, each named by behavior, added with their unit:
 - T4 A cycle of links (`B <-> C` by events) ends and returns each link once.
 - T5 Downstream: the app changed; `app -> B` and `B -> C` are impacted with `direction: "downstream"`; no page or operation entry comes from them.
 - T6 A link whose `from.repo` is not the app's repo is not seeded in the app's index (the latent defect).
-- T7 One hop, FE-to-BE only: the impact, the scope and the prompt section are equal to the base's (the differential check below).
+- T7 One hop, FE-to-BE only: the impact, the scope and the prompt section are equal to the base's (the differential check below), except where the base merged two links that share a call site: since `linkIdentity` (6338e776) two operations one method calls are two links, so the base's lost link (an operation entry and its count) and its blanket `IMPACTED` mark on both are corrected, not kept (verifier cases D8, D9, accepted 2026-10-30 under ADR-0015 point 2).
 - T8 Two changed repos reaching the same link: it appears once.
 
 **Differential check** (`AGENTS.md`, test discipline): run the one-hop fixtures of the existing `resolve-cross-repo-impact.use-case.test.ts`, `change-scope-port.adapter.test.ts` and `run-qa.change-scope.test.ts` on the base commit in a temporary copy and on the change; stdout, record and prompt section must be identical for every case without a link beyond hop one. Committed tests never read git history.

@@ -279,7 +279,8 @@ Change-coverage is `unknown` for these runs.
 **Cross-repo impact over more than one hop** ([RFC-0011](docs/architecture/rfc/0011-multi-hop-cross-repo-impact.md)). The
 links the run resolved (`ServiceLink`: frontend to backend, `http-backend`, `event`) are a graph over repositories
 (`service-topology/domain/link-graph.ts`); an app that declares no backend-to-backend or event boundary has no edge beyond the
-first hop and keeps exactly that one hop. *Upstream*, from each changed service: hop one is the use case's `resolve` (the
+first hop and keeps exactly that one hop (its links told apart by their whole identity, `linkIdentity`: two operations one
+method calls are two links, each resolved, counted and marked impacted on its own). *Upstream*, from each changed service: hop one is the use case's `resolve` (the
 links into the changed repo); each later hop walks the repo the impacted links start in, inbound from their call sites in that
 repo's index (`callersOf` under `DEFAULT_WALK_POLICY`), and impacts the links into it whose endpoint (operationId, handler
 symbol or the handler of a route serving the operation) a caller reaches, carrying the links crossed (`ImpactedLink.reach.via`).
