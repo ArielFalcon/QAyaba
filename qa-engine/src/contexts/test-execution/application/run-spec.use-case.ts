@@ -166,7 +166,7 @@ export class RunSpecUseCase {
 
   /* `callSignal` is this call's own cancellation (its generator session ended); the run's cancellation (`deps.signal`) stops it too. */
   async run(request: RunSpecRequest, callSignal?: AbortSignal, observe?: CallObserver): Promise<RunSpecResponse> {
-    const { capability, deadline } = this.deps;
+    const { capability } = this.deps;
     const tell = (attrs: Attrs): void => {
       try {
         observe?.setAttrs(attrs);
@@ -197,7 +197,7 @@ export class RunSpecUseCase {
     const sha256 = createHash("sha256").update(read.bytes).digest("hex");
     tell({ "qayaba.spec.sha256": sha256 });
 
-    const reservation = capability.reserve(deadline?.remainingMs());
+    const reservation = capability.reserve(this.timeAllowed());
     if (!reservation.ok) return this.refusal(reservation.code, reservation.message);
     tell({ "qayaba.namespace": reservation.namespace });
 
@@ -226,7 +226,7 @@ export class RunSpecUseCase {
           /* The time the run has left and its writes to DEV are read when the call gets the account, not when it asked for it: every run_spec call of the run holds this lease, so the check and the charge below admit no two calls against the same last write. */
           const spent = capability.runWritesSpent();
           if (spent) return spent;
-          const timeoutMs = capability.timeoutFor(deadline?.remainingMs());
+          const timeoutMs = capability.timeoutFor(this.timeAllowed());
           if (typeof timeoutMs !== "number") return timeoutMs;
           began = true;
           const ran = await this.executeAndClean(rel, grep, reservation.namespace, timeoutMs, stop);
@@ -263,7 +263,7 @@ export class RunSpecUseCase {
       if (began) capability.settle({ path: rel, sha256, status, ms: Date.now() - started, devWrites, ...(devWriteRequests.length > 0 ? { devWriteRequests } : {}), ...(failures.length > 0 ? { failures } : {}) });
       else capability.cancel();
     }
-    return { ok: true, report: { status, tests, passedTests, budget: capability.budget(deadline?.remainingMs()), ...(loadErrors.length > 0 ? { loadErrors } : {}), ...(note !== undefined ? { note } : {}), ...(sessionLost ? { sessionLost: true as const } : {}) } };
+    return { ok: true, report: { status, tests, passedTests, budget: capability.budget(this.timeAllowed()), ...(loadErrors.length > 0 ? { loadErrors } : {}), ...(note !== undefined ? { note } : {}), ...(sessionLost ? { sessionLost: true as const } : {}) } };
   }
 
   private async executeAndClean(rel: string, grep: string | undefined, namespace: string, timeoutMs: number, stop: AbortSignal | undefined): Promise<{ status: RunSpecStatus; tests: RunSpecTestReport[]; passedTests: number; devWrites: number; devWriteRequests?: readonly DevWriteRequest[]; controlRequests?: readonly DevWriteRequest[]; writesUncounted?: true; failures: RunSpecFailureFact[]; loadErrors?: RunSpecLoadError[]; note?: string; sessionLost?: boolean }> {
@@ -312,7 +312,7 @@ export class RunSpecUseCase {
     /* A run whose writes could not be counted (an older fixtures file, a ledger the child spoiled or never left, a run that was stopped) is charged the whole budget that was left: the count comes from the suite's own fixtures, which is code the agent can edit, so an absent or unbelievable count is never read as "none". */
     if (result.devWrites === undefined) notes.push("the requests it sent to DEV could not be counted; the whole write budget that was left was charged");
     else if (result.unfinishedTests !== undefined && result.unfinishedTests > 0) notes.push(`${result.unfinishedTests} test(s) had not finished when the call ended; the writes they had sent and the requests they still had out were counted`);
-    return { status, tests, passedTests, devWrites: result.devWrites ?? this.deps.capability.budget(this.deps.deadline?.remainingMs()).devWritesLeft, ...(result.devWrites === undefined ? { writesUncounted: true as const } : {}), ...(result.devWrites !== undefined && result.devWriteRequests !== undefined ? { devWriteRequests: result.devWriteRequests } : {}), ...(result.devWrites !== undefined && result.controlRequests !== undefined ? { controlRequests: result.controlRequests } : {}), failures, ...(loadErrors.length > 0 ? { loadErrors } : {}), ...(notes.length > 0 ? { note: notes.join("; ") } : {}), ...(sessionLost ? { sessionLost } : {}) };
+    return { status, tests, passedTests, devWrites: result.devWrites ?? this.deps.capability.budget(this.timeAllowed()).devWritesLeft, ...(result.devWrites === undefined ? { writesUncounted: true as const } : {}), ...(result.devWrites !== undefined && result.devWriteRequests !== undefined ? { devWriteRequests: result.devWriteRequests } : {}), ...(result.devWrites !== undefined && result.controlRequests !== undefined ? { controlRequests: result.controlRequests } : {}), failures, ...(loadErrors.length > 0 ? { loadErrors } : {}), ...(notes.length > 0 ? { note: notes.join("; ") } : {}), ...(sessionLost ? { sessionLost } : {}) };
   }
 
   /* The sha256 of the spec as it stands now, read strictly, or undefined when it is gone or cannot be read. */
@@ -385,8 +385,13 @@ export class RunSpecUseCase {
     };
   }
 
+  /* What the run's current purpose may still spend on a call (the time left less what the phases after it are owed); undefined while no deadline is armed. */
+  private timeAllowed(): number | undefined {
+    return this.deps.deadline?.allowance() ?? undefined;
+  }
+
   private refusal(code: RunSpecRefusalCode, message: string): RunSpecResponse {
-    return { ok: false, code, message, budget: this.deps.capability.budget(this.deps.deadline?.remainingMs()) };
+    return { ok: false, code, message, budget: this.deps.capability.budget(this.timeAllowed()) };
   }
 
   /* The spec's path relative to the spec directory, or why it is not one of this suite's specs. */

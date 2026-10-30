@@ -40,7 +40,7 @@ signed-in app (see below); without either, no sidekick can author and the run en
 2. **Admit.** `admitLeadPlan` treats the plan as untrusted. It slugs the ids, assigns each flow the spec path
    `e2e/flows/<slug>.spec.ts` itself (any write list the lead names is ignored), caps the sizes, and refuses
    duplicates. It never refuses a plan for its number of flows: the run's **capacity** (`flow-capacity.ts`) is `maxParallel` x the full
-   `flowBudgetMs` that fit in what is left of the run after the reserve (at least one wave while a flow still has `MIN_FLOW_MS`),
+   `flowBudgetMs` that fit in the time the run's deadline allots to the phase (what is left less the measured time of the phases after it; at least one wave while a flow still has `MIN_FLOW_MS`),
    bounded by the app's optional `maxFlows` ceiling, and unbounded with neither a deadline nor a ceiling. The plan's first flows up
    to the capacity are admitted in plan order; the rest are named `notAdmitted` and asked of the lead in the amendment turn (below).
    Each admitted flow's grant is primary (`perFlowGrant`, `flow-capacity.ts`): it is granted the `run_spec` and authenticated-browser
@@ -193,8 +193,7 @@ mode, so no action is admitted beside another, whatever the account, and flows q
 ## The lead's review
 
 Each flow is authored once. The lead is then asked to review the flows in its planning session, which the plan kept
-open (`PlanOutput.lead`), read-only like the plan, bounded by `planBudgetMs` and by what the run has left beyond its
-reserve; at most `MAX_REVIEW_TURNS` (3) turns, and revisions are ordered in every turn but the last (`lead-review.ts`).
+open (`PlanOutput.lead`), read-only like the plan, bounded by `planBudgetMs` and by the time the deadline allots to the phase; at most `MAX_REVIEW_TURNS` (3) turns, and revisions are ordered in every turn but the last (`lead-review.ts`).
 Per flow it is shown the objective and acceptance, what came of the flow, the sidekick's summary and concerns, the
 flow's `run_spec` facts (calls used, the last call's status and failure, whether the spec it holds now is the one that
 passed) and the spec it delivered, read through the confined reader and bounded. When the plan had use cases to answer
@@ -334,9 +333,9 @@ findings, the run asks the lead, in the same planning session, instead of regene
    again is recorded unrouted with that reason (the lead neither sent it to a flow nor rebutted it after being asked once more).
    The lead's turns never spend the room the flows they order need. Every caller of the correction pass (review, static, execution,
    flaky, coverage, branch cases) meets this at the one shared point (`correct`): a lead turn, and the re-ask, is held to the room
-   (what is left of the run less its reserve) less two `MIN_FLOW_MS`, never above `planBudgetMs`: one is the minimum a flow needs for
-   what the lead orders, the other is slack for a turn that ends after its timeout, since with the reserve at its floor (under 480 s
-   left) every second the turn spends comes out of the room. When that leaves the turn less than `MIN_FLOW_MS` it is not sent: without the first turn each finding goes
+   (the time the deadline allots to the phase the run is in, which already holds back what the later phases need), never above
+   `planBudgetMs`; coordination keeps no reserve or margin of its own. When the room is under `MIN_FLOW_MS` the turn is not sent, and no flow
+   has time to carry an order out either: without the first turn each finding goes
    to its default owner (the spec it cites or names, the flow whose test ran the file, the flow whose use case holds it as a direct
    seed, plan order), without the re-ask the first answer stands, and each is recorded as a `lead-decision`. A run with no
    deadline is bounded by `planBudgetMs` alone. The values come from the run's own budget, never from the app.
@@ -349,7 +348,7 @@ findings, the run asks the lead, in the same planning session, instead of regene
    (confined to a `*.spec.ts` inside the spec directory, never a hidden directory such as the probe one), its own `run_spec` loop
    with the share of a plan flow, and the same release as every flow. All unrouted findings that name the same spec go to that one
    flow, and a later finding on it is routed to it through the lead like any other. It is bounded: at most one per spec, within
-   the app's `maxFlows` ceiling when it sets one (counting the plan's flows and the maintenance flows already opened) and the run's time reserve, and only for a
+   the app's `maxFlows` ceiling when it sets one (counting the plan's flows and the maintenance flows already opened) and the time the deadline allots, and only for a
    spec the working copy can read; without room the findings stay unrouted and the reason is a `lead-decision` event. What it delivers
    joins the round like the flows' deliveries. It is counted in `corrections.maintained`.
    A file seeds a use case through one seed definition every reader goes through (`candidateSeeds`, `seedingOf`,
@@ -377,7 +376,7 @@ findings, the run asks the lead, in the same planning session, instead of regene
    is one of a use case's own seeds, where no flow of the pass covers that use case (dropped or unplanned), opens one flow for that
    use case (a hub's code a use case only shares opens none: the hub reaches many pages and any one of them is arbitrary, so such a
    finding is the lead's to place, and it is asked again once about one it leaves out), the generalization of the maintenance
-   flow (`candidateFlowOf`, id `cand-<use case>`, the deterministic spec path of its id, the same cap, confinement and time reserve,
+   flow (`candidateFlowOf`, id `cand-<use case>`, the deterministic spec path of its id, the same cap, confinement and allotted time,
    a fresh sidekick that writes the spec), counted in `corrections.maintained`. Every unit of the gap is kept, listed across use cases and arms across files. Over the lead's
    window (the fit rule) the units give way as references: first the ones no flow owns, then the flows' own, each shown by the file it
    is about and then by file with the numbers of its findings, so a number still names a finding, the flow it is routed to is sent its

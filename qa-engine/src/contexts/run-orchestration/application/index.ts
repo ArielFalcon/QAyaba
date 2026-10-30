@@ -9,6 +9,8 @@ export type { EnqueueContextRunPort } from "./ports/enqueue-context-run.port.ts"
 export type { ContextHealRunRequest } from "../domain/context-heal-run-request.ts";
 export type { AcceptanceReport } from "./accept-delivered-specs.use-case.ts";
 export type { RunDeadlinePort } from "./ports/run-deadline.port.ts";
+export type { PhaseHistoryPort } from "./ports/phase-history.port.ts";
+export type { PhaseRecord } from "../domain/run-deadline.ts";
 export { RunQaUseCase } from "./run-qa.use-case.ts";
 export type { RunQaResult, RunQaUseCaseDeps } from "./run-qa.use-case.ts";
 export { contextMapValidity, parseNameStatusZ } from "../domain/context-map-validity.ts";

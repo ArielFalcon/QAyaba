@@ -1,6 +1,6 @@
 /*
  * How many flows a run can author, and what each flow is granted, derived from the run's own numbers: the flows that run at once,
- * the time one flow may take and what is left of the run after the reserve. An app may set a ceiling for cost; nothing else caps the
+ * the time one flow may take and the time the run allots to authoring (the deadline already holds back what the phases after it need). An app may set a ceiling for cost; nothing else caps the
  * count. A flow's tool grant is primary: the calls its own time can run, so the run's total is the sum of its flows' grants; an
  * app's ceiling on a total turns the grant into a share of it, never under a useful minimum. Pure: no clock, no file, no model.
  */
@@ -10,10 +10,8 @@ export interface CapacityInput {
   maxParallel: number;
   /* The most time one flow may take. */
   flowBudgetMs: number;
-  /* What is left of the run's time; absent when the run has no deadline. */
-  remainingMs?: number;
-  /* What the run keeps for what follows the flows (validation, execution, the reviewer). */
-  reserveMs: number;
+  /* The time the run's deadline allots to authoring now, net of what the phases after it are owed; absent when the run has no deadline. */
+  allowanceMs?: number;
   /* Less than this and a flow cannot read the brief, write a spec and try it once. */
   minFlowMs: number;
   /* The app's ceiling on flows, for cost; absent: none. */
@@ -21,15 +19,15 @@ export interface CapacityInput {
 }
 
 /*
- * The flows the run can author: `maxParallel` x the full flow budgets that fit in what is left after the reserve, at least one wave
+ * The flows the run can author: `maxParallel` x the full flow budgets that fit in the allotted time, at least one wave
  * while a flow still has its minimum, bounded by the app's ceiling. 0 when no flow has its minimum. Undefined when nothing bounds it
  * (no deadline and no ceiling).
  */
 export function flowCapacity(input: CapacityInput): number | undefined {
   const parallel = Math.max(1, input.maxParallel);
   const byTime = (() => {
-    if (input.remainingMs === undefined) return undefined;
-    const available = input.remainingMs - input.reserveMs;
+    if (input.allowanceMs === undefined) return undefined;
+    const available = input.allowanceMs;
     if (available < input.minFlowMs) return 0;
     return parallel * Math.max(1, Math.floor(available / input.flowBudgetMs));
   })();

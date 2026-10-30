@@ -453,7 +453,7 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   `sidekickAuthoring`: authenticated browser, `run_spec` only, the plain browser for an app with no login (one flow at a time), or
   excluded (a login with neither grant): the run then ends `E-NO-AUTHOR` and the log says why. Each flow is authored
   once; then the lead **reviews** the flows in its planning session (kept open by the plan, asked read-only, at most `MAX_REVIEW_TURNS`
-  turns inside the run's deadline and reserve; `lead-review.ts`): it sees each flow's objective, outcome, the sidekick's summary, the
+  turns inside the time the run's deadline allots; `lead-review.ts`): it sees each flow's objective, outcome, the sidekick's summary, the
   `run_spec` facts and the delivered spec (through the confined reader), and answers per flow `accept`, `revise` (its instruction to the
   SAME sidekick session, which is kept with its workspace and loop until the pass ends), `replace` (a fresh sidekick on the flow's brief) or `drop`. Its answer is untrusted and the orchestrator's facts decide over it: an `accept` of a spec that has not passed
   `run_spec` on its current bytes is sent back while it can run and a turn is left (a flow refused for writes cannot run: the review's facts say so and its accept stands); an app defect (5xx, uncaught runtime error, by the
@@ -476,7 +476,7 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   order the admission refuses, or findings a readable answer neither sent to a flow nor rebutted (and no flow of the orchestrator's own takes), go back to the lead once with the reasons and the numbers it left out (what it leaves out again is recorded unrouted with that reason), a file that seeds use cases of several flows reaches exactly one (the one the lead's first order gives it to among them; when the lead says nothing, the first flow in the pass's order whose spec's tests ran the file (`CorrectionFinding.ranBy`: from the dumps the measurement or its recount read, by dump name, a dump no passing case's spec wrote counting for none; in memory only), preferring one whose use case it seeds directly, then the first it seeds directly, else the first that shares it), the workspace is refreshed from the working copy first,
   and the result goes through the round's acceptance and rebuttal check like any regeneration. A finding no flow took that names a
   spec of the suite no flow of the plan authored gets one maintenance flow (a fresh flow sidekick on that spec alone, within
-  the app's `maxFlows` ceiling when set and the time reserve; `corrections.maintained`); any other is recorded unrouted and never handed to a cold author. The run's own checks before the review take the same route: the
+  the app's `maxFlows` ceiling when set and the allotted time; `corrections.maintained`); any other is recorded unrouted and never handed to a cold author. The run's own checks before the review take the same route: the
   static gate's errors (one finding per error block), a failing execution's cases in the fix loop, the pre-execution selector contradictions and the change-coverage gap (the changed lines no test ran and the
   arms of their decisions that never ran) each go to the lead as
   facts it routes to their flows and never rebuts (the coverage gap as one finding per file and per arm, each carrying `file`/`line`
@@ -487,7 +487,7 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   numbers of their findings, recorded as `window-fit`; surviving mutants join the same gap regeneration as findings on the
   spec that reached them); what no flow takes follows
   the same rule, and once the run's budget of corrections through the lead is spent the findings are recorded unrouted ("lead
-  correction budget spent") and nothing regenerates. The lead's own correction turns never spend the room the flows they order need: at the one shared point every caller meets (`correct`), a turn and its re-ask are held to the room less two `MIN_FLOW_MS` (the flows' minimum and the slack for a turn that ends late), and one that cannot leave it is not sent (each finding goes to its default owner, or the first answer stands, on the record). The run's acceptance of the round is unchanged. The run releases the pass after the review and in its `finally`. DEV access: every `run_spec` call and authenticated browser action holds its account's lease (`DevLease`, an `AccountLock`
+  correction budget spent") and nothing regenerates. The lead's own correction turns are held to the time the deadline allots to the phase the run is in, which already holds back what the later phases need (coordination keeps no reserve or margin of its own): at the one shared point every caller meets (`correct`), a turn and its re-ask are held to that room, never above `planBudgetMs`, and one that finds under `MIN_FLOW_MS` is not sent (the findings stay unrouted, or the first answer stands, on the record). The run's acceptance of the round is unchanged. The run releases the pass after the review and in its `finally`. DEV access: every `run_spec` call and authenticated browser action holds its account's lease (`DevLease`, an `AccountLock`
   that also holds DEV alone; the proxy has no read-only mode, so no two actions overlap).
   Workspaces are removed in a `finally` and swept at boot. `gateSignals.coordination { plan, refusal, flows, delivered,
   incomplete, authoring, review, corrections }`. `docs/lead-sidekicks.md`.
@@ -538,20 +538,32 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   are resolved once in the composition root (`resolveDiffTimeBudgets`, qa-engine never reads the
   environment) and stay clamped by `agentPromptCapMs`: a value at or above it sets no budget.
   `E-TIME-BUDGET` is never learned from (DEV latency confounds it).
-- **Run deadline** — one wall-clock deadline bounds the whole run, so no tier, mode, regeneration or
-  repair is unbounded (`run-orchestration/domain/run-time-budget.ts`, one named table:
-  `diff-tiny` 25 min, `diff-focused` 40, `diff-broad` 60, `manual` 45,
-  `context` 60; override per row with `QA_RUN_TIME_BUDGET_MS_DIFF_TINY|DIFF_FOCUSED|DIFF_BROAD|MANUAL|CONTEXT`,
-  a positive whole number of milliseconds, there is deliberately no `none`; a mistyped value fails the
-  composition). The use case arms it once after classification (`RunDeadlinePort.arm`), because a diff
-  run's row follows its change's size; it counts from there, so the deploy-gate wait is not on it. Every
-  agent turn goes through `RunDeadlineRuntime`, a decorator over the agent runtime: a turn finding no time
-  left is not sent, and every other runs under the smaller of its own limit and what is left (the tier
-  budget above still applies, inside it). A turn the deadline itself ended (not one that hit a limit of
-  its own) raises `RunDeadlineExceededError`, which `guarded` (the failure policy) turns into a persisted `infra-error E-TIME-BUDGET` with
-  a note naming the budget and the turn, nothing published and nothing learned. Deterministic phases
-  (validation, a Playwright execution) are not cut: they have their own timeouts and the next agent turn
-  meets the deadline. The deadline is the one time authority: the first generation pass is bounded by the smaller of its tier budget and what the deadline has left (`RunDeadline.allowance`), and a fix-loop regeneration starts only while the deadline has time left (`assertRegenerationTime`); neither stops a turn already running. There is no second clock: the app-config key `qa.wallClockBudgetMs` is retired (the loader warns and ignores it). A deadline that expires after a suite ran green on its final bytes degrades the run to publication with the proven suite when no review verdict is required (`deadline-after-proof`). Every limit that fires (the deadline that ends or degrades a run, the budget generation ends on, the limits turns end on) and every fault a run goes on past (`publication-failed`, `deadline-after-proof`, `regeneration-skipped`) is a typed fact of the run (`RunTraceFacts`: `limits`, `degradations`), recorded where it happens and written on the root span and the run record; the run's note is derived from them. The decision is one fact in one vocabulary (`pr | issue | quarantine | none`, with `shadowed` apart); a stored run reads the facts it never recorded as unknown (docs/observability-design.md, section 4.3). An audit signal, not a lesson: a streak of `E-TIME-BUDGET` ends reaches the process audit alone
+- **Run deadline** — one wall-clock deadline bounds the whole run, and it is the only clock
+  (`run-orchestration/domain/run-time-budget.ts`, one named table: `diff-tiny` 25 min, `diff-focused` 40,
+  `diff-broad` 60, `manual` 45, `context` 60; override per row with
+  `QA_RUN_TIME_BUDGET_MS_DIFF_TINY|DIFF_FOCUSED|DIFF_BROAD|MANUAL|CONTEXT`, a positive whole number of milliseconds, there is
+  deliberately no `none`; a mistyped value fails the composition). The use case arms it once after classification
+  (`RunDeadlinePort.arm`), because a diff run's row follows its change's size; it counts from there, so the deploy-gate wait is
+  not on it. The app-config key `qa.wallClockBudgetMs` is retired (the loader warns and ignores it).
+  **Allotment by purpose**: the deadline allots time by purpose (`shared-kernel/deadline-purpose.ts`: ground, generate,
+  validate, execute, fix, coverage, review, decide, the run's phases in order), and `allowance(purpose)` is the time left less
+  the reserve held for the purposes after it. A consumer asks with its purpose (an `allowance()` without one is the purpose of
+  the phase the run is in: the use case tells the deadline each phase it enters); none keeps a reserve or a margin of its own.
+  The reserve of a following purpose is the app's measured duration of its phases: the median over the app's last 20 finished
+  runs of the same mode that completed them (`runs.phase_timings`, read once when the deadline is armed through
+  `PhaseHistoryPort`; a phase a run never entered took 0 there, a phase a run was cut in is no sample). Following purposes with
+  no completed run share one fallback reserve, a quarter of what is left and at least 120 s (`FALLBACK_RESERVE_SHARE`,
+  `FALLBACK_RESERVE_MIN_MS`); a history that cannot be read leaves every reserve on the fallback and logs it. The first time each
+  purpose is allotted time the trace gets an `allotment` event (`qayaba.allotment.purpose|ms|reserve_ms|reserve_source|unmeasured`;
+  the source is `none`, `measured` or `fallback`). Every agent turn goes through `RunDeadlineRuntime`, a decorator over the
+  agent runtime: a turn whose purpose is allotted nothing is not sent, and every other runs under the smaller of its own limit
+  and its purpose's allowance (the tier budget above still applies, inside it). A turn the deadline itself ended (not one that
+  hit a limit of its own) raises `RunDeadlineExceededError`, which `guarded` (the failure policy) turns into a persisted
+  `infra-error E-TIME-BUDGET` with a note naming the budget and the turn, nothing published and nothing learned. Deterministic
+  phases (validation, a Playwright execution) are not cut: they have their own timeouts and the next agent turn meets the
+  deadline. The first generation pass is bounded by the smaller of its tier budget and the generate allowance, and a fix-loop
+  regeneration or an acceptance execution starts only while the fix allowance is positive (`assertRegenerationTime`); neither stops
+  a turn already running. A deadline that expires after a suite ran green on its final bytes degrades the run to publication with the proven suite when no review verdict is required (`deadline-after-proof`). Every limit that fires (the deadline that ends or degrades a run, the budget generation ends on, the limits turns end on; each a value of the closed set `TURN_LIMITS`) and every fault a run goes on past (`publication-failed`, `deadline-after-proof`) is a typed fact of the run (`RunTraceFacts`: `limits`, `degradations`), recorded where it happens and written on the root span and the run record; the run's note is derived from them. The decision is one fact in one vocabulary (`pr | issue | quarantine | none`, with `shadowed` apart); a stored run reads the facts it never recorded as unknown (docs/observability-design.md, section 4.3). An audit signal, not a lesson: a streak of `E-TIME-BUDGET` ends reaches the process audit alone
   (`observesOperatingSignal`), which logs an observe-only `recurring-time-exhaustion` finding; it never
   folds or changes a rule.
 - **Contract repair** — the re-prompt that only restates a verdict (author or reviewer) runs with tools

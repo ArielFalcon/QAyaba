@@ -150,6 +150,7 @@ import { ProcessAuditPortAdapter } from "@contexts/cross-run-learning/infrastruc
 import { YamlBoundaryProfileAdapter } from "@contexts/service-topology/infrastructure/yaml-boundary-profile.adapter";
 import { expandEnv } from "../orchestrator/config-loader";
 import { getHistory } from "./persistence/index";
+import { historyPhaseHistory } from "./phase-history";
 import { activeEnvironment } from "../settings/active";
 import { activeSettings } from "../settings/store";
 
@@ -927,6 +928,7 @@ export function buildEngineRootDeps(
     ...(stepLimitFor ? { stepLimitFor } : {}),
     ...(runContext ? { contextBudget: runContext.budget } : {}),
     runDeadline,
+    phaseHistory: historyPhaseHistory((appName, mode, limit) => getHistory().runs.recentPhaseRecords(appName, mode, limit)),
     ...(deps.telemetry ? { telemetry: deps.telemetry, toolAttempts: agentTurnTraces } : {}),
     /* What a run's specs held at validation is kept for after-the-fact grading, as long as the run is traced. */
     ...(deps.telemetry ? { specSnapshots: new SqliteSpecSnapshotAdapter(), planSnapshots: new SqlitePlanSnapshotAdapter() } : {}),

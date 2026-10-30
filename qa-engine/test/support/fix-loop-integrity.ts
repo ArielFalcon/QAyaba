@@ -4,5 +4,5 @@ import type { FixLoopIntegrity } from "@contexts/run-orchestration/domain/fix-lo
 export const UNPROVEN_INTEGRITY: FixLoopIntegrity = {
   hasGreenProof: async () => false,
   spendExecution: () => false,
-  remainingMs: () => undefined,
+  allowanceMs: () => undefined,
 };

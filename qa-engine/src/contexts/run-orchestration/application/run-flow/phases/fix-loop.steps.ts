@@ -294,7 +294,7 @@ export async function runFixLoop(state: Readonly<RunState>, ctx: WorkspaceRunCon
         }
       },
       spendExecution: () => acceptance.spendExecution(),
-      remainingMs: () => runDeadlinePort.remainingMs?.(),
+      allowanceMs: () => runDeadlinePort.allowance?.("fix") ?? undefined,
     },
   };
   /* Pre-exec corrections, and the files they were attributed to, still feed later FixLoop regens until the first of them consumes them. */

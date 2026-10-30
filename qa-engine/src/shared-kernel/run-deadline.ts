@@ -1,4 +1,5 @@
 /* The run-level wall-clock deadline as the layers around it see it: a read-only view of what is left, and the one error that says the run's time is spent. */
+import type { DeadlinePurpose } from "./deadline-purpose.ts";
 import { InfraError } from "./domain-error.ts";
 
 /** What a run's deadline lets an agent turn know: the time left and what the deadline is. Read-only; the run arms the deadline elsewhere. */
@@ -7,6 +8,11 @@ export interface RunDeadlineView {
   remainingMs(): number | undefined;
   /** What was armed: the named budget the run was held to and its length. Undefined while nothing is armed. */
   describe(): { label: string; budgetMs: number } | undefined;
+  /**
+   * Milliseconds the purpose (omitted: the one the run is in) may spend: the time left less what the purposes after it are owed.
+   * Null while no deadline is armed (nothing bounds the run yet). Zero: nothing may start for that purpose.
+   */
+  allowance(purpose?: DeadlinePurpose): number | null;
 }
 
 /** Whether the turn the deadline stopped had already begun. */

@@ -192,6 +192,16 @@ export class RunQaUseCase {
       const attrs = { "qayaba.deadline.label": armed.label, "qayaba.deadline.budget_ms": armed.budgetMs } as const;
       trail.spans.annotate(attrs);
       trail.spans.event("deadline_armed", attrs);
+      /* The first time each purpose is allotted time, the allotment and where its reserve came from are on the trace. */
+      this.deps.runDeadline?.observe?.((allotment) =>
+        trail.spans.event("allotment", {
+          "qayaba.allotment.purpose": allotment.purpose,
+          "qayaba.allotment.ms": allotment.ms,
+          "qayaba.allotment.reserve_ms": allotment.reserve.ms,
+          "qayaba.allotment.reserve_source": allotment.reserve.source,
+          "qayaba.allotment.unmeasured": [...allotment.reserve.unmeasured],
+        }),
+      );
     } catch (err) {
       engineLog.error(`[qa] the armed deadline could not be described for the trace (the run goes on): ${err instanceof Error ? err.message : String(err)}`);
     }
@@ -380,7 +390,10 @@ export class RunQaUseCase {
         await baseCtx.host.closeCoordinatedPass();
         return degradeFailedStep(reason, err, stepId, current, { reviewRequired: reviewsTests(baseCtx) && current.classification.generating && current.execution.run?.verdict === "pass", endOf: (endReason, cause) => failureEnd(endReason, cause, baseCtx, state) });
       },
-      enter: (phase: RunPhase) => trail.phases.enter(phase),
+      enter: (phase: RunPhase) => {
+        trail.phases.enter(phase);
+        this.deps.runDeadline?.enter?.(phase);
+      },
       record: (event) => {
         trail.spans.step({
           "qayaba.run_step.id": event.id,

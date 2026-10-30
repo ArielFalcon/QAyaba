@@ -78,11 +78,23 @@ export async function classifyChange(_state: Readonly<RunState>, ctx: WorkspaceR
   };
 }
 
+/* The finished runs of the app whose phases set the reserves (the median of what they took). */
+const RECENT_RUNS_FOR_RESERVE = 20;
+
 /* Armed here because a diff run's budget follows the size of its change, known only now; a classify-skip has already returned without spending any agent time. */
 export async function armRunDeadline(state: Readonly<RunState>, ctx: WorkspaceRunContext): Result {
   const { diff, intent } = state.classification;
   ctx.services.intentState.tokens = changeTokens(diff ?? "");
-  ctx.deps.runDeadline?.arm({ mode: ctx.input.mode, ...(diff !== undefined ? { diff } : {}), ...(intent ? { changedFiles: intent.changedFiles } : {}) });
+  const deadline = ctx.deps.runDeadline;
+  deadline?.arm({ mode: ctx.input.mode, ...(diff !== undefined ? { diff } : {}), ...(intent ? { changedFiles: intent.changedFiles } : {}) });
+  /* What the phases after each purpose need is what this app's recent runs took. A history that cannot be read leaves every reserve on its fallback, loudly. */
+  if (deadline?.measure && ctx.deps.phaseHistory) {
+    try {
+      deadline.measure(await ctx.deps.phaseHistory.recentPhaseRecords({ app: ctx.input.app, mode: ctx.input.mode, limit: RECENT_RUNS_FOR_RESERVE }));
+    } catch (err) {
+      engineLog.error(`[qa] the app's recent phase durations could not be read; every reserve falls back to a share of the time left: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
   ctx.host.noteDeadlineArmed();
 }
 

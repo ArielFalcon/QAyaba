@@ -9,6 +9,7 @@
  * Nothing here decides a verdict: it returns what a generation would, and the run reads it as it reads any generation.
  */
 
+import type { DeadlinePurpose } from "@kernel/deadline-purpose.ts";
 import { LOG_EFFECT, levelOfEffect } from "@kernel/ports/logger.port.ts";
 import { engineLog } from "@kernel/ports/process-logger.ts";
 import { sha256Hex } from "@kernel/content-hash.ts";
@@ -79,9 +80,6 @@ const changeRoutesOf = (input: { candidates?: readonly UseCaseCandidate[] }): st
 const MAX_SNAPSHOT_SPECS = 3;
 
 export const MIN_FLOW_MS = 60_000;
-/* What a run keeps for what follows the flows (validation, execution, the reviewer): a quarter of what is left, and never less than this. */
-export const MIN_RESERVE_MS = 120_000;
-export const RESERVE_SHARE = 0.25;
 
 export interface LeadSidekicksDeps {
   /* Where every free-form string the lead, the briefs and the evidence carry is redacted. */
@@ -97,8 +95,8 @@ export interface LeadSidekicksDeps {
   readSpec?(root: { mirrorDir: string; specDir: string }, specFile: string): Promise<string | undefined>;
   /* The spec file, relative to the spec directory, that a flow's id names. */
   specFileFor(flowId: string): string;
-  /* The run's deadline as the agents' turns read it; a call may bring its own. Absent: nothing bounds the run's time. */
-  deadline?: { remainingMs(): number | undefined };
+  /* The run's deadline as the agents' turns read it; a call may bring its own. Absent: nothing bounds the run's time. Its allowance is already net of what the phases after the current one are owed: coordination keeps no reserve of its own. */
+  deadline?: { allowance(purpose?: DeadlinePurpose): number | null };
   /* The author's window and the working room its turn needs: a brief preloads the flow's changed code while it fits, and an admitted flow whose owned change alone does not fit is asked of the lead to split. Absent, or an unknown window: every owned hunk is preloaded and no flow is too large. */
   contextBudget?: ContextBudget;
   log?(text: string): void;
@@ -131,7 +129,7 @@ export interface CoordinateInput {
   /* What the briefs quote of the change: the diff of each repo of the change, the anchor commit's subject, and the decisions on the changed lines of the first diff (the static listing of the run's own working copy). */
   change?: { diffs: readonly string[]; subject?: string; decisions?: readonly ChangedDecision[] };
   /* The run's deadline, when one is armed. */
-  deadline?: { remainingMs(): number | undefined };
+  deadline?: { allowance(purpose?: DeadlinePurpose): number | null };
   /* The planning turn, asked for with the limits the plan will be held to. Absent: this run's generation cannot plan. */
   plan?: (planning: PlanningLimits) => Promise<PlanOutput>;
   signal?: AbortSignal;
@@ -292,8 +290,8 @@ export class LeadSidekicks {
 
     const { settings } = input;
     const parallel = Math.min(settings.maxParallel, authoring.maxParallel ?? settings.maxParallel);
-    const before = this.remaining(input);
-    if (before !== undefined && before < settings.planBudgetMs + MIN_RESERVE_MS + MIN_FLOW_MS * 2) {
+    const before = this.allowance(input);
+    if (before !== undefined && before < settings.planBudgetMs + MIN_FLOW_MS * 2) {
       return refuse(AUTHORING_REFUSAL.NO_TIME, "too little of the run is left to plan and author in parallel", { authoring: authoringName });
     }
 
@@ -383,7 +381,7 @@ export class LeadSidekicks {
   /* The plan the lead emitted, held to the run's limits and the time left now. */
   private admit(input: CoordinateInput, raw: unknown, parallel: number): AdmittedPlan {
     const { settings } = input;
-    const remaining = this.remaining(input);
+    const remaining = this.allowance(input);
     const loop = input.closedLoop?.limits;
     return admitLeadPlan(
       raw,
@@ -391,8 +389,7 @@ export class LeadSidekicks {
         ...(settings.maxFlows !== undefined ? { ceiling: settings.maxFlows } : {}),
         maxParallel: parallel,
         flowBudgetMs: settings.flowBudgetMs.opencode,
-        ...(remaining !== undefined ? { remainingMs: remaining } : {}),
-        reserveMs: remaining === undefined ? 0 : this.reserve(remaining),
+        ...(remaining !== undefined ? { allowanceMs: remaining } : {}),
         minFlowMs: MIN_FLOW_MS,
         /* Each flow is granted the calls its time can run; the run's call totals are the sum of those grants unless the app set a ceiling. */
         ...(loop ? { runSpecPerCallMs: loop.perCallMs, runSpecDevWrites: loop.maxDevWrites, ...(loop.callsCeiling !== undefined ? { runSpecCallsCeiling: loop.callsCeiling } : {}) } : {}),
@@ -415,8 +412,8 @@ export class LeadSidekicks {
   private async reask(input: CoordinateInput, lead: LeadSessionHandle | undefined, downgrade: string, parallel: number, detail?: string): Promise<{ plan?: AdmittedPlan; noopReason?: string }> {
     if (!lead || input.signal?.aborted) return {};
     const { settings } = input;
-    const left = this.remaining(input);
-    if (left !== undefined && left < settings.planBudgetMs + MIN_RESERVE_MS + MIN_FLOW_MS) {
+    const left = this.allowance(input);
+    if (left !== undefined && left < settings.planBudgetMs + MIN_FLOW_MS) {
       this.record(input, { kind: "lead-decision", reason: `plan: not admitted (${downgrade}) and too little of the run is left to ask the lead again` });
       return {};
     }
@@ -462,9 +459,9 @@ export class LeadSidekicks {
     const needed = first.kind === LEAD_PLAN_KIND.NOOP ? (firstCoverage.refused?.length ?? 0) > 0 : needsAmendment(firstCoverage.unresolved, flows);
     if (!needed || !lead || MAX_PLAN_ROUNDS < 2 || input.signal?.aborted) return stands;
     const { settings } = input;
-    const left = this.remaining(input);
+    const left = this.allowance(input);
     const asked = amendmentSummary(firstCoverage, flows);
-    if (left !== undefined && left < settings.planBudgetMs + MIN_RESERVE_MS + MIN_FLOW_MS * 2) {
+    if (left !== undefined && left < settings.planBudgetMs + MIN_FLOW_MS * 2) {
       this.record(input, { kind: "lead-decision", reason: `plan: ${asked} and too little of the run is left to ask the lead again` });
       return stands;
     }
@@ -1288,40 +1285,31 @@ export class LeadSidekicks {
     return this.revise(entry, { flowId: order.flowId, action: order.action, instruction }, timeoutMs, context, signal);
   }
 
-  /* What the run can still spend on flows and the lead's turns: what is left of it less what it keeps for what follows. Undefined: no deadline. */
+  /* What the run can still spend on flows and the lead's turns: the time its deadline allots to the phase the run is in, net of what the phases after it are owed. Undefined: no deadline. */
   private room(input: CoordinateInput): number | undefined {
-    const left = this.remaining(input);
-    return left === undefined ? undefined : left - this.reserve(left);
+    return this.allowance(input);
   }
 
   /*
-   * The time one of the lead's correction turns may take, or undefined when none fits. A turn is held to the room less two flows'
-   * minimum: one is what the lead orders need to run, the other is the slack for a turn that ends after its timeout (an abort never
-   * lands on it). The room shrinks by at most what the turn spends, and by all of it once the reserve is at its floor (under
-   * 4 x MIN_RESERVE_MS left), where a budget of the room less one minimum leaves the orders exactly that minimum and no margin. A
-   * turn that could be given less than a flow's minimum is not worth sending. No deadline: the plan budget.
+   * The time one of the lead's correction turns may take, or undefined when none fits: the room, up to the plan budget. A turn that
+   * could be given less than a flow's minimum is not worth sending. No deadline: the plan budget.
    */
   private leadTurnBudget(input: CoordinateInput): number | undefined {
     const room = this.room(input);
     if (room === undefined) return input.settings.planBudgetMs;
-    const spare = room - MIN_FLOW_MS * 2;
-    return spare < MIN_FLOW_MS ? undefined : Math.min(input.settings.planBudgetMs, spare);
+    return room < MIN_FLOW_MS ? undefined : Math.min(input.settings.planBudgetMs, room);
   }
 
-  private remaining(input: CoordinateInput): number | undefined {
-    return (input.deadline ?? this.deps.deadline)?.remainingMs();
+  private allowance(input: CoordinateInput): number | undefined {
+    return (input.deadline ?? this.deps.deadline)?.allowance() ?? undefined;
   }
 
-  private reserve(remaining: number): number {
-    return Math.max(MIN_RESERVE_MS, Math.floor(remaining * RESERVE_SHARE));
-  }
-
-  /* The flows the run can author with `remaining` of its time (the reserve kept) and the app's ceiling; undefined when nothing bounds them. */
+  /* The flows the run can author in `remaining` of allotted time and the app's ceiling; undefined when nothing bounds them. */
   private capacity(input: CoordinateInput, parallel: number, remaining: number | undefined): number | undefined {
     return flowCapacity({
       maxParallel: parallel,
       flowBudgetMs: input.settings.flowBudgetMs.opencode,
-      ...(remaining !== undefined ? { remainingMs: remaining, reserveMs: this.reserve(remaining) } : { reserveMs: 0 }),
+      ...(remaining !== undefined ? { allowanceMs: remaining } : {}),
       minFlowMs: MIN_FLOW_MS,
       ...(input.settings.maxFlows !== undefined ? { ceiling: input.settings.maxFlows } : {}),
     });

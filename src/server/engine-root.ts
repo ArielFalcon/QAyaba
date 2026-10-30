@@ -5,7 +5,7 @@ import type { RunPipelinePort } from "../../qa-engine/src/contexts/run-orchestra
 import type { ObserverPort } from "../../qa-engine/src/contexts/run-orchestration/application/index";
 import type { RunHistoryPort } from "../../qa-engine/src/contexts/run-orchestration/application/index";
 import type { ContextMapCapturePort } from "@contexts/generation/application/index";
-import type { RunDeadlinePort } from "../../qa-engine/src/contexts/run-orchestration/application/index";
+import type { PhaseHistoryPort, RunDeadlinePort } from "../../qa-engine/src/contexts/run-orchestration/application/index";
 import type { SuiteStorePort } from "@kernel/ports/suite-store.port";
 import type { ValidationPort } from "@contexts/test-execution/application/index";
 import type { ObjectiveSignalPort } from "@contexts/objective-signal/application/index";
@@ -94,6 +94,8 @@ export interface EngineRootDeps {
   reviewerIndependence?: () => "shared-model" | "distinct-model" | undefined;
   /* The run-level wall-clock deadline the shell built (the same object its bounded agent runtime reads). Optional, no stub: absent omits RunQaUseCaseDeps.runDeadline and nothing arms. */
   runDeadline?: RunDeadlinePort;
+  /* The app's recent runs by phase, from which the deadline reads each reserve. Absent: every reserve falls back. */
+  phaseHistory?: PhaseHistoryPort;
   /* The telemetry port the shell built. Absent: nothing is traced. It never changes a verdict. */
   telemetry?: TelemetryPort;
   /* Where the text of the specs a run holds at validation is kept for after-the-fact grading (docs/observability-design.md §11.1). Absent: none is kept. Never blocks a run. */
@@ -486,6 +488,7 @@ function assemble(cfg: EngineRootDeps): RunOrchestrationApi {
     /* Absent runDeadline is omitted entirely — never a fabricated deadline that bounds nothing. */
     ...(cfg.runDeadline ? { runDeadline: cfg.runDeadline } : {}),
     redact: (text) => patternRedaction.redact(text),
+    ...(cfg.phaseHistory ? { phaseHistory: cfg.phaseHistory } : {}),
     ...(cfg.telemetry ? { telemetry: cfg.telemetry } : {}),
     ...(cfg.clock ? { phaseClock: cfg.clock } : {}),
     /* Absent contextMapCapture is omitted entirely — never a fabricated no-op stub. */

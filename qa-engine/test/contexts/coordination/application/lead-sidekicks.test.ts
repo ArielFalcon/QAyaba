@@ -4,6 +4,8 @@ import { AUTHORING_REFUSAL } from "@kernel/coordination.ts";
 import { UNREADABLE_ANSWER } from "@kernel/unreadable-answer.ts";
 import { CORRECTION_ORIGIN } from "@contexts/coordination/application/lead-correction.ts";
 import { test } from "node:test";
+import { RunDeadline } from "@contexts/run-orchestration/domain/run-deadline.ts";
+import { RUN_TIME_BUDGET_MS } from "@contexts/run-orchestration/domain/run-time-budget.ts";
 import type { UseCaseCandidate } from "@kernel/use-case-candidate.ts";
 import assert from "node:assert/strict";
 import { GENERATION_END } from "@kernel/generation-end.ts";
@@ -250,7 +252,7 @@ test("a generation that cannot plan, a login with no grant to author with and a 
   assert.equal(refusalOf(bare), AUTHORING_REFUSAL.NO_AUTHOR_GRANT, "a login and neither run_spec nor the browser");
   assert.equal(bare.signal.authoring, "excluded");
 
-  const hurried = await r.coordinator.coordinate(input(r, { plan, deadline: { remainingMs: () => 60_000 } }));
+  const hurried = await r.coordinator.coordinate(input(r, { plan, deadline: { allowance: () => 60_000 } }));
   assert.equal(refusalOf(hurried), AUTHORING_REFUSAL.NO_TIME);
   assert.equal(asked, 0, "none of them paid for a planning turn");
   assert.equal(r.executed.length, 0);
@@ -757,7 +759,7 @@ test("the lead is never asked to review when the run has no room left for it", a
   const lead = leadWith([[{ flow: "cart", action: "accept" }]]);
   const r = rig();
   let calls = 0;
-  const done = await new LeadSidekicks(r.deps).coordinate(input(r, { plan: lead.plan, deadline: { remainingMs: () => (++calls <= 2 ? 3_600_000 : MIN_FLOW_MS) } }));
+  const done = await new LeadSidekicks(r.deps).coordinate(input(r, { plan: lead.plan, deadline: { allowance: () => (++calls <= 2 ? 3_600_000 : MIN_FLOW_MS - 1) } }));
   if (done.action === "fanout") await done.pass?.release();
   assert.equal(lead.asked.length, 0);
   assert.equal(lead.disposed(), 1);
@@ -783,7 +785,7 @@ test("flows that all finished nothing end the coordination on no decision, with 
 
   const tight = rig(failing);
   let asked = 0;
-  const ended = await tight.coordinator.coordinate(input(tight, { deadline: { remainingMs: () => (++asked <= 2 ? 3_600_000 : 100_000) } }));
+  const ended = await tight.coordinator.coordinate(input(tight, { deadline: { allowance: () => (++asked <= 2 ? 3_600_000 : 100_000) } }));
   assert.equal(ended.action, "fanout");
   assert.equal(ended.action === "fanout" ? ended.aggregated.end : "", GENERATION_END.UNDECIDED_EMPTY);
 });
@@ -1274,7 +1276,7 @@ test("the lead's rebuttal comes back for the run to check, and a finding on a fl
 test("a pass whose flows delivered nothing is not kept, even with the lead's session: everything ends with the coordination", async () => {
   const lead = leadAnswering([JSON.stringify({ review: [] })]);
   const r = rig({ hasFile: new Set(), answers: { cart: [{ status: "failed", summary: "x", filesChanged: [] }], login: [{ status: "failed", summary: "x", filesChanged: [] }] } });
-  const outcome = await new LeadSidekicks(r.deps).coordinate(input(r, { plan: lead.plan, closedLoop: undefined, deadline: { remainingMs: () => 1_000_000 } }));
+  const outcome = await new LeadSidekicks(r.deps).coordinate(input(r, { plan: lead.plan, closedLoop: undefined, deadline: { allowance: () => 1_000_000 } }));
   assert.equal(outcome.action === "fanout" ? outcome.pass : undefined, undefined);
   assert.equal(lead.disposed(), 1);
   assert.equal(r.disposed.length, 2);
@@ -1309,7 +1311,7 @@ test("an order the lead gave in its review that the run has no room left to carr
     },
   });
   const r = rig({ answers: { cart: [{ status: "failed", summary: "x", filesChanged: [] }], login: [{ status: "failed", summary: "x", filesChanged: [] }] }, hasFile: new Set() });
-  const outcome = await new LeadSidekicks(r.deps).coordinate(input(r, { plan, closedLoop: undefined, deadline: { remainingMs: () => left } }));
+  const outcome = await new LeadSidekicks(r.deps).coordinate(input(r, { plan, closedLoop: undefined, deadline: { allowance: () => left } }));
   if (outcome.action === "fanout") await outcome.pass?.release();
   assert.equal(r.executed.some((e) => e.asked), false, "no order was carried out");
   const dropped = r.events.filter((e) => e.kind === "lead-decision" && e.overridden === true && e.overrideReason === "no-time");
@@ -1349,7 +1351,7 @@ test("findings the lead sends to a flow when too little of the run is left for i
     },
   });
   const r = rig();
-  const outcome = await new LeadSidekicks(r.deps).coordinate(input(r, { plan, closedLoop: undefined, deadline: { remainingMs: () => left } }));
+  const outcome = await new LeadSidekicks(r.deps).coordinate(input(r, { plan, closedLoop: undefined, deadline: { allowance: () => left } }));
   if (outcome.action !== "fanout") return assert.fail("fanout expected");
   const corrected = await outcome.pass!.correct([{ text: "the total is never asserted", spec: "e2e/flows/cart.spec.ts" }]);
   await outcome.pass!.release();
@@ -2246,17 +2248,37 @@ const diffOf = (files: Record<string, number>): string =>
 const ORDERS_FLOW = { id: "orders", objective: "the order list", candidates: ["uc-/orders"] };
 const CITING_THREE = { kind: "fanout", flows: [...CITING_PLAN.flows, ORDERS_FLOW] };
 
+test("the flows are admitted under the time the deadline allots to generation, so the measured time of the phases after it is never spent on them", async () => {
+  let t = 0;
+  const deadline = new RunDeadline({ now: () => t, budgets: { ...RUN_TIME_BUDGET_MS, manual: 40 * 60_000 } });
+  deadline.arm({ mode: "manual" });
+  /* The app's runs spend 25 minutes after generation (validation, execution, coverage, review, decision). */
+  deadline.measure([{ furthestPhase: "learn", phaseTimings: { validate: 2 * 60_000, execute: 5 * 60_000, coverage: 3 * 60_000, review: 12 * 60_000, publish: 3 * 60_000 } }]);
+  deadline.enter("generate");
+  const r = rig();
+  const seen: PlanningLimits[] = [];
+  const settings = { ...DEFAULT_COORDINATION_SETTINGS, maxParallel: 2, flowBudgetMs: { opencode: 6 * 60_000 } };
+  await r.coordinator.coordinate(input(r, { settings, deadline, plan: async (p) => (seen.push(p), { parsed: false, timedOut: true }) }));
+  /* 40 - 25 = 15 minutes for generation, 3 of them for the plan: 12 minutes of 6-minute flows is 2 waves of 2. */
+  assert.equal(seen[0]!.capacity, 4);
+  t = 20 * 60_000;
+  const later = rig();
+  const seenLater: PlanningLimits[] = [];
+  await later.coordinator.coordinate(input(later, { settings, deadline, plan: async (p) => (seenLater.push(p), { parsed: false, timedOut: true }) }));
+  assert.equal(seenLater.length, 0, "20 minutes in, generation has 5 left less the plan's 3: too little to plan in parallel, whatever the review is owed");
+});
+
 test("the planning turn is told the run's capacity from its time and parallel flows, and the change each candidate would own", async () => {
   const r = rig();
   const seen: PlanningLimits[] = [];
-  /* 63 min left, 3 for the plan: 60, a quarter kept, 45 min of 10 min flows is 4 waves of 2. */
+  /* 48 min allotted, 3 for the plan: 45 min of 10 min flows is 4 waves of 2. */
   const settings = { ...DEFAULT_COORDINATION_SETTINGS, maxParallel: 2, flowBudgetMs: { opencode: 10 * 60_000 } };
-  await r.coordinator.coordinate(input(r, { settings, deadline: { remainingMs: () => 63 * 60_000 }, candidates: SEEDED, change: { diffs: [diffOf({ "src/cart.ts": 3, "src/login.ts": 1 })] }, plan: async (p) => (seen.push(p), { parsed: false, timedOut: true }) }));
+  await r.coordinator.coordinate(input(r, { settings, deadline: { allowance: () => 48 * 60_000 }, candidates: SEEDED, change: { diffs: [diffOf({ "src/cart.ts": 3, "src/login.ts": 1 })] }, plan: async (p) => (seen.push(p), { parsed: false, timedOut: true }) }));
   assert.equal(seen[0]!.capacity, 8);
   assert.deepEqual(seen[0]!.candidateSlices?.["uc-/cart"], { hunks: 1, added: 3, removed: 1 });
   assert.deepEqual(seen[0]!.candidateSlices?.["uc-/orders"], { hunks: 0, added: 0, removed: 0 });
   const ceiling: PlanningLimits[] = [];
-  await rig().coordinator.coordinate(input(r, { settings: { ...settings, maxFlows: 3 }, deadline: { remainingMs: () => 63 * 60_000 }, plan: async (p) => (ceiling.push(p), { parsed: false, timedOut: true }) }));
+  await rig().coordinator.coordinate(input(r, { settings: { ...settings, maxFlows: 3 }, deadline: { allowance: () => 48 * 60_000 }, plan: async (p) => (ceiling.push(p), { parsed: false, timedOut: true }) }));
   assert.equal(ceiling[0]!.capacity, 3, "the app's ceiling bounds it");
 });
 
@@ -2391,7 +2413,7 @@ function timedPass(outputs: string[], spend: number | "to-timeout", overshootMs 
   });
   const r = rig();
   const start = async (left: number) => {
-    const outcome = await new LeadSidekicks(r.deps).coordinate(input(r, { plan, closedLoop: undefined, deadline: { remainingMs: () => clock.left } }));
+    const outcome = await new LeadSidekicks(r.deps).coordinate(input(r, { plan, closedLoop: undefined, deadline: { allowance: () => clock.left } }));
     if (outcome.action !== "fanout") throw new Error("fanout expected");
     clock.left = left;
     clock.armed = true;
@@ -2402,55 +2424,41 @@ function timedPass(outputs: string[], spend: number | "to-timeout", overshootMs 
 
 const CART_FINDING = { text: "the total is never asserted", spec: "e2e/flows/cart.spec.ts" };
 
-test("a slow lead turn is held to the time that leaves its orders the minimum a flow needs, so the orders reach their flows", async () => {
-  const { r, clock, timeouts, start } = timedPass([], "to-timeout");
+test("a slow lead turn is held to the time its purpose is allotted, up to the plan budget, with no margin of the coordination's own", async () => {
+  const { r, timeouts, start } = timedPass([], "to-timeout");
   const outcome = await start(330_000);
   const corrected = await outcome.pass!.correct([CART_FINDING], CORRECTION_ORIGIN.COVERAGE);
   await outcome.pass!.release();
-  assert.ok(timeouts[0]! <= 330_000 - 120_000 - MIN_FLOW_MS, "the turn may use what the room holds less one flow's minimum");
-  assert.ok(clock.left >= 120_000 + MIN_FLOW_MS, "the run still has the reserve and the minimum a flow needs");
+  assert.equal(timeouts[0], DEFAULT_COORDINATION_SETTINGS.planBudgetMs, "the allotment (330 s) is above the plan budget, which is the cap");
   assert.deepEqual(corrected.specs, ["flows/cart.spec.ts"], "the finding reached its flow");
   assert.deepEqual(corrected.unrouted, []);
   assert.ok(r.executed.some((e) => e.asked && e.brief.delegationId === "run-1-flow-cart"));
 });
 
-test("a lead turn that ends a moment after its timeout still leaves its orders a flow's minimum time while the reserve is pinned", async () => {
-  /* Under 480 s left the reserve is its floor, so the room shrinks by every second the turn spends; an abort never lands exactly on the timeout. */
-  const { clock, start } = timedPass([], "to-timeout", 1_000);
-  const outcome = await start(330_000);
-  const corrected = await outcome.pass!.correct([CART_FINDING], CORRECTION_ORIGIN.COVERAGE);
+test("a lead turn below the plan budget is given the whole allotment, not the allotment less a reserve or two flows' minimum", async () => {
+  const { timeouts, start } = timedPass([VALID_ORDER], 1_000);
+  const outcome = await start(150_000);
+  await outcome.pass!.correct([CART_FINDING], CORRECTION_ORIGIN.COVERAGE);
   await outcome.pass!.release();
-  assert.ok(clock.left - 120_000 >= MIN_FLOW_MS, "after the turn the room still holds a flow's minimum");
-  assert.deepEqual(corrected.specs, ["flows/cart.spec.ts"], "the finding reached its flow");
-  assert.deepEqual(corrected.unrouted, []);
+  assert.equal(timeouts[0], 150_000);
 });
 
-test("a run with too little room for a lead turn sends none and gives each finding its default owner, on the record", async () => {
-  const { r, asked, start } = timedPass([], 10_000);
-  const outcome = await start(200_000);
-  const corrected = await outcome.pass!.correct([CART_FINDING], CORRECTION_ORIGIN.FLAKY);
-  await outcome.pass!.release();
-  assert.deepEqual(asked, [], "no lead turn was sent");
-  assert.deepEqual(corrected.specs, ["flows/cart.spec.ts"]);
-  assert.deepEqual(corrected.unrouted, []);
-  assert.ok(r.events.some((e) => e.origin === CORRECTION_ORIGIN.FLAKY && /too little of the run is left for the lead/.test(e.reason ?? "") && /default owner/.test(e.reason ?? "")), "the decision is recorded");
-});
-
-test("the lead is not asked again when that would leave its orders less than a flow needs; its first answer stands", async () => {
+test("the lead is not asked again once its first turn has taken the allotment below a flow's minimum; its first answer stands", async () => {
   const { r, asked, start } = timedPass([OUT_OF_RANGE_ORDER, VALID_ORDER], 30_000);
-  const outcome = await start(320_000);
+  const outcome = await start(80_000);
   const corrected = await outcome.pass!.correct([...LOOSE_ARMS, CART_FINDING], CORRECTION_ORIGIN.COVERAGE);
   await outcome.pass!.release();
   assert.equal(asked.length, 1, "the re-ask was not sent");
-  assert.deepEqual(corrected.specs, ["flows/cart.spec.ts"], "the cited finding still reaches its flow");
-  assert.deepEqual(corrected.unrouted, [0, 1]);
+  assert.deepEqual(corrected.specs, [], "the same shortage leaves no flow time to carry the findings out");
+  assert.deepEqual(corrected.unrouted, [0, 1, 2]);
   assert.ok(r.events.some((e) => /too little of the run is left to ask the lead again/.test(e.reason ?? "")));
 });
 
 test("findings a pass had no room to correct are counted unrouted, whether or not the lead was asked", async () => {
-  const { start } = timedPass([], 10_000);
-  const outcome = await start(100_000);
+  const { asked, start } = timedPass([], 10_000);
+  const outcome = await start(MIN_FLOW_MS - 1);
   const corrected = await outcome.pass!.correct([CART_FINDING], CORRECTION_ORIGIN.COVERAGE);
+  assert.deepEqual(asked, [], "no lead turn was sent");
   assert.deepEqual(corrected.unrouted, [0]);
   assert.equal(outcome.pass!.tally().unrouted, 1);
   await outcome.pass!.release();
@@ -2483,7 +2491,7 @@ test("findings dropped for lack of time are logged and summarised under the same
     },
   });
   const r = rig();
-  const outcome = await new LeadSidekicks(r.deps).coordinate(input(r, { plan, closedLoop: undefined, deadline: { remainingMs: () => left } }));
+  const outcome = await new LeadSidekicks(r.deps).coordinate(input(r, { plan, closedLoop: undefined, deadline: { allowance: () => left } }));
   if (outcome.action !== "fanout") return assert.fail("fanout expected");
   left = 3_000_000;
   const corrected = await outcome.pass!.correct([CART_FINDING], CORRECTION_ORIGIN.COVERAGE);
@@ -2506,7 +2514,7 @@ const THREE_FLOW_PLAN = { kind: "fanout", flows: [...CITING_PLAN.flows, { id: "o
 async function amended(settings: CoordinateInput["settings"], deadlineMs?: number): Promise<{ replans: string[]; rig: Rig; outcome: Awaited<ReturnType<LeadSidekicks["coordinate"]>> }> {
   const lead = leadCiting([ACCEPT_ALL], CITING_PLAN, { plan: THREE_FLOW_PLAN });
   const r = rig({ hasFile: new Set(["cart", "login", "orders"]) });
-  const outcome = await new LeadSidekicks(r.deps).coordinate(input(r, { settings, plan: lead.plan, closedLoop: undefined, candidates: SEEDED, ...(deadlineMs !== undefined ? { deadline: { remainingMs: () => deadlineMs } } : {}) }));
+  const outcome = await new LeadSidekicks(r.deps).coordinate(input(r, { settings, plan: lead.plan, closedLoop: undefined, candidates: SEEDED, ...(deadlineMs !== undefined ? { deadline: { allowance: () => deadlineMs } } : {}) }));
   if (outcome.action === "fanout") await outcome.pass?.release();
   return { replans: lead.replans, rig: r, outcome };
 }
@@ -2528,10 +2536,10 @@ test("with the capacity spent, the amendment tells the lead to fold the use case
 });
 
 test("the capacity the amendment states is the one the answer is admitted under once the turn has taken its time", async () => {
-  /* 54 min left: the plan was told 51 min's worth of flows (3 min for its turn); the answer is admitted after another 3 min. */
+  /* 41 min allotted: the plan was told 38 min's worth of flows (3 min for its turn); the answer is admitted after another 3 min. */
   const settings = { ...DEFAULT_COORDINATION_SETTINGS, maxParallel: 2, flowBudgetMs: { opencode: 10 * 60_000 } };
-  const { replans } = await amended(settings, 54 * 60_000);
-  assert.match(replans[0]!, /can author 6 flow\(s\)/, "3 waves of 2, not the 4 the time left now would give");
+  const { replans } = await amended(settings, 41 * 60_000);
+  assert.match(replans[0]!, /can author 6 flow\(s\)/, "3 waves of 2, not the 4 the time allotted now would give");
 });
 
 test("a flow the admission refuses for capacity is recorded and logged with that reason", async () => {
@@ -2549,13 +2557,13 @@ test("a flow the admission refuses for capacity is recorded and logged with that
 });
 
 test("the flows the amendment lists as past the capacity are those past the capacity it states, not past the one the first plan was cut at", async () => {
-  /* 54 min left, one flow at a time, 10 min a flow: the first plan is admitted under 4 flows; the answer, once the turn has taken its 3 min, under 3. */
+  /* 41 min allotted, one flow at a time, 10 min a flow: the first plan is admitted under 4 flows; the answer, once the turn has taken its 3 min, under 3. */
   const settings = { ...DEFAULT_COORDINATION_SETTINGS, maxParallel: 1, flowBudgetMs: { opencode: 10 * 60_000 } };
   const flow = (id: string) => ({ id, objective: `the ${id} page`, candidates: [] as string[] });
   const fivePlan = { kind: "fanout", flows: [...CITING_PLAN.flows, flow("f3"), flow("f4"), flow("f5")] };
   const lead = leadCiting([ACCEPT_ALL], fivePlan, { plan: THREE_FLOW_PLAN });
   const r = rig({ hasFile: new Set(["cart", "login", "orders"]) });
-  const outcome = await new LeadSidekicks(r.deps).coordinate(input(r, { settings, plan: lead.plan, closedLoop: undefined, candidates: SEEDED, deadline: { remainingMs: () => 54 * 60_000 } }));
+  const outcome = await new LeadSidekicks(r.deps).coordinate(input(r, { settings, plan: lead.plan, closedLoop: undefined, candidates: SEEDED, deadline: { allowance: () => 41 * 60_000 } }));
   if (outcome.action === "fanout") await outcome.pass?.release();
   assert.equal(lead.replans.length, 1);
   const text = lead.replans[0]!;

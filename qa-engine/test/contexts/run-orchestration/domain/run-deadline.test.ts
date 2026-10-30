@@ -1,6 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { RunDeadline } from "@contexts/run-orchestration/domain/run-deadline.ts";
+import { DEADLINE_PURPOSES } from "@kernel/deadline-purpose.ts";
+import type { RunPhase } from "@kernel/run-step.ts";
+import { RunDeadline, measuredPurposeDurations, type PhaseRecord } from "@contexts/run-orchestration/domain/run-deadline.ts";
 import {
   RUN_TIME_BUDGET_ENV,
   RUN_TIME_BUDGET_KEYS,
@@ -95,17 +97,95 @@ test("the note says what the budget was, where the run stopped and that it is no
   assert.match(before, /next reviewer turn was not started/);
 });
 
-test("every purpose is allowed exactly what the deadline has left, nothing while it is unarmed, and the cut-off instant is the deadline's own", () => {
+const MIN = 60_000;
+/* A finished run of the app: every phase it entered with the minutes it took, ending where a normal run ends. */
+function finished(timings: Partial<Record<RunPhase, number>>): PhaseRecord {
+  return { furthestPhase: "learn", phaseTimings: timings };
+}
+const TYPICAL: PhaseRecord = finished({ setup: 1 * MIN, ground: 1 * MIN, generate: 10 * MIN, validate: 1 * MIN, health: 0, execute: 3 * MIN, fix_loop: 0, coverage: 2 * MIN, review: 4 * MIN, decide: 0, publish: 1 * MIN, learn: 0 });
+
+function armedAt(budgetMs: number, history: readonly PhaseRecord[] = [TYPICAL]) {
   let t = 0;
-  const deadline = new RunDeadline({ now: () => t, budgets: { ...RUN_TIME_BUDGET_MS, manual: 1_000 } });
-  for (const purpose of ["first-pass", "regeneration"] as const) assert.equal(deadline.allowance(purpose), null, `${purpose} unarmed`);
+  const deadline = new RunDeadline({ now: () => t, budgets: { ...RUN_TIME_BUDGET_MS, manual: budgetMs } });
   deadline.arm({ mode: "manual" });
-  for (const at of [0, 400, 999, 1_000, 1_500]) {
-    t = at;
-    for (const purpose of ["first-pass", "regeneration"] as const) {
-      assert.equal(deadline.allowance(purpose), deadline.remainingMs(), `${purpose} at ${at}`);
-    }
-  }
-  t = 1_000;
-  assert.equal(deadline.allowance("regeneration"), 0, "no time left for it at the instant the deadline fires");
+  deadline.measure(history);
+  return { deadline, at: (ms: number) => { t = ms; } };
+}
+
+test("nothing is allotted while the deadline is unarmed, whatever the purpose", () => {
+  const deadline = new RunDeadline({ now: () => 0, budgets: RUN_TIME_BUDGET_MS });
+  for (const purpose of DEADLINE_PURPOSES) assert.equal(deadline.allowance(purpose), null, purpose);
+});
+
+test("a purpose is allowed what is left less the app's measured time of every phase after it", () => {
+  const { deadline } = armedAt(40 * MIN);
+  /* After generate: validate 1, execute 3, fix 0, coverage 2, review 4, decide 1 = 11 min. */
+  assert.equal(deadline.allowance("generate"), 29 * MIN);
+  assert.equal(deadline.allowance("review"), 39 * MIN, "only the decision follows the review");
+  assert.equal(deadline.allowance("decide"), 40 * MIN, "nothing follows the decision");
+  assert.equal(deadline.allotment("generate")?.reserve.source, "measured");
+});
+
+test("an overrun of the earlier phases shrinks what generation may start, while the review keeps being allotted what is left less the decision", () => {
+  const { deadline, at } = armedAt(40 * MIN);
+  at(35 * MIN);
+  assert.equal(deadline.allowance("generate"), 0, "5 min are left and the phases after generate are owed 11: generate may start nothing");
+  assert.equal(deadline.allowance("review"), 4 * MIN, "the review is still allotted what is left less the decision");
+});
+
+test("a phase the app has no completed run of shares one fallback reserve, a quarter of what is left and at least two minutes, and the allotment says so", () => {
+  const { deadline, at } = armedAt(40 * MIN, []);
+  const first = deadline.allotment("generate");
+  assert.equal(first?.reserve.source, "fallback");
+  assert.equal(first?.reserve.ms, 10 * MIN, "a quarter of 40 min, once, however many phases follow");
+  assert.equal(first?.ms, 30 * MIN);
+  assert.deepEqual(first?.reserve.unmeasured, ["validate", "execute", "fix", "coverage", "review", "decide"]);
+  at(36 * MIN);
+  assert.equal(deadline.allotment("generate")?.reserve.ms, 2 * MIN, "the floor");
+});
+
+test("a run that ended before it finished a phase measures nothing for that phase", () => {
+  const cut: PhaseRecord = { furthestPhase: "review", phaseTimings: { ...TYPICAL.phaseTimings, review: 30_000 } };
+  const measured = measuredPurposeDurations([cut]);
+  assert.equal(measured.get("execute"), 3 * MIN, "execute was completed in that run");
+  assert.equal(measured.has("review"), false, "the review it was cut in says how long the cut took, not how long the phase needs");
+  assert.equal(measured.has("decide"), false);
+});
+
+test("the measured time of a phase is the median of the app's runs, so one outlier moves nothing", () => {
+  const slow = finished({ ...TYPICAL.phaseTimings, review: 40 * MIN });
+  const quick = finished({ ...TYPICAL.phaseTimings, review: 2 * MIN });
+  assert.equal(measuredPurposeDurations([TYPICAL, slow, quick]).get("review"), 4 * MIN);
+  assert.equal(measuredPurposeDurations([TYPICAL, quick]).get("review"), 3 * MIN, "the mean of the two in the middle");
+});
+
+test("identical history gives identical allotments", () => {
+  const a = armedAt(40 * MIN, [TYPICAL, finished({ ...TYPICAL.phaseTimings, review: 6 * MIN })]).deadline;
+  const b = armedAt(40 * MIN, [finished({ ...TYPICAL.phaseTimings, review: 6 * MIN }), TYPICAL]).deadline;
+  for (const purpose of DEADLINE_PURPOSES) assert.deepEqual(a.allotment(purpose), b.allotment(purpose), purpose);
+});
+
+test("an allowance asked for without a purpose is the one of the phase the run is in", () => {
+  const { deadline } = armedAt(40 * MIN);
+  assert.equal(deadline.allowance(), deadline.allowance("ground"), "before any phase is entered the run is in its first purpose");
+  deadline.enter("review");
+  assert.equal(deadline.allowance(), deadline.allowance("review"));
+  deadline.enter("fix_loop");
+  assert.equal(deadline.allowance(), deadline.allowance("fix"));
+});
+
+test("each purpose is announced to the observer once, with the source of its reserve", () => {
+  const { deadline } = armedAt(40 * MIN);
+  const told: string[] = [];
+  deadline.observe((a) => told.push(`${a.purpose}:${a.reserve.source}`));
+  deadline.allowance("generate");
+  deadline.allowance("generate");
+  deadline.allowance("decide");
+  assert.deepEqual(told, ["generate:measured", "decide:none"]);
+});
+
+test("the cut-off instant is the deadline's own: no purpose has time left at it", () => {
+  const { deadline, at } = armedAt(1_000);
+  at(1_000);
+  for (const purpose of DEADLINE_PURPOSES) assert.equal(deadline.allowance(purpose), 0, purpose);
 });

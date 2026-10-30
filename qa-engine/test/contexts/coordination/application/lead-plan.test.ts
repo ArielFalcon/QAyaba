@@ -27,8 +27,7 @@ const deps: PlanDeps = {
 const limits: PlanLimits = {
   maxParallel: 3,
   flowBudgetMs: 10 * 60_000,
-  remainingMs: 60 * 60_000,
-  reserveMs: 10 * 60_000,
+  allowanceMs: 50 * 60_000,
   minFlowMs: 60_000,
   runSpecPerCallMs: 2 * 60_000,
   runSpecDevWrites: 20,
@@ -138,16 +137,16 @@ test("no flows and an unreadable plan go back to the lead, each with its reason"
 test("the run's capacity is the flows that run at once times the full flow budgets that fit in what is left after the reserve", () => {
   const plan = admitLeadPlan(fanout(flow("a")), limits, deps);
   assert.equal(plan.kind === LEAD_PLAN_KIND.FANOUT ? plan.capacity : undefined, 15);
-  /* 16 min left, 10 kept: 6 min is under one full flow budget but enough for a flow to work, so one wave. */
-  const tight = admitLeadPlan(fanout(flow("a")), { ...limits, remainingMs: 16 * 60_000 }, deps);
+  /* 6 min allotted: 6 min is under one full flow budget but enough for a flow to work, so one wave. */
+  const tight = admitLeadPlan(fanout(flow("a")), { ...limits, allowanceMs: 6 * 60_000 }, deps);
   assert.equal(tight.kind === LEAD_PLAN_KIND.FANOUT ? tight.capacity : undefined, 3);
-  const { remainingMs: _, ...noDeadline } = limits;
+  const { allowanceMs: _, ...noDeadline } = limits;
   const unbounded = admitLeadPlan(fanout(flow("a")), noDeadline, deps);
   assert.equal(unbounded.kind === LEAD_PLAN_KIND.FANOUT ? unbounded.capacity : "absent", undefined, "no deadline and no ceiling bound nothing");
 });
 
 test("a plan over the run's capacity is never rejected: its first flows are admitted in plan order and the rest are named as not admitted", () => {
-  const plan = admitLeadPlan(fanout(...Array.from({ length: 5 }, (_, i) => flow(`f${i}`, { candidates: [`uc-${i}`] }))), { ...limits, remainingMs: 16 * 60_000 }, deps);
+  const plan = admitLeadPlan(fanout(...Array.from({ length: 5 }, (_, i) => flow(`f${i}`, { candidates: [`uc-${i}`] }))), { ...limits, allowanceMs: 6 * 60_000 }, deps);
   assert.deepEqual(admitted(plan).map((f) => f.id), ["f0", "f1", "f2"]);
   assert.deepEqual(plan.kind === LEAD_PLAN_KIND.FANOUT ? plan.notAdmitted : undefined, [
     { id: "f3", objective: "check f3", candidates: ["uc-3"] },
@@ -209,19 +208,19 @@ test("each flow's time is its share of what is left of the run after the reserve
   /* 3 parallel, 6 flows: two waves. (60 - 10) min / 2 = 25 min, over the 10 min a flow may take. */
   const roomy = admitted(admitLeadPlan(fanout(...Array.from({ length: 6 }, (_, i) => flow(`f${i}`))), limits, deps));
   assert.ok(roomy.every((f) => f.budgetMs === limits.flowBudgetMs));
-  /* 3 flows, 3 parallel: one wave. 6 min left after the reserve is under a flow's 10. */
-  const tight = admitted(admitLeadPlan(fanout(flow("a"), flow("b"), flow("c")), { ...limits, remainingMs: 16 * 60_000 }, deps));
+  /* 3 flows, 3 parallel: one wave. 6 min allotted is under a flow's 10. */
+  const tight = admitted(admitLeadPlan(fanout(flow("a"), flow("b"), flow("c")), { ...limits, allowanceMs: 6 * 60_000 }, deps));
   assert.ok(tight.every((f) => f.budgetMs === 6 * 60_000));
 });
 
 test("a run with no deadline gives each flow the full time a flow may take", () => {
-  const { remainingMs: _, ...noDeadline } = limits;
+  const { allowanceMs: _, ...noDeadline } = limits;
   const flows = admitted(admitLeadPlan(fanout(flow("a"), flow("b")), noDeadline, deps));
   assert.ok(flows.every((f) => f.budgetMs === limits.flowBudgetMs));
 });
 
 test("when the run has too little time left for a flow to do anything, the lead does the work", () => {
-  const plan = admitLeadPlan(fanout(flow("a"), flow("b"), flow("c")), { ...limits, remainingMs: limits.reserveMs + limits.minFlowMs / 2 }, deps);
+  const plan = admitLeadPlan(fanout(flow("a"), flow("b"), flow("c")), { ...limits, allowanceMs: limits.minFlowMs / 2 }, deps);
   assert.equal(plan.kind, PLAN_REJECTED);
   assert.equal(plan.kind === PLAN_REJECTED ? plan.downgrade : undefined, PLAN_DOWNGRADE.NO_TIME);
 });

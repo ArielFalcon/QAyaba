@@ -71,10 +71,8 @@ export interface PlanLimits {
   maxParallel: number;
   /* The most time one flow may take. */
   flowBudgetMs: number;
-  /* What is left of the run's time; absent when the run has no deadline. */
-  remainingMs?: number;
-  /* What the run keeps for what follows the flows (validation, execution, the reviewer). */
-  reserveMs: number;
+  /* The time the run's deadline allots to authoring now, net of what the phases after it are owed; absent when the run has no deadline. */
+  allowanceMs?: number;
   /* Less than this and a flow cannot read the brief, write a spec and try it once. */
   minFlowMs: number;
   /* The longest one call of each tool may take, present exactly when the run holds the tool: a flow is granted the calls its time can run. */
@@ -289,8 +287,7 @@ export function admitLeadPlan(raw: unknown, limits: PlanLimits, deps: PlanDeps):
   const capacity = flowCapacity({
     maxParallel: limits.maxParallel,
     flowBudgetMs: limits.flowBudgetMs,
-    ...(limits.remainingMs !== undefined ? { remainingMs: limits.remainingMs } : {}),
-    reserveMs: limits.reserveMs,
+    ...(limits.allowanceMs !== undefined ? { allowanceMs: limits.allowanceMs } : {}),
     minFlowMs: limits.minFlowMs,
     ...(limits.ceiling !== undefined ? { ceiling: limits.ceiling } : {}),
   });
@@ -303,9 +300,9 @@ export function admitLeadPlan(raw: unknown, limits: PlanLimits, deps: PlanDeps):
   const parallel = Math.min(limits.maxParallel, count);
   const waves = Math.ceil(count / parallel);
   const budgetMs =
-    limits.remainingMs === undefined
+    limits.allowanceMs === undefined
       ? limits.flowBudgetMs
-      : Math.min(limits.flowBudgetMs, Math.floor((limits.remainingMs - limits.reserveMs) / waves));
+      : Math.min(limits.flowBudgetMs, Math.floor(limits.allowanceMs / waves));
   if (budgetMs < limits.minFlowMs) return reject(PLAN_DOWNGRADE.NO_TIME);
 
   const runSpecCalls = perFlowGrant({ held: limits.runSpecPerCallMs !== undefined, flows: count, minimum: MIN_RUN_SPEC_CALLS_PER_FLOW, flowBudgetMs: budgetMs, ...(limits.runSpecPerCallMs !== undefined ? { perCallMs: limits.runSpecPerCallMs } : {}), ...(limits.runSpecCallsCeiling !== undefined ? { ceiling: limits.runSpecCallsCeiling } : {}) });

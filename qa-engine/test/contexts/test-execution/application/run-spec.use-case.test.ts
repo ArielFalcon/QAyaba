@@ -53,7 +53,7 @@ function harness(t: TestContext, overrides: Partial<RunSpecDeps> = {}): Harness 
     executor: { execute: async (request) => { h.executed.push(request); if (h.next.throws) throw h.next.throws; return h.next.result!; } },
     cleanup: { cleanup: async (namespace) => { h.cleaned.push(namespace); } },
     session: { renew: async () => { h.renewals++; return true; } },
-    deadline: { remainingMs: () => undefined, describe: () => undefined },
+    deadline: { remainingMs: () => undefined, allowance: () => null, describe: () => undefined },
     redact: (text) => text.replaceAll("hunter2", "[REDACTED]"),
     ...overrides,
   };
@@ -171,7 +171,7 @@ test("a revoked capability refuses", async (t) => {
 });
 
 test("the call's time is what the run's deadline allows, never more than its own cap", async (t) => {
-  const h = harness(t, { deadline: { remainingMs: () => 40_000, describe: () => undefined } });
+  const h = harness(t, { deadline: { remainingMs: () => 40_000, allowance: () => 40_000, describe: () => undefined } });
   const response = await call(h, "flows/a.spec.ts");
   assert.ok(response.ok);
   assert.equal(h.executed[0]!.timeoutMs, 25_000);
@@ -179,7 +179,7 @@ test("the call's time is what the run's deadline allows, never more than its own
 });
 
 test("a deadline with no time left refuses the call", async (t) => {
-  const h = harness(t, { deadline: { remainingMs: () => 5_000, describe: () => undefined } });
+  const h = harness(t, { deadline: { remainingMs: () => 5_000, allowance: () => 5_000, describe: () => undefined } });
   const response = await call(h, "flows/a.spec.ts");
   assert.ok(!response.ok && response.code === CLOSED_LOOP_REFUSAL.NO_TIME);
 });
@@ -441,7 +441,7 @@ test("a call waits for the account when something else holds it, and does not de
 
 test("a call that waited for the account runs for what the run has left when it gets it, not what it had left when it asked", async (t) => {
   let left = 60_000;
-  const h = harness(t, { deadline: { remainingMs: () => left, describe: () => undefined } });
+  const h = harness(t, { deadline: { remainingMs: () => left, allowance: () => left, describe: () => undefined } });
   let release!: () => void;
   const held = h.deps.lock.withLock("app/user", () => new Promise<void>((r) => { release = r; }));
   const pending = call(h, "flows/a.spec.ts");
@@ -455,7 +455,7 @@ test("a call that waited for the account runs for what the run has left when it 
 
 test("a call that waited for the account until the run had no time left is refused and not spent", async (t) => {
   let left = 60_000;
-  const h = harness(t, { deadline: { remainingMs: () => left, describe: () => undefined } });
+  const h = harness(t, { deadline: { remainingMs: () => left, allowance: () => left, describe: () => undefined } });
   let release!: () => void;
   const held = h.deps.lock.withLock("app/user", () => new Promise<void>((r) => { release = r; }));
   const pending = call(h, "flows/a.spec.ts");

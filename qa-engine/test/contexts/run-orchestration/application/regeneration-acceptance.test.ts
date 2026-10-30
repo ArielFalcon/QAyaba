@@ -17,10 +17,11 @@ const bytesOf = (text: string): Uint8Array => new TextEncoder().encode(text);
 /* A snapshot the caller took before the turn: the files that existed, with their bytes. */
 const snapshotOf = (files: readonly string[]): SuiteRestorePoint => ({ files: new Map(files.map((f) => [f, bytesOf(`old:${f}`)])) });
 
-const deadline = (remainingMs?: number): RunDeadlinePort => ({
+const deadline = (allowanceMs?: number): RunDeadlinePort => ({
   arm: () => {},
   describe: () => ({ label: "manual", budgetMs: 60_000 }),
-  remainingMs: () => remainingMs,
+  remainingMs: () => allowanceMs,
+  allowance: () => allowanceMs ?? null,
 });
 
 interface Harness {

@@ -212,8 +212,9 @@ export class RegenerationAcceptance {
   }
 
   private requireTime(deadline: RunDeadlinePort): void {
-    const left = deadline.remainingMs?.();
-    if (left === undefined || left > 0) return;
+    /* The purpose of the phase the acceptance runs in: an execution the later phases' time forbids is not started. */
+    const left = deadline.allowance?.() ?? null;
+    if (left === null || left > 0) return;
     const described = deadline.describe?.();
     throw new RunDeadlineExceededError(described?.budgetMs ?? 0, described?.label ?? "unarmed", "acceptance", "before-turn");
   }

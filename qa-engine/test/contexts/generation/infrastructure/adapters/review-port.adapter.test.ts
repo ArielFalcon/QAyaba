@@ -731,7 +731,7 @@ test("review() sends no repair turn for a readable verdict, for an empty answer,
 test("review() sends no repair turn once the run's deadline has no time left: the run ends instead", async () => {
   const reviewer = scriptedReviewer([CUT_ANSWER, RESTATED_ANSWER]);
   let left = 60_000;
-  const deadline = { remainingMs: () => left, describe: () => ({ label: "manual", budgetMs: 60_000 }) };
+  const deadline = { remainingMs: () => left, allowance: () => left, describe: () => ({ label: "manual", budgetMs: 60_000 }) };
   /* The review turn spends the run's last milliseconds. */
   const spending: AgentRuntimePort = {
     openSession: async (role, cwd, opts) => {

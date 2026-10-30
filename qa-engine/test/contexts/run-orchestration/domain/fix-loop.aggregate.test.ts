@@ -1348,7 +1348,7 @@ function integrity(overrides: Partial<FixLoopIntegrity> = {}): FixLoopIntegrity 
   return {
     hasGreenProof: async () => true,
     spendExecution: () => true,
-    remainingMs: () => 60_000,
+    allowanceMs: () => 60_000,
     ...overrides,
   };
 }

@@ -273,6 +273,17 @@ export class RunRepository {
     this.db.write(() => this.db.statement("UPDATE runs SET furthest_phase = ?, phase_timings = ? WHERE id = ?").run(phases.furthestPhase, JSON.stringify(phases.phaseTimings), id));
   }
 
+  /* The phases of an app's most recent runs in a mode that recorded any, newest first: how far each got and how long each phase it entered took. */
+  recentPhaseRecords(app: string, mode: string, limit: number): Array<{ furthestPhase: string | null; phaseTimings: Record<string, number> }> {
+    const rows = this.db
+      .statement("SELECT id, furthest_phase, phase_timings FROM runs WHERE app = ? AND mode = ? AND phase_timings IS NOT NULL ORDER BY at DESC, rowid DESC LIMIT ?")
+      .all(app, mode, limit) as Array<{ id: string; furthest_phase: string | null; phase_timings: string }>;
+    return rows.map((row) => ({
+      furthestPhase: row.furthest_phase,
+      phaseTimings: parseJsonColumn<Record<string, number>>(row.phase_timings, {}, { table: "runs", column: "phase_timings", id: row.id }),
+    }));
+  }
+
   getRunPhases(id: string): RunPhases | undefined {
     const row = this.db.statement("SELECT furthest_phase, phase_timings FROM runs WHERE id = ?").get(id) as { furthest_phase: string | null; phase_timings: string | null } | undefined;
     if (!row) return undefined;

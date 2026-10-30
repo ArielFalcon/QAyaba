@@ -1,4 +1,5 @@
 /* Generate-tests use case. One bounded generator repair. Every generation ends in exactly one classified way (GenerationResult.end): with specs the run continues, without them the end says why. */
+import type { DeadlinePurpose } from "@kernel/deadline-purpose.ts";
 import { engineLog } from "@kernel/ports/process-logger.ts";
 import type { AgentRuntimePort, AgentTurnStats } from "@kernel/ports/agent-runtime.port.ts";
 import { AUTHOR_SIDEKICK, LEAD_AGENT, openSidekickSession } from "@kernel/sidekick-session.ts";
@@ -67,7 +68,7 @@ export interface GenerationResult {
 export interface GenerateOpts {
   signal?: AbortSignal;
   /** The run's deadline, when the host states one: the first pass is never given more time than it leaves. */
-  deadline?: { allowance?(purpose: "first-pass"): number | null };
+  deadline?: { allowance?(purpose: DeadlinePurpose): number | null };
   onRepair?: () => void;
 }
 
@@ -213,7 +214,7 @@ export class GenerateTestsUseCase {
           ...(this.ports.timeBudgets ? { budgets: this.ports.timeBudgets } : {}),
         });
     /* The tier's time never outlives the run's: the smaller of the two bounds the pass. A tier that bounds nothing stays so, and the deadline's own runtime ends such a turn. */
-    const runAllowanceMs = tierBudgetMs !== undefined ? opts?.deadline?.allowance?.("first-pass") ?? null : null;
+    const runAllowanceMs = tierBudgetMs !== undefined ? opts?.deadline?.allowance?.("generate") ?? null : null;
     const timeBudgetMs = tierBudgetMs !== undefined && runAllowanceMs !== null ? Math.min(tierBudgetMs, runAllowanceMs) : tierBudgetMs;
 
     /* The budget bounds the whole first pass, the repair included: every prompt is given only what is left of it, and a prompt that finds none left is not sent. */

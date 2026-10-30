@@ -37,10 +37,10 @@ test("a verdict that stands, approved or rejected, is kept when the deadline is 
 
 test("a degradation joins the ones the run already carries", () => {
   const state = initialRunState();
-  recordDegradation(state, { reason: "regeneration-skipped", note: "earlier" });
+  recordDegradation(state, { reason: "publication-failed", note: "earlier" });
   const outcome = degradeFailedStep("deadline-after-proof", spent, "remeasure-stale-coverage", state, facts(false));
   assert.ok(outcome && "goto" in outcome);
-  assert.deepEqual(state.run.degradations.map((d) => d.reason), ["regeneration-skipped", "deadline-after-proof"]);
+  assert.deepEqual(state.run.degradations.map((d) => d.reason), ["publication-failed", "deadline-after-proof"]);
 });
 
 test("the same degradation recorded again is the same fact, and one with another sentence is another", () => {

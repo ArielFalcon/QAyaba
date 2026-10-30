@@ -6440,7 +6440,7 @@ test("a run deadline with no time left for the fix loop's regeneration ends the 
   const runDeadline = {
     arm: () => {},
     remainingMs: () => 60_000,
-    allowance: (purpose: string) => (purpose === "regeneration" ? 0 : 60_000),
+    allowance: (purpose?: string) => (purpose === "fix" ? 0 : 60_000),
     describe: () => ({ label: "diff", budgetMs: 600_000 }),
   };
   const out = await new RunQaUseCase({ ...ports, runDeadline, config: { ...baseConfig, needsReview: false } }).run({ ...baseInput, runId: "deadline-allowance-regen" });
@@ -7471,6 +7471,37 @@ test("the run arms its deadline once, after the deploy gate and the classificati
   assert.equal(armed[0]!.mode, "diff");
   assert.match(armed[0]!.diff ?? "", /diff --git a\/x/);
   assert.deepEqual(armed[0]!.changedFiles, ["x"]);
+});
+
+test("the run hands its deadline the app's recent finished runs by phase, read after arming and for the app and mode of this run", async () => {
+  const trace: string[] = [];
+  const { ports } = stubPorts();
+  const measured: unknown[] = [];
+  const queries: unknown[] = [];
+  const records = [{ furthestPhase: "learn" as const, phaseTimings: { review: 240_000 } }];
+  const runDeadline: RunDeadlinePort = { arm: () => { trace.push("arm"); }, measure: (r) => { trace.push("measure"); measured.push(r); } };
+  const phaseHistory = { recentPhaseRecords: async (query: unknown) => { queries.push(query); return records; } };
+  await new RunQaUseCase({ ...ports, runDeadline, phaseHistory, config: baseConfig }).run({ ...baseInput, mode: "manual" });
+  assert.deepEqual(trace, ["arm", "measure"]);
+  assert.deepEqual(measured, [records]);
+  assert.deepEqual(queries, [{ app: baseInput.app, mode: "manual", limit: 20 }]);
+});
+
+test("a history that cannot be read leaves the run going on the deadline's fallback reserve, and says so", async () => {
+  const { ports } = stubPorts();
+  let measured = 0;
+  const runDeadline: RunDeadlinePort = { arm: () => {}, measure: () => { measured++; } };
+  const phaseHistory = { recentPhaseRecords: async () => { throw new Error("history locked"); } };
+  const memory = memoryLogger();
+  installProcessLogger(memory);
+  try {
+    const out = await new RunQaUseCase({ ...ports, runDeadline, phaseHistory, config: baseConfig }).run({ ...baseInput, mode: "manual" });
+    assert.notEqual(out.decision.verdict, "infra-error", "the run is not ended by a history it could not read");
+  } finally {
+    resetProcessLoggerForTests();
+  }
+  assert.equal(measured, 0);
+  assert.ok(memory.entries.some((e) => /recent phase durations could not be read/.test(e.message) && /history locked/.test(e.message)));
 });
 
 test("a mode that does not classify arms its deadline for its own mode, with no diff", async () => {

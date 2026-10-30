@@ -161,7 +161,7 @@ export class AgentBrowserUseCase {
 
   private async perform(sessionId: string, action: BrowserAction, stop: AbortSignal | undefined, tell: (attrs: Attrs) => void): Promise<AgentBrowserResponse> {
     const { capability, host } = this.deps;
-    const timeoutMs = Math.min(capability.limits.perCallMs, this.deps.deadline?.remainingMs() ?? Number.POSITIVE_INFINITY);
+    const timeoutMs = Math.min(capability.limits.perCallMs, this.deps.deadline?.allowance() ?? Number.POSITIVE_INFINITY);
     const signal = AbortSignal.any([...(stop ? [stop] : []), AbortSignal.timeout(Math.max(1, timeoutMs))]);
     const geolocation = this.deps.location?.(sessionId);
     let state: PageState;

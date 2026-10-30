@@ -1,4 +1,7 @@
+import type { DeadlinePurpose } from "@kernel/deadline-purpose.ts";
 import type { RunMode } from "@kernel/run-mode.ts";
+import type { RunPhase } from "@kernel/run-step.ts";
+import type { Allotment, PhaseRecord } from "../../domain/run-deadline.ts";
 
 /**
  * Starts the run-level wall-clock deadline that holds every agent turn of the run. Armed once, after
@@ -12,6 +15,12 @@ export interface RunDeadlinePort {
   describe?(): { label: string; budgetMs: number } | undefined;
   /** Milliseconds left; undefined while no deadline is armed. Zero or less: spent. A deterministic phase that may still start is checked against it before it does. */
   remainingMs?(): number | undefined;
-  /** Milliseconds a purpose may still spend (never more than `remainingMs()`); null while no deadline is armed. The one reading the run's time decisions share. */
-  allowance?(purpose: "first-pass" | "regeneration"): number | null;
+  /** Milliseconds a purpose (omitted: the run's current one) may still spend: the time left less what the purposes after it are owed; null while no deadline is armed. The one reading the run's time decisions share. */
+  allowance?(purpose?: DeadlinePurpose): number | null;
+  /** Hands in the app's recent finished runs, from which the reserve of every allotment is read. */
+  measure?(records: readonly PhaseRecord[]): void;
+  /** The run entered a phase: an allowance asked for without a purpose is that phase's. */
+  enter?(phase: RunPhase): void;
+  /** Told once per purpose, the first time it is allotted time. */
+  observe?(listener: (allotment: Allotment) => void): void;
 }

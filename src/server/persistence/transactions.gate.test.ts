@@ -45,7 +45,7 @@ function instrumented(t: { after: (fn: () => void) => void }): Harness {
 /* Methods that only read, or that are private helpers of a method driven below. */
 const READS: Record<string, readonly string[]> = {
   RunRepository: [
-    "recalcCounts", "rowToRecord", "getRunPhases", "getRunFacts", "getRunCampaign", "getCampaignCaptureMode", "listCampaignRuns",
+    "recalcCounts", "rowToRecord", "getRunPhases", "recentPhaseRecords", "getRunFacts", "getRunCampaign", "getCampaignCaptureMode", "listCampaignRuns",
     "listFinishedCampaignRunIds", "getStoredEffectiveConfig", "getRunFunnel", "getRecord", "listRecords", "childrenOf", "currentRun", "interruptedRecords",
     "continuationDepth", "runVerdictCounts", "loadRunEvents", "runExists", "listFinishedRunIdsSince", "listSpecSnapshots", "getRunPlan",
   ],

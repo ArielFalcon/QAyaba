@@ -333,3 +333,23 @@ test("a corrupt phase_timings value on a stored run yields the fallback and one 
   assert.match(logged[0]!, /runs\.phase_timings/);
   assert.ok(logged[0]!.includes(run.id));
 });
+
+test("recentPhaseRecords lists an app's newest runs in a mode that recorded phases, how far each got and what each phase took", () => {
+  const runs = getHistory().runs;
+  const app = "hist-phases";
+  const old = runs.createRecord({ target: "e2e", app, sha: "aaaaaaa1", mode: "diff" });
+  runs.recordRunPhases(old.id, { furthestPhase: "learn", phaseTimings: { generate: 100, review: 7 } });
+  const never = runs.createRecord({ target: "e2e", app, sha: "aaaaaaa2", mode: "diff" });
+  const other = runs.createRecord({ target: "e2e", app: "hist-phases-other", sha: "aaaaaaa3", mode: "diff" });
+  runs.recordRunPhases(other.id, { furthestPhase: "learn", phaseTimings: { generate: 1 } });
+  const manual = runs.createRecord({ target: "e2e", app, sha: "aaaaaaa4", mode: "manual" });
+  runs.recordRunPhases(manual.id, { furthestPhase: "learn", phaseTimings: { generate: 2 } });
+  const recent = runs.createRecord({ target: "e2e", app, sha: "aaaaaaa5", mode: "diff" });
+  runs.recordRunPhases(recent.id, { furthestPhase: "review", phaseTimings: { generate: 300 } });
+  assert.ok(never.id);
+  assert.deepEqual(runs.recentPhaseRecords(app, "diff", 10), [
+    { furthestPhase: "review", phaseTimings: { generate: 300 } },
+    { furthestPhase: "learn", phaseTimings: { generate: 100, review: 7 } },
+  ], "newest first; a run that never recorded phases, another app's and another mode's are left out");
+  assert.equal(runs.recentPhaseRecords(app, "diff", 1).length, 1, "the limit applies");
+});

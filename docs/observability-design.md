@@ -291,7 +291,7 @@ Rules, from the brief §2.1 and the OTel spec:
   attempt carries the evidence.
 - Point occurrences are **span events**: `retry`, `strict_mode_violation`, `step_budget_exhausted`,
   `circuit_opened`, `fallback_model_used`, `truncation_applied`, `redaction_applied`,
-  `host_suspended`, `egress_denied`, `deadline_armed`, `regeneration_acceptance`.
+  `host_suspended`, `egress_denied`, `deadline_armed`, `allotment`, `regeneration_acceptance`.
 - **Regeneration acceptance.** Each acceptance of a gap, flaky or review regeneration adds a
   `regeneration_acceptance` event to the open phase span: `qayaba.regeneration.origin` (`coverage`, `flaky`,
   `review`), `.kept_files` (the changed spec files whose new bytes stand) and `.restored_files` (those given
@@ -342,7 +342,7 @@ Grouped. The full list lives in the registry (§9.3).
 | Identity | `qayaba.run.id`, `qayaba.app`, `qayaba.commit.sha`, `qayaba.trigger`, `qayaba.mode`, `qayaba.target`, `qayaba.parent_run.id`, `qayaba.trigger_repo`, `qayaba.shadow`, `qayaba.engine.version` |
 | Config in effect | `qayaba.runtime` (the runtime that served the turn), `qayaba.closed_loop.enabled`, `qayaba.agent_browser.enabled`, `qayaba.coverage.policy`, `qayaba.campaign.freeze`, `qayaba.prompt.static_hash` (hash of `agents/AGENTS.md` plus role files), `qayaba.capture_mode` |
 | Campaign | `qayaba.campaign.id`, `qayaba.campaign.variant.<key>`, `qayaba.campaign.replicate` |
-| Budgets | `qayaba.deadline.label`, `qayaba.deadline.budget_ms`, `qayaba.tier`, `qayaba.tier.budget_ms` |
+| Budgets | `qayaba.deadline.label`, `qayaba.deadline.budget_ms`, `qayaba.allotment.purpose`, `qayaba.allotment.ms`, `qayaba.allotment.reserve_ms`, `qayaba.allotment.reserve_source`, `qayaba.allotment.unmeasured` (the `allotment` event: once per purpose, the time it may spend and where the reserve held for the purposes after it came from: `none`, `measured` from the app's recent runs, or `fallback`), `qayaba.tier`, `qayaba.tier.budget_ms` |
 | Outcome | `qayaba.verdict`, `qayaba.error_class`, `qayaba.generation.end`, `qayaba.decision`, `qayaba.furthest_phase`, `qayaba.specs.generated/valid/passed`, `qayaba.reviewer.turn_happened`, `qayaba.limit.fired`, `qayaba.limits`, `qayaba.degradations`, `qayaba.decision.shadowed` |
 | Totals | `gen_ai.usage.*` sums, `qayaba.cost.total`, `qayaba.agent.turns`, `qayaba.agent.steps` |
 | Host | `qayaba.host.suspended_ms`, `qayaba.host.event_loop.max_ms` (§7) |
@@ -364,7 +364,7 @@ derived from them and is never the only carrier:
   run-level limits only. The record's `limits` column holds the same list, `limit_fired`/`limit_role` the lead, and `budgets` in `GET /runs/:id` and the
   `budget_exhaustion` grader (`also: ...` in its comment) read that record.
 - **Degradations.** `qayaba.degradations` lists every fault the run went on past, by reason: `publication-failed`,
-  `deadline-after-proof`, `regeneration-skipped`. `qayaba.run.end_reason` stays `decided` for such a run: it ended, it did not fail.
+  `deadline-after-proof`. `qayaba.run.end_reason` stays `decided` for such a run: it ended, it did not fail.
 - **Decision.** `qayaba.decision` is what the run decided (`pr | issue | quarantine | none`) and `qayaba.decision.shadowed` says
   apart from it that shadow replaced it, so a shadow run that would have opened an Issue says `issue` and `shadowed`. The record
   (`runs.decision`, `runs.shadowed`) and `GET /runs/:id` (`decision`, `shadowed`) use the same words. The engine's side effect

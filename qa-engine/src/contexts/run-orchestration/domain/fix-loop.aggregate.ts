@@ -130,8 +130,8 @@ export interface FixLoopIntegrity {
   hasGreenProof(specFile: string): Promise<boolean>;
   /** Claims one execution from the run's acceptance cap; false when none is left. */
   spendExecution(): boolean;
-  /** Milliseconds left before the run's deadline; undefined when none is armed. */
-  remainingMs(): number | undefined;
+  /** Milliseconds the fix purpose may still spend (the time left less what the phases after it are owed); undefined when no deadline is armed. */
+  allowanceMs(): number | undefined;
 }
 
 
@@ -527,7 +527,7 @@ export class FixLoop {
       if (!packConflict && !proofs.every(Boolean)) record("unproven");
       if (packConflict || proofs.every(Boolean)) {
         state.triaged = true;
-        const remaining = input.integrity.remainingMs();
+        const remaining = input.integrity.allowanceMs();
         if ((remaining !== undefined && remaining <= 0) || !input.integrity.spendExecution()) {
           devNotRendered = "inconclusive";
           record("no-budget");

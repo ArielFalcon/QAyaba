@@ -1,3 +1,4 @@
+import type { RunDeadlineView } from "@kernel/run-deadline.ts";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { AccountLock } from "@contexts/test-execution/domain/account-lock.ts";
@@ -29,7 +30,7 @@ class FakeHost implements AgentBrowserHostPort {
   async close(): Promise<void> { this.closed += 1; }
 }
 
-function setup(over: { host?: FakeHost; lock?: AccountLock; renew?: (() => Promise<boolean>) | undefined; limits?: Partial<typeof DEFAULT_AGENT_BROWSER_LIMITS>; leaseWait?: AbortController; denyRoutes?: string[]; now?: () => number; expiresAtMs?: number; runSignal?: AbortSignal; loginPath?: string; deadline?: { remainingMs: () => number | undefined } } = {}) {
+function setup(over: { host?: FakeHost; lock?: AccountLock; renew?: (() => Promise<boolean>) | undefined; limits?: Partial<typeof DEFAULT_AGENT_BROWSER_LIMITS>; leaseWait?: AbortController; denyRoutes?: string[]; now?: () => number; expiresAtMs?: number; runSignal?: AbortSignal; loginPath?: string; deadline?: RunDeadlineView } = {}) {
   const host = over.host ?? new FakeHost();
   const capability = new AgentBrowserCapability({ runId: "r1", limits: { ...DEFAULT_AGENT_BROWSER_LIMITS, ...over.limits }, expiresAtMs: over.expiresAtMs ?? 1_000_000, now: over.now ?? (() => 0) });
   capability.bindSession("s1");
@@ -210,7 +211,7 @@ test("a call whose session ends while it waits for the account is not spent", as
 test("a call that waited for the account is bounded by the time the run has left when it gets it", async () => {
   let left: number | undefined = 600_000;
   const lock = new AccountLock();
-  const { host, useCase } = setup({ lock, deadline: { remainingMs: () => left } });
+  const { host, useCase } = setup({ lock, deadline: { remainingMs: () => left, allowance: () => left ?? null, describe: () => undefined } });
   let release!: () => void;
   const held = lock.withLock("app/user", () => new Promise<void>((r) => { release = r; }));
   const waiting = useCase.call(nav("/orders"));

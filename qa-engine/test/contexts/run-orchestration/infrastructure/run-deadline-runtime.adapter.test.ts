@@ -24,6 +24,8 @@ function harness(budgetMs: number | "unarmed"): Harness {
   const clock = { t: 0 };
   const deadline = new RunDeadline({ now: () => clock.t, budgets: { ...RUN_TIME_BUDGET_MS, manual: budgetMs === "unarmed" ? 1 : budgetMs } });
   if (budgetMs !== "unarmed") deadline.arm({ mode: "manual" });
+  /* The last purpose holds nothing back, so what is left of the run is what the turn may use. */
+  deadline.enter("decide");
   const opened: Harness["opened"] = [];
   const prompts: Harness["prompts"] = [];
   const inner: Harness["inner"] = { behave: async () => ({ output: "ok" }) };
@@ -150,9 +152,31 @@ test("dispose reaches the session even after the run's time is gone", async () =
   const clock = { t: 0 };
   const deadline = new RunDeadline({ now: () => clock.t, budgets: { ...RUN_TIME_BUDGET_MS, manual: 10 } });
   deadline.arm({ mode: "manual" });
+  deadline.enter("decide");
   const runtime = new RunDeadlineRuntime({ openSession: async () => ({ prompt: async () => ({ output: "" }), dispose: async () => { disposed++; } }) }, deadline, { hostPromptCapMs: HOST_CAP });
   const session = await runtime.openSession("author", "/w");
   clock.t = 99;
   await session.dispose();
   assert.equal(disposed, 1);
+});
+
+test("a turn is held to what its purpose is allotted, not to what is left of the run: the phases after it keep their measured time", async () => {
+  const h = harness(40 * 60_000);
+  h.deadline.measure([{ furthestPhase: "learn", phaseTimings: { validate: 60_000, health: 0, execute: 180_000, fix_loop: 0, coverage: 120_000, review: 240_000, decide: 0, publish: 60_000 } }]);
+  h.deadline.enter("generate");
+  const session = await h.runtime.openSession("author", "/w");
+  await session.prompt("plan");
+  assert.equal(h.prompts[0]!.opts?.timeoutMs, 29 * 60_000, "40 min less the 11 min the app's runs spend after generation");
+  assert.equal(h.prompts[0]!.opts?.timeLimit, "run-deadline");
+});
+
+test("a turn whose purpose has been allotted nothing is refused as the run's deadline while the run itself still has time", async () => {
+  const h = harness(40 * 60_000);
+  h.deadline.measure([{ furthestPhase: "learn", phaseTimings: { validate: 60_000, execute: 180_000, coverage: 120_000, review: 240_000, publish: 60_000 } }]);
+  h.deadline.enter("generate");
+  h.clock.t = 35 * 60_000;
+  const session = await h.runtime.openSession("author", "/w").catch((err) => err);
+  assert.ok(isRunDeadlineError(session), "no time is left for generation: the review and the rest are owed 11 of the 5 minutes that remain");
+  assert.equal((session as RunDeadlineExceededError).stop, "before-turn");
+  assert.equal(h.deadline.remainingMs(), 5 * 60_000);
 });

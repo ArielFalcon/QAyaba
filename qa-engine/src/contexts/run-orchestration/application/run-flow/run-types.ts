@@ -34,6 +34,7 @@ import type { ClosedLoopHandle, ClosedLoopPort, AgentBrowserHandle, AgentBrowser
 import type { MirrorGcPort } from "@contexts/workspace-and-publication/application/index.ts";
 import type { SuiteStorePort } from "@kernel/ports/suite-store.port.ts";
 import type { RunDeadlinePort } from "../ports/run-deadline.port.ts";
+import type { PhaseHistoryPort } from "../ports/phase-history.port.ts";
 import type { RunDecision } from "../../domain/run-decision.ts";
 import type { RunPhaseCursor, PhaseClock } from "../../domain/run-phase-cursor.ts";
 import type { PhaseSpans } from "../run-phase-spans.ts";
@@ -179,6 +180,11 @@ export interface RunQaUseCaseDeps {
    * and the run is bounded only by its per-turn limits.
    */
   runDeadline?: RunDeadlinePort;
+  /**
+   * The app's recent finished runs by phase: what the deadline reads, once, to hold back for each phase the time it needs.
+   * Absent, or failing: every reserve falls back to a quarter of the time left (at least two minutes), and the trace says so.
+   */
+  phaseHistory?: PhaseHistoryPort;
   /**
    * Write side of the FE<->BE architecture map. Invoked once per clean context-mode pass
    * (isContextCleanPass), before publication, in BOTH shadow and non-shadow runs. Off-path: the

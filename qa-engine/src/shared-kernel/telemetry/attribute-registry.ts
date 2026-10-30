@@ -132,6 +132,11 @@ export const ATTRIBUTES = {
   /* Budgets. */
   "qayaba.deadline.label": str("The row of the run deadline table that applies."),
   "qayaba.deadline.budget_ms": int("The run deadline in milliseconds."),
+  "qayaba.allotment.purpose": str("The purpose the deadline allotted time to: ground, generate, validate, execute, fix, coverage, review or decide."),
+  "qayaba.allotment.ms": int("Milliseconds the purpose may spend: the time left of the run less the reserve held for the purposes after it."),
+  "qayaba.allotment.reserve_ms": int("Milliseconds held back for the purposes after this one."),
+  "qayaba.allotment.reserve_source": str("Where the reserve came from: none (nothing follows the purpose), measured (the app's recent runs) or fallback (a share of the time left, for a phase the app has no completed run of)."),
+  "qayaba.allotment.unmeasured": spec("string[]", "The following purposes the app has no completed run of; they share the fallback reserve. Empty when the reserve was measured."),
   "qayaba.tier": str("The diff effort tier: tiny, focused or broad."),
   "qayaba.tier.budget_ms": int("The first pass time budget of the tier in milliseconds."),
 
@@ -143,7 +148,7 @@ export const ATTRIBUTES = {
   /* T32 unit B: how a run ended, as typed facts of the root span (the run record holds the same). */
   "qayaba.decision.shadowed": bool("Whether shadow replaced the run's decision: nothing was opened, the decision was only logged."),
   "qayaba.limits": spec("string[]", "Every limit that fired in the run, as `limit@role`, the engine's own first: a deadline that ended or degraded the run, the budget generation ended on, then the limits agent turns ended on. Empty when none fired.", "low", "none", 20),
-  "qayaba.degradations": spec("string[]", "Every fault the run went on past, by reason: publication-failed, deadline-after-proof or regeneration-skipped. Empty when none.", "low", "none", 10),
+  "qayaba.degradations": spec("string[]", "Every fault the run went on past, by reason: publication-failed or deadline-after-proof. Empty when none.", "low", "none", 10),
   "qayaba.furthest_phase": str("The last phase the run entered."),
   "qayaba.specs.generated": int("Specs delivered by this run."),
   "qayaba.specs.valid": int("Delivered specs that passed validation."),

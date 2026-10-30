@@ -28,8 +28,8 @@ export class RunDeadlineRuntime implements AgentRuntimePort {
   }
 
   async openSession(role: AgentRole, cwd: string, opts?: OpenSessionOpts): Promise<AgentSession> {
-    const left = this.deadline.remainingMs();
-    if (left !== undefined && left <= 0) throw this.spent(role, "before-turn");
+    const left = this.deadline.allowance();
+    if (left !== null && left <= 0) throw this.spent(role, "before-turn");
     const session = await this.inner.openSession(role, cwd, opts);
     return {
       prompt: (text, promptOpts) => this.prompt(role, session, opts?.timeoutMs, text, promptOpts),
@@ -38,8 +38,9 @@ export class RunDeadlineRuntime implements AgentRuntimePort {
   }
 
   private async prompt(role: AgentRole, session: AgentSession, sessionTimeoutMs: number | undefined, text: string, promptOpts?: AgentPromptOpts): Promise<{ output: string }> {
-    const left = this.deadline.remainingMs();
-    if (left === undefined) return session.prompt(text, promptOpts);
+    /* What the run's current purpose may still spend: the time left less what the phases after it are owed. */
+    const left = this.deadline.allowance();
+    if (left === null) return session.prompt(text, promptOpts);
     if (left <= 0) throw this.spent(role, "before-turn");
     const own = promptOpts?.timeoutMs ?? sessionTimeoutMs ?? this.options.hostPromptCapMs;
     /* The deadline is what ends the turn only when it comes no later than the turn's own limit. */

@@ -16,7 +16,7 @@ export interface RunLimitFact {
 }
 
 /* What a run kept going with after a fault it could not recover from, as a closed set. */
-export const RUN_DEGRADATIONS = ["publication-failed", "deadline-after-proof", "regeneration-skipped"] as const;
+export const RUN_DEGRADATIONS = ["publication-failed", "deadline-after-proof"] as const;
 export type RunDegradationReason = (typeof RUN_DEGRADATIONS)[number];
 
 export interface RunDegradationFact {
