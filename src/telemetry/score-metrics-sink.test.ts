@@ -65,7 +65,7 @@ test("only closed-set categorical scores are counted, and budget_exhaustion's fr
     score("change_coverage", "unknown", "CATEGORICAL"),
     score("infra_error", "E-STEP-BUDGET", "CATEGORICAL"),
     score("budget_exhaustion", "step-cap@generate/qa-author/write_spec", "CATEGORICAL"),
-    score("some_open_judgment", "delightful", "CATEGORICAL", "llm_judge"),
+    score("some_open_judgment", "delightful", "CATEGORICAL", "human"),
     score("infra_error", "NOT-A-CLASS", "CATEGORICAL"),
   ]);
 

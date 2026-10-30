@@ -43,7 +43,6 @@ export interface TelemetryHealth {
     readonly spans: number;
     readonly writeErrors: number;
   };
-  readonly scoreSink: { readonly configured: false };
   /* Attributes dropped by the registry or the capture policy. */
   readonly droppedAttributes: number;
   /* End-to-end state of the stores behind the collector; absent until the first probe finishes or when none is configured. */

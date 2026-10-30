@@ -95,6 +95,20 @@ test("the default is the latest grader version per name and ?versions=all lists 
   assert.deepEqual(all.map((s) => s.graderVersion).sort(), ["0", "10", GRADER_VERSION]);
 });
 
+test("a score row stored by the removed LLM judges is left unread and the rest of the run still reads", async () => {
+  const id = finishedRun("eval-legacy-judge");
+  const sched = manualScheduler();
+  const service = createEvaluationService({ schedule: sched.schedule, log: quiet });
+  service.scheduleGrading(id);
+  await sched.flush();
+  const legacy = { runId: id, name: "open_judgment", graderVersion: "judge-1", dataType: "CATEGORICAL", polarity: "none", source: "llm_judge", value: "delightful", comment: null, observationId: null, judgeModel: "some/model" };
+  getHistory().evaluations.replaceRunScores([legacy as never], "2026-10-17T10:00:00.000Z");
+  const scores = service.evaluation(id, true)!.scores;
+  assert.equal(scores.some((s) => s.name === "open_judgment"), false, "a source the contract no longer names is not shipped");
+  assert.equal(scores.some((s) => s.name === "spec_pass_rate"), true, "the graders' scores of the same run are untouched");
+  assert.equal(scores.every((s) => !("judgeModel" in s)), true);
+});
+
 test("grading the same run twice leaves one stored score per name and version", async () => {
   const id = finishedRun("eval-c");
   const sched = manualScheduler();

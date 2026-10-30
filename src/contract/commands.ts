@@ -510,12 +510,6 @@ export const TelemetryHealthSchema = z.object({
     spans: z.number().int().min(0),
     writeErrors: z.number().int().min(0),
   }),
-  scoreSink: z.object({
-    configured: z.boolean(),
-    faults: z.number().int().min(1).optional(),
-    lastExportAt: z.string().optional(),
-    lastError: z.string().optional(),
-  }),
   droppedAttributes: z.number().int().min(0),
   /* Loki, Tempo and the collectors verified end to end (docs/telemetry-local.md); present once a probe has finished. */
   backends: z
@@ -560,12 +554,10 @@ export const ScoreSchema = z.object({
   value: z.union([z.number(), z.boolean(), z.string()]),
   dataType: z.enum(["NUMERIC", "BOOLEAN", "CATEGORICAL"]),
   polarity: z.enum(["higher_better", "lower_better", "none"]),
-  source: z.enum(["deterministic", "llm_judge", "human"]),
+  source: z.enum(["deterministic", "human"]),
   graderVersion: z.string(),
   comment: z.string().optional(),
   observationId: z.string().optional(),
-  /* Additive (section 14): present on `llm_judge` scores only, the model that answered. The prompt version is in `graderVersion`. */
-  judgeModel: z.string().optional(),
 });
 
 export const RunEvaluationSchema = z.object({
@@ -592,8 +584,6 @@ export const EvaluationCatalogSchema = z.object({
       categories: z.array(z.string()).optional(),
       suffixes: z.array(z.string()).optional(),
       graderVersion: z.string(),
-      /* Additive (section 14): present on LLM-judge entries only. `experimental` is every judge's default; `calibrated` needs a passing calibration against human labels for the prompt version and model in force. No gate reads it. */
-      status: z.enum(["experimental", "calibrated"]).optional(),
     }),
   ),
 });

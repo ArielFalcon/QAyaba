@@ -564,24 +564,6 @@ func (e EvaluationCatalogScoresPolarity) Valid() bool {
 	}
 }
 
-// Defines values for EvaluationCatalogScoresStatus.
-const (
-	Calibrated   EvaluationCatalogScoresStatus = "calibrated"
-	Experimental EvaluationCatalogScoresStatus = "experimental"
-)
-
-// Valid indicates whether the value is a known member of the EvaluationCatalogScoresStatus enum.
-func (e EvaluationCatalogScoresStatus) Valid() bool {
-	switch e {
-	case Calibrated:
-		return true
-	case Experimental:
-		return true
-	default:
-		return false
-	}
-}
-
 // Defines values for OnboardingJobStatusIndexProgressStatus.
 const (
 	OnboardingJobStatusIndexProgressStatusFailed OnboardingJobStatusIndexProgressStatus = "failed"
@@ -1375,7 +1357,6 @@ func (e ScorePolarity) Valid() bool {
 const (
 	Deterministic ScoreSource = "deterministic"
 	Human         ScoreSource = "human"
-	LlmJudge      ScoreSource = "llm_judge"
 )
 
 // Valid indicates whether the value is a known member of the ScoreSource enum.
@@ -1384,8 +1365,6 @@ func (e ScoreSource) Valid() bool {
 	case Deterministic:
 		return true
 	case Human:
-		return true
-	case LlmJudge:
 		return true
 	default:
 		return false
@@ -2036,8 +2015,7 @@ type EvaluationCatalog struct {
 			Max *float32 `json:"max,omitempty"`
 			Min float32  `json:"min"`
 		} `json:"range,omitempty"`
-		Status   *EvaluationCatalogScoresStatus `json:"status,omitempty"`
-		Suffixes *[]string                      `json:"suffixes,omitempty"`
+		Suffixes *[]string `json:"suffixes,omitempty"`
 	} `json:"scores"`
 }
 
@@ -2049,9 +2027,6 @@ type EvaluationCatalogScoresDataType string
 
 // EvaluationCatalogScoresPolarity defines model for EvaluationCatalog.Scores.Polarity.
 type EvaluationCatalogScoresPolarity string
-
-// EvaluationCatalogScoresStatus defines model for EvaluationCatalog.Scores.Status.
-type EvaluationCatalogScoresStatus string
 
 // FlakyTrend defines model for FlakyTrend.
 type FlakyTrend struct {
@@ -2573,7 +2548,6 @@ type Score struct {
 	Comment       *string       `json:"comment,omitempty"`
 	DataType      ScoreDataType `json:"dataType"`
 	GraderVersion string        `json:"graderVersion"`
-	JudgeModel    *string       `json:"judgeModel,omitempty"`
 	Name          string        `json:"name"`
 	ObservationId *string       `json:"observationId,omitempty"`
 	Polarity      ScorePolarity `json:"polarity"`
@@ -2681,12 +2655,6 @@ type TelemetryHealth struct {
 		LastExportAt *string `json:"lastExportAt,omitempty"`
 	} `json:"otlp"`
 	SchemaVersion TelemetryHealthSchemaVersion `json:"schemaVersion"`
-	ScoreSink     struct {
-		Configured   bool    `json:"configured"`
-		Faults       *int    `json:"faults,omitempty"`
-		LastError    *string `json:"lastError,omitempty"`
-		LastExportAt *string `json:"lastExportAt,omitempty"`
-	} `json:"scoreSink"`
 }
 
 // TelemetryHealthBackendsCollectorStatus defines model for TelemetryHealth.Backends.Collector.Status.

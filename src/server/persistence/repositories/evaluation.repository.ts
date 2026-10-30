@@ -13,8 +13,6 @@ export interface ScoreRow {
   value: number | boolean | string;
   comment: string | null;
   observationId: string | null;
-  /* LLM-judge scores only. */
-  judgeModel?: string | null;
 }
 
 export interface RegradeJobRow {
@@ -44,11 +42,11 @@ export class EvaluationRepository {
   constructor(private readonly db: HistoryDatabase) {
     const raw = db.raw;
     this.upsertScore = raw.prepare(`
-      INSERT INTO run_scores (run_id, name, grader_version, data_type, polarity, source, value, comment, observation_id, graded_at, judge_model)
-      VALUES (@runId, @name, @graderVersion, @dataType, @polarity, @source, @value, @comment, @observationId, @gradedAt, @judgeModel)
+      INSERT INTO run_scores (run_id, name, grader_version, data_type, polarity, source, value, comment, observation_id, graded_at)
+      VALUES (@runId, @name, @graderVersion, @dataType, @polarity, @source, @value, @comment, @observationId, @gradedAt)
       ON CONFLICT(run_id, name, grader_version) DO UPDATE SET
         data_type = excluded.data_type, polarity = excluded.polarity, source = excluded.source, value = excluded.value,
-        comment = excluded.comment, observation_id = excluded.observation_id, graded_at = excluded.graded_at, judge_model = excluded.judge_model`);
+        comment = excluded.comment, observation_id = excluded.observation_id, graded_at = excluded.graded_at`);
     this.deleteAllScores = raw.prepare("DELETE FROM run_scores WHERE run_id = ? AND grader_version = ?");
     /* substr, not LIKE: the underscore in a score name is a LIKE wildcard. */
     this.deleteNamedScores = raw.prepare("DELETE FROM run_scores WHERE run_id = ? AND grader_version = ? AND (name = ? OR substr(name, 1, ?) = ?)");
@@ -81,7 +79,7 @@ export class EvaluationRepository {
           this.deleteAllScores.run(scope.runId, scope.graderVersion);
         }
       }
-      for (const r of rows) this.upsertScore.run({ ...r, judgeModel: r.judgeModel ?? null, value: JSON.stringify(r.value), gradedAt });
+      for (const r of rows) this.upsertScore.run({ ...r, value: JSON.stringify(r.value), gradedAt });
     });
   }
 
@@ -105,7 +103,6 @@ export class EvaluationRepository {
         value,
         comment: (r.comment as string | null) ?? null,
         observationId: (r.observation_id as string | null) ?? null,
-        judgeModel: (r.judge_model as string | null) ?? null,
       });
     }
     return out;

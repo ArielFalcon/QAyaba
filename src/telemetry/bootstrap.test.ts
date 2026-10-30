@@ -198,10 +198,9 @@ test("shutdown flushes buffered ledger rows even when the exporter hangs", async
   assert.equal(commits.flat().length, 1);
 });
 
-test("health reports the campaign freeze it was given and no score sink", () => {
+test("health reports the campaign freeze it was given", () => {
   const handle = createTelemetry(deps({}, { campaignFreeze: true }).base);
   assert.equal(handle.health().campaignFreeze, true);
-  assert.deepEqual(handle.health().scoreSink, { configured: false });
 });
 
 test("the campaign freeze comes from QA_CAMPAIGN_FREEZE when not injected", () => {

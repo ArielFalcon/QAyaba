@@ -121,7 +121,6 @@ function offHandle(freeze: boolean, clock: TelemetryClock): TelemetryHandle {
     campaignFreeze: freeze,
     otlp: { configured: false, dropped: 0 },
     ledger: { ok: true, spans: 0, writeErrors: 0 },
-    scoreSink: { configured: false },
     droppedAttributes: 0,
   };
   return { telemetry: new NoopTelemetry(), clock, health: () => health, stopLogShipping: () => {}, shutdown: async () => {} };
@@ -238,8 +237,7 @@ export function createTelemetry(deps: BootstrapDeps): TelemetryHandle {
         dropped: exporterStatus.dropped,
       },
       ledger: { ok: ledgerStats.ok, spans: ledgerStats.spans, writeErrors: ledgerStats.writeErrors },
-      scoreSink: { configured: false },
-      droppedAttributes: adapter.stats().droppedAttributes,
+        droppedAttributes: adapter.stats().droppedAttributes,
     };
   };
 

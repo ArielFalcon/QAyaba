@@ -4765,29 +4765,6 @@
             ],
             "additionalProperties": false
           },
-          "scoreSink": {
-            "type": "object",
-            "properties": {
-              "configured": {
-                "type": "boolean"
-              },
-              "faults": {
-                "type": "integer",
-                "minimum": 1,
-                "maximum": 9007199254740991
-              },
-              "lastExportAt": {
-                "type": "string"
-              },
-              "lastError": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "configured"
-            ],
-            "additionalProperties": false
-          },
           "droppedAttributes": {
             "type": "integer",
             "minimum": 0,
@@ -4947,7 +4924,6 @@
           "campaignFreeze",
           "otlp",
           "ledger",
-          "scoreSink",
           "droppedAttributes"
         ],
         "additionalProperties": false
@@ -5020,7 +4996,6 @@
             "type": "string",
             "enum": [
               "deterministic",
-              "llm_judge",
               "human"
             ]
           },
@@ -5031,9 +5006,6 @@
             "type": "string"
           },
           "observationId": {
-            "type": "string"
-          },
-          "judgeModel": {
             "type": "string"
           }
         },
@@ -5155,13 +5127,6 @@
                 },
                 "graderVersion": {
                   "type": "string"
-                },
-                "status": {
-                  "type": "string",
-                  "enum": [
-                    "experimental",
-                    "calibrated"
-                  ]
                 }
               },
               "required": [

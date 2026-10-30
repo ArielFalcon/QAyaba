@@ -1294,12 +1294,6 @@ export interface components {
                 spans: number;
                 writeErrors: number;
             };
-            scoreSink: {
-                configured: boolean;
-                faults?: number;
-                lastExportAt?: string;
-                lastError?: string;
-            };
             droppedAttributes: number;
             backends?: {
                 ok: boolean;
@@ -1352,11 +1346,10 @@ export interface components {
             /** @enum {string} */
             polarity: "higher_better" | "lower_better" | "none";
             /** @enum {string} */
-            source: "deterministic" | "llm_judge" | "human";
+            source: "deterministic" | "human";
             graderVersion: string;
             comment?: string;
             observationId?: string;
-            judgeModel?: string;
         };
         RunEvaluation: {
             /** @enum {number} */
@@ -1384,8 +1377,6 @@ export interface components {
                 categories?: string[];
                 suffixes?: string[];
                 graderVersion: string;
-                /** @enum {string} */
-                status?: "experimental" | "calibrated";
             }[];
         };
         RegradeRequest: {

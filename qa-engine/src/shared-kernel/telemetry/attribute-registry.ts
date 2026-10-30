@@ -192,7 +192,7 @@ export const ATTRIBUTES = {
 
   /* Evaluation scores (one measurement per graded score; never the run id, a comment or an observation id). */
   "qayaba.eval.name": str("A graded score's name from the grader catalog, a family member as `<base>.<suffix>`. Bounded by the catalog."),
-  "qayaba.eval.source": str("Who produced the score: deterministic, llm_judge or human."),
+  "qayaba.eval.source": str("Who produced the score: deterministic or human."),
   "qayaba.eval.data_type": str("The score's type: NUMERIC, BOOLEAN or CATEGORICAL."),
   "qayaba.eval.value": str("A categorical score's value, from the catalog's closed set (or `other` when a class is not in it)."),
 

@@ -337,7 +337,6 @@ Grouped. The full list lives in the registry (§9.3).
 | Outcome | `qayaba.verdict`, `qayaba.error_class`, `qayaba.generation.end`, `qayaba.decision`, `qayaba.furthest_phase`, `qayaba.specs.generated/valid/passed`, `qayaba.reviewer.turn_happened`, `qayaba.limit.fired` |
 | Totals | `gen_ai.usage.*` sums, `qayaba.cost.total`, `qayaba.agent.turns`, `qayaba.agent.steps` |
 | Host | `qayaba.host.suspended_ms`, `qayaba.host.event_loop.max_ms` (§7) |
-| Langfuse | `langfuse.trace.name`=`qayaba.run`, `langfuse.session.id`=campaign id or app, `langfuse.trace.tags`=[app, runtime, variant…], `langfuse.environment` |
 
 `qayaba.furthest_phase` drives the funnel (F1). It is the last phase entered, set by the phase
 wrapper, so a run that throws still carries it.
@@ -830,7 +829,7 @@ services:
   under the run's capture mode. OpenCode exports its own logs through the untrusted collector, whose trace pipeline drops
   `service.name=opencode`. Loki's retention is YAML-only, so the image's config is shadowed by
   `config/otel/loki-config.yaml` (R6).
-- **Cost in Langfuse:**
+- **Cost in Langfuse** (Correction 2026-10-30: no `langfuse.*` attribute is written any more, and the cost stays in `gen_ai.usage.*` and `qayaba.cost.total`):
   - Send the provider-reported cost (`info.cost`) as `langfuse.observation.cost_details`.
   - Send token buckets as explicit `usage_details`, because Langfuse buckets are **exclusive** while
     OTel `input_tokens` is **inclusive**. Without this, cost is double-counted.
@@ -854,7 +853,7 @@ qa-engine/src/contexts/evaluation/
 
 - A grader is `(RunEvidence) → Score[]`. A `Score` has:
   - `name`, `value`, `dataType` (`NUMERIC|BOOLEAN|CATEGORICAL`)
-  - `source` (`deterministic|human`; `llm_judge` stays in the wire contract, produced by nothing)
+  - `source` (`deterministic|human`; Correction 2026-10-30: `llm_judge` left the wire contract, and a stored row that still names it is skipped on read)
   - `graderVersion`, `comment?`, `observationId?` (the span id)
 - **When it runs.** After a run's root ends, **off the queue path**: a background job that never
   delays the next run. It can also be triggered by `regrade`.
@@ -1012,7 +1011,7 @@ ingest times.
 | 5 | `POST /evaluations/regrade` | Body `{runIds?\|campaignId?\|since?, graders?: string[]}`. Returns 202 `{schemaVersion, jobId, runs: n}` |
 | 5b | `GET /evaluations/regrade/:jobId` | `{schemaVersion, jobId, status: "pending"\|"running"\|"complete"\|"failed", runs: n, graded: n, failed: [{runId, error}], startedAt, finishedAt?}` |
 | 6 | `GET /evaluations/catalog` | `{schemaVersion, phases: string[]` (canonical `RUN_PHASES` order)`, scores: [{name, dataType, polarity, range?, categories?, suffixes?, graderVersion, status?}]}`. The machine-readable source of phase order and score polarity |
-| 7 | `GET /telemetry/health` | `{schemaVersion, mode: off\|local, campaignFreeze: bool, otlp: {configured, lastExportAt?, lastError?, dropped}, ledger: {ok, spans}, scoreSink: {configured, lastError?}, backends?: {ok, loki, tempo, collector: {status: ok\|degraded\|down\|unconfigured, reason?, checkedAt, diskUsedRatio?, lastDataAt?}}}`. `backends` is the stores verified end to end (a Loki write probe, Tempo search, collector exporter metrics; see telemetry-local.md). Also summarized under `/api/health.telemetry` (`backendsOk`) |
+| 7 | `GET /telemetry/health` | `{schemaVersion, mode: off\|local, campaignFreeze: bool, otlp: {configured, lastExportAt?, lastError?, dropped}, ledger: {ok, spans}, backends?: {ok, loki, tempo, collector: {status: ok\|degraded\|down\|unconfigured, reason?, checkedAt, diskUsedRatio?, lastDataAt?}}}`. `backends` is the stores verified end to end (a Loki write probe, Tempo search, collector exporter metrics; see telemetry-local.md). Also summarized under `/api/health.telemetry` (`backendsOk`) |
 
 **Facts the graders read.** A grader only reads what the run recorded. Facts the engine decides at run time are stored on the run and never recomputed from the app's current configuration: `review_required`, `coverage_status` (pass|fail|unknown as the objective-signal service decided), `coverage_mode`, `coverage_min_ratio`, `decision`, `limit_fired`/`limit_role`, `trace_id`, `cancelled`, and each case's spec `file`. Where a fact is missing the score is omitted (`change_coverage` is `unknown` only when the engine recorded `unknown`; `infra_error` exists only for `infra-error` runs, `unclassified` when no class was recorded, and `cancelled` for cancels):
 - `specCounts.valid` is **null** until the run got past the `validate` phase (validation gates the whole suite); an `invalid` run has `valid = 0`. `specCounts.passed` is null when `valid` is unknown or a delivered spec cannot be tied to its cases by exact spec path (a run-level `pass` implies all passed).
@@ -1023,7 +1022,7 @@ ingest times.
 - A regrade deletes the run's rows it supersedes in the same transaction (all rows of the current `graderVersion`, or only the named base names with their suffixes), so a name no grader emits any more disappears. A failed regrade never turns a `complete` evaluation into `failed`; the failure is listed on the job.
 - Regrade bounds: `since` must be ISO-8601; at most 500 runs per job (and 500 `runIds`); progress is written every 10 runs; a grader that is declared but not graded yet is refused with 400 naming it; an unknown run id is listed in the job's `failed` as `unknown run`; job errors are redacted and capped at 500 chars, and score comments are capped at 500 chars.
 
-**LLM judge fields (removed judges).** `source=llm_judge`, `scores[].judgeModel` of `GET /runs/:id/evaluation` and `scores[].status` of `GET /evaluations/catalog` stay in the wire contract as optional values that nothing produces since the judges were removed (RFC-0001 OD-1). `POST /evaluations/regrade` treats a judge name as an unknown grader (400).
+**LLM judge fields (removed judges).** Correction 2026-10-30: `source=llm_judge`, `scores[].judgeModel` of `GET /runs/:id/evaluation`, `scores[].status` of `GET /evaluations/catalog` and `scoreSink` of `GET /telemetry/health` left the wire contract (RFC-0001 OD-1, finished under T18). The tables `judge_attempts` and `judge_calibrations` and the column `run_scores.judge_model` stay, unread; a stored score row that names `llm_judge` is skipped on read. `POST /evaluations/regrade` treats a judge name as an unknown grader (400).
 
 **Name deviation.** The counts are `specCounts`, not `specs`: `specs` already exists on `RunRecord` as the list of delivered specs (`SpecRecord[]`, read by the TUI), and a field cannot be both. Everything else in row 2 is additive.
 
@@ -1145,7 +1144,7 @@ their own commits.
 | **S3 Grounding and execution** | Context spans and item ids; login attempts; suite-store spans; validation and test spans; failure classifier (pinned to Playwright 1.60 message fixtures); **spec snapshots** | F5, F6, F10, F16, C6, C7, C10 |
 | **S3b DOM capture per route** | The capture script reports per-route timing and state (its output changes) | C8, F11 |
 | **S4 Evaluation** | `evaluation` context; deterministic graders; `run_scores`; API #2–#6 | B3–B6, B8 |
-| **S4b Langfuse** | Removed (RFC-0001 OD-1): the profile, the score sink and the label import. The `langfuse.*` span attributes stay | n/a |
+| **S4b Langfuse** | Removed (RFC-0001 OD-1): the profile, the score sink and the label import. Correction 2026-10-30: the `langfuse.*` span attributes went too, because nothing reads them | n/a |
 | **S2b OpenCode native spans** (not shipped) | Rejected: one process-wide trace with no root, and content-bearing `ai.*` spans. OpenCode's logs ship instead (R6) | F7/F8 detail comes from the orchestrator's own attempt and tool spans |
 | **S5 Campaigns** | Trigger metadata (API #1), datasets, replicate comparison report | B7 |
 | **S6 Judges** | Annotation queues and human-label import (§11.3). The LLM judges and their calibration were removed | Human labels |

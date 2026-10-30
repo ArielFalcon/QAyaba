@@ -10,7 +10,7 @@ import { RegradeUseCase, MAX_REGRADE_RUNS, type RegradeRequest } from "@contexts
 import type { EvaluationStatus, RegradeJob, RegradeJobStorePort, RunSelectorPort, ScoreSinkPort, ScoreStorePort, EvidencePort } from "@contexts/evaluation/application/index.ts";
 import { campaignRunsView, type CampaignRunRow, type CampaignRunView } from "@contexts/evaluation/application/index";
 import { GRADER_CATALOG } from "@contexts/evaluation/application/index";
-import type { Score, ScoreDataType, ScorePolarity, ScoreSource } from "@contexts/evaluation/application/index";
+import { isScoreSource, type Score, type ScoreDataType, type ScorePolarity } from "@contexts/evaluation/application/index";
 import { RUN_PHASES } from "@kernel/run-step";
 import { HistoryEvidenceAdapter } from "./evaluation-evidence";
 import { RedactionPortAdapter } from "../orchestrator/sanitizer";
@@ -38,7 +38,6 @@ export class SqliteScoreStore implements ScoreStorePort {
         value: s.value,
         comment: s.comment ?? null,
         observationId: s.observationId ?? null,
-        judgeModel: s.judgeModel ?? null,
       })),
       gradedAt,
       { runId, ...scope },
@@ -46,17 +45,17 @@ export class SqliteScoreStore implements ScoreStorePort {
   }
 
   list(runId: string, opts: { allVersions: boolean }): Score[] {
-    const scores: Score[] = getHistory().evaluations.listRunScoreRows(runId).map((r) => ({
+    /* A row the removed LLM judges stored names a source the contract no longer has: it stays in the table, unread. */
+    const scores: Score[] = getHistory().evaluations.listRunScoreRows(runId).flatMap((r) => (isScoreSource(r.source) ? [{
       name: r.name,
       value: r.value,
       dataType: r.dataType as ScoreDataType,
       polarity: r.polarity as ScorePolarity,
-      source: r.source as ScoreSource,
+      source: r.source,
       graderVersion: r.graderVersion,
       ...(r.comment !== null ? { comment: r.comment } : {}),
       ...(r.observationId !== null ? { observationId: r.observationId } : {}),
-      ...(r.judgeModel ? { judgeModel: r.judgeModel } : {}),
-    }));
+    }] : []));
     if (opts.allVersions) return scores;
     /* The default view is the graders' (design §14): a human label (graderVersion "human", never a version number) shows only with all versions. */
     const latest = new Map<string, Score>();
