@@ -27,30 +27,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends iptables \
   && rm -rf /var/lib/apt/lists/*
 
 # git: to clone/check out the working copies of the watched repos. build-essential and python3 compile
-# better-sqlite3 from source on arm64 (above) and run lizard (below).
+# better-sqlite3 from source on arm64 (above).
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     build-essential \
-    python3 python3-pip python3-venv \
+    python3 \
   && rm -rf /var/lib/apt/lists/*
-
-# Deterministic static-signal extractors (Stage 2). difft + ast-grep are arch-specific release binaries.
-RUN pip3 install --no-cache-dir --break-system-packages lizard==1.23.0
-# ast-grep publishes ONLY .zip Linux assets (no .tar.gz). The zip holds `sg` (a small launcher, ~440KB)
-# and `ast-grep` (the real engine, ~46MB). `sg` is NOT standalone — it execs `ast-grep`, so BOTH must be
-# extracted; with only `sg`, `sg --version` fails at runtime with `Os NotFound` (the build never runs sg,
-# so this surfaces only at runtime). difft IS a .tar.gz (correct). Fail loud (no || true).
-RUN apt-get update && apt-get install -y --no-install-recommends unzip && rm -rf /var/lib/apt/lists/*
-RUN ARCH="$(dpkg --print-architecture)" \
-  && case "$ARCH" in \
-       amd64) T=x86_64-unknown-linux-gnu ;; \
-       arm64) T=aarch64-unknown-linux-gnu ;; \
-       *) echo "unsupported arch for static-signal binaries: $ARCH" >&2; exit 1 ;; \
-     esac \
-  && curl -fsSL "https://github.com/Wilfred/difftastic/releases/download/0.69.0/difft-${T}.tar.gz" | tar -C /usr/local/bin -xz difft \
-  && curl -fsSL -o /tmp/sg.zip "https://github.com/ast-grep/ast-grep/releases/download/0.43.0/app-${T}.zip" \
-  && unzip -j /tmp/sg.zip sg ast-grep -d /usr/local/bin \
-  && rm /tmp/sg.zip
 
 # codegraph v1.6.2, the code-graph engine. Each npm
 # platform package is self-contained: `bin/codegraph` (a sh launcher) next to its own `node` and its
