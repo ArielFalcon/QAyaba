@@ -633,7 +633,7 @@ export function renderReport(comparison: Comparison): string {
 
 const USAGE = [
   "usage: npm run efficiency-benchmark -- <command>",
-  "  run <label> [--timeout-minutes N] submit every case in config/benchmarks/efficiency-cases.json, one at a time, through the service's queue; N is how long to wait for each case (default 30)",
+  "  run <label> [--timeout-minutes N] submit every case in config/benchmarks/efficiency-cases.json, one at a time, through the service's queue; N is how long to wait for each case (default: the longest run budget in force plus a queue buffer)",
   "  register <label> <case> <runId>    attach an already-finished run to a case of the label",
   "  snapshot <label>                   freeze the label's runs, and the tier each case declares, into config/benchmarks/efficiency-results/<label>.snapshot.json",
   "  report <labelA> <labelB>           compare two labels' snapshots",

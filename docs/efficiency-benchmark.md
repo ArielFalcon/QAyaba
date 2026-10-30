@@ -29,7 +29,7 @@ docker compose exec orchestrator npm run efficiency-benchmark -- report main-1 c
 
 | Command | Does |
 |---|---|
-| `run <label> [--timeout-minutes N]` | submits every case through the service's queue, one at a time; stops at the first case that outlives N minutes (default 30) |
+| `run <label> [--timeout-minutes N]` | submits every case through the service's queue, one at a time; stops at the first case that outlives N minutes (default: the longest run budget in force plus a queue buffer) |
 | `register <label> <case> <runId>` | attaches a run you already have to a case of the label |
 | `snapshot <label>` | freezes the label's runs, and each case's declared tier, into `config/benchmarks/efficiency-results/<label>.snapshot.json` |
 | `report <labelA> <labelB>` | compares two snapshots, case by case, then prints the step use of each label |

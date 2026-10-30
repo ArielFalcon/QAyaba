@@ -224,7 +224,7 @@ async function looksBeforeGivingUp(t: import("node:test").TestContext, argv: str
 
 test("run waits longer for a case when given a longer per-case timeout, and keeps the default wait otherwise", async (t) => {
   const byDefault = await looksBeforeGivingUp(t, ["run", "after"]);
-  const extended = await looksBeforeGivingUp(t, ["run", "after", "--timeout-minutes", "120"]);
+  const extended = await looksBeforeGivingUp(t, ["run", "after", "--timeout-minutes", "600"]);
 
   assert.equal(byDefault.code, 1);
   assert.equal(extended.code, 1);
