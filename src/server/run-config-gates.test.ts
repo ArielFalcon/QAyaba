@@ -1,17 +1,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { AppConfig } from "../orchestrator/config-loader";
-import { agentBrowserEnabled, closedLoopEnabled, serviceTopologyWired, toolsApply } from "./run-config-gates";
+import { agentBrowserEnabled, closedLoopEnabled, serviceTopologyWired } from "./run-config-gates";
 import { resolveRunConfig, type RunConfigEnvironment } from "./effective-config";
 
 const app = (over: Record<string, unknown> = {}, qa: Record<string, unknown> = {}): AppConfig =>
   ({ name: "a", repo: "o/a", dev: { baseUrl: "https://dev" }, qa: { needsReview: true, testDataPrefix: "qa", ...qa }, report: { onFailure: "x" }, ...over }) as AppConfig;
 const env: RunConfigEnvironment = { runtime: () => null, staticPromptHash: () => null, toolsGranted: true, campaignFrozen: false, maxCapture: "metadata" };
-
-test("the tools apply to a run of an app with a DEV address, and to nothing else", () => {
-  assert.equal(toolsApply(app()), true);
-  assert.equal(toolsApply(app({ dev: undefined })), false);
-});
 
 test("the run_spec loop and the authenticated browser are on for every app unless the app turns them off", () => {
   assert.equal(closedLoopEnabled(app()), true);
@@ -34,12 +29,9 @@ test("the service topology is wired only with services and boundaries", () => {
 });
 
 test("effectiveConfig reports exactly what the predicates wire, for every combination", () => {
-  for (const dev of [true, false]) {
-    for (const boundaries of [true, false]) {
-      const a = app({ ...(dev ? {} : { dev: undefined }), services: [{ repo: "o/s" }], ...(boundaries ? { boundaries: [{}] } : {}) });
-      const c = resolveRunConfig(a, { closedLoop: true, agentBrowser: true }, "metadata", env);
-      assert.equal(c.levers.closedLoop !== null, toolsApply(a));
-      assert.equal(c.grounding.stitcher !== null, serviceTopologyWired(a));
-    }
+  for (const boundaries of [true, false]) {
+    const a = app({ services: [{ repo: "o/s" }], ...(boundaries ? { boundaries: [{}] } : {}) });
+    const c = resolveRunConfig(a, { closedLoop: true, agentBrowser: true }, "metadata", env);
+    assert.equal(c.grounding.stitcher !== null, serviceTopologyWired(a));
   }
 });

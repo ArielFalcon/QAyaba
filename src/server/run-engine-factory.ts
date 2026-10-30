@@ -145,7 +145,7 @@ import { ensureMirror, ensureMirrorAtBranch, defaultMirrorDeps, workdirRoot, rea
 import { stageServiceContext, serviceContextDir } from "./service-context";
 import { SqliteRunHistoryAdapter } from "./run-history-sqlite-adapter";
 import { resolveCampaignFreeze } from "./campaign-freeze";
-import { agentBrowserEnabled, closedLoopEnabled, serviceTopologyWired, toolsApply } from "./run-config-gates";
+import { agentBrowserEnabled, closedLoopEnabled, serviceTopologyWired } from "./run-config-gates";
 import { ProcessAuditPortAdapter } from "@contexts/cross-run-learning/infrastructure/process-audit-port.adapter";
 import { YamlBoundaryProfileAdapter } from "@contexts/service-topology/infrastructure/yaml-boundary-profile.adapter";
 import { expandEnv } from "../orchestrator/config-loader";
@@ -522,7 +522,6 @@ export interface AcceptanceHarness {
  */
 export function buildAcceptanceHarness(input: AcceptanceHarnessInput): AcceptanceHarness {
   const { app, copyDir, exec } = input;
-  if (!app.dev?.baseUrl) throw new Error(`App "${app.name}" has no dev.baseUrl: its specs cannot be accepted without a DEV site`);
   const e2eRelDir = "e2e";
   const baseUrl = app.dev.baseUrl;
   const env = activeEnvironment();
@@ -540,8 +539,8 @@ export function buildAcceptanceHarness(input: AcceptanceHarnessInput): Acceptanc
 
   const e2eExecuteDeps: E2eExecuteDeps = {
     ...createDefaultE2eExecuteDeps(new ProcessKillAdapter(), e2eTimeoutMs(env), exec, env.PW_ACTION_TIMEOUT_MS),
-    ...(app.dev?.geolocation ? { geolocation: app.dev.geolocation } : {}),
-    ...(app.dev?.dataState ? { dataState: app.dev.dataState } : {}),
+    ...(app.dev.geolocation ? { geolocation: app.dev.geolocation } : {}),
+    ...(app.dev.dataState ? { dataState: app.dev.dataState } : {}),
   };
   const execution = new ExecutionPortAdapter(
     { e2e: new E2eExecutionStrategy((specDir, opts) => runE2E(specDir, opts, e2eExecuteDeps)) },
@@ -589,15 +588,6 @@ export function buildEngineRootDeps(
   const domPack = run.grounding?.domPack ?? app.qa.domPack ?? true;
   if (domPack === false) {
     appLogger.warn(`[qa] grounding.domPack is OFF for ${app.name}: the pre-generation context pack carries no live DOM. The review, pre-exec and post-failure DOM seams are independent and unchanged; the authenticated-browser alternative is available only when the app and tools grant it.`);
-  }
-  /*
-   * A run without a live DEV URL cannot be composed — fail loud here, before any
-   * git clone/agent session/Playwright spawn.
-   */
-  if (!app.dev?.baseUrl) {
-    throw new Error(
-      `App "${app.name}" has no dev.baseUrl configured — set dev.baseUrl in config/apps/${app.name}.yaml.`,
-    );
   }
   const e2eRelDir = "e2e";
 
@@ -766,13 +756,12 @@ export function buildEngineRootDeps(
   /* The run's code graph (one instance: the index phase builds it, the structural signal and the cross-repo impact read it). */
   const codeGraph = codeGraphFor({ exec, git: runner, dataDir, sandbox: codeSandbox, processKill: new ProcessKillAdapter() })(app.name, app.qa.structuralSignals?.exclude ?? []);
   const serviceTopologyOn = grounding?.stitcher === false || grounding?.stitcher === "off" ? false : serviceTopologyWired(app);
-  const toolsApplyToRun = toolsApply(app);
 
   /* What classifies this run's agent steps in its trace: the app's own configuration, never a name. */
   const turnTelemetry: TurnTelemetryContext = {
     intent: stepIntentContextFor({
       e2eRelDir,
-      ...(app.dev?.baseUrl ? { baseUrl: app.dev.baseUrl } : {}),
+      baseUrl: app.dev.baseUrl,
       ...(app.auth?.loginPath !== undefined ? { loginPath: app.auth.loginPath } : {}),
       reviewAgents: [roleToAgentName("reviewer")],
     }),
@@ -835,14 +824,14 @@ export function buildEngineRootDeps(
 
   const e2eExecuteDeps: E2eExecuteDeps = {
     ...createDefaultE2eExecuteDeps(new ProcessKillAdapter(), e2eDefaultTimeoutMs, exec, pwActionTimeoutMs),
-    ...(app.dev?.geolocation ? { geolocation: app.dev.geolocation } : {}),
-    ...(app.dev?.dataState ? { dataState: app.dev.dataState } : {}),
+    ...(app.dev.geolocation ? { geolocation: app.dev.geolocation } : {}),
+    ...(app.dev.dataState ? { dataState: app.dev.dataState } : {}),
     /* The Playwright report as spans (spec files, cases, attempts) under the phase that executes. */
     ...(deps.telemetry ? { onReport: (report, cases) => synthesizeReportSpans({ telemetry: deps.telemetry! }, report, cases) } : {}),
   };
   const e2eCleanupDeps = createDefaultE2eCleanupDeps(new ProcessKillAdapter(), exec);
   /* One launcher-backed DOM capture for every grounding seam (Context Pack, review DOM, pre-exec). */
-  const captureDomDeps = createCaptureDomDeps(exec, undefined, deps.telemetry ? domCaptureObserver(deps.telemetry) : undefined, app.dev?.geolocation, app.dev?.dataState);
+  const captureDomDeps = createCaptureDomDeps(exec, undefined, deps.telemetry ? domCaptureObserver(deps.telemetry) : undefined, app.dev.geolocation, app.dev.dataState);
   const e2e = new E2eExecutionStrategy((specDir, opts) => runE2E(specDir, opts, e2eExecuteDeps));
 
   /*
@@ -861,7 +850,7 @@ export function buildEngineRootDeps(
     : new BundleMutationOracleAdapter(
         ({ dir, baseUrl, namespace, mutant, specFiles, observe }) => runE2E(dir, { baseUrl, namespace, specFiles, retries: 0, ...(mutant !== undefined ? { mutant } : {}), ...(observe ? { observe: true } : {}) }, e2eExecuteDeps),
         countInjectedResponses,
-        app.dev?.baseUrl ?? "",
+        app.dev.baseUrl,
       );
 
   /*
@@ -969,7 +958,7 @@ export function buildEngineRootDeps(
      * otherwise derive credential paths from e2eDir itself.
      */
     groundingCollaborators: {
-      contextPackDeps: { ...defaultContextPackDeps, domDeps: captureDomDeps, ...(app.dev?.routeSamples ? { routeSamples: app.dev.routeSamples } : {}) },
+      contextPackDeps: { ...defaultContextPackDeps, domDeps: captureDomDeps, ...(app.dev.routeSamples ? { routeSamples: app.dev.routeSamples } : {}) },
       /*
        * The DB (the context_maps table) is the engine's source of truth for the
        * FE<->BE architecture map — it survives regardless of shadow. The repo file on disk is only a
@@ -1083,7 +1072,7 @@ export function buildEngineRootDeps(
      * facade as it is now (the runtime is switchable): only OpenCode can call a custom tool, and a host that cannot say is
      * not assumed to be. The account lock is the process's, since the key is the app's login and the processes share nothing else.
      */
-    ...(deps.closedLoopRegistry && toolsApplyToRun
+    ...(deps.closedLoopRegistry
       ? {
           closedLoop: {
             registry: deps.closedLoopRegistry,
@@ -1117,7 +1106,7 @@ export function buildEngineRootDeps(
      * and store the agents container never holds. Only where the structural signal has the code graph, and only for a lead on
      * OpenCode.
      */
-    ...(deps.codeGraphRegistry && toolsApplyToRun
+    ...(deps.codeGraphRegistry
       ? {
           codeGraphTools: {
             registry: deps.codeGraphRegistry,
@@ -1126,7 +1115,7 @@ export function buildEngineRootDeps(
           },
         }
       : {}),
-    ...(deps.agentBrowserRegistry && toolsApplyToRun
+    ...(deps.agentBrowserRegistry
       ? {
           agentBrowser: {
             registry: deps.agentBrowserRegistry,
@@ -1156,7 +1145,7 @@ export function buildEngineRootDeps(
      * Pack already get the position through the execution deps; this is the run-scoped value the agent may move for the
      * authenticated browser and the plan's flows.
      */
-    ...(deps.geolocationRegistry && toolsApplyToRun && app.dev?.geolocation
+    ...(deps.geolocationRegistry && app.dev.geolocation
       ? {
           geolocation: {
             registry: deps.geolocationRegistry,
@@ -1167,54 +1156,50 @@ export function buildEngineRootDeps(
           },
         }
       : {}),
-    ...(app.dev?.baseUrl ? { baseUrl: app.dev.baseUrl } : {}),
-    ...(app.dev?.baseUrl
-      ? {
-          authSession: {
-            env: activeEnvironment(),
-            authDir,
-            ...(deps.telemetry ? { telemetry: deps.telemetry } : {}),
-            ...(app.e2e?.testIdAttribute !== undefined ? { testIdAttribute: app.e2e.testIdAttribute } : {}),
-            ...(pwActionTimeoutMs !== undefined ? { actionTimeoutMs: pwActionTimeoutMs } : {}),
-            /*
-             * The production switch for structural login discovery: for an app on the stock login
-             * seed it tries the login itself first (one submit per phase) and only a positively
-             * evidenced failure ends the run. Removing this object restores the stock-seed-only login.
-             * Its note passes through the same redaction every other text leaving the system does.
-             */
-            discovery: {
-              discoverLogin: createDiscoverLogin({ runner: loginRunner, writeScript: (name, content) => exec.writeScript(name, content) }),
-              redact: (text: string) => redactionPort.redact(text),
-              loadContextMap: loadContextMapFromDisk,
-            },
-            /* The hosts the app leaves blocked on purpose (dev.blockedOrigins) are no evidence that a failed login was the filter's doing. */
-            intentionallyBlocked: blockedHostMatcher(app),
-            /* The login child is the one process that carries the account: the launcher's `login` profile. It writes the session in the run's own `login` folder, and the adapter brings a confirmed one into the auth directory. */
-            loginStaging: () => ({ dir: join(exec.workDir(), "login"), root: exec.workDir() }),
-            spawnSetup: async (specDir: string, env: Record<string, string>, signal?: AbortSignal) => {
-              const callDir = exec.allocDir("auth-setup", ["results"]);
-              try {
-                const result = await loginRunner.run({
-                  command: "npx",
-                  args: ["playwright", "test", "--project=setup", `--output=${join(callDir, "results")}`],
-                  cwd: specDir,
-                  env,
-                  timeoutMs: 120_000,
-                  ...(signal ? { signal } : {}),
-                });
-                const logs = `${result.stdout}\n${result.stderr}`;
-                return {
-                  exitCode: result.timedOut ? 1 : (result.exitCode ?? 1),
-                  logs: result.timedOut ? `auth setup timed out\n${logs}` : logs,
-                };
-              } finally {
-                rmSync(callDir, { recursive: true, force: true });
-              }
-            },
-          },
-          ...(app.auth ? { auth: app.auth } : {}),
+    baseUrl: app.dev.baseUrl,
+    authSession: {
+      env: activeEnvironment(),
+      authDir,
+      ...(deps.telemetry ? { telemetry: deps.telemetry } : {}),
+      ...(app.e2e?.testIdAttribute !== undefined ? { testIdAttribute: app.e2e.testIdAttribute } : {}),
+      ...(pwActionTimeoutMs !== undefined ? { actionTimeoutMs: pwActionTimeoutMs } : {}),
+      /*
+       * The production switch for structural login discovery: for an app on the stock login
+       * seed it tries the login itself first (one submit per phase) and only a positively
+       * evidenced failure ends the run. Removing this object restores the stock-seed-only login.
+       * Its note passes through the same redaction every other text leaving the system does.
+       */
+      discovery: {
+        discoverLogin: createDiscoverLogin({ runner: loginRunner, writeScript: (name, content) => exec.writeScript(name, content) }),
+        redact: (text: string) => redactionPort.redact(text),
+        loadContextMap: loadContextMapFromDisk,
+      },
+      /* The hosts the app leaves blocked on purpose (dev.blockedOrigins) are no evidence that a failed login was the filter's doing. */
+      intentionallyBlocked: blockedHostMatcher(app),
+      /* The login child is the one process that carries the account: the launcher's `login` profile. It writes the session in the run's own `login` folder, and the adapter brings a confirmed one into the auth directory. */
+      loginStaging: () => ({ dir: join(exec.workDir(), "login"), root: exec.workDir() }),
+      spawnSetup: async (specDir: string, env: Record<string, string>, signal?: AbortSignal) => {
+        const callDir = exec.allocDir("auth-setup", ["results"]);
+        try {
+          const result = await loginRunner.run({
+            command: "npx",
+            args: ["playwright", "test", "--project=setup", `--output=${join(callDir, "results")}`],
+            cwd: specDir,
+            env,
+            timeoutMs: 120_000,
+            ...(signal ? { signal } : {}),
+          });
+          const logs = `${result.stdout}\n${result.stderr}`;
+          return {
+            exitCode: result.timedOut ? 1 : (result.exitCode ?? 1),
+            logs: result.timedOut ? `auth setup timed out\n${logs}` : logs,
+          };
+        } finally {
+          rmSync(callDir, { recursive: true, force: true });
         }
-      : {}),
+      },
+    },
+    ...(app.auth ? { auth: app.auth } : {}),
     ...(app.openapi ? { openapi: app.openapi } : {}),
 
     ...(triggerService
@@ -1259,12 +1244,12 @@ export function buildEngineRootDeps(
     /*
      * Cross-repo: gate on the SERVICE versionUrl, never the primary's. No versionUrl → skip the gate.
      */
-    versionUrl: triggerService ? triggerService.versionUrl : app.dev?.versionUrl,
+    versionUrl: triggerService ? triggerService.versionUrl : app.dev.versionUrl,
     /*
      * Single-shot probe (see fetchVersion's own header) — DeployGatePortAdapter.waitUntilServing
      * is the ONLY poll loop; this fn is called once per its interval, never loops itself.
      */
-    versionPoll: (triggerService ? triggerService.versionUrl : app.dev?.versionUrl)
+    versionPoll: (triggerService ? triggerService.versionUrl : app.dev.versionUrl)
       ? async (versionUrl: string, sha) => {
           const v = await fetchVersion(versionUrl);
           return { serving: shaMatches(v?.sha, sha.value) && v?.healthy === true };
@@ -1273,10 +1258,10 @@ export function buildEngineRootDeps(
     /* Service poll defaults (10s/10min) differ from the primary's (2s/60s). */
     deployGateIntervalMs: triggerService
       ? (triggerService.pollIntervalMs ?? 10_000)
-      : (app.dev?.pollIntervalMs ?? 2000),
+      : (app.dev.pollIntervalMs ?? 2000),
     deployGateTimeoutMs: triggerService
       ? (triggerService.deployTimeoutMs ?? 600_000)
-      : (app.dev?.deployTimeoutMs ?? 60000),
+      : (app.dev.deployTimeoutMs ?? 60000),
     ...(companionServices.length > 0
       ? {
           companionDeployGates: companionServices.map(({ service }) => ({

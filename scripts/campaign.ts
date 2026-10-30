@@ -568,7 +568,6 @@ export async function defaultDeps(env: Record<string, string | undefined> = proc
     readCases: (path) => JSON.parse(readFileSync(path, "utf8")) as unknown,
     loadApp: (name) => {
       const app = loadAppConfig(name);
-      if (!app.dev?.baseUrl) throw new Error(`app '${name}' has no DEV site to test against`);
       if (app.auth?.kind === "mtls") throw new Error(`app '${name}' logs in with a client certificate: the campaign does not support it`);
       return {
         name: app.name, repo: app.repo, baseUrl: app.dev.baseUrl, testDataPrefix: app.qa.testDataPrefix, shadow: app.qa.shadow === true, services: (app.services ?? []).map((s) => s.repo),

@@ -63,15 +63,19 @@ const unique = (origins: readonly string[]): string[] => [...new Set(origins)];
 
 /* What a run's children may reach: a suite or a login reaches the app's own origin and the origins it declares; an install reaches the npm registries and the app's own extra ones. */
 export function resolveRunOrigins(app: Pick<AppConfig, "dev" | "egress">, registries: RegistryGroups): RunEgressOrigins {
-  const own = app.dev?.baseUrl ? originOf(app.dev.baseUrl) : undefined;
-  const dev = unique([...(own ? [own] : []), ...(app.dev?.allowedOrigins ?? [])]);
-  const install = unique([...(registries["npm"] ?? []), ...(app.egress?.installOrigins ?? [])]);
-  return { dev, install };
+  const own = originOf(app.dev.baseUrl);
+  const dev = unique([...(own ? [own] : []), ...(app.dev.allowedOrigins ?? [])]);
+  return { dev, install: installOriginsOf(app.egress, registries) };
+}
+
+/* An install reaches the npm registries and the extra origins an app declares for it. */
+function installOriginsOf(egress: AppConfig["egress"], registries: RegistryGroups): string[] {
+  return unique([...(registries["npm"] ?? []), ...(egress?.installOrigins ?? [])]);
 }
 
 /* Whether a host is one the app leaves blocked on purpose (dev.blockedOrigins). Only the name is matched: the filter refuses by name, and a refusal carries no scheme or port. */
 export function blockedHostMatcher(app: Pick<AppConfig, "dev">): (host: string) => boolean {
-  const blocked = app.dev?.blockedOrigins;
+  const blocked = app.dev.blockedOrigins;
   if (!blocked || blocked.length === 0) return () => false;
   const policy = compileEgressPolicy(blocked);
   return (host) => policy.allowsName(host);
@@ -113,5 +117,5 @@ export function scriptOriginsFor(appName: string): { devOrigins: string[]; insta
 
 /* The registries an e2e install reaches, with no app's own: for a script step that sets a project up without knowing which app it is for. */
 export function scriptRegistryOrigins(): { installOrigins: string[] } {
-  return { installOrigins: resolveRunOrigins({}, loadRegistryGroups(qayabaRoot())).install };
+  return { installOrigins: installOriginsOf(undefined, loadRegistryGroups(qayabaRoot())) };
 }

@@ -68,8 +68,8 @@ export function appView(app: AppConfig): { name: string; repo: string; baseUrl: 
   return {
     name: app.name,
     repo: app.repo,
-    baseUrl: app.dev?.baseUrl ?? "",
-    versionUrl: app.dev?.versionUrl ?? "",
+    baseUrl: app.dev.baseUrl,
+    versionUrl: app.dev.versionUrl ?? "",
     shadow: app.qa.shadow ?? false,
     needsReview: app.qa.needsReview,
     testDataPrefix: app.qa.testDataPrefix,

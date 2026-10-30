@@ -52,5 +52,4 @@ test("the hosts an app leaves blocked on purpose are the names its blocked origi
   assert.equal(blocked("ingest.example.net"), false, "a wildcard covers subdomains only");
   assert.equal(blocked("fonts.example.com"), false);
   assert.equal(blockedHostMatcher({ dev: { baseUrl: "https://dev.example.com" } })("stats.example.com"), false);
-  assert.equal(blockedHostMatcher({})("stats.example.com"), false);
 });

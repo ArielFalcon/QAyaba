@@ -38,7 +38,7 @@ export async function askAboutRun(deps: ApiDeps, runId: string, readBody: () => 
     let appInfo: { repo: string; baseUrl?: string } | undefined;
     try {
       const cfg = deps.loadApp(record.app);
-      appInfo = { repo: cfg.repo, baseUrl: cfg.dev?.baseUrl };
+      appInfo = { repo: cfg.repo, baseUrl: cfg.dev.baseUrl };
     } catch { /* app not configured — proceed without */ }
 
     /* Context is bounded (cases + logs capped) and sanitized on ingress (secrets redacted). */

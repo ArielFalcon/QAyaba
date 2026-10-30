@@ -382,16 +382,4 @@ describe("seam-parity: COMPOSITION (EngineRootDeps vs buildEngineRootDeps)", () 
       rmSync(specDir, { recursive: true, force: true });
     }
   });
-
-  test("buildEngineRootDeps throws when an app omits dev.baseUrl (composition-time guard)", () => {
-    assert.throws(
-      () => buildEngineRootDeps(
-        fakeAppConfig({ dev: undefined } as Partial<AppConfig>),
-        fakeFactoryDeps(),
-        S("namespace"),
-        { mode: "diff" },
-      ),
-      /has no dev\.baseUrl configured/,
-    );
-  });
 });

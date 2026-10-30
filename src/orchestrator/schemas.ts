@@ -114,7 +114,7 @@ export const AppConfigSchema = z
         }),
       )
       .optional(),
-    /* `dev` is the live site every run tests; the refine below requires it. */
+    /* `dev` is the live site every run tests: required, so every reader holds it. */
     dev: z
       .object({
         baseUrl: z.url({ error: "dev.baseUrl must be a valid URL" }),
@@ -185,7 +185,7 @@ export const AppConfigSchema = z
             }
           })
           .optional(),
-      })
+      }, { error: (issue) => (issue.input === undefined ? "dev is required" : undefined) })
       .superRefine((dev, ctx) => {
         if (dev.blockedOrigins === undefined) return;
         /* An origin that is both reachable and blocked on purpose says two things at once; the app's own origin is reachable by definition. */
@@ -206,8 +206,7 @@ export const AppConfigSchema = z
           const contradicts = blocked.rules.some((rule) => reachable.allowsName(rule.host)) || reachable.rules.some((rule) => blocked.allowsName(rule.host));
           if (contradicts) ctx.addIssue({ code: "custom", message: `dev.blockedOrigins ${JSON.stringify(origin)} is also reachable (dev.allowedOrigins or the app's own origin): an origin is one or the other`, path: ["blockedOrigins", index] });
         });
-      })
-      .optional(),
+      }),
     /*
      * Extra origins for the e2e project's `npm ci`, on top of the registries in config/egress/registries.yaml: a private
      * registry or mirror.
@@ -382,10 +381,6 @@ export const AppConfigSchema = z
     }),
   })
 
-  .refine((c) => c.dev !== undefined, {
-    error: "dev is required",
-    path: ["dev"],
-  })
   .refine((c) => c.auth?.kind !== "form" || (!!c.auth.usernameEnv && !!c.auth.passwordEnv), {
     error: "auth.kind form requires usernameEnv and passwordEnv",
     path: ["auth"],

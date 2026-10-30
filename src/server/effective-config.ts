@@ -12,7 +12,7 @@ import { createHash } from "node:crypto";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { isCaptureMode, type CaptureMode } from "@kernel/telemetry/capture-mode";
-import { agentBrowserEnabled, closedLoopEnabled, serviceTopologyWired, toolsApply } from "./run-config-gates";
+import { agentBrowserEnabled, closedLoopEnabled, serviceTopologyWired } from "./run-config-gates";
 import type { AppConfig } from "../orchestrator/config-loader";
 import type { EffectiveConfig, GroundingInput } from "../contract/commands";
 import type { AgentRoleFacts } from "./persistence/repositories/telemetry.repository";
@@ -46,15 +46,14 @@ const DEFAULT_COVERAGE_MIN_RATIO = 0.7;
 
 export function resolveRunConfig(app: AppConfig, request: RunConfigRequest, captureMode: CaptureMode, env: RunConfigEnvironment): StoredRunConfig {
   /* Same predicates as the engine factory's wiring (run-config-gates.ts). The tools also need the service token; otherwise the lever cannot take effect, whatever was asked. */
-  const tools = toolsApply(app);
   const closedLoopAsked = request.closedLoop ?? closedLoopEnabled(app);
   const agentBrowserAsked = request.agentBrowser ?? agentBrowserEnabled(app);
   const stitched = serviceTopologyWired(app);
   const requestedGrounding = request.grounding ?? {};
   return {
     levers: {
-      closedLoop: tools ? env.toolsGranted && closedLoopAsked : null,
-      agentBrowser: tools ? env.toolsGranted && agentBrowserAsked : null,
+      closedLoop: env.toolsGranted && closedLoopAsked,
+      agentBrowser: env.toolsGranted && agentBrowserAsked,
       captureMode,
     },
     campaignFreeze: env.campaignFrozen,

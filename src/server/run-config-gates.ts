@@ -4,11 +4,6 @@
  */
 import type { AppConfig } from "../orchestrator/config-loader";
 
-/* The run_spec loop and the authenticated browser exist only for a run of an app with a DEV address. */
-export function toolsApply(app: Pick<AppConfig, "dev">): boolean {
-  return Boolean(app.dev?.baseUrl);
-}
-
 /* The service-topology collaborator and cross-repo impact (the "stitcher") are wired only for an app with services and declared boundaries. */
 export function serviceTopologyWired(app: Pick<AppConfig, "services" | "boundaries">): boolean {
   return (app.services?.length ?? 0) > 0 && (app.boundaries?.length ?? 0) > 0;

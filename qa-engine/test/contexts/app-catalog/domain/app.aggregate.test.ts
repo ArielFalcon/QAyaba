@@ -4,10 +4,6 @@ import { App } from "@contexts/app-catalog/domain/app.aggregate.ts";
 
 const e2e = { name: "portfolio", repo: "org/portfolio", baseBranch: "main", shadow: true, services: [], dev: { versionUrl: "https://dev/version" } };
 
-test("an e2e app requires a dev block", () => {
-  assert.throws(() => App.fromConfig({ ...e2e, dev: undefined }), /dev is required/);
-});
-
 test("service repo must not equal the primary (distinct error message)", () => {
   /* two distinct invariants → two distinct messages so operators can diagnose the violation. */
   assert.throws(() => App.fromConfig({ ...e2e, services: [{ repo: "org/portfolio" }] }), /circular dependency/);

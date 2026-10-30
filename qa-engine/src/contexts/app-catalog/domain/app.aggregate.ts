@@ -3,7 +3,7 @@ export interface AppConfigInput {
   name: string; repo: string; baseBranch: string;
   shadow: boolean;
   services: AppServiceConfig[];
-  dev?: { versionUrl?: string } | undefined;
+  dev: { versionUrl?: string };
 }
 
 /** Watched-app aggregate. App-specificity lives only in this context. */
@@ -11,10 +11,6 @@ export class App {
   private constructor(private readonly cfg: AppConfigInput) {}
 
   static fromConfig(cfg: AppConfigInput): App {
-    /* The dev requirement is duplicated, word-for-word equivalent, in src/orchestrator/schemas.ts AppConfigSchema.refine. There is no compiler/test tie — change either side and update the other, or the two validators drift. */
-    if (cfg.dev === undefined) {
-      throw new Error("dev is required");
-    }
     const serviceRepoSet = cfg.services.map((s) => s.repo);
     if (serviceRepoSet.includes(cfg.repo)) {
       throw new Error(`service repo "${cfg.repo}" must not equal the primary repo (circular dependency)`);

@@ -8,7 +8,7 @@ import { RepoResolutionService } from "../domain/repo-resolution.service.ts";
 interface LoadedAppConfig {
   name: string; repo: string; baseBranch?: string;
   qa?: { shadow?: boolean }; services?: { repo: string; openapi?: string | string[]; versionUrl?: string }[];
-  dev?: { versionUrl?: string };
+  dev: { versionUrl?: string };
 }
 export interface ConfigLoaders {
   load(name: string): LoadedAppConfig;
