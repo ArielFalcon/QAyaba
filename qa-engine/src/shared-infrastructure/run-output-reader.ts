@@ -17,13 +17,6 @@ export interface RunOutputLimits {
 export const UNUSABLE = "its content could not be used";
 export const OUT_OF_TIME = "the time to check the files of this directory ran out before it";
 
-/* What a `decode` throws when the time its caller gave the directory is spent: the file is left out like any that cannot be used, and the reason says it was the clock, not the file's content, so a bound that bit is never taken for a file that was bad. */
-export class OutOfTimeError extends Error {
-  constructor() {
-    super("out of time");
-    this.name = "OutOfTimeError";
-  }
-}
 const GONE = "it was gone when it was read";
 const OVER_BUDGET = "the files of this directory already read hold more than the budget";
 
@@ -69,8 +62,8 @@ export function scanRunOutputDir<T>(
     }
     try {
       files.push(decode(name, read.bytes));
-    } catch (err) {
-      leftOut.push(err instanceof OutOfTimeError ? OUT_OF_TIME : UNUSABLE);
+    } catch {
+      leftOut.push(UNUSABLE);
     }
   }
   return { files, leftOut, cut: listing.truncated };

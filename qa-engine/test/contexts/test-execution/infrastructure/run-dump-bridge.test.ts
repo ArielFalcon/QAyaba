@@ -212,6 +212,18 @@ test("the time the coverage dumps took does not starve the counters beside them:
   assert.deepEqual(entries(join(r.specDir, ".qa", "coverage", NS)), ["w0-0.json"]);
 });
 
+test("the time a coverage job takes in its executor does not starve the counters: the counters' check time starts when their own kind's check does", async (t) => {
+  const r = rig(t);
+  /* The clock moves only while the coverage job runs, by more than a check time, and by nothing when a counter is read. */
+  let clock = 0;
+  const executor: OffLoopExecutor = { run: async (inputs) => { clock += DUMP_CHECK_BUDGET_MS + 1_000; return { kind: "done", outputs: inputs.map((bytes) => bytes) }; } };
+  const bridge = openDumpBridge({ specDir: r.specDir, namespace: NS, dumpRoot: r.dumpRoot, workRoot: r.workRoot, executor, now: () => clock });
+  writeFileSync(join(r.dumpRoot, "coverage", "w0-0.json"), DUMP);
+  writeFileSync(join(r.dumpRoot, "fault-injection", "mutated-1.json"), JSON.stringify({ corrupted: 4 }));
+  await bridge.harvest();
+  assert.equal(countInjectedResponses(r.specDir, NS), 4, "the counters kept their full check time");
+});
+
 test("a kind of dump whose check outlasts its own time is left out, and the count of its counters is unknown", async (t) => {
   const r = rig(t);
   let clock = 0;

@@ -4,6 +4,9 @@ import assert from "node:assert/strict";
 import { sanitizeV8Dump } from "@contexts/objective-signal/application/index.ts";
 import { createDumpExecutor } from "@contexts/test-execution/infrastructure/run-dump-bridge.ts";
 import { getEventListeners } from "node:events";
+import { existsSync, mkdtempSync, rmSync, statSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { createWorkerExecutor, workerExecArgv } from "../../../../src/shared-infrastructure/worker/off-loop-executor.ts";
 
 const misbehaving = (maxHeapMb = 128) => createWorkerExecutor({ worker: new URL("./misbehaving.worker.ts", import.meta.url), maxHeapMb });
@@ -29,6 +32,25 @@ test("a worker that dies is a crash, and one that is told to stop while it spins
   const spinning = misbehaving().run([Buffer.from("spin")], stop.signal);
   stop.abort();
   assert.deepEqual(await spinning, { kind: "failed", reason: "aborted" });
+});
+
+test("a worker that is told to stop is ended, not left running behind the outcome", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "qa-worker-beat-"));
+  try {
+    const beat = join(dir, "beat");
+    const stop = new AbortController();
+    const running = misbehaving().run([Buffer.from(`beat:${beat}`)], stop.signal);
+    while (!existsSync(beat)) await new Promise((resolve) => setTimeout(resolve, 10));
+    stop.abort();
+    assert.deepEqual(await running, { kind: "failed", reason: "aborted" });
+    /* Whatever the worker wrote before it was ended is all it ever writes. */
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    const settled = statSync(beat).size;
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    assert.equal(statSync(beat).size, settled, "the worker wrote nothing after it was ended");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test("a signal that is already aborted starts no worker", async () => {
