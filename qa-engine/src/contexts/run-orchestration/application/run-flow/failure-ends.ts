@@ -31,7 +31,7 @@ export function failureEnd(reason: EndReason, err: unknown, run: { deps: RunQaUs
        */
       if (classifyFailure(err) !== "run-deadline") throw err;
       const deadline = err as RunDeadlineExceededError;
-      recordLimit(state, { fired: "run-deadline", role: deadline.role });
+      recordLimit(state, { fired: "run-deadline", role: deadline.role, purpose: deadline.purpose });
       if (state.run.generationEnd === undefined) recordRunFact(state, "generationEnd", GENERATION_END.TIME_BUDGET);
       const note = renderRunDeadlineNote({ budgetMs: deadline.budgetMs, label: deadline.label, role: deadline.role, stop: deadline.stop, ...(deadline.purpose ? { purpose: deadline.purpose } : {}) });
       engineLog.error(`[qa] ${note}`);

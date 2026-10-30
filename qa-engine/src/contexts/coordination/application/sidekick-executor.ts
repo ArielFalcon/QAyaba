@@ -1,5 +1,6 @@
 /* Sidekick executor: owns an AgentRuntimePort session for one DelegationBrief. Does not modify GenerateTestsUseCase. Model names stay out of this module. Free-form DelegationResult fields are scrubbed on parse — they re-enter lead context / notes. filesChanged paths are authority inputs (scope check, on-disk adoption) and stay raw; they are scrubbed only where echoed into a summary or concern. */
 import type { ContextFit } from "@kernel/context-budget.ts";
+import type { TimeLimitSource } from "@kernel/turn-limit.ts";
 import type { AgentRuntimePort } from "@kernel/ports/agent-runtime.port.ts";
 import type { RedactionPort } from "@kernel/ports/redaction.port.ts";
 import type { DelegationBrief } from "./delegation-brief.ts";
@@ -33,6 +34,8 @@ export interface SidekickExecuteOpts {
   kind: SidekickKind;
   signal?: AbortSignal;
   timeoutMs?: number;
+  /** The bound `timeoutMs` is, as a turn that reaches it reports it; absent: the session timeout. */
+  timeLimit?: TimeLimitSource;
   feedback?: string;
   /** The flow of a plan the session is opened for: the run_spec loop and the browser share the flow's own are found by it. */
   delegationId?: string;
@@ -53,7 +56,7 @@ export interface SidekickSession {
   /* What the brief's prompt came to. */
   readonly first: DelegationResult;
   /* Asks the same session again; the answer is read as the first one was. A turn that does not answer returns a failed result with its typed end and leaves the session as it was; only the run's own deadline throws. A session the runtime says is gone is ended here. */
-  ask(instruction: string, opts?: { timeoutMs?: number }): Promise<DelegationResult>;
+  ask(instruction: string, opts?: { timeoutMs?: number; timeLimit?: TimeLimitSource }): Promise<DelegationResult>;
   /* Ends the session. Idempotent. */
   dispose(): Promise<void>;
 }
@@ -95,6 +98,7 @@ export class SidekickExecutor {
     const session = await this.deps.runtime.openSession(role, opts.cwd, {
       signal: opts.signal,
       timeoutMs: opts.timeoutMs,
+      ...(opts.timeLimit !== undefined ? { timeLimit: opts.timeLimit } : {}),
       descriptor: {
         runId: brief.runId,
         role,
@@ -129,7 +133,7 @@ export class SidekickExecutor {
     const askAgain: SidekickSession["ask"] = async (instruction, askOpts) => {
       const followUp = feedbackOf(instruction);
       try {
-        const answer = await session.prompt(followUp.text, { sectionSizes: followUp.sectionSizes, ...(followUp.sectionHashes ? { sectionHashes: followUp.sectionHashes } : {}), promptStablePrefixBytes: followUp.stablePrefixBytes, ...(askOpts?.timeoutMs !== undefined ? { timeoutMs: askOpts.timeoutMs } : {}) });
+        const answer = await session.prompt(followUp.text, { sectionSizes: followUp.sectionSizes, ...(followUp.sectionHashes ? { sectionHashes: followUp.sectionHashes } : {}), promptStablePrefixBytes: followUp.stablePrefixBytes, ...(askOpts?.timeoutMs !== undefined ? { timeoutMs: askOpts.timeoutMs, ...(askOpts.timeLimit !== undefined ? { timeLimit: askOpts.timeLimit } : {}) } : {}) });
         return await answered(answer.output);
       } catch (err) {
         if (isRunDeadlineError(err)) throw err;

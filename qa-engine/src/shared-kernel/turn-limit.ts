@@ -3,8 +3,14 @@
 export const TIME_LIMIT_SOURCES = [
   /* The first-pass time of a diff run's effort tier. */
   "tier-budget",
-  /* What is left of the run's wall-clock deadline. */
+  /* What is left of the run's wall-clock deadline (less the reserve of the phases after the purpose that asked). */
   "run-deadline",
+  /* The lead's planning, review or correction turn, capped by `planBudgetMs`. */
+  "plan-budget",
+  /* One flow of a plan, capped by `flowBudgetMs`. */
+  "flow-budget",
+  /* One call of a tool the agent asks the orchestrator for (`run_spec`, the authenticated browser), capped by `perCallMs`. */
+  "tool-call",
   /* The short cap of a contract-repair prompt. */
   "repair-cap",
   /* A session's timeout that no more specific name covers. */

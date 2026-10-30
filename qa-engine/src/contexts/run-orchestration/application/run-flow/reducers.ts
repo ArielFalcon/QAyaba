@@ -53,9 +53,9 @@ export function recordRunFact<K extends keyof RunFacts>(state: Readonly<RunState
 }
 
 /* run.limits: a limit the engine met at run level. The same limit met again (a second turn the deadline refused) is the same fact. */
-export function recordLimit(state: Readonly<RunState>, limit: { fired: TurnLimit; role: string }): void {
+export function recordLimit(state: Readonly<RunState>, limit: { fired: TurnLimit; role: string; purpose?: string | undefined }): void {
   if (state.run.limits.some((known) => known.fired === limit.fired && known.role === limit.role)) return;
-  state.run.limits.push({ fired: limit.fired, role: limit.role, scope: "run" });
+  state.run.limits.push({ fired: limit.fired, role: limit.role, scope: "run", ...(limit.purpose !== undefined ? { purpose: limit.purpose } : {}) });
 }
 
 /* run.degradations: a fault the run went on past, with the sentence its note carries. The same fault recorded again is the same fact. */

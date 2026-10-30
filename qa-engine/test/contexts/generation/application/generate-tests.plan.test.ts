@@ -66,10 +66,12 @@ test("a planning turn is one prompt in one generator session bounded by the plan
   assert.equal(seen.opened[0]!.role, "lead");
   assert.equal(seen.opened[0]!.cwd, "/m");
   assert.equal(seen.opened[0]!.opts?.timeoutMs, PLANNING.budgetMs);
+  assert.equal(seen.opened[0]!.opts?.timeLimit, "plan-budget");
   assert.equal(seen.opened[0]!.opts?.descriptor?.runId, "run-1");
   assert.equal(seen.prompts.length, 1);
   assert.equal(seen.prompts[0]!.opts?.withoutWrites, true);
   assert.equal(seen.prompts[0]!.opts?.timeoutMs, PLANNING.budgetMs);
+  assert.equal(seen.prompts[0]!.opts?.timeLimit, "plan-budget");
   assert.equal(seen.prompts[0]!.opts?.finalStepOnly, true);
 });
 

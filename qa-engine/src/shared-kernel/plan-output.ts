@@ -1,4 +1,5 @@
 import type { AgentTurnStats } from "@kernel/ports/agent-runtime.port.ts";
+import type { TimeLimitSource } from "@kernel/turn-limit.ts";
 
 /**
  * What a planning turn came to. `plan` is the object the lead's verdict carried, untrusted: only the orchestrator's admission reads
@@ -17,6 +18,8 @@ export interface PlanOutput {
 /** The lead's planning session, held open for its next turn: asked read-only, a turn out of its time answers `timedOut`. */
 export interface LeadTurnOpts {
   timeoutMs: number;
+  /** The bound `timeoutMs` is (the plan budget, or the run deadline's allowance when that is smaller); absent: the plan budget. */
+  timeLimit?: TimeLimitSource;
   /** The sizes and hashes of the sections the turn's prompt was assembled from; only for the trace. */
   sectionSizes?: Record<string, number>;
   sectionHashes?: Record<string, string>;

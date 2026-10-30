@@ -10,6 +10,8 @@
  */
 
 import type { DeadlinePurpose } from "@kernel/deadline-purpose.ts";
+import { heldTo, type HeldTime } from "@kernel/allotment-cap.ts";
+import type { TimeLimitSource } from "@kernel/turn-limit.ts";
 import { LOG_EFFECT, levelOfEffect } from "@kernel/ports/logger.port.ts";
 import { engineLog } from "@kernel/ports/process-logger.ts";
 import { sha256Hex } from "@kernel/content-hash.ts";
@@ -421,7 +423,7 @@ export class LeadSidekicks {
     let answered: Awaited<ReturnType<LeadSessionHandle["askForPlan"]>>;
     try {
       const request = assembleRejectedPlanRequest(downgrade, detail);
-      answered = await lead.askForPlan(request.text, turnOpts(request, Math.max(1, left === undefined ? settings.planBudgetMs : Math.min(settings.planBudgetMs, left))));
+      answered = await lead.askForPlan(request.text, planTurnOpts(request, settings.planBudgetMs, left));
     } catch (err) {
       if (isRunDeadlineError(err)) throw err;
       this.record(input, { kind: "lead-decision", reason: `plan: the lead's corrected plan turn failed (${err instanceof Error ? err.message : String(err)}); the refusal stands` });
@@ -474,7 +476,7 @@ export class LeadSidekicks {
       /* One capacity per request: the flows it lists as past the capacity are the plan's flows past that same capacity, not past the one the first plan was cut at. */
       const stated = capacity === undefined ? flows : { ...flows, capacity, ...(first.kind === LEAD_PLAN_KIND.FANOUT ? { notAdmitted: [...first.flows, ...first.notAdmitted].slice(capacity).map(({ id, objective, candidates }) => ({ id, objective, candidates })) } : {}) };
       const request = assembleReplanRequest(this.deps.redaction, firstCoverage.unresolved, firstCoverage.refused, { ...stated, admitted: first.kind === LEAD_PLAN_KIND.FANOUT ? first.flows.length : 0, ...slices });
-      answered = await lead.askForPlan(request.text, turnOpts(request, Math.max(1, left === undefined ? settings.planBudgetMs : Math.min(settings.planBudgetMs, left))));
+      answered = await lead.askForPlan(request.text, planTurnOpts(request, settings.planBudgetMs, left));
     } catch (err) {
       if (isRunDeadlineError(err)) throw err;
       this.record(input, { kind: "lead-decision", reason: `plan: the lead's second plan turn failed (${err instanceof Error ? err.message : String(err)}); the first plan stands` });
@@ -498,7 +500,7 @@ export class LeadSidekicks {
     const reports = new Map<string, FlowReport>();
     let handed = false;
     try {
-      const results = await this.dispatcher.run(flows, { maxParallel: parallel, ...(input.signal ? { signal: input.signal } : {}) }, (flow, signal) => this.author(flow, context, live, signal));
+      const results = await this.dispatcher.run(this.timed(flows, input), { maxParallel: parallel, ...(input.signal ? { signal: input.signal } : {}) }, (flow, signal) => this.author(flow, context, live, signal));
       await this.settle(input, results, live, reports);
 
       const tally: ReviewTally = { turns: 0, accepted: 0, revised: 0, replaced: 0, dropped: 0, refused: 0, unreadable: 0, repairs: 0, notCarriedOut: 0 };
@@ -653,6 +655,7 @@ export class LeadSidekicks {
       keepUnanswered: true,
       signal,
       timeoutMs: Math.max(1, timeoutMs),
+      timeLimit: "flow-budget",
       delegationId: entry.delegationId,
       denyTools: sidekickDeniedTools(context.mode, entry.loop !== undefined),
       devStateGround: () => devStateGroundOf(entry, context.input),
@@ -834,7 +837,7 @@ export class LeadSidekicks {
       let reply: { output: string; timedOut: boolean };
       try {
         const request = assembleLeadReview(this.deps.redaction, withSpecDigests(underReview, seen, turn), { turn, maxTurns: MAX_REVIEW_TURNS }, gaps, this.leadFit());
-        reply = await lead.ask(request.text, turnOpts(request, Math.min(input.settings.planBudgetMs, room ?? input.settings.planBudgetMs)));
+        reply = await lead.ask(request.text, planTurnOpts(request, input.settings.planBudgetMs, room));
       } catch (err) {
         /* The run's own time spent ends the run; any other failure of the lead's turn leaves the flows as they are. */
         if (isRunDeadlineError(err)) throw err;
@@ -860,7 +863,7 @@ export class LeadSidekicks {
           tally.repairs += 1;
           try {
             const request = assembleUnreadableReviewRequest(admission.unreadable);
-            const again = await lead.ask(request.text, turnOpts(request, Math.min(input.settings.planBudgetMs, left ?? input.settings.planBudgetMs)));
+            const again = await lead.ask(request.text, planTurnOpts(request, input.settings.planBudgetMs, left));
             if (!again.timedOut) {
               const second = read(again.output);
               if (second.readable && (!admission.readable || readsBetter(second.unreadable, admission.unreadable))) admission = second;
@@ -896,7 +899,7 @@ export class LeadSidekicks {
       }
       const slots = orders.map((order) => {
         const flow = live.get(order.flowId)!.flow;
-        return { ...order, id: order.flowId, budgetMs: Math.min(flow.budgetMs, after ?? flow.budgetMs) };
+        return { ...order, id: order.flowId, ...this.flowTime(flow.budgetMs, after) };
       });
       for (const order of orders) {
         if (order.action === REVIEW_ACTION.REVISE) tally.revised += 1;
@@ -921,7 +924,7 @@ export class LeadSidekicks {
   private async revise(entry: LiveFlow, order: ReviewOrder, timeoutMs: number, context: FlowContext, signal: AbortSignal): Promise<FlowReport> {
     const instruction = [order.instruction, orchestratorFacts(entry, await this.currentSpecSha(entry, context.input))].filter(Boolean).join("\n");
     if (order.action === REVIEW_ACTION.REVISE && entry.session) {
-      const result = await this.untilStopped(entry, entry.session.ask(instruction, { timeoutMs: Math.max(1, timeoutMs) }), signal);
+      const result = await this.untilStopped(entry, entry.session.ask(instruction, { timeoutMs: Math.max(1, timeoutMs), timeLimit: "flow-budget" }), signal);
       return this.assess(entry, context, result, signal);
     }
     await this.closeSession(entry);
@@ -1043,7 +1046,7 @@ export class LeadSidekicks {
         return { output: "", sent: false };
       }
       try {
-        const answer = await lead.ask(request.text, turnOpts(request, budgetMs));
+        const answer = await lead.ask(request.text, planTurnOpts(request, input.settings.planBudgetMs, this.room(input)));
         if (answer.timedOut) this.record(input, { kind: "lead-decision", origin, reason: `correction (${origin}): the lead ran out of its time${again ? "; its first answer stands" : "; each flow is sent its own findings"}` });
         else return { output: answer.output, sent: true };
       } catch (err) {
@@ -1110,15 +1113,15 @@ export class LeadSidekicks {
       else tally.replaced += 1;
       this.record(input, { kind: "lead-decision", origin, flowId: order.flowId, decision: order.action, findings: order.findings.length, candidateIds: under.find((u) => u.id === order.flowId)?.candidates ?? [], reason: `correction (${origin}): flow ${order.flowId} ${order.action} with ${order.findings.length} finding(s)`, delegationId: live.get(order.flowId)!.delegationId });
     }
-    const slots = orders.map((order) => ({ ...order, id: order.flowId, budgetMs: Math.min(live.get(order.flowId)!.flow.budgetMs, after ?? live.get(order.flowId)!.flow.budgetMs) }));
+    const slots = orders.map((order) => ({ ...order, id: order.flowId, ...this.flowTime(live.get(order.flowId)!.flow.budgetMs, after) }));
     for (const slot of slots) live.get(slot.flowId)!.taken = false;
     const delegationBefore = { ...context.unreadable };
     /* A claim is read only from a turn this correction made: a flow whose turn failed keeps the result of an earlier one. */
     const turnsBefore = new Map(slots.map((slot) => [slot.flowId, live.get(slot.flowId)!.turns]));
     /* The flows' corrections and the maintenance flows share one pool, so the run's parallelism holds for both. */
     const tasks = [
-      ...slots.map((slot) => ({ id: slot.id, budgetMs: slot.budgetMs, slot, maintain: undefined })),
-      ...maintenance.map((m) => ({ id: m.flow.id, budgetMs: m.flow.budgetMs, slot: undefined, maintain: m.flow })),
+      ...slots.map((slot) => ({ id: slot.id, budgetMs: slot.budgetMs, limit: slot.limit, slot, maintain: undefined })),
+      ...maintenance.map((m) => ({ id: m.flow.id, ...this.flowTime(m.flow.budgetMs, after), slot: undefined, maintain: m.flow })),
     ];
     const results = await this.dispatcher.run(tasks, { maxParallel: parallel, ...(input.signal ? { signal: input.signal } : {}) }, (task, signal) => (task.maintain
       ? this.author(task.maintain, context, live, signal)
@@ -1298,6 +1301,17 @@ export class LeadSidekicks {
     const room = this.room(input);
     if (room === undefined) return input.settings.planBudgetMs;
     return room < MIN_FLOW_MS ? undefined : Math.min(input.settings.planBudgetMs, room);
+  }
+
+  /* The time a flow is dispatched with and the bound it is: its own cap (`flow-budget`) while that is below what its purpose is allotted now, else the deadline's, which no timer of the dispatcher races. */
+  private flowTime(budgetMs: number, room: number | undefined): { budgetMs: number; limit: HeldTime["limit"] } {
+    const held = heldTo({ ms: budgetMs, limit: "flow-budget" }, room);
+    return { budgetMs: held.ms, limit: held.limit };
+  }
+
+  private timed<F extends { budgetMs: number }>(flows: readonly F[], input: CoordinateInput): Array<F & { limit: HeldTime["limit"] }> {
+    const room = this.room(input);
+    return flows.map((flow) => ({ ...flow, ...this.flowTime(flow.budgetMs, room) }));
   }
 
   private allowance(input: CoordinateInput): number | undefined {
@@ -1522,8 +1536,14 @@ function devStateGroundOf(entry: LiveFlow, input: Pick<CoordinateInput, "agentBr
 const MAX_FACTS_CHARS = 2_000;
 
 /* The options of a lead turn: its time, the sizes and hashes of the sections its prompt was assembled from, so the transport's trace can split the turn, and its stable prefix. */
-function turnOpts(assembled: AssembledPrompt, timeoutMs: number): { timeoutMs: number; sectionSizes: Record<string, number>; sectionHashes?: Record<string, string>; sectionsDegraded?: number; promptStablePrefixBytes: number } {
-  return { timeoutMs, sectionSizes: assembled.sectionSizes, ...(assembled.sectionHashes ? { sectionHashes: assembled.sectionHashes } : {}), ...(assembled.windowFit ? { sectionsDegraded: assembled.windowFit.degraded.length } : {}), promptStablePrefixBytes: assembled.stablePrefixBytes };
+function turnOpts(assembled: AssembledPrompt, timeoutMs: number, timeLimit?: TimeLimitSource): { timeoutMs: number; timeLimit?: TimeLimitSource; sectionSizes: Record<string, number>; sectionHashes?: Record<string, string>; sectionsDegraded?: number; promptStablePrefixBytes: number } {
+  return { timeoutMs, ...(timeLimit !== undefined ? { timeLimit } : {}), sectionSizes: assembled.sectionSizes, ...(assembled.sectionHashes ? { sectionHashes: assembled.sectionHashes } : {}), ...(assembled.windowFit ? { sectionsDegraded: assembled.windowFit.degraded.length } : {}), promptStablePrefixBytes: assembled.stablePrefixBytes };
+}
+
+/* A lead turn under the plan budget: the budget while it is below what the run's deadline allots the turn, else the allowance, typed as the bound it is. */
+function planTurnOpts(assembled: AssembledPrompt, planBudgetMs: number, allowanceMs: number | undefined): ReturnType<typeof turnOpts> {
+  const held = heldTo({ ms: planBudgetMs, limit: "plan-budget" }, allowanceMs);
+  return turnOpts(assembled, Math.max(1, held.ms), held.limit);
 }
 
 /* What the orchestrator adds to an instruction of the lead's: what it saw of the flow's last run_spec call, the kind of failure it met, and the reads that disagree. */

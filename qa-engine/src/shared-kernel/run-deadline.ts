@@ -13,6 +13,8 @@ export interface RunDeadlineView {
    * Null while no deadline is armed (nothing bounds the run yet). Zero: nothing may start for that purpose.
    */
   allowance(purpose?: DeadlinePurpose): number | null;
+  /** The purpose the run is in now: the one an allowance asked for without a purpose, and the one a cut turn is reported under. */
+  currentPurpose(): DeadlinePurpose;
 }
 
 /** Whether the turn the deadline stopped had already begun, or a phase that is no agent turn (an execution, the static gate, an install) was cut while it ran. */

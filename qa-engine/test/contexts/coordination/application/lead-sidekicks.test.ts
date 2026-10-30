@@ -2395,6 +2395,7 @@ function timedPass(outputs: string[], spend: number | "to-timeout", overshootMs 
   const clock = { left: 3_600_000, armed: false };
   const asked: string[] = [];
   const timeouts: number[] = [];
+  const limits: Array<string | undefined> = [];
   const plan: CoordinateInput["plan"] = async () => ({
     plan: FANOUT_PLAN, parsed: true, timedOut: false,
     lead: {
@@ -2403,6 +2404,7 @@ function timedPass(outputs: string[], spend: number | "to-timeout", overshootMs 
         if (!clock.armed) return { output: ACCEPT_ALL, timedOut: false };
         asked.push(text);
         timeouts.push(opts.timeoutMs);
+        limits.push(opts.timeLimit);
         const cost = spend === "to-timeout" ? opts.timeoutMs + overshootMs : spend;
         clock.left -= cost;
         if (spend === "to-timeout") return { output: "", timedOut: true };
@@ -2419,28 +2421,30 @@ function timedPass(outputs: string[], spend: number | "to-timeout", overshootMs 
     clock.armed = true;
     return outcome;
   };
-  return { r, clock, asked, timeouts, start };
+  return { r, clock, asked, timeouts, limits, start };
 }
 
 const CART_FINDING = { text: "the total is never asserted", spec: "e2e/flows/cart.spec.ts" };
 
 test("a slow lead turn is held to the time its purpose is allotted, up to the plan budget, with no margin of the coordination's own", async () => {
-  const { r, timeouts, start } = timedPass([], "to-timeout");
+  const { r, timeouts, limits, start } = timedPass([], "to-timeout");
   const outcome = await start(330_000);
   const corrected = await outcome.pass!.correct([CART_FINDING], CORRECTION_ORIGIN.COVERAGE);
   await outcome.pass!.release();
   assert.equal(timeouts[0], DEFAULT_COORDINATION_SETTINGS.planBudgetMs, "the allotment (330 s) is above the plan budget, which is the cap");
+  assert.equal(limits[0], "plan-budget", "the turn that reaches the cap ends as the cap");
   assert.deepEqual(corrected.specs, ["flows/cart.spec.ts"], "the finding reached its flow");
   assert.deepEqual(corrected.unrouted, []);
   assert.ok(r.executed.some((e) => e.asked && e.brief.delegationId === "run-1-flow-cart"));
 });
 
 test("a lead turn below the plan budget is given the whole allotment, not the allotment less a reserve or two flows' minimum", async () => {
-  const { timeouts, start } = timedPass([VALID_ORDER], 1_000);
+  const { timeouts, limits, start } = timedPass([VALID_ORDER], 1_000);
   const outcome = await start(150_000);
   await outcome.pass!.correct([CART_FINDING], CORRECTION_ORIGIN.COVERAGE);
   await outcome.pass!.release();
   assert.equal(timeouts[0], 150_000);
+  assert.equal(limits[0], "run-deadline", "the turn that reaches the allotment ends as the run's deadline");
 });
 
 test("the lead is not asked again once its first turn has taken the allotment below a flow's minimum; its first answer stands", async () => {

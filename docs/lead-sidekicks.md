@@ -131,7 +131,9 @@ signed-in app (see below); without either, no sidekick can author and the run en
    claim per id (`covered`, `not-covered`, `blocked`), which the plan snapshot keeps beside the flow's outcome and no
    grader trusts; its return contract asks for nothing else nobody reads (no evidence, validation or assumptions of its
    own). `FanOutDispatcher` runs at most `maxParallel` flows. Each has its own abort signal and time
-   (`flowBudgetMs`, cut to the run's deadline); a flow that throws does not stop the others.
+   (`flowBudgetMs`, cut to the run's deadline); a flow that throws does not stop the others. A flow whose time is the deadline's own allotment (the
+   cap is above it) gets no dispatcher timer: the runtime ends it as the run's `run-deadline` error, so a flow never ends as two kinds of timeout.
+   A flow that reaches `flowBudgetMs` ends `timed-out`, and its turns report `flow-budget`; the lead's turns report `plan-budget` the same way.
 4. **Take back.** Each sidekick works in a plain, bounded copy of what the run may read
    (`<mirrors>/.qa-delegations/<run>/<delegation>`). Only the files its brief names (`writablePaths`) are copied
    back, through `spec-path-confinement`. Anything else it changed is listed as a proposal for the lead and never

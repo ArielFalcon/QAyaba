@@ -217,7 +217,7 @@ test("every limit that fired and every fault the run went on past is on the root
     decision: "pr",
     shadowed: false,
     endReason: "decided",
-    limits: [{ fired: "run-deadline", role: "reviewer", scope: "run" }, { fired: "tier-budget", role: "qa-author", scope: "run" }],
+    limits: [{ fired: "run-deadline", role: "reviewer", scope: "run", purpose: "review" }, { fired: "tier-budget", role: "qa-author", scope: "run" }],
     limitFired: "run-deadline",
     limitRole: "reviewer",
     degradations: [{ reason: "deadline-after-proof", note: "the run deadline was spent during review-round; the suite that ran green on its final bytes is kept" }],
@@ -229,6 +229,7 @@ test("every limit that fired and every fault the run went on past is on the root
   assert.equal(attr(root, "qayaba.run.end_reason"), "decided");
   assert.equal(attr(root, "qayaba.limit.fired"), "run-deadline");
   assert.deepEqual(attr(root, "qayaba.limits"), ["run-deadline@reviewer", "tier-budget@qa-author"]);
+  assert.equal(attr(root, "qayaba.limit.purpose"), "review", "the root span names the purpose the deadline cut");
   assert.deepEqual(attr(root, "qayaba.degradations"), ["deadline-after-proof"]);
   const stored = getHistory().runs.getRunFacts(id);
   assert.deepEqual(stored?.limits, facts.limits);

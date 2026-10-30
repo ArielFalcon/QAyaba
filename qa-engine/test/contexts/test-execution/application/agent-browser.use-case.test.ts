@@ -46,7 +46,7 @@ function setup(over: { host?: FakeHost; lock?: AccountLock; renew?: (() => Promi
     lock,
     ...(over.renew !== undefined ? { session: { renew: over.renew } } : {}),
     redact: (text) => text.replaceAll("hunter2", "[REDACTED]"),
-    ...(over.deadline ? { deadline: { ...over.deadline, describe: () => undefined } } : {}),
+    ...(over.deadline ? { deadline: { ...over.deadline, describe: () => undefined, currentPurpose: () => "generate" as const } } : {}),
     leaseWaitSignal: () => over.leaseWait?.signal ?? new AbortController().signal,
     ...(over.runSignal ? { signal: over.runSignal } : {}),
     ...(over.loginPath !== undefined ? { loginPath: over.loginPath } : {}),
@@ -211,7 +211,7 @@ test("a call whose session ends while it waits for the account is not spent", as
 test("a call that waited for the account is bounded by the time the run has left when it gets it", async () => {
   let left: number | undefined = 600_000;
   const lock = new AccountLock();
-  const { host, useCase } = setup({ lock, deadline: { remainingMs: () => left, allowance: () => left ?? null, describe: () => undefined } });
+  const { host, useCase } = setup({ lock, deadline: { remainingMs: () => left, allowance: () => left ?? null, describe: () => undefined, currentPurpose: () => "generate" as const } });
   let release!: () => void;
   const held = lock.withLock("app/user", () => new Promise<void>((r) => { release = r; }));
   const waiting = useCase.call(nav("/orders"));

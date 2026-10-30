@@ -2408,10 +2408,11 @@ type RunDetail struct {
 		Exhausted bool    `json:"exhausted"`
 		Limit     *string `json:"limit,omitempty"`
 		Limits    *[]struct {
-			Fired string                      `json:"fired"`
-			Role  string                      `json:"role"`
-			Scope RunDetailBudgetsLimitsScope `json:"scope"`
-			Turns *int                        `json:"turns,omitempty"`
+			Fired   string                      `json:"fired"`
+			Purpose *string                     `json:"purpose,omitempty"`
+			Role    string                      `json:"role"`
+			Scope   RunDetailBudgetsLimitsScope `json:"scope"`
+			Turns   *int                        `json:"turns,omitempty"`
 		} `json:"limits,omitempty"`
 		Role *string `json:"role,omitempty"`
 	} `json:"budgets"`

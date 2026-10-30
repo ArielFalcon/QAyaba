@@ -320,6 +320,7 @@ const deadlineLeaving = (leftMs: number | null) => ({
   remainingMs: () => leftMs ?? undefined,
   describe: () => ({ label: "diff-tiny", budgetMs: 1 }),
   allowance: () => leftMs,
+  currentPurpose: () => "generate" as const,
 });
 
 test("a first pass never outlives what the run deadline has left: the session and its prompts are given the smaller of the tier's time and that", async () => {
@@ -348,4 +349,13 @@ test("a regeneration keeps the host's default whatever the deadline leaves", asy
   const { ports, seen } = build([{ output: "SPECS" }]);
   await new GenerateTestsUseCase(ports).author(baseInput({ fixCases: [{ name: "c", status: "fail" } as never] }), { deadline: deadlineLeaving(1_000) });
   assert.equal("timeoutMs" in (generatorOpen(seen)?.opts ?? {}), false);
+});
+
+test("a first pass names the bound it was given: the tier's budget while it is below what the deadline allots generation, the run's deadline otherwise", async () => {
+  const cases = [[TINY_MS - 60_000, "run-deadline"], [TINY_MS, "run-deadline"], [TINY_MS + 1, "tier-budget"], [null, "tier-budget"]] as const;
+  for (const [left, expected] of cases) {
+    const { ports, seen } = build([{ output: "SPECS" }]);
+    await new GenerateTestsUseCase(ports).author(baseInput(), { deadline: deadlineLeaving(left) });
+    assert.equal(generatorOpen(seen)?.opts?.timeLimit, expected, `left ${String(left)}`);
+  }
 });

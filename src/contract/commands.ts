@@ -694,7 +694,7 @@ export const RunDetailSchema = RunRecordSchema.extend({
     exhausted: z.boolean(),
     limit: z.string().optional(),
     role: z.string().optional(),
-    limits: z.array(z.object({ fired: z.string(), role: z.string(), scope: z.enum(["run", "turn"]), turns: z.number().int().min(1).optional() })).optional(),
+    limits: z.array(z.object({ fired: z.string(), role: z.string(), scope: z.enum(["run", "turn"]), turns: z.number().int().min(1).optional(), purpose: z.string().optional() })).optional(),
   }),
   /* Present only for a run that belongs to a campaign. */
   campaign: z.object({ id: z.string(), variant: z.record(z.string(), z.string()), replicate: z.number().int().min(1) }).optional(),

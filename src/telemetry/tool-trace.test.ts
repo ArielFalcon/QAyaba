@@ -237,6 +237,17 @@ test("the wait for the test account's lease is recorded on the call", async (t) 
   assert.equal(r.h.only("qayaba.tool.run_spec").attributes["qayaba.lease.wait_ms"], 400);
 });
 
+test("a call records the time it was given and that the app's per-call cap is the bound when no deadline is nearer", async (t) => {
+  const r = rig(t);
+  const registry = await openLoop(r);
+  await r.turn(async () => {
+    await registry.find(SESSION)!.call({ sessionId: SESSION, agent: "qa-author", path: "flows/a.spec.ts" });
+  });
+  const attrs = r.h.only("qayaba.tool.run_spec").attributes;
+  assert.equal(attrs["qayaba.limit.applied"], "tool-call");
+  assert.equal(typeof attrs["qayaba.limit.applied_ms"], "number");
+});
+
 test("a call refused because another is still running says DEV was busy", async (t) => {
   const r = rig(t);
   let release!: () => void;

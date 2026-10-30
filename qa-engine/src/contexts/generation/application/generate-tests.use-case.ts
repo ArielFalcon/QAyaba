@@ -1,5 +1,7 @@
 /* Generate-tests use case. One bounded generator repair. Every generation ends in exactly one classified way (GenerationResult.end): with specs the run continues, without them the end says why. */
 import type { DeadlinePurpose } from "@kernel/deadline-purpose.ts";
+import { heldTo } from "@kernel/allotment-cap.ts";
+import type { TimeLimitSource } from "@kernel/turn-limit.ts";
 import { engineLog } from "@kernel/ports/process-logger.ts";
 import type { AgentRuntimePort, AgentTurnStats } from "@kernel/ports/agent-runtime.port.ts";
 import { AUTHOR_SIDEKICK, LEAD_AGENT, openSidekickSession } from "@kernel/sidekick-session.ts";
@@ -114,7 +116,7 @@ export class GenerateTestsUseCase {
     const session = await openSidekickSession(this.ports.runtime, LEAD_AGENT, input.mirrorDir, {
       ...(opts?.signal ? { signal: opts.signal } : {}),
       timeoutMs: planning.budgetMs,
-      timeLimit: "prompt-budget",
+      timeLimit: "plan-budget",
       descriptor: { runId: input.runId },
     });
     let output = "";
@@ -135,7 +137,7 @@ export class GenerateTestsUseCase {
         finalStepOnly: true,
         withoutWrites: true,
         timeoutMs: planning.budgetMs,
-        timeLimit: "prompt-budget",
+        timeLimit: "plan-budget",
         onTurnStats: (stats) => { turn = stats; },
       });
       output = result.output;
@@ -161,7 +163,7 @@ export class GenerateTestsUseCase {
           finalStepOnly: true,
           withoutWrites: true,
           timeoutMs: askOpts.timeoutMs,
-          timeLimit: "prompt-budget",
+          timeLimit: askOpts.timeLimit ?? "plan-budget",
           ...(askOpts.sectionSizes ? { sectionSizes: askOpts.sectionSizes } : {}),
           ...(askOpts.sectionHashes ? { sectionHashes: askOpts.sectionHashes } : {}),
         });
@@ -213,22 +215,23 @@ export class GenerateTestsUseCase {
           ...(this.ports.promptCapMs !== undefined ? { capMs: this.ports.promptCapMs } : {}),
           ...(this.ports.timeBudgets ? { budgets: this.ports.timeBudgets } : {}),
         });
-    /* The tier's time never outlives the run's: the smaller of the two bounds the pass. A tier that bounds nothing stays so, and the deadline's own runtime ends such a turn. */
-    const runAllowanceMs = tierBudgetMs !== undefined ? opts?.deadline?.allowance?.("generate") ?? null : null;
-    const timeBudgetMs = tierBudgetMs !== undefined && runAllowanceMs !== null ? Math.min(tierBudgetMs, runAllowanceMs) : tierBudgetMs;
+    /* The tier's time is an upper bound of what the run's deadline allots the generate purpose: the pass is told the smaller of the two and which one it is, so the end it comes to is typed by the bound that ended it. A tier that bounds nothing stays so, and the deadline's own runtime ends such a turn. */
+    const held = tierBudgetMs !== undefined ? heldTo({ ms: tierBudgetMs, limit: "tier-budget" }, opts?.deadline?.allowance?.("generate") ?? null) : undefined;
+    const timeBudgetMs = held?.ms;
+    const timeLimit = held?.limit;
 
     /* The budget bounds the whole first pass, the repair included: every prompt is given only what is left of it, and a prompt that finds none left is not sent. */
     const now = this.ports.now ?? Date.now;
     const deadline = timeBudgetMs !== undefined ? now() + timeBudgetMs : undefined;
     const remainingMs = (): number | undefined => (deadline !== undefined ? deadline - now() : undefined);
-    const promptTime = (): { timeoutMs?: number; timeLimit?: "tier-budget" } => {
+    const promptTime = (): { timeoutMs?: number; timeLimit?: TimeLimitSource } => {
       const left = remainingMs();
-      return left !== undefined ? { timeoutMs: left, timeLimit: "tier-budget" } : {};
+      return left !== undefined && timeLimit !== undefined ? { timeoutMs: left, timeLimit } : {};
     };
 
     const session = await openSidekickSession(runtime, AUTHOR_SIDEKICK, input.mirrorDir, {
       ...(opts?.signal ? { signal: opts.signal } : {}),
-      ...(timeBudgetMs !== undefined ? { timeoutMs: timeBudgetMs, timeLimit: "tier-budget" as const } : {}),
+      ...(timeBudgetMs !== undefined && timeLimit !== undefined ? { timeoutMs: timeBudgetMs, timeLimit } : {}),
       descriptor: { runId: input.runId },
     });
     let generatorOutput = "";

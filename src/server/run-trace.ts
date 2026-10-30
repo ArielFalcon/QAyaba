@@ -235,6 +235,7 @@ export class RunTrace {
       ...(f.shadowed !== undefined ? { "qayaba.decision.shadowed": f.shadowed } : {}),
       ...(f.furthestPhase ? { "qayaba.furthest_phase": f.furthestPhase } : {}),
       ...(f.limitFired ? { "qayaba.limit.fired": f.limitFired } : {}),
+      ...(f.limits?.find((limit) => limit.purpose !== undefined) ? { "qayaba.limit.purpose": f.limits.find((limit) => limit.purpose !== undefined)!.purpose! } : {}),
       ...(f.limits ? { "qayaba.limits": f.limits.map((limit) => `${limit.fired}@${limit.role}`) } : {}),
       ...(f.degradations ? { "qayaba.degradations": f.degradations.map((d) => d.reason) } : {}),
       ...(f.specs

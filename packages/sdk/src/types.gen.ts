@@ -1487,6 +1487,7 @@ export interface components {
                     /** @enum {string} */
                     scope: "run" | "turn";
                     turns?: number;
+                    purpose?: string;
                 }[];
             };
             campaign?: {

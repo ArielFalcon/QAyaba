@@ -10,6 +10,7 @@ import { engineLog } from "@kernel/ports/process-logger.ts";
 import type { GeoLocation } from "@kernel/geolocation.ts";
 import type { RunDeadlineView } from "@kernel/run-deadline.ts";
 import { redactThenBound } from "@kernel/redact-then-bound.ts";
+import { heldTo } from "@kernel/allotment-cap.ts";
 import type { Attrs } from "@kernel/telemetry/attribute-registry.ts";
 import type { AccountLock } from "../domain/account-lock.ts";
 import { AGENT_BROWSER_REFUSAL, type AgentBrowserCapability, type AgentBrowserRefusalCode } from "../domain/agent-browser-capability.ts";
@@ -161,7 +162,9 @@ export class AgentBrowserUseCase {
 
   private async perform(sessionId: string, action: BrowserAction, stop: AbortSignal | undefined, tell: (attrs: Attrs) => void): Promise<AgentBrowserResponse> {
     const { capability, host } = this.deps;
-    const timeoutMs = Math.min(capability.limits.perCallMs, this.deps.deadline?.allowance() ?? Number.POSITIVE_INFINITY);
+    const held = heldTo({ ms: capability.limits.perCallMs, limit: "tool-call" }, this.deps.deadline?.allowance());
+    const timeoutMs = held.ms;
+    tell({ "qayaba.limit.applied": held.limit, "qayaba.limit.applied_ms": timeoutMs });
     const signal = AbortSignal.any([...(stop ? [stop] : []), AbortSignal.timeout(Math.max(1, timeoutMs))]);
     const geolocation = this.deps.location?.(sessionId);
     let state: PageState;

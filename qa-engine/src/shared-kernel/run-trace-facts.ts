@@ -13,6 +13,8 @@ export interface RunLimitFact {
   role: string;
   scope: "run" | "turn";
   turns?: number;
+  /* The purpose the run's deadline cut (a value of `DEADLINE_PURPOSES`), on a `run-deadline` limit that cut one; absent otherwise. */
+  purpose?: string;
 }
 
 /* What a run kept going with after a fault it could not recover from, as a closed set. */

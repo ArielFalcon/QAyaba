@@ -7,6 +7,7 @@
 
 import { DEFAULT_CLOSED_LOOP_LIMITS, type ClosedLoopLimits } from "@kernel/closed-loop.ts";
 import { normalizeSpecPath } from "@kernel/spec-path.ts";
+import { heldTo, type HeldTime } from "@kernel/allotment-cap.ts";
 import type { RunDevWriteLedger } from "./run-dev-write-ledger.ts";
 import type { DevWriteRequest } from "./dev-write-request.ts";
 
@@ -222,8 +223,13 @@ export class RunSpecCapability {
 
   /* The time a call that starts now may take given what the run's deadline has left, or why it may not start. A call that waited for the account asks again when it gets it: what it was told when it reserved is stale by then. */
   timeoutFor(deadlineLeftMs: number | undefined): number | ClosedLoopRefusal {
-    const timeoutMs = deadlineLeftMs === undefined ? this.init.limits.perCallMs : Math.min(this.init.limits.perCallMs, deadlineLeftMs - CLEANUP_RESERVE_MS);
+    const timeoutMs = this.heldFor(deadlineLeftMs).ms;
     return timeoutMs < MIN_CALL_MS ? refuse(CLOSED_LOOP_REFUSAL.NO_TIME, "the run has too little time left to execute a spec") : timeoutMs;
+  }
+
+  /* The call's time and the bound it is: the app's per-call cap (`tool-call`) while it is below what the run's deadline leaves net of the cleanup pass, else the deadline's. */
+  heldFor(deadlineLeftMs: number | undefined): HeldTime {
+    return heldTo({ ms: this.init.limits.perCallMs, limit: "tool-call" }, deadlineLeftMs === undefined ? undefined : deadlineLeftMs - CLEANUP_RESERVE_MS);
   }
 
   /* Gives back the call in flight when it never started (it was refused its turn, or its wait ended): nothing ran, so nothing is spent. */

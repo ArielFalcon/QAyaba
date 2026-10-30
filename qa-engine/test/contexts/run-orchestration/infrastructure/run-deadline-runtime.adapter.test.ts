@@ -97,7 +97,7 @@ test("a prompt that finds no time left is not sent: the run's deadline error nam
   await assert.rejects(session.prompt("late"), (err: unknown) => {
     assert.ok(isRunDeadlineError(err));
     const e = err as RunDeadlineExceededError;
-    assert.deepEqual([e.role, e.stop, e.budgetMs, e.label], ["reviewer", "before-turn", 60_000, "manual"]);
+    assert.deepEqual([e.role, e.stop, e.budgetMs, e.label, e.purpose], ["reviewer", "before-turn", 60_000, "manual", "decide"]);
     return true;
   });
   assert.equal(h.prompts.length, 0, "no turn is spent on a run whose time is gone");
@@ -118,6 +118,7 @@ test("a turn that times out because the run's time ran out is the run's deadline
   await assert.rejects(session.prompt("long"), (err: unknown) => {
     assert.ok(isRunDeadlineError(err));
     assert.equal((err as RunDeadlineExceededError).stop, "mid-turn");
+    assert.equal((err as RunDeadlineExceededError).purpose, "decide", "the end names the purpose whose allotment it was");
     assert.ok((err as Error).cause instanceof AgentTimeoutError, "the turn's own error stays reachable");
     return true;
   });
@@ -178,5 +179,6 @@ test("a turn whose purpose has been allotted nothing is refused as the run's dea
   const session = await h.runtime.openSession("author", "/w").catch((err) => err);
   assert.ok(isRunDeadlineError(session), "no time is left for generation: the review and the rest are owed 11 of the 5 minutes that remain");
   assert.equal((session as RunDeadlineExceededError).stop, "before-turn");
+  assert.equal((session as RunDeadlineExceededError).purpose, "generate");
   assert.equal(h.deadline.remainingMs(), 5 * 60_000);
 });

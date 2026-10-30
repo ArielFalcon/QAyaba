@@ -35,7 +35,8 @@ export function degradeFailedStep(reason: DegradeReason, err: unknown, stepId: S
     return { end: facts.endOf("run-deadline", err) };
   }
   /* The deadline is what the run went on past: it is a limit that fired, whether it ended the run or not. */
-  recordLimit(state, { fired: "run-deadline", role: classifyFailure(err) === "run-deadline" ? (err as RunDeadlineExceededError).role : "unknown" });
+  const cut = classifyFailure(err) === "run-deadline" ? (err as RunDeadlineExceededError) : undefined;
+  recordLimit(state, { fired: "run-deadline", role: cut ? cut.role : "unknown", purpose: cut?.purpose });
   recordDegradation(state, { reason, note: deadlineNote(stepId) });
   return goto(KEEP_PROVEN_AT);
 }

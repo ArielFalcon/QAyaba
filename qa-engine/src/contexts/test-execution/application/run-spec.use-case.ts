@@ -228,6 +228,7 @@ export class RunSpecUseCase {
           if (spent) return spent;
           const timeoutMs = capability.timeoutFor(this.timeAllowed());
           if (typeof timeoutMs !== "number") return timeoutMs;
+          tell({ "qayaba.limit.applied": capability.heldFor(this.timeAllowed()).limit, "qayaba.limit.applied_ms": timeoutMs });
           began = true;
           const ran = await this.executeAndClean(rel, grep, reservation.namespace, timeoutMs, stop);
           if (ran.writesUncounted) capability.chargeRunRemainder();

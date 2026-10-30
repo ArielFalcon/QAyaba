@@ -447,7 +447,7 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   (`<mirrors>/.qa-delegations/<run>/<delegation>`, `DelegationWorkspacePort`); only the files its brief names (`writablePaths`) are taken
   back, through `spec-path-confinement`, and anything else it changed is listed as a proposal and never applied. Each brief carries
   the Live DOM of its flow's pages and the requests those pages made, cut from the run's Context Pack (`generation/domain/pack-pages.ts`). A pool of at most
-  `maxParallel` flows runs under `FanOutDispatcher` (a signal and a time per flow, a throwing flow isolated); each flow closes its own
+  `maxParallel` flows runs under `FanOutDispatcher` (a signal and a cap per flow, a throwing flow isolated; a flow whose time is the deadline's own allotment has no dispatcher timer racing the runtime, which ends it as the run's `run-deadline` error); each flow closes its own
   `run_spec` loop (`ClosedLoopHandle.openFlow`, the same `AccountLock` lease, its own caps and namespace) and, with a login, reads DEV
   through the orchestrator's authenticated browser with a share of the run's caps. What a sidekick may author with is
   `sidekickAuthoring`: authenticated browser, `run_spec` only, the plain browser for an app with no login (one flow at a time), or
@@ -529,8 +529,10 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   step can be arbitrarily long and the step cap alone never ends a turn spent on a few slow ones. The
   budget covers the whole first pass: the session carries it and each prompt, the repair included, is
   given only what is left of it as its own `timeoutMs`; a repair with none left is not
-  sent. A tier whose time the transport's own deadline (`agentPromptCapMs`) does not exceed sets no
-  budget, since that deadline would fire first. A turn the budget stops ends `time-budget`, unless the
+  sent. The tier's time is a cap, never a clock: the pass is told the smaller of it and what the deadline allots the generate
+  purpose, and the limit that is the smaller (`heldTo`, `shared-kernel/allotment-cap.ts`: `tier-budget`, or `run-deadline` on a tie), so
+  the time a prompt states is the time it gets and the turn ends as the bound that ended it. A tier whose time the transport's own
+  deadline (`agentPromptCapMs`) does not exceed sets no budget, since that deadline would fire first. A turn the tier budget stops ends `time-budget`, unless the
   main turn already delivered specs or declared a no-op, which stand when only the repair was cut.
   The tiers' times are operator-tunable without a rebuild: `QA_DIFF_TIME_BUDGET_MS_TINY`,
   `_FOCUSED` and `_BROAD` (a positive whole number of milliseconds, or `none` for no bound beyond the
@@ -557,7 +559,11 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   purpose is allotted time the trace gets an `allotment` event (`qayaba.allotment.purpose|ms|reserve_ms|reserve_source|unmeasured`;
   the source is `none`, `measured` or `fallback`). Every agent turn goes through `RunDeadlineRuntime`, a decorator over the
   agent runtime: a turn whose purpose is allotted nothing is not sent, and every other runs under the smaller of its own limit
-  and its purpose's allowance (the tier budget above still applies, inside it). A turn the deadline itself ended (not one that
+  and its purpose's allowance (the tier budget above still applies, inside it). Every cap on a purpose's time (the tier budget,
+  `planBudgetMs`, `flowBudgetMs`, a tool's `perCallMs`) is an upper bound of that allowance, stated with its own name (`tier-budget`,
+  `plan-budget`, `flow-budget`, `tool-call`) as the limit a turn or call reports (`qayaba.limit.applied`), and `run-deadline` when
+  the allowance is the smaller; a turn the deadline ended carries the purpose it cut (`RunDeadlineExceededError.purpose`, the
+  limit's `purpose` on the run record, `qayaba.limit.purpose` on the root span). A turn the deadline itself ended (not one that
   hit a limit of its own) raises `RunDeadlineExceededError`, which `guarded` (the failure policy) turns into a persisted
   `infra-error E-TIME-BUDGET` with a note naming the budget and the turn, nothing published and nothing learned. A deterministic
   phase (static gate, install, a Playwright execution, the DOM capture, the code-graph build) is cut at the deadline's instant, not

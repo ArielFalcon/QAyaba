@@ -266,3 +266,27 @@ test("no timer is left pending once the flows are done, however they ended", asy
   assert.equal(timers.open, 0);
   hang.open();
 });
+
+test("a flow whose time is the run deadline's has no timer of the dispatcher racing the deadline's own end", async () => {
+  const timers = new FakeTimers();
+  const dispatcher = new FanOutDispatcher({ timers });
+  const hold = gate();
+  const running = dispatcher.run([{ id: "a", budgetMs: 1_000, limit: "run-deadline" as const }], { maxParallel: 1 }, async () => { await hold.promise; return "late"; });
+  await settle();
+  assert.equal(timers.open, 0, "the dispatcher states no clock of its own for a flow bound by the deadline");
+  timers.advance(10_000);
+  await settle();
+  hold.open();
+  assert.deepEqual(await running, [{ id: "a", status: FLOW_RESULT.SETTLED, value: "late" }]);
+});
+
+test("a flow whose time is its own cap still ends timed-out when the cap is reached", async () => {
+  const timers = new FakeTimers();
+  const dispatcher = new FanOutDispatcher({ timers });
+  const hold = gate();
+  const running = dispatcher.run([{ id: "a", budgetMs: 1_000, limit: "flow-budget" as const }], { maxParallel: 1 }, async (_flow, signal) => { await Promise.race([hold.promise, new Promise((r) => signal.addEventListener("abort", r))]); });
+  await settle();
+  assert.equal(timers.open, 1);
+  timers.advance(1_000);
+  assert.deepEqual((await running).map((result) => result.status), [FLOW_RESULT.TIMED_OUT]);
+});

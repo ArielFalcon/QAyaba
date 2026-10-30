@@ -497,10 +497,6 @@ const TIMEOUT_BY_MODE: Record<RunMode, number> = {
   context: 10 * 60 * 1000,
 };
 
-export function agentTimeout(mode: RunMode): number {
-  return activeSettings().agent.timeoutMs ?? TIMEOUT_BY_MODE[mode];
-}
-
 const MAX_AGENT_TIMEOUT_MS = Math.max(...Object.values(TIMEOUT_BY_MODE));
 
 
