@@ -1,14 +1,10 @@
 /*
- * A test the report says was skipped (`test.skip`, `test.fixme`, `testInfo.skip()`, a skipping condition): it did not run, so it
- * is no case and proves nothing, but it shows its spec file loaded and was reported. A file the report names no case and no
- * skipped test of did not load. `file` is as the report wrote it, the spec's top suite title; `annotation` is the type of the
- * annotation that skipped it (`skip`, `fixme`), absent when the report carries none.
+ * What the report says about tests that did not stand as a pass. A skipped test (`test.skip`, `test.fixme`, `testInfo.skip()`, a
+ * skipping condition) did not run, so it is no case and proves nothing, but it shows its spec file loaded and was reported; the type is the
+ * kernel's, so every context reads the same record. A test that runs with `expectedStatus: "failed"` (`test.fail()`) is a case, and the
+ * status it declared is on the case itself (`QaCase.expectedStatus`), not in a list of its own.
  */
-export interface SkippedTest {
-  name: string;
-  file?: string;
-  annotation?: string;
-}
+export type { SkippedTest } from "@kernel/qa-case.ts";
 
 /*
  * A test the report says runs with `expectedStatus: "failed"` (`test.fail()`): a failure there is the expected result, so the

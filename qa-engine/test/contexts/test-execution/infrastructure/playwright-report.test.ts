@@ -262,3 +262,29 @@ test("a test that runs with expectedStatus failed is still a case, and is carrie
   assert.deepEqual(parsed.cases.map((c) => [c.name, c.status]), [["flows/a.spec.ts › ran", "pass"], ["flows/a.spec.ts › marked to fail", "pass"]]);
   assert.deepEqual(parsed.expectedFailures, [{ name: "flows/a.spec.ts › marked to fail", file: "flows/a.spec.ts" }]);
 });
+
+test("every case carries the status its test declared: passed by default, failed for test.fail(), none when the report states none", () => {
+  const report = {
+    suites: [
+      {
+        title: "flows/a.spec.ts",
+        specs: [
+          { title: "ran", tests: [{ status: "expected", expectedStatus: "passed" }] },
+          { title: "marked to fail", tests: [{ status: "expected", expectedStatus: "failed" }] },
+          { title: "marked to fail and passing", tests: [{ status: "unexpected", expectedStatus: "failed" }] },
+          { title: "no declaration", tests: [{ status: "expected" }] },
+        ],
+      },
+    ],
+  };
+  const parsed = parsePlaywrightReport(report);
+  assert.deepEqual(
+    parsed.cases.map((c) => [c.name, c.status, c.expectedStatus]),
+    [
+      ["flows/a.spec.ts › ran", "pass", "passed"],
+      ["flows/a.spec.ts › marked to fail", "pass", "failed"],
+      ["flows/a.spec.ts › marked to fail and passing", "fail", "failed"],
+      ["flows/a.spec.ts › no declaration", "pass", undefined],
+    ],
+  );
+});

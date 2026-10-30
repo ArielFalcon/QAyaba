@@ -2,9 +2,31 @@
 
 export type CaseStatus = "pass" | "fail" | "flaky";
 
+/*
+ * The status a test declared before it ran, as the report states it (`expectedStatus`): `passed` for an ordinary test, `failed` for one
+ * marked `test.fail()`, whose pass is the failure it expects. `not-run` is the record of a test that did not run at all (`test.skip`,
+ * `test.fixme`, `testInfo.skip()`, a skipping condition) when the engine refuses it as a case that fails: the report itself keeps skipped
+ * tests apart (`SkippedTest`). Absent: the case was recorded without one (stored before this field, or by a runner that reads no
+ * declaration), which is unknown and never "passed".
+ */
+export type ExpectedStatus = "passed" | "failed" | "not-run";
+
+/*
+ * A test the report says was skipped: it did not run, so it is no passing case and proves nothing, but its file loaded and was reported. `file`
+ * is as the report wrote it, the spec's top suite title; `annotation` is the type of the annotation that skipped it (`skip`, `fixme`), absent
+ * when the report carries none.
+ */
+export interface SkippedTest {
+  name: string;
+  file?: string;
+  annotation?: string;
+}
+
 export interface QaCase {
   name: string;
   status: CaseStatus;
+  /* The status the test declared before it ran (see ExpectedStatus). */
+  expectedStatus?: ExpectedStatus;
   detail?: string;
   flow?: string;
   objective?: string;

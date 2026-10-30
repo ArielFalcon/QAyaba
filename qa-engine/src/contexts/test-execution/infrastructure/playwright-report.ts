@@ -1,4 +1,4 @@
-import type { CaseStatus, QaCase } from "@kernel/qa-case.ts";
+import type { CaseStatus, ExpectedStatus, QaCase } from "@kernel/qa-case.ts";
 import type { RunVerdict } from "@kernel/run-verdict.ts";
 import type { ExpectedFailureTest, SkippedTest } from "../domain/skipped-test.ts";
 import { redactAndBound } from "../../../shared-infrastructure/redaction/redact-and-bound.ts";
@@ -7,6 +7,8 @@ import { LOAD_ERROR_MESSAGE_SAFETY_BOUND, MAX_LOAD_ERRORS_KEPT, type SpecLoadErr
 export interface PwCase {
   name: string;
   status: CaseStatus;
+  /* The status the test declared (the report's `expectedStatus`); absent when the report states none. */
+  expectedStatus?: ExpectedStatus;
   detail?: string;
   file?: string;
 }
@@ -73,9 +75,11 @@ export function parsePlaywrightReport(json: unknown): ParsedReport {
         if ((spec.tests ?? []).some((t) => t.expectedStatus === "failed")) {
           expectedFailures.push({ name: [title, spec.title].filter(Boolean).join(" › "), ...(file ? { file } : {}) });
         }
+        const declared = declaredStatus(spec);
         const c: PwCase & Pick<QaCase, "file"> = {
           name: [title, spec.title].filter(Boolean).join(" › "),
           status: outcome,
+          ...(declared ? { expectedStatus: declared } : {}),
           detail:
             outcome === "pass"
               ? undefined
@@ -138,6 +142,13 @@ function specOutcome(spec: PwSpec): SpecOutcome {
   if (spec.ok === undefined && resultStatuses.length === 0) return "skipped";
   const ok = spec.ok ?? results.every((r) => OK_STATUSES.has(r.status ?? ""));
   return ok ? "pass" : "fail";
+}
+
+/* The status a test declared before it ran: failed when any of its tests is marked to fail, passed when the report says so, none when it states nothing. */
+function declaredStatus(spec: PwSpec): ExpectedStatus | undefined {
+  const declared = (spec.tests ?? []).map((t) => t.expectedStatus);
+  if (declared.includes("failed")) return "failed";
+  return declared.includes("passed") ? "passed" : undefined;
 }
 
 /* The annotation that skipped a test, as the report names its type; a test skipped by a condition alone carries none. */

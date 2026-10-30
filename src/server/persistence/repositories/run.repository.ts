@@ -123,6 +123,12 @@ function nullsToUndefined<T extends Record<string, unknown>>(row: T): T {
   return out as T;
 }
 
+/* A stored case as the engine's record: the declared status is the column's, and a row written before the column existed has none. */
+function caseOfRow(row: Record<string, unknown>): QaCase {
+  const { expected_status: declared, ...rest } = nullsToUndefined(row);
+  return { ...rest, ...(declared === "passed" || declared === "failed" || declared === "not-run" ? { expectedStatus: declared } : {}) } as unknown as QaCase;
+}
+
 /* Runs and everything that hangs off one: cases, specs, the activity feed, the durable event log, plans and spec snapshots. */
 export class RunRepository {
   private readonly insertRun;
@@ -153,7 +159,7 @@ export class RunRepository {
     this.currentRunRow = raw.prepare("SELECT * FROM runs WHERE status IN ('running', 'enqueued') ORDER BY (status='running') DESC, at ASC, rowid ASC LIMIT 1");
     this.interruptedRows = raw.prepare("SELECT * FROM runs WHERE status IN ('running', 'enqueued')");
     this.deleteCaseByName = raw.prepare("DELETE FROM cases WHERE run_id = ? AND name = ?");
-    this.insertCase = raw.prepare("INSERT INTO cases (run_id, name, status, detail, file) VALUES (@runId, @name, @status, @detail, @file)");
+    this.insertCase = raw.prepare("INSERT INTO cases (run_id, name, status, detail, file, expected_status) VALUES (@runId, @name, @status, @detail, @file, @expectedStatus)");
     this.casesOfRun = raw.prepare("SELECT * FROM cases WHERE run_id = ?");
     this.countCases = raw.prepare("SELECT status, COUNT(*) AS cnt FROM cases WHERE run_id = ? GROUP BY status");
     this.specsOfRun = raw.prepare("SELECT * FROM specs WHERE run_id = ?");
@@ -178,7 +184,7 @@ export class RunRepository {
 
   private rowToRecord(row: Record<string, unknown>): RunRecord {
     const runId = row.id as string;
-    const cases = (this.casesOfRun.all(runId) as Record<string, unknown>[]).map(nullsToUndefined) as unknown as QaCase[];
+    const cases = (this.casesOfRun.all(runId) as Record<string, unknown>[]).map(caseOfRow);
     const specRows = (this.specsOfRun.all(runId) as Record<string, unknown>[]).map(nullsToUndefined) as unknown as SpecRecord[];
     const logsText = (row.logs as string) || "";
     const activityRows = this.activityOfRun.all(runId) as Array<{ kind: string; status: string | null; text: string; ts: string }>;
@@ -467,7 +473,7 @@ export class RunRepository {
   addCase(id: string, c: QaCase): void {
     this.db.write(() => {
       this.deleteCaseByName.run(id, c.name);
-      this.insertCase.run({ runId: id, name: c.name, status: c.status, detail: c.detail ?? null, file: c.file ?? null });
+      this.insertCase.run({ runId: id, name: c.name, status: c.status, detail: c.detail ?? null, file: c.file ?? null, expectedStatus: c.expectedStatus ?? null });
       const { passed, failed } = this.recalcCounts(id);
       this.db.statement("UPDATE runs SET passed = ?, failed = ? WHERE id = ?").run(passed, failed, id);
     });

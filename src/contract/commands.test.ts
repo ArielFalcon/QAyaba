@@ -36,6 +36,11 @@ test("QaCase parses a representative case; a bad status is rejected", () => {
   assert.throws(() => QaCaseSchema.parse({ name: "login", status: "green" }));
 });
 
+test("QaCase carries the status its test declared and refuses one that is not a mode", () => {
+  assert.doesNotThrow(() => QaCaseSchema.parse({ name: "login", status: "pass", expectedStatus: "failed" }));
+  assert.throws(() => QaCaseSchema.parse({ name: "login", status: "pass", expectedStatus: "green" }));
+});
+
 test("CreateRunInput requires app/target/mode and rejects an unknown mode", () => {
   assert.doesNotThrow(() => CreateRunInputSchema.parse({ app: "portfolio", target: "e2e", mode: "diff" }));
   assert.throws(() => CreateRunInputSchema.parse({ app: "portfolio", target: "e2e" }));

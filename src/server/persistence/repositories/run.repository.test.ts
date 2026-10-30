@@ -57,6 +57,17 @@ test("addCase upserts by name so a retry does not duplicate or inflate counts", 
   assert.equal(rec.failed, 0);
 });
 
+test("a case keeps the status its test declared, and a case stored before the column existed reads back with none, never as passing", () => {
+  const r = getHistory().runs.createRecord({ target: "e2e", app: "hist-mode", sha: "5555555", mode: "diff" });
+  getHistory().runs.addCase(r.id, { name: "declared to pass", status: "pass", expectedStatus: "passed" });
+  getHistory().runs.addCase(r.id, { name: "declared to fail", status: "pass", expectedStatus: "failed" });
+  getHistory().runs.addCase(r.id, { name: "from before", status: "pass" });
+  const byName = new Map(getHistory().runs.getRecord(r.id)!.cases.map((c) => [c.name, c.expectedStatus]));
+  assert.equal(byName.get("declared to pass"), "passed");
+  assert.equal(byName.get("declared to fail"), "failed");
+  assert.equal(byName.get("from before"), undefined);
+});
+
 test("currentRun returns a running/enqueued record and skips finished ones", () => {
   const r = getHistory().runs.createRecord({ target: "e2e",  app: "hist-d", sha: "4444444", mode: "diff" });
   getHistory().runs.updateRecord(r.id, { status: "running" });

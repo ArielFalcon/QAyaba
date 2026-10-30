@@ -9,6 +9,7 @@ import { openHistoryDatabase } from "./database";
 import { RunRepository } from "./repositories/run.repository";
 import { migration0002 } from "./migrations/0002-agent-turn-partial-text";
 import { migration0003 } from "./migrations/0003-run-ending-facts";
+import { migration0004 } from "./migrations/0004-run-engine-version";
 import { LATEST_SCHEMA_VERSION, type Migration } from "./migrations/index";
 import { SCHEMA_1_SQL, migration0001 } from "./migrations/0001-initial";
 
@@ -99,6 +100,22 @@ test("a schema 1 database is brought to the latest schema with every row intact 
   assert.equal(history.read(userVersion), LATEST_SCHEMA_VERSION);
   assert.equal(history.read(rows), rowsBefore);
   assert.deepEqual(history.read((db) => db.prepare("SELECT partial_text FROM agent_turns").all()), [{ partial_text: null }]);
+});
+
+test("a schema 4 database is brought to the latest schema with every case intact and the status its test declared unknown", (t) => {
+  const path = join(scratch(t), "history.db");
+  const before = new Database(path);
+  for (const migration of [migration0001, migration0002, migration0003, migration0004]) migration.up(before);
+  before.pragma("user_version = 4");
+  before.prepare("INSERT INTO runs (id, app, sha, at) VALUES ('r1', 'app', 'abcdef1', '2026-10-01T00:00:00.000Z')").run();
+  before.prepare("INSERT INTO cases (run_id, name, status, detail, file) VALUES ('r1', 'logs in', 'pass', NULL, 'flows/a.spec.ts')").run();
+  before.close();
+
+  const history = openHistoryDatabase(path);
+  t.after(() => history.close());
+
+  assert.equal(history.read(userVersion), LATEST_SCHEMA_VERSION);
+  assert.deepEqual(history.read((db) => db.prepare("SELECT name, status, file, expected_status FROM cases").all()), [{ name: "logs in", status: "pass", file: "flows/a.spec.ts", expected_status: null }]);
 });
 
 test("a database missing a schema 1 column is refused with the operator's next step, and the file is not modified", (t) => {

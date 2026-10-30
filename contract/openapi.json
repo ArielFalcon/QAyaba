@@ -2230,6 +2230,14 @@
               "flaky"
             ]
           },
+          "expectedStatus": {
+            "type": "string",
+            "enum": [
+              "passed",
+              "failed",
+              "not-run"
+            ]
+          },
           "detail": {
             "type": "string"
           },

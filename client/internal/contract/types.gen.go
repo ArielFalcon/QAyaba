@@ -750,6 +750,27 @@ func (e OnboardingJobStatusState) Valid() bool {
 	}
 }
 
+// Defines values for QaCaseExpectedStatus.
+const (
+	QaCaseExpectedStatusFailed QaCaseExpectedStatus = "failed"
+	QaCaseExpectedStatusNotRun QaCaseExpectedStatus = "not-run"
+	QaCaseExpectedStatusPassed QaCaseExpectedStatus = "passed"
+)
+
+// Valid indicates whether the value is a known member of the QaCaseExpectedStatus enum.
+func (e QaCaseExpectedStatus) Valid() bool {
+	switch e {
+	case QaCaseExpectedStatusFailed:
+		return true
+	case QaCaseExpectedStatusNotRun:
+		return true
+	case QaCaseExpectedStatusPassed:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for QaCaseNetworkClass.
 const (
 	Backend QaCaseNetworkClass = "backend"
@@ -1289,19 +1310,19 @@ func (e RunRecordMode) Valid() bool {
 
 // Defines values for RunRecordStatus.
 const (
-	RunRecordStatusDone     RunRecordStatus = "done"
-	RunRecordStatusEnqueued RunRecordStatus = "enqueued"
-	RunRecordStatusRunning  RunRecordStatus = "running"
+	Done     RunRecordStatus = "done"
+	Enqueued RunRecordStatus = "enqueued"
+	Running  RunRecordStatus = "running"
 )
 
 // Valid indicates whether the value is a known member of the RunRecordStatus enum.
 func (e RunRecordStatus) Valid() bool {
 	switch e {
-	case RunRecordStatusDone:
+	case Done:
 		return true
-	case RunRecordStatusEnqueued:
+	case Enqueued:
 		return true
-	case RunRecordStatusRunning:
+	case Running:
 		return true
 	default:
 		return false
@@ -2248,12 +2269,13 @@ type PublicAgentConfig struct {
 
 // QaCase defines model for QaCase.
 type QaCase struct {
-	Detail        *string             `json:"detail,omitempty"`
-	DurationMs    *float32            `json:"durationMs,omitempty"`
-	Flow          *string             `json:"flow,omitempty"`
-	Name          string              `json:"name"`
-	NetworkClass  *QaCaseNetworkClass `json:"networkClass,omitempty"`
-	NetworkErrors *[]struct {
+	Detail         *string               `json:"detail,omitempty"`
+	DurationMs     *float32              `json:"durationMs,omitempty"`
+	ExpectedStatus *QaCaseExpectedStatus `json:"expectedStatus,omitempty"`
+	Flow           *string               `json:"flow,omitempty"`
+	Name           string                `json:"name"`
+	NetworkClass   *QaCaseNetworkClass   `json:"networkClass,omitempty"`
+	NetworkErrors  *[]struct {
 		ErrorText    *string `json:"errorText,omitempty"`
 		ResourceType *string `json:"resourceType,omitempty"`
 		Status       *int    `json:"status,omitempty"`
@@ -2263,6 +2285,9 @@ type QaCase struct {
 	Reason    *string      `json:"reason,omitempty"`
 	Status    QaCaseStatus `json:"status"`
 }
+
+// QaCaseExpectedStatus defines model for QaCase.ExpectedStatus.
+type QaCaseExpectedStatus string
 
 // QaCaseNetworkClass defines model for QaCase.NetworkClass.
 type QaCaseNetworkClass string

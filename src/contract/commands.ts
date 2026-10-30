@@ -19,9 +19,13 @@ export const NetworkErrorSchema = z.object({
 /* Derived from the case's network errors and the run's egress report, never reported by the browser. */
 export const NetworkClassSchema = z.enum(["egress", "backend", "dns", "other"]);
 
+/* The status the test declared before it ran; absent for a case recorded before the field existed (unknown, never "passed"). */
+export const ExpectedStatusSchema = z.enum(["passed", "failed", "not-run"]);
+
 export const QaCaseSchema = z.object({
   name: z.string(),
   status: CaseStatusSchema,
+  expectedStatus: ExpectedStatusSchema.optional(),
   detail: z.string().optional(),
   flow: z.string().optional(),
   objective: z.string().optional(),
