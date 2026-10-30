@@ -1,6 +1,6 @@
 import type { CaseStatus, ExpectedStatus, QaCase } from "@kernel/qa-case.ts";
 import type { RunVerdict } from "@kernel/run-verdict.ts";
-import type { ExpectedFailureTest, SkippedTest } from "../domain/skipped-test.ts";
+import type { SkippedTest } from "../domain/skipped-test.ts";
 import { redactAndBound } from "../../../shared-infrastructure/redaction/redact-and-bound.ts";
 import { LOAD_ERROR_MESSAGE_SAFETY_BOUND, MAX_LOAD_ERRORS_KEPT, type SpecLoadError } from "../domain/spec-load-error.ts";
 
@@ -19,8 +19,6 @@ export interface ParsedReport {
   cases: PwCase[];
   /* The tests the report says were skipped: no case, but their file loaded. */
   skippedTests: SkippedTest[];
-  /* The tests that ran with `expectedStatus: "failed"`: cases, but their pass is the failure they expect. */
-  expectedFailures: ExpectedFailureTest[];
   executed: number;
   /* The report's top-level errors: what stopped a spec from loading. Their file is as Playwright wrote it (absolute); the caller makes it suite-relative. */
   loadErrors: SpecLoadError[];
@@ -60,7 +58,6 @@ export function parsePlaywrightReport(json: unknown): ParsedReport {
   const report = (json ?? {}) as PwReport;
   const cases: PwCase[] = [];
   const skippedTests: SkippedTest[] = [];
-  const expectedFailures: ExpectedFailureTest[] = [];
 
   const walk = (suites: PwSuite[] | undefined, prefix: string, file: string | undefined): void => {
     for (const suite of suites ?? []) {
@@ -71,9 +68,6 @@ export function parsePlaywrightReport(json: unknown): ParsedReport {
           const annotation = skipAnnotation(spec);
           skippedTests.push({ name: [title, spec.title].filter(Boolean).join(" › "), ...(file ? { file } : {}), ...(annotation ? { annotation } : {}) });
           continue;
-        }
-        if ((spec.tests ?? []).some((t) => t.expectedStatus === "failed")) {
-          expectedFailures.push({ name: [title, spec.title].filter(Boolean).join(" › "), ...(file ? { file } : {}) });
         }
         const declared = declaredStatus(spec);
         const c: PwCase & Pick<QaCase, "file"> = {
@@ -101,7 +95,7 @@ export function parsePlaywrightReport(json: unknown): ParsedReport {
 
   const executed = countExecuted(report, cases);
   const verdict = aggregate(cases, report, executed);
-  return { verdict, passed: verdict === "pass", cases, skippedTests, expectedFailures, executed, loadErrors: readLoadErrors(report.errors) };
+  return { verdict, passed: verdict === "pass", cases, skippedTests, executed, loadErrors: readLoadErrors(report.errors) };
 }
 
 /* The report is the child's: every field is checked, and an entry that is not a message is left out. */

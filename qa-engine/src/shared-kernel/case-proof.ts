@@ -50,3 +50,42 @@ export function tallyOf(file: string, reported: ReportedTests): ModeTally {
   tally.skipped = (reported.skippedTests ?? []).filter((t) => sameFile(t.file, file)).length;
   return tally;
 }
+
+/* A test a correction named, by the file and the title the correction gave it. The title only addresses the test the correction means; no rule below compares titles to decide anything else. */
+export interface NamedTest {
+  file: string;
+  name: string;
+}
+
+export interface ModeRefusal {
+  file: string;
+  why: string;
+}
+
+const times = (n: number, what: string): string => `${n} more ${what}`;
+
+/*
+ * Why a changed file's tests no longer stand as a pass, read from the declared modes and the counts of the file alone: the tests that
+ * were in its prior bytes (`prior`, the run before the regeneration) against the tests it reports now (`now`). A skipped test and a test
+ * marked `test.fail()` that were already there are not refused (the regeneration did not make them); one more of either is, whatever its
+ * title and however it came about (a renamed test is not an escape, nor is a new one added beside the fix). A file that had a failing
+ * test and reports fewer tests declared to pass than before has dropped one rather than fixed it. A test a correction named that is
+ * skipped or marked to fail now is refused whether or not it ran before. A file the report names nothing of is the silent rule's.
+ */
+export function modeRefusals(files: readonly string[], prior: ReportedTests, now: ReportedTests, named: readonly NamedTest[] = []): ModeRefusal[] {
+  const refusals: ModeRefusal[] = [];
+  for (const file of files) {
+    const before = tallyOf(file, prior);
+    const after = tallyOf(file, now);
+    if (after.expectedFailures > before.expectedFailures) refusals.push({ file, why: times(after.expectedFailures - before.expectedFailures, "test(s) expected to fail (test.fail())") });
+    if (after.skipped > before.skipped) refusals.push({ file, why: times(after.skipped - before.skipped, "skipped test(s)") });
+    const reported = after.ran + after.expectedFailures + after.skipped > 0;
+    if (reported && before.passing < before.ran && after.ran < before.ran) refusals.push({ file, why: "a test that was failing is gone from the file rather than fixed" });
+    for (const test of named.filter((t) => sameFile(t.file, file))) {
+      const skipped = (now.skippedTests ?? []).some((t) => sameFile(t.file, file) && t.name === test.name);
+      const expectedToFail = now.cases.some((c) => sameFile(c.file, file) && c.name === test.name && c.expectedStatus === "failed");
+      if (skipped || expectedToFail) refusals.push({ file, why: `the test a correction named is ${skipped ? "skipped" : "expected to fail (test.fail())"}` });
+    }
+  }
+  return refusals;
+}

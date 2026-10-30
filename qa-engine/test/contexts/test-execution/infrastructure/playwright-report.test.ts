@@ -246,23 +246,6 @@ test("a skipped test carries the type of the annotation that skipped it, and one
   ]);
 });
 
-test("a test that runs with expectedStatus failed is still a case, and is carried as an expected failure", () => {
-  const report = {
-    suites: [
-      {
-        title: "flows/a.spec.ts",
-        specs: [
-          { title: "ran", tests: [{ status: "expected", expectedStatus: "passed" }] },
-          { title: "marked to fail", tests: [{ status: "expected", expectedStatus: "failed" }] },
-        ],
-      },
-    ],
-  };
-  const parsed = parsePlaywrightReport(report);
-  assert.deepEqual(parsed.cases.map((c) => [c.name, c.status]), [["flows/a.spec.ts › ran", "pass"], ["flows/a.spec.ts › marked to fail", "pass"]]);
-  assert.deepEqual(parsed.expectedFailures, [{ name: "flows/a.spec.ts › marked to fail", file: "flows/a.spec.ts" }]);
-});
-
 test("every case carries the status its test declared: passed by default, failed for test.fail(), none when the report states none", () => {
   const report = {
     suites: [

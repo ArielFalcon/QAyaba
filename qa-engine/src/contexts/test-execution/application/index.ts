@@ -21,7 +21,7 @@ export type { CheckResult } from "../domain/execution-strategy.ts";
 export type { ExecutionOpts } from "../domain/execution.ts";
 export type { DevWriteRequest } from "../domain/dev-write-request.ts";
 export type { SpecLoadError } from "../domain/spec-load-error.ts";
-export type { ExpectedFailureTest, SkippedTest } from "../domain/skipped-test.ts";
+export type { SkippedTest } from "../domain/skipped-test.ts";
 export type { ValidationRunInfo } from "../domain/validation.ts";
 export type { RunSpecRefusalCode } from "./run-spec.use-case.ts";
 export type { AgentBrowserRefusalCode } from "../domain/agent-browser-capability.ts";

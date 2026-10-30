@@ -238,7 +238,7 @@ export async function regenerateAtGap(
     changedSpecFiles,
     namespace,
     snapshot,
-    priorCases: run.cases,
+    prior: run,
     independentSpecs: changedFiles.every(isSpecFile),
     deadline: runDeadlinePort,
     validate: validateAccepted(state, ctx),
@@ -265,7 +265,11 @@ export async function regenerateAtGap(
    * was given back.
    */
   const keptSet = new Set(kept);
-  run = { ...run, cases: [...run.cases.filter((c) => !keptSet.has(c.file ?? c.name)), ...(outcome.execution?.cases ?? [])] };
+  run = {
+    ...run,
+    cases: [...run.cases.filter((c) => !keptSet.has(c.file ?? c.name)), ...(outcome.execution?.cases ?? [])],
+    skippedTests: [...(run.skippedTests ?? []).filter((t) => !keptSet.has(t.file ?? t.name)), ...(outcome.execution?.skippedTests ?? [])],
+  };
   return { outcome: "accepted", run, acceptanceCalls, leadCorrections, changedSpecFiles: kept, files, reruns: [{ namespace, specFiles: kept }] };
 }
 

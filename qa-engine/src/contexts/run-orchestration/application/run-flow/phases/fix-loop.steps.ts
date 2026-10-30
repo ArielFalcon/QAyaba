@@ -135,7 +135,7 @@ function fixLoopFor(state: Readonly<RunState>, ctx: WorkspaceRunContext, pending
    */
   const fixLoopAcceptance: FixLoopAcceptancePort = {
     begin: () => snapshotSuite(),
-    accept: async ({ round, specs, namespace, priorCases }) => {
+    accept: async ({ round, specs, namespace, prior, named }) => {
       const snapshot = round as SuiteRestorePoint;
       /* A round that changed anything the specs import is accepted over the whole suite, never over its specs alone. */
       const changedSpecFiles = acceptanceScope(await suiteChangedFiles(snapshot, specs));
@@ -148,7 +148,8 @@ function fixLoopFor(state: Readonly<RunState>, ctx: WorkspaceRunContext, pending
         changedSpecFiles,
         namespace,
         snapshot,
-        priorCases,
+        prior,
+        named,
         adoptFailures: true,
         deadline: runDeadlinePort,
         validate: validateAccepted(state, ctx),
@@ -163,7 +164,7 @@ function fixLoopFor(state: Readonly<RunState>, ctx: WorkspaceRunContext, pending
           kind: "accepted",
           changedSpecFiles,
           executedSpecFiles: outcome.executedSpecs,
-          ...(outcome.execution ? { execution: { verdict: outcome.execution.verdict, cases: [...outcome.execution.cases] } } : {}),
+          ...(outcome.execution ? { execution: { verdict: outcome.execution.verdict, cases: [...outcome.execution.cases], ...(outcome.execution.skippedTests ? { skippedTests: [...outcome.execution.skippedTests] } : {}) } } : {}),
           accepted,
         };
       }
@@ -176,7 +177,7 @@ function fixLoopFor(state: Readonly<RunState>, ctx: WorkspaceRunContext, pending
         kind: "rejected",
         reason: outcome.reason,
         ...(outcome.execution
-          ? { execution: { verdict: outcome.execution.verdict, cases: [...outcome.execution.cases] } }
+          ? { execution: { verdict: outcome.execution.verdict, cases: [...outcome.execution.cases], ...(outcome.execution.skippedTests ? { skippedTests: [...outcome.execution.skippedTests] } : {}) } }
           : {}),
       };
     },
@@ -258,7 +259,7 @@ export async function runFixLoop(state: Readonly<RunState>, ctx: WorkspaceRunCon
   const failingBefore = initialRun.cases.filter((c) => c.status === "fail").length;
   const specShaBefore = specSetDigest((file) => ctx.services.specFiles.read(fixLoopSpecRoot, file), initialRun.cases.map((c) => c.file).filter((f): f is string => !!f));
   const loopInput: FixLoopInput = {
-    initialRun: { verdict: initialRun.verdict, cases: initialRun.cases },
+    initialRun: { verdict: initialRun.verdict, cases: initialRun.cases, ...(initialRun.skippedTests ? { skippedTests: initialRun.skippedTests } : {}) },
     generating,
     mode: input.mode,
     objectiveSource,
@@ -342,7 +343,7 @@ export async function settleFixLoop(state: Readonly<RunState>, ctx: WorkspaceRun
   ctx.services.fixLoopHandle.current = undefined;
   const { failingBefore, specShaBefore } = session;
   const fixLoopSpecRoot: SpecRoot = ctx.services.specRoot;
-  const run = { verdict: fixLoopResult.run.verdict, cases: fixLoopResult.run.cases, logs: initialRun.logs };
+  const run = { verdict: fixLoopResult.run.verdict, cases: fixLoopResult.run.cases, ...(fixLoopResult.run.skippedTests ? { skippedTests: fixLoopResult.run.skippedTests } : {}), logs: initialRun.logs };
   /* The fix_loop phase span carries what the loop came to, so a false positive (a failed run the loop changed nothing in) is queryable. */
   const failingAfter = run.cases.filter((c) => c.status === "fail").length;
   const specShaAfter = specSetDigest((file) => ctx.services.specFiles.read(fixLoopSpecRoot, file), run.cases.map((c) => c.file).filter((f): f is string => !!f));

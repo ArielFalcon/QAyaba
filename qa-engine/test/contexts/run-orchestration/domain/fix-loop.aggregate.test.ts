@@ -639,6 +639,43 @@ test("an accepted round's execution replaces its changed file's cases, and the l
   assert.deepEqual(acceptance.restored, [], "the accepted round is the final run, so nothing is restored");
 });
 
+test("each round's acceptance is given the run before it with the tests it skipped, and the failing tests the round was asked to fix", async () => {
+  const seen: Array<{ cases: string[]; skipped: string[]; named: string[] }> = [];
+  let round = 0;
+  const acceptance = fakeAcceptance(async (input) => {
+    seen.push({ cases: input.prior.cases.map((c) => c.name), skipped: (input.prior.skippedTests ?? []).map((t) => t.name), named: input.named.map((n) => `${n.file}:${n.name}`) });
+    round += 1;
+    return {
+      kind: "accepted",
+      changedSpecFiles: ["b.spec.ts"],
+      execution: { verdict: "fail", cases: [{ name: `b${round}`, status: "fail", file: "b.spec.ts", detail: "getByRole resolved to 0 elements" }], skippedTests: [{ name: `legacy${round}`, file: "b.spec.ts" }] },
+      accepted: `round-${round}`,
+    };
+  });
+  const { cycleBudget } = budgets();
+  const loop = new FixLoop({
+    execution: { execute: async () => { throw new Error("the accepted path must not call the retry execution port"); } },
+    regeneration: { regenerate: async () => ({ specs: ["b.spec.ts"], approved: true }) },
+    selectorCheck: { check: () => ({ contradictions: [], absentKeys: new Set(), anyVerifiedPresent: false, anyNonExtractable: false, anyUnverifiable: false }) },
+    acceptance,
+  });
+
+  await loop.run({
+    initialRun: { ...oneFailure(), skippedTests: [{ name: "legacy0", file: "b.spec.ts" }] },
+    generating: true,
+    mode: "diff",
+    objectiveSource: ["src/checkout.ts"],
+    maxRetries: 2,
+    cycleBudget,
+    integrity: integrity({ hasGreenProof: async () => false }),
+    devHealthy: async () => true,
+    namespace: "qa-bot-abc",
+  });
+
+  assert.deepEqual(seen[0], { cases: ["b"], skipped: ["legacy0"], named: ["b.spec.ts:b"] });
+  assert.deepEqual(seen[1], { cases: ["b1"], skipped: ["legacy1"], named: ["b.spec.ts:b1"] }, "the second round compares against what the first one reported");
+});
+
 test("a rejected acceptance keeps the prior run and stops without executing", async () => {
   const acceptance = fakeAcceptance(async () => ({ kind: "rejected", reason: "TS2554: expected 2 arguments" }));
   let executed = false;

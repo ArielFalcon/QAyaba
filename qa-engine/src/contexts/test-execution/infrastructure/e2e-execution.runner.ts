@@ -18,7 +18,7 @@ import type { ExecSandboxPort } from "../../../shared-infrastructure/process-san
 import { describeReasons, readRunOutputDir, scanRunOutputDir, type RunOutputLimits } from "../../../shared-infrastructure/run-output-reader.ts";
 import { readFailureReason, readOwnedSpecFile, type OwnedSpecRead } from "../../../shared-infrastructure/spec-path-confinement.ts";
 import { parsePlaywrightReport } from "./playwright-report.ts";
-import type { ExpectedFailureTest, SkippedTest } from "../domain/skipped-test.ts";
+import type { SkippedTest } from "../domain/skipped-test.ts";
 import { PLAYWRIGHT_INFRA_RE } from "../../../shared-kernel/playwright-infra.ts";
 import { openDumpBridge } from "./run-dump-bridge.ts";
 import { harvestSpanObserver } from "./harvest-spans.ts";
@@ -206,7 +206,6 @@ export interface E2eRunResult {
   /* The tests the report says were skipped: no case, but their spec file loaded; names redacted by value. Present only when a test was skipped. */
   skippedTests?: SkippedTest[];
   /* The cases that ran with `expectedStatus: "failed"` (`test.fail()`): their pass is the failure they expect; names redacted by value. Present only when a test did. */
-  expectedFailures?: ExpectedFailureTest[];
   logs: string;
   note?: string;
   /* Mutating requests the specs caused to DEV: those the fixtures counted that the control load does not account for; absent when nothing trustworthy was counted. */
@@ -459,7 +458,6 @@ export async function runE2E(
     passed: parsed.passed,
     cases: qaCases,
     ...(parsed.skippedTests.length > 0 ? { skippedTests: parsed.skippedTests.map((s) => ({ ...s, name: redactByValue(s.name) })) } : {}),
-    ...(parsed.expectedFailures.length > 0 ? { expectedFailures: parsed.expectedFailures.map((s) => ({ ...s, name: redactByValue(s.name) })) } : {}),
     logs: sanitized.text,
     ...(observations ? { observations } : {}),
   }, parsed.executed);

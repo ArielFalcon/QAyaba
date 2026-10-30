@@ -637,10 +637,10 @@ test("a fix-loop round that changes a spec file whose tests all skipped leaves t
 });
 
 /* A failing test cannot be made green by making it not run: a skip, an expected failure or its removal from the report leaves the run failing, for any app whatever its own lint. */
-type Reported = Pick<Awaited<ReturnType<ExecutionPort["execute"]>>, "verdict" | "cases" | "skippedTests" | "expectedFailures">;
+type Reported = Pick<Awaited<ReturnType<ExecutionPort["execute"]>>, "verdict" | "cases" | "skippedTests">;
 const NOT_A_FIX: Record<string, (file: string) => Reported> = {
   "a test.fixme / testInfo.skip()": (file: string) => ({ verdict: "pass", cases: [], skippedTests: [{ name: file, file, annotation: "fixme" }] }),
-  "a test.fail()": (file: string) => ({ verdict: "pass", cases: [{ name: file, status: "pass", file }], expectedFailures: [{ name: file, file }] }),
+  "a test.fail()": (file: string) => ({ verdict: "pass", cases: [{ name: file, status: "pass", expectedStatus: "failed", file }] }),
   "a deletion of the failing test beside another case": (file: string) => ({ verdict: "pass", cases: [{ name: `${file} other`, status: "pass", file }] }),
 };
 

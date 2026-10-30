@@ -2,7 +2,7 @@
 
 import type { RunVerdict } from "@kernel/run-verdict.ts";
 import type { RunMode } from "@kernel/run-mode.ts";
-import type { QaCase } from "@kernel/qa-case.ts";
+import type { QaCase, SkippedTest } from "@kernel/qa-case.ts";
 import type { CycleBudget } from "../../../shared-kernel/cycle-budget.ts";
 import { classifyRuntimeErrors } from "@kernel/runtime-error-class.ts";
 import { adjudicate, type AdjFailureClass, type AdjudicatorEvidence, type AdjudicatorVerdict, ADJ_CLASS, ADJ_ACTION, ADJ_CONFIDENCE } from "./adjudicate.service.ts";
@@ -17,6 +17,8 @@ import { fixLoopAction, type FixLoopNext, type FixLoopStep, type FixLoopStop } f
 export interface FixLoopRun {
   verdict: RunVerdict;
   cases: QaCase[];
+  /* The tests the execution reported as skipped: the record the next round's acceptance compares a file's skips against. */
+  skippedTests?: SkippedTest[];
 }
 
 export interface FixLoopGenerateInput {
@@ -91,8 +93,10 @@ export interface FixLoopAcceptancePort {
     specs: readonly string[];
     /** The execution namespace: `${runId}-r<n>`. */
     namespace: string;
-    /** The cases of the run before this round: the tests that ran in the specs' prior bytes, which the round may not turn into a skip or an expected failure, nor (a failing one) drop. */
-    priorCases: readonly FixLoopRun["cases"][number][];
+    /** The run before this round: the tests of the specs' prior bytes by the mode each declared, which the round may not leave with more skips or more tests expected to fail, nor (a failing one) drop. */
+    prior: Pick<FixLoopRun, "cases" | "skippedTests">;
+    /** The failing tests the round was asked to fix, by file and title: one that comes back skipped or expected to fail is refused. */
+    named: readonly { file: string; name: string }[];
   }): Promise<FixLoopAcceptanceOutcome>;
   /** Put back the accepted bytes of the round whose token this is (the best run's snapshot). */
   restore(token: unknown): Promise<void>;
@@ -222,7 +226,11 @@ function mergeAcceptedRound(current: FixLoopRun, outcome: Extract<FixLoopAccepta
       : outcome.execution?.verdict === "flaky" || cases.some((c) => c.status === "flaky")
         ? "flaky"
         : "pass";
-  return { verdict, cases };
+  const skippedTests = [
+    ...(current.skippedTests ?? []).filter((t) => t.file === undefined || !(changed.has(normalizeSpecPath(t.file)) || reported.has(normalizeSpecPath(t.file)))),
+    ...(outcome.execution?.skippedTests ?? []),
+  ];
+  return { verdict, cases, ...(skippedTests.length > 0 ? { skippedTests } : {}) };
 }
 
 function buildFailureDomLines(failureDom: string | undefined): string[] {
@@ -704,7 +712,8 @@ export class FixLoop {
       round: round.roundToken,
       specs: round.result?.specs ?? [],
       namespace: round.roundNs,
-      priorCases: state.run.cases,
+      prior: state.run,
+      named: state.run.cases.flatMap((c) => (c.status !== "pass" && c.file !== undefined ? [{ file: c.file, name: c.name }] : [])),
     });
     if (outcome.kind === "rejected") {
       /*

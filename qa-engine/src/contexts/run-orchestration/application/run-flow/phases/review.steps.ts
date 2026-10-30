@@ -418,7 +418,7 @@ export async function reviewCorrect(state: Readonly<RunState>, ctx: WorkspaceRun
     changedSpecFiles: cur.changedSpecFiles,
     namespace: acceptanceNamespace(input.runId, acceptanceCalls++),
     snapshot: cur.snapshot,
-    priorCases: runOf(state).cases,
+    prior: runOf(state),
     /* A turn that changed no file the specs import is accepted spec file by spec file. */
     independentSpecs: cur.changedSupportFiles.length === 0,
     deadline: runDeadlinePort,
@@ -515,7 +515,11 @@ export async function reviewResolve(state: Readonly<RunState>, ctx: WorkspaceRun
     const keptSet = new Set(outcome.kept);
     const realCases = outcome.execution?.cases ?? [];
     /* The kept files' cases are the acceptance execution's, whatever it holds (a kept file the turn deleted has none); every other file keeps its own. */
-    run = { ...run, cases: [...run.cases.filter((c) => !keptSet.has(c.file ?? c.name)), ...realCases] };
+    run = {
+      ...run,
+      cases: [...run.cases.filter((c) => !keptSet.has(c.file ?? c.name)), ...realCases],
+      skippedTests: [...(run.skippedTests ?? []).filter((t) => !keptSet.has(t.file ?? t.name)), ...(outcome.execution?.skippedTests ?? [])],
+    };
     session.reviewCases = [...realCases, ...session.reviewCases.filter((c: QaCase) => !keptSet.has(c.file ?? c.name))];
     session.round += 1;
     return goto("review-round", {

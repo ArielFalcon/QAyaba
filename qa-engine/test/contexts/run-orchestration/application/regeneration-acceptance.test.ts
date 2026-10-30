@@ -473,13 +473,17 @@ test("a regeneration that changed a file the specs import is judged whole: a spe
   assert.deepEqual(h.restores, [{ created: [], files: ["flows/green.spec.ts", "flows/silent.spec.ts"] }]);
 });
 
-test("a spec file whose tests all skipped loaded and showed it: it is kept beside the files that ran, and no case is recorded for it", async () => {
+/* A skipped test that was already in a file's prior bytes: the regeneration did not make it, so it neither blocks the file nor proves it. */
+const ALREADY_SKIPPED = { cases: [], skippedTests: [{ name: "needs a seeded account", file: "flows/skipped.spec.ts" }] };
+
+test("a spec file whose tests all skipped, as they did before, loaded and showed it: it is kept beside the files that ran, with no proof and no case recorded for it", async () => {
   const h = harness();
   const outcome = await h.service.accept({
     specDir: "/w/e2e",
     changedSpecFiles: ["flows/green.spec.ts", "flows/skipped.spec.ts"],
     namespace: NAMESPACE,
     snapshot: snapshotOf(["flows/green.spec.ts", "flows/skipped.spec.ts"]),
+    prior: ALREADY_SKIPPED,
     independentSpecs: true,
     deadline: deadline(60_000),
     validate,
@@ -497,7 +501,7 @@ test("a spec file whose tests all skipped loaded and showed it: it is kept besid
   assert.deepEqual(h.ledgered.map((l) => l.file), ["flows/green.spec.ts"]);
 });
 
-test("a regeneration whose only changed spec file has all its tests skipped is accepted, judged whole or file by file", async () => {
+test("a regeneration whose only changed spec file has all its tests skipped, as before, is accepted without a proof, judged whole or file by file", async () => {
   for (const independentSpecs of [true, false]) {
     const h = harness();
     const outcome = await h.service.accept({
@@ -505,6 +509,7 @@ test("a regeneration whose only changed spec file has all its tests skipped is a
       changedSpecFiles: ["flows/skipped.spec.ts"],
       namespace: NAMESPACE,
       snapshot: snapshotOf(["flows/skipped.spec.ts"]),
+      prior: { cases: [], skippedTests: [{ name: "fixme", file: "flows/skipped.spec.ts" }] },
       ...(independentSpecs ? { independentSpecs } : {}),
       deadline: deadline(60_000),
       validate,
@@ -513,6 +518,7 @@ test("a regeneration whose only changed spec file has all its tests skipped is a
 
     assert.equal(outcome.kind, "accepted", `independentSpecs ${independentSpecs}`);
     assert.equal(h.restores.length, 0);
+    assert.equal(h.ledgered.length, 0, "nothing of the file ran, so nothing of it is proven");
   }
 });
 
@@ -523,6 +529,7 @@ test("a skipped test of one file does not vouch for another spec file that showe
     changedSpecFiles: ["flows/skipped.spec.ts", "flows/silent.spec.ts"],
     namespace: NAMESPACE,
     snapshot: snapshotOf(["flows/skipped.spec.ts", "flows/silent.spec.ts"]),
+    prior: { cases: [], skippedTests: [{ name: "fixme", file: "flows/skipped.spec.ts" }] },
     independentSpecs: true,
     deadline: deadline(60_000),
     validate,
@@ -682,77 +689,66 @@ test("a regeneration that changed a file the specs import is judged whole: one f
   assert.equal(h.ledgered.length, 0);
 });
 
-/* A test that ran in a file's prior bytes (a case of the run before the regeneration) and that the regeneration turns into a skip, an expected failure or nothing is not a pass of it. */
-const PRIOR_FAILING = [caseOf("flows/a.spec.ts", "fail", "flows/a.spec.ts › pays by card"), caseOf("flows/a.spec.ts", "pass", "flows/a.spec.ts › other")];
-const PRIOR_GREEN = [caseOf("flows/a.spec.ts", "pass", "flows/a.spec.ts › pays by card")];
+/* What a regeneration may not do to a file's tests is read from their declared modes and counts per file, never from their titles. */
+type Mode = { name?: string; status?: "pass" | "fail"; expectedStatus?: "passed" | "failed" };
+const test_ = (file: string, over: Mode = {}) => ({ name: over.name ?? `${file} › t`, status: over.status ?? ("pass" as const), expectedStatus: over.expectedStatus ?? ("passed" as const), file });
+const skippedIn = (file: string, name: string, annotation = "skip") => ({ name, file, annotation });
 
-const accepting = (h: Harness, over: { priorCases?: ReturnType<typeof caseOf>[]; independentSpecs?: boolean; adoptFailures?: boolean; files?: string[]; execute: ExecutionPort["execute"] }) =>
+const A = "flows/a.spec.ts";
+/* A file with a failing test, a passing one, and a test already marked test.fail() before the round. */
+const PRIOR_FAILING = { cases: [test_(A, { name: "pays by card", status: "fail" }), test_(A, { name: "other" })] };
+const PRIOR_GREEN = { cases: [test_(A, { name: "pays by card" })] };
+const PRIOR_WITH_KNOWN_BUG = { cases: [test_(A, { name: "known app bug", expectedStatus: "failed" }), test_(A, { name: "broken", status: "fail" })] };
+
+const accepting = (h: Harness, over: { prior?: { cases: ReturnType<typeof test_>[]; skippedTests?: ReturnType<typeof skippedIn>[] }; named?: { file: string; name: string }[]; independentSpecs?: boolean; adoptFailures?: boolean; files?: string[]; execute: ExecutionPort["execute"] }) =>
   h.service.accept({
     specDir: "/w/e2e",
-    changedSpecFiles: over.files ?? ["flows/a.spec.ts"],
+    changedSpecFiles: over.files ?? [A],
     namespace: NAMESPACE,
-    snapshot: snapshotOf(over.files ?? ["flows/a.spec.ts"]),
+    snapshot: snapshotOf(over.files ?? [A]),
     ...(over.independentSpecs ? { independentSpecs: true } : {}),
     ...(over.adoptFailures ? { adoptFailures: true } : {}),
-    ...(over.priorCases ? { priorCases: over.priorCases } : {}),
+    ...(over.prior ? { prior: over.prior } : {}),
+    ...(over.named ? { named: over.named } : {}),
     deadline: deadline(60_000),
     validate,
     execute: over.execute,
   });
 
+const executing = (cases: ReturnType<typeof test_>[], skippedTests: ReturnType<typeof skippedIn>[] = []): ExecutionPort["execute"] => async () => ({ verdict: "pass", cases, ...(skippedTests.length > 0 ? { skippedTests } : {}), logs: "" });
+
 test("a failing test the regeneration turned into a skip is not a pass: its file gets its prior bytes back and a sibling file stands", async () => {
   const h = harness();
+  const B = "flows/b.spec.ts";
   const outcome = await accepting(h, {
-    files: ["flows/a.spec.ts", "flows/b.spec.ts"],
+    files: [A, B],
     independentSpecs: true,
-    priorCases: PRIOR_FAILING,
-    execute: async () => ({
-      verdict: "pass",
-      cases: [caseOf("flows/a.spec.ts", "pass", "flows/a.spec.ts › other"), caseOf("flows/b.spec.ts", "pass")],
-      skippedTests: [{ name: "flows/a.spec.ts › pays by card", file: "flows/a.spec.ts", annotation: "fixme" }],
-      logs: "",
-    }),
+    prior: PRIOR_FAILING,
+    execute: executing([test_(A, { name: "other" }), test_(B)], [skippedIn(A, "pays by card", "fixme")]),
   });
 
   assert.equal(outcome.kind, "accepted");
   if (outcome.kind === "accepted") {
-    assert.deepEqual(outcome.kept, ["flows/b.spec.ts"]);
-    assert.deepEqual(outcome.restored, ["flows/a.spec.ts"]);
-    assert.deepEqual(outcome.proof.map((p) => p.file), ["flows/b.spec.ts"]);
+    assert.deepEqual(outcome.kept, [B]);
+    assert.deepEqual(outcome.restored, [A]);
+    assert.deepEqual(outcome.proof.map((p) => p.file), [B]);
   }
-  assert.deepEqual(h.restores.map((r) => r.files), [["flows/a.spec.ts"]]);
+  assert.deepEqual(h.restores.map((r) => r.files), [[A]]);
 });
 
 test("a test that ran before and now runs with expectedStatus failed is not a pass", async () => {
   const h = harness();
-  const outcome = await accepting(h, {
-    priorCases: PRIOR_GREEN,
-    execute: async () => ({
-      verdict: "pass",
-      cases: [caseOf("flows/a.spec.ts", "pass", "flows/a.spec.ts › pays by card")],
-      expectedFailures: [{ name: "flows/a.spec.ts › pays by card", file: "flows/a.spec.ts" }],
-      logs: "",
-    }),
-  });
+  const outcome = await accepting(h, { prior: PRIOR_GREEN, execute: executing([test_(A, { name: "pays by card", expectedStatus: "failed" })]) });
 
   assert.equal(outcome.kind, "rejected");
-  if (outcome.kind === "rejected") assert.match(outcome.reason, /pays by card/);
+  if (outcome.kind === "rejected") assert.match(outcome.reason, /expected to fail/);
   assert.equal(h.restores.length, 1);
   assert.equal(h.ledgered.length, 0, "no bytes of a test that proves nothing enter the ledger");
 });
 
 test("a round that adopts failures still rejects a failing test turned into a skip, whole: the round's bytes are given back", async () => {
   const h = harness();
-  const outcome = await accepting(h, {
-    adoptFailures: true,
-    priorCases: PRIOR_FAILING,
-    execute: async () => ({
-      verdict: "pass",
-      cases: [caseOf("flows/a.spec.ts", "pass", "flows/a.spec.ts › other")],
-      skippedTests: [{ name: "flows/a.spec.ts › pays by card", file: "flows/a.spec.ts", annotation: "fixme" }],
-      logs: "",
-    }),
-  });
+  const outcome = await accepting(h, { adoptFailures: true, prior: PRIOR_FAILING, execute: executing([test_(A, { name: "other" })], [skippedIn(A, "pays by card", "fixme")]) });
 
   assert.equal(outcome.kind, "rejected");
   assert.equal(h.restores.length, 1);
@@ -761,76 +757,129 @@ test("a round that adopts failures still rejects a failing test turned into a sk
 test("a failing execution beside an unproven file restores the unproven file too", async () => {
   const h = harness();
   const outcome = await accepting(h, {
-    files: ["flows/a.spec.ts", "flows/b.spec.ts", "flows/c.spec.ts"],
+    files: [A, "flows/b.spec.ts", "flows/c.spec.ts"],
     independentSpecs: true,
-    priorCases: PRIOR_FAILING,
-    execute: async () => ({
-      verdict: "fail",
-      cases: [caseOf("flows/a.spec.ts", "pass", "flows/a.spec.ts › other"), caseOf("flows/b.spec.ts", "pass"), caseOf("flows/c.spec.ts", "fail")],
-      skippedTests: [{ name: "flows/a.spec.ts › pays by card", file: "flows/a.spec.ts", annotation: "skip" }],
-      logs: "",
-    }),
+    prior: PRIOR_FAILING,
+    execute: async () => ({ verdict: "fail", cases: [test_(A, { name: "other" }), test_("flows/b.spec.ts"), test_("flows/c.spec.ts", { status: "fail" })], skippedTests: [skippedIn(A, "pays by card")], logs: "" }),
   });
 
   assert.equal(outcome.kind, "accepted");
   if (outcome.kind === "accepted") {
     assert.deepEqual(outcome.kept, ["flows/b.spec.ts"]);
-    assert.deepEqual(outcome.restored, ["flows/a.spec.ts", "flows/c.spec.ts"]);
+    assert.deepEqual(outcome.restored, [A, "flows/c.spec.ts"]);
   }
 });
 
-test("a failing test renamed by the round that fixes it is a pass: the file still reports as many cases", async () => {
+test("a failing test renamed by the round that fixes it is a pass: the file still reports as many tests", async () => {
   const h = harness();
-  const outcome = await accepting(h, {
-    adoptFailures: true,
-    priorCases: PRIOR_FAILING,
-    execute: async () => ({ verdict: "pass", cases: [caseOf("flows/a.spec.ts", "pass", "flows/a.spec.ts › pays by credit card"), caseOf("flows/a.spec.ts", "pass", "flows/a.spec.ts › other")], logs: "" }),
-  });
+  const outcome = await accepting(h, { adoptFailures: true, prior: PRIOR_FAILING, execute: executing([test_(A, { name: "pays by credit card" }), test_(A, { name: "other" })]) });
 
   assert.equal(outcome.kind, "accepted");
 });
 
-test("a failing test the round deleted while its file keeps other cases is not a pass", async () => {
+test("a failing test the round deleted while its file keeps other tests is not a pass", async () => {
+  const h = harness();
+  const outcome = await accepting(h, { adoptFailures: true, prior: PRIOR_FAILING, execute: executing([test_(A, { name: "other" })]) });
+
+  assert.equal(outcome.kind, "rejected");
+  assert.equal(h.restores.length, 1);
+});
+
+test("a skipped test that never ran before is one more skip: the round that adds it, however it is titled, is refused", async () => {
+  const h = harness();
+  const outcome = await accepting(h, { prior: PRIOR_GREEN, execute: executing([test_(A, { name: "pays by card" })], [skippedIn(A, "needs a seeded account", "fixme")]) });
+
+  assert.equal(outcome.kind, "rejected");
+  if (outcome.kind === "rejected") assert.match(outcome.reason, /1 more skipped test/);
+  assert.equal(h.restores.length, 1);
+});
+
+test("a failing test renamed and then skipped, with a filler test that keeps the count, is refused: the rule reads counts, not titles", async () => {
   const h = harness();
   const outcome = await accepting(h, {
-    adoptFailures: true,
-    priorCases: PRIOR_FAILING,
-    execute: async () => ({ verdict: "pass", cases: [caseOf("flows/a.spec.ts", "pass", "flows/a.spec.ts › other")], logs: "" }),
+    prior: PRIOR_FAILING,
+    execute: executing([test_(A, { name: "other" }), test_(A, { name: "page has a title" })], [skippedIn(A, "pays by card (later)")]),
   });
 
   assert.equal(outcome.kind, "rejected");
   assert.equal(h.restores.length, 1);
 });
 
-test("a test that never ran before and is skipped is not covered by the rule: it is simply not a case", async () => {
+test("a failing test renamed and then marked test.fail() is refused: one more test expected to fail", async () => {
   const h = harness();
   const outcome = await accepting(h, {
-    priorCases: PRIOR_GREEN,
-    execute: async () => ({
-      verdict: "pass",
-      cases: [caseOf("flows/a.spec.ts", "pass", "flows/a.spec.ts › pays by card")],
-      skippedTests: [{ name: "flows/a.spec.ts › needs a seeded account", file: "flows/a.spec.ts", annotation: "fixme" }],
-      expectedFailures: [{ name: "flows/a.spec.ts › new and marked", file: "flows/a.spec.ts" }],
-      logs: "",
-    }),
+    prior: PRIOR_FAILING,
+    execute: executing([test_(A, { name: "pays by card (known)", expectedStatus: "failed" }), test_(A, { name: "other" })]),
+  });
+
+  assert.equal(outcome.kind, "rejected");
+  if (outcome.kind === "rejected") assert.match(outcome.reason, /1 more test\(s\) expected to fail/);
+});
+
+test("a test.fail() test that was already in the prior bytes does not block the fix of another test of the file", async () => {
+  const h = harness();
+  const outcome = await accepting(h, {
+    prior: PRIOR_WITH_KNOWN_BUG,
+    execute: executing([test_(A, { name: "known app bug", expectedStatus: "failed" }), test_(A, { name: "broken" })]),
   });
 
   assert.equal(outcome.kind, "accepted");
+  if (outcome.kind === "accepted") assert.deepEqual(outcome.proof.map((p) => p.file), [A], "the fixed test is a real pass, so the file is proven");
   assert.equal(h.restores.length, 0);
 });
 
-test("a prior test that still runs, in a file that gained a skipped one, is accepted with its proof", async () => {
+test("a skipped test that was already in the prior bytes does not block the fix of another test of the file", async () => {
   const h = harness();
   const outcome = await accepting(h, {
-    priorCases: PRIOR_GREEN,
-    execute: async () => ({
-      verdict: "pass",
-      cases: [caseOf("flows/a.spec.ts", "pass", "flows/a.spec.ts › pays by card")],
-      skippedTests: [{ name: "flows/a.spec.ts › added", file: "flows/a.spec.ts", annotation: "skip" }],
-      logs: "",
-    }),
+    prior: { cases: [test_(A, { name: "broken", status: "fail" })], skippedTests: [skippedIn(A, "legacy", "fixme")] },
+    execute: executing([test_(A, { name: "broken" })], [skippedIn(A, "legacy", "fixme")]),
   });
 
   assert.equal(outcome.kind, "accepted");
-  if (outcome.kind === "accepted") assert.deepEqual(outcome.proof.map((p) => p.file), ["flows/a.spec.ts"]);
+});
+
+test("a file whose only test is marked test.fail() is kept when it was so before, and gets no proof", async () => {
+  const h = harness();
+  const outcome = await accepting(h, {
+    prior: { cases: [test_(A, { name: "known bug", expectedStatus: "failed" })] },
+    execute: executing([test_(A, { name: "known bug", expectedStatus: "failed" })]),
+  });
+
+  assert.equal(outcome.kind, "accepted");
+  assert.equal(h.ledgered.length, 0);
+  if (outcome.kind === "accepted") assert.deepEqual(outcome.proof, []);
+});
+
+test("a test a correction named that comes back skipped or expected to fail is refused, though it never ran before", async () => {
+  for (const [form, execute] of [
+    ["skipped", executing([test_(A, { name: "other" })], [skippedIn(A, "pays by card")])],
+    ["expected to fail", executing([test_(A, { name: "pays by card", expectedStatus: "failed" }), test_(A, { name: "other" })])],
+  ] as const) {
+    const h = harness();
+    /* The prior run already had the skip (or the expected failure) of the named test, so by the counts alone nothing grew. */
+    const prior = form === "skipped"
+      ? { cases: [test_(A, { name: "other" })], skippedTests: [skippedIn(A, "pays by card")] }
+      : { cases: [test_(A, { name: "pays by card", expectedStatus: "failed" as const }), test_(A, { name: "other" })] };
+    const outcome = await accepting(h, { prior, named: [{ file: A, name: "pays by card" }], execute });
+
+    assert.equal(outcome.kind, "rejected", form);
+    if (outcome.kind === "rejected") assert.match(outcome.reason, /named/, form);
+  }
+});
+
+test("the same test, not named by any correction, stands when it was already skipped", async () => {
+  const h = harness();
+  const outcome = await accepting(h, {
+    prior: { cases: [test_(A, { name: "other" })], skippedTests: [skippedIn(A, "pays by card")] },
+    execute: executing([test_(A, { name: "other" })], [skippedIn(A, "pays by card")]),
+  });
+
+  assert.equal(outcome.kind, "accepted");
+});
+
+test("a spec file the run knew nothing of before has every skip it reports counted as new", async () => {
+  const h = harness();
+  const outcome = await accepting(h, { execute: executing([test_(A, { name: "pays by card" })], [skippedIn(A, "later")]) });
+
+  assert.equal(outcome.kind, "rejected");
 });
