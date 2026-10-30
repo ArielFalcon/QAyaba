@@ -726,7 +726,7 @@ session had streamed until then, whatever the `captureMode` (it is the run's own
 the turn's `text` and `reasoning` parts as the SSE tracker last saw them, in first-seen order, each prefixed by
 `[text] ` or `[reasoning] `, redacted by value and by pattern like the output and then bounded to its last
 `STREAMED_TEXT_MAX_CHARS` (16 000) characters (the tracker holds that much plus `REDACTION_LOOKAHEAD_CHARS` raw, so a secret that
-straddles the start of the tail is found whole before the cut; `shared-kernel/redact-then-bound.ts`). It is null for an answered turn, for one that streamed nothing and for a row written
+straddles the start of the tail is found whole before the cut; a tracker that cut a part says so, and the first `REDACTION_LOOKAHEAD_CHARS` of such a tail are never kept; `shared-kernel/redact-then-bound.ts`). It is null for an answered turn, for one that streamed nothing and for a row written
 before the column (schema 2). `GET /api/v1/runs/:id/turns` serves it as `partialText`.
 Q3 and Q4 need no content at all; F3's "62k reasoning" replay needs `full`, or the reference.
 
