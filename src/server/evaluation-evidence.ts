@@ -515,6 +515,7 @@ export class HistoryEvidenceAdapter implements EvidencePort {
           }
         : undefined,
       limit: facts?.limitFired ? { fired: facts.limitFired, role: facts.limitRole ?? undefined, intent: limitIntentOf(spans, facts.limitRole ?? undefined) } : undefined,
+      limits: facts?.limits ? facts.limits.map(({ fired, role, scope }) => ({ fired, role, scope })) : undefined,
       stepIntents: stepIntentsOf(spans),
       context: contextOf(spans, turns, snapshots),
       plan,

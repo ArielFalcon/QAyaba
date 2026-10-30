@@ -2,10 +2,13 @@
  * Where a run goes on from a step whose fault the policy degrades. A spent deadline in a step that runs after a suite was proven
  * keeps what is proven: the run goes to the final proof guard, which fails closed unless every delivered spec still has proof for
  * its bytes, and then decides. The one thing the deadline can take is the approval: a review the run requires that has not given
- * its verdict proves nothing about approval, so the run ends on the deadline as it always did. Pure over the state it reads.
+ * its verdict proves nothing about approval, so the run ends on the deadline as it always did. What the run goes on past is recorded on its facts (the limit and the degradation), which its note and its trace are derived from.
  */
 
+import type { RunDeadlineExceededError } from "../../../../shared-kernel/run-deadline.ts";
+import { classifyFailure } from "./failure-policy.ts";
 import { goto, type StepOutcome } from "./run-flow.ts";
+import { recordDegradation, recordLimit } from "./reducers.ts";
 import type { DegradeReason } from "./failure-policy.ts";
 import type { EndReason } from "./end-reason.ts";
 import type { RunEnd } from "./run-end.ts";
@@ -31,5 +34,8 @@ export function degradeFailedStep(reason: DegradeReason, err: unknown, stepId: S
   if (facts.reviewRequired && state.review.reviewerApprovedForOutcome === undefined) {
     return { end: facts.endOf("run-deadline", err) };
   }
-  return goto(KEEP_PROVEN_AT, { degraded: [...state.degraded, { reason, note: deadlineNote(stepId) }] });
+  /* The deadline is what the run went on past: it is a limit that fired, whether it ended the run or not. */
+  recordLimit(state, { fired: "run-deadline", role: classifyFailure(err) === "run-deadline" ? (err as RunDeadlineExceededError).role : "unknown" });
+  recordDegradation(state, { reason, note: deadlineNote(stepId) });
+  return goto(KEEP_PROVEN_AT);
 }

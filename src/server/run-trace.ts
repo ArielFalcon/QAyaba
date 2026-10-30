@@ -12,6 +12,7 @@
  */
 
 import type { RunVerdict } from "@kernel/run-verdict";
+import type { RunDegradationFact, RunLimitFact } from "@kernel/run-trace-facts";
 import type { CampaignIdentity } from "../contract/campaign";
 import type { CaptureMode } from "@kernel/telemetry/capture-mode";
 import { attrKey } from "@kernel/telemetry/attribute-registry";
@@ -73,17 +74,19 @@ export interface RunFacts {
   errorClass: string | null;
   furthestPhase?: string | undefined;
   decision?: string | undefined;
+  shadowed?: boolean | undefined;
   generationEnd?: string | undefined;
   endReason?: string | undefined;
   limitFired?: string | undefined;
   limitRole?: string | undefined;
+  /* Every limit that fired and every fault the run went on past; absent when the engine recorded none of either list. */
+  limits?: readonly RunLimitFact[] | undefined;
+  degradations?: readonly RunDegradationFact[] | undefined;
   reviewRequired?: boolean | undefined;
   coverage?: { status?: "pass" | "fail" | "unknown" | undefined; mode: string; minRatio?: number | undefined } | undefined;
   /* Delivered specs and how many of them validated/passed; absent when the run recorded none. */
   specs?: { generated: number; valid: number | null; passed?: number | undefined } | undefined;
 }
-
-const DECISION_NAMES: Record<string, string> = { "shadow-log": "shadow", quarantine: "none" };
 
 const isDead = (context: TelemetryContext): boolean => /^0+$/.test(context.spanId);
 
@@ -226,9 +229,12 @@ export class RunTrace {
       ...(f.errorClass ? { "qayaba.error_class": f.errorClass } : {}),
       ...(f.generationEnd ? { "qayaba.generation.end": f.generationEnd } : {}),
       ...(f.endReason ? { "qayaba.run.end_reason": f.endReason } : {}),
-      ...(f.decision ? { "qayaba.decision": DECISION_NAMES[f.decision] ?? f.decision } : {}),
+      ...(f.decision ? { "qayaba.decision": f.decision } : {}),
+      ...(f.shadowed !== undefined ? { "qayaba.decision.shadowed": f.shadowed } : {}),
       ...(f.furthestPhase ? { "qayaba.furthest_phase": f.furthestPhase } : {}),
       ...(f.limitFired ? { "qayaba.limit.fired": f.limitFired } : {}),
+      ...(f.limits ? { "qayaba.limits": f.limits.map((limit) => `${limit.fired}@${limit.role}`) } : {}),
+      ...(f.degradations ? { "qayaba.degradations": f.degradations.map((d) => d.reason) } : {}),
       ...(f.specs
         ? {
             "qayaba.specs.generated": f.specs.generated,
@@ -240,8 +246,10 @@ export class RunTrace {
     if (f.verdict === "infra-error") {
       this.span.recordError(error ?? Object.assign(new Error(f.errorClass ?? "infra-error"), { name: f.errorClass ?? "infra-error" }));
     }
-    if (f.limitFired) {
-      this.telemetry.counter("qayaba.budget.exhausted")(1, { "qayaba.limit.fired": f.limitFired, ...(f.limitRole ? { "qayaba.agent.role": f.limitRole } : {}) });
+    /* One count per limit that fired; a record with no list leads with its one limit. */
+    const fired = f.limits ?? (f.limitFired ? [{ fired: f.limitFired, role: f.limitRole ?? "" }] : []);
+    for (const limit of fired) {
+      this.telemetry.counter("qayaba.budget.exhausted")(1, { "qayaba.limit.fired": limit.fired, ...(limit.role ? { "qayaba.agent.role": limit.role } : {}) });
     }
   }
 

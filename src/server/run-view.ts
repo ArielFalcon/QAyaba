@@ -57,6 +57,14 @@ function usageOf(turns: readonly AgentTurnRecord[]): RunViewExtras["usage"] {
   return sum;
 }
 
+/* The run's limits as its record states them: it leads with the first and lists every one. A run stored before the list was recorded has its one limit, or none. */
+function budgetsOf(facts: ReturnType<RunViewDeps["getRunFacts"]>): RunViewExtras["budgets"] {
+  const limits = facts?.limits ?? [];
+  const lead = facts?.limitFired ?? undefined;
+  if (!lead) return { exhausted: false, ...(facts?.limits ? { limits: [] } : {}) };
+  return { exhausted: true, limit: lead, ...(facts?.limitRole ? { role: facts.limitRole } : {}), ...(facts?.limits ? { limits } : {}) };
+}
+
 /* Undefined: no such run. */
 export function buildRunViewExtras(runId: string, deps: RunViewDeps): RunViewExtras | undefined {
   const evidence = deps.evidence.assemble(runId);
@@ -79,9 +87,9 @@ export function buildRunViewExtras(runId: string, deps: RunViewDeps): RunViewExt
     usage: usageOf(turns),
     specCounts: { generated: evidence.specs.generated, valid: evidence.specs.valid, passed: evidence.specs.passed ?? null },
     decision: facts?.decision ?? null,
-    budgets: facts?.limitFired
-      ? { exhausted: true, limit: facts.limitFired, ...(facts.limitRole ? { role: facts.limitRole } : {}) }
-      : { exhausted: false },
+    shadowed: facts?.shadowed ?? null,
+    degradations: facts?.degradations ?? null,
+    budgets: budgetsOf(facts),
     ...(campaign ? { campaign: { id: campaign.id, variant: { ...campaign.variant }, replicate: campaign.replicate } } : {}),
     effectiveConfig: buildEffectiveConfig(parseStoredRunConfig(storedConfig?.json), deps.getAgentRoleFacts(runId), {
       coverageMode: facts?.coverageMode ?? null,

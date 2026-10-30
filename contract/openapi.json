@@ -5545,6 +5545,30 @@
             "nullable": true,
             "type": "string"
           },
+          "shadowed": {
+            "nullable": true,
+            "type": "boolean"
+          },
+          "degradations": {
+            "nullable": true,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "reason": {
+                  "type": "string"
+                },
+                "note": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "reason",
+                "note"
+              ],
+              "additionalProperties": false
+            }
+          },
           "budgets": {
             "type": "object",
             "properties": {
@@ -5556,6 +5580,38 @@
               },
               "role": {
                 "type": "string"
+              },
+              "limits": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "fired": {
+                      "type": "string"
+                    },
+                    "role": {
+                      "type": "string"
+                    },
+                    "scope": {
+                      "type": "string",
+                      "enum": [
+                        "run",
+                        "turn"
+                      ]
+                    },
+                    "turns": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 9007199254740991
+                    }
+                  },
+                  "required": [
+                    "fired",
+                    "role",
+                    "scope"
+                  ],
+                  "additionalProperties": false
+                }
               }
             },
             "required": [
@@ -5739,6 +5795,8 @@
           "usage",
           "specCounts",
           "decision",
+          "shadowed",
+          "degradations",
           "budgets",
           "effectiveConfig"
         ],

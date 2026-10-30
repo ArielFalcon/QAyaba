@@ -9,6 +9,8 @@
  */
 import { RunDeadlineExceededError } from "@kernel/run-deadline.ts";
 import type { WorkspaceRunContext } from "./run-context.ts";
+import { recordDegradation, recordLimit } from "./reducers.ts";
+import type { RunState } from "./run-state.ts";
 
 /* The role whose turn a fix-loop regeneration is. */
 const REGENERATION_ROLE = "qa-author";
@@ -22,4 +24,14 @@ export function regenerationAllowed(ctx: WorkspaceRunContext, nowMs: number = Da
   }
   const budget = ctx.wallClockBudget;
   return !budget.exhausted(nowMs - ctx.startedAt);
+}
+
+/* What the fix loop's round says when the wall-clock budget refuses its regeneration. */
+const WALL_CLOCK_NOTE = "wall-clock budget exhausted: no further regeneration";
+
+/* The wall-clock budget refused a regeneration: the limit that fired and the loop going on with what it has are facts of the run, and the round's note is derived from them. */
+export function refuseRegeneration(state: Readonly<RunState>): string {
+  recordLimit(state, { fired: "wall-clock-budget", role: REGENERATION_ROLE });
+  recordDegradation(state, { reason: "regeneration-skipped", note: WALL_CLOCK_NOTE });
+  return WALL_CLOCK_NOTE;
 }

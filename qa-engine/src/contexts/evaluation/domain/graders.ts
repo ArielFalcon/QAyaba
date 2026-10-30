@@ -82,7 +82,12 @@ const specPassRate: Grader = {
 
 const budgetExhaustion: Grader = {
   names: ["budget_exhaustion"],
-  grade: finishedOnly((e) => [{ name: "budget_exhaustion", value: e.limit ? `${e.limit.fired}@${e.furthestPhase ?? "unknown"}/${e.limit.role ?? "unknown"}/${e.limit.intent ?? "unknown"}` : "none" }]),
+  grade: finishedOnly((e) => {
+    const value = e.limit ? `${e.limit.fired}@${e.furthestPhase ?? "unknown"}/${e.limit.role ?? "unknown"}/${e.limit.intent ?? "unknown"}` : "none";
+    /* The value leads with one limit; the others the run met are named beside it so a run that met two does not read as having met one. */
+    const others = (e.limits ?? []).filter((l) => !(l.fired === e.limit?.fired && l.role === e.limit?.role)).map((l) => `${l.fired}/${l.role}`);
+    return [{ name: "budget_exhaustion", value, ...(others.length > 0 ? { comment: `also: ${others.join(", ")}` } : {}) }];
+  }),
 };
 
 const approvalConsistent: Grader = {

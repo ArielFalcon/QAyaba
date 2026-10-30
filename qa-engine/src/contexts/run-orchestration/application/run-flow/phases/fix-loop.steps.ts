@@ -18,7 +18,7 @@ import { addRetries, withRun } from "../reducers.ts";
 import { checkDevHealth, executeAccepted, liveExecutionOptions, validateAccepted } from "./execute.steps.ts";
 import { loopClosedNow, regenerate } from "./generation-services.ts";
 import { carryOn } from "../failure-policy.ts";
-import { regenerationAllowed } from "../regeneration-allowed.ts";
+import { refuseRegeneration, regenerationAllowed } from "../regeneration-allowed.ts";
 import { specSetDigest } from "../spec-set-digest.ts";
 
 type Result = Promise<StepOutcome<RunState>>;
@@ -80,7 +80,7 @@ function fixLoopFor(state: Readonly<RunState>, ctx: WorkspaceRunContext, pending
     regenerate: async (fixLoopInput) => {
       /* A run with no time left ends on its time budget; a spent wall-clock budget starts no further agent turn: the round returns nothing and the loop ends on what it has. */
       if (!regenerationAllowed(ctx)) {
-        return { specs: [], note: "wall-clock budget exhausted: no further regeneration" };
+        return { specs: [], note: refuseRegeneration(state) };
       }
       /*
        * Merge leftover pre-exec selector contradictions with FixLoop's post-failure

@@ -80,6 +80,15 @@ test("budget_exhaustion names the limit, the phase and the role, or none", () =>
   assert.equal(find(unknown, "budget_exhaustion")?.value, "run-deadline@unknown/unknown/unknown");
 });
 
+test("budget_exhaustion leads with one limit and names the others the run met beside it", () => {
+  const limits = [{ fired: "run-deadline", role: "reviewer", scope: "run" as const }, { fired: "repair-cap", role: "qa-author", scope: "turn" as const }];
+  const e = evidence({ furthestPhase: "review", limit: { fired: "run-deadline", role: "reviewer", intent: undefined }, limits });
+  const score = find(e, "budget_exhaustion");
+  assert.equal(score?.value, "run-deadline@review/reviewer/unknown");
+  assert.equal(score?.comment, "also: repair-cap/qa-author");
+  assert.equal(find(evidence({ furthestPhase: "review", limit: { fired: "run-deadline", role: "reviewer", intent: undefined }, limits: [limits[0]!] }), "budget_exhaustion")?.comment, undefined);
+});
+
 test("an accepted run that a deterministic signal rejected is not approval-consistent", () => {
   assert.equal(find(evidence(), "approval_consistent")?.value, true);
   assert.equal(find(evidence({ signals: signals({ static: false }) }), "approval_consistent")?.value, false);

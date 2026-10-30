@@ -30,7 +30,11 @@ const WRITERS: Record<string, Record<string, readonly string[]>> = {
     rollbackDelivered: ["run-flow/phases/coverage.steps.ts", "run-flow/phases/review.steps.ts"],
   },
   proof: { recordProof: ["run-qa.use-case.ts"] },
-  run: { recordRunFact: ["run-flow/failure-ends.ts", "run-flow/phases/generate.steps.ts", "run-qa.use-case.ts"] },
+  run: {
+    recordRunFact: ["run-flow/failure-ends.ts", "run-flow/phases/generate.steps.ts", "run-qa.use-case.ts"],
+    recordLimit: ["run-flow/degrade.ts", "run-flow/failure-ends.ts", "run-flow/regeneration-allowed.ts"],
+    recordDegradation: ["run-flow/decided-end.ts", "run-flow/degrade.ts", "run-flow/regeneration-allowed.ts"],
+  },
   coordination: { recordCoordination: ["run-qa.use-case.ts"] },
 };
 
@@ -68,6 +72,7 @@ const DIRECT_WRITES: ReadonlyArray<{ what: string; test: (text: string) => boole
   { what: "an assignment to the delivered ledger", test: (text) => /\.delivered\s*=(?!=)/.test(text) },
   { what: "an assignment to the proof", test: (text) => /\.proof(\[[^\]]*\]|\.\w+)\s*=(?!=)/.test(text) },
   { what: "an assignment to the coordination", test: (text) => /\.coordination\s*=(?!=)/.test(text) },
+  { what: "a push to the limits or degradations of the run", test: (text) => /\.run\.(limits|degradations)\.push\(/.test(text) },
   { what: "an assignment to a fact of the run", test: (text) => /state\.run(\[[^\]]*\]|\.\w+)\s*=(?!=)/.test(text) },
   { what: "an execution section naming run or retries", test: (text) => [...text.matchAll(/\bexecution:\s*\{\s*\.\.\.[\w.()]+,\s*([^}]*)\}/g)].some((m) => /\b(run|retries)\b/.test(m[1]!)) },
   { what: "a coverage section naming acceptanceCalls or acceptedRegenAfterMeasure", test: (text) => [...text.matchAll(/\bcoverage:\s*\{\s*\.\.\.[\w.()]+,\s*([^}]*)\}/g)].some((m) => /\b(acceptanceCalls|acceptedRegenAfterMeasure)\b/.test(m[1]!)) },

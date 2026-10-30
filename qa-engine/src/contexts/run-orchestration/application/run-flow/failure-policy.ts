@@ -13,6 +13,7 @@ import { engineLog } from "@kernel/ports/process-logger.ts";
 import { isInfraError, isUntrustedGitTreeError } from "../../../../shared-kernel/domain-error.ts";
 import { isRunDeadlineError } from "../../../../shared-kernel/run-deadline.ts";
 import { RunAbortedError } from "./abort.ts";
+import type { RunDegradationReason } from "@kernel/run-trace-facts.ts";
 import type { EndReason } from "./end-reason.ts";
 
 /** The throwaway specs of the closed loop could not be removed from the working copy. */
@@ -51,8 +52,8 @@ export type FailureKind = (typeof FAILURE_KINDS)[number];
 export const STEP_CLASSES = ["required", "proven", "off-path", "publish"] as const;
 export type StepClass = (typeof STEP_CLASSES)[number];
 
-/** What a run keeps going with after a fault it cannot recover from, said on the outcome. */
-export type DegradeReason = "publication-failed" | "deadline-after-proof";
+/** What a run keeps going with after a fault it cannot recover from, said on the outcome: the reasons the policy can name, of the closed set the run's trace records. */
+export type DegradeReason = Extract<RunDegradationReason, "publication-failed" | "deadline-after-proof">;
 
 export type FailureAction = { do: "rethrow" } | { do: "fail-open" } | { do: "end"; reason: EndReason } | { do: "degrade"; reason: DegradeReason };
 

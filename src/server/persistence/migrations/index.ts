@@ -1,6 +1,7 @@
 import Database from "better-sqlite3";
 import { migration0001, SCHEMA_1_SQL } from "./0001-initial";
 import { migration0002 } from "./0002-agent-turn-partial-text";
+import { migration0003 } from "./0003-run-ending-facts";
 
 export interface Migration {
   version: number;
@@ -9,7 +10,7 @@ export interface Migration {
 }
 
 /* Ordered by version; a schema change is a new file in this folder appended here. */
-export const MIGRATIONS: readonly Migration[] = [migration0001, migration0002];
+export const MIGRATIONS: readonly Migration[] = [migration0001, migration0002, migration0003];
 
 export const LATEST_SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1]!.version;
 

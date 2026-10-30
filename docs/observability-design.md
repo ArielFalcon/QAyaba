@@ -275,7 +275,7 @@ qayaba.run
 │  ├─ qayaba.coverage.survivor_recheck  surviving mutants re-applied after the regeneration that answered them: rechecked, judged, closed
 │  └─ qayaba.coverage.recount     the same counts after an accepted regeneration, from the dumps on disk
 ├─ qayaba.phase.review            invoke_agent qa-reviewer per round, review-dom grounding
-├─ qayaba.phase.decide            verdict, decision pr|issue|shadow|none
+├─ qayaba.phase.decide            verdict, decision pr|issue|quarantine|none (shadow is the separate `qayaba.decision.shadowed`)
 ├─ qayaba.phase.publish           suite_store.capture, PR/Issue
 └─ qayaba.phase.learn             process audit
 ```
@@ -334,15 +334,36 @@ Grouped. The full list lives in the registry (§9.3).
 | Config in effect | `qayaba.runtime` (the runtime that served the turn), `qayaba.closed_loop.enabled`, `qayaba.agent_browser.enabled`, `qayaba.coverage.policy`, `qayaba.campaign.freeze`, `qayaba.prompt.static_hash` (hash of `agents/AGENTS.md` plus role files), `qayaba.capture_mode` |
 | Campaign | `qayaba.campaign.id`, `qayaba.campaign.variant.<key>`, `qayaba.campaign.replicate` |
 | Budgets | `qayaba.deadline.label`, `qayaba.deadline.budget_ms`, `qayaba.tier`, `qayaba.tier.budget_ms` |
-| Outcome | `qayaba.verdict`, `qayaba.error_class`, `qayaba.generation.end`, `qayaba.decision`, `qayaba.furthest_phase`, `qayaba.specs.generated/valid/passed`, `qayaba.reviewer.turn_happened`, `qayaba.limit.fired` |
+| Outcome | `qayaba.verdict`, `qayaba.error_class`, `qayaba.generation.end`, `qayaba.decision`, `qayaba.furthest_phase`, `qayaba.specs.generated/valid/passed`, `qayaba.reviewer.turn_happened`, `qayaba.limit.fired`, `qayaba.limits`, `qayaba.degradations`, `qayaba.decision.shadowed` |
 | Totals | `gen_ai.usage.*` sums, `qayaba.cost.total`, `qayaba.agent.turns`, `qayaba.agent.steps` |
 | Host | `qayaba.host.suspended_ms`, `qayaba.host.event_loop.max_ms` (§7) |
 
 `qayaba.furthest_phase` drives the funnel (F1). It is the last phase entered, set by the phase
 wrapper, so a run that throws still carries it.
 
-**The limit that ended the run** is `qayaba.limit.fired`. It also appears on turns (§5.3), with
+**The limit the run leads with** is `qayaba.limit.fired`. It also appears on turns (§5.3), with
 the values `tier-budget | run-deadline | repair-cap | session-timeout | prompt-budget | host-cap | stall | step-cap | cancel | fault | none`; `fault` is a turn a fault of the transport or the provider ended, no limit having fired (its `error.type` names the class).
+
+**How a run ended is typed facts, never a sentence.** The engine records each fact where it happens and the shell writes the same
+facts on the root span and on the run record (`RunTraceFacts`, `qa-engine/src/shared-kernel/run-trace-facts.ts`); the run's note is
+derived from them and is never the only carrier:
+- **Limits.** `qayaba.limits` lists every limit that fired as `limit@role`: first the engine's own, whether the limit ended the run or
+  the run went on past it (the deadline that ended the run, or degraded it with `deadline-after-proof`; the wall-clock budget that refused
+  a regeneration, `wall-clock-budget`; the budget generation ended on, `tier-budget` or `step-cap`), then the limits agent turns ended on
+  and the run went on past (`repair-cap`, `stall`, ...), counted per role. `qayaba.limit.fired` is the first of them. The record's
+  `limits` column holds the same list, `limit_fired`/`limit_role` its first, and `budgets` in `GET /runs/:id` and the
+  `budget_exhaustion` grader (`also: ...` in its comment) read that record.
+- **Degradations.** `qayaba.degradations` lists every fault the run went on past, by reason: `publication-failed`,
+  `deadline-after-proof`, `regeneration-skipped`. `qayaba.run.end_reason` stays `decided` for such a run: it ended, it did not fail.
+- **Decision.** `qayaba.decision` is what the run decided (`pr | issue | quarantine | none`) and `qayaba.decision.shadowed` says
+  apart from it that shadow replaced it, so a shadow run that would have opened an Issue says `issue` and `shadowed`. The record
+  (`runs.decision`, `runs.shadowed`) and `GET /runs/:id` (`decision`, `shadowed`) use the same words. The engine's side effect
+  (`shadow-log`) is what ran, not a decision, and is not recorded.
+- **Stored runs.** Schema 3 adds the nullable columns `limits`, `degradations` and `shadowed` and rewrites nothing. A run stored
+  before reads `limits`/`degradations`/`shadowed` as unknown (null; an empty list is a run that recorded none), so its `budgets`
+  cannot be told from "no limit fired" for a limit its record never kept; one stored with decision `shadow-log` reads
+  `shadowed: true` and `decision: null` (what shadow replaced was never recorded). Its Tempo trace keeps the old words
+  (`shadow` for `qayaba.decision`).
 
 ### 4.4 Context spans and stable item ids (brief §3)
 
@@ -1022,7 +1043,7 @@ ingest times.
 | # | Endpoint | Shape (summary) |
 |---|---|---|
 | 1 | `POST /runs` (extended) | Adds `campaign?: {id, variant: Record<string,string>, replicate: int≥1}` and `captureMode?: off\|metadata\|full` to the zod `CreateRunInputSchema`, and so to `openapi.json`. Returns 202 `{schemaVersion, id, …, status:"enqueued"}` |
-| 2 | `GET /runs/:id` (extended) | Adds `telemetry: {traceId, traceUrl?} \| null`, `campaign?`, `phases: [{name, durationMs}]` (in canonical order), `furthestPhase`, `usage: {inputTokens, outputTokens, reasoningTokens, cacheReadTokens, cacheWriteTokens, costUsd}`, `specCounts: {generated, valid, passed}`, `decision`, `budgets: {exhausted: bool, limit?, role?}` and `effectiveConfig` (below) |
+| 2 | `GET /runs/:id` (extended) | Adds `telemetry: {traceId, traceUrl?} \| null`, `campaign?`, `phases: [{name, durationMs}]` (in canonical order), `furthestPhase`, `usage: {inputTokens, outputTokens, reasoningTokens, cacheReadTokens, cacheWriteTokens, costUsd}`, `specCounts: {generated, valid, passed}`, `decision`, `shadowed`, `degradations: [{reason, note}] \| null`, `budgets: {exhausted: bool, limit?, role?, limits?: [{fired, role, scope, turns?}]}` and `effectiveConfig` (below) |
 | 3 | `GET /runs/:id/evaluation[?versions=all]` | `{schemaVersion, runId, traceId, status: "pending"\|"complete"\|"failed", scores: [{name, value, dataType, polarity, source, graderVersion, comment?, observationId?, judgeModel?}]}`. By default only the **latest `graderVersion` per name** is returned; `?versions=all` returns every stored version, including human labels (`source=human`, `graderVersion: "human"`) imported from Langfuse |
 | 4 | `GET /campaigns/:id/runs?variant.<k>=<v>` | `{schemaVersion, campaignId, runs: [{id, variant, replicate, status, verdict?, evaluationStatus}], complete: bool}`. `variant.<k>=<v>` filters are ANDed; any other query parameter is a 400. `complete` is true when the campaign holds at least one run (after the filter) and every one is `done` with `evaluationStatus=complete`. An evaluation that ended `failed` is terminal for this purpose: `complete` stays false until a regrade makes it `complete`, so a consumer should not wait on it forever. Reusing a campaign id merges the new runs into the same campaign (the id is the only key); use a fresh id per experiment The server never sees the (item × variant × replicate) matrix the client requested, so it cannot check that every requested run exists: a client that queued N runs also compares `runs.length` with N |
 | 5 | `POST /evaluations/regrade` | Body `{runIds?\|campaignId?\|since?, graders?: string[]}`. Returns 202 `{schemaVersion, jobId, runs: n}` |
@@ -1030,7 +1051,7 @@ ingest times.
 | 6 | `GET /evaluations/catalog` | `{schemaVersion, phases: string[]` (canonical `RUN_PHASES` order)`, scores: [{name, dataType, polarity, range?, categories?, suffixes?, graderVersion, status?}]}`. The machine-readable source of phase order and score polarity |
 | 7 | `GET /telemetry/health` | `{schemaVersion, mode: off\|local, campaignFreeze: bool, otlp: {configured, lastExportAt?, lastError?, dropped}, ledger: {ok, spans}, backends?: {ok, loki, tempo, collector: {status: ok\|degraded\|down\|unconfigured, reason?, checkedAt, diskUsedRatio?, lastDataAt?}}}`. `backends` is the stores verified end to end (a Loki write probe, Tempo search, collector exporter metrics; see telemetry-local.md). Also summarized under `/api/health.telemetry` (`backendsOk`) |
 
-**Facts the graders read.** A grader only reads what the run recorded. Facts the engine decides at run time are stored on the run and never recomputed from the app's current configuration: `review_required`, `coverage_status` (pass|fail|unknown as the objective-signal service decided), `coverage_mode`, `coverage_min_ratio`, `decision`, `limit_fired`/`limit_role`, `trace_id`, `cancelled`, and each case's spec `file`. Where a fact is missing the score is omitted (`change_coverage` is `unknown` only when the engine recorded `unknown`; `infra_error` exists only for `infra-error` runs, `unclassified` when no class was recorded, and `cancelled` for cancels):
+**Facts the graders read.** A grader only reads what the run recorded. Facts the engine decides at run time are stored on the run and never recomputed from the app's current configuration: `review_required`, `coverage_status` (pass|fail|unknown as the objective-signal service decided), `coverage_mode`, `coverage_min_ratio`, `decision`, `shadowed`, `limit_fired`/`limit_role`, `limits`, `degradations`, `trace_id`, `cancelled`, and each case's spec `file`. Where a fact is missing the score is omitted (`change_coverage` is `unknown` only when the engine recorded `unknown`; `infra_error` exists only for `infra-error` runs, `unclassified` when no class was recorded, and `cancelled` for cancels):
 - `specCounts.valid` is **null** until the run got past the `validate` phase (validation gates the whole suite); an `invalid` run has `valid = 0`. `specCounts.passed` is null when `valid` is unknown or a delivered spec cannot be tied to its cases by exact spec path (a run-level `pass` implies all passed).
 - `spec_pass_rate` exists only for a run that reached `execute` with a `pass|fail|flaky` verdict and a known `passed`.
 - `empty_output_guard` emits nothing when validity, `review_required` or the reviewer history is unknown.

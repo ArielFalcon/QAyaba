@@ -192,3 +192,46 @@ test("decide: precedence — blocksPublish wins over shadow's own branch (covera
   );
   assert.equal(decision.sideEffect, "shadow-log", "blocksPublish (checked before the shadow branch in the else-if chain) must win over the shadow-log branch's OWN precedence slot — but the shadow flag still folds issue->shadow-log via issueOrShadow");
 });
+
+/* The decision in one vocabulary: what the run decided, and apart from it whether shadow replaced it. */
+
+test("decide: a live decision is its own outcome and is not shadowed", () => {
+  for (const [ev, outcome] of [
+    [{ verdict: "fail" }, "issue"],
+    [{}, "pr"],
+    [{ verdict: "flaky" }, "quarantine"],
+    [{ verdict: "infra-error" }, "none"],
+  ] as const) {
+    const decision = decide(baseEvidence(ev));
+    assert.equal(decision.outcome, outcome);
+    assert.equal(decision.shadowed, false);
+  }
+});
+
+test("decide: shadow keeps what the run decided and says it replaced it", () => {
+  const cases: Array<[Partial<RunEvidence>, string, string]> = [
+    [{ shadow: true }, "pr", "shadow-log"],
+    [{ shadow: true, verdict: "fail" }, "issue", "shadow-log"],
+    [{ shadow: true, reviewerApproved: false }, "issue", "shadow-log"],
+    [{ shadow: true, blocksPublish: true }, "issue", "shadow-log"],
+  ];
+  for (const [ev, outcome, sideEffect] of cases) {
+    const decision = decide(baseEvidence(ev));
+    assert.equal(decision.outcome, outcome);
+    assert.equal(decision.shadowed, true);
+    assert.equal(decision.sideEffect, sideEffect, "what ran does not change");
+  }
+});
+
+test("decide: shadow does not touch a decision that opens nothing", () => {
+  for (const [ev, outcome] of [
+    [{ verdict: "flaky" }, "quarantine"],
+    [{ verdict: "infra-error" }, "none"],
+    [{ verdict: "skipped" }, "none"],
+    [{ generating: false }, "none"],
+  ] as const) {
+    const decision = decide(baseEvidence({ ...ev, shadow: true }));
+    assert.equal(decision.outcome, outcome);
+    assert.equal(decision.shadowed, false);
+  }
+});

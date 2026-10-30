@@ -2,7 +2,7 @@
 onFailure !== "github-issue" silences fail/invalid (no Issue, no PR). flaky → quarantine and infra-error → none are shadow-invariant. skipped is always silent. Pass-path: !generating → none; reviewer rejection or blocksPublish → issue (or shadow-log); shadow → shadow-log; else pr. */
 
 import type { RunVerdict } from "@kernel/run-verdict.ts";
-import { RunDecision, type SideEffect } from "./run-decision.ts";
+import { RunDecision } from "./run-decision.ts";
 
 export interface RunEvidence {
   verdict: RunVerdict;
@@ -15,27 +15,32 @@ export interface RunEvidence {
   onFailure: string;
 }
 
+/* What shadow turns a decision into: a log line, for the two that would have opened something on the app's repository. */
+function shadowed(verdict: RunVerdict, outcome: "pr" | "issue", shadow: boolean): RunDecision {
+  return RunDecision.of(verdict, shadow ? "shadow-log" : outcome, outcome);
+}
+
 /* Shared by every non-pass verdict. flaky/infra-error ignore both the onFailure guard outcome (except flaky stays quarantine) and shadow; skipped is always silent. */
-function reportSideEffect(verdict: Exclude<RunVerdict, "pass">, onFailure: string, shadow: boolean): SideEffect {
+function reportDecision(verdict: Exclude<RunVerdict, "pass">, onFailure: string, shadow: boolean): RunDecision {
   if (onFailure !== "github-issue") {
-    return verdict === "flaky" ? "quarantine" : "none";
+    return RunDecision.of(verdict, verdict === "flaky" ? "quarantine" : "none");
   }
   switch (verdict) {
     case "fail":
     case "invalid":
-      return shadow ? "shadow-log" : "issue";
+      return shadowed(verdict, "issue", shadow);
     case "infra-error":
-      return "none";
+      return RunDecision.of(verdict, "none");
     case "flaky":
-      return "quarantine";
+      return RunDecision.of(verdict, "quarantine");
     case "skipped":
-      return "none";
+      return RunDecision.of(verdict, "none");
   }
 }
 
 export function decide(ev: RunEvidence): RunDecision {
   if (ev.verdict !== "pass") {
-    return RunDecision.of(ev.verdict, reportSideEffect(ev.verdict, ev.onFailure, ev.shadow));
+    return reportDecision(ev.verdict, ev.onFailure, ev.shadow);
   }
 
   /* Pass-path does not use the onFailure guard; reviewer-rejection and blocksPublish still fold shadow → shadow-log. */
@@ -44,18 +49,14 @@ export function decide(ev: RunEvidence): RunDecision {
   }
 
   if (ev.needsReview && !ev.reviewerApproved) {
-    return RunDecision.of("pass", ev.shadow ? "shadow-log" : "issue");
+    return shadowed("pass", "issue", ev.shadow);
   }
 
   if (ev.blocksPublish) {
-    return RunDecision.of("pass", ev.shadow ? "shadow-log" : "issue");
+    return shadowed("pass", "issue", ev.shadow);
   }
 
-  if (ev.shadow) {
-    return RunDecision.of("pass", "shadow-log");
-  }
-
-  return RunDecision.of("pass", "pr");
+  return shadowed("pass", "pr", ev.shadow);
 }
 
 /**

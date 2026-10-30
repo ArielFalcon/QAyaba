@@ -31,7 +31,7 @@ test("RunDecision: accepts every RunVerdict value", () => {
 test("RunDecision: accepts every SideEffect value, including quarantine", () => {
   const effects = ["pr", "issue", "shadow-log", "quarantine", "none"] as const;
   for (const e of effects) {
-    const decision = RunDecision.of("pass", e);
+    const decision = RunDecision.of("pass", e, "pr");
     assert.equal(decision.sideEffect, e);
   }
 });
@@ -40,4 +40,11 @@ test("RunDecision: two instances with the same verdict+sideEffect are structural
   const a = RunDecision.of("flaky", "quarantine");
   const b = RunDecision.of("flaky", "quarantine");
   assert.deepEqual(a, b);
+});
+
+test("RunDecision: a shadowed side effect must say what it replaced", () => {
+  assert.throws(() => RunDecision.of("pass", "shadow-log"), /replaced/);
+  const decision = RunDecision.of("pass", "shadow-log", "pr");
+  assert.equal(decision.outcome, "pr");
+  assert.equal(decision.shadowed, true);
 });

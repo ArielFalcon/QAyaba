@@ -1471,10 +1471,22 @@ export interface components {
                 passed: number | null;
             };
             decision: string | null;
+            shadowed: boolean | null;
+            degradations: {
+                reason: string;
+                note: string;
+            }[] | null;
             budgets: {
                 exhausted: boolean;
                 limit?: string;
                 role?: string;
+                limits?: {
+                    fired: string;
+                    role: string;
+                    /** @enum {string} */
+                    scope: "run" | "turn";
+                    turns?: number;
+                }[];
             };
             campaign?: {
                 id: string;

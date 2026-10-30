@@ -175,14 +175,69 @@ test("a finished run records what it came to on the root and counts as one run",
   assert.equal(runs[0]!.attrs["qayaba.furthest_phase"], "decide");
 });
 
-test("a pass verdict is not an error, and the shadow-log decision is named shadow", async () => {
+test("a pass verdict is not an error, and a shadowed decision keeps what it decided and says shadow replaced it", async () => {
   const h = traceHarness();
   const queue = new JobQueue();
-  enqueueTrackedRun(queue, request(uniqueApp()), deps(h, portReturning({}, { decision: "shadow-log" })));
+  const id = enqueueTrackedRun(queue, request(uniqueApp()), deps(h, portReturning({}, { decision: "pr", shadowed: true })));
   await queue.drain();
   const root = h.only("qayaba.run");
   assert.equal(root.status.code, SpanStatusCode.UNSET);
-  assert.equal(attr(root, "qayaba.decision"), "shadow");
+  assert.equal(attr(root, "qayaba.decision"), "pr");
+  assert.equal(attr(root, "qayaba.decision.shadowed"), true);
+  const stored = getHistory().runs.getRunFacts(id);
+  assert.equal(stored?.decision, "pr", "the record uses the root's words");
+  assert.equal(stored?.shadowed, true);
+});
+
+test("every limit that fired and every fault the run went on past is on the root and on the record, though the run ended as decided", async () => {
+  const h = traceHarness();
+  const queue = new JobQueue();
+  const facts: RunTraceFacts = {
+    decision: "pr",
+    shadowed: false,
+    endReason: "decided",
+    limits: [{ fired: "run-deadline", role: "reviewer", scope: "run" }, { fired: "wall-clock-budget", role: "qa-author", scope: "run" }],
+    limitFired: "run-deadline",
+    limitRole: "reviewer",
+    degradations: [{ reason: "deadline-after-proof", note: "the run deadline was spent during review-round; the suite that ran green on its final bytes is kept" }],
+  };
+  const id = enqueueTrackedRun(queue, request(uniqueApp()), deps(h, portReturning({}, facts)));
+  await queue.drain();
+
+  const root = h.only("qayaba.run");
+  assert.equal(attr(root, "qayaba.run.end_reason"), "decided");
+  assert.equal(attr(root, "qayaba.limit.fired"), "run-deadline");
+  assert.deepEqual(attr(root, "qayaba.limits"), ["run-deadline@reviewer", "wall-clock-budget@qa-author"]);
+  assert.deepEqual(attr(root, "qayaba.degradations"), ["deadline-after-proof"]);
+  const stored = getHistory().runs.getRunFacts(id);
+  assert.deepEqual(stored?.limits, facts.limits);
+  assert.equal(stored?.limitFired, "run-deadline");
+  assert.deepEqual(stored?.degradations, facts.degradations);
+  const view = getHistory().runs.getRunFacts(id);
+  assert.ok(view);
+  const budget = h.measurements.filter((m) => m.name === "qayaba.budget.exhausted");
+  assert.deepEqual(budget.map((m) => m.attrs["qayaba.limit.fired"]).sort(), ["run-deadline", "wall-clock-budget"]);
+});
+
+test("a limit a turn ended on is on the record even when the engine never met it at run level", async () => {
+  const h = traceHarness();
+  const queue = new JobQueue();
+  const app = uniqueApp();
+  const port: RunPipelinePort = {
+    run: async (input) => {
+      const base = { runId: input.runId, sessionId: "s1", round: 0, isRepair: false, ts: "2026-10-17T10:00:00.000Z", objective: null, promptText: "p", outputText: "o", promptBytes: 1, tokensInput: 1, tokensOutput: 1, tokensReasoning: null, tokensCacheRead: null, tokensCacheWrite: null, cost: 0, role: "qa-author" };
+      getHistory().telemetry.saveAgentTurn({ ...base, ended: "timeout", durationMs: 1000, limitFired: "repair-cap" });
+      getHistory().telemetry.saveAgentTurn({ ...base, round: 1, ended: "aborted", durationMs: 1000, limitFired: "cancel" });
+      getHistory().telemetry.saveAgentTurn({ ...base, round: 2, ended: "aborted", durationMs: 1000, limitFired: "none" });
+      return outcomeOf(input, {}, { decision: "pr", shadowed: false, limits: [] });
+    },
+  };
+  const id = enqueueTrackedRun(queue, request(app), deps(h, port));
+  await queue.drain();
+  const stored = getHistory().runs.getRunFacts(id);
+  assert.deepEqual(stored?.limits, [{ fired: "repair-cap", role: "qa-author", scope: "turn", turns: 1 }]);
+  assert.equal(stored?.limitFired, "repair-cap");
+  assert.equal(attr(h.only("qayaba.run"), "qayaba.limit.fired"), "repair-cap");
 });
 
 test("run duration is recorded in seconds, and only with allowed keys", async () => {

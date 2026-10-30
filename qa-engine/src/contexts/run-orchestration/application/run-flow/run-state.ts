@@ -16,7 +16,7 @@ import type { ReviewPort } from "@contexts/generation/application/index.ts";
 import type { SuiteRestorePoint } from "../../domain/suite-restore-point.ts";
 import type { RegenerationAcceptance } from "../regeneration-acceptance.ts";
 import type { ReviewedSpecs, ReviewTally } from "./phases/review-services.ts";
-import type { DegradeReason } from "./failure-policy.ts";
+import type { RunDegradationFact, RunLimitFact } from "@kernel/run-trace-facts.ts";
 import type { AdjudicatorVerdict } from "../../domain/adjudicate.service.ts";
 import type { FixLoopStage } from "../../domain/fix-loop.aggregate.ts";
 import type { CoordinationGateSignal } from "@kernel/coordination.ts";
@@ -319,16 +319,13 @@ export interface LoopCounters {
 
 export const initialLoopCounters = (): LoopCounters => ({ staticFix: 0, preExecRegen: 0, fixLoop: 0, coverageRegen: 0, reviewRound: 0, leadCorrections: 0, leadReviewTurns: 0 });
 
-/* A fault the run went on past because what it had proven stands: the reason the policy named and what the outcome says about it. */
-export interface Degradation {
-  reason: DegradeReason;
-  note: string;
-}
-
-/* What the run's trace and its crash records say, once known: how generation ended and the limit that stopped the run. */
+/* What the run's trace, its record and its crash records say, once known: how generation ended, the limits that fired and the faults the run went on past. */
 export interface RunFacts {
   generationEnd: string | undefined;
-  limit: { fired: string; role: string } | undefined;
+  /** Every limit the engine met at run level, in order; written only through `recordLimit`. */
+  limits: RunLimitFact[];
+  /** Every fault the run went on past, in order; the decided outcome says each in its note. Written only through `recordDegradation`. */
+  degradations: RunDegradationFact[];
   /** Why the run ended, once it did. */
   endReason: EndReason | undefined;
   /** Whether a reviewer was due for the run, as the generation decides it. */
@@ -346,8 +343,6 @@ export interface RunState {
   review: ReviewOutcome;
   decided: DecidedOutcome | undefined;
   loops: LoopCounters;
-  /** The faults the run degraded past, in order; the decided outcome says each in its note. */
-  degraded: Degradation[];
   /** What the run's trace and crash records read. */
   run: RunFacts;
   /** What the lead/sidekick mode came to; absent when the run was not coordinated. */
@@ -432,8 +427,7 @@ export function initialRunState(): RunState {
     review: { session: undefined, reviewerApproved: true, reviewerApprovedForOutcome: undefined, finalReviewerCorrections: [], missingCases: [], reviewerSignal: undefined },
     decided: undefined,
     loops: initialLoopCounters(),
-    degraded: [],
-    run: { generationEnd: undefined, limit: undefined, endReason: undefined, reviewRequired: undefined },
+    run: { generationEnd: undefined, limits: [], degradations: [], endReason: undefined, reviewRequired: undefined },
     coordination: undefined,
     proof: {},
   };

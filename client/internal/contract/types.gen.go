@@ -1017,6 +1017,24 @@ func (e RoleAssignmentProvider) Valid() bool {
 	}
 }
 
+// Defines values for RunDetailBudgetsLimitsScope.
+const (
+	Run  RunDetailBudgetsLimitsScope = "run"
+	Turn RunDetailBudgetsLimitsScope = "turn"
+)
+
+// Valid indicates whether the value is a known member of the RunDetailBudgetsLimitsScope enum.
+func (e RunDetailBudgetsLimitsScope) Valid() bool {
+	switch e {
+	case Run:
+		return true
+	case Turn:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for RunDetailChangeSetRole.
 const (
 	RunDetailChangeSetRolePrimary RunDetailChangeSetRole = "primary"
@@ -2389,7 +2407,13 @@ type RunDetail struct {
 	Budgets  struct {
 		Exhausted bool    `json:"exhausted"`
 		Limit     *string `json:"limit,omitempty"`
-		Role      *string `json:"role,omitempty"`
+		Limits    *[]struct {
+			Fired string                      `json:"fired"`
+			Role  string                      `json:"role"`
+			Scope RunDetailBudgetsLimitsScope `json:"scope"`
+			Turns *int                        `json:"turns,omitempty"`
+		} `json:"limits,omitempty"`
+		Role *string `json:"role,omitempty"`
 	} `json:"budgets"`
 	Campaign *struct {
 		Id        string            `json:"id"`
@@ -2404,7 +2428,11 @@ type RunDetail struct {
 		Repo    string                 `json:"repo"`
 		Role    RunDetailChangeSetRole `json:"role"`
 	} `json:"changeSet,omitempty"`
-	Decision        *string `json:"decision"`
+	Decision     *string `json:"decision"`
+	Degradations *[]struct {
+		Note   string `json:"note"`
+		Reason string `json:"reason"`
+	} `json:"degradations"`
 	EffectiveConfig struct {
 		Agents map[string]struct {
 			Model           *string `json:"model"`
@@ -2448,6 +2476,7 @@ type RunDetail struct {
 	Retrying      *bool                  `json:"retrying,omitempty"`
 	SchemaVersion RunDetailSchemaVersion `json:"schemaVersion"`
 	Sha           string                 `json:"sha"`
+	Shadowed      *bool                  `json:"shadowed"`
 	SpecCounts    struct {
 		Generated int  `json:"generated"`
 		Passed    *int `json:"passed"`
@@ -2474,6 +2503,9 @@ type RunDetail struct {
 	} `json:"usage"`
 	Verdict *RunDetailVerdict `json:"verdict,omitempty"`
 }
+
+// RunDetailBudgetsLimitsScope defines model for RunDetail.Budgets.Limits.Scope.
+type RunDetailBudgetsLimitsScope string
 
 // RunDetailChangeSetRole defines model for RunDetail.ChangeSet.Role.
 type RunDetailChangeSetRole string

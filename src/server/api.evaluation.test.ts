@@ -47,6 +47,8 @@ const extras: RunViewExtras = {
   usage: { inputTokens: 10, outputTokens: 5, reasoningTokens: 1, cacheReadTokens: 2, cacheWriteTokens: 3, costUsd: 0.25 },
   specCounts: { generated: 2, valid: 2, passed: 1 },
   decision: "pr",
+  shadowed: false,
+  degradations: [],
   budgets: { exhausted: false },
   campaign: { id: "ab-1", variant: { arm: "treatment" }, replicate: 2 },
   effectiveConfig: {

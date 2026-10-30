@@ -126,7 +126,7 @@ export interface RunEvaluationEvidence {
   cancelled: boolean;
   verdict: string | null;
   errorClass: string | null;
-  /* "pr" | "issue" | "shadow-log" | "quarantine" | "none"; null when the run recorded none. */
+  /* What the run decided: "pr" | "issue" | "quarantine" | "none"; null when the run recorded none. Whether shadow replaced it is not part of it. */
   decision: string | null;
   /* The last pipeline phase the run entered (RUN_PHASES), null when it recorded none. */
   furthestPhase: string | null;
@@ -170,8 +170,10 @@ export interface RunEvaluationEvidence {
         causal?: { inReach: number; outOfReach: number; unknown: number } | undefined;
       }
     | undefined;
-  /* The limit that ended the run, when one did: the limit, the role it stopped and the intent of that turn's last step (undefined when unknown). */
+  /* The limit the run leads with, when one fired (the first the engine met, else the first of its turns): the limit, the role it stopped and the intent of that turn's last step (undefined when unknown). */
   limit: { fired: string; role: string | undefined; intent: string | undefined } | undefined;
+  /* Every limit that fired, as the run's record lists them, the lead first; undefined when the run's record predates the list. */
+  limits: ReadonlyArray<{ fired: string; role: string; scope: "run" | "turn" }> | undefined;
   /* Steps per intent, counted from the ledger's `chat` spans. Absent when no step carried an intent. */
   stepIntents: Readonly<Record<string, number>> | undefined;
   /* The grounding evidence (delivered sources, references, changed-element): absent when the run recorded none. */

@@ -14,7 +14,7 @@ import type { EndReason } from "./end-reason.ts";
 import { runEnd, type RunEnd } from "./run-end.ts";
 import type { RunQaUseCaseDeps } from "./run-types.ts";
 import type { RunState } from "./run-state.ts";
-import { recordRunFact } from "./reducers.ts";
+import { recordLimit, recordRunFact } from "./reducers.ts";
 
 const messageOf = (err: unknown): string => (err instanceof Error ? err.message : String(err));
 
@@ -31,7 +31,7 @@ export function failureEnd(reason: EndReason, err: unknown, run: { deps: RunQaUs
        */
       if (classifyFailure(err) !== "run-deadline") throw err;
       const deadline = err as RunDeadlineExceededError;
-      recordRunFact(state, "limit", { fired: "run-deadline", role: deadline.role });
+      recordLimit(state, { fired: "run-deadline", role: deadline.role });
       if (state.run.generationEnd === undefined) recordRunFact(state, "generationEnd", GENERATION_END.TIME_BUDGET);
       const note = renderRunDeadlineNote({ budgetMs: deadline.budgetMs, label: deadline.label, role: deadline.role, stop: deadline.stop });
       engineLog.error(`[qa] ${note}`);

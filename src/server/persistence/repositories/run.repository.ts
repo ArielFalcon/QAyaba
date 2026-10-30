@@ -6,6 +6,7 @@ import { logJson } from "../../../integrations/logger";
 import { RedactionPortAdapter } from "../../../orchestrator/sanitizer";
 import type { AgentActivity, QaCase, RunChangeEntry, RunMode, RunRecord, RunVerdict, TestTarget } from "../../../types";
 import type { SpecRecord } from "@kernel/qa-case";
+import type { RunDegradationFact, RunLimitFact } from "@kernel/run-trace-facts";
 import type { HistoryDatabase } from "../database";
 import { parseJsonColumn } from "../json-column";
 
@@ -46,9 +47,16 @@ export interface RunPhasesPatch {
  */
 export interface RunFactsPatch {
   traceId?: string | null;
+  /* What the run decided (pr, issue, quarantine, none), never the shadow substitute; a row stored before the run recorded whether shadow replaced its decision reads as no decision with `shadowed` true. */
   decision?: string | null;
+  /* Whether shadow replaced the decision; null for a run that did not record it (and was not stored as a shadow-log). */
+  shadowed?: boolean | null;
+  /* The limit the record leads with (the first of `limits`). */
   limitFired?: string | null;
   limitRole?: string | null;
+  /* Every limit that fired and every fault the run went on past: an empty list is a run that recorded none, null one that recorded nothing about them. */
+  limits?: RunLimitFact[] | null;
+  degradations?: RunDegradationFact[] | null;
   /* Whether the engine ran a reviewer for the run. */
   reviewRequired?: boolean | null;
   /* The engine's change-coverage decision (pass|fail|unknown), the policy mode and threshold in force. */
@@ -59,8 +67,11 @@ export interface RunFactsPatch {
   cancelled?: boolean | null;
 }
 
+/* The value the decision column held for a run whose decision shadow replaced, before `shadowed` was a fact of its own. */
+const LEGACY_SHADOW_DECISION = "shadow-log";
+
 const FACT_COLUMNS: ReadonlyArray<[keyof RunFactsPatch, string]> = [
-  ["traceId", "trace_id"], ["decision", "decision"], ["limitFired", "limit_fired"], ["limitRole", "limit_role"], ["reviewRequired", "review_required"],
+  ["traceId", "trace_id"], ["decision", "decision"], ["shadowed", "shadowed"], ["limitFired", "limit_fired"], ["limitRole", "limit_role"], ["limits", "limits"], ["degradations", "degradations"], ["reviewRequired", "review_required"],
   ["coverageStatus", "coverage_status"], ["coverageMode", "coverage_mode"], ["coverageMinRatio", "coverage_min_ratio"], ["cancelled", "cancelled"],
 ];
 
@@ -274,11 +285,16 @@ export class RunRepository {
     const row = this.db.statement(`SELECT ${FACT_COLUMNS.map(([, c]) => c).join(", ")} FROM runs WHERE id = ?`).get(id) as Record<string, string | number | null> | undefined;
     if (!row) return undefined;
     const flag = (v: string | number | null): boolean | null => (v === null ? null : v === 1);
+    const list = <T>(column: string): T[] | null => (typeof row[column] === "string" ? parseJsonColumn<T[] | null>(row[column] as string, null, { table: "runs", column, id }) : null);
     return {
       traceId: row.trace_id as string | null,
-      decision: row.decision as string | null,
+      /* A run stored before the decision and the shadow flag were two facts holds "shadow-log": shadow replaced a decision the record does not name. */
+      decision: row.decision === LEGACY_SHADOW_DECISION ? null : (row.decision as string | null),
+      shadowed: row.decision === LEGACY_SHADOW_DECISION ? true : flag(row.shadowed!),
       limitFired: row.limit_fired as string | null,
       limitRole: row.limit_role as string | null,
+      limits: list<RunLimitFact>("limits"),
+      degradations: list<RunDegradationFact>("degradations"),
       reviewRequired: flag(row.review_required!),
       coverageStatus: row.coverage_status as string | null,
       coverageMode: row.coverage_mode as string | null,
@@ -408,7 +424,7 @@ export class RunRepository {
         for (const [key, column] of FACT_COLUMNS) {
           const v = patch.facts[key];
           if (v === undefined) continue;
-          add(column, typeof v === "boolean" ? (v ? 1 : 0) : v);
+          add(column, typeof v === "boolean" ? (v ? 1 : 0) : Array.isArray(v) ? JSON.stringify(v) : v);
         }
       }
 

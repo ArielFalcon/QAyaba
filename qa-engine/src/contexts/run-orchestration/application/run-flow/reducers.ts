@@ -9,6 +9,7 @@
 import type { DeliveredSpec } from "@kernel/delivered-spec.ts";
 import { normalizeSpecPath } from "@kernel/spec-path.ts";
 import type { CoordinationGateSignal } from "@kernel/coordination.ts";
+import type { RunDegradationFact } from "@kernel/run-trace-facts.ts";
 import { mergeDeliveredSpecs, type DeliveredPass, type DeliveryOrigin } from "../../domain/helpers/delivered-specs.ts";
 import type { CoverageOutcome, ExecutionOutcome, RunFacts, RunState } from "./run-state.ts";
 
@@ -48,6 +49,17 @@ export function recordProof(state: Readonly<RunState>, file: string, sha256: str
 /* run: what the trace and the crash records read; each is set when its fact becomes known, wherever the run stands. */
 export function recordRunFact<K extends keyof RunFacts>(state: Readonly<RunState>, key: K, value: RunFacts[K]): void {
   state.run[key] = value;
+}
+
+/* run.limits: a limit the engine met at run level. The same limit met again (a second turn the deadline refused) is the same fact. */
+export function recordLimit(state: Readonly<RunState>, limit: { fired: string; role: string }): void {
+  if (state.run.limits.some((known) => known.fired === limit.fired && known.role === limit.role)) return;
+  state.run.limits.push({ fired: limit.fired, role: limit.role, scope: "run" });
+}
+
+/* run.degradations: a fault the run went on past, with the sentence its note carries. */
+export function recordDegradation(state: Readonly<RunState>, degradation: RunDegradationFact): void {
+  state.run.degradations.push(degradation);
 }
 
 /* coordination: what the lead/sidekick mode came to, and the corrections it routed afterwards. */

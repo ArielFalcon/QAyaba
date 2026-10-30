@@ -20,6 +20,7 @@ import type { RunOutcome } from "@kernel/run-outcome.ts";
 import type { WorkspaceRunContext } from "./run-context.ts";
 import type { RunQaResult } from "./run-types.ts";
 import { runOf, type RunState } from "./run-state.ts";
+import { recordDegradation } from "./reducers.ts";
 import { routeAvailabilitySignal, type RouteAvailabilityFact } from "@kernel/route-availability.ts";
 import { detectStubbedState, type SpecText } from "@contexts/test-execution/application/index.ts";
 import { dataContradictionsSignal } from "@kernel/data-contradiction.ts";
@@ -105,7 +106,7 @@ export async function finalizeDecided(state: Readonly<RunState>, ctx: WorkspaceR
   await ctx.host.pruneMirror(ctx.workspace);
 
   /* What the run went on past is said on its record beside what publication came to. */
-  const note = [...state.degraded.map((d) => d.note), ...(publishOutcome !== undefined ? [publishOutcome] : [])].join("; ") || undefined;
+  const note = [...state.run.degradations.map((d) => d.note), ...(publishOutcome !== undefined ? [publishOutcome] : [])].join("; ") || undefined;
   const persisted = await persistOutcome(state, ctx, note, stubbed);
   if (persisted.mainlineOutcome) {
     ctx.trail.phases.enter("learn");
@@ -194,7 +195,7 @@ async function keepAcceptedSuite(state: Readonly<RunState>, ctx: WorkspaceRunCon
  * blocksPublish ride along so a green-but-rejected run opens an Issue and an enforce coverage fail holds the PR. e2eChanged is
  * omitted (no computed source: do not fabricate). Cross-repo Issues file in triggerRepo; PRs still target the primary.
  */
-async function publishDecision(state: Readonly<RunState>, ctx: WorkspaceRunContext, stubbed: StubbedRecord | undefined): Promise<string> {
+async function publishDecision(state: Readonly<RunState>, ctx: WorkspaceRunContext, stubbed: StubbedRecord | undefined): Promise<string | undefined> {
   const { deps, input, workspace, services } = ctx;
   const run = runOf(state);
   const { reviewerApproved } = state.review;
@@ -233,7 +234,8 @@ async function publishDecision(state: Readonly<RunState>, ctx: WorkspaceRunConte
     );
     if (actionFor(failure, "publish").do !== "degrade") throw failure;
     engineLog.error(`[qa] ${failure.message}`);
-    return failure.message;
+    recordDegradation(state, { reason: "publication-failed", note: failure.message });
+    return undefined;
   }
   /*
    * Merge denylist reverts into gateSignals.confinement. Count only revertedDangerous toward dangerous: not every revert is a

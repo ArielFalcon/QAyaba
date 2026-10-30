@@ -11,8 +11,8 @@ import { appLogger } from "../integrations/redacting-logger";
 import { JobQueue } from "./queue";
 import { loadAppConfig, AppConfig } from "../orchestrator/config-loader";
 import { assertUniformCapture, CAMPAIGN_CAPTURE_MODE, requestedCaptureMode } from "./campaign-capture";
-import { serializablePhases } from "./persistence/repositories/run.repository";
-import { traceFactsOf } from "@kernel/run-trace-facts";
+import { serializablePhases, type RunFactsPatch } from "./persistence/repositories/run.repository";
+import { mergeTurnLimits, primaryLimit, traceFactsOf } from "@kernel/run-trace-facts";
 import { phaseSnapshotOf } from "@contexts/run-orchestration/application/index";
 import { specCountsOf } from "./evaluation-evidence";
 import { testDataNamespace } from "../qa/test-data";
@@ -210,6 +210,36 @@ function specCountsForTrace(runId: string, furthestPhase: string | null): RunFac
   }
 }
 
+/* The run's facts with the limits its agent turns ended on added to the ones the engine met at run level; the record and the root span both take the result, so they list the same limits and lead with the same one. Fail-open like the other reads for the trace: a history that cannot answer leaves the engine's own. */
+function withTurnLimits<F extends Pick<RunFacts, "limits" | "limitFired" | "limitRole">>(facts: F, runId: string): F {
+  try {
+    /* A port that states only the limit it leads with is read as having met that one. */
+    const engineLimits = facts.limits ?? (facts.limitFired ? [{ fired: facts.limitFired, role: facts.limitRole ?? "", scope: "run" as const }] : []);
+    const limits = mergeTurnLimits(engineLimits, getHistory().telemetry.getTurnLimits(runId));
+    const first = primaryLimit(limits);
+    return { ...facts, limits, ...(first ? { limitFired: first.fired, limitRole: first.role } : {}) };
+  } catch (err) {
+    appLogger.error(`[qa] the limits the turns of run ${runId} ended on could not be read (the engine's own are kept): ${err instanceof Error ? err.message : String(err)}`);
+    return facts;
+  }
+}
+
+/* The facts a run's record keeps of how it ended: the ones the root span states, in the same words. A key the run did not record is stored as unknown (null), never as a default. */
+function recordedFacts(facts: Omit<RunFacts, "verdict" | "errorClass">): RunFactsPatch {
+  return {
+    decision: facts.decision ?? null,
+    shadowed: facts.shadowed ?? null,
+    limitFired: facts.limitFired ?? null,
+    limitRole: facts.limitRole ?? null,
+    limits: facts.limits ? [...facts.limits] : null,
+    degradations: facts.degradations ? [...facts.degradations] : null,
+    reviewRequired: facts.reviewRequired ?? null,
+    coverageStatus: facts.coverage?.status ?? null,
+    coverageMode: facts.coverage?.mode ?? null,
+    coverageMinRatio: facts.coverage?.minRatio ?? null,
+  };
+}
+
 async function runViaEngine(
   port: RunPipelinePort,
   req: RunRequest,
@@ -264,15 +294,18 @@ async function runViaEngine(
     errorClass: outcome.errorClass,
     furthestPhase: outcome.gateSignals.furthestPhase,
     decision: traceFacts?.decision,
+    shadowed: traceFacts?.shadowed,
     generationEnd: traceFacts?.generationEnd,
     endReason: traceFacts?.endReason,
     limitFired: traceFacts?.limitFired,
     limitRole: traceFacts?.limitRole,
+    limits: traceFacts?.limits,
+    degradations: traceFacts?.degradations,
     reviewRequired: traceFacts?.reviewRequired,
     coverage: traceFacts?.coverage,
   };
   return {
-    facts,
+    facts: withTurnLimits(facts, runId),
     sha: outcome.sha,
     verdict: outcome.verdict,
     passed: outcome.verdict === "pass",
@@ -604,16 +637,7 @@ function trackRun(req: RunRequest, deps: RunnerDeps, captureMode: CaptureMode, w
         retrying: false,
         note: run.note || undefined,
         phases: serializablePhases(run.phases),
-        facts: {
-          traceId: trace.traceId(),
-          decision: run.facts.decision ?? null,
-          limitFired: run.facts.limitFired ?? null,
-          limitRole: run.facts.limitRole ?? null,
-          reviewRequired: run.facts.reviewRequired ?? null,
-          coverageStatus: run.facts.coverage?.status ?? null,
-          coverageMode: run.facts.coverage?.mode ?? null,
-          coverageMinRatio: run.facts.coverage?.minRatio ?? null,
-        },
+        facts: { traceId: trace.traceId(), ...recordedFacts(run.facts) },
         /*
          * passed/failed are NOT written here: addCase() is the single source of truth — it dedups
          * by name and recomputes both columns from the cases table on every streamed case.
@@ -658,16 +682,20 @@ function trackRun(req: RunRequest, deps: RunnerDeps, captureMode: CaptureMode, w
       const reached = phaseSnapshotOf(err);
       const crashFacts = typeof err === "object" && err !== null ? traceFactsOf(err) : undefined;
       const specs = specCountsForTrace(record.id, reached?.furthestPhase ?? null);
-      trace.crashed(err, errorClass, {
+      const crashed = withTurnLimits({
         ...(reached?.furthestPhase ? { furthestPhase: reached.furthestPhase } : {}),
         ...(crashFacts?.decision ? { decision: crashFacts.decision } : {}),
+        ...(crashFacts?.shadowed !== undefined ? { shadowed: crashFacts.shadowed } : {}),
         ...(crashFacts?.generationEnd ? { generationEnd: crashFacts.generationEnd } : {}),
+        ...(crashFacts?.limits ? { limits: crashFacts.limits } : {}),
         ...(crashFacts?.limitFired ? { limitFired: crashFacts.limitFired } : {}),
         ...(crashFacts?.limitRole ? { limitRole: crashFacts.limitRole } : {}),
+        ...(crashFacts?.degradations ? { degradations: crashFacts.degradations } : {}),
         ...(crashFacts?.reviewRequired !== undefined ? { reviewRequired: crashFacts.reviewRequired } : {}),
         ...(crashFacts?.coverage ? { coverage: crashFacts.coverage } : {}),
         ...(specs ? { specs } : {}),
-      });
+      }, record.id);
+      trace.crashed(err, errorClass, crashed);
       const note = refusal
         ? `security refusal — the working copy's git dir is not the orchestrator's own, so no git ran: ${msg}`
         : infra
@@ -675,7 +703,7 @@ function trackRun(req: RunRequest, deps: RunnerDeps, captureMode: CaptureMode, w
           : `unexpected internal error (not infrastructure — investigate): ${msg}`;
       /* Where the run stood, stored with the final status, never apart from it. */
       const phases = reached?.furthestPhase ? serializablePhases({ furthestPhase: reached.furthestPhase, phaseTimings: reached.phaseTimings as Record<string, number> }) : undefined;
-      getHistory().runs.updateRecord(record.id, { status: "done", step: "done", verdict: "infra-error", note, phases, facts: { traceId: trace.traceId() } });
+      getHistory().runs.updateRecord(record.id, { status: "done", step: "done", verdict: "infra-error", note, phases, facts: { traceId: trace.traceId(), ...recordedFacts(crashed) } });
       deps.runEvents?.publish(record.id, { type: "agent.error", detail: note });
       deps.runEvents?.publish(record.id, { type: "run.verdict", verdict: "infra-error", engineStatus: engineStatus("infra-error") });
       appLogger.error(`[qa] run ${refusal ? "REFUSED (security refusal: untrusted git tree)" : infra ? "infra-error" : "CRASHED (internal error)"} ${req.app}@${req.sha}: ${msg}`);

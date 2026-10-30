@@ -132,7 +132,11 @@ export const ATTRIBUTES = {
   "qayaba.verdict": str("The run verdict."),
   "qayaba.error_class": str("The error class of an infra-error or invalid run."),
   "qayaba.generation.end": str("How the generation ended."),
-  "qayaba.decision": str("The publication decision: pr, issue, shadow or none."),
+  "qayaba.decision": str("What the run decided to do with its result: pr, issue, quarantine or none. Whether shadow replaced it is `qayaba.decision.shadowed`."),
+  /* T32 unit B: how a run ended, as typed facts of the root span (the run record holds the same). */
+  "qayaba.decision.shadowed": bool("Whether shadow replaced the run's decision: nothing was opened, the decision was only logged."),
+  "qayaba.limits": spec("string[]", "Every limit that fired in the run, as `limit@role`, the engine's own first: a deadline that ended or degraded the run, a wall-clock budget that refused a regeneration, the budget generation ended on, then the limits agent turns ended on. Empty when none fired.", "low", "none", 20),
+  "qayaba.degradations": spec("string[]", "Every fault the run went on past, by reason: publication-failed, deadline-after-proof or regeneration-skipped. Empty when none.", "low", "none", 10),
   "qayaba.furthest_phase": str("The last phase the run entered."),
   "qayaba.specs.generated": int("Specs delivered by this run."),
   "qayaba.specs.valid": int("Delivered specs that passed validation."),

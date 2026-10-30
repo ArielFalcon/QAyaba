@@ -40,7 +40,7 @@ import { guardTelemetry } from "@kernel/telemetry/guarded-telemetry.ts";
 import { NoopTelemetry } from "@kernel/telemetry/noop-telemetry.ts";
 import type { TelemetryPort } from "@kernel/telemetry/telemetry.port.ts";
 import type { RedactionScope } from "@kernel/telemetry/telemetry.port.ts";
-import { attachTraceFacts, type RunTraceFacts } from "@kernel/run-trace-facts.ts";
+import { attachTraceFacts, primaryLimit, type RunLimitFact, type RunTraceFacts } from "@kernel/run-trace-facts.ts";
 import { AuthPreconditionError } from "@contexts/app-catalog/application/index.ts";
 import { CycleBudget } from "../../../shared-kernel/cycle-budget.ts";
 import { WallClockBudget } from "../../../shared-kernel/wall-clock-budget.ts";
@@ -147,19 +147,23 @@ export class RunQaUseCase {
     }
   }
 
-  /* How the run ended, for its trace: the decision, the end of generation, and the limit that fired (the deadline's own, else the one the generation end names). A run that threw before a result was built has no decision. */
+  /* How the run ended, for its trace and its record: the decision and whether shadow replaced it, the end of generation, every limit that fired (the engine's own, then the one the generation end names) and every fault the run went on past. A run that threw before a result was built has no decision. */
   private traceFactsOf(result: RunQaResult | undefined, state: Readonly<RunState>): RunTraceFacts {
     const end = state.run.generationEnd;
     const fromEnd = end === GENERATION_END.EXHAUSTED ? { fired: "step-cap", role: "qa-author" } : end === GENERATION_END.TIME_BUDGET ? { fired: "tier-budget", role: "qa-author" } : undefined;
-    const limit = state.run.limit ?? fromEnd;
+    const limits: RunLimitFact[] = [...state.run.limits];
+    if (fromEnd && !limits.some((known) => known.fired === fromEnd.fired && known.role === fromEnd.role)) limits.push({ ...fromEnd, scope: "run" });
+    const first = primaryLimit(limits);
     const cfg: RunQaConfig = { ...DEFAULT_CONFIG, ...this.deps.config };
     return {
-      ...(result ? { decision: result.decision.sideEffect } : {}),
+      ...(result ? { decision: result.decision.outcome, shadowed: result.decision.shadowed } : {}),
       ...(state.run.reviewRequired !== undefined ? { reviewRequired: state.run.reviewRequired } : {}),
       coverage: { ...(state.coverage.coverageStatus ? { status: state.coverage.coverageStatus } : {}), mode: cfg.coveragePolicyMode, ...(cfg.coverageMinRatio !== undefined ? { minRatio: cfg.coverageMinRatio } : {}) },
       ...(end !== undefined ? { generationEnd: end } : {}),
       ...(state.run.endReason !== undefined ? { endReason: state.run.endReason } : {}),
-      ...(limit ? { limitFired: limit.fired, limitRole: limit.role } : {}),
+      limits,
+      ...(first ? { limitFired: first.fired, limitRole: first.role } : {}),
+      degradations: [...state.run.degradations],
     };
   }
 

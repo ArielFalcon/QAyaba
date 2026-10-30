@@ -681,9 +681,19 @@ export const RunDetailSchema = RunRecordSchema.extend({
    * run got past the validate phase; `passed` is null when valid is unknown or the cases cannot be tied to the specs.
    */
   specCounts: z.object({ generated: z.number().int().min(0), valid: z.number().int().min(0).nullable(), passed: z.number().int().min(0).nullable() }),
-  /* "pr" | "issue" | "shadow-log" | "quarantine" | "none"; null for a run that recorded none. */
+  /* What the run decided: "pr" | "issue" | "quarantine" | "none". Null for a run that recorded none, and for a run stored before `shadowed` was a fact of its own whose decision shadow had replaced. */
   decision: z.string().nullable(),
-  budgets: z.object({ exhausted: z.boolean(), limit: z.string().optional(), role: z.string().optional() }),
+  /* Whether shadow replaced the decision (nothing was opened); null for a run that did not record it. */
+  shadowed: z.boolean().nullable(),
+  /* Every fault the run went on past (reason: publication-failed | deadline-after-proof | regeneration-skipped, and the sentence its note carries); an empty list for a run that went on past none, null for a run stored before they were recorded. */
+  degradations: z.array(z.object({ reason: z.string(), note: z.string() })).nullable(),
+  /* `limit` and `role` are the limit the run leads with (the first the engine met); `limits` lists every one that fired, scope "run" for the engine's own and "turn" for those only agent turns met (`turns` of them). Absent for a run stored before limits were recorded. */
+  budgets: z.object({
+    exhausted: z.boolean(),
+    limit: z.string().optional(),
+    role: z.string().optional(),
+    limits: z.array(z.object({ fired: z.string(), role: z.string(), scope: z.enum(["run", "turn"]), turns: z.number().int().min(1).optional() })).optional(),
+  }),
   /* Present only for a run that belongs to a campaign. */
   campaign: z.object({ id: z.string(), variant: z.record(z.string(), z.string()), replicate: z.number().int().min(1) }).optional(),
   effectiveConfig: EffectiveConfigSchema,

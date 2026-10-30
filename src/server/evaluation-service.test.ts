@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createEvaluationService } from "./evaluation-service";
-import { GRADER_VERSION } from "@contexts/evaluation/application/index";
+import { GRADER_VERSION, gradeEvidence } from "@contexts/evaluation/application/index";
 import { HistoryEvidenceAdapter, countPassedSpecs, defaultEvidenceDeps } from "./evaluation-evidence";
 import { buildRunViewExtras, type RunViewDeps } from "./run-view";
 import Database from "better-sqlite3";
@@ -361,6 +361,33 @@ test("a run that a limit ended reports which", () => {
   const { limitFired, limitRole, decision } = getHistory().runs.getRunFacts(r.id)!;
   assert.deepEqual({ limitFired, limitRole, decision }, { limitFired: "run-deadline", limitRole: "qa-author", decision: "none" });
   assert.deepEqual(buildRunViewExtras(r.id, viewDeps(true))?.budgets, { exhausted: true, limit: "run-deadline", role: "qa-author" });
+});
+
+test("a run that went on past a spent deadline reports the limit, the degradation and the decision in one vocabulary, and the grader reads the same record", async () => {
+  const r = getHistory().runs.createRecord({ target: "e2e", app: "eval-degraded", sha: "abcdef1234", mode: "diff" });
+  const limits = [{ fired: "run-deadline", role: "reviewer", scope: "run" as const }, { fired: "repair-cap", role: "qa-author", scope: "turn" as const, turns: 1 }];
+  const degradations = [{ reason: "deadline-after-proof" as const, note: "the run deadline was spent during review-round; the suite that ran green on its final bytes is kept" }];
+  getHistory().runs.updateRecord(r.id, { status: "done", verdict: "pass", phases: { furthestPhase: "learn", phaseTimings: { generate: 5 } }, facts: { traceId: null, decision: "pr", shadowed: true, limitFired: "run-deadline", limitRole: "reviewer", limits, degradations } });
+  const view = buildRunViewExtras(r.id, viewDeps(true))!;
+  assert.equal(view.decision, "pr");
+  assert.equal(view.shadowed, true);
+  assert.deepEqual(view.degradations, degradations);
+  assert.deepEqual(view.budgets, { exhausted: true, limit: "run-deadline", role: "reviewer", limits });
+  const evidence = (await new HistoryEvidenceAdapter(defaultEvidenceDeps).load(r.id))!;
+  assert.equal(evidence.decision, "pr");
+  assert.deepEqual(evidence.limits, limits.map(({ fired, role, scope }) => ({ fired, role, scope })));
+  const score = gradeEvidence(evidence).find((s) => s.name === "budget_exhaustion");
+  assert.match(String(score?.value), /^run-deadline@learn\/reviewer\//);
+  assert.equal(score?.comment, "also: repair-cap/qa-author");
+});
+
+test("a run stored before limits and degradations were recorded reads them as unknown, not as none", () => {
+  const r = getHistory().runs.createRecord({ target: "e2e", app: "eval-old", sha: "abcdef1234", mode: "diff" });
+  getHistory().runs.updateRecord(r.id, { status: "done", verdict: "pass", facts: { traceId: null, decision: "pr" } });
+  const view = buildRunViewExtras(r.id, viewDeps(true))!;
+  assert.equal(view.shadowed, null);
+  assert.equal(view.degradations, null);
+  assert.deepEqual(view.budgets, { exhausted: false });
 });
 
 function viewDeps(on: boolean, template?: string): RunViewDeps {
