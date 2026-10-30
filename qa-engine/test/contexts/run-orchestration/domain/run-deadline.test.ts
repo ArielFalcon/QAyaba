@@ -203,6 +203,33 @@ test("a run that ended before it finished a phase measures nothing for that phas
   assert.equal(measured.has("decide"), false);
 });
 
+test("a phase a run never entered is no sample of it: runs that failed before the review say nothing about how long a review takes", () => {
+  const failedBeforeReview = (): PhaseRecord => ({ furthestPhase: "learn", phaseTimings: { setup: MIN, ground: MIN, generate: 10 * MIN, validate: MIN, execute: 3 * MIN, fix_loop: MIN, decide: 0, publish: MIN } });
+  const records = [...Array.from({ length: 11 }, failedBeforeReview), ...Array.from({ length: 9 }, () => TYPICAL)];
+  const measured = measuredPurposeDurations(records);
+  assert.equal(measured.get("review"), 4 * MIN, "the nine runs that reviewed set it, the eleven that never entered it add no zero");
+  assert.equal(measured.get("coverage"), 2 * MIN);
+  const never = measuredPurposeDurations(Array.from({ length: 5 }, failedBeforeReview));
+  assert.equal(never.get("review"), 0, "no run of the history entered the review although they finished whole: runs of this kind spend no time there");
+  assert.equal(never.get("execute"), 3 * MIN);
+  assert.equal(measuredPurposeDurations([]).has("review"), false, "no history says nothing: the fallback stands");
+});
+
+test("a purpose that no run entered is not measured as none when every run that could say so was cut", () => {
+  const cutEarly: PhaseRecord = { furthestPhase: "learn", phaseTimings: { setup: MIN, ground: MIN, generate: 30 * MIN }, cutPurposes: ["generate"] };
+  const measured = measuredPurposeDurations([cutEarly, cutEarly]);
+  assert.equal(measured.has("review"), false, "a run cut in generation never got to the review: it says nothing about it");
+  assert.equal(measured.has("generate"), false);
+});
+
+test("a purpose the run's own deadline or share cut is no sample of it, even when a later phase ran", () => {
+  const degraded: PhaseRecord = { ...TYPICAL, phaseTimings: { ...TYPICAL.phaseTimings, review: 30_000 }, cutPurposes: ["review"] };
+  const measured = measuredPurposeDurations([degraded, TYPICAL]);
+  assert.equal(measured.get("review"), 4 * MIN, "the cut review took 30 s because it was cut");
+  assert.equal(measured.get("execute"), 3 * MIN, "the purposes it did not cut still count");
+  assert.equal(measuredPurposeDurations([degraded]).has("review"), false);
+});
+
 test("the measured time of a phase is the median of the app's runs, so one outlier moves nothing", () => {
   const slow = finished({ ...TYPICAL.phaseTimings, review: 40 * MIN });
   const quick = finished({ ...TYPICAL.phaseTimings, review: 2 * MIN });

@@ -552,8 +552,10 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   the reserve held for the purposes after it. A consumer asks with its purpose (an `allowance()` without one is the purpose of
   the phase the run is in: the use case tells the deadline each phase it enters); none keeps a reserve or a margin of its own.
   The reserve of a following purpose is the app's measured duration of its phases: the median over the app's last 20 finished
-  runs of the same mode that completed them (`runs.phase_timings`, read once when the deadline is armed through
-  `PhaseHistoryPort`; a phase a run never entered took 0 there, a phase a run was cut in is no sample). Following purposes with
+  runs of the same kind (the row of the run time budget table a run was bounded as: `diff-tiny`, `diff-focused`, `diff-broad`,
+  `manual` or `context`, stored as `runs.time_budget`; a tiny change's reserve is not set by broader runs) that entered the purpose's
+  phases, finished them and were not cut in them (`runs.phase_timings`, `runs.limits`, read once when the deadline is armed through
+  `PhaseHistoryPort`; a phase a run never entered is no sample of it, and a purpose a run's deadline or share cut is none either; a purpose no run entered although runs finished whole and uncut measures 0, an empty history nothing). Following purposes with
   no completed run share one fallback reserve, a quarter of what is left and at least 120 s (`FALLBACK_RESERVE_SHARE`,
   `FALLBACK_RESERVE_MIN_MS`), except the decision, which holds back only its measured time (publication takes seconds and is never
   cut at the deadline); a history that cannot be read leaves every reserve on the fallback and logs it. The first time each

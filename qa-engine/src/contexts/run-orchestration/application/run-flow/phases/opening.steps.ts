@@ -4,6 +4,8 @@ import { engineLog } from "@kernel/ports/process-logger.ts";
 import { isOk } from "@kernel/result.ts";
 import { ACTION_SEVERITY } from "@contexts/change-analysis/application/index.ts";
 import { changeTokens } from "@contexts/objective-signal/application/index.ts";
+import { runTimeBudgetKey } from "../../../domain/run-time-budget.ts";
+import { recordRunFact } from "../reducers.ts";
 import { end, type StepOutcome } from "../run-flow.ts";
 import type { RunContext, WorkspaceRunContext } from "../run-context.ts";
 import type { CompanionClassification, RunState } from "../run-state.ts";
@@ -86,11 +88,15 @@ export async function armRunDeadline(state: Readonly<RunState>, ctx: WorkspaceRu
   const { diff, intent } = state.classification;
   ctx.services.intentState.tokens = changeTokens(diff ?? "");
   const deadline = ctx.deps.runDeadline;
-  deadline?.arm({ mode: ctx.input.mode, ...(diff !== undefined ? { diff } : {}), ...(intent ? { changedFiles: intent.changedFiles } : {}) });
+  const scope = { mode: ctx.input.mode, ...(diff !== undefined ? { diff } : {}), ...(intent ? { changedFiles: intent.changedFiles } : {}) };
+  deadline?.arm(scope);
+  /* The kind of run it is bounded as: the history it reads, and the one later runs read of it, is that kind's. */
+  const budget = runTimeBudgetKey(scope);
+  if (deadline) recordRunFact(state, "timeBudget", budget);
   /* What the phases after each purpose need is what this app's recent runs took. A history that cannot be read leaves every reserve on its fallback, loudly. */
   if (deadline?.measure && ctx.deps.phaseHistory) {
     try {
-      deadline.measure(await ctx.deps.phaseHistory.recentPhaseRecords({ app: ctx.input.app, mode: ctx.input.mode, limit: RECENT_RUNS_FOR_RESERVE }));
+      deadline.measure(await ctx.deps.phaseHistory.recentPhaseRecords({ app: ctx.input.app, budget, limit: RECENT_RUNS_FOR_RESERVE }));
     } catch (err) {
       engineLog.error(`[qa] the app's recent phase durations could not be read; every reserve falls back to a share of the time left: ${err instanceof Error ? err.message : String(err)}`);
     }

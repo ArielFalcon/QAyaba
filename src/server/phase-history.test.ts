@@ -11,9 +11,14 @@ test("a stored row keeps the phases the engine knows and drops a phase name or a
   assert.equal(phaseRecordOf({ furthestPhase: null, phaseTimings: {} }).furthestPhase, null);
 });
 
-test("the history port asks for the app, mode and limit it is given and returns the checked rows", async () => {
+test("the history port asks for the app, kind of run and limit it is given and returns the checked rows", async () => {
   const asked: unknown[] = [];
-  const port = historyPhaseHistory((app, mode, limit) => (asked.push({ app, mode, limit }), [{ furthestPhase: "publish", phaseTimings: { decide: 4 } }]));
-  assert.deepEqual(await port.recentPhaseRecords({ app: "shop", mode: "diff", limit: 20 }), [{ furthestPhase: "publish", phaseTimings: { decide: 4 } }]);
-  assert.deepEqual(asked, [{ app: "shop", mode: "diff", limit: 20 }]);
+  const port = historyPhaseHistory((app, budget, limit) => (asked.push({ app, budget, limit }), [{ furthestPhase: "publish", phaseTimings: { decide: 4 } }]));
+  assert.deepEqual(await port.recentPhaseRecords({ app: "shop", budget: "diff-tiny", limit: 20 }), [{ furthestPhase: "publish", phaseTimings: { decide: 4 } }]);
+  assert.deepEqual(asked, [{ app: "shop", budget: "diff-tiny", limit: 20 }]);
+});
+
+test("the purposes a run's deadline cut are kept when the engine knows them and dropped when it does not", () => {
+  assert.deepEqual(phaseRecordOf({ furthestPhase: "learn", phaseTimings: {}, cutPurposes: ["review", "nonsense"] }).cutPurposes, ["review"]);
+  assert.equal("cutPurposes" in phaseRecordOf({ furthestPhase: "learn", phaseTimings: {}, cutPurposes: [] }), false);
 });

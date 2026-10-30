@@ -162,6 +162,7 @@ export class RunQaUseCase {
     return {
       ...(result ? { decision: result.decision.outcome, shadowed: result.decision.shadowed } : {}),
       ...(state.run.reviewRequired !== undefined ? { reviewRequired: state.run.reviewRequired } : {}),
+      ...(state.run.timeBudget !== undefined ? { timeBudget: state.run.timeBudget } : {}),
       coverage: { ...(state.coverage.coverageStatus ? { status: state.coverage.coverageStatus } : {}), mode: cfg.coveragePolicyMode, ...(cfg.coverageMinRatio !== undefined ? { minRatio: cfg.coverageMinRatio } : {}) },
       ...(end !== undefined ? { generationEnd: end } : {}),
       ...(state.run.endReason !== undefined ? { endReason: state.run.endReason } : {}),

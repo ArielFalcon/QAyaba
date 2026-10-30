@@ -928,7 +928,7 @@ export function buildEngineRootDeps(
     ...(stepLimitFor ? { stepLimitFor } : {}),
     ...(runContext ? { contextBudget: runContext.budget } : {}),
     runDeadline,
-    phaseHistory: historyPhaseHistory((appName, mode, limit) => getHistory().runs.recentPhaseRecords(appName, mode, limit)),
+    phaseHistory: historyPhaseHistory((appName, budget, limit) => getHistory().runs.recentPhaseRecords(appName, budget, limit)),
     ...(deps.telemetry ? { telemetry: deps.telemetry, toolAttempts: agentTurnTraces } : {}),
     /* What a run's specs held at validation is kept for after-the-fact grading, as long as the run is traced. */
     ...(deps.telemetry ? { specSnapshots: new SqliteSpecSnapshotAdapter(), planSnapshots: new SqlitePlanSnapshotAdapter() } : {}),

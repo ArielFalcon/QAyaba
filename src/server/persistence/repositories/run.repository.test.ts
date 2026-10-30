@@ -345,11 +345,12 @@ test("a corrupt phase_timings value on a stored run yields the fallback and one 
   assert.ok(logged[0]!.includes(run.id));
 });
 
-test("recentPhaseRecords lists an app's newest runs in a mode that recorded phases, how far each got and what each phase took", () => {
+test("recentPhaseRecords lists an app's newest runs of a kind that recorded phases, how far each got and what each phase took", () => {
   const runs = getHistory().runs;
   const app = "hist-phases";
   const old = runs.createRecord({ target: "e2e", app, sha: "aaaaaaa1", mode: "diff" });
   runs.recordRunPhases(old.id, { furthestPhase: "learn", phaseTimings: { generate: 100, review: 7 } });
+  runs.updateRecord(old.id, { facts: { timeBudget: "diff-tiny", limits: [{ fired: "allotment", role: "reviewer", scope: "run", purpose: "review" }, { fired: "tier-budget", role: "qa-author", scope: "run" }] } });
   const never = runs.createRecord({ target: "e2e", app, sha: "aaaaaaa2", mode: "diff" });
   const other = runs.createRecord({ target: "e2e", app: "hist-phases-other", sha: "aaaaaaa3", mode: "diff" });
   runs.recordRunPhases(other.id, { furthestPhase: "learn", phaseTimings: { generate: 1 } });
@@ -357,10 +358,30 @@ test("recentPhaseRecords lists an app's newest runs in a mode that recorded phas
   runs.recordRunPhases(manual.id, { furthestPhase: "learn", phaseTimings: { generate: 2 } });
   const recent = runs.createRecord({ target: "e2e", app, sha: "aaaaaaa5", mode: "diff" });
   runs.recordRunPhases(recent.id, { furthestPhase: "review", phaseTimings: { generate: 300 } });
+  runs.updateRecord(recent.id, { facts: { timeBudget: "diff-tiny" } });
   assert.ok(never.id);
-  assert.deepEqual(runs.recentPhaseRecords(app, "diff", 10), [
-    { furthestPhase: "review", phaseTimings: { generate: 300 } },
-    { furthestPhase: "learn", phaseTimings: { generate: 100, review: 7 } },
-  ], "newest first; a run that never recorded phases, another app's and another mode's are left out");
-  assert.equal(runs.recentPhaseRecords(app, "diff", 1).length, 1, "the limit applies");
+  assert.deepEqual(runs.recentPhaseRecords(app, "diff-tiny", 10), [
+    { furthestPhase: "review", phaseTimings: { generate: 300 }, cutPurposes: [] },
+    { furthestPhase: "learn", phaseTimings: { generate: 100, review: 7 }, cutPurposes: ["review"] },
+  ], "newest first, with the purposes the run's limits cut; a run that never recorded phases, another app's and another mode's are left out");
+  assert.equal(runs.recentPhaseRecords(app, "diff-tiny", 1).length, 1, "the limit applies");
+});
+
+test("recentPhaseRecords reads only runs of the asked kind: a tiny change's reserve is not set by broader runs, and a run with no recorded kind is its mode's kind", () => {
+  const runs = getHistory().runs;
+  const app = "hist-kinds";
+  const make = (sha: string, mode: "diff" | "manual", budget: string | null) => {
+    const run = runs.createRecord({ target: "e2e", app, sha, mode });
+    runs.recordRunPhases(run.id, { furthestPhase: "learn", phaseTimings: { review: 1 } });
+    if (budget !== null) runs.updateRecord(run.id, { facts: { timeBudget: budget } });
+  };
+  make("bbbbbbb1", "diff", "diff-tiny");
+  make("bbbbbbb2", "diff", "diff-broad");
+  make("bbbbbbb3", "diff", null);
+  make("bbbbbbb4", "manual", null);
+  make("bbbbbbb5", "manual", "manual");
+  assert.equal(runs.recentPhaseRecords(app, "diff-tiny", 10).length, 1, "the broad run and the diff run of unknown size are not a tiny change's");
+  assert.equal(runs.recentPhaseRecords(app, "diff-broad", 10).length, 1);
+  assert.equal(runs.recentPhaseRecords(app, "manual", 10).length, 2, "a manual run stored before the kind was recorded is a manual run");
+  assert.equal(runs.getRunFacts(runs.createRecord({ target: "e2e", app, sha: "bbbbbbb6", mode: "diff" }).id)?.timeBudget, null, "a run that recorded no kind reads it as unknown");
 });

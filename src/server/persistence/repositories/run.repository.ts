@@ -59,6 +59,8 @@ export interface RunFactsPatch {
   degradations?: RunDegradationFact[] | null;
   /* Whether the engine ran a reviewer for the run. */
   reviewRequired?: boolean | null;
+  /* The kind of run the deadline bounded it as (diff-tiny, diff-focused, diff-broad, manual or context); null for a run that recorded none. */
+  timeBudget?: string | null;
   /* The engine's change-coverage decision (pass|fail|unknown), the policy mode and threshold in force. */
   coverageStatus?: string | null;
   coverageMode?: string | null;
@@ -74,7 +76,7 @@ const LEGACY_SHADOW_DECISION = "shadow-log";
 
 const FACT_COLUMNS: ReadonlyArray<[keyof RunFactsPatch, string]> = [
   ["traceId", "trace_id"], ["decision", "decision"], ["shadowed", "shadowed"], ["limitFired", "limit_fired"], ["limitRole", "limit_role"], ["limits", "limits"], ["degradations", "degradations"], ["reviewRequired", "review_required"],
-  ["coverageStatus", "coverage_status"], ["coverageMode", "coverage_mode"], ["coverageMinRatio", "coverage_min_ratio"], ["cancelled", "cancelled"], ["engineVersion", "engine_version"],
+  ["coverageStatus", "coverage_status"], ["coverageMode", "coverage_mode"], ["coverageMinRatio", "coverage_min_ratio"], ["cancelled", "cancelled"], ["engineVersion", "engine_version"], ["timeBudget", "time_budget"],
 ];
 
 /* The patch updateRecord takes: like RunRecord's optional fields, except stepDetail may be an explicit null so a step change can clear the last detail. */
@@ -279,15 +281,23 @@ export class RunRepository {
     this.db.write(() => this.db.statement("UPDATE runs SET furthest_phase = ?, phase_timings = ? WHERE id = ?").run(phases.furthestPhase, JSON.stringify(phases.phaseTimings), id));
   }
 
-  /* The phases of an app's most recent runs in a mode that recorded any, newest first: how far each got and how long each phase it entered took. */
-  recentPhaseRecords(app: string, mode: string, limit: number): Array<{ furthestPhase: string | null; phaseTimings: Record<string, number> }> {
+  /*
+   * The phases of an app's most recent runs of one kind that recorded any, newest first: how far each got, how long each phase it entered
+   * took and the purposes its deadline cut. The kind is the row of the run time budget a run was bounded as; a run stored before it was
+   * recorded is of the kind that is its mode (every mode but diff, whose kind follows the size of the change and is then unknown).
+   */
+  recentPhaseRecords(app: string, budget: string, limit: number): Array<{ furthestPhase: string | null; phaseTimings: Record<string, number>; cutPurposes: string[] }> {
     const rows = this.db
-      .statement("SELECT id, furthest_phase, phase_timings FROM runs WHERE app = ? AND mode = ? AND phase_timings IS NOT NULL ORDER BY at DESC, rowid DESC LIMIT ?")
-      .all(app, mode, limit) as Array<{ id: string; furthest_phase: string | null; phase_timings: string }>;
-    return rows.map((row) => ({
-      furthestPhase: row.furthest_phase,
-      phaseTimings: parseJsonColumn<Record<string, number>>(row.phase_timings, {}, { table: "runs", column: "phase_timings", id: row.id }),
-    }));
+      .statement("SELECT id, furthest_phase, phase_timings, limits FROM runs WHERE app = ? AND (time_budget = ? OR (time_budget IS NULL AND mode = ?)) AND phase_timings IS NOT NULL ORDER BY at DESC, rowid DESC LIMIT ?")
+      .all(app, budget, budget, limit) as Array<{ id: string; furthest_phase: string | null; phase_timings: string; limits: string | null }>;
+    return rows.map((row) => {
+      const limits = row.limits === null ? [] : parseJsonColumn<RunLimitFact[]>(row.limits, [], { table: "runs", column: "limits", id: row.id });
+      return {
+        furthestPhase: row.furthest_phase,
+        phaseTimings: parseJsonColumn<Record<string, number>>(row.phase_timings, {}, { table: "runs", column: "phase_timings", id: row.id }),
+        cutPurposes: [...new Set(limits.flatMap((limit) => (typeof limit.purpose === "string" ? [limit.purpose] : [])))],
+      };
+    });
   }
 
   getRunPhases(id: string): RunPhases | undefined {
@@ -320,6 +330,7 @@ export class RunRepository {
       coverageMinRatio: row.coverage_min_ratio as number | null,
       cancelled: flag(row.cancelled!),
       engineVersion: row.engine_version as string | null,
+      timeBudget: row.time_budget as string | null,
     };
   }
 

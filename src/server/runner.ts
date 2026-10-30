@@ -235,6 +235,7 @@ function recordedFacts(facts: Omit<RunFacts, "verdict" | "errorClass">): RunFact
     limits: facts.limits ? [...facts.limits] : null,
     degradations: facts.degradations ? [...facts.degradations] : null,
     reviewRequired: facts.reviewRequired ?? null,
+    timeBudget: facts.timeBudget ?? null,
     coverageStatus: facts.coverage?.status ?? null,
     coverageMode: facts.coverage?.mode ?? null,
     coverageMinRatio: facts.coverage?.minRatio ?? null,
@@ -303,6 +304,7 @@ async function runViaEngine(
     limits: traceFacts?.limits,
     degradations: traceFacts?.degradations,
     reviewRequired: traceFacts?.reviewRequired,
+    timeBudget: traceFacts?.timeBudget,
     coverage: traceFacts?.coverage,
   };
   return {
@@ -695,6 +697,7 @@ function trackRun(req: RunRequest, deps: RunnerDeps, captureMode: CaptureMode, w
         ...(crashFacts?.limitRole ? { limitRole: crashFacts.limitRole } : {}),
         ...(crashFacts?.degradations ? { degradations: crashFacts.degradations } : {}),
         ...(crashFacts?.reviewRequired !== undefined ? { reviewRequired: crashFacts.reviewRequired } : {}),
+        ...(crashFacts?.timeBudget ? { timeBudget: crashFacts.timeBudget } : {}),
         ...(crashFacts?.coverage ? { coverage: crashFacts.coverage } : {}),
         ...(specs ? { specs } : {}),
       }, record.id);

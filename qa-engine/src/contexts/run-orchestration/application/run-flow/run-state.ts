@@ -330,6 +330,8 @@ export interface RunFacts {
   endReason: EndReason | undefined;
   /** Whether a reviewer was due for the run, as the generation decides it. */
   reviewRequired: boolean | undefined;
+  /** The kind of run the deadline bounded it as, once armed. */
+  timeBudget: string | undefined;
 }
 
 export interface RunState {
@@ -427,7 +429,7 @@ export function initialRunState(): RunState {
     review: { session: undefined, reviewerApproved: true, reviewerApprovedForOutcome: undefined, finalReviewerCorrections: [], missingCases: [], reviewerSignal: undefined },
     decided: undefined,
     loops: initialLoopCounters(),
-    run: { generationEnd: undefined, limits: [], degradations: [], endReason: undefined, reviewRequired: undefined },
+    run: { generationEnd: undefined, limits: [], degradations: [], endReason: undefined, reviewRequired: undefined, timeBudget: undefined },
     coordination: undefined,
     proof: {},
   };

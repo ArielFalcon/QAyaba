@@ -84,6 +84,8 @@ export interface RunFacts {
   limits?: readonly RunLimitFact[] | undefined;
   degradations?: readonly RunDegradationFact[] | undefined;
   reviewRequired?: boolean | undefined;
+  /* The kind of run the deadline bounded it as. */
+  timeBudget?: string | undefined;
   coverage?: { status?: "pass" | "fail" | "unknown" | undefined; mode: string; minRatio?: number | undefined } | undefined;
   /* Delivered specs and how many of them validated/passed; absent when the run recorded none. */
   specs?: { generated: number; valid: number | null; passed?: number | undefined } | undefined;

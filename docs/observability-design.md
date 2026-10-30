@@ -234,6 +234,9 @@ The design uses a **phase cursor** instead, a small domain object owned by the u
 - As built in S1a, the record lives on the `runs` row (`furthest_phase`, `phase_timings`), written by the runner
   in the same statement that sets the final status, so a run is never seen finished without it. `run_outcomes`
   carries none of it. `gateSignals.phaseTimings` and `furthestPhase` are on the returned outcome, not on the saved one.
+  The row also carries `time_budget`, the kind of run the deadline bounded it as (`diff-tiny`, `diff-focused`, `diff-broad`, `manual`,
+  `context`; schema 5), and its `limits` say which purposes were cut: a later run's reserve is the median of the phases that runs of its own
+  kind entered, finished and were not cut in.
 - Semantics of the record:
   - A timing is time spent inside a region of the run, not the pure cost of a phase. A review-round regeneration
     counts under `review`; `coverage` is a region only in diff mode; the audit of a terminal path counts

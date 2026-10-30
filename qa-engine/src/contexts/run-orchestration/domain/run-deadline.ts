@@ -23,6 +23,8 @@ const NO_FALLBACK: ReadonlySet<DeadlinePurpose> = new Set(["decide"]);
 export interface PhaseRecord {
   furthestPhase: RunPhase | null;
   phaseTimings: Partial<Record<RunPhase, number>>;
+  /** The purposes the run's deadline or a share of it cut: the time they took says how long the cut came, not how long the phases need. Absent: none, or the run recorded none. */
+  cutPurposes?: readonly DeadlinePurpose[];
 }
 
 /* Where the reserve of an allotment came from: nothing is held back (no purpose follows, or only ones that hold back no guess), every following purpose that holds one was measured, or at least one was not and the fallback stands for them. */
@@ -72,17 +74,29 @@ function median(samples: readonly number[]): number {
   return sorted.length % 2 === 1 ? sorted[mid]! : Math.floor((sorted[mid - 1]! + sorted[mid]!) / 2);
 }
 
-/* The typical time each purpose took in the app's recent runs, over the runs that completed all of its phases (a phase the run never entered took 0 there). A purpose no run completed is absent. */
+/*
+ * The typical time each purpose took in the app's recent runs of one kind. A run is a sample of a purpose only when it entered one of
+ * its phases, finished every phase of it that it entered and was not cut in it: a phase a run never entered (a run that failed before the
+ * review) took no time for want of being run, which says nothing about how long it takes, and a cut phase says how long the cut came. A
+ * purpose no run sampled is absent, and its reserve falls back, except one that no run of the history entered although runs finished
+ * whole (reached the end, cut nowhere): runs of that kind spend no time there (an app that does not review, a fix loop only a failing
+ * run enters), which is its measure, 0.
+ */
 export function measuredPurposeDurations(records: readonly PhaseRecord[]): Map<DeadlinePurpose, number> {
   const measured = new Map<DeadlinePurpose, number>();
+  const finishedWhole = records.some((record) => (record.furthestPhase === "learn" || record.furthestPhase === "publish") && (record.cutPurposes?.length ?? 0) === 0);
   for (const purpose of DEADLINE_PURPOSES) {
     const samples: number[] = [];
+    let anyEntered = false;
     for (const record of records) {
-      const phases = PHASES_OF_PURPOSE[purpose];
-      if (!phases.every((phase) => completed(phase, record.furthestPhase))) continue;
-      samples.push(phases.reduce((sum, phase) => sum + Math.max(0, record.phaseTimings[phase] ?? 0), 0));
+      const entered = PHASES_OF_PURPOSE[purpose].filter((phase) => record.phaseTimings[phase] !== undefined);
+      if (entered.length > 0) anyEntered = true;
+      if (entered.length === 0 || record.cutPurposes?.includes(purpose)) continue;
+      if (!entered.every((phase) => completed(phase, record.furthestPhase))) continue;
+      samples.push(entered.reduce((sum, phase) => sum + Math.max(0, record.phaseTimings[phase] ?? 0), 0));
     }
     if (samples.length > 0) measured.set(purpose, median(samples));
+    else if (!anyEntered && finishedWhole) measured.set(purpose, 0);
   }
   return measured;
 }

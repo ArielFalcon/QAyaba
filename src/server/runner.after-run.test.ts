@@ -104,6 +104,13 @@ test("the engine's run-time decisions are stored with the run and nothing is rec
   assert.deepEqual([f.reviewRequired, f.coverageStatus, f.coverageMode, f.coverageMinRatio], [true, "fail", "enforce", 0.8]);
 });
 
+test("the kind of run the deadline bounded it as is stored with the run, so a later run reads the phases of its own kind", async () => {
+  const queue = new JobQueue();
+  const id = enqueueTrackedRun(queue, req(uniqueApp()), base(port({}, { decision: "none", timeBudget: "diff-focused" })));
+  await queue.drain();
+  assert.equal(getHistory().runs.getRunFacts(id)?.timeBudget, "diff-focused");
+});
+
 test("a run whose engine measured no coverage stores no coverage decision", async () => {
   const queue = new JobQueue();
   const id = enqueueTrackedRun(queue, req(uniqueApp()), base(port({}, { decision: "none", reviewRequired: false, coverage: { mode: "signal" } })));

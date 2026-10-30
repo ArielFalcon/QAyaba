@@ -43,6 +43,8 @@ export interface RunTraceFacts {
   degradations?: RunDegradationFact[];
   /* Whether the engine ran a reviewer for this run (the same rule the generation applies), decided at run time. */
   reviewRequired?: boolean;
+  /* The kind of run the deadline bounded it as (a row of the run time budget table); absent when the run ended before its deadline was armed. */
+  timeBudget?: string;
   /* The engine's change-coverage decision, absent when the run never measured, and the policy in force. Grading reads these and never the app's current configuration. */
   coverage?: { status?: "pass" | "fail" | "unknown"; mode: string; minRatio?: number };
 }

@@ -7514,7 +7514,17 @@ test("the run hands its deadline the app's recent finished runs by phase, read a
   await new RunQaUseCase({ ...ports, runDeadline, phaseHistory, config: baseConfig }).run({ ...baseInput, mode: "manual" });
   assert.deepEqual(trace, ["arm", "measure"]);
   assert.deepEqual(measured, [records]);
-  assert.deepEqual(queries, [{ app: baseInput.app, mode: "manual", limit: 20 }]);
+  assert.deepEqual(queries, [{ app: baseInput.app, budget: "manual", limit: 20 }]);
+});
+
+test("a diff run reads the history of runs of its own size: the reserve of a tiny change is not set by broader ones", async () => {
+  const { ports } = stubPorts();
+  const queries: unknown[] = [];
+  const runDeadline: RunDeadlinePort = { arm: () => {}, measure: () => {} };
+  const phaseHistory = { recentPhaseRecords: async (query: unknown) => { queries.push(query); return []; } };
+  const out = await new RunQaUseCase({ ...ports, runDeadline, phaseHistory, config: baseConfig }).run({ ...baseInput, mode: "diff" });
+  assert.deepEqual(queries, [{ app: baseInput.app, budget: "diff-tiny", limit: 20 }]);
+  assert.equal(traceFactsOf(out)?.timeBudget, "diff-tiny", "the run records the kind of run it was, so its own phases are read by later runs of that kind");
 });
 
 test("a history that cannot be read leaves the run going on the deadline's fallback reserve, and says so", async () => {
