@@ -31,11 +31,11 @@ test("the writes the fixtures counted and the requests behind them come back wit
   assert.deepEqual(out.devWriteRequests, devWriteRequests);
 });
 
-test("the session requests kept apart from the writes come back with the result", async () => {
-  const sessionRequests = [{ method: "POST", url: "https://id.example.com/oauth/token", count: 2 }];
-  const strategy = new E2eExecutionStrategy(async () => ({ sha: "abc", verdict: "pass", passed: true, cases: [], logs: "", devWrites: 0, sessionRequests }));
+test("the control requests kept apart from the writes come back with the result", async () => {
+  const controlRequests = [{ method: "POST", url: "https://id.example.com/oauth/token", count: 2 }];
+  const strategy = new E2eExecutionStrategy(async () => ({ sha: "abc", verdict: "pass", passed: true, cases: [], logs: "", devWrites: 0, controlRequests }));
   const out = await strategy.run({ ...req, countWrites: true });
-  assert.deepEqual(out.sessionRequests, sessionRequests);
+  assert.deepEqual(out.controlRequests, controlRequests);
 });
 
 /*

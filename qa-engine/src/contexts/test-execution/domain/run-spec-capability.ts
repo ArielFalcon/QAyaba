@@ -66,7 +66,7 @@ export interface RunSpecFailureFact {
   unsettled?: true;
 }
 
-/* One call that ran: the spec's bytes at that moment (their sha256), how it ended, under which namespace, how long it took, how many writes it sent to DEV (and which requests, by method and origin and pathname, when the fixtures recorded them) and the facts of the tests that failed. */
+/* One call that ran: the spec's bytes at that moment (their sha256), how it ended, under which namespace, how long it took, how many writes to DEV it was charged (and which requests, by method and origin and pathname, when the fixtures recorded them) and the facts of the tests that failed. */
 export interface LedgerEntry {
   path: string;
   sha256: string;
@@ -186,7 +186,7 @@ export class RunSpecCapability {
     const run = this.init.runWrites;
     if (!run || run.left() > 0) return undefined;
     run.noteRefused();
-    return refuse(CLOSED_LOOP_REFUSAL.NO_WRITES, `the executed specs of this run already sent ${run.used} write request(s) to DEV, the run's cap of ${run.cap}`);
+    return refuse(CLOSED_LOOP_REFUSAL.NO_WRITES, `the executed specs of this run were charged ${run.used} write request(s) to DEV, the run's cap of ${run.cap}`);
   }
 
   /* Charges the run's count with what a call sent to DEV. Called while the call still holds the test account's lease, before the next call can be admitted. */
@@ -208,7 +208,7 @@ export class RunSpecCapability {
     if (this.devWrites_ >= this.init.limits.maxDevWrites) {
       /* A refusal for this capability's own share is a refusal for writes like the run's: the run counts both. */
       this.init.runWrites?.noteRefused();
-      return refuse(CLOSED_LOOP_REFUSAL.NO_WRITES, `the executed specs already sent ${this.devWrites_} write request(s) to DEV, the run's cap`);
+      return refuse(CLOSED_LOOP_REFUSAL.NO_WRITES, `the executed specs were charged ${this.devWrites_} write request(s) to DEV, this loop's share of the run's cap`);
     }
     const spent = this.runWritesSpent();
     if (spent) return spent;

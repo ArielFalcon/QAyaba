@@ -18,14 +18,14 @@ export interface SpecExecutionResult {
   cases: readonly QaCase[];
   /* Stays inside the executor's boundary: the use case never forwards it. */
   logs: string;
-  /* Mutating requests the executed spec sent to DEV, as the fixtures counted them. Absent: nothing could be counted. */
+  /* Mutating requests to DEV the executed spec is charged: those the fixtures counted that the workers' control loads do not account for. Absent: nothing could be counted. */
   devWrites?: number;
   /* How many of the tests behind that count had not finished when the call ended (it was stopped or the child crashed): each was charged its answered writes plus the requests it still had out. Absent: every test finished. */
   unfinishedTests?: number;
-  /* The requests behind that count, by method and origin and pathname. Absent: none recorded. */
+  /* The requests behind that charge, by method and origin and pathname. Absent: none recorded. */
   devWriteRequests?: readonly DevWriteRequest[];
-  /* The requests that keep the run's own session alive, which the fixtures did not count as writes. Absent: none recorded. */
-  sessionRequests?: readonly DevWriteRequest[];
+  /* The requests the tests' pages sent that the workers' control loads also sent, which the spec did not cause and the charge leaves out. Absent: none recorded. */
+  controlRequests?: readonly DevWriteRequest[];
   /* Why the spec did not load, from the report's top-level errors, with files relative to the spec directory. Absent: the report named none. */
   loadErrors?: readonly SpecLoadError[];
 }

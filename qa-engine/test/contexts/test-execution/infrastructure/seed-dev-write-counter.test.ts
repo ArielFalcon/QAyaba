@@ -1,4 +1,4 @@
-/* The seed's DEV-write counter is what run_spec charges against a flow's share and the run's cap, so it counts a write only once DEV answered it, and keeps a request that is still out apart as `pending`, in a ledger it writes when the test starts and rewrites on every change, so a test that is killed has left what it did: a mutating request to one of the run's DEV origins (PW_DEV_ORIGINS, set by the launcher from the egress lease). A page's own writes to other hosts (analytics, error reporters) cost nothing, and every counted request is recorded beside the count by method and origin + pathname. The seed cannot be imported (it needs the test runner's package), so the capture block between its markers is compiled and driven with a stand-in page. */
+/* The seed's DEV-write counter is what run_spec charges against a flow's share and the run's cap, so it counts a write only once DEV answered it, and keeps a request that is still out apart as `pending`, in a ledger it writes when the test starts and rewrites on every change, so a test that is killed has left what it did: a mutating request to one of the run's DEV origins (PW_DEV_ORIGINS, set by the launcher from the egress lease). A page's own writes to other hosts (analytics, error reporters) cost nothing, and every counted request is recorded beside the count by method, origin + pathname and sender (the page or an API client), with how many times it was sent. The counter decides nothing about who caused a request: the control load a worker runs before its first test records what the page sends with no spec action, and the orchestrator charges against it. The seed cannot be imported (it needs the test runner's package), so the capture block between its markers is compiled and driven with a stand-in page. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
@@ -14,14 +14,17 @@ interface Capture {
   finish(page: unknown, testInfo: unknown): Promise<void>;
 }
 
+/* What the block reads of the test runner's `test` object: the running test's info, which names the project's context options and the test's timeout. */
+interface TestStub { info(): unknown }
+
 /* A fresh copy of the block per call: its counters and listened contexts are module state. */
-function loadCapture(): Promise<Capture> {
+function loadCapture(test: TestStub): Promise<Capture> {
   const start = SEED.indexOf("// >>> qa-failure-capture");
   const end = SEED.indexOf("// Set by the seed's _failureCapture fixture");
   assert.ok(start >= 0 && end > start, "the seed marks its failure capture block");
   const body = SEED.slice(start, end).replace(/^import type .*$/m, "");
   const js = ts.transpileModule(body, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText;
-  return new Function(`return (async () => { ${js}\nreturn { start: qaFailureCaptureStart, finish: qaFailureCaptureFinish }; })();`)() as Promise<Capture>;
+  return new Function("test", `return (async () => { ${js}\nreturn { start: qaFailureCaptureStart, finish: qaFailureCaptureFinish }; })();`)(test) as Promise<Capture>;
 }
 
 const DEV = "https://dev.example.com";
@@ -41,6 +44,32 @@ const FINISHED = { v: 2, pending: 0, done: true };
 
 const FINISH_INFO = { status: "passed", expectedStatus: "passed", titlePath: ["", "orders.spec.ts", "lists orders"], project: { name: "desktop" }, file: "/e2e/orders.spec.ts", retry: 0, testId: "t1", workerIndex: 0 };
 
+/* The browser a control load is made with, driven by hand: it records the options a context was made with, the pages visited, the contexts closed and the timeouts set, and answers the requests the visited page "sends" when it is told to. */
+interface ControlScript { requests?: Sent[]; gotoFails?: boolean; newContextFails?: boolean }
+function controlBrowser(script: ControlScript) {
+  const log = { contexts: [] as Array<Record<string, unknown>>, visits: [] as Array<{ url: string; options: unknown }>, closed: 0, timeouts: [] as number[] };
+  const browser = {
+    newContext: async (options: Record<string, unknown>) => {
+      if (script.newContextFails) throw new Error("browser closed");
+      log.contexts.push(options);
+      const listeners: Listener[] = [];
+      return {
+        on: (event: string, fn: Listener) => { if (event === "requestfinished") listeners.push(fn); },
+        newPage: async () => ({
+          goto: async (url: string, options: unknown) => {
+            log.visits.push({ url, options });
+            for (const sent of script.requests ?? []) for (const fn of listeners) fn(requestOf(sent));
+            if (script.gotoFails) throw new Error("Timeout 30000ms exceeded");
+          },
+        }),
+        close: async () => { log.closed++; },
+      };
+    },
+  };
+  return { browser, log };
+}
+const PROJECT_USE = { baseURL: DEV, storageState: "/run/auth/session.json", trace: "on-first-retry", actionTimeout: 8000 };
+
 /* One test of a spec, driven by hand: the context emits the request events, the `request` fixture fetches, and the ledger can be read at any point. */
 async function withRig<T>(origins: string | undefined, run: (rig: {
   start(): Promise<void>;
@@ -51,22 +80,26 @@ async function withRig<T>(origins: string | undefined, run: (rig: {
   ledger(): Record<string, unknown>;
   files(): string[];
   afterLoad(fn: () => void): void;
-}) => Promise<T>): Promise<T> {
+  /* The files the counter left that are not a test's ledger (the worker's control), by name. */
+  control(): Record<string, unknown> | undefined;
+  controlFiles(): string[];
+}) => Promise<T>, control?: ReturnType<typeof controlBrowser>, launchUrl: string | null = DEV): Promise<T> {
   const dir = mkdtempSync(join(tmpdir(), "seed-dev-writes-"));
   const keys = ["QA_FAILURE_CAPTURE_DIR", "PW_COUNT_DEV_WRITES", "PW_DEV_ORIGINS", "PW_BASE_URL", "TEST_WORKER_INDEX"] as const;
   const saved = Object.fromEntries(keys.map((k) => [k, process.env[k]]));
   process.env.QA_FAILURE_CAPTURE_DIR = dir;
   process.env.PW_COUNT_DEV_WRITES = "1";
-  process.env.PW_BASE_URL = DEV;
+  if (launchUrl === null) delete process.env.PW_BASE_URL; else process.env.PW_BASE_URL = launchUrl;
   process.env.TEST_WORKER_INDEX = "3";
   if (origins === undefined) delete process.env.PW_DEV_ORIGINS; else process.env.PW_DEV_ORIGINS = origins;
   try {
     const listeners = new Map<string, Listener[]>();
     let answer: () => Promise<unknown> = async () => ({ ok: () => true });
-    const context = { on: (event: string, fn: Listener) => { listeners.set(event, [...(listeners.get(event) ?? []), fn]); }, request: { fetch: async () => ({}) } };
+    const context = { on: (event: string, fn: Listener) => { listeners.set(event, [...(listeners.get(event) ?? []), fn]); }, request: { fetch: async () => ({}) }, browser: () => control?.browser ?? null };
     const page = { on() {}, url: () => `${DEV}/orders`, context: () => context, locator: () => ({ ariaSnapshot: async () => "- main" }) };
     const request = { fetch: async (_target: unknown, _options?: { method?: string }) => answer() };
-    const { start, finish } = await loadCapture();
+    const info = { timeout: 30_000, project: { use: PROJECT_USE }, setTimeout: (ms: number) => { control?.log.timeouts.push(ms); } };
+    const { start, finish } = await loadCapture({ info: () => info });
     return await run({
       start: () => start(page, request),
       finish: () => finish(page, FINISH_INFO),
@@ -79,6 +112,11 @@ async function withRig<T>(origins: string | undefined, run: (rig: {
         return JSON.parse(readFileSync(join(dir, name), "utf8")) as Record<string, unknown>;
       },
       files: () => readdirSync(dir),
+      control: () => {
+        const name = readdirSync(dir).find((n) => n.startsWith("control-"));
+        return name ? (JSON.parse(readFileSync(join(dir, name), "utf8")) as Record<string, unknown>) : undefined;
+      },
+      controlFiles: () => readdirSync(dir).filter((n) => n.startsWith("control-") || n.startsWith(".control-")),
       afterLoad: (fn) => fn(),
     });
   } finally {
@@ -112,7 +150,7 @@ test("a page that writes by itself to a third-party origin leaves the write coun
 
 test("a write to a declared DEV origin counts, and is recorded by method and origin + pathname without its query", async () => {
   const ledger = await ledgerOf({ origins: DEV_ORIGINS, browser: [{ method: "POST", url: `${DEV}/api/orders?token=secret` }, { method: "GET", url: `${DEV}/api/orders` }] });
-  assert.deepEqual(ledger, { ...FINISHED, writes: 1, requests: [{ method: "POST", url: `${DEV}/api/orders` }] });
+  assert.deepEqual(ledger, { ...FINISHED, writes: 1, requests: [{ method: "POST", url: `${DEV}/api/orders`, sender: "page", count: 1 }] });
 });
 
 test("a declared origin is matched by host and port as the egress filter matches it: a wildcard covers its subdomains on its own port only", async () => {
@@ -130,7 +168,7 @@ test("a declared origin is matched by host and port as the egress filter matches
 
 test("a write through the request fixture counts by the URL it resolves to, a relative one against the base URL", async () => {
   const ledger = await ledgerOf({ origins: DEV_ORIGINS, api: [{ target: "/api/carts", method: "post" }, { target: "https://hooks.thirdparty.example/x", method: "POST" }, { target: `${DEV}/api/carts/1`, method: "GET" }] });
-  assert.deepEqual(ledger, { ...FINISHED, writes: 1, requests: [{ method: "POST", url: `${DEV}/api/carts` }] });
+  assert.deepEqual(ledger, { ...FINISHED, writes: 1, requests: [{ method: "POST", url: `${DEV}/api/carts`, sender: "api", count: 1 }] });
 });
 
 test("without a readable list of DEV origins every answered write counts, the closed reading", async () => {
@@ -157,55 +195,120 @@ test("a spec that rewrites the launch environment after the fixtures loaded stil
     browser: [{ method: "POST", url: `${DEV}/api/orders` }],
     api: [{ target: "/api/orders", method: "PUT" }],
   });
-  assert.deepEqual(ledger, { ...FINISHED, writes: 2, requests: [{ method: "POST", url: `${DEV}/api/orders` }, { method: "PUT", url: `${DEV}/api/orders` }] });
+  assert.deepEqual(ledger, { ...FINISHED, writes: 2, requests: [{ method: "POST", url: `${DEV}/api/orders`, sender: "page", count: 1 }, { method: "PUT", url: `${DEV}/api/orders`, sender: "api", count: 1 }] });
 });
 
-/* The identity provider the page keeps the saved session alive with is one of the run's DEV origins (the app's login needs it declared), so its token requests reach the counter. */
+/* ── the counter records who sent a request and how often, and decides nothing about cause ─────────────────────────── */
+
 const IDP = "https://id.example.com";
 const WITH_IDP = JSON.stringify([DEV, IDP]);
 const TOKEN = `${IDP}/oauth/token`;
 const REFRESH = "grant_type=refresh_token&refresh_token=r&client_id=web";
-const CODE = "grant_type=authorization_code&code=c&redirect_uri=https%3A%2F%2Fdev.example.com%2F&code_verifier=v";
 
-test("a page's token refresh to the identity provider is session traffic: it spends no write and is recorded apart", async () => {
-  const ledger = await ledgerOf({ origins: WITH_IDP, browser: [{ method: "POST", url: `${TOKEN}?x=1`, body: REFRESH }, { method: "POST", url: TOKEN, body: REFRESH }, { method: "POST", url: TOKEN, body: CODE }] });
-  assert.deepEqual(ledger, { ...FINISHED, writes: 0, sessionRequests: [{ method: "POST", url: TOKEN }, { method: "POST", url: TOKEN }, { method: "POST", url: TOKEN }] });
+test("a request sent again is one recorded request with its count, kept apart by sender", async () => {
+  const browser = [...Array.from({ length: 3 }, () => ({ method: "POST", url: `${DEV}/api/orders?x=1` })), { method: "POST", url: `${DEV}/api/carts` }];
+  const ledger = await ledgerOf({ origins: DEV_ORIGINS, browser, api: [{ target: "/api/orders", method: "POST" }, { target: "/api/orders", method: "POST" }] });
+  assert.equal(ledger.writes, 6);
+  assert.deepEqual(ledger.requests, [
+    { method: "POST", url: `${DEV}/api/orders`, sender: "page", count: 3 },
+    { method: "POST", url: `${DEV}/api/carts`, sender: "page", count: 1 },
+    { method: "POST", url: `${DEV}/api/orders`, sender: "api", count: 2 },
+  ]);
 });
 
-test("every other write still counts beside the session traffic: the app's, the identity provider's other endpoints, and anything that is not a plain token request to it", async () => {
-  const ledger = await ledgerOf({
-    origins: WITH_IDP,
-    browser: [
-      { method: "POST", url: TOKEN, body: REFRESH },
-      { method: "POST", url: `${DEV}/api/orders`, body: "item=1" },
-      { method: "POST", url: `${DEV}/oauth/token`, body: REFRESH },
-      { method: "POST", url: `${IDP}/account/password`, body: "password=new&confirm=new" },
-      { method: "POST", url: `${IDP}/register`, body: "user=u" },
-      { method: "POST", url: TOKEN, body: "grant_type=password&username=u&password=p" },
-      { method: "POST", url: TOKEN, body: JSON.stringify({ grant_type: "refresh_token" }) },
-      { method: "POST", url: TOKEN, body: null },
-      { method: "POST", url: TOKEN, body: "throws" },
-      { method: "PUT", url: TOKEN, body: REFRESH },
-      { method: "DELETE", url: TOKEN, body: REFRESH },
-    ],
-  });
-  assert.equal(ledger.writes, 10);
-  assert.deepEqual(ledger.sessionRequests, [{ method: "POST", url: TOKEN }]);
-  assert.deepEqual((ledger.requests as Array<{ url: string }>).map((r) => r.url), [`${DEV}/api/orders`, `${DEV}/oauth/token`, `${IDP}/account/password`, `${IDP}/register`, TOKEN, TOKEN, TOKEN, TOKEN, TOKEN, TOKEN]);
+test("a token request to the identity provider counts like any other write: the counter keys nothing on a protocol shape or a body", async () => {
+  const ledger = await ledgerOf({ origins: WITH_IDP, browser: [{ method: "POST", url: `${TOKEN}?x=1`, body: REFRESH }, { method: "POST", url: TOKEN, body: REFRESH }, { method: "POST", url: TOKEN, body: "throws" }, { method: "POST", url: TOKEN, body: null }] });
+  assert.deepEqual(ledger, { ...FINISHED, writes: 4, requests: [{ method: "POST", url: TOKEN, sender: "page", count: 4 }] });
 });
 
-test("a token request without a readable list of origins is never session traffic, the closed reading", async () => {
-  for (const origins of [undefined, "not json"]) {
-    const ledger = await ledgerOf({ origins, browser: [{ method: "POST", url: TOKEN, body: REFRESH }] });
-    assert.equal(ledger.writes, 1, `origins ${JSON.stringify(origins)}`);
-  }
-});
-
-test("a test records at most the cap of session requests, and the write count is not touched by them", async () => {
-  const browser = Array.from({ length: 25 }, () => ({ method: "POST", url: TOKEN, body: REFRESH }));
+test("a page that posts a refresh-token form body to the API origin fifty times has all fifty counted and recorded", async () => {
+  const browser = Array.from({ length: 50 }, () => ({ method: "POST", url: `${DEV}/api/orders`, body: REFRESH }));
   const ledger = await ledgerOf({ origins: WITH_IDP, browser });
-  assert.equal(ledger.writes, 0);
-  assert.equal((ledger.sessionRequests as unknown[]).length, MAX_DEV_WRITE_REQUESTS);
+  assert.deepEqual(ledger, { ...FINISHED, writes: 50, requests: [{ method: "POST", url: `${DEV}/api/orders`, sender: "page", count: 50 }] });
+});
+
+test("a ledger records the count of every write even past the distinct requests it keeps", async () => {
+  const browser = [...Array.from({ length: 25 }, (_, i) => ({ method: "POST", url: `${DEV}/api/items/${i}` })), ...Array.from({ length: 5 }, () => ({ method: "POST", url: `${DEV}/api/items/0` }))];
+  const ledger = await ledgerOf({ origins: DEV_ORIGINS, browser });
+  assert.equal(ledger.writes, 30);
+  const requests = ledger.requests as Array<{ count: number }>;
+  assert.equal(requests.length, MAX_DEV_WRITE_REQUESTS);
+  assert.ok(requests.reduce((sum, r) => sum + r.count, 0) <= 30, "what is recorded never exceeds what is counted");
+});
+
+test("a ledger carries nothing about session traffic: no field of it is read by a protocol", async () => {
+  const ledger = await ledgerOf({ origins: WITH_IDP, browser: [{ method: "POST", url: TOKEN, body: REFRESH }] });
+  assert.equal("controlRequests" in ledger, false);
+});
+
+/* ── the control load: what the page sends with no spec action, recorded once per worker before the first test ────── */
+
+const CONTROL_REQUESTS: Sent[] = [
+  { method: "POST", url: `${TOKEN}?x=1` },
+  { method: "POST", url: TOKEN },
+  { method: "POST", url: `${DEV}/api/auth/refresh` },
+  { method: "GET", url: `${DEV}/api/orders` },
+  { method: "POST", url: "https://errors.tracker.example/api/1/envelope" },
+];
+
+test("the first test of a worker runs a control load of the launch URL in a context of its own, built from the project's options, and records the writes DEV answered", async () => {
+  const control = controlBrowser({ requests: CONTROL_REQUESTS });
+  await withRig(WITH_IDP, async (rig) => {
+    await rig.start();
+    assert.deepEqual(control.log.contexts, [PROJECT_USE], "a context made with the project's own use options, so the same saved session");
+    assert.deepEqual(control.log.visits, [{ url: DEV, options: { waitUntil: "networkidle", timeout: 30_000 } }], "the launch URL, until the network is idle, for at most the test's timeout");
+    assert.equal(control.log.closed, 1);
+    assert.deepEqual(rig.control(), { v: 1, requests: [{ method: "POST", url: TOKEN, count: 2 }, { method: "POST", url: `${DEV}/api/auth/refresh`, count: 1 }] });
+    assert.match(rig.controlFiles().join(), new RegExp(`^control-p${process.pid}-w3\\.json$`));
+    assert.equal(rig.controlFiles().length, 1, "the temporary file is gone");
+  }, control);
+});
+
+test("the control load's traffic is not the test's: its ledger starts at nothing, and its time is not taken from the test's timeout", async () => {
+  const control = controlBrowser({ requests: CONTROL_REQUESTS });
+  await withRig(WITH_IDP, async (rig) => {
+    await rig.start();
+    assert.deepEqual(rig.ledger(), { v: 2, writes: 0, pending: 0, done: false });
+    assert.equal(control.log.timeouts.length, 1);
+    assert.ok(control.log.timeouts[0]! >= 30_000, "the timeout is extended by the time the control took");
+  }, control);
+});
+
+test("a worker runs its control once, however many tests it runs", async () => {
+  const control = controlBrowser({ requests: CONTROL_REQUESTS });
+  await withRig(WITH_IDP, async (rig) => {
+    await rig.start();
+    await rig.finish();
+    await rig.start();
+    assert.equal(control.log.contexts.length, 1);
+  }, control);
+});
+
+test("a control load that does not reach an idle network leaves the writes it saw, and one that cannot start leaves nothing", async () => {
+  const slow = controlBrowser({ requests: CONTROL_REQUESTS, gotoFails: true });
+  await withRig(WITH_IDP, async (rig) => {
+    await rig.start();
+    assert.deepEqual(rig.control(), { v: 1, requests: [{ method: "POST", url: TOKEN, count: 2 }, { method: "POST", url: `${DEV}/api/auth/refresh`, count: 1 }] });
+    assert.equal(slow.log.closed, 1, "the context is closed whatever happened");
+  }, slow);
+  const broken = controlBrowser({ newContextFails: true });
+  await withRig(WITH_IDP, async (rig) => {
+    await rig.start();
+    assert.equal(rig.control(), undefined);
+    assert.deepEqual(rig.ledger(), { v: 2, writes: 0, pending: 0, done: false }, "the test goes on");
+  }, broken);
+});
+
+test("a control load needs the launch URL, the capture directory and the counter asked for, and a page that belongs to a browser", async () => {
+  const control = controlBrowser({ requests: CONTROL_REQUESTS });
+  await withRig(WITH_IDP, async (rig) => {
+    await rig.start();
+    assert.equal(control.log.contexts.length, 0, "no launch URL: nothing to load");
+  }, control, null);
+  await withRig(WITH_IDP, async (rig) => {
+    await rig.start();
+    assert.equal(rig.control(), undefined, "no browser behind the page: no control, and the test goes on");
+  });
 });
 
 /* ── the ledger exists from the test's start, so a test that is killed has left what it did ───────────────────────────── */
@@ -229,7 +332,7 @@ test("the writes DEV answered are in the ledger of a test that never finishes", 
     assert.equal(ledger.writes, 2);
     assert.equal(ledger.pending, 0);
     assert.equal(ledger.done, false);
-    assert.deepEqual(ledger.requests, [{ method: "POST", url: `${DEV}/api/orders` }, { method: "POST", url: `${DEV}/api/carts` }]);
+    assert.deepEqual(ledger.requests, [{ method: "POST", url: `${DEV}/api/orders`, sender: "page", count: 1 }, { method: "POST", url: `${DEV}/api/carts`, sender: "page", count: 1 }]);
   });
 });
 
@@ -291,19 +394,6 @@ test("a finished test counts only the writes DEV answered, and says it is done",
     const ledger = rig.ledger();
     assert.equal(ledger.writes, 1);
     assert.equal(ledger.done, true);
-  });
-});
-
-test("a token refresh to the identity provider is never pending, and is recorded apart once it is answered", async () => {
-  await withRig(WITH_IDP, async (rig) => {
-    await rig.start();
-    const r = requestOf({ method: "POST", url: TOKEN, body: REFRESH });
-    rig.emit("request", r);
-    assert.equal(rig.ledger().pending, 0);
-    rig.emit("requestfinished", r);
-    const ledger = rig.ledger();
-    assert.deepEqual([ledger.writes, ledger.pending], [0, 0]);
-    assert.deepEqual(ledger.sessionRequests, [{ method: "POST", url: TOKEN }]);
   });
 });
 

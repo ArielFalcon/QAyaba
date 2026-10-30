@@ -7,5 +7,5 @@ export interface ClosedLoopExecutionPort {
   execute(
     specDir: string,
     opts: { specFiles: string[]; namespace: string; timeoutMs: number; retries: number; countWrites: boolean; grep?: string; signal?: AbortSignal },
-  ): Promise<{ verdict: RunVerdict; cases: QaCase[]; logs: string; devWrites?: number; unfinishedTests?: number; devWriteRequests?: DevWriteRequest[]; sessionRequests?: DevWriteRequest[]; loadErrors?: SpecLoadError[] }>;
+  ): Promise<{ verdict: RunVerdict; cases: QaCase[]; logs: string; devWrites?: number; unfinishedTests?: number; devWriteRequests?: DevWriteRequest[]; controlRequests?: DevWriteRequest[]; loadErrors?: SpecLoadError[] }>;
 }

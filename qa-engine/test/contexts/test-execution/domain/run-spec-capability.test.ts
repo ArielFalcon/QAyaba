@@ -165,6 +165,20 @@ function flowOf(runWrites: RunDevWriteLedger, maxDevWrites: number): RunSpecCapa
   return new RunSpecCapability({ runId: "run-1-flow", limits: { ...LIMITS, maxDevWrites }, expiresAtMs: 10_000_000, now: () => 1_000, runWrites });
 }
 
+test("a refusal for writes states the charge the engine holds, not that the specs sent requests", () => {
+  const runWrites = new RunDevWriteLedger(5);
+  const share = flowOf(runWrites, 2);
+  assert.ok(share.reserve(undefined).ok);
+  share.settle(entry({ devWrites: 2 }));
+  share.chargeRunWrites(2);
+  const own = share.reserve(undefined);
+  assert.ok(!own.ok && /charged 2 write request\(s\)/.test(own.message) && !/sent/.test(own.message), own.ok ? "" : own.message);
+  const other = flowOf(runWrites, 5);
+  other.chargeRunWrites(3);
+  const run = other.reserve(undefined);
+  assert.ok(!run.ok && /charged 5 write request\(s\).*cap of 5/.test(run.message) && !/sent/.test(run.message), run.ok ? "" : run.message);
+});
+
 test("a flow refused because its own share of writes is spent counts in the run's refused total", () => {
   const runWrites = new RunDevWriteLedger(20);
   const flow = flowOf(runWrites, 2);

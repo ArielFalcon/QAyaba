@@ -95,6 +95,7 @@ const EARLIER_FAILURE_CAPTURE_BLOCKS: ReadonlySet<string> = new Set([
   "4230da3cf58cb3c2c6c066be5e865d4cebad9f8941c9c9835b81f5ca972d25f8",
   "661722a234428646c7db8f84c5f3bac65e1c10359abc3e515b49e50a69ae4abe",
   "02e1625a6d3f5bf544c4722e8b5e4eb1f396a5e0fed85da15b93d8b5e8336a36",
+  "5329ec63fc3a4bc4922f9f6fece9d5108cd198fe0bff388ed4bc69b78a58f37b",
 ]);
 
 /*

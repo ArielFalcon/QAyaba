@@ -361,10 +361,14 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   (`writes`), with `done` at the test's finish, so a call that is stopped (its session ended, its time ran out, it was cancelled, the child crashed) has left what it did: the runner counts the
   tests that began from its own stream reporter, waits (bounded, `CHILD_EXIT_WAIT_MS`) for the killed child to exit before it reads, and charges a finished test its `writes` and an unfinished one its `writes` plus
   `pending`, marking the result with the count of unfinished tests (`unfinishedTests`); no test began and no ledger left is 0 (a test that began, ended `skipped` and left no ledger, a static `test.skip`/`test.fixme` whose fixtures never ran, is allowed for by number; a write in `beforeAll`/`afterAll` or at a module's top level is outside any test and not counted), and a forged, oversized or unreadable ledger, or a begun test with none, is unknown and charged the run's
-  remainder as before; a ledger without a version is the earlier seed's and reads as finished. Only a write to one of the run's DEV origins counts, and never the traffic that keeps the run's own session alive: a POST of a form body whose
-  `grant_type` is `refresh_token` or `authorization_code` (RFC 6749) to a DEV origin other than the app's own, the identity provider's token exchange
-  and refresh, which the ledger records apart as `sessionRequests` and the call's span as `qayaba.tool.dev_session_requests`; every other request
-  to the identity provider, any other grant and a body that cannot be read still count), a ledger of every call's sha256, revoked when the run ends. Scratch specs live in `e2e/.qa-probe/` and are swept
+  remainder as before; a ledger without a version is the earlier seed's and reads as finished. Only a write to one of the run's DEV origins counts, and only a write the spec caused is charged: the ledger records each distinct counted request with its sender
+  (`page` or `api`) and how many times it was sent, and decides nothing about cause; a page also sends requests with no spec action (a token renewal when it loads, a heartbeat),
+  so the first test of each worker first runs a control load (`qaControlLoad` in the capture block: the launch URL in a context of its own built from the project's options, the same
+  saved session, until the network is idle, the first test's timeout extended by the time it took) that writes the mutating requests DEV answered to `control-p<pid>-w<worker>.json`, and
+  `chargeTestWrites` (`test-execution/domain/dev-write-charge.ts`) exempts, per test, each page request up to the count its own worker's control saw for the same method, origin and pathname,
+  recorded apart as `controlRequests` on the result and the call's span as `qayaba.tool.dev_control_requests`. An API client's request is never
+  exempt, nor one recorded without a sender, and no exemption reads a protocol, a body, a path or an origin's role; a worker without a readable control, or any control that is forged, oversized
+  or unreadable, exempts nothing), a ledger of every call's sha256, revoked when the run ends. Scratch specs live in `e2e/.qa-probe/` and are swept
   after every generation: never delivered, stored or validated. When `loopClosed` (every delivered spec's current bytes are those
   whose last call passed) the regenerations that only repeat that work are skipped (the pre-exec corrective regeneration and
   the fix loop's); the static-fix rounds, the declared no-op, `E-NO-DECISION` / `E-STEP-BUDGET` / `E-TIME-BUDGET` and the single

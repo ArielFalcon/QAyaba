@@ -6,5 +6,5 @@ import type { SpecLoadError } from "../../domain/spec-load-error.ts";
 
 export interface ExecutionPort {
   /** Bare AbortSignal or richer opts bag; absent is specDir only. */
-  execute(specDir: string, opts?: AbortSignal | ExecutionOpts): Promise<{ verdict: RunVerdict; cases: QaCase[]; logs: string; devWrites?: number; unfinishedTests?: number; devWriteRequests?: DevWriteRequest[]; sessionRequests?: DevWriteRequest[]; loadErrors?: SpecLoadError[] }>;
+  execute(specDir: string, opts?: AbortSignal | ExecutionOpts): Promise<{ verdict: RunVerdict; cases: QaCase[]; logs: string; devWrites?: number; unfinishedTests?: number; devWriteRequests?: DevWriteRequest[]; controlRequests?: DevWriteRequest[]; loadErrors?: SpecLoadError[] }>;
 }

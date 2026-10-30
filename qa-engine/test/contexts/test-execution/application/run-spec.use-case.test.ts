@@ -9,6 +9,7 @@ import { RunDevWriteLedger } from "@contexts/test-execution/domain/run-dev-write
 import { CLOSED_LOOP_REFUSAL, RUN_SPEC_FLOW_AGENT, RunSpecCapability } from "@contexts/test-execution/domain/run-spec-capability.ts";
 import { MAX_ERROR_CHARS, MAX_REPORTED_LOAD_ERRORS, MAX_REPORTED_TESTS, MAX_TITLE_CHARS, RunSpecUseCase, escapeGrep, type RunSpecDeps } from "@contexts/test-execution/application/run-spec.use-case.ts";
 import type { SpecExecutionRequest, SpecExecutionResult } from "@contexts/test-execution/domain/spec-executor.ts";
+import { runE2E } from "@contexts/test-execution/infrastructure/e2e-execution.runner.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 import { confinedSpecFiles } from "../../../../src/shared-infrastructure/spec-files.adapter.ts";
 import { typescriptSpecFixtures } from "../../../../src/shared-infrastructure/spec-fixtures-import.ts";
@@ -260,13 +261,13 @@ test("the requests behind a call's writes are kept on its ledger entry and told 
   assert.doesNotMatch(JSON.stringify(response), /api\/orders/);
 });
 
-test("the session requests kept apart from the writes are told to the call's span and charge nothing", async (t) => {
+test("the control requests kept apart from the writes are told to the call's span and charge nothing", async (t) => {
   const h = harness(t);
-  h.next.result = { verdict: "pass", cases: [{ name: "t", status: "pass" }], logs: "", devWrites: 0, sessionRequests: [{ method: "POST", url: "https://id.example.com/oauth/token", count: 4 }] };
+  h.next.result = { verdict: "pass", cases: [{ name: "t", status: "pass" }], logs: "", devWrites: 0, controlRequests: [{ method: "POST", url: "https://id.example.com/oauth/token", count: 4 }] };
   const attrs: Record<string, unknown> = {};
   const response = await new RunSpecUseCase(h.deps).run({ sessionId: "ses-1", agent: RUN_SPEC_FLOW_AGENT, path: "flows/a.spec.ts" }, undefined, { setAttrs: (a) => Object.assign(attrs, a) });
   assert.ok(response.ok);
-  assert.deepEqual(attrs["qayaba.tool.dev_session_requests"], ["POST https://id.example.com/oauth/token ×4"]);
+  assert.deepEqual(attrs["qayaba.tool.dev_control_requests"], ["POST https://id.example.com/oauth/token ×4"]);
   assert.equal(attrs["qayaba.tool.dev_writes"], 0);
   assert.equal(response.report.budget.devWritesLeft, 5);
   assert.doesNotMatch(JSON.stringify(response), /oauth/);
@@ -337,6 +338,55 @@ test("once the writes cap is spent the next call is refused, and says so", async
   assert.ok((await call(h, "flows/a.spec.ts")).ok);
   const refused = await call(h, "flows/a.spec.ts");
   assert.ok(!refused.ok && refused.code === CLOSED_LOOP_REFUSAL.NO_WRITES);
+});
+
+/* The whole chain from the ledgers a call's fixtures left to the refusal: the executor runs the real runner over a capture directory holding what one call's single test and its worker's control wrote. */
+function executorOver(t: TestContext, files: Record<string, string>): RunSpecDeps["executor"] {
+  return {
+    execute: async () => {
+      const root = mkdtempSync(join(tmpdir(), "run-spec-ledger-"));
+      t.after(() => rmSync(root, { recursive: true, force: true }));
+      const dumps = join(root, "dumps");
+      mkdirSync(dumps);
+      for (const [name, text] of Object.entries(files)) writeFileSync(join(dumps, name), text);
+      const run = await runE2E("/dir", { baseUrl: "https://dev", namespace: "ns", countWrites: true }, {
+        allocateFailureDir: () => ({ dir: dumps, root, dispose: () => {} }),
+        runSuite: async () => ({ report: { stats: { expected: 1 } }, logs: "", ran: true }),
+      });
+      return { verdict: "pass", cases: [{ name: "t", status: "pass" }], logs: "", ...(run.devWrites !== undefined ? { devWrites: run.devWrites } : {}) };
+    },
+  };
+}
+
+const RENEWAL = { method: "POST", url: "https://dev.example.com/api/auth/refresh" };
+const upkeepLedger = JSON.stringify({ v: 2, writes: 4, pending: 0, done: true, requests: [{ ...RENEWAL, sender: "page", count: 4 }] });
+
+test("six calls whose tests only renew the session are charged nothing when the worker's control saw the renewal, and the same calls are refused at the cap when it saw none", async (t) => {
+  const sixCalls = (): RunSpecCapability => {
+    const capability = new RunSpecCapability({ runId: "run-1", limits: { ...LIMITS, maxCalls: 6 }, expiresAtMs: Number.MAX_SAFE_INTEGER, now: () => 0 });
+    capability.bindSession("ses-1");
+    return capability;
+  };
+  const capability = sixCalls();
+  const controlled = harness(t, { capability, executor: executorOver(t, { "ledger-p1-w0-1.json": upkeepLedger, "control-p1-w0.json": JSON.stringify({ v: 1, requests: [{ ...RENEWAL, count: 4 }] }) }) });
+  for (let n = 0; n < 6; n++) assert.ok((await call(controlled, "flows/a.spec.ts")).ok, `call ${n + 1}`);
+  assert.equal(capability.devWrites, 0);
+  assert.equal(capability.budget(undefined).devWritesLeft, LIMITS.maxDevWrites);
+
+  const uncontrolled = harness(t, { executor: executorOver(t, { "ledger-p1-w0-1.json": upkeepLedger, "control-p1-w0.json": JSON.stringify({ v: 1, requests: [] }) }) });
+  const answers: string[] = [];
+  for (let n = 0; n < 3; n++) { const r = await call(uncontrolled, "flows/a.spec.ts"); answers.push(r.ok ? "ok" : r.code); }
+  assert.deepEqual(answers, ["ok", "ok", CLOSED_LOOP_REFUSAL.NO_WRITES], "four writes a call against a cap of five");
+});
+
+test("a write the spec made to the app is charged once, whatever the control saw", async (t) => {
+  const orders = { method: "POST", url: "https://dev.example.com/api/orders" };
+  const h = harness(t, { executor: executorOver(t, {
+    "ledger-p1-w0-1.json": JSON.stringify({ v: 2, writes: 2, pending: 0, done: true, requests: [{ ...orders, sender: "api", count: 1 }, { ...RENEWAL, sender: "page", count: 1 }] }),
+    "control-p1-w0.json": JSON.stringify({ v: 1, requests: [{ ...RENEWAL, count: 1 }] }),
+  }) });
+  assert.ok((await call(h, "flows/a.spec.ts")).ok);
+  assert.equal(h.capability.devWrites, 1);
 });
 
 test("a spec that left the session on the login page gets the session renewed once, and the report says to run again", async (t) => {
@@ -599,9 +649,9 @@ test("an interrupted call whose writes could not be counted still charges the ru
   assert.ok(!second.ok && second.code === CLOSED_LOOP_REFUSAL.NO_WRITES);
 });
 
-test("a call that sent only session requests charges the run nothing", async (t) => {
+test("a call that sent only control requests charges the run nothing", async (t) => {
   const { h, runWrites } = withRunLedger(t, 5);
-  h.next.result = { verdict: "pass", cases: [{ name: "t", status: "pass" }], logs: "", devWrites: 0, sessionRequests: [{ method: "POST", url: "https://id.example.com/oauth/token", count: 2 }] };
+  h.next.result = { verdict: "pass", cases: [{ name: "t", status: "pass" }], logs: "", devWrites: 0, controlRequests: [{ method: "POST", url: "https://id.example.com/oauth/token", count: 2 }] };
   assert.ok((await call(h, "flows/a.spec.ts")).ok);
   assert.equal(runWrites.used, 0);
 });

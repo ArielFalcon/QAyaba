@@ -25,6 +25,7 @@ import { readObservations } from "./observation-reader.ts";
 import type { ObservedPage } from "@contexts/objective-signal/application/index.ts";
 import { activeExecScope } from "../../../shared-infrastructure/process-sandbox/exec-scope.ts";
 import { MAX_DEV_WRITE_REQUESTS, noteDevWriteRequest, type DevWriteRequest } from "../domain/dev-write-request.ts";
+import { chargeTestWrites, type RecordedWrite, type TestWriteLedger } from "../domain/dev-write-charge.ts";
 import { isSuiteRelative, type SpecLoadError } from "../domain/spec-load-error.ts";
 
 export const DEFAULT_E2E_TIMEOUT_MS = 900_000;
@@ -90,7 +91,7 @@ export interface E2eExecuteOptions {
   retries?: number;
   /* A literal title filter, escaped for Playwright's --grep by the caller. */
   grep?: string;
-  /* Have the fixtures count the mutating requests the specs send to DEV (PW_COUNT_DEV_WRITES) and report the total in `devWrites`. Such a run is a spec the generator is trying, not the suite: it is not measured for change-coverage (PW_COVERAGE=0), which would only slow it. */
+  /* Have the fixtures count the mutating requests the specs send to DEV, and run a control load per worker (PW_COUNT_DEV_WRITES), and report in `devWrites` the writes the control does not account for. Such a run is a spec the generator is trying, not the suite: it is not measured for change-coverage (PW_COVERAGE=0), which would only slow it. */
   countWrites?: boolean;
   /* Run as the dedicated cleanup pass: the child is handed PW_CLEANUP=1, which the seed's cleanup.spec.ts needs to do anything (it skips otherwise), and `namespace` is then the BASE data prefix to clean. */
   cleanupPass?: boolean;
@@ -191,14 +192,14 @@ export interface E2eRunResult {
   cases: QaCase[];
   logs: string;
   note?: string;
-  /* Mutating requests the specs sent to DEV, as the fixtures counted them; absent when nothing trustworthy was counted. */
+  /* Mutating requests the specs caused to DEV: those the fixtures counted that the workers' control loads do not account for; absent when nothing trustworthy was counted. */
   devWrites?: number;
   /* How many of the tests behind that count had not finished when the run ended (stopped, crashed): each is charged its answered writes plus the requests it still had out. Absent when every test finished. */
   unfinishedTests?: number;
   /* The requests behind that count, by method and origin and pathname, at most MAX_DEV_WRITE_REQUESTS distinct; present with a count the fixtures recorded requests for. */
   devWriteRequests?: DevWriteRequest[];
-  /* The requests that keep the run's own session alive (an identity provider's token exchange or refresh), which the fixtures kept apart from the writes and did not count, by method and origin and pathname, at most MAX_DEV_WRITE_REQUESTS distinct; present with a count when the fixtures recorded any. */
-  sessionRequests?: DevWriteRequest[];
+  /* The requests the tests' pages sent that the worker's control load (the same session and app with no spec action) also sent, up to the counts it saw: autonomous traffic the spec did not cause, which `devWrites` does not charge, by method and origin and pathname, at most MAX_DEV_WRITE_REQUESTS distinct; present when any was accounted for. */
+  controlRequests?: DevWriteRequest[];
   /* What the report says stopped a spec from loading (its top-level errors), relative to the spec directory and redacted by value. Present only on a run that executed no test. */
   loadErrors?: SpecLoadError[];
   /* The page each case that ran ended on, when the run was asked to observe and every observation file could be read (never a part of them). */
@@ -322,7 +323,7 @@ export async function runE2E(
   /* The ledger is read before any early return. How many tests it must cover is what the run says it ran: the report's executed tests for a run that reported, the tests that began for one that did not (stopped, crashed, no report); a ledger short of that has lost a test, so the count is unknown (a test that ended skipped may have left none, which the count allows for by number, not by name: the ledger carries no title) and the caller charges the whole cap (see readDevWrites). */
   const ledger = opts.countWrites ? readDevWrites(failureCaptureDir, failureCaptureRoot) : undefined;
   const counted = (result: E2eRunResult, tests: number, skipped = 0): E2eRunResult =>
-    ledger === undefined || ledger.files + skipped < tests ? result : { ...result, devWrites: ledger.writes, ...(ledger.unfinished > 0 ? { unfinishedTests: ledger.unfinished } : {}), ...(ledger.requests.length > 0 ? { devWriteRequests: ledger.requests } : {}), ...(ledger.sessionRequests.length > 0 ? { sessionRequests: ledger.sessionRequests } : {}) };
+    ledger === undefined || ledger.files + skipped < tests ? result : { ...result, devWrites: ledger.writes, ...(ledger.unfinished > 0 ? { unfinishedTests: ledger.unfinished } : {}), ...(ledger.requests.length > 0 ? { devWriteRequests: ledger.requests } : {}), ...(ledger.exempt.length > 0 ? { controlRequests: ledger.exempt } : {}) };
 
   /* Single sanitizeText pass: a separate containsSecrets() pre-check is redundant with this SAME detection result — the warn fires under the exact same condition as before, just derived from one call instead of two. */
   const sanitized = sanitizeText(logs);
@@ -447,15 +448,20 @@ export async function runE2E(
   }
 }
 
-/* The writes to DEV the specs of a run sent, from the ledger files the fixtures left in the failure-capture directory, the requests they recorded behind the count (method, origin and pathname, re-derived here and redacted, so a query never leaves), how many files that was (one per test that began) and how many of those tests had not finished. The seed writes a test's ledger when the test starts and rewrites it on every write (see config/e2e/fixtures.ts), so a test that was killed has left what it did: a finished test is charged its answered `writes`, an unfinished one its `writes` plus the requests it still had out (`pending`, which may have reached DEV). A ledger without a version is the earlier seed's, written when the test finished. The directory is the child's, so it is read strictly (see readRunOutputDir) and all or nothing: a forged, oversized or unreadable file makes the whole count unknown (undefined) and never a smaller one; a directory with no ledger at all is a count of none, which the caller believes only for a run in which no test began. The counter itself runs inside the suite's own fixtures, which is agent-editable code, so a ledger is evidence of what the spec did only against an honest spec; the hard bound on what a call can do to DEV is the call cap times the per-call time, and the egress filter. A write sent outside any test (a module's top level, a worker's setup) is in no ledger. */
+/* The writes to DEV the specs of a run caused, from the ledger files the fixtures left in the failure-capture directory and the control file of each worker beside them, the requests behind the charge (method, origin and pathname, re-derived here and redacted, so a query never leaves), how many ledger files that was (one per test that began) and how many of those tests had not finished. The seed writes a test's ledger when the test starts and rewrites it on every write (see config/e2e/fixtures.ts), so a test that was killed has left what it did: a finished test is charged its answered `writes`, an unfinished one its `writes` plus the requests it still had out (`pending`, which may have reached DEV). A ledger without a version is the earlier seed's, written when the test finished. The ledger says who sent each request it recorded and how often; a page request that the control of the test's own worker (`control-p<pid>-w<worker>.json`, written once before that worker's first test by a load of the launch URL with no spec action) also sent is the page's own upkeep and is not charged, up to the count the control saw (`chargeTestWrites`); a worker without a readable control, or any control that cannot be trusted, exempts nothing. The directory is the child's, so it is read strictly (see readRunOutputDir) and all or nothing: a forged, oversized or unreadable ledger makes the whole count unknown (undefined) and never a smaller one; a directory with no ledger at all is a count of none, which the caller believes only for a run in which no test began. The counter itself runs inside the suite's own fixtures, which is agent-editable code, so a ledger and a control are evidence of what the spec did only against an honest spec; the hard bound on what a call can do to DEV is the call cap times the per-call time, and the egress filter. A write sent outside any test (a module's top level, a worker's setup) is in no ledger. */
 const LEDGER_FILE_RE = /^ledger-[A-Za-z0-9_-]+\.json$/;
+/* The worker a ledger belongs to, from its name: process and worker index, as the control file of that worker is named. */
+const LEDGER_WORKER_RE = /^ledger-(p\d+-w\d+)-\d+\.json$/;
+const CONTROL_FILE_RE = /^control-(p\d+-w\d+)\.json$/;
 const LEDGER_LIMITS: RunOutputLimits = { maxFileBytes: 16_384, maxTotalBytes: 4 * 1024 * 1024, maxFiles: 4_096 };
 const MAX_LEDGER_WRITES = 1_000_000;
-/* What one ledger file may record: the seed keeps the first MAX_DEV_WRITE_REQUESTS of a test's writes, each URL cut at 300 characters. */
+/* What one ledger file may record: the seed keeps the first MAX_DEV_WRITE_REQUESTS distinct requests of a test, each URL cut at 300 characters. */
 const MAX_LEDGER_URL_CHARS = 300;
 const WRITE_METHOD_RE = /^(?:POST|PUT|PATCH|DELETE)$/;
 /* The ledger version the seed writes now; a ledger with none is version 1. */
 const LEDGER_VERSION = 2;
+/* The control file version the seed writes. */
+const CONTROL_VERSION = 1;
 
 /* One recorded request, or a throw that makes the whole ledger untrusted: a method that does not write, or a URL that is not one. */
 function ledgerRequest(raw: unknown): { method: string; url: string } {
@@ -473,11 +479,42 @@ function ledgerCount(raw: unknown): number {
   return raw;
 }
 
-function readDevWrites(dir: string | undefined, root: string | undefined): { writes: number; files: number; unfinished: number; requests: DevWriteRequest[]; sessionRequests: DevWriteRequest[] } | undefined {
+/* How many times a recorded request was sent: a whole number from 1, or 1 when the entry carries none (an earlier seed recorded one entry per request). */
+function recordedCount(raw: unknown): number {
+  if (raw === undefined) return 1;
+  const count = ledgerCount(raw);
+  if (count < 1) throw new Error("not a count of requests");
+  return count;
+}
+
+function recordedSender(raw: unknown): RecordedWrite["sender"] {
+  if (raw === undefined) return "unknown";
+  if (raw !== "page" && raw !== "api") throw new Error("not a sender");
+  return raw;
+}
+
+/* The control of one worker, by the worker's name; undefined when no control can be trusted (none written, or a file that is forged, oversized or unreadable), which charges every request. */
+function readControls(dir: string, root: string | undefined): Map<string, DevWriteRequest[]> | undefined {
+  const base = root ?? dir;
+  const files = readRunOutputDir({ mirrorDir: base, specDir: base }, relative(base, dir) || ".", (name) => CONTROL_FILE_RE.test(name), (name, bytes) => {
+    const parsed = JSON.parse(bytes.toString("utf8")) as { v?: unknown; requests?: unknown };
+    if (parsed.v !== CONTROL_VERSION || !Array.isArray(parsed.requests) || parsed.requests.length > MAX_DEV_WRITE_REQUESTS) throw new Error("not a control this runner reads");
+    const requests: DevWriteRequest[] = [];
+    for (const raw of parsed.requests) {
+      const { method, url } = ledgerRequest(raw);
+      noteDevWriteRequest(requests, method, url, recordedCount((raw as { count?: unknown }).count));
+    }
+    return { worker: CONTROL_FILE_RE.exec(name)![1]!, requests };
+  }, LEDGER_LIMITS);
+  if (files === undefined) return undefined;
+  return new Map(files.map((f) => [f.worker, f.requests]));
+}
+
+function readDevWrites(dir: string | undefined, root: string | undefined): { writes: number; files: number; unfinished: number; requests: DevWriteRequest[]; exempt: DevWriteRequest[] } | undefined {
   if (dir === undefined) return undefined;
   const base = root ?? dir;
-  const files = readRunOutputDir({ mirrorDir: base, specDir: base }, relative(base, dir) || ".", (name) => LEDGER_FILE_RE.test(name), (_name, bytes) => {
-    const parsed = JSON.parse(bytes.toString("utf8")) as { v?: unknown; writes?: unknown; pending?: unknown; done?: unknown; requests?: unknown; sessionRequests?: unknown };
+  const files = readRunOutputDir({ mirrorDir: base, specDir: base }, relative(base, dir) || ".", (name) => LEDGER_FILE_RE.test(name), (name, bytes) => {
+    const parsed = JSON.parse(bytes.toString("utf8")) as { v?: unknown; writes?: unknown; pending?: unknown; done?: unknown; requests?: unknown };
     const writes = ledgerCount(parsed.writes);
     let pending = 0;
     let done = true;
@@ -487,19 +524,26 @@ function readDevWrites(dir: string | undefined, root: string | undefined): { wri
       done = parsed.done;
     }
     const recorded = parsed.requests ?? [];
-    if (!Array.isArray(recorded) || recorded.length > MAX_DEV_WRITE_REQUESTS || recorded.length > writes) throw new Error("not a list of the counted requests");
-    const session = parsed.sessionRequests ?? [];
-    if (!Array.isArray(session) || session.length > MAX_DEV_WRITE_REQUESTS) throw new Error("not a list of the session requests");
-    return { writes, pending, done, requests: recorded.map(ledgerRequest), sessionRequests: session.map(ledgerRequest) };
+    if (!Array.isArray(recorded) || recorded.length > MAX_DEV_WRITE_REQUESTS) throw new Error("not a list of the counted requests");
+    const requests: RecordedWrite[] = recorded.map((raw) => {
+      const { count, sender } = (raw ?? {}) as { count?: unknown; sender?: unknown };
+      return { ...ledgerRequest(raw), sender: recordedSender(sender), count: recordedCount(count) };
+    });
+    if (requests.reduce((sum, r) => sum + r.count, 0) > writes) throw new Error("more requests recorded than counted");
+    return { worker: LEDGER_WORKER_RE.exec(name)?.[1], ledger: { writes, pending, done, requests } satisfies TestWriteLedger };
   }, LEDGER_LIMITS);
   if (files === undefined) return undefined;
+  const controls = files.some((f) => f.worker !== undefined && f.ledger.requests.some((r) => r.sender === "page")) ? readControls(dir, root) : undefined;
   const requests: DevWriteRequest[] = [];
-  const sessionRequests: DevWriteRequest[] = [];
+  const exempt: DevWriteRequest[] = [];
+  let writes = 0;
   for (const file of files) {
-    for (const r of file.requests) noteDevWriteRequest(requests, r.method, r.url);
-    for (const r of file.sessionRequests) noteDevWriteRequest(sessionRequests, r.method, r.url);
+    const charge = chargeTestWrites(file.ledger, file.worker === undefined ? undefined : controls?.get(file.worker));
+    writes += charge.charged;
+    for (const r of charge.chargedRequests) noteDevWriteRequest(requests, r.method, r.url, r.count);
+    for (const r of charge.exemptRequests) noteDevWriteRequest(exempt, r.method, r.url, r.count);
   }
-  return { writes: files.reduce((sum, f) => sum + f.writes + (f.done ? 0 : f.pending), 0), files: files.length, unfinished: files.filter((f) => !f.done).length, requests, sessionRequests };
+  return { writes, files: files.length, unfinished: files.filter((f) => !f.ledger.done).length, requests, exempt };
 /* mutation-scope:begin output-readers */
 }
 

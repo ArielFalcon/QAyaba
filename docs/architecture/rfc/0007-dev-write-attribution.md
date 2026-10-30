@@ -204,3 +204,13 @@ Each is a plausible neighbour, kept open under D12; none is fixed here.
 - The per-flow share and call grants (`qa-engine/src/contexts/coordination/application/flow-capacity.ts:73-80`, `qa-engine/src/contexts/coordination/application/lead-plan.ts:304`), the `no-calls` refusal (candidate N07) and the killed-call charge (#26).
 - The token lifetime, the 240 to 300 s edge, and the native-shim spec of #17.
 - Counting writes in the final execution, which carries no counter.
+
+## Implementation notes
+
+Landed as one commit on `fix/root-cause-t8`. Where the code differs from the text above:
+
+- **The control runs from the capture block's start, not from a worker-scoped fixture.** `qaControlLoad` is called once per worker (module state) by `qaFailureCaptureStart`, which both the seed's `_failureCapture` fixture and the block's own hooks call. That reaches every fixtures.ts that holds the block, including the copies whose capture fixture was inserted earlier, with no new fixture entry or type entry. It reads the project's context options and the test's timeout from `test.info()` and the browser from the page's context, structurally, so the block stays self-contained; the first test's timeout is extended by the time the load took.
+- **The ledger stays at version 2.** Its `requests` entries gain `sender` (`page` or `api`) and `count`; an entry without them (an earlier seed's) reads as sender unknown, count 1, which is never exempt. The control file is `control-p<pid>-w<worker>.json`, version 1, and each test is charged against the control of its own worker (`chargeTestWrites`, `test-execution/domain/dev-write-charge.ts`).
+- **F4 is done.** The exempt list is `controlRequests` on the results and the call's span attribute is `qayaba.tool.dev_control_requests`; it holds the page requests the control also sent, not the control's own list.
+- **The refusal text** says "were charged N write request(s)" instead of "already sent".
+

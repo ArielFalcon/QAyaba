@@ -468,10 +468,11 @@ The join is **in-process**:
    - `qayaba.lease.refused` (DEV busy)
    - `qayaba.namespace`, the spec path and its sha256
    - for run_spec: `qayaba.tool.dev_writes` (the writes to DEV the seed's fixtures counted: a mutating request answered by
-     one of the run's DEV origins, `PW_DEV_ORIGINS`) and `qayaba.tool.dev_write_requests` (each counted request as
+     one of the run's DEV origins, `PW_DEV_ORIGINS`, that the control load of the test's worker does not account for) and
+     `qayaba.tool.dev_write_requests` (each charged request as
      `METHOD origin/pathname[ ×count]`, no query or body, redacted, at most 20 distinct; the same list is on the call's
-     ledger entry), and `qayaba.tool.dev_session_requests` (the same shape, for the requests that keep the run's own session
-     alive, an identity provider's token exchange or refresh, which are not writes and are not in the count)
+     ledger entry), and `qayaba.tool.dev_control_requests` (the same shape, for the page requests the control load also sent,
+     up to the counts it saw: autonomous traffic the spec did not cause, which is not in the charge)
    - the outcome and `qayaba.egress.denied`
    - for authbrowser: the route-guard block reason, the HTTP status and `qayaba.auth.invalidated`
 5. When the SSE tool part for that call completes, the synthesized `execute_tool run_spec` span

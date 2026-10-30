@@ -1821,26 +1821,99 @@ test("runE2E hands the app's declared data state to the suite child", async () =
   assert.deepEqual(seen, dataState);
 });
 
-test("runE2E reports the session requests the fixtures kept apart from the writes, merged and with no query, and trusts them like the writes", async () => {
-  const token = "https://id.example.com/oauth/token";
-  const ledger = withLedgerDir({
-    "ledger-0-1.json": JSON.stringify({ writes: 1, requests: [{ method: "POST", url: "https://dev.example.com/api/orders" }], sessionRequests: [{ method: "POST", url: `${token}?x=1` }, { method: "POST", url: token }] }),
-    "ledger-1-1.json": JSON.stringify({ writes: 0, sessionRequests: [{ method: "POST", url: token }] }),
-  });
-  const notAWrite = withLedgerDir({ "ledger-0-1.json": JSON.stringify({ writes: 0, sessionRequests: [{ method: "GET", url: token }] }) });
-  const notAList = withLedgerDir({ "ledger-0-1.json": JSON.stringify({ writes: 0, sessionRequests: "many" }) });
+/* A test's ledger as the seed writes it: the requests it recorded by sender, with how many times each was sent. */
+const TOKEN = "https://id.example.com/oauth/token";
+const ORDERS = "https://dev.example.com/api/orders";
+const ledgerOf = (writes: number, requests: Array<{ method: string; url: string; sender: "page" | "api"; count: number }>) => JSON.stringify({ v: 2, writes, pending: 0, done: true, requests });
+const controlOf = (requests: Array<{ method: string; url: string; count: number }>) => JSON.stringify({ v: 1, requests });
+
+async function chargedBy(files: Record<string, string>): Promise<{ devWrites?: number; devWriteRequests?: unknown; controlRequests?: unknown }> {
+  const ledger = withLedgerDir(files);
+  const tests = Object.keys(files).filter((name) => name.startsWith("ledger-")).length;
   try {
-    const run = await runE2E("/dir", { baseUrl: "https://dev", namespace: "ns", countWrites: true }, ledger.deps({ stats: { expected: 2 }, suites: [] }));
-    assert.equal(run.devWrites, 1);
-    assert.deepEqual(run.sessionRequests, [{ method: "POST", url: token, count: 3 }]);
-    for (const deps of [notAWrite.deps(), notAList.deps()]) {
-      const spoiled = await runE2E("/dir", { baseUrl: "https://dev", namespace: "ns", countWrites: true }, deps);
-      assert.equal(spoiled.devWrites, undefined);
-      assert.equal(spoiled.sessionRequests, undefined);
-    }
+    const run = await runE2E("/dir", { baseUrl: "https://dev", namespace: "ns", countWrites: true }, ledger.deps({ stats: { expected: tests }, suites: [] }));
+    return { devWrites: run.devWrites, devWriteRequests: run.devWriteRequests, controlRequests: run.controlRequests };
   } finally {
     ledger.cleanup();
-    notAWrite.cleanup();
-    notAList.cleanup();
+  }
+}
+
+test("runE2E does not charge a page request the worker's control load also sent, whatever its protocol shape", async () => {
+  const shapes = [
+    { method: "POST", url: TOKEN },
+    { method: "POST", url: "https://dev.example.com/api/auth/refresh" },
+    { method: "POST", url: "https://dev.example.com/session/renew" },
+    { method: "POST", url: "https://dev.example.com/beacon/heartbeat" },
+  ];
+  for (const shape of shapes) {
+    const out = await chargedBy({
+      "control-p1-w0.json": controlOf([{ ...shape, count: 1 }]),
+      "ledger-p1-w0-1.json": ledgerOf(1, [{ ...shape, sender: "page", count: 1 }]),
+      "ledger-p1-w0-2.json": ledgerOf(1, [{ ...shape, sender: "page", count: 1 }]),
+    });
+    assert.equal(out.devWrites, 0, `${shape.method} ${shape.url}`);
+    assert.equal(out.devWriteRequests, undefined);
+    assert.deepEqual(out.controlRequests, [{ ...shape, count: 2 }], "the requests the control accounted for are recorded apart");
+  }
+});
+
+test("runE2E charges a test only for the page requests beyond what the control saw, and the spec's own requests in full", async () => {
+  const out = await chargedBy({
+    "control-p1-w0.json": controlOf([{ method: "POST", url: TOKEN, count: 1 }, { method: "POST", url: ORDERS, count: 1 }]),
+    "ledger-p1-w0-1.json": ledgerOf(3, [{ method: "POST", url: TOKEN, sender: "page", count: 3 }]),
+    "ledger-p1-w0-2.json": ledgerOf(2, [{ method: "POST", url: ORDERS, sender: "api", count: 1 }, { method: "POST", url: TOKEN, sender: "page", count: 1 }]),
+  });
+  assert.equal(out.devWrites, 3, "2 beyond the control in the first test, 1 api request in the second");
+  assert.deepEqual(out.devWriteRequests, [{ method: "POST", url: TOKEN, count: 2 }, { method: "POST", url: ORDERS, count: 1 }]);
+  assert.deepEqual(out.controlRequests, [{ method: "POST", url: TOKEN, count: 2 }]);
+});
+
+test("runE2E charges every request when the worker has no control, or its control cannot be trusted", async () => {
+  const ledgers = { "ledger-p1-w0-1.json": ledgerOf(4, [{ method: "POST", url: TOKEN, sender: "page", count: 4 }]) };
+  const control = controlOf([{ method: "POST", url: TOKEN, count: 4 }]);
+  const cases: Record<string, Record<string, string>> = {
+    "no control file": ledgers,
+    "the control of another worker": { ...ledgers, "control-p1-w1.json": control },
+    "an unreadable control": { ...ledgers, "control-p1-w0.json": "{not json" },
+    "a control that records a read": { ...ledgers, "control-p1-w0.json": controlOf([{ method: "GET", url: TOKEN, count: 4 }]) },
+    "an oversized control": { ...ledgers, "control-p1-w0.json": controlOf([{ method: "POST", url: TOKEN, count: 4 }]) + " ".repeat(100_000) },
+    "a control of another version": { ...ledgers, "control-p1-w0.json": JSON.stringify({ v: 9, requests: [{ method: "POST", url: TOKEN, count: 4 }] }) },
+  };
+  for (const [name, files] of Object.entries(cases)) {
+    const out = await chargedBy(files);
+    assert.equal(out.devWrites, 4, name);
+    assert.equal(out.controlRequests, undefined, name);
+  }
+});
+
+test("runE2E never exempts a request whose sender is not the page: the api client's, and one recorded without a sender", async () => {
+  const out = await chargedBy({
+    "control-p1-w0.json": controlOf([{ method: "POST", url: TOKEN, count: 5 }]),
+    "ledger-p1-w0-1.json": ledgerOf(2, [{ method: "POST", url: TOKEN, sender: "api", count: 2 }]),
+    "ledger-p1-w0-2.json": JSON.stringify({ v: 2, writes: 1, pending: 0, done: true, requests: [{ method: "POST", url: TOKEN }] }),
+  });
+  assert.equal(out.devWrites, 3);
+  assert.equal(out.controlRequests, undefined);
+});
+
+test("runE2E charges the writes a ledger could not record beyond its distinct cap, and an unfinished test's pending requests", async () => {
+  const out = await chargedBy({
+    "control-p1-w0.json": controlOf([{ method: "POST", url: TOKEN, count: 9 }]),
+    "ledger-p1-w0-1.json": ledgerOf(30, [{ method: "POST", url: TOKEN, sender: "page", count: 9 }]),
+    "ledger-p1-w0-2.json": JSON.stringify({ v: 2, writes: 1, pending: 2, done: false, requests: [{ method: "POST", url: TOKEN, sender: "page", count: 1 }] }),
+  });
+  assert.equal(out.devWrites, 21 + 2, "30 less the 9 the control saw, and 1 less the 1 it saw, plus 2 still out");
+});
+
+test("runE2E trusts none of a ledger whose recorded requests exceed its writes or whose senders and counts are malformed", async () => {
+  const bad = [
+    ledgerOf(1, [{ method: "POST", url: TOKEN, sender: "page", count: 2 }]),
+    JSON.stringify({ v: 2, writes: 2, pending: 0, done: true, requests: [{ method: "POST", url: TOKEN, sender: "browser", count: 1 }] }),
+    JSON.stringify({ v: 2, writes: 2, pending: 0, done: true, requests: [{ method: "POST", url: TOKEN, sender: "page", count: 0 }] }),
+    JSON.stringify({ v: 2, writes: 2, pending: 0, done: true, requests: [{ method: "POST", url: TOKEN, sender: "page", count: 1.5 }] }),
+  ];
+  for (const text of bad) {
+    const out = await chargedBy({ "ledger-p1-w0-1.json": text });
+    assert.equal(out.devWrites, undefined, text);
   }
 });

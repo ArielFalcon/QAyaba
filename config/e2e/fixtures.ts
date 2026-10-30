@@ -362,22 +362,21 @@ function networkUrl(raw: string): string { try { const u = new URL(raw); const u
 // request to one of the origins the orchestrator names in PW_DEV_ORIGINS (a JSON list of scheme://host[:port] or
 // scheme://*.suffix[:port], the run's DEV origins), matched by host and port as the egress filter matches them; a page's
 // own requests to other hosts (analytics, error reporters) write nothing to DEV. Without a readable list every write
-// counts. The first DEV_WRITE_REQUESTS_CAP counted requests of a test are recorded beside its count, by method and
-// origin + pathname (never the query or the body). The requests that keep the run's own session alive are not writes
-// to DEV: a page holding the saved session asks its identity provider for tokens by itself (RFC 6749 section 3.2: a POST to
-// the token endpoint whose form body names a grant_type, section 4.1.3 for a code, section 6 for a refresh), so a read-only
-// spec would spend the budget on them. Such a request is kept apart, in `sessionRequests` beside the same record, when it is
-// a POST of the browser's page or context with a form body of the grant `authorization_code` or `refresh_token`, to a DEV
-// origin other than the app's own (the identity provider is another declared origin; a token endpoint on the app's own
-// origin counts). Every other request to the identity provider (a password change, a registration, a logout, any other
-// grant) still counts, and so does one whose body cannot be read.
+// counts. The counter decides nothing about who caused a request: it records each distinct counted request of a test (the
+// first DEV_WRITE_REQUESTS_CAP of them) beside its count, by method, origin + pathname (never the query or the body) and
+// sender (`page` for the test's page and context, `api` for an API client), with how many times it was sent. The page
+// also sends requests on its own, with no spec action (a token renewal when it loads, a heartbeat): the first test of a
+// worker therefore runs a control load before anything else, a load of the launch URL in a context of its own made from
+// the project's options (the same saved session), until the network is idle, and records the mutating requests DEV answered
+// to `control-p<pid>-w<worker>.json` (method, origin + pathname, count). The orchestrator charges a test's page requests
+// only beyond what its worker's control saw, and an API client's requests in full.
 let devWrites = 0;
 let devWritesPending = 0;
-let devWriteRequests: Array<{ method: string; url: string }> = [];
-let sessionRequests: Array<{ method: string; url: string }> = [];
-// What each browser write that is out counts as, so its answer or its failure settles the same entry: a write that
-// leaves `pending` when it ends, or the session traffic that never was. Replaced when a test starts.
-let sentWrites = new WeakMap<object, 'write' | 'session'>();
+type DevWriteSender = 'page' | 'api';
+interface RecordedDevWrite { method: string; url: string; sender: DevWriteSender; count: number }
+let devWriteRequests: RecordedDevWrite[] = [];
+// The browser writes that are out and count as pending, so their answer or failure settles the same entry. Replaced when a test starts.
+let sentWrites = new WeakSet<object>();
 // The test's ledger: where it is, the temporary file it is rewritten through (the name cannot match a ledger's), whether
 // the test has finished, and which test it belongs to, so a request that outlives its test never moves the next one's pending.
 let ledgerFs: typeof import('node:fs') | undefined;
@@ -419,25 +418,13 @@ function isDevWrite(raw: string | undefined): boolean {
     return devOrigins.some((o) => o.port === port && (o.wildcard ? host.endsWith('.' + o.host) : host === o.host));
   } catch { return true; }
 }
-const SESSION_GRANTS = new Set(['authorization_code', 'refresh_token']);
-// Whether a POST to `raw` with this body is the session being kept alive: a token request of a grant the page makes by
-// itself, to a DEV origin other than the one the run launched with. Needs the DEV origins to be readable (the identity
-// provider is one of them) and the body to be a form; anything else is a write.
-function isSessionRequest(method: string, raw: string | undefined, body: string | null | undefined): boolean {
-  if (!devOrigins || method !== 'POST' || raw === undefined || typeof body !== 'string' || body === '') return false;
-  try {
-    if (!launchBaseUrl || new URL(raw).origin === new URL(launchBaseUrl).origin) return false;
-    const grant = new URLSearchParams(body).get('grant_type');
-    return grant !== null && SESSION_GRANTS.has(grant);
-  } catch { return false; }
-}
 // Rewrites the ledger with what the test has counted so far: written beside it and renamed over it, so a reader that
 // finds the file finds one whole state, never a half-written one. Best effort: the count is a bound on the spec, never
 // a test failure.
 function flushLedger(): void {
   if (!ledgerFs || !ledgerFile || !ledgerTemp) return;
   try {
-    ledgerFs.writeFileSync(ledgerTemp, JSON.stringify({ v: 2, writes: devWrites, pending: devWritesPending, done: ledgerDone, ...(devWriteRequests.length > 0 ? { requests: devWriteRequests } : {}), ...(sessionRequests.length > 0 ? { sessionRequests } : {}) }));
+    ledgerFs.writeFileSync(ledgerTemp, JSON.stringify({ v: 2, writes: devWrites, pending: devWritesPending, done: ledgerDone, ...(devWriteRequests.length > 0 ? { requests: devWriteRequests } : {}) }));
     ledgerFs.renameSync(ledgerTemp, ledgerFile);
   } catch {}
 }
@@ -461,39 +448,30 @@ async function openLedger(): Promise<void> {
     flushLedger();
   } catch { ledgerFs = undefined; }
 }
-// What a request to `raw` counts as, or undefined when it writes nothing to DEV.
-function classifyWrite(method: string, raw: string | undefined, body?: string | null): 'write' | 'session' | undefined {
-  if (!isDevWrite(raw)) return undefined;
-  return raw !== undefined && networkUrl(raw) !== '' && isSessionRequest(method, raw, body) ? 'session' : 'write';
+// Adds one sighting of a request to a list of distinct requests, merged with an equal one; past the cap a new request is not kept.
+function recordWrite(into: RecordedDevWrite[], sender: DevWriteSender, method: string, url: string): void {
+  const same = into.find((r) => r.method === method && r.url === url && r.sender === sender);
+  if (same) same.count++;
+  else if (into.length < DEV_WRITE_REQUESTS_CAP) into.push({ method, url, sender, count: 1 });
 }
-// A write a server answered: counted and recorded (session traffic is only recorded), and the ledger rewritten.
-function noteAnswered(kind: 'write' | 'session', method: string, raw: string | undefined): void {
+// A write a server answered: counted and recorded with its sender, and the ledger rewritten.
+function noteAnswered(sender: DevWriteSender, method: string, raw: string | undefined): void {
   const url = raw === undefined ? '' : networkUrl(raw);
-  if (kind === 'session') {
-    if (sessionRequests.length < DEV_WRITE_REQUESTS_CAP) sessionRequests.push({ method, url });
-  } else {
-    devWrites++;
-    if (url && devWriteRequests.length < DEV_WRITE_REQUESTS_CAP) devWriteRequests.push({ method, url });
-  }
+  devWrites++;
+  if (url) recordWrite(devWriteRequests, sender, method, url);
   flushLedger();
 }
-function noteDevWrite(method: string, raw: string | undefined, body?: string | null): void {
-  const kind = classifyWrite(method, raw, body);
-  if (kind) noteAnswered(kind, method, raw);
-}
-interface WriteEvent { method(): string; url(): string; postData(): string | null }
-// A mutating browser request leaves: pending until a server answers it or it fails. Session traffic is never pending.
+interface WriteEvent { method(): string; url(): string }
+// A mutating browser request to DEV leaves: pending until a server answers it or it fails.
 function sendBrowserWrite(r: WriteEvent): void {
   const method = r.method();
   if (!/^(?:POST|PUT|PATCH|DELETE)$/.test(method)) return;
   let url: string | undefined;
   try { url = r.url(); } catch {}
-  let body: string | null | undefined;
-  try { body = r.postData(); } catch {}
-  const kind = classifyWrite(method, url, body);
-  if (!kind) return;
-  sentWrites.set(r, kind);
-  if (kind === 'write') { devWritesPending++; flushLedger(); }
+  if (!isDevWrite(url)) return;
+  sentWrites.add(r);
+  devWritesPending++;
+  flushLedger();
 }
 // The same request answered (counted) or failed (dropped). One that left before this test began is counted when answered.
 function settleBrowserWrite(r: WriteEvent, answered: boolean): void {
@@ -501,18 +479,12 @@ function settleBrowserWrite(r: WriteEvent, answered: boolean): void {
   if (!/^(?:POST|PUT|PATCH|DELETE)$/.test(method)) return;
   let url: string | undefined;
   try { url = r.url(); } catch {}
-  const kind = sentWrites.get(r);
-  if (kind === undefined) {
-    if (answered) {
-      let body: string | null | undefined;
-      try { body = r.postData(); } catch {}
-      noteDevWrite(method, url, body);
-    }
+  if (!sentWrites.delete(r)) {
+    if (answered && isDevWrite(url)) noteAnswered('page', method, url);
     return;
   }
-  sentWrites.delete(r);
-  if (kind === 'write') devWritesPending = Math.max(0, devWritesPending - 1);
-  if (answered) noteAnswered(kind, method, url);
+  devWritesPending = Math.max(0, devWritesPending - 1);
+  if (answered) noteAnswered('page', method, url);
   else flushLedger();
 }
 interface WriteCountable { fetch(target: unknown, options?: { method?: string }): Promise<unknown> }
@@ -532,7 +504,7 @@ function countWrites(api: WriteCountable | undefined): void {
       else if (request && typeof request.url === 'function') url = (request.url as () => string)();
     } catch {}
     const epoch = ledgerEpoch;
-    const sent = method !== undefined && classifyWrite(method, url) !== undefined;
+    const sent = method !== undefined && isDevWrite(url);
     if (sent) { devWritesPending++; flushLedger(); }
     const leave = (): void => { if (sent && epoch === ledgerEpoch) devWritesPending = Math.max(0, devWritesPending - 1); };
     let response: unknown;
@@ -544,9 +516,76 @@ function countWrites(api: WriteCountable | undefined): void {
       throw err;
     }
     leave();
-    if (sent) noteAnswered('write', method!, url);
+    if (sent) noteAnswered('api', method!, url);
     return response;
   };
+}
+
+// The control load, run once per worker before its first test (see the counter's description above). What it needs from the
+// test runner it reads structurally, so this block stays self-contained: the running test's info (the project's context options
+// and the test's timeout) and the browser the test's page belongs to. It runs in a context of its own, so none of its requests
+// reach a test's ledger, and the first test's timeout is extended by the time the load took: the load is the harness's, not the
+// spec's. Best effort: a load that fails or never reaches an idle network leaves the writes it saw, and one that cannot start
+// leaves no file, which makes the orchestrator charge every request of the worker.
+interface QaControlRequest { method(): string; url(): string }
+interface QaControlContext {
+  on(event: 'requestfinished', listener: (request: QaControlRequest) => unknown): unknown;
+  newPage(): Promise<{ goto(url: string, options: { waitUntil: 'networkidle'; timeout: number }): Promise<unknown> }>;
+  close(): Promise<void>;
+}
+interface QaControlBrowser { newContext(options: Record<string, unknown>): Promise<QaControlContext> }
+interface QaControlInfo { timeout: number; project: { use: Record<string, unknown> }; setTimeout(timeout: number): void }
+// The control waits for an idle network because what it asks is what the page sends by itself, which is known only once the
+// page has gone quiet. (The suite's lint rule against waiting for an idle network is for a spec's assertions, which this is not.)
+const QA_CONTROL_LOAD = { waitUntil: 'networkidle' } as const;
+let controlStarted = false;
+async function qaControlLoad(page: QaCapturePage): Promise<void> {
+  if (controlStarted) return;
+  controlStarted = true;
+  const dir = process.env.QA_FAILURE_CAPTURE_DIR;
+  if (!dir || !launchBaseUrl) return;
+  const began = Date.now();
+  let info: QaControlInfo | undefined;
+  let ran = false;
+  const seen: Array<{ method: string; url: string; count: number }> = [];
+  try {
+    info = (test as unknown as { info(): QaControlInfo }).info();
+    const browser = (page.context() as unknown as { browser(): QaControlBrowser | null }).browser();
+    if (!browser) return;
+    const context = await browser.newContext({ ...info.project.use });
+    ran = true;
+    try {
+      context.on('requestfinished', (r) => {
+        try {
+          const method = r.method();
+          if (!/^(?:POST|PUT|PATCH|DELETE)$/.test(method)) return;
+          const url = r.url();
+          if (!isDevWrite(url)) return;
+          const known = networkUrl(url);
+          if (!known) return;
+          const same = seen.find((q) => q.method === method && q.url === known);
+          if (same) same.count++;
+          else if (seen.length < DEV_WRITE_REQUESTS_CAP) seen.push({ method, url: known, count: 1 });
+        } catch {}
+      });
+      const controlPage = await context.newPage();
+      await controlPage.goto(launchBaseUrl, { ...QA_CONTROL_LOAD, timeout: info.timeout });
+    } finally {
+      await context.close().catch(() => {});
+    }
+  } catch {} finally {
+    try {
+      if (ran) {
+        const fs = await import("node:fs");
+        const { join } = await import("node:path");
+        const name = 'p' + process.pid + '-w' + (process.env.TEST_WORKER_INDEX ?? '0');
+        const temp = join(dir, '.control-' + name + '.tmp');
+        fs.writeFileSync(temp, JSON.stringify({ v: 1, requests: seen }));
+        fs.renameSync(temp, join(dir, 'control-' + name + '.json'));
+      }
+      info?.setTimeout(info.timeout + (Date.now() - began));
+    } catch {}
+  }
 }
 
 // Page observation, on only when the orchestrator asks (PW_OBSERVE=1: the re-run of a mutant of the served script and the
@@ -576,8 +615,7 @@ async function qaFailureCaptureStart(page: QaCapturePage, request: QaCaptureRequ
   devWrites = 0;
   devWritesPending = 0;
   devWriteRequests = [];
-  sessionRequests = [];
-  sentWrites = new WeakMap();
+  sentWrites = new WeakSet();
   observedRequests = [];
   if (process.env.PW_OBSERVE === '1') {
     try {
@@ -586,6 +624,7 @@ async function qaFailureCaptureStart(page: QaCapturePage, request: QaCaptureRequ
   }
   if (process.env.PW_COUNT_DEV_WRITES === '1') {
     await openLedger();
+    await qaControlLoad(page);
     try {
       const context = page.context();
       if (!countedContexts.has(context)) {
