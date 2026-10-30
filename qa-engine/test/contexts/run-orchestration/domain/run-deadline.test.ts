@@ -225,6 +225,14 @@ test("a purpose that whole runs with green bytes passed over takes no time for r
   assert.equal(measured.get("coverage"), 2 * MIN);
 });
 
+test("a kind of run that executes nothing takes no time in the phases its whole runs never enter", () => {
+  const contextRun: PhaseRecord = { furthestPhase: "learn", phaseTimings: { setup: MIN, ground: MIN, generate: 20 * MIN, validate: MIN, health: 0, decide: 0, publish: MIN } };
+  const measured = measuredPurposeDurations([contextRun, contextRun], { executes: false });
+  for (const purpose of ["execute", "fix", "coverage", "review"] as const) assert.equal(measured.get(purpose), 0, purpose);
+  assert.equal(measured.get("generate"), 20 * MIN);
+  assert.equal(measuredPurposeDurations([contextRun, contextRun]).has("review"), false, "the same history, read as a kind that executes, shows no green bytes");
+});
+
 test("a purpose that no run entered is not measured as none when every run that could say so was cut", () => {
   const cutEarly: PhaseRecord = { furthestPhase: "learn", phaseTimings: { setup: MIN, ground: MIN, generate: 30 * MIN }, cutPurposes: ["generate"] };
   const measured = measuredPurposeDurations([cutEarly, cutEarly]);

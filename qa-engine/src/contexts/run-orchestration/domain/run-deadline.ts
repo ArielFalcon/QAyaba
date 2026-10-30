@@ -19,6 +19,9 @@ export const FALLBACK_RESERVE_MIN_MS = 120_000;
 /* The purposes that hold back only what the app measured of them, never the fallback: publication and the learning after it take seconds and the run does not cut them at the deadline (a run that kept its proven suite publishes after it), so a guess of a quarter of what is left would only take time from the review. */
 const NO_FALLBACK: ReadonlySet<DeadlinePurpose> = new Set(["decide"]);
 
+/* The kind of run that executes nothing: a context run maps the app and runs no spec. */
+const CONTEXT_KIND = "context";
+
 /* What a finished run recorded about its phases: the furthest one it entered and the milliseconds spent in each phase it entered. */
 export interface PhaseRecord {
   furthestPhase: RunPhase | null;
@@ -82,10 +85,11 @@ function median(samples: readonly number[]): number {
  * bytes finished whole (reached the end, cut nowhere, measured their coverage, which every run with green bytes does): runs of that kind
  * spend no time there (an app that does not review, a fix loop only a failing run enters), which is its measure, 0. Runs that never had
  * green bytes say nothing about what only green bytes reach: a streak of failing runs leaves the review and the coverage to the fallback.
+ * A kind of run that executes nothing (`executes: false`, a context run) has no green bytes to show, and a whole run of it is the evidence.
  */
-export function measuredPurposeDurations(records: readonly PhaseRecord[]): Map<DeadlinePurpose, number> {
+export function measuredPurposeDurations(records: readonly PhaseRecord[], kind: { executes: boolean } = { executes: true }): Map<DeadlinePurpose, number> {
   const measured = new Map<DeadlinePurpose, number>();
-  const finishedWholeGreen = records.some((record) => (record.furthestPhase === "learn" || record.furthestPhase === "publish") && (record.cutPurposes?.length ?? 0) === 0 && PHASES_OF_PURPOSE.coverage.some((phase) => record.phaseTimings[phase] !== undefined));
+  const finishedWholeGreen = records.some((record) => (record.furthestPhase === "learn" || record.furthestPhase === "publish") && (record.cutPurposes?.length ?? 0) === 0 && (!kind.executes || PHASES_OF_PURPOSE.coverage.some((phase) => record.phaseTimings[phase] !== undefined)));
   for (const purpose of DEADLINE_PURPOSES) {
     const samples: number[] = [];
     let anyEntered = false;
@@ -124,7 +128,7 @@ export class RunDeadline implements RunDeadlineView {
 
   /** Hands in the app's recent finished runs: the reserve of every allotment is read from what they took. Without any, every reserve falls back. */
   measure(records: readonly PhaseRecord[]): void {
-    this.measured = measuredPurposeDurations(records);
+    this.measured = measuredPurposeDurations(records, { executes: this.armed?.label !== CONTEXT_KIND });
     this.told.clear();
   }
 
