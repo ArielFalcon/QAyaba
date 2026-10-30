@@ -7,6 +7,7 @@ const RETIRED_SETTINGS: ReadonlyArray<{ readonly name: string; readonly gone: st
   { name: "SELF_MAINTAINER_CI_CHECK", gone: "the self-maintainer was removed" },
   { name: "QAYABA_REPO", gone: "the self-maintainer was removed" },
   { name: "QA_REFLECTOR_ENABLED", gone: "the reflector was removed" },
+  { name: "REFLECTOR_TIMEOUT_MS", gone: "the reflector was removed" },
   { name: "QA_JUDGES_ENABLED", gone: "the LLM judges were removed" },
   { name: "QA_JUDGES_DAILY_TOKENS", gone: "the LLM judges were removed" },
   { name: "LANGFUSE_BASE_URL", gone: "the Langfuse score sink was removed" },

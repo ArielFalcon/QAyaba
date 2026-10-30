@@ -54,6 +54,8 @@ export const BANNED_RULES: BannedRule[] = [
   { id: "codex", patterns: [/codex/i] },
   { id: "dual-mode", patterns: [/dual[- ](mode|runtime|agent)/i, /AGENT_RUNTIME_MODE/i, /\bAgentMode\b/i, /SingleAgentFacade/i, /DualAgentFacade/i] },
   { id: "router-kind", patterns: [/"router"/i, /orchestration-router/i, /RETIRED_EXPLORER_ROLE/i, /coordinationMode/i, /qa\.explorer/i] },
+  /* The configuration key is `qa.changeCoverage.mode` (ADR-0005); `qa.coveragePolicy` is the spelling the documents drifted to. The records quote it on purpose. */
+  { id: "coverage-policy-key", patterns: [/\bqa\.coveragePolicy\b/], exemptPrefixes: [RECORDS_PREFIX] },
   { id: "claude-md", patterns: [/CLAUDE\.md/i] },
   { id: "codebase-memory", patterns: [/codebase-memory/i] },
   { id: "shell-error-taxonomy", patterns: [/\bsrc\/errors\b/], exemptPrefixes: [RECORDS_PREFIX] },

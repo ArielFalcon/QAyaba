@@ -150,6 +150,12 @@
     "reason": "Names the retired variable so a load that still finds it set reports it once (src/settings/retired.ts). Remove this entry with that warning."
   },
   {
+    "rule": "reflector",
+    "path": "src/settings/retired.ts",
+    "contains": "REFLECTOR_TIMEOUT_MS",
+    "reason": "Names the retired variable so a load that still finds it set reports it once (src/settings/retired.ts). Remove this entry with that warning."
+  },
+  {
     "rule": "self-maintainer-runtime",
     "path": "src/settings/settings.test.ts",
     "contains": "SELF_MAINTAINER_AUTOMERGE",
