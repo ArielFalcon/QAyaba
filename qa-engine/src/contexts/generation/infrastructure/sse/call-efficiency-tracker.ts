@@ -182,6 +182,8 @@ interface SessionState {
   droppedStreamed: Set<string>;
   /* A fault while keeping the turn's streamed text: the turn carries none. */
   streamedFaulted: boolean;
+  /* Streamed text was let go of (a part cut to its tail, a part dropped): what the turn carries starts at a cut. */
+  streamedCut: boolean;
   /* The session's messages the runtime reported as the user's: their parts are the prompt, never streamed text. */
   userMessages: Set<string>;
 }
@@ -230,6 +232,7 @@ function newSession(cwd: string, stepsComplete: boolean): SessionState {
     streamed: new Map(),
     droppedStreamed: new Set(),
     streamedFaulted: false,
+    streamedCut: false,
     userMessages: new Set(),
   };
 }
@@ -458,7 +461,7 @@ export class CallEfficiencyTracker implements StreamLifecycleSink {
     const known = session.streamed.get(props.partID);
     if (!known) return;
     try {
-      known.text = (known.text + props.delta).slice(-STREAMED_TEXT_RETAINED_CHARS);
+      known.text = keepTail(session, known.text + props.delta);
       boundStreamed(session);
     } catch (err) {
       session.streamedFaulted = true;
@@ -475,7 +478,7 @@ export class CallEfficiencyTracker implements StreamLifecycleSink {
       const text = part.text;
       if (typeof id !== "string" || typeof text !== "string" || session.droppedStreamed.has(id)) return;
       if (typeof part.messageID === "string" && session.userMessages.has(part.messageID)) return;
-      session.streamed.set(id, { type, text: text.slice(-STREAMED_TEXT_RETAINED_CHARS) });
+      session.streamed.set(id, { type, text: keepTail(session, text) });
       boundStreamed(session);
     } catch (err) {
       session.streamedFaulted = true;
@@ -597,6 +600,7 @@ export class CallEfficiencyTracker implements StreamLifecycleSink {
     session.streamed = new Map();
     session.droppedStreamed = new Set();
     session.streamedFaulted = false;
+    session.streamedCut = false;
   }
 
   /* The turn's steps and calls since the previous flush, with step numbers counted from the turn's first. */
@@ -661,6 +665,7 @@ export class CallEfficiencyTracker implements StreamLifecycleSink {
     const sinceStart = (call: TrackedCall | undefined): number | null =>
       call && session.turnStartedAt !== null ? Math.max(0, call.firstSeenAt - session.turnStartedAt) : null;
 
+    const streamed = streamedTextOf(session);
     const metrics = buildTurnCallMetrics({
       sequence: { ...summarizeCallSequence(turnCalls.map(toCallRecord)), repeatedCallCount: duplicatesNow - duplicatesBefore },
       buckets: turnCalls.map((call) => call.bucket),
@@ -677,7 +682,7 @@ export class CallEfficiencyTracker implements StreamLifecycleSink {
       toolSequence: turnCalls.slice(0, TOOL_SEQUENCE_MAX_ENTRIES).map(toSequenceEntry),
       usage: session.stepsComplete && finishedSteps.length > 0 ? sumUsage(finishedSteps.map(([, usage]) => usage)) : null,
       trace: this.traceOf(session, turnCalls, session.turnStartedAt),
-      streamedText: streamedTextOf(session),
+      ...streamed,
     });
     this.startTurnRecords(session);
     for (const [id] of finishedSteps) session.flushedUsageIds.add(id);
@@ -700,18 +705,27 @@ function boundStreamed(session: SessionState): void {
     total -= part.text.length;
     session.streamed.delete(id);
     session.droppedStreamed.add(id);
+    session.streamedCut = true;
   }
 }
 
-/* The turn's streamed parts as one text, each prefixed by its type, bounded to its retained tail (raw: the transport redacts it, then keeps STREAMED_TEXT_MAX_CHARS of it); undefined when the turn streamed none. */
-function streamedTextOf(session: SessionState): string | undefined {
-  if (session.streamedFaulted) return undefined;
+/* A part's text cut to the tail the tracker retains; a cut is remembered, because the text then starts where the redaction never saw its lookahead. */
+function keepTail(session: SessionState, text: string): string {
+  if (text.length <= STREAMED_TEXT_RETAINED_CHARS) return text;
+  session.streamedCut = true;
+  return text.slice(-STREAMED_TEXT_RETAINED_CHARS);
+}
+
+/* The turn's streamed parts as one text, each prefixed by its type, bounded to its retained tail (raw: the transport redacts it, then keeps STREAMED_TEXT_MAX_CHARS of it), and whether that text starts at a cut; nothing when the turn streamed none. */
+function streamedTextOf(session: SessionState): { streamedText: string; streamedTextCut: boolean } | Record<string, never> {
+  if (session.streamedFaulted) return {};
   const joined = [...session.streamed.values()]
     .filter((part) => part.text !== "")
     .map((part) => `[${part.type}] ${part.text}`)
     .join("\n");
-  if (joined === "") return undefined;
-  return joined.length > STREAMED_TEXT_RETAINED_CHARS ? joined.slice(-STREAMED_TEXT_RETAINED_CHARS) : joined;
+  if (joined === "") return {};
+  const cut = joined.length > STREAMED_TEXT_RETAINED_CHARS;
+  return { streamedText: cut ? joined.slice(-STREAMED_TEXT_RETAINED_CHARS) : joined, streamedTextCut: cut || session.streamedCut };
 }
 
 /* The content reads at or after `from` whose lines a code-graph answer made earlier in the session had already shown. A read is compared only with the answers before it, so a read the agent made first and the graph repeated later is not counted. */

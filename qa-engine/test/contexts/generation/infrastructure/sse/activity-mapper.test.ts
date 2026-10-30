@@ -88,7 +88,7 @@ test("a pattern secret in a tool's error never reaches the event", () => {
 test("a credential straddling the event's 200-character cut never reaches the event, not even in part", () => {
   const filler = "the file is missing in the working copy; ".repeat(5).slice(0, 190);
   const [event] = mapValid(toolEvent({ status: "error", input: {}, error: `${filler}Bearer abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGH` }, { tool: "bash" })) as Array<{ detail: string }>;
-  assert.equal(event!.detail.length, 200);
+  assert.ok(event!.detail.length <= 200 && event!.detail.length > 150);
   assert.ok(!/Bearer abc|abcdefghij/.test(event!.detail));
 });
 

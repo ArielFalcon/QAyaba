@@ -65,6 +65,8 @@ export interface TurnCallMetrics {
   trace?: TurnTrace;
   /** The text and reasoning the turn streamed, each part prefixed by its type and the whole bounded to its tail; raw, not yet redacted. Held in memory for the turn; never part of the persisted metrics. Absent when the turn streamed none. */
   streamedText?: string;
+  /** True when the tracker let go of streamed text before this (a part longer than it keeps, a part dropped): `streamedText` then starts at a cut, and its first characters were never read whole by the redaction. */
+  streamedTextCut?: boolean;
 }
 
 const ZERO_BUCKETS: Record<CallBucket, number> = {
@@ -104,6 +106,7 @@ export interface BuildTurnCallMetricsInput {
   usage: TurnUsage | null;
   trace?: TurnTrace;
   streamedText?: string;
+  streamedTextCut?: boolean;
 }
 
 /** Assembles the pinned `TurnCallMetrics` shape from a `CallSequenceSummary`
@@ -131,6 +134,7 @@ export function buildTurnCallMetrics(input: BuildTurnCallMetricsInput): TurnCall
     usage: input.usage,
     ...(input.trace ? { trace: input.trace } : {}),
     ...(input.streamedText !== undefined ? { streamedText: input.streamedText } : {}),
+    ...(input.streamedText !== undefined && input.streamedTextCut === true ? { streamedTextCut: true } : {}),
   };
 }
 

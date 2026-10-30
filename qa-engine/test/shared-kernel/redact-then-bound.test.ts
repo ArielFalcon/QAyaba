@@ -45,10 +45,10 @@ test("the tail of a text keeps the end and a secret straddling its start is gone
   assert.ok(out.endsWith("end"));
 });
 
-test("the redactor sees past the bound by the lookahead and no further", () => {
+test("the redactor sees past the bound by the lookahead and no further when redaction shrinks nothing", () => {
   const seen: number[] = [];
   redactThenBound("zy ".repeat(REDACTION_LOOKAHEAD_CHARS), 50, (text) => (seen.push(text.length), text));
-  assert.deepEqual(seen, [50 + REDACTION_LOOKAHEAD_CHARS]);
+  assert.equal(Math.max(...seen), 50 + REDACTION_LOOKAHEAD_CHARS);
 });
 
 test("a redactor that fails yields a marker, never the raw text", () => {

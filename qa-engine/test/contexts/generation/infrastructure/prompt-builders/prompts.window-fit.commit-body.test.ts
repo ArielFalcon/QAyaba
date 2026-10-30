@@ -57,6 +57,6 @@ test("a commit body past the safety bound is cut with a marker, and the section 
   assert.ok(body.length > COMMIT_BODY_SAFETY_BOUND);
   const prompt = buildPromptAssembled(author(body), {});
   assert.equal(prompt.text.includes("Last note: the refund is shown."), false);
-  assert.match(prompt.text, /\[… cut: \d+ more chars of \d+, past the safety bound on the commit body\]/);
+  assert.match(prompt.text, /\[… cut: kept \d+ of \d+ chars before redaction, past the safety bound on the commit body\]/);
   assert.deepEqual(prompt.sectionItems["task"]?.omissions, [{ class: "truncation", reason: EVIDENCE_SAFETY_BOUND_REASON, count: 1 }]);
 });

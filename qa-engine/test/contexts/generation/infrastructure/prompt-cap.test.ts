@@ -22,7 +22,7 @@ test("boundedEvidenceText cuts text past the bound and says what it was and how 
   const text = "a longer commit body ".repeat(250);
   const out = boundedEvidenceText(text, { maxChars: 100, what: "the commit body" });
   assert.ok(out.startsWith(text.slice(0, 100)));
-  assert.match(out, new RegExp(`${text.length - 100} more chars of ${text.length}, past the safety bound on the commit body`));
+  assert.match(out, new RegExp(`kept 100 of ${text.length} chars before redaction, past the safety bound on the commit body`));
 });
 
 test("extractDiffFilePath names a file whose path holds spaces or that git quotes by its real path", () => {

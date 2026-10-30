@@ -497,6 +497,7 @@ export function createAgentDeps(raw: RawAgentTransport, collab: AgentDepsCollabo
             callMetrics: TurnCallMetrics | null;
             ended: TurnEnd;
             partialRaw?: string;
+            partialRawCut?: boolean;
             errorType?: AgentErrorType;
           }): void => {
             if (!effectiveOnTurn && !collab.onAttempt) return;
@@ -511,7 +512,7 @@ export function createAgentDeps(raw: RawAgentTransport, collab: AgentDepsCollabo
               promptText: text,
               promptBytes: Buffer.byteLength(text, "utf8"),
               outputText: sanitizeText(turn.outputRaw).text,
-              partialText: turn.partialRaw ? redactAndBound(turn.partialRaw, STREAMED_TEXT_MAX_CHARS, { keep: "tail" }) : null,
+              partialText: turn.partialRaw ? redactAndBound(turn.partialRaw, STREAMED_TEXT_MAX_CHARS, { keep: "tail", rawIsWindow: turn.partialRawCut === true }) : null,
               tokensInput: turn.tokens?.input ?? null,
               tokensOutput: turn.tokens?.output ?? null,
               tokensReasoning: turn.tokens?.reasoning ?? null,
@@ -555,6 +556,7 @@ export function createAgentDeps(raw: RawAgentTransport, collab: AgentDepsCollabo
               callMetrics,
               ended,
               partialRaw: callMetrics?.streamedText,
+              partialRawCut: callMetrics?.streamedTextCut === true,
               ...(answeredUsage ? { tokens: answeredUsage.tokens, ...(answeredUsage.cost !== undefined ? { cost: answeredUsage.cost } : {}) } : {}),
               ...(errorType !== undefined ? { errorType } : {}),
             });
@@ -705,7 +707,7 @@ export function createAgentDeps(raw: RawAgentTransport, collab: AgentDepsCollabo
 /* The streamed text leaves the transport only as the turn's redacted `partialText`; the metrics a turn carries never hold it raw. */
 function withoutStreamedText(metrics: TurnCallMetrics | null): TurnCallMetrics | null {
   if (!metrics || metrics.streamedText === undefined) return metrics;
-  const { streamedText: _streamed, ...rest } = metrics;
+  const { streamedText: _streamed, streamedTextCut: _cut, ...rest } = metrics;
   return rest;
 }
 
