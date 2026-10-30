@@ -330,8 +330,9 @@ findings, the run asks the lead, in the same planning session, instead of regene
    again is recorded unrouted with that reason (the lead neither sent it to a flow nor rebutted it after being asked once more).
    The lead's turns never spend the room the flows they order need. Every caller of the correction pass (review, static, execution,
    flaky, coverage, branch cases) meets this at the one shared point (`correct`): a lead turn, and the re-ask, is held to the room
-   (what is left of the run less its reserve) less `MIN_FLOW_MS`, never above `planBudgetMs`, so what the lead orders still has the
-   minimum a flow needs. When that leaves the turn less than `MIN_FLOW_MS` it is not sent: without the first turn each finding goes
+   (what is left of the run less its reserve) less two `MIN_FLOW_MS`, never above `planBudgetMs`: one is the minimum a flow needs for
+   what the lead orders, the other is slack for a turn that ends after its timeout, since with the reserve at its floor (under 480 s
+   left) every second the turn spends comes out of the room. When that leaves the turn less than `MIN_FLOW_MS` it is not sent: without the first turn each finding goes
    to its default owner (the spec it cites or names, the flow whose test ran the file, the flow whose use case holds it as a direct
    seed, plan order), without the re-ask the first answer stands, and each is recorded as a `lead-decision`. A run with no
    deadline is bounded by `planBudgetMs` alone. The values come from the run's own budget, never from the app.

@@ -1197,14 +1197,16 @@ export class LeadSidekicks {
   }
 
   /*
-   * The time one of the lead's correction turns may take, or undefined when none fits. A turn is held to the room less the minimum a
-   * flow needs, so what the lead orders still has time to run: the room shrinks by at most what the turn spends, since the reserve
-   * shrinks with the time left. A turn that could be given less than that minimum is not worth sending. No deadline: the plan budget.
+   * The time one of the lead's correction turns may take, or undefined when none fits. A turn is held to the room less two flows'
+   * minimum: one is what the lead orders need to run, the other is the slack for a turn that ends after its timeout (an abort never
+   * lands on it). The room shrinks by at most what the turn spends, and by all of it once the reserve is at its floor (under
+   * 4 x MIN_RESERVE_MS left), where a budget of the room less one minimum leaves the orders exactly that minimum and no margin. A
+   * turn that could be given less than a flow's minimum is not worth sending. No deadline: the plan budget.
    */
   private leadTurnBudget(input: CoordinateInput): number | undefined {
     const room = this.room(input);
     if (room === undefined) return input.settings.planBudgetMs;
-    const spare = room - MIN_FLOW_MS;
+    const spare = room - MIN_FLOW_MS * 2;
     return spare < MIN_FLOW_MS ? undefined : Math.min(input.settings.planBudgetMs, spare);
   }
 

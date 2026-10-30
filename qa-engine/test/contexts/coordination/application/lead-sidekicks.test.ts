@@ -2242,7 +2242,7 @@ test("the facts an unmet DEV's state prevents is held to are the flow's own: its
  * A pass whose run clock the test owns. The lead's turns before `arm()` cost nothing; after it every lead turn costs `spend` of the
  * run's time (or, for "to-timeout", its whole timeout, ending timed out), as a lead that honours the timeout it is handed would.
  */
-function timedPass(outputs: string[], spend: number | "to-timeout") {
+function timedPass(outputs: string[], spend: number | "to-timeout", overshootMs = 0) {
   const clock = { left: 3_600_000, armed: false };
   const asked: string[] = [];
   const timeouts: number[] = [];
@@ -2254,7 +2254,7 @@ function timedPass(outputs: string[], spend: number | "to-timeout") {
         if (!clock.armed) return { output: ACCEPT_ALL, timedOut: false };
         asked.push(text);
         timeouts.push(opts.timeoutMs);
-        const cost = spend === "to-timeout" ? opts.timeoutMs : spend;
+        const cost = spend === "to-timeout" ? opts.timeoutMs + overshootMs : spend;
         clock.left -= cost;
         if (spend === "to-timeout") return { output: "", timedOut: true };
         return { output: outputs[Math.min(asked.length - 1, outputs.length - 1)]!, timedOut: false };
@@ -2287,6 +2287,17 @@ test("a slow lead turn is held to the time that leaves its orders the minimum a 
   assert.ok(r.executed.some((e) => e.asked && e.brief.delegationId === "run-1-flow-cart"));
 });
 
+test("a lead turn that ends a moment after its timeout still leaves its orders a flow's minimum time while the reserve is pinned", async () => {
+  /* Under 480 s left the reserve is its floor, so the room shrinks by every second the turn spends; an abort never lands exactly on the timeout. */
+  const { clock, start } = timedPass([], "to-timeout", 1_000);
+  const outcome = await start(330_000);
+  const corrected = await outcome.pass!.correct([CART_FINDING], CORRECTION_ORIGIN.COVERAGE);
+  await outcome.pass!.release();
+  assert.ok(clock.left - 120_000 >= MIN_FLOW_MS, "after the turn the room still holds a flow's minimum");
+  assert.deepEqual(corrected.specs, ["flows/cart.spec.ts"], "the finding reached its flow");
+  assert.deepEqual(corrected.unrouted, []);
+});
+
 test("a run with too little room for a lead turn sends none and gives each finding its default owner, on the record", async () => {
   const { r, asked, start } = timedPass([], 10_000);
   const outcome = await start(200_000);
@@ -2300,7 +2311,7 @@ test("a run with too little room for a lead turn sends none and gives each findi
 
 test("the lead is not asked again when that would leave its orders less than a flow needs; its first answer stands", async () => {
   const { r, asked, start } = timedPass([OUT_OF_RANGE_ORDER, VALID_ORDER], 30_000);
-  const outcome = await start(260_000);
+  const outcome = await start(320_000);
   const corrected = await outcome.pass!.correct([...LOOSE_ARMS, CART_FINDING], CORRECTION_ORIGIN.COVERAGE);
   await outcome.pass!.release();
   assert.equal(asked.length, 1, "the re-ask was not sent");
