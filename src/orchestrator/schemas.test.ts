@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { AppConfigSchema, ManifestEntrySchema } from "./schemas";
+import { AppConfigSchema, ManifestEntrySchema, WebhookPayloadSchema } from "./schemas";
 
 const base = {
   name: "shop",
@@ -469,4 +469,11 @@ test("dev.dataState accepts per-route readiness/result/location selectors, and r
     () => AppConfigSchema.parse({ ...base, dev: { baseUrl: "https://dev.shop.io", dataState: { routes: tooMany } } }),
     /32|routes/,
   );
+});
+
+test("a webhook payload names one of the run modes and refuses any other", () => {
+  const payload = { repo: "org/app", sha: "abcdef1" };
+  for (const mode of ["diff", "manual", "context"]) assert.equal(WebhookPayloadSchema.safeParse({ ...payload, mode }).success, true, mode);
+  assert.equal(WebhookPayloadSchema.safeParse(payload).success, true);
+  assert.equal(WebhookPayloadSchema.safeParse({ ...payload, mode: "exhaustive" }).success, false);
 });

@@ -61,6 +61,7 @@ import {
   createDelegationBrief,
   type CorrectionOrigin,
 } from "@contexts/coordination/application/index.ts";
+import { RUN_MODES } from "@kernel/run-mode.ts";
 import { DEFAULT_CLOSED_LOOP_LIMITS } from "@kernel/closed-loop.ts";
 import { DEFAULT_AGENT_BROWSER_LIMITS } from "@kernel/agent-browser.ts";
 import { DEFAULT_COORDINATION_SETTINGS } from "@kernel/coordination.ts";
@@ -77,7 +78,7 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 export const GLOBAL_USER_PROMPT_BASELINE_BYTES = 20_083;
 
 export const DIMENSIONS = {
-  mode: ["diff", "manual", "context"],
+  mode: [...RUN_MODES],
   phase: ["first", "regen-fix", "regen-review", "regen-coverage", "selector-fix"],
   tree: ["none", "failure", "live"],
   grounding: ["none", "pack"],

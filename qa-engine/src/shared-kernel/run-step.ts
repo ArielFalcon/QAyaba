@@ -1,12 +1,10 @@
 /* Canonical pipeline-phase vocabulary for the progress stepper. An unknown raw step is omitted, never invented. */
 
-export type RunStep =
-  | "gate" | "classify" | "setup" | "generate" | "validate"
-  | "health" | "execute" | "coverage" | "retry" | "decide" | "done";
-export const RUN_STEPS: readonly RunStep[] = [
+export const RUN_STEPS = [
   "gate", "classify", "setup", "generate", "validate",
   "health", "execute", "coverage", "retry", "decide", "done",
 ] as const;
+export type RunStep = (typeof RUN_STEPS)[number];
 
 /* The `onStep("generate", …)` detail marking the pre-generation-grounding
    sub-step (run-qa.use-case.ts's grounding call). The coarse efficiency

@@ -11,8 +11,8 @@ export type TriggerSource = "webhook" | "manual";
  * context    → build or refresh the FE↔BE architecture map (e2e/.qa/context.json)
  * from structured sources (routing, OpenAPI, generated clients).
  */
-export type RunMode = "diff" | "manual" | "context";
-export const RUN_MODES: readonly RunMode[] = ["diff", "manual", "context"] as const;
+export const RUN_MODES = ["diff", "manual", "context"] as const;
+export type RunMode = (typeof RUN_MODES)[number];
 
 /* Reads the mode a request names, for every entry point: none means "diff"; anything that is not a run mode (a removed mode
    included) is refused with the reason, never run as another mode. */

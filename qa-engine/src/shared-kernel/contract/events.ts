@@ -1,17 +1,17 @@
 /* Live RunEvent stream the Channel Gateway pushes to clients. Our vocabulary, not OpenCode's: producers map raw signals onto these events; model prose (delta/TextPart/ReasoningPart) is never represented. Adding a variant here is the only way to surface a new live signal — there is no raw passthrough. */
 
 import { z } from "zod";
+import { RUN_MODES } from "../run-mode.ts";
+import { RUN_STEPS } from "../run-step.ts";
 
 export const TestTargetSchema = z.enum(["e2e"]);
-export const RunModeSchema = z.enum(["diff", "manual", "context"]);
+export const RunModeSchema = z.enum(RUN_MODES);
 export const RunVerdictSchema = z.enum(["pass", "fail", "flaky", "invalid", "infra-error", "skipped"]);
 /* success = the engine produced a trustworthy result and acted (green→PR, real bug→Issue, flaky→quarantine, skip→no-op); error = it could not run or could not produce runnable tests. Distinct from the verdict — a fail (real bug) is engineStatus=success. */
 export const RunEngineStatusSchema = z.enum(["success", "error"]);
 
 /* An unknown raw step is omitted, never invented. */
-export const RunStepSchema = z.enum([
-  "gate", "classify", "setup", "generate", "validate", "health", "execute", "coverage", "retry", "decide", "done",
-]);
+export const RunStepSchema = z.enum(RUN_STEPS);
 
 /* Derived from OpenCode ToolPart, never from prose. analyzing = read/grep/glob/list/webfetch · writing = write/edit/patch · command = bash · subagent = task. */
 export const AgentActivityKindSchema = z.enum(["analyzing", "writing", "command", "subagent"]);

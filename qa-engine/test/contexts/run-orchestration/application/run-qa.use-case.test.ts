@@ -3309,10 +3309,10 @@ test("KEYSTONE: the enforce-mode coverage-regen re-measure ALSO receives the run
 function fakeObserver(): {
   observer: import("@contexts/run-orchestration/application/index.ts").ObserverPort;
   steps: Array<{ step: string; detail?: string }>;
-  events: import("@contexts/run-orchestration/domain/run-event.ts").RunEventBody[];
+  events: import("@kernel/contract/events.ts").RunEventBody[];
 } {
   const steps: Array<{ step: string; detail?: string }> = [];
-  const events: import("@contexts/run-orchestration/domain/run-event.ts").RunEventBody[] = [];
+  const events: import("@kernel/contract/events.ts").RunEventBody[] = [];
   return {
     observer: {
       onStep(step, detail) {
@@ -7156,7 +7156,7 @@ const EXHAUSTED_TURN = { maxSteps: 30, stepsUsed: 30, exhausted: true, writeCoun
 interface EndRun {
   out: Awaited<ReturnType<RunQaUseCase["run"]>>;
   savedOutcomes: RunOutcome[];
-  events: import("@contexts/run-orchestration/domain/run-event.ts").RunEventBody[];
+  events: import("@kernel/contract/events.ts").RunEventBody[];
   published: number;
   validated: number;
   executed: number;

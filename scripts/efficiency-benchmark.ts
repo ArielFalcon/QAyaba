@@ -18,7 +18,7 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import type { RunMode, TestTarget } from "@kernel/run-mode.ts";
+import { RUN_MODES, type RunMode, type TestTarget } from "@kernel/run-mode.ts";
 import type { RunEventBody } from "@kernel/contract/events.ts";
 import { QueueStatusSchema } from "../src/contract/commands.ts";
 import { classifyRunEfficiency, type CoarseRunEfficiency } from "@contexts/generation/application/index.ts";
@@ -56,7 +56,6 @@ export interface EfficiencyBenchmarkCase {
 /* The same commit-id rule the service applies to a run's sha and baseSha. */
 const HEX_COMMIT_ID = /^[0-9a-f]{7,40}$/i;
 
-const RUN_MODES: ReadonlySet<string> = new Set<RunMode>(["diff", "manual", "context"]);
 const TEST_TARGETS: ReadonlySet<string> = new Set<TestTarget>(["e2e"]);
 const SIZE_CLASSES: ReadonlySet<string> = new Set<string>(DIFF_TIER_NAMES);
 
@@ -71,7 +70,7 @@ function isEfficiencyBenchmarkCase(raw: unknown): raw is EfficiencyBenchmarkCase
   if (typeof c.app !== "string" || c.app.length === 0) return false;
   if (typeof c.sha !== "string" || c.sha.length === 0) return false;
   if (c.baseSha !== undefined && typeof c.baseSha !== "string") return false;
-  if (c.mode !== undefined && !RUN_MODES.has(c.mode)) return false;
+  if (c.mode !== undefined && !RUN_MODES.includes(c.mode)) return false;
   if (c.target !== undefined && !TEST_TARGETS.has(c.target)) return false;
   if (c.guidance !== undefined && typeof c.guidance !== "string") return false;
   if (c.tier !== undefined && typeof c.tier !== "string") return false;

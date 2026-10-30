@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { LoginPathSchema } from "../contract/login-path";
+import { RunModeSchema } from "../../qa-engine/src/shared-kernel/contract/events";
 import { MAX_PLACES, MAX_PLACE_NAME_CHARS, PLACE_NAME_PATTERN } from "../../qa-engine/src/shared-kernel/geolocation";
 import { mutatingEntryError, routePatternError } from "../../qa-engine/src/contexts/test-execution/application/index";
 import { isPageOfTemplate } from "../../qa-engine/src/contexts/generation/application/index";
@@ -406,7 +407,7 @@ export type { ManifestEntry as ValidatedManifestEntry } from "../../qa-engine/sr
 export const WebhookPayloadSchema = z.object({
   repo: z.string().min(1),
   sha: z.string().min(7),
-  mode: z.enum(["diff", "manual", "context"]).optional(),
+  mode: RunModeSchema.optional(),
   guidance: z.string().optional(),
 });
 
