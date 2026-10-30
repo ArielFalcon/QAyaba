@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { TOOL_TARGET_MAX_CHARS } from "@contexts/generation/domain/tool-sequence.ts";
 import { redactedText, toolOutcomeOf, TOOL_ERROR_MAX_CHARS } from "@contexts/generation/infrastructure/sse/opencode-tool-outcome.ts";
 
 const DENIAL = "The user has specified a rule which prevents you from using this specific tool call. Here are some of the relevant rules []";
@@ -49,6 +50,22 @@ test("a credential straddling the cap never reaches the attempted tool or a targ
   assert.ok(!/Bearer abc|abcdefghij/.test(redactedText(filler(170) + TOKEN, 200)));
 });
 
+/* A quoted credential of 800 characters in a tool's target (a grep command, a JSON pattern, a header): only a window that holds it whole closes the quote and lets the pattern take every word of it; cut inside, the pattern takes the first word alone. */
+const SECRET_WORDS = "swordfish marlin anchovy ".repeat(32);
+
+test("an 800-character quoted credential that begins before the target cap leaves no word of itself, in a grep command, a JSON pattern or a header", () => {
+  for (const text of [`grep -rn "password=\"${SECRET_WORDS}\"" src/`, `{"pattern":"api_key: \"${SECRET_WORDS}\"","path":"src"}`, `curl -H 'Authorization: Bearer "${SECRET_WORDS}"' https://x`]) {
+    const target = redactedText(text, TOOL_TARGET_MAX_CHARS);
+    assert.ok(target.length <= TOOL_TARGET_MAX_CHARS);
+    assert.ok(!/marlin|anchovy|swordfish marlin/.test(target), `a part of the credential survived: ${target}`);
+  }
+});
+
+test("a long JWT in a grep command is redacted whole, whatever the cap", () => {
+  const jwt = `eyJ${"a1B2".repeat(75)}.${"c3D4".repeat(75)}.${"e5F6".repeat(50)}`;
+  assert.ok(!/eyJ|a1B2/.test(redactedText(`grep -rn "${jwt}" src/`, TOOL_TARGET_MAX_CHARS)));
+});
+
 test("a fault in the redactor yields a marker, never the raw message or attempted tool", () => {
   const redact = (): string => {
     throw new Error("redactor down");
@@ -60,11 +77,19 @@ test("a fault in the redactor yields a marker, never the raw message or attempte
   assert.equal(redactedText("raw", 200, { redact }), "[redacted]");
 });
 
-const sse = join(import.meta.dirname, "..", "..", "..", "..", "..", "src", "contexts", "generation", "infrastructure", "sse");
+const ROOTS = [join(import.meta.dirname, "..", "..", "..", "..", "..", "src"), join(import.meta.dirname, "..", "..", "..", "..", "..", "..", "src")];
 
-test("no module of the event stream reads a tool state's error outside the outcome classifier", () => {
-  const offenders = readdirSync(sse)
-    .filter((name) => name.endsWith(".ts") && name !== "opencode-tool-outcome.ts")
-    .filter((name) => /\bstate\??\.error\b/.test(readFileSync(join(sse, name), "utf8")));
+/* Every source file under a directory, recursively. */
+function sourcesUnder(dir: string): string[] {
+  return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+    const path = join(dir, entry.name);
+    return entry.isDirectory() ? sourcesUnder(path) : entry.name.endsWith(".ts") ? [path] : [];
+  });
+}
+
+test("no module of the engine or the shell reads a tool state's error outside the outcome classifier", () => {
+  const offenders = ROOTS.flatMap(sourcesUnder)
+    .filter((path) => !path.endsWith(join("sse", "opencode-tool-outcome.ts")))
+    .filter((path) => /\bstate\??\.error\b/.test(readFileSync(path, "utf8")));
   assert.deepEqual(offenders, []);
 });
