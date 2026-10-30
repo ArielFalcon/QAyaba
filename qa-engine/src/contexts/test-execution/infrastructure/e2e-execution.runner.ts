@@ -28,7 +28,7 @@ import { activeExecScope } from "../../../shared-infrastructure/process-sandbox/
 import { MAX_DEV_WRITE_REQUESTS, noteDevWriteRequest, type DevWriteRequest } from "../domain/dev-write-request.ts";
 import { chargeTestWrites, type RecordedWrite, type TestWriteLedger } from "../domain/dev-write-charge.ts";
 import { isSuiteRelative, type SpecLoadError } from "../domain/spec-load-error.ts";
-import { buildControlConfig, buildControlTest, controlArgs } from "./control-load.ts";
+import { buildControlConfig, buildControlTest, controlArgs, controlLoadMs } from "./control-load.ts";
 
 export const DEFAULT_E2E_TIMEOUT_MS = 900_000;
 
@@ -174,6 +174,8 @@ export interface E2eExecuteDeps {
     /** Called once when the child has closed and its run can no longer be timed out or cancelled. */
     onChildClosed?: () => void;
     failureCaptureDir?: string;
+    /** Called once, when the control child of a counted run has closed cleanly and before the spec child starts, with the control files it left (read strictly, held in memory); undefined when none can be trusted. A run whose control failed never calls it, and a control file found after it is not read. */
+    onControlRead?: (controls: ControlsByProject | undefined) => void;
   }): Promise<E2eRunOutput>;
   defaultTimeoutMs?: number;
   /* How long a killed child is waited for before the ledgers are read. Absent: CHILD_EXIT_WAIT_MS. */
@@ -278,6 +280,8 @@ export async function runE2E(
     if (onAbort) opts.signal?.removeEventListener("abort", onAbort);
   };
 
+  /* The control the run's control child left, read when that child closed, before the spec child existed: the only control the charge is made against. */
+  let controls: ControlsByProject | undefined;
   try {
   const runPromise = deps.runSuite({
     dir: specDir,
@@ -300,6 +304,7 @@ export async function runE2E(
     onEvent,
     onChildClosed: disarm,
     failureCaptureDir,
+    onControlRead: (read) => { controls = read; },
   });
 
   const timedOut: E2eRunOutput = { report: {}, logs: `playwright runner timed out after ${timeoutMs}ms — killed`, ran: false };
@@ -325,7 +330,7 @@ export async function runE2E(
   if (opts.countWrites && (out === timedOut || out === abortedOut)) await exitedWithin(runPromise, deps.exitWaitMs ?? CHILD_EXIT_WAIT_MS);
   const { report, logs, ran } = out;
   /* The ledger is read before any early return. How many tests it must cover is what the run says it ran: the report's executed tests for a run that reported, the tests that began for one that did not (stopped, crashed, no report); a ledger short of that has lost a test, so the count is unknown (a test that ended skipped may have left none, which the count allows for by number, not by name: the ledger carries no title) and the caller charges the whole cap (see readDevWrites). */
-  const ledger = opts.countWrites ? readDevWrites(failureCaptureDir, failureCaptureRoot) : undefined;
+  const ledger = opts.countWrites ? readDevWrites(failureCaptureDir, failureCaptureRoot, controls) : undefined;
   const counted = (result: E2eRunResult, tests: number, skipped = 0): E2eRunResult =>
     ledger === undefined || ledger.files + skipped < tests ? result : { ...result, devWrites: ledger.writes, ...(ledger.unfinished > 0 ? { unfinishedTests: ledger.unfinished } : {}), ...(ledger.requests.length > 0 ? { devWriteRequests: ledger.requests } : {}), ...(ledger.exempt.length > 0 ? { controlRequests: ledger.exempt } : {}) };
 
@@ -453,7 +458,7 @@ export async function runE2E(
   }
 }
 
-/* The writes to DEV the specs of a run caused, from the ledger files the fixtures left in the failure-capture directory and the control file of each project beside them, the requests behind the charge (method, origin and pathname, re-derived here and redacted, so a query never leaves), how many ledger files that was (one per test that began) and how many of those tests had not finished. The seed writes a test's ledger when the test starts and rewrites it on every write (see config/e2e/fixtures.ts), so a test that was killed has left what it did: a finished test is charged its answered `writes`, an unfinished one its `writes` plus the requests it still had out (`pending`, which may have reached DEV). A ledger without a version is the earlier seed's, written when the test finished. The ledger says who sent each request it recorded and how often; a page request that the control of the test's own project (`control-<id>.json`, written before the spec child started, by a load of the launch URL with no spec action in a Playwright child of its own: see control-load.ts) also sent is the page's own upkeep and is not charged, up to the count the control saw (`chargeTestWrites`); a test that names no project, a project without a readable control, or any control that cannot be trusted (two claim one project) exempts nothing. The directory is the child's, so it is read strictly (see readRunOutputDir) and all or nothing: a forged, oversized or unreadable ledger makes the whole count unknown (undefined) and never a smaller one; a directory with no ledger at all is a count of none, which the caller believes only for a run in which no test began. The counter itself runs inside the suite's own fixtures, which is agent-editable code, so a ledger and a control are evidence of what the spec did only against an honest spec (the control is measured where no spec code runs, but it is written where the spec's sandbox can write); the hard bound on what a call can do to DEV is the call cap times the per-call time, and the egress filter. A write sent outside any test (a module's top level, a worker's setup) is in no ledger. */
+/* The writes to DEV the specs of a run caused, from the ledger files the fixtures left in the failure-capture directory and the control file of each project beside them, the requests behind the charge (method, origin and pathname, re-derived here and redacted, so a query never leaves), how many ledger files that was (one per test that began) and how many of those tests had not finished. The seed writes a test's ledger when the test starts and rewrites it on every write (see config/e2e/fixtures.ts), so a test that was killed has left what it did: a finished test is charged its answered `writes`, an unfinished one its `writes` plus the requests it still had out (`pending`, which may have reached DEV). A ledger without a version is the earlier seed's, written when the test finished. The ledger says who sent each request it recorded and how often; a page request that the control of the test's own project (`control-<id>.json`, written by a load of the launch URL with no spec action in a Playwright child of its own and read when that child closed, before the spec child started: see control-load.ts) also sent is the page's own upkeep and is not charged, up to the count the control saw (`chargeTestWrites`); a test that names no project, a project without a readable control, a control child that failed, or any control that cannot be trusted (two claim one project) exempts nothing. The control is the one the runner read when its child closed, handed in as `controls`: the file sits in the directory the spec's sandbox writes, so a file found there after the spec child started is not read. The directory is the child's, so it is read strictly (see readRunOutputDir) and all or nothing: a forged, oversized or unreadable ledger makes the whole count unknown (undefined) and never a smaller one; a directory with no ledger at all is a count of none, which the caller believes only for a run in which no test began. The counter itself runs inside the suite's own fixtures, which is agent-editable code, so a ledger and a control are evidence of what the spec did only against an honest spec (the control is measured where no spec code runs and read before the spec child starts, so the spec cannot rewrite it); the hard bound on what a call can do to DEV is the call cap times the per-call time, and the egress filter. A write sent outside any test (a module's top level, a worker's setup) is in no ledger. */
 const LEDGER_FILE_RE = /^ledger-[A-Za-z0-9_-]+\.json$/;
 const CONTROL_FILE_RE = /^control-[A-Za-z0-9_-]{1,64}\.json$/;
 /* The longest project name a ledger or a control carries; the seed and the control cut a name there, so the two keys stay equal. */
@@ -504,8 +509,11 @@ function projectName(raw: unknown): string {
   return raw;
 }
 
-/* The control of each project, by the project's name; undefined when no control can be trusted (none written, a file that is forged, oversized or unreadable, or two that claim one project), which charges every request. */
-function readControls(dir: string, root: string | undefined): Map<string, DevWriteRequest[]> | undefined {
+/* The requests the control of each project saw, by the project's name. */
+export type ControlsByProject = Map<string, DevWriteRequest[]>;
+
+/* The control of each project, by the project's name, read from the control files in the capture directory; undefined when no control can be trusted (none written, a file that is forged, oversized or unreadable, or two that claim one project), which charges every request. The default runner calls it once per run, when the control child has closed cleanly and before the spec child starts; the directory is the sandbox's to write, so nothing found in it afterwards is a control (see `readDevWrites`). */
+export function readControlFiles(dir: string, root: string | undefined): ControlsByProject | undefined {
   const base = root ?? dir;
   const files = readRunOutputDir({ mirrorDir: base, specDir: base }, relative(base, dir) || ".", (name) => CONTROL_FILE_RE.test(name), (_name, bytes) => {
     const parsed = JSON.parse(bytes.toString("utf8")) as { v?: unknown; project?: unknown; requests?: unknown };
@@ -522,7 +530,7 @@ function readControls(dir: string, root: string | undefined): Map<string, DevWri
   return controls.size === files.length ? controls : undefined;
 }
 
-function readDevWrites(dir: string | undefined, root: string | undefined): { writes: number; files: number; unfinished: number; requests: DevWriteRequest[]; exempt: DevWriteRequest[] } | undefined {
+function readDevWrites(dir: string | undefined, root: string | undefined, controls: ControlsByProject | undefined): { writes: number; files: number; unfinished: number; requests: DevWriteRequest[]; exempt: DevWriteRequest[] } | undefined {
   if (dir === undefined) return undefined;
   const base = root ?? dir;
   const files = readRunOutputDir({ mirrorDir: base, specDir: base }, relative(base, dir) || ".", (name) => LEDGER_FILE_RE.test(name), (_name, bytes) => {
@@ -545,7 +553,6 @@ function readDevWrites(dir: string | undefined, root: string | undefined): { wri
     return { project: parsed.project === undefined ? undefined : projectName(parsed.project), ledger: { writes, pending, done, requests } satisfies TestWriteLedger };
   }, LEDGER_LIMITS);
   if (files === undefined) return undefined;
-  const controls = files.some((f) => f.project !== undefined && f.ledger.requests.some((r) => r.sender === "page")) ? readControls(dir, root) : undefined;
   const requests: DevWriteRequest[] = [];
   const exempt: DevWriteRequest[] = [];
   let writes = 0;
@@ -965,7 +972,7 @@ export function createDefaultE2eExecuteDeps(
       const dir = exec.allocDir("failures", ["dumps"]);
       return { dir: join(dir, "dumps"), root: exec.workDir(), dispose: () => { try { rmSync(dir, { recursive: true, force: true }); } catch { /* best-effort */ } } };
     },
-    runSuite: ({ dir, baseUrl, namespace, geolocation, dataState, testIdAttribute, mutant, observe, project, specFiles, retries, grep, countWrites, cleanupPass, signal, timeoutMs, onEvent, onChildClosed, failureCaptureDir }) =>
+    runSuite: ({ dir, baseUrl, namespace, geolocation, dataState, testIdAttribute, mutant, observe, project, specFiles, retries, grep, countWrites, cleanupPass, signal, timeoutMs, onEvent, onChildClosed, failureCaptureDir, onControlRead }) =>
       new Promise((resolve, reject) => {
         /* The specs to run, as a file the orchestrator writes (root-owned, read-only to the sandbox): the child is told which files by an exact list, never by a pattern. */
         const testListPath = specFiles !== undefined && specFiles.length > 0 ? exec.writeScript("spec-list.txt", specListContent(specFiles)) : undefined;
@@ -1070,8 +1077,8 @@ export function createDefaultE2eExecuteDeps(
           });
         };
 
-        /* The control load (RFC-0007): what the page sends with no spec action, measured before any spec code runs, in a Playwright child of its own, so that nothing a spec does in its process or its browser can shape it. It ends before the spec child starts, and it is bound by the time this call has. A control that fails leaves no file: the page requests of the call's tests are charged in full, and the run says so. */
-        const startControl = (): void => {
+        /* The control load (RFC-0007): what the page sends with no spec action, measured before any spec code runs, in a Playwright child of its own, so that nothing a spec does in its process or its browser can shape it. It ends before the spec child starts. Its page load has a bound of its own, a share of this call's time (`controlLoadMs`), and the call's timer stays the hard stop: a launch page that never goes idle ends the load at its bound, the control closes cleanly with what it saw, and the spec child starts with the time the call has left. The control file is read here, when the control child closes cleanly and before the spec child exists, and held in memory; the directory is the sandbox's to write, so a control file found later is not read. A control that fails (it could not start, crashed, ended with a status or a signal) exempts nothing, whatever it left: the page requests of the call's tests are charged in full, and the run says so. */
+        const startControl = (capture: string): void => {
           const testPath = exec.writeScript("control-load.run.cjs", buildControlTest());
           const configPath = exec.writeScript("control-load.config.cjs", buildControlConfig(testPath));
           const control = exec.spawn("npx", controlArgs(configPath, join(work, "results"), project), {
@@ -1079,7 +1086,7 @@ export function createDefaultE2eExecuteDeps(
             profile: "suite",
             commandClass: "playwright-test",
             ...(geolocation ? { geolocation } : {}),
-            extraEnv: { ...sharedEnv, PW_CONTROL_TIMEOUT_MS: String(ms) },
+            extraEnv: { ...sharedEnv, PW_CONTROL_TIMEOUT_MS: String(controlLoadMs(ms)) },
           });
           running = control;
           const said = new BoundedOutputTail(E2E_STDERR_KEEP_CHARS);
@@ -1098,6 +1105,13 @@ export function createDefaultE2eExecuteDeps(
               return;
             }
             if (why !== undefined) engineLog.warn(`[qa] the control load of this run ${why}, so the page requests of its tests are charged in full:\n${said.text()}`);
+            else {
+              try {
+                onControlRead?.(readControlFiles(capture, workRoot));
+              } catch (err) {
+                engineLog.warn(`[qa] the control file of this run could not be read (${err instanceof Error ? err.message : String(err)}), so the page requests of its tests are charged in full`);
+              }
+            }
             try {
               startSuite();
             } catch (err) {
@@ -1112,7 +1126,7 @@ export function createDefaultE2eExecuteDeps(
 
         if (countWrites && failureCaptureDir) {
           try {
-            startControl();
+            startControl(failureCaptureDir);
           } catch (err) {
             disarm();
             throw err;

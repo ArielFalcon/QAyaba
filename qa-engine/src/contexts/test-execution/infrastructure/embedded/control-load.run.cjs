@@ -1,5 +1,5 @@
 // @ts-check
-/* The control load of a counted run_spec call: the one test the control config runs. The page loads the launch URL in the context Playwright makes for the project (the same saved session and options a spec's page gets) with no spec action, until the network is idle, and the mutating requests DEV answered while it did are written to `control-<project>.json` in QA_FAILURE_CAPTURE_DIR (method, origin + pathname, count; never a query, a body or a header). The orchestrator charges a spec's page requests only beyond what its project's control saw. It runs in a Playwright process of its own, started by the orchestrator before the spec child, so no code of the spec has run in the process or the browser it uses. CONTROL_MAX_REQUESTS is prepended; PW_CONTROL_TIMEOUT_MS is the call's time, which bounds the load. */
+/* The control load of a counted run_spec call: the one test the control config runs. The page loads the launch URL in the context Playwright makes for the project (the same saved session and options a spec's page gets) with no spec action, until the network is idle or the load's bound is spent, and the mutating requests DEV answered while it did are written to `control-<project>.json` in QA_FAILURE_CAPTURE_DIR (method, origin + pathname, count; never a query, a body or a header). A page that never goes idle (a stream, a poll) ends the load at its bound: the control then ran and saw less, which charges more, so it keeps what it saw and ends cleanly. Any other failure of the load fails the test and leaves no file: a control that did not run exempts nothing. The orchestrator charges a spec's page requests only beyond what its project's control saw. It runs in a Playwright process of its own, started by the orchestrator before the spec child, so no code of the spec has run in the process or the browser it uses. CONTROL_MAX_REQUESTS is prepended; PW_CONTROL_TIMEOUT_MS is the bound of the load, a share of the call's time. */
 (() => {
   const { createHash } = require("node:crypto");
   const { renameSync, writeFileSync } = require("node:fs");
@@ -44,12 +44,13 @@
     const project = testInfo.project.name.slice(0, MAX_PROJECT_CHARS);
     try {
       await page.goto(launch, { waitUntil: "networkidle", timeout });
-    } finally {
-      /* A load that failed or never went idle still leaves the writes it saw: the control may say less than the page does, never more. */
-      const name = createHash("sha1").update(project).digest("hex").slice(0, 12);
-      const temp = join(dir, `.control-${name}.tmp`);
-      writeFileSync(temp, JSON.stringify({ v: 1, project, requests: seen }));
-      renameSync(temp, join(dir, `control-${name}.json`));
+    } catch (err) {
+      /* The bound of the load is not a failure of the control: it keeps what it saw. Playwright names its time-out error. */
+      if (!(err instanceof Error) || err.name !== "TimeoutError") throw err;
     }
+    const name = createHash("sha1").update(project).digest("hex").slice(0, 12);
+    const temp = join(dir, `.control-${name}.tmp`);
+    writeFileSync(temp, JSON.stringify({ v: 1, project, requests: seen }));
+    renameSync(temp, join(dir, `control-${name}.json`));
   });
 })();

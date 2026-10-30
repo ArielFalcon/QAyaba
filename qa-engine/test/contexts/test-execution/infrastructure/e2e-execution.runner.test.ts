@@ -29,6 +29,7 @@ import {
   readFailureDumps,
   createDefaultE2eCleanupDeps,
   createDefaultE2eExecuteDeps,
+  readControlFiles,
   E2E_STDERR_KEEP_CHARS,
   MAX_STREAM_EVENT_LINE_CHARS,
   type StreamEvent,
@@ -40,6 +41,7 @@ import { ProcessKillAdapter } from "../../../../src/shared-infrastructure/proces
 import { newSandboxReport, withExecScope, type RunScope } from "../../../../src/shared-infrastructure/process-sandbox/exec-scope.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 import { MAX_DEV_WRITE_REQUESTS } from "@contexts/test-execution/domain/dev-write-request.ts";
+import { controlLoadMs } from "@contexts/test-execution/infrastructure/control-load.ts";
 
 test("allFailuresAreRunnerInfra: a browser-launch failure is infra (runner fault), not a test failure", () => {
   const launchFail: QaCase[] = [
@@ -1653,14 +1655,15 @@ test("a counted run measures its control in a Playwright child of its own, befor
   }
 });
 
-test("the control is bound by the call's time, paid once however many retries the spec child is given, and ends with the call", async () => {
+test("the control's load is bound by a fraction of the call's time, and the whole call, its control included, ends with the call", async () => {
   const hand = handDrivenExec();
   const killed: unknown[] = [];
   try {
     const kill = { killTree: (child: EventEmitter) => { killed.push(child); setImmediate(() => child.emit("close", null, "SIGKILL")); } };
     const deps = createDefaultE2eExecuteDeps(kill as never, 60_000, hand.exec, undefined, undefined, 25);
     const out = await deps.runSuite({ dir: hand.workRoot, baseUrl: "https://dev", namespace: "ns", retries: 2, countWrites: true, timeoutMs: 80, failureCaptureDir: join(hand.workRoot, "dumps") });
-    assert.equal(hand.spawned[0]!.env.PW_CONTROL_TIMEOUT_MS, "80", "the control may take what the call has, with no constant of its own");
+    assert.equal(hand.spawned[0]!.env.PW_CONTROL_TIMEOUT_MS, String(controlLoadMs(80)), "the load may take a share of the call, never the call");
+    assert.ok(Number(hand.spawned[0]!.env.PW_CONTROL_TIMEOUT_MS) < 80);
     assert.equal(hand.spawned.length, 1, "a call whose time ran out in its control never starts the spec child");
     assert.deepEqual(killed, [hand.spawned[0]!.child]);
     assert.equal(out.ran, false);
@@ -1706,6 +1709,72 @@ test("a run that does not count writes starts no control", async () => {
   } finally {
     hand.cleanup();
   }
+});
+
+/* A counted run through the real runner, its two children driven by hand: the control child, then the spec child, each given the capture directory the sandbox can write. */
+async function countedRun(steps: { control(dir: string): { exit: number }; spec(dir: string): void }): Promise<{ devWrites?: number; controlRequests?: unknown; warned: string }> {
+  const hand = handDrivenExec();
+  const warned = mock.method(console, "warn", () => {});
+  try {
+    const deps = createDefaultE2eExecuteDeps(new ProcessKillAdapter(), 60_000, hand.exec, undefined, () => ({ ran: true, report: { stats: { expected: 1 }, suites: [] } }));
+    const running = runE2E(hand.workRoot, { baseUrl: "https://dev", namespace: "ns", countWrites: true }, deps);
+    while (hand.spawned.length < 1) await tick();
+    const dir = hand.spawned[0]!.env.QA_FAILURE_CAPTURE_DIR!;
+    const { exit } = steps.control(dir);
+    hand.spawned[0]!.child.emit("close", exit, null);
+    while (hand.spawned.length < 2) await tick();
+    steps.spec(dir);
+    hand.spawned[1]!.child.emit("close", 0, null);
+    const run = await running;
+    return { devWrites: run.devWrites, controlRequests: run.controlRequests, warned: warned.mock.calls.map((c) => String(c.arguments[0])).join("\n") };
+  } finally {
+    warned.mock.restore();
+    hand.cleanup();
+  }
+}
+const pageLedger = (count: number) => ledgerOf(count, [{ method: "POST", url: TOKEN, sender: "page", count }]);
+
+test("a spec that rewrites the control file after the control ended is charged against what the control saw, not against what the spec says it saw", async () => {
+  const out = await countedRun({
+    control: (dir) => { writeFileSync(join(dir, "control-a.json"), controlOf([{ method: "POST", url: TOKEN, count: 1 }])); return { exit: 0 }; },
+    spec: (dir) => {
+      writeFileSync(join(dir, "ledger-p1-w0-1.json"), pageLedger(5));
+      writeFileSync(join(dir, "control-a.json"), controlOf([{ method: "POST", url: TOKEN, count: 50 }]));
+    },
+  });
+  assert.equal(out.devWrites, 4, "5 page requests less the 1 the control saw");
+  assert.deepEqual(out.controlRequests, [{ method: "POST", url: TOKEN, count: 1 }]);
+});
+
+test("a control file that appears only once the spec child runs is forged: nothing is exempt", async () => {
+  const out = await countedRun({
+    control: () => ({ exit: 0 }),
+    spec: (dir) => {
+      writeFileSync(join(dir, "ledger-p1-w0-1.json"), pageLedger(5));
+      writeFileSync(join(dir, "control-a.json"), controlOf([{ method: "POST", url: TOKEN, count: 50 }]));
+    },
+  });
+  assert.equal(out.devWrites, 5);
+  assert.equal(out.controlRequests, undefined);
+});
+
+test("a control that failed exempts nothing, whatever it left in the capture directory, and the run says so", async () => {
+  const out = await countedRun({
+    control: (dir) => { writeFileSync(join(dir, "control-a.json"), controlOf([{ method: "POST", url: TOKEN, count: 5 }])); return { exit: 1 }; },
+    spec: (dir) => { writeFileSync(join(dir, "ledger-p1-w0-1.json"), pageLedger(5)); },
+  });
+  assert.equal(out.devWrites, 5);
+  assert.equal(out.controlRequests, undefined);
+  assert.match(out.warned, /control load of this run ended with status 1, so the page requests of its tests are charged in full/);
+});
+
+test("a control that ended cleanly after its bound keeps what it saw: it ran, it only saw less", async () => {
+  const out = await countedRun({
+    control: (dir) => { writeFileSync(join(dir, "control-a.json"), controlOf([{ method: "POST", url: TOKEN, count: 2 }])); return { exit: 0 }; },
+    spec: (dir) => { writeFileSync(join(dir, "ledger-p1-w0-1.json"), pageLedger(5)); },
+  });
+  assert.equal(out.devWrites, 3);
+  assert.equal(out.warned, "");
 });
 
 test("the default runner leads the dump folders to the work dir while the child runs, and carries over only a valid dump once it has gone", async () => {
@@ -1948,7 +2017,9 @@ async function chargedBy(files: Record<string, string>): Promise<{ devWrites?: n
   const ledger = withLedgerDir(files);
   const tests = Object.keys(files).filter((name) => name.startsWith("ledger-")).length;
   try {
-    const run = await runE2E("/dir", { baseUrl: "https://dev", namespace: "ns", countWrites: true }, ledger.deps({ stats: { expected: tests }, suites: [] }));
+    const deps = ledger.deps({ stats: { expected: tests }, suites: [] });
+    /* The default runner reads the control files when the control child closes; the stand-in does the same with the same reader, before the spec child "runs". */
+    const run = await runE2E("/dir", { baseUrl: "https://dev", namespace: "ns", countWrites: true }, { ...deps, runSuite: async (args) => { args.onControlRead?.(readControlFiles(join(ledger.root, "dumps"), ledger.root)); return deps.runSuite(args); } });
     return { devWrites: run.devWrites, devWriteRequests: run.devWriteRequests, controlRequests: run.controlRequests };
   } finally {
     ledger.cleanup();
@@ -2033,6 +2104,36 @@ test("runE2E never exempts a request whose sender is not the page: the api clien
   });
   assert.equal(out.devWrites, 3);
   assert.equal(out.controlRequests, undefined);
+});
+
+test("runE2E never exempts a request a project-named ledger records without a sender", async () => {
+  const out = await chargedBy({
+    "control-a.json": controlOf([{ method: "POST", url: TOKEN, count: 5 }]),
+    "ledger-p1-w0-1.json": JSON.stringify({ v: 2, writes: 2, pending: 0, done: true, project: "desktop", requests: [{ method: "POST", url: TOKEN, count: 2 }] }),
+  });
+  assert.equal(out.devWrites, 2, "a sender nobody named is not the page");
+  assert.equal(out.controlRequests, undefined);
+});
+
+test("runE2E reads a project name of 200 characters and trusts nothing at 201: the seed and the control cut a name at 200, so a longer one was not written by either", async () => {
+  const name = (n: number) => "p".repeat(n);
+  const page = (project: string) => ledgerOf(3, [{ method: "POST", url: TOKEN, sender: "page", count: 3 }], project);
+  const control = (project: string) => controlOf([{ method: "POST", url: TOKEN, count: 3 }], project);
+  const at = await chargedBy({ "control-a.json": control(name(200)), "ledger-p1-w0-1.json": page(name(200)) });
+  assert.equal(at.devWrites, 0, "200 characters: the ledger and the control meet");
+  const ledgerPast = await chargedBy({ "control-a.json": control(name(200)), "ledger-p1-w0-1.json": page(name(201)) });
+  assert.equal(ledgerPast.devWrites, undefined, "a ledger with a name past the bound makes the whole count unknown");
+  const controlPast = await chargedBy({ "control-a.json": control(name(201)), "ledger-p1-w0-1.json": page(name(200)) });
+  assert.equal(controlPast.devWrites, 3, "a control with a name past the bound is not trusted");
+});
+
+test("runE2E trusts a control that holds as many distinct requests as a ledger may and none that holds more", async () => {
+  const entries = (n: number) => Array.from({ length: n }, (_, i) => ({ method: "POST", url: `https://dev.example.com/api/items/${i}`, count: 1 }));
+  const ledgers = { "ledger-p1-w0-1.json": ledgerOf(1, [{ method: "POST", url: "https://dev.example.com/api/items/0", sender: "page", count: 1 }]) };
+  const full = await chargedBy({ ...ledgers, "control-a.json": controlOf(entries(MAX_DEV_WRITE_REQUESTS)) });
+  assert.equal(full.devWrites, 0);
+  const over = await chargedBy({ ...ledgers, "control-a.json": controlOf(entries(MAX_DEV_WRITE_REQUESTS + 1)) });
+  assert.equal(over.devWrites, 1);
 });
 
 test("runE2E charges the writes a ledger could not record beyond its distinct cap, and an unfinished test's pending requests", async () => {

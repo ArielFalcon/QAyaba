@@ -9,7 +9,7 @@ import { RunDevWriteLedger } from "@contexts/test-execution/domain/run-dev-write
 import { CLOSED_LOOP_REFUSAL, RUN_SPEC_FLOW_AGENT, RunSpecCapability } from "@contexts/test-execution/domain/run-spec-capability.ts";
 import { MAX_ERROR_CHARS, MAX_REPORTED_LOAD_ERRORS, MAX_REPORTED_TESTS, MAX_TITLE_CHARS, RunSpecUseCase, escapeGrep, type RunSpecDeps } from "@contexts/test-execution/application/run-spec.use-case.ts";
 import type { SpecExecutionRequest, SpecExecutionResult } from "@contexts/test-execution/domain/spec-executor.ts";
-import { runE2E } from "@contexts/test-execution/infrastructure/e2e-execution.runner.ts";
+import { readControlFiles, runE2E } from "@contexts/test-execution/infrastructure/e2e-execution.runner.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 import { confinedSpecFiles } from "../../../../src/shared-infrastructure/spec-files.adapter.ts";
 import { typescriptSpecFixtures } from "../../../../src/shared-infrastructure/spec-fixtures-import.ts";
@@ -340,7 +340,7 @@ test("once the writes cap is spent the next call is refused, and says so", async
   assert.ok(!refused.ok && refused.code === CLOSED_LOOP_REFUSAL.NO_WRITES);
 });
 
-/* The whole chain from the ledgers a call's fixtures left to the refusal: the executor runs the real runner over a capture directory holding what one call's single test and its worker's control wrote. */
+/* The whole chain from the ledgers a call's fixtures left to the refusal: the executor runs the real runner over a capture directory holding the ledger of one call's single test and the control file its control child left. The stand-in for the suite's run reads the control file the way the default runner does when the control child closes (`readControlFiles`) and hands it to the runner, which charges the ledger against that read and no later file. */
 function executorOver(t: TestContext, files: Record<string, string>): RunSpecDeps["executor"] {
   return {
     execute: async () => {
@@ -351,7 +351,10 @@ function executorOver(t: TestContext, files: Record<string, string>): RunSpecDep
       for (const [name, text] of Object.entries(files)) writeFileSync(join(dumps, name), text);
       const run = await runE2E("/dir", { baseUrl: "https://dev", namespace: "ns", countWrites: true }, {
         allocateFailureDir: () => ({ dir: dumps, root, dispose: () => {} }),
-        runSuite: async () => ({ report: { stats: { expected: 1 } }, logs: "", ran: true }),
+        runSuite: async (args) => {
+          args.onControlRead?.(readControlFiles(dumps, root));
+          return { report: { stats: { expected: 1 } }, logs: "", ran: true };
+        },
       });
       return { verdict: "pass", cases: [{ name: "t", status: "pass" }], logs: "", ...(run.devWrites !== undefined ? { devWrites: run.devWrites } : {}) };
     },
