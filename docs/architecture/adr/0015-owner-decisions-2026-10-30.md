@@ -25,6 +25,8 @@ The same checkpoint found three faults in the DEV-write control of RFC-0007 (A-B
 5. **The DEV-write control** (A-B1, A-B2, A-J3, `b690fa8c`; the first design `e58085a5`). The control load is bounded apart from the call (one fifth of its time for the page load), a load that ends at its bound keeps what it saw and closes cleanly; the runner reads the control files when the control child closes, before the spec child starts, and ignores any control file found later; a control that failed exempts nothing, whatever it left. RFC-0007 carries the text.
 6. **The tool-target redaction window** (B-J2, `9b243fab`) is the larger of the evidence safety bound and twice the cap, and the cut comes after the redaction. RFC-0010 carries the text.
 
+Correction 2026-10-30 (refactor review, review log): points 3 and 4 hold on the acceptance path only. The first pass proves every delivered spec after a green run without reading its cases (`fix-loop.steps.ts:400-414`), so a file whose tests all skip, or that holds only a `test.fail()` test, ends `pass` and is captured; and the rule matches prior cases by title on a record that drops the declared mode, so an unchanged `test.fail()` blocks its file's regeneration and a renamed test turns green. The seed lint is a hard gate, not a hint, and misses `test.fail()`, `test.info().skip()` and an alias. T34 carries the base cause (ADR-0016 R3).
+
 ## Consequences
 
 - [RFC-0008](../rfc/0008-acceptance-records-what-it-ran.md) gets a correction: a kept file may have no case when all its tests skipped, and it then gets no proof.
