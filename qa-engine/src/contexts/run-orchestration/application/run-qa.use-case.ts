@@ -263,7 +263,8 @@ export class RunQaUseCase {
   private recordCorrections(state: RunState, trail: RunTrail): void {
     const corrections = trail.coordinatedPass?.tally();
     const { coordination } = state;
-    if (coordination && corrections && corrections.turns > 0) recordCoordination(state, { ...coordination, corrections });
+    /* A pass that handled findings without asking the lead (no room, a spent budget) has still routed or left them. */
+    if (coordination && corrections && Object.values(corrections).some((count) => count > 0)) recordCoordination(state, { ...coordination, corrections });
   }
 
   /* Releases the coordinated pass: the lead's session and every flow's session, workspace, loop and location. A fault is said and never changes how the run ended. */

@@ -287,7 +287,7 @@ function keptPass(r: Rig, answer: (findings: readonly CorrectionFinding[]) => Pa
       return out;
     },
     leaveUnrouted: (findings, origin, reason) => void seen.left.push({ count: findings.length, origin, reason }),
-    tally: () => ({ turns: seen.corrected.length, routed: seen.corrected.flat().length, unrouted: 0, revised: seen.corrected.length, replaced: 0, rebutted: 0 }),
+    tally: () => ({ turns: seen.corrected.length, routed: seen.corrected.flat().length, unrouted: seen.left.reduce((n, l) => n + l.count, 0), revised: seen.corrected.length, replaced: 0, rebutted: 0 }),
     release: async () => void (seen.released += 1),
   };
   return { pass, seen };
@@ -558,6 +558,16 @@ test("when the lead's correction budget is spent the static gate's errors stay u
   assert.deepEqual(kept.seen.left, [{ count: 1, origin: CORRECTION_ORIGIN.STATIC_GATE, reason: "lead correction budget spent" }]);
   assert.equal(r.calls.filter((c) => c === "generate").length, 0, "no cold regeneration");
   assert.ok(result.outcome, "the run ends with an outcome");
+});
+
+test("findings left unrouted before the lead was asked are on the run's coordination record", async () => {
+  let r!: Rig;
+  let kept!: ReturnType<typeof keptPass>;
+  r = rig(() => delivered(kept.pass));
+  kept = keptPass(r, () => ({ readable: true, specs: ["flows/a.spec.ts"], rebuttals: [], unrouted: [] }));
+  const result = await new RunQaUseCase(r.deps({ review: rejectingOnce(["flows/a.spec.ts never asserts the total"]), config: SPENT })).run(INPUT);
+  assert.deepEqual(kept.seen.corrected, [], "the lead was never asked");
+  assert.deepEqual(result.outcome?.gateSignals.coordination?.corrections, { turns: 0, routed: 0, unrouted: 1, revised: 0, replaced: 0, rebutted: 0 });
 });
 
 test("when the lead's correction budget is spent the reviewer's findings stay unrouted, and a run with no pass still regenerates by an author", async () => {
