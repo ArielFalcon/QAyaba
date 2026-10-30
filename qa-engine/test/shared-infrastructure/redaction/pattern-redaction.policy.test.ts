@@ -326,3 +326,10 @@ test("a camelCase identifier (45 chars, no digits) still survives — escape sta
   assert.match(out, /populateCoursesDescriptionMultilingualUseCase/);
   assert.doesNotMatch(out, /\[REDACTED\]/);
 });
+
+test("model mode redacts a quoted credential of several words whole", () => {
+  for (const text of [`password="amber falcon river twelve"`, `const password = 'amber falcon river twelve';`]) {
+    const { text: out } = sanitizeText(text, "model");
+    assert.doesNotMatch(out, /amber|falcon|river|twelve/, out);
+  }
+});

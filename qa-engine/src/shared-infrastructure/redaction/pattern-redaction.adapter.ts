@@ -24,7 +24,8 @@ function isHighEntropyBareToken(value: string): boolean {
   const hasLower = /[a-z]/.test(trimmed);
   return hasDigit && hasUpper && hasLower;
 }
-const ASSIGNMENT_VALUE_RE = /[\"']?\s*[:=]\s*(\S+)$/;
+/* The value is everything after the first separator: a quoted literal holds spaces, so a value read as one word would never see its quote's end. */
+const ASSIGNMENT_VALUE_RE = /[\"']?\s*[:=]\s*([\s\S]+)$/;
 function isModelModeSecretValue(match: string): boolean {
   const m = ASSIGNMENT_VALUE_RE.exec(match);
   const value = m?.[1] ?? "";
