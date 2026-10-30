@@ -132,3 +132,106 @@ test("a base ref defaults to the commit before the head", async () => {
   await useCase.resolve(REPO, SHA, [link]);
   assert.ok(asked.includes(`${SHA}^`));
 });
+
+/* A later hop upstream: the callers of the call sites of the links already impacted, walked in the repo those call sites are in. */
+const BACKEND = "org/b";
+const CALL = { file: "b/OrderClient.java", symbol: "fetch" };
+const OTHER_CALL = { file: "b/StockClient.java", symbol: "stock" };
+const HANDLER = { file: "b/OrderController.java", symbol: "listOrders" };
+const into: ServiceLink = { from: { repo: "org/web", file: "web/orders.api.ts", symbol: "listOrders" }, to: { repo: BACKEND, file: HANDLER.file, symbol: HANDLER.symbol }, transport: "http", operation: { verb: "GET", path: "/orders" }, confidence: 1, source: "openapi" };
+const fedBy = (call: { file: string; symbol: string }, over: Partial<ServiceLink> = {}) => ({
+  link: { from: { repo: BACKEND, ...call }, to: { repo: "org/c", file: "c/api.yaml", symbol: "list" }, transport: "http", confidence: 1, source: "http-backend-resolver", ...over } as ServiceLink,
+  tier: "impacted-symbol" as const,
+});
+const reachedHandler = (seeds?: Array<{ file: string; symbol: string; hops: number }>) => ({ ...HANDLER, kind: "method", depth: 1, confidence: 1, ...(seeds ? { seeds } : {}) });
+
+function hopGraph(over: { callers?: Awaited<ReturnType<CodeGraphPort["callersOf"]>>; routes?: GraphRoute[] }): { codeGraph: CodeGraphPort; asked: Array<{ dir: string; seeds: unknown[] }> } {
+  const asked: Array<{ dir: string; seeds: unknown[] }> = [];
+  const base = graph({ routes: over.routes ?? [] });
+  return {
+    asked,
+    codeGraph: {
+      ...base,
+      callersOf: async (dir, seeds) => {
+        asked.push({ dir, seeds: [...seeds] });
+        return over.callers ?? ok({ indexedSha: SHA, symbols: [], truncated: false, seedBasis: "lines" as const });
+      },
+    },
+  };
+}
+
+const hopUseCase = (codeGraph: CodeGraphPort | undefined) => new ResolveCrossRepoImpactUseCase({ mirrorDir: async () => dir }, () => ({ blastRadius: async () => BlastRadius.of(Sha.of(SHA), []) }), codeGraph, runner);
+const reachedAs = (symbols: unknown[], truncated = false, partialSeeds?: unknown[]) => ok({ indexedSha: SHA, symbols: symbols as never, truncated, seedBasis: "lines" as const, ...(partialSeeds ? { partialSeeds: partialSeeds as never } : {}) });
+
+test("a later hop impacts the link into the repo whose handler the call sites' callers reach, and records the links crossed to it", async () => {
+  const fed = fedBy(CALL);
+  const { codeGraph, asked } = hopGraph({ callers: reachedAs([{ ...CALL, kind: "method", depth: 0, confidence: 1 }, reachedHandler([{ ...CALL, hops: 1 }])]) });
+  const hop = await hopUseCase(codeGraph).resolveUpstreamHop({ repo: BACKEND, repoDir: "/m/b", links: [into, fed.link], fed: [fed] });
+  assert.deepEqual(asked, [{ dir: "/m/b", seeds: [CALL] }]);
+  assert.deepEqual(hop.stops, []);
+  assert.deepEqual(hop.links.map((l) => [l.link, l.tier, l.reach]), [[into, "impacted-symbol", { direction: "upstream", via: [fed.link] }]]);
+});
+
+test("a handler found by its route, not its name, impacts the link into the repo", async () => {
+  const fed = fedBy(CALL);
+  const renamed = { ...into, to: { ...into.to, symbol: "someOtherName" } };
+  const route: GraphRoute = { file: HANDLER.file, line: 3, method: "GET", path: "/orders", target: { ...HANDLER, kind: "method" } };
+  const { codeGraph } = hopGraph({ callers: reachedAs([reachedHandler([{ ...CALL, hops: 1 }])]), routes: [route] });
+  const hop = await hopUseCase(codeGraph).resolveUpstreamHop({ repo: BACKEND, repoDir: "/m/b", links: [renamed, fed.link], fed: [fed] });
+  assert.deepEqual(hop.links.map((l) => l.link), [renamed]);
+});
+
+test("with two links feeding the hop, the chain is that of the call site whose callers reached the handler", async () => {
+  const first = fedBy(CALL);
+  const second = fedBy(OTHER_CALL);
+  const { codeGraph, asked } = hopGraph({ callers: reachedAs([reachedHandler([{ ...OTHER_CALL, hops: 2 }])]) });
+  const hop = await hopUseCase(codeGraph).resolveUpstreamHop({ repo: BACKEND, repoDir: "/m/b", links: [into, first.link, second.link], fed: [first, second] });
+  assert.equal(asked.length, 1, "one walk with every seed together");
+  assert.deepEqual(hop.links.map((l) => l.reach?.via), [[second.link]]);
+});
+
+test("a chain keeps the links crossed before this hop in front", async () => {
+  const earlier = fedBy({ file: "c/Deep.java", symbol: "deep" }, { from: { repo: "org/c", file: "c/Deep.java", symbol: "deep" }, to: { repo: "org/d", file: "d/api.yaml", symbol: "x" } });
+  const fed = { ...fedBy(CALL), reach: { direction: "upstream" as const, via: [earlier.link] } };
+  const { codeGraph } = hopGraph({ callers: reachedAs([reachedHandler([{ ...CALL, hops: 1 }])]) });
+  const hop = await hopUseCase(codeGraph).resolveUpstreamHop({ repo: BACKEND, repoDir: "/m/b", links: [into, fed.link], fed: [fed] });
+  assert.deepEqual(hop.links[0]!.reach?.via, [earlier.link, fed.link]);
+});
+
+test("a repo whose index cannot answer is a stop with the reason, and no link is claimed beyond it", async () => {
+  const fed = fedBy(CALL);
+  const { codeGraph } = hopGraph({ callers: err({ reason: "not indexed" }) });
+  const hop = await hopUseCase(codeGraph).resolveUpstreamHop({ repo: BACKEND, repoDir: "/m/b", links: [into, fed.link], fed: [fed] });
+  assert.deepEqual(hop.links, []);
+  assert.deepEqual(hop.stops, [{ repo: BACKEND, direction: "upstream", reason: "walk: not indexed" }]);
+});
+
+test("a walk that threw is a stop, not a failure of the run", async () => {
+  const fed = fedBy(CALL);
+  const throwing: CodeGraphPort = { ...graph({}), callersOf: async () => { throw new Error("engine crashed"); } };
+  const hop = await hopUseCase(throwing).resolveUpstreamHop({ repo: BACKEND, repoDir: "/m/b", links: [into, fed.link], fed: [fed] });
+  assert.deepEqual(hop.links, []);
+  assert.equal(hop.stops[0]?.reason, "walk: engine crashed");
+});
+
+test("a walk the budget left partial returns the links it reached and says how many seeds stayed open", async () => {
+  const fed = fedBy(CALL);
+  const { codeGraph } = hopGraph({ callers: reachedAs([reachedHandler([{ ...CALL, hops: 1 }])], true, [OTHER_CALL]) });
+  const hop = await hopUseCase(codeGraph).resolveUpstreamHop({ repo: BACKEND, repoDir: "/m/b", links: [into, fed.link], fed: [fed] });
+  assert.equal(hop.links.length, 1);
+  assert.deepEqual(hop.stops, [{ repo: BACKEND, direction: "upstream", reason: "partial: 1 of 1 seed(s) left open at the expansion budget" }]);
+});
+
+test("without a code graph a later hop is a stop", async () => {
+  const fed = fedBy(CALL);
+  const hop = await hopUseCase(undefined).resolveUpstreamHop({ repo: BACKEND, repoDir: "/m/b", links: [into, fed.link], fed: [fed] });
+  assert.deepEqual(hop.stops.map((s) => s.reason), ["the run has no code graph"]);
+});
+
+test("a fed link without a call-site symbol claims nothing and asks nothing", async () => {
+  const fed = fedBy({ file: "", symbol: "" });
+  const { codeGraph, asked } = hopGraph({});
+  const hop = await hopUseCase(codeGraph).resolveUpstreamHop({ repo: BACKEND, repoDir: "/m/b", links: [into, fed.link], fed: [fed] });
+  assert.deepEqual(asked, []);
+  assert.deepEqual(hop, { links: [], stops: [] });
+});

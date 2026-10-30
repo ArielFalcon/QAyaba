@@ -1,15 +1,16 @@
-/* Cross-repo impact for a triggering service: per-service VCS read plus a repo-agnostic code graph. resolve() fails open (→ null) on any error but one: UntrustedGitTreeError means untrusted code replaced the mirror's git dir, so it is rethrown, never turned into "no impact". Cheap pre-filter when no link targets the trigger repo. Best-effort git fetch before the diff; its result is unread. */
+/* Cross-repo impact for a triggering service, and the later hops of the same walk (RFC-0011): per-service VCS read plus a repo-agnostic code graph. resolve() fails open (→ null) on any error but one: UntrustedGitTreeError means untrusted code replaced the mirror's git dir, so it is rethrown, never turned into "no impact". Cheap pre-filter when no link targets the trigger repo. Best-effort git fetch before the diff; its result is unread. */
 import { engineLog } from "@kernel/ports/process-logger.ts";
 import type { ServiceLink } from "@kernel/service-links.ts";
-import { MATCH_TIER, type CrossRepoImpact, type ImpactedLink } from "@kernel/service-links.ts";
+import { MATCH_TIER, type CrossRepoImpact, type ImpactedLink, type ImpactStop } from "@kernel/service-links.ts";
 import { existsSync } from "node:fs";
 import type { BlastRadius } from "../../../shared-kernel/blast-radius.ts";
 import { Sha } from "../../../shared-kernel/sha.ts";
 import type { CodeGraphPort } from "../../../shared-kernel/ports/code-graph.port.ts";
-import { DEFAULT_WALK_POLICY } from "../../../shared-kernel/code/index.ts";
+import { DEFAULT_WALK_POLICY, type ImpactedSymbol, type LocalSymbolRef } from "../../../shared-kernel/code/index.ts";
 import { rethrowIfUntrusted } from "../../../shared-kernel/domain-error.ts";
 import type { MirrorRefreshPort } from "./ports/mirror-refresh.port.ts";
 import { routeServesOperation } from "../domain/cross-repo-impact.ts";
+import { LinkGraph, linkKey } from "../domain/link-graph.ts";
 import { diffOperations, type OperationChange } from "../domain/operation-diff.ts";
 import { parse as parseYaml } from "yaml";
 
@@ -24,6 +25,20 @@ export interface MirrorRegistryLike {
   mirrorDir(repo: string): Promise<string>;
 }
 
+
+/* One later hop upstream: `fed` are the impacted links whose call site is in `repo`, whose index is built at `repoDir`. */
+export interface UpstreamHopRequest {
+  repo: string;
+  repoDir: string;
+  links: readonly ServiceLink[];
+  fed: readonly ImpactedLink[];
+}
+
+/* What a hop found: the links it newly impacted, and where it could not finish. */
+export interface HopResult {
+  links: ImpactedLink[];
+  stops: ImpactStop[];
+}
 
 export class ResolveCrossRepoImpactUseCase {
   constructor(
@@ -61,13 +76,13 @@ export class ResolveCrossRepoImpactUseCase {
         const operation = link.operation;
         if (changes === undefined || operation === undefined) {
           impactedLinks.push({ link, tier: MATCH_TIER.CONTRACT_FILE, basis: "contract-file" });
-          matchedKeys.add(this.linkKey(link));
+          matchedKeys.add(linkKey(link));
           continue;
         }
         const change = changes.find((c) => c.verb === operation.verb.toUpperCase() && samePath(c.path, operation.path));
         if (change) {
           impactedLinks.push({ link, tier: MATCH_TIER.CONTRACT_FILE, operationChange: change.change });
-          matchedKeys.add(this.linkKey(link));
+          matchedKeys.add(linkKey(link));
         }
       }
 
@@ -79,21 +94,12 @@ export class ResolveCrossRepoImpactUseCase {
       const impactedRes = this.codeGraph ? await this.codeGraph.impactedSymbols(mirrorDir, blast, DEFAULT_WALK_POLICY) : undefined;
       if (impactedRes && !impactedRes.ok) engineLog.warn(`[qa] WARNING: the index did not answer the cross-repo impact walk of ${triggerRepo}, so only the contract-file tier applies (non-blocking): ${impactedRes.error.reason}`);
       if (impactedRes?.ok && impactedRes.value.truncated) engineLog.warn(`[qa] WARNING: the cross-repo impact walk of ${triggerRepo} left ${impactedRes.value.partialSeeds?.length ?? 0} seed(s) partial at its expansion budget; a link one of them would reach may be missing (non-blocking).`);
-      const reached = impactedRes?.ok ? impactedRes.value.symbols : [];
-      const reachedNames = new Set(reached.map((s) => s.symbol));
-      const reachedRefs = new Set(reached.map((s) => `${s.file}::${s.symbol}`));
-      const pending = candidateLinks.filter((l) => !matchedKeys.has(this.linkKey(l)));
-      const reachedHandlers = this.codeGraph && reached.length > 0 && pending.some((l) => l.operation)
-        ? await this.reachedHandlerRoutes(this.codeGraph, mirrorDir, reachedRefs)
-        : [];
+      const pending = candidateLinks.filter((l) => !matchedKeys.has(linkKey(l)));
+      const served = await this.endpointsReached(mirrorDir, impactedRes?.ok ? impactedRes.value.symbols : [], pending);
       for (const link of pending) {
-        const byOperationId = reachedNames.has(link.contractRef ?? link.to.symbol);
-        const operation = link.operation;
-        const byRoute = operation !== undefined && reachedHandlers.some((route) => routeServesOperation(route, operation));
-        if (byOperationId || byRoute) {
-          impactedLinks.push({ link, tier: MATCH_TIER.IMPACTED_SYMBOL });
-          matchedKeys.add(this.linkKey(link));
-        }
+        if (!served.has(link)) continue;
+        impactedLinks.push({ link, tier: MATCH_TIER.IMPACTED_SYMBOL });
+        matchedKeys.add(linkKey(link));
       }
 
       if (impactedLinks.length === 0) return null;
@@ -120,19 +126,87 @@ export class ResolveCrossRepoImpactUseCase {
     }
   }
 
-  /* The backend routes whose handler the walk reached. An unavailable route list matches nothing. */
-  private async reachedHandlerRoutes(codeGraph: CodeGraphPort, mirrorDir: string, reachedRefs: ReadonlySet<string>): Promise<{ method: string; path: string }[]> {
-    const routes = await codeGraph.routes(mirrorDir);
-    if (!routes.ok) {
-      engineLog.warn(`[qa] WARNING: the routes of ${mirrorDir} could not be listed, so no link is matched by handler route (non-blocking): ${routes.error.reason}`);
-      return [];
+  /*
+   * One later hop upstream (RFC-0011): the call sites of the links already impacted, whose repo is `repo`, seed one inbound walk
+   * of that repo's index; a link into the repo is impacted when its endpoint is among the callers reached, and carries the chain
+   * of links crossed from the change. A hop that cannot be walked says where it stopped and claims nothing beyond; a partial
+   * walk returns what it reached and says how many seeds stayed open. Never throws, except for an untrusted git dir.
+   */
+  async resolveUpstreamHop(request: UpstreamHopRequest): Promise<HopResult> {
+    const { repo, repoDir, links, fed } = request;
+    const stop = (reason: string): HopResult => ({ links: [], stops: [{ repo, direction: "upstream", reason }] });
+    const seeds = uniqueRefs(fed.flatMap(({ link }) => (link.from.file && link.from.symbol ? [{ file: link.from.file, symbol: link.from.symbol }] : [])));
+    if (seeds.length === 0) return { links: [], stops: [] };
+    const codeGraph = this.codeGraph;
+    if (!codeGraph) return stop("the run has no code graph");
+    try {
+      const walk = await codeGraph.callersOf(repoDir, seeds, DEFAULT_WALK_POLICY);
+      if (!walk.ok) return stop(`walk: ${walk.error.reason}`);
+      const stops: ImpactStop[] = walk.value.truncated
+        ? [{ repo, direction: "upstream", reason: `partial: ${walk.value.partialSeeds?.length ?? 0} of ${seeds.length} seed(s) left open at the expansion budget` }]
+        : [];
+      const served = await this.endpointsReached(repoDir, walk.value.symbols, new LinkGraph(links).into(repo));
+      const impacted: ImpactedLink[] = [];
+      for (const [link, symbols] of served) {
+        const source = feeder(fed, symbols);
+        impacted.push({ link, tier: MATCH_TIER.IMPACTED_SYMBOL, reach: { direction: "upstream", via: [...(source.reach?.via ?? []), source.link] } });
+      }
+      return { links: impacted, stops };
+    } catch (err) {
+      rethrowIfUntrusted(err);
+      engineLog.warn(`[qa] WARNING: the cross-repo hop through ${repo} failed (non-blocking): ${err instanceof Error ? err.message : String(err)}`);
+      return stop(`walk: ${err instanceof Error ? err.message : String(err)}`);
     }
-    return routes.value.flatMap((r) => (r.method !== undefined && r.target && reachedRefs.has(`${r.target.file}::${r.target.symbol}`) ? [{ method: r.method, path: r.path }] : []));
   }
 
-  private linkKey(link: ServiceLink): string {
-    return `${link.from.repo}/${link.from.file}#${link.from.symbol}->${link.to.repo}`;
+  /*
+   * The reached symbols that stand for each link's endpoint, for the links with one: a symbol named by the link's operationId (or
+   * its handler symbol), and the handler of a backend route serving the link's operation. Both keys apply, as at hop one. An
+   * unavailable route list matches nothing by route. One map entry per link reached.
+   */
+  private async endpointsReached(repoDir: string, reached: readonly ImpactedSymbol[], links: readonly ServiceLink[]): Promise<Map<ServiceLink, ImpactedSymbol[]>> {
+    const served = new Map<ServiceLink, ImpactedSymbol[]>();
+    if (links.length === 0) return served;
+    const byName = new Map<string, ImpactedSymbol[]>();
+    const byRef = new Map<string, ImpactedSymbol>();
+    for (const symbol of reached) {
+      byName.set(symbol.symbol, [...(byName.get(symbol.symbol) ?? []), symbol]);
+      byRef.set(refKey(symbol), symbol);
+    }
+    const routes = this.codeGraph && reached.length > 0 && links.some((l) => l.operation) ? await this.reachedHandlerRoutes(this.codeGraph, repoDir, byRef) : [];
+    for (const link of links) {
+      const hits = new Set(byName.get(link.contractRef ?? link.to.symbol) ?? []);
+      const operation = link.operation;
+      if (operation !== undefined) for (const route of routes) if (routeServesOperation(route, operation)) hits.add(route.handler);
+      if (hits.size > 0) served.set(link, [...hits]);
+    }
+    return served;
   }
+
+  /* The backend routes whose handler the walk reached, with the reached symbol that is the handler. An unavailable route list matches nothing. */
+  private async reachedHandlerRoutes(codeGraph: CodeGraphPort, repoDir: string, reached: ReadonlyMap<string, ImpactedSymbol>): Promise<{ method: string; path: string; handler: ImpactedSymbol }[]> {
+    const routes = await codeGraph.routes(repoDir);
+    if (!routes.ok) {
+      engineLog.warn(`[qa] WARNING: the routes of ${repoDir} could not be listed, so no link is matched by handler route (non-blocking): ${routes.error.reason}`);
+      return [];
+    }
+    return routes.value.flatMap((r) => {
+      const handler = r.method !== undefined && r.target ? reached.get(refKey(r.target)) : undefined;
+      return handler ? [{ method: r.method!, path: r.path, handler }] : [];
+    });
+  }
+}
+
+const refKey = (ref: LocalSymbolRef): string => `${ref.file}::${ref.symbol}`;
+
+function uniqueRefs(refs: readonly LocalSymbolRef[]): LocalSymbolRef[] {
+  return [...new Map(refs.map((r) => [refKey(r), { file: r.file, symbol: r.symbol }])).values()];
+}
+
+/* The fed link whose call site seeds a reached endpoint: the first one among the seeds the walk states for it, else the first fed link (a walk that states none cannot tell them apart). */
+function feeder(fed: readonly ImpactedLink[], endpoints: readonly ImpactedSymbol[]): ImpactedLink {
+  const stated = new Set(endpoints.flatMap((e) => [...(e.seeds ?? []).map(refKey), ...(e.depth === 0 ? [refKey(e)] : [])]));
+  return fed.find(({ link }) => stated.has(refKey(link.from))) ?? fed[0]!;
 }
 
 /* Two OpenAPI paths name one operation when they match segment by segment, a parameter standing for any parameter. */
