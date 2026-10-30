@@ -752,6 +752,48 @@ test("a write nobody answered is not counted: a browser request the network refu
   }
 });
 
+test("a write still out when its test finishes stays that test's: the page closing does not settle it, and its answer is not counted to the next test", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "qa-writes-outlived-"));
+  const prevDir = process.env.QA_FAILURE_CAPTURE_DIR;
+  const prevFlag = process.env.PW_COUNT_DEV_WRITES;
+  try {
+    const captureDir = join(dir, "dumps");
+    mkdirSync(captureDir);
+    const mod = await loadCaptureModule(dir, "outlived");
+    const handlers: Record<string, Array<(r: unknown) => void>> = {};
+    const emit = (event: string, request: { method(): string }) => { for (const cb of handlers[event] ?? []) cb(request); };
+    let release: (() => void) | undefined;
+    const request = { fetch: async (_target: unknown, _options?: { method?: string }) => { await new Promise<void>((resolve) => { release = resolve; }); throw new Error("Request context disposed"); } };
+    const context = { on: (event: string, cb: (r: unknown) => void) => { (handlers[event] ??= []).push(cb); }, request: { fetch: async () => ({}) } };
+    const page = { on() {}, url: () => "http://localhost/", context: () => context, locator: () => ({ ariaSnapshot: async () => "" }) };
+    const read = (name: string): unknown => JSON.parse(readFileSync(join(captureDir, name), "utf8"));
+    process.env.QA_FAILURE_CAPTURE_DIR = captureDir;
+    process.env.PW_COUNT_DEV_WRITES = "1";
+    const clicked = { method: () => "POST" };
+    const saved = { method: () => "PUT" };
+    await mod.beforeEachFn({ page, request });
+    emit("request", clicked);
+    emit("request", saved);
+    const fetched = request.fetch("/orders", { method: "DELETE" }).catch(() => {});
+    await mod.afterEachFn({ page, request }, passingInfo);
+    emit("requestfailed", clicked);
+    release!();
+    await fetched;
+    const [first] = readdirSync(captureDir);
+    assert.deepEqual(read(first!), { v: 2, writes: 0, pending: 3, done: true }, "the page closing (the click's POST failed) and the API client's disposal settle nothing: each write may have reached DEV");
+    await mod.beforeEachFn({ page, request });
+    emit("requestfinished", saved);
+    await mod.afterEachFn({ page, request }, passingInfo);
+    const second = readdirSync(captureDir).find((name) => name !== first);
+    assert.deepEqual(read(second!), { v: 2, writes: 0, pending: 0, done: true }, "the PUT the first test left out is the first test's, answered or not");
+    assert.deepEqual(read(first!), { v: 2, writes: 0, pending: 3, done: true });
+  } finally {
+    if (prevDir === undefined) delete process.env.QA_FAILURE_CAPTURE_DIR; else process.env.QA_FAILURE_CAPTURE_DIR = prevDir;
+    if (prevFlag === undefined) delete process.env.PW_COUNT_DEV_WRITES; else process.env.PW_COUNT_DEV_WRITES = prevFlag;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("without the counter asked for, a passing test leaves nothing and a page with no context does not break the block", async () => {
   const dir = mkdtempSync(join(tmpdir(), "qa-writes-off-"));
   const prevDir = process.env.QA_FAILURE_CAPTURE_DIR;

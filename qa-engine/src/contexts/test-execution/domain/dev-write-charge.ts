@@ -29,7 +29,7 @@ export interface TestWriteLedger {
 }
 
 export interface TestCharge {
-  /* What this test costs the run's cap: its answered writes the control does not account for, plus the requests an unfinished test still had out. */
+  /* What this test costs the run's cap: its answered writes the control does not account for, plus the requests it still had out, finished or not (a write out when its test finished may have reached DEV). */
   charged: number;
   /* The recorded requests behind the charge, each with the count charged. */
   chargedRequests: DevWriteRequest[];
@@ -56,5 +56,5 @@ export function chargeTestWrites(ledger: TestWriteLedger, control: readonly DevW
     }
     if (r.count > accountedFor) chargedRequests.push({ method: r.method, url: r.url, count: r.count - accountedFor });
   }
-  return { charged: Math.max(0, ledger.writes - exempt) + (ledger.done ? 0 : ledger.pending), chargedRequests, exemptRequests };
+  return { charged: Math.max(0, ledger.writes - exempt) + ledger.pending, chargedRequests, exemptRequests };
 }

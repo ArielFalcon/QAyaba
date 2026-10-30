@@ -363,8 +363,11 @@ function networkUrl(raw: string, max = 300): string { try { const u = new URL(ra
 // to DEV to a cap. The ledger is written when the test starts and rewritten atomically (a temporary file renamed over
 // it) on every change, so a test that is killed has left what it did: `writes` counts the requests a server
 // answered, `pending` the ones sent and not yet answered (raised when the request leaves, before anything waits for
-// its answer), and `done` is set when the test finishes. A request nobody answered (refused by the sandbox's egress
-// filter, like an error reporter's beacon, or failed on the network) is not counted and leaves `pending`. A context
+// its answer), and `done` is set when the test finishes. A request that fails while its test runs (refused by the
+// sandbox's egress filter, like an error reporter's beacon, or failed on the network) is not counted and leaves
+// `pending`. One still out when its test finishes stays in that test's `pending`, since it may have reached DEV: a later
+// failure (the page closing, the API client disposed) does not settle it, and a later answer is that test's, never
+// counted to the next. A context
 // is listened to once however many tests share it. Requests of the API clients (the `request` fixture,
 // `page.request`, `context.request`) are not browser requests, so their fetch is counted too, pending while it is
 // out and counted once it comes back with a response. Only a write to DEV counts: a
@@ -384,8 +387,8 @@ let devWritesPending = 0;
 type DevWriteSender = 'page' | 'api';
 interface RecordedDevWrite { method: string; url: string; sender: DevWriteSender; count: number }
 let devWriteRequests: RecordedDevWrite[] = [];
-// The browser writes that are out and count as pending, so their answer or failure settles the same entry. Replaced when a test starts.
-let sentWrites = new WeakSet<object>();
+// The browser writes that are out and count as pending, each with the ledger epoch of the test it left in, so its answer or failure settles that test's entry.
+const sentWrites = new WeakMap<object, number>();
 // The test's ledger: where it is, the temporary file it is rewritten through (the name cannot match a ledger's), whether
 // the test has finished, and which test it belongs to, so a request that outlives its test never moves the next one's pending.
 let ledgerFs: typeof import('node:fs') | undefined;
@@ -489,20 +492,25 @@ function sendBrowserWrite(r: WriteEvent): void {
   let url: string | undefined;
   try { url = r.url(); } catch {}
   if (!isDevWrite(url)) return;
-  sentWrites.add(r);
+  sentWrites.set(r, ledgerEpoch);
   devWritesPending++;
   flushLedger();
 }
-// The same request answered (counted) or failed (dropped). One that left before this test began is counted when answered.
+// The same request answered (counted) or failed (dropped), in the test it left in. One that left before the counter saw it is
+// counted when answered; one still out when its test finished stays that test's pending (a failure settles nothing, an answer
+// once another test began is not the new test's).
 function settleBrowserWrite(r: WriteEvent, answered: boolean): void {
   const method = r.method();
   if (!/^(?:POST|PUT|PATCH|DELETE)$/.test(method)) return;
   let url: string | undefined;
   try { url = r.url(); } catch {}
-  if (!sentWrites.delete(r)) {
+  const epoch = sentWrites.get(r);
+  if (epoch === undefined) {
     if (answered && isDevWrite(url)) noteAnswered('page', method, url);
     return;
   }
+  sentWrites.delete(r);
+  if (epoch !== ledgerEpoch || (ledgerDone && !answered)) return;
   devWritesPending = Math.max(0, devWritesPending - 1);
   if (answered) noteAnswered('page', method, url);
   else flushLedger();
@@ -526,17 +534,20 @@ function countWrites(api: WriteCountable | undefined): void {
     const epoch = ledgerEpoch;
     const sent = method !== undefined && isDevWrite(url);
     if (sent) { devWritesPending++; flushLedger(); }
-    const leave = (): void => { if (sent && epoch === ledgerEpoch) devWritesPending = Math.max(0, devWritesPending - 1); };
+    // Settles the fetch in the test it left in; one still out when that test finished stays its pending unless it is answered.
+    const leave = (answered: boolean): boolean => {
+      if (!sent || epoch !== ledgerEpoch || (ledgerDone && !answered)) return false;
+      devWritesPending = Math.max(0, devWritesPending - 1);
+      return true;
+    };
     let response: unknown;
     try {
       response = await original(target, options);
     } catch (err) {
-      leave();
-      if (sent) flushLedger();
+      if (leave(false)) flushLedger();
       throw err;
     }
-    leave();
-    if (sent) noteAnswered('api', method!, url);
+    if (leave(true)) noteAnswered('api', method!, url);
     return response;
   };
 }
@@ -568,7 +579,6 @@ async function qaFailureCaptureStart(page: QaCapturePage, request: QaCaptureRequ
   devWrites = 0;
   devWritesPending = 0;
   devWriteRequests = [];
-  sentWrites = new WeakSet();
   observedRequests = [];
   if (process.env.PW_OBSERVE === '1') {
     try {

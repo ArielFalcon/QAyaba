@@ -74,12 +74,12 @@ test("without a control every request is charged", () => {
   assert.deepEqual(out.chargedRequests, [{ method: "POST", url, count: 4 }]);
 });
 
-test("a write the ledger could not record is charged in full, and so is a request a test left pending when it did not finish", () => {
+test("a write the ledger could not record is charged in full, and so is a request a test still had out, finished or not", () => {
   const url = `${DEV}/api/auth/refresh`;
   const out = chargeTestWrites({ writes: 30, pending: 2, done: false, requests: [page("POST", url, 9)] }, [{ method: "POST", url, count: 9 }]);
   assert.equal(out.charged, 21 + 2);
   const finished = chargeTestWrites({ writes: 30, pending: 2, done: true, requests: [page("POST", url, 9)] }, [{ method: "POST", url, count: 9 }]);
-  assert.equal(finished.charged, 21, "a finished test has nothing out");
+  assert.equal(finished.charged, 21 + 2, "a write still out when its test finished may have reached DEV");
 });
 
 test("the exemption of one test is not carried to the next: each test's page loads and renews on its own", () => {
