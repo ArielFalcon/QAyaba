@@ -8,6 +8,7 @@
 
 import type { DeliveredSpec } from "@kernel/delivered-spec.ts";
 import { normalizeSpecPath } from "@kernel/spec-path.ts";
+import type { TurnLimit } from "@kernel/turn-limit.ts";
 import type { CoordinationGateSignal } from "@kernel/coordination.ts";
 import type { RunDegradationFact } from "@kernel/run-trace-facts.ts";
 import { mergeDeliveredSpecs, type DeliveredPass, type DeliveryOrigin } from "../../domain/helpers/delivered-specs.ts";
@@ -52,7 +53,7 @@ export function recordRunFact<K extends keyof RunFacts>(state: Readonly<RunState
 }
 
 /* run.limits: a limit the engine met at run level. The same limit met again (a second turn the deadline refused) is the same fact. */
-export function recordLimit(state: Readonly<RunState>, limit: { fired: string; role: string }): void {
+export function recordLimit(state: Readonly<RunState>, limit: { fired: TurnLimit; role: string }): void {
   if (state.run.limits.some((known) => known.fired === limit.fired && known.role === limit.role)) return;
   state.run.limits.push({ fired: limit.fired, role: limit.role, scope: "run" });
 }

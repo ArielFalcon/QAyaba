@@ -1,5 +1,6 @@
 /* Every attribute key the engine may put on a span, with its type, meaning, cardinality and content class. Typed: `Attrs` accepts only registered keys, so an unregistered key fails to compile; at run time the adapter drops an unknown key and counts it. `cardinality: "high"` keys (ids, hashes, shas) may sit on spans but never on a metric. `content` says what leaves the process: `none` (ids, enums, counts), `metadata` (hashes and sizes of content: structural values, but exported only when the capture mode is `metadata` or `full`), `redacted-text` (free text, passed through the span's redaction scope and the outbound sanitizer) or `content` (message bodies, dropped unless the capture mode allows them). The GenAI keys are spelled only in genai-semconv.ts. */
 
+import { TURN_LIMITS } from "../turn-limit.ts";
 import { GENAI } from "./genai-semconv.ts";
 
 /* The most item ids a context span exports (design §4.4); the engine counts the rest. */
@@ -141,7 +142,7 @@ export const ATTRIBUTES = {
   "qayaba.decision": str("What the run decided to do with its result: pr, issue, quarantine or none. Whether shadow replaced it is `qayaba.decision.shadowed`."),
   /* T32 unit B: how a run ended, as typed facts of the root span (the run record holds the same). */
   "qayaba.decision.shadowed": bool("Whether shadow replaced the run's decision: nothing was opened, the decision was only logged."),
-  "qayaba.limits": spec("string[]", "Every limit that fired in the run, as `limit@role`, the engine's own first: a deadline that ended or degraded the run, a wall-clock budget that refused a regeneration, the budget generation ended on, then the limits agent turns ended on. Empty when none fired.", "low", "none", 20),
+  "qayaba.limits": spec("string[]", "Every limit that fired in the run, as `limit@role`, the engine's own first: a deadline that ended or degraded the run, the budget generation ended on, then the limits agent turns ended on. Empty when none fired.", "low", "none", 20),
   "qayaba.degradations": spec("string[]", "Every fault the run went on past, by reason: publication-failed, deadline-after-proof or regeneration-skipped. Empty when none.", "low", "none", 10),
   "qayaba.furthest_phase": str("The last phase the run entered."),
   "qayaba.specs.generated": int("Specs delivered by this run."),
@@ -172,7 +173,7 @@ export const ATTRIBUTES = {
   "qayaba.review.issues": spec("string[]", "What the engine could not read of the reviewer's answer, or read and set aside, as path: message. Absent when nothing was lost.", "high", "redacted-text", 6),
   "qayaba.review.rationale": text("The bounded rationale of the review round."),
   "qayaba.review.rebuttal.outcome": str("What became of a generator rebuttal: withdrawn (the orchestrator verified the basis it named) or disputed (it could not check it)."),
-  "qayaba.limit.fired": str("The limit that ended the run or turn: tier-budget, run-deadline, repair-cap, session-timeout, prompt-budget, host-cap, stall, step-cap, cancel, fault (a transport or provider fault ended the turn; error.type names it) or none."),
+  "qayaba.limit.fired": str(`The limit that ended the run or turn, one value of the closed set TURN_LIMITS (shared-kernel/turn-limit.ts): ${TURN_LIMITS.filter((limit) => limit !== "fault" && limit !== "none").join(", ")}, fault (a transport or provider fault ended the turn; error.type names it) or none.`),
   "qayaba.limit.applied": str("The time limit that bound the turn (the smallest that applied), named like the limit that fires."),
   "qayaba.limit.applied_ms": int("The time limit that bound the turn, in milliseconds."),
   "qayaba.cost.total": dbl("Total agent cost in USD."),
