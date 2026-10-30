@@ -6,6 +6,8 @@
  * bounds protect the orchestrator; they are not a cap on what an agent is shown. Pure.
  */
 
+import { cutAddress } from "./address-cut.ts";
+
 /* A request the page made, as method + origin + pathname (no query, fragment, body, headers, cookies or userinfo), with how many times. */
 export interface ObservedRequest {
   method: string;
@@ -33,9 +35,9 @@ export const MAX_LOGGED_PATH_CHARS = 500;
 export const MAX_LOGGED_TOTAL_CHARS = 24_000;
 const CUT_MARK = "…[cut]";
 
-/* An address or host past the bound is cut and says so; cutting a cut one changes nothing. */
+/* An address or host past the bound is cut and says so, an address at a path segment (`cutAddress`), so the answer, redacted later, never holds part of a secret the cut split; cutting a cut one changes nothing. */
 function bounded(text: string): string {
-  return text.length <= MAX_LOGGED_PATH_CHARS ? text : `${text.slice(0, MAX_LOGGED_PATH_CHARS)}${CUT_MARK}`;
+  return text.length <= MAX_LOGGED_PATH_CHARS ? text : `${cutAddress(text, MAX_LOGGED_PATH_CHARS)}${CUT_MARK}`;
 }
 
 /* The address a request is kept by: its origin and pathname, or undefined when it is no URL. */

@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, relative } from "node:path";
 import type { QaCase, CaseStatus, FailureSettle, FailureAttemptEvidence } from "@kernel/qa-case.ts";
 import type { RunVerdict } from "@kernel/run-verdict.ts";
+import { wholeSegmentsOfProducerCut } from "@kernel/address-cut.ts";
 import { redactByValue } from "../../../shared-kernel/run-secret-redaction.ts";
 import { sanitizeText } from "../../../shared-infrastructure/redaction/pattern-redaction.adapter.ts";
 import { parseAriaSnapshot } from "@contexts/generation/application/index.ts";
@@ -484,12 +485,12 @@ const LEDGER_VERSION = 2;
 /* The control file version the control load writes. */
 const CONTROL_VERSION = 1;
 
-/* One recorded request, or a throw that makes the whole ledger untrusted: a method that does not write, or a URL that is not one. */
+/* One recorded request, or a throw that makes the whole ledger untrusted: a method that does not write, or a URL that is not one. An address the seed cut at its bound keeps whole path segments only (`wholeSegmentsOfProducerCut`), the same for a ledger and a control, so their keys stay equal and no part of a secret the cut split is left for redaction to miss. */
 function ledgerRequest(raw: unknown): { method: string; url: string } {
   const { method, url } = (raw ?? {}) as { method?: unknown; url?: unknown };
   if (typeof method !== "string" || !WRITE_METHOD_RE.test(method)) throw new Error("not a write");
   if (typeof url !== "string" || url.length > MAX_LEDGER_URL_CHARS) throw new Error("not a url");
-  const parsed = new URL(url);
+  const parsed = new URL(wholeSegmentsOfProducerCut(url, MAX_LEDGER_URL_CHARS));
   if (parsed.protocol !== "http:" && parsed.protocol !== "https:") throw new Error("not a url");
   return { method, url: sanitizeText(`${parsed.origin}${parsed.pathname}`).text };
 }

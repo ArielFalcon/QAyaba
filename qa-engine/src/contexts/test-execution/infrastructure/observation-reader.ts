@@ -2,6 +2,7 @@
 import { relative } from "node:path";
 import { parseAriaSnapshotWithState } from "@contexts/generation/application/index.ts";
 import { MAX_OBSERVED_DOM_LINES, MAX_OBSERVED_LINE_CHARS, MAX_OBSERVED_REQUESTS, type ObservedPage, type ObservedRequest } from "@contexts/objective-signal/application/index.ts";
+import { wholeSegmentsOfProducerCut } from "../../../shared-kernel/address-cut.ts";
 import { redactByValue } from "../../../shared-kernel/run-secret-redaction.ts";
 import { sanitizeText } from "../../../shared-infrastructure/redaction/pattern-redaction.adapter.ts";
 import { readRunOutputDir, type RunOutputLimits } from "../../../shared-infrastructure/run-output-reader.ts";
@@ -28,13 +29,13 @@ interface Recorded {
 const clean = (text: string): string => sanitizeText(redactByValue(text)).text;
 const cut = (line: string): string => (line.length > MAX_OBSERVED_LINE_CHARS ? `${line.slice(0, MAX_OBSERVED_LINE_CHARS)}…` : line);
 
-/* One recorded request, or a throw that makes the whole read untrusted. */
+/* One recorded request, or a throw that makes the whole read untrusted. An address the seed cut at its bound keeps whole path segments only, so no part of a secret the cut split is left for redaction to miss. */
 function recordedRequest(raw: unknown): ObservedRequest {
   const { method, url, count } = (raw ?? {}) as { method?: unknown; url?: unknown; count?: unknown };
   if (typeof method !== "string" || !METHOD_RE.test(method)) throw new Error("not a method");
   if (typeof url !== "string" || url.length > MAX_RECORDED_URL_CHARS) throw new Error("not a url");
   if (typeof count !== "number" || !Number.isInteger(count) || count < 1 || count > MAX_RECORDED_COUNT) throw new Error("not a count");
-  const parsed = new URL(url);
+  const parsed = new URL(wholeSegmentsOfProducerCut(url, MAX_RECORDED_URL_CHARS));
   if (parsed.protocol !== "http:" && parsed.protocol !== "https:") throw new Error("not a url");
   return { method, url: clean(`${parsed.origin}${parsed.pathname}`), count };
 }
