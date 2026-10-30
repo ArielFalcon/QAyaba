@@ -272,3 +272,21 @@ test("a hop that cannot be indexed because the run has no code graph says so, no
     dispose(w.rig);
   }
 });
+
+test("the reason a repo could not be indexed reaches the prompt redacted and then bounded, so a secret at the cut leaves no prefix", async () => {
+  const token = `ghp_${"a1B2".repeat(9)}`;
+  const w = world({
+    repos: [APP, "org/b", "org/c"], links: [appToList, bToC], changed: [{ repo: "org/c", role: "service", file: C_ITEMS.file }],
+    indexes: { "org/c": { changed: [C_ITEMS], routes: [route(C_ITEMS, "GET", "/items")] } },
+    onSync: (repo) => (repo === "org/b" ? { outcome: "failed", reason: `${"x".repeat(380)} ${token} ${"y".repeat(5000)}` } : undefined),
+  });
+  try {
+    w.rig.extra = { ...w.rig.extra, redact: (text) => text.replace(/ghp_[A-Za-z0-9]{36}/g, "[token]") };
+    await observe(w.rig, "links-reason-bound");
+    const reason = (w.impacts[0]?.stops ?? []).find((s) => s.repo === "org/b")?.reason ?? "";
+    assert.ok(reason.length > 0 && reason.length <= 400, `bounded: ${reason.length}`);
+    assert.doesNotMatch(reason, /ghp_/);
+  } finally {
+    dispose(w.rig);
+  }
+});

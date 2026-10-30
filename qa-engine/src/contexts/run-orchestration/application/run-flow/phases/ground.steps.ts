@@ -174,6 +174,9 @@ export async function resolveCrossRepoImpact(state: Readonly<RunState>, ctx: Wor
   return { update: { grounding: { ...state.grounding, crossRepoImpact } } };
 }
 
+/* The most of a stop's reason that reaches the prompt and the record. */
+const STOP_REASON_MAX_CHARS = 400;
+
 /*
  * The walk of RFC-0011 beyond the first hop, in both directions over the links the run resolved: upstream from the impact of
  * each changed service, downstream from the change of each changed repo whose links lead onward. Null when neither found a
@@ -187,7 +190,8 @@ async function followLinks(firstHop: CrossRepoImpact | null, state: Readonly<Run
   const upstream = firstHop && port?.resolveUpstreamHop ? await walkHops(ctx, graph, "upstream", firstHop.impactedLinks, indexes, (request) => port.resolveUpstreamHop!({ ...request, links })) : undefined;
   const downstream = await followDownstream(state, ctx, graph, indexes);
   const impactedLinks = [...(firstHop?.impactedLinks ?? []), ...(upstream?.links ?? []), ...downstream.links];
-  const stops = [...(firstHop?.stops ?? []), ...(upstream?.stops ?? []), ...downstream.stops];
+  /* A reason is engine, git or error text on its way to the agent's prompt: redacted first, cut after. */
+  const stops = [...(firstHop?.stops ?? []), ...(upstream?.stops ?? []), ...downstream.stops].map((stop) => ({ ...stop, reason: ctx.host.boundText(stop.reason, STOP_REASON_MAX_CHARS) }));
   if (impactedLinks.length === 0 && stops.length === 0) return null;
   return { impactedLinks, ...(stops.length > 0 ? { stops } : {}) };
 }
