@@ -41,7 +41,7 @@ export interface AgentTurnRecord {
   graphProvidedReadCount?: number | null;
   exhausted?: boolean | null;
   callBuckets?: Record<string, number> | null;
-  /* How the turn ended; null when the row predates the column or the runtime does not say. A turn that ended by timeout or abort has empty output_text and only the calls measured up to its end. */
+  /* How the turn ended; null when the row predates the column or the runtime does not say. A turn that did not answer (timeout, abort or failed) has empty output_text and only the calls measured up to its end. */
   ended?: TurnEnd | null;
   /* What a turn that ended by timeout or abort had streamed (its text and reasoning, bounded and redacted by the transport); null for an answered turn, one that streamed nothing, or a row that predates the column. */
   partialText?: string | null;

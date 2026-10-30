@@ -187,7 +187,7 @@ export const ATTRIBUTES = {
   "qayaba.phase.outcome": str("How the phase ended."),
   "qayaba.run_step.id": str("The id of a step of the run's step table, on a step event."),
   "qayaba.run_step.outcome": str("What became of a step: ran, skipped or ended (it ended the run)."),
-  "qayaba.run_step.reason": str("Why the run ended, on the step event of the step that ended it."),
+  "qayaba.run_step.reason": str("Why the step event happened: on the step that ended the run, why the run ended; on a step the run passed over, why it was not run."),
 
   /* Fix-loop phase outcomes. */
   "qayaba.fix_loop.rounds": int("Regeneration rounds the fix loop ran."),

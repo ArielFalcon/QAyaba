@@ -42,3 +42,11 @@ test("a degradation joins the ones the run already carries", () => {
   assert.ok(outcome && "goto" in outcome);
   assert.deepEqual(state.run.degradations.map((d) => d.reason), ["regeneration-skipped", "deadline-after-proof"]);
 });
+
+test("the same degradation recorded again is the same fact, and one with another sentence is another", () => {
+  const state = initialRunState();
+  recordDegradation(state, { reason: "regeneration-skipped", note: "no time was left for the coverage regeneration" });
+  recordDegradation(state, { reason: "regeneration-skipped", note: "no time was left for the coverage regeneration" });
+  recordDegradation(state, { reason: "regeneration-skipped", note: "no time was left for the flaky regeneration" });
+  assert.deepEqual(state.run.degradations.map((d) => d.note), ["no time was left for the coverage regeneration", "no time was left for the flaky regeneration"]);
+});

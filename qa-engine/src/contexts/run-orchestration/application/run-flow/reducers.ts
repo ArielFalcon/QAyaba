@@ -57,8 +57,9 @@ export function recordLimit(state: Readonly<RunState>, limit: { fired: string; r
   state.run.limits.push({ fired: limit.fired, role: limit.role, scope: "run" });
 }
 
-/* run.degradations: a fault the run went on past, with the sentence its note carries. */
+/* run.degradations: a fault the run went on past, with the sentence its note carries. The same fault recorded again is the same fact. */
 export function recordDegradation(state: Readonly<RunState>, degradation: RunDegradationFact): void {
+  if (state.run.degradations.some((known) => known.reason === degradation.reason && known.note === degradation.note)) return;
   state.run.degradations.push(degradation);
 }
 
