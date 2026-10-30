@@ -5,6 +5,8 @@ import { createStallWatchdog, type StallWatchdog } from "./resilience/stall-watc
 import { AgentTimeoutError, AgentUnavailableError, StalledAgentError, isInfraError } from "@kernel/domain-error.ts";
 import type { AgentPromptOpts, AgentTurnStats } from "@kernel/ports/agent-runtime.port.ts";
 import { sanitizeText } from "../../../shared-infrastructure/redaction/pattern-redaction.adapter.ts";
+import { STREAMED_TEXT_MAX_CHARS } from "./sse/call-efficiency-tracker.ts";
+import { redactAndBound } from "../../../shared-infrastructure/redaction/redact-and-bound.ts";
 import { redactByValue } from "../../../shared-kernel/run-secret-redaction.ts";
 import { sha256Hex } from "../../../shared-kernel/content-hash.ts";
 import { carryAgentErrorType, classifyAgentFault, classifyProviderError, type AgentErrorType } from "../domain/agent-error-class.ts";
@@ -509,7 +511,7 @@ export function createAgentDeps(raw: RawAgentTransport, collab: AgentDepsCollabo
               promptText: text,
               promptBytes: Buffer.byteLength(text, "utf8"),
               outputText: sanitizeText(turn.outputRaw).text,
-              partialText: turn.partialRaw ? sanitizeText(redactByValue(turn.partialRaw)).text : null,
+              partialText: turn.partialRaw ? redactAndBound(turn.partialRaw, STREAMED_TEXT_MAX_CHARS, { keep: "tail" }) : null,
               tokensInput: turn.tokens?.input ?? null,
               tokensOutput: turn.tokens?.output ?? null,
               tokensReasoning: turn.tokens?.reasoning ?? null,

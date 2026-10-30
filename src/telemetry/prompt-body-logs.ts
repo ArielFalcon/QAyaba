@@ -11,6 +11,7 @@
 import { ROOT_CONTEXT, trace, TraceFlags, type Context } from "@opentelemetry/api";
 import { SeverityNumber, type Logger } from "@opentelemetry/api-logs";
 import { sha256Hex } from "../../qa-engine/src/shared-kernel/content-hash";
+import { REDACTION_FAILED, redactThenBound } from "../../qa-engine/src/shared-kernel/redact-then-bound";
 import type { CaptureMode } from "@kernel/telemetry/capture-mode";
 import type { TelemetryContext } from "@kernel/telemetry/telemetry.port";
 
@@ -106,13 +107,23 @@ export function chunkBody(text: string, envelope: (chunk: string, index: number,
 export class PromptBodyExporter {
   constructor(private readonly deps: PromptBodyDeps) {}
 
+  /* The body redacted, then cut at MAX_BODY_CHARS (the one rule: redact-then-bound.ts), so a secret straddling the cut leaves nothing of itself in Loki; undefined when the redaction failed. */
+  private redactedBody(text: string): string | undefined {
+    const bounded = redactThenBound(text, MAX_BODY_CHARS, (seen) => {
+      const redacted = this.deps.redact(seen);
+      if (redacted === undefined) throw new Error("the body could not be redacted");
+      return redacted;
+    });
+    return bounded === REDACTION_FAILED ? undefined : bounded;
+  }
+
   exportPrompt(input: PromptBodyInput): void {
     if (input.mode !== "full") return;
     try {
       const fresh: Array<{ part: SectionPart; text: string }> = [];
       const listed: Array<{ id: string; hash: string; bytes: number; dropped?: true }> = [];
       for (const part of splitSections(input)) {
-        const redacted = this.deps.redact(part.text.length > MAX_BODY_CHARS ? part.text.slice(0, MAX_BODY_CHARS) : part.text);
+        const redacted = this.redactedBody(part.text);
         const bytes = Buffer.byteLength(part.text, "utf8");
         /* A body that could not be redacted is not exported; the turn record says so. */
         if (redacted === undefined) {
@@ -147,7 +158,7 @@ export class PromptBodyExporter {
     if (input.mode !== "full" || input.text.length === 0) return;
     try {
       const truncated = input.text.length > MAX_BODY_CHARS;
-      const redacted = this.deps.redact(truncated ? input.text.slice(0, MAX_BODY_CHARS) : input.text);
+      const redacted = this.redactedBody(input.text);
       if (redacted === undefined) return;
       const record = (chunk: string, index: number, count: number): object => ({ kind: "turn_output", session: input.who.sessionId, hash: sha256Hex(redacted), chunk: index, chunks: count, ...(truncated ? { truncated: true } : {}), text: chunk });
       const chunks = chunkBody(redacted, record);

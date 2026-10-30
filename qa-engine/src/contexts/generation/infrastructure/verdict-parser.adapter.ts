@@ -7,13 +7,13 @@ import type { GeneratorDeliverable, ReviewJudgment } from "../domain/manifest-re
 import type { SpecMeta } from "@kernel/qa-case.ts";
 import { GENERATION_NOTE_MAX_CHARS } from "../domain/generation-end.ts";
 import { sanitizeText } from "../../../shared-infrastructure/redaction/pattern-redaction.adapter.ts";
+import { redactAndBound } from "../../../shared-infrastructure/redaction/redact-and-bound.ts";
 import { boundReviewFindings, boundReviewRationale, boundReviewText, reviewAnswerIsOversized, REVIEW_CORRECTION_MAX_CHARS, REVIEW_CORRECTIONS_MAX, REVIEW_RATIONALE_MAX_CHARS, REVIEW_RESPONSE_MAX_CHARS, type ReviewFinding } from "../domain/review-output.ts";
 import type { NoopKind } from "@kernel/noop-kind.ts";
 
 /* Redacted at the earliest point, then cut to the note bound: the reason and the output tail end up persisted on the run, where no later stage redacts them. The reason keeps its start, the output keeps its end. */
 function forNote(text: string, keep: "start" | "end"): string {
-  const redacted = sanitizeText(text, "issue").text;
-  return (keep === "start" ? redacted.slice(0, GENERATION_NOTE_MAX_CHARS) : redacted.slice(-GENERATION_NOTE_MAX_CHARS)).trim();
+  return redactAndBound(text, GENERATION_NOTE_MAX_CHARS, { mode: "issue", keep: keep === "start" ? "head" : "tail" }).trim();
 /* mutation-scope:begin parser-region */
 }
 
@@ -116,10 +116,12 @@ export class VerdictParserAdapter implements VerdictParserPort {
         `[qa] WARNING: the reviewer answered ${text.length} chars (contract: ${REVIEW_RESPONSE_MAX_CHARS}) — keeping only the bounded verdict (rationale ≤ ${REVIEW_RATIONALE_MAX_CHARS} chars, ≤ ${REVIEW_CORRECTIONS_MAX} corrections)`,
       );
     }
-    const rationale = boundReviewRationale(r.rationale);
+    /* The domain cuts at a sentence; what it is given has been redacted whole first, so the cut cannot split a secret. */
+    const redacted = (text: string): string => sanitizeText(text, "issue").text;
+    const rationale = boundReviewRationale(r.rationale === undefined ? undefined : redacted(r.rationale));
     return {
       approved: r.approved,
-      findings: boundReviewFindings(r.findings),
+      findings: boundReviewFindings(r.findings.map((finding) => ({ ...finding, text: redacted(finding.text) }))),
       ...(rationale !== undefined ? { rationale } : {}),
       ...(r.blockingCount !== undefined ? { blockingCount: r.blockingCount } : {}),
       ...(r.parsed !== undefined ? { parsed: r.parsed } : {}),

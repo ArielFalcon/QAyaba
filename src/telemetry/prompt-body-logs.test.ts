@@ -7,6 +7,8 @@ import type { AgentDeps } from "../integrations/opencode-client";
 import type { CaptureMode } from "@kernel/telemetry/capture-mode";
 import { sha256Hex } from "../../qa-engine/src/shared-kernel/content-hash";
 import { MAX_BODY_CHARS, MAX_LINE_BYTES, PromptBodyExporter, chunkBody, splitSections, type TurnBodyIdentity } from "./prompt-body-logs";
+import { sanitizeText } from "../../qa-engine/src/shared-infrastructure/redaction/pattern-redaction.adapter";
+import { createRunSecretScope, withRunSecretScope } from "../../qa-engine/src/shared-kernel/run-secret-redaction";
 import { registerPromptBodyHost, withPromptBodies } from "./with-prompt-bodies";
 
 const TRACE = "0af7651916cd43dd8448eb211c80319c";
@@ -169,3 +171,16 @@ test("through the facade: a full-capture turn's bodies reach the log sink linked
   }
 });
 
+
+test("a run secret of several words straddling the body cut leaves no word of itself in the exported body", () => {
+  const passphrase = "tangerine staple orbit nine";
+  const words = "the page header renders before the data arrives and ";
+  const text = `${words.repeat(Math.ceil(MAX_BODY_CHARS / words.length)).slice(0, MAX_BODY_CHARS - 12)}${passphrase} and then more words`;
+  const scope = createRunSecretScope();
+  scope.addAccountSecrets([passphrase]);
+  const s = sink((body) => sanitizeText(body).text);
+  withRunSecretScope(scope, () => s.exporter.exportOutput({ who: who(), mode: "full", text }));
+  const exported = s.bodies("turn_output").map((record) => String(record.text)).join("");
+  assert.ok(exported.length > 0);
+  assert.ok(!/tangerine|staple|orbit/.test(exported));
+});

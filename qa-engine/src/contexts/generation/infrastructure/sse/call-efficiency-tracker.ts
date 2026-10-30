@@ -44,6 +44,7 @@ import { callFingerprint } from "./call-fingerprint.ts";
 import { buildTurnCallMetrics, type TurnCallMetrics, type TurnUsage } from "../../domain/turn-efficiency-summary.ts";
 import { TOOL_SEQUENCE_MAX_ENTRIES, TOOL_TARGET_MAX_CHARS, toolCallSubject, type ToolSequenceEntry } from "../../domain/tool-sequence.ts";
 import type { ToolOutcome } from "../../domain/tool-outcome.ts";
+import { REDACTION_LOOKAHEAD_CHARS } from "../../../../shared-kernel/redact-then-bound.ts";
 import { redactedText, toolAnswerOf, toolOutcomeOf } from "./opencode-tool-outcome.ts";
 import { NAV_OUTCOME_READ_CHARS, isNavigationCall } from "../../domain/nav-outcome.ts";
 import { TRACE_MAX_ENTRIES, type CallStatus, type CallTrace, type StepTrace, type StepUsageTrace, type TurnTrace } from "../../domain/turn-trace.ts";
@@ -190,8 +191,10 @@ interface StreamedPart {
   text: string;
 }
 
-/** The most characters of streamed text a turn carries; a longer text keeps its tail, where the turn stopped. */
+/** The most characters of streamed text a turn carries out of the transport; a longer text keeps its tail, where the turn stopped. */
 export const STREAMED_TEXT_MAX_CHARS = 16_000;
+/* What the tracker holds raw to hand the transport: the tail it keeps and the lookahead redaction needs before the tail's start, because a secret that straddles the start of the tail is only found whole with the text before it (the transport redacts, then cuts: redact-then-bound.ts). */
+const STREAMED_TEXT_RETAINED_CHARS = STREAMED_TEXT_MAX_CHARS + REDACTION_LOOKAHEAD_CHARS;
 
 /* The most navigation answers one turn keeps for the outcome classifier. */
 export const NAV_OUTPUT_MAX_KEPT = 100;
@@ -455,7 +458,7 @@ export class CallEfficiencyTracker implements StreamLifecycleSink {
     const known = session.streamed.get(props.partID);
     if (!known) return;
     try {
-      known.text = (known.text + props.delta).slice(-STREAMED_TEXT_MAX_CHARS);
+      known.text = (known.text + props.delta).slice(-STREAMED_TEXT_RETAINED_CHARS);
       boundStreamed(session);
     } catch (err) {
       session.streamedFaulted = true;
@@ -472,7 +475,7 @@ export class CallEfficiencyTracker implements StreamLifecycleSink {
       const text = part.text;
       if (typeof id !== "string" || typeof text !== "string" || session.droppedStreamed.has(id)) return;
       if (typeof part.messageID === "string" && session.userMessages.has(part.messageID)) return;
-      session.streamed.set(id, { type, text: text.slice(-STREAMED_TEXT_MAX_CHARS) });
+      session.streamed.set(id, { type, text: text.slice(-STREAMED_TEXT_RETAINED_CHARS) });
       boundStreamed(session);
     } catch (err) {
       session.streamedFaulted = true;
@@ -693,14 +696,14 @@ function boundStreamed(session: SessionState): void {
   let total = 0;
   for (const part of session.streamed.values()) total += part.text.length;
   for (const [id, part] of session.streamed) {
-    if (total - part.text.length < STREAMED_TEXT_MAX_CHARS) return;
+    if (total - part.text.length < STREAMED_TEXT_RETAINED_CHARS) return;
     total -= part.text.length;
     session.streamed.delete(id);
     session.droppedStreamed.add(id);
   }
 }
 
-/* The turn's streamed parts as one text, each prefixed by its type, bounded to its tail; undefined when the turn streamed none. */
+/* The turn's streamed parts as one text, each prefixed by its type, bounded to its retained tail (raw: the transport redacts it, then keeps STREAMED_TEXT_MAX_CHARS of it); undefined when the turn streamed none. */
 function streamedTextOf(session: SessionState): string | undefined {
   if (session.streamedFaulted) return undefined;
   const joined = [...session.streamed.values()]
@@ -708,7 +711,7 @@ function streamedTextOf(session: SessionState): string | undefined {
     .map((part) => `[${part.type}] ${part.text}`)
     .join("\n");
   if (joined === "") return undefined;
-  return joined.length > STREAMED_TEXT_MAX_CHARS ? joined.slice(-STREAMED_TEXT_MAX_CHARS) : joined;
+  return joined.length > STREAMED_TEXT_RETAINED_CHARS ? joined.slice(-STREAMED_TEXT_RETAINED_CHARS) : joined;
 }
 
 /* The content reads at or after `from` whose lines a code-graph answer made earlier in the session had already shown. A read is compared only with the answers before it, so a read the agent made first and the graph repeated later is not counted. */

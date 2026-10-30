@@ -4,7 +4,7 @@ import { engineLog } from "@kernel/ports/process-logger.ts";
 import { join } from "node:path";
 import { readConfinedSpecFile, type SpecRoot } from "../../../../shared-infrastructure/spec-path-confinement.ts";
 import { sanitizeText } from "../../../../shared-infrastructure/redaction/pattern-redaction.adapter.ts";
-import { boundEvidenceText } from "../prompt-cap.ts";
+import { boundedEvidenceText } from "../prompt-cap.ts";
 import type { ReviewInput } from "../../domain/generation-input.ts";
 import { COMMIT_DIFF_HEADING, redactedDiffText } from "./prompt-text.ts";
 
@@ -121,7 +121,7 @@ export function renderExecutionResult(evidence: {
       lines.push(`  finalUrl: ${sanitized}`);
     }
     if (c.detail !== undefined) {
-      lines.push(`  detail: ${boundEvidenceText(c.detail)}`);
+      lines.push(`  detail: ${boundedEvidenceText(c.detail)}`);
     }
   }
 

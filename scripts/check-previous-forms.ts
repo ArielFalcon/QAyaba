@@ -66,6 +66,7 @@ export const BANNED_RULES: BannedRule[] = [
   },
   { id: "ast-grep-flag", patterns: [/\bhasAstGrepRules\b/, /\bastGrep\b/], exemptPrefixes: [RECORDS_PREFIX] },
   { id: "api-token-resolver", patterns: [/\bresolveApiToken\b/], exemptPrefixes: [RECORDS_PREFIX] },
+  { id: "bound-before-redact", patterns: [/\bboundEvidenceText\b/], exemptPrefixes: [RECORDS_PREFIX] },
   { id: "sanitizer-prompt-cap", patterns: [/\bcapText\b/, /\bMAX_PROMPT_BODY_CHARS\b/], exemptPrefixes: [RECORDS_PREFIX] },
   { id: "secret-audit-record", patterns: [/\bSECRET_AUDIT(?:_MAX)?\b/, /\brecordAudit\b/], exemptPrefixes: [RECORDS_PREFIX] },
   { id: "lifecycle-shutting-down-setter", patterns: [/\bsetShuttingDown\b/], exemptPrefixes: [RECORDS_PREFIX] },

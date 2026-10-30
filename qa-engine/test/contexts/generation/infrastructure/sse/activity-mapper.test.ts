@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mapOpencodeEvent, eventRunId, type RawOpencodeEvent } from "@contexts/generation/infrastructure/sse/activity-mapper.ts";
+import { createRunSecretScope, withRunSecretScope } from "../../../../../src/shared-kernel/run-secret-redaction.ts";
 import { RunEventBodySchema } from "@kernel/contract/events.ts";
 
 const SESSIONS = new Map<string, string>([["sess_1", "run_1"]]);
@@ -156,4 +157,17 @@ test("a running Serena read is labelled with the file's basename when the tool g
 test("a Serena write to a non-spec file emits no spec.written", () => {
   const out = mapValid(toolEvent({ status: "completed", input: { relative_path: "src/Orders.java" } }, { tool: "replace_symbol_body" }));
   assert.deepEqual(out.map((e) => (e as { type: string }).type), ["agent.activity"]);
+});
+
+test("a run secret of several words straddling the cap of a command or a todo leaves no word of itself in the feed", () => {
+  const passphrase = "tangerine staple orbit nine";
+  const lead = "run the smoke suite against the staging site with ".repeat(5).slice(0, 190);
+  const scope = createRunSecretScope();
+  scope.addAccountSecrets([passphrase]);
+  const out = withRunSecretScope(scope, () => [
+    ...mapValid({ type: "command.executed", properties: { sessionID: "sess_1", name: "shell", arguments: `${lead}${passphrase} done` } }),
+    ...mapValid({ type: "todo.updated", properties: { sessionID: "sess_1", todos: [{ content: `${lead}${passphrase} done`, status: "pending" }] } }),
+  ]);
+  assert.equal(out.length, 2);
+  assert.ok(!/orbit|staple|tangerine/.test(JSON.stringify(out)), JSON.stringify(out).slice(150, 300));
 });

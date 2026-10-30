@@ -10,6 +10,7 @@ import {
   type StreamToken,
   type TrackerTimer,
 } from "@contexts/generation/infrastructure/sse/call-efficiency-tracker.ts";
+import { REDACTION_LOOKAHEAD_CHARS } from "../../../../../src/shared-kernel/redact-then-bound.ts";
 import { TRACE_MAX_ENTRIES } from "@contexts/generation/domain/turn-trace.ts";
 import type { RawOpencodeEvent } from "@contexts/generation/infrastructure/sse/activity-mapper.ts";
 import { TOOL_SEQUENCE_MAX_ENTRIES, TOOL_TARGET_MAX_CHARS } from "@contexts/generation/domain/tool-sequence.ts";
@@ -1429,11 +1430,12 @@ test("streamed text longer than its bound keeps its tail", async () => {
   const tracker = tracked();
   await tracker.prepareAttempt("s1", 0);
   tracker.record(stepStart("s1", "step-1"));
-  tracker.record(textPart("s1", "p-old", "reasoning", "x".repeat(STREAMED_TEXT_MAX_CHARS)));
+  tracker.record(textPart("s1", "p-old", "reasoning", "x".repeat(STREAMED_TEXT_MAX_CHARS + REDACTION_LOOKAHEAD_CHARS)));
   tracker.record(textPart("s1", "p-new", "text", "the last words"));
 
+  /* The tracker keeps the bound's worth and the lookahead redaction needs before it; the transport redacts it and keeps the bound. */
   const kept = tracker.take("s1", "")?.streamedText ?? "";
-  assert.equal(kept.length, STREAMED_TEXT_MAX_CHARS);
+  assert.equal(kept.length, STREAMED_TEXT_MAX_CHARS + REDACTION_LOOKAHEAD_CHARS);
   assert.ok(kept.endsWith("[text] the last words"));
 });
 

@@ -3,19 +3,12 @@
  * refusal and the repair pseudo-tool named `invalid`. Everything else reads the derived `ToolOutcome`.
  */
 import { sanitizeText } from "../../../../shared-infrastructure/redaction/pattern-redaction.adapter.ts";
-import { EVIDENCE_TEXT_SAFETY_BOUND } from "../prompt-cap.ts";
+import { redactThenBound } from "../../../../shared-kernel/redact-then-bound.ts";
 import { toolOutcome, type ToolOutcome, type ToolStatus } from "../../domain/tool-outcome.ts";
 import { TOOL_TARGET_MAX_CHARS } from "../../domain/tool-sequence.ts";
 
 /** The longest error message one call keeps, after redaction. */
 export const TOOL_ERROR_MAX_CHARS = 1_000;
-
-/*
- * Redaction runs on a bounded prefix, so a pathological input costs a bounded amount. The prefix is the evidence safety bound (a
- * quoted credential only closes, and so is taken whole, when its end is inside the window: a window that cuts it leaves every word
- * after the first), or twice the cap when the cap is larger.
- */
-const REDACTION_WINDOW_FACTOR = 2;
 
 /* The message the runtime attaches to a call a permission rule refuses (the pinned build's own wording). A rejection by a person, or any other failure of a tool, is not this. */
 const DENIAL_MESSAGE = /specified a rule which prevents you from using this specific tool call/i;
@@ -36,13 +29,9 @@ export interface ToolOutcomeDeps {
 
 export const defaultToolOutcomeDeps: ToolOutcomeDeps = { redact: (text) => sanitizeText(text).text };
 
-/** Text from the agent's workspace, redacted like every text that leaves the system, then capped: the redaction sees the text past the cap (up to its window), so a cut never leaves part of a credential. A fault in redaction yields a marker, never the raw text. */
+/** Text from the agent's workspace, redacted like every text that leaves the system, then capped (the one rule: redact-then-bound.ts): a cut never leaves part of a credential. A fault in redaction yields a marker, never the raw text. */
 export function redactedText(raw: string, maxChars: number, deps: ToolOutcomeDeps = defaultToolOutcomeDeps): string {
-  try {
-    return deps.redact(raw.slice(0, Math.max(EVIDENCE_TEXT_SAFETY_BOUND, maxChars * REDACTION_WINDOW_FACTOR))).slice(0, maxChars);
-  } catch {
-    return "[redacted]";
-  }
+  return redactThenBound(raw, maxChars, deps.redact);
 }
 
 const messageOf = (raw: unknown, deps: ToolOutcomeDeps): string | undefined =>

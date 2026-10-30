@@ -3,6 +3,7 @@
 import type { RunEventBody } from "@kernel/contract/events.ts";
 import { kindForTool, toolInputPath } from "@contexts/generation/domain/tool-call-taxonomy.ts";
 import { toolOutcomeMessage } from "@contexts/generation/domain/tool-outcome.ts";
+import { redactAndBound } from "../../../../shared-infrastructure/redaction/redact-and-bound.ts";
 import { toolOutcomeOf, type OpencodeToolPart } from "./opencode-tool-outcome.ts";
 
 export interface RawOpencodeEvent {
@@ -13,9 +14,9 @@ export interface RawOpencodeEvent {
 function basename(p: string): string {
   return p.split(/[\\/]/).pop() || p;
 }
-function cap(s: string, n = 200): string {
-  return s.length > n ? s.slice(0, n) : s;
-}
+/* A fact of the activity feed: the agent's words redacted, then bounded (shared-kernel/redact-then-bound.ts). */
+const ACTIVITY_TEXT_MAX_CHARS = 200;
+const activityText = (s: string): string => redactAndBound(s, ACTIVITY_TEXT_MAX_CHARS);
 
 interface ToolStateLike extends NonNullable<OpencodeToolPart["state"]> {
   title?: string;
@@ -23,14 +24,14 @@ interface ToolStateLike extends NonNullable<OpencodeToolPart["state"]> {
 }
 
 function targetFor(tool: string, state: ToolStateLike): string {
-  if (state.title && state.title.trim()) return cap(state.title.trim());
+  if (state.title && state.title.trim()) return activityText(state.title.trim());
   const input = state.input ?? {};
   const file = toolInputPath(input);
   if (file) return basename(file);
   const cmd = input.command ?? input.cmd ?? input.script;
-  if (typeof cmd === "string" && cmd) return cap(cmd.trim());
+  if (typeof cmd === "string" && cmd) return activityText(cmd.trim());
   const desc = input.description ?? input.prompt;
-  if (typeof desc === "string" && desc) return cap(desc.trim());
+  if (typeof desc === "string" && desc) return activityText(desc.trim());
   return tool;
 }
 
@@ -64,7 +65,7 @@ function toolActivity(part: PartLike, workerId?: string): RunEventBody[] {
   const status = String(state.status ?? "");
 
   if (status === "error") {
-    return [{ type: "agent.error", detail: cap(toolOutcomeMessage(toolOutcomeOf(part)) ?? `tool ${tool} failed`) }];
+    return [{ type: "agent.error", detail: activityText(toolOutcomeMessage(toolOutcomeOf(part)) ?? `tool ${tool} failed`) }];
   }
   if (status !== "running" && status !== "completed") return [];
   const liveStatus: "running" | "completed" = status === "running" ? "running" : "completed";
@@ -114,17 +115,17 @@ export function mapOpencodeEvent(
       const todos = Array.isArray(p.todos) ? (p.todos as TodoLike[]) : [];
       const mapped = todos
         .filter((t) => (t.content ?? "").trim())
-        .map((t) => ({ content: cap(t.content!.trim()), status: normalizeTodoStatus(t.status) }));
+        .map((t) => ({ content: activityText(t.content!.trim()), status: normalizeTodoStatus(t.status) }));
       return mapped.length ? [{ type: "plan.updated", todos: mapped }] : [];
     }
 
     case "command.executed": {
       const cmd = [p.name, p.arguments].map((x) => String(x ?? "").trim()).filter(Boolean).join(" ");
-      return cmd ? [{ type: "agent.activity", kind: "command", target: cap(cmd), status: "completed" }] : [];
+      return cmd ? [{ type: "agent.activity", kind: "command", target: activityText(cmd), status: "completed" }] : [];
     }
 
     case "session.error":
-      return [{ type: "agent.error", detail: cap(String(p.error ?? "unknown error")) }];
+      return [{ type: "agent.error", detail: activityText(String(p.error ?? "unknown error")) }];
 
     default:
       return [];

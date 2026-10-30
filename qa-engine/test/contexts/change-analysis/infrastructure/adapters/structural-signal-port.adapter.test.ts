@@ -13,6 +13,7 @@ import type { CodeGraphPort } from "@kernel/ports/code-graph.port.ts";
 import type { CoChangePort } from "@kernel/ports/co-change.port.ts";
 import type { ImpactedSymbol } from "@kernel/code/index.ts";
 import type { Attrs } from "@kernel/telemetry/attribute-registry.ts";
+import { createRunSecretScope, withRunSecretScope } from "../../../../../src/shared-kernel/run-secret-redaction.ts";
 import { newSandboxReport, withExecScope } from "../../../../../src/shared-infrastructure/process-sandbox/exec-scope.ts";
 
 const SHA = "abc1234";
@@ -301,6 +302,18 @@ test("a failed, thrown or truncated impact walk is logged and recorded, and rend
   const ok = await observed(() => new StructuralSignalPortAdapter(reaching, fakeCoChange(), "/repo").render("/repo", changed));
   assert.equal(ok.notes["qayaba.structural.walk"], "complete");
   assert.deepEqual(ok.logs, [], "a complete walk logs nothing");
+});
+
+test("a run secret of several words straddling the cap of a walk's failure reason is in neither the recorded reason nor the log", async () => {
+  const passphrase = "tangerine staple orbit nine";
+  const reason = `${"the code graph could not open the store ".repeat(5).slice(0, 170)}${passphrase} afterwards`;
+  const scope = createRunSecretScope();
+  scope.addAccountSecrets([passphrase]);
+  const { notes, logs } = await withRunSecretScope(scope, () =>
+    observed(() => new StructuralSignalPortAdapter(fakeCodeGraph({ impactedSymbols: async () => err({ reason }) }), fakeCoChange(), "/repo").render("/repo", changed)),
+  );
+  assert.ok(!/orbit|staple/.test(String(notes["qayaba.code_graph.reason"])), String(notes["qayaba.code_graph.reason"]));
+  assert.ok(!logs.some((line) => /orbit|staple/.test(line)));
 });
 
 test("the block lists every symbol the walk reached, however far it went", async () => {

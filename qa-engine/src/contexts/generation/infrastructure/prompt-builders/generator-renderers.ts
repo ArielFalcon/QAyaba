@@ -1,7 +1,7 @@
 /* Renderers of the facts and evidence sections of a generator prompt. Each returns the section text; the registry in generator-sections.ts decides when one applies. Never import src/. */
 
 import { sanitizeText } from "../../../../shared-infrastructure/redaction/pattern-redaction.adapter.ts";
-import { boundEvidenceText, EVIDENCE_ITEMS_SAFETY_BOUND, evidenceItemsCutLine } from "../prompt-cap.ts";
+import { boundedEvidenceText, EVIDENCE_ITEMS_SAFETY_BOUND, evidenceItemsCutLine } from "../prompt-cap.ts";
 import { NOT_SHOWN } from "../../domain/window-fit-references.ts";
 import { failureUnsettled, type FailureSettle, type QaCase } from "@kernel/qa-case.ts";
 import { stripAnsi } from "@kernel/ansi.ts";
@@ -154,12 +154,12 @@ function renderFixCaseEvidenceLines(c: QaCase): string[] {
   const network = c.networkErrors ?? [];
   for (const e of network.slice(0, EVIDENCE_ITEMS_SAFETY_BOUND)) {
     const label = e.status !== undefined ? String(e.status) : e.errorText ?? "failed";
-    lines.push(boundEvidenceText(stripAnsi(`  NET ${label} ${redactForModel(e.url)}`)));
+    lines.push(`  NET ${label} ${boundedEvidenceText(stripAnsi(e.url))}`);
   }
   if (network.length > EVIDENCE_ITEMS_SAFETY_BOUND) lines.push(evidenceItemsCutLine(network.length - EVIDENCE_ITEMS_SAFETY_BOUND));
   const runtime = c.runtimeErrors ?? [];
   for (const e of runtime.slice(0, EVIDENCE_ITEMS_SAFETY_BOUND)) {
-    lines.push(`  [${e.type}] ${boundEvidenceText(stripAnsi(redactForModel(e.text)))}`);
+    lines.push(`  [${e.type}] ${boundedEvidenceText(stripAnsi(e.text))}`);
   }
   if (runtime.length > EVIDENCE_ITEMS_SAFETY_BOUND) lines.push(evidenceItemsCutLine(runtime.length - EVIDENCE_ITEMS_SAFETY_BOUND));
   if (c.failureSettle) lines.push(`  PAGE ${describeSettle(c.failureSettle)}`);
@@ -189,8 +189,8 @@ export type FixCaseShape = "whole" | "no-evidence" | "first-line" | "named";
 export function renderFixCase(c: QaCase, shape: FixCaseShape = "whole"): string[] {
   const name = `- ${redactForModel(c.name)}`;
   if (shape === "named") return [`${name}\n  Error: ${NOT_SHOWN}`];
-  const full = c.detail === undefined ? "(no detail)" : stripAnsi(redactForModel(c.detail));
-  const error = shape === "first-line" ? (full.split("\n")[0] ?? "") : boundEvidenceText(full);
+  const full = c.detail === undefined ? "(no detail)" : boundedEvidenceText(stripAnsi(c.detail));
+  const error = shape === "first-line" ? (full.split("\n")[0] ?? "") : full;
   return [`${name}\n  Error: ${error}`, ...(shape === "whole" ? renderFixCaseEvidenceLines(c) : [])];
 }
 

@@ -1,6 +1,7 @@
 /* StructuralSignalPort: advisory blast-radius from the code graph and the git co-change history. Unindexed repo → empty. One walk answers the whole change: its depth-0 symbols are the changed ones, the rest are what reaches them. With the dossier on, the engine's read-equivalent source of the change's top symbols rides in the same block (S14), so the benefit does not depend on a model choosing a tool. */
 
 import { engineLog } from "@kernel/ports/process-logger.ts";
+import { redactAndBound } from "../../../../shared-infrastructure/redaction/redact-and-bound.ts";
 import type { BlastRadius } from "@kernel/blast-radius.ts";
 import type { CodeGraphPort } from "@kernel/ports/code-graph.port.ts";
 import type { CoChangePort } from "@kernel/ports/co-change.port.ts";
@@ -59,7 +60,8 @@ function note(attrs: Attrs): void {
   }
 }
 
-const reasonOf = (cause: unknown): string => (cause instanceof Error ? cause.message : String(cause)).replace(/\s+/g, " ").trim().slice(0, 200);
+const REASON_MAX_CHARS = 200;
+const reasonOf = (cause: unknown): string => redactAndBound(cause instanceof Error ? cause.message : String(cause), REASON_MAX_CHARS).replace(/\s+/g, " ").trim();
 
 /* One line of what a walk did: its seeds, the partial ones, the hubs it pruned and the work it spent. */
 export function walkSummary(report: ImpactReport): string {

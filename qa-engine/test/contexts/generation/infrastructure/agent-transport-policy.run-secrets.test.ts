@@ -5,6 +5,7 @@ import assert from "node:assert/strict";
 import { REDACTED } from "@kernel/ports/redaction.port.ts";
 import { createAgentDeps, type AgentTurnEvent, type RawAgentTransport } from "@contexts/generation/infrastructure/agent-transport-policy.ts";
 import { resetCircuit } from "@contexts/generation/infrastructure/resilience/circuit-breaker.ts";
+import { CallEfficiencyTracker, STREAMED_TEXT_MAX_CHARS, type StreamToken } from "@contexts/generation/infrastructure/sse/call-efficiency-tracker.ts";
 import { createRunSecretScope, withRunSecretScope } from "../../../../src/shared-kernel/run-secret-redaction.ts";
 
 const PASSWORD = "plain-pass-9981";
@@ -99,4 +100,32 @@ test("an answered turn records no partial text: its answer is the output", async
   await session.prompt("write the specs");
   assert.equal(turns[0]!.ended, "completed");
   assert.equal(turns[0]!.partialText, null);
+});
+
+test("a multi-word run secret straddling the start of the streamed tail leaves no word of itself in the partial text", async () => {
+  resetCircuit();
+  const turns: AgentTurnEvent[] = [];
+  const passphrase = "tangerine staple orbit nine";
+  const scope = createRunSecretScope();
+  scope.addAccountSecrets([passphrase]);
+  const directory = "/mirrors/org__app";
+  const tracker = new CallEfficiencyTracker();
+  const stream: StreamToken = Symbol("stream");
+  tracker.streamOpening(directory, stream);
+  tracker.streamConnected(directory, stream);
+  tracker.attach("sess-1", directory);
+  await tracker.prepareAttempt("sess-1", 0);
+  const filler = "the page header renders before the data arrives and ";
+  const tailAfterSecret = filler.repeat(Math.ceil(STREAMED_TEXT_MAX_CHARS / filler.length)).slice(0, STREAMED_TEXT_MAX_CHARS - 10);
+  tracker.record({ type: "message.part.updated", properties: { part: { id: "step-1", sessionID: "sess-1", messageID: "msg_1", type: "step-start" } } });
+  tracker.record({ type: "message.part.updated", properties: { part: { id: "p1", sessionID: "sess-1", messageID: "msg_1", type: "text", text: `${passphrase} ${tailAfterSecret}` } } });
+  const hung: RawAgentTransport = { ...transport([]), promptSession: () => new Promise(() => {}) };
+  const deps = createAgentDeps(hung, { defaultPromptTimeoutMs: 15, getFallbackModel: () => undefined, takeTurnCalls: (id, prompt) => tracker.take(id, prompt) });
+  await withRunSecretScope(scope, async () => {
+    const session = await deps.open("qa-author", directory, { onTurn: (turn: AgentTurnEvent) => void turns.push(turn) });
+    await assert.rejects(() => session.prompt("write the specs"), /timed out/);
+  });
+  const partial = turns[0]!.partialText ?? "";
+  assert.ok(partial.length > 0 && partial.length <= STREAMED_TEXT_MAX_CHARS);
+  assert.ok(!/staple|orbit|nine/.test(partial), partial.slice(0, 60));
 });

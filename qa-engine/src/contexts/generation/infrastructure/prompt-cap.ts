@@ -6,6 +6,9 @@
  * a line that says where to read it (task-builders.ts).
  */
 import { sectionPath } from "@kernel/diff-hunks.ts";
+import { CUT_MARKER_PREFIX, cutMarker } from "../../../shared-kernel/redact-then-bound.ts";
+import { redactAndBound } from "../../../shared-infrastructure/redaction/redact-and-bound.ts";
+import type { RedactionMode } from "../../../shared-infrastructure/redaction/pattern-redaction.adapter.ts";
 
 export function extractDiffFilePath(section: string): string {
   return sectionPath(section);
@@ -20,11 +23,12 @@ export function extractDiffFilePath(section: string): string {
 export const EVIDENCE_TEXT_SAFETY_BOUND = 8_000;
 export const EVIDENCE_ITEMS_SAFETY_BOUND = 50;
 export const EVIDENCE_SAFETY_BOUND_REASON = "evidence-safety-bound";
-const BOUNDED_MARKER = "[… cut: ";
+const BOUNDED_MARKER = CUT_MARKER_PREFIX;
 
-export function boundEvidenceText(text: string, maxChars: number = EVIDENCE_TEXT_SAFETY_BOUND, what = "evidence text"): string {
-  if (text.length <= maxChars) return text;
-  return `${text.slice(0, maxChars)}${BOUNDED_MARKER}${text.length - maxChars} more chars, past the safety bound on ${what}]`;
+/* Free-form text a prompt carries, redacted and then bounded (the one rule: shared-kernel/redact-then-bound.ts), so a secret the bound would split is taken out whole. `mode` is the redaction mode of the prompt the text goes to. */
+export function boundedEvidenceText(raw: string, options: { maxChars?: number; what?: string; mode?: RedactionMode } = {}): string {
+  const { maxChars = EVIDENCE_TEXT_SAFETY_BOUND, what = "evidence text", mode = "model" } = options;
+  return redactAndBound(raw, maxChars, { mode, marker: cutMarker(what) });
 }
 
 /* The safety bound on a commit body: prose a committer wrote, so its size is not the orchestrator's to know. Below it the body is whole; whether the window holds it is the fit rule's to say. */

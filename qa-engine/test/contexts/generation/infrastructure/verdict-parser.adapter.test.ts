@@ -5,6 +5,8 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { VerdictParserAdapter, listSuiteSpecFiles } from "@contexts/generation/infrastructure/verdict-parser.adapter.ts";
 import { GENERATION_NOTE_MAX_CHARS } from "@contexts/generation/domain/generation-end.ts";
+import { createRunSecretScope, withRunSecretScope } from "../../../../src/shared-kernel/run-secret-redaction.ts";
+import { REVIEW_CORRECTION_MAX_CHARS, REVIEW_RATIONALE_MAX_CHARS } from "@contexts/generation/domain/review-output.ts";
 
 test("parseReview delegates and forwards blockingCount + parsed + valid + issues (no behavior drop)", () => {
   const adapter = new VerdictParserAdapter({
@@ -285,4 +287,19 @@ test("a blocking finding moved ahead of an advisory one keeps its own severity a
     { text: "[false-positive] b.spec.ts asserts nothing", severity: "blocking", citation: { kind: "execution", ref: "b.spec.ts" } },
     { text: "[missing-case] the empty search is not tested", severity: "advisory", citation: { kind: "arm", ref: "src/search.ts:12" } },
   ]);
+});
+
+test("a run secret of several words straddling the cap of the reviewer's rationale or a finding leaves no word of itself in the judgment", () => {
+  const passphrase = "tangerine staple orbit nine";
+  const filler = "the page header renders before the data arrives and ";
+  const text = (cap: number): string => `${filler.repeat(Math.ceil(cap / filler.length)).slice(0, cap - 20)}${passphrase} and then more words`;
+  const adapter = new VerdictParserAdapter({
+    parseVerdict: () => ({ parsed: true, specs: [] }) as never,
+    parseReviewerVerdict: () => ({ approved: false, findings: [{ text: text(REVIEW_CORRECTION_MAX_CHARS), severity: "blocking" }], rationale: text(REVIEW_RATIONALE_MAX_CHARS), parsed: true, valid: true, issues: [] }) as never,
+  } as never);
+  const scope = createRunSecretScope();
+  scope.addAccountSecrets([passphrase]);
+  const judgment = withRunSecretScope(scope, () => adapter.parseReview("…json…"));
+  assert.ok(!(judgment.rationale ?? "").includes("tangerine"), judgment.rationale);
+  assert.ok(!(judgment.findings[0]?.text ?? "").includes("tangerine"), judgment.findings[0]?.text);
 });
