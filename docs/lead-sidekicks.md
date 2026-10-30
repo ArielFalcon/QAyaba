@@ -335,8 +335,10 @@ findings, the run asks the lead, in the same planning session, instead of regene
    again is recorded unrouted with that reason (the lead neither sent it to a flow nor rebutted it after being asked once more).
    The lead's turns never spend the room the flows they order need. Every caller of the correction pass (review, static, execution,
    flaky, coverage, branch cases) meets this at the one shared point (`correct`): a lead turn, and the re-ask, is held to the room
-   (the time the deadline allots to the phase the run is in, which already holds back what the later phases need), never above
-   `planBudgetMs`; coordination keeps no reserve or margin of its own. When the room is under `MIN_FLOW_MS` the turn is not sent, and no flow
+   (the time the deadline allots to the phase the run is in, which already holds back what the later phases need) less two
+   `MIN_FLOW_MS` (one is the minimum a flow needs to carry the lead's orders out, the other is the slack for a turn that ends after
+   its timeout, since an abort never lands on it), never above `planBudgetMs`; coordination keeps no reserve of its own. When that
+   leaves the turn less than `MIN_FLOW_MS` it is not sent, and when the room itself is under `MIN_FLOW_MS` no flow
    has time to carry an order out either: without the first turn each finding goes
    to its default owner (the spec it cites or names, the flow whose test ran the file, the flow whose use case holds it as a direct
    seed, plan order), without the re-ask the first answer stands, and each is recorded as a `lead-decision`. A run with no

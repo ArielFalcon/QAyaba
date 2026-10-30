@@ -1040,13 +1040,13 @@ export class LeadSidekicks {
      * second, the first answer stands.
      */
     const askLead = async (request: AssembledPrompt, again: boolean): Promise<{ output: string; sent: boolean }> => {
-      const budgetMs = this.leadTurnBudget(input);
-      if (budgetMs === undefined) {
+      const turnTime = this.leadTurnTime(input);
+      if (turnTime === undefined) {
         this.record(input, { kind: "lead-decision", origin, reason: `correction (${origin}): too little of the run is left ${again ? "to ask the lead again; its first answer stands" : "for the lead to route the findings without costing the flows their minimum time; each finding goes to its default owner"}` });
         return { output: "", sent: false };
       }
       try {
-        const answer = await lead.ask(request.text, planTurnOpts(request, input.settings.planBudgetMs, this.room(input)));
+        const answer = await lead.ask(request.text, turnOpts(request, turnTime.ms, turnTime.limit));
         if (answer.timedOut) this.record(input, { kind: "lead-decision", origin, reason: `correction (${origin}): the lead ran out of its time${again ? "; its first answer stands" : "; each flow is sent its own findings"}` });
         else return { output: answer.output, sent: true };
       } catch (err) {
@@ -1072,7 +1072,7 @@ export class LeadSidekicks {
     const refusedLeft = admission.refused.length > 0 && admission.unrouted.length > 0;
     if ((refusedLeft || omitted.length > 0 || unreadableFirst.length > 0) && !state.released && !input.signal?.aborted) {
       const parts = [...(admission.refused.length > 0 ? [`${admission.refused.length} part(s) of the answer not admitted`] : []), ...(unreadableFirst.length > 0 ? [`${unreadableFirst.length} part(s) of the answer the reader could not read`] : []), ...(omitted.length > 0 ? [`finding(s) ${omitted.map((i) => i + 1).join(", ")} neither sent to a flow nor rebutted`] : [])];
-      if (this.leadTurnBudget(input) !== undefined) this.record(input, { kind: "lead-decision", origin, reason: `correction (${origin}): ${parts.join("; ")}; asking the lead once more` });
+      if (this.leadTurnTime(input) !== undefined) this.record(input, { kind: "lead-decision", origin, reason: `correction (${origin}): ${parts.join("; ")}; asking the lead once more` });
       const again = await askLead(assembleRefusedCorrection([...admission.refused, ...unreadableFirst.map((u) => ({ reason: describeUnreadableEntry(u) }))], findings.length, omitted, origin), true);
       if (again.sent) {
         tally.turns += 1;
@@ -1294,13 +1294,19 @@ export class LeadSidekicks {
   }
 
   /*
-   * The time one of the lead's correction turns may take, or undefined when none fits: the room, up to the plan budget. A turn that
-   * could be given less than a flow's minimum is not worth sending. No deadline: the plan budget.
+   * The time one of the lead's correction turns may take, or undefined when none fits. A turn is held to the room less two flows'
+   * minimum: one is what the lead's orders need to run, the other is the slack for a turn that ends after its timeout (an abort never
+   * lands on it). The room is the allowance of the purpose the run is in, which shrinks by at most what the turn spends. A turn that
+   * could be given less than a flow's minimum is not worth sending. Up to the plan budget (`plan-budget`, or `allotment` when the room
+   * is smaller). No deadline: the plan budget.
    */
-  private leadTurnBudget(input: CoordinateInput): number | undefined {
+  private leadTurnTime(input: CoordinateInput): { ms: number; limit: HeldTime["limit"] } | undefined {
     const room = this.room(input);
-    if (room === undefined) return input.settings.planBudgetMs;
-    return room < MIN_FLOW_MS ? undefined : Math.min(input.settings.planBudgetMs, room);
+    if (room === undefined) return { ms: input.settings.planBudgetMs, limit: "plan-budget" };
+    const spare = room - MIN_FLOW_MS * 2;
+    if (spare < MIN_FLOW_MS) return undefined;
+    const held = heldTo({ ms: input.settings.planBudgetMs, limit: "plan-budget" }, spare);
+    return { ms: Math.max(1, held.ms), limit: held.limit };
   }
 
   /* The time a flow is dispatched with and the bound it is: its own cap (`flow-budget`) while that is below what its purpose is allotted now, else the deadline's, which no timer of the dispatcher races. */
