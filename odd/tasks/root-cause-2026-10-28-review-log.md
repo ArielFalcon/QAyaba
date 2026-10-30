@@ -125,31 +125,68 @@ Verdicts: A T5 unit 1 PASS, T8 FAIL (A-B1, A-B2); B T6, T7, T10 PASS, T11 PASS w
 
 | ID | Severity | Where | Problem | Decision / correction | Status |
 |---|---|---|---|---|---|
-| A-B1 | blocker | `e2e-execution.runner.ts:1033,1082`, `control-load.run.cjs:46` | The control waits for `networkidle` with the whole call's time; a never-idle launch page (SSE, polling) has the call killed before the spec child starts (probe: `infra-error` timed out, base passes in 1.4 s) | The control gets its own bound well below the call; on time-out it keeps what it saw and the spec child starts with the time left; RFC-0007 :126 amended; RED with a never-idle page | open (unit X) |
-| A-B2 | blocker | runner `:548` `readControls`, `control-load.ts:5` | The control file sits in the sandbox-writable capture dir and is read after the spec child: a spec rewrites it and charges 0 (base 7) | Read the control when its child closes, before the spec child starts, keep it in memory; any control file found later is forged; RED with a rewriting spec | open (X) |
-| A-J2 | major | `run-dump-bridge.ts:198` | The counters' own-budget guard (11d111db) no longer fails when broken | Fake clock advancing during the coverage job; counters keep their full budget | open (X) |
-| A-J3 | major | runner `:1100`, `control-load.run.cjs:47` | A failed control still exempts what it saw; RFC-0007 says a failed control leaves everything charged | Follow the RFC: a control that failed or timed out without closing cleanly exempts nothing (with A-B1: a time-out that closed cleanly keeps what it saw, said in the RFC) | open (X) |
-| A-J4 | major | `control-load.ts:5`, `dump-sanitizers.ts:4`, `run-spec.use-case.test.ts:343`, `seed-dev-write-counter.test.ts:1` | Comments misstate the code | Rewrite | open (X) |
-| A-m1 | minor | `off-loop-executor.ts:80` | `worker.terminate()` on abort unguarded | Test the worker exits on abort | open (X) |
-| A-m2 | minor | runner `:496,:503,:512` | Three T8 guards unguarded (no-sender ledger as page, project-name bound, control entry cap) | Tests through `readDevWrites` | open (X) |
-| A-m3 | minor | `run-output-reader.ts:21,73` | `OutOfTimeError` never thrown | Remove | open (X) |
-| B-B1 | blocker (also at base; the path L26 meant to close) | `eslint.config.js:32`, `regeneration-acceptance.ts:173-182`, `playwright-report.ts`, `review.steps.ts:93,517` | A failing test still turns green with nothing run: `test.fixme`, `info().skip()`, aliases, `test.fail()` pass the lint; Playwright reports them skipped/expected; the acceptance keeps and proves the file (use-case probe: verdict pass, side effect pr) | Engine rule from the report, any app: a test of a changed file that ran in its prior bytes (or a correction named) and is now skipped, or runs with `expectedStatus: "failed"`, is not a pass: the file is restored or the round rejected; a kept file with no executed case gets no proof; the lint adds `disallowFixme` as an early hint; RED at the acceptance and the fix loop | open (Y) |
-| B-J1 | major | `setup.adapter.ts:400,541,553`, AGENTS.md :206, :1041 | The lint refusal reaches only projects bootstrapped from this seed | B-B1's engine rule removes the dependence; correct both sentences | open (Y, records) |
-| B-J2 | major (change-caused) | `opencode-tool-outcome.ts:13,37` | The tool-target redaction window fell from 1000 to 400 chars: an 800-char JWT keeps up to 200 chars | Window max(1000, 2x cap) or whole string under a safety bound; test with a straddling token | open (Y) |
-| B-J3 | major | RFC-0008 :78, :183 | RFC-0008 says every kept file has a case; C-B1 and the skip decision are in no record | ADR-0015 records C-B1, the skip decision and B-B1; RFC-0008 correction note | open (records) |
-| B-m1 | minor | `review-port.adapter.ts:163` | The new parse-miss line logs error though the run carries on | Carried-on level, asserted | open (Y) |
-| B-m2 | minor | `failure-policy.ts:119,126` | `FailureAction` has no `satisfies Record` effect mapping | Add it | open (Y) |
-| B-m3 | minor | `flow-outcomes.ts:24-31`, `regeneration-acceptance.test.ts:147-165` | Two surviving mutants | Assert the over-window level; give the infra-error fixture a case | open (Y) |
-| B-m5 | advisory | `carry-on-level.test.ts:15`, `opencode-tool-outcome.test.ts:63-70` | Whole-file exemption; scan limited to `sse/` | Narrow and widen | open (Y) |
-| C-B1 | blocker | AGENTS.md :172, :174, :178 | Boundary table rows still "lands with RFC-0006/0007/0004" | "in force" | open (records) |
-| C-B2 / D-m4 / A-J1 | blocker | `docs/execution-sandbox.md:198` | Describes the rejected per-worker control | Rewrite to the final design | open (records) |
-| C-B3 | blocker | RFC-0009 F6, `rejected-explanations.md:165-181`, README :38 | The accepted epoch break is unrecorded | Epoch rows: baseline, T17, the RFC-0009 break at 2af99d58, the slices epoch | open (records) |
-| C-J1-C-J8, C-m1-C-m5 | major/minor | see reviewer C's table (CP3 C) | Record corrections, missing ADR for owner decisions, order line, verifier list | As reviewer C proposed | open (records) |
-| C-J6 | major | `scripts/check-previous-forms.ts` | No `qa.coveragePolicy` banned term | Add it with `exemptPrefixes` | open (Y) |
-| D-J1 | major | `eslint.config.js:32` | Same as B-B1's lint half | With B-B1 | open (Y) |
-| D-m1 | minor | `agents/package.json`, `agents/Dockerfile:22` | Plugin 1.16.0 beside OpenCode 1.17.7, no test ties them | Record why (no pin moved; smoke scripts unchanged) in the test's comment | open (Y) |
-| D-m2 | minor | `agents/.gitignore` | Ignores the tracked files and itself | Keep only `node_modules`, `bun.lock` (only if OpenCode accepts it: prove with the EROFS probe) | open (Y) |
-| D-m3 | minor | `src/settings/retired.ts` | `REFLECTOR_TIMEOUT_MS` missing | Add it | open (Y) |
-| D-m5, D-m6 | minor | feature doc, ADR-0014 :4 | Stale rows; untranslated quote | Records | open (records) |
-| D-m7 | advisory | `fixtures.ts:350`, `control-load.run.cjs:10` | Duplicated 300-char cut | Pin equal in a test | open (X) |
+| A-B1 | blocker | `e2e-execution.runner.ts:1033,1082`, `control-load.run.cjs:46` | The control waits for `networkidle` with the whole call's time; a never-idle launch page (SSE, polling) has the call killed before the spec child starts (probe: `infra-error` timed out, base passes in 1.4 s) | The control gets its own bound well below the call; on time-out it keeps what it saw and the spec child starts with the time left; RFC-0007 :126 amended; RED with a never-idle page | fixed b690fa8c |
+| A-B2 | blocker | runner `:548` `readControls`, `control-load.ts:5` | The control file sits in the sandbox-writable capture dir and is read after the spec child: a spec rewrites it and charges 0 (base 7) | Read the control when its child closes, before the spec child starts, keep it in memory; any control file found later is forged; RED with a rewriting spec | fixed b690fa8c |
+| A-J2 | major | `run-dump-bridge.ts:198` | The counters' own-budget guard (11d111db) no longer fails when broken | Fake clock advancing during the coverage job; counters keep their full budget | fixed 86f903e3 |
+| A-J3 | major | runner `:1100`, `control-load.run.cjs:47` | A failed control still exempts what it saw; RFC-0007 says a failed control leaves everything charged | Follow the RFC: a control that failed or timed out without closing cleanly exempts nothing (with A-B1: a time-out that closed cleanly keeps what it saw, said in the RFC) | fixed b690fa8c |
+| A-J4 | major | `control-load.ts:5`, `dump-sanitizers.ts:4`, `run-spec.use-case.test.ts:343`, `seed-dev-write-counter.test.ts:1` | Comments misstate the code | Rewrite | fixed b690fa8c, 86f903e3 |
+| A-m1 | minor | `off-loop-executor.ts:80` | `worker.terminate()` on abort unguarded | Test the worker exits on abort | fixed 86f903e3 |
+| A-m2 | minor | runner `:496,:503,:512` | Three T8 guards unguarded (no-sender ledger as page, project-name bound, control entry cap) | Tests through `readDevWrites` | fixed b690fa8c |
+| A-m3 | minor | `run-output-reader.ts:21,73` | `OutOfTimeError` never thrown | Remove | fixed 86f903e3 |
+| B-B1 | blocker (also at base; the path L26 meant to close) | `eslint.config.js:32`, `regeneration-acceptance.ts:173-182`, `playwright-report.ts`, `review.steps.ts:93,517` | A failing test still turns green with nothing run: `test.fixme`, `info().skip()`, aliases, `test.fail()` pass the lint; Playwright reports them skipped/expected; the acceptance keeps and proves the file (use-case probe: verdict pass, side effect pr) | Engine rule from the report, any app: a test of a changed file that ran in its prior bytes (or a correction named) and is now skipped, or runs with `expectedStatus: "failed"`, is not a pass: the file is restored or the round rejected; a kept file with no executed case gets no proof; the lint adds `disallowFixme` as an early hint; RED at the acceptance and the fix loop | fixed a6cded89 (RED at the acceptance and the fix loop; the lint half is `disallowFixme`). Note: the part "or a correction named" is not implemented, the rule reads the prior cases of the run only; recorded in ADR-0015 |
+| B-J1 | major | `setup.adapter.ts:400,541,553`, AGENTS.md :206, :1041 | The lint refusal reaches only projects bootstrapped from this seed | B-B1's engine rule removes the dependence; correct both sentences | fixed by the records unit (AGENTS.md static-gate and per-file acceptance paragraphs, ADR-0015) |
+| B-J2 | major (change-caused) | `opencode-tool-outcome.ts:13,37` | The tool-target redaction window fell from 1000 to 400 chars: an 800-char JWT keeps up to 200 chars | Window max(1000, 2x cap) or whole string under a safety bound; test with a straddling token | fixed 9b243fab (window `max(EVIDENCE_TEXT_SAFETY_BOUND, 2 x cap)`) |
+| B-J3 | major | RFC-0008 :78, :183 | RFC-0008 says every kept file has a case; C-B1 and the skip decision are in no record | ADR-0015 records C-B1, the skip decision and B-B1; RFC-0008 correction note | fixed by the records unit (ADR-0015, RFC-0008 correction) |
+| B-m1 | minor | `review-port.adapter.ts:163` | The new parse-miss line logs error though the run carries on | Carried-on level, asserted | fixed c71b0438 |
+| B-m2 | minor | `failure-policy.ts:119,126` | `FailureAction` has no `satisfies Record` effect mapping | Add it | fixed c71b0438 |
+| B-m3 | minor | `flow-outcomes.ts:24-31`, `regeneration-acceptance.test.ts:147-165` | Two surviving mutants | Assert the over-window level; give the infra-error fixture a case | fixed c71b0438 |
+| B-m5 | advisory | `carry-on-level.test.ts:15`, `opencode-tool-outcome.test.ts:63-70` | Whole-file exemption; scan limited to `sse/` | Narrow and widen | fixed c71b0438 (the arch rule exempts one line), 9b243fab (the ownership scan covers the engine and the shell). Note on B-m4 (not a row of this table): the extension of the tool-state ownership scan to the engine and the shell, made in c71b0438 and 9b243fab, is recorded here as that note |
+| C-B1 | blocker | AGENTS.md :172, :174, :178 | Boundary table rows still "lands with RFC-0006/0007/0004" | "in force" | fixed by the records unit (AGENTS.md rows now "in force") |
+| C-B2 / D-m4 / A-J1 | blocker | `docs/execution-sandbox.md:198` | Describes the rejected per-worker control | Rewrite to the final design | fixed by the records unit (`docs/execution-sandbox.md`, AGENTS.md closed-loop paragraph; `docs/observability-design.md` already agreed) |
+| C-B3 | blocker | RFC-0009 F6, `rejected-explanations.md:165-181`, README :38 | The accepted epoch break is unrecorded | Epoch rows: baseline, T17, the RFC-0009 break at 2af99d58, the slices epoch | fixed by the records unit (second table of the run index: O12-O16; README extended) |
+| C-J1-C-J8, C-m1-C-m5 | major/minor | see reviewer C's table (CP3 C) | Record corrections, missing ADR for owner decisions, order line, verifier list | As reviewer C proposed | fixed by the records unit (C-J6 fixed 17bb77c1); see "Records unit" below |
+| C-J6 | major | `scripts/check-previous-forms.ts` | No `qa.coveragePolicy` banned term | Add it with `exemptPrefixes` | fixed 17bb77c1 |
+| D-J1 | major | `eslint.config.js:32` | Same as B-B1's lint half | With B-B1 | fixed a6cded89 |
+| D-m1 | minor | `agents/package.json`, `agents/Dockerfile:22` | Plugin 1.16.0 beside OpenCode 1.17.7, no test ties them | Record why (no pin moved; smoke scripts unchanged) in the test's comment | fixed 17bb77c1 |
+| D-m2 | minor | `agents/.gitignore` | Ignores the tracked files and itself | Keep only `node_modules`, `bun.lock` (only if OpenCode accepts it: prove with the EROFS probe) | fixed 17bb77c1 |
+| D-m3 | minor | `src/settings/retired.ts` | `REFLECTOR_TIMEOUT_MS` missing | Add it | fixed 17bb77c1 |
+| D-m5, D-m6 | minor | feature doc, ADR-0014 :4 | Stale rows; untranslated quote | Records | fixed by the records unit (Tasks rows; ADR-0014 translated) |
+| D-m7 | advisory | `fixtures.ts:350`, `control-load.run.cjs:10` | Duplicated 300-char cut | Pin equal in a test | fixed b690fa8c |
 | D-m8 | advisory | dead exports listed by D | Dead since step 1 | T13 | deferred (T13) |
+
+### Records unit (CP3 C rows, done in the records commit)
+
+Reviewer C's table itself was not kept in the repository; each row below is the correction made, from the finding's one-line description in the records unit's brief.
+
+| ID | Correction |
+|---|---|
+| C-J1 | README "How records cite code" and ADR-0011 Enforcement row 7: the previous-forms gate skips the path and citation checks for `docs/architecture/` since `a4cde318`. |
+| C-J2 | RFC-0006: the schema and `verdict-validate.ts` did not move (carrier T13). |
+| C-J3 | RFC-0005 (:195) and feature document T17: T17 is RFC-0005's after; the readout (12 restored, digest fc7ad52e, freeze off). |
+| C-J4 | The interim replicate on b900bc7e is the after of everything at b900bc7e against T17; T12's version is after T5 unit 2 and the CP3 corrections and its before is T17. T5 and T12 rows, ADR-0011 Correction 2026-10-30. |
+| C-J5 + B-J3 | ADR-0015 written; RFC-0008 correction; corrections quoting L13, L15 and L22 in RFC-0001 OD-13, ADR-0013 point 3 and ADR-0007 point B. |
+| C-J7 | Implementation notes in RFC-0009 and RFC-0010 (the window is `max(EVIDENCE_TEXT_SAFETY_BOUND, 2 x cap)`). |
+| C-J8 | Feature document: the Order line is the landed order; the verifier rule is "every task whose Risk line names a high-risk item"; T28 says "functions". |
+| C-m1-C-m5 | RFC-0003 and RFC-0007 cite the integrated commits (`59196a16`, `1e962563`; `9666dc56`, `e58085a5`, `b690fa8c`); README pin claims; ADR-0001 correction (the owner accepted the proposed parts, ADR-0013); RFC-0011 `serviceImpacted` carried by T29 U2; feature document header (ADR-0014, ADR-0015) and S7's assumption settled by ADR-0014; T25 (strict at step 6) and T27 wording; T18's "context-heal pending, T27"; L27's "seed-owned" marked orchestrator-owned. |
+
+### Accepted items with no carrier
+
+Reviewer C's own list was not in the repository, so this list is derived by reading the accepted records against the Tasks table (ADR-0012, ADR-0013, RFC-0001 OD-1 to OD-20, RFC-0002 Q10-Q15, ADR-0002, ADR-0001). Each item now has a carrier or an owner.
+
+| Accepted item | Where | Carrier |
+|---|---|---|
+| The publication adapter's fate (merges through REST when auto-merge fails, waits for no check) | RFC-0001 OD-20 | T30 (new), triggered by the first non-shadow publication |
+| The review procedure: each RFC answers the P1-P7 questions | ADR-0001, ADR-0013 point 1 | T31 (new), standing rule |
+| One owner per evidenced fact held by an ownership fitness function; option A revisited after the slices | ADR-0002 open question 1 (ADR-0013) | T13 |
+| The three proposed owners (operator assistant, egress origins, the context-map rule), decided at step 2 | RFC-0002 Q15 | T13 |
+| The fate of `src/server/metrics.ts` and `scripts/baseline-agent.ts` | RFC-0002 Q12 | T13 |
+| The RFC-0006 schema and `verdict-validate.ts` move | RFC-0006 :134 (C-J2); m8 | T13 |
+| Dead exports since step 1; the CP2 inventory marks | D-m8, D-m7 | T13 |
+| Follow-ups W1 (sandbox env allowlists), W10 (dead fault-counter fields), V3 (ownership scan), V5 (missing `agents/opencode.json` loud at boot), V7 (M4 rule and `scripts/`) | review log, "follow-up" | T13 (dead code and the step 6 gates) |
+| The reference set with human labels and a delivered-recall grader as a later record | RFC-0001 OD-2 | Owner (human labels; L22) |
+| The retired selectors in `.env.example` | RFC-0001 OD-15 | Owner (the agent's permissions deny `.env*`; L22) |
+| The repository's auto-merge setting | ADR-0010 point B | Owner (found off, L13) |
+| The strict app-config schema | RFC-0001 OD-14 second half | T25 (with T13, step 6) |
+
+Items outside every record (B-a1, a typo'd mode runs `diff`; B-a2, the CLI report's oracle row; W8 and W11, historical documents) stay `follow-up` for the owner to schedule, as the status column says. W7 (the history schema migration) is T20's decision.
+
