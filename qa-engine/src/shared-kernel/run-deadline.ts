@@ -15,8 +15,16 @@ export interface RunDeadlineView {
   allowance(purpose?: DeadlinePurpose): number | null;
 }
 
-/** Whether the turn the deadline stopped had already begun. */
-export type RunDeadlineStop = "before-turn" | "mid-turn";
+/** Whether the turn the deadline stopped had already begun, or a phase that is no agent turn (an execution, the static gate, an install) was cut while it ran. */
+export type RunDeadlineStop = "before-turn" | "mid-turn" | "mid-phase";
+
+/** The reason a run's deadline signal aborts with: the run's time is spent. */
+export class RunDeadlineReached extends Error {
+  constructor(readonly label: string, readonly budgetMs: number) {
+    super(`run deadline of ${budgetMs}ms (${label}) reached`);
+    this.name = "RunDeadlineReached";
+  }
+}
 
 /**
  * The run's wall-clock deadline is spent: an agent turn was refused because no time was left, or was
@@ -24,14 +32,17 @@ export type RunDeadlineStop = "before-turn" | "mid-turn";
  * the code under test), but a different one from a single turn's own timeout: it ends the whole run.
  */
 export class RunDeadlineExceededError extends InfraError {
+  /** The purpose the deadline cut: the one that was allotted nothing, or the one whose phase it stopped. */
+  readonly purpose: DeadlinePurpose | undefined;
   constructor(
     readonly budgetMs: number,
     readonly label: string,
     readonly role: string,
     readonly stop: RunDeadlineStop,
-    options?: { cause?: unknown },
+    options?: { cause?: unknown; purpose?: DeadlinePurpose },
   ) {
-    super(`run deadline of ${budgetMs}ms (${label}) exhausted: the ${role} turn was ${stop === "mid-turn" ? "stopped at the deadline" : "not started, no time was left"}`, options);
+    super(`run deadline of ${budgetMs}ms (${label}) exhausted: the ${role} ${stop === "mid-phase" ? "phase" : "turn"} was ${stop === "before-turn" ? "not started, no time was left" : "stopped at the deadline"}${options?.purpose ? ` (purpose: ${options.purpose})` : ""}`, options?.cause !== undefined ? { cause: options.cause } : undefined);
+    this.purpose = options?.purpose;
     this.name = "RunDeadlineExceededError";
   }
 }

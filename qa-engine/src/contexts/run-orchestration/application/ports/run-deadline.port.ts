@@ -17,6 +17,12 @@ export interface RunDeadlinePort {
   remainingMs?(): number | undefined;
   /** Milliseconds a purpose (omitted: the run's current one) may still spend: the time left less what the purposes after it are owed; null while no deadline is armed. The one reading the run's time decisions share. */
   allowance?(purpose?: DeadlinePurpose): number | null;
+  /** Fires at the instant the run's time is spent; undefined while no deadline is armed. Every child process the launcher starts is killed by it. */
+  signal?(): AbortSignal | undefined;
+  /** Whether that instant has been reached. */
+  fired?(): boolean;
+  /** The purpose of the phase the run is in. */
+  currentPurpose?(): DeadlinePurpose;
   /** Hands in the app's recent finished runs, from which the reserve of every allotment is read. */
   measure?(records: readonly PhaseRecord[]): void;
   /** The run entered a phase: an allowance asked for without a purpose is that phase's. */

@@ -8,6 +8,7 @@
 import type { AgentPromptOpts, AgentRuntimePort, AgentSession, OpenSessionOpts } from "@kernel/ports/agent-runtime.port.ts";
 import type { AgentRole } from "@kernel/agent-role.ts";
 import { isAgentTimeoutError } from "@kernel/domain-error.ts";
+import type { DeadlinePurpose } from "@kernel/deadline-purpose.ts";
 import { RunDeadlineExceededError, type RunDeadlineStop, type RunDeadlineView } from "@kernel/run-deadline.ts";
 
 export interface RunDeadlineRuntimeOptions {
@@ -22,14 +23,14 @@ export class RunDeadlineRuntime implements AgentRuntimePort {
     private readonly options: RunDeadlineRuntimeOptions = {},
   ) {}
 
-  private spent(role: AgentRole, stop: RunDeadlineStop, cause?: unknown): RunDeadlineExceededError {
+  private spent(role: AgentRole, stop: RunDeadlineStop, purpose: DeadlinePurpose | undefined, cause?: unknown): RunDeadlineExceededError {
     const armed = this.deadline.describe();
-    return new RunDeadlineExceededError(armed?.budgetMs ?? 0, armed?.label ?? "unarmed", role, stop, cause !== undefined ? { cause } : undefined);
+    return new RunDeadlineExceededError(armed?.budgetMs ?? 0, armed?.label ?? "unarmed", role, stop, { ...(cause !== undefined ? { cause } : {}), ...(purpose !== undefined ? { purpose } : {}) });
   }
 
   async openSession(role: AgentRole, cwd: string, opts?: OpenSessionOpts): Promise<AgentSession> {
     const left = this.deadline.allowance();
-    if (left !== null && left <= 0) throw this.spent(role, "before-turn");
+    if (left !== null && left <= 0) throw this.spent(role, "before-turn", undefined);
     const session = await this.inner.openSession(role, cwd, opts);
     return {
       prompt: (text, promptOpts) => this.prompt(role, session, opts?.timeoutMs, text, promptOpts),
@@ -41,14 +42,14 @@ export class RunDeadlineRuntime implements AgentRuntimePort {
     /* What the run's current purpose may still spend: the time left less what the phases after it are owed. */
     const left = this.deadline.allowance();
     if (left === null) return session.prompt(text, promptOpts);
-    if (left <= 0) throw this.spent(role, "before-turn");
+    if (left <= 0) throw this.spent(role, "before-turn", undefined);
     const own = promptOpts?.timeoutMs ?? sessionTimeoutMs ?? this.options.hostPromptCapMs;
     /* The deadline is what ends the turn only when it comes no later than the turn's own limit. */
     const deadlineBinds = own === undefined || left <= own;
     try {
       return await session.prompt(text, { ...promptOpts, timeoutMs: deadlineBinds ? left : own, ...(deadlineBinds ? { timeLimit: "run-deadline" as const } : {}) });
     } catch (err) {
-      if (deadlineBinds && isAgentTimeoutError(err)) throw this.spent(role, "mid-turn", err);
+      if (deadlineBinds && isAgentTimeoutError(err)) throw this.spent(role, "mid-turn", undefined, err);
       throw err;
     }
   }

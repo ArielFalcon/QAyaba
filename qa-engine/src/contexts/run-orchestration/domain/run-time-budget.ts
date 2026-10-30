@@ -88,12 +88,18 @@ export interface RunDeadlineNoteInput {
   label: string;
   /** The role whose turn the deadline refused or stopped. */
   role: string;
-  /** Whether that turn had begun. */
-  stop: "before-turn" | "mid-turn";
+  /** Whether that turn had begun, or a phase that is no agent turn was cut while it ran. */
+  stop: "before-turn" | "mid-turn" | "mid-phase";
+  /** The purpose the deadline cut. */
+  purpose?: string;
 }
 
 /** The note persisted for a run whose time ran out: what the budget was, where it ended and that it says nothing about the app. */
 export function renderRunDeadlineNote(input: RunDeadlineNoteInput): string {
-  const where = input.stop === "mid-turn" ? `the ${input.role} turn in progress was stopped` : `the next ${input.role} turn was not started`;
-  return `Run time budget of ${budgetText(input.budgetMs)} (${input.label}) exhausted: ${where}. The run ended without a verdict on the change; this is a limit on the run's time, not a finding about the app.`;
+  const where =
+    input.stop === "mid-phase" ? `the ${input.role} phase in progress was stopped`
+    : input.stop === "mid-turn" ? `the ${input.role} turn in progress was stopped`
+    : `the next ${input.role} turn was not started`;
+  const purpose = input.purpose ? ` The purpose cut was ${input.purpose}.` : "";
+  return `Run time budget of ${budgetText(input.budgetMs)} (${input.label}) exhausted: ${where}.${purpose} The run ended without a verdict on the change; this is a limit on the run's time, not a finding about the app.`;
 }

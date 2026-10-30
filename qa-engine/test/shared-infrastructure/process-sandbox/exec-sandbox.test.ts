@@ -409,3 +409,63 @@ test("a file boundary that holds lets the child start as the sandbox uid", () =>
     rmSync(h.root, { recursive: true, force: true });
   }
 });
+
+/* ── a child is bounded by the run's deadline, whoever started it ──────────────────────────────── */
+
+function withDeadline(h: ReturnType<typeof harness>, signal: AbortSignal | undefined) {
+  const killed: ChildProcess[] = [];
+  const port = createExecSandbox({ sandbox: SANDBOX, mode: "required", baseEnv: BASE, spawnFn: ((cmd: string, args: string[], options: SpawnOptions) => {
+    const child = new EventEmitter() as ChildProcess & EventEmitter;
+    h.calls.push({ cmd, args, options, child });
+    return child;
+  }) as unknown as typeof import("node:child_process").spawn, warn: () => {}, processKill: { killTree: (child) => { killed.push(child); } } });
+  const scope: RunScope = { ...h.scope, deadline: { signal: () => signal } };
+  return { port, scope, killed };
+}
+
+test("a child the launcher started is killed with its tree when the run's deadline fires, and not before", () => {
+  const h = harness();
+  try {
+    const deadline = new AbortController();
+    const { port, scope, killed } = withDeadline(h, deadline.signal);
+    port.spawn("npx", ["playwright", "test"], { cwd: "/m", profile: "suite", scope });
+    assert.equal(killed.length, 0);
+    deadline.abort();
+    assert.equal(killed.length, 1, "the deadline reached the child");
+    assert.strictEqual(killed[0], h.calls[0]!.child);
+  } finally {
+    rmSync(h.root, { recursive: true, force: true });
+  }
+});
+
+test("a child started after the deadline is spent is killed at once, and a child that ended first is left alone", () => {
+  const h = harness();
+  try {
+    const spent = new AbortController();
+    spent.abort();
+    const late = withDeadline(h, spent.signal);
+    late.port.spawn("npx", ["tsc"], { cwd: "/m", profile: "offline", scope: late.scope });
+    assert.equal(late.killed.length, 1);
+
+    const live = new AbortController();
+    const early = withDeadline(h, live.signal);
+    early.port.spawn("npx", ["tsc"], { cwd: "/m", profile: "offline", scope: early.scope });
+    h.calls[h.calls.length - 1]!.child.emit("close", 0, null);
+    live.abort();
+    assert.equal(early.killed.length, 0, "the child had already closed");
+  } finally {
+    rmSync(h.root, { recursive: true, force: true });
+  }
+});
+
+test("a scope with no deadline, or one not armed yet, bounds no child", () => {
+  const h = harness();
+  try {
+    h.port.spawn("npx", ["tsc"], { cwd: "/m", profile: "offline", scope: h.scope });
+    const unarmed = withDeadline(h, undefined);
+    unarmed.port.spawn("npx", ["tsc"], { cwd: "/m", profile: "offline", scope: unarmed.scope });
+    assert.equal(unarmed.killed.length, 0);
+  } finally {
+    rmSync(h.root, { recursive: true, force: true });
+  }
+});

@@ -103,6 +103,9 @@ export function classifyFailure(err: unknown): FailureKind {
   return "unknown";
 }
 
+/** The error a step cut by the run's deadline ends with: the deadline's own error when the step already threw it (it knows the turn it stopped), else the one `cut` builds with the step's fault as its cause. */
+export const cutByDeadline = (cause: unknown, cut: () => Error): Error => (isRunDeadlineError(cause) ? cause : cut());
+
 export const actionFor = (err: unknown, stepClass: StepClass): FailureAction => POLICY[classifyFailure(err)][stepClass];
 
 const messageOf = (err: unknown): string => (err instanceof Error ? err.message : String(err));

@@ -559,9 +559,13 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   agent runtime: a turn whose purpose is allotted nothing is not sent, and every other runs under the smaller of its own limit
   and its purpose's allowance (the tier budget above still applies, inside it). A turn the deadline itself ended (not one that
   hit a limit of its own) raises `RunDeadlineExceededError`, which `guarded` (the failure policy) turns into a persisted
-  `infra-error E-TIME-BUDGET` with a note naming the budget and the turn, nothing published and nothing learned. Deterministic
-  phases (validation, a Playwright execution) are not cut: they have their own timeouts and the next agent turn meets the
-  deadline. The first generation pass is bounded by the smaller of its tier budget and the generate allowance, and a fix-loop
+  `infra-error E-TIME-BUDGET` with a note naming the budget and the turn, nothing published and nothing learned. A deterministic
+  phase (static gate, install, a Playwright execution, the DOM capture, the code-graph build) is cut at the deadline's instant, not
+  at its purpose's allowance, because the phases after it depend on what it proves: the run carries the deadline's signal in its
+  `RunScope` and the execution launcher kills the child's process tree when it fires. A step during which the deadline fired ends
+  the run through the same `RunDeadlineExceededError` (stop `mid-phase`, with the purpose it cut), whatever the cut made it throw
+  or return, except an end the run had already decided; `guarded` then ends `E-TIME-BUDGET` or keeps the proof (`deadline-after-proof`).
+  The first generation pass is bounded by the smaller of its tier budget and the generate allowance, and a fix-loop
   regeneration or an acceptance execution starts only while the fix allowance is positive (`assertRegenerationTime`); neither stops
   a turn already running. A deadline that expires after a suite ran green on its final bytes degrades the run to publication with the proven suite when no review verdict is required (`deadline-after-proof`). Every limit that fires (the deadline that ends or degrades a run, the budget generation ends on, the limits turns end on; each a value of the closed set `TURN_LIMITS`) and every fault a run goes on past (`publication-failed`, `deadline-after-proof`) is a typed fact of the run (`RunTraceFacts`: `limits`, `degradations`), recorded where it happens and written on the root span and the run record; the run's note is derived from them. The decision is one fact in one vocabulary (`pr | issue | quarantine | none`, with `shadowed` apart); a stored run reads the facts it never recorded as unknown (docs/observability-design.md, section 4.3). An audit signal, not a lesson: a streak of `E-TIME-BUDGET` ends reaches the process audit alone
   (`observesOperatingSignal`), which logs an observe-only `recurring-time-exhaustion` finding; it never

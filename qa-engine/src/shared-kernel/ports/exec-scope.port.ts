@@ -32,6 +32,8 @@ export interface RunScope {
   openedMirrors?: Set<string>;
   /* Set on a scope derived from the run's (withExecScopeParent): the run's own scope, which anything kept per run is keyed by. */
   base?: RunScope;
+  /* The run's deadline as the launcher sees it: the signal that fires when the run's time is spent (absent or undefined while the deadline is not armed). A child started in this scope is killed with its tree when it fires, so no deterministic phase (an execution, the static gate, an install, a capture, a login) outlives the run. */
+  deadline?: { signal(): AbortSignal | undefined };
   /* Where the run's trace stands, set by the run: the launcher parents the span of each child to `parent()`, the phase that is open. Absent or undefined: the active context decides. */
   telemetry?: {
     parent(): TelemetryContext | undefined;

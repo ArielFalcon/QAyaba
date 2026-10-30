@@ -8,6 +8,7 @@
  * Pre-exec gateSignals use the number 0, not undefined, when unwired.
  */
 
+import { RunDeadlineExceededError } from "../../../shared-kernel/run-deadline.ts";
 import type { TurnLimit } from "../../../shared-kernel/turn-limit.ts";
 import { levelOfEffect } from "@kernel/ports/logger.port.ts";
 import { engineLog } from "@kernel/ports/process-logger.ts";
@@ -21,7 +22,7 @@ import { type RunPhase } from "@kernel/run-step.ts";
 import { RunPhaseCursor, recordPhaseSnapshot, type PhaseClock } from "../domain/run-phase-cursor.ts";
 import { PhaseSpans } from "./run-phase-spans.ts";
 import { runFlow, type FlowHooks } from "./run-flow/run-flow.ts";
-import { actionFor, carryOn } from "./run-flow/failure-policy.ts";
+import { actionFor, carryOn, cutByDeadline } from "./run-flow/failure-policy.ts";
 import { failureEnd } from "./run-flow/failure-ends.ts";
 import { degradeFailedStep } from "./run-flow/degrade.ts";
 import { checkpointOf } from "./run-flow/checkpoint.ts";
@@ -123,6 +124,8 @@ export class RunQaUseCase {
     const { spans, phases } = trail;
     /* A child the launcher starts for this run is a child of whichever phase is open. */
     const scope = this.deps.execScope?.activeExecScope();
+    /* Every child the launcher starts for this run is killed when the run's time is spent. */
+    if (scope) scope.deadline = { signal: () => this.deps.runDeadline?.signal?.() };
     if (scope) scope.telemetry = { parent: () => spans.context(), phaseStart: () => spans.startedAt(), annotate: (attrs) => spans.annotate(attrs) };
     try {
       return this.withPhases(await this.execute(input, signal, trail, state), trail, state);
@@ -394,6 +397,15 @@ export class RunQaUseCase {
         trail.phases.enter(phase);
         this.deps.runDeadline?.enter?.(phase);
       },
+      deadlineFired: () => this.deps.runDeadline?.fired?.() === true,
+      deadlineCut: (stepId, cause) =>
+        cutByDeadline(cause, () => {
+          const armed = this.deps.runDeadline?.describe?.();
+          return new RunDeadlineExceededError(armed?.budgetMs ?? 0, armed?.label ?? "unarmed", stepId, "mid-phase", {
+            ...(cause !== undefined ? { cause } : {}),
+            ...(this.deps.runDeadline?.currentPurpose ? { purpose: this.deps.runDeadline.currentPurpose() } : {}),
+          });
+        }),
       record: (event) => {
         trail.spans.step({
           "qayaba.run_step.id": event.id,

@@ -10,6 +10,8 @@ import { guardTelemetry } from "../../shared-kernel/telemetry/guarded-telemetry.
 import type { SpanHandle, TelemetryPort } from "../../shared-kernel/telemetry/telemetry.port.ts";
 import { activeRunSecretScope } from "../../shared-kernel/run-secret-redaction.ts";
 import { mirrorTopDir, openMirrorForSandbox, type MirrorFsOps } from "./mirror-access.ts";
+import { ProcessKillAdapter } from "./process-kill.adapter.ts";
+import type { ProcessKillPort } from "../../shared-kernel/process-sandbox/process-kill.port.ts";
 import { allocWorkSubdir, stageAuthMaterial, writeWorkScript } from "./exec-workdir.ts";
 import type { ExecPurpose } from "../../shared-kernel/exec-purpose.ts";
 import { sandboxSpawnOptions, type Sandbox } from "./sandbox.ts";
@@ -130,6 +132,8 @@ export interface ExecSandboxDeps {
   exitGraceMs?: number;
   /* The spawn primitive; a test passes a fake. */
   spawnFn?: typeof nodeSpawn;
+  /* How a child is ended when the run's deadline fires. Absent: the one process-group kill. */
+  processKill?: ProcessKillPort;
   warn?: (line: string) => void;
 }
 
@@ -143,6 +147,7 @@ export function createExecSandbox(deps: ExecSandboxDeps): ExecSandboxPort {
   const spawnFn = deps.spawnFn ?? nodeSpawn;
   const warn = deps.warn ?? ((line: string): void => engineLog.warn(line));
   const telemetry = deps.telemetry ? guardTelemetry(deps.telemetry) : undefined;
+  const processKill = deps.processKill ?? new ProcessKillAdapter();
 
   const originsFor = (profile: SandboxProfile, scope: RunScope): readonly string[] =>
     profile === "offline" || profile === "graph" ? [] : profile === "install" ? scope.egress.install : scope.egress.dev;
@@ -291,6 +296,18 @@ export function createExecSandbox(deps: ExecSandboxDeps): ExecSandboxPort {
           timer.unref();
         });
         child.once("close", (code: number | null, signal: NodeJS.Signals | null) => trace.finish(exited?.code ?? code, exited?.signal ?? signal));
+      }
+      /* The run's time bounds the child: killed with its tree when the deadline fires, at once when it already has. */
+      const deadline = scope.deadline?.signal();
+      if (deadline) {
+        const stop = (): void => processKill.killTree(child);
+        if (deadline.aborted) stop();
+        else {
+          deadline.addEventListener("abort", stop, { once: true });
+          const done = (): void => deadline.removeEventListener("abort", stop);
+          child.once("close", done);
+          child.once("error", done);
+        }
       }
       if (lease) {
         const held = lease;

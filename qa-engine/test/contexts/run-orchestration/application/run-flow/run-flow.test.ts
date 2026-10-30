@@ -4,6 +4,7 @@ import { end, goto, next, runFlow, validateTable, type FlowHooks, type FlowStep,
 import { throwIfAborted } from "@contexts/run-orchestration/application/run-flow/abort.ts";
 import { runEnd } from "@contexts/run-orchestration/application/run-flow/run-end.ts";
 import type { RunPhase } from "@kernel/run-step.ts";
+import { RunDeadlineExceededError } from "@kernel/run-deadline.ts";
 
 interface S { trace: string[]; n: number }
 type Id = "a" | "b" | "c" | "end" | "quiet" | "never";
@@ -181,4 +182,52 @@ test("a step that declares what it writes may update exactly those fields", asyn
   const within: Step = { id: "a", writes: ["trace", "n"], run: async (state) => ({ update: { trace: [...state.trace, "a"], n: 1 } }) };
   const { hooks } = recorder();
   assert.deepEqual(await runFlow([within], { trace: [], n: 0 }, { skipB: false }, hooks), { state: { trace: ["a"], n: 1 } });
+});
+
+/* The run's deadline as the walk sees it: a flag the test raises, and the cut the use case would build from it. */
+function deadlined() {
+  const clock = { fired: false };
+  const { events, hooks } = recorder();
+  const withDeadline: FlowHooks<Id> = {
+    ...hooks,
+    deadlineFired: () => clock.fired,
+    deadlineCut: (stepId, cause) => cause instanceof RunDeadlineExceededError ? cause : new RunDeadlineExceededError(60_000, "diff-tiny", stepId, "mid-phase", { ...(cause !== undefined ? { cause } : {}), purpose: "execute" }),
+  };
+  return { clock, events, hooks: withDeadline };
+}
+
+test("a step that failed while the run's deadline fired ends the run on its time budget, not on the failure the cut caused", async () => {
+  const { clock, events, hooks } = deadlined();
+  const killed: Step = { id: "b", run: async () => { clock.fired = true; throw new Error("the process was killed"); } };
+  const out = await runFlow([recording("a"), killed, recording("c")], { trace: [], n: 0 }, { skipB: false }, hooks);
+  assert.ok("end" in out && out.end.reason === "run-deadline");
+  assert.deepEqual(events.map((event) => event.id), ["a", "b"]);
+});
+
+test("a step that came to a result while the run's deadline fired is taken back, since what it measured is not what the phase was meant to", async () => {
+  const { clock, hooks } = deadlined();
+  const cut: Step = { id: "b", run: async () => { clock.fired = true; return { update: { n: 9 } }; } };
+  const out = await runFlow([recording("a"), cut, recording("c")], { trace: [], n: 0 }, { skipB: false }, hooks);
+  assert.ok("end" in out && out.end.reason === "run-deadline");
+});
+
+test("a deadline that fired before a step began is not that step's cut", async () => {
+  const { clock, hooks } = deadlined();
+  clock.fired = true;
+  const out = await runFlow([recording("a"), recording("b")], { trace: [], n: 0 }, { skipB: false }, hooks);
+  assert.deepEqual(out, { state: { trace: ["a", "b"], n: 2 } });
+});
+
+test("a step that decides the run's end while the deadline fires keeps its decision", async () => {
+  const { clock, hooks } = deadlined();
+  const deciding: Step = { id: "end", run: async () => { clock.fired = true; return end("decided"); } };
+  assert.deepEqual(await runFlow([deciding], { trace: [], n: 0 }, { skipB: false }, hooks), { end: runEnd("decided") });
+});
+
+test("a deadline error a step threw itself is not wrapped a second time", async () => {
+  const { clock, hooks } = deadlined();
+  const own = new RunDeadlineExceededError(1000, "diff-tiny", "b", "before-turn");
+  const throwing: Step = { id: "b", run: async () => { clock.fired = true; throw own; } };
+  const out = await runFlow([throwing], { trace: [], n: 0 }, { skipB: false }, hooks);
+  assert.ok("end" in out && out.end.reason === "run-deadline");
 });

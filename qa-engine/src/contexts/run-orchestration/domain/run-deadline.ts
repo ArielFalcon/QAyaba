@@ -8,7 +8,7 @@
  * `FALLBACK_RESERVE_MIN_MS`, and the allotment says so. Every consumer asks with its purpose and none keeps a reserve of its own.
  */
 import { DEADLINE_PURPOSES, PHASES_OF_PURPOSE, purposeOfPhase, purposesAfter, type DeadlinePurpose } from "@kernel/deadline-purpose.ts";
-import type { RunDeadlineView } from "@kernel/run-deadline.ts";
+import { RunDeadlineReached, type RunDeadlineView } from "@kernel/run-deadline.ts";
 import { RUN_PHASES, type RunPhase } from "@kernel/run-step.ts";
 import { runTimeBudgetKey, type RunTimeBudgets, type RunTimeBudgetScope } from "./run-time-budget.ts";
 
@@ -44,7 +44,15 @@ export interface RunDeadlineDeps {
   now: () => number;
   /** The time each kind of run is allowed, as the composition root resolved it. */
   budgets: RunTimeBudgets;
+  /** Calls `fire` after `ms` and returns the call that cancels it. Absent: the system timer, which never keeps the process alive. A test passes one it fires by hand. */
+  schedule?: (ms: number, fire: () => void) => () => void;
 }
+
+const systemSchedule = (ms: number, fire: () => void): (() => void) => {
+  const handle = setTimeout(fire, ms);
+  handle.unref();
+  return () => clearTimeout(handle);
+};
 
 /* A phase a run completed: one before its furthest, or the furthest itself when that is where a run normally ends. */
 function completed(phase: RunPhase, furthest: RunPhase | null): boolean {
@@ -77,7 +85,7 @@ export function measuredPurposeDurations(records: readonly PhaseRecord[]): Map<D
 }
 
 export class RunDeadline implements RunDeadlineView {
-  private armed: { label: string; budgetMs: number; deadlineAt: number } | undefined;
+  private armed: { label: string; budgetMs: number; deadlineAt: number; cut: AbortController; cancel: () => void } | undefined;
   private measured = new Map<DeadlinePurpose, number>();
   private current: DeadlinePurpose = "ground";
   private listener: ((allotment: Allotment) => void) | undefined;
@@ -89,7 +97,10 @@ export class RunDeadline implements RunDeadlineView {
   arm(scope: RunTimeBudgetScope): void {
     const label = runTimeBudgetKey(scope);
     const budgetMs = this.deps.budgets[label];
-    this.armed = { label, budgetMs, deadlineAt: this.deps.now() + budgetMs };
+    this.armed?.cancel();
+    const cut = new AbortController();
+    const cancel = (this.deps.schedule ?? systemSchedule)(budgetMs, () => cut.abort(new RunDeadlineReached(label, budgetMs)));
+    this.armed = { label, budgetMs, deadlineAt: this.deps.now() + budgetMs, cut, cancel };
     this.told.clear();
   }
 
@@ -107,6 +118,21 @@ export class RunDeadline implements RunDeadlineView {
   /** Told the first time each purpose is allotted time after the deadline is armed (or re-measured): once per purpose, never once per turn. */
   observe(listener: (allotment: Allotment) => void): void {
     this.listener = listener;
+  }
+
+  /** Fires at the instant the run's time is spent; absent while no deadline is armed. What a deterministic phase is bounded by: it is cut here, not at its purpose's allowance, because the phases after it depend on what it proves. */
+  signal(): AbortSignal | undefined {
+    return this.armed?.cut.signal;
+  }
+
+  /** Whether the deadline's instant has been reached. */
+  fired(): boolean {
+    return this.armed?.cut.signal.aborted === true;
+  }
+
+  /** The purpose the run is in now. */
+  currentPurpose(): DeadlinePurpose {
+    return this.current;
   }
 
   remainingMs(): number | undefined {

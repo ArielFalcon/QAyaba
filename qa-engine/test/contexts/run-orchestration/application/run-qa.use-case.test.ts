@@ -24,6 +24,8 @@ import type { RecordMeasurement, SpanHandle, StartSpanOptions } from "@kernel/te
 import { CoordinationTelemetryRecorder } from "@contexts/coordination/application/index.ts";
 import type { CoordinateInput, CoordinateResult } from "@contexts/coordination/application/lead-sidekicks.ts";
 import { Sha } from "@kernel/sha.ts";
+import { RunDeadline } from "@contexts/run-orchestration/domain/run-deadline.ts";
+import { RUN_TIME_BUDGET_MS } from "@contexts/run-orchestration/domain/run-time-budget.ts";
 import { LOG_EFFECT, levelOfEffect, memoryLogger } from "@kernel/ports/logger.port.ts";
 import { installProcessLogger, resetProcessLoggerForTests } from "@kernel/ports/process-logger.ts";
 import { UntrustedGitTreeError } from "../../../../src/shared-infrastructure/process-sandbox/git-hardening.ts";
@@ -7502,6 +7504,31 @@ test("a history that cannot be read leaves the run going on the deadline's fallb
   }
   assert.equal(measured, 0);
   assert.ok(memory.entries.some((e) => /recent phase durations could not be read/.test(e.message) && /history locked/.test(e.message)));
+});
+
+/** A real deadline whose timer the test fires by hand: the moment a deterministic phase is cut. */
+function deadlineFiredByHand(budgetMs: number) {
+  const fires: Array<() => void> = [];
+  const deadline = new RunDeadline({ now: () => 0, budgets: { ...RUN_TIME_BUDGET_MS, "diff-tiny": budgetMs, "diff-focused": budgetMs, "diff-broad": budgetMs, manual: budgetMs, context: budgetMs }, schedule: (_ms, fire) => { fires.push(fire); return () => {}; } });
+  return { deadline, fire: () => fires.at(-1)?.() };
+}
+
+test("a Playwright execution the run's deadline cut ends the run on its time budget with the purpose it cut, not as an untyped infrastructure failure", async () => {
+  const { deadline, fire } = deadlineFiredByHand(60_000);
+  const { ports } = stubPorts({
+    generate: async () => scriptedGeneration({ specs: ["a.spec.ts"] }),
+    execute: async () => {
+      /* The launcher killed the child at the deadline: the runner reports a run that did not finish. */
+      fire();
+      return { verdict: "infra-error", cases: [], logs: "playwright runner timed out after 900000ms — killed" };
+    },
+  });
+  const out = await new RunQaUseCase({ ...ports, runDeadline: deadline, config: { ...baseConfig, needsReview: false } }).run({ ...baseInput, mode: "manual", runId: "cut-execution" });
+  assert.equal(out.decision.verdict, "infra-error");
+  assert.equal(out.errorClass, ERROR_CLASS.TIME_BUDGET, "the run's time ended it");
+  assert.match(out.note ?? "", /execute-specs phase in progress was stopped/);
+  assert.match(out.note ?? "", /purpose cut was execute/);
+  assert.notEqual(out.decision.sideEffect, "issue");
 });
 
 test("a mode that does not classify arms its deadline for its own mode, with no diff", async () => {

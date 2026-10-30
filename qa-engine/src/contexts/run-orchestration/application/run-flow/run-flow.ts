@@ -58,7 +58,14 @@ export interface FlowHooks<Id extends string = StepId, S = object> {
   degrade?(reason: DegradeReason, err: unknown, stepId: Id, state: Readonly<S>): StepOutcome<S, Id> | Promise<StepOutcome<S, Id>>;
   enter(phase: RunPhase): void;
   record(event: StepEvent<Id>): void;
+  /** Whether the run's deadline has been reached. A step during which it was reached is cut: whatever the step came to is the deadline's, not its own. Absent: nothing is cut. */
+  deadlineFired?(): boolean;
+  /** The error a step cut by the deadline ends with (a `RunDeadlineExceededError`); `cause` is what the step threw, if it threw; a cause that is already the deadline's own error is returned as it is. */
+  deadlineCut?(stepId: Id, cause?: unknown): unknown;
 }
+
+/* The ends that are the run's decision or its own cancellation, which the deadline firing during the step does not take back. */
+const FINAL_REASONS: ReadonlySet<string> = new Set(["decided", "context-pass", "aborted", "classify-skipped", "generation-noop", "run-deadline"]);
 
 /** The end the run came to, or the state once every step ran without ending it. */
 export type FlowOutcome<S> = { end: RunEnd } | { state: S };
@@ -106,9 +113,22 @@ export async function runFlow<S extends object, C, Id extends string = StepId>(
     }
     if (step.phase) hooks.enter(step.phase);
     const degrade = hooks.degrade;
+    const firedBefore = hooks.deadlineFired?.() === true;
+    /* A step during which the run's deadline fired was cut by it: its children were killed with it, so whatever it threw or came to says nothing but that. The policy then ends the run on its time budget, or keeps the proof the run already holds. */
+    const cutDuring = (): boolean => !firedBefore && hooks.deadlineFired?.() === true && hooks.deadlineCut !== undefined;
     const outcome: StepOutcome<S, Id> = await guarded(
       { id: step.id, class: step.class ?? "required" },
-      () => step.run(state, ctx),
+      async () => {
+        let result: StepOutcome<S, Id>;
+        try {
+          result = await step.run(state, ctx);
+        } catch (err) {
+          if (cutDuring()) throw hooks.deadlineCut!(step.id, err);
+          throw err;
+        }
+        if (cutDuring() && !(result && "end" in result && FINAL_REASONS.has(result.end.reason))) throw hooks.deadlineCut!(step.id);
+        return result;
+      },
       hooks.endOf,
       degrade ? (reason, err) => degrade.call(hooks, reason, err, step.id, state) : undefined,
     );

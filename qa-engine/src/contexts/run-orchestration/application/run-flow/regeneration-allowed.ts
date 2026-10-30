@@ -16,6 +16,6 @@ export function assertRegenerationTime(ctx: WorkspaceRunContext): void {
   const allowance = deadline.allowance?.("fix") ?? null;
   if (allowance !== null && allowance <= 0) {
     const armed = deadline.describe?.();
-    throw new RunDeadlineExceededError(armed?.budgetMs ?? 0, armed?.label ?? "unarmed", REGENERATION_ROLE, "before-turn");
+    throw new RunDeadlineExceededError(armed?.budgetMs ?? 0, armed?.label ?? "unarmed", REGENERATION_ROLE, "before-turn", { purpose: "fix" });
   }
 }

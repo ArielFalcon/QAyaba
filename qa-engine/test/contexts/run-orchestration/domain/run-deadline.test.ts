@@ -97,6 +97,57 @@ test("the note says what the budget was, where the run stopped and that it is no
   assert.match(before, /next reviewer turn was not started/);
 });
 
+/* A scheduler standing in for the timer: the test fires the countdown by hand and sees which ones were cancelled. */
+function manualClock() {
+  const timers: { ms: number; fire: () => void; cancelled: boolean }[] = [];
+  const schedule = (ms: number, fire: () => void) => {
+    const timer = { ms, fire, cancelled: false };
+    timers.push(timer);
+    return () => { timer.cancelled = true; };
+  };
+  return { timers, schedule };
+}
+
+test("a run's deadline hands out a signal that fires when its time is spent, and says which budget was spent", () => {
+  const clock = manualClock();
+  const deadline = new RunDeadline({ now: () => 0, budgets: { ...RUN_TIME_BUDGET_MS, manual: 1000 }, schedule: clock.schedule });
+  assert.equal(deadline.signal(), undefined, "nothing is armed yet");
+  assert.equal(deadline.fired(), false);
+  deadline.arm({ mode: "manual" });
+  const signal = deadline.signal()!;
+  assert.equal(clock.timers[0]!.ms, 1000);
+  assert.equal(signal.aborted, false);
+  clock.timers[0]!.fire();
+  assert.equal(signal.aborted, true);
+  assert.equal(deadline.fired(), true);
+  assert.match(String(signal.reason?.message ?? signal.reason), /manual/);
+});
+
+test("arming again cancels the countdown of the scope before and gives a fresh signal", () => {
+  const clock = manualClock();
+  const deadline = new RunDeadline({ now: () => 0, budgets: { ...RUN_TIME_BUDGET_MS, manual: 100, context: 500 }, schedule: clock.schedule });
+  deadline.arm({ mode: "manual" });
+  const first = deadline.signal()!;
+  deadline.arm({ mode: "context" });
+  assert.equal(clock.timers[0]!.cancelled, true);
+  clock.timers[0]!.fire();
+  assert.equal(deadline.fired(), false, "the cancelled countdown no longer speaks for the run");
+  assert.notEqual(deadline.signal(), first);
+});
+
+test("a deadline cut in a phase reports the purpose of that phase", () => {
+  const deadline = new RunDeadline({ now: () => 0, budgets: RUN_TIME_BUDGET_MS });
+  deadline.arm({ mode: "manual" });
+  deadline.enter("execute");
+  assert.equal(deadline.currentPurpose(), "execute");
+});
+
+test("the note of a cut deterministic phase names the phase and the purpose it cut", () => {
+  const note = renderRunDeadlineNote({ budgetMs: 60_000, label: "diff-tiny", role: "primary", stop: "mid-phase", purpose: "execute" });
+  assert.match(note, /1 min \(diff-tiny\)/);
+  assert.match(note, /The purpose cut was execute\./);
+});
+
 const MIN = 60_000;
 /* A finished run of the app: every phase it entered with the minutes it took, ending where a normal run ends. */
 function finished(timings: Partial<Record<RunPhase, number>>): PhaseRecord {
