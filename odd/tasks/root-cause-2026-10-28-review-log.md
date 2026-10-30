@@ -44,14 +44,14 @@ Sources: CP1 to CP4 are the owner's quality checkpoints (Opus 5.5, maximum effor
 | ID | Source | Severity | Where | Problem | Suggestion | Status |
 |---|---|---|---|---|---|---|
 | V1 | V (G1) | advisory | `.gitignore` `/docs/architecture/*` | A new non-record file there needs `git add -f` to be seen by the checker | none | noted |
-| V2 | V (T4) | advisory | `restoreSnapshot` | A snapshot of another app restores without a word (app, repo, spec dir ignored) | Refuse a snapshot whose app differs | follow-up |
+| V2 | V (T4) | advisory | `restoreSnapshot` | A snapshot of another app restores without a word (app, repo, spec dir ignored) | Refuse a snapshot whose app differs | fixed b13b1df0 |
 | V3 | V (T4) | advisory | `suite-store-writers.test.ts` | The ownership scan matches only `appSuiteStoreDir(`; a hand-built path or manifest write escapes it | Widen the scan | follow-up |
-| V4 | V (T4) | advisory | `warm-suite --leave-out` | A path not in the store is ignored silently | Warn | follow-up |
+| V4 | V (T4) | advisory | `warm-suite --leave-out` | A path not in the store is ignored silently | Warn | fixed b13b1df0 |
 | V5 | V (gov) | advisory | model resolution | A missing `agents/opencode.json` is no longer loud at boot | Warn at boot | follow-up |
 | V6 | V (gov) | advisory | proposer | Now follows the operator's `AGENT_PRIMARY_MODEL` | none (matches the settings text) | noted |
 | V7 | V (gov) | advisory | M4 rule | Does not cover `scripts/` | Decide whether scripts are launchers | follow-up |
 | W1 | W (C2/C3) | follow-up | sandbox env allowlists, `docs/execution-sandbox.md:31` | Still pass `JAVA_HOME`, `GOPATH`, `CARGO_*`, `GRADLE_*`, `MAVEN_*` after the code target left | Remove them | follow-up |
-| W2 | W (C3) | follow-up | Dockerfile | `python3-venv` has no user found | Remove after a check | follow-up |
+| W2 | W (C3) | follow-up | Dockerfile | `python3-venv` has no user found | Remove after a check | fixed (T24 commit) |
 | W3 | W (T11) | noted | Go client types | The generator renamed unused `RunRecordMode*` constants | Keep Go generator churn out of unrelated commits | noted |
 | W4 | W (T11) | process | test runners | A writer ran `pkill -f scripts/run-tests.mjs` (kills every worktree's runner) and used `git stash` (shared across worktrees) | Forbidden in every brief since | fixed (briefs) |
 | W5 | W (M2) | owner | `.env.example:30-32`, GitHub, data volume | `SELF_MAINTAINER_AUTOMERGE` lines; 18 `qa/maintainer-*` pull requests; the auto-merge setting; five maintainer files in the data volume | Owner edits (ADR-0013 point 3) | done on the owner's go (L13): PRs closed, branches deleted; auto-merge already off; no maintainer data files exist (the claim was wrong); `.env.example` still the owner's |
@@ -107,7 +107,7 @@ Verdicts: A (465cb6d0..4d4a8675, CP1 re-validation) no code defect, CP1 fixes ho
 | B-a1 | CP2 B | advisory (baseline) | CLI, API, webhook | Any unknown mode (a typo) still runs diff with success | Refuse any mode outside RUN_MODES | follow-up |
 | B-a2 | CP2 B | advisory | `src/qa/value-report.ts` | CLI report lost its oracle row; bundle mutation not shown | Optional row | follow-up |
 | C-m1 | CP2 C | minor | T11, `call-efficiency-tracker.ts:268` | Target redaction window 1000 -> 400 chars | Larger window or a straddle test | open (integration) |
-| C-m2 | CP2 C | minor | T4, `suite-store.adapter.ts:473-485` | `restoreSnapshot` skips `assertWithinLimits` and the app check (V2); a test patches a private writer | Check limits and app | open (integration) |
+| C-m2 | CP2 C | minor | T4, `suite-store.adapter.ts:473-485` | `restoreSnapshot` skips `assertWithinLimits` and the app check (V2); a test patches a private writer | Check limits and app | fixed b13b1df0 |
 | C-m3 | CP2 C | minor | T10, `window-fit-references.ts:33` | Ids kept for a page the advisory prints under the same path with a different tree | none or narrow | noted |
 | D-m1 | CP2 D | minor | ADR-0011 B2, B2', B3 | No carrier task | Name carriers | fixed (T28) |
 | D-m3 | CP2 D | minor | `docs/lead-sidekicks.md:417` | Read-only concurrency text after OD-5 | Correct | fixed 3b558bda |
