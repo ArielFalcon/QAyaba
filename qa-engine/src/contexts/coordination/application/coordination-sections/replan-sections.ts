@@ -68,7 +68,7 @@ export const REPLAN_SECTIONS: readonly PromptSectionDef<ReplanPromptContext>[] =
     render: ({ capacity, notAdmitted, scrub }) => ({
       content: [
         "## Flows past the run's capacity",
-        `The run can author ${capacity ?? 0} flow(s) this pass, from the flows written at once and the time left. These flows of your plan are past it and were not admitted:`,
+        `The run can author ${capacity ?? 0} flow(s) this pass, from the flows written at once and the time left. These flows of your plan are past it and are not admitted:`,
         ...notAdmitted.map((flow) => `- ${scrub(flow.id)}: ${scrub(flow.objective)}${flow.candidates.length > 0 ? ` (use cases: ${flow.candidates.map(scrub).join(", ")})` : ""}`),
         "Fold what each must check into an admitted flow, or drop its use cases with a basis and a reason; a flow still past the capacity is not authored.",
       ].join("\n"),

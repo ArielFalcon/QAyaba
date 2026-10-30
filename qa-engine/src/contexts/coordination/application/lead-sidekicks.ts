@@ -459,7 +459,9 @@ export class LeadSidekicks {
       const slices = change && admission.required.length > 0 ? { slices: candidateSlicesOf(change, firstCoverage.unresolved) } : {};
       /* The capacity is the one the answer will be admitted under, once this turn has taken its time, as the planning turn was told its own. */
       const capacity = this.capacity(input, parallel, left === undefined ? undefined : left - settings.planBudgetMs);
-      const request = assembleReplanRequest(this.deps.redaction, firstCoverage.unresolved, firstCoverage.refused, { ...flows, ...(capacity !== undefined ? { capacity } : {}), admitted: first.kind === LEAD_PLAN_KIND.FANOUT ? first.flows.length : 0, ...slices });
+      /* One capacity per request: the flows it lists as past the capacity are the plan's flows past that same capacity, not past the one the first plan was cut at. */
+      const stated = capacity === undefined ? flows : { ...flows, capacity, ...(first.kind === LEAD_PLAN_KIND.FANOUT ? { notAdmitted: [...first.flows, ...first.notAdmitted].slice(capacity).map(({ id, objective, candidates }) => ({ id, objective, candidates })) } : {}) };
+      const request = assembleReplanRequest(this.deps.redaction, firstCoverage.unresolved, firstCoverage.refused, { ...stated, admitted: first.kind === LEAD_PLAN_KIND.FANOUT ? first.flows.length : 0, ...slices });
       answered = await lead.askForPlan(request.text, turnOpts(request, Math.max(1, left === undefined ? settings.planBudgetMs : Math.min(settings.planBudgetMs, left))));
     } catch (err) {
       if (isRunDeadlineError(err)) throw err;

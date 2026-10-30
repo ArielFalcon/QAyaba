@@ -87,7 +87,9 @@ signed-in app (see below); without either, no sidekick can author and the run en
    its open session, with all of those facts in the same request (`renderReplanRequest`); a second answer that is a plan of flows
    replaces the first. The amendment states the flow capacity as a fact (the `capacity` section of the re-plan request): the flows the
    run can author as the answer will be admitted, once the turn has taken its time, the flows the admitted plan holds and how many
-   more can be added; with none left it says to fold each use case into an admitted flow or drop it with a basis and a reason. A flow
+   more can be added; with none left it says to fold each use case into an admitted flow or drop it with a basis and a reason. The flows
+   it lists as past the capacity are the plan's flows past that same capacity, so an admitted flow the shrunken capacity no longer
+   holds is listed with those the first admission cut. A flow
    the answer still adds past the capacity is not admitted, and it is recorded (`flows_not_admitted`) and logged with that reason. A candidate still unresolved is admitted as it stands, recorded `unplanned` on the plan snapshot and as a
    `lead-decision` event, and named in every review turn (`plan-coverage.ts`). Flows still past the capacity are not authored, and
    flows still too large are authored with the rest of their change as references (a flow whose brief still does not fit

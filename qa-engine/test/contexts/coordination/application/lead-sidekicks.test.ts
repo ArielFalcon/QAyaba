@@ -2400,3 +2400,19 @@ test("a flow the admission refuses for capacity is recorded and logged with that
     resetProcessLoggerForTests();
   }
 });
+
+test("the flows the amendment lists as past the capacity are those past the capacity it states, not past the one the first plan was cut at", async () => {
+  /* 54 min left, one flow at a time, 10 min a flow: the first plan is admitted under 4 flows; the answer, once the turn has taken its 3 min, under 3. */
+  const settings = { ...DEFAULT_COORDINATION_SETTINGS, maxParallel: 1, flowBudgetMs: { opencode: 10 * 60_000 } };
+  const flow = (id: string) => ({ id, objective: `the ${id} page`, candidates: [] as string[] });
+  const fivePlan = { kind: "fanout", flows: [...CITING_PLAN.flows, flow("f3"), flow("f4"), flow("f5")] };
+  const lead = leadCiting([ACCEPT_ALL], fivePlan, { plan: THREE_FLOW_PLAN });
+  const r = rig({ hasFile: new Set(["cart", "login", "orders"]) });
+  const outcome = await new LeadSidekicks(r.deps).coordinate(input(r, { settings, plan: lead.plan, closedLoop: undefined, candidates: SEEDED, deadline: { remainingMs: () => 54 * 60_000 } }));
+  if (outcome.action === "fanout") await outcome.pass?.release();
+  assert.equal(lead.replans.length, 1);
+  const text = lead.replans[0]!;
+  assert.match(text, /can author 3 flow\(s\) this pass/);
+  const listed = text.split("\n").filter((line) => line.startsWith("- f")).map((line) => line.slice(2, line.indexOf(":")));
+  assert.deepEqual(listed, ["f4", "f5"], "the flows past 3, including the one the first plan's 4 admitted");
+});
