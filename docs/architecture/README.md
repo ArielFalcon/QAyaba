@@ -133,7 +133,7 @@ Other:
 |---|---|---|
 | [Rejected explanations](rejected-explanations.md) | The refuted hypotheses and the run index | H03, H05, H10, H13, H14, H26, H27; later N03, N07, Q02, Q03, Q05, Q06, Q07 |
 
-Records numbered above RFC-0005 are added to these tables by the change that adds them.
+These tables list every record through ADR-0013 and RFC-0010 (Correction 2026-10-30); a later record is added to its table by the change that adds it.
 
 Documents outside this folder that the records build on:
 

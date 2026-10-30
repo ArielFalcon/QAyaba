@@ -181,7 +181,7 @@ Per the testing standards, through the public seam (`SuiteStoreAdapter` on a tem
 
 ## Measurement
 
-The signal that shows the cause gone, on a run: the restore span's typed list is empty, its digest equals the one the restore verb printed for the snapshot, and no "cannot be read" line appears. Conditions are ADR-0011's: the baseline's launch parameters, the freeze off, the 12-entry suite, and one replicate (the recommended count; the owner has not confirmed it for after-measurements).
+The signal that shows the cause gone, on a run: the restore span's typed list is empty, its digest equals the one the restore verb printed for the snapshot, and no "cannot be read" line appears. Conditions are ADR-0011's: the baseline's launch parameters, the freeze off, the 12-entry suite, and one replicate (the recommended count; the owner has not confirmed it for after-measurements). Correction 2026-10-30: the count is decided, one replicate per version ([ADR-0013](../adr/0013-owner-decisions-remaining-questions.md)).
 
 | | Restore span | Capture span | Source |
 |---|---|---|---|
