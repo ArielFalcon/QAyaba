@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, relative } from "node:path";
 import type { QaCase, CaseStatus, FailureSettle, FailureAttemptEvidence } from "@kernel/qa-case.ts";
 import type { RunVerdict } from "@kernel/run-verdict.ts";
-import { wholeSegmentsOfProducerCut } from "@kernel/address-cut.ts";
+import { PRODUCER_ADDRESS_CHARS, wholeSegmentsOfProducerCut } from "@kernel/address-cut.ts";
 import { redactByValue } from "../../../shared-kernel/run-secret-redaction.ts";
 import { sanitizeText } from "../../../shared-infrastructure/redaction/pattern-redaction.adapter.ts";
 import { parseAriaSnapshot } from "@contexts/generation/application/index.ts";
@@ -29,7 +29,7 @@ import { purposeOfExecution, type ExecPurpose } from "../../../shared-kernel/exe
 import { readObservations } from "./observation-reader.ts";
 import type { ObservedPage } from "@contexts/objective-signal/application/index.ts";
 import { activeExecScope } from "../../../shared-infrastructure/process-sandbox/exec-scope.ts";
-import { MAX_DEV_WRITE_REQUESTS, noteDevWriteRequest, type DevWriteRequest } from "../domain/dev-write-request.ts";
+import { MAX_DEV_WRITE_REQUESTS, MAX_PROJECT_NAME_CHARS, noteDevWriteRequest, type DevWriteRequest } from "../domain/dev-write-request.ts";
 import { chargeTestWrites, type RecordedWrite, type TestWriteLedger } from "../domain/dev-write-charge.ts";
 import { isSuiteRelative, type SpecLoadError } from "../domain/spec-load-error.ts";
 import { boundProducerText } from "../../../shared-infrastructure/redaction/redact-and-bound.ts";
@@ -473,12 +473,8 @@ export async function runE2E(
 /* The writes to DEV the specs of a run caused, from the ledger files the fixtures left in the failure-capture directory and the control file of each project beside them, the requests behind the charge (method, origin and pathname, re-derived here and redacted, so a query never leaves), how many ledger files that was (one per test that began) and how many of those tests had not finished. The seed writes a test's ledger when the test starts and rewrites it on every write (see config/e2e/fixtures.ts), so a test that was killed has left what it did: a finished test is charged its answered `writes`, an unfinished one its `writes` plus the requests it still had out (`pending`, which may have reached DEV). A ledger without a version is the earlier seed's, written when the test finished. The ledger says who sent each request it recorded and how often; a page request that the control of the test's own project (`control-<id>.json`, written by a load of the launch URL with no spec action in a Playwright child of its own and read when that child closed, before the spec child started: see control-load.ts) also sent is the page's own upkeep and is not charged, up to the count the control saw (`chargeTestWrites`); a test that names no project, a project without a readable control, a control child that failed, or any control that cannot be trusted (two claim one project) exempts nothing. The control is the one the runner read when its child closed, handed in as `controls`: the file sits in the directory the spec's sandbox writes, so a file found there after the spec child started is not read. The directory is the child's, so it is read strictly (see readRunOutputDir) and all or nothing: a forged, oversized or unreadable ledger makes the whole count unknown (undefined) and never a smaller one; a directory with no ledger at all is a count of none, which the caller believes only for a run in which no test began. The counter itself runs inside the suite's own fixtures, which is agent-editable code, so a ledger and a control are evidence of what the spec did only against an honest spec (the control is measured where no spec code runs and read before the spec child starts, so the spec cannot rewrite it); the hard bound on what a call can do to DEV is the call cap times the per-call time, and the egress filter. A write sent outside any test (a module's top level, a worker's setup) is in no ledger. */
 const LEDGER_FILE_RE = /^ledger-[A-Za-z0-9_-]+\.json$/;
 const CONTROL_FILE_RE = /^control-[A-Za-z0-9_-]{1,64}\.json$/;
-/* The longest project name a ledger or a control carries; the seed and the control cut a name there, so the two keys stay equal. */
-const MAX_PROJECT_CHARS = 200;
 const LEDGER_LIMITS: RunOutputLimits = { maxFileBytes: 16_384, maxTotalBytes: 4 * 1024 * 1024, maxFiles: 4_096 };
 const MAX_LEDGER_WRITES = 1_000_000;
-/* What one ledger file may record: the seed keeps the first MAX_DEV_WRITE_REQUESTS distinct requests of a test, each URL cut at 300 characters. */
-const MAX_LEDGER_URL_CHARS = 300;
 const WRITE_METHOD_RE = /^(?:POST|PUT|PATCH|DELETE)$/;
 /* The ledger version the seed writes now; a ledger with none is version 1. */
 const LEDGER_VERSION = 2;
@@ -489,8 +485,8 @@ const CONTROL_VERSION = 1;
 function ledgerRequest(raw: unknown): { method: string; url: string } {
   const { method, url } = (raw ?? {}) as { method?: unknown; url?: unknown };
   if (typeof method !== "string" || !WRITE_METHOD_RE.test(method)) throw new Error("not a write");
-  if (typeof url !== "string" || url.length > MAX_LEDGER_URL_CHARS) throw new Error("not a url");
-  const parsed = new URL(wholeSegmentsOfProducerCut(url, MAX_LEDGER_URL_CHARS));
+  if (typeof url !== "string" || url.length > PRODUCER_ADDRESS_CHARS) throw new Error("not a url");
+  const parsed = new URL(wholeSegmentsOfProducerCut(url, PRODUCER_ADDRESS_CHARS));
   if (parsed.protocol !== "http:" && parsed.protocol !== "https:") throw new Error("not a url");
   return { method, url: sanitizeText(`${parsed.origin}${parsed.pathname}`).text };
 }
@@ -517,7 +513,7 @@ function recordedSender(raw: unknown): RecordedWrite["sender"] {
 
 /* A project name as a ledger or a control carries it: text within the bound, or a throw that makes the file untrusted. */
 function projectName(raw: unknown): string {
-  if (typeof raw !== "string" || raw.length > MAX_PROJECT_CHARS) throw new Error("not a project name");
+  if (typeof raw !== "string" || raw.length > MAX_PROJECT_NAME_CHARS) throw new Error("not a project name");
   return raw;
 }
 

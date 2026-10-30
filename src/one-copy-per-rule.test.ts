@@ -52,3 +52,9 @@ test("the review-round cap is defined once, in the kernel", () => {
 test("a page opened from a template is printed by one derivation, the kernel's printed-route module", () => {
   assert.deepEqual(filesMatching(/\(instance of/), []);
 });
+
+test("the bounds a sandboxed producer's addresses and project names are read with have one owner each", () => {
+  assert.deepEqual(filesMatching(/\bMAX_(?:LEDGER_URL|RECORDED_URL|PROJECT)_CHARS\s*=\s*\d/), []);
+  assert.deepEqual(filesMatching(/\bPRODUCER_ADDRESS_CHARS\s*=\s*\d/), ["qa-engine/src/shared-kernel/address-cut.ts"]);
+  assert.deepEqual(filesMatching(/\bMAX_PROJECT_NAME_CHARS\s*=\s*\d/), ["qa-engine/src/contexts/test-execution/domain/dev-write-request.ts"]);
+});

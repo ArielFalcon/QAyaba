@@ -9,7 +9,8 @@
  * launch page that never goes idle cannot spend the call.
  */
 import { readFileSync } from "node:fs";
-import { MAX_DEV_WRITE_REQUESTS } from "../domain/dev-write-request.ts";
+import { PRODUCER_ADDRESS_CHARS } from "../../../shared-kernel/address-cut.ts";
+import { MAX_DEV_WRITE_REQUESTS, MAX_PROJECT_NAME_CHARS } from "../domain/dev-write-request.ts";
 
 const CONFIG_SOURCE = readFileSync(new URL("./embedded/control-load.config.cjs", import.meta.url), "utf8");
 const TEST_SOURCE = readFileSync(new URL("./embedded/control-load.run.cjs", import.meta.url), "utf8");
@@ -22,9 +23,10 @@ export function controlLoadMs(callMs: number): number {
   return Math.max(1, Math.floor(callMs * CONTROL_TIME_SHARE));
 }
 
-/* The test file's text: it keeps as many distinct requests as the ledgers do, so a request has a slot in both or in neither. */
+/* The test file's text: it keeps as many distinct requests as the ledgers do, so a request has a slot in both or in neither, and cuts an address and a project name where the orchestrator's readers cut them, so a request has one key in both. */
 export function buildControlTest(): string {
-  return `const CONTROL_MAX_REQUESTS = ${MAX_DEV_WRITE_REQUESTS};\n${TEST_SOURCE}`;
+  const bounds = [`const CONTROL_MAX_REQUESTS = ${MAX_DEV_WRITE_REQUESTS};`, `const CONTROL_MAX_ADDRESS_CHARS = ${PRODUCER_ADDRESS_CHARS};`, `const CONTROL_MAX_PROJECT_CHARS = ${MAX_PROJECT_NAME_CHARS};`];
+  return `${bounds.join("\n")}\n${TEST_SOURCE}`;
 }
 
 /* The config's text, told where the test file is. */

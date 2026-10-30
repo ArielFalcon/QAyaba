@@ -7,6 +7,9 @@
 /* The most distinct requests a run keeps; its count of writes covers the rest. */
 export const MAX_DEV_WRITE_REQUESTS = 20;
 
+/* The longest project name a ledger or a control carries; the seed and the control cut a name there, so the two keys stay equal. The seed repeats it and a test keeps the two equal. */
+export const MAX_PROJECT_NAME_CHARS = 200;
+
 export interface DevWriteRequest {
   method: string;
   url: string;

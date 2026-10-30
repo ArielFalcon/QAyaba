@@ -5,7 +5,8 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { MAX_DEV_WRITE_REQUESTS } from "@contexts/test-execution/domain/dev-write-request.ts";
+import { MAX_DEV_WRITE_REQUESTS, MAX_PROJECT_NAME_CHARS } from "@contexts/test-execution/domain/dev-write-request.ts";
+import { PRODUCER_ADDRESS_CHARS } from "@kernel/address-cut.ts";
 import ts from "typescript";
 import { buildControlConfig, buildControlTest, controlArgs, controlLoadMs } from "@contexts/test-execution/infrastructure/control-load.ts";
 
@@ -106,15 +107,15 @@ test("the control keeps as many distinct requests as a ledger does, and cuts an 
   assert.equal(kept.length, MAX_DEV_WRITE_REQUESTS);
   const long = `${DEV}/${"a".repeat(400)}`;
   const [entry] = only(runControlTest({ requests: [{ method: "POST", url: long }] }).files).body.requests as Array<{ url: string }>;
-  assert.equal(entry!.url, long.slice(0, 300));
+  assert.equal(entry!.url, long.slice(0, PRODUCER_ADDRESS_CHARS));
 });
 
 test("the file of a project is named by a short key of the project's name, which is cut where the orchestrator's reader cuts it", () => {
   const first = only(runControlTest({ project: "desktop" }).files);
   const second = only(runControlTest({ project: "mobile" }).files);
   assert.notEqual(first.name, second.name);
-  const long = only(runControlTest({ project: "p".repeat(300) }).files);
-  assert.equal((long.body.project as string).length, 200);
+  const long = only(runControlTest({ project: "p".repeat(MAX_PROJECT_NAME_CHARS + 100) }).files);
+  assert.equal((long.body.project as string).length, MAX_PROJECT_NAME_CHARS);
   assert.match(long.name, /^control-[A-Za-z0-9_-]{1,64}\.json$/);
 });
 
@@ -210,10 +211,23 @@ test("the control and the seed's counter cut an address at the same length, so a
   assert.ok(declaration, "the seed's capture block has its address function");
   const js = ts.transpileModule(declaration[0], { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
   const seedKey = new Function(`${js}\nreturn networkUrl;`)() as (raw: string) => string;
-  for (const length of [10, 299, 300, 301, 400]) {
+  for (const length of [10, PRODUCER_ADDRESS_CHARS - 1, PRODUCER_ADDRESS_CHARS, PRODUCER_ADDRESS_CHARS + 1, 400]) {
     const address = `${DEV}/${"a".repeat(length - DEV.length - 1 > 0 ? length - DEV.length - 1 : 1)}`;
     const raw = `${address}?q=1#f`;
     const [entry] = only(runControlTest({ requests: [{ method: "POST", url: raw }] }).files).body.requests as Array<{ url: string }>;
     assert.equal(entry!.url, seedKey(raw), `an address of ${address.length} characters`);
   }
+});
+
+test("the control is told the bounds the orchestrator reads its file with, and keeps no copy of them", () => {
+  const text = buildControlTest();
+  assert.ok(text.includes(`const CONTROL_MAX_ADDRESS_CHARS = ${PRODUCER_ADDRESS_CHARS};`));
+  assert.ok(text.includes(`const CONTROL_MAX_PROJECT_CHARS = ${MAX_PROJECT_NAME_CHARS};`));
+  assert.ok(!/\b(?:MAX_ADDRESS_CHARS|MAX_PROJECT_CHARS)\s*=\s*\d/.test(text), "the script reads the injected bounds");
+});
+
+test("the seed repeats the address and project bounds the orchestrator reads its ledgers and controls with", () => {
+  const seed = readFileSync(join(import.meta.dirname, "..", "..", "..", "..", "..", "config", "e2e", "fixtures.ts"), "utf8");
+  assert.equal(Number(/function networkUrl\(raw: string, max = (\d+)\)/.exec(seed)?.[1]), PRODUCER_ADDRESS_CHARS);
+  assert.equal(Number(/const MAX_PROJECT_CHARS = (\d+);/.exec(seed)?.[1]), MAX_PROJECT_NAME_CHARS);
 });

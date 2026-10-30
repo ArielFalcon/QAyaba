@@ -7,6 +7,9 @@
  * it; an address with no `/` past its origin (a host) is cut at the bound. Pure.
  */
 
+/* The longest request address (origin + pathname) a sandboxed producer keeps as the identity of a request: the seed's ledgers and observations and the control load cut there, and the orchestrator reads them with `wholeSegmentsOfProducerCut` at the same bound. The seed repeats it (it imports nothing) and a test keeps the two equal. */
+export const PRODUCER_ADDRESS_CHARS = 300;
+
 /* The address cut at `max` characters, keeping whole path segments only; an address within the bound is returned as it is. */
 export function cutAddress(address: string, max: number): string {
   if (address.length <= max) return address;

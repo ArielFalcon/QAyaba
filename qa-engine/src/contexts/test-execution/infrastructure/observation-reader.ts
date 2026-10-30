@@ -2,7 +2,7 @@
 import { relative } from "node:path";
 import { parseAriaSnapshotWithState } from "@contexts/generation/application/index.ts";
 import { MAX_OBSERVED_DOM_LINES, MAX_OBSERVED_LINE_CHARS, MAX_OBSERVED_REQUESTS, type ObservedPage, type ObservedRequest } from "@contexts/objective-signal/application/index.ts";
-import { wholeSegmentsOfProducerCut } from "../../../shared-kernel/address-cut.ts";
+import { PRODUCER_ADDRESS_CHARS, wholeSegmentsOfProducerCut } from "../../../shared-kernel/address-cut.ts";
 import { redactByValue } from "../../../shared-kernel/run-secret-redaction.ts";
 import { sanitizeText } from "../../../shared-infrastructure/redaction/pattern-redaction.adapter.ts";
 import { readRunOutputDir, type RunOutputLimits } from "../../../shared-infrastructure/run-output-reader.ts";
@@ -12,7 +12,6 @@ export const OBSERVATION_LIMITS: RunOutputLimits = { maxFileBytes: 2 * 1024 * 10
 
 /* What one file may hold before it is no observation: the seed keeps MAX_OBSERVED_REQUESTS distinct requests, so a list far past it is forged. */
 const MAX_RECORDED_REQUESTS = MAX_OBSERVED_REQUESTS * 4;
-const MAX_RECORDED_URL_CHARS = 300;
 const MAX_RECORDED_COUNT = 1_000_000;
 const METHOD_RE = /^[A-Z]{1,16}$/;
 
@@ -33,9 +32,9 @@ const cut = (line: string): string => (line.length > MAX_OBSERVED_LINE_CHARS ? `
 function recordedRequest(raw: unknown): ObservedRequest {
   const { method, url, count } = (raw ?? {}) as { method?: unknown; url?: unknown; count?: unknown };
   if (typeof method !== "string" || !METHOD_RE.test(method)) throw new Error("not a method");
-  if (typeof url !== "string" || url.length > MAX_RECORDED_URL_CHARS) throw new Error("not a url");
+  if (typeof url !== "string" || url.length > PRODUCER_ADDRESS_CHARS) throw new Error("not a url");
   if (typeof count !== "number" || !Number.isInteger(count) || count < 1 || count > MAX_RECORDED_COUNT) throw new Error("not a count");
-  const parsed = new URL(wholeSegmentsOfProducerCut(url, MAX_RECORDED_URL_CHARS));
+  const parsed = new URL(wholeSegmentsOfProducerCut(url, PRODUCER_ADDRESS_CHARS));
   if (parsed.protocol !== "http:" && parsed.protocol !== "https:") throw new Error("not a url");
   return { method, url: clean(`${parsed.origin}${parsed.pathname}`), count };
 }
