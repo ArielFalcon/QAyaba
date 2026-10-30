@@ -20,6 +20,7 @@ import { readFailureReason, readOwnedSpecFile, type OwnedSpecRead } from "../../
 import { parsePlaywrightReport } from "./playwright-report.ts";
 import { PLAYWRIGHT_INFRA_RE } from "../../../shared-kernel/playwright-infra.ts";
 import { openDumpBridge } from "./run-dump-bridge.ts";
+import type { OffLoopExecutor } from "../../../shared-infrastructure/worker/off-loop-executor.ts";
 import { readObservations } from "./observation-reader.ts";
 import type { ObservedPage } from "@contexts/objective-signal/application/index.ts";
 import { activeExecScope } from "../../../shared-infrastructure/process-sandbox/exec-scope.ts";
@@ -167,6 +168,8 @@ export interface E2eExecuteDeps {
     signal?: AbortSignal;
     timeoutMs?: number;
     onEvent?: (ev: StreamEvent) => void;
+    /** Called once when the child has closed and its run can no longer be timed out or cancelled. */
+    onChildClosed?: () => void;
     failureCaptureDir?: string;
   }): Promise<E2eRunOutput>;
   defaultTimeoutMs?: number;
@@ -262,6 +265,14 @@ export async function runE2E(
     try { failureCaptureDir = mkdtempSync(join(tmpdir(), "qa-fail-")); } catch { /* no-op */ }
   }
 
+  const timeoutMs = opts.timeoutMs ?? deps.defaultTimeoutMs ?? DEFAULT_E2E_TIMEOUT_MS;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let onAbort: (() => void) | undefined;
+  const disarm = (): void => {
+    clearTimeout(timer);
+    if (onAbort) opts.signal?.removeEventListener("abort", onAbort);
+  };
+
   try {
   const runPromise = deps.runSuite({
     dir: specDir,
@@ -282,14 +293,12 @@ export async function runE2E(
     signal: opts.signal,
     timeoutMs: opts.timeoutMs,
     onEvent,
+    onChildClosed: disarm,
     failureCaptureDir,
   });
 
-  const timeoutMs = opts.timeoutMs ?? deps.defaultTimeoutMs ?? DEFAULT_E2E_TIMEOUT_MS;
   const timedOut: E2eRunOutput = { report: {}, logs: `playwright runner timed out after ${timeoutMs}ms — killed`, ran: false };
   const abortedOut: E2eRunOutput = { report: {}, logs: "playwright runner aborted by operator cancel — killed", ran: false };
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  let onAbort: (() => void) | undefined;
   const racers: Array<Promise<E2eRunOutput>> = [
     runPromise,
     new Promise<E2eRunOutput>((resolve) => { timer = setTimeout(() => resolve(timedOut), timeoutMs); }),
@@ -305,8 +314,7 @@ export async function runE2E(
   try {
     out = await Promise.race(racers);
   } finally {
-    clearTimeout(timer);
-    if (onAbort) opts.signal?.removeEventListener("abort", onAbort);
+    disarm();
   }
   /* A run that was stopped here is not over until its child is: the fixtures rewrite the ledgers as the tests go, and the last rewrite is the one that counts. The wait is bounded, so a child that never exits cannot hold the run. */
   if (opts.countWrites && (out === timedOut || out === abortedOut)) await exitedWithin(runPromise, deps.exitWaitMs ?? CHILD_EXIT_WAIT_MS);
@@ -888,6 +896,8 @@ export function createDefaultE2eExecuteDeps(
   readReport: (jsonPath: string, root: string) => PlaywrightReportRead = (jsonPath, root) => readPlaywrightReport(jsonPath, MAX_PLAYWRIGHT_REPORT_BYTES, root),
   /* How long a killed child is waited for before its ledgers are read (CHILD_EXIT_WAIT_MS). */
   exitWaitMs: number = CHILD_EXIT_WAIT_MS,
+  /* Where the coverage dumps are rebuilt, a seam so that a test can hold the work. Absent: a worker thread per harvest. */
+  dumpExecutor?: OffLoopExecutor,
 ): E2eExecuteDeps {
   if (!exec) {
     throw new Error("[qa] createDefaultE2eExecuteDeps requires an execution launcher — there is no safe default (the specs are agent-written code).");
@@ -899,7 +909,7 @@ export function createDefaultE2eExecuteDeps(
       const dir = exec.allocDir("failures", ["dumps"]);
       return { dir: join(dir, "dumps"), root: exec.workDir(), dispose: () => { try { rmSync(dir, { recursive: true, force: true }); } catch { /* best-effort */ } } };
     },
-    runSuite: ({ dir, baseUrl, namespace, geolocation, dataState, testIdAttribute, mutant, observe, project, specFiles, retries, grep, countWrites, cleanupPass, signal, timeoutMs, onEvent, failureCaptureDir }) =>
+    runSuite: ({ dir, baseUrl, namespace, geolocation, dataState, testIdAttribute, mutant, observe, project, specFiles, retries, grep, countWrites, cleanupPass, signal, timeoutMs, onEvent, onChildClosed, failureCaptureDir }) =>
       new Promise((resolve, reject) => {
         /* The specs to run, as a file the orchestrator writes (root-owned, read-only to the sandbox): the child is told which files by an exact list, never by a pattern. */
         const testListPath = specFiles !== undefined && specFiles.length > 0 ? exec.writeScript("spec-list.txt", specListContent(specFiles)) : undefined;
@@ -910,13 +920,13 @@ export function createDefaultE2eExecuteDeps(
         writeFileSync(reporterPath, STREAM_REPORTER);
         /* The fixtures write the coverage and fault-injection dumps below the suite's own .qa, from the sandboxed child. Nothing the child writes lands in the mirror: those two paths lead to a folder of the run's work dir while it runs, and only the dumps that pass the check are carried over once it is gone (run-dump-bridge.ts). */
         const dumpRoot = exec.allocDir("dumps", ["coverage", "fault-injection"]);
-        const dumps = openDumpBridge({ specDir: dir, namespace, dumpRoot, workRoot });
+        const dumps = openDumpBridge({ specDir: dir, namespace, dumpRoot, workRoot, ...(dumpExecutor ? { executor: dumpExecutor } : {}) });
         let dumpsClosed = false;
-        const closeDumps = (harvest: boolean): void => {
+        const closeDumps = async (harvest: boolean): Promise<void> => {
           if (dumpsClosed) return;
           dumpsClosed = true;
           try {
-            if (harvest) dumps.harvest();
+            if (harvest) await dumps.harvest();
             else dumps.dispose();
           } catch (err) {
             engineLog.error(`[qa] the dump folders of the run could not be handed over (${err instanceof Error ? err.message : String(err)}); the coverage and fault-injection signals stay unmeasured (non-blocking)`);
@@ -940,11 +950,14 @@ export function createDefaultE2eExecuteDeps(
           if (ev && onEvent) { try { onEvent(ev); } catch { /* advisory: never let the feed break the run */ } }
         });
         let settled = false;
+        const disarm = (): void => {
+          clearTimeout(timer);
+          if (onAbort) signal?.removeEventListener("abort", onAbort);
+        };
         const settle = (fn: () => void) => {
           if (settled) return;
           settled = true;
-          clearTimeout(timer);
-          if (onAbort) signal?.removeEventListener("abort", onAbort);
+          disarm();
           fn();
         };
 
@@ -955,10 +968,9 @@ export function createDefaultE2eExecuteDeps(
         const stop = (what: string): void => {
           if (stopping || settled) return;
           stopping = true;
-          clearTimeout(timer);
-          if (onAbort) signal?.removeEventListener("abort", onAbort);
+          disarm();
           processKill.killTree(child);
-          closeDumps(false);
+          void closeDumps(false);
           let wait: ReturnType<typeof setTimeout> | undefined;
           void Promise.race([exit, new Promise<void>((resolve) => { wait = setTimeout(resolve, exitWaitMs); })]).then(() => {
             clearTimeout(wait);
@@ -977,16 +989,23 @@ export function createDefaultE2eExecuteDeps(
         child.stderr!.setEncoding("utf8");
         child.stdout!.on("data", (d: string) => events.feed(d));
         child.stderr!.on("data", (d: string) => stderr.append(d));
-        child.on("error", (err) => { closeDumps(false); try { rmSync(work, { recursive: true, force: true }); } catch { /* best-effort */ } settle(() => reject(err)); });
+        child.on("error", (err) => { void closeDumps(false); try { rmSync(work, { recursive: true, force: true }); } catch { /* best-effort */ } settle(() => reject(err)); });
         child.on("close", (code, signal) => {
           /* The child is gone, and the path it was handed is the one thing it could still have changed: the report is read strictly (see readPlaywrightReport), never waited on and never followed. A run that is stopped already (it timed out or the operator cancelled, and the child was killed) is waited for by nobody, so its report is not read: parsing one made slow on purpose would only hold the orchestrator after the deadline. */
-          const read = settled || stopping ? undefined : readReport(jsonPath, workRoot);
-          closeDumps(!settled && !stopping);
-          try { rmSync(work, { recursive: true, force: true }); } catch { /* best-effort */ }
-          exited();
-          if (read === undefined) return;
-          const refusal = !read.ran && "reason" in read ? `\n[qa] the Playwright report was not read (${read.reason}); this run has no result.` : "";
-          settle(() => resolve({ report: read.ran ? read.report : {}, logs: stderr.text() + refusal, ran: read.ran, exitCode: code ?? undefined, ...(signal ? { signal } : {}) }));
+          const finished = !settled && !stopping;
+          const read = finished ? readReport(jsonPath, workRoot) : undefined;
+          /* From here the timeout and the cancel bound the child, which is gone, and not the work on its dumps: a finished run is never turned into a stopped one. */
+          if (finished) {
+            disarm();
+            onChildClosed?.();
+          }
+          void closeDumps(finished).then(() => {
+            try { rmSync(work, { recursive: true, force: true }); } catch { /* best-effort */ }
+            exited();
+            if (read === undefined) return;
+            const refusal = !read.ran && "reason" in read ? `\n[qa] the Playwright report was not read (${read.reason}); this run has no result.` : "";
+            settle(() => resolve({ report: read.ran ? read.report : {}, logs: stderr.text() + refusal, ran: read.ran, exitCode: code ?? undefined, ...(signal ? { signal } : {}) }));
+          });
         });
       }),
   };

@@ -111,6 +111,16 @@ module.exports = {
       to: { path: "^(node:)?child_process$", dependencyTypes: ["core"], dependencyTypesNot: ["type-only"] },
     },
     {
+      name: "no-worker-threads-outside-the-executor",
+      severity: "error",
+      comment: "Work that would hold the event loop runs in a worker thread started for one call by the off-loop executor, which owns the heap limit, the typed outcomes and the end of the worker. A module that starts workers of its own would bypass them, so the allowlist is the executor and the worker-side module it serves.",
+      from: {
+        path: "^(qa-engine/src|src)/",
+        pathNot: ["^qa-engine/src/shared-infrastructure/worker/(off-loop-executor|serve-bytes)\\.ts$"],
+      },
+      to: { path: "^(node:)?worker_threads$", dependencyTypes: ["core"], dependencyTypesNot: ["type-only"] },
+    },
+    {
       name: "no-fs-in-agent-browser",
       severity: "error",
       comment: "The authenticated agent browser holds the run's saved session in memory only: the cookies are handed to the browser as data and nothing it refreshes is saved. The module that hosts the browser and the one that starts it import no file API, so a refreshed cookie, a download or a profile written by the host cannot exist; what they hold arrives through their dependencies.",
@@ -157,8 +167,8 @@ module.exports = {
     {
       name: "cross-context-internals",
       severity: "error",
-      comment: "A context reaches another context only through its public surface, application/index.ts. Composition roots wire contexts together by design and are exempt. Everything else of another context (domain, infrastructure, other application files) is internal.",
-      from: { path: "^qa-engine/src/contexts/([^/]+)/", pathNot: "composition/" },
+      comment: "A context reaches another context only through its public surface, application/index.ts. Composition roots wire contexts together by design and are exempt. Everything else of another context (domain, infrastructure, other application files) is internal. The one other exemption is the coverage harvest's worker module: a worker thread resolves no path alias, so its closed module graph imports the pure sanitizer of objective-signal by relative path.",
+      from: { path: "^qa-engine/src/contexts/([^/]+)/", pathNot: ["composition/", "^qa-engine/src/contexts/test-execution/infrastructure/dump-sanitize\\.worker\\.ts$"] },
       to: {
         path: "^qa-engine/src/contexts/",
         pathNot: ["^qa-engine/src/contexts/$1/", "^qa-engine/src/contexts/[^/]+/application/index\\.ts$"],

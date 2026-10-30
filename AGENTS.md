@@ -967,7 +967,14 @@ that catches nothing. The objective signal that breaks the circle is **change-co
   to have reached a page or not: it is not judged, logged on a line of its own and counted apart as `unreadable`, never
   as "reached no page". The dump bridge gives each kind of dump (coverage, mutation counters) a check time of its
   own (`DUMP_CHECK_BUDGET_MS`), so bulky coverage dumps cannot use up the time the small counters are checked in, and a
-  kind whose time ran out says so (`OutOfTimeError`) instead of "its content could not be used".
+  kind whose time ran out says so (`OUT_OF_TIME`) instead of "its content could not be used". The coverage dumps are
+  rebuilt in a worker thread started for the one harvest (`OffLoopExecutor`, `shared-infrastructure/worker/`; the
+  worker module `dump-sanitize.worker.ts`, heap limit `DUMP_WORKER_HEAP_MB`), never on the event loop: `harvest()` is
+  asynchronous, the check time is how long it waits for the worker (the worker is ended at the deadline), a worker
+  that runs out of memory or dies leaves the set out with its own reason, and the child's timeout and cancel are
+  disarmed at both layers (`runSuite` and the race of `runE2E`, through `onChildClosed`) the moment the child closes. A
+  worker resolves no path alias, so its module graph is closed and imported by relative path; only the executor and
+  `serve-bytes.ts` import `node:worker_threads` (`no-worker-threads-outside-the-executor`).
   `gateSignals.bundleMutation` holds `{ applied, killed, survived[] }`, plus `skippedSites { count, reasons }`
   (sites left out, by `no-source-line` or `not-in-source-line`), `rerunsBySpecFile` (mutants whose tests
   could not be told) and `unreadable` (mutants not judged for unreadable counters; the object is then present even

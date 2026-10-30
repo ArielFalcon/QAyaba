@@ -14,8 +14,8 @@ export interface RunOutputLimits {
   maxFiles: number;
 }
 
-const UNUSABLE = "its content could not be used";
-const OUT_OF_TIME = "the time to check the files of this directory ran out before it";
+export const UNUSABLE = "its content could not be used";
+export const OUT_OF_TIME = "the time to check the files of this directory ran out before it";
 
 /* What a `decode` throws when the time its caller gave the directory is spent: the file is left out like any that cannot be used, and the reason says it was the clock, not the file's content, so a bound that bit is never taken for a file that was bad. */
 export class OutOfTimeError extends Error {

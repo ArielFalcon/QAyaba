@@ -8,7 +8,7 @@
  */
 import { test, mock } from "node:test";
 import assert from "node:assert/strict";
-import { lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, writeFileSync, rmSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createHash } from "node:crypto";
@@ -35,6 +35,7 @@ import {
   type FailureDump,
 } from "@contexts/test-execution/infrastructure/e2e-execution.runner.ts";
 import { sharedTestExec, testExecSandbox } from "../../../support/exec-sandbox-harness.ts";
+import type { OffLoopExecutor } from "../../../../src/shared-infrastructure/worker/off-loop-executor.ts";
 import { ProcessKillAdapter } from "../../../../src/shared-infrastructure/process-sandbox/process-kill.adapter.ts";
 import { newSandboxReport, withExecScope, type RunScope } from "../../../../src/shared-infrastructure/process-sandbox/exec-scope.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
@@ -1626,6 +1627,66 @@ test("the default runner leads the dump folders to the work dir while the child 
     const carried = join(specDir, ".qa", "coverage", "ns-dump");
     assert.equal(lstatSync(carried).isSymbolicLink(), false);
     assert.deepEqual(readdirSync(carried), ["w0-0.json"], "the planted file did not reach the mirror");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("a timeout or a cancel that arrives after the child closed leaves the finished run's result intact while its dumps are handed over", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const root = mkdtempSync(join(tmpdir(), "qa-dump-late-stop-"));
+  const workRoot = join(root, "work");
+  const specDir = join(root, "mirror", "e2e");
+  mkdirSync(join(specDir, ".qa"), { recursive: true });
+  mkdirSync(workRoot, { recursive: true });
+  const child = new EventEmitter() as EventEmitter & { stdout: PassThrough; stderr: PassThrough };
+  child.stdout = new PassThrough();
+  child.stderr = new PassThrough();
+  const dumpRoots: string[] = [];
+  const exec = {
+    isolated: false,
+    workDir: () => workRoot,
+    allocDir: (prefix: string, subdirs: readonly string[] = []) => {
+      const dir = mkdtempSync(join(workRoot, `${prefix}-`));
+      for (const sub of subdirs) mkdirSync(join(dir, sub), { recursive: true });
+      if (prefix === "dumps") dumpRoots.push(dir);
+      return dir;
+    },
+    writeScript: () => "",
+    spawn: () => {
+      writeFileSync(join(specDir, ".qa", "coverage", "ns-late", "w0-0.json"), JSON.stringify([{ url: "https://dev/a.js", source: "x" }]));
+      return child;
+    },
+  };
+  const jobs: Buffer[][] = [];
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  const dumpExecutor: OffLoopExecutor = {
+    run: async (inputs) => {
+      jobs.push([...inputs]);
+      await gate;
+      return { kind: "done", outputs: inputs };
+    },
+  };
+  let killed = 0;
+  try {
+    const deps = createDefaultE2eExecuteDeps({ killTree: () => { killed++; } } as never, 60_000, exec as never, undefined, () => ({ ran: true, report: { suites: [{ title: "a.spec.ts", specs: [{ title: "ok", ok: true }] }] } }), undefined, dumpExecutor);
+    const controller = new AbortController();
+    const running = runE2E(specDir, { baseUrl: "https://dev", namespace: "ns-late", timeoutMs: 1_000, signal: controller.signal }, deps);
+    child.emit("close", 0, null);
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(jobs.length, 1, "the dumps are being handed over");
+    t.mock.timers.tick(2_000);
+    controller.abort();
+    release();
+    const run = await running;
+    assert.equal(run.verdict, "pass");
+    assert.doesNotMatch(run.logs, /timed out|aborted by operator cancel/);
+    assert.equal(killed, 0, "a finished child is not killed again");
+    assert.equal(jobs.length, 1);
+    assert.deepEqual(readdirSync(join(specDir, ".qa", "coverage", "ns-late")), ["w0-0.json"]);
+    assert.equal(dumpRoots.length, 1);
+    assert.equal(existsSync(dumpRoots[0]!), false, "the dump root is removed once the handover is over");
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
