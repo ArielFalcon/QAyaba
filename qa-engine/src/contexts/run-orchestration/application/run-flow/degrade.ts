@@ -28,7 +28,7 @@ export const deadlineNote = (stepId: StepId, purpose?: string): string =>
 export interface DegradeFacts {
   /** The run requires a review of its tests. */
   reviewRequired: boolean;
-  /** The coverage policy enforces a gate on this run's green bytes and no measurement of them was kept. */
+  /** The coverage policy enforces a gate on this run's green bytes and no measurement of them was kept (none was, or the one kept describes bytes an accepted regeneration replaced). */
   coverageGateUndecided: boolean;
   /** The end a fault that cannot be degraded past is turned into. */
   endOf(reason: EndReason, err: unknown): RunEnd;

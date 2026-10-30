@@ -38,6 +38,7 @@ import { recordCoordination, recordProof, recordRunFact } from "./run-flow/reduc
 import { createRunServices } from "./run-flow/run-services.ts";
 import type { RunContext, RunHost, WorkspaceRunContext } from "./run-flow/run-context.ts";
 import { measuresCoverage } from "./run-flow/phases/coverage.steps.ts";
+import { remeasuresStaleCoverage } from "./run-flow/phases/review.steps.ts";
 import { BEFORE_WORKSPACE, IN_WORKSPACE } from "./run-flow/run-steps.ts";
 import { DEMOTE_REASON } from "@kernel/ports/suite-store.port.ts";
 import { guardTelemetry } from "@kernel/telemetry/guarded-telemetry.ts";
@@ -393,7 +394,7 @@ export class RunQaUseCase {
       degrade: async (reason, err, stepId, current) => {
         /* Nothing can correct through the coordinated pass from here on, and the run publishes next. */
         await baseCtx.host.closeCoordinatedPass();
-        return degradeFailedStep(reason, err, stepId, current, { reviewRequired: reviewsTests(baseCtx) && current.classification.generating && current.execution.run?.verdict === "pass", coverageGateUndecided: baseCtx.cfg.coveragePolicyMode === "enforce" && measuresCoverage(current, baseCtx) && current.coverage.coverageStatus === undefined, endOf: (endReason, cause) => failureEnd(endReason, cause, baseCtx, state) });
+        return degradeFailedStep(reason, err, stepId, current, { reviewRequired: reviewsTests(baseCtx) && current.classification.generating && current.execution.run?.verdict === "pass", coverageGateUndecided: baseCtx.cfg.coveragePolicyMode === "enforce" && measuresCoverage(current, baseCtx) && (current.coverage.coverageStatus === undefined || remeasuresStaleCoverage(current)), endOf: (endReason, cause) => failureEnd(endReason, cause, baseCtx, state) });
       },
       enter: (phase: RunPhase) => {
         trail.phases.enter(phase);

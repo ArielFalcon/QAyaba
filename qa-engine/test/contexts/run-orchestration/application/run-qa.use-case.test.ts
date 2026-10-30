@@ -9418,6 +9418,49 @@ test("a green suite whose review is required still ends E-TIME-BUDGET when the d
   assert.equal(out.errorClass, ERROR_CLASS.TIME_BUDGET);
 });
 
+test("an enforced coverage gate whose final re-measure meets the run's deadline ends E-TIME-BUDGET: a measurement of replaced bytes decides nothing", async () => {
+  const fixtures = reviewFixtures();
+  try {
+    const clock = { t: 0 };
+    const fires: Array<() => void> = [];
+    const deadline = deadlineOn(clock, 40 * MIN, fires);
+    let generation = 0;
+    let reviews = 0;
+    let measureCalls = 0;
+    const { ports } = stubPorts({
+      prepare: async () => fakeHandle({ specDir: fixtures.specDir, mirrorDir: fixtures.mirrorDir }),
+      execute: async () => ({ verdict: "pass" as const, cases: [{ name: "a", status: "pass" as const, file: "flows/restaurants.spec.ts" }], logs: "" }),
+      measure: async () => {
+        measureCalls++;
+        if (measureCalls === 1) return { status: "pass" as const, ratio: 0.9 };
+        clock.t += 30 * MIN;
+        fires.at(-1)?.();
+        return { status: "fail" as const, ratio: 0.2, uncovered: [{ file: "src/a.ts", lines: [1] }] };
+      },
+      blocks: (status) => status === "fail",
+      review: async () => {
+        reviews++;
+        return reviews === 1
+          ? { approved: false, findings: [{ text: "assert the amount", severity: "blocking" as const }], blockingCount: 1, parsed: true }
+          : { approved: true, findings: [], blockingCount: 0, parsed: true };
+      },
+    });
+    ports.generation.author = async () => {
+      generation++;
+      if (generation === 1) clock.t += 20 * MIN;
+      fixtures.write("flows/restaurants.spec.ts", `export const generation = ${generation};\n`);
+      return scriptedGeneration({ specs: ["flows/restaurants.spec.ts"] });
+    };
+    const out = await new RunQaUseCase({ ...ports, runDeadline: deadline, config: { ...baseConfig, needsReview: true, coveragePolicyMode: "enforce" } }).run({ ...baseInput, runId: "deadline-in-final-remeasure", mode: "diff" });
+    assert.equal(measureCalls, 2, "the first measurement and the final re-measure the deadline cut");
+    assert.equal(out.decision.verdict, "infra-error");
+    assert.equal(out.errorClass, ERROR_CLASS.TIME_BUDGET);
+    assert.notEqual(out.decision.sideEffect, "pr");
+  } finally {
+    fixtures.cleanup();
+  }
+});
+
 test("an enforced coverage gate whose measurement meets the run's deadline ends E-TIME-BUDGET: the deadline never publishes past a gate it left undecided", async () => {
   const clock = { t: 0 };
   const fires: Array<() => void> = [];

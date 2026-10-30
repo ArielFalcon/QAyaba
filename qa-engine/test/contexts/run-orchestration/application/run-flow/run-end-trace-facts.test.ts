@@ -24,13 +24,13 @@ async function factsOfRow(id: string, tweak?: (rig: Rig) => void) {
 }
 
 test("a deadline spent after the suite was proven is a limit and a degradation of the run, not only a sentence in its note", async () => {
-  const { facts, note } = await factsOfRow("run-deadline-after-review-verdict");
+  const { facts, note } = await factsOfRow("run-deadline-in-coverage-after-proof");
   assert.deepEqual(facts?.limits, [{ fired: "run-deadline", role: "primary", scope: "run" }]);
   assert.equal(facts?.limitFired, "run-deadline");
   assert.equal(facts?.limitRole, "primary");
-  assert.deepEqual(facts?.degradations, [{ reason: "deadline-after-proof", note: "the run deadline was spent during remeasure-stale-coverage; the suite that ran green on its final bytes is kept" }]);
+  assert.deepEqual(facts?.degradations, [{ reason: "deadline-after-proof", note: "the run deadline was spent during measure-coverage; the suite that ran green on its final bytes is kept" }]);
   assert.equal(facts?.endReason, "decided");
-  assert.match(note ?? "", /the run deadline was spent during remeasure-stale-coverage/, "the note is derived from the same degradation");
+  assert.match(note ?? "", /the run deadline was spent during measure-coverage/, "the note is derived from the same degradation");
 });
 
 test("a publication that failed after the verdict was decided is a degradation of the run, and the note says it", async () => {

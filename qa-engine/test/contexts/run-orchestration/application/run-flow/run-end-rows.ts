@@ -213,8 +213,8 @@ export const RUN_END_ROWS: readonly RunEndRow[] = [
   { id: "run-deadline-during-fix-loop", endReason: "run-deadline", setup: (rig) => { let turn = 0; rig.author = async () => { if (++turn > 1) throw deadline("primary"); return scriptedGeneration({ specs: [RIG_SPEC]}); }; rig.execute = async () => ({ verdict: "fail", cases: [{ name: "checkout", status: "fail" }], logs: "assertion failed" }); }, expect: { verdict: "infra-error", errorClass: "E-TIME-BUDGET", furthestPhase: "fix_loop", persisted: true, published: "none", publishCalled: false } },
   { id: "run-deadline-in-review-without-verdict", endReason: "run-deadline", setup: (rig) => { let turn = 0; rig.author = async () => { if (++turn > 1) throw deadline("primary"); return scriptedGeneration({ specs: [RIG_SPEC]}); }; rig.review = async () => ({ approved: false, findings: [{ text: "assert the total", severity: "blocking" as const }], blockingCount: 1, parsed: true }); }, expect: { verdict: "infra-error", errorClass: "E-TIME-BUDGET", furthestPhase: "review", persisted: true, published: "none", publishCalled: false } },
   {
-    id: "run-deadline-after-review-verdict",
-    endReason: "decided",
+    id: "run-deadline-in-enforced-final-remeasure",
+    endReason: "run-deadline",
     setup: (rig) => {
       let reviews = 0;
       let executions = 0;
@@ -227,7 +227,18 @@ export const RUN_END_ROWS: readonly RunEndRow[] = [
       /* The initial run and the accepted correction pass; the whole-suite measured run that follows finds the deadline spent. */
       rig.execute = async () => { if (++executions > 2) throw deadline("primary"); return { verdict: "pass", cases: [{ name: "checkout", file: RIG_SPEC, status: "pass" }], logs: "" }; };
     },
-    expect: { verdict: "pass", errorClass: null, furthestPhase: "learn", persisted: true, published: "pr", publishCalled: true, note: /the run deadline was spent during remeasure-stale-coverage; the suite that ran green on its final bytes is kept/ },
+    /* The measurement kept describes the bytes the correction replaced: an enforced gate with no measurement of the final bytes is left undecided, and the deadline never publishes past it. */
+    expect: { verdict: "infra-error", errorClass: "E-TIME-BUDGET", furthestPhase: "review", persisted: true, published: "none", publishCalled: false },
+  },
+  {
+    id: "run-deadline-in-coverage-after-proof",
+    endReason: "decided",
+    setup: (rig) => {
+      rig.config = { ...rig.config, needsReview: false };
+      /* The suite ran green on its final bytes; the measurement after it meets the deadline, and under signal no gate waits on it. */
+      rig.measure = async () => { throw deadline("primary"); };
+    },
+    expect: { verdict: "pass", errorClass: null, furthestPhase: "learn", persisted: true, published: "pr", publishCalled: true, note: /the run deadline was spent during measure-coverage; the suite that ran green on its final bytes is kept/ },
   },
   { id: "sandbox-unavailable-at-open", endReason: "sandbox-unavailable", setup: (rig) => { rig.extra = { ...rig.extra, execScope: { ...ambientExecScope, open: async () => { throw new SandboxUnavailableError("residue", "1 process of the sandbox uid survived SIGKILL"); } } }; }, expect: { verdict: "infra-error", errorClass: "E-SANDBOX", furthestPhase: null, persisted: true, published: "none", publishCalled: false } },
   {
