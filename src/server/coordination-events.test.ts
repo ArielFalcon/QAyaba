@@ -336,6 +336,21 @@ test("toCoordinationSignals counts only runs with an outcome; a ledger without o
   assert.equal(withOutcome.totalRuns, 1);
 });
 
+test("toCoordinationSignals: delegate runs are the distinct runs whose outcome delegated, and a direct run is a run but not a delegating one", () => {
+  const events = parseCoordinationLedger(
+    [
+      line({ runId: "A", kind: "outcome", action: "delegate", reason: "x", at: 1 }),
+      line({ runId: "A", kind: "delegation", action: "delegate", reason: "x", at: 2 }),
+      line({ runId: "B", kind: "outcome", action: "delegate", reason: "x", at: 3 }),
+      line({ runId: "C", kind: "outcome", action: "direct", reason: "x", at: 4 }),
+      line({ runId: "D", kind: "delegation", action: "delegate", reason: "x", at: 5 }),
+    ].join("\n"),
+  ).events;
+  const s = toCoordinationSignals(events);
+  assert.equal(s.totalRuns, 3, "A, B and C have an outcome; D has none");
+  assert.equal(s.delegateRuns, 2, "A and B delegated; C went direct");
+});
+
 test("toCoordinationSignals: average delegation cost only counts delegations that recorded a duration", () => {
   const s = toCoordinationSignals([
     { runId: "r1", kind: "delegation", reason: "x", at: 1, durationMs: 1000 },
