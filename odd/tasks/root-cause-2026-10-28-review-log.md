@@ -83,38 +83,38 @@ Verdicts: A (465cb6d0..4d4a8675, CP1 re-validation) no code defect, CP1 fixes ho
 
 | ID | Source | Severity | Where | Problem | Suggestion | Status |
 |---|---|---|---|---|---|---|
-| A-B1 | CP2 A | blocker (CP1 fix incomplete) | RFC-0005:184 | Still says the after-measurement replicate count is unconfirmed (m12 corrected :195 only) | Correction note: one per version (ADR-0013) | open |
-| D-B1 | CP2 D | blocker | feature doc T4, T17, Lanes; m7 | T17 needs ADR-0011's proven 12-entry snapshot, made only by T4's `store-export`, which lands after T17 | Owner: T4 before T17, or T17 from O0 recorded unproven | open (owner) |
+| A-B1 | CP2 A | blocker (CP1 fix incomplete) | RFC-0005:184 | Still says the after-measurement replicate count is unconfirmed (m12 corrected :195 only) | Correction note: one per version (ADR-0013) | fixed 4089ca70 |
+| D-B1 | CP2 D | blocker | feature doc T4, T17, Lanes; m7 | T17 needs ADR-0011's proven 12-entry snapshot, made only by T4's `store-export`, which lands after T17 | Owner: T4 before T17, or T17 from O0 recorded unproven | decided L16: T4 lands before T17 |
 | C-B1 | CP2 C | blocker | T9 be067673, `regeneration-acceptance.ts:155-169`, `playwright-report.ts:58` | The report drops skipped tests, so a changed spec whose tests all skipped counts as silent: restored without a reason, or the fix loop's whole green round rejected | Carry skipped tests; silent only for a file that did not load; tests at both sites | open (integration) |
-| D-J1 | CP2 D | major | `AGENTS.md:887`, `docs/observability-context.md:111`, `docs/architecture-remediation.md:354` | Name `qa.coveragePolicy.mode`; the key is `qa.changeCoverage.mode` (ADR-0005:75) | Correct | open |
-| D-J2 | CP2 D | major | feature doc verifier-defects line, ADR-0005:77, T21 | ADR-0011 B1 (a flaky verdict replaced under enforce, `review.steps.ts:599-601`) has inconsistent carriers; V2 and VF edited its function without it | One carrier: T21, first; note step 1 passed over it | open |
-| D-J3 | CP2 D | major | feature doc | Accepted items with no task: RFC-0002 Q11 (Dockerfile), RFC-0003 decision 2, OD-14 strict schema, OD-18, OD-13 context-heal check (m3) | Add tasks | open |
-| D-J4 | CP2 D | major | T18 | W13 (OD-1 judge residue), W14 (OD-17 row 8.2), V12 (OD-9) belong to decided ODs, not "outside every record" | Finish them under T18 | open |
-| D-J5 | CP2 D | major | L13 vs ADR-0010 point C, S1 | The PR closing and branch deletion ran on a go that named no PR numbers | Record the owner's words as a correction to ADR-0010 | open |
-| D-J6 | CP2 D | major | T3, T23 rows | T3 still pending; T23 says two sites pending though 7dff1828 and 58d42e70 removed them | Correct | open |
-| D-J7 | CP2 D | major | Lanes; RFC-0007 F6 | T8 must ship ahead of any other closed-loop change (T9, T11) | Order T8 before T9 and T11, or record the owner's call | open |
+| D-J1 | CP2 D | major | `AGENTS.md:887`, `docs/observability-context.md:111`, `docs/architecture-remediation.md:354` | Name `qa.coveragePolicy.mode`; the key is `qa.changeCoverage.mode` (ADR-0005:75) | Correct | fixed 3b558bda |
+| D-J2 | CP2 D | major | feature doc verifier-defects line, ADR-0005:77, T21 | ADR-0011 B1 (a flaky verdict replaced under enforce, `review.steps.ts:599-601`) has inconsistent carriers; V2 and VF edited its function without it | One carrier: T21, first; note step 1 passed over it | fixed 4089ca70 (ADR-0005 note) and the T21 row |
+| D-J3 | CP2 D | major | feature doc | Accepted items with no task: RFC-0002 Q11 (Dockerfile), RFC-0003 decision 2, OD-14 strict schema, OD-18, OD-13 context-heal check (m3) | Add tasks | fixed (tasks T5, T24-T28, L16) |
+| D-J4 | CP2 D | major | T18 | W13 (OD-1 judge residue), W14 (OD-17 row 8.2), V12 (OD-9) belong to decided ODs, not "outside every record" | Finish them under T18 | fixed 532ec2f9, 649058a1, 7bbee8d3, 17dfc4f5, b44706b9 (tables kept, unread) |
+| D-J5 | CP2 D | major | L13 vs ADR-0010 point C, S1 | The PR closing and branch deletion ran on a go that named no PR numbers | Record the owner's words as a correction to ADR-0010 | fixed 4089ca70 (ADR-0010 correction with the owner's words) |
+| D-J6 | CP2 D | major | T3, T23 rows | T3 still pending; T23 says two sites pending though 7dff1828 and 58d42e70 removed them | Correct | fixed (T3, T23 rows, L16) |
+| D-J7 | CP2 D | major | Lanes; RFC-0007 F6 | T8 must ship ahead of any other closed-loop change (T9, T11) | Order T8 before T9 and T11, or record the owner's call | fixed (T8 row and the order, L16) |
 | C-J1 | CP2 C | major | T9 on main | T9's review-correction tests fail on main (the always-on filter drops the fake's uncited rejection); 13 + 3 tests need its per-spec fakes | Fake with a verifiable citation; port the fakes | open (integration) |
 | C-J2 | CP2 C | major | T7 on main, `qa-engine/test/support/cited-rejection.ts` | Helper on the old `corrections` shape; ~142 TS errors after merge (loud) | Port to `findings` | open (integration) |
-| A-m1 | CP2 A, D-m4 | minor | `docs/efficiency-benchmark.md:528-529` | Describes the removed rule fold, `learningRepo`, rule deprecation | Correct | open |
-| A-m2 | CP2 A | minor | `learning-gates.ts:24-25,41` | `LearningGates.fold` has no reader after L3; stale comments; test pins it | Remove | open |
-| A-m3 | CP2 A | minor | RFC-0002:298 | Z row names fields L3/L4 removed | Correction note | open |
+| A-m1 | CP2 A, D-m4 | minor | `docs/efficiency-benchmark.md:528-529` | Describes the removed rule fold, `learningRepo`, rule deprecation | Correct | fixed 3b558bda |
+| A-m2 | CP2 A | minor | `learning-gates.ts:24-25,41` | `LearningGates.fold` has no reader after L3; stale comments; test pins it | Remove | fixed 0d6685e7 |
+| A-m3 | CP2 A | minor | RFC-0002:298 | Z row names fields L3/L4 removed | Correction note | fixed 4089ca70 |
 | A-a1 | CP2 A | advisory | `scripts/campaign-model.ts` | `--grounding stitcher=` token changed from 1d/0d to on/off | none | noted |
-| B-m1 | CP2 B | minor | `coordination-events.ts:117` | Two mutants survive since the two-delegating-run test left with escalation | Restore that half of the test | open |
-| B-m2 | CP2 B | minor | `docker-compose.override.yml:51-52` | Forwards the retired COMPLETE/EXHAUSTIVE budgets | Delete | open |
-| B-m3 | CP2 B, D-m10 | minor | `scripts/coordination-benchmark.ts:75,85`, `lead-sidekicks.ts:1332`, `README.md:137`, `docs/observability-design.md:981`, `docs/observability-context.md:106` | Escalation residue | Remove | open |
-| B-m4 | CP2 B | minor | `web/public/API.md:105-107`, `web/public/js/data.mock.js:85` | Empty Engram table; oracle step in the mock | Remove | open |
-| B-m5 | CP2 B | minor | `run-engine-factory.test.ts:883`, `fault-injection-counter-reader.test.ts:1` | Stale oracle text | Reword | open |
+| B-m1 | CP2 B | minor | `coordination-events.ts:117` | Two mutants survive since the two-delegating-run test left with escalation | Restore that half of the test | fixed 3245288e (1 equivalent survivor left) |
+| B-m2 | CP2 B | minor | `docker-compose.override.yml:51-52` | Forwards the retired COMPLETE/EXHAUSTIVE budgets | Delete | fixed 2d100ea2 |
+| B-m3 | CP2 B, D-m10 | minor | `scripts/coordination-benchmark.ts:75,85`, `lead-sidekicks.ts:1332`, `README.md:137`, `docs/observability-design.md:981`, `docs/observability-context.md:106` | Escalation residue | Remove | fixed 7eda6ded |
+| B-m4 | CP2 B | minor | `web/public/API.md:105-107`, `web/public/js/data.mock.js:85` | Empty Engram table; oracle step in the mock | Remove | fixed 1a1e9fad |
+| B-m5 | CP2 B | minor | `run-engine-factory.test.ts:883`, `fault-injection-counter-reader.test.ts:1` | Stale oracle text | Reword | fixed 8cf002ec |
 | B-a1 | CP2 B | advisory (baseline) | CLI, API, webhook | Any unknown mode (a typo) still runs diff with success | Refuse any mode outside RUN_MODES | follow-up |
 | B-a2 | CP2 B | advisory | `src/qa/value-report.ts` | CLI report lost its oracle row; bundle mutation not shown | Optional row | follow-up |
 | C-m1 | CP2 C | minor | T11, `call-efficiency-tracker.ts:268` | Target redaction window 1000 -> 400 chars | Larger window or a straddle test | open (integration) |
 | C-m2 | CP2 C | minor | T4, `suite-store.adapter.ts:473-485` | `restoreSnapshot` skips `assertWithinLimits` and the app check (V2); a test patches a private writer | Check limits and app | open (integration) |
 | C-m3 | CP2 C | minor | T10, `window-fit-references.ts:33` | Ids kept for a page the advisory prints under the same path with a different tree | none or narrow | noted |
-| D-m1 | CP2 D | minor | ADR-0011 B2, B2', B3 | No carrier task | Name carriers | open |
-| D-m3 | CP2 D | minor | `docs/lead-sidekicks.md:417` | Read-only concurrency text after OD-5 | Correct | open |
-| D-m5 | CP2 D | minor | `src/settings/registry.ts:102`, `docs/settings.md:96` | QA_CAMPAIGN_FREEZE description | Correct | open |
-| D-m6 | CP2 D | minor | `config/apps/example.yaml:31-36` | Says the loader strips unknown keys | Correct | open |
-| D-m7 | CP2 D | minor | inventory | T18 deletions unmarked; judge modules have no row | Mark | open |
-| D-m8 | CP2 D | minor | `docs/architecture/README.md:136` | Stale sentence on records above RFC-0005 | Correct | open |
-| D-m9 | CP2 D | minor | RFC-0003:210 | Cites a test file C2 deleted | Correction | open |
-| D-m11 | CP2 D | minor | T19, T20 rows | Omit the ADR-0013 corrections decided when they land | Add | open |
+| D-m1 | CP2 D | minor | ADR-0011 B2, B2', B3 | No carrier task | Name carriers | fixed (T28) |
+| D-m3 | CP2 D | minor | `docs/lead-sidekicks.md:417` | Read-only concurrency text after OD-5 | Correct | fixed 3b558bda |
+| D-m5 | CP2 D | minor | `src/settings/registry.ts:102`, `docs/settings.md:96` | QA_CAMPAIGN_FREEZE description | Correct | fixed 3b558bda |
+| D-m6 | CP2 D | minor | `config/apps/example.yaml:31-36` | Says the loader strips unknown keys | Correct | fixed 3b558bda |
+| D-m7 | CP2 D | minor | inventory | T18 deletions unmarked; judge modules have no row | Mark | open (re-marked at T13) |
+| D-m8 | CP2 D | minor | `docs/architecture/README.md:136` | Stale sentence on records above RFC-0005 | Correct | fixed 4089ca70 |
+| D-m9 | CP2 D | minor | RFC-0003:210 | Cites a test file C2 deleted | Correction | fixed 4089ca70 |
+| D-m11 | CP2 D | minor | T19, T20 rows | Omit the ADR-0013 corrections decided when they land | Add | fixed (T19, T20 rows) |
 
