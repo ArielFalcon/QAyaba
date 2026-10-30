@@ -10,6 +10,7 @@ import { ok } from "@kernel/result.ts";
 import { RUN_PURPOSE } from "@kernel/run-mode.ts";
 import { GENERATION_END } from "@kernel/generation-end.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
+import type { ExecutionPort } from "@contexts/test-execution/application/index.ts";
 import type { RunOutcome } from "@kernel/run-outcome.ts";
 import { RunQaUseCase, type RunQaInput, type RunQaUseCaseDeps } from "@contexts/run-orchestration/application/run-qa.use-case.ts";
 import type { ClosedLoopHandle, ClosedLoopOpenInput } from "@contexts/agent-tools/application/index.ts";
@@ -473,7 +474,7 @@ test("a gap regeneration whose acceptance executed its specs is measured from th
 });
 
 /* A review correction is accepted only on the cases of an execution of its bytes, whatever `run_spec` saw pass. */
-function reviewCorrectionRig(files: readonly string[], proved: readonly string[], deletedByCorrection: readonly string[] = [], silentInAcceptance: readonly string[] = []) {
+function reviewCorrectionRig(files: readonly string[], proved: readonly string[], deletedByCorrection: readonly string[] = [], silentInAcceptance: readonly string[] = [], fixmedInAcceptance: readonly string[] = []) {
   const r = rig({ closed: true });
   r.handle.isClosed = async (specs) => specs.length > 0 && specs.every((file) => proved.includes(file));
   const executions: { namespace?: string; specFiles?: string[] }[] = [];
@@ -498,7 +499,15 @@ function reviewCorrectionRig(files: readonly string[], proved: readonly string[]
         executions.push({ ...(namespace ? { namespace } : {}), ...(specFiles ? { specFiles } : {}) });
         const accepting = isAcceptanceNamespace(namespace);
         /* A runner reports no case of a file that is not there, nor of a file whose tests it did not run. */
-        return { verdict: "pass", cases: (specFiles ?? files).filter((file) => existsSync(join(dir, file)) && !(accepting && silentInAcceptance.includes(file))).map((file) => caseOf(file, accepting ? "after" : "before")), logs: "" };
+        const reported = (specFiles ?? files).filter((file) => existsSync(join(dir, file)) && !(accepting && silentInAcceptance.includes(file)));
+        /* A file the correction fixmed reports its prior test as skipped, and no case. */
+        const fixmed = accepting ? reported.filter((file) => fixmedInAcceptance.includes(file)) : [];
+        return {
+          verdict: "pass",
+          cases: reported.filter((file) => !fixmed.includes(file)).map((file) => caseOf(file, accepting ? "after" : "before")),
+          ...(fixmed.length > 0 ? { skippedTests: fixmed.map((file) => ({ name: `${file} before`, file, annotation: "fixme" })) } : {}),
+          logs: "",
+        };
       },
     },
     review: {
@@ -551,6 +560,15 @@ test("a review correction whose kept files are only a deleted spec file leaves n
   await new RunQaUseCase(deps).run(INPUT);
 
   assert.deepEqual(r.saved.at(-1)!.cases?.map((c) => c.name), [`${silent} before`], "the deleted file has no result to stand on; the file that showed no case was given its prior bytes and cases back");
+});
+
+test("a review correction that turns a test that ran into a test.fixme is not accepted: the file keeps its prior bytes and cases", async () => {
+  const [fixmed, plain] = ["flows/fixmed.spec.ts", "flows/plain.spec.ts"];
+  const { r, deps } = reviewCorrectionRig([fixmed!, plain!], [], [], [], [fixmed!]);
+
+  await new RunQaUseCase(deps).run(INPUT);
+
+  assert.deepEqual(r.saved.at(-1)!.cases?.map((c) => c.name).sort(), [`${fixmed} before`, `${plain} after`].sort(), "the fixmed file proves nothing, so it is given its prior bytes and cases back");
 });
 
 test("a fix-loop round whose changed file holds a run_spec proof is executed by its acceptance: a case of it that still fails keeps the verdict failing", async () => {
@@ -617,6 +635,46 @@ test("a fix-loop round that changes a spec file whose tests all skipped is adopt
 
   assert.equal(out.decision.verdict, "pass", "the round that fixed the failing case stands");
 });
+
+/* A failing test cannot be made green by making it not run: a skip, an expected failure or its removal from the report leaves the run failing, for any app whatever its own lint. */
+type Reported = Pick<Awaited<ReturnType<ExecutionPort["execute"]>>, "verdict" | "cases" | "skippedTests" | "expectedFailures">;
+const NOT_A_FIX: Record<string, (file: string) => Reported> = {
+  "a test.fixme / testInfo.skip()": (file: string) => ({ verdict: "pass", cases: [], skippedTests: [{ name: file, file, annotation: "fixme" }] }),
+  "a test.fail()": (file: string) => ({ verdict: "pass", cases: [{ name: file, status: "pass", file }], expectedFailures: [{ name: file, file }] }),
+  "a deletion of the failing test beside another case": (file: string) => ({ verdict: "pass", cases: [{ name: `${file} other`, status: "pass", file }] }),
+};
+
+for (const [form, report] of Object.entries(NOT_A_FIX)) {
+  test(`a fix-loop round that turns its failing test into ${form} is rejected: the run still fails`, async () => {
+    const failing = "flows/failing.spec.ts";
+    const r = rig();
+    let turns = 0;
+    const deps = r.deps({
+      ...served({
+        author: async (specDir) => {
+          r.generations++;
+          turns++;
+          mkdirSync(join(specDir, "flows"), { recursive: true });
+          writeFileSync(join(specDir, failing), `await page.goto("/pass-${turns}");\n`);
+          return scriptedGeneration({ specs: [failing] });
+        },
+      }),
+      execution: {
+        execute: async (_dir, opts) => {
+          const { namespace } = (opts ?? {}) as { namespace?: string };
+          return namespace !== undefined
+            ? { ...report(failing), logs: "" }
+            : { verdict: "fail" as const, cases: [{ name: failing, status: "fail", file: failing, detail: "expected 1 got 2" }, { name: `${failing} other`, status: "pass", file: failing }], logs: "" };
+        },
+      },
+    });
+
+    const out = await new RunQaUseCase(deps).run(INPUT);
+
+    assert.ok(r.generations > 1, "the fix loop regenerated");
+    assert.equal(out.decision.verdict, "fail", "nothing ran green, so the failure stands");
+  });
+}
 
 test("a sweep that fails ends the run as an infra-error before anything validates, executes or publishes: probes the sweep left must not be judged or delivered", async () => {
   const r = rig();

@@ -8,8 +8,12 @@
  * equal the last bytes that executed green. A regeneration that changed spec files only
  * (`independentSpecs`) is judged file by file: when its execution fails, every spec file whose cases
  * all passed is kept and only the others are restored; with none kept it is rejected whole. A spec file that still exists and that the execution reported nothing of
- * (no case and no skipped test: it did not load) is never kept, whatever the verdict (a file whose tests all skipped loaded and stands;
- * a deleted file has no case by nature, and its deletion stands). An iterative fix-loop round may adopt a failing execution
+ * (no case and no skipped test: it did not load) is never kept, whatever the verdict (a file whose tests all skipped loaded and stands,
+ * with no proof, since nothing of it ran; a deleted file has no case by nature, and its deletion stands). A test that ran in the
+ * file's prior bytes (a case of the run before the regeneration, `priorCases`) is not passed by a regeneration that turns it into
+ * a skip or an expected failure (`test.fixme`, `testInfo.skip()`, `test.fail()`, whatever the app's own lint says), nor, when it was
+ * failing, by one that removes it (the file then reports fewer cases than before; a renamed test keeps the count): that file gets its prior bytes back, or the round is rejected when it is judged
+ * whole. A test that never ran before and is skipped is simply no case. An iterative fix-loop round may adopt a failing execution
  * (`adoptFailures`): its bytes and cases stand while the loop repairs them, but only green bytes get a
  * proof, so nothing can publish them. Built once per run; the run's own counter caps how many
  * acceptance executions one run spends, and the run's deadline bounds each of them.
@@ -19,7 +23,7 @@ import type { QaCase } from "@kernel/qa-case.ts";
 import { normalizeSpecPath } from "@kernel/spec-path.ts";
 import { RunDeadlineExceededError } from "@kernel/run-deadline.ts";
 import { MAX_ACCEPTANCE_EXECUTIONS } from "../../../shared-kernel/derive-cycle-backstop.ts";
-import type { ExecutionPort, SkippedTest, ValidationPort } from "@contexts/test-execution/application/index.ts";
+import type { ExecutionPort, ExpectedFailureTest, SkippedTest, ValidationPort } from "@contexts/test-execution/application/index.ts";
 import type { RunDeadlinePort } from "./ports/run-deadline.port.ts";
 import type { SuiteRestorePoint } from "../domain/suite-restore-point.ts";
 import type { SuiteRestorePort } from "./ports/suite-restore.port.ts";
@@ -77,6 +81,8 @@ export interface AcceptanceInput {
    * infra-error and the cap still reject and restore, and only green bytes reach the proof ledger.
    */
   adoptFailures?: boolean;
+  /** The cases of the run before the regeneration: the tests that ran in the changed files' prior bytes, which the execution may not turn into a skip, an expected failure or (when they failed) nothing. Absent: no prior test is known. */
+  priorCases?: readonly QaCase[];
   /**
    * The turn changed spec files only (no file they import), so each stands or falls on its own cases: a failing execution
    * keeps every spec file whose cases all passed and restores the others. Absent: the regeneration is accepted or rejected whole.
@@ -145,18 +151,24 @@ export class RegenerationAcceptance {
       const failed = result.verdict !== "pass" && (!input.adoptFailures || result.verdict === "infra-error");
       /* 5b. A file that is still there and that the execution reported nothing of (no case, no skipped test) did not load and has no result to stand on, whatever the verdict; a deleted file has no case by nature. */
       const silent = failed ? [] : await this.silentFiles(input, result);
-      if (failed || silent.length > 0) {
+      /* 5b'. A test that ran before and is now skipped, expected to fail or dropped from the report proves nothing, whatever the app's lint allows. */
+      const unproven = unprovenSpecFiles(input, result);
+      if (failed || silent.length > 0 || unproven.length > 0) {
         const split =
           input.independentSpecs && result.verdict !== "infra-error"
             ? failed
-              ? greenSpecFiles(input.changedSpecFiles, result)
-              : standingSpecFiles(input.changedSpecFiles, silent)
+              ? greenSpecFiles(input.changedSpecFiles, result, unproven)
+              : standingSpecFiles(input.changedSpecFiles, [...silent, ...unproven])
             : undefined;
         if (!split) {
           await restore();
           return {
             kind: "rejected",
-            reason: failed ? `execution ended ${result.verdict}` : `execution reported nothing of ${silent.join(", ")}`,
+            reason: failed
+              ? `execution ended ${result.verdict}`
+              : silent.length > 0
+                ? `execution reported nothing of ${silent.join(", ")}`
+                : `execution no longer runs a test that ran before: ${unprovenDescription(input, result).join("; ")}`,
             execution,
           };
         }
@@ -175,6 +187,8 @@ export class RegenerationAcceptance {
     if (execution === undefined || execution.verdict === "pass") {
       const accepted = await this.deps.snapshot.snapshot(input.specDir, [...kept]);
       for (const file of kept) {
+        /* A kept file none of whose tests ran (all skipped) loaded but proves nothing: it gets no proof. */
+        if (execution !== undefined && !execution.cases.some((c) => c.file !== undefined && sameSpec(file, c.file))) continue;
         const bytes = accepted.files.get(file);
         if (bytes !== undefined) proof.push({ file, sha256: this.deps.fingerprint(bytes), bytes });
       }
@@ -208,7 +222,41 @@ export class RegenerationAcceptance {
 const sameSpec = (a: string, b: string): boolean => normalizeSpecPath(a) === normalizeSpecPath(b);
 
 /* What an execution reported of its files: the cases that ran and the tests it says were skipped. */
-type ReportedFiles = { cases: readonly QaCase[]; skippedTests?: readonly SkippedTest[] };
+type ReportedFiles = { cases: readonly QaCase[]; skippedTests?: readonly SkippedTest[]; expectedFailures?: readonly ExpectedFailureTest[] };
+
+/*
+ * The prior tests of the changed files that the execution no longer vouches for, as "file › test (why)": one that ran before and is now
+ * skipped or runs with `expectedStatus: "failed"`, or that failed before and was removed (its file reports fewer cases than before). The
+ * rule is the engine's, read from the report: it holds for an app whose own lint lets the form through.
+ */
+function unprovenTests(input: Pick<AcceptanceInput, "changedSpecFiles" | "priorCases">, result: ReportedFiles): Array<{ file: string; name: string; why: string }> {
+  const found: Array<{ file: string; name: string; why: string }> = [];
+  const inFile = (file: string, candidate: string | undefined): boolean => candidate !== undefined && sameSpec(file, candidate);
+  for (const file of input.changedSpecFiles) {
+    const reportedCases = result.cases.filter((c) => inFile(file, c.file));
+    const priorInFile = (input.priorCases ?? []).filter((c) => inFile(file, c.file));
+    for (const prior of priorInFile) {
+      const skipped = (result.skippedTests ?? []).find((t) => inFile(file, t.file) && t.name === prior.name);
+      if (skipped) {
+        found.push({ file, name: prior.name, why: skipped.annotation ? `skipped by ${skipped.annotation}` : "skipped" });
+        continue;
+      }
+      if ((result.expectedFailures ?? []).some((t) => inFile(file, t.file) && t.name === prior.name)) {
+        found.push({ file, name: prior.name, why: "expected to fail" });
+        continue;
+      }
+      /* A failing test gone from a file whose report holds fewer cases than the file had: the round removed it rather than fixed it (a renamed test keeps the count). A file reported nothing of is the silent rule's. */
+      if (prior.status === "fail" && reportedCases.length > 0 && reportedCases.length < priorInFile.length && !reportedCases.some((c) => c.name === prior.name)) {
+        found.push({ file, name: prior.name, why: "dropped" });
+      }
+    }
+  }
+  return found;
+}
+
+const unprovenSpecFiles = (input: Pick<AcceptanceInput, "changedSpecFiles" | "priorCases">, result: ReportedFiles): string[] => [...new Set(unprovenTests(input, result).map((t) => t.file))];
+
+const unprovenDescription = (input: Pick<AcceptanceInput, "changedSpecFiles" | "priorCases">, result: ReportedFiles): string[] => unprovenTests(input, result).map((t) => `${t.name} (${t.why})`);
 
 /* Whether the execution reported anything of `file`: a case, or a skipped test (a spec whose tests all skipped loaded and ran nothing). A file it reports nothing of did not load. */
 const reports = (file: string, { cases, skippedTests }: ReportedFiles): boolean =>
@@ -219,12 +267,12 @@ const reports = (file: string, { cases, skippedTests }: ReportedFiles): boolean 
  * the failure cannot be laid on spec files (a case that did not pass names no changed file, or no case failed at all) or when no file
  * is left standing: the regeneration is then rejected whole.
  */
-function greenSpecFiles(changed: readonly string[], result: ReportedFiles): { kept: string[]; restored: string[] } | undefined {
+function greenSpecFiles(changed: readonly string[], result: ReportedFiles, unproven: readonly string[] = []): { kept: string[]; restored: string[] } | undefined {
   const { cases } = result;
   const failing = cases.filter((c) => c.status !== "pass");
   if (failing.length === 0 || failing.some((c) => c.file === undefined || !changed.some((file) => sameSpec(file, c.file!)))) return undefined;
   const green = (file: string): boolean => {
-    return reports(file, result) && cases.filter((c) => c.file !== undefined && sameSpec(file, c.file)).every((c) => c.status === "pass");
+    return !unproven.includes(file) && reports(file, result) && cases.filter((c) => c.file !== undefined && sameSpec(file, c.file)).every((c) => c.status === "pass");
   };
   const kept = changed.filter(green);
   if (kept.length === 0) return undefined;

@@ -93,6 +93,8 @@ export interface FixLoopAcceptancePort {
     specs: readonly string[];
     /** The execution namespace: `${runId}-r<n>`. */
     namespace: string;
+    /** The cases of the run before this round: the tests that ran in the specs' prior bytes, which the round may not turn into a skip or an expected failure, nor (a failing one) drop. */
+    priorCases: readonly FixLoopRun["cases"][number][];
   }): Promise<FixLoopAcceptanceOutcome>;
   /** Put back the accepted bytes of the round whose token this is (the best run's snapshot). */
   restore(token: unknown): Promise<void>;
@@ -706,6 +708,7 @@ export class FixLoop {
       round: round.roundToken,
       specs: round.result?.specs ?? [],
       namespace: round.roundNs,
+      priorCases: state.run.cases,
     });
     if (outcome.kind === "rejected") {
       /*

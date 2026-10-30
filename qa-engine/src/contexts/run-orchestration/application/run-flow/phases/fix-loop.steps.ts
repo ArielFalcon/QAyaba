@@ -135,7 +135,7 @@ function fixLoopFor(state: Readonly<RunState>, ctx: WorkspaceRunContext, pending
    */
   const fixLoopAcceptance: FixLoopAcceptancePort = {
     begin: () => snapshotSuite(),
-    accept: async ({ round, specs, namespace }) => {
+    accept: async ({ round, specs, namespace, priorCases }) => {
       const snapshot = round as SuiteRestorePoint;
       /* A round that changed anything the specs import is accepted over the whole suite, never over its specs alone. */
       const changedSpecFiles = acceptanceScope(await suiteChangedFiles(snapshot, specs));
@@ -148,6 +148,7 @@ function fixLoopFor(state: Readonly<RunState>, ctx: WorkspaceRunContext, pending
         changedSpecFiles,
         namespace,
         snapshot,
+        priorCases,
         adoptFailures: true,
         deadline: runDeadlinePort,
         validate: validateAccepted(state, ctx),

@@ -2,7 +2,7 @@ import type { RunVerdict } from "@kernel/run-verdict.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 import type { DevWriteRequest } from "./dev-write-request.ts";
 import type { SpecLoadError } from "./spec-load-error.ts";
-import type { SkippedTest } from "./skipped-test.ts";
+import type { ExpectedFailureTest, SkippedTest } from "./skipped-test.ts";
 
 export interface CheckResult { ok: boolean; output: string; infra?: boolean; }
 
@@ -38,6 +38,8 @@ export interface ExecutionResult {
   cases: QaCase[];
   /** The tests the report says were skipped: no case, but their spec file loaded. Absent: none was skipped. */
   skippedTests?: SkippedTest[];
+  /** The cases that ran with `expectedStatus: "failed"` (`test.fail()`): their pass is the failure they expect. Absent: none did. */
+  expectedFailures?: ExpectedFailureTest[];
   logs: string;
   /** Mutating requests to DEV the specs are charged: those the fixtures counted that the control load does not account for. Absent: not counted. */
   devWrites?: number;

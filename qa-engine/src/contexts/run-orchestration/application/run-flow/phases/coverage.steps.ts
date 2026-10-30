@@ -233,6 +233,7 @@ export async function regenerateAtGap(
     changedSpecFiles,
     namespace,
     snapshot,
+    priorCases: run.cases,
     independentSpecs: changedFiles.every(isSpecFile),
     deadline: runDeadlinePort,
     validate: validateAccepted(state, ctx),

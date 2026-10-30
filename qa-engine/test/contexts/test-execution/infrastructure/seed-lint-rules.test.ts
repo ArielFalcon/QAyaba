@@ -45,6 +45,17 @@ test("a skipped test is refused by the static gate, with or without a condition"
   assert.ok((await errorsOf(declared)).includes("playwright/no-skipped-test"));
 });
 
+/* `test.fixme` skips a test exactly as `test.skip` does. The lint is an early hint only (an alias or `testInfo.skip()` slips past it): the engine refuses what the report shows. */
+test("a fixme test is refused by the static gate, in its call, conditional and declared forms", async () => {
+  for (const fixme of [`  test.fixme();`, `  test.fixme(offered === 0, "no data on DEV");`]) {
+    const errors = await errorsOf(spec(`${fixme}\n  expect(offered).toBeGreaterThan(0);`));
+
+    assert.ok(errors.includes("playwright/no-skipped-test"), `${fixme}: ${errors.join(", ")}`);
+  }
+  const declared = `import { expect } from "@playwright/test";\nimport { test } from "../fixtures";\n\ntest.fixme("filters", async ({ page }) => {\n  await page.goto("/search");\n  expect(await page.getByRole("button").count()).toBeGreaterThan(0);\n});\n`;
+  assert.ok((await errorsOf(declared)).includes("playwright/no-skipped-test"));
+});
+
 test("the seed's teardown pass keeps its skip", async () => {
   const eslint = new ESLint({ cwd: SEED_DIR, overrideConfigFile: `${SEED_DIR}eslint.config.js` });
   const [result] = await eslint.lintFiles([`${SEED_DIR}cleanup.spec.ts`]);

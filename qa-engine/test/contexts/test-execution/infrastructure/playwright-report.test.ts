@@ -212,3 +212,40 @@ test("a report without top-level errors, or with errors that are not a list, has
   assert.deepEqual(parsePlaywrightReport({ suites: [] }).loadErrors, []);
   assert.deepEqual(parsePlaywrightReport({ suites: [], errors: "boom" }).loadErrors, []);
 });
+
+test("a skipped test carries the type of the annotation that skipped it, and one skipped by a condition alone carries none", () => {
+  const report = {
+    suites: [
+      {
+        title: "flows/a.spec.ts",
+        specs: [
+          { title: "fixme", tests: [{ status: "skipped", annotations: [{ type: "fixme" }] }] },
+          { title: "skip", tests: [{ status: "skipped", annotations: [{ type: "skip", description: "why" }] }] },
+          { title: "info skip", tests: [{ status: "skipped", annotations: [{ type: "slow" }] }] },
+        ],
+      },
+    ],
+  };
+  assert.deepEqual(parsePlaywrightReport(report).skippedTests, [
+    { name: "flows/a.spec.ts › fixme", file: "flows/a.spec.ts", annotation: "fixme" },
+    { name: "flows/a.spec.ts › skip", file: "flows/a.spec.ts", annotation: "skip" },
+    { name: "flows/a.spec.ts › info skip", file: "flows/a.spec.ts" },
+  ]);
+});
+
+test("a test that runs with expectedStatus failed is still a case, and is carried as an expected failure", () => {
+  const report = {
+    suites: [
+      {
+        title: "flows/a.spec.ts",
+        specs: [
+          { title: "ran", tests: [{ status: "expected", expectedStatus: "passed" }] },
+          { title: "marked to fail", tests: [{ status: "expected", expectedStatus: "failed" }] },
+        ],
+      },
+    ],
+  };
+  const parsed = parsePlaywrightReport(report);
+  assert.deepEqual(parsed.cases.map((c) => [c.name, c.status]), [["flows/a.spec.ts › ran", "pass"], ["flows/a.spec.ts › marked to fail", "pass"]]);
+  assert.deepEqual(parsed.expectedFailures, [{ name: "flows/a.spec.ts › marked to fail", file: "flows/a.spec.ts" }]);
+});

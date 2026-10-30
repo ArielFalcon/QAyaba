@@ -418,6 +418,7 @@ export async function reviewCorrect(state: Readonly<RunState>, ctx: WorkspaceRun
     changedSpecFiles: cur.changedSpecFiles,
     namespace: acceptanceNamespace(input.runId, acceptanceCalls++),
     snapshot: cur.snapshot,
+    priorCases: runOf(state).cases,
     /* A turn that changed no file the specs import is accepted spec file by spec file. */
     independentSpecs: cur.changedSupportFiles.length === 0,
     deadline: runDeadlinePort,

@@ -1,6 +1,6 @@
 import type { CaseStatus, QaCase } from "@kernel/qa-case.ts";
 import type { RunVerdict } from "@kernel/run-verdict.ts";
-import type { SkippedTest } from "../domain/skipped-test.ts";
+import type { ExpectedFailureTest, SkippedTest } from "../domain/skipped-test.ts";
 import { LOAD_ERROR_MESSAGE_SAFETY_BOUND, MAX_LOAD_ERRORS_KEPT, type SpecLoadError } from "../domain/spec-load-error.ts";
 
 export interface PwCase {
@@ -16,6 +16,8 @@ export interface ParsedReport {
   cases: PwCase[];
   /* The tests the report says were skipped: no case, but their file loaded. */
   skippedTests: SkippedTest[];
+  /* The tests that ran with `expectedStatus: "failed"`: cases, but their pass is the failure they expect. */
+  expectedFailures: ExpectedFailureTest[];
   executed: number;
   /* The report's top-level errors: what stopped a spec from loading. Their file is as Playwright wrote it (absolute); the caller makes it suite-relative. */
   loadErrors: SpecLoadError[];
@@ -28,6 +30,8 @@ interface PwResult {
 interface PwTest {
   results?: PwResult[];
   status?: string;
+  expectedStatus?: string;
+  annotations?: { type?: string }[];
 }
 interface PwSpec {
   title?: string;
@@ -53,6 +57,7 @@ export function parsePlaywrightReport(json: unknown): ParsedReport {
   const report = (json ?? {}) as PwReport;
   const cases: PwCase[] = [];
   const skippedTests: SkippedTest[] = [];
+  const expectedFailures: ExpectedFailureTest[] = [];
 
   const walk = (suites: PwSuite[] | undefined, prefix: string, file: string | undefined): void => {
     for (const suite of suites ?? []) {
@@ -60,8 +65,12 @@ export function parsePlaywrightReport(json: unknown): ParsedReport {
       for (const spec of suite.specs ?? []) {
         const outcome = specOutcome(spec);
         if (outcome === "skipped") {
-          skippedTests.push({ name: [title, spec.title].filter(Boolean).join(" › "), ...(file ? { file } : {}) });
+          const annotation = skipAnnotation(spec);
+          skippedTests.push({ name: [title, spec.title].filter(Boolean).join(" › "), ...(file ? { file } : {}), ...(annotation ? { annotation } : {}) });
           continue;
+        }
+        if ((spec.tests ?? []).some((t) => t.expectedStatus === "failed")) {
+          expectedFailures.push({ name: [title, spec.title].filter(Boolean).join(" › "), ...(file ? { file } : {}) });
         }
         const c: PwCase & Pick<QaCase, "file"> = {
           name: [title, spec.title].filter(Boolean).join(" › "),
@@ -87,7 +96,7 @@ export function parsePlaywrightReport(json: unknown): ParsedReport {
 
   const executed = countExecuted(report, cases);
   const verdict = aggregate(cases, report, executed);
-  return { verdict, passed: verdict === "pass", cases, skippedTests, executed, loadErrors: readLoadErrors(report.errors) };
+  return { verdict, passed: verdict === "pass", cases, skippedTests, expectedFailures, executed, loadErrors: readLoadErrors(report.errors) };
 }
 
 /* The report is the child's: every field is checked, and an entry that is not a message is left out. */
@@ -128,6 +137,16 @@ function specOutcome(spec: PwSpec): SpecOutcome {
   if (spec.ok === undefined && resultStatuses.length === 0) return "skipped";
   const ok = spec.ok ?? results.every((r) => OK_STATUSES.has(r.status ?? ""));
   return ok ? "pass" : "fail";
+}
+
+/* The annotation that skipped a test, as the report names its type; a test skipped by a condition alone carries none. */
+function skipAnnotation(spec: PwSpec): string | undefined {
+  for (const t of spec.tests ?? []) {
+    for (const a of t.annotations ?? []) {
+      if (typeof a.type === "string" && (a.type === "skip" || a.type === "fixme")) return a.type;
+    }
+  }
+  return undefined;
 }
 
 function countExecuted(report: PwReport, cases: PwCase[]): number {
