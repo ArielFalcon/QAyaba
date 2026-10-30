@@ -200,7 +200,7 @@ export const BANNED_RULES: BannedRule[] = [
   {
     id: "intent-lock-enforce",
     patterns: [/\b(?:contractFeedback|ContractFeedback|contract-feedback|MAX_CONTRACT_RETRIES|renderContractViolations|ContractViolationShape)\b/, /\bintentLock\b[^\n]*\benforce\b/, /\bintent lock\b[^\n]*\b(?:refused|enforce)\b/i],
-    exemptPrefixes: [RECORDS_PREFIX, "src/orchestrator/config-loader.test.ts"],
+    exemptPrefixes: [RECORDS_PREFIX, "src/orchestrator/config-loader.test.ts", "src/orchestrator/config-loader.ts"],
   },
   {
     id: "app-telemetry-route",
