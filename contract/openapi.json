@@ -2235,7 +2235,12 @@
             "enum": [
               "passed",
               "failed",
-              "not-run"
+              "skipped"
+            ],
+            "x-enum-varnames": [
+              "QaCaseExpectedStatusPassed",
+              "QaCaseExpectedStatusFailed",
+              "QaCaseExpectedStatusSkipped"
             ]
           },
           "detail": {

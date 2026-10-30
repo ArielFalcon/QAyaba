@@ -9,7 +9,7 @@ const caseOf = (file: string, over: Partial<QaCase> = {}): QaCase => ({ name: `$
 test("a real pass is a case that executed, was declared to pass and passed", () => {
   assert.equal(isRealPass(caseOf("a.spec.ts")), true);
   assert.equal(isRealPass(caseOf("a.spec.ts", { expectedStatus: "failed" })), false, "a test.fail() test passes by failing");
-  assert.equal(isRealPass(caseOf("a.spec.ts", { expectedStatus: "not-run", status: "fail" })), false);
+  assert.equal(isRealPass(caseOf("a.spec.ts", { expectedStatus: "skipped", status: "fail", refused: true })), false);
   assert.equal(isRealPass(caseOf("a.spec.ts", { status: "fail" })), false);
   assert.equal(isRealPass(caseOf("a.spec.ts", { status: "flaky" })), false);
 });
@@ -34,7 +34,7 @@ test("the tests of a file are counted by declared mode: tests that ran, those th
       caseOf("flows/a.spec.ts"),
       caseOf("flows/a.spec.ts", { status: "fail" }),
       caseOf("flows/a.spec.ts", { expectedStatus: "failed" }),
-      caseOf("flows/a.spec.ts", { expectedStatus: "not-run", status: "fail" }),
+      caseOf("flows/a.spec.ts", { expectedStatus: "failed", status: "fail", refused: true }),
       caseOf("flows/b.spec.ts"),
     ],
     skippedTests: [{ name: "x", file: "flows/a.spec.ts" }, { name: "y", file: "flows/b.spec.ts" }],
@@ -53,9 +53,10 @@ test("outright refusal takes every skipped test and every test marked test.fail(
   assert.deepEqual(refused.cases.map((c) => c.file), ["flows/a.spec.ts", "flows/other.spec.ts"], "a file that is not judged keeps its tests as reported");
   assert.deepEqual(refused.skippedTests.map((t) => t.name), ["cleanup.spec.ts › teardown"]);
   assert.deepEqual(refused.refused.map((c) => [c.name, c.status, c.expectedStatus, c.file]), [
-    ["flows/a.spec.ts › known bug", "fail", "not-run", "flows/a.spec.ts"],
-    ["flows/a.spec.ts › later", "fail", "not-run", "flows/a.spec.ts"],
-  ]);
+    ["flows/a.spec.ts › known bug", "fail", "failed", "flows/a.spec.ts"],
+    ["flows/a.spec.ts › later", "fail", "skipped", "flows/a.spec.ts"],
+  ], "a refused test is stored with the status it declared");
+  assert.deepEqual(refused.refused.map((c) => c.refused), [true, true]);
   assert.match(refused.refused[0]!.detail!, /test\.fail\(\).*not a pass/);
   assert.match(refused.refused[1]!.detail!, /test\.fixme\).*not a pass/);
 });
@@ -74,4 +75,11 @@ test("a file's refusals are its extra skipped and expected-to-fail tests against
   assert.deepEqual(modeRefusals(["a.spec.ts"], prior, more).map((r) => r.why), ["1 more test(s) expected to fail (test.fail())", "1 more skipped test(s)"]);
   const named = modeRefusals(["a.spec.ts"], prior, same, [{ file: "a.spec.ts", name: "old" }]);
   assert.match(named[0]!.why, /named is skipped/);
+});
+
+test("a refusal record counts toward no mode: the baseline a later round is compared with does not hold the test it refused", () => {
+  const refused = refuseOutright({ cases: [caseOf("a.spec.ts", { expectedStatus: "failed" })], skippedTests: [{ name: "x", file: "a.spec.ts" }] }, ["a.spec.ts"]);
+  assert.deepEqual(tallyOf("a.spec.ts", { cases: refused.refused, skippedTests: refused.skippedTests }), { ran: 0, passing: 0, expectedFailures: 0, skipped: 0 });
+  const kept = { cases: [caseOf("a.spec.ts", { expectedStatus: "failed" })], skippedTests: [{ name: "x", file: "a.spec.ts" }] };
+  assert.equal(modeRefusals(["a.spec.ts"], { cases: refused.refused }, kept).length, 2, "a round that keeps what was refused has added one of each");
 });

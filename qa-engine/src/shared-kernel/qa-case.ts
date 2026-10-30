@@ -3,13 +3,15 @@
 export type CaseStatus = "pass" | "fail" | "flaky";
 
 /*
- * The status a test declared before it ran, as the report states it (`expectedStatus`): `passed` for an ordinary test, `failed` for one
- * marked `test.fail()`, whose pass is the failure it expects. `not-run` is the record of a test that did not run at all (`test.skip`,
- * `test.fixme`, `testInfo.skip()`, a skipping condition) when the engine refuses it as a case that fails: the report itself keeps skipped
- * tests apart (`SkippedTest`). Absent: the case was recorded without one (stored before this field, or by a runner that reads no
- * declaration), which is unknown and never "passed".
+ * The status a test declared before it ran, in Playwright's own words (`expectedStatus` in its report): `passed` for an ordinary test,
+ * `failed` for one marked `test.fail()`, whose pass is the failure it expects, `skipped` for one its author skipped (`test.skip`,
+ * `test.fixme`, `testInfo.skip()`, a skipping condition). A skipped test did not run, so the report keeps it apart (`SkippedTest`); a
+ * case carries `skipped` only as the record of a skipped test the engine refused (`QaCase.refused`). A test that did not run because
+ * another failed declared `passed` and is no case at all. Absent: no declaration was recorded (a case stored before this field, or a report
+ * that states none). A stored case is history and no rule reads it; the proof rule works on a live execution and reads an absent
+ * declaration as `passed`, which is what a test is unless it declared otherwise.
  */
-export type ExpectedStatus = "passed" | "failed" | "not-run";
+export type ExpectedStatus = "passed" | "failed" | "skipped";
 
 /*
  * A test the report says was skipped: it did not run, so it is no passing case and proves nothing, but its file loaded and was reported. `file`
@@ -27,6 +29,8 @@ export interface QaCase {
   status: CaseStatus;
   /* The status the test declared before it ran (see ExpectedStatus). */
   expectedStatus?: ExpectedStatus;
+  /* The engine refused the test this case stands for (a skipped or `test.fail()` test in a file it judges): it is a failure the author is told about and the fix loop repairs, not a test that ran. It is the record of a refusal and counts toward no mode. Never persisted. */
+  refused?: true;
   detail?: string;
   flow?: string;
   objective?: string;

@@ -752,9 +752,9 @@ func (e OnboardingJobStatusState) Valid() bool {
 
 // Defines values for QaCaseExpectedStatus.
 const (
-	QaCaseExpectedStatusFailed QaCaseExpectedStatus = "failed"
-	QaCaseExpectedStatusNotRun QaCaseExpectedStatus = "not-run"
-	QaCaseExpectedStatusPassed QaCaseExpectedStatus = "passed"
+	QaCaseExpectedStatusFailed  QaCaseExpectedStatus = "failed"
+	QaCaseExpectedStatusPassed  QaCaseExpectedStatus = "passed"
+	QaCaseExpectedStatusSkipped QaCaseExpectedStatus = "skipped"
 )
 
 // Valid indicates whether the value is a known member of the QaCaseExpectedStatus enum.
@@ -762,9 +762,9 @@ func (e QaCaseExpectedStatus) Valid() bool {
 	switch e {
 	case QaCaseExpectedStatusFailed:
 		return true
-	case QaCaseExpectedStatusNotRun:
-		return true
 	case QaCaseExpectedStatusPassed:
+		return true
+	case QaCaseExpectedStatusSkipped:
 		return true
 	default:
 		return false
@@ -1310,19 +1310,19 @@ func (e RunRecordMode) Valid() bool {
 
 // Defines values for RunRecordStatus.
 const (
-	Done     RunRecordStatus = "done"
-	Enqueued RunRecordStatus = "enqueued"
-	Running  RunRecordStatus = "running"
+	RunRecordStatusDone     RunRecordStatus = "done"
+	RunRecordStatusEnqueued RunRecordStatus = "enqueued"
+	RunRecordStatusRunning  RunRecordStatus = "running"
 )
 
 // Valid indicates whether the value is a known member of the RunRecordStatus enum.
 func (e RunRecordStatus) Valid() bool {
 	switch e {
-	case Done:
+	case RunRecordStatusDone:
 		return true
-	case Enqueued:
+	case RunRecordStatusEnqueued:
 		return true
-	case Running:
+	case RunRecordStatusRunning:
 		return true
 	default:
 		return false

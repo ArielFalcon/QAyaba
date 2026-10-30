@@ -128,7 +128,7 @@ function nullsToUndefined<T extends Record<string, unknown>>(row: T): T {
 /* A stored case as the engine's record: the declared status is the column's, and a row written before the column existed has none. */
 function caseOfRow(row: Record<string, unknown>): QaCase {
   const { expected_status: declared, ...rest } = nullsToUndefined(row);
-  return { ...rest, ...(declared === "passed" || declared === "failed" || declared === "not-run" ? { expectedStatus: declared } : {}) } as unknown as QaCase;
+  return { ...rest, ...(declared === "passed" || declared === "failed" || declared === "skipped" ? { expectedStatus: declared } : {}) } as unknown as QaCase;
 }
 
 /* Runs and everything that hangs off one: cases, specs, the activity feed, the durable event log, plans and spec snapshots. */

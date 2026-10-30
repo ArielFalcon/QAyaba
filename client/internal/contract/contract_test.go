@@ -358,3 +358,30 @@ func TestCoordinationEventsViewDecodesFromServerJSON(t *testing.T) {
 		t.Fatalf("at not decoded: got %v", e.At)
 	}
 }
+
+/* The generated names of the constants of the enums the client already uses are part of its source: a new enum in the contract must not rename them (the generator renames the constants of an enum whose values another enum repeats unless the new one names its own). Referencing each one makes a rename a compile error. */
+func TestExistingEnumConstantNamesAreStable(t *testing.T) {
+	statuses := []RunRecordStatus{RunRecordStatusDone, RunRecordStatusEnqueued, RunRecordStatusRunning}
+	verdicts := []RunRecordVerdict{RunRecordVerdictFail, RunRecordVerdictFlaky, RunRecordVerdictInfraError, RunRecordVerdictInvalid, RunRecordVerdictPass, RunRecordVerdictSkipped}
+	modes := []RunRecordMode{RunRecordModeContext, RunRecordModeDiff, RunRecordModeManual}
+	targets := []RunRecordTarget{RunRecordTargetE2e}
+	caseStatuses := []QaCaseStatus{QaCaseStatusFail, QaCaseStatusFlaky, QaCaseStatusPass}
+	for _, ok := range []bool{
+		statuses[0].Valid(), verdicts[4].Valid(), modes[1].Valid(), targets[0].Valid(), caseStatuses[2].Valid(),
+		QaCaseExpectedStatusPassed.Valid(), QaCaseExpectedStatusFailed.Valid(), QaCaseExpectedStatusSkipped.Valid(),
+	} {
+		if !ok {
+			t.Fatal("a pinned enum constant is not a member of its enum")
+		}
+	}
+}
+
+func TestCaseDecodesTheStatusItsTestDeclared(t *testing.T) {
+	var c QaCase
+	if err := json.Unmarshal([]byte(`{"name":"known bug","status":"pass","expectedStatus":"failed"}`), &c); err != nil {
+		t.Fatalf("decode QaCase: %v", err)
+	}
+	if c.ExpectedStatus == nil || *c.ExpectedStatus != QaCaseExpectedStatusFailed {
+		t.Fatalf("declared status not decoded: %v", c.ExpectedStatus)
+	}
+}

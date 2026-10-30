@@ -704,7 +704,7 @@ export interface components {
             /** @enum {string} */
             status: "pass" | "fail" | "flaky";
             /** @enum {string} */
-            expectedStatus?: "passed" | "failed" | "not-run";
+            expectedStatus?: "passed" | "failed" | "skipped";
             detail?: string;
             flow?: string;
             objective?: string;

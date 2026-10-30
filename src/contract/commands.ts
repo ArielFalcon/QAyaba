@@ -19,8 +19,9 @@ export const NetworkErrorSchema = z.object({
 /* Derived from the case's network errors and the run's egress report, never reported by the browser. */
 export const NetworkClassSchema = z.enum(["egress", "backend", "dns", "other"]);
 
-/* The status the test declared before it ran; absent for a case recorded before the field existed (unknown, never "passed"). */
-export const ExpectedStatusSchema = z.enum(["passed", "failed", "not-run"]);
+/* The status the test declared before it ran; absent for a case recorded before the field existed (unknown: no rule reads it as a declaration of "passed"). */
+/* Playwright's own words for the status a test declares. The explicit constant names keep the Go client's generated names for the enums that already exist: a new enum with the same values would rename them. */
+export const ExpectedStatusSchema = z.enum(["passed", "failed", "skipped"]).meta({ "x-enum-varnames": ["QaCaseExpectedStatusPassed", "QaCaseExpectedStatusFailed", "QaCaseExpectedStatusSkipped"] });
 
 export const QaCaseSchema = z.object({
   name: z.string(),
