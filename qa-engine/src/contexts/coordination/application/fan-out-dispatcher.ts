@@ -5,7 +5,6 @@
  * answers cannot keep the pool from moving, and a flow that does answer does not run beside its successor longer than that.
  * The clock is injected: nothing here reads the time.
  */
-import type { HeldTime } from "../../../shared-kernel/allotment-cap.ts";
 
 export const FLOW_RESULT = {
   SETTLED: "settled",
@@ -36,12 +35,6 @@ export const systemTimers: TimerPort = {
 export interface FlowSlot {
   id: string;
   budgetMs: number;
-  /**
-   * The bound `budgetMs` is. `flow-budget` (the default): the flow's own cap, which this dispatcher enforces and a flow that reaches
-   * ends `timed-out`. `run-deadline`: the flow has all the time its purpose is allotted, so no timer of the dispatcher races the
-   * deadline's own end, which reaches the flow through the runtime as the run's error (a second clock would end it as another kind).
-   */
-  limit?: HeldTime["limit"];
 }
 
 export interface FanOutDispatcherDeps {
@@ -95,9 +88,7 @@ export class FanOutDispatcher {
       (error: unknown) => ({ done: false as const, error }),
     );
     let cancelBudget = (): void => {};
-    const budget = flow.limit === "run-deadline"
-      ? new Promise<"budget">(() => {})
-      : new Promise<"budget">((resolve) => { cancelBudget = this.deps.timers.setTimer(flow.budgetMs, () => resolve("budget")); });
+    const budget = new Promise<"budget">((resolve) => { cancelBudget = this.deps.timers.setTimer(flow.budgetMs, () => resolve("budget")); });
     try {
       const first = await Promise.race([execution, budget]);
       if (first === "budget") {

@@ -10,12 +10,12 @@ export type CapLimit = Extract<TimeLimitSource, "tier-budget" | "plan-budget" | 
 
 export interface HeldTime {
   ms: number;
-  /** The bound that is `ms`: the cap, or the deadline's allowance when that comes no later (a tie is the deadline's, the stronger fact). */
-  limit: CapLimit | "run-deadline";
+  /** The bound that is `ms`: the cap, or the purpose's allotment when that comes no later (a tie is the allotment's, the stronger fact). The decorator names it `run-deadline` instead when the allotment is all that is left of the run. */
+  limit: CapLimit | "allotment";
 }
 
 /** The time a purpose may spend under `cap` when the run's deadline allows it `allowanceMs` (null or undefined: no deadline is armed, the cap stands alone). */
 export function heldTo(cap: { ms: number; limit: HeldTime["limit"] }, allowanceMs: number | null | undefined): HeldTime {
   if (allowanceMs === null || allowanceMs === undefined || cap.ms < allowanceMs) return { ms: cap.ms, limit: cap.limit };
-  return { ms: Math.max(0, allowanceMs), limit: "run-deadline" };
+  return { ms: Math.max(0, allowanceMs), limit: "allotment" };
 }

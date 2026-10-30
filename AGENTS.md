@@ -447,7 +447,7 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   (`<mirrors>/.qa-delegations/<run>/<delegation>`, `DelegationWorkspacePort`); only the files its brief names (`writablePaths`) are taken
   back, through `spec-path-confinement`, and anything else it changed is listed as a proposal and never applied. Each brief carries
   the Live DOM of its flow's pages and the requests those pages made, cut from the run's Context Pack (`generation/domain/pack-pages.ts`). A pool of at most
-  `maxParallel` flows runs under `FanOutDispatcher` (a signal and a cap per flow, a throwing flow isolated; a flow whose time is the deadline's own allotment has no dispatcher timer racing the runtime, which ends it as the run's `run-deadline` error); each flow closes its own
+  `maxParallel` flows runs under `FanOutDispatcher` (a signal and a cap per flow, a throwing flow isolated; a flow whose time is its share keeps the timer: the end of a share is that flow's end, never the run's); each flow closes its own
   `run_spec` loop (`ClosedLoopHandle.openFlow`, the same `AccountLock` lease, its own caps and namespace) and, with a login, reads DEV
   through the orchestrator's authenticated browser with a share of the run's caps. What a sidekick may author with is
   `sidekickAuthoring`: authenticated browser, `run_spec` only, the plain browser for an app with no login (one flow at a time), or
@@ -530,7 +530,7 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   budget covers the whole first pass: the session carries it and each prompt, the repair included, is
   given only what is left of it as its own `timeoutMs`; a repair with none left is not
   sent. The tier's time is a cap, never a clock: the pass is told the smaller of it and what the deadline allots the generate
-  purpose, and the limit that is the smaller (`heldTo`, `shared-kernel/allotment-cap.ts`: `tier-budget`, or `run-deadline` on a tie), so
+  purpose, and the limit that is the smaller (`heldTo`, `shared-kernel/allotment-cap.ts`: `tier-budget`, or `allotment` on a tie), so
   the time a prompt states is the time it gets and the turn ends as the bound that ended it. A tier whose time the transport's own
   deadline (`agentPromptCapMs`) does not exceed sets no budget, since that deadline would fire first. A turn the tier budget stops ends `time-budget`, unless the
   main turn already delivered specs or declared a no-op, which stand when only the repair was cut.
@@ -555,24 +555,32 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   runs of the same mode that completed them (`runs.phase_timings`, read once when the deadline is armed through
   `PhaseHistoryPort`; a phase a run never entered took 0 there, a phase a run was cut in is no sample). Following purposes with
   no completed run share one fallback reserve, a quarter of what is left and at least 120 s (`FALLBACK_RESERVE_SHARE`,
-  `FALLBACK_RESERVE_MIN_MS`); a history that cannot be read leaves every reserve on the fallback and logs it. The first time each
+  `FALLBACK_RESERVE_MIN_MS`), except the decision, which holds back only its measured time (publication takes seconds and is never
+  cut at the deadline); a history that cannot be read leaves every reserve on the fallback and logs it. The first time each
   purpose is allotted time the trace gets an `allotment` event (`qayaba.allotment.purpose|ms|reserve_ms|reserve_source|unmeasured`;
   the source is `none`, `measured` or `fallback`). Every agent turn goes through `RunDeadlineRuntime`, a decorator over the
   agent runtime: a turn whose purpose is allotted nothing is not sent, and every other runs under the smaller of its own limit
   and its purpose's allowance (the tier budget above still applies, inside it). Every cap on a purpose's time (the tier budget,
   `planBudgetMs`, `flowBudgetMs`, a tool's `perCallMs`) is an upper bound of that allowance, stated with its own name (`tier-budget`,
-  `plan-budget`, `flow-budget`, `tool-call`) as the limit a turn or call reports (`qayaba.limit.applied`), and `run-deadline` when
-  the allowance is the smaller; a turn the deadline ended carries the purpose it cut (`RunDeadlineExceededError.purpose`, the
-  limit's `purpose` on the run record, `qayaba.limit.purpose` on the root span). A turn the deadline itself ended (not one that
-  hit a limit of its own) raises `RunDeadlineExceededError`, which `guarded` (the failure policy) turns into a persisted
-  `infra-error E-TIME-BUDGET` with a note naming the budget and the turn, nothing published and nothing learned. A deterministic
+  `plan-budget`, `flow-budget`, `tool-call`) as the limit a turn or call reports (`qayaba.limit.applied`); when the allowance is the
+  smaller it is `allotment` (a share of the run's time, the run itself still has time), and `run-deadline` only when the
+  allowance is all that is left of the run. The two ends are typed apart: the end of a purpose's share raises `AllotmentSpentError`
+  (an `AgentTimeoutError`: the timeout of that turn alone, which its owner handles as any timeout: a sidekick unanswered, a reviewer
+  unavailable, a lead turn timed out, a coverage or fix regeneration skipped and recorded as `allotment` for its purpose), and only
+  the run's own time spent raises `RunDeadlineExceededError`; both carry the purpose they cut (the limit's `purpose` on the run
+  record, `qayaba.limit.purpose` on the root span). `RunDeadlineExceededError` is what `guarded` (the failure policy) turns into a
+  persisted `infra-error E-TIME-BUDGET` with a note naming the budget and the turn, nothing published and nothing learned; a share
+  spent in a step with no owner that handles a timeout takes the same path (required step: the run ends; proven step: the proof
+  is kept; off-path step: carried on). A deterministic
   phase (static gate, install, a Playwright execution, the DOM capture, the code-graph build) is cut at the deadline's instant, not
   at its purpose's allowance, because the phases after it depend on what it proves: the run carries the deadline's signal in its
   `RunScope` and the execution launcher kills the child's process tree when it fires. A step during which the deadline fired ends
   the run through the same `RunDeadlineExceededError` (stop `mid-phase`, with the purpose it cut), whatever the cut made it throw
   or return, except an end the run had already decided; `guarded` then ends `E-TIME-BUDGET` or keeps the proof (`deadline-after-proof`).
   The first generation pass is bounded by the smaller of its tier budget and the generate allowance, and a fix-loop
-  regeneration or an acceptance execution starts only while the fix allowance is positive (`assertRegenerationTime`); neither stops
+  regeneration or an acceptance execution starts only while the fix allowance is positive (`regenerationAllowed`); with the fix
+  share spent and the run still holding time the regeneration is skipped, recorded as the fix loop's `allotment` limit, and the run
+  keeps its failing verdict and Issue (only a run with no time at all ends `E-TIME-BUDGET`); neither stops
   a turn already running. A deadline that expires after a suite ran green on its final bytes degrades the run to publication with the proven suite when no review verdict is required (`deadline-after-proof`). Every limit that fires (the deadline that ends or degrades a run, the budget generation ends on, the limits turns end on; each a value of the closed set `TURN_LIMITS`) and every fault a run goes on past (`publication-failed`, `deadline-after-proof`) is a typed fact of the run (`RunTraceFacts`: `limits`, `degradations`), recorded where it happens and written on the root span and the run record; the run's note is derived from them. The decision is one fact in one vocabulary (`pr | issue | quarantine | none`, with `shadowed` apart); a stored run reads the facts it never recorded as unknown (docs/observability-design.md, section 4.3). An audit signal, not a lesson: a streak of `E-TIME-BUDGET` ends reaches the process audit alone
   (`observesOperatingSignal`), which logs an observe-only `recurring-time-exhaustion` finding; it never
   folds or changes a rule.

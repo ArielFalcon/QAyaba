@@ -6,12 +6,12 @@ test("a cap below the deadline's allowance is the time a purpose gets, typed as 
   assert.deepEqual(heldTo({ ms: 480_000, limit: "flow-budget" }, 900_000), { ms: 480_000, limit: "flow-budget" });
 });
 
-test("an allowance below the cap is the time a purpose gets, typed as the run's deadline", () => {
-  assert.deepEqual(heldTo({ ms: 480_000, limit: "flow-budget" }, 200_000), { ms: 200_000, limit: "run-deadline" });
+test("an allowance below the cap is the time a purpose gets, typed as the purpose's allotment", () => {
+  assert.deepEqual(heldTo({ ms: 480_000, limit: "flow-budget" }, 200_000), { ms: 200_000, limit: "allotment" });
 });
 
-test("a cap equal to the allowance ends on the deadline, which is the stronger fact", () => {
-  assert.deepEqual(heldTo({ ms: 180_000, limit: "plan-budget" }, 180_000), { ms: 180_000, limit: "run-deadline" });
+test("a cap equal to the allowance ends on the deadline, which is the allotment's (the stronger fact)", () => {
+  assert.deepEqual(heldTo({ ms: 180_000, limit: "plan-budget" }, 180_000), { ms: 180_000, limit: "allotment" });
 });
 
 test("with no deadline armed the cap stands alone", () => {
@@ -20,5 +20,5 @@ test("with no deadline armed the cap stands alone", () => {
 });
 
 test("an allowance already spent leaves nothing, never a negative time", () => {
-  assert.deepEqual(heldTo({ ms: 120_000, limit: "tier-budget" }, -5), { ms: 0, limit: "run-deadline" });
+  assert.deepEqual(heldTo({ ms: 120_000, limit: "tier-budget" }, -5), { ms: 0, limit: "allotment" });
 });

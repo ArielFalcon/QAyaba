@@ -1,6 +1,6 @@
 /* The run-level wall-clock deadline as the layers around it see it: a read-only view of what is left, and the one error that says the run's time is spent. */
 import type { DeadlinePurpose } from "./deadline-purpose.ts";
-import { InfraError } from "./domain-error.ts";
+import { AgentTimeoutError, InfraError } from "./domain-error.ts";
 
 /** What a run's deadline lets an agent turn know: the time left and what the deadline is. Read-only; the run arms the deadline elsewhere. */
 export interface RunDeadlineView {
@@ -47,6 +47,30 @@ export class RunDeadlineExceededError extends InfraError {
     this.purpose = options?.purpose;
     this.name = "RunDeadlineExceededError";
   }
+}
+
+/**
+ * A purpose's share of the run's time is spent while the run itself still has time: a turn was not started, or was stopped, at the end of
+ * what the purpose is allotted (the time left less the measured time of the phases after it). It is an agent turn's timeout like any
+ * other (`isAgentTimeoutError` holds), so the turn's owner follows its own path for a turn that ran out of time: a sidekick's turn is
+ * unanswered, a reviewer is unavailable, a regeneration is skipped, the lead's turn is `timedOut`. Only a step that has no path of its
+ * own for it ends the run (failure policy), and then as the purpose that was cut. The run's own deadline is `RunDeadlineExceededError`.
+ */
+export class AllotmentSpentError extends AgentTimeoutError {
+  constructor(
+    readonly role: string,
+    readonly purpose: DeadlinePurpose,
+    readonly stop: "before-turn" | "mid-turn",
+    options?: { cause?: unknown },
+  ) {
+    super(`the time allotted to ${purpose} is spent: the ${role} turn was ${stop === "before-turn" ? "not started" : "stopped at the end of it"}; the run itself still has time`, options);
+    this.name = "AllotmentSpentError";
+  }
+}
+
+/** By type or by name, since `instanceof` fails across a realm boundary. */
+export function isAllotmentSpentError(err: unknown): err is AllotmentSpentError {
+  return err instanceof AllotmentSpentError || (err instanceof Error && err.name === "AllotmentSpentError");
 }
 
 /** By type or by name, since `instanceof` fails across a realm boundary. */

@@ -190,7 +190,7 @@ test("a phase the app has no completed run of shares one fallback reserve, a qua
   assert.equal(first?.reserve.source, "fallback");
   assert.equal(first?.reserve.ms, 10 * MIN, "a quarter of 40 min, once, however many phases follow");
   assert.equal(first?.ms, 30 * MIN);
-  assert.deepEqual(first?.reserve.unmeasured, ["validate", "execute", "fix", "coverage", "review", "decide"]);
+  assert.deepEqual(first?.reserve.unmeasured, ["validate", "execute", "fix", "coverage", "review"], "the decision holds back only its measured time: publication is short and never cut at the deadline");
   at(36 * MIN);
   assert.equal(deadline.allotment("generate")?.reserve.ms, 2 * MIN, "the floor");
 });

@@ -12,6 +12,9 @@ import { GENERATION_END } from "@kernel/generation-end.ts";
 import { DEFAULT_COORDINATION_SETTINGS, type PlanningLimits } from "@kernel/coordination.ts";
 import { MAX_SESSION_PAGES } from "@kernel/agent-browser.ts";
 import { RunDeadlineExceededError } from "@kernel/run-deadline.ts";
+import { RunDeadlineRuntime } from "@contexts/run-orchestration/infrastructure/run-deadline-runtime.adapter.ts";
+import { SidekickExecutor } from "@contexts/coordination/application/sidekick-executor.ts";
+import { AgentTimeoutError } from "@kernel/domain-error.ts";
 import { ContextBudget } from "@kernel/context-budget.ts";
 import {
   LeadSidekicks,
@@ -2587,4 +2590,37 @@ test("the flows the amendment lists as past the capacity are those past the capa
   assert.match(text, /can author 3 flow\(s\) this pass/);
   const listed = text.split("\n").filter((line) => line.startsWith("- f")).map((line) => line.slice(2, line.indexOf(":")));
   assert.deepEqual(listed, ["f4", "f5"], "the flows past 3, including the one the first plan's 4 admitted");
+});
+
+test("a flow whose sidekick overruns the share it is allotted ends that flow alone: what it wrote is delivered and the run, which still has time, goes on", async () => {
+  const MIN = 60_000;
+  const clock = { t: 0 };
+  const deadline = new RunDeadline({ now: () => clock.t, budgets: { ...RUN_TIME_BUDGET_MS, manual: 30 * MIN }, schedule: () => () => {} } as never);
+  deadline.arm({ mode: "manual" });
+  deadline.enter("generate");
+  clock.t = 21 * MIN;
+  const inner = {
+    openSession: async () => ({
+      prompt: async (_text: string, opts?: { timeoutMs?: number }) => {
+        const need = 10 * MIN;
+        if (opts?.timeoutMs !== undefined && opts.timeoutMs < need) {
+          clock.t += opts.timeoutMs;
+          throw new AgentTimeoutError(`timed out after ${opts.timeoutMs}`);
+        }
+        clock.t += need;
+        return { output: "" };
+      },
+      dispose: async () => {},
+    }),
+  };
+  const r = rig();
+  r.deps.sidekick = new SidekickExecutor({ redaction: new PatternRedactionAdapter(), runtime: new RunDeadlineRuntime(inner as never, deadline) }) as never;
+  const onePlan = async () => ({ plan: { kind: "fanout", flows: [{ id: "cart", objective: "the cart total" }] }, parsed: true, timedOut: false });
+  const done = await new LeadSidekicks(r.deps).coordinate(input(r, { plan: onePlan as never, deadline }));
+  assert.equal(done.action, "fanout", "the end of a share is a timeout of that flow, not the end of the run");
+  if (done.action === "fanout") {
+    assert.deepEqual(done.aggregated.specs, ["flows/cart.spec.ts"], "what the flow wrote before its share ran out is taken back");
+    await done.pass?.release();
+  }
+  assert.ok((deadline.remainingMs() ?? 0) > 0, "the run still has time for the phases after generation");
 });

@@ -19,7 +19,7 @@ import { addRetries, withRun } from "../reducers.ts";
 import { checkDevHealth, executeAccepted, liveExecutionOptions, validateAccepted } from "./execute.steps.ts";
 import { loopClosedNow, regenerate } from "./generation-services.ts";
 import { carryOn } from "../failure-policy.ts";
-import { assertRegenerationTime } from "../regeneration-allowed.ts";
+import { refuseRegeneration, regenerationAllowed } from "../regeneration-allowed.ts";
 import { specSetDigest } from "../spec-set-digest.ts";
 
 type Result = Promise<StepOutcome<RunState>>;
@@ -80,8 +80,8 @@ function fixLoopFor(state: Readonly<RunState>, ctx: WorkspaceRunContext, pending
   const fixLoopRegeneration: FixLoopRegenerationPort = {
     /* Forward FixLoopGenerateInput so a retry prompt sees what failed. */
     regenerate: async (fixLoopInput) => {
-      /* A run with no time left ends on its time budget: the deadline is the only clock. */
-      assertRegenerationTime(ctx);
+      /* The run's own deadline spent ends the run; only the fix purpose's share spent skips this regeneration and the loop goes on with what it has. */
+      if (!regenerationAllowed(ctx)) return { specs: [], note: refuseRegeneration(state) };
       /*
        * Merge leftover pre-exec selector contradictions with FixLoop's post-failure
        * check — independent evidence; neither suppresses the other.

@@ -5,12 +5,13 @@ import { CORRECTION_ORIGIN, type CorrectionFinding, type CorrectionOrigin } from
 import { BlastRadius } from "@kernel/blast-radius.ts";
 import { candidatesSeededBy } from "@kernel/change-map.ts";
 import { hasGreenBytes } from "@kernel/run-verdict.ts";
+import { isAllotmentSpentError } from "@kernel/run-deadline.ts";
 import type { GenerationEnrichment } from "@contexts/generation/application/index.ts";
 import { changedCodeFiles, isReadTrouble, renderBranchGap, renderCoverageGap, renderSurvivedMutants, survivorClosureOf, survivorFindings, survivorRechecks, testSupportFiles, unreachableByDesign, type BundleMutationResult, type CoverageExclusions, type CoverageMeasurement, type CoverageRerun, type SurvivedMutant, type SurvivorClosure } from "@contexts/objective-signal/application/index.ts";
 import type { StepOutcome } from "../run-flow.ts";
 import type { WorkspaceRunContext } from "../run-context.ts";
 import { runOf, type BranchCasesOutcome, type CoverageOutcome, type RunState } from "../run-state.ts";
-import { acceptedRegeneration, remeasured, rollbackDelivered, withAcceptanceCalls, withRun } from "../reducers.ts";
+import { acceptedRegeneration, recordLimit, remeasured, rollbackDelivered, withAcceptanceCalls, withRun } from "../reducers.ts";
 import { executeAccepted, validateAccepted } from "./execute.steps.ts";
 import { regenerate, type EvidenceFinding } from "./generation-services.ts";
 import { branchCasesAction, coverageRegenAction } from "../../../domain/coverage-regen.ts";
@@ -209,14 +210,42 @@ export async function regenerateAtGap(
   origin: Exclude<CorrectionOrigin, typeof CORRECTION_ORIGIN.REVIEW>,
   evidence?: readonly EvidenceFinding[],
 ): Promise<GapRegeneration> {
-  const { input, workspace, services } = ctx;
-  const { acceptance, integrityCounters, snapshotPort, runDeadlinePort, suiteChangedFiles, snapshotSuite, acceptanceScope } = services;
-  let { acceptanceCalls } = state.coverage;
-  let run = runOf(state);
-  const snapshot = await snapshotSuite();
+  const { workspace, services } = ctx;
+  const snapshot = await services.snapshotSuite();
   /* mutation-scope:begin delivered-before-coverage-regen */
   const deliveredBefore = state.generation.delivered;
   /* mutation-scope:end delivered-before-coverage-regen */
+  try {
+    return await regenerateWithin(state, ctx, enrichment, origin, evidence, snapshot, deliveredBefore);
+  } catch (err) {
+    /*
+     * The share of the run's time this purpose is allotted ended in the turn (or before the acceptance could execute): that is this
+     * regeneration's end alone, not the run's. Whatever the turn wrote is put back, the first measurement stands, and the run goes on
+     * to the phases whose time the allotment held back (the review among them).
+     */
+    if (!isAllotmentSpentError(err)) throw err;
+    const changed = await services.suiteChangedFiles(snapshot, []);
+    if (changed.length > 0) await services.snapshotPort.restore(workspace.specDir, snapshot, changed.filter((file) => !snapshot.files.has(file)));
+    rollbackDelivered(state, deliveredBefore);
+    recordLimit(state, { fired: "allotment", role: err.role, purpose: err.purpose });
+    engineLog.warn(`[qa] the ${origin} regeneration ran out of the time allotted to ${err.purpose}; what it wrote is put back and the first measurement stands`);
+    return { outcome: "empty", run: runOf(state), acceptanceCalls: state.coverage.acceptanceCalls, leadCorrections: 0 };
+  }
+}
+
+async function regenerateWithin(
+  state: Readonly<RunState>,
+  ctx: WorkspaceRunContext,
+  enrichment: GenerationEnrichment,
+  origin: Exclude<CorrectionOrigin, typeof CORRECTION_ORIGIN.REVIEW>,
+  evidence: readonly EvidenceFinding[] | undefined,
+  snapshot: Awaited<ReturnType<WorkspaceRunContext["services"]["snapshotSuite"]>>,
+  deliveredBefore: RunState["generation"]["delivered"],
+): Promise<GapRegeneration> {
+  const { input, workspace, services } = ctx;
+  const { acceptance, integrityCounters, snapshotPort, runDeadlinePort, suiteChangedFiles, acceptanceScope } = services;
+  let { acceptanceCalls } = state.coverage;
+  let run = runOf(state);
   const regenerated = await regenerate(state, ctx, undefined, enrichment, origin, evidence);
   const regen = regenerated.output;
   const { leadCorrections } = regenerated;

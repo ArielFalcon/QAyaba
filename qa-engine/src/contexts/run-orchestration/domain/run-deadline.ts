@@ -16,13 +16,16 @@ import { runTimeBudgetKey, type RunTimeBudgets, type RunTimeBudgetScope } from "
 export const FALLBACK_RESERVE_SHARE = 0.25;
 export const FALLBACK_RESERVE_MIN_MS = 120_000;
 
+/* The purposes that hold back only what the app measured of them, never the fallback: publication and the learning after it take seconds and the run does not cut them at the deadline (a run that kept its proven suite publishes after it), so a guess of a quarter of what is left would only take time from the review. */
+const NO_FALLBACK: ReadonlySet<DeadlinePurpose> = new Set(["decide"]);
+
 /* What a finished run recorded about its phases: the furthest one it entered and the milliseconds spent in each phase it entered. */
 export interface PhaseRecord {
   furthestPhase: RunPhase | null;
   phaseTimings: Partial<Record<RunPhase, number>>;
 }
 
-/* Where the reserve of an allotment came from: nothing follows the purpose, every following purpose was measured, or at least one was not and the fallback stands for them. */
+/* Where the reserve of an allotment came from: nothing is held back (no purpose follows, or only ones that hold back no guess), every following purpose that holds one was measured, or at least one was not and the fallback stands for them. */
 export type ReserveSource = "none" | "measured" | "fallback";
 
 export interface Reserve {
@@ -143,9 +146,9 @@ export class RunDeadline implements RunDeadlineView {
   reserveAfter(purpose: DeadlinePurpose, left: number): Reserve {
     const later = purposesAfter(purpose);
     if (later.length === 0) return { ms: 0, source: "none", unmeasured: [] };
-    const unmeasured = later.filter((p) => !this.measured.has(p));
+    const unmeasured = later.filter((p) => !this.measured.has(p) && !NO_FALLBACK.has(p));
     const measuredMs = later.reduce((sum, p) => sum + (this.measured.get(p) ?? 0), 0);
-    if (unmeasured.length === 0) return { ms: measuredMs, source: "measured", unmeasured };
+    if (unmeasured.length === 0) return { ms: measuredMs, source: later.some((p) => this.measured.has(p)) ? "measured" : "none", unmeasured };
     const fallbackMs = Math.max(FALLBACK_RESERVE_MIN_MS, Math.floor(Math.max(0, left) * FALLBACK_RESERVE_SHARE));
     return { ms: measuredMs + fallbackMs, source: "fallback", unmeasured };
   }

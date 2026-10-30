@@ -7,8 +7,8 @@
 import { engineLog } from "@kernel/ports/process-logger.ts";
 import { GENERATION_END } from "@kernel/generation-end.ts";
 import { ERROR_CLASS } from "@kernel/error-class.ts";
-import { renderRunDeadlineNote } from "../../domain/run-time-budget.ts";
-import type { RunDeadlineExceededError } from "../../../../shared-kernel/run-deadline.ts";
+import { renderAllotmentNote, renderRunDeadlineNote } from "../../domain/run-time-budget.ts";
+import type { AllotmentSpentError, RunDeadlineExceededError } from "../../../../shared-kernel/run-deadline.ts";
 import { NoAuthorError, classifyFailure } from "./failure-policy.ts";
 import type { EndReason } from "./end-reason.ts";
 import { runEnd, type RunEnd } from "./run-end.ts";
@@ -29,7 +29,18 @@ export function failureEnd(reason: EndReason, err: unknown, run: { deps: RunQaUs
        * infra-error under E-TIME-BUDGET with a note that says so, never as an empty result and never as an uncaught integration
        * error. Nothing is published and nothing is learned (how long the agents took says nothing about the app or the tests).
        */
-      if (classifyFailure(err) !== "run-deadline") throw err;
+      const kind = classifyFailure(err);
+      if (kind === "allotment") {
+        /* A share, not the run: a step with no path of its own for the end of its purpose's time (nothing is proven) ends the run on its time budget, naming the purpose that was cut. */
+        const spent = err as AllotmentSpentError;
+        recordLimit(state, { fired: "allotment", role: spent.role, purpose: spent.purpose });
+        if (state.run.generationEnd === undefined) recordRunFact(state, "generationEnd", GENERATION_END.TIME_BUDGET);
+        const note = renderAllotmentNote({ role: spent.role, purpose: spent.purpose, stop: spent.stop, ...(deps.runDeadline?.describe?.() ? { budgetMs: deps.runDeadline.describe()!.budgetMs, label: deps.runDeadline.describe()!.label } : {}) });
+        engineLog.error(`[qa] ${note}`);
+        deps.observer?.onEvent({ type: "agent.error", detail: note });
+        return runEnd("run-deadline", { note, generationEnd: GENERATION_END.TIME_BUDGET });
+      }
+      if (kind !== "run-deadline") throw err;
       const deadline = err as RunDeadlineExceededError;
       recordLimit(state, { fired: "run-deadline", role: deadline.role, purpose: deadline.purpose });
       if (state.run.generationEnd === undefined) recordRunFact(state, "generationEnd", GENERATION_END.TIME_BUDGET);

@@ -500,7 +500,7 @@ export class LeadSidekicks {
     const reports = new Map<string, FlowReport>();
     let handed = false;
     try {
-      const results = await this.dispatcher.run(this.timed(flows, input), { maxParallel: parallel, ...(input.signal ? { signal: input.signal } : {}) }, (flow, signal) => this.author(flow, context, live, signal));
+      const results = await this.dispatcher.run(flows, { maxParallel: parallel, ...(input.signal ? { signal: input.signal } : {}) }, (flow, signal) => this.author(flow, context, live, signal));
       await this.settle(input, results, live, reports);
 
       const tally: ReviewTally = { turns: 0, accepted: 0, revised: 0, replaced: 0, dropped: 0, refused: 0, unreadable: 0, repairs: 0, notCarriedOut: 0 };
@@ -899,7 +899,7 @@ export class LeadSidekicks {
       }
       const slots = orders.map((order) => {
         const flow = live.get(order.flowId)!.flow;
-        return { ...order, id: order.flowId, ...this.flowTime(flow.budgetMs, after) };
+        return { ...order, id: order.flowId, budgetMs: Math.min(flow.budgetMs, after ?? flow.budgetMs) };
       });
       for (const order of orders) {
         if (order.action === REVIEW_ACTION.REVISE) tally.revised += 1;
@@ -1113,15 +1113,15 @@ export class LeadSidekicks {
       else tally.replaced += 1;
       this.record(input, { kind: "lead-decision", origin, flowId: order.flowId, decision: order.action, findings: order.findings.length, candidateIds: under.find((u) => u.id === order.flowId)?.candidates ?? [], reason: `correction (${origin}): flow ${order.flowId} ${order.action} with ${order.findings.length} finding(s)`, delegationId: live.get(order.flowId)!.delegationId });
     }
-    const slots = orders.map((order) => ({ ...order, id: order.flowId, ...this.flowTime(live.get(order.flowId)!.flow.budgetMs, after) }));
+    const slots = orders.map((order) => ({ ...order, id: order.flowId, budgetMs: Math.min(live.get(order.flowId)!.flow.budgetMs, after ?? live.get(order.flowId)!.flow.budgetMs) }));
     for (const slot of slots) live.get(slot.flowId)!.taken = false;
     const delegationBefore = { ...context.unreadable };
     /* A claim is read only from a turn this correction made: a flow whose turn failed keeps the result of an earlier one. */
     const turnsBefore = new Map(slots.map((slot) => [slot.flowId, live.get(slot.flowId)!.turns]));
     /* The flows' corrections and the maintenance flows share one pool, so the run's parallelism holds for both. */
     const tasks = [
-      ...slots.map((slot) => ({ id: slot.id, budgetMs: slot.budgetMs, limit: slot.limit, slot, maintain: undefined })),
-      ...maintenance.map((m) => ({ id: m.flow.id, ...this.flowTime(m.flow.budgetMs, after), slot: undefined, maintain: m.flow })),
+      ...slots.map((slot) => ({ id: slot.id, budgetMs: slot.budgetMs, slot, maintain: undefined })),
+      ...maintenance.map((m) => ({ id: m.flow.id, budgetMs: m.flow.budgetMs, slot: undefined, maintain: m.flow })),
     ];
     const results = await this.dispatcher.run(tasks, { maxParallel: parallel, ...(input.signal ? { signal: input.signal } : {}) }, (task, signal) => (task.maintain
       ? this.author(task.maintain, context, live, signal)
@@ -1307,17 +1307,6 @@ export class LeadSidekicks {
     if (spare < MIN_FLOW_MS) return undefined;
     const held = heldTo({ ms: input.settings.planBudgetMs, limit: "plan-budget" }, spare);
     return { ms: Math.max(1, held.ms), limit: held.limit };
-  }
-
-  /* The time a flow is dispatched with and the bound it is: its own cap (`flow-budget`) while that is below what its purpose is allotted now, else the deadline's, which no timer of the dispatcher races. */
-  private flowTime(budgetMs: number, room: number | undefined): { budgetMs: number; limit: HeldTime["limit"] } {
-    const held = heldTo({ ms: budgetMs, limit: "flow-budget" }, room);
-    return { budgetMs: held.ms, limit: held.limit };
-  }
-
-  private timed<F extends { budgetMs: number }>(flows: readonly F[], input: CoordinateInput): Array<F & { limit: HeldTime["limit"] }> {
-    const room = this.room(input);
-    return flows.map((flow) => ({ ...flow, ...this.flowTime(flow.budgetMs, room) }));
   }
 
   private allowance(input: CoordinateInput): number | undefined {

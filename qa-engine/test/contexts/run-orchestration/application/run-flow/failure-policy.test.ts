@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import { LOG_EFFECT, levelOfEffect, memoryLogger } from "@kernel/ports/logger.port.ts";
 import { installProcessLogger, resetProcessLoggerForTests } from "@kernel/ports/process-logger.ts";
 import { AgentTimeoutError, InfraError, UntrustedGitTreeError } from "@kernel/domain-error.ts";
-import { RunDeadlineExceededError } from "@kernel/run-deadline.ts";
+import { AllotmentSpentError, RunDeadlineExceededError } from "@kernel/run-deadline.ts";
 import { RunAbortedError } from "@contexts/run-orchestration/application/run-flow/abort.ts";
 import { FAILURE_KINDS, POLICY, NoAuthorError, PublicationFailedError, ProbeSweepError, STEP_CLASSES, actionFor, carryOn, classifyFailure, guarded } from "@contexts/run-orchestration/application/run-flow/failure-policy.ts";
 import { runEnd, type RunEnd } from "@contexts/run-orchestration/application/run-flow/run-end.ts";
@@ -19,6 +19,8 @@ const deadline = new RunDeadlineExceededError(1000, "diff-tiny", "generator", "m
 const CASES: ReadonlyArray<[string, unknown, (typeof FAILURE_KINDS)[number]]> = [
   ["a cancelled run", new RunAbortedError(), "aborted"],
   ["the run deadline", deadline, "run-deadline"],
+  ["a purpose's share that is spent while the run has time", new AllotmentSpentError("generator", "coverage", "mid-turn"), "allotment"],
+  ["a share spent that crossed a realm boundary", Object.assign(new Error("share spent"), { name: "AllotmentSpentError" }), "allotment"],
   ["a deadline that crossed a realm boundary", Object.assign(new Error("run deadline"), { name: "RunDeadlineExceededError" }), "run-deadline"],
   ["a sandbox that cannot be trusted", new SandboxUnavailableError("egress", "the egress filter is down"), "sandbox-unavailable"],
   ["a sandbox scope the run could not open", new SandboxUnavailableError("scope", "a process of an earlier run holds the uid"), "unknown"],
@@ -41,6 +43,20 @@ for (const [what, err, kind] of CASES) {
 test("the run deadline is told apart from the infrastructure faults it is a kind of", () => {
   assert.equal(deadline instanceof InfraError, true);
   assert.equal(classifyFailure(deadline), "run-deadline");
+});
+
+test("the end of a purpose's share is an agent timeout of that turn, told apart from the run's own deadline", () => {
+  const share = new AllotmentSpentError("generator", "coverage", "mid-turn");
+  assert.equal(share instanceof AgentTimeoutError, true);
+  assert.equal(classifyFailure(share), "allotment");
+  assert.notEqual(classifyFailure(deadline), classifyFailure(share));
+});
+
+test("a proven step degrades on a spent share and an off-path step carries on; only a required step, which has no proof to keep, ends the run", () => {
+  const share = new AllotmentSpentError("generator", "coverage", "mid-turn");
+  assert.deepEqual(actionFor(share, "proven"), { do: "degrade", reason: "deadline-after-proof" });
+  assert.equal(actionFor(share, "off-path").do, "fail-open");
+  assert.deepEqual(actionFor(share, "required"), { do: "end", reason: "run-deadline" });
 });
 
 test("every kind of failure has an action for every class of step", () => {

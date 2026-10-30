@@ -5,7 +5,7 @@
  * its verdict proves nothing about approval, so the run ends on the deadline as it always did. What the run goes on past is recorded on its facts (the limit and the degradation), which its note and its trace are derived from.
  */
 
-import type { RunDeadlineExceededError } from "../../../../shared-kernel/run-deadline.ts";
+import type { AllotmentSpentError, RunDeadlineExceededError } from "../../../../shared-kernel/run-deadline.ts";
 import { classifyFailure } from "./failure-policy.ts";
 import { goto, type StepOutcome } from "./run-flow.ts";
 import { recordDegradation, recordLimit } from "./reducers.ts";
@@ -18,8 +18,11 @@ import type { StepId } from "./step-ids.ts";
 /** The step the run goes on from after a degraded fault: the guard that decides whether what is proven can be kept. */
 const KEEP_PROVEN_AT: StepId = "guard-final-proof";
 
-/** What a run that kept its proven suite past a spent deadline says on its outcome. */
-export const deadlineNote = (stepId: StepId): string => `the run deadline was spent during ${stepId}; the suite that ran green on its final bytes is kept`;
+/** What a run that kept its proven suite past a spent deadline, or a spent share of it, says on its outcome. */
+export const deadlineNote = (stepId: StepId, purpose?: string): string =>
+  purpose === undefined
+    ? `the run deadline was spent during ${stepId}; the suite that ran green on its final bytes is kept`
+    : `the time allotted to ${purpose} was spent during ${stepId}; the suite that ran green on its final bytes is kept`;
 
 export interface DegradeFacts {
   /** The run requires a review of its tests. */
@@ -34,9 +37,11 @@ export function degradeFailedStep(reason: DegradeReason, err: unknown, stepId: S
   if (facts.reviewRequired && state.review.reviewerApprovedForOutcome === undefined) {
     return { end: facts.endOf("run-deadline", err) };
   }
-  /* The deadline is what the run went on past: it is a limit that fired, whether it ended the run or not. */
-  const cut = classifyFailure(err) === "run-deadline" ? (err as RunDeadlineExceededError) : undefined;
-  recordLimit(state, { fired: "run-deadline", role: cut ? cut.role : "unknown", purpose: cut?.purpose });
-  recordDegradation(state, { reason, note: deadlineNote(stepId) });
+  /* The deadline, or the purpose's share of it, is what the run went on past: it is a limit that fired, whether it ended the run or not. */
+  const kind = classifyFailure(err);
+  const cut = kind === "run-deadline" ? (err as RunDeadlineExceededError) : undefined;
+  const spent = kind === "allotment" ? (err as AllotmentSpentError) : undefined;
+  recordLimit(state, spent ? { fired: "allotment", role: spent.role, purpose: spent.purpose } : { fired: "run-deadline", role: cut ? cut.role : "unknown", purpose: cut?.purpose });
+  recordDegradation(state, { reason, note: deadlineNote(stepId, spent?.purpose) });
   return goto(KEEP_PROVEN_AT);
 }

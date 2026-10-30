@@ -94,6 +94,13 @@ export interface RunDeadlineNoteInput {
   purpose?: string;
 }
 
+/** The note of a run that ended because a step with no path of its own for it met the end of its purpose's share of the time: what the share was, where it ended and that it says nothing about the app. */
+export function renderAllotmentNote(input: { role: string; purpose: string; stop: "before-turn" | "mid-turn"; budgetMs?: number; label?: string }): string {
+  const where = input.stop === "mid-turn" ? `the ${input.role} turn in progress was stopped` : `the next ${input.role} turn was not started`;
+  const budget = input.budgetMs !== undefined && input.label ? ` of the run time budget of ${budgetText(input.budgetMs)} (${input.label})` : "";
+  return `The time allotted to ${input.purpose}${budget} was spent while the run still had time (the rest is held for the phases after it): ${where}, and nothing at that step could go on without it. The run ended without a verdict on the change; this is a limit on the run's time, not a finding about the app.`;
+}
+
 /** The note persisted for a run whose time ran out: what the budget was, where it ended and that it says nothing about the app. */
 export function renderRunDeadlineNote(input: RunDeadlineNoteInput): string {
   const where =

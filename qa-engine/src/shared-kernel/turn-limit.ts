@@ -3,8 +3,10 @@
 export const TIME_LIMIT_SOURCES = [
   /* The first-pass time of a diff run's effort tier. */
   "tier-budget",
-  /* What is left of the run's wall-clock deadline (less the reserve of the phases after the purpose that asked). */
+  /* The run's own wall-clock deadline: nothing is left of the run. */
   "run-deadline",
+  /* The share of the run's time a purpose is allotted (what is left less the measured time of the phases after it), when it is smaller than every cap that applies and the run itself still has time. */
+  "allotment",
   /* The lead's planning, review or correction turn, capped by `planBudgetMs`. */
   "plan-budget",
   /* One flow of a plan, capped by `flowBudgetMs`. */

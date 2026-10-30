@@ -26,6 +26,9 @@ import type { CoordinateInput, CoordinateResult } from "@contexts/coordination/a
 import { Sha } from "@kernel/sha.ts";
 import { RunDeadline } from "@contexts/run-orchestration/domain/run-deadline.ts";
 import { RUN_TIME_BUDGET_MS } from "@contexts/run-orchestration/domain/run-time-budget.ts";
+import { RunDeadlineRuntime } from "@contexts/run-orchestration/infrastructure/run-deadline-runtime.adapter.ts";
+import { AgentTimeoutError } from "@kernel/domain-error.ts";
+import { traceFactsOf } from "@kernel/run-trace-facts.ts";
 import { LOG_EFFECT, levelOfEffect, memoryLogger } from "@kernel/ports/logger.port.ts";
 import { installProcessLogger, resetProcessLoggerForTests } from "@kernel/ports/process-logger.ts";
 import { UntrustedGitTreeError } from "../../../../src/shared-infrastructure/process-sandbox/git-hardening.ts";
@@ -6435,7 +6438,7 @@ test("a regeneration is held to the run deadline alone: a second ceiling in the 
   assert.ok(generateCalls > 1, "with time left on the deadline the fix loop regenerates, whatever a second clock says");
 });
 
-test("a run deadline with no time left for the fix loop's regeneration ends the run E-TIME-BUDGET, not a fail with an Issue", async () => {
+test("a fix loop whose share is spent while the run has time skips the regeneration and keeps the fail with its Issue", async () => {
   let generateCalls = 0;
   let executeCalls = 0;
   const { ports } = stubPorts({
@@ -6454,7 +6457,26 @@ test("a run deadline with no time left for the fix loop's regeneration ends the 
   const out = await new RunQaUseCase({ ...ports, runDeadline, config: { ...baseConfig, needsReview: false } }).run({ ...baseInput, runId: "deadline-allowance-regen" });
   assert.equal(generateCalls, 1, "no time for a regeneration starts no further agent turn");
   assert.equal(executeCalls, 1);
-  assert.equal(out.decision.verdict, "infra-error", "the suite could not be repaired in time: the deadline ends the run, it says nothing about the app");
+  assert.equal(out.decision.verdict, "fail", "the run still had time: the unrepaired failure is the app's verdict");
+  assert.equal(out.decision.sideEffect, "issue");
+  assert.ok(limitsOf(out).includes("allotment@fix"), "the skipped regeneration is recorded as the fix loop's time limit");
+});
+
+test("a run deadline that is itself spent ends the run E-TIME-BUDGET instead of a fail with an Issue", async () => {
+  let generateCalls = 0;
+  const { ports } = stubPorts({
+    generate: async () => { generateCalls++; return scriptedGeneration({ specs: ["a.spec.ts"]}); },
+    execute: async () => ({ verdict: "fail", cases: [{ name: "owners", status: "fail", detail: "boom", file: "owners.spec.ts" }], logs: "" }),
+  });
+  const runDeadline = {
+    arm: () => {},
+    remainingMs: () => 0,
+    allowance: (purpose?: string) => (purpose === "fix" ? 0 : 60_000),
+    describe: () => ({ label: "diff", budgetMs: 600_000 }),
+  };
+  const out = await new RunQaUseCase({ ...ports, runDeadline, config: { ...baseConfig, needsReview: false } }).run({ ...baseInput, runId: "deadline-spent-regen" });
+  assert.equal(generateCalls, 1);
+  assert.equal(out.decision.verdict, "infra-error", "the run's own time is spent: the deadline ends the run, it says nothing about the app");
   assert.equal(out.errorClass, ERROR_CLASS.TIME_BUDGET);
   assert.notEqual(out.decision.sideEffect, "issue");
 });
@@ -9226,4 +9248,132 @@ test("after an accepted regeneration whose coverage could not be recounted, the 
   } finally {
     real.cleanup();
   }
+});
+
+/* ── the end of a purpose's share is that turn's end, not the run's ────────────────────────────── */
+
+const MIN = 60_000;
+
+/* A fake agent runtime whose turn needs `needMs` of the shared clock: it ends at its own timeout when that comes first. */
+function turnNeeding(clock: { t: number }, needMs: number) {
+  return {
+    openSession: async () => ({
+      prompt: async (_text: string, opts?: { timeoutMs?: number }) => {
+        const start = clock.t;
+        if (opts?.timeoutMs !== undefined && opts.timeoutMs < needMs) {
+          clock.t = Math.max(clock.t, start + opts.timeoutMs);
+          throw new AgentTimeoutError(`timed out after ${opts.timeoutMs}`);
+        }
+        clock.t = Math.max(clock.t, start + needMs);
+        return { output: "done" };
+      },
+      dispose: async () => {},
+    }),
+  };
+}
+
+/* A real deadline on the shared clock; its timer is fired by hand (`fires`). */
+function deadlineOn(clock: { t: number }, budgetMs: number, fires: Array<() => void> = []) {
+  return new RunDeadline({ now: () => clock.t, budgets: { ...RUN_TIME_BUDGET_MS, "diff-tiny": budgetMs, "diff-focused": budgetMs, "diff-broad": budgetMs, manual: budgetMs, context: budgetMs }, schedule: (_ms, fire) => { fires.push(fire); return () => {}; } });
+}
+
+const limitsOf = (out: object) => (traceFactsOf(out)?.limits ?? []).map((l) => `${l.fired}${l.purpose ? `@${l.purpose}` : ""}`);
+
+test("a review that needs more than its share but less than the run has left still gives the verdict: only the run's own deadline ends the run", async () => {
+  const clock = { t: 0 };
+  const deadline = deadlineOn(clock, 30 * MIN);
+  const runtime = new RunDeadlineRuntime(turnNeeding(clock, 5.5 * MIN) as never, deadline);
+  let reviews = 0;
+  const { ports } = stubPorts({
+    generate: async () => { clock.t += 23 * MIN; return scriptedGeneration({ specs: ["a.spec.ts"] }); },
+    review: async () => {
+      reviews++;
+      const s = await runtime.openSession("reviewer", "/m", { timeoutMs: 6 * MIN });
+      await s.prompt("review", {});
+      return { approved: true, findings: [], blockingCount: 0, parsed: true };
+    },
+  });
+  const out = await new RunQaUseCase({ ...ports, runDeadline: deadline, config: { ...baseConfig, needsReview: true } }).run({ ...baseInput, mode: "manual", runId: "share-review" });
+  assert.equal(out.decision.verdict, "pass");
+  assert.equal(out.decision.sideEffect, "pr");
+  assert.equal(reviews, 1);
+  assert.ok(deadline.remainingMs()! > 0, "the run still had time");
+});
+
+test("a fix loop whose share is spent skips its regeneration and the run reaches its failing verdict, instead of ending on the time budget", async () => {
+  const clock = { t: 0 };
+  const deadline = deadlineOn(clock, 25 * MIN);
+  const history = Array.from({ length: 5 }, () => ({ furthestPhase: "learn" as const, phaseTimings: { fix_loop: 0, coverage: 3 * MIN, review: 8 * MIN, decide: 30_000, publish: 30_000 } }));
+  let generateCalls = 0;
+  const { ports } = stubPorts({
+    generate: async () => { generateCalls++; clock.t += generateCalls === 1 ? 15 * MIN : 3 * MIN; return scriptedGeneration({ specs: ["a.spec.ts"] }); },
+    execute: async () => { clock.t += MIN; return { verdict: "fail", cases: [{ name: "owners", status: "fail", detail: "boom", file: "owners.spec.ts" }], logs: "" }; },
+  });
+  const out = await new RunQaUseCase({ ...ports, runDeadline: deadline, phaseHistory: { recentPhaseRecords: async () => history }, config: { ...baseConfig, needsReview: false } } as never).run({ ...baseInput, mode: "manual", runId: "share-fix" });
+  assert.equal(out.decision.verdict, "fail");
+  assert.equal(out.decision.sideEffect, "issue");
+  assert.equal(generateCalls, 1, "the regeneration was not started");
+  assert.ok(limitsOf(out).includes("allotment@fix"), `the skip is the fix loop's time limit: ${limitsOf(out).join(", ")}`);
+});
+
+test("a fix loop with 100 s left and no history skips its regeneration the same way, and the run keeps its failing verdict", async () => {
+  const clock = { t: 0 };
+  const deadline = deadlineOn(clock, 25 * MIN);
+  let generateCalls = 0;
+  const { ports } = stubPorts({
+    generate: async () => { generateCalls++; if (generateCalls === 1) clock.t += 25 * MIN - 100_000; return scriptedGeneration({ specs: ["a.spec.ts"] }); },
+    execute: async () => ({ verdict: "fail", cases: [{ name: "owners", status: "fail", detail: "boom", file: "owners.spec.ts" }], logs: "" }),
+  });
+  const out = await new RunQaUseCase({ ...ports, runDeadline: deadline, config: { ...baseConfig, needsReview: false } }).run({ ...baseInput, mode: "manual", runId: "share-fix-b" });
+  assert.equal(out.decision.verdict, "fail");
+  assert.equal(out.decision.sideEffect, "issue");
+  assert.equal(generateCalls, 1);
+});
+
+/* The T17 shape: a green run that needs its review, whose coverage regeneration would run past its share. */
+async function coverageRegenCutAtItsShare(history: Array<{ furthestPhase: "learn"; phaseTimings: Record<string, number> }> | undefined, regenNeeds: number, reviewNeeds: number, runId: string) {
+  const clock = { t: 0 };
+  const deadline = deadlineOn(clock, 40 * MIN);
+  const regenRuntime = new RunDeadlineRuntime(turnNeeding(clock, regenNeeds) as never, deadline);
+  const reviewRuntime = new RunDeadlineRuntime(turnNeeding(clock, reviewNeeds) as never, deadline);
+  let reviews = 0;
+  const { ports } = stubPorts({
+    execute: async (...args: Parameters<typeof passPerSpec>) => { clock.t += 3 * MIN; return passPerSpec(...args); },
+    measure: async () => ({ status: "fail" as const, ratio: 0.2, uncovered: [{ file: "src/a.ts", lines: [1] }] }),
+    blocks: (status) => status === "fail",
+    review: async () => {
+      reviews++;
+      const s = await reviewRuntime.openSession("reviewer", "/m", { timeoutMs: 6 * MIN });
+      await s.prompt("review", {});
+      return { approved: true, findings: [], blockingCount: 0, parsed: true };
+    },
+  });
+  let genCalls = 0;
+  ports.generation.author = async () => {
+    genCalls++;
+    if (genCalls === 1) { clock.t += 20 * MIN; return scriptedGeneration({ specs: ["a.spec.ts"] }); }
+    const s = await regenRuntime.openSession("author", "/m", {});
+    await s.prompt("cover the uncovered lines", {});
+    return scriptedGeneration({ specs: ["a.spec.ts"] });
+  };
+  const out = await new RunQaUseCase({ ...ports, runDeadline: deadline, ...(history ? { phaseHistory: { recentPhaseRecords: async () => history } } : {}), config: { ...baseConfig, needsReview: true, coveragePolicyMode: "enforce" } } as never).run({ ...baseInput, runId });
+  return { out, genCalls, reviews, leftMs: deadline.remainingMs()! };
+}
+
+test("a coverage regeneration cut at its share is skipped and the review still runs inside its own share (measured history)", async () => {
+  const history = Array.from({ length: 5 }, () => ({ furthestPhase: "learn" as const, phaseTimings: { coverage: 4 * MIN, review: 8 * MIN, decide: 30_000, publish: 30_000 } }));
+  const { out, genCalls, reviews, leftMs } = await coverageRegenCutAtItsShare(history, 12 * MIN, 5.5 * MIN, "share-coverage");
+  assert.equal(genCalls, 2, "the regeneration turn was started");
+  assert.equal(reviews, 1, "and the review ran after it was cut");
+  assert.equal(out.decision.verdict, "pass");
+  assert.ok(leftMs > 0);
+  assert.ok(limitsOf(out).includes("allotment@coverage"), limitsOf(out).join(", "));
+});
+
+test("the same cut with no phase history (the fallback reserve) leaves the review its time too", async () => {
+  const { out, genCalls, reviews, leftMs } = await coverageRegenCutAtItsShare(undefined, 14 * MIN, 3 * MIN, "share-coverage-fallback");
+  assert.equal(genCalls, 2);
+  assert.equal(reviews, 1);
+  assert.equal(out.decision.verdict, "pass");
+  assert.ok(leftMs > 0);
 });

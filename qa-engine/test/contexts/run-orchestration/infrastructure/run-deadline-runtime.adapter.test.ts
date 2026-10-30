@@ -4,7 +4,7 @@ import { RunDeadlineRuntime } from "@contexts/run-orchestration/infrastructure/r
 import { RunDeadline } from "@contexts/run-orchestration/domain/run-deadline.ts";
 import { RUN_TIME_BUDGET_MS } from "@contexts/run-orchestration/domain/run-time-budget.ts";
 import { AgentTimeoutError } from "@kernel/domain-error.ts";
-import { isRunDeadlineError, RunDeadlineExceededError } from "@kernel/run-deadline.ts";
+import { isAllotmentSpentError, isRunDeadlineError, RunDeadlineExceededError, type AllotmentSpentError } from "@kernel/run-deadline.ts";
 import type { AgentPromptOpts, AgentRuntimePort, OpenSessionOpts } from "@kernel/ports/agent-runtime.port.ts";
 import type { AgentRole } from "@kernel/agent-role.ts";
 
@@ -103,6 +103,24 @@ test("a prompt that finds no time left is not sent: the run's deadline error nam
   assert.equal(h.prompts.length, 0, "no turn is spent on a run whose time is gone");
 });
 
+test("a turn that times out at its purpose's share while the run has time is that turn's timeout alone, not the run's deadline", async () => {
+  const h = harness(40 * 60_000);
+  h.deadline.measure([{ furthestPhase: "learn", phaseTimings: { validate: 60_000, execute: 180_000, coverage: 120_000, review: 240_000, publish: 60_000 } }]);
+  h.deadline.enter("generate");
+  const session = await h.runtime.openSession("author", "/w");
+  h.inner.behave = async () => { h.clock.t += 29 * 60_000; throw new AgentTimeoutError("OpenCode prompt: timed out"); };
+  await assert.rejects(session.prompt("long"), (err: unknown) => {
+    assert.ok(isAllotmentSpentError(err));
+    assert.ok(!isRunDeadlineError(err));
+    assert.ok(err instanceof AgentTimeoutError);
+    assert.equal((err as AllotmentSpentError).stop, "mid-turn");
+    assert.equal((err as AllotmentSpentError).purpose, "generate");
+    assert.ok((err as Error).cause instanceof AgentTimeoutError, "the turn's own error stays reachable");
+    return true;
+  });
+  assert.ok(h.deadline.remainingMs()! > 0);
+});
+
 test("a session is not opened once the run's time is gone", async () => {
   const h = harness(60_000);
   h.clock.t = 61_000;
@@ -168,17 +186,19 @@ test("a turn is held to what its purpose is allotted, not to what is left of the
   const session = await h.runtime.openSession("author", "/w");
   await session.prompt("plan");
   assert.equal(h.prompts[0]!.opts?.timeoutMs, 29 * 60_000, "40 min less the 11 min the app's runs spend after generation");
-  assert.equal(h.prompts[0]!.opts?.timeLimit, "run-deadline");
+  assert.equal(h.prompts[0]!.opts?.timeLimit, "allotment", "the share is smaller than what is left: the run itself still has time");
 });
 
-test("a turn whose purpose has been allotted nothing is refused as the run's deadline while the run itself still has time", async () => {
+test("a turn whose purpose has been allotted nothing is refused as the purpose's share spent, not as the run's deadline", async () => {
   const h = harness(40 * 60_000);
   h.deadline.measure([{ furthestPhase: "learn", phaseTimings: { validate: 60_000, execute: 180_000, coverage: 120_000, review: 240_000, publish: 60_000 } }]);
   h.deadline.enter("generate");
   h.clock.t = 35 * 60_000;
   const session = await h.runtime.openSession("author", "/w").catch((err) => err);
-  assert.ok(isRunDeadlineError(session), "no time is left for generation: the review and the rest are owed 11 of the 5 minutes that remain");
-  assert.equal((session as RunDeadlineExceededError).stop, "before-turn");
-  assert.equal((session as RunDeadlineExceededError).purpose, "generate");
+  assert.ok(isAllotmentSpentError(session), "no time is left for generation: the review and the rest are owed 11 of the 5 minutes that remain");
+  assert.ok(!isRunDeadlineError(session), "the run itself still has time");
+  assert.ok(session instanceof AgentTimeoutError, "an owner reads it as the timeout of that turn alone");
+  assert.equal((session as AllotmentSpentError).stop, "before-turn");
+  assert.equal((session as AllotmentSpentError).purpose, "generate");
   assert.equal(h.deadline.remainingMs(), 5 * 60_000);
 });

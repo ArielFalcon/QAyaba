@@ -11,7 +11,7 @@
 import { LOG_EFFECT, levelOfEffect, type LevelOfEffect, type LogEffect } from "@kernel/ports/logger.port.ts";
 import { engineLog } from "@kernel/ports/process-logger.ts";
 import { isInfraError, isUntrustedGitTreeError } from "../../../../shared-kernel/domain-error.ts";
-import { isRunDeadlineError } from "../../../../shared-kernel/run-deadline.ts";
+import { isAllotmentSpentError, isRunDeadlineError } from "../../../../shared-kernel/run-deadline.ts";
 import { RunAbortedError } from "./abort.ts";
 import type { RunDegradationReason } from "@kernel/run-trace-facts.ts";
 import type { EndReason } from "./end-reason.ts";
@@ -40,7 +40,7 @@ export class NoAuthorError extends Error {
   }
 }
 
-export const FAILURE_KINDS = ["aborted", "run-deadline", "no-author", "sandbox-unavailable", "probe-sweep", "untrusted-tree", "publication", "integration", "unknown"] as const;
+export const FAILURE_KINDS = ["aborted", "run-deadline", "allotment", "no-author", "sandbox-unavailable", "probe-sweep", "untrusted-tree", "publication", "integration", "unknown"] as const;
 export type FailureKind = (typeof FAILURE_KINDS)[number];
 
 /*
@@ -77,6 +77,14 @@ export const POLICY: Readonly<Record<FailureKind, Readonly<Record<StepClass, Fai
   aborted: endFor("aborted"),
   /* A spent deadline after a suite ran green on its final bytes keeps what is proven (the run goes on to the final proof guard and the decision); anywhere else nothing is proven and the run ends. */
   "run-deadline": { ...endFor("run-deadline"), proven: { do: "degrade", reason: "deadline-after-proof" } },
+  /*
+   * A purpose's share of the run's time is spent while the run still has time. It is that turn's timeout, not the run's: a step that
+   * follows its own path for a turn that ran out of time (a regeneration is skipped, a flow is unanswered, the reviewer is unavailable)
+   * never lets it escape. One that does has no path of its own: before a suite is proven the run cannot go on and ends on its time
+   * budget; after, it keeps what is proven (the same degrade as the deadline's, which fails closed on a review it requires); a side
+   * effect off the verdict's path is carried past; the publication has no share of its own to spend.
+   */
+  allotment: { required: { do: "end", reason: "run-deadline" }, proven: { do: "degrade", reason: "deadline-after-proof" }, "off-path": FAIL_OPEN, publish: RETHROW },
   /* Nothing was authored and nothing is proven: the run ends with the reason, whatever the step. */
   "no-author": endFor("no-author"),
   "sandbox-unavailable": endFor("sandbox-unavailable"),
@@ -93,6 +101,7 @@ export const POLICY: Readonly<Record<FailureKind, Readonly<Record<StepClass, Fai
 export function classifyFailure(err: unknown): FailureKind {
   if (err instanceof RunAbortedError) return "aborted";
   if (isRunDeadlineError(err)) return "run-deadline";
+  if (isAllotmentSpentError(err)) return "allotment";
   /* By name: the launcher lives outside the application layer. A refusal to open the run's scope is the caller's own business, not a step's. */
   if (err instanceof Error && err.name === "SandboxUnavailableError" && (err as { reason?: unknown }).reason !== "scope") return "sandbox-unavailable";
   if (err instanceof NoAuthorError) return "no-author";

@@ -351,8 +351,8 @@ test("a regeneration keeps the host's default whatever the deadline leaves", asy
   assert.equal("timeoutMs" in (generatorOpen(seen)?.opts ?? {}), false);
 });
 
-test("a first pass names the bound it was given: the tier's budget while it is below what the deadline allots generation, the run's deadline otherwise", async () => {
-  const cases = [[TINY_MS - 60_000, "run-deadline"], [TINY_MS, "run-deadline"], [TINY_MS + 1, "tier-budget"], [null, "tier-budget"]] as const;
+test("a first pass names the bound it was given: the tier's budget while it is below what the deadline allots generation, the allotment otherwise", async () => {
+  const cases = [[TINY_MS - 60_000, "allotment"], [TINY_MS, "allotment"], [TINY_MS + 1, "tier-budget"], [null, "tier-budget"]] as const;
   for (const [left, expected] of cases) {
     const { ports, seen } = build([{ output: "SPECS" }]);
     await new GenerateTestsUseCase(ports).author(baseInput(), { deadline: deadlineLeaving(left) });

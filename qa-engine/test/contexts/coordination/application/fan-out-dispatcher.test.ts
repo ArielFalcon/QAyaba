@@ -267,24 +267,26 @@ test("no timer is left pending once the flows are done, however they ended", asy
   hang.open();
 });
 
-test("a flow whose time is the run deadline's has no timer of the dispatcher racing the deadline's own end", async () => {
+test("a flow whose time is its share of the run keeps the dispatcher's timer: the end of a share is that flow's end", async () => {
   const timers = new FakeTimers();
-  const dispatcher = new FanOutDispatcher({ timers });
+  const dispatcher = new FanOutDispatcher({ timers, abortGraceMs: 10 });
   const hold = gate();
-  const running = dispatcher.run([{ id: "a", budgetMs: 1_000, limit: "run-deadline" as const }], { maxParallel: 1 }, async () => { await hold.promise; return "late"; });
+  const running = dispatcher.run([{ id: "a", budgetMs: 1_000 }], { maxParallel: 1 }, async (_flow, signal) => { await Promise.race([hold.promise, new Promise((r) => signal.addEventListener("abort", r))]); });
   await settle();
-  assert.equal(timers.open, 0, "the dispatcher states no clock of its own for a flow bound by the deadline");
-  timers.advance(10_000);
+  assert.equal(timers.open, 1, "a flow whose time equals its share still has a timer");
+  timers.advance(1_000);
   await settle();
+  timers.advance(10);
+  const [result] = await running;
+  assert.equal(result?.status, FLOW_RESULT.TIMED_OUT);
   hold.open();
-  assert.deepEqual(await running, [{ id: "a", status: FLOW_RESULT.SETTLED, value: "late" }]);
 });
 
 test("a flow whose time is its own cap still ends timed-out when the cap is reached", async () => {
   const timers = new FakeTimers();
   const dispatcher = new FanOutDispatcher({ timers });
   const hold = gate();
-  const running = dispatcher.run([{ id: "a", budgetMs: 1_000, limit: "flow-budget" as const }], { maxParallel: 1 }, async (_flow, signal) => { await Promise.race([hold.promise, new Promise((r) => signal.addEventListener("abort", r))]); });
+  const running = dispatcher.run([{ id: "a", budgetMs: 1_000 }], { maxParallel: 1 }, async (_flow, signal) => { await Promise.race([hold.promise, new Promise((r) => signal.addEventListener("abort", r))]); });
   await settle();
   assert.equal(timers.open, 1);
   timers.advance(1_000);

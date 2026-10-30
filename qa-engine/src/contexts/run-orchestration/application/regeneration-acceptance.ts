@@ -25,7 +25,7 @@ import type { RunVerdict } from "@kernel/run-verdict.ts";
 import type { QaCase, SkippedTest } from "@kernel/qa-case.ts";
 import { normalizeSpecPath } from "@kernel/spec-path.ts";
 import { hasProof, modeRefusals, type NamedTest, type ReportedTests } from "@kernel/case-proof.ts";
-import { RunDeadlineExceededError } from "@kernel/run-deadline.ts";
+import { AllotmentSpentError, RunDeadlineExceededError } from "@kernel/run-deadline.ts";
 import { MAX_ACCEPTANCE_EXECUTIONS } from "../../../shared-kernel/derive-cycle-backstop.ts";
 import type { ExecutionPort, ValidationPort } from "@contexts/test-execution/application/index.ts";
 import type { RunDeadlinePort } from "./ports/run-deadline.port.ts";
@@ -220,11 +220,14 @@ export class RegenerationAcceptance {
   }
 
   private requireTime(deadline: RunDeadlinePort): void {
-    /* The purpose of the phase the acceptance runs in: an execution the later phases' time forbids is not started. */
+    /* The purpose of the phase the acceptance runs in: an execution the later phases' time forbids is not started. When the run itself is spent that ends it; when only the purpose's share is, it is that acceptance's end alone and its owner follows its own path. */
     const left = deadline.allowance?.() ?? null;
     if (left === null || left > 0) return;
+    const remaining = deadline.remainingMs?.();
+    const purpose = deadline.currentPurpose?.() ?? "execute";
+    if (remaining === undefined || remaining > 0) throw new AllotmentSpentError("acceptance", purpose, "before-turn");
     const described = deadline.describe?.();
-    throw new RunDeadlineExceededError(described?.budgetMs ?? 0, described?.label ?? "unarmed", "acceptance", "before-turn");
+    throw new RunDeadlineExceededError(described?.budgetMs ?? 0, described?.label ?? "unarmed", "acceptance", "before-turn", { purpose });
   }
 }
 
