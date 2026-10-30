@@ -1,9 +1,10 @@
-import { agentConfigFacts } from "../integrations/opencode-client";
+import { agentConfigFacts, turnModel } from "../integrations/opencode-client";
 import type { DeclaredModels } from "./types";
 
-/* The models agents/opencode.json declares, read live; `configPath` names another roster file (default: the host's). */
+/* The models a roster file declares; `configPath` names the file (default: the host's). */
 export function declaredModelsFrom(configPath?: string): DeclaredModels {
   return (agent) => agentConfigFacts(agent, configPath)?.model;
 }
 
-export const declaredAgentModel: DeclaredModels = declaredModelsFrom();
+/* The model each agent runs on: the one the OpenCode server last listed for it (the roster it serves), the host's file only for an agent it has not listed. */
+export const declaredAgentModel: DeclaredModels = (agent) => turnModel(agent);

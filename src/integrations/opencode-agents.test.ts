@@ -10,7 +10,7 @@ import { join } from "node:path";
 import type { Agent as OpenCodeAgent } from "@opencode-ai/sdk/v2";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { listAgentCaps, listModelWindows, turnStepLimit, type AgentListDeps } from "./opencode-client";
+import { listAgentCaps, listModelWindows, turnModel, turnStepLimit, type AgentListDeps } from "./opencode-client";
 
 /* Fails `npm run typecheck` (not this run) if the SDK's v2 Agent stops declaring its cap as an optional number. */
 type Same<A, B> = (<T>() => T extends A ? 1 : 2) extends (<T>() => T extends B ? 1 : 2) ? true : false;
@@ -171,4 +171,15 @@ test("a turn's step limit is the one the server last reported for its agent, and
   assert.equal(turnStepLimit("qa-author", stale), 300);
   assert.equal(turnStepLimit("qa-uncapped", stale), undefined, "an agent the server enforces no cap for has none, whatever the file says");
   assert.equal(turnStepLimit("qa-unlisted", stale), 7);
+});
+
+test("an agent's model is the one the server last reported for it, and the local file only for an agent the server never listed", async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), "qa-turn-model-"));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const stale = join(dir, "opencode.json");
+  writeFileSync(stale, JSON.stringify({ agent: { "qa-author": { model: "old-provider/old-model" }, "qa-unlisted": { model: "file-provider/file-model" } } }));
+  await listAgentCaps("/work", await depsServing(() => json([{ name: "qa-author", steps: 300, model: { providerID: "live-provider", modelID: "live-model" } }, { name: "qa-native" }])));
+  assert.equal(turnModel("qa-author", stale), "live-provider/live-model");
+  assert.equal(turnModel("qa-native", stale), undefined, "an agent the server lists with no model of its own has none, whatever the file says");
+  assert.equal(turnModel("qa-unlisted", stale), "file-provider/file-model");
 });

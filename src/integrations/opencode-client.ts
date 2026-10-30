@@ -331,7 +331,7 @@ export interface AgentCap {
  * `maxSteps` is not on the SDK's v2 `Agent`; it is read only when `steps` is absent, for a server
  * that still answers the old name.
  */
-type AgentOnTheWire = Pick<OpenCodeAgent, "name" | "steps"> & { maxSteps?: unknown };
+type AgentOnTheWire = Pick<OpenCodeAgent, "name" | "steps" | "model"> & { maxSteps?: unknown };
 
 function describeFailure(error: unknown): string {
   return error instanceof Error ? error.message : JSON.stringify(error);
@@ -356,11 +356,14 @@ export async function listAgentCaps(directory: string, deps: AgentListDeps = def
   const agents: ReadonlyArray<AgentOnTheWire> = res.data;
   const caps = agents.map((agent) => ({ name: agent.name, cap: agent.steps ?? agent.maxSteps }));
   lastListedCaps = new Map(caps.map(({ name, cap }) => [name, enforcedStepLimit(cap)]));
+  lastListedModels = new Map(agents.map((agent) => [agent.name, agent.model ? `${agent.model.providerID}/${agent.model.modelID}` : undefined]));
   return caps;
 }
 
 /* The caps of the server's last successful agent list, by agent name: an agent listed without a cap maps to undefined. */
 let lastListedCaps: ReadonlyMap<string, number | undefined> = new Map();
+/* The models of the same list, as `provider/model`: an agent listed without a model of its own maps to undefined. */
+let lastListedModels: ReadonlyMap<string, string | undefined> = new Map();
 
 /*
  * The step limit a turn of `agent` ran under, for the exhaustion report of a turn whose prompt stated none: the cap the server
@@ -369,6 +372,11 @@ let lastListedCaps: ReadonlyMap<string, number | undefined> = new Map();
  */
 export function turnStepLimit(agent: string, configPath: string = DEFAULT_AGENTS_CONFIG_PATH()): number | undefined {
   return lastListedCaps.has(agent) ? lastListedCaps.get(agent) : maxStepsFromConfig(agent, configPath);
+}
+
+/* The model `agent` runs on, by the same rule as its step limit: the one the server last reported, the local opencode.json only for an agent it has not listed yet. */
+export function turnModel(agent: string, configPath: string = DEFAULT_AGENTS_CONFIG_PATH()): string | undefined {
+  return lastListedModels.has(agent) ? lastListedModels.get(agent) : agentConfigFacts(agent, configPath)?.model;
 }
 
 /*
