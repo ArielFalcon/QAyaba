@@ -1903,7 +1903,6 @@ type CoordinationEvent struct {
 	ReviewOutcome       *string               `json:"reviewOutcome,omitempty"`
 	RunId               string                `json:"runId"`
 	SidekickKind        *string               `json:"sidekickKind,omitempty"`
-	Tier                *string               `json:"tier,omitempty"`
 }
 
 // CoordinationEventKind defines model for CoordinationEvent.Kind.

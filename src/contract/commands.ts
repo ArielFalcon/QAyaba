@@ -768,7 +768,6 @@ export const CoordinationEventSchema = z.object({
   kind: z.enum(["proposal", "delegation", "escalation", "lead-decision", "pushback", "outcome"]),
   action: z.string().optional(),
   sidekickKind: z.string().optional(),
-  tier: z.string().optional(),
   reason: z.string(),
   durationMs: z.number().int().nonnegative().optional(),
   delegationId: z.string().optional(),

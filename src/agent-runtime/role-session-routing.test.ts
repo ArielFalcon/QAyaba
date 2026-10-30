@@ -31,7 +31,6 @@ function engineRuntime(facade: AgentFacade): AgentRuntimeAdapter {
         deps.open(agent, cwd, {
           ...(opts?.signal ? { signal: opts.signal } : {}),
           ...(opts?.timeoutMs !== undefined ? { timeoutMs: opts.timeoutMs } : {}),
-          ...(opts?.model ? { model: opts.model } : {}),
           ...(opts?.descriptor ? { descriptor: opts.descriptor } : {}),
         }),
     },

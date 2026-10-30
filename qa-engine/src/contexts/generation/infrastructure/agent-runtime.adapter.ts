@@ -4,7 +4,7 @@ import type { AgentRole } from "@kernel/agent-role.ts";
 import type { TimeLimitSource } from "@kernel/turn-limit.ts";
 
 interface AgentSessionDeps {
-  open(agent: string, cwd: string, opts?: { signal?: AbortSignal; timeoutMs?: number; timeLimit?: TimeLimitSource; model?: string;
+  open(agent: string, cwd: string, opts?: { signal?: AbortSignal; timeoutMs?: number; timeLimit?: TimeLimitSource;
     onUsage?: (u: UsageSnapshot) => void; onTurn?: (t: AgentTurnEvent) => void; descriptor?: AgentOpenDescriptor }): Promise<{
       id: string; prompt(text: string, o?: AgentPromptOpts): Promise<string>; dispose(): Promise<void>;
     }>;

@@ -1089,7 +1089,6 @@ export interface components {
             kind: "proposal" | "delegation" | "escalation" | "lead-decision" | "pushback" | "outcome";
             action?: string;
             sidekickKind?: string;
-            tier?: string;
             reason: string;
             durationMs?: number;
             delegationId?: string;

@@ -3793,9 +3793,6 @@
           "sidekickKind": {
             "type": "string"
           },
-          "tier": {
-            "type": "string"
-          },
           "reason": {
             "type": "string"
           },

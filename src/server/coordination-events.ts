@@ -85,7 +85,6 @@ function coerce(o: Record<string, unknown>): CoordinationEvent {
     at: o.at as number,
     ...(optStr(o.action) ? { action: optStr(o.action) } : {}),
     ...(optStr(o.sidekickKind) ? { sidekickKind: optStr(o.sidekickKind) } : {}),
-    ...(optStr(o.tier) ? { tier: optStr(o.tier) } : {}),
     durationMs: optInt(o.durationMs),
     ...(optStr(o.delegationId) ? { delegationId: optStr(o.delegationId) } : {}),
     attempt: optInt(o.attempt),

@@ -232,6 +232,12 @@ test("a ledger line recorded with the retired escalations count reads without it
   assert.equal("escalations" in (event ?? {}), false);
 });
 
+test("a ledger line recorded with the retired tier field reads without it", () => {
+  const [event] = parseCoordinationLedger(line({ runId: "r1", kind: "delegation", action: "delegate", sidekickKind: "author", tier: "standard", reason: "x", at: 1 })).events;
+  assert.equal(event?.sidekickKind, "author");
+  assert.equal("tier" in (event ?? {}), false);
+});
+
 test("a ledger line with the lead-decision kind is returned, with the pushback kind beside it", () => {
   const { events } = parseCoordinationLedger(
     [line({ runId: "r1", kind: "lead-decision", reason: "route", at: 1 }), line({ runId: "r1", kind: "pushback", reason: "out of scope", at: 2 })].join("\n"),
@@ -280,7 +286,7 @@ test("parseCoordinationLedger surfaces every recorded optional field of an event
       reason: "sidekick status=completed",
       at: 1,
       action: "delegate",
-      sidekickKind: "author", tier: "standard",
+      sidekickKind: "author",
       delegationId: "d1",
       attempt: 2,
       failureClass: "blocked",
@@ -292,7 +298,6 @@ test("parseCoordinationLedger surfaces every recorded optional field of an event
   ).events;
   assert.ok(event);
   assert.equal(event.sidekickKind, "author");
-  assert.equal(event.tier, "standard");
   assert.equal(event.delegationId, "d1");
   assert.equal(event.attempt, 2);
   assert.equal(event.progressFingerprint, "fp-1");
