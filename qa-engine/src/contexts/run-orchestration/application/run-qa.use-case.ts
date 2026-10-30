@@ -367,7 +367,7 @@ export class RunQaUseCase {
       pruneMirror: (workspace) => this.pruneMirrorIfWired(workspace),
       noteDeadlineArmed: () => this.noteDeadlineArmed(trail),
       redact: (text) => redactByValue(text),
-      boundText: (text, maxChars) => redactThenBound(text, maxChars, (seen) => this.deps.redact?.(redactByValue(seen)) ?? redactByValue(seen)),
+      boundText: (text, maxChars, marker) => redactThenBound(text, maxChars, (seen) => this.deps.redact?.(redactByValue(seen)) ?? redactByValue(seen), marker ? { marker } : {}),
       prepareAuth: (specDir, phase, abortSignal) => this.prepareAuth(specDir, phase, abortSignal),
       replaceRestoredLogin: (workspace, abortSignal) => this.replaceRestoredLogin(workspace, abortSignal),
       announceSuite: (text, level) => this.announceSuite(text, level),

@@ -53,7 +53,7 @@ export async function triageFlakyCases(state: Readonly<RunState>, ctx: Workspace
     annotate(ctx, { ...counts, "qayaba.flaky.outcome": "no-pass" });
     return { update: { coverage: { ...state.coverage, flakyTriage: { ...found, outcome: "no-pass" } } } };
   }
-  const regen = await regenerateAtGap(state, ctx, {}, CORRECTION_ORIGIN.FLAKY, flakyFindings(triage));
+  const regen = await regenerateAtGap(state, ctx, {}, CORRECTION_ORIGIN.FLAKY, flakyFindings(triage, ctx.host.boundText));
   annotate(ctx, { ...counts, "qayaba.flaky.outcome": regen.outcome });
   const recounted = await recountAfter(state, ctx, regen);
   return {

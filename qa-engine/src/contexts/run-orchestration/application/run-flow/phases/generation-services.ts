@@ -16,7 +16,7 @@ import type { CoordinatedPass } from "@contexts/coordination/application/index.t
 import { CORRECTION_ORIGIN, authorTargetOf, dispatchAuthor, type CorrectionOrigin, type CorrectionFinding } from "@contexts/coordination/application/index.ts";
 import { FLAKY_CLASS, type FlakyCaseTriage } from "../../../domain/flaky-triage.ts";
 import { leadCorrectionAction, leadCorrectionBudget } from "../../../domain/lead-correction-budget.ts";
-import type { WorkspaceRunContext } from "../run-context.ts";
+import type { RunHost, WorkspaceRunContext } from "../run-context.ts";
 import type { RunState } from "../run-state.ts";
 import { mergeDelivered } from "../reducers.ts";
 
@@ -95,7 +95,10 @@ export async function regenerateByAuthor(state: Readonly<RunState>, ctx: Workspa
 
 /* The most of one failure's detail a finding carries; the sidekick reruns its spec for the rest. */
 const MAX_FINDING_DETAIL_CHARS = 2_000;
-const cutDetail = (text: string): string => (text.length > MAX_FINDING_DETAIL_CHARS ? `${text.slice(0, MAX_FINDING_DETAIL_CHARS)} … (cut)` : text);
+
+/* The run's redact-then-bound (`RunHost.boundText`): a detail is redacted before it is cut, so a secret the cut would split is taken out whole. */
+export type BoundText = RunHost["boundText"];
+const cutDetail = (bound: BoundText, text: string): string => bound(text, MAX_FINDING_DETAIL_CHARS, () => " … (cut)");
 
 /* One finding a regeneration's evidence yields. */
 export interface EvidenceFinding {
@@ -103,9 +106,9 @@ export interface EvidenceFinding {
 }
 
 /* The static gate's errors, one finding each, as the gate reported them: each names the file it refused. */
-export function staticGateFindings(errors: readonly string[]): EvidenceFinding[] {
+export function staticGateFindings(errors: readonly string[], bound: BoundText): EvidenceFinding[] {
   return errors.map((error) => error.trim()).filter(Boolean).map((error) => ({
-    finding: { text: `the static gate refused the spec: ${cutDetail(error)}` },
+    finding: { text: `the static gate refused the spec: ${cutDetail(bound, error)}` },
   }));
 }
 
@@ -115,10 +118,10 @@ export function staticGateFindings(errors: readonly string[]): EvidenceFinding[]
  * follows the class: a spec that read DEV's data differently between attempts stops depending on it, any other waits on what the
  * page shows.
  */
-export function flakyFindings(triage: readonly FlakyCaseTriage[]): EvidenceFinding[] {
+export function flakyFindings(triage: readonly FlakyCaseTriage[], bound: BoundText): EvidenceFinding[] {
   return triage.map(({ case: c, class: flakyClass, evidence }) => {
     const subject = `test "${c.name}"${c.file ? ` in ${c.file}` : ""} failed its first attempt and passed on retry; ${evidence}`;
-    const detail = c.detail ? ` (${cutDetail(c.detail)})` : "";
+    const detail = c.detail ? ` (${cutDetail(bound, c.detail)})` : "";
     const remedy = flakyClass === FLAKY_CLASS.DATA_INSTABILITY
       ? "DEV's data changed between attempts, so the spec depends on live data. Stop depending on it: derive every expected value from what the page shows when the test runs, or pin the state the app lets a test pin."
       : "the page was not in the state the assertion waited for. Wait on the state the page shows (a web-first assertion on the settled result), never on a fixed delay.";
@@ -127,10 +130,10 @@ export function flakyFindings(triage: readonly FlakyCaseTriage[]): EvidenceFindi
 }
 
 /* The findings a regeneration's evidence names: one per failing case, contradiction and contract delta, and one per unit of the uncovered gap. */
-function findingsOf(enrichment: GenerationEnrichment): EvidenceFinding[] {
+function findingsOf(enrichment: GenerationEnrichment, bound: BoundText): EvidenceFinding[] {
   const out: EvidenceFinding[] = [];
   for (const c of enrichment.fixCases ?? []) {
-    const text = `test "${c.name}"${c.file ? ` in ${c.file}` : ""} ${c.status === "flaky" ? "passed only on retry" : "failed"}${c.detail ? `: ${cutDetail(c.detail)}` : ""}`;
+    const text = `test "${c.name}"${c.file ? ` in ${c.file}` : ""} ${c.status === "flaky" ? "passed only on retry" : "failed"}${c.detail ? `: ${cutDetail(bound, c.detail)}` : ""}`;
     out.push({ finding: { text, ...(c.file ? { spec: c.file } : {}) } });
   }
   const attributed = enrichment.attributedSpecFiles ?? [];
@@ -173,7 +176,7 @@ export async function regenerate(
   evidence?: readonly EvidenceFinding[],
 ): Promise<Regenerated> {
   const pass = ctx.trail.coordinatedPass;
-  const findings = pass ? (evidence ?? findingsOf(enrichment)) : [];
+  const findings = pass ? (evidence ?? findingsOf(enrichment, ctx.host.boundText)) : [];
   if (!pass || findings.length === 0) return { output: await regenerateByAuthor(state, ctx, regenerationSignal, enrichment), leadCorrections: 0 };
   if (!mayCorrectThroughLead(state, ctx)) return correctionBudgetSpent(ctx, pass, findings.map((f) => f.finding), origin);
   return correctThroughLead(state, ctx, pass, findings.map((f) => f.finding), origin);
