@@ -58,6 +58,17 @@ test("an egress precondition keeps what the login itself failed on beside the re
   assert.ok(!failure.note.includes("s3cret-pass"));
 });
 
+test("an egress precondition cuts what the login failed on after redacting it: a token straddling the cut leaves no part of itself", async () => {
+  const report = newSandboxReport();
+  const words = "TimeoutError: waiting for the home heading after sign-in ";
+  const logs = `${words.repeat(8).slice(0, 368)}sk-${"Q7x9Zk2M".repeat(6)} then more words`;
+  const { adapter, specDir } = adapterWith(async (...args) => refusedChild(report, ["img.example.test"], { exitCode: 1, logs })(), true);
+  const failure = await prepareIn(report, () => adapter.prepare({ specDir, baseUrl: "https://dev.example", phase: "pre-generate", auth: AUTH })).catch((err: unknown) => err);
+  assert.ok(failure instanceof AuthPreconditionError);
+  assert.match(failure.note, /waiting for the home heading/);
+  assert.ok(!failure.note.includes("sk-Q7x9"), failure.note.slice(-80));
+});
+
 test("a stock login that cannot sign in while its child was refused a host does not fall back to the agent rewriting it", async () => {
   const report = newSandboxReport();
   const specDir = mkdtempSync(join(tmpdir(), "auth-egress-"));

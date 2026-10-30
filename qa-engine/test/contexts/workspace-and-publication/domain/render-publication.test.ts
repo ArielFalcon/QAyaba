@@ -1,9 +1,14 @@
 /* renderIssue/renderPrBody are pure; sanitize is applied once by the caller to the whole body. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { renderIssue, renderPrBody } from "@contexts/workspace-and-publication/domain/render-publication.ts";
+import { renderIssue as renderIssueRedacting, renderPrBody as renderPrBodyRedacting } from "@contexts/workspace-and-publication/domain/render-publication.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 import type { DataContradiction } from "@kernel/data-contradiction.ts";
+
+/* The renderers take the redactor the caller sanitizes with; these scenarios are about the body, so nothing is redacted. */
+const keep = (text: string): string => text;
+const renderIssue = (input: Parameters<typeof renderIssueRedacting>[0]): string => renderIssueRedacting(input, keep);
+const renderPrBody = (input: Parameters<typeof renderPrBodyRedacting>[0]): string => renderPrBodyRedacting(input, keep);
 
 function failCase(overrides: Partial<QaCase> = {}): QaCase {
   return { name: "checkout flow", status: "fail", detail: "expect(locator).toBeVisible() failed\nTimeout 5000ms exceeded", ...overrides };

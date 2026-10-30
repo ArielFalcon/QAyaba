@@ -10,11 +10,9 @@ import type { ApiDeps } from "../deps";
 import { apiRunRequest } from "../run-request";
 import { reply, type ApiResult } from "../respond";
 import { loadApp, redactionPort } from "../support";
+import { boundGuidance } from "../../guidance";
 
 const SHA_PATTERN = /^[0-9a-f]{7,40}$/i;
-
-/* The longest guidance a run request carries. */
-export const MAX_GUIDANCE_LENGTH = 2000;
 
 export async function createRun(deps: ApiDeps, body: Record<string, unknown>): Promise<ApiResult> {
   const appName = typeof body.app === "string" ? body.app : null;
@@ -27,7 +25,7 @@ export async function createRun(deps: ApiDeps, body: Record<string, unknown>): P
   const parsedMode = parseRunMode(body.mode);
   if (!parsedMode.ok) throw new ApiError(400, `'mode' ${parsedMode.error}`);
   const mode = parsedMode.mode;
-  const guidance = typeof body.guidance === "string" ? body.guidance.slice(0, MAX_GUIDANCE_LENGTH) : undefined;
+  const guidance = boundGuidance(body.guidance);
   const shadow = typeof body.shadow === "boolean" ? body.shadow : undefined;
   const commits =
     typeof body.commits === "number" && Number.isInteger(body.commits) && body.commits >= 1 && body.commits <= 20

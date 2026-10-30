@@ -12,6 +12,7 @@ import { levelOfEffect } from "@kernel/ports/logger.port.ts";
 import { engineLog } from "@kernel/ports/process-logger.ts";
 import { PRECONDITION_EFFECT, type PreconditionTerminal } from "../domain/helpers/precondition-terminal.ts";
 import { createRunSecretScope, redactByValue, withRunSecretScope } from "../../../shared-kernel/run-secret-redaction.ts";
+import { redactThenBound } from "../../../shared-kernel/redact-then-bound.ts";
 import type { ExecScopePort } from "../../../shared-kernel/ports/exec-scope.port.ts";
 import type { AuthSession } from "@contexts/app-catalog/application/index.ts";
 import { GENERATION_END } from "@kernel/generation-end.ts";
@@ -362,6 +363,7 @@ export class RunQaUseCase {
       pruneMirror: (workspace) => this.pruneMirrorIfWired(workspace),
       noteDeadlineArmed: () => this.noteDeadlineArmed(trail),
       redact: (text) => redactByValue(text),
+      boundText: (text, maxChars) => redactThenBound(text, maxChars, (seen) => this.deps.redact?.(redactByValue(seen)) ?? redactByValue(seen)),
       prepareAuth: (specDir, phase, abortSignal) => this.prepareAuth(specDir, phase, abortSignal),
       replaceRestoredLogin: (workspace, abortSignal) => this.replaceRestoredLogin(workspace, abortSignal),
       announceSuite: (text, level) => this.announceSuite(text, level),

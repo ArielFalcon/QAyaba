@@ -23,6 +23,7 @@ import { type AuthSessionPort } from "../application/ports/auth-session.port.ts"
 import { AuthPreconditionError, PRECONDITION_KIND } from "../domain/auth-precondition.ts";
 import { startRunChildSpan } from "../../../shared-infrastructure/telemetry/run-spans.ts";
 import type { TelemetryPort } from "../../../shared-kernel/telemetry/telemetry.port.ts";
+import { redactAndBound } from "../../../shared-infrastructure/redaction/redact-and-bound.ts";
 import { suiteAuthNotes } from "../../../shared-infrastructure/telemetry/run-auth-notes.ts";
 import { LOGIN_STATUS, classifyLoginEvidence, renderLoginEvidence, type LoginOutcome } from "../domain/helpers/login-evidence.ts";
 import type { LoginDiscoveryInput, LoginDiscoveryResult } from "./login-discovery/login-discovery.runner.ts";
@@ -97,12 +98,14 @@ const DEV_GATE_ENV_NAMES = ["DEV_ENV_USER", "DEV_ENV_PASS", "DEV_CLIENT_CERT_PAS
 
 /* The most of a login's own failure an egress note carries. */
 const MAX_CAUSE_IN_NOTE = 400;
+/* The most of a login's output an `auth setup failed` error carries. */
+const MAX_SETUP_FAILURE_CHARS = 4000;
 /* What a login that threw failed on, one line and bounded; nothing when it did not throw. */
 function causeOf(cause: unknown, accountValues: readonly string[]): string {
   if (cause === undefined) return "";
   let raw = cause instanceof Error ? cause.message : String(cause);
   for (const value of accountValues) if (value !== "") raw = raw.split(value).join("[REDACTED]");
-  const text = raw.replace(/\s+/g, " ").trim().slice(0, MAX_CAUSE_IN_NOTE);
+  const text = redactAndBound(raw, MAX_CAUSE_IN_NOTE).replace(/\s+/g, " ").trim();
   return text === "" ? "" : `. The login itself failed with: ${text}`;
 }
 const MAX_HOSTS_IN_NOTE = 10;
@@ -322,7 +325,7 @@ export class AuthSessionAdapter implements AuthSessionPort {
       return { unauthored: true };
     }
     const detail = redactByValue(result.logs.trim()) || `exit ${result.exitCode}`;
-    throw new Error(`auth setup failed: ${detail.slice(0, 4000)}`);
+    throw new Error(`auth setup failed: ${redactAndBound(detail, MAX_SETUP_FAILURE_CHARS)}`);
   }
 
   /*

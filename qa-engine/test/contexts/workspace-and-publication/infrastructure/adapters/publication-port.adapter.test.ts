@@ -351,6 +351,23 @@ test("publish() never embeds raw execution logs in the Issue body — logs live 
   assert.match(bodySeen, /Full trace \+ logs in the run artifacts/, "the body must point at the run artifacts instead of embedding logs");
 });
 
+test("publish() redacts a failing case's detail before the body cuts it: a token straddling the cut leaves no part of itself in the Issue", async () => {
+  const decide = new PublishDecisionService();
+  let bodySeen = "";
+  const issue = { open: async (_repo: string, _title: string, body: string) => { bodySeen = body; return { url: "https://github.com/org/app/issues/6", number: 6 }; } };
+  const shadowLog = new ShadowLogAdapter(() => {});
+  const sanitize = (text: string) => text.replace(/sk-[A-Za-z0-9]{20,}/g, "[REDACTED_SECRET]");
+  const adapter = new PublicationPortAdapter({ decide, pr: fakePr(), issue, shadowLog, sanitize, render: realRender() }, {
+    repo: "org/app", branch: "qa-bot/abc1234", reviewerApproved: true, coverageBlocks: false, shadow: false, e2eChanged: true,
+  });
+  const detail = `Timeout while waiting for the cart totals to settle after the last click on the page ${"and again ".repeat(10)}sk-${"Q7x9Zk2M".repeat(4)} then more words`;
+  assert.ok(detail.indexOf("sk-") < 200 && detail.indexOf("sk-") + 32 > 200, "the token straddles the cause cap");
+
+  await adapter.publish({ verdict: "fail", cases: [{ name: "checkout", status: "fail", detail }], logs: "" });
+
+  assert.ok(!bodySeen.includes("sk-Q7x9"), bodySeen);
+});
+
 test("publish() applies the injected sanitize() to each failing case's name and detail", async () => {
   const decide = new PublishDecisionService();
   let bodySeen = "";

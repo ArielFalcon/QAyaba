@@ -66,7 +66,7 @@ export interface PublicationRenderCollaborator {
     routeAvailability?: readonly RouteAvailabilityFact[];
     stubbedState?: StubbedStateView;
     dataContradictions?: readonly DataContradiction[];
-  }): string;
+  }, redact: (text: string) => string): string;
   prBody(input: {
     sha?: string;
     tested?: { flow?: string; objective?: string }[];
@@ -75,7 +75,7 @@ export interface PublicationRenderCollaborator {
     routeAvailability?: readonly RouteAvailabilityFact[];
     stubbedState?: StubbedStateView;
     dataContradictions?: readonly DataContradiction[];
-  }): string;
+  }, redact: (text: string) => string): string;
 }
 
 export interface PublicationPortCollaborators {
@@ -177,7 +177,7 @@ export class PublicationPortAdapter implements PublicationPort {
           ...(decision.routeAvailability?.length ? { routeAvailability: decision.routeAvailability } : {}),
           ...(decision.stubbedState ? { stubbedState: decision.stubbedState } : {}),
           ...(decision.dataContradictions?.length ? { dataContradictions: decision.dataContradictions } : {}),
-        }),
+        }, sanitize),
       );
     const prBodyText = (): string =>
       sanitize(
@@ -189,7 +189,7 @@ export class PublicationPortAdapter implements PublicationPort {
           ...(decision.routeAvailability?.length ? { routeAvailability: decision.routeAvailability } : {}),
           ...(decision.stubbedState ? { stubbedState: decision.stubbedState } : {}),
           ...(decision.dataContradictions?.length ? { dataContradictions: decision.dataContradictions } : {}),
-        }),
+        }, sanitize),
       );
     /* Issues open in the triggering repo when supplied; PRs always target ctx.repo (primary). */
     const issueRepo = decision.issueRepo ?? this.ctx.repo;

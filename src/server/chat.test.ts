@@ -31,6 +31,14 @@ test("buildRunContext includes verdict + failing case detail, and is sanitized o
   assert.doesNotMatch(ctx, /hunter2/); /* a secret in the logs is redacted */
 });
 
+test("buildRunContext redacts a case's detail before cutting it: a token straddling the cut leaves no part of itself", () => {
+  const words = "timed out waiting for the pay button while the page reloaded ";
+  const detail = `${words.repeat(5).slice(0, 288)}sk-${"Q7x9Zk2M".repeat(6)} and more`;
+  const ctx = buildRunContext(rec({ cases: [{ name: "checkout", status: "fail", detail }] }), { maxCases: 5, caseDetailChars: 300, logTailChars: 100 });
+  assert.match(ctx, /timed out waiting/);
+  assert.doesNotMatch(ctx, /sk-Q7x9/);
+});
+
 test("buildRunContext caps the case list and reports the overflow", () => {
   const many = Array.from({ length: 30 }, (_, i) => ({ name: `t${i}`, status: "pass" as const }));
   const ctx = buildRunContext(rec({ cases: many }), { maxCases: 5, caseDetailChars: 50, logTailChars: 100 });

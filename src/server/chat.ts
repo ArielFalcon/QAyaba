@@ -6,6 +6,7 @@
 
 import { RunRecord } from "../types";
 import { sanitizeText } from "../../qa-engine/src/shared-infrastructure/redaction/pattern-redaction.adapter";
+import { redactThenBound } from "../../qa-engine/src/shared-kernel/redact-then-bound";
 import { infraErrorGloss } from "../qa/learning/infra-error-gloss";
 import { getHistory } from "./persistence/index";
 
@@ -106,7 +107,7 @@ export function buildRunContext(
   if (cases.length > 0) {
     lines.push("", "Cases:");
     for (const c of cases) {
-      const detail = c.detail ? `: ${c.detail.slice(0, limits.caseDetailChars)}` : "";
+      const detail = c.detail ? `: ${redactThenBound(c.detail, limits.caseDetailChars, (text) => sanitizeText(text).text)}` : "";
       lines.push(`  [${c.status}] ${c.name}${detail}`);
     }
     if (record.cases.length > cases.length) lines.push(`  … and ${record.cases.length - cases.length} more`);

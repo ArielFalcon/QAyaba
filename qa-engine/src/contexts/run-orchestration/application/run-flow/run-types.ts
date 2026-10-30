@@ -87,6 +87,8 @@ export interface RunQaConfig {
 }
 
 export interface RunQaUseCaseDeps {
+  /** The outbound pattern redaction, applied after the run's secrets by value to untrusted text the run bounds before it travels on (the static gate's output). Absent: only the run's secrets are taken out. */
+  redact?: (text: string) => string;
   /** Absent: the system clock. Times each phase of a run (tests inject a fake). */
   phaseClock?: PhaseClock;
   /** Absent: nothing is traced. Present: each phase of the run is a span under the run's active context (run-phase-spans.ts). Never changes a verdict. */

@@ -175,6 +175,20 @@ test("exit 0 without user.json throws on pre-execute", async () => {
   );
 });
 
+test("a login that fails cuts its output after redacting it: a token straddling the cut leaves no part of itself in the error", async () => {
+  const specDir = mkdtempSync(join(tmpdir(), "auth-"));
+  writeFileSync(join(specDir, "auth.setup.ts"), "/* app-owned login */\n");
+  const words = "TimeoutError: waiting for the home heading after sign-in\n";
+  const logs = `${words.repeat(80).slice(0, 3988)}sk-${"Q7x9Zk2M".repeat(6)} then more words`;
+  const adapter = new AuthSessionAdapter({ env: { QA_USER: "u", QA_PASS: "p" }, authDir: authDirFixture(), spawnSetup: async () => ({ exitCode: 1, logs }) });
+  const failure = await adapter
+    .prepare({ specDir, baseUrl: "https://dev.example", phase: "pre-execute", auth: { kind: "form", usernameEnv: "QA_USER", passwordEnv: "QA_PASS" } })
+    .catch((err: unknown) => err);
+  assert.ok(failure instanceof Error);
+  assert.match(failure.message, /auth setup failed/);
+  assert.ok(!failure.message.includes("sk-Q7x9"), failure.message.slice(-80));
+});
+
 /* Only a byte-for-byte shipped seed is stock. A login the app wrote is its own even when it kept the
    seed's first-line marker, so its failing sign-in is an integration error, never an unauthored run
    that invites the generator to rewrite the login. */

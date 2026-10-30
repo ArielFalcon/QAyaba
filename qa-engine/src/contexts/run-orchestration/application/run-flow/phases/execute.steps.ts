@@ -158,7 +158,7 @@ export async function staticFixRound(state: Readonly<RunState>, ctx: WorkspaceRu
   deps.observer?.onStep("retry", `static-fix round ${round}/${MAX_STATIC_FIX_ROUNDS}`);
   /* Repair regen reuses the same classificationDiff/intent as the initial generate(). */
   /* mutation-scope:end static-fix-round */
-  const staticGateErrorDetail = stripAnsi(validation.errors.join("\n\n")).slice(0, STATIC_GATE_ERROR_DETAIL_MAX_CHARS);
+  const staticGateErrorDetail = ctx.host.boundText(stripAnsi(validation.errors.join("\n\n")), STATIC_GATE_ERROR_DETAIL_MAX_CHARS);
   const { output: lastGenerated, leadCorrections } = await regenerate(state, ctx, signal, {
     fixCases: [{ name: "static-gate", status: "fail", detail: staticGateErrorDetail }],
   }, CORRECTION_ORIGIN.STATIC_GATE, staticGateFindings(validation.errors.map(stripAnsi)));

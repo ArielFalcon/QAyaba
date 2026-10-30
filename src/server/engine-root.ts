@@ -488,6 +488,7 @@ function assemble(cfg: EngineRootDeps): RunOrchestrationApi {
     ...(learningApi.processAudit ? { processAudit: learningApi.processAudit } : {}),
     /* Absent runDeadline is omitted entirely — never a fabricated deadline that bounds nothing. */
     ...(cfg.runDeadline ? { runDeadline: cfg.runDeadline } : {}),
+    redact: (text) => patternRedaction.redact(text),
     ...(cfg.telemetry ? { telemetry: cfg.telemetry } : {}),
     ...(cfg.clock ? { phaseClock: cfg.clock } : {}),
     /* Absent contextMapCapture is omitted entirely — never a fabricated no-op stub. */

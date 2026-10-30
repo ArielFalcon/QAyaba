@@ -2,6 +2,7 @@
 
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { parseRunMode, RunMode } from "../types";
+import { boundGuidance } from "./guidance";
 
 export interface WebhookPayload {
   repo: string;
@@ -25,7 +26,7 @@ const HEX_SHA = /^[0-9a-f]{7,40}$/i;
 export function parseWebhook(body: unknown): WebhookPayload | null {
   if (!body || typeof body !== "object") return null;
   const b = body as Record<string, unknown>;
-  const guidance = typeof b.guidance === "string" ? b.guidance.slice(0, 2000) : undefined;
+  const guidance = boundGuidance(b.guidance);
 
   const mode = parseRunMode(b.mode);
   if (!mode.ok) return null;

@@ -1,8 +1,9 @@
-/* Renders the GitHub markdown for a run: the Issue body for a failing/invalid/flaky run and the PR body for a green publish. The goal is REVIEWER-FACING DOCUMENTATION — a concise, high-level account of what was tested, what was found, and what to do — NOT a log dump. PURE, no sanitizer dependency: every field here is markdown-composed from caller-supplied, already-untrusted text. The CALLER (publication-port.adapter.ts) sanitizes the WHOLE composed body string returned by renderIssue/renderPrBody before it ever reaches GitHub — a single whole-body sanitize pass satisfies "every rendered field passes the injected sanitizer" (the spec's own MUST) without threading a sanitize callback through every render helper in this file, and keeps this domain file testable with zero collaborators (matches this context's OWN write-confinement.service.ts precedent: pure classifiers, effectful wiring lives one layer out). */
+/* Renders the GitHub markdown for a run: the Issue body for a failing/invalid/flaky run and the PR body for a green publish. The goal is REVIEWER-FACING DOCUMENTATION — a concise, high-level account of what was tested, what was found, and what to do — NOT a log dump. PURE, no sanitizer dependency: every field here is markdown-composed from caller-supplied, already-untrusted text. The CALLER (publication-port.adapter.ts) sanitizes the WHOLE composed body string returned by renderIssue/renderPrBody before it ever reaches GitHub, and hands the same redactor in as an argument: every field the renderers BOUND is redacted before it is cut (shared-kernel/redact-then-bound.ts), so the cut can never leave the first characters of a secret that the whole-body pass would no longer recognise. The redactor is a parameter, not an import, which keeps this domain file testable and pure (matches this context's OWN write-confinement.service.ts precedent: pure classifiers, effectful wiring lives one layer out). */
 import type { RunVerdict } from "@kernel/run-verdict.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 import { outcomeText, type RouteAvailabilityFact } from "@kernel/route-availability.ts";
 import { dataContradictionStatement, type DataContradiction } from "@kernel/data-contradiction.ts";
+import { redactThenBound } from "@kernel/redact-then-bound.ts";
 
 export interface TestedItem {
   flow?: string;
@@ -34,28 +35,30 @@ const CAP_OBJECTIVE = 300;
 const CAP_CONTRADICTION = 900;
 const MAX_STUBS_PER_GAP = 3;
 
-const cap = (v: string, max: number): string =>
-  v.length <= max ? v : v.slice(0, max).trimEnd() + ` …(+${v.length - max} chars)`;
+/* A field of the body bounded to `max`: redacted first, then cut, with the marker saying how long it was. */
+type Bound = (value: string, max: number) => string;
+const boundWith = (redact: (text: string) => string): Bound => (value, max) =>
+  redactThenBound(value, max, redact, { marker: (original, kept) => ` …(+${original - kept} chars)` });
 
-function oneLineCause(detail: string): string {
+function oneLineCause(detail: string, bound: Bound): string {
   const lines = detail.split("\n").map((l) => l.trim()).filter(Boolean);
   const pick = lines.find((l) => /error|expect|timeout|fail|assert|not found|exceeded/i.test(l)) ?? lines[0] ?? "";
-  return cap(pick, CAP_CAUSE);
+  return bound(pick, CAP_CAUSE);
 }
 
-function renderTestedItem(t: TestedItem): string {
-  const flow = t.flow ? cap(t.flow, CAP_FLOW) : "";
-  const obj = t.objective ? cap(t.objective, CAP_OBJECTIVE) : "";
+function renderTestedItem(t: TestedItem, bound: Bound): string {
+  const flow = t.flow ? bound(t.flow, CAP_FLOW) : "";
+  const obj = t.objective ? bound(t.objective, CAP_OBJECTIVE) : "";
   if (flow && obj) return `- **${flow}** — ${obj}`;
   if (flow) return `- **${flow}**`;
   if (obj) return `- ${obj}`;
   return "";
 }
 
-function renderFailedCase(c: QaCase): string {
-  const lines = [`- **${cap(c.name, CAP_NAME)}**${c.detail ? ` — ${oneLineCause(c.detail)}` : ""}`];
-  if (c.objective) lines.push(`  - tested: ${cap(c.objective, CAP_OBJECTIVE)}`);
-  if (c.reason) lines.push(`  - fix: ${cap(c.reason, CAP_OBJECTIVE)}`);
+function renderFailedCase(c: QaCase, bound: Bound): string {
+  const lines = [`- **${bound(c.name, CAP_NAME)}**${c.detail ? ` — ${oneLineCause(c.detail, bound)}` : ""}`];
+  if (c.objective) lines.push(`  - tested: ${bound(c.objective, CAP_OBJECTIVE)}`);
+  if (c.reason) lines.push(`  - fix: ${bound(c.reason, CAP_OBJECTIVE)}`);
   return lines.join("\n");
 }
 
@@ -84,12 +87,12 @@ function renderAdjudicationSection(a: AdjudicationLabel): string {
 const REACH_WORDS: Record<string, string> = { "in-reach": "in the change's reach", "out-of-reach": "outside the change's reach", unknown: "reach unknown" };
 
 /* What the failure says about the change, in the evidence's own terms: the run-level reach, how it was established, the entries it rests on and at most MAX_ITEMS cases. A recorded label, not a decision. */
-function renderCausalSection(c: CausalLabelView): string {
+function renderCausalSection(c: CausalLabelView, bound: Bound): string {
   const lines = ["Change reach", `- Reach: ${REACH_WORDS[c.reach] ?? c.reach}`, `- Basis: ${c.basis}`];
-  if (c.via.length) lines.push(`- Via: ${c.via.slice(0, MAX_ITEMS).map((v) => `\`${cap(v, CAP_NAME)}\``).join(", ")}`);
-  lines.push(`- Reason: ${cap(c.reason, CAP_CAUSE)}`);
+  if (c.via.length) lines.push(`- Via: ${c.via.slice(0, MAX_ITEMS).map((v) => `\`${bound(v, CAP_NAME)}\``).join(", ")}`);
+  lines.push(`- Reason: ${bound(c.reason, CAP_CAUSE)}`);
   const shown = c.cases.slice(0, MAX_ITEMS);
-  for (const k of shown) lines.push(`  - ${cap(k.name, CAP_NAME)}: ${REACH_WORDS[k.reach] ?? k.reach} (${k.basis})`);
+  for (const k of shown) lines.push(`  - ${bound(k.name, CAP_NAME)}: ${REACH_WORDS[k.reach] ?? k.reach} (${k.basis})`);
   if (c.cases.length > shown.length) lines.push(`  - …and ${c.cases.length - shown.length} more case(s) omitted`);
   return lines.join("\n");
 }
@@ -115,24 +118,24 @@ const GUARD_MEANING: Record<string, string> = {
   "no-live-test": "every test of the spec file is stubbed: no live test sits beside them",
 };
 
-function renderStubbedTest(t: StubbedStateView["tests"][number]): string {
+function renderStubbedTest(t: StubbedStateView["tests"][number], bound: Bound): string {
   const title = t.response !== undefined ? t.name.replace(STUB_MARKER_PREFIX, "") : t.name;
-  const routes = t.routes.length > 0 ? ` (${t.routes.map((r) => `\`${cap(r, CAP_FLOW)}\``).join(", ")})` : "";
+  const routes = t.routes.length > 0 ? ` (${t.routes.map((r) => `\`${bound(r, CAP_FLOW)}\``).join(", ")})` : "";
   const against =
-    t.response !== undefined ? cap(t.response, CAP_OBJECTIVE) + routes
+    t.response !== undefined ? bound(t.response, CAP_OBJECTIVE) + routes
     : t.routes.length > 0 ? `the response its handler fulfils${routes}`
     : "a helper it calls could not be read, so it is counted as stubbed";
-  return `- \`${cap(t.file, CAP_FLOW)}\` › ${cap(title, CAP_NAME)} — ${against}`;
+  return `- \`${bound(t.file, CAP_FLOW)}\` › ${bound(title, CAP_NAME)} — ${against}`;
 }
 
 /* The stubbed tests as a section of their own, and the guards they broke: what the reader must know about a test that holds for a stated response and not for what DEV returns. Empty when there is neither. A record for the reader, never a gate. */
-function renderStubbedSection(state: StubbedStateView | undefined): string {
+function renderStubbedSection(state: StubbedStateView | undefined, bound: Bound): string {
   const tests = (state?.tests ?? []).slice(0, MAX_ITEMS);
   const violations = (state?.violations ?? []).slice(0, MAX_ITEMS);
   const blocks: string[] = [];
-  if (tests.length > 0) blocks.push(`**Tested against a stated response, not DEV** (these tests fulfil the responses they state through the browser's route interception: they hold for those responses, not for what DEV returns; a signal, not a gate):\n${tests.map(renderStubbedTest).join("\n")}`);
+  if (tests.length > 0) blocks.push(`**Tested against a stated response, not DEV** (these tests fulfil the responses they state through the browser's route interception: they hold for those responses, not for what DEV returns; a signal, not a gate):\n${tests.map((t) => renderStubbedTest(t, bound)).join("\n")}`);
   if (violations.length > 0) {
-    const line = (v: NonNullable<StubbedStateView["violations"]>[number]): string => `- \`${cap(v.file, CAP_FLOW)}\`${v.test !== undefined ? ` › ${cap(v.test, CAP_NAME)}` : ""} — ${v.kind}: ${GUARD_MEANING[v.kind] ?? "a guard of the stubbed-state rules"}`;
+    const line = (v: NonNullable<StubbedStateView["violations"]>[number]): string => `- \`${bound(v.file, CAP_FLOW)}\`${v.test !== undefined ? ` › ${bound(v.test, CAP_NAME)}` : ""} — ${v.kind}: ${GUARD_MEANING[v.kind] ?? "a guard of the stubbed-state rules"}`;
     blocks.push(`**Guards these tests broke** (the stubbed-state rules: only reads are fulfilled, a write is never faked, and a live test sits beside; a signal, not a gate):\n${violations.map(line).join("\n")}`);
   }
   return blocks.join("\n\n");
@@ -158,10 +161,10 @@ export interface RenderIssueInput {
 }
 
 /* The reviewer's missing cases as a section of their own; empty when there are none. A record for the reader, never a gate. */
-function renderMissingCasesSection(missingCases: readonly string[] | undefined): string {
+function renderMissingCasesSection(missingCases: readonly string[] | undefined, bound: Bound): string {
   const shown = (missingCases ?? []).filter((text) => text.trim() !== "").slice(0, MAX_ITEMS);
   if (shown.length === 0) return "";
-  return `**Cases the change decides that no test runs** (the reviewer's reading of the measured arms; not a gate):\n${shown.map((text) => `- ${cap(text, CAP_OBJECTIVE)}`).join("\n")}`;
+  return `**Cases the change decides that no test runs** (the reviewer's reading of the measured arms; not a gate):\n${shown.map((text) => `- ${bound(text, CAP_OBJECTIVE)}`).join("\n")}`;
 }
 
 /* Where each fact's evidence is: the route table entry or guard the change governs it by, or the reach of a possible regression. */
@@ -173,8 +176,8 @@ function availabilityEvidence(fact: RouteAvailabilityFact): string {
 }
 
 /* The route availability the reader must see: every unavailability the change introduced (a new contract the tests may assert), and every possible regression. Empty when there is neither. A record for the reader, never a gate. */
-function renderAvailabilitySection(facts: readonly RouteAvailabilityFact[] | undefined): string {
-  const line = (fact: RouteAvailabilityFact): string => `- \`${cap(fact.route, CAP_FLOW)}\` ends on ${cap(outcomeText(fact.outcome), CAP_FLOW)}: ${cap(availabilityEvidence(fact), CAP_CAUSE)}`;
+function renderAvailabilitySection(facts: readonly RouteAvailabilityFact[] | undefined, bound: Bound): string {
+  const line = (fact: RouteAvailabilityFact): string => `- \`${bound(fact.route, CAP_FLOW)}\` ends on ${bound(outcomeText(fact.outcome), CAP_FLOW)}: ${bound(availabilityEvidence(fact), CAP_CAUSE)}`;
   const introduced = (facts ?? []).filter((fact) => fact.basis.class === "change-introduced").slice(0, MAX_ITEMS);
   const regressions = (facts ?? []).filter((fact) => fact.basis.class === "regression-candidate").slice(0, MAX_ITEMS);
   const blocks: string[] = [];
@@ -184,25 +187,26 @@ function renderAvailabilitySection(facts: readonly RouteAvailabilityFact[] | und
 }
 
 /* The stubbed tests that fulfil a field a gap lacks, as lines under the gap: a test that states a response carrying the field the live answers do not corroborates the gap, but it is a test of the stated response, not of DEV. A test whose body the spec does not state is linked to none. */
-function corroboratingStubs(fact: DataContradiction, state: StubbedStateView | undefined): string[] {
+function corroboratingStubs(fact: DataContradiction, state: StubbedStateView | undefined, bound: Bound): string[] {
   return (state?.tests ?? [])
     .filter((t) => t.fulfils?.includes(fact.key))
     .slice(0, MAX_STUBS_PER_GAP)
-    .map((t) => `  - also tested against a stated response that fulfils "${cap(fact.key, CAP_NAME)}": \`${cap(t.file, CAP_FLOW)}\` › ${cap(t.response !== undefined ? t.name.replace(STUB_MARKER_PREFIX, "") : t.name, CAP_NAME)}`);
+    .map((t) => `  - also tested against a stated response that fulfils "${bound(fact.key, CAP_NAME)}": \`${bound(t.file, CAP_FLOW)}\` › ${bound(t.response !== undefined ? t.name.replace(STUB_MARKER_PREFIX, "") : t.name, CAP_NAME)}`);
 }
 
 /* The data contradictions of the run's pages: a field the consumer's own code expects of an answer that no response of the operation carries. A possible defect of the app's data (or of the provider's contract), which a test written around it would hide; a record for the reader, never a gate. */
-function renderDataContradictionsSection(facts: readonly DataContradiction[] | undefined, stubbed: StubbedStateView | undefined): string {
+function renderDataContradictionsSection(facts: readonly DataContradiction[] | undefined, stubbed: StubbedStateView | undefined, bound: Bound): string {
   const shown = (facts ?? []).slice(0, MAX_ITEMS);
   if (shown.length === 0) return "";
-  const page = (fact: DataContradiction): string => (fact.template === undefined ? `\`${cap(fact.route, CAP_FLOW)}\`` : `\`${cap(fact.route, CAP_FLOW)}\` (instance of \`${cap(fact.template, CAP_FLOW)}\`)`);
+  const page = (fact: DataContradiction): string => (fact.template === undefined ? `\`${bound(fact.route, CAP_FLOW)}\`` : `\`${bound(fact.route, CAP_FLOW)}\` (instance of \`${bound(fact.template, CAP_FLOW)}\`)`);
   const more = (facts ?? []).length - shown.length;
   const omitted = more > 0 ? `\n_…and ${more} more omitted._` : "";
-  const lines = shown.flatMap((fact) => [`- ${page(fact)}: ${cap(dataContradictionStatement(fact), CAP_CONTRADICTION)}`, ...corroboratingStubs(fact, stubbed)]);
+  const lines = shown.flatMap((fact) => [`- ${page(fact)}: ${bound(dataContradictionStatement(fact), CAP_CONTRADICTION)}`, ...corroboratingStubs(fact, stubbed, bound)]);
   return `**Possible data contradictions** (a field the consumer's own code expects of an answer, that its declared type holds and its code reads and never writes, is absent from every response the page received; it may be a defect of the app's data or of the provider's contract, not of the tests; a signal, not a gate):\n${lines.join("\n")}${omitted}`;
 }
 
-export function renderIssue(input: RenderIssueInput): string {
+export function renderIssue(input: RenderIssueInput, redact: (text: string) => string): string {
+  const bound = boundWith(redact);
   const failed = input.cases.filter((c) => c.status === "fail");
   const flaky = input.cases.filter((c) => c.status === "flaky");
   const shownFailed = failed.slice(0, MAX_ITEMS);
@@ -214,34 +218,34 @@ export function renderIssue(input: RenderIssueInput): string {
 
   const tested = (input.tested ?? []).filter((t) => t.flow || t.objective).slice(0, MAX_ITEMS);
   if (tested.length) {
-    blocks.push(`### What was tested\n${tested.map(renderTestedItem).filter(Boolean).join("\n")}`);
+    blocks.push(`### What was tested\n${tested.map((t) => renderTestedItem(t, bound)).filter(Boolean).join("\n")}`);
   }
 
   if (shownFailed.length) {
     const omitted = omittedFailed > 0 ? `\n\n_…and ${omittedFailed} more failed case(s) omitted._` : "";
-    blocks.push(`### Failing cases\n${shownFailed.map(renderFailedCase).join("\n")}${omitted}`);
+    blocks.push(`### Failing cases\n${shownFailed.map((c) => renderFailedCase(c, bound)).join("\n")}${omitted}`);
   }
 
   if (flaky.length) {
-    blocks.push(`### Flaky (quarantined)\n${flaky.slice(0, MAX_ITEMS).map((c) => `- ⚠️ ${cap(c.name, CAP_NAME)}`).join("\n")}`);
+    blocks.push(`### Flaky (quarantined)\n${flaky.slice(0, MAX_ITEMS).map((c) => `- ⚠️ ${bound(c.name, CAP_NAME)}`).join("\n")}`);
   }
 
   if (input.adjudication) {
     blocks.push(renderAdjudicationSection(input.adjudication));
   }
   if (input.causal) {
-    blocks.push(renderCausalSection(input.causal));
+    blocks.push(renderCausalSection(input.causal, bound));
   }
   if (input.reviewerNote && input.reviewerNote.trim()) {
     blocks.push(renderReviewerNoteSection(input.reviewerNote));
   }
-  const missing = renderMissingCasesSection(input.missingCases);
+  const missing = renderMissingCasesSection(input.missingCases, bound);
   if (missing) blocks.push(missing);
-  const availability = renderAvailabilitySection(input.routeAvailability);
+  const availability = renderAvailabilitySection(input.routeAvailability, bound);
   if (availability) blocks.push(availability);
-  const stubbed = renderStubbedSection(input.stubbedState);
+  const stubbed = renderStubbedSection(input.stubbedState, bound);
   if (stubbed) blocks.push(stubbed);
-  const contradictions = renderDataContradictionsSection(input.dataContradictions, input.stubbedState);
+  const contradictions = renderDataContradictionsSection(input.dataContradictions, input.stubbedState, bound);
   if (contradictions) blocks.push(contradictions);
 
   const head = blocks.join("\n\n");
@@ -263,24 +267,25 @@ export interface RenderPrBodyInput {
   dataContradictions?: readonly DataContradiction[];
 }
 
-export function renderPrBody(input: RenderPrBodyInput): string {
+export function renderPrBody(input: RenderPrBodyInput, redact: (text: string) => string): string {
+  const bound = boundWith(redact);
   const shaText = input.sha ? ` for \`${input.sha}\`` : "";
   const blocks: string[] = ["## What this PR adds", `E2E tests generated/updated by qayaba${shaText}.`];
 
   const covered = (input.tested ?? []).filter((t) => t.flow || t.objective).slice(0, MAX_ITEMS);
   if (covered.length) {
-    blocks.push(`**Covers:**\n${covered.map(renderTestedItem).filter(Boolean).join("\n")}`);
+    blocks.push(`**Covers:**\n${covered.map((t) => renderTestedItem(t, bound)).filter(Boolean).join("\n")}`);
   }
 
   blocks.push("**Validation:** harness green (typecheck + lint + stable run against the live DEV) and approved by the independent reviewer.");
 
-  const missing = renderMissingCasesSection(input.missingCases);
+  const missing = renderMissingCasesSection(input.missingCases, bound);
   if (missing) blocks.push(missing);
-  const availability = renderAvailabilitySection(input.routeAvailability);
+  const availability = renderAvailabilitySection(input.routeAvailability, bound);
   if (availability) blocks.push(availability);
-  const stubbed = renderStubbedSection(input.stubbedState);
+  const stubbed = renderStubbedSection(input.stubbedState, bound);
   if (stubbed) blocks.push(stubbed);
-  const contradictions = renderDataContradictionsSection(input.dataContradictions, input.stubbedState);
+  const contradictions = renderDataContradictionsSection(input.dataContradictions, input.stubbedState, bound);
   if (contradictions) blocks.push(contradictions);
 
   if (input.parentRunId) blocks.push(`> ⛓️ Continuation of ${input.parentRunId}`);

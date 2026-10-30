@@ -63,6 +63,7 @@ import { fakeHandle, rootsOf } from "./run-flow/fake-workspace.ts";
 import { confinedSpecFiles } from "../../../../src/shared-infrastructure/spec-files.adapter.ts";
 import { ChangeSet } from "@contexts/change-analysis/application/index.ts";
 import { primaryChangeSet } from "../../../support/change-set.ts";
+import { sanitizeText } from "../../../../src/shared-infrastructure/redaction/pattern-redaction.adapter.ts";
 import { citingRejections } from "../../../support/cited-rejection.ts";
 /* Ports through the full lifecycle. NO inline IO, NO prompt strings, NO learning side-effects on
    the verdict path (the process audit is off-path). Drives the SAME stub shapes scenarios.ts
@@ -5576,6 +5577,28 @@ test("a static-gate repair round threads the validation errors into the regen ca
   assert.ok(staticGateCase, "expected a fixCases entry named 'static-gate' so the prompt shows the source of the failure");
   assert.match(staticGateCase!.detail ?? "", /specialtyCell/, "the static-gate fixCases entry must carry the actual validation error text");
   assert.ok((staticGateCase!.detail?.length ?? 0) <= 4000, "the static-gate error detail must be bounded (~4000 chars cap), never unboundedly long");
+});
+
+test("the static-gate detail redacts a token the cap would have split: no part of it reaches the repair regeneration", async () => {
+  const capturedFixCases: Array<readonly { name: string; detail?: string }[] | undefined> = [];
+  const token = `sk-${"Q7x9Zk2M".repeat(6)}`;
+  const lead = "39:11  error  'specialtyCell' is assigned a value but never used\n".repeat(80);
+  const errors = [`${lead.slice(0, 3990)}${token} and the rest of the lint output`];
+  let validateCallCount = 0;
+  const { ports } = stubPorts({
+    validate: async () => (++validateCallCount === 1 ? { ok: false, errors } : { ok: true, errors: [] }),
+    generate: async (_specDir, _signal, _diff, enrichment) => {
+      capturedFixCases.push(enrichment?.fixCases as readonly { name: string; detail?: string }[] | undefined);
+      return scriptedGeneration({ specs: ["a.spec.ts"] });
+    },
+  });
+  const useCase = new RunQaUseCase({ ...ports, config: baseConfig, redact: (text) => sanitizeText(text).text });
+
+  await useCase.run({ ...baseInput, runId: "static-fix-redacts-before-cut" });
+
+  const detail = capturedFixCases[1]?.find((c) => c.name === "static-gate")?.detail ?? "";
+  assert.match(detail, /specialtyCell/);
+  assert.ok(!detail.includes("sk-Q7x9"), detail.slice(-60));
 });
 
 test("the initial generate() call never carries static-gate fixCases enrichment even when the static-fix loop never engages (clean first pass)", async () => {

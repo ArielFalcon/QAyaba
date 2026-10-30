@@ -60,7 +60,7 @@ test("a failure on an operation the change reaches is labelled in reach in the I
   assert.equal(label?.reach, "in-reach");
   assert.equal(label?.basis, "request");
   assert.deepEqual(observed.saved[0]!.gateSignals.causal, label);
-  const body = renderIssue({ verdict: "fail", cases: published[0]!.cases, ...(label ? { causal: label } : {}) });
+  const body = renderIssue({ verdict: "fail", cases: published[0]!.cases, ...(label ? { causal: label } : {}) }, (text) => text);
   assert.match(body, /Change reach\n- Reach: in the change's reach\n- Basis: request\n- Via: `GET \/shops\/\{id\}`/);
 });
 

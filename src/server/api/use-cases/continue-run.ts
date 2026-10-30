@@ -8,7 +8,7 @@ import { ApiError } from "../api-error";
 import type { ApiDeps } from "../deps";
 import { reply, type ApiResult } from "../respond";
 import { fieldsOf } from "../request";
-import { MAX_GUIDANCE_LENGTH } from "./create-run";
+import { boundGuidance } from "../../guidance";
 
 /* A body field of the wrong type is ignored, as if it were absent; a body of `null` is not a body. */
 export const ContinueBodySchema = z.unknown().transform((raw, ctx) => {
@@ -18,7 +18,7 @@ export const ContinueBodySchema = z.unknown().transform((raw, ctx) => {
   }
   const body = fieldsOf(raw);
   return {
-    guidance: typeof body.guidance === "string" ? body.guidance.slice(0, MAX_GUIDANCE_LENGTH) : undefined,
+    guidance: boundGuidance(body.guidance),
     cases: Array.isArray(body.cases) ? body.cases.filter((name): name is string => typeof name === "string") : undefined,
   };
 });
