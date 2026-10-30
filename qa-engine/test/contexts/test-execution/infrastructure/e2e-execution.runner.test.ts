@@ -1011,6 +1011,30 @@ test("networkClass is egress when a network-error host is in the run's denied li
   assert.equal(cases.find((c) => c.status === "fail")?.networkClass, "egress", "a denied host classifies egress before a 5xx");
 });
 
+test("a failed request to a DEV on a private address keeps a URL that parses, so its host is matched against the refused ones", async () => {
+  const { cases } = await runWithNetworkDump({
+    status: "fail",
+    networkErrors: [{ url: "http://192.168.10.5:8080/api/orders/42", status: 502, errorText: "net::ERR_FAILED", resourceType: "fetch" }],
+    denied: ["192.168.10.5"],
+  });
+  const failed = cases.find((c) => c.status === "fail");
+  const parsed = new URL(failed?.networkErrors?.[0]?.url ?? "");
+  assert.equal(parsed.hostname, "192.168.10.5");
+  assert.equal(parsed.pathname, "/api/orders/42");
+  assert.equal(failed?.networkClass, "egress");
+});
+
+test("a failed request's URL keeps the path an operation is matched by, and loses the run's own secrets", async () => {
+  const passphrase = "hunter-two-passphrase";
+  const scope = createRunSecretScope();
+  scope.addAccountSecrets([passphrase]);
+  const { cases } = await withRunSecretScope(scope, () =>
+    runWithNetworkDump({ status: "fail", networkErrors: [{ url: `https://dev.example.test/api/users/jane.doe@example.com/cart/${passphrase}`, status: 500 }] }));
+  const url = cases.find((c) => c.status === "fail")?.networkErrors?.[0]?.url ?? "";
+  assert.equal(new URL(url).pathname.startsWith("/api/users/jane.doe@example.com/cart/"), true);
+  assert.ok(!url.includes(passphrase));
+});
+
 test("a denied third-party beacon, counted by the fixture as background, never classifies a case as egress", async () => {
   const { cases } = await runWithNetworkDump({
     status: "pass",

@@ -32,6 +32,7 @@ import { MAX_DEV_WRITE_REQUESTS, noteDevWriteRequest, type DevWriteRequest } fro
 import { chargeTestWrites, type RecordedWrite, type TestWriteLedger } from "../domain/dev-write-charge.ts";
 import { isSuiteRelative, type SpecLoadError } from "../domain/spec-load-error.ts";
 import { redactAndBound } from "../../../shared-infrastructure/redaction/redact-and-bound.ts";
+import { redactThenBound } from "../../../shared-kernel/redact-then-bound.ts";
 import { buildControlConfig, buildControlTest, controlArgs, controlLoadMs } from "./control-load.ts";
 
 export const DEFAULT_E2E_TIMEOUT_MS = 900_000;
@@ -775,14 +776,14 @@ const NETWORK_ERROR_URL_CAP = 300;
 const NETWORK_ERROR_TEXT_CAP = 160;
 const NETWORK_ERROR_RESOURCE_CAP = 40;
 
-/* Re-sanitizes one reported network-error URL at the trust boundary: http/https only, kept as origin+pathname (never a query or fragment — a path can still carry a secret, so redactCaseByValue takes it out by value afterward). Unparseable → dropped. */
+/* Re-sanitizes one reported network-error URL at the trust boundary: http/https only, kept as origin+pathname (never a query or fragment), the run's own secrets taken out by value and then bounded. The patterns are not applied here: the URL is matched later (its host against the refused ones, its path against the changed operations), and a pattern turns a private address or an email in a path into a marker that is no host and no path; they are applied where the text leaves (the prompt line, the API). Unparseable → dropped. */
 function sanitizeNetworkErrorUrl(raw: unknown): string | undefined {
   if (typeof raw !== "string") return undefined;
   let u: URL;
   try { u = new URL(raw); } catch { return undefined; }
   if (u.protocol !== "http:" && u.protocol !== "https:") return undefined;
   const url = `${u.origin}${u.pathname}`;
-  return redactAndBound(url, NETWORK_ERROR_URL_CAP);
+  return redactThenBound(url, NETWORK_ERROR_URL_CAP, redactByValue);
 }
 
 /* Defensively parses the `networkErrors` field of a capture dump, at the same trust boundary as parseRuntimeErrors: array only, each entry an object with a string `url` (re-sanitized), an integer 100-599 `status`, a capped string `errorText` and a capped string `resourceType`; deduped by status|errorText|url|resourceType, capped at MAX_NETWORK_ERRORS, and undefined when empty. Never throws. */
