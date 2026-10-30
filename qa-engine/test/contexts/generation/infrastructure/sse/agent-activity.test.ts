@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { routeEvent, ActivityRouter } from "@contexts/generation/infrastructure/sse/agent-activity.ts";
+import { createRunSecretScope, withRunSecretScope } from "../../../../../src/shared-kernel/run-secret-redaction.ts";
 import { kindForTool } from "@contexts/generation/domain/tool-call-taxonomy.ts";
 
 const sessions = () => new Map([["s1", "run-1"]]);
@@ -117,4 +118,15 @@ test("routeEvent classifies write and shell tools exactly as the tool taxonomy d
     const expected = { writing: "file", command: "command", analyzing: undefined, subagent: undefined }[kindForTool(tool)];
     assert.equal(routed, expected, tool);
   }
+});
+
+test("routeEvent redacts a command before cutting it: a run secret of several words straddling the cut leaves no word of itself", () => {
+  const passphrase = "tangerine staple orbit nine";
+  const lead = "npx playwright test the checkout flow against the staging site with ".repeat(8).slice(0, 490);
+  const scope = createRunSecretScope();
+  scope.addAccountSecrets([passphrase]);
+  const r = withRunSecretScope(scope, () => routeEvent(partEvent({ type: "tool", tool: "bash", state: { status: "completed", input: { command: `${lead}${passphrase} --headed` } } }), sessions()));
+  assert.equal(r.activities[0]!.kind, "command");
+  assert.match(r.activities[0]!.text, /^npx playwright test/);
+  assert.doesNotMatch(r.activities[0]!.text, /tangerine|staple|orbit/);
 });

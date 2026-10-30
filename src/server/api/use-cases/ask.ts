@@ -1,5 +1,6 @@
 /* The assistant: POST /runs/:id/ask answers about one run, POST /help answers about the product. */
 
+import { redactThenBound } from "../../../../qa-engine/src/shared-kernel/redact-then-bound";
 import { AskResponseSchema } from "../../../contract/commands";
 import { sanitizeText } from "../../../../qa-engine/src/shared-infrastructure/redaction/pattern-redaction.adapter";
 import { activityRouter } from "../../../integrations/opencode-client";
@@ -13,6 +14,9 @@ import { redactionPort } from "../support";
 /* Truncate to prevent context window exhaustion. */
 const MAX_QUESTION_LENGTH = 4000;
 
+/* The operator's words go to the assistant's prompt: a credential pasted into them is taken out before the question is cut (qa-engine shared-kernel/redact-then-bound.ts). */
+const boundedQuestion = (question: string): string => redactThenBound(question, MAX_QUESTION_LENGTH, (text) => redactionPort.redact(text), { marker: () => " [truncated]" });
+
 export async function askAboutRun(deps: ApiDeps, runId: string, readBody: () => Promise<Record<string, unknown>>): Promise<ApiResult> {
   const record = deps.getRecord(runId);
   if (!record) throw new ApiError(404, `run not found: ${runId}`);
@@ -22,13 +26,13 @@ export async function askAboutRun(deps: ApiDeps, runId: string, readBody: () => 
   const body = await readBody();
   let question = typeof body.question === "string" ? body.question.trim() : "";
   if (!question) throw new ApiError(400, "'question' is required");
-  if (question.length > MAX_QUESTION_LENGTH) question = question.substring(0, MAX_QUESTION_LENGTH) + " [truncated]";
+  question = boundedQuestion(question);
 
   const historyLines: string[] = [];
   if (Array.isArray(body.history)) {
     for (const entry of body.history) {
       if (typeof entry === "object" && entry !== null && "role" in entry && "text" in entry) {
-        historyLines.push(`${entry.role === "q" ? "Operator" : "Assistant"}: ${String((entry as { text: unknown }).text)}`);
+        historyLines.push(redactionPort.redact(`${entry.role === "q" ? "Operator" : "Assistant"}: ${String((entry as { text: unknown }).text)}`));
       }
     }
   }
@@ -70,7 +74,7 @@ export async function answerHelp(deps: ApiDeps, readBody: () => Promise<Record<s
   if (!ask) throw new ApiError(501, "help chat is not available (ask not wired)");
 
   const body = await readBody();
-  const question = typeof body.question === "string" ? body.question.trim() : "";
+  const question = redactionPort.redact(typeof body.question === "string" ? body.question.trim() : "");
   if (!question) throw new ApiError(400, "'question' is required");
 
   const historyLines: string[] = [];
@@ -79,7 +83,7 @@ export async function answerHelp(deps: ApiDeps, readBody: () => Promise<Record<s
       if (typeof entry === "object" && entry !== null && "role" in entry && "text" in entry) {
         const role = String((entry as { role: unknown }).role);
         const text = String((entry as { text: unknown }).text);
-        historyLines.push(`${role}: ${text}`);
+        historyLines.push(redactionPort.redact(`${role}: ${text}`));
       }
     }
   }

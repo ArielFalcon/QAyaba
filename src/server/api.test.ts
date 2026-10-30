@@ -914,6 +914,24 @@ test("POST /api/runs/:id/ask returns the assistant answer", async () => {
   assert.match(res.body, /the checkout timed out/);
 });
 
+test("POST /api/runs/:id/ask takes a credential out of the operator's question and history before the assistant sees them", async () => {
+  const token = `sk-${"Q7x9Zk2M".repeat(6)}`;
+  const seen: Array<{ context: string; question: string }> = [];
+  const ask = async (input: { context: string; question: string }) => {
+    seen.push(input);
+    return "ok";
+  };
+  const words = "why did the checkout flow fail after I pasted this key ";
+  const long = `${words.repeat(80).slice(0, 3988)}${token} and then some more`;
+  for (const body of [{ question: `why did it fail with ${token}?` }, { question: long }, { question: "why?", history: [{ role: "q", text: `my key is ${token}` }] }]) {
+    await routeApi(mkReq("POST", "/api/runs/p1/ask", JSON.stringify(body)), mkRes(), deps({ getRecord: () => parentRec, ask }));
+  }
+  assert.equal(seen.length, 3);
+  for (const input of seen) {
+    assert.ok(!input.question.includes("sk-Q7x9") && !input.context.includes("sk-Q7x9"), `${input.question.slice(-60)} / ${input.context.slice(-80)}`);
+  }
+});
+
 test("POST /api/runs/:id/ask for a missing run → 404", async () => {
   const res = mkRes();
   const ok = await routeApi(mkReq("POST", "/api/runs/none/ask", JSON.stringify({ question: "why?" })), res, deps());

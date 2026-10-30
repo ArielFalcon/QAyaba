@@ -6,6 +6,7 @@
  * MIN_COUPLING of the changed file's commits; its score is the strongest such fraction over the changed files.
  */
 
+import { redactAndBound } from "../redaction/redact-and-bound.ts";
 import { err, ok, type Result } from "../../shared-kernel/result.ts";
 import type { BlastRadius } from "../../shared-kernel/blast-radius.ts";
 import type { CoChangePort } from "../../shared-kernel/ports/co-change.port.ts";
@@ -85,7 +86,7 @@ export class GitCoChangeAdapter implements CoChangePort {
     try {
       const r = await this.git.run({ command: "git", args: hardenGitArgs(args, repoDir), cwd: repoDir, env: scrubEnv(), timeoutMs: GIT_TIMEOUT_MS });
       if (r.timedOut) return err({ reason: "git log timed out" });
-      if (r.exitCode !== 0) return err({ reason: `git log exited ${r.exitCode}: ${r.stderr.trim().slice(0, 200)}` });
+      if (r.exitCode !== 0) return err({ reason: `git log exited ${r.exitCode}: ${redactAndBound(r.stderr.trim(), 200)}` });
       return ok(couplingOf(parseHistory(r.stdout), changed.changedFiles));
     } catch (e) {
       return err({ reason: e instanceof Error ? e.message : String(e) });

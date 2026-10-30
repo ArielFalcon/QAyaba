@@ -96,6 +96,26 @@ test("an empty change asks git nothing, and a git failure is unavailable, never 
   }
 });
 
+test("a git failure's stderr is redacted before it is cut: a remote url's credentials straddling the cut leave no part of themselves", async () => {
+  const stderr = `fatal: unable to access the remote ${"repository ".repeat(14).slice(0, 125)}https://ci-bot:ghp_${"a1B2c3D4e5".repeat(4)}@git.example.test/org/app.git failed`;
+  const adapter = new GitCoChangeAdapter({ run: async () => ({ exitCode: 128, stdout: "", stderr, timedOut: false }) });
+  const root = mkdtempSync(join(tmpdir(), "cg-cochange-cut-"));
+  try {
+    const repo = join(root, "repo");
+    mkdirSync(repo);
+    git(repo, "init", "-q");
+    closeGitDir(repo);
+    const failed = await adapter.coChangeCoupling(repo, BlastRadius.of(Sha.of("abc1234"), ["a.ts"]));
+    assert.equal(failed.ok, false);
+    const reason = failed.ok ? "" : failed.error.reason;
+    assert.match(reason, /fatal: unable to access/);
+    assert.ok(!reason.includes("ci-bot:ghp_"), reason);
+    assert.ok(!reason.includes("a1B2c3D4"), reason);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("when the run's commit is a merge, only the merge itself is left out: every real commit of both parents still counts", async () => {
   const root = mkdtempSync(join(tmpdir(), "cg-cochange-merge-"));
   try {

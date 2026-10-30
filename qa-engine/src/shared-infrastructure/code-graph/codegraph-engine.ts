@@ -6,6 +6,7 @@
  * an empty answer.
  */
 
+import { redactAndBound } from "../redaction/redact-and-bound.ts";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 import { err, ok, type Result } from "../../shared-kernel/result.ts";
@@ -57,7 +58,7 @@ export class CodegraphEngine {
     try {
       const r = await this.runner.run({ command, args, cwd, env: {}, timeoutMs, ...(signal ? { signal } : {}) });
       if (r.timedOut) return err({ kind: "timeout", reason: `${args[0] ?? command} timed out after ${timeoutMs}ms` });
-      if (r.exitCode !== 0) return err({ kind: "failed", reason: `${args[0] ?? command} exited ${r.exitCode}: ${r.stderr.trim().slice(0, 400)}` });
+      if (r.exitCode !== 0) return err({ kind: "failed", reason: `${args[0] ?? command} exited ${r.exitCode}: ${redactAndBound(r.stderr.trim(), 400)}` });
       return ok(r.stdout);
     } catch (e) {
       return err({ kind: "failed", reason: e instanceof Error ? e.message : String(e) });

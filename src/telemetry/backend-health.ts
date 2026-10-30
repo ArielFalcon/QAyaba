@@ -10,6 +10,7 @@
 
 import type { BackendHealth, BackendStatus, TelemetryBackendsHealth } from "./telemetry-health";
 import { DEFAULT_SERVICE_NAME } from "./config";
+import { redactAndBound } from "../../qa-engine/src/shared-infrastructure/redaction/redact-and-bound";
 
 export const BACKEND_HEALTH_TTL_MS = 30_000;
 export const BACKEND_PROBE_TIMEOUT_MS = 3_000;
@@ -85,7 +86,8 @@ function sumMetric(text: string, name: RegExp): number | undefined {
   return sum;
 }
 
-const clip = (text: string): string => text.replace(/\s+/g, " ").trim().slice(0, MAX_REASON_CHARS);
+/* A backend's words in a health reason: redacted, then cut (qa-engine shared-kernel/redact-then-bound.ts), because the reason leaves the process in the health API. */
+const clip = (text: string): string => redactAndBound(text, MAX_REASON_CHARS).replace(/\s+/g, " ").trim();
 const isoFromNanos = (nanos: unknown): string | undefined => {
   if (typeof nanos !== "string" || !/^\d+$/.test(nanos)) return undefined;
   return new Date(Number(BigInt(nanos) / 1_000_000n)).toISOString();

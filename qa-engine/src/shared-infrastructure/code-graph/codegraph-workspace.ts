@@ -10,6 +10,7 @@
  * owns, so whoever reads it back checks it is still the directory built here (the store cache's publish does).
  */
 
+import { redactAndBound } from "../redaction/redact-and-bound.ts";
 import { chmodSync, chownSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { basename, join, matchesGlob } from "node:path";
 import { err, ok, type Result } from "../../shared-kernel/result.ts";
@@ -75,7 +76,7 @@ async function runGit(input: ExportWorkspaceInput, args: string[], env: Record<s
   try {
     const r = await input.git.run({ command: "git", args: hardenGitArgs(args, input.mirrorDir), cwd: input.mirrorDir, env: { ...scrubEnv(), ...env }, timeoutMs: GIT_TIMEOUT_MS });
     if (r.timedOut) return err({ reason: `git ${args[0]} timed out` });
-    if (r.exitCode !== 0) return err({ reason: `git ${args[0]} exited ${r.exitCode}: ${r.stderr.slice(0, 400)}` });
+    if (r.exitCode !== 0) return err({ reason: `git ${args[0]} exited ${r.exitCode}: ${redactAndBound(r.stderr, 400)}` });
     return ok(r.stdout);
   } catch (e) {
     return err({ reason: e instanceof Error ? e.message : String(e) });

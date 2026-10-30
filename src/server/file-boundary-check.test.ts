@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { lstatSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
-import { probeSpawnFor, writeStatus } from "./file-boundary-check";
+import { probeFailureReason, probeSpawnFor, writeStatus } from "./file-boundary-check";
 
 const SANDBOX = { uid: 1002, gid: 1002, home: "/home/sandbox" };
 const PLAN = [{ kind: "read" as const, path: "/app/data/.api_token" }, { kind: "write" as const, path: "/app/src" }];
@@ -57,4 +57,16 @@ test("the status temporary file is created exclusively: an existing file of that
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test("the probe's stderr reaches the status file redacted before it is cut: a token straddling the cut leaves no part of itself", () => {
+  const stderr = `${"probe failed while reading the closed directories ".repeat(6).slice(0, 280)}sk-${"Q7x9Zk2M".repeat(6)} then more`;
+  const reason = probeFailureReason({ status: 1, signal: null, stderr });
+  assert.match(reason, /^exit 1: probe failed/);
+  assert.doesNotMatch(reason, /sk-Q7x9/);
+});
+
+test("a probe that could not start is reported by its error, and one that was killed by its signal", () => {
+  assert.match(probeFailureReason({ error: new Error("spawn su ENOENT"), status: null, signal: null }), /spawn su ENOENT/);
+  assert.match(probeFailureReason({ status: null, signal: "SIGKILL", stderr: "" }), /SIGKILL/);
 });

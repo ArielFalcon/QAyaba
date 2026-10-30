@@ -51,6 +51,15 @@ test("a healthy stack reports every backend ok with the newest line and trace ti
   assert.equal(h?.collector.status, "ok");
 });
 
+test("a credential in a rejection's body is redacted before the reason is cut: nothing of it reaches the health reason", async () => {
+  const body = `${"rpc error while the ingester was busy ".repeat(4).slice(0, 140)}sk-${"Q7x9Zk2M".repeat(6)} and then more`;
+  const { m } = monitor(healthyRoutes({ "POST lgtm:3100/loki/api/v1/push": { status: 500, body } }));
+  const h = await m.get();
+  assert.equal(h?.loki.status, "down");
+  assert.match(h?.loki.reason ?? "", /ingester was busy/);
+  assert.doesNotMatch(h?.loki.reason ?? "", /sk-Q7x9/);
+});
+
 test("Loki that is ready but rejects a write is down, with the rejection as the reason (the incident)", async () => {
   const { m } = monitor(healthyRoutes({ "POST lgtm:3100/loki/api/v1/push": { status: 500, body: "rpc error: code = Unknown desc = Ingester is shutting down" } }));
   const h = await m.get();

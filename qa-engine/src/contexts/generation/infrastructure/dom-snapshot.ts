@@ -5,6 +5,7 @@ import { AsyncResource } from "node:async_hooks";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { redactByValue } from "../../../shared-kernel/run-secret-redaction.ts";
+import { redactAndBound } from "../../../shared-infrastructure/redaction/redact-and-bound.ts";
 import { MAX_LOGGED_PATH_CHARS, MAX_LOGGED_REQUESTS, RequestLedger, requestAddress, type ObservedRequest } from "@kernel/observed-requests.ts";
 import type { ExecSandboxPort } from "../../../shared-infrastructure/process-sandbox/exec-sandbox.ts";
 import { ProcessKillAdapter } from "../../../shared-infrastructure/process-sandbox/process-kill.adapter.ts";
@@ -715,10 +716,12 @@ function resultCountOf(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) && value >= 0 ? Math.floor(value) : undefined;
 }
 
-/* A data state's effective location: non-empty text, whitespace collapsed, capped. */
+/* The most characters of a data state's effective location. */
+const MAX_EFFECTIVE_LOCATION_CHARS = 200;
+/* A data state's effective location: page text, redacted and then capped (the one rule: redact-then-bound.ts), whitespace collapsed, non-empty. */
 function effectiveLocationOf(value: unknown): string | undefined {
   if (typeof value !== "string") return undefined;
-  const cleaned = value.replace(/\s+/g, " ").trim().slice(0, 200);
+  const cleaned = redactAndBound(value, MAX_EFFECTIVE_LOCATION_CHARS).replace(/\s+/g, " ").trim();
   return cleaned || undefined;
 }
 

@@ -19,6 +19,7 @@
  */
 
 import { appLogger } from "../integrations/redacting-logger";
+import { redactAndBound } from "../../qa-engine/src/shared-infrastructure/redaction/redact-and-bound";
 import { spawnSync, type SpawnSyncOptions } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { chmodSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
@@ -71,6 +72,15 @@ export function writeStatus(path: string, text: string, uniqueSuffix: () => stri
   }
 }
 
+/* The most of the probe's stderr the status file carries. */
+const MAX_PROBE_STDERR_CHARS = 300;
+
+/* Why the probe did not finish, for the status file the health API serves: the child's own words, redacted and then cut (qa-engine shared-kernel/redact-then-bound.ts). */
+export function probeFailureReason(child: { error?: Error | undefined; status: number | null; signal: NodeJS.Signals | null; stderr?: string | null }): string {
+  if (child.error) return redactAndBound(child.error.message, MAX_PROBE_STDERR_CHARS);
+  return `exit ${child.status ?? child.signal}: ${redactAndBound((child.stderr ?? "").trim(), MAX_PROBE_STDERR_CHARS)}`;
+}
+
 function check(env: NodeJS.ProcessEnv): FileBoundaryVerdict {
   const sandbox = resolveSandbox(env);
   if (!sandbox) return { holds: false, exposures: ["there is no sandbox uid to check as (not root on Linux, the image lacks the sandbox user, or CODE_SANDBOX=off)"] };
@@ -81,8 +91,7 @@ function check(env: NodeJS.ProcessEnv): FileBoundaryVerdict {
   const finished = child.error === undefined && child.status === 0;
   const verdict = judgeFileBoundary(probes, finished ? readProbeReport(probes, child.stdout) : []);
   if (finished || verdict.holds) return verdict;
-  const why = child.error ? child.error.message : `exit ${child.status ?? child.signal}: ${(child.stderr ?? "").trim().slice(0, 300)}`;
-  return { holds: false, exposures: [`the probe as uid ${sandbox.uid} did not finish (${why})`, ...verdict.exposures] };
+  return { holds: false, exposures: [`the probe as uid ${sandbox.uid} did not finish (${probeFailureReason(child)})`, ...verdict.exposures] };
 }
 
 function main(): number {

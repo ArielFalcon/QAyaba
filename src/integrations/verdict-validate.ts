@@ -168,6 +168,7 @@ export function repairInstruction(kind: "generator" | "reviewer", issues: string
         "Your previous response (tail, for your own reference — do not repeat it verbatim, only",
         "use it to recover the specifics of what you already decided):",
         TAIL_FRAME_OPEN,
+        /* Cut, not redacted, on purpose: this is the agent's own prior answer returning to the same session that wrote it (see stripFrameMarkers), so the cut exposes nothing the agent did not already hold and no other reader sees it; redacting it would make the agent "recover" a [REDACTED] in place of what it decided. The rule "redact before you bound" (qa-engine shared-kernel/redact-then-bound.ts) is for text that leaves the agent. */
         tail.slice(-PRIOR_RESPONSE_TAIL_CHARS),
         TAIL_FRAME_CLOSE,
       ]

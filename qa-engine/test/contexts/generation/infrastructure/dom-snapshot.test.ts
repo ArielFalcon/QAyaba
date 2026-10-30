@@ -1550,6 +1550,17 @@ test("a DOM capture parses the data-state fields onto the snapshot", { timeout: 
   });
 });
 
+test("a DOM capture redacts what the page showed before any field is cut: a token straddling the location's cut leaves no part of itself", { timeout: 30_000 }, async () => {
+  const location = `${"Madrid centre near the old market square and the river ".repeat(4).slice(0, 188)}sk-${"Q7x9Zk2M".repeat(6)} then more words`;
+  const script = `process.stdout.write(JSON.stringify([{ route: '/home', yaml: '- button \\"Save\\"', dataState: true, ready: true, effectiveLocation: ${JSON.stringify(location)} }]));`;
+  await withStandInNode(script, async (root) => {
+    const deps = createCaptureDomDeps(sharedTestExec(), 20_000);
+    const snaps = await deps.render(root, "http://localhost", ["/home"]);
+    assert.match(snaps[0]?.effectiveLocation ?? "", /^Madrid centre/);
+    assert.doesNotMatch(snaps[0]?.effectiveLocation ?? "", /sk-Q7x9/);
+  });
+});
+
 /* ── links the pages showed: the real addresses a route template is filled from ───────────────── */
 
 const pageWithLinks = (route: string, links: string[]): RouteSnapshot => ({ route, nodes: [`heading: ${route}`], links });

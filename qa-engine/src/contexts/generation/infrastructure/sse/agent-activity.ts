@@ -1,5 +1,6 @@
 /* `ActivityKind` is declared locally below (mirrors src/types.ts's own 5-value union) — qa-engine never imports src/. Authoritative event shapes (from @opencode-ai/sdk types): message.part.updated → { part: Part, delta? } sessionID lives in part.sessionID part.type "tool" → { tool, state:{ status, input, title } } (write/edit/bash/…) part.type "patch" → { files: string[] } part.type "file" → { filename } part.type text/reasoning/step → PROSE → dropped (this was the broken `"file": "s`) todo.updated → { sessionID, todos: Todo[] } (each: content, status, priority, id) command.executed → { sessionID, name, arguments } file.edited → { file } (no sessionID — cannot be run-scoped) session.error → { sessionID?, error } The router demuxes by sessionID → runId and stays ADVISORY-ONLY. Raw model prose is never surfaced — only clean structured fields (the file written, the command run, the todo the agent is on). */
 
+import { redactAndBound } from "../../../../shared-infrastructure/redaction/redact-and-bound.ts";
 import { isShellTool, isWriteTool, toolInputPath } from "../../domain/tool-call-taxonomy.ts";
 
 /** Mirrors src/types.ts's own ActivityKind exactly — declared locally (qa-engine never imports src/). It is the kind of an activity-list entry, not the 4-value kind of an `agent.activity` run event (`AgentActivityKind` in tool-call-taxonomy.ts). */
@@ -29,9 +30,9 @@ function basename(path: string): string {
   return String(path).split(/[\\/]/).pop() || String(path);
 }
 
-function cap(s: string): string {
-  return s.length > 500 ? s.slice(0, 500) : s;
-}
+/* The agent's words in the activity list: redacted, then cut (shared-kernel/redact-then-bound.ts). */
+const ACTIVITY_TEXT_MAX_CHARS = 500;
+const activityText = (s: string): string => redactAndBound(s, ACTIVITY_TEXT_MAX_CHARS);
 
 function normalizeStatus(raw: unknown): RoutedActivity["status"] {
   const s = String(raw ?? "").toLowerCase();
@@ -63,7 +64,7 @@ function fromPart(runId: string, part: PartLike | undefined): RoutedActivity[] {
     }
     if (isShellTool(tool)) {
       const cmd = input.command ?? input.cmd ?? input.script;
-      if (cmd) return [{ runId, kind: "command", text: cap(String(cmd).trim()) }];
+      if (cmd) return [{ runId, kind: "command", text: activityText(String(cmd).trim()) }];
     }
     return [];
   }
@@ -97,20 +98,20 @@ export function routeEvent(event: RawEvent, sessions: ReadonlyMap<string, string
       const todos = Array.isArray(p.todos) ? (p.todos as Array<{ content?: string; status?: string }>) : [];
       const activities = todos
         .filter((t) => (t.content ?? "").trim())
-        .map((t) => ({ runId, kind: "todo" as const, text: cap(t.content!.trim()), status: normalizeStatus(t.status) }));
+        .map((t) => ({ runId, kind: "todo" as const, text: activityText(t.content!.trim()), status: normalizeStatus(t.status) }));
       return { activities };
     }
 
     case "command.executed": {
       const cmd = [p.name, p.arguments].map((x) => String(x ?? "").trim()).filter(Boolean).join(" ");
-      return { activities: cmd ? [{ runId, kind: "command", text: cap(cmd) }] : [] };
+      return { activities: cmd ? [{ runId, kind: "command", text: activityText(cmd) }] : [] };
     }
 
     case "file.edited":
       return { activities: p.file ? [{ runId, kind: "file", text: basename(String(p.file)) }] : [] };
 
     case "session.error":
-      return { activities: [{ runId, kind: "error", text: cap(`error: ${String(p.error ?? "unknown")}`) }] };
+      return { activities: [{ runId, kind: "error", text: activityText(`error: ${String(p.error ?? "unknown")}`) }] };
 
     default:
       return { activities: [], dropped: "unknown-kind" };
