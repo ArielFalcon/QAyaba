@@ -35,10 +35,8 @@ export interface PreGenerationGroundingStaticContext {
   e2eDir: string;
   baseUrl?: string; /* live DEV base URL — absent -> the pack's DOM component is skipped */
   testIdAttribute?: string; /* config-declared convention (e.g. "data-cy") — forwarded to DOM capture */
-  contextMap?: ArchitectureContext; /* the FE<->BE architecture map (context.json), if loaded */
   /* Where the map was effectively read from and how fresh it was. Read after the load, so it describes the source that won. */
   contextMapProvenance?: () => ContextProvenance | undefined;
-  prChangedFiles?: string[]; /* union of changed files, for contract filtering */
   domPack?: boolean; /* false → the pack carries no live-DOM capture (no route ranking, no changed-element scopes); contracts and every other grounding source stay */
   /* false → no context pack is built at all (context mode discards it); the map and harness facts still load. */
   contextPack?: boolean;
@@ -342,7 +340,7 @@ export class PreGenerationGroundingPortAdapter implements PreGenerationGrounding
 
     const result: GroundingResult = {};
 
-    let contextMap = this.ctx.contextMap;
+    let contextMap: ArchitectureContext | undefined;
     try {
       const loadContextMap = this.collaborators.loadContextMap ?? loadContextMapFromDisk;
       const loaded = loadContextMap(specDir);
@@ -417,7 +415,7 @@ export class PreGenerationGroundingPortAdapter implements PreGenerationGrounding
       const changedElements = parsed && this.ctx.mirrorDir && this.ctx.stagedRoots === undefined
         ? withChangedElementScopes(parsed, this.ctx.mirrorDir, this.ctx.testIdAttribute)
         : parsed;
-      const prChangedFiles = this.ctx.prChangedFiles ?? (diff ? diffParser.changedFiles(diff) : undefined);
+      const prChangedFiles = diff ? diffParser.changedFiles(diff) : undefined;
       const candidates = change?.candidates;
       const hubPages = change?.hubPages;
       const responseFields = domPack ? await this.responseFields(change) : undefined;

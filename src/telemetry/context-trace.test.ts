@@ -213,7 +213,7 @@ test("the delivered span keeps the per-reason omissions for context_complete", (
 
 const MAP = {
   builtAtSha: "abc1234",
-  routes: [{ path: "/orders", implementationFiles: ["src/orders/list.ts"] }, { path: "/b" }],
+  routes: [{ path: "/orders", implementationFiles: ["src/orders/list.html"] }, { path: "/b" }],
   api: [{ operationId: "listOrders", method: "GET", path: "/api/orders" }],
   feBe: [{ route: "/orders", operationId: "listOrders", via: "ordersApi" }],
   flows: [{ id: "checkout", routes: ["/orders"] }],
@@ -239,7 +239,7 @@ function groundingFixture(telemetry: TelemetryPort, opts: { trace?: boolean } = 
     log: () => {},
   };
   const adapter = new PreGenerationGroundingPortAdapter(
-    { e2eDir, baseUrl: "https://dev.example.com", contextMap: MAP as never, prChangedFiles: ["src/orders/list.ts"], mirrorDir: e2eDir },
+    { e2eDir, baseUrl: "https://dev.example.com", mirrorDir: e2eDir },
     {
       loadContextMap: () => MAP as never,
       contextPackDeps: packDeps,

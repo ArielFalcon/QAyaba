@@ -39,9 +39,9 @@ async function withMirror(run: (mirror: string, outside: string) => Promise<void
 async function groundedMap(mirror: string, map: ArchitectureContext): Promise<ArchitectureContext | undefined> {
   let seen: ArchitectureContext | undefined;
   const adapter = new PreGenerationGroundingPortAdapter(
-    { e2eDir: join(mirror, "e2e"), mirrorDir: mirror, contextMap: map },
+    { e2eDir: join(mirror, "e2e"), mirrorDir: mirror },
     {
-      loadContextMap: () => undefined,
+      loadContextMap: () => map,
       buildContextPack: async (input) => {
         seen = input.contextMap;
         return { text: undefined, domBytes: 0, contractBytes: 0 };
@@ -133,8 +133,8 @@ test("a route without implementation files, and a map without a mirror to read, 
     let seen: ArchitectureContext | undefined;
     const map = mapWith([PAGE]);
     await new PreGenerationGroundingPortAdapter(
-      { e2eDir: join(mirror, "e2e"), contextMap: map },
-      { loadContextMap: () => undefined, buildContextPack: async (input) => { seen = input.contextMap; return { text: undefined, domBytes: 0, contractBytes: 0 }; } },
+      { e2eDir: join(mirror, "e2e") },
+      { loadContextMap: () => map, buildContextPack: async (input) => { seen = input.contextMap; return { text: undefined, domBytes: 0, contractBytes: 0 }; } },
     ).ground(join(mirror, "e2e"), undefined, undefined);
     assert.deepEqual(seen, map);
   });

@@ -20,9 +20,9 @@ const DIFF = [
 function setup() {
   const inputs: ContextPackInput[] = [];
   const adapter = new PreGenerationGroundingPortAdapter(
-    { e2eDir: "/nonexistent/e2e", baseUrl: "https://dev.example.com", contextMap: MAP },
+    { e2eDir: "/nonexistent/e2e", baseUrl: "https://dev.example.com" },
     {
-      loadContextMap: () => undefined,
+      loadContextMap: () => MAP,
       buildContextPack: async (input) => {
         inputs.push(input);
         return { text: "pack", domBytes: 0, contractBytes: 0, trace: { rankedRoutes: [], relevantRoutes: [], capturablePages: 2, pages: [], pageDeliveries: [], changedTestIds: [], contractIds: [], omittedLines: 0 } };

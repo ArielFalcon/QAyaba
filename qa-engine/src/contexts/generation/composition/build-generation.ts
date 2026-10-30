@@ -10,7 +10,7 @@ import type { RunMode } from "@kernel/run-mode.ts";
 import { readConfinedSpecFile } from "../../../shared-infrastructure/spec-path-confinement.ts";
 import type { GenerateOpts, GenerationResult } from "../application/generate-tests.use-case.ts";
 import type { AuthorPort, LeadPort, PreExecGroundingPort, PreGenerationGroundingPort, ReviewDomGroundingPort, ReviewPort } from "../application/index.ts";
-import type { ArchitectureContext, OpencodeRunInput, StepLimitFor } from "../application/index.ts";
+import type { OpencodeRunInput, StepLimitFor } from "../application/index.ts";
 import { GenerationTurnsAdapter, type GenerationTurnsCollaborators } from "../infrastructure/adapters/generation-turns.adapter.ts";
 import { PreExecGroundingPortAdapter, type PreExecGroundingCollaborators } from "../infrastructure/adapters/pre-exec-grounding-port.adapter.ts";
 import { PreGenerationGroundingPortAdapter, type PreGenerationGroundingCollaborators } from "../infrastructure/adapters/pre-generation-grounding-port.adapter.ts";
@@ -52,10 +52,8 @@ export interface GenerationDeps {
   deadline?: GenerationTurnsCollaborators["deadline"];
   review: { runtime: ReviewPortRuntime; timeoutMs?: number };
   grounding: {
-    contextMap?: ArchitectureContext;
     /* Where the map was effectively read from and how fresh it was. */
     contextMapProvenance?: () => ContextProvenance | undefined;
-    prChangedFiles?: string[];
     domPack?: boolean;
     contextPack?: boolean;
     /* The provider's OpenAPI documents the run's resolved links point at (from the service topology): the provider's contract a possible data contradiction is classified by. */
@@ -136,9 +134,7 @@ export function buildGeneration(deps: GenerationDeps): GenerationApi {
   const preGenerationGrounding = new PreGenerationGroundingPortAdapter(
     {
       ...location,
-      contextMap: grounding.contextMap,
       ...(grounding.contextMapProvenance ? { contextMapProvenance: grounding.contextMapProvenance } : {}),
-      prChangedFiles: grounding.prChangedFiles,
       domPack: grounding.domPack,
       contextPack: grounding.contextPack,
       ...(grounding.readAtRef ? { readAtRef: grounding.readAtRef } : {}),

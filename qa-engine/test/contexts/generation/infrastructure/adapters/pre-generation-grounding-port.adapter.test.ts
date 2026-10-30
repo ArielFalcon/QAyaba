@@ -296,7 +296,7 @@ test("ground(): contextPack is populated from the injected buildContextPack resu
 });
 
 /* The pack's candidate routes come from the context map. This
-   adapter is the composition seam that already carries contextMap (the context-mode LLM pass runs
+   adapter is the composition seam that reads the contextMap (the context-mode LLM pass runs
    ONCE and persists context.json; every diff-mode run afterward reuses it deterministically, zero
    LLM cost at runtime) — so it is the correct place to derive buildContextPack's new `routes` input.
  */
@@ -306,14 +306,14 @@ test("ground(): routes input is populated deterministically from contextMap.rout
     {
       e2eDir: "/mirrors/org/app/e2e",
       baseUrl: "https://dev.example.com",
-      contextMap: {
+    },
+    {
+      loadContextMap: () => ({
         builtAtSha: "abc1234",
         routes: [{ path: "/checkout" }, { path: "/owners" }],
         api: [],
         feBe: [],
-      },
-    },
-    {
+      }),
       buildContextPack: async (input) => {
         capturedInputs.push(input);
         return { text: "## Context Pack\n\nsome content", domBytes: 10, contractBytes: 0 };
@@ -385,15 +385,13 @@ test("ground(): a committed valid e2e/.qa/context.json on the mirror populates c
   }
 });
 
-test("ground(): a per-run contextMap read overrides a stale static ctx.contextMap when both are present", async () => {
+test("ground(): the map comes from the run's working copy and the changed files from the run's diff, never from the context it was built with", async () => {
   const dir = mkdtempSync(join(tmpdir(), "qa-grounding-context-override-"));
   try {
-    mkdirSync(join(dir, ".qa"), { recursive: true });
-    writeFileSync(join(dir, ".qa", "context.json"), JSON.stringify(VALID_CONTEXT_JSON));
-    const capturedInputs: unknown[] = [];
-    const staleContextMap = { builtAtSha: "stale0000", routes: [], api: [], feBe: [] };
+    const capturedInputs: Array<{ contextMap?: unknown; prChangedFiles?: string[] }> = [];
+    const staticValues = { contextMap: { builtAtSha: "stale0000", routes: [], api: [], feBe: [] }, prChangedFiles: ["src/static-only.ts"] };
     const adapter = new PreGenerationGroundingPortAdapter(
-      { e2eDir: dir, contextMap: staleContextMap },
+      { e2eDir: dir, ...staticValues } as never,
       {
         buildContextPack: async (input) => {
           capturedInputs.push(input);
@@ -402,10 +400,10 @@ test("ground(): a per-run contextMap read overrides a stale static ctx.contextMa
       },
     );
 
-    await adapter.ground(dir);
+    await adapter.ground(dir, undefined, "diff --git a/src/app/checkout.ts b/src/app/checkout.ts\n+++ b/src/app/checkout.ts\n");
 
-    const captured = capturedInputs[0] as { contextMap?: { builtAtSha?: string } };
-    assert.equal(captured.contextMap?.builtAtSha, "abc1234", "the real per-run read must win over a static/stale ctx value");
+    assert.equal(capturedInputs[0]?.contextMap, undefined, "no context.json in the working copy: no map");
+    assert.deepEqual(capturedInputs[0]?.prChangedFiles, ["src/app/checkout.ts"]);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -781,7 +779,7 @@ test("ground(): an in-flight abort unblocks the caller promptly, even when build
   assert.equal(result.contextPack, undefined);
 });
 
-test("ground(): prChangedFiles is derived from the threaded diff when static ctx omits it", async () => {
+test("ground(): prChangedFiles is derived from the threaded diff", async () => {
   const dir = mkdtempSync(join(tmpdir(), "qa-grounding-prfiles-"));
   try {
     let seen: string[] | undefined;
@@ -905,8 +903,9 @@ test("ground(): a route the map links to a file the diff changes is offered to t
     const paths = ["/a", "/b", "/c", "/d", "/e", "/f"];
     const contextMap = { builtAtSha: "abc1234", routes: paths.map((path) => (path === "/f" ? { path, source: "src/pages/f.ts" } : { path })), api: [], feBe: [] };
     const adapter = new PreGenerationGroundingPortAdapter(
-      { e2eDir: dir, baseUrl: "http://localhost:3000", contextMap },
+      { e2eDir: dir, baseUrl: "http://localhost:3000" },
       {
+        loadContextMap: () => contextMap,
         contextPackDeps: {
           captureDomForRoutes: async (routes) => {
             captured.push(routes);
