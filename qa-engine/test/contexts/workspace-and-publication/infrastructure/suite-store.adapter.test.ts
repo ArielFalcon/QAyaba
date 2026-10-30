@@ -1,5 +1,7 @@
 /* The suite store against real files under a temporary directory; git is a fake that lists what it tracks. */
 import { test, type TestContext } from "node:test";
+import { LOG_EFFECT, levelOfEffect, memoryLogger } from "@kernel/ports/logger.port.ts";
+import { installProcessLogger, resetProcessLoggerForTests } from "@kernel/ports/process-logger.ts";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
@@ -387,6 +389,24 @@ test("a capture that changes nothing does not rewrite the manifest", async (t) =
   const before = readFileSync(join(r.storeDir, "manifest.json"), "utf8");
   await r.capture({ runId: "run-2", executedGreen: ["flows/a.spec.ts"] });
   assert.equal(readFileSync(join(r.storeDir, "manifest.json"), "utf8"), before);
+});
+
+test("a stored copy that cannot be read is said at the level of a carried-on loss when the store is built with no writer of its own", async (t) => {
+  const r = rig(t);
+  r.put("flows/a.spec.ts", "a");
+  await r.capture({ executedGreen: ["flows/a.spec.ts"] });
+  rmSync(join(r.storeDir, "blobs", sha("a")));
+  r.clean();
+  const memory = memoryLogger();
+  installProcessLogger(memory);
+  try {
+    const store = new SuiteStoreAdapter({ storeDir: r.storeDir, app: "demo", repo: "org/app", specRelDir: "e2e", seedDir: r.seedDir, listTracked: async () => r.tracked, now: () => new Date(0) });
+    const result = await store.restore(root(r));
+    assert.deepEqual(result.notRestored, ["flows/a.spec.ts"]);
+  } finally {
+    resetProcessLoggerForTests();
+  }
+  assert.deepEqual(memory.entries.map((e) => e.level), [levelOfEffect(LOG_EFFECT.CARRIED_ON)]);
 });
 
 test("a corrupt manifest or a blob that no longer matches its hash is said aloud, never restored", async (t) => {

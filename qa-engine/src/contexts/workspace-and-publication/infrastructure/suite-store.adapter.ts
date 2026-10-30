@@ -535,7 +535,7 @@ export class SuiteStoreAdapter implements SuiteStorePort {
   }
 
   private warn(message: string): void {
-    (this.deps.warn ?? ((m: string): void => engineLog.error(m)))(message);
+    (this.deps.warn ?? ((m: string): void => engineLog.warn(m)))(message);
   }
 
   /** The bytes of an entry's blob in `blobsDir`, or why they cannot be used. */
