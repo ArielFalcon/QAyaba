@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { delegateRun } from "./run-delegate";
+import { longestRunTimeBudgetMs, resolveRunTimeBudgets } from "@contexts/run-orchestration/application/index";
+import { DELEGATE_WAIT_BUFFER_MS, delegateRun } from "./run-delegate";
 
 type Call = { method: string; url: string; body?: Record<string, unknown>; auth?: string };
 
@@ -154,3 +155,31 @@ test("delegateRun sends the run's own choice about the agent browser, and nothin
   assert.equal("agentBrowser" in (await createBodyOf({ app: "demo", sha: "abc1234", target: "e2e", mode: "diff" })), false);
 });
 
+
+/* A service that never finishes the run, and a clock the test moves: the wait ends only when the clock passes what the caller derived. */
+async function waitUntilGivingUp(deps: { longestRunMs?: number }): Promise<{ polls: number; timedOut: boolean; atMs: number }> {
+  let clock = 0;
+  let polls = 0;
+  const fetchStub = (async (_url: string, init?: RequestInit) => {
+    if ((init?.method ?? "GET") === "POST") return new Response(JSON.stringify({ id: "run-1" }), { status: 202 });
+    polls++;
+    clock += 60_000;
+    return new Response(JSON.stringify({ id: "run-1", status: "running", step: "generate" }), { status: 200 });
+  }) as unknown as typeof fetch;
+  const result = await delegateRun({ app: "demo", sha: "abc", mode: "diff" }, { fetch: fetchStub, baseUrl: "http://x", pollMs: 1, now: () => clock, ...deps });
+  return { polls, timedOut: result.timedOut, atMs: clock };
+}
+
+test("the wait for a delegated run is derived from the longest run budget, so it does not give up on a run the service still holds to its own deadline", async () => {
+  const longest = longestRunTimeBudgetMs(resolveRunTimeBudgets({}));
+  const waited = await waitUntilGivingUp({});
+  assert.equal(waited.timedOut, true);
+  assert.ok(waited.atMs > longest, "it waited past the longest a run can last");
+  assert.ok(waited.atMs <= longest + DELEGATE_WAIT_BUFFER_MS + 60_000, "and no longer than that plus the queue and teardown buffer");
+});
+
+test("an operator's raised run budget raises the wait with it", async () => {
+  const raised = 5 * longestRunTimeBudgetMs(resolveRunTimeBudgets({}));
+  const waited = await waitUntilGivingUp({ longestRunMs: raised });
+  assert.ok(waited.atMs > raised && waited.atMs <= raised + DELEGATE_WAIT_BUFFER_MS + 60_000);
+});

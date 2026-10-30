@@ -20,6 +20,7 @@ import { qayabaRoot } from "./paths";
 import { enqueueTrackedRun } from "./server/runner";
 import { processTelemetry, TELEMETRY_SHUTDOWN_TIMEOUT_MS } from "./telemetry/process-telemetry";
 import { createDurableRunEventStore } from "./server/durable-run-events";
+import { longestRunTimeBudgetMs } from "@contexts/run-orchestration/application/index";
 import { delegateRun, type DelegateRunInput, type DelegateRunResult } from "./server/run-delegate";
 import { discoverApiToken } from "./server/api-token";
 import { readFileSync } from "node:fs";
@@ -144,6 +145,7 @@ async function runViaService(args: { app: string; sha: string; baseSha?: string;
         fetch,
         baseUrl,
         token: cliApiToken(),
+        longestRunMs: longestRunTimeBudgetMs(cliSettings().run.runTimeBudgets),
         onUpdate: (r) => process.stdout.write(`\r[qa] ${r.status}${r.step ? " · " + r.step : ""}                    `),
       },
     );

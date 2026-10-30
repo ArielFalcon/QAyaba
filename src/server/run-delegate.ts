@@ -5,6 +5,7 @@
 
 import type { RunMode, TestTarget } from "../types";
 import type { GroundingInput } from "../contract/commands";
+import { longestRunTimeBudgetMs, resolveRunTimeBudgets } from "@contexts/run-orchestration/application/index";
 
 export interface DelegateRunInput {
   app: string;
@@ -28,6 +29,9 @@ export interface DelegateRunDeps {
   baseUrl: string;
   token?: string;
   pollMs?: number;
+  /** The longest a run can last under the budgets in force (`longestRunTimeBudgetMs`); the wait is derived from it, as the orphan-session sweep's is. Absent: the default budgets'. */
+  longestRunMs?: number;
+  /** Overrides the derived wait; for a test. */
   timeoutMs?: number;
   now?: () => number;
   onUpdate?: (rec: { status: string; step?: string }) => void;
@@ -45,9 +49,12 @@ export interface DelegateRunResult {
   timedOut: boolean;
 }
 
+/** Time past the longest run a waiting caller allows for the queue ahead of its run and for teardown, so it never gives up on a run the service is still holding to its own deadline. */
+export const DELEGATE_WAIT_BUFFER_MS = 5 * 60_000;
+
 export async function delegateRun(input: DelegateRunInput, deps: DelegateRunDeps): Promise<DelegateRunResult> {
   const pollMs = deps.pollMs ?? 1500;
-  const timeoutMs = deps.timeoutMs ?? 30 * 60_000;
+  const timeoutMs = deps.timeoutMs ?? (deps.longestRunMs ?? longestRunTimeBudgetMs(resolveRunTimeBudgets({}))) + DELEGATE_WAIT_BUFFER_MS;
   const now = deps.now ?? Date.now;
   const headers: Record<string, string> = { "content-type": "application/json" };
   if (deps.token) headers.Authorization = `Bearer ${deps.token}`;
