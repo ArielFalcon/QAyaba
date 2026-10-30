@@ -37,6 +37,7 @@ test("a clean decided run with one repair-cap turn lists that limit and leads wi
   assert.equal(root.attributes["qayaba.limit.fired"], undefined);
   assert.deepEqual(root.attributes["qayaba.limits"], ["repair-cap@qa-author"]);
   assert.equal(view?.budgets.exhausted, false);
+  assert.deepEqual(view?.budgets.limits, [{ fired: "repair-cap", role: "qa-author", scope: "turn", turns: 1 }]);
   assert.equal(grade?.value, "none");
   assert.deepEqual(counter, []);
 });

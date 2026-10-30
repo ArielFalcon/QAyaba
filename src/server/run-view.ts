@@ -57,11 +57,11 @@ function usageOf(turns: readonly AgentTurnRecord[]): RunViewExtras["usage"] {
   return sum;
 }
 
-/* The run's limits as its record states them: it leads with the first and lists every one. A run stored before the list was recorded has its one limit, or none. */
+/* The run's limits as its record states them: it leads with the first the engine met and lists every one, a limit only a turn met included. A run stored before the list was recorded has its one limit, or none. */
 function budgetsOf(facts: ReturnType<RunViewDeps["getRunFacts"]>): RunViewExtras["budgets"] {
   const limits = facts?.limits ?? [];
   const lead = facts?.limitFired ?? undefined;
-  if (!lead) return { exhausted: false, ...(facts?.limits ? { limits: [] } : {}) };
+  if (!lead) return { exhausted: false, ...(facts?.limits ? { limits } : {}) };
   return { exhausted: true, limit: lead, ...(facts?.limitRole ? { role: facts.limitRole } : {}), ...(facts?.limits ? { limits } : {}) };
 }
 
