@@ -31,6 +31,7 @@ import { activeExecScope } from "../../../shared-infrastructure/process-sandbox/
 import { MAX_DEV_WRITE_REQUESTS, noteDevWriteRequest, type DevWriteRequest } from "../domain/dev-write-request.ts";
 import { chargeTestWrites, type RecordedWrite, type TestWriteLedger } from "../domain/dev-write-charge.ts";
 import { isSuiteRelative, type SpecLoadError } from "../domain/spec-load-error.ts";
+import { redactAndBound } from "../../../shared-infrastructure/redaction/redact-and-bound.ts";
 import { buildControlConfig, buildControlTest, controlArgs, controlLoadMs } from "./control-load.ts";
 
 export const DEFAULT_E2E_TIMEOUT_MS = 900_000;
@@ -781,7 +782,7 @@ function sanitizeNetworkErrorUrl(raw: unknown): string | undefined {
   try { u = new URL(raw); } catch { return undefined; }
   if (u.protocol !== "http:" && u.protocol !== "https:") return undefined;
   const url = `${u.origin}${u.pathname}`;
-  return url.length <= NETWORK_ERROR_URL_CAP ? url : url.slice(0, NETWORK_ERROR_URL_CAP);
+  return redactAndBound(url, NETWORK_ERROR_URL_CAP);
 }
 
 /* Defensively parses the `networkErrors` field of a capture dump, at the same trust boundary as parseRuntimeErrors: array only, each entry an object with a string `url` (re-sanitized), an integer 100-599 `status`, a capped string `errorText` and a capped string `resourceType`; deduped by status|errorText|url|resourceType, capped at MAX_NETWORK_ERRORS, and undefined when empty. Never throws. */
@@ -796,8 +797,8 @@ function parseNetworkErrors(v: unknown): QaCase["networkErrors"] {
     const url = sanitizeNetworkErrorUrl(e.url);
     if (url === undefined) continue;
     const status = typeof e.status === "number" && Number.isInteger(e.status) && e.status >= 100 && e.status <= 599 ? e.status : undefined;
-    const errorText = typeof e.errorText === "string" ? e.errorText.slice(0, NETWORK_ERROR_TEXT_CAP) : undefined;
-    const resourceType = typeof e.resourceType === "string" ? e.resourceType.slice(0, NETWORK_ERROR_RESOURCE_CAP) : undefined;
+    const errorText = typeof e.errorText === "string" ? redactAndBound(e.errorText, NETWORK_ERROR_TEXT_CAP) : undefined;
+    const resourceType = typeof e.resourceType === "string" ? redactAndBound(e.resourceType, NETWORK_ERROR_RESOURCE_CAP) : undefined;
     const dedupe = `${status ?? ""}|${errorText ?? ""}|${url}|${resourceType ?? ""}`;
     if (seen.has(dedupe)) continue;
     seen.add(dedupe);

@@ -13,6 +13,7 @@
 
 import { engineLog } from "@kernel/ports/process-logger.ts";
 import { activeExecScope, runScopeKey, type RunScope } from "../../../shared-infrastructure/process-sandbox/exec-scope.ts";
+import { sanitizeText } from "../../../shared-infrastructure/redaction/pattern-redaction.adapter.ts";
 import { runChildOptions } from "../../../shared-infrastructure/telemetry/run-spans.ts";
 import { guardTelemetry } from "../../../shared-kernel/telemetry/guarded-telemetry.ts";
 import type { TelemetryPort } from "../../../shared-kernel/telemetry/telemetry.port.ts";
@@ -54,7 +55,7 @@ export function synthesizeReportSpans(deps: ReportSpanDeps, report: unknown, cas
     const scope = activeExecScope();
     const nowMs = (deps.now ?? Date.now)();
     const phaseStartMs = scope?.telemetry?.phaseStart?.();
-    const plan = planReport(report, { deniedHosts: scope?.report.denied ?? [], nowMs, ...(phaseStartMs !== undefined ? { phaseStartMs } : {}) });
+    const plan = planReport(report, { deniedHosts: scope?.report.denied ?? [], nowMs, redact: (text) => sanitizeText(text).text, ...(phaseStartMs !== undefined ? { phaseStartMs } : {}) });
     const options = runChildOptions();
     const tally = tallyOf(scope ? runScopeKey(scope) : undefined);
     /* The runtime evidence the runner harvested per case, keyed by the case's report name (fullName). */

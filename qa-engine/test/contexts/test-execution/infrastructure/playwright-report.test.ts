@@ -4,6 +4,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { parsePlaywrightReport } from "@contexts/test-execution/infrastructure/playwright-report.ts";
+import { LOAD_ERROR_MESSAGE_SAFETY_BOUND } from "@contexts/test-execution/domain/spec-load-error.ts";
+import { createRunSecretScope, withRunSecretScope } from "../../../../src/shared-kernel/run-secret-redaction.ts";
 
 test("maps nested specs to pass/fail cases", () => {
   const report = {
@@ -206,6 +208,17 @@ test("reads the report's top-level errors with their place, and leaves out what 
   assert.match(located!.message, /Cannot find module/);
   assert.deepEqual(located!.location, { file: "/w/e2e/flows/a.spec.ts", line: 4, column: 1 });
   assert.equal(bare!.location, undefined);
+});
+
+test("a run secret of several words straddling the bound of a load error's message leaves no word of itself", () => {
+  const passphrase = "tangerine staple orbit nine";
+  const words = "SyntaxError: unexpected token near the cart total ";
+  const message = `${words.repeat(Math.ceil(LOAD_ERROR_MESSAGE_SAFETY_BOUND / words.length)).slice(0, LOAD_ERROR_MESSAGE_SAFETY_BOUND - 16)}${passphrase} and more`;
+  const scope = createRunSecretScope();
+  scope.addAccountSecrets([passphrase]);
+  const parsed = withRunSecretScope(scope, () => parsePlaywrightReport({ suites: [], errors: [{ message }], stats: { expected: 0, unexpected: 0, flaky: 0, skipped: 0 } }));
+  assert.equal(parsed.loadErrors.length, 1);
+  assert.ok(!/tangerine|staple/.test(parsed.loadErrors[0]!.message));
 });
 
 test("a report without top-level errors, or with errors that are not a list, has no load errors", () => {

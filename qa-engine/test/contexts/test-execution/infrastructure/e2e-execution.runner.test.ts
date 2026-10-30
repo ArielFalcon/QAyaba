@@ -41,6 +41,7 @@ import { ProcessKillAdapter } from "../../../../src/shared-infrastructure/proces
 import { newSandboxReport, withExecScope, type RunScope } from "../../../../src/shared-infrastructure/process-sandbox/exec-scope.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 import { MAX_DEV_WRITE_REQUESTS } from "@contexts/test-execution/domain/dev-write-request.ts";
+import { createRunSecretScope, withRunSecretScope } from "../../../../src/shared-kernel/run-secret-redaction.ts";
 import { controlLoadMs } from "@contexts/test-execution/infrastructure/control-load.ts";
 
 test("allFailuresAreRunnerInfra: a browser-launch failure is infra (runner fault), not a test failure", () => {
@@ -974,6 +975,19 @@ test("harvest folds dump.networkErrors onto a FAILED case, strips the query stri
   assert.ok(ne.every((e) => !e.url.includes("?") && !e.url.includes("token")), "a query string (and its secret) must never appear");
   assert.equal(ne[0]!.url, "https://api.example.com/orders", "the URL is reduced to origin+pathname");
   assert.equal(failed.networkClass, "other", "no denied host / 5xx / DNS shape -> other");
+});
+
+test("a run secret of several words straddling the cap of a network error's text or url leaves no word of itself on the case", async () => {
+  const passphrase = "tangerine staple orbit nine";
+  const scope = createRunSecretScope();
+  scope.addAccountSecrets([passphrase]);
+  const lead = "net::ERR_CONNECTION_RESET while loading the cart totals for ".repeat(3).slice(0, 150);
+  const { cases } = await withRunSecretScope(scope, () =>
+    runWithNetworkDump({ status: "fail", networkErrors: [{ url: `https://api.example.com/${"orders/".repeat(40).slice(0, 265)}${encodeURIComponent(passphrase)}`, status: 404, errorText: `${lead}${passphrase} afterwards` }] }),
+  );
+  const ne = cases.find((c) => c.status === "fail")?.networkErrors ?? [];
+  assert.equal(ne.length, 1);
+  assert.ok(!/tangerine|staple|orbit|nine/.test(JSON.stringify(ne)), JSON.stringify(ne).slice(0, 400));
 });
 
 test("a PASSING case carries neither network errors nor a network class, even when a dump lists a refused host", async () => {

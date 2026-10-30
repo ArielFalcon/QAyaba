@@ -1,6 +1,7 @@
 import type { CaseStatus, QaCase } from "@kernel/qa-case.ts";
 import type { RunVerdict } from "@kernel/run-verdict.ts";
 import type { ExpectedFailureTest, SkippedTest } from "../domain/skipped-test.ts";
+import { redactAndBound } from "../../../shared-infrastructure/redaction/redact-and-bound.ts";
 import { LOAD_ERROR_MESSAGE_SAFETY_BOUND, MAX_LOAD_ERRORS_KEPT, type SpecLoadError } from "../domain/spec-load-error.ts";
 
 export interface PwCase {
@@ -108,7 +109,7 @@ function readLoadErrors(raw: unknown): SpecLoadError[] {
     const { message, location } = (entry ?? {}) as { message?: unknown; location?: unknown };
     if (typeof message !== "string" || message.trim() === "") continue;
     const where = (location ?? {}) as { file?: unknown; line?: unknown; column?: unknown };
-    const error: SpecLoadError = { message: message.slice(0, LOAD_ERROR_MESSAGE_SAFETY_BOUND) };
+    const error: SpecLoadError = { message: redactAndBound(message, LOAD_ERROR_MESSAGE_SAFETY_BOUND) };
     if (typeof where.file === "string" && where.file !== "") {
       error.location = {
         file: where.file,

@@ -9,6 +9,7 @@
 import { engineLog } from "@kernel/ports/process-logger.ts";
 import type { GeoLocation } from "@kernel/geolocation.ts";
 import type { RunDeadlineView } from "@kernel/run-deadline.ts";
+import { redactThenBound } from "@kernel/redact-then-bound.ts";
 import type { Attrs } from "@kernel/telemetry/attribute-registry.ts";
 import type { AccountLock } from "../domain/account-lock.ts";
 import { AGENT_BROWSER_REFUSAL, type AgentBrowserCapability, type AgentBrowserRefusalCode } from "../domain/agent-browser-capability.ts";
@@ -21,6 +22,9 @@ import type { SessionRenewalPort } from "./ports/session-renewal.port.ts";
 import type { CallObserver } from "./run-spec.use-case.ts";
 
 export const MAX_SNAPSHOT_CHARS = 12_000;
+const MAX_TITLE_CHARS = 300;
+/* An address the URL parser refuses is shown up to its query. */
+const MAX_UNPARSED_URL_CHARS = 500;
 export const MAX_URL_CHARS = 2_000;
 export const MAX_TYPED_CHARS = 2_000;
 export const MAX_REPORTED_BLOCKS = 5;
@@ -75,16 +79,12 @@ export interface AgentBrowserDeps {
   now?: () => number;
 }
 
-function cut(text: string, max: number): string {
-  return text.length <= max ? text : text.slice(0, max);
-}
-
-function withoutQuery(url: string): string {
+function withoutQuery(url: string, redact: (text: string) => string): string {
   try {
     const parsed = new URL(url);
     return `${parsed.origin}${parsed.pathname}`;
   } catch {
-    return cut(url.split(/[?#]/)[0] ?? "", 500);
+    return redactThenBound(url.split(/[?#]/)[0] ?? "", MAX_UNPARSED_URL_CHARS, redact);
   }
 }
 
@@ -227,9 +227,9 @@ export class AgentBrowserUseCase {
     return {
       ok: true,
       page: {
-        url: redact(withoutQuery(state.url)),
-        title: redact(cut(state.title, 300)),
-        snapshot: redact(cut(state.snapshot, MAX_SNAPSHOT_CHARS)),
+        url: redact(withoutQuery(state.url, redact)),
+        title: redactThenBound(state.title, MAX_TITLE_CHARS, redact),
+        snapshot: redactThenBound(state.snapshot, MAX_SNAPSHOT_CHARS, redact),
         ...(truncated ? { truncated: true as const } : {}),
       },
       blocked: state.blocked.slice(0, MAX_REPORTED_BLOCKS).map((b) => ({ reason: b.reason, detail: redact(b.detail) })),

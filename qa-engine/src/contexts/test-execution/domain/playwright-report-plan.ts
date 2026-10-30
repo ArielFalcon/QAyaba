@@ -6,6 +6,7 @@
 
 import { classifyFailure, locatorStrategy, strictModeMatchCount, type FailureCategory, type SelectorStrategy } from "./failure-category.ts";
 import { stripAnsi } from "@kernel/ansi.ts";
+import { redactThenBound } from "@kernel/redact-then-bound.ts";
 
 export const MAX_PLANNED_FILES = 200;
 export const MAX_PLANNED_CASES = 1000;
@@ -89,7 +90,7 @@ function caseStatusOf(test: Record<string, unknown>, attempts: PlannedAttempt[])
   }
 }
 
-function planAttempts(test: Record<string, unknown>, fallbackStart: number, deniedHosts: readonly string[], clamp: (ms: number, floor: number) => number, lo: number): PlannedAttempt[] {
+function planAttempts(test: Record<string, unknown>, fallbackStart: number, deniedHosts: readonly string[], clamp: (ms: number, floor: number) => number, lo: number, redact: (text: string) => string): PlannedAttempt[] {
   const attempts: PlannedAttempt[] = [];
   let cursor = fallbackStart;
   for (const raw of list(test.results).slice(0, MAX_PLANNED_ATTEMPTS)) {
@@ -99,12 +100,13 @@ function planAttempts(test: Record<string, unknown>, fallbackStart: number, deni
     const startMs = clamp(Number.isFinite(parsed) ? parsed : cursor, lo);
     const duration = typeof raw.duration === "number" && Number.isFinite(raw.duration) ? Math.min(Math.max(0, raw.duration), MAX_DURATION_MS) : 0;
     const status = attemptStatus(raw.status);
-    /* ANSI is stripped before the cut so a slice can never leave half an escape sequence; classifyFailure strips again internally. */
+    /* ANSI is stripped before the cut so a slice can never leave half an escape sequence; classifyFailure strips again internally. The message the plan keeps (it reaches a span) is redacted, then cut (shared-kernel/redact-then-bound.ts); what classifies the failure reads the text as the report wrote it, so a redaction never changes a class. */
     const rawMessage = status === "passed" || status === "skipped" ? undefined : errorOf(raw);
-    const message = rawMessage === undefined ? undefined : stripAnsi(rawMessage).slice(0, MAX_MESSAGE_CHARS);
-    const category = message === undefined ? undefined : classifyFailure(message, { deniedHosts });
-    const strict = message === undefined ? undefined : strictModeMatchCount(message);
-    const strategy = message === undefined ? undefined : locatorStrategy(message);
+    const read = rawMessage === undefined ? undefined : stripAnsi(rawMessage).slice(0, MAX_MESSAGE_CHARS);
+    const message = rawMessage === undefined ? undefined : redactThenBound(stripAnsi(rawMessage), MAX_MESSAGE_CHARS, redact);
+    const category = read === undefined ? undefined : classifyFailure(read, { deniedHosts });
+    const strict = read === undefined ? undefined : strictModeMatchCount(read);
+    const strategy = read === undefined ? undefined : locatorStrategy(read);
     attempts.push({
       index: typeof raw.retry === "number" && Number.isSafeInteger(raw.retry) && raw.retry >= 0 ? raw.retry : attempts.length,
       status,
@@ -121,7 +123,7 @@ function planAttempts(test: Record<string, unknown>, fallbackStart: number, deni
 }
 
 /* Walks the report's suites: a top-level suite is a file, and its nested suites add to the title chain of its cases. */
-export function planReport(report: unknown, opts: { deniedHosts?: readonly string[]; nowMs: number; phaseStartMs?: number }): ReportPlan {
+export function planReport(report: unknown, opts: { deniedHosts?: readonly string[]; nowMs: number; phaseStartMs?: number; redact: (text: string) => string }): ReportPlan {
   const lo = (opts.phaseStartMs ?? opts.nowMs - FALLBACK_WINDOW_MS) - START_SLACK_MS;
   const hi = opts.nowMs;
   const clamp = (ms: number, floor: number): number => Math.min(hi, Math.max(floor, ms));
@@ -138,7 +140,7 @@ export function planReport(report: unknown, opts: { deniedHosts?: readonly strin
           omitted += 1;
           continue;
         }
-        const attempts = planAttempts(rawTest, file.endMs || opts.nowMs, deniedHosts, clamp, lo);
+        const attempts = planAttempts(rawTest, file.endMs || opts.nowMs, deniedHosts, clamp, lo, opts.redact);
         const status = caseStatusOf(rawTest, attempts);
         const failing = attempts.find((a) => a.status === "failed" || a.status === "timedOut" || a.status === "interrupted");
         const startMs = attempts[0]?.startMs ?? opts.nowMs;

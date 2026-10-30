@@ -346,6 +346,19 @@ test("everything that leaves is redacted and a long tree is cut with a note", as
   }
 });
 
+test("a secret straddling the cut of the tree or the title leaves no part of itself in the answer", async () => {
+  const host = new FakeHost();
+  const lead = (chars: number): string => "- text: some words\n".repeat(Math.ceil(chars / 19)).slice(0, chars);
+  host.next = () => page({ title: `${lead(297)}hunter2 more`, snapshot: `${lead(MAX_SNAPSHOT_CHARS - 4)}hunter2 more`, url: `${BASE}/orders` });
+  const { useCase } = setup({ host });
+  const res = await useCase.call(nav("/orders"));
+  assert.equal(res.ok, true);
+  if (res.ok) {
+    assert.doesNotMatch(res.page.snapshot, /hunt/);
+    assert.doesNotMatch(res.page.title, /hunt/);
+  }
+});
+
 test("a snapshot asks the browser for the page as it is, with no argument", async () => {
   const { host, useCase } = setup();
   const res = await useCase.call({ sessionId: "s1", agent: "qa-author", action: "snapshot" });

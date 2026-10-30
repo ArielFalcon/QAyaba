@@ -11,6 +11,7 @@ import { parsePlaywrightReport } from "@contexts/test-execution/infrastructure/p
 import { traceHarness, T0, SpanStatusCode } from "./trace-harness";
 
 const NOW = () => T0 + 60_000;
+const identity = (text: string): string => text;
 const iso = (ms: number): string => new Date(ms).toISOString();
 const ms = (t: [number, number]): number => t[0] * 1e3 + t[1] / 1e6;
 
@@ -199,6 +200,24 @@ test("an attempt's error message is summarized: no ANSI and no call log", () => 
   assert.match(message, /locator\.click/);
 });
 
+/* A multi-word run secret that begins before a cut leaves no word of itself on the spans, whichever cut it straddles. */
+test("a run secret straddling a cut of an attempt's message leaves no word of itself on its spans", () => {
+  const passphrase = "tangerine staple orbit nine";
+  const words = "the page header renders before the data arrives and ";
+  const lead = (chars: number): string => words.repeat(Math.ceil(chars / words.length)).slice(0, chars);
+  const scope = createRunSecretScope();
+  scope.addAccountSecrets([passphrase]);
+  /* The first line is summarized to 500 characters; a labelled line near the end of a long message sits at the cut the plan makes. */
+  const messages = [`Error: ${lead(480)}${passphrase} and more`, `Error: expect(locator).toBeVisible() failed\n${lead(1935)}\nReceived: ${passphrase} and more`];
+  for (const message of messages) {
+    const h = traceHarness();
+    const report = { suites: [{ title: "f.spec.ts", file: "f.spec.ts", specs: [{ title: "a", tests: [{ status: "unexpected", results: [{ status: "failed", duration: 5, retry: 0, startTime: iso(T0), error: { message } }] }] }] }] };
+    withRunSecretScope(scope, () => synthesizeReportSpans({ telemetry: h.telemetry, now: NOW }, report));
+    const shown = JSON.stringify(h.spans().map((span) => [span.attributes, span.events]));
+    assert.ok(!/tangerine|staple|orbit/.test(shown), shown.slice(shown.search(/tang|stap|orbi/) - 20, shown.search(/tang|stap|orbi/) + 60));
+  }
+});
+
 test("a failed case with no error message is still an error span, with the status as its message", () => {
   const h = traceHarness();
   const noError = { suites: [{ title: "f.spec.ts", file: "f.spec.ts", specs: [{ title: "a", tests: [{ status: "unexpected", results: [{ status: "failed", duration: 5, retry: 0, startTime: iso(T0) }] }] }] }] };
@@ -226,21 +245,21 @@ test("a report that is not a report, or whose fields have the wrong types, yield
 
 test("a hostile report is bounded: only so many cases are planned and a duration cannot run for years", () => {
   const many = { suites: [{ title: "f.spec.ts", file: "f.spec.ts", specs: Array.from({ length: MAX_PLANNED_CASES + 5 }, (_, i) => ({ title: `t${i}`, tests: [{ status: "expected", results: [{ status: "passed", duration: 1e15, startTime: iso(T0) }] }] })) }] };
-  const plan = planReport(many, { nowMs: T0 });
+  const plan = planReport(many, { nowMs: T0, redact: identity });
   assert.equal(plan.files[0]!.cases.length, MAX_PLANNED_CASES);
   assert.equal(plan.omitted, 5);
   assert.ok(plan.files[0]!.cases[0]!.endMs - plan.files[0]!.cases[0]!.startMs <= 24 * 60 * 60 * 1000);
 });
 
 test("a case with no start time in the report starts where the previous one ended", () => {
-  const plan = planReport({ suites: [{ title: "f.spec.ts", specs: [{ title: "a", tests: [{ status: "expected", results: [{ status: "passed", duration: 10, startTime: iso(T0) }, { status: "passed", duration: 5 }] }] }] }] }, { nowMs: T0 + 99 });
+  const plan = planReport({ suites: [{ title: "f.spec.ts", specs: [{ title: "a", tests: [{ status: "expected", results: [{ status: "passed", duration: 10, startTime: iso(T0) }, { status: "passed", duration: 5 }] }] }] }] }, { nowMs: T0 + 99, redact: identity });
   assert.deepEqual(plan.files[0]!.cases[0]!.attempts.map((a) => [a.startMs, a.endMs]), [[T0, T0 + 10], [T0 + 10, T0 + 15]]);
 });
 
 test("an ANSI-coloured assertion message reaches a planned attempt with its escapes stripped", () => {
   const coloured = "\u001b[31mError: expect(locator).toBeVisible() failed\u001b[39m\n\nLocator: getByTestId('banner')\nReceived: <element(s) not found>";
   const report = { suites: [{ title: "f.spec.ts", file: "f.spec.ts", specs: [{ title: "a", tests: [{ status: "unexpected", results: [{ status: "failed", duration: 5, retry: 0, startTime: iso(T0), error: { message: coloured } }] }] }] }] };
-  const message = planReport(report, { nowMs: T0 + 99 }).files[0]!.cases[0]!.attempts[0]!.errorMessage!;
+  const message = planReport(report, { nowMs: T0 + 99, redact: identity }).files[0]!.cases[0]!.attempts[0]!.errorMessage!;
   assert.equal(message.includes("\u001b"), false);
   assert.match(message, /toBeVisible\(\) failed/);
 });
@@ -253,7 +272,7 @@ test("a planned case's fullName matches parsePlaywrightReport's name, with the f
       suites: [{ title: "profile", specs: [{ title: "shows the name", tests: [{ status: "expected", results: [{ status: "passed", duration: 10, retry: 0, startTime: iso(T0) }] }] }] }],
     }],
   };
-  const plan = planReport(nested, { nowMs: T0 + 99 });
+  const plan = planReport(nested, { nowMs: T0 + 99, redact: identity });
   const parsed = parsePlaywrightReport(nested);
   assert.equal(plan.files[0]!.cases[0]!.fullName, parsed.cases[0]!.name);
   assert.equal(plan.files[0]!.cases[0]!.fullName, "flows/profile.spec.ts › profile › shows the name");
@@ -261,7 +280,7 @@ test("a planned case's fullName matches parsePlaywrightReport's name, with the f
 
   /* A top suite with no title: the plan must spell the name exactly as the parser does, so the evidence still matches. */
   const untitled = { suites: [{ file: "f.spec.ts", specs: [{ title: "a", tests: [{ status: "expected", results: [{ status: "passed", duration: 1, retry: 0, startTime: iso(T0) }] }] }] }] };
-  const untitledPlan = planReport(untitled, { nowMs: T0 + 99 });
+  const untitledPlan = planReport(untitled, { nowMs: T0 + 99, redact: identity });
   const untitledParsed = parsePlaywrightReport(untitled);
   assert.equal(untitledPlan.files[0]!.cases[0]!.fullName, untitledParsed.cases[0]!.name);
 });
@@ -357,7 +376,7 @@ function reportWith(startTime: string, duration: number, extra: Record<string, u
 test("a start time from the future is held at now, one from long before the phase at a minute before it, and an end never precedes its start", () => {
   const phaseStart = T0 + 10_000;
   const planned = (iso0: string, duration: number) =>
-    planReport(reportWith(iso0, duration), { nowMs: T0 + 60_000, phaseStartMs: phaseStart }).files[0]!.cases[0]!;
+    planReport(reportWith(iso0, duration), { nowMs: T0 + 60_000, phaseStartMs: phaseStart, redact: identity }).files[0]!.cases[0]!;
   const future = planned(iso(T0 + 9_999_999_999), 5_000);
   assert.deepEqual([future.startMs, future.endMs], [T0 + 60_000, T0 + 60_000]);
   const ancient = planned(iso(T0 - 9_999_999_999), 1_000);
