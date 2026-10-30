@@ -82,7 +82,6 @@ window.QayabaMockData = (function () {
       { t: 'Generate 3 specs · reviewer approved', s: 'done' },
       { t: 'Static gate · tsc · lint · manifest', s: 'done' },
       { t: 'Execute suite against DEV', s: 'active' },
-      { t: 'Oracle · mutation / fault-injection', s: 'pending' },
       { t: 'Decide · PR with auto-merge, or Issue', s: 'pending' },
     ],
     currentTest: {

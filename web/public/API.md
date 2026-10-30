@@ -103,10 +103,6 @@ contract schema names are in (parens).
 | Gate effectiveness | `gates.{enforceHeld,regenRecovered,staticRejected}` | — | ✗ new. |
 | 4-layer quality gate | `gates: [{n,label,mode,pass,of,desc}]` | — | ✗ new. |
 
-### Engram
-| Block | Data needed | Endpoint | Status |
-|---|---|---|---|
-
 ### Reports
 | Block | Data needed | Endpoint | Status |
 |---|---|---|---|
