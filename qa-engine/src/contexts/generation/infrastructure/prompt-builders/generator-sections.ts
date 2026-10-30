@@ -1,5 +1,6 @@
 /* The sections of a generator prompt, in prompt order. Each declares when it applies and how it renders from the turn's PromptContext; buildPromptAssembled filters and renders them. Never import src/. */
 
+import type { ImpactReach } from "@kernel/service-links.ts";
 import { sanitizeText } from "../../../../shared-infrastructure/redaction/pattern-redaction.adapter.ts";
 import { advisoryLineIds, itemId } from "@kernel/context-item-ids.ts";
 import { PROMPT_HEADINGS } from "@contexts/generation/domain/prompt-headings.ts";
@@ -37,6 +38,7 @@ import {
   renderGeolocation,
   renderHarnessFacts,
   renderLeadPlan,
+  renderImpactStopLine,
   renderServiceLinkLine,
   renderStepMilestone,
 } from "./generator-renderers.ts";
@@ -172,11 +174,13 @@ function renderServiceLinks(ctx: PromptContext): SectionRender {
   const hasContractDrift = Boolean(input.contractDrift?.length);
   const linkKey = (l: { from: { repo: string; file: string; symbol: string }; to: { repo: string } }): string =>
     `${l.from.repo}/${l.from.file}#${l.from.symbol}->${l.to.repo}`;
-  const impactedTierByKey = new Map(
-    (input.crossRepoImpact?.impactedLinks ?? []).map(({ link, tier }) => [linkKey(link), tier] as const),
-  );
+  /* A link reached in two ways lists the first (hop one upstream before the later hops, in the order the walk found them). */
+  const impactedByKey = new Map<string, { tier: string; reach?: ImpactReach }>();
+  for (const { link, tier, reach } of input.crossRepoImpact?.impactedLinks ?? []) if (!impactedByKey.has(linkKey(link))) impactedByKey.set(linkKey(link), { tier, ...(reach ? { reach } : {}) });
+  const impactedTierByKey = new Map([...impactedByKey].map(([key, hit]) => [key, hit.tier] as const));
   const tierFor = (l: { from: { repo: string; file: string; symbol: string }; to: { repo: string } }): string | undefined =>
     impactedTierByKey.get(linkKey(l));
+  const reachFor = (l: { from: { repo: string; file: string; symbol: string }; to: { repo: string } }): ImpactReach | undefined => impactedByKey.get(linkKey(l))?.reach;
   const orderedLinks =
     impactedTierByKey.size > 0 && hasServiceLinks
       ? [
@@ -187,12 +191,14 @@ function renderServiceLinks(ctx: PromptContext): SectionRender {
   type Link = (typeof orderedLinks)[number];
   const impactedLinks = orderedLinks.filter((l) => tierFor(l) !== undefined);
   const drift = input.contractDrift ?? [];
+  const stops = input.crossRepoImpact?.stops ?? [];
   const render = (shownLinks: readonly Link[], driftShown: boolean): string =>
     [
       `## ${PROMPT_HEADINGS.crossServiceLinks} (deterministic — from the stitcher, advisory)`,
       "Structural cross-service contract links resolved from the code, advisory and NOT a gate; absent links do NOT imply no dependency. Transport/source name how each hop was derived (FE→BE HTTP, BE→BE HTTP, event).",
       "",
-      ...shownLinks.map((l) => renderServiceLinkLine(l, s, tierFor(l))),
+      ...shownLinks.map((l) => renderServiceLinkLine(l, s, tierFor(l), reachFor(l))),
+      ...stops.map((stop) => renderImpactStopLine(stop, s)),
       ...(shownLinks.length < orderedLinks.length ? [`${orderedLinks.length - shownLinks.length} link(s) are ${NOT_SHOWN}.`] : []),
       ...(hasContractDrift
         ? ["", `### ${CONTRACT_DRIFT_HEADING} (WARNINGS — front calls an endpoint the backend contract does not declare):`,

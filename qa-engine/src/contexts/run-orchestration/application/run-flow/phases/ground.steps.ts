@@ -458,7 +458,9 @@ export async function assembleEnrichment(state: Readonly<RunState>, ctx: Workspa
     ...(agentBrowser ? { agentBrowser: agentBrowser.limits } : {}),
     ...(serviceLinks.length ? { serviceLinks } : {}),
     ...(contractDrift.length ? { contractDrift } : {}),
-    ...(crossRepoImpact?.impactedLinks.length ? { crossRepoImpact: { impactedLinks: crossRepoImpact.impactedLinks } } : {}),
+    ...(crossRepoImpact?.impactedLinks.length || crossRepoImpact?.stops?.length
+      ? { crossRepoImpact: { impactedLinks: crossRepoImpact.impactedLinks, ...(crossRepoImpact.stops?.length ? { stops: crossRepoImpact.stops } : {}) } }
+      : {}),
     /* contradiction is spread only when true — never fabricated as false. */
     ...(classificationReason ? { classificationReason } : {}),
     ...(classificationContradiction ? { contradiction: true } : {}),

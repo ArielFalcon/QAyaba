@@ -1300,3 +1300,33 @@ test("plan() forwards a plan turn that ran out of time and one that gave a no-op
   }
 });
 
+
+test("author() carries the direction, chain and stops of the cross-repo impact onto OpencodeRunInput, and omits the key when there is neither a link nor a stop", async () => {
+  const ports = fakeAuthoringPorts();
+  let capturedInput: OpencodeRunInput | undefined;
+  const originalGenerate = GenerateTestsUseCase.prototype.author;
+  GenerateTestsUseCase.prototype.author = async function (input: OpencodeRunInput, opts) {
+    capturedInput = input;
+    return originalGenerate.call(this, input, opts);
+  };
+  try {
+    const adapter = new GenerationTurnsAdapter(new GenerateTestsUseCase(ports), {
+      repo: "org/app", appName: "app", mirrorDir: "/mirrors/org/app", e2eRelDir: "e2e",
+      namespace: "qa-bot-abc1234", mode: "diff", diff: "",
+    });
+    const link = { from: { repo: "org/front", file: "src/api.ts", symbol: "getOrder" }, to: { repo: "org/orders", file: "src/routes.ts", symbol: "getOrder" }, transport: "http" as const, confidence: 0.9, source: "openapi" };
+    const stops = [{ repo: "org/orders", direction: "upstream" as const, reason: "the repo has no mirror to index in this run" }];
+    const impacted = [{ link, tier: "impacted-symbol" as const, reach: { direction: "downstream" as const, via: [link] } }];
+
+    await adapter.author("/mirrors/org/app/e2e", undefined, "the-diff", { crossRepoImpact: { impactedLinks: impacted, stops } });
+    assert.deepEqual(capturedInput?.crossRepoImpact, { impactedLinks: impacted, stops });
+
+    await adapter.author("/mirrors/org/app/e2e", undefined, "the-diff", { crossRepoImpact: { impactedLinks: [], stops } });
+    assert.deepEqual(capturedInput?.crossRepoImpact, { impactedLinks: [], stops });
+
+    await adapter.author("/mirrors/org/app/e2e", undefined, "the-diff", { crossRepoImpact: { impactedLinks: [], stops: [] } });
+    assert.equal("crossRepoImpact" in (capturedInput ?? {}), false);
+  } finally {
+    GenerateTestsUseCase.prototype.author = originalGenerate;
+  }
+});

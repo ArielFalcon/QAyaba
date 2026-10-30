@@ -112,6 +112,7 @@ export interface RunOutcome {
     structuralSignalBytes?: number;
     serviceLinksCount?: number;
     contractDriftCount?: number;
+    /* Every impacted link of the run, over any hop and either direction (RFC-0011), also set when the change is the app alone and a chain of links starts at it. A run stored before RFC-0011 keeps the first-hop count it was saved with and reads back unchanged (a plain optional number, no migration): the two series are not poolable. Persist-only. */
     crossRepoImpactedCount?: number;
     /* The coverage signal was measured before the specs an accepted regeneration rewrote: the recorded ratio no longer describes the bytes on disk. Persist-only; never read by decide/verdict/gate/publish. */
     coverage?: { stale: boolean };

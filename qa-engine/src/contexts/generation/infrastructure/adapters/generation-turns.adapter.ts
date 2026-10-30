@@ -169,8 +169,13 @@ export class GenerationTurnsAdapter implements LeadPort, AuthorPort {
       /* Service links / contract drift. Absent/empty → omitted, never []. */
       ...(enrichment?.serviceLinks?.length ? { serviceLinks: [...enrichment.serviceLinks] } : {}),
       ...(enrichment?.contractDrift?.length ? { contractDrift: [...enrichment.contractDrift] } : {}),
-      ...(enrichment?.crossRepoImpact?.impactedLinks.length
-        ? { crossRepoImpact: { impactedLinks: enrichment.crossRepoImpact.impactedLinks.map((x) => ({ ...x })) } }
+      ...(enrichment?.crossRepoImpact?.impactedLinks.length || enrichment?.crossRepoImpact?.stops?.length
+        ? {
+            crossRepoImpact: {
+              impactedLinks: enrichment.crossRepoImpact.impactedLinks.map((x) => ({ ...x })),
+              ...(enrichment.crossRepoImpact.stops?.length ? { stops: enrichment.crossRepoImpact.stops.map((x) => ({ ...x })) } : {}),
+            },
+          }
         : {}),
       ...(enrichment?.classificationReason ? { classificationReason: enrichment.classificationReason } : {}),
       ...(enrichment?.contradiction ? { contradiction: true } : {}),

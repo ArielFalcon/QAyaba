@@ -1,4 +1,4 @@
-import type { ServiceLink, ContractDrift, ImpactedLink } from "@kernel/service-links.ts";
+import type { ServiceLink, ContractDrift, ImpactedLink, ImpactStop } from "@kernel/service-links.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 import type { ClosedLoopLimits } from "@kernel/closed-loop.ts";
 import type { AgentBrowserLimits } from "@kernel/agent-browser.ts";
@@ -121,7 +121,7 @@ export interface GenerationEnrichment {
    * Advisory cross-repo impact narrowing. Structured, not pre-rendered. Absent
    * means no key. Advisory only.
    */
-  crossRepoImpact?: { impactedLinks: readonly ImpactedLink[] };
+  crossRepoImpact?: { impactedLinks: readonly ImpactedLink[]; stops?: readonly ImpactStop[] };
   /** Present only on the planning turn of a coordinated run: the limits the plan will be held to. Absent on every other turn. */
   planning?: PlanningLimits;
 }

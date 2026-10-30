@@ -1231,3 +1231,48 @@ test("buildPrompt fix-cases section states a settled failure tree as settled", (
   assert.ok(text.includes(describeSettle(settled.failureSettle!)));
   assert.equal(text.includes(SETTLE_LABELS.unsettled), false, "a quiet page with a stable tree is not stated as unsettled");
 });
+
+/* Links beyond the first hop (RFC-0011): the line of a link reached through others names the direction and the chain, and a hop the walk could not finish is one line. */
+const backendLink = {
+  from: { repo: "org/orders", file: "src/OrderClient.java", symbol: "fetchStock" },
+  to: { repo: "org/stock", file: "api/stock.yaml", symbol: "listStock" },
+  transport: "http" as const,
+  operation: { verb: "GET", path: "/stock" },
+  confidence: 0.8,
+  source: "http-backend-resolver",
+};
+
+test("a link reached through another names the links crossed to it, and a link reached downstream says so", () => {
+  const text = buildPrompt(mkInput({
+    serviceLinks: [link1, backendLink],
+    crossRepoImpact: {
+      impactedLinks: [
+        { link: backendLink, tier: "impacted-symbol" },
+        { link: link1, tier: "impacted-symbol", reach: { direction: "upstream", via: [backendLink] } },
+      ],
+    },
+  }));
+  assert.match(text, new RegExp(`${LINK1_SUBJECT.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} -> .*\\(reached upstream through org/stock: GET /stock\\)`));
+  const down = buildPrompt(mkInput({ serviceLinks: [link1], crossRepoImpact: { impactedLinks: [{ link: link1, tier: "impacted-symbol", reach: { direction: "downstream", via: [] } }] } }));
+  assert.ok(down.includes("(reached downstream)"));
+});
+
+test("a link reached in one hop upstream renders exactly as before", () => {
+  const plain = buildPrompt(mkInput({ serviceLinks: [link1], crossRepoImpact: { impactedLinks: [{ link: link1, tier: "impacted-symbol" }] } }));
+  assert.ok(!plain.includes("reached upstream") && !plain.includes("reached downstream"));
+});
+
+test("a hop the walk could not finish is one unverified line naming the repo and the reason, whatever the links shown", () => {
+  const stops = [{ repo: "org/orders", direction: "upstream" as const, reason: "index failed: the engine timed out" }];
+  const text = buildPrompt(mkInput({ serviceLinks: [link1], crossRepoImpact: { impactedLinks: [{ link: link1, tier: "impacted-symbol" }], stops } }));
+  const lines = text.split("\n").filter((l) => l.includes("org/orders") && l.includes("not walked"));
+  assert.equal(lines.length, 1);
+  assert.match(lines[0]!, /upstream.*index failed: the engine timed out.*unverified, not absent/);
+  const noStops = buildPrompt(mkInput({ serviceLinks: [link1], crossRepoImpact: { impactedLinks: [{ link: link1, tier: "impacted-symbol" }], stops: [] } }));
+  assert.equal(noStops, buildPrompt(mkInput({ serviceLinks: [link1], crossRepoImpact: { impactedLinks: [{ link: link1, tier: "impacted-symbol" }] } })));
+});
+
+test("a stop with no impacted link still reaches the section", () => {
+  const text = buildPrompt(mkInput({ serviceLinks: [link1], crossRepoImpact: { impactedLinks: [], stops: [{ repo: "org/orders", direction: "downstream", reason: "the repo has no mirror to index in this run" }] } }));
+  assert.ok(text.includes("not walked"));
+});

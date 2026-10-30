@@ -213,3 +213,16 @@ Each for the owner to decide; the recommended answer first.
 - **Whether the app's pages that reach the changed service are tested well** (P6): this record grounds the agent with the change; test quality is read from the signals of ADR-0005.
 
 Not verified here: the cost of building an index of an unchanged service in a run (no measurement; the store cache should make a repeat cheap, hypothesis); that a handler symbol reached from a call-site seed carries that seed in `seeds` (the type says so, no walk was run); the content of the owner's app configuration; the freshness of an unchanged service's mirror.
+
+## Implementation notes
+
+What the code does where this record left a choice open, each decided with the recommended option of [ADR-0014](../adr/0014-owner-decisions-rfc-0011.md):
+
+- **Which repos the downstream pass asks.** A changed repo is asked only when it starts a chain of two links (`LinkGraph.hasOnward`: a link out of it lands in a repo that has links out of its own). This is how G5 and Q8 hold: an app with only frontend-to-backend links, whose first hop would otherwise now be recorded downstream, keeps exactly today's answer. It follows from Q6 (grounding only) that nothing is lost by the first hop being recorded only when it leads onward.
+- **Downstream attribution needs the walk's own statement.** A link out of a repo is impacted only when the walk states that its call site is among the seeds that reach the handler that entered (`ImpactedSymbol.seeds`); a handler reached with no statement impacts nothing, because a wrong downstream claim adds a link, where a wrong upstream attribution only picks which chain describes a link already reached.
+- **Mirrors.** The mirror of every declared service reaches the run as `codeGraphMirrors` (repo, directory, head reader), built by the factory like `codeGraphPrimary`, under the gate `serviceTopology` uses. The step indexes through `indexOne` (now exported and returning the record). The mirror directory of an already-indexed repo is the one the opening indexed.
+- **The port's later-hop methods are optional** (`resolveUpstreamHop`, `resolveDownstream`, `resolveDownstreamHop`): a port that answers the first hop only keeps the one hop. The traced port passes them through and records no context item for them.
+- **Units.** U1 carried the additive kernel types and the removal of the unset, unread `serviceImpacted` field (RFC :211); the merge of `mergeImpacts` moved to `mergeImpactedLinks` in the same commit. U5's downstream pass reuses the repo list the scope reads (`changeRepos`).
+- **The count.** `crossRepoImpactedCount` stays a plain optional number on the run record (`gateSignals`): a stored run reads back with the value it was saved with, so the series splits at U6 and is never rewritten. The break is written in `AGENTS.md`, `observability-design.md`, `efficiency-benchmark.md` and on the field's declaration (`run-outcome.ts`).
+- **Not edited here.** The epoch row of the run index (`rejected-explanations.md`) lies outside this change's surfaces.
+

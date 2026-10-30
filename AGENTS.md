@@ -275,6 +275,24 @@ webhook triggers the app's suite: diff/classify/gate from the service mirror, su
 the primary mirror. Issues open in the service repo; PRs target the primary repo.
 Change-coverage is `unknown` for these runs.
 
+**Cross-repo impact over more than one hop** ([RFC-0011](docs/architecture/rfc/0011-multi-hop-cross-repo-impact.md)). The
+links the run resolved (`ServiceLink`: frontend to backend, `http-backend`, `event`) are a graph over repositories
+(`service-topology/domain/link-graph.ts`); an app that declares no backend-to-backend or event boundary has no edge beyond the
+first hop and keeps exactly that one hop. *Upstream*, from each changed service: hop one is the use case's `resolve` (the
+links into the changed repo); each later hop walks the repo the impacted links start in, inbound from their call sites in that
+repo's index (`callersOf` under `DEFAULT_WALK_POLICY`), and impacts the links into it whose endpoint (operationId, handler
+symbol or the handler of a route serving the operation) a caller reaches, carrying the links crossed (`ImpactedLink.reach.via`).
+The step (`resolveCrossRepoImpact`) loops until a hop finds no link not admitted before (`LinkWalk`): no hop cap, the finite set
+of links ends it. A repo the change did not reach is indexed on demand from its mirror at the commit the mirror holds
+(`codeGraphMirrors`, `indexOne`), sequentially with the run's signal. *Downstream*, for each changed repo that starts a chain of
+two links (`LinkGraph.hasOnward`): the links out of it whose call site the change reaches, then the links out of the repo each
+lands in whose call site reaches the handler that entered it; downstream links are grounding only (record and prompt), never a
+page, candidate or operation entry. A hop whose index cannot be had, whose walk fails or is left partial is an `ImpactStop`: a
+`degraded` entry of the scope (`hop upstream: ...`) and one unverified line of the prompt's service-links section; nothing
+beyond it is claimed. A page reached through a chain shows the links in its evidence, the change's end first. The call-site
+walk seeds only call sites in the app's own repo. `crossRepoImpactedCount` counts every impacted link, any hop and direction, and
+is also set when the run's change is the app alone: runs before RFC-0011 count first-hop links only, so do not pool the series.
+
 ### What the agent receives: grounding and learning
 
 The harness pre-computes context so the agent does not have to rediscover it. Any change

@@ -14,7 +14,9 @@ import { ChangeSet, crossRepoCallSite, fileImplementsPage, handlerServesOperatio
 import { ChangeScopePortAdapter } from "@contexts/change-analysis/infrastructure/adapters/change-scope-port.adapter.ts";
 import { CrossRepoImpactPortAdapter } from "@contexts/service-topology/infrastructure/adapters/cross-repo-impact-port.adapter.ts";
 import type { SandboxedBinaryRunner } from "../../../../src/shared-infrastructure/process-sandbox/sandboxed-binary-runner.ts";
-import { dispose, newRig, observe, scratchDir, type Rig } from "./run-flow/run-end-rig.ts";
+import type { GenerationEnrichment } from "@contexts/generation/domain/generation-enrichment.ts";
+import { scriptedGeneration } from "../../../support/generation-output.ts";
+import { RIG_SPEC, dispose, newRig, observe, scratchDir, type Rig } from "./run-flow/run-end-rig.ts";
 
 const APP = "org/app";
 const B = "org/b";
@@ -155,7 +157,10 @@ test("a hop through a repo with no mirror is a stop in the scope, the first hop 
   const w = world([appToB, bToC], "c");
   try {
     w.rig.extra = { ...w.rig.extra, codeGraphMirrors: new Map() };
+    const enrichments: Array<GenerationEnrichment | undefined> = [];
+    w.rig.author = async (_specDir, _signal, _diff, enrichment) => { enrichments.push(enrichment); return scriptedGeneration({ specs: [RIG_SPEC] }); };
     const observed = await observe(w.rig, "hops-no-mirror");
+    assert.deepEqual(enrichments[0]?.crossRepoImpact?.stops, [{ repo: B, direction: "upstream", reason: "the repo has no mirror to index in this run" }], "the agent is told which hop was not walked");
     assert.equal(observed.result?.decision.verdict, "pass");
     assert.deepEqual(pageEntries(w.scopes[0]!), []);
     assert.deepEqual(w.scopes[0]!.degraded, [{ repo: B, reason: "hop upstream: the repo has no mirror to index in this run" }]);

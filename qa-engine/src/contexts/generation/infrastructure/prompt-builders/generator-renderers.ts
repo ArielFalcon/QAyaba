@@ -9,6 +9,7 @@ import type { ClosedLoopLimits } from "@kernel/closed-loop.ts";
 import type { AgentBrowserLimits } from "@kernel/agent-browser.ts";
 import type { GeolocationFacts } from "@kernel/geolocation.ts";
 import type { PlanningLimits } from "@kernel/coordination.ts";
+import type { ImpactReach } from "@kernel/service-links.ts";
 import { candidateLine } from "@kernel/use-case-candidate.ts";
 import { PROMPT_HEADINGS } from "@contexts/generation/domain/prompt-headings.ts";
 import { isReGenTurn } from "@contexts/generation/domain/regen-turn.ts";
@@ -118,9 +119,22 @@ export function renderServiceLinkLine(
   },
   s: (x: unknown) => string,
   tier?: string,
+  reach?: ImpactReach,
 ): string {
   return `- ${tier ? `${impactedMarker(s(tier))} ` : ""}\`${s(l.from.repo)}/${s(l.from.file)}#${s(l.from.symbol)}\` -> ` +
-    `${s(l.to.repo)} ${s(l.contractRef ?? l.to.symbol)} (${linkKindLabel(l)}, source ${s(l.source)}, confidence ${l.confidence.toFixed(2)})`;
+    `${s(l.to.repo)} ${s(l.contractRef ?? l.to.symbol)} (${linkKindLabel(l)}, source ${s(l.source)}, confidence ${l.confidence.toFixed(2)})` +
+    (tier && reach ? ` (${reachedClause(reach, s)})` : "");
+}
+
+/* How a link was reached beyond the first hop upstream: its direction, and the links crossed to it from the change, nearest the change first. */
+function reachedClause(reach: ImpactReach, s: (x: unknown) => string): string {
+  const through = reach.via.map((v) => `${s(v.to.repo)}: ${s(v.operation ? `${v.operation.verb} ${v.operation.path}` : (v.contractRef ?? v.to.symbol))}`);
+  return `reached ${reach.direction}${through.length > 0 ? ` through ${through.join(", then ")}` : ""}`;
+}
+
+/* A hop of the cross-repo walk that could not be finished: one line, framed as unverified because what lies beyond it was neither found nor ruled out. */
+export function renderImpactStopLine(stop: { repo: string; direction: string; reason: string }, s: (x: unknown) => string): string {
+  return `- ${s(stop.direction)} hop through ${s(stop.repo)} was not walked: ${s(stop.reason)} (links beyond it are unverified, not absent)`;
 }
 
 /* The labels of the evidence lines a failing case carries that a reader tells apart: the HTTP line of a case that reached a page without a status, and how the capture at the failure point says it settled. */

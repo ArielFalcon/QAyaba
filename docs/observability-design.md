@@ -324,6 +324,12 @@ Rules, from the brief §2.1 and the OTel spec:
   limit), `.expansions`, `.budget` and `.fan_in_limit`, and the change scope adds `qayaba.change_scope.partial_seeds`
   and `.hub_nodes`. The log line reads "impact walk: N seeds (M partial), K hub nodes pruned at fan-in above F, E of
   B expansions". No symbol count cuts a walk; 300 symbols bound only the structural block's rendering.
+- **Cross-repo impact hops** (RFC-0011). `gateSignals.crossRepoImpactedCount` is the number of impacted links over every hop
+  and both directions, and is set when the change is the app alone and a chain of links starts at it; runs before the change
+  count first-hop links only (an epoch break: never pool the two). A repo a hop walks that the change did not reach is indexed
+  on demand and leaves a `qayaba.code_graph.index` span like any other. The hops a walk could not finish are
+  `qayaba.change_scope.degraded` entries read `hop upstream: ...` or `hop downstream: ...`; the cross-repo reach entries
+  (`qayaba.change_scope.cross_repo`) carry the chain of links in their proofs.
 
 ### 4.3 Root attributes
 

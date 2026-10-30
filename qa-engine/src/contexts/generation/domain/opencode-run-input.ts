@@ -1,4 +1,4 @@
-import type { ServiceLink, ContractDrift } from "@kernel/service-links.ts";
+import type { ServiceLink, ContractDrift, ImpactReach, ImpactStop } from "@kernel/service-links.ts";
 import type { RunMode } from "@kernel/run-mode.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 import type { DeliveredSpec } from "@kernel/delivered-spec.ts";
@@ -68,5 +68,5 @@ export interface OpencodeRunInput {
   services?: Array<{ repo: string; mirrorDir: string; openapi?: string | string[] }>;
   serviceLinks?: ServiceLink[];
   contractDrift?: ContractDrift[];
-  crossRepoImpact?: { impactedLinks: Array<{ link: ServiceLink; tier: string }> };
+  crossRepoImpact?: { impactedLinks: Array<{ link: ServiceLink; tier: string; reach?: ImpactReach }>; stops?: ImpactStop[] };
 }
