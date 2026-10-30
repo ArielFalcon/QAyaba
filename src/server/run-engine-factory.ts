@@ -1034,6 +1034,17 @@ export function buildEngineRootDeps(
       : {}),
     /* Each other service of a run over several repos is indexed at its head too. */
     ...(companionServices.length > 0 ? { codeGraphRepoDirs: new Map(companionServices.map((c) => [c.service.repo, join(mirrorRoot, c.service.repo.replaceAll("/", "__"))])) } : {}),
+    /* Every declared service has a mirror a cross-repo hop may index on demand; only an app with a declared boundary has links to hop along. */
+    ...(serviceTopologyOn && app.services?.length
+      ? {
+          codeGraphMirrors: new Map(
+            app.services.map((s) => {
+              const repoDir = join(mirrorRoot, s.repo.replaceAll("/", "__"));
+              return [s.repo, { repoDir, headSha: () => new GitMirrorReadAdapter(repoDir, runner).headSha() }] as const;
+            }),
+          ),
+        }
+      : {}),
     ...(triggerService ? { codeGraphPrimary: { repo: app.repo, repoDir: mirrorDir, headSha: () => new GitMirrorReadAdapter(mirrorDir, runner).headSha() } } : {}),
     /* The lead's code-graph tools' client. */
 

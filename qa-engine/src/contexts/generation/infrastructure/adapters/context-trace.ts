@@ -121,10 +121,15 @@ export class TracedStructuralSignalPort implements StructuralSignalPort {
 }
 
 export class TracedCrossRepoImpactPort implements CrossRepoImpactPort {
+  /* A later hop is not an item of the context record (the record lists what the first hop resolved); it passes through when the inner port answers one. */
+  readonly resolveUpstreamHop: CrossRepoImpactPort["resolveUpstreamHop"];
+
   constructor(
     private readonly inner: CrossRepoImpactPort,
     private readonly telemetry: TelemetryPort,
-  ) {}
+  ) {
+    this.resolveUpstreamHop = inner.resolveUpstreamHop ? (request) => inner.resolveUpstreamHop!(request) : undefined;
+  }
 
   async resolve(triggerRepo: string, triggerSha: string, resolvedLinks: readonly ServiceLink[], baseRef?: string): Promise<CrossRepoImpact | null> {
     const impact = await this.inner.resolve(triggerRepo, triggerSha, resolvedLinks, baseRef);

@@ -107,6 +107,7 @@ describe("seam-parity: COMPOSITION (EngineRootDeps vs buildEngineRootDeps)", () 
     codeGraph: "IS supplied for every app — the run's one code-graph adapter, indexed by the index phase and read by the structural signal and the cross-repo impact. Asserted below as a present-when-default case.",
     codeExplore: "IS supplied with codeGraph (the same code-graph adapter instance, so it reads the index the run built) — the lead's code-graph tool and the change dossier read it. Asserted below as a present-when-default case.",
     coChange: "IS supplied with codeGraph (GitCoChangeAdapter over the trusted git runner). Asserted below as a present-when-default case.",
+    codeGraphMirrors: "Supplied ONLY under the gate serviceTopology uses (declared services and a boundary profile): the mirror of every declared service, for a cross-repo hop through a service the change did not reach. This fixture declares none, so it is absent.",
     codeGraphPrimary: "Supplied only on a service-triggered run (the primary repo, indexed too); this fixture is a same-repo run, so it is absent.",
     codeGraphRepoDir: "IS supplied (classify-source mirror: SERVICE on a webhook, PRIMARY otherwise) — pins CodeGraphPort.syncTo and StructuralSignalPortAdapter off workspace.mirrorDir on cross-repo runs. Asserted below as a present case.",
   };

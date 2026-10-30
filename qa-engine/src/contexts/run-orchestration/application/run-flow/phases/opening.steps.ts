@@ -115,16 +115,18 @@ export async function indexMirror(_state: Readonly<RunState>, ctx: WorkspaceRunC
   }
 }
 
-async function indexOne(ctx: WorkspaceRunContext, codeGraph: CodeGraphPort, repoDir: string, sha: string): Promise<void> {
+/* Indexes one repo at a commit and records it; the record, or undefined when the engine threw (logged, never a failure of the run). */
+export async function indexOne(ctx: WorkspaceRunContext, codeGraph: CodeGraphPort, repoDir: string, sha: string): Promise<CodeGraphIndexRecord | undefined> {
   let record: CodeGraphIndexRecord;
   try {
     record = await codeGraph.syncTo(repoDir, sha, ctx.signal);
   } catch (err) {
     engineLog.warn("[qa] code-graph indexing failed (non-blocking):", { error: err });
-    return;
+    return undefined;
   }
   if (record.outcome === "failed" || record.outcome === "timeout") engineLog.warn(`[qa] code-graph indexing of ${record.repo} ${record.outcome} (non-blocking): ${record.reason ?? "no reason given"}`);
   recordIndex(ctx, record);
+  return record;
 }
 
 function recordIndex(ctx: WorkspaceRunContext, record: CodeGraphIndexRecord): void {

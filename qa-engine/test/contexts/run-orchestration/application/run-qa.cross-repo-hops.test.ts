@@ -60,6 +60,7 @@ function chainGraph(dirs: Dirs, indexed: string[]): CodeGraphPort {
         assert.deepEqual(seeds, [APP_CALL]);
         return report([sym(APP_CALL, 0), sym({ file: ORDERS_PAGE, symbol: "load" }, 1, { via: APP_CALL, seeds: [{ ...APP_CALL, hops: 1 }] })]);
       }
+      if (repoDir === dirs.c) return report([]);
       throw new Error(`no walk from call sites expected in ${repoDir}`);
     },
     routes: async (repoDir) => {
@@ -144,6 +145,41 @@ test("a change in the app alone with only its link to a backend records no cross
     const observed = await observe(w.rig, "hops-app-only");
     assert.equal(observed.saved[0]?.gateSignals?.crossRepoImpactedCount, undefined);
     assert.deepEqual(w.scopes[0]!.degraded, []);
+  } finally {
+    dispose(w.rig);
+  }
+});
+
+test("a hop through a repo with no mirror is a stop in the scope, the first hop still holds and no page is claimed", async () => {
+  const w = world([appToB, bToC], "c");
+  try {
+    w.rig.extra = { ...w.rig.extra, codeGraphMirrors: new Map() };
+    const observed = await observe(w.rig, "hops-no-mirror");
+    assert.equal(observed.result?.decision.verdict, "pass");
+    assert.deepEqual(pageEntries(w.scopes[0]!), []);
+    assert.equal(observed.saved[0]?.gateSignals?.crossRepoImpactedCount, 1);
+  } finally {
+    dispose(w.rig);
+  }
+});
+
+test("the unchanged service a hop walks through is indexed once, at the commit its mirror holds, and the hop's walk comes after", async () => {
+  const w = world([appToB, bToC], "c");
+  try {
+    await observe(w.rig, "hops-index-on-demand");
+    assert.deepEqual(w.indexed.filter((x) => x.startsWith(w.dirs.b)), [`${w.dirs.b}@b222222`]);
+  } finally {
+    dispose(w.rig);
+  }
+});
+
+test("a cycle of links between two services ends and lists each link once", async () => {
+  const cToB: ServiceLink = { from: { repo: C, file: "c/Back.java", symbol: "notify" }, to: { repo: B, file: B_HANDLER.file, symbol: B_HANDLER.symbol }, transport: "event", confidence: 0.8, source: "event-resolver" };
+  const w = world([appToB, bToC, cToB], "c");
+  try {
+    const observed = await observe(w.rig, "hops-cycle");
+    assert.equal(observed.result?.decision.verdict, "pass");
+    assert.equal(observed.saved[0]?.gateSignals?.crossRepoImpactedCount, 3, "B -> C, then the app's link into B and C's link back into B, each once");
   } finally {
     dispose(w.rig);
   }

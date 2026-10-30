@@ -1,4 +1,5 @@
 import type { ServiceLink, CrossRepoImpact } from "@kernel/service-links.ts";
+import type { HopResult, UpstreamHopRequest } from "../resolve-cross-repo-impact.use-case.ts";
 
 /**
  * Advisory impacted-link narrowing. Fires only on cross-repo runs
@@ -9,4 +10,9 @@ import type { ServiceLink, CrossRepoImpact } from "@kernel/service-links.ts";
 export interface CrossRepoImpactPort {
   /* `baseRef` is the commit the change starts from (a sha, or `<sha>~n`); absent, the commit before `triggerSha`. */
   resolve(triggerRepo: string, triggerSha: string, resolvedLinks: readonly ServiceLink[], baseRef?: string): Promise<CrossRepoImpact | null>;
+  /**
+   * One later hop upstream through a repo whose index the caller has built (RFC-0011). Absent: the port answers the first hop only.
+   * A hop that cannot be walked is a stop in the answer, never a throw, except for an untrusted git dir.
+   */
+  resolveUpstreamHop?(request: UpstreamHopRequest): Promise<HopResult>;
 }

@@ -1,7 +1,7 @@
 /* The ground phase of a run: what the agent is handed before it writes anything. The blast radius, the service links and the cross-repo impact resolved; together they make the enrichment every generation starts from. */
 
 import { engineLog } from "@kernel/ports/process-logger.ts";
-import type { ServiceLink, ContractDrift, CrossRepoImpact } from "@kernel/service-links.ts";
+import type { ServiceLink, ContractDrift, CrossRepoImpact, ImpactedLink, ImpactStop } from "@kernel/service-links.ts";
 import { PRE_GENERATION_GROUNDING_STEP_DETAIL } from "@kernel/run-step.ts";
 import { BlastRadius } from "@kernel/blast-radius.ts";
 import { DiffParserService } from "@kernel/diff-parser/diff-parser.service.ts";
@@ -12,7 +12,8 @@ import { throwIfAborted } from "../abort.ts";
 import type { WorkspaceRunContext } from "../run-context.ts";
 import type { RunState } from "../run-state.ts";
 import { carryOn } from "../failure-policy.ts";
-import { mergeImpactedLinks } from "@contexts/service-topology/application/index.ts";
+import { indexOne } from "./opening.steps.ts";
+import { LinkGraph, LinkWalk, mergeImpactedLinks } from "@contexts/service-topology/application/index.ts";
 import { availabilityGroundingOf, withRouteConfigCandidates } from "../route-availability-grounding.ts";
 
 type Result = Promise<StepOutcome<RunState>>;
@@ -167,8 +168,87 @@ export async function resolveCrossRepoImpact(state: Readonly<RunState>, ctx: Wor
       }
     }
   }
-  const crossRepoImpact = impacts.length <= 1 ? (impacts[0] ?? null) : mergeImpacts(impacts);
+  const firstHop = impacts.length <= 1 ? (impacts[0] ?? null) : mergeImpacts(impacts);
+  const crossRepoImpact = firstHop ? await followUpstream(firstHop, resolvedServiceLinks, ctx) : null;
   return { update: { grounding: { ...state.grounding, crossRepoImpact } } };
+}
+
+/*
+ * The hops after the first (RFC-0011): the repos the impacted links start in are walked, in repo order, with every fresh link
+ * that feeds each walked together, until a hop finds no link that was not admitted before. Termination is the set of links,
+ * not a count of hops. A repo whose index cannot be had is a stop, not a failure, and nothing is claimed beyond it.
+ */
+async function followUpstream(firstHop: CrossRepoImpact, links: readonly ServiceLink[], ctx: WorkspaceRunContext): Promise<CrossRepoImpact> {
+  const port = ctx.deps.crossRepoImpact;
+  if (!port?.resolveUpstreamHop) return firstHop;
+  const graph = new LinkGraph(links);
+  const walk = new LinkWalk("upstream");
+  const found: ImpactedLink[] = [];
+  const stops: ImpactStop[] = [...(firstHop.stops ?? [])];
+  const indexes = new Map<string, HopIndex>();
+  let fresh = walk.admit(firstHop.impactedLinks);
+  while (fresh.length > 0) {
+    const next: ImpactedLink[] = [];
+    for (const { repo, fed } of graph.frontier("upstream", fresh)) {
+      throwIfAborted(ctx.signal);
+      const index = await indexForHop(ctx, repo, indexes);
+      if (!index.ok) {
+        stops.push({ repo, direction: "upstream", reason: index.reason });
+        continue;
+      }
+      try {
+        const hop = await port.resolveUpstreamHop({ repo, repoDir: index.repoDir, links, fed });
+        next.push(...hop.links);
+        stops.push(...hop.stops);
+      } catch (err) {
+        const level = carryOn(err);
+        engineLog[level](`[qa] WARNING: the cross-repo hop through ${repo} failed (non-fatal, the walk stops there):`, { error: err });
+        stops.push({ repo, direction: "upstream", reason: `hop failed: ${err instanceof Error ? err.message : String(err)}` });
+      }
+    }
+    fresh = walk.admit(next);
+    found.push(...fresh);
+  }
+  return { impactedLinks: [...firstHop.impactedLinks, ...found], ...(stops.length > 0 ? { stops } : {}) };
+}
+
+type HopIndex = { ok: true; repoDir: string } | { ok: false; reason: string };
+
+/* The directory a repo of the run was indexed from at the opening: the classify-source repo, the primary repo of a service-triggered run, and each other entry of the change. */
+function indexedDirOf(ctx: WorkspaceRunContext, repo: string): string | undefined {
+  const { deps, input } = ctx;
+  if (repo === input.changeSet.anchor.repo) return deps.codeGraphRepoDir ?? ctx.services.specRoot.mirrorDir;
+  if (deps.codeGraphPrimary?.repo === repo) return deps.codeGraphPrimary.repoDir;
+  return deps.codeGraphRepoDirs?.get(repo);
+}
+
+/* The index a hop walks: the one the run already built, else the repo's mirror indexed now at the commit it holds (once per repo), else why there is none. */
+async function indexForHop(ctx: WorkspaceRunContext, repo: string, held: Map<string, HopIndex>): Promise<HopIndex> {
+  const built = indexedDirOf(ctx, repo);
+  if (built) return { ok: true, repoDir: built };
+  const memo = held.get(repo);
+  if (memo) return memo;
+  const result = await indexMirrorOf(ctx, repo);
+  held.set(repo, result);
+  return result;
+}
+
+async function indexMirrorOf(ctx: WorkspaceRunContext, repo: string): Promise<HopIndex> {
+  const { deps } = ctx;
+  const mirror = deps.codeGraphMirrors?.get(repo);
+  if (!deps.codeGraph || !mirror) return { ok: false, reason: "the repo has no mirror to index in this run" };
+  let head: string | null;
+  try {
+    head = await mirror.headSha();
+  } catch (err) {
+    engineLog.warn(`[qa] the commit of ${repo}'s mirror could not be read; it is not indexed this run:`, { error: err });
+    return { ok: false, reason: "the commit of the repo's mirror could not be read" };
+  }
+  if (!head) return { ok: false, reason: "the commit of the repo's mirror could not be read" };
+  const record = await indexOne(ctx, deps.codeGraph, mirror.repoDir, head);
+  if (!record) return { ok: false, reason: "indexing failed" };
+  if (record.outcome === "failed" || record.outcome === "timeout" || record.outcome === "skipped") return { ok: false, reason: `index ${record.outcome}${record.reason ? `: ${record.reason}` : ""}` };
+  return { ok: true, repoDir: mirror.repoDir };
 }
 
 function mergeImpacts(impacts: readonly CrossRepoImpact[]): CrossRepoImpact {

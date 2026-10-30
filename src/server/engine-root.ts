@@ -181,6 +181,8 @@ export interface EngineRootDeps {
   codeGraphPrimary?: { repo: string; repoDir: string; headSha(): Promise<string | null> };
   /* The mirror of each other repo of a run over several repos, by repo: indexed at its head and walked for the change scope. */
   codeGraphRepoDirs?: ReadonlyMap<string, string>;
+  /* The mirror of every declared service, by repo: a cross-repo hop through a repo the change did not reach indexes it here, at the commit its mirror holds. */
+  codeGraphMirrors?: ReadonlyMap<string, { repoDir: string; headSha(): Promise<string | null> }>;
   /* Every repo of the run's change with its mirror, in entry order: the repos the lead's code-graph tool answers over. */
   codeGraphRepos?: ReadonlyArray<{ repo: string; repoDir: string }>;
   serviceTopology?: {
@@ -474,6 +476,7 @@ function assemble(cfg: EngineRootDeps): RunOrchestrationApi {
     ...(cfg.codeGraphRepoDir ? { codeGraphRepoDir: cfg.codeGraphRepoDir } : {}),
     ...(cfg.codeGraphPrimary ? { codeGraphPrimary: cfg.codeGraphPrimary } : {}),
     ...(cfg.codeGraphRepoDirs ? { codeGraphRepoDirs: cfg.codeGraphRepoDirs } : {}),
+    ...(cfg.codeGraphMirrors ? { codeGraphMirrors: cfg.codeGraphMirrors } : {}),
     ...(changeAnalysisApi.changeScope ? { changeScope: changeAnalysisApi.changeScope } : {}),
     ...(serviceLinks ? { serviceLinks } : {}),
     ...(crossRepoImpact ? { crossRepoImpact } : {}),

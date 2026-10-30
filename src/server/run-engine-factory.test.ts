@@ -1148,6 +1148,14 @@ test("buildEngineRootDeps supplies serviceTopology when the app declares BOTH se
   assert.equal(typeof config.serviceTopology?.boundaryProfiles.forApp, "function", "boundaryProfiles must be a real BoundaryProfileProviderPort (YamlBoundaryProfileAdapter)");
 });
 
+test("buildEngineRootDeps hands the mirror of every declared service to the run when the topology is wired, and none otherwise", () => {
+  const boundaries = [{ transport: "http", frontFiles: "*.api.ts", frontCallSite: { kind: "receiver-verb-call" }, servicePrefixTemplate: "name-{service}-api", serviceRepoTemplate: "ms-name-{service}", openApiPath: "openapi.yaml" }];
+  const wired = buildEngineRootDeps({ ...cfg("factory-mirrors-wired"), services: [{ repo: "org/ms-orders" }, { repo: "org/ms-items" }], boundaries } as AppConfig, { getAgentDeps: stubAgentDeps, mirrorRoot: "/tmp/mirrors" }, "qa-bot-abc1234-run1", { mode: "diff" });
+  assert.deepEqual([...(wired.codeGraphMirrors ?? [])].map(([repo, mirror]) => [repo, mirror.repoDir]), [["org/ms-orders", "/tmp/mirrors/org__ms-orders"], ["org/ms-items", "/tmp/mirrors/org__ms-items"]]);
+  const unwired = buildEngineRootDeps({ ...cfg("factory-mirrors-unwired"), services: [{ repo: "org/ms-orders" }] } as AppConfig, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
+  assert.equal(unwired.codeGraphMirrors, undefined, "services without a declared boundary have no links to hop along");
+});
+
 test("buildEngineRootDeps omits serviceTopology when services[] is present but boundaries[] is absent/empty (AND-gate, not OR-gate)", () => {
   const app: AppConfig = { ...cfg("factory-service-topology-services-only"), services: [{ repo: "org/ms-orders" }] } as AppConfig;
   const config = buildEngineRootDeps(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
