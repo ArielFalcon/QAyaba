@@ -67,7 +67,8 @@ test("a no-op plan with no reason is no decision: the lead authors the change it
 
 test("a plan of kind lead is not admitted", () => {
   const plan = admitLeadPlan({ kind: "lead" }, limits, deps);
-  assert.deepEqual(plan, { kind: PLAN_REJECTED, downgrade: PLAN_DOWNGRADE.MALFORMED });
+  assert.equal(plan.kind, PLAN_REJECTED);
+  assert.equal(plan.kind === PLAN_REJECTED ? plan.downgrade : undefined, PLAN_DOWNGRADE.MALFORMED);
 });
 
 test("a plan of one flow is admitted as a fan-out of one flow, one at a time", () => {
@@ -313,4 +314,25 @@ test("a plan that names no candidates and drops none is admitted as before", () 
   const plan = admitLeadPlan(fanout(flow("cart")), limits, deps);
   assert.deepEqual(admitted(plan)[0]!.candidates, []);
   assert.deepEqual(plan.kind === LEAD_PLAN_KIND.FANOUT ? plan.dropped : undefined, []);
+});
+
+test("a plan the engine cannot read is refused with where it went wrong, so the one asking again can name it", () => {
+  const plan = admitLeadPlan(fanout(flow("a"), { id: "b", objective: "  " }, "c"), limits, deps);
+  assert.equal(plan.kind, PLAN_REJECTED);
+  if (plan.kind !== PLAN_REJECTED) return;
+  assert.equal(plan.downgrade, PLAN_DOWNGRADE.MALFORMED);
+  assert.match(plan.detail ?? "", /flows\[1\]/);
+  assert.match(plan.detail ?? "", /flows\[2\]/);
+  const kind = admitLeadPlan({ kind: "swarm" }, limits, deps);
+  assert.match(kind.kind === PLAN_REJECTED ? kind.detail ?? "" : "", /swarm/);
+});
+
+test("a drop the engine cannot read is returned as unreadable beside the plan that stands, never skipped in silence", () => {
+  const plan = admitLeadPlan({ kind: "fanout", flows: [flow("a")], dropped: [{ candidate: "uc-1", basis: "made-up", reason: "x" }, "no", { candidate: "uc-2", basis: DROP_BASIS.ALREADY_COVERED, reason: "a spec proves it" }] }, limits, deps);
+  assert.equal(plan.kind, LEAD_PLAN_KIND.FANOUT);
+  if (plan.kind !== LEAD_PLAN_KIND.FANOUT) return;
+  assert.deepEqual(plan.dropped.map((d) => d.candidate), ["uc-2"]);
+  assert.deepEqual(plan.unreadable?.map((u) => u.where), ["dropped[0]", "dropped[1]"]);
+  const none = admitLeadPlan(fanout(flow("a")), limits, deps);
+  assert.equal(none.kind === LEAD_PLAN_KIND.FANOUT ? none.unreadable : "not a fanout", undefined);
 });

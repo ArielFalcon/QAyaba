@@ -165,7 +165,7 @@ test("a known fact says where it was read", () => {
 });
 
 test("an author's answer is read without evidence, validation or assumptions of its own", () => {
-  const answer = JSON.stringify({ delegationId: "d", runId: "r", status: "completed", summary: "s", filesChanged: [], evidence: [{ id: "x", summary: "mine" }], validation: [{ id: "v", ok: false }], assumptions: ["a"], acceptance: [], concerns: [], unresolvedQuestions: [], recommendation: "accept" });
+  const answer = JSON.stringify({ delegationId: "d", runId: "r", status: "completed", summary: "s", filesChanged: [], evidence: [{ id: "x", summary: "mine" }], validation: [{ id: "v", ok: false }], assumptions: ["a"], acceptance: [], concerns: [], unresolvedQuestions: [] });
   const result = readDelegationResult(answer, briefOf(), redaction) as unknown as Record<string, unknown>;
   assert.equal(result.status, "completed");
   assert.equal("validation" in result, false);

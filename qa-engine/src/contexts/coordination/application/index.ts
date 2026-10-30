@@ -36,9 +36,7 @@ export {
 } from "./delegation-brief.ts";
 export {
   belongsToBrief,
-  DELEGATION_RECOMMENDATIONS,
   DELEGATION_STATUSES,
-  type DelegationRecommendation,
   type DelegationResult,
   type DelegationStatus,
   type FileChange,
@@ -61,7 +59,7 @@ export {
 export { openKindSession } from "./kind-session.ts";
 export { authorTask } from "./author-task.ts";
 export { assembleSidekickBrief, renderSidekickBrief } from "./sidekick-prompt.ts";
-export { assembleLeadReview } from "./lead-review.ts";
+export { assembleLeadReview, assembleUnreadableReviewRequest } from "./lead-review.ts";
 export { assembleReplanRequest } from "./plan-coverage.ts";
 export { assembleSidekickFeedback } from "./sidekick-executor.ts";
 export { assembleLeadCorrection, assembleRefusedCorrection } from "./lead-correction.ts";

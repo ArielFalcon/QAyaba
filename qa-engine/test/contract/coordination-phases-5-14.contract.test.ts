@@ -35,11 +35,9 @@ test("pushback blocks writes outside scope and foreign briefs", () => {
     evidence: [],
     concerns: [],
     unresolvedQuestions: [],
-    recommendation: "accept",
     acceptance: [],
   });
   assert.equal(blocked.status, "blocked");
-  assert.equal(blocked.recommendation, "escalate");
 });
 
 test("coordination telemetry records proposals", () => {

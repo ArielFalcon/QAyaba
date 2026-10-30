@@ -1,79 +1,79 @@
-/* How a sidekick's answer is read: the last DelegationResult among the JSON objects of its output, checked against the brief it answers, scrubbed, and held to its writable roots. An answer that cannot be read is a failed result marked `readMiss`, never an empty one and never mistaken for a failure the sidekick reported. Free-form fields are scrubbed on parse: they re-enter the lead's context. filesChanged paths are authority inputs (scope check, on-disk adoption) and stay raw; they are scrubbed only where echoed into a summary or concern. */
+/* How a sidekick's answer is read: the last DelegationResult among the JSON objects of its output, checked against the brief it answers, scrubbed, and held to its writable roots. Its lists are read by the one reader of an answer (`answer-reading.ts`): an entry that cannot be read as the contract says is recorded in `unreadableEntries` and not acted on, never defaulted. An answer that cannot be read is a failed result marked `readMiss`, never an empty one and never mistaken for a failure the sidekick reported. Free-form fields are scrubbed on parse: they re-enter the lead's context. filesChanged paths are authority inputs (scope check, on-disk adoption) and stay raw; they are scrubbed only where echoed into a summary or concern. */
 import type { RedactionPort } from "@kernel/ports/redaction.port.ts";
 import { jsonObjectsIn } from "@kernel/last-json-object.ts";
 import { UNREADABLE_ANSWER } from "@kernel/unreadable-answer.ts";
 import type { DelegationBrief } from "./delegation-brief.ts";
-import { ANSWER_MISS, belongsToBrief, CANDIDATE_CLAIMS, DELEGATION_RECOMMENDATIONS, type CandidateClaim, type CandidateClaimStatus, DELEGATION_STATUSES, type AnswerMiss, type DelegationRecommendation, type DelegationResult, type DelegationStatus } from "./delegation-result.ts";
+import { ANSWER_MISS, belongsToBrief, CANDIDATE_CLAIMS, type CandidateClaim, type CandidateClaimStatus, DELEGATION_STATUSES, type AnswerMiss, type DelegationResult, type DelegationStatus } from "./delegation-result.ts";
+import { entryRead, entryUnreadable, readEntries, readOneOf, type EntryRead, type UnreadableEntry } from "./answer-reading.ts";
 import { readAcceptanceReport } from "./acceptance-report.ts";
 import { applyPushback } from "./pushback.ts";
 import { backDevStateUnmet, type DevStateGround } from "./dev-state-backing.ts";
 import { isPathWithinWritableRoots } from "./path-scope.ts";
 
-function asStringArray(value: unknown): string[] {
-  if (!Array.isArray(value)) return [];
-  return value.filter((x): x is string => typeof x === "string");
-}
+const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
 
 function parseDelegationResult(raw: unknown, brief: DelegationBrief, redaction: RedactionPort): DelegationResult | undefined {
   const scrub = (text: string): string => redaction.redact(text);
-  if (!raw || typeof raw !== "object") return undefined;
-  const o = raw as Record<string, unknown>;
+  if (!isRecord(raw)) return undefined;
+  const o = raw;
   const status = o.status;
-  const recommendation = o.recommendation;
   if (typeof o.delegationId !== "string" || typeof o.runId !== "string") return undefined;
   if (typeof status !== "string" || !(DELEGATION_STATUSES as readonly string[]).includes(status)) return undefined;
-  if (
-    typeof recommendation !== "string" ||
-    !(DELEGATION_RECOMMENDATIONS as readonly string[]).includes(recommendation)
-  ) {
-    return undefined;
-  }
-  const filesChanged = Array.isArray(o.filesChanged)
-    ? o.filesChanged
-        .filter((f): f is { path: string } => !!f && typeof f === "object" && typeof (f as { path?: unknown }).path === "string")
-        .map((f) => ({ path: f.path }))
-    : [];
+  const files = readEntries(o.filesChanged, "filesChanged", (f): EntryRead<{ path: string }> => (isRecord(f) && typeof f.path === "string" ? entryRead({ path: f.path }) : entryUnreadable("it is not an object with a path")), scrub, { optional: true });
+  const concerns = readEntries(o.concerns, "concerns", stringEntry, scrub, { optional: true });
+  const questions = readEntries(o.unresolvedQuestions, "unresolvedQuestions", stringEntry, scrub, { optional: true });
   const acceptance = readAcceptanceReport(redaction, o.acceptance, brief.acceptanceCriteria.length);
+  const claims = candidateClaimsOf(o.candidates, brief, redaction);
+  const correct = testCorrectOf(o.testCorrect, redaction);
+  const unreadable = [...files.unreadable, ...concerns.unreadable, ...questions.unreadable, ...claims.unreadable, ...correct.unreadable];
   return {
     delegationId: o.delegationId,
     runId: o.runId,
     status: status as DelegationStatus,
     summary: typeof o.summary === "string" ? scrub(o.summary) : "",
-    filesChanged,
-    concerns: asStringArray(o.concerns).map(scrub),
-    unresolvedQuestions: asStringArray(o.unresolvedQuestions).map(scrub),
-    recommendation: recommendation as DelegationRecommendation,
+    filesChanged: files.entries,
+    concerns: concerns.entries.map(scrub),
+    unresolvedQuestions: questions.entries.map(scrub),
     acceptance: acceptance.entries,
     ...(acceptance.defect ? { acceptanceReportDefect: acceptance.defect } : {}),
-    ...candidateClaimsOf(o.candidates, brief, redaction),
-    ...testCorrectOf(o.testCorrect, redaction),
+    ...(claims.entries.length > 0 ? { candidates: claims.entries } : {}),
+    ...(correct.entry ? { testCorrect: correct.entry } : {}),
+    ...(unreadable.length > 0 ? { unreadableEntries: unreadable } : {}),
   };
 }
+
+const stringEntry = (value: unknown): EntryRead<string> => (typeof value === "string" ? entryRead(value) : entryUnreadable("it is not text"));
 
 const MAX_CLAIM_CHARS = 600;
 const MAX_CLAIM_SPEC_CHARS = 200;
 
-/* The claims about the use cases the brief listed: a well-formed entry for an id the brief carried, once each; nothing for any other. */
-function candidateClaimsOf(value: unknown, brief: DelegationBrief, redaction: RedactionPort): { candidates?: CandidateClaim[] } {
-  if (!Array.isArray(value) || !brief.candidates?.length) return {};
-  const claims: CandidateClaim[] = [];
-  for (const entry of value) {
-    if (!entry || typeof entry !== "object") continue;
-    const { id, status, spec } = entry as { id?: unknown; status?: unknown; spec?: unknown };
-    if (typeof id !== "string" || !brief.candidates.some((c) => c.id === id) || claims.some((c) => c.id === id)) continue;
-    if (typeof status !== "string" || !(CANDIDATE_CLAIMS as readonly string[]).includes(status)) continue;
+/* The claims about the use cases the brief listed: a well-formed entry for an id the brief carried, once each. An entry that is none of those is unreadable; a brief that lists no use case has no claims to read. */
+function candidateClaimsOf(value: unknown, brief: DelegationBrief, redaction: RedactionPort): { entries: CandidateClaim[]; unreadable: UnreadableEntry[] } {
+  if (value === undefined || !brief.candidates?.length) return { entries: [], unreadable: [] };
+  const claimed = new Set<string>();
+  const read = readEntries(value, "candidates", (entry): EntryRead<CandidateClaim> => {
+    if (!isRecord(entry)) return entryUnreadable("it is not an object");
+    const { id, status, spec } = entry;
+    if (typeof id !== "string" || !brief.candidates!.some((c) => c.id === id)) return entryUnreadable(`${JSON.stringify(id)} is not a use case of the brief`);
+    if (claimed.has(id)) return entryUnreadable(`${id} is claimed twice; the first claim stands`);
+    const claim = readOneOf(status, CANDIDATE_CLAIMS, "status");
+    if (!claim.ok) return entryUnreadable(`${id}: ${claim.reason}`);
+    claimed.add(id);
     const title = typeof spec === "string" ? redaction.redact(spec).trim().slice(0, MAX_CLAIM_SPEC_CHARS) : "";
-    claims.push({ id, status: status as CandidateClaimStatus, ...(title !== "" ? { spec: title } : {}) });
-  }
-  return claims.length > 0 ? { candidates: claims } : {};
+    return entryRead({ id, status: claim.value as CandidateClaimStatus, ...(title !== "" ? { spec: title } : {}) });
+  }, (text) => redaction.redact(text));
+  return read;
 }
 
-/* A well-formed test-correct claim, its reason scrubbed and capped; nothing for any other shape. */
-function testCorrectOf(value: unknown, redaction: RedactionPort): { testCorrect?: { cause: "env" | "app"; reason: string } } {
-  if (!value || typeof value !== "object") return {};
-  const { cause, reason } = value as { cause?: unknown; reason?: unknown };
-  if ((cause !== "env" && cause !== "app") || typeof reason !== "string" || reason.trim() === "") return {};
-  return { testCorrect: { cause, reason: redaction.redact(reason).trim().slice(0, MAX_CLAIM_CHARS) } };
+/* A well-formed test-correct claim, its reason scrubbed and capped; absent when the answer makes none, unreadable when it makes one that is not well-formed. */
+function testCorrectOf(value: unknown, redaction: RedactionPort): { entry?: { cause: "env" | "app"; reason: string }; unreadable: UnreadableEntry[] } {
+  if (value === undefined) return { unreadable: [] };
+  const bad = (reason: string) => ({ unreadable: [{ where: "testCorrect", reason }] });
+  if (!isRecord(value)) return bad("it is not an object");
+  const cause = readOneOf(value.cause, ["env", "app"] as const, "cause");
+  if (!cause.ok) return bad(redaction.redact(cause.reason).slice(0, 240));
+  if (typeof value.reason !== "string" || value.reason.trim() === "") return bad("reason is missing");
+  return { entry: { cause: cause.value, reason: redaction.redact(value.reason).trim().slice(0, MAX_CLAIM_CHARS) }, unreadable: [] };
 }
 
 function failedResult(brief: DelegationBrief, summary: string, redaction: RedactionPort, answerMiss: AnswerMiss): DelegationResult {
@@ -95,9 +95,8 @@ function failedResult(brief: DelegationBrief, summary: string, redaction: Redact
     ],
     concerns: [safe],
     unresolvedQuestions: [],
-    recommendation: "escalate",
     acceptance: [],
-    ...(answerMiss === ANSWER_MISS.UNREADABLE ? { readMiss: UNREADABLE_ANSWER } : {}),
+    ...(answerMiss === ANSWER_MISS.UNREADABLE ? { readMiss: UNREADABLE_ANSWER, unreadableEntries: [{ where: "answer", reason: "it holds no result of the contract" }] } : {}),
     answerMiss,
   };
 }
@@ -125,7 +124,6 @@ export function readDelegationResult(output: string, brief: DelegationBrief, red
       ...parsed,
       status: "blocked",
       summary: redaction.redact(`write outside writablePaths: ${illegal.map((f) => f.path).join(", ")}`),
-      recommendation: "escalate",
       concerns: [...parsed.concerns, redaction.redact(`paths outside scope: ${illegal.map((f) => f.path).join(", ")}`)],
     };
   }

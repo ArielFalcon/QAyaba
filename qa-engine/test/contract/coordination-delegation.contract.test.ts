@@ -4,7 +4,6 @@ import assert from "node:assert/strict";
 import { createDelegationBrief } from "@contexts/coordination/application/delegation-brief.ts";
 import {
   belongsToBrief,
-  DELEGATION_RECOMMENDATIONS,
   DELEGATION_STATUSES,
   type DelegationResult,
 } from "@contexts/coordination/application/delegation-result.ts";
@@ -58,7 +57,6 @@ test("DelegationResult cannot belong to another brief", () => {
     evidence: [],
     concerns: [],
     unresolvedQuestions: [],
-    recommendation: "accept",
     acceptance: [],
   };
   assert.equal(belongsToBrief(result, "d1", "r1"), true);
@@ -66,7 +64,7 @@ test("DelegationResult cannot belong to another brief", () => {
   assert.equal(belongsToBrief(result, "d1", "r2"), false);
 });
 
-test("DelegationResult status and recommendation unions match the architecture contract", () => {
+test("the DelegationResult status union matches the architecture contract", () => {
   assert.deepEqual([...DELEGATION_STATUSES], [
     "completed",
     "completed-with-concerns",
@@ -74,5 +72,4 @@ test("DelegationResult status and recommendation unions match the architecture c
     "needs-lead",
     "failed",
   ]);
-  assert.deepEqual([...DELEGATION_RECOMMENDATIONS], ["accept", "review", "retry", "escalate"]);
 });

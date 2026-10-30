@@ -4,7 +4,12 @@ import type { AgentRuntimePort } from "@kernel/ports/agent-runtime.port.ts";
 import type { RedactionPort } from "@kernel/ports/redaction.port.ts";
 import type { DelegationBrief } from "./delegation-brief.ts";
 import { unansweredTurn, type DelegationResult } from "./delegation-result.ts";
+import { isAgentTimeoutError } from "@kernel/domain-error.ts";
+import { isSessionGoneError } from "@kernel/turn-end.ts";
+import { engineLog } from "@kernel/ports/process-logger.ts";
 import { isRunDeadlineError } from "@kernel/run-deadline.ts";
+import { REPAIR_TURN_TIMEOUT_MS } from "@contexts/generation/application/index.ts";
+import { describeUnreadable, readsBetter } from "./answer-reading.ts";
 import { assembleDefs, type AssembledPrompt, type WindowFitOutcome } from "@kernel/prompt-sections.ts";
 import { FEEDBACK_SECTIONS } from "./coordination-sections/feedback-sections.ts";
 import type { DevStateGround } from "./dev-state-backing.ts";
@@ -53,6 +58,19 @@ export interface SidekickSession {
   dispose(): Promise<void>;
 }
 
+/* What the orchestrator asks of a sidekick whose answer it could not read in full: only to restate the closing result. */
+function repairInstruction(result: DelegationResult): string {
+  const lines = result.readMiss !== undefined ? ["your answer held no result of the contract"] : describeUnreadable(result.unreadableEntries ?? []);
+  return `The orchestrator could not read your last answer in full: ${lines.join("; ")}. Do no more work and change no file. Restate your closing result only.`;
+}
+
+/* Whether an answer needs the one repair turn: it held no result, or entries the engine could not read as the contract says. An answer with nothing in it is the sidekick's absence, not a result to repair. */
+const needsRepair = (result: DelegationResult, output: string): boolean => output.trim() !== "" && (result.readMiss !== undefined || (result.unreadableEntries?.length ?? 0) > 0);
+
+/* The repaired answer replaces the first only when the engine reads it better: it holds a result of this brief, and fewer entries it cannot read. A tie leaves the first answer standing. */
+const readsBetterThan = (second: DelegationResult, first: DelegationResult): boolean =>
+  second.answerMiss === undefined && (first.answerMiss !== undefined || readsBetter(second.unreadableEntries ?? [], first.unreadableEntries ?? []));
+
 /* What the lead sends a sidekick after its brief, as the registered sections assemble it. */
 export function assembleSidekickFeedback(redaction: RedactionPort, feedback: string, contract: string): AssembledPrompt {
   return assembleDefs(FEEDBACK_SECTIONS, { feedback, contract, scrub: (value: string) => redaction.redact(value) }, { separator: "\n\n" });
@@ -92,11 +110,27 @@ export class SidekickExecutor {
       await session.dispose();
     };
     const feedbackOf = (feedback: string) => assembleSidekickFeedback(this.deps.redaction, feedback, contract);
+    /* One tools-disabled turn in the same session asks only for the closing result again, naming what could not be read: an answer cut off or malformed is not a failure the sidekick reported. What the repair leaves unreadable stands, recorded, and the answer is never asked about twice. */
+    const answered = async (output: string): Promise<DelegationResult> => {
+      const first = read(output);
+      if (!needsRepair(first, output)) return first;
+      const request = feedbackOf(repairInstruction(first));
+      try {
+        const again = await session.prompt(request.text, { sectionSizes: request.sectionSizes, ...(request.sectionHashes ? { sectionHashes: request.sectionHashes } : {}), promptStablePrefixBytes: request.stablePrefixBytes, isRepair: true, withoutTools: true, timeoutMs: REPAIR_TURN_TIMEOUT_MS, timeLimit: "repair-cap" });
+        const second = read(again.output);
+        return { ...(readsBetterThan(second, first) ? second : first), repaired: true };
+      } catch (err) {
+        if (isRunDeadlineError(err)) throw err;
+        if (isSessionGoneError(err)) await dispose();
+        else if (!isAgentTimeoutError(err)) engineLog.error(`[qa] the repair turn of a sidekick's answer failed (its first answer stands): ${err instanceof Error ? err.message : String(err)}`);
+        return { ...first, repaired: true };
+      }
+    };
     const askAgain: SidekickSession["ask"] = async (instruction, askOpts) => {
       const followUp = feedbackOf(instruction);
       try {
         const answer = await session.prompt(followUp.text, { sectionSizes: followUp.sectionSizes, ...(followUp.sectionHashes ? { sectionHashes: followUp.sectionHashes } : {}), promptStablePrefixBytes: followUp.stablePrefixBytes, ...(askOpts?.timeoutMs !== undefined ? { timeoutMs: askOpts.timeoutMs } : {}) });
-        return read(answer.output);
+        return await answered(answer.output);
       } catch (err) {
         if (isRunDeadlineError(err)) throw err;
         const end = turnEndOf(err, false);
@@ -119,7 +153,7 @@ export class SidekickExecutor {
         ...(assembled.sectionsDegraded !== undefined ? { sectionsDegraded: assembled.sectionsDegraded } : {}),
         ...(opts.contextFit ? { contextFit: opts.contextFit } : {}),
       });
-      return { first: read(output), ask: askAgain, dispose };
+      return { first: await answered(output), ask: askAgain, dispose };
     } catch (err) {
       if (!opts.keepUnanswered || isRunDeadlineError(err)) {
         await dispose();

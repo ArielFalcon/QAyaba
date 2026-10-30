@@ -16,6 +16,7 @@ import { LEAD_CORRECTION_SECTIONS, REFUSED_CORRECTION_SECTIONS, type CorrectionF
 
 export type { CorrectionFinding, FlowUnderCorrection };
 import { lastJsonObjectWhere } from "@kernel/last-json-object.ts";
+import { entryRead, entryUnreadable, readEntries, readOneOf, type UnreadableEntry } from "./answer-reading.ts";
 import { normalizeSpecPath } from "@kernel/spec-path.ts";
 import type { RedactionPort } from "@kernel/ports/redaction.port.ts";
 
@@ -98,6 +99,8 @@ export interface CorrectionRebuttal {
 
 export interface CorrectionAdmission {
   readable: boolean;
+  /* The entries of the answer (or the answer itself) the engine could not read: not acted on, recorded, asked about once. */
+  unreadable: UnreadableEntry[];
   orders: CorrectionOrder[];
   rebuttals: CorrectionRebuttal[];
   /* The positions of the findings no flow was sent and the lead did not rebut. */
@@ -213,7 +216,7 @@ function textOf(redaction: RedactionPort, value: unknown, max: number): string {
 }
 
 export function admitLeadCorrection(redaction: RedactionPort, output: string, flows: readonly FlowUnderCorrection[], findings: readonly CorrectionFinding[], origin: CorrectionOrigin = CORRECTION_ORIGIN.REVIEW): CorrectionAdmission {
-  const admission: CorrectionAdmission = { readable: false, orders: [], rebuttals: [], unrouted: [], refused: [] };
+  const admission: CorrectionAdmission = { readable: false, unreadable: [], orders: [], rebuttals: [], unrouted: [], refused: [] };
   const route = findings.map((finding) => routeOfFinding(finding, flows));
   const owner = route.map((r) => r?.flowId);
   const movable = findings.map((finding) => movableAmong(finding, flows));
@@ -225,19 +228,35 @@ export function admitLeadCorrection(redaction: RedactionPort, output: string, fl
   admission.readable = readable;
   const routed = new Map<string, { action: CorrectionOrder["action"]; instruction: string; extra: Set<number> }>();
   const rebutted = new Set<number>();
+  const scrub = (text: string): string => redaction.redact(text);
   const numberOf = (value: unknown): number | undefined => (typeof value === "number" && Number.isInteger(value) && value >= 1 && value <= findings.length ? value - 1 : undefined);
 
-  if (readable) {
-    for (const entry of Array.isArray(raw!.corrections) ? raw!.corrections : []) {
-      if (!entry || typeof entry !== "object") continue;
+  if (!raw) admission.unreadable.push({ where: "answer", reason: "it holds no JSON object with a `corrections` or `rebuttals` list" });
+  else {
+    /* Each order is read once: a flow of this pass, a revise or a replace, and finding numbers that are findings of the turn. An entry that is not that is unacted on and recorded, never read as a revise. */
+    const orders = readEntries(raw.corrections, "corrections", (entry, index) => {
+      if (!entry || typeof entry !== "object" || Array.isArray(entry)) return entryUnreadable("it is not an object");
       const e = entry as Record<string, unknown>;
       const flow = typeof e.flow === "string" ? byId.get(e.flow) : undefined;
-      if (!flow || routed.has(flow.id)) continue;
-      const action = e.action === REVIEW_ACTION.REPLACE ? REVIEW_ACTION.REPLACE : REVIEW_ACTION.REVISE;
+      if (!flow) return entryUnreadable(`flow ${JSON.stringify(e.flow)} is not a flow of this pass`);
+      const action = readOneOf(e.action, [REVIEW_ACTION.REVISE, REVIEW_ACTION.REPLACE] as const, `flow ${flow.id}: action`);
+      if (!action.ok) return action;
+      if (e.findings !== undefined && !Array.isArray(e.findings)) return entryUnreadable(`flow ${flow.id}: findings is not a list of numbers`);
+      return entryRead({ e, flow, action: action.value, index });
+    }, scrub, { optional: true });
+    admission.unreadable.push(...orders.unreadable);
+    for (const { e, flow, action, index } of orders.entries) {
+      if (routed.has(flow.id)) {
+        admission.unreadable.push({ where: `corrections[${index}]`, reason: `flow ${flow.id} is ordered twice; the first order stands` });
+        continue;
+      }
       const extra = new Set<number>();
-      for (const n of Array.isArray(e.findings) ? e.findings : []) {
-        const index = numberOf(n);
-        if (index === undefined) continue;
+      const numbers = readEntries(e.findings, `corrections[${index}].findings`, (n) => {
+        const found = numberOf(n);
+        return found === undefined ? entryUnreadable(`${JSON.stringify(n)} is not a finding of this turn (1..${findings.length})`) : entryRead(found);
+      }, scrub, { optional: true });
+      admission.unreadable.push(...numbers.unreadable);
+      for (const index of numbers.entries) {
         if (movable[index]!.length > 0) {
           if (!movable[index]!.includes(flow.id)) admission.refused.push({ flowId: flow.id, finding: index + 1, reason: `the finding's file seeds no use case the flow covers; it stays with flow ${given.get(index) ?? owner[index]}` });
           else if (given.has(index) && given.get(index) !== flow.id) admission.refused.push({ flowId: flow.id, finding: index + 1, reason: `the finding was already given to flow ${given.get(index)}` });
@@ -254,15 +273,24 @@ export function admitLeadCorrection(redaction: RedactionPort, output: string, fl
       routed.set(flow.id, { action, instruction: textOf(redaction, e.instruction, MAX_INSTRUCTION_CHARS), extra });
     }
     /* A fact the run observed is not the lead's to withdraw: rebuttals are read only for the reviewer's findings. */
-    for (const entry of rebuttable(origin) && Array.isArray(raw!.rebuttals) ? raw!.rebuttals : []) {
-      if (!entry || typeof entry !== "object") continue;
-      const e = entry as Record<string, unknown>;
-      const index = numberOf(e.finding);
-      const basis = e.basis === "execution" || e.basis === "contract" ? e.basis : undefined;
-      const ref = textOf(redaction, e.ref, MAX_REF_CHARS);
-      if (index === undefined || !basis || ref === "" || rebutted.has(index)) continue;
-      rebutted.add(index);
-      admission.rebuttals.push({ finding: findings[index]!.text, basis, ref, reason: textOf(redaction, e.reason, MAX_REASON_CHARS) });
+    if (!rebuttable(origin)) {
+      if (Array.isArray(raw.rebuttals) && raw.rebuttals.length > 0) admission.refused.push({ reason: "rebuttals are not read for findings the run observed: they are facts, not judgments" });
+    } else {
+      const rebuttals = readEntries(raw.rebuttals, "rebuttals", (entry) => {
+        if (!entry || typeof entry !== "object" || Array.isArray(entry)) return entryUnreadable("it is not an object");
+        const e = entry as Record<string, unknown>;
+        const index = numberOf(e.finding);
+        if (index === undefined) return entryUnreadable(`finding ${JSON.stringify(e.finding)} is not a finding of this turn (1..${findings.length})`);
+        const basis = readOneOf(e.basis, ["execution", "contract"] as const, `finding ${index + 1}: basis`);
+        if (!basis.ok) return basis;
+        const ref = textOf(redaction, e.ref, MAX_REF_CHARS);
+        if (ref === "") return entryUnreadable(`finding ${index + 1}: ref is missing`);
+        if (rebutted.has(index)) return entryUnreadable(`finding ${index + 1} is rebutted twice; the first rebuttal stands`);
+        rebutted.add(index);
+        return entryRead({ finding: findings[index]!.text, basis: basis.value, ref, reason: textOf(redaction, e.reason, MAX_REASON_CHARS) });
+      }, scrub, { optional: true });
+      admission.unreadable.push(...rebuttals.unreadable);
+      admission.rebuttals.push(...rebuttals.entries);
     }
   }
 

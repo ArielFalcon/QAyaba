@@ -103,7 +103,6 @@ test("SidekickExecutor opens sidekick session, prompts, disposes, and parses Del
           evidence: [],
           concerns: [],
           unresolvedQuestions: [],
-          recommendation: "accept",
           acceptance: [{ criterion: 1, status: "met" }],
         }),
       };
@@ -129,7 +128,6 @@ test("SidekickExecutor opens sidekick session, prompts, disposes, and parses Del
   assert.equal(disposed, true);
   assert.equal(result.status, "completed");
   assert.equal(result.delegationId, "d1");
-  assert.equal(result.recommendation, "accept");
 });
 
 /* Free-form DelegationResult fields re-enter lead context / notes — scrub before they leave the
@@ -157,7 +155,6 @@ test("SidekickExecutor redacts secrets in DelegationResult summary, concerns and
           ],
           concerns: [`selector near ${secret}`],
           unresolvedQuestions: [`why is ${secret} in the page?`],
-          recommendation: "review",
         }),
       };
     },
@@ -194,7 +191,6 @@ test("a retry with feedback is one prompt that carries the brief and the feedbac
           evidence: [],
           concerns: ["selector fragile"],
           unresolvedQuestions: [],
-          recommendation: "review",
         }),
       };
     },
@@ -230,7 +226,6 @@ test("SidekickExecutor rejects a result for a foreign brief as failed", async ()
           evidence: [],
           concerns: [],
           unresolvedQuestions: [],
-          recommendation: "accept",
         }),
       };
     },
@@ -242,7 +237,6 @@ test("SidekickExecutor rejects a result for a foreign brief as failed", async ()
   });
   const result = await executor.execute(brief(), { cwd: "/tmp", kind: "author" });
   assert.equal(result.status, "failed");
-  assert.equal(result.recommendation, "escalate");
 });
 
 test("SidekickExecutor marks write outside writablePaths as blocked", async () => {
@@ -258,7 +252,6 @@ test("SidekickExecutor marks write outside writablePaths as blocked", async () =
           evidence: [],
           concerns: [],
           unresolvedQuestions: [],
-          recommendation: "accept",
         }),
       };
     },
@@ -270,7 +263,6 @@ test("SidekickExecutor marks write outside writablePaths as blocked", async () =
   });
   const result = await executor.execute(brief(), { cwd: "/tmp", kind: "author" });
   assert.equal(result.status, "blocked");
-  assert.equal(result.recommendation, "escalate");
 });
 
 /* filesChanged is an authority input (the copy-back reads it), not free-form prose: a
@@ -299,7 +291,6 @@ test("SidekickExecutor adopts long camelCase and digit-bearing spec paths it wro
             evidence: [],
             concerns: ["login form echoed token: ghs_supersecretvalue in the DOM"],
             unresolvedQuestions: [],
-            recommendation: "review",
           }),
         };
       },
@@ -335,7 +326,6 @@ async function executeWith(fields: Record<string, unknown>, criteria: readonly s
     evidence: [],
     concerns: [],
     unresolvedQuestions: [],
-    recommendation: "accept",
     ...fields,
   };
   const session: AgentSession = {
@@ -447,7 +437,6 @@ test("an unmet the sidekick reports blocks the delegation whatever the shape of 
   for (const { label, acceptance, named } of shapes) {
     const result = await executeWith({ acceptance });
     assert.equal(result.status, "blocked", label);
-    assert.equal(result.recommendation, "escalate", label);
     assert.equal(result.acceptanceReportDefect?.reason, "acceptance-report-invalid", label);
     assert.match(result.acceptanceReportDefect?.detail ?? "", named, label);
   }

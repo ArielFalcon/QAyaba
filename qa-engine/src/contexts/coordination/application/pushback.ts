@@ -109,7 +109,6 @@ export function applyPushback(brief: DelegationBrief, result: DelegationResult, 
   return {
     ...result,
     status: fatal ? "blocked" : result.status === "completed" ? "completed-with-concerns" : result.status,
-    recommendation: fatal ? "escalate" : result.recommendation,
     concerns: [...result.concerns, ...findings.map((f) => `${f.reason}: ${f.detail}`)],
     summary: fatal ? `pushback: ${reasonList}` : result.summary,
     ...(unmetByDevState.length > 0 && !fatal ? { unmetByDevState } : {}),

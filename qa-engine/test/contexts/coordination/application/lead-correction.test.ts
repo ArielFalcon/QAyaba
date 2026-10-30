@@ -69,6 +69,32 @@ test("a rebutted finding is sent to nobody and comes back as the rebuttal the ru
   assert.ok(admitted.orders.some((o) => o.flowId === "login"));
 });
 
+test("an order whose action is neither revise nor replace is unreadable and is never read as a revise", () => {
+  const answer = JSON.stringify({ corrections: [{ flow: "cart", action: "accept", findings: [3], instruction: "assert the total" }, { flow: "ghost", action: "revise", findings: [1] }, { flow: "cart", findings: [3] }] });
+  const admitted = admitLeadCorrection(redaction, answer, flows, findings);
+  assert.deepEqual(admitted.unreadable.map((u) => u.where), ["corrections[0]", "corrections[1]", "corrections[2]"]);
+  assert.match(admitted.unreadable[0]!.reason, /accept/);
+  const cart = admitted.orders.find((o) => o.flowId === "cart")!;
+  assert.equal(cart.instruction, DEFAULT_CORRECTION_INSTRUCTION, "the lead's instruction of an entry it could not read is not carried");
+  assert.deepEqual(cart.findings, ["the total is never asserted"], "the finding that entry would have moved stays unrouted");
+  assert.deepEqual(admitted.unrouted, [2]);
+});
+
+test("a finding number that is not a finding of the turn, and a rebuttal the engine cannot read, are unreadable parts of an answer that otherwise stands", () => {
+  const answer = JSON.stringify({ corrections: [{ flow: "cart", action: "revise", findings: [3, 9, "two"], instruction: "assert the total" }], rebuttals: [{ finding: 1, basis: "opinion", ref: "x", reason: "y" }, "no"] });
+  const admitted = admitLeadCorrection(redaction, answer, flows, findings);
+  assert.deepEqual(admitted.unreadable.map((u) => u.where).sort(), ["corrections[0].findings[1]", "corrections[0].findings[2]", "rebuttals[0]", "rebuttals[1]"]);
+  assert.equal(admitted.orders.find((o) => o.flowId === "cart")!.instruction, "assert the total");
+  assert.deepEqual(admitted.rebuttals, []);
+});
+
+test("a correction answer that reads whole has nothing unreadable, and one that cannot be read at all says so", () => {
+  const whole = admitLeadCorrection(redaction, JSON.stringify({ corrections: [{ flow: "cart", action: "revise", findings: [3], instruction: "x" }] }), flows, findings);
+  assert.deepEqual(whole.unreadable, []);
+  const none = admitLeadCorrection(redaction, "I think it is fine", flows, findings);
+  assert.deepEqual(none.unreadable.map((u) => u.where), ["answer"]);
+});
+
 test("an unreadable answer still sends each flow its own findings, and leaves the loose ones unrouted", () => {
   const admitted = admitLeadCorrection(redaction, "I think it is fine", flows, findings);
   assert.equal(admitted.readable, false);
@@ -106,7 +132,7 @@ test("a correction answer that claims an approval or a verdict changes nothing: 
     findings,
   );
   assert.deepEqual(claiming, plain);
-  assert.deepEqual(Object.keys(claiming).sort(), ["orders", "readable", "rebuttals", "refused", "unrouted"]);
+  assert.deepEqual(Object.keys(claiming).sort(), ["orders", "readable", "rebuttals", "refused", "unreadable", "unrouted"]);
 });
 
 const covering: FlowUnderCorrection[] = [

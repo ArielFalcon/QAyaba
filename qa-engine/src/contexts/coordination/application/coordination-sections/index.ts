@@ -3,7 +3,7 @@ import type { PromptSectionDef } from "@kernel/prompt-sections.ts";
 import { AUTHOR_BRIEF_SECTIONS } from "./brief-sections.ts";
 import { FEEDBACK_SECTIONS } from "./feedback-sections.ts";
 import { REPLAN_SECTIONS } from "./replan-sections.ts";
-import { LEAD_CORRECTION_SECTIONS, LEAD_REVIEW_SECTIONS, REFUSED_CORRECTION_SECTIONS, REJECTED_PLAN_SECTIONS } from "./lead-turn-sections.ts";
+import { LEAD_CORRECTION_SECTIONS, LEAD_REVIEW_SECTIONS, REFUSED_CORRECTION_SECTIONS, REJECTED_PLAN_SECTIONS, UNREADABLE_ANSWER_SECTIONS } from "./lead-turn-sections.ts";
 
 export const COORDINATION_PROMPTS = {
   /* The brief a flow's author sidekick is handed. */
@@ -16,6 +16,8 @@ export const COORDINATION_PROMPTS = {
   "lead-plan-rejected": REJECTED_PLAN_SECTIONS,
   /* The one request that sends a refused correction answer back to the lead. */
   "lead-correction-refused": REFUSED_CORRECTION_SECTIONS,
+  /* The one request that sends an answer the reader could not read in full back to the lead. */
+  "lead-answer-unreadable": UNREADABLE_ANSWER_SECTIONS,
   /* The one request that sends a plan that left use cases unresolved back to the lead. */
   "lead-replan": REPLAN_SECTIONS,
   /* What the lead sends a sidekick after its brief: feedback and the contract reminder. */

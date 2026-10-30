@@ -46,7 +46,6 @@ test("pushback rejects a path escape out of the writable path", () => {
     evidence: [],
     concerns: [],
     unresolvedQuestions: [],
-    recommendation: "accept",
     acceptance: [],
   });
   assert.equal(blocked.status, "blocked");
@@ -70,7 +69,6 @@ test("pushback allows the file of the writable path", () => {
     evidence: [],
     concerns: [],
     unresolvedQuestions: [],
-    recommendation: "accept",
     acceptance: [],
   });
   assert.equal(ok.status, "completed");

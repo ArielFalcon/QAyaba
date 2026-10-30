@@ -19,7 +19,7 @@ const answer = (acceptance: unknown): string =>
   JSON.stringify({
     delegationId: brief.delegationId, runId: brief.runId, status: "completed-with-concerns", summary: SUMMARY,
     filesChanged: [{ path: "e2e/flows/cuisine.spec.ts" }], concerns: ["all cuisines are aria-disabled on DEV"], unresolvedQuestions: [],
-    recommendation: "review", acceptance,
+    acceptance,
   });
 const unmetOnDev = (criterion: number, pages: unknown = ["/search"]) => ({ criterion, status: "unmet", cause: "dev-state", pages, note: "every chip is disabled" });
 const met = (criterion: number) => ({ criterion, status: "met" });
@@ -28,7 +28,6 @@ const ground = (over: Partial<DevStateGround> = {}): DevStateGround => ({ flowRe
 test("an unmet the sidekick attributes to DEV's state, on a page its own session read, is recorded with the fact that backs it instead of blocking", () => {
   const result = readDelegationResult(answer([unmetOnDev(1), met(2)]), brief, redaction, ground());
   assert.equal(result.status, "completed-with-concerns");
-  assert.equal(result.recommendation, "review");
   assert.equal(result.summary, SUMMARY, "the sidekick's honest report reaches the lead, not a pushback verdict");
   assert.equal(result.unmetByDevState?.length, 1);
   assert.equal(result.unmetByDevState?.[0]?.criterion, 1);
@@ -47,7 +46,6 @@ test("a page its own run_spec call read empty backs the claim as well as a page 
 test("an unmet whose pages the orchestrator never saw the sidekick read keeps blocking", () => {
   const result = readDelegationResult(answer([unmetOnDev(1, ["/map"]), met(2)]), brief, redaction, ground());
   assert.equal(result.status, "blocked");
-  assert.equal(result.recommendation, "escalate");
   assert.equal(result.unmetByDevState, undefined);
   assert.match(result.summary, /acceptance-contradiction/);
 });

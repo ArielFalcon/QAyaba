@@ -244,18 +244,21 @@ The answer is untrusted, and the orchestrator's facts decide over it:
 - a delivered spec is never dropped: it is already in the working copy, and the run's execution and the reviewer judge it.
   A spec the sidekick wrote is taken back after every turn whatever the turn ended in (`needs-lead`, `failed`, an answer
   that could not be read): its status is its word, the bytes are what the run judges;
-- a flow the answer does not name, or an answer that cannot be read or runs out of its time, leaves the flows as they are.
+- a flow the answer does not name, or an answer that runs out of its time, leaves the flows as they are;
+- an entry of the answer the reader cannot read (an action that is not `accept`, `revise`, `replace` or `drop`, a flow that is not under review, a flow answered twice) is never read as a default and never skipped in silence: it is returned as an unreadable entry (where it sits and why), the lead is asked once more in the same session, naming the entries, and what stays unreadable is recorded and not acted on (its flow gets no order); an answer that holds no review list at all is asked about the same way and, still unread, leaves the flows as they are.
 
 How an agent's closing JSON is read (sidekick results, the lead's review and correction answers): the LAST top-level object
 of the output that has the shape of that contract (`shared-kernel/last-json-object.ts`), whatever narration or earlier objects
 come before it; braces in prose never hide it. A sidekick output with no DelegationResult is a failed result marked `readMiss: unreadable`:
 still not a success, files still taken back, but recorded with failure class and `qayaba.delegation.status` `unreadable` instead of
 `failed`, so it is never counted as a failure the sidekick reported (the `sidekick_report_consistent` grader does not read it as one).
-A flow sidekick's prompt carries one closing contract, the DelegationResult block.
+A flow sidekick's prompt carries one closing contract, the DelegationResult block. It names no `recommendation`: nothing reads one.
+
+Every answer of the coordination crosses whole (RFC-0006), through one reader (`answer-reading.ts`): the lead's plan (flows and drops), review, correction (orders, finding numbers, rebuttals) and amendment, and the sidekick's result (`filesChanged`, `concerns`, `unresolvedQuestions`, the use-case claims, `testCorrect`). A list is walked entry by entry; an entry that is not what the contract says is an `UnreadableEntry`, never a default (a correction order whose action is not `revise` or `replace` is no longer a `revise`). An unreadable part gets one repair turn in the same session: the lead's own session for its answers (a rejected plan is the existing re-ask, now told where the plan went wrong), and, for a sidekick, one prompt with its tools off that asks only for the closing result again. The repaired answer replaces the first only when it reads better (fewer unreadable entries); what stays unreadable is recorded and not acted on: `DelegationResult.unreadableEntries`, the `qayaba.coordination.unreadable_entries` and `repair_turn` attributes of a `lead-decision` or `delegation` event, and the counts `gateSignals.coordination.review.unreadable|repairs`, `corrections.unreadable|repairs` and `unreadable { plan, delegation, repairs }`. The acceptance report keeps its own recorded defect (`acceptanceReportDefect`). The code-graph tool's `explore-answer.ts` shapes a tool's answer to the lead and reads no agent answer.
 
 Every revision carries the orchestrator's facts beside the lead's instruction. A sidekick that writes nothing and says
 why (the change needs no test of its own) is a declined flow, not a failure. When every flow comes back empty, the run ends `E-NO-DECISION`; the lead does not take the change over. The review is counted in
-`gateSignals.coordination.review { turns, accepted, revised, replaced, dropped, refused }` and each decision is a
+`gateSignals.coordination.review { turns, accepted, revised, replaced, dropped, refused, unreadable, repairs }` and each decision is a
 `lead-decision` event of the coordination telemetry.
 
 A `run_spec` call keeps the facts of each failing test in the ledger (`failures`: its error, redacted and bounded; the

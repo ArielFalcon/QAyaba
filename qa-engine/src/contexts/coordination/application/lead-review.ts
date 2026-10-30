@@ -13,11 +13,12 @@ import { assembleDefs, type AssembledPrompt, type WindowFitOutcome } from "@kern
 import { flowCovers, type AdmissionSet } from "./plan-coverage.ts";
 import { FLOW_OUTCOME } from "./flow-outcomes.ts";
 import type { RedactionPort } from "@kernel/ports/redaction.port.ts";
-import { LEAD_REVIEW_SECTIONS, type CandidateGaps, type FailureBytes, type FlowUnderReview, type NoWritesLeft, type SidekickAnswer } from "./coordination-sections/lead-turn-sections.ts";
+import { LEAD_REVIEW_SECTIONS, UNREADABLE_ANSWER_SECTIONS, type CandidateGaps, type FailureBytes, type FlowUnderReview, type NoWritesLeft, type SidekickAnswer } from "./coordination-sections/lead-turn-sections.ts";
 
 /* How the instruction that sends a spec back qualifies its last failure. */
 const FAILURE_INSTRUCTION_NOTE: Record<FailureBytes, string> = { current: "", earlier: ", seen on earlier bytes", "no-spec": ", while the flow held no spec" };
 import { lastJsonObjectWhere } from "@kernel/last-json-object.ts";
+import { describeUnreadable, entryRead, entryUnreadable, readEntries, readOneOf, type UnreadableEntry } from "./answer-reading.ts";
 import { sha256Hex } from "@kernel/content-hash.ts";
 
 export { type CandidateGaps, type FailureBytes, type FlowUnderReview, type NoWritesLeft, type SidekickAnswer };
@@ -59,6 +60,8 @@ export const REVIEW_OVERRIDE = {
 export interface ReviewAdmission {
   /* Whether the answer could be read at all. */
   readable: boolean;
+  /* The entries of the answer (or the answer itself) the engine could not read: not acted on, recorded, asked about once. */
+  unreadable: UnreadableEntry[];
   /* The revisions to carry out, in the order the lead gave them. */
   orders: ReviewOrder[];
   accepted: string[];
@@ -110,6 +113,11 @@ export function withSpecDigests(flows: readonly FlowUnderReview[], seen: SeenSpe
   });
 }
 
+/* The one request that sends a review the reader could not read in full back to the lead: which parts it could not read, and what to answer. */
+export function assembleUnreadableReviewRequest(unreadable: readonly UnreadableEntry[]): AssembledPrompt {
+  return assembleDefs(UNREADABLE_ANSWER_SECTIONS, { unreadable: describeUnreadable(unreadable), contract: "review" }, { separator: "\n\n" });
+}
+
 export function renderLeadReview(redaction: RedactionPort, flows: readonly FlowUnderReview[], turn: { turn: number; maxTurns: number }, gaps?: CandidateGaps): string {
   return assembleLeadReview(redaction, flows, turn, gaps).text;
 }
@@ -118,7 +126,7 @@ function textOf(redaction: RedactionPort, value: unknown, max: number): string {
   return typeof value === "string" ? redaction.redact(value).trim().slice(0, max) : "";
 }
 
-const ACTIONS = new Set<string>(Object.values(REVIEW_ACTION));
+const ACTIONS = Object.values(REVIEW_ACTION);
 
 /* What the orchestrator tells a sidekick whose spec was accepted before it passed. */
 function verifyInstruction(redaction: RedactionPort, flow: FlowUnderReview): string {
@@ -127,9 +135,12 @@ function verifyInstruction(redaction: RedactionPort, flow: FlowUnderReview): str
 }
 
 export function admitLeadReview(redaction: RedactionPort, output: string, flows: readonly FlowUnderReview[], opts: { revisionsAllowed: boolean }): ReviewAdmission {
-  const admission: ReviewAdmission = { readable: false, orders: [], accepted: [], dropped: [], refused: [] };
+  const admission: ReviewAdmission = { readable: false, unreadable: [], orders: [], accepted: [], dropped: [], refused: [] };
   const raw = lastJsonObjectWhere(output, (o) => Array.isArray(o.review)) as { review: unknown[] } | undefined;
-  if (!raw) return admission;
+  if (!raw) {
+    admission.unreadable.push({ where: "answer", reason: "it holds no JSON object with a `review` list" });
+    return admission;
+  }
   admission.readable = true;
   const byId = new Map(flows.map((flow) => [flow.id, flow]));
   const seen = new Set<string>();
@@ -140,13 +151,21 @@ export function admitLeadReview(redaction: RedactionPort, output: string, flows:
     admission.orders.push({ flowId: flow.id, action: effective, instruction, ...(overrideReason !== undefined ? { overrideReason } : effective !== action ? { overrideReason: REVIEW_OVERRIDE.SESSION_GONE } : {}) });
   };
 
-  for (const entry of raw.review) {
-    if (!entry || typeof entry !== "object") continue;
+  /* An entry is read once: a flow it names that was not under review, an action outside the contract, or a flow answered twice is unreadable, and is acted on as nothing. */
+  const read = readEntries(raw.review, "review", (entry) => {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) return entryUnreadable("it is not an object");
     const e = entry as Record<string, unknown>;
     const flow = typeof e.flow === "string" ? byId.get(e.flow) : undefined;
-    const action = typeof e.action === "string" && ACTIONS.has(e.action) ? (e.action as ReviewAction) : undefined;
-    if (!flow || !action || seen.has(flow.id)) continue;
+    if (!flow) return entryUnreadable(`flow ${JSON.stringify(e.flow)} is not a flow under review`);
+    const action = readOneOf(e.action, ACTIONS, `flow ${flow.id}: action`);
+    if (!action.ok) return action;
+    if (seen.has(flow.id)) return entryUnreadable(`flow ${flow.id} is answered twice; the first entry stands`);
     seen.add(flow.id);
+    return entryRead({ e, flow, action: action.value });
+  }, (text) => redaction.redact(text));
+  admission.unreadable.push(...read.unreadable);
+
+  for (const { e, flow, action } of read.entries) {
     const instruction = textOf(redaction, e.instruction, MAX_INSTRUCTION_CHARS);
     const reason = textOf(redaction, e.reason, MAX_REASON_CHARS);
     const delivered = flow.outcome.kind === FLOW_OUTCOME.DELIVERED;

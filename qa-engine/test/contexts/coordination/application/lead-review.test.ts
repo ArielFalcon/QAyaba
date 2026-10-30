@@ -140,6 +140,26 @@ test("an answer that cannot be read, names no flow it was shown, or names one tw
   assert.deepEqual(odd.orders.map((o) => o.instruction), ["first"]);
 });
 
+test("an entry the engine cannot read is returned as unreadable with where it sits and why, never skipped in silence and never read as an action", () => {
+  const admitted = admitLeadReview(redaction,
+    answer(["accept", { flow: "ghost", action: "drop" }, { flow: "cart", action: "sing", instruction: "x" }, { flow: "cart", action: "revise", instruction: "first" }, { flow: "cart", action: "revise", instruction: "second" }]),
+    [flow()],
+    { revisionsAllowed: true },
+  );
+  assert.deepEqual(admitted.unreadable.map((u) => u.where), ["review[0]", "review[1]", "review[2]", "review[4]"]);
+  assert.match(admitted.unreadable[1]!.reason, /ghost/);
+  assert.match(admitted.unreadable[2]!.reason, /sing/, "the reason names the value it could not read");
+  assert.deepEqual(admitted.orders.map((o) => o.instruction), ["first"], "an entry it could not read orders nothing");
+});
+
+test("an answer with no review list is unreadable as a whole, and an answer that reads whole has nothing unreadable", () => {
+  const none = admitLeadReview(redaction, "I think it is fine", [flow()], { revisionsAllowed: true });
+  assert.equal(none.readable, false);
+  assert.equal(none.unreadable.length, 1);
+  assert.equal(none.unreadable[0]!.where, "answer");
+  assert.deepEqual(admitLeadReview(redaction, answer([{ flow: "cart", action: "accept" }]), [flow()], { revisionsAllowed: true }).unreadable, []);
+});
+
 test("the lead's instruction is bounded and scrubbed before it reaches a sidekick", () => {
   const admitted = admitLeadReview(redaction, answer([{ flow: "cart", action: "revise", instruction: `use token sk-ant-api03-${"a".repeat(40)} ${"y".repeat(5000)}` }]), [flow()], { revisionsAllowed: true });
   const instruction = admitted.orders[0]!.instruction;

@@ -62,7 +62,6 @@ test("an illegal write's replacement summary and concerns redact a secret-bearin
           evidence: [],
           concerns: [],
           unresolvedQuestions: [],
-          recommendation: "accept",
         }),
       };
     },

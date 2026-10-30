@@ -10,13 +10,12 @@ const redaction = new PatternRedactionAdapter();
 const brief = createDelegationBrief({ redaction, delegationId: "run-1-flow-cart", runId: "run-1", objective: "o", task: "t", scope: { readablePaths: [], writablePaths: ["e2e/flows/cart.spec.ts"], allowedCommands: [] } });
 
 const closing = (over: Record<string, unknown> = {}): string =>
-  JSON.stringify({ delegationId: brief.delegationId, runId: brief.runId, status: "completed", summary: "done", filesChanged: [{ path: "e2e/flows/cart.spec.ts" }], evidence: [], acceptance: [], concerns: [], unresolvedQuestions: [], recommendation: "accept", ...over });
+  JSON.stringify({ delegationId: brief.delegationId, runId: brief.runId, status: "completed", summary: "done", filesChanged: [{ path: "e2e/flows/cart.spec.ts" }], evidence: [], acceptance: [], concerns: [], unresolvedQuestions: [], ...over });
 
 test("narration holding brace-bearing code before the closing block does not turn a completed result into a failure", () => {
   const output = ["The capture gives `{name, value, url}` and my helper is `async ({ page }) => {`.", "The last run_spec passed.", "```json", closing(), "```"].join("\n");
   const result = readDelegationResult(output, brief, redaction);
   assert.equal(result.status, "completed");
-  assert.equal(result.recommendation, "accept");
   assert.equal(result.readMiss, undefined);
 });
 
@@ -31,7 +30,7 @@ test("an answer holding no DelegationResult is a failed result marked unreadable
   const unreadable = readDelegationResult('I wrote `{name, value}` and ran out of time {"specs":[]}', brief, redaction);
   assert.equal(unreadable.status, "failed");
   assert.equal(unreadable.readMiss, "unreadable");
-  const reported = readDelegationResult(closing({ status: "failed", summary: "no selector found", recommendation: "escalate" }), brief, redaction);
+  const reported = readDelegationResult(closing({ status: "failed", summary: "no selector found" }), brief, redaction);
   assert.equal(reported.status, "failed");
   assert.equal(reported.readMiss, undefined);
   assert.equal(classifyDelegationFailure(unreadable.status, 0, 0, unreadable.readMiss), "unreadable");
@@ -50,5 +49,24 @@ test("an output with no readable result and a result addressed to another brief 
   const foreign = readDelegationResult(closing({ delegationId: "run-1-flow-other" }), brief, redaction);
   assert.equal(foreign.status, "failed");
   assert.equal(foreign.answerMiss, "foreign-brief");
-  assert.equal(readDelegationResult(closing({ status: "failed", summary: "no selector found", recommendation: "escalate" }), brief, redaction).answerMiss, undefined);
+  assert.equal(readDelegationResult(closing({ status: "failed", summary: "no selector found" }), brief, redaction).answerMiss, undefined);
+});
+
+test("a result that names no recommendation is read: the engine asks for no field nothing reads", () => {
+  const result = readDelegationResult(closing(), brief, redaction);
+  assert.equal(result.status, "completed");
+  assert.equal(result.readMiss, undefined);
+  assert.deepEqual(Object.keys(result).filter((key) => key === "recommendation"), [], "the field is gone from the result");
+});
+
+test("entries of the result the engine cannot read are recorded with where they sit, not dropped in silence", () => {
+  const result = readDelegationResult(closing({ filesChanged: [{ path: "e2e/flows/cart.spec.ts" }, "e2e/flows/other.spec.ts", { file: "x" }], concerns: ["a note", 7], testCorrect: { cause: "weather", reason: "x" } }), brief, redaction);
+  assert.deepEqual(result.unreadableEntries?.map((u) => u.where), ["filesChanged[1]", "filesChanged[2]", "concerns[1]", "testCorrect"]);
+  assert.deepEqual(result.filesChanged.map((f) => f.path), ["e2e/flows/cart.spec.ts"]);
+  assert.deepEqual(result.concerns, ["a note"]);
+  assert.equal(result.readMiss, undefined, "a result with entries it could not read is still the sidekick's result");
+});
+
+test("a result that reads whole records nothing unreadable", () => {
+  assert.equal(readDelegationResult(closing(), brief, redaction).unreadableEntries, undefined);
 });

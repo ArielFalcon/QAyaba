@@ -46,6 +46,10 @@ export interface CoordinationTelemetryEvent {
   readonly progressFingerprint?: string;
   /** What the sidekick reported its turn came to (its DelegationStatus), when kind is delegation. */
   readonly sidekickStatus?: string;
+  /** The answer an event is about when it records what the reader could not read of it (`plan`, `review`, `correction` or `delegation`), how many entries of it were left unread after the answer's one repair turn, and whether that turn was asked. */
+  readonly answer?: string;
+  readonly unreadable?: number;
+  readonly repairTurn?: boolean;
   /** How a turn that never answered ended (`timeout`, `aborted`, `failed` or `session-gone`) and, for a fault, its class (an `AgentErrorType`), when kind is delegation. */
   readonly turnEnd?: string;
   readonly errorType?: string;

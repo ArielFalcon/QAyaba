@@ -1,5 +1,6 @@
 import type { AcceptanceReportDefect, AcceptanceReportEntry } from "./acceptance-report.ts";
 import type { EvidenceRef } from "./evidence-ref.ts";
+import type { UnreadableEntry } from "./answer-reading.ts";
 import type { UNREADABLE_ANSWER } from "@kernel/unreadable-answer.ts";
 import { describeTurnEnd, type SidekickTurnEnd } from "./sidekick-turn-end.ts";
 import type { DelegationBrief } from "./delegation-brief.ts";
@@ -12,9 +13,6 @@ export const DELEGATION_STATUSES = [
   "failed",
 ] as const;
 export type DelegationStatus = (typeof DELEGATION_STATUSES)[number];
-
-export const DELEGATION_RECOMMENDATIONS = ["accept", "review", "retry", "escalate"] as const;
-export type DelegationRecommendation = (typeof DELEGATION_RECOMMENDATIONS)[number];
 
 export const CANDIDATE_CLAIMS = ["covered", "not-covered", "blocked"] as const;
 export type CandidateClaimStatus = (typeof CANDIDATE_CLAIMS)[number];
@@ -48,7 +46,6 @@ export interface DelegationResult {
   readonly evidence?: readonly EvidenceRef[];
   readonly concerns: readonly string[];
   readonly unresolvedQuestions: readonly string[];
-  readonly recommendation: DelegationRecommendation;
   /** Per-criterion report, keyed by the brief's 1-based criterion numbers; only well-formed entries. */
   readonly acceptance: readonly AcceptanceReportEntry[];
   /** The sidekick's claim per use case its brief listed; only well-formed entries for ids the brief carried. */
@@ -63,6 +60,10 @@ export interface DelegationResult {
   readonly readMiss?: typeof UNREADABLE_ANSWER;
   /** Set when the result is the orchestrator's own statement about an answer it could not take (unreadable, or addressed to another brief): its summary and concerns are the orchestrator's words, never the sidekick's. */
   readonly answerMiss?: AnswerMiss;
+  /** The entries of the answer the engine could not read as the contract says (where each sits and why), after the one repair turn; absent when the answer read whole. The entry is not acted on and is never read as a default. */
+  readonly unreadableEntries?: readonly UnreadableEntry[];
+  /** Set when the answer needed the one repair turn (it held no result, or entries the engine could not read): the result is what that turn left, and the entries it did not fix are in `unreadableEntries`. */
+  readonly repaired?: true;
   /** Set when the turn never answered (out of its time, stopped, ended by a fault of the runtime, or its session gone): the result is the orchestrator's own statement of it, and the end says which. */
   readonly turnEnd?: SidekickTurnEnd;
 }
@@ -85,7 +86,6 @@ export function unansweredTurn(brief: Pick<DelegationBrief, "delegationId" | "ru
     filesChanged: [],
     concerns: [],
     unresolvedQuestions: [],
-    recommendation: "retry",
     acceptance: [],
     turnEnd: end,
   };

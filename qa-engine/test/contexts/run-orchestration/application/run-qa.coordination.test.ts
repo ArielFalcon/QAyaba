@@ -287,7 +287,7 @@ function keptPass(r: Rig, answer: (findings: readonly CorrectionFinding[]) => Pa
       return out;
     },
     leaveUnrouted: (findings, origin, reason) => void seen.left.push({ count: findings.length, origin, reason }),
-    tally: () => ({ turns: seen.corrected.length, routed: seen.corrected.flat().length, unrouted: seen.left.reduce((n, l) => n + l.count, 0), revised: seen.corrected.length, replaced: 0, rebutted: 0 }),
+    tally: () => ({ turns: seen.corrected.length, routed: seen.corrected.flat().length, unrouted: seen.left.reduce((n, l) => n + l.count, 0), revised: seen.corrected.length, replaced: 0, rebutted: 0, unreadable: 0, repairs: 0 }),
     release: async () => void (seen.released += 1),
   };
   return { pass, seen };
@@ -311,7 +311,7 @@ test("in a coordinated run the reviewer's corrections go to the lead's pass, not
   assert.equal(r.calls.filter((c) => c === "generate").length, 0, "no regeneration of its own");
   assert.equal(kept.seen.released, 1);
   assert.equal(result.outcome?.verdict, "pass");
-  assert.deepEqual(result.outcome?.gateSignals.coordination?.corrections, { turns: 1, routed: 1, unrouted: 0, revised: 1, replaced: 0, rebutted: 0 });
+  assert.deepEqual(result.outcome?.gateSignals.coordination?.corrections, { turns: 1, routed: 1, unrouted: 0, revised: 1, replaced: 0, rebutted: 0, unreadable: 0, repairs: 0 });
 });
 
 test("the corrections a coordinated run routes through the lead are recorded and stay within the lead's budget", async () => {
@@ -395,7 +395,7 @@ test("corrections the lead's pass made are recorded even when the reviewer canno
     : { approved: false, findings: [], blockingCount: 0, parsed: false, unavailable: true })) };
   const result = await new RunQaUseCase(r.deps({ review })).run(INPUT);
   assert.equal(result.outcome?.errorClass, "E-REVIEWER-UNAVAILABLE");
-  assert.deepEqual(result.outcome?.gateSignals.coordination?.corrections, { turns: 1, routed: 1, unrouted: 0, revised: 1, replaced: 0, rebutted: 0 });
+  assert.deepEqual(result.outcome?.gateSignals.coordination?.corrections, { turns: 1, routed: 1, unrouted: 0, revised: 1, replaced: 0, rebutted: 0, unreadable: 0, repairs: 0 });
   assert.equal(kept.seen.released, 1);
 });
 
@@ -567,7 +567,7 @@ test("findings left unrouted before the lead was asked are on the run's coordina
   kept = keptPass(r, () => ({ readable: true, specs: ["flows/a.spec.ts"], rebuttals: [], unrouted: [] }));
   const result = await new RunQaUseCase(r.deps({ review: rejectingOnce(["flows/a.spec.ts never asserts the total"]), config: SPENT })).run(INPUT);
   assert.deepEqual(kept.seen.corrected, [], "the lead was never asked");
-  assert.deepEqual(result.outcome?.gateSignals.coordination?.corrections, { turns: 0, routed: 0, unrouted: 1, revised: 0, replaced: 0, rebutted: 0 });
+  assert.deepEqual(result.outcome?.gateSignals.coordination?.corrections, { turns: 0, routed: 0, unrouted: 1, revised: 0, replaced: 0, rebutted: 0, unreadable: 0, repairs: 0 });
 });
 
 test("when the lead's correction budget is spent the reviewer's findings stay unrouted, and a run with no pass still regenerates by an author", async () => {

@@ -67,7 +67,7 @@ test("the executor sends the brief rendered with the fit rule it is given", asyn
   const brief = createDelegationBrief({ ...base, objective: "the cart total", suite: SUITE });
   const whole = assembleSidekickBrief(redaction, brief, roomy);
   const sent: string[] = [];
-  const result = JSON.stringify({ delegationId: "d1", runId: "r1", status: "completed", summary: "done", filesChanged: [], evidence: [], acceptance: [], concerns: [], unresolvedQuestions: [], recommendation: "accept" });
+  const result = JSON.stringify({ delegationId: "d1", runId: "r1", status: "completed", summary: "done", filesChanged: [], evidence: [], acceptance: [], concerns: [], unresolvedQuestions: [] });
   const sidekick = new SidekickExecutor({ redaction, runtime: { openSession: async () => ({ prompt: async (text: string) => { sent.push(text); return { output: result }; }, dispose: async () => {} }) } });
 
   await sidekick.execute(brief, { cwd: "/w", kind: "author" });

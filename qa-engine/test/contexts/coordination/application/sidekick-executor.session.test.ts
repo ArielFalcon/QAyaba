@@ -19,7 +19,7 @@ const brief = createDelegationBrief({ redaction,
   scope: { readablePaths: ["."], writablePaths: ["e2e/flows/cart.spec.ts"], allowedCommands: [] },
 });
 
-const RESULT = JSON.stringify({ delegationId: "run-1-flow-cart", runId: "run-1", status: "completed", summary: "done", filesChanged: [{ path: "e2e/flows/cart.spec.ts" }], evidence: [], acceptance: [], concerns: [], unresolvedQuestions: [], recommendation: "accept" });
+const RESULT = JSON.stringify({ delegationId: "run-1-flow-cart", runId: "run-1", status: "completed", summary: "done", filesChanged: [{ path: "e2e/flows/cart.spec.ts" }], evidence: [], acceptance: [], concerns: [], unresolvedQuestions: [] });
 
 function executor(opened: Array<{ role: AgentRole; cwd: string; opts: OpenSessionOpts | undefined }>) {
   return new SidekickExecutor({ redaction,
@@ -211,4 +211,64 @@ test("the lead's feedback is a registered section: the follow-up and the first p
   assert.deepEqual(Object.keys(seen[1]!.opts?.sectionSizes ?? {}), ["lead-feedback", "feedback-contract"]);
   assert.deepEqual(Object.keys(seen[1]!.opts?.sectionHashes ?? {}), ["lead-feedback", "feedback-contract"]);
   await session.dispose();
+});
+
+const FOUND_NOTHING = "I wrote the spec and ran it; it passes. No JSON from me.";
+
+function repairing(outputs: string[], calls: { prompts: Array<{ text: string; opts: AgentPromptOpts | undefined }>; opened: number; disposed: number }) {
+  return new SidekickExecutor({ redaction,
+    runtime: {
+      openSession: async () => {
+        calls.opened += 1;
+        return { prompt: async (text: string, opts?: AgentPromptOpts) => { calls.prompts.push({ text, opts }); return { output: outputs[Math.min(calls.prompts.length - 1, outputs.length - 1)]! }; }, dispose: async () => { calls.disposed += 1; } };
+      },
+    },
+  });
+}
+
+test("an answer that holds no result is asked about once, in the same session with the tools off, and the restated result is the sidekick's answer", async () => {
+  const calls = { prompts: [] as Array<{ text: string; opts: AgentPromptOpts | undefined }>, opened: 0, disposed: 0 };
+  const session = await repairing([FOUND_NOTHING, RESULT], calls).open(brief, { cwd: "/w", kind: "author" });
+  assert.equal(calls.opened, 1, "the same session");
+  assert.equal(calls.prompts.length, 2, "the brief and one repair turn");
+  assert.equal(calls.prompts[1]!.opts?.withoutTools, true);
+  assert.equal(calls.prompts[1]!.opts?.isRepair, true);
+  assert.match(calls.prompts[1]!.text, /could not read/i);
+  assert.match(calls.prompts[1]!.text, /delegationId=run-1-flow-cart/, "it restates the contract");
+  assert.equal(session.first.status, "completed");
+  assert.equal(session.first.readMiss, undefined);
+  assert.equal(session.first.repaired, true);
+  await session.dispose();
+});
+
+test("an answer still unreadable after the repair turn is the failed unreadable result it was, asked about once only", async () => {
+  const calls = { prompts: [] as Array<{ text: string; opts: AgentPromptOpts | undefined }>, opened: 0, disposed: 0 };
+  const session = await repairing([FOUND_NOTHING], calls).open(brief, { cwd: "/w", kind: "author" });
+  assert.equal(calls.prompts.length, 2, "never a second repair");
+  assert.equal(session.first.status, "failed");
+  assert.equal(session.first.readMiss, "unreadable");
+  assert.equal(session.first.repaired, true);
+  await session.dispose();
+});
+
+test("a result with an entry it cannot read is asked about once, and the repaired result replaces it only when it reads better", async () => {
+  const flawed = JSON.stringify({ ...JSON.parse(RESULT), filesChanged: [{ path: "e2e/flows/cart.spec.ts" }, "x"] });
+  const calls = { prompts: [] as Array<{ text: string; opts: AgentPromptOpts | undefined }>, opened: 0, disposed: 0 };
+  const better = await repairing([flawed, RESULT], calls).open(brief, { cwd: "/w", kind: "author" });
+  assert.match(calls.prompts[1]!.text, /filesChanged\[1\]/, "the repair names where the entry sits");
+  assert.equal(better.first.unreadableEntries, undefined);
+  const same = { prompts: [] as Array<{ text: string; opts: AgentPromptOpts | undefined }>, opened: 0, disposed: 0 };
+  const stays = await repairing([flawed], same).open(brief, { cwd: "/w", kind: "author" });
+  assert.equal(same.prompts.length, 2);
+  assert.deepEqual(stays.first.unreadableEntries?.map((u) => u.where), ["filesChanged[1]"], "the entry that stays unreadable is recorded");
+});
+
+test("an answer that reads whole is not asked about again, and nor is an answer with nothing in it", async () => {
+  const whole = { prompts: [] as Array<{ text: string; opts: AgentPromptOpts | undefined }>, opened: 0, disposed: 0 };
+  await repairing([RESULT], whole).open(brief, { cwd: "/w", kind: "author" });
+  assert.equal(whole.prompts.length, 1);
+  const empty = { prompts: [] as Array<{ text: string; opts: AgentPromptOpts | undefined }>, opened: 0, disposed: 0 };
+  const session = await repairing(["   "], empty).open(brief, { cwd: "/w", kind: "author" });
+  assert.equal(empty.prompts.length, 1, "an answer with nothing in it is the sidekick's absence, not a result to repair");
+  assert.equal(session.first.readMiss, "unreadable");
 });

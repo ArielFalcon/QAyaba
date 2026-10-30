@@ -39,7 +39,6 @@ function result(overrides: Partial<DelegationResult> = {}): DelegationResult {
     evidence: [],
     concerns: [],
     unresolvedQuestions: [],
-    recommendation: "accept",
     acceptance: [],
     ...overrides,
   };
@@ -56,7 +55,6 @@ test("a result for another delegation is a foreign brief and is blocked", () => 
   assert.match(finding!.detail, /other-run/, "the finding names the run the result answered");
   const pushed = applyPushback(brief(), result({ delegationId: "d2" }));
   assert.equal(pushed.status, "blocked");
-  assert.equal(pushed.recommendation, "escalate");
 });
 
 test("a brief whose authority was widened is an authority violation and is blocked", () => {
@@ -80,12 +78,11 @@ test("a result that did not complete is not checked against the acceptance repor
 
 /* ── non-fatal findings ──────────────────────────────────────────────────────────────────────── */
 
-test("an acceptance report defect is a non-fatal finding: the result keeps its recommendation but is not a clean completion", () => {
+test("an acceptance report defect is a non-fatal finding: the result is not a clean completion", () => {
   const defective = result({ acceptanceReportDefect: { reason: "acceptance-report-missing", detail: "no report for 1 criteria", unmet: [] } });
   assert.deepEqual(reasonsOf(brief(), defective), ["acceptance-report-missing"]);
   const pushed = applyPushback(brief(), defective);
   assert.equal(pushed.status, "completed-with-concerns");
-  assert.equal(pushed.recommendation, "accept");
   assert.ok(pushed.concerns.some((c) => c.startsWith("acceptance-report-missing")));
 });
 
@@ -130,7 +127,6 @@ test("a criterion the sidekick reports unmet blocks the delegation, naming the c
   assert.match(findings[0]!.detail, /No writes outside scope/);
   const pushed = applyPushback(b, r);
   assert.equal(pushed.status, "blocked");
-  assert.equal(pushed.recommendation, "escalate");
 });
 
 test("an unmet stated in a malformed report blocks a completed delegation, naming it as the sidekick wrote it", () => {
@@ -157,7 +153,6 @@ test("met and unverified criteria never block", () => {
   for (const statuses of [["met", "met"], ["unverified", "unverified"], ["met", "unverified"]] as AcceptanceStatus[][]) {
     const pushed = applyPushback(brief({ acceptanceCriteria: TWO_CRITERIA }), result({ acceptance: reported(...statuses) }));
     assert.equal(pushed.status, "completed", statuses.join(","));
-    assert.equal(pushed.recommendation, "accept", statuses.join(","));
   }
 });
 

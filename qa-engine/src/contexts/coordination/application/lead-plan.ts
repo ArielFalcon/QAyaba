@@ -14,6 +14,7 @@ import type { RedactionPort } from "@kernel/ports/redaction.port.ts";
 import { assembleDefs, type AssembledPrompt } from "@kernel/prompt-sections.ts";
 import { REJECTED_PLAN_SECTIONS } from "./coordination-sections/lead-turn-sections.ts";
 import { SIDEKICK_KIND, type SidekickKind } from "./sidekick-kinds.ts";
+import { describeUnreadable, entryRead, entryUnreadable, readEntries, type EntryRead, type UnreadableEntry } from "./answer-reading.ts";
 import { flowCapacity, MIN_BROWSER_CALLS_PER_FLOW, MIN_RUN_SPEC_CALLS_PER_FLOW, MIN_RUN_SPEC_DEV_WRITES_PER_FLOW, perFlowGrant } from "./flow-capacity.ts";
 
 export { MIN_BROWSER_CALLS_PER_FLOW, MIN_RUN_SPEC_CALLS_PER_FLOW, MIN_RUN_SPEC_DEV_WRITES_PER_FLOW };
@@ -39,14 +40,14 @@ const DOWNGRADE_FACTS: Readonly<Record<PlanDowngrade, () => string>> = {
   [PLAN_DOWNGRADE.NO_TIME]: () => "the run has too little time left for any flow",
 };
 
-/* The one request that sends a refused plan back to the lead: why it was refused (by its code and in words), and what to answer. */
-export function assembleRejectedPlanRequest(downgrade: string): AssembledPrompt {
+/* The one request that sends a refused plan back to the lead: why it was refused (by its code and in words, and where in the plan when the reader could say), and what to answer. */
+export function assembleRejectedPlanRequest(downgrade: string, detail?: string): AssembledPrompt {
   const fact = (DOWNGRADE_FACTS as Record<string, (() => string) | undefined>)[downgrade]?.() ?? "it could not be admitted";
-  return assembleDefs(REJECTED_PLAN_SECTIONS, { downgrade, fact }, { separator: "\n\n" });
+  return assembleDefs(REJECTED_PLAN_SECTIONS, { downgrade, fact: detail ? `${fact} (${detail})` : fact }, { separator: "\n\n" });
 }
 
-export function renderRejectedPlanRequest(downgrade: string): string {
-  return assembleRejectedPlanRequest(downgrade).text;
+export function renderRejectedPlanRequest(downgrade: string, detail?: string): string {
+  return assembleRejectedPlanRequest(downgrade, detail).text;
 }
 
 export const MAX_FLOW_ID_CHARS = 48;
@@ -124,10 +125,12 @@ export const PLAN_REJECTED = "rejected" as const;
 
 export type AdmittedPlan =
   /* `dropped` is set when the no-op is a plan of no flows whose every use case is dropped: the drops are checked against the run's facts like any plan's. */
-  | { kind: typeof LEAD_PLAN_KIND.NOOP; reason: string; dropped?: PlanDrop[] }
-  | { kind: typeof PLAN_REJECTED; downgrade: PlanDowngrade }
+  | { kind: typeof LEAD_PLAN_KIND.NOOP; reason: string; dropped?: PlanDrop[]; unreadable?: UnreadableEntry[] }
+  /* `detail` says where in the plan the reader met what it could not read, when it could say. */
+  | { kind: typeof PLAN_REJECTED; downgrade: PlanDowngrade; detail?: string }
   /* `capacity` is the flows the run could author (absent: nothing bounds them); `notAdmitted` the flows past it, in plan order. */
-  | { kind: typeof LEAD_PLAN_KIND.FANOUT; flows: AdmittedFlow[]; parallel: number; dropped: PlanDrop[]; capacity?: number; notAdmitted: NotAdmittedFlow[] };
+  /* `unreadable` holds the entries of the plan that stands which the reader could not read (a drop with no basis, say): not acted on, recorded. */
+  | { kind: typeof LEAD_PLAN_KIND.FANOUT; flows: AdmittedFlow[]; parallel: number; dropped: PlanDrop[]; capacity?: number; notAdmitted: NotAdmittedFlow[]; unreadable?: UnreadableEntry[] };
 
 /* A flow of the plan past the run's capacity: what the lead is shown of it when it is asked about it, and what the run records. */
 export interface NotAdmittedFlow {
@@ -155,8 +158,8 @@ export interface PlanDrop {
   reason: string;
 }
 
-function reject(downgrade: PlanDowngrade): AdmittedPlan {
-  return { kind: PLAN_REJECTED, downgrade };
+function reject(downgrade: PlanDowngrade, detail?: string): AdmittedPlan {
+  return { kind: PLAN_REJECTED, downgrade, ...(detail !== undefined ? { detail } : {}) };
 }
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
@@ -214,17 +217,26 @@ function candidateIdsOf(value: unknown): string[] {
   return [...new Set(ids)].slice(0, MAX_FLOW_CANDIDATES);
 }
 
-function dropsOf(value: unknown, redaction: RedactionPort): PlanDrop[] {
-  if (!Array.isArray(value)) return [];
-  const drops: PlanDrop[] = [];
-  for (const entry of value) {
-    if (!isRecord(entry)) continue;
+/* The drops the plan states, each read once; an entry the reader cannot read is unreadable, and the use case it named is left unresolved for the amendment turn to ask about. More than `MAX_DROPPED` drops are cut, and the cut is recorded. */
+function dropsOf(value: unknown, redaction: RedactionPort): { drops: PlanDrop[]; unreadable: UnreadableEntry[] } {
+  const seen = new Set<string>();
+  const read = readEntries(value, "dropped", (entry): EntryRead<PlanDrop> => {
+    if (!isRecord(entry)) return entryUnreadable("it is not an object");
     const [candidate] = candidateIdsOf([entry.candidate]);
-    const reason = text(redaction, entry.reason, MAX_ACCEPTANCE_CHARS);
+    if (candidate === undefined) return entryUnreadable("candidate is missing or not a use case id");
     const basis = typeof entry.basis === "string" && DROP_BASES.has(entry.basis) ? (entry.basis as DropBasis) : undefined;
-    if (candidate !== undefined && basis !== undefined && reason !== "" && !drops.some((d) => d.candidate === candidate)) drops.push({ candidate, basis, reason });
-  }
-  return drops.slice(0, MAX_DROPPED);
+    if (basis === undefined) return entryUnreadable(`${candidate}: basis is not one of ${[...DROP_BASES].join(", ")}`);
+    const reason = text(redaction, entry.reason, MAX_ACCEPTANCE_CHARS);
+    if (reason === "") return entryUnreadable(`${candidate}: reason is missing`);
+    if (seen.has(candidate)) return entryUnreadable(`${candidate} is dropped twice; the first drop stands`);
+    seen.add(candidate);
+    return entryRead({ candidate, basis, reason });
+  }, (value) => redaction.redact(value), { optional: true });
+  const cut = read.entries.length - MAX_DROPPED;
+  return {
+    drops: read.entries.slice(0, MAX_DROPPED),
+    unreadable: cut > 0 ? [...read.unreadable, { where: `dropped[${MAX_DROPPED}]`, reason: `${cut} drop(s) past the most a plan states (${MAX_DROPPED}) are cut` }] : read.unreadable,
+  };
 }
 
 /* The flow's location as the plan gave it: a declared place's name, or a point; anything else is dropped and the flow inherits the lead's. */
@@ -233,45 +245,45 @@ function locationOf(value: unknown, places: Readonly<Record<string, GeoLocation>
   return normalizeGeoLocation(value);
 }
 
-function rawFlowOf(value: unknown, places: Readonly<Record<string, GeoLocation>>, redaction: RedactionPort): RawFlow | undefined {
-  if (!isRecord(value)) return undefined;
+function rawFlowOf(value: unknown, places: Readonly<Record<string, GeoLocation>>, redaction: RedactionPort): EntryRead<RawFlow> {
+  if (!isRecord(value)) return entryUnreadable("it is not an object");
   const objective = text(redaction, value.objective, MAX_OBJECTIVE_CHARS);
-  if (objective === "") return undefined;
+  if (objective === "") return entryUnreadable("objective is missing");
   const location = locationOf(value.location, places);
   const acceptance = strings(redaction, value.acceptance, MAX_ACCEPTANCE_CHARS, MAX_ACCEPTANCE_ITEMS);
   const named = routesOf(value.routes);
-  return {
+  return entryRead({
     id: slugOf(redaction.redact(typeof value.id === "string" ? value.id : "")),
     objective,
     acceptance,
     routes: named.length > 0 ? named : routesOf(pathsIn([objective, ...acceptance])),
     candidates: candidateIdsOf(value.candidates),
     ...(location !== undefined ? { location } : {}),
-  };
+  });
 }
 
 export function admitLeadPlan(raw: unknown, limits: PlanLimits, deps: PlanDeps): AdmittedPlan {
   if (raw === undefined) return reject(PLAN_DOWNGRADE.NO_PLAN);
-  if (!isRecord(raw)) return reject(PLAN_DOWNGRADE.MALFORMED);
+  if (!isRecord(raw)) return reject(PLAN_DOWNGRADE.MALFORMED, "the plan is not a JSON object");
+  const scrub = (value: string): string => deps.redaction.redact(value);
 
   if (raw.kind === LEAD_PLAN_KIND.NOOP) {
     const reason = text(deps.redaction, raw.reason, MAX_NOOP_REASON_CHARS);
-    return reason === "" ? reject(PLAN_DOWNGRADE.MALFORMED) : { kind: LEAD_PLAN_KIND.NOOP, reason };
+    return reason === "" ? reject(PLAN_DOWNGRADE.MALFORMED, "a no-op needs its reason") : { kind: LEAD_PLAN_KIND.NOOP, reason };
   }
-  if (raw.kind !== LEAD_PLAN_KIND.FANOUT || !Array.isArray(raw.flows)) return reject(PLAN_DOWNGRADE.MALFORMED);
+  if (raw.kind !== LEAD_PLAN_KIND.FANOUT) return reject(PLAN_DOWNGRADE.MALFORMED, `kind ${JSON.stringify(raw.kind)?.slice(0, 40)} is neither "fanout" nor "noop"`);
+  if (!Array.isArray(raw.flows)) return reject(PLAN_DOWNGRADE.MALFORMED, "flows is not a list");
 
   if (raw.flows.length === 0) {
     /* No flow and every use case it names dropped with a reason: the lead decided nothing is worth a test, as a no-op says. */
-    const drops = dropsOf(raw.dropped, deps.redaction);
+    const { drops, unreadable } = dropsOf(raw.dropped, deps.redaction);
     if (drops.length === 0) return reject(PLAN_DOWNGRADE.EMPTY);
-    return { kind: LEAD_PLAN_KIND.NOOP, reason: drops.map((drop) => `${drop.candidate}: ${drop.reason}`).join("; ").slice(0, MAX_NOOP_REASON_CHARS), dropped: drops };
+    return { kind: LEAD_PLAN_KIND.NOOP, reason: drops.map((drop) => `${drop.candidate}: ${drop.reason}`).join("; ").slice(0, MAX_NOOP_REASON_CHARS), dropped: drops, ...(unreadable.length > 0 ? { unreadable } : {}) };
   }
-  const flows: RawFlow[] = [];
-  for (const entry of raw.flows) {
-    const flow = rawFlowOf(entry, deps.places ?? {}, deps.redaction);
-    if (!flow) return reject(PLAN_DOWNGRADE.MALFORMED);
-    flows.push(flow);
-  }
+  /* A flow the reader cannot read refuses the plan, whole: the lead is asked once for the corrected plan, told where. */
+  const read = readEntries(raw.flows, "flows", (entry) => rawFlowOf(entry, deps.places ?? {}, deps.redaction), scrub);
+  if (read.unreadable.length > 0) return reject(PLAN_DOWNGRADE.MALFORMED, describeUnreadable(read.unreadable).join("; "));
+  const flows: RawFlow[] = read.entries;
   if (new Set(flows.map((flow) => flow.id)).size !== flows.length) return reject(PLAN_DOWNGRADE.DUPLICATE);
 
   const capacity = flowCapacity({
@@ -283,6 +295,7 @@ export function admitLeadPlan(raw: unknown, limits: PlanLimits, deps: PlanDeps):
     ...(limits.ceiling !== undefined ? { ceiling: limits.ceiling } : {}),
   });
   if (capacity === 0) return reject(PLAN_DOWNGRADE.NO_TIME);
+  const dropped = dropsOf(raw.dropped, deps.redaction);
   const taken = capacity === undefined ? flows : flows.slice(0, capacity);
   const notAdmitted = flows.slice(taken.length).map((flow) => ({ id: flow.id, objective: flow.objective, candidates: flow.candidates }));
 
@@ -307,7 +320,8 @@ export function admitLeadPlan(raw: unknown, limits: PlanLimits, deps: PlanDeps):
   return {
     kind: LEAD_PLAN_KIND.FANOUT,
     parallel,
-    dropped: dropsOf(raw.dropped, deps.redaction),
+    dropped: dropped.drops,
+    ...(dropped.unreadable.length > 0 ? { unreadable: dropped.unreadable } : {}),
     ...(capacity !== undefined ? { capacity } : {}),
     notAdmitted,
     flows: taken.map((flow) => {

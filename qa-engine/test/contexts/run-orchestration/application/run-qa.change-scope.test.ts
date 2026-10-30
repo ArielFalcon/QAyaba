@@ -253,5 +253,5 @@ function planEvidenceOf(snapshot: PlanSnapshot, cases: readonly QaCase[]): PlanE
 }
 
 function delegated(brief: DelegationBrief): DelegationResult {
-  return { delegationId: brief.delegationId, runId: brief.runId, status: "completed", summary: "wrote the spec", filesChanged: brief.scope.writablePaths.map((path) => ({ path })), evidence: [], concerns: [], unresolvedQuestions: [], recommendation: "accept", acceptance: [] };
+  return { delegationId: brief.delegationId, runId: brief.runId, status: "completed", summary: "wrote the spec", filesChanged: brief.scope.writablePaths.map((path) => ({ path })), evidence: [], concerns: [], unresolvedQuestions: [], acceptance: [] };
 }

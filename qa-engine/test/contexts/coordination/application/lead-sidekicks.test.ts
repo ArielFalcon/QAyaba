@@ -95,7 +95,7 @@ interface Rig {
 function result(brief: DelegationBrief, over: Partial<DelegationResult> = {}): DelegationResult {
   return {
     delegationId: brief.delegationId, runId: brief.runId, status: "completed", summary: "wrote the spec", filesChanged: brief.scope.writablePaths.map((path) => ({ path })),
-    evidence: [], concerns: [], unresolvedQuestions: [], recommendation: "accept", acceptance: [], ...over,
+    evidence: [], concerns: [], unresolvedQuestions: [], acceptance: [], ...over,
   };
 }
 
@@ -570,7 +570,7 @@ test("the lead reviews every flow in its planning session: what it asked for, wh
   assert.equal(outcome.action, "fanout");
   assert.equal(lead.asked.length, 1);
   for (const expected of ["`cart`", "the cart total", "`login`", "sign in works", "// flows/cart.spec.ts", "Outcome: delivered", "run_spec: not available"]) assert.ok(lead.asked[0]!.includes(expected), expected);
-  assert.deepEqual(outcome.signal.review, { turns: 1, accepted: 2, revised: 0, replaced: 0, dropped: 0, refused: 0 });
+  assert.deepEqual(outcome.signal.review, { turns: 1, accepted: 2, revised: 0, replaced: 0, dropped: 0, refused: 0, unreadable: 0, repairs: 0 });
   assert.equal(lead.disposed(), 1, "the lead's session ends with the pass");
 });
 
@@ -1360,6 +1360,81 @@ test("an order the re-answer still gets refused is recorded, asked about once on
   assert.equal(outcome.pass!.tally().unrouted, 2, "counted once, not once per asking");
 });
 
+test("a review entry the engine cannot read is asked about once in the lead's session, and the repaired answer is carried out", async () => {
+  const unreadable = JSON.stringify({ review: [{ flow: "cart", action: "sing", instruction: "assert the total" }, { flow: "login", action: "accept" }] });
+  const repaired = JSON.stringify({ review: [{ flow: "cart", action: "revise", instruction: "assert the total" }, { flow: "login", action: "accept" }] });
+  const lead = leadAnswering([unreadable, repaired, ACCEPT_ALL]);
+  const r = rig({ answers: { cart: [{ status: "failed", summary: "x", filesChanged: [] }, { writes: true }] }, hasFile: new Set(["login"]) });
+  const outcome = await new LeadSidekicks(r.deps).coordinate(input(r, { plan: lead.plan, closedLoop: undefined }));
+  if (outcome.action !== "fanout") return assert.fail("fanout expected");
+  await outcome.pass?.release();
+  assert.equal(lead.asked.length, 3, "the review, the one repair turn in the same session, the review of the revision");
+  assert.match(lead.asked[1]!, /review\[0\]/, "the repair names where the entry sits");
+  assert.match(lead.asked[1]!, /sing/, "and what could not be read");
+  assert.ok(r.executed.some((e) => e.asked && e.brief.delegationId === "run-1-flow-cart" && /assert the total/.test(e.opts.feedback ?? "")), "the repaired order reached the sidekick");
+  assert.deepEqual(outcome.signal.review && { unreadable: outcome.signal.review.unreadable, repairs: outcome.signal.review.repairs }, { unreadable: 0, repairs: 1 });
+  assert.ok(r.events.some((e) => e.answer === "review" && e.unreadable === 0 && e.repairTurn === true), "the repair that read better is on the record");
+});
+
+test("a review entry still unreadable after the one repair turn is recorded and counted, never read as an action, and is not asked about again", async () => {
+  const unreadable = JSON.stringify({ review: [{ flow: "cart", action: "sing", instruction: "assert the total" }, { flow: "login", action: "accept" }] });
+  const lead = leadAnswering([unreadable]);
+  const r = rig({ answers: { cart: [{ status: "failed", summary: "x", filesChanged: [] }] }, hasFile: new Set(["login"]) });
+  const outcome = await new LeadSidekicks(r.deps).coordinate(input(r, { plan: lead.plan, closedLoop: undefined }));
+  if (outcome.action !== "fanout") return assert.fail("fanout expected");
+  await outcome.pass?.release();
+  assert.equal(lead.asked.length, 2, "the review and one repair turn, never a second");
+  assert.equal(r.executed.some((e) => e.asked), false, "no order was carried out for the entry the engine could not read");
+  assert.equal(outcome.signal.review?.unreadable, 1);
+  assert.equal(outcome.signal.review?.repairs, 1);
+  assert.ok(r.events.some((e) => e.answer === "review" && e.unreadable === 1 && e.repairTurn === true && /review\[0\]/.test(e.reason ?? "")), "the entry that stays unreadable is on the record with where it sits");
+});
+
+test("a review answer that reads whole is not asked about again", async () => {
+  const lead = leadAnswering([ACCEPT_ALL]);
+  const r = rig();
+  const outcome = await new LeadSidekicks(r.deps).coordinate(input(r, { plan: lead.plan, closedLoop: undefined }));
+  if (outcome.action !== "fanout") return assert.fail("fanout expected");
+  await outcome.pass?.release();
+  assert.equal(lead.asked.length, 1);
+  assert.equal(outcome.signal.review?.unreadable, 0);
+  assert.equal(outcome.signal.review?.repairs, 0);
+});
+
+test("a correction order whose action is not revise or replace is asked about once in the lead's session, and the repaired order is carried out", async () => {
+  const unreadable = JSON.stringify({ corrections: [{ flow: "cart", action: "accept", instruction: "assert the total, not the heading" }] });
+  const repaired = JSON.stringify({ corrections: [{ flow: "cart", action: "revise", instruction: "assert the total, not the heading" }] });
+  const lead = leadAnswering([ACCEPT_ALL, unreadable, repaired]);
+  const r = rig();
+  const outcome = await new LeadSidekicks(r.deps).coordinate(input(r, { plan: lead.plan, closedLoop: undefined }));
+  if (outcome.action !== "fanout") return assert.fail("fanout expected");
+  const corrected = await outcome.pass!.correct([{ text: "the total is never asserted", spec: "e2e/flows/cart.spec.ts" }]);
+  assert.equal(lead.asked.length, 3, "the correction turn and the one repair turn");
+  assert.match(lead.asked[2]!, /corrections\[0\]/);
+  assert.match(lead.asked[2]!, /accept/);
+  const asked = r.executed.find((e) => e.asked && e.brief.delegationId === "run-1-flow-cart")!;
+  assert.match(asked.opts.feedback!, /assert the total, not the heading/, "the repaired instruction, not the orchestrator's default");
+  assert.deepEqual(corrected.specs, ["flows/cart.spec.ts"]);
+  assert.equal(outcome.pass!.tally().unreadable, 0);
+  assert.equal(outcome.pass!.tally().repairs, 1);
+  await outcome.pass!.release();
+});
+
+test("a correction entry still unreadable after the repair turn is counted and recorded, and the flow is sent its own findings with the orchestrator's instruction", async () => {
+  const unreadable = JSON.stringify({ corrections: [{ flow: "cart", action: "accept", instruction: "assert the total, not the heading" }] });
+  const lead = leadAnswering([ACCEPT_ALL, unreadable]);
+  const r = rig();
+  const outcome = await new LeadSidekicks(r.deps).coordinate(input(r, { plan: lead.plan, closedLoop: undefined }));
+  if (outcome.action !== "fanout") return assert.fail("fanout expected");
+  await outcome.pass!.correct([{ text: "the total is never asserted", spec: "e2e/flows/cart.spec.ts" }]);
+  assert.equal(lead.asked.length, 3, "never a second repair");
+  const asked = r.executed.find((e) => e.asked && e.brief.delegationId === "run-1-flow-cart")!;
+  assert.doesNotMatch(asked.opts.feedback!, /assert the total, not the heading/, "the lead's word of an entry the engine could not read is not carried");
+  assert.equal(outcome.pass!.tally().unreadable, 1);
+  assert.ok(r.events.some((e) => e.answer === "correction" && e.unreadable === 1));
+  await outcome.pass!.release();
+});
+
 test("findings left unrouted are said at the level of a carried-on loss and still ship to the log store", async () => {
   const memory = memoryLogger();
   installProcessLogger(memory);
@@ -1439,7 +1514,8 @@ function leadReplanning(first: Record<string, unknown>, again: Array<Record<stri
           const plan = again[Math.min(replans.length - 1, again.length - 1)];
           return { parsed: plan !== undefined, timedOut: false, ...(plan ? { plan } : {}) };
         },
-        ask: async (text: string) => { reviews.push(text); return { output: ACCEPT_ALL, timedOut: false }; },
+        /* It accepts the flows the review shows it, and only those. */
+        ask: async (text: string) => { reviews.push(text); return { output: JSON.stringify({ review: [...text.matchAll(/### Flow `([^`]+)`/g)].map((m) => ({ flow: m[1], action: "accept" })) }), timedOut: false }; },
         dispose: async () => {},
       },
     }),
@@ -1490,6 +1566,20 @@ test("a candidate dropped with a basis and a reason is admitted and kept as drop
   const second = await without.coordinator.coordinate(input(without, { candidates: pageCandidates(["/cart", "/login"]), plan: silent.plan }));
   if (second.action === "fanout") await second.pass?.release();
   assert.equal(silent.replans.length, 1);
+});
+
+test("a drop of the plan the reader cannot read is recorded and counted, never taken as a drop, and the use case it named is asked about in the amendment turn", async () => {
+  const r = rig();
+  const unreadableDrop = { candidate: "uc-/login", basis: "no-such-basis", reason: "copy only" };
+  const lead = leadReplanning(planOf([cartFlow], [unreadableDrop]), [planOf([cartFlow], [unreadableDrop])]);
+  const outcome = await r.coordinator.coordinate(input(r, { candidates: pageCandidates(["/cart", "/login"]), plan: lead.plan }));
+  if (outcome.action === "fanout") await outcome.pass?.release();
+  assert.equal(outcome.action, "fanout");
+  assert.equal(lead.replans.length, 1, "the use case the unreadable drop named was asked about, once");
+  assert.match(lead.replans[0]!, /uc-\/login/);
+  assert.equal(outcome.signal.unreadable?.plan, 1);
+  assert.ok(r.events.some((e) => e.answer === "plan" && e.unreadable === 1 && /dropped\[0\]/.test(e.reason ?? "")));
+  assert.deepEqual(r.plans.at(-1)!.candidates.map((c) => [c.id, c.state]), [["uc-/cart", "planned"], ["uc-/login", "unplanned"]], "an unreadable drop drops nothing");
 });
 
 test("after the second plan still leaves a candidate unresolved, the plan is admitted, the candidate is recorded unplanned, the lead is not asked again and every review turn names it", async () => {
@@ -2192,7 +2282,7 @@ function cuisineRig(unmet: Record<string, unknown>, reads: readonly string[]): R
       r.executed.push({ brief, opts, session: ++r.sessionsOpened });
       const closing = JSON.stringify({
         delegationId: brief.delegationId, runId: brief.runId, status: "completed-with-concerns", summary: "the spec passes; every cuisine chip is disabled on DEV",
-        filesChanged: brief.scope.writablePaths.map((path) => ({ path })), concerns: [], unresolvedQuestions: [], recommendation: "review", acceptance: [unmet],
+        filesChanged: brief.scope.writablePaths.map((path) => ({ path })), concerns: [], unresolvedQuestions: [], acceptance: [unmet],
       });
       return { first: readDelegationResult(closing, brief, r.deps.redaction, opts.devStateGround?.()), ask: async () => { throw new Error("not asked"); }, dispose: async () => {} };
     },

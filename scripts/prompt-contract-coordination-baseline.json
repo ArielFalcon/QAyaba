@@ -1,12 +1,16 @@
 {
   "cells": {
     "flow-author-brief/full": {
-      "bytes": 3678,
+      "bytes": 3624,
       "directives": 5
     },
     "flow-author-brief/plain": {
-      "bytes": 1827,
+      "bytes": 1773,
       "directives": 2
+    },
+    "lead-answer-unreadable/review": {
+      "bytes": 379,
+      "directives": 0
     },
     "lead-correction-refused/plain": {
       "bytes": 472,
@@ -66,7 +70,7 @@
     }
   },
   "staticLayers": {
-    "qa-author": 25837,
+    "qa-author": 25783,
     "qa-lead": 15279
   },
   "lastIncrease": {

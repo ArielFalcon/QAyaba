@@ -56,6 +56,7 @@ import {
   assembleRejectedPlanRequest,
   assembleReplanRequest,
   assembleSidekickBrief,
+  assembleUnreadableReviewRequest,
   assembleSidekickFeedback,
   createDelegationBrief,
   type CorrectionOrigin,
@@ -946,6 +947,7 @@ export function buildCoordinationMatrix(root: string = ROOT): CoordinationCell[]
     { prompt: "lead-feedback", variant: "plain", role: "qa-author", assembled: assembleSidekickFeedback(MATRIX_REDACTION, "Assert the total row, not the count.", "Respond with the SAME JSON output contract for delegationId=d runId=r.") },
     { prompt: "lead-correction-refused", variant: "plain", role: "qa-lead", assembled: assembleRefusedCorrection([{ flowId: "cart", finding: 3, reason: "the finding is not one of the turn's" }], 2) },
     { prompt: "lead-plan-rejected", variant: "malformed", role: "qa-lead", assembled: assembleRejectedPlanRequest("malformed") },
+    { prompt: "lead-answer-unreadable", variant: "review", role: "qa-lead", assembled: assembleUnreadableReviewRequest([{ where: "review[1]", reason: "flow cart: action is \"sing\", not one of accept, revise, replace, drop" }]) },
   ];
   const staticByRole = new Map<CoordinationCell["role"], LintSection[]>();
   const staticOf = (role: CoordinationCell["role"]): LintSection[] => {
