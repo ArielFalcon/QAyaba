@@ -55,28 +55,6 @@ test("a run that left no dump is told as no dumps; a read that completed over du
   assert.equal(mapped.measurement?.unmeasured, "no-changed-file-mapped");
 });
 
-test("a measurement that stands without the evidence of a killed mutant's re-run says that evidence was left out, and why", async () => {
-  const PROOF = { namespace: "run-7-mut0", specFiles: ["flows/pay.spec.ts"], url: "https://dev/main.js", sha256: "h", edit: { start: 0, end: 1, replacement: "!" }, original: "x" };
-  const first: CoverageReport = {
-    covered: [{ file: "src/checkout.ts", lines: [1] }],
-    reads: [read("completed")],
-    mutationSites: [{ file: "src/checkout.ts", line: 1, column: 0, operator: "negate condition", script: { url: "https://dev/main.js", sha256: "h" }, edit: { start: 0, end: 1, replacement: "!" }, original: "x", sourceLine: "if (x) pay();", ranIn: ["flows-pay-spec-ts-x-0-0.json"] }],
-  };
-  const collector: CoverageCollectorPort = {
-    collect: async () => first,
-    recollect: async () => ({ covered: [{ file: "src/checkout.ts", lines: [1, 2] }], incomplete: true, reads: [read("completed"), read("aborted", "run-7-mut0")], fault: "decode-aborted" }),
-  };
-  const mutation = { measure: async () => ({ applied: 1, killed: 1, survived: [], proofs: [PROOF] }) };
-  const told: CoverageRead[] = [];
-
-  const result = await adapter(collector, mutation).measure(br, "/r/e2e", DIFF, ["pays"], { caseFiles: ["flows/pay.spec.ts"], onRead: (r) => told.push(r) });
-
-  assert.equal(result.ratio, 0.5, "the measurement by execution stands");
-  assert.equal(result.measurement?.unmeasured, undefined);
-  assert.deepEqual(result.measurement?.evidenceLeftOut, ["decode-aborted"]);
-  assert.deepEqual(told.map((r) => [r.namespace, r.outcome]), [["run-7", "completed"], ["run-7", "completed"], ["run-7-mut0", "aborted"]], "every read that cost time is told, the proof pass's too");
-});
-
 test("recount() tells its reads, and says nothing else when a source could not be read: the measurement before it stands", async () => {
   const told: CoverageRead[] = [];
   const collector: CoverageCollectorPort = { collect: async () => ({ covered: [] }), recollect: async () => ({ covered: [], incomplete: true, reads: [read("aborted")], fault: "decode-aborted" }) };

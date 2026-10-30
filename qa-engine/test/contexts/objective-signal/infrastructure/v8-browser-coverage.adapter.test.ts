@@ -1,6 +1,7 @@
 /* The adapter turns what the dumps of a run cover (one entry for each dump, the lines of each changed file it covered, read and reduced by the injected read) into the report of the run: a file is covered on the lines of every dump that covered it. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import type { CoverageRead } from "@contexts/objective-signal/domain/coverage-collector.ts";
 import { V8BrowserCoverageAdapter, type CoveredLines } from "@contexts/objective-signal/infrastructure/v8-browser-coverage.adapter.ts";
 
 const CHANGED_FILES = ["src/svc.ts"];
@@ -122,4 +123,19 @@ test("a recollection names, per changed file, the dumps of the sources it read t
     { file: "src/other.ts", dumps: ["acc/flows-a-spec-ts-x-0-0.json", "base/flows-b-spec-ts-y-0-0.json"] },
   ]);
   assert.equal((await new V8BrowserCoverageAdapter(async () => [], CHANGED_FILES).collect("/e2e", "none")).ranBy, undefined, "no dump read names none");
+});
+
+test("a mutant's re-run whose dumps a read could not use makes the report a part, and one that wrote none does not", async () => {
+  const mutant = { url: "u", sha256: "h", edit: { start: 0, end: 1, replacement: "!" }, original: "a" };
+  const read = (outcome: "aborted" | "absent") => async (_dir: string, namespace: string, _files: string[], _scripts: unknown, _branches: unknown, _keep: unknown, _executable: unknown, edit: unknown, _ranBy: unknown, reads?: CoverageRead[]) => {
+    reads?.push({ namespace, startedAt: 0, durationMs: 1, dumps: edit ? 1 : 2, bytes: 10, outcome: edit ? outcome : "completed", startMs: 0, workMs: 1 });
+    return edit ? [] : [covers(["src/svc.ts", [1]])];
+  };
+
+  const stopped = await new V8BrowserCoverageAdapter(read("aborted") as never, CHANGED_FILES).recollect("/e2e", [{ namespace: "base" }, { namespace: "base-mut0", mutant }]);
+  const wroteNone = await new V8BrowserCoverageAdapter(read("absent") as never, CHANGED_FILES).recollect("/e2e", [{ namespace: "base" }, { namespace: "base-mut0", mutant }]);
+
+  assert.equal(stopped.incomplete, true);
+  assert.equal(stopped.fault, "decode-aborted");
+  assert.equal(wroteNone.incomplete, undefined);
 });

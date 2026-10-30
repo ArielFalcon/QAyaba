@@ -38,7 +38,7 @@ export class V8BrowserCoverageAdapter implements CoverageCollectorPort {
     return this.recollect(specDir, [{ namespace }], changedFiles);
   }
 
-  /* The dumps of each source, read into one sink as one collection: an arm taken in any of them is taken. A source that yields no dump, other than a mutant's, leaves a report of several sources a part of what was asked for (`incomplete`). */
+  /* The dumps of each source, read into one sink as one collection: an arm taken in any of them is taken. A source that yields no dump, other than a mutant's, leaves a report of several sources a part of what was asked for (`incomplete`), and so does a mutant's whose dumps a read failed to use: it is evidence that exists and was not read, where a re-run that wrote none has none. */
   async recollect(specDir: string, sources: readonly DumpSource[], changedFiles?: string[]): Promise<CoverageReport> {
     const scripts: CoverageScripts = { total: 0, withSourceMap: 0 };
     const branches = new BranchSink();
@@ -52,9 +52,11 @@ export class V8BrowserCoverageAdapter implements CoverageCollectorPort {
         exceptSpecFiles.length === 0 && onlySpecFiles === undefined
           ? undefined
           : (name: string) => !exceptSpecFiles.some((file) => isDumpOfSpecFile(name, file)) && (onlySpecFiles === undefined || onlySpecFiles.some((file) => isDumpOfSpecFile(name, file)));
+      const readsBefore = reads.length;
       const read = await this.readCoverage(specDir, namespace, changedFiles ?? this.changedFiles, scripts, branches, keep, executable, mutant, ranBy, reads);
-      /* A mutant's re-run proves what its dumps ran; one that wrote none proves nothing, and takes nothing from the rest. */
-      if (read.length === 0 && !mutant) incomplete = true;
+      /* A mutant's re-run proves what its dumps ran; one that wrote none proves nothing, and takes nothing from the rest. One whose dumps were not read to the end (a decode that was stopped, a cap) is a proof the report is without. */
+      const unread = reads.slice(readsBefore).some((r) => faultOfOutcome(r.outcome) !== undefined);
+      if (mutant ? unread : read.length === 0) incomplete = true;
       dumps.push(...read);
     }
     const merged = new Map<string, Set<number>>();
