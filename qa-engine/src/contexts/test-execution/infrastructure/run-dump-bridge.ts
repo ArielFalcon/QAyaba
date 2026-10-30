@@ -18,9 +18,9 @@ import { engineLog } from "@kernel/ports/process-logger.ts";
 import { chmodSync, chownSync, lstatSync, rmSync, symlinkSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { MAX_V8_DUMP_FILES, MAX_V8_DUMP_BYTES, MAX_V8_DUMPS_TOTAL_BYTES, MAX_FAULT_INJECTION_COUNTER_BYTES, MAX_FAULT_INJECTION_COUNTER_FILES, sanitizeFaultCounter } from "@contexts/objective-signal/application/index.ts";
-import { describeReasons, OUT_OF_TIME, scanRunOutputDir, UNUSABLE, type RunOutputLimits } from "../../../shared-infrastructure/run-output-reader.ts";
+import { describeReasons, OUT_OF_TIME, scanRunOutputDir, UNUSABLE, workerFailureReason, type RunOutputLimits } from "../../../shared-infrastructure/run-output-reader.ts";
 import { ensureOwnedSpecDir, purgeRefusedDirectory, writeOwnedSpecFile, type SpecRoot } from "../../../shared-infrastructure/spec-path-confinement.ts";
-import { createWorkerExecutor, type OffLoopExecutor, type OffLoopFailure, type OffLoopOutcome } from "../../../shared-infrastructure/worker/off-loop-executor.ts";
+import { createWorkerExecutor, runWithin, type OffLoopExecutor } from "../../../shared-infrastructure/worker/off-loop-executor.ts";
 
 /* The namespace is the run's data prefix; it names a folder, so it names nothing else: Unicode letters, combining marks and numbers, plus the separators a folder name may carry. A path separator, a control character, and a leading dot or dash (which a hidden or relative name needs) are none of them. */
 const NAMESPACE_RE = /^[\p{L}\p{N}][\p{L}\p{M}\p{N}._-]{0,127}$/u;
@@ -31,14 +31,6 @@ export const DUMP_CHECK_BUDGET_MS = 10_000;
 
 /* The heap a coverage-dump worker may use, in MiB: a dump of the worst shape at the byte cap takes 1.4 GB of heap to parse, so a lower limit would refuse what the cap lets through. */
 const DUMP_WORKER_HEAP_MB = 2_048;
-
-/* Why a worker that did not answer leaves the set out; none quotes a file. */
-const WORKER_FAILURE_REASONS: Record<OffLoopFailure, string> = {
-  aborted: OUT_OF_TIME,
-  "heap-limit": "the worker that checks the files of this directory ran out of memory",
-  crashed: "the worker that checks the files of this directory stopped before it answered",
-  unavailable: "the worker that checks the files of this directory could not be started",
-};
 
 interface RawDump {
   name: string;
@@ -124,24 +116,8 @@ function checkInPlace(files: readonly RawDump[], started: number, now: () => num
 /* Waits for the executor at most the kind's check time and then tells it to end its worker. */
 async function checkInExecutor(files: readonly RawDump[], executor: OffLoopExecutor): Promise<Checked> {
   if (files.length === 0) return { files: [], leftOut: [] };
-  const stop = new AbortController();
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const timeUp = new Promise<"time-up">((resolve) => {
-    timer = setTimeout(() => {
-      stop.abort();
-      resolve("time-up");
-    }, DUMP_CHECK_BUDGET_MS);
-  });
-  /* An executor that rejects instead of answering is a worker that was not available: the set is left out with that reason and nothing of the error, which may quote an input, is kept. */
-  const job = executor.run(files.map((file) => file.bytes), stop.signal).catch((): OffLoopOutcome => ({ kind: "failed", reason: "unavailable" }));
-  let outcome: Awaited<typeof job> | "time-up";
-  try {
-    outcome = await Promise.race([job, timeUp]);
-  } finally {
-    clearTimeout(timer);
-  }
-  if (outcome === "time-up") return { files: [], leftOut: files.map(() => OUT_OF_TIME) };
-  if (outcome.kind === "failed") return { files: [], leftOut: files.map(() => WORKER_FAILURE_REASONS[outcome.reason]) };
+  const outcome = await runWithin(executor, files.map((file) => file.bytes), DUMP_CHECK_BUDGET_MS);
+  if (outcome.kind === "failed") return { files: [], leftOut: files.map(() => workerFailureReason(outcome.reason, "checks")) };
   const checked: Checked = { files: [], leftOut: [] };
   for (const [index, file] of files.entries()) {
     const output = outcome.outputs[index];

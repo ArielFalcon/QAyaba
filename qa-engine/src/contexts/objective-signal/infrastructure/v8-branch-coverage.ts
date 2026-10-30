@@ -1,17 +1,11 @@
 /* Branch coverage of the changed code, and the places a mutant of it can be made, from what a browser ran. The decisions are found in the script the browser ran (whatever language compiled to it: a component's template compiles to conditionals too) and placed in the repository by the script's source map, so one parser and one direction of the map serve every source language. Whether an arm ran comes from V8's block counts: an arm with code of its own ran when its block's count is above nothing; an implicit else or a short circuit ran when the decision was reached more often than its explicit arm.
-   What is found is bounded like the line coverage it sits beside: a script is parsed only when it is a changed file or maps to one, once per collection however many dumps hold it, and the counts are read at the arms alone, so a dump costs the number of its ranges and of the arms of the changed files, never their product. The time the dumps are given is asked before each parse.
+   What is found is bounded like the line coverage it sits beside: a script is parsed only when it is a changed file or maps to one, once per collection however many dumps hold it, and the counts are read at the arms alone, so a dump costs the number of its ranges and of the arms of the changed files, never their product. What one script says is found without any sink (`ScriptBranchReader`), as plain data, so that a worker thread can find it and the orchestrator's sink merge it (`BranchSink.apply`); the time the dumps are given is the caller's, who ends the worker when it is spent.
    A mutation site is a decision's condition (negated) or a comparison or logical operator (swapped) in the generated script, placed the same way; it carries the exact edit of the served script, the expression the edit changes, the source line it is placed at when the map carries its sources' text (so a site the build added beside the change's code is told from it), and the dumps (tests) that ran it, so a mutant re-runs only the tests that reach it. */
 import { createHash } from "node:crypto";
 import ts from "typescript";
-import { decodeMappings, lineStartOffsets, type TimeSpent, type V8Entry } from "./v8-source-map.ts";
+import { decodeMappings, lineStartOffsets, type V8Entry } from "./v8-source-map.ts";
 
 import type { BranchHit, BranchKind, MutationSite } from "../domain/coverage-collector.ts";
-
-/* The time the dumps are given ran out while a script's branches were read: the line coverage's own end, which leaves the whole set unused, not only the branches. */
-class TimeSpentError extends Error {}
-const checkTime = (spent?: TimeSpent): void => {
-  if (spent?.()) throw new TimeSpentError();
-};
 
 /* How an arm is told from the counts: it ran when the count at `own` is above nothing; an arm with no code of its own ran when the count at `outer` exceeds the count at `inner`. */
 type Probe = { own: number } | { outer: number; inner: number };
@@ -159,7 +153,7 @@ export function countsAt(offsets: readonly number[], functions: V8Entry["functio
 }
 
 /* What of a script is placed in the repository, sorted by position: for a script that is a changed file, at its own lines; for a bundle, by the segment of its map at or before each item on the same generated line, kept when that segment's source is a changed file. An item no segment of its line reaches is not placed. */
-function place<T extends { at: number }>(decisions: readonly T[], source: string, directFile: string | null, map: V8Entry["map"], files: ReadonlyArray<string | null>, spent?: TimeSpent): Placed<T>[] {
+function place<T extends { at: number }>(decisions: readonly T[], source: string, directFile: string | null, map: V8Entry["map"], files: ReadonlyArray<string | null>): Placed<T>[] {
   if (decisions.length === 0) return [];
   const starts = lineStartOffsets(source);
   const lineOf = (offset: number): number => {
@@ -182,7 +176,6 @@ function place<T extends { at: number }>(decisions: readonly T[], source: string
   const placed: Placed<T>[] = [];
   let next = 0;
   let last: { genLine: number; genCol: number; sourceIndex: number; origLine: number; origCol: number } | undefined;
-  let segments = 0;
   const placeUpTo = (genLine: number, genCol: number): void => {
     while (next < decisions.length) {
       const d = decisions[next]!;
@@ -197,7 +190,6 @@ function place<T extends { at: number }>(decisions: readonly T[], source: string
     }
   };
   for (const seg of decodeMappings(map.mappings)) {
-    if (++segments % 4096 === 0) checkTime(spent);
     placeUpTo(seg.genLine, seg.genCol);
     last = seg;
   }
@@ -223,9 +215,112 @@ function withSourceLines(sites: Placed<ScriptSite>[], map: V8Entry["map"]): Arra
   });
 }
 
-/* The decisions of the changed files across the dumps of a collection: each script parsed and placed once, each dump's counts read at its arms, an arm taken in any dump taken. Decisions of the same place in two scripts (a chunk two bundles share) are one. A script it cannot read within its bounds leaves the collection's branches unused (`result()` is undefined) and never the line coverage: the time the dumps are given is the line coverage's, which ends the whole set when it is spent. */
-export class BranchSink {
+/* What one script of one dump says of the changed files' decisions and mutation sites, as plain data: the decisions placed in the changed files with whether each arm was taken, and the sites that ran. `size` is how many decisions and sites the script holds in the changed files, ran or not (what a collection bounds); `key` names the script, its map and the files it maps to. Nothing in it refers to the dump. */
+export interface ReadDecision {
+  file: string;
+  line: number;
+  column: number;
+  kind: BranchKind;
+  labels: string[];
+  taken: boolean[];
+}
+export interface ReadSite {
+  file: string;
+  line: number;
+  column: number;
+  operator: string;
+  start: number;
+  end: number;
+  replacement: string;
+  expression: string;
+  original: string;
+  sourceLine?: string;
+}
+export interface ScriptBranchRead {
+  key: string;
+  url: string;
+  sha256: string;
+  size: number;
+  decisions: ReadDecision[];
+  sites: ReadSite[];
+}
+/* A script that could not be read within its bounds ends the collection's branches for good. */
+export type BranchEvent = { abandon: true } | ScriptBranchRead;
+
+/* Where `defaultParseV8Coverage` hands the scripts it finds: a sink in this thread, or a recorder in a worker. */
+export interface BranchAdder {
+  add(entry: V8Entry, directFile: string | null, files: ReadonlyArray<string | null>): void;
+}
+
+/* Finds what a script says of the changed files, each script analyzed and placed once however many dumps hold it. */
+export class ScriptBranchReader {
   private readonly placedByScript = new Map<string, PlacedScript>();
+
+  clear(): void {
+    this.placedByScript.clear();
+  }
+
+  read(entry: V8Entry, directFile: string | null, files: ReadonlyArray<string | null>): ScriptBranchRead {
+    const source = entry.source!;
+    const key = createHash("sha256").update(source).update("\0").update(directFile ?? "").update("\0").update(entry.map?.mappings ?? "").update("\0").update(files.join("\0")).digest("hex");
+    let placed = this.placedByScript.get(key);
+    if (!placed) {
+      const { decisions, sites } = analyzeScript(source);
+      placed = {
+        sha256: createHash("sha256").update(source).digest("hex"),
+        decisions: place(decisions, source, directFile, entry.map, files),
+        sites: withSourceLines(place(sites, source, directFile, entry.map, files), entry.map),
+      };
+      this.placedByScript.set(key, placed);
+    }
+    const size = placed.decisions.length + placed.sites.length;
+    const read: ScriptBranchRead = { key, url: entry.url!, sha256: placed.sha256, size, decisions: [], sites: [] };
+    if (size === 0) return read;
+    const offsets = [...new Set([...placed.decisions.flatMap((d) => d.arms.flatMap((a) => ("own" in a.probe ? [a.probe.own] : [a.probe.outer, a.probe.inner]))), ...placed.sites.map((site) => site.at)])].sort((a, b) => a - b);
+    const counts = countsAt(offsets, entry.functions);
+    const countAt = new Map(offsets.map((offset, i) => [offset, counts[i]!]));
+    const count = (offset: number): number => countAt.get(offset) ?? 0;
+    for (const site of placed.sites) {
+      if (count(site.at) === 0) continue;
+      read.sites.push({ file: site.file, line: site.line, column: site.column, operator: site.operator, start: site.start, end: site.end, replacement: site.replacement, expression: site.expression, original: source.slice(site.start, site.end), ...(site.sourceLine !== undefined ? { sourceLine: site.sourceLine } : {}) });
+    }
+    for (const d of placed.decisions) {
+      read.decisions.push({ file: d.file, line: d.line, column: d.column, kind: d.kind, labels: d.arms.map((a) => a.label), taken: d.arms.map((a) => ("own" in a.probe ? count(a.probe.own) > 0 : count(a.probe.outer) > count(a.probe.inner))) });
+    }
+    return read;
+  }
+}
+
+/* What a worker makes of the scripts of the dumps it is given: the reads, in order, for the orchestrator's sink to merge. */
+export class BranchRecorder implements BranchAdder {
+  private readonly reader = new ScriptBranchReader();
+  private events: BranchEvent[] = [];
+  private abandoned = false;
+
+  add(entry: V8Entry, directFile: string | null, files: ReadonlyArray<string | null>): void {
+    if (this.abandoned) return;
+    try {
+      this.events.push(this.reader.read(entry, directFile, files));
+    } catch {
+      this.abandoned = true;
+      this.reader.clear();
+      this.events.push({ abandon: true });
+    }
+  }
+
+  /* What was recorded since the last call. */
+  take(): BranchEvent[] {
+    const taken = this.events;
+    this.events = [];
+    return taken;
+  }
+}
+
+/* The decisions of the changed files across the dumps of a collection: each script read once, each dump's counts read at its arms, an arm taken in any dump taken. Decisions of the same place in two scripts (a chunk two bundles share) are one. A script it cannot read within its bounds leaves the collection's branches unused (`result()` is undefined) and never the line coverage. */
+export class BranchSink implements BranchAdder {
+  private readonly reader = new ScriptBranchReader();
+  private readonly scriptSizes = new Map<string, number>();
+  private placedTotal = 0;
   private readonly hits = new Map<string, BranchHit>();
   private readonly sites = new Map<string, MutationSite>();
   private abandoned = false;
@@ -236,61 +331,69 @@ export class BranchSink {
     this.dump = name;
   }
 
+  /* Whether the collection still has branches to add to: false once a script could not be read. */
+  get open(): boolean {
+    return !this.abandoned;
+  }
+
   /* Adds what one script of one dump says of the changed files' decisions. */
-  add(entry: V8Entry, directFile: string | null, files: ReadonlyArray<string | null>, spent?: TimeSpent): void {
+  add(entry: V8Entry, directFile: string | null, files: ReadonlyArray<string | null>): void {
     if (this.abandoned) return;
     try {
-      this.addScript(entry, directFile, files, spent);
-    } catch (err) {
-      if (err instanceof TimeSpentError) throw err;
-      this.abandoned = true;
-      this.placedByScript.clear();
-      this.hits.clear();
-      this.sites.clear();
+      this.apply(this.reader.read(entry, directFile, files));
+    } catch {
+      this.abandon();
     }
   }
 
-  private addScript(entry: V8Entry, directFile: string | null, files: ReadonlyArray<string | null>, spent?: TimeSpent): void {
-    const source = entry.source!;
-    const key = createHash("sha256").update(source).update("\0").update(directFile ?? "").update("\0").update(entry.map?.mappings ?? "").update("\0").update(files.join("\0")).digest("hex");
-    let placed = this.placedByScript.get(key);
-    if (!placed) {
-      checkTime(spent);
-      const { decisions, sites } = analyzeScript(source);
-      placed = {
-        sha256: createHash("sha256").update(source).digest("hex"),
-        decisions: place(decisions, source, directFile, entry.map, files, spent),
-        sites: withSourceLines(place(sites, source, directFile, entry.map, files, spent), entry.map),
-      };
-      this.placedByScript.set(key, placed);
-      let total = 0;
-      for (const p of this.placedByScript.values()) total += p.decisions.length + p.sites.length;
-      if (total > MAX_BRANCH_DECISIONS) throw new RangeError();
+  /* Merges what a worker read of the scripts of a dump, in the order it read them. */
+  replay(events: readonly BranchEvent[]): void {
+    for (const event of events) {
+      if (this.abandoned) return;
+      if ("abandon" in event) {
+        this.abandon();
+        return;
+      }
+      try {
+        this.apply(event);
+      } catch {
+        this.abandon();
+      }
     }
-    if (placed.decisions.length === 0 && placed.sites.length === 0) return;
-    const offsets = [...new Set([...placed.decisions.flatMap((d) => d.arms.flatMap((a) => ("own" in a.probe ? [a.probe.own] : [a.probe.outer, a.probe.inner]))), ...placed.sites.map((site) => site.at)])].sort((a, b) => a - b);
-    const counts = countsAt(offsets, entry.functions);
-    const countAt = new Map(offsets.map((offset, i) => [offset, counts[i]!]));
-    const count = (offset: number): number => countAt.get(offset) ?? 0;
-    for (const site of placed.sites) {
-      if (count(site.at) === 0) continue;
-      const id = `${entry.url}\0${placed.sha256}\0${site.start}\0${site.end}\0${site.replacement}`;
+  }
+
+  private abandon(): void {
+    this.abandoned = true;
+    this.reader.clear();
+    this.scriptSizes.clear();
+    this.hits.clear();
+    this.sites.clear();
+  }
+
+  private apply(read: ScriptBranchRead): void {
+    if (!this.scriptSizes.has(read.key)) {
+      this.scriptSizes.set(read.key, read.size);
+      this.placedTotal += read.size;
+      if (this.placedTotal > MAX_BRANCH_DECISIONS) throw new RangeError();
+    }
+    if (read.size === 0) return;
+    for (const site of read.sites) {
+      const id = `${read.url}\0${read.sha256}\0${site.start}\0${site.end}\0${site.replacement}`;
       const known = this.sites.get(id);
       if (known) {
         if (!known.ranIn.includes(this.dump)) known.ranIn.push(this.dump);
       } else {
-        this.sites.set(id, { file: site.file, line: site.line, column: site.column, operator: site.operator, script: { url: entry.url!, sha256: placed.sha256 }, edit: { start: site.start, end: site.end, replacement: site.replacement }, original: source.slice(site.start, site.end), expression: site.expression, ...(site.sourceLine !== undefined ? { sourceLine: site.sourceLine } : {}), ranIn: [this.dump] });
+        this.sites.set(id, { file: site.file, line: site.line, column: site.column, operator: site.operator, script: { url: read.url, sha256: read.sha256 }, edit: { start: site.start, end: site.end, replacement: site.replacement }, original: site.original, expression: site.expression, ...(site.sourceLine !== undefined ? { sourceLine: site.sourceLine } : {}), ranIn: [this.dump] });
       }
     }
-    for (const d of placed.decisions) {
+    for (const d of read.decisions) {
       const id = `${d.file}:${d.line}:${d.column}:${d.kind}`;
-      const taken = d.arms.map((a) => ("own" in a.probe ? count(a.probe.own) > 0 : count(a.probe.outer) > count(a.probe.inner)));
       const known = this.hits.get(id);
       if (!known) {
-        this.hits.set(id, { file: d.file, line: d.line, column: d.column, kind: d.kind, arms: d.arms.map((a, i) => ({ label: a.label, taken: taken[i]! })) });
-      } else if (known.arms.length === taken.length) {
+        this.hits.set(id, { file: d.file, line: d.line, column: d.column, kind: d.kind, arms: d.labels.map((label, i) => ({ label, taken: d.taken[i]! })) });
+      } else if (known.arms.length === d.taken.length) {
         known.arms.forEach((arm, i) => {
-          arm.taken ||= taken[i]!;
+          arm.taken ||= d.taken[i]!;
         });
       }
     }

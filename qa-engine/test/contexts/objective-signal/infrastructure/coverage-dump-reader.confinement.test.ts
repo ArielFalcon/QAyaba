@@ -17,6 +17,8 @@ import { ObjectiveSignalPortAdapter } from "@contexts/objective-signal/infrastru
 import { BlastRadius } from "@kernel/blast-radius.ts";
 import { Sha } from "@kernel/sha.ts";
 import { withoutWaitingOnNamedPipe } from "../../../support/named-pipe-watch.ts";
+import { inThreadDecoder } from "../support/in-thread-decoder.ts";
+import type { OffLoopExecutor } from "../../../../src/shared-infrastructure/worker/off-loop-executor.ts";
 
 const NS = "qa-bot-abc1234-run1";
 const SECRET_MARK = "SECRETv1-hunter2";
@@ -25,7 +27,7 @@ const DUMP_TEXT = JSON.stringify([ENTRY]);
 
 /* The dumps of a run, read for the one changed file the dumps above are of: what comes back is a list with one entry for each dump that was used, and the cases below are about which dumps those are. */
 const CHANGED = ["src/svc.ts"];
-const readV8Dumps = (e2e: string, namespace: string, limits?: Parameters<typeof readV8Coverage>[3]) => readV8Coverage(e2e, namespace, CHANGED, limits);
+const readV8Dumps = (e2e: string, namespace: string, limits?: Parameters<typeof readV8Coverage>[3]) => readV8Coverage(e2e, namespace, CHANGED, limits, inThreadDecoder);
 
 /* <tmp>/e2e is where the tests ran; <tmp>/outside is what no read may reach. */
 interface Run {
@@ -205,19 +207,23 @@ test("a dump that cannot be read leaves the set unused, said aloud by the failur
   });
 });
 
-test("a dump of a few megabytes is read, and the dumps are decoded one after the other in the order of their names", async () => {
+test("a dump of a few megabytes is read, and the executor is given the dumps in the order of their names", async () => {
   await withRun(async (r) => {
     const big = JSON.stringify([{ url: "https://dev/big.js", source: "x".repeat(3 * 1024 * 1024) }]);
     writeDump(r.e2e, "b-big.json", big);
     writeDump(r.e2e, "a-small.json");
     const decoded: Array<{ url: string | undefined; length: number | undefined }> = [];
+    const executor: OffLoopExecutor = {
+      run: async (inputs) => {
+        for (const input of inputs) {
+          const entry = (JSON.parse(input.toString("utf8")) as Array<{ url?: string; source?: string }>)[0];
+          decoded.push({ url: entry?.url, length: entry?.source?.length });
+        }
+        return { kind: "done", outputs: inputs.map(() => covering()) };
+      },
+    };
 
-    const { value, warnings } = await capturing(() =>
-      readV8Coverage(r.e2e, NS, CHANGED, undefined, (entries) => {
-        decoded.push({ url: entries[0]?.url, length: entries[0]?.source?.length });
-        return new Map();
-      }),
-    );
+    const { value, warnings } = await capturing(() => readV8Coverage(r.e2e, NS, CHANGED, undefined, executor));
 
     assert.deepEqual(decoded, [{ url: ENTRY.url, length: ENTRY.source.length }, { url: "https://dev/big.js", length: 3 * 1024 * 1024 }]);
     assert.equal(value.length, 2);
@@ -385,73 +391,71 @@ test("every kind of dump that is left out gives its own reason, in words of the 
 
 /* ── the time the dumps of a run are given ─────────────────────────────────────────────────────── */
 
-/* A clock that moves `step` milliseconds each time it is looked at, with the time a run is given. */
-const steppedClock = (step: number, budgetMs: number) => {
-  let now = 0;
-  return { now: () => (now += step), budgetMs };
+/* The answer of a worker that decoded a dump to the lines of the changed file. */
+const covering = (): Buffer => Buffer.from(JSON.stringify({ refused: false, covered: [["src/svc.ts", [1]]], executable: [], scripts: { total: 1, withSourceMap: 0 }, branches: [] }));
+/* An executor that answers when it is told to stop, as the real one does: with an aborted outcome. */
+const waitsToBeStopped = (): { executor: OffLoopExecutor; signals: AbortSignal[] } => {
+  const signals: AbortSignal[] = [];
+  const executor: OffLoopExecutor = {
+    run: (_inputs, signal) =>
+      new Promise((resolve) => {
+        signals.push(signal!);
+        signal!.addEventListener("abort", () => resolve({ kind: "failed", reason: "aborted" }), { once: true });
+      }),
+  };
+  return { executor, signals };
 };
-const covering = (): Map<string, Set<number>> => new Map([["src/svc.ts", new Set([1])]]);
 
-test("the dumps of a run are decoded in the time they are given: a run that spends it leaves the set unused, decodes no dump after that and says that it was the time", async () => {
+test("the dumps of a run are decoded in the time they are given: a run that spends it ends the worker, leaves the set unused and says that it was the time", async (t) => {
   await withRun(async (r) => {
     for (const name of ["a.json", "b.json", "c.json", "d.json"]) writeDump(r.e2e, name);
-    let decoded = 0;
+    t.mock.timers.enable({ apis: ["setTimeout"] });
+    const { executor, signals } = waitsToBeStopped();
 
-    const { value, warnings } = await capturing(() => readV8Coverage(r.e2e, NS, CHANGED, undefined, () => { decoded += 1; return covering(); }, steppedClock(40, 100)));
+    const pending = capturing(() => readV8Coverage(r.e2e, NS, CHANGED, undefined, executor, 100));
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(signals[0]?.aborted, false, "the worker has the whole of the time");
+    t.mock.timers.tick(99);
+    assert.equal(signals[0]?.aborted, false, "and it is not stopped before it is spent");
+    t.mock.timers.tick(1);
+    const { value, warnings } = await pending;
 
-    assert.deepEqual(value, [], "the dumps decoded before the time ran out are not used beside the ones after");
-    assert.equal(decoded, 2, "the third dump finds the time spent before it is parsed, and so does the fourth");
+    assert.deepEqual(value, [], "nothing is used of a set that was not all decoded");
+    assert.equal(signals[0]?.aborted, true, "the worker was told to stop");
     const timeWarnings = warnings.filter((w) => /\btime\b/.test(w));
     assert.equal(timeWarnings.length, 1, `the time is said once: ${JSON.stringify(warnings)}`);
     assert.ok(timeWarnings[0]!.includes(dumpDirOf(r.e2e)) && timeWarnings[0]!.includes("100 ms"), timeWarnings[0]);
   });
 });
 
-test("the decoding is handed the time and asks it as it goes: what it asks is whether the run has spent what it was given since the first dump was looked at", async () => {
-  await withRun(async (r) => {
-    writeDump(r.e2e, "a.json");
-    let now = 0;
-    let spent: (() => boolean) | undefined;
-
-    await readV8Coverage(r.e2e, NS, CHANGED, undefined, (_entries, _changed, asked) => { spent = asked; return covering(); }, { now: () => now, budgetMs: 100 });
-    const before = spent!();
-    now = 100;
-    const atTheBudget = spent!();
-    now = 101;
-    const past = spent!();
-
-    assert.deepEqual([before, atTheBudget, past], [false, false, true], "spent when more than the time has passed, not when exactly that has");
-  });
-});
-
 test("a run that is given enough time uses every dump, as it did", async () => {
   await withRun(async (r) => {
     for (const name of ["a.json", "b.json", "c.json", "d.json"]) writeDump(r.e2e, name);
+    const executor: OffLoopExecutor = { run: async (inputs) => ({ kind: "done", outputs: inputs.map(() => covering()) }) };
 
-    const { value, warnings } = await capturing(() => readV8Coverage(r.e2e, NS, CHANGED, undefined, covering, steppedClock(1, 10_000)));
+    const { value, warnings } = await capturing(() => readV8Coverage(r.e2e, NS, CHANGED, undefined, executor, 10_000));
 
     assert.equal(value.length, 4);
     assert.deepEqual(warnings, []);
   });
 });
 
-test("a dump whose source map is made to be slow to decode is given up on once the time is spent, with the real decoding, and leaves the set unused", async () => {
+test("with the real worker: a run that has no time to start it leaves the set unused and says that it was the time, and one that has time reads both dumps", async () => {
   await withRun(async (r) => {
-    const slow = JSON.stringify([{ url: "https://dev/bundle.js", source: "x".repeat(10), functions: [{ ranges: [{ startOffset: 0, endOffset: 10, count: 1 }] }], map: { version: 3, sources: ["../src/svc.ts"], mappings: "AAAA,".repeat(100_000) } }]);
     writeDump(r.e2e, "a-fine.json");
-    writeDump(r.e2e, "b-slow.json", slow);
+    writeDump(r.e2e, "b-fine.json");
 
-    /* One millisecond for each look at the clock and three for the run. */
-    const { value, warnings } = await capturing(() => readV8Coverage(r.e2e, NS, CHANGED, undefined, undefined, steppedClock(1, 3)));
-    const unhurried = await capturing(() => readV8Coverage(r.e2e, NS, CHANGED, undefined, undefined, steppedClock(0, 3)));
+    const hurried = await capturing(() => readV8Coverage(r.e2e, NS, CHANGED, undefined, undefined, 1));
+    const unhurried = await capturing(() => readV8Coverage(r.e2e, NS, CHANGED, undefined, undefined, 60_000));
 
-    assert.deepEqual(value, [], "the fine dump beside it is not used");
-    assert.ok(warnings.some((w) => /\btime\b/.test(w)), `and the time is said: ${JSON.stringify(warnings)}`);
-    assert.equal(unhurried.value.length, 2, "while a clock that does not move reads both");
+    assert.deepEqual(hurried.value, []);
+    assert.ok(hurried.warnings.some((w) => /\btime\b/.test(w)), `and the time is said: ${JSON.stringify(hurried.warnings)}`);
+    assert.equal(unhurried.value.length, 2);
+    assert.deepEqual(unhurried.warnings, []);
   });
 });
 
-test("the limits on the dumps of a run keep a freeze to some seconds: the time they are given is a few seconds, and the dump that is parsed in the thread is some tens of megabytes at the most", () => {
+test("the limits on the dumps of a run keep a freeze to some seconds: the time they are given is a few seconds, and the dump that is decoded is some tens of megabytes at the most", () => {
   const MIB = 1024 * 1024;
   /* The largest dump a run of the reference app left, of an unminified DEV bundle: the page's scripts and their source maps. */
   const largestMeasured = 26 * MIB;
@@ -473,7 +477,7 @@ const HALF_COVERING_DUMP = JSON.stringify([{ url: "https://dev/src/checkout.ts",
 
 /* The signal as the run builds it: the real collector over the real readers, the real assembler and the real decision, under a policy that blocks. */
 async function measureChangeCoverage(e2e: string, mode: "signal" | "enforce"): Promise<{ status: string; blocked: boolean }> {
-  const collector = makeTargetCoverageCollector([]);
+  const collector = makeTargetCoverageCollector([], inThreadDecoder);
   const port = new ObjectiveSignalPortAdapter(
     { collector, decide: new DecideCoverageService() },
     { policy: { mode, minRatio: 0.7 }, repoDir: e2e, assembleChangeCoverage, namespace: NS },

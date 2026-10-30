@@ -602,7 +602,7 @@ A process-wide `HostHealth` in `src/telemetry/host-health.ts` runs even with no 
 
 | Signal | How | Output |
 |---|---|---|
-| Event-loop delay | `perf_hooks.monitorEventLoopDelay({resolution: 20})`, read every 10 s | Histogram metric `qayaba.host.event_loop.delay` (p50, p99, max). A span event `event_loop_blocked` on the active run when max exceeds 1 s |
+| Event-loop delay | `perf_hooks.monitorEventLoopDelay({resolution: 20})`, read every 10 s | Histogram metric `qayaba.host.event_loop.delay` (p50, p99, max). A span event `event_loop_blocked` on the active run when max exceeds 1 s. The coverage-evidence CPU work (the harvest's sanitizing and the read's decoding of the V8 dumps, RFC-0003) runs in worker threads, so a block aligned with a coverage execution is not that work; the confined file reads stay on the loop |
 | Suspend | A 5 s heartbeat compares `Δ Date.now()` with `Δ process.hrtime.bigint()`. Linux `CLOCK_MONOTONIC` does not advance while the VM is paused, but wall time is corrected on resume | Counter `qayaba.host.suspend.count`, histogram `.suspend.duration`. Event `host_suspended {ms}` on the run root **and** on the active turn span. Run attribute `qayaba.host.suspended_ms` |
 | Heartbeat gap | The same timer: an expected 5 s tick that arrives N s late with no wall gap means a blocked loop, not a suspend | Distinguishes the two |
 | Sandbox zombies | Count `<defunct>` processes of the sandbox uid in `/proc` every 60 s | Gauge `qayaba.sandbox.zombies` |

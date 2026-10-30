@@ -984,8 +984,14 @@ that catches nothing. The objective signal that breaks the circle is **change-co
   asynchronous, the check time is how long it waits for the worker (the worker is ended at the deadline), a worker
   that runs out of memory or dies leaves the set out with its own reason, and the child's timeout and cancel are
   disarmed at both layers (`runSuite` and the race of `runE2E`, through `onChildClosed`) the moment the child closes. A
-  worker resolves no path alias, so its module graph is closed and imported by relative path; only the executor and
-  `serve-bytes.ts` import `node:worker_threads` (`no-worker-threads-outside-the-executor`).
+  worker resolves no path alias, so its module graph is closed and imported by relative path, and it loads its `.ts`
+  modules through Node's own type stripping, so they use erasable syntax only; only the executor and
+  `serve-bytes.ts` import `node:worker_threads` (`no-worker-threads-outside-the-executor`). The read of the coverage
+  dumps (`readV8Coverage`) decodes in a worker of its own the same way (`coverage-decode.worker.ts`, one worker per
+  call, `V8_DECODE_BUDGET_MS` as the wait): a dump decodes to plain data (`DecodedDump`) that the orchestrator's thread
+  merges into the collection in the order of the dumps, a decoding that cannot run (deadline, heap limit, crash, no
+  worker) leaves the set unused with its own reason and adds nothing to the collection, and the decoding has no
+  cooperative clock of its own.
   `gateSignals.bundleMutation` holds `{ applied, killed, survived[] }`, plus `skippedSites { count, reasons }`
   (sites left out, by `no-source-line` or `not-in-source-line`), `rerunsBySpecFile` (mutants whose tests
   could not be told) and `unreadable` (mutants not judged for unreadable counters; the object is then present even

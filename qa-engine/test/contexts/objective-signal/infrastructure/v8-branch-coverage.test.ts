@@ -1,33 +1,11 @@
 /* Branch coverage of the changed code from what V8 ran: the decisions of a script that is a changed file, or of a bundle whose source map places them in one, with each arm taken when V8's block counts say it ran in at least one dump. The counts here are V8's own: each script runs in this process under precise block coverage, as a browser page's do. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { Session } from "node:inspector/promises";
-import vm from "node:vm";
 import { createHash } from "node:crypto";
 import { V8BrowserCoverageAdapter, defaultParseV8Coverage, type V8Entry } from "@contexts/objective-signal/infrastructure/v8-browser-coverage.adapter.ts";
 import { BranchSink, MAX_BRANCH_DECISIONS } from "@contexts/objective-signal/infrastructure/v8-branch-coverage.ts";
 import { selectMutants } from "@contexts/objective-signal/domain/select-mutants.ts";
-
-let scriptCount = 0;
-
-/* The functions V8's precise block coverage reports for `source` once it has run. */
-async function ranUnderCoverage(source: string): Promise<V8Entry["functions"]> {
-  const filename = `branch-probe-${++scriptCount}.js`;
-  const session = new Session();
-  session.connect();
-  try {
-    await session.post("Profiler.enable");
-    await session.post("Profiler.startPreciseCoverage", { callCount: true, detailed: true });
-    new vm.Script(source, { filename }).runInThisContext();
-    const { result } = await session.post("Profiler.takePreciseCoverage");
-    await session.post("Profiler.stopPreciseCoverage");
-    const script = result.find((s) => s.url === filename);
-    assert.ok(script, "V8 reported the script");
-    return script.functions;
-  } finally {
-    session.disconnect();
-  }
-}
+import { ranUnderCoverage } from "../support/ran-under-coverage.ts";
 
 const STORE = `function load(found, failed, kind, cached) {
   let state = "idle";
@@ -50,7 +28,7 @@ async function branchesOf(calls: string) {
   const source = STORE + calls;
   const functions = await ranUnderCoverage(source);
   const sink = new BranchSink();
-  defaultParseV8Coverage([{ url: "https://dev.example/src/store.ts", source, functions }], ["src/store.ts"], undefined, undefined, sink);
+  defaultParseV8Coverage([{ url: "https://dev.example/src/store.ts", source, functions }], ["src/store.ts"], undefined, sink);
   return sink.result()!;
 }
 
@@ -73,8 +51,8 @@ test("an arm taken in any dump is taken, and a dump of a script whose decisions 
   const second = await ranUnderCoverage(STORE + `load(false, true, 503, null);\n`);
   const sink = new BranchSink();
   const url = "https://dev.example/src/store.ts";
-  defaultParseV8Coverage([{ url, source: STORE + `load(true, false, 404, "memory");\n`, functions: first }], ["src/store.ts"], undefined, undefined, sink);
-  defaultParseV8Coverage([{ url, source: STORE + `load(false, true, 503, null);\n`, functions: second }], ["src/store.ts"], undefined, undefined, sink);
+  defaultParseV8Coverage([{ url, source: STORE + `load(true, false, 404, "memory");\n`, functions: first }], ["src/store.ts"], undefined, sink);
+  defaultParseV8Coverage([{ url, source: STORE + `load(false, true, 503, null);\n`, functions: second }], ["src/store.ts"], undefined, sink);
 
   const hits = sink.result()!;
   assert.deepEqual(arms(hits, 3), { then: true, else: true });
@@ -121,7 +99,7 @@ test("a bundle's decisions are placed in the changed file its map names, at the 
   const map = lineMap(["../node_modules/vendor.js", "../src/app/store.ts"], [[0, 0], [0, 1], ...Array.from({ length: storeLines }, (_, i): [number, number] | null => (i === 4 ? null : [1, i + 10]))]);
   const sink = new BranchSink();
 
-  defaultParseV8Coverage([{ url: "https://dev.example/main.js", source, functions, map }], ["src/app/store.ts"], undefined, undefined, sink);
+  defaultParseV8Coverage([{ url: "https://dev.example/main.js", source, functions, map }], ["src/app/store.ts"], undefined, sink);
 
   const hits = sink.result()!;
   assert.deepEqual([...new Set(hits.map((h) => h.file))], ["src/app/store.ts"], "the vendor decision maps to no changed file");
@@ -135,24 +113,17 @@ test("a script the parser cannot read within the bounds leaves the branches unus
   const source = `var ${Array.from({ length: MAX_BRANCH_DECISIONS + 1 }, (_, i) => `x${i} = 0`).join(", ")};\n${many}\n`;
   const sink = new BranchSink();
 
-  const covered = defaultParseV8Coverage([{ url: "https://dev.example/src/flags.ts", source, functions: [{ ranges: [{ startOffset: 0, endOffset: source.length, count: 1 }] }] }], ["src/flags.ts"], undefined, undefined, sink);
+  const covered = defaultParseV8Coverage([{ url: "https://dev.example/src/flags.ts", source, functions: [{ ranges: [{ startOffset: 0, endOffset: source.length, count: 1 }] }] }], ["src/flags.ts"], undefined, sink);
 
   assert.equal(sink.result(), undefined);
   assert.equal(covered.get("src/flags.ts")?.has(1), true);
-});
-
-test("the time the dumps are given, spent while a script's branches are read, ends the whole set as it ends the line coverage", () => {
-  const sink = new BranchSink();
-  let asked = 0;
-  const spent = () => ++asked > 1;
-  assert.throws(() => defaultParseV8Coverage([{ url: "https://dev.example/src/store.ts", source: STORE, functions: [] }], ["src/store.ts"], spent, undefined, sink));
 });
 
 test("the browser collector reports the decisions beside the covered lines, and none when no dump was used", async () => {
   const source = STORE + `load(true, false, 404, "memory");\n`;
   const functions = await ranUnderCoverage(source);
   const entries: V8Entry[] = [{ url: "https://dev.example/src/store.ts", source, functions }];
-  const read = (dumps: V8Entry[][]) => new V8BrowserCoverageAdapter(async (_dir, _ns, files, scripts, branches) => dumps.map((d) => defaultParseV8Coverage(d, files, undefined, scripts, branches)), ["src/store.ts"]);
+  const read = (dumps: V8Entry[][]) => new V8BrowserCoverageAdapter(async (_dir, _ns, files, scripts, branches) => dumps.map((d) => defaultParseV8Coverage(d, files, scripts, branches)), ["src/store.ts"]);
 
   const report = await read([entries]).collect("/e2e", "ns");
   assert.equal(report.branches?.length, 6);
@@ -174,7 +145,7 @@ gate(404, true);
   const functions = await ranUnderCoverage(source);
   const sink = new BranchSink();
   sink.beginDump("flows-detail-spec-ts-missing-0-0.json");
-  defaultParseV8Coverage([{ url: "https://dev.example/src/gate.ts", source, functions }], ["src/gate.ts"], undefined, undefined, sink);
+  defaultParseV8Coverage([{ url: "https://dev.example/src/gate.ts", source, functions }], ["src/gate.ts"], undefined, sink);
 
   const sites = sink.mutationSites()!;
   assert.deepEqual(sites.map((s) => [s.line, s.operator]), [[2, "=== → !=="], [2, "negate condition"]], "line 3 never ran past the early return, and `never` never ran");
@@ -197,7 +168,7 @@ render("dark");
   const map = { ...lineMap(["../src/app/theme-icon.ts"], [[0, 0], [0, 1], [0, 1], [0, 2]]), sourcesContent: [original] };
   const sink = new BranchSink();
   sink.beginDump("flows-theme-spec-ts-dark-0-0.json");
-  defaultParseV8Coverage([{ url: "https://dev.example/main.js", source, functions, map }], ["src/app/theme-icon.ts"], undefined, undefined, sink);
+  defaultParseV8Coverage([{ url: "https://dev.example/main.js", source, functions, map }], ["src/app/theme-icon.ts"], undefined, sink);
 
   const sites = sink.mutationSites()!;
   assert.ok(sites.length >= 5 && sites.every((s) => s.line === 2 && s.sourceLine === "  icon = () => this.theme() === 'dark' ? 'moon' : 'sun';"));
@@ -213,7 +184,7 @@ test("a site that ran in several dumps names each of them once", async () => {
   const sink = new BranchSink();
   for (const dump of ["a-0-0.json", "b-0-0.json", "a-0-0.json"]) {
     sink.beginDump(dump);
-    defaultParseV8Coverage([{ url: "https://dev.example/src/f.ts", source, functions }], ["src/f.ts"], undefined, undefined, sink);
+    defaultParseV8Coverage([{ url: "https://dev.example/src/f.ts", source, functions }], ["src/f.ts"], undefined, sink);
   }
   assert.deepEqual(sink.mutationSites()!.map((s) => s.ranIn), [["a-0-0.json", "b-0-0.json"], ["a-0-0.json", "b-0-0.json"]]);
 });
@@ -223,6 +194,6 @@ test("a logical operator is a site when its expression ran, even when its right 
   const functions = await ranUnderCoverage(source);
   const sink = new BranchSink();
   sink.beginDump("d-0-0.json");
-  defaultParseV8Coverage([{ url: "https://dev.example/src/pick.ts", source, functions }], ["src/pick.ts"], undefined, undefined, sink);
+  defaultParseV8Coverage([{ url: "https://dev.example/src/pick.ts", source, functions }], ["src/pick.ts"], undefined, sink);
   assert.deepEqual(sink.mutationSites()!.map((s) => [s.line, s.operator]), [[2, "|| → &&"]]);
 });

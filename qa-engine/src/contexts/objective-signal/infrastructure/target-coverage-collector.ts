@@ -2,7 +2,9 @@
 import type { CoverageCollectorPort } from "../application/ports/coverage-collector.port.ts";
 import { V8BrowserCoverageAdapter } from "./v8-browser-coverage.adapter.ts";
 import { readV8Coverage } from "./coverage-dump-reader.ts";
+import type { OffLoopExecutor } from "../../../shared-infrastructure/worker/off-loop-executor.ts";
 
-export function makeTargetCoverageCollector(changedFiles: string[]): CoverageCollectorPort {
-  return new V8BrowserCoverageAdapter((specDir, namespace, changed, scripts, branches, keep, executable, mutant, ranBy) => readV8Coverage(specDir, namespace, changed, undefined, undefined, undefined, scripts, branches, keep, executable, mutant, ranBy), changedFiles);
+/* `executor` decodes the dumps; absent, a worker thread per read. */
+export function makeTargetCoverageCollector(changedFiles: string[], executor?: OffLoopExecutor): CoverageCollectorPort {
+  return new V8BrowserCoverageAdapter((specDir, namespace, changed, scripts, branches, keep, executable, mutant, ranBy) => readV8Coverage(specDir, namespace, changed, undefined, executor, undefined, scripts, branches, keep, executable, mutant, ranBy), changedFiles);
 }

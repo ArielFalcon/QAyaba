@@ -16,7 +16,30 @@ export type OffLoopFailure = "heap-limit" | "crashed" | "aborted" | "unavailable
 export type OffLoopOutcome = { kind: "done"; outputs: ReadonlyArray<Buffer | null> } | { kind: "failed"; reason: OffLoopFailure };
 
 export interface OffLoopExecutor {
-  run(inputs: readonly Buffer[], signal?: AbortSignal): Promise<OffLoopOutcome>;
+  /** `context` is plain data handed to the worker beside the inputs (structured-cloned, never transferred): what the job needs to know that is not one input. */
+  run(inputs: readonly Buffer[], signal?: AbortSignal, context?: unknown): Promise<OffLoopOutcome>;
+}
+
+/**
+ * Waits for the executor at most `budgetMs` and then tells it to end its worker, which is `aborted`. An executor that rejects instead
+ * of answering is a worker that was not available: nothing of the error, which may quote an input, is kept.
+ */
+export async function runWithin(executor: OffLoopExecutor, inputs: readonly Buffer[], budgetMs: number, context?: unknown): Promise<OffLoopOutcome> {
+  const stop = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeUp = new Promise<"time-up">((resolve) => {
+    timer = setTimeout(() => {
+      stop.abort();
+      resolve("time-up");
+    }, budgetMs);
+  });
+  const job = executor.run(inputs, stop.signal, context).catch((): OffLoopOutcome => ({ kind: "failed", reason: "unavailable" }));
+  try {
+    const outcome = await Promise.race([job, timeUp]);
+    return outcome === "time-up" ? { kind: "failed", reason: "aborted" } : outcome;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 export interface WorkerExecutorOptions {
@@ -47,14 +70,14 @@ export function workerExecArgv(execArgv: readonly string[]): string[] {
 
 export function createWorkerExecutor(options: WorkerExecutorOptions): OffLoopExecutor {
   return {
-    run: (inputs, signal) =>
+    run: (inputs, signal, context) =>
       new Promise<OffLoopOutcome>((resolve) => {
         if (signal?.aborted) {
           resolve({ kind: "failed", reason: "aborted" });
           return;
         }
         const handed = inputs.map(ownedBytes);
-        const request: ByteJobRequest = { inputs: handed };
+        const request: ByteJobRequest = { inputs: handed, context };
         let worker: Worker;
         try {
           worker = new Worker(options.worker, {

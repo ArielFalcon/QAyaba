@@ -10,6 +10,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { MAX_V8_DUMPS_TOTAL_BYTES } from "@contexts/objective-signal/domain/dump-sanitizers.ts";
 import { V8_DUMP_LIMITS, readV8Coverage } from "@contexts/objective-signal/infrastructure/coverage-dump-reader.ts";
+import type { OffLoopExecutor } from "../../../../src/shared-infrastructure/worker/off-loop-executor.ts";
 
 async function withTmpDir<T>(fn: (dir: string) => T | Promise<T>): Promise<T> {
   const dir = mkdtempSync(join(tmpdir(), "qa-engine-coverage-dump-reader-"));
@@ -55,21 +56,24 @@ test("readV8Coverage: a dump the given filter leaves out is neither read nor add
   });
 });
 
-test("readV8Coverage: what comes back is the lines the parse reduced each dump to and nothing of the dump, which the parse is given whole with the changed files", async () => {
+test("readV8Coverage: the executor is given each dump whole with the changed files, and what comes back is the lines it reduced each dump to and nothing of the dump", async () => {
   await withTmpDir(async (e2eDir) => {
     const dumpDir = join(e2eDir, ".qa", "coverage", "qa-abc");
     mkdirSync(dumpDir, { recursive: true });
-    const entries = [{ url: "https://dev/src/svc.ts", source: "x", functions: [] }];
-    writeFileSync(join(dumpDir, "a.json"), JSON.stringify(entries));
+    const entries = JSON.stringify([{ url: "https://dev/src/svc.ts", source: "x", functions: [] }]);
+    writeFileSync(join(dumpDir, "a.json"), entries);
     writeFileSync(join(dumpDir, "b.json"), JSON.stringify({ not: "an array" }));
-    const given: unknown[] = [];
+    const given: Array<[string[], unknown]> = [];
+    const executor: OffLoopExecutor = {
+      run: async (inputs, _signal, context) => {
+        given.push([inputs.map(String), context]);
+        return { kind: "done", outputs: inputs.map((_, index) => Buffer.from(JSON.stringify({ refused: false, covered: [["marker", [index + 1]]], executable: [], scripts: { total: 0, withSourceMap: 0 }, branches: [] }))) };
+      },
+    };
 
-    const dumps = await readV8Coverage(e2eDir, "qa-abc", ["src/x.ts"], undefined, (parsed, changed) => {
-      given.push([parsed, changed]);
-      return new Map([["marker", new Set([given.length])]]);
-    });
+    const dumps = await readV8Coverage(e2eDir, "qa-abc", ["src/x.ts"], undefined, executor);
 
-    assert.deepEqual(given, [[entries, ["src/x.ts"]], [[], ["src/x.ts"]]], "a dump that is no list of entries is a list of none");
+    assert.deepEqual(given, [[[entries, JSON.stringify({ not: "an array" })], { changedFiles: ["src/x.ts"], executable: false, branches: false }]]);
     assert.deepEqual(dumps, [new Map([["marker", new Set([1])]]), new Map([["marker", new Set([2])]])]);
   });
 });

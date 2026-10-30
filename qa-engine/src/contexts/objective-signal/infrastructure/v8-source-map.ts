@@ -104,6 +104,3 @@ export function lineStartOffsets(source: string): Int32Array {
   return starts;
 }
 
-/* Whether the time the decoding was given is spent. It is asked as the decoding goes, so that a dump made to be slow to decode costs that time at the most and not what its numbers say. */
-export type TimeSpent = () => boolean;
-

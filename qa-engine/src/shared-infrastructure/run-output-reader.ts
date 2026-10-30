@@ -4,6 +4,7 @@
 import { engineLog } from "@kernel/ports/process-logger.ts";
 import { join } from "node:path";
 import { listOwnedSpecDir, readFailureReason, readOwnedSpecFile, type OwnedSpecRead, type SpecRoot } from "./spec-path-confinement.ts";
+import type { OffLoopFailure } from "./worker/off-loop-executor.ts";
 
 export interface RunOutputLimits {
   /* The most one file may hold; a larger one is not read. */
@@ -85,16 +86,9 @@ function warnNotRead(where: string, reasons: readonly string[]): void {
   engineLog.warn(`[qa] WARNING: ${where}: ${reasons.length} file(s) not read — ${describeReasons(reasons)}. None of the directory is used, so the signal stays unmeasured this run (non-blocking).`);
 }
 
-/* Decodes every file of the directory at `rel` that `accept` takes, in the order of their names, within `limits`, or says why it does not: a directory that is not there is no output and nothing to say (an empty list); one that cannot be vouched for (a link, a file, one with a link above it), one with more entries than the cap, and one with a file that cannot be used (refused, over the cap, outside the budget, unreadable, or one `decode` throws on) is not used at all, said once for the directory, and gives undefined. Never throws. */
-export function readRunOutputDir<T>(
-  root: SpecRoot,
-  rel: string,
-  accept: (name: string) => boolean,
-  decode: (name: string, bytes: Buffer) => T,
-  limits: RunOutputLimits,
-): T[] | undefined {
+/* The files of a scan when the set can be used whole, or why it cannot: a directory that is not there is no output and nothing to say (an empty list); one that cannot be vouched for (a link, a file, one with a link above it), one with more entries than the cap, and one with a file that cannot be used is not used at all, said once for the directory, and gives undefined. Never throws. */
+export function wholeSetOf<T>(root: SpecRoot, rel: string, scan: RunOutputScan<T>, limits: RunOutputLimits): T[] | undefined {
   const where = join(root.specDir, rel);
-  const scan = scanRunOutputDir(root, rel, accept, decode, limits, { readCut: false });
   if ("absent" in scan) return [];
   if ("unusable" in scan) {
     warnUnread(where, scan.unusable);
@@ -109,4 +103,29 @@ export function readRunOutputDir<T>(
     return undefined;
   }
   return scan.files;
+}
+
+/* Why the worker thread that checks a directory's files did not answer; none quotes a file. `doing` is what the worker does ("checks", "decodes"). */
+export function workerFailureReason(failure: OffLoopFailure, doing: string): string {
+  switch (failure) {
+    case "aborted":
+      return OUT_OF_TIME;
+    case "heap-limit":
+      return `the worker that ${doing} the files of this directory ran out of memory`;
+    case "crashed":
+      return `the worker that ${doing} the files of this directory stopped before it answered`;
+    case "unavailable":
+      return `the worker that ${doing} the files of this directory could not be started`;
+  }
+}
+
+/* Decodes every file of the directory at `rel` that `accept` takes, in the order of their names, within `limits`, or says why it does not: a directory that is not there is no output and nothing to say (an empty list); one that cannot be vouched for (a link, a file, one with a link above it), one with more entries than the cap, and one with a file that cannot be used (refused, over the cap, outside the budget, unreadable, or one `decode` throws on) is not used at all, said once for the directory, and gives undefined. Never throws. */
+export function readRunOutputDir<T>(
+  root: SpecRoot,
+  rel: string,
+  accept: (name: string) => boolean,
+  decode: (name: string, bytes: Buffer) => T,
+  limits: RunOutputLimits,
+): T[] | undefined {
+  return wholeSetOf(root, rel, scanRunOutputDir(root, rel, accept, decode, limits, { readCut: false }), limits);
 }
