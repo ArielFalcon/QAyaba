@@ -45,8 +45,8 @@ test("a degradation joins the ones the run already carries", () => {
 
 test("the same degradation recorded again is the same fact, and one with another sentence is another", () => {
   const state = initialRunState();
-  recordDegradation(state, { reason: "regeneration-skipped", note: "no time was left for the coverage regeneration" });
-  recordDegradation(state, { reason: "regeneration-skipped", note: "no time was left for the coverage regeneration" });
-  recordDegradation(state, { reason: "regeneration-skipped", note: "no time was left for the flaky regeneration" });
-  assert.deepEqual(state.run.degradations.map((d) => d.note), ["no time was left for the coverage regeneration", "no time was left for the flaky regeneration"]);
+  recordDegradation(state, { reason: "publication-failed", note: "the pull request could not be opened" });
+  recordDegradation(state, { reason: "publication-failed", note: "the pull request could not be opened" });
+  recordDegradation(state, { reason: "publication-failed", note: "the issue could not be opened" });
+  assert.deepEqual(state.run.degradations.map((d) => d.note), ["the pull request could not be opened", "the issue could not be opened"]);
 });
