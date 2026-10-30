@@ -34,6 +34,22 @@ export interface UpstreamHopRequest {
   fed: readonly ImpactedLink[];
 }
 
+/* The first hop downstream: the change of `repo` (already indexed at `repoDir`) and the links out of it that it reaches. */
+export interface DownstreamRequest {
+  repo: string;
+  repoDir: string;
+  blast: BlastRadius;
+  links: readonly ServiceLink[];
+}
+
+/* A later hop downstream: `fed` are the links reached downstream that land in `repo`, whose index is built at `repoDir`. */
+export interface DownstreamHopRequest {
+  repo: string;
+  repoDir: string;
+  links: readonly ServiceLink[];
+  fed: readonly ImpactedLink[];
+}
+
 /* What a hop found: the links it newly impacted, and where it could not finish. */
 export interface HopResult {
   links: ImpactedLink[];
@@ -155,6 +171,64 @@ export class ResolveCrossRepoImpactUseCase {
     } catch (err) {
       rethrowIfUntrusted(err);
       engineLog.warn(`[qa] WARNING: the cross-repo hop through ${repo} failed (non-blocking): ${err instanceof Error ? err.message : String(err)}`);
+      return stop(`walk: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  /*
+   * The first hop downstream (RFC-0011): the links out of a changed repo whose call site its change reaches, the call site being a
+   * changed symbol or one that reaches a changed symbol. Never throws, except for an untrusted git dir.
+   */
+  async resolveDownstream(request: DownstreamRequest): Promise<HopResult> {
+    const { repo, repoDir, blast, links } = request;
+    const stop = (reason: string): HopResult => ({ links: [], stops: [{ repo, direction: "downstream", reason }] });
+    const out = new LinkGraph(links).outOf(repo);
+    if (out.length === 0) return { links: [], stops: [] };
+    const codeGraph = this.codeGraph;
+    if (!codeGraph) return stop("the run has no code graph");
+    try {
+      const walk = await codeGraph.impactedSymbols(repoDir, blast, DEFAULT_WALK_POLICY);
+      if (!walk.ok) return stop(`walk: ${walk.error.reason}`);
+      const reached = new Set(walk.value.symbols.map(refKey));
+      const stops: ImpactStop[] = walk.value.truncated ? [{ repo, direction: "downstream", reason: `partial: ${walk.value.partialSeeds?.length ?? 0} seed(s) left open at the expansion budget` }] : [];
+      const impacted: ImpactedLink[] = out.filter((link) => reached.has(refKey(link.from))).map((link) => ({ link, tier: MATCH_TIER.IMPACTED_SYMBOL, reach: { direction: "downstream", via: [] } }));
+      return { links: impacted, stops };
+    } catch (err) {
+      rethrowIfUntrusted(err);
+      engineLog.warn(`[qa] WARNING: the downstream walk of ${repo} failed (non-blocking): ${err instanceof Error ? err.message : String(err)}`);
+      return stop(`walk: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  /*
+   * A later hop downstream: the call sites out of `repo` seed one inbound walk of its index; a link out of the repo is impacted
+   * when the endpoint of a fed link (the handler it lands on) is among the callers reached, and the walk states that the call
+   * site reaches it. A walk that does not say which seeds reach a handler claims nothing. Never throws, except for an untrusted git dir.
+   */
+  async resolveDownstreamHop(request: DownstreamHopRequest): Promise<HopResult> {
+    const { repo, repoDir, links, fed } = request;
+    const stop = (reason: string): HopResult => ({ links: [], stops: [{ repo, direction: "downstream", reason }] });
+    const out = new LinkGraph(links).outOf(repo).filter((link) => link.from.file && link.from.symbol);
+    if (out.length === 0) return { links: [], stops: [] };
+    const codeGraph = this.codeGraph;
+    if (!codeGraph) return stop("the run has no code graph");
+    try {
+      const seeds = uniqueRefs(out.map((link) => link.from));
+      const walk = await codeGraph.callersOf(repoDir, seeds, DEFAULT_WALK_POLICY);
+      if (!walk.ok) return stop(`walk: ${walk.error.reason}`);
+      const stops: ImpactStop[] = walk.value.truncated
+        ? [{ repo, direction: "downstream", reason: `partial: ${walk.value.partialSeeds?.length ?? 0} of ${seeds.length} seed(s) left open at the expansion budget` }]
+        : [];
+      const served = await this.endpointsReached(repoDir, walk.value.symbols, fed.map(({ link }) => link));
+      const impacted: ImpactedLink[] = [];
+      for (const link of out) {
+        const entering = fed.find((f) => (served.get(f.link) ?? []).some((endpoint) => (endpoint.seeds ?? []).some((seed) => refKey(seed) === refKey(link.from))));
+        if (entering) impacted.push({ link, tier: MATCH_TIER.IMPACTED_SYMBOL, reach: { direction: "downstream", via: [...(entering.reach?.via ?? []), entering.link] } });
+      }
+      return { links: impacted, stops };
+    } catch (err) {
+      rethrowIfUntrusted(err);
+      engineLog.warn(`[qa] WARNING: the downstream hop through ${repo} failed (non-blocking): ${err instanceof Error ? err.message : String(err)}`);
       return stop(`walk: ${err instanceof Error ? err.message : String(err)}`);
     }
   }

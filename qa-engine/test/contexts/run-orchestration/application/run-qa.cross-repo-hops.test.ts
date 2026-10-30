@@ -9,7 +9,7 @@ import { BlastRadius } from "@kernel/blast-radius.ts";
 import { ok } from "@kernel/result.ts";
 import { DEFAULT_WALK_POLICY, type GraphRoute, type ImpactedSymbol, type LocalSymbolRef } from "@kernel/code/index.ts";
 import type { CodeGraphPort } from "@kernel/ports/code-graph.port.ts";
-import type { ServiceLink } from "@kernel/service-links.ts";
+import type { CrossRepoImpact, ServiceLink } from "@kernel/service-links.ts";
 import { ChangeSet, crossRepoCallSite, fileImplementsPage, handlerServesOperation, openapiOperationDiff, type ChangeScope, type ChangeScopePort } from "@contexts/change-analysis/application/index.ts";
 import { ChangeScopePortAdapter } from "@contexts/change-analysis/infrastructure/adapters/change-scope-port.adapter.ts";
 import { CrossRepoImpactPortAdapter } from "@contexts/service-topology/infrastructure/adapters/cross-repo-impact-port.adapter.ts";
@@ -71,7 +71,7 @@ function chainGraph(dirs: Dirs, indexed: string[]): CodeGraphPort {
   };
 }
 
-interface World { dirs: Dirs; indexed: string[]; scopes: ChangeScope[]; rig: Rig }
+interface World { dirs: Dirs; indexed: string[]; scopes: ChangeScope[]; impacts: Array<CrossRepoImpact | null | undefined>; rig: Rig }
 
 /* The run's two steps over the real use case and the real scope adapter; `changed` is the repo the run's change is in. */
 function world(links: readonly ServiceLink[], changed: "c" | "app"): World {
@@ -88,7 +88,8 @@ function world(links: readonly ServiceLink[], changed: "c" | "app"): World {
   const makeVcs = () => ({ blastRadius: async () => BlastRadius.of(sha, [changedFile]) });
   const real = new ChangeScopePortAdapter({ codeGraph: graph, budget: DEFAULT_WALK_POLICY, proofs: [fileImplementsPage, handlerServesOperation(() => false), crossRepoCallSite, openapiOperationDiff], loadMap: () => MAP });
   const scopes: ChangeScope[] = [];
-  const changeScope: ChangeScopePort = { resolve: async (request) => { const scope = await real.resolve(request); scopes.push(scope); return scope; }, candidates: (request) => real.candidates(request) };
+  const impacts: Array<CrossRepoImpact | null | undefined> = [];
+  const changeScope: ChangeScopePort = { resolve: async (request) => { impacts.push(request.crossRepoImpact); const scope = await real.resolve(request); scopes.push(scope); return scope; }, candidates: (request) => real.candidates(request) };
   rig.input =
     changed === "c"
       ? { changeSet: ChangeSet.of("demo", [{ repo: C, role: "service", headSha: C_SHA }]), sha: C_SHA, triggerRepo: C }
@@ -103,7 +104,7 @@ function world(links: readonly ServiceLink[], changed: "c" | "app"): World {
     ...(changed === "c" ? { codeGraphPrimary: { repo: APP, repoDir: dirs.app, headSha: async () => APP_SHA.toString() } } : {}),
     codeGraphMirrors: new Map([[B, { repoDir: dirs.b, headSha: async () => "b222222" }]]),
   };
-  return { dirs, indexed, scopes, rig };
+  return { dirs, indexed, scopes, impacts, rig };
 }
 
 const pageEntries = (scope: ChangeScope) => scope.reach.filter((r) => r.entry.kind === "page");
@@ -181,6 +182,22 @@ test("a cycle of links between two services ends and lists each link once", asyn
     const observed = await observe(w.rig, "hops-cycle");
     assert.equal(observed.result?.decision.verdict, "pass");
     assert.equal(observed.saved[0]?.gateSignals?.crossRepoImpactedCount, 3, "B -> C, then the app's link into B and C's link back into B, each once");
+  } finally {
+    dispose(w.rig);
+  }
+});
+
+test("a change in the app follows its links downstream: the links are recorded and counted, and reach no page or operation", async () => {
+  const w = world([appToB, bToC], "app");
+  try {
+    const observed = await observe(w.rig, "hops-downstream");
+    assert.equal(observed.result?.decision.verdict, "pass");
+    const impact = w.impacts[0];
+    assert.deepEqual(impact?.impactedLinks.map((l) => [l.link, l.reach]), [[appToB, { direction: "downstream", via: [] }], [bToC, { direction: "downstream", via: [appToB] }]]);
+    assert.equal(observed.saved[0]?.gateSignals?.crossRepoImpactedCount, 2);
+    assert.deepEqual(w.scopes[0]!.reach.filter((r) => r.tier === "cross-repo"), []);
+    assert.deepEqual(w.scopes[0]!.degraded, []);
+    assert.deepEqual(w.indexed.filter((x) => x.startsWith(w.dirs.b)), [`${w.dirs.b}@b222222`]);
   } finally {
     dispose(w.rig);
   }

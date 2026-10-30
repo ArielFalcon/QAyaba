@@ -1,6 +1,6 @@
 /* Public surface of this context: other contexts import only from this file. It declares nothing. */
 export { ResolveCrossRepoImpactUseCase } from "./resolve-cross-repo-impact.use-case.ts";
-export type { CrossRepoVcsRead, HopResult, MirrorRegistryLike, UpstreamHopRequest } from "./resolve-cross-repo-impact.use-case.ts";
+export type { CrossRepoVcsRead, DownstreamHopRequest, DownstreamRequest, HopResult, MirrorRegistryLike, UpstreamHopRequest } from "./resolve-cross-repo-impact.use-case.ts";
 export type { BoundaryProfile, RepoRef } from "../domain/index.ts";
 export type { ServiceLinksPort } from "./ports/service-links.port.ts";
 export type { ProviderDocumentsPort } from "./ports/provider-documents.port.ts";

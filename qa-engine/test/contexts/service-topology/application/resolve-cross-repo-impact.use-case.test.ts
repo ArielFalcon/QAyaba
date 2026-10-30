@@ -235,3 +235,57 @@ test("a fed link without a call-site symbol claims nothing and asks nothing", as
   assert.deepEqual(asked, []);
   assert.deepEqual(hop, { links: [], stops: [] });
 });
+
+/* Downstream: what the changed code depends on. The call sites out of a changed repo that its change reaches, then the call sites out of the repos they land in whose handler those call sites are reached from. */
+const WEB = "org/web";
+const WEB_CALL = { file: "web/orders.api.ts", symbol: "listOrders" };
+const OTHER_WEB_CALL = { file: "web/other.api.ts", symbol: "other" };
+const outOfWeb = (call: { file: string; symbol: string }, to = BACKEND): ServiceLink => ({ from: { repo: WEB, ...call }, to: { repo: to, file: HANDLER.file, symbol: HANDLER.symbol }, transport: "http", operation: { verb: "GET", path: "/orders" }, confidence: 1, source: "openapi" });
+const reachedCall = (ref: { file: string; symbol: string }, depth = 0) => ({ ...ref, kind: "method", depth, confidence: 1 });
+
+test("the call sites out of a changed repo that its change reaches are downstream links, each reached in one crossing", async () => {
+  const hit = outOfWeb(WEB_CALL);
+  const miss = outOfWeb(OTHER_WEB_CALL);
+  const blast = BlastRadius.of(Sha.of(SHA), ["web/format.ts"]);
+  const seen: unknown[] = [];
+  const codeGraph = graph({ impacted: Promise.resolve(reachedAs([reachedCall({ file: "web/format.ts", symbol: "fmt" }), reachedCall(WEB_CALL, 1)])) });
+  const spied: CodeGraphPort = { ...codeGraph, impactedSymbols: async (d, b, budget) => { seen.push([d, b]); return codeGraph.impactedSymbols(d, b, budget); } };
+  const hop = await hopUseCase(spied).resolveDownstream({ repo: WEB, repoDir: "/m/web", blast, links: [hit, miss] });
+  assert.deepEqual(seen, [["/m/web", blast]]);
+  assert.deepEqual(hop.stops, []);
+  assert.deepEqual(hop.links.map((l) => [l.link, l.tier, l.reach]), [[hit, "impacted-symbol", { direction: "downstream", via: [] }]]);
+});
+
+test("a changed repo whose index cannot answer the walk is a stop, and one the budget left partial says so", async () => {
+  const blast = BlastRadius.of(Sha.of(SHA), ["web/format.ts"]);
+  const link = outOfWeb(WEB_CALL);
+  const failing = await hopUseCase(graph({ impacted: Promise.resolve(err({ reason: "not indexed" })) })).resolveDownstream({ repo: WEB, repoDir: "/m/web", blast, links: [link] });
+  assert.deepEqual(failing, { links: [], stops: [{ repo: WEB, direction: "downstream", reason: "walk: not indexed" }] });
+  const partial = await hopUseCase(graph({ impacted: Promise.resolve(reachedAs([reachedCall(WEB_CALL)], true, [WEB_CALL])) })).resolveDownstream({ repo: WEB, repoDir: "/m/web", blast, links: [link] });
+  assert.equal(partial.links.length, 1);
+  assert.deepEqual(partial.stops.map((s) => s.reason), ["partial: 1 seed(s) left open at the expansion budget"]);
+});
+
+test("the links out of a repo are impacted when the handler of the downstream link into it is reached from their call site", async () => {
+  const into_ = { link: outOfWeb(WEB_CALL), tier: "impacted-symbol" as const, reach: { direction: "downstream" as const, via: [] } };
+  const reached = fedBy(CALL).link;
+  const unreached = fedBy(OTHER_CALL).link;
+  const { codeGraph, asked } = hopGraph({ callers: reachedAs([reachedCall(CALL), reachedCall(OTHER_CALL), reachedHandler([{ ...CALL, hops: 1 }])]) });
+  const hop = await hopUseCase(codeGraph).resolveDownstreamHop({ repo: BACKEND, repoDir: "/m/b", links: [into_.link, reached, unreached], fed: [into_] });
+  assert.deepEqual(asked, [{ dir: "/m/b", seeds: [CALL, OTHER_CALL] }], "one walk from every call site out of the repo");
+  assert.deepEqual(hop.links.map((l) => [l.link, l.reach]), [[reached, { direction: "downstream", via: [into_.link] }]]);
+});
+
+test("a handler the walk reaches without saying which call sites reach it impacts no link out of the repo", async () => {
+  const into_ = { link: outOfWeb(WEB_CALL), tier: "impacted-symbol" as const, reach: { direction: "downstream" as const, via: [] } };
+  const { codeGraph } = hopGraph({ callers: reachedAs([reachedHandler()]) });
+  const hop = await hopUseCase(codeGraph).resolveDownstreamHop({ repo: BACKEND, repoDir: "/m/b", links: [into_.link, fedBy(CALL).link], fed: [into_] });
+  assert.deepEqual(hop, { links: [], stops: [] });
+});
+
+test("a downstream hop through a repo whose index cannot answer is a stop", async () => {
+  const into_ = { link: outOfWeb(WEB_CALL), tier: "impacted-symbol" as const, reach: { direction: "downstream" as const, via: [] } };
+  const { codeGraph } = hopGraph({ callers: err({ reason: "timed out" }) });
+  const hop = await hopUseCase(codeGraph).resolveDownstreamHop({ repo: BACKEND, repoDir: "/m/b", links: [into_.link, fedBy(CALL).link], fed: [into_] });
+  assert.deepEqual(hop, { links: [], stops: [{ repo: BACKEND, direction: "downstream", reason: "walk: timed out" }] });
+});

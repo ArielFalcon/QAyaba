@@ -1,5 +1,5 @@
 import type { ServiceLink, CrossRepoImpact } from "@kernel/service-links.ts";
-import type { HopResult, UpstreamHopRequest } from "../resolve-cross-repo-impact.use-case.ts";
+import type { DownstreamHopRequest, DownstreamRequest, HopResult, UpstreamHopRequest } from "../resolve-cross-repo-impact.use-case.ts";
 
 /**
  * Advisory impacted-link narrowing. Fires only on cross-repo runs
@@ -15,4 +15,7 @@ export interface CrossRepoImpactPort {
    * A hop that cannot be walked is a stop in the answer, never a throw, except for an untrusted git dir.
    */
   resolveUpstreamHop?(request: UpstreamHopRequest): Promise<HopResult>;
+  /** The links out of a changed repo that its change reaches, and the links beyond them, hop by hop (RFC-0011). Absent: nothing is read downstream. Grounding only. */
+  resolveDownstream?(request: DownstreamRequest): Promise<HopResult>;
+  resolveDownstreamHop?(request: DownstreamHopRequest): Promise<HopResult>;
 }
