@@ -156,8 +156,8 @@ async function captureContextMap(state: Readonly<RunState>, ctx: WorkspaceRunCon
     await deps.contextMapCapture.capture(workspace.specDir, input.app, input.sha.toString());
   } catch (captureErr) {
     /* A git dir that is not the orchestrator's is a security refusal, however the capture was asked: it reaches the caller. */
-    carryOn(captureErr);
-    engineLog.warn(
+    const level = carryOn(captureErr);
+    engineLog[level](
       `[qa] context-map capture failed (off-path; verdict unchanged): ${captureErr instanceof Error ? captureErr.message : String(captureErr)}`,
     );
   }
@@ -184,8 +184,8 @@ async function keepAcceptedSuite(state: Readonly<RunState>, ctx: WorkspaceRunCon
     });
     host.announceSuite(`[qa] suite store: kept ${kept.entries} file(s) (${kept.admitted} new or changed, ${kept.dropped} dropped${kept.skipped.length > 0 ? `, ${kept.skipped.length} left out` : ""})`, "info");
   } catch (captureErr) {
-    carryOn(captureErr);
-    host.announceSuite(`[qa] suite store capture failed (off-path; verdict unchanged): ${captureErr instanceof Error ? captureErr.message : String(captureErr)}`, "warn");
+    const level = carryOn(captureErr);
+    host.announceSuite(`[qa] suite store capture failed (off-path; verdict unchanged): ${captureErr instanceof Error ? captureErr.message : String(captureErr)}`, level);
   }
 }
 

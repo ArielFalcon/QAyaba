@@ -4,6 +4,8 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { LOG_EFFECT, levelOfEffect, memoryLogger } from "@kernel/ports/logger.port.ts";
+import { installProcessLogger, resetProcessLoggerForTests } from "@kernel/ports/process-logger.ts";
 import { AgentTimeoutError, InfraError, UntrustedGitTreeError } from "@kernel/domain-error.ts";
 import { RunDeadlineExceededError } from "@kernel/run-deadline.ts";
 import { RunAbortedError } from "@contexts/run-orchestration/application/run-flow/abort.ts";
@@ -86,17 +88,17 @@ test("a wrapped step whose failure ends the run returns that end", async () => {
 
 test("a wrapped step takes the action of its class: an off-path fault is carried on aloud, a required one is rethrown as the identical error", async () => {
   const bug = new TypeError("x is not a function");
-  const logged: string[] = [];
-  const original = console.error;
-  console.error = (...args: unknown[]) => void logged.push(args.join(" "));
+  const memory = memoryLogger();
+  installProcessLogger(memory);
   try {
     assert.equal(await guarded({ id: "index-mirror", class: "off-path" }, async () => { throw bug; }, endOf), undefined);
     await assert.rejects(guarded({ id: "set-up-project", class: "required" }, async () => { throw bug; }, endOf), (thrown) => thrown === bug);
   } finally {
-    console.error = original;
+    resetProcessLoggerForTests();
   }
-  assert.equal(logged.length, 1);
-  assert.match(logged[0]!, /index-mirror: unknown fault carried on \(off-path step\): x is not a function/);
+  assert.equal(memory.entries.length, 1);
+  assert.match(memory.entries[0]!.message, /index-mirror: unknown fault carried on \(off-path step\): x is not a function/);
+  assert.equal(memory.entries[0]!.level, levelOfEffect(LOG_EFFECT.CARRIED_ON));
 });
 
 test("a deadline or an untrusted tree is never carried on, even by a step off the verdict's path", async () => {
@@ -115,6 +117,18 @@ test("a catch that carries on past a fault lets an ordinary fault go and throws 
 
 test("the policy and the action lookup agree", () => {
   assert.deepEqual(actionFor(new PublicationFailedError("x"), "publish"), POLICY.publication.publish);
+});
+
+test("a fault the policy degrades is said at the level of a carried-on fault", async () => {
+  const memory = memoryLogger();
+  installProcessLogger(memory);
+  try {
+    const spent = new RunDeadlineExceededError(1000, "diff-tiny", "reviewer", "mid-turn");
+    await guarded({ id: "remeasure-stale-coverage", class: "proven" }, async () => { throw spent; }, endOf, () => ({ goto: "guard-final-proof" }));
+  } finally {
+    resetProcessLoggerForTests();
+  }
+  assert.deepEqual(memory.entries.map((e) => e.level), [levelOfEffect(LOG_EFFECT.CARRIED_ON)]);
 });
 
 test("a fault the policy degrades goes to the caller's degradation; with none named it is rethrown, identical", async () => {

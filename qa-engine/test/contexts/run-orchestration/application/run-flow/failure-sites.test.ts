@@ -4,6 +4,8 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { LOG_EFFECT, levelOfEffect, memoryLogger } from "@kernel/ports/logger.port.ts";
+import { installProcessLogger, resetProcessLoggerForTests } from "@kernel/ports/process-logger.ts";
 import { UntrustedGitTreeError } from "@kernel/domain-error.ts";
 import { RunDeadlineExceededError } from "@kernel/run-deadline.ts";
 import { traceFactsOf } from "@kernel/run-trace-facts.ts";
@@ -87,4 +89,23 @@ for (const site of SITES) {
       }
     });
   }
+}
+
+for (const site of SITES) {
+  test(`an ordinary fault of the ${site.id} is said at the level of a carried-on fault`, async () => {
+    const rig = newRig();
+    const memory = memoryLogger();
+    installProcessLogger(memory);
+    try {
+      const fault = FAULTS.ordinary();
+      site.arm(rig, fault);
+      await observe(rig, "site-level");
+      const saidAbout = memory.entries.filter((e) => e.message.includes(fault.message) || e.fields.error === fault);
+      assert.ok(saidAbout.length > 0, "the fault is said aloud");
+      assert.deepEqual([...new Set(saidAbout.map((e) => e.level))], [levelOfEffect(LOG_EFFECT.CARRIED_ON)]);
+    } finally {
+      resetProcessLoggerForTests();
+      dispose(rig);
+    }
+  });
 }

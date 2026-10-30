@@ -445,8 +445,8 @@ export class RunQaUseCase {
     try {
       await this.deps.suiteStore!.demoteAuth(this.deps.workspace.readRoots(workspace), DEMOTE_REASON.LOGIN_DID_NOT_SIGN_IN);
     } catch (err) {
-      carryOn(err);
-      this.announceSuite(`[qa] suite store could not demote the failed login (the failure stands): ${err instanceof Error ? err.message : String(err)}`, "warn");
+      const level = carryOn(err);
+      this.announceSuite(`[qa] suite store could not demote the failed login (the failure stands): ${err instanceof Error ? err.message : String(err)}`, level);
       return "unchanged";
     }
     this.announceSuite("[qa] the login restored from the suite store failed to sign in; the stock seed replaces it and the login is tried once more", "warn");
@@ -495,8 +495,8 @@ export class RunQaUseCase {
     try {
       await this.deps.mirrorGc.prune(workspace);
     } catch (err) {
-      carryOn(err); /* a git dir that is not the orchestrator's is a security refusal, never a fault to isolate */
-      engineLog.error(
+      const level = carryOn(err); /* a git dir that is not the orchestrator's is a security refusal, never a fault to isolate */
+      engineLog[level](
         `[qa] mirror gc FAILED (fault-isolated — run continues, never blocks publish): ${err instanceof Error ? err.message : String(err)}`,
       );
     }

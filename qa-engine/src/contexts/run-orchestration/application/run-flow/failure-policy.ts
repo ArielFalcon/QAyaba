@@ -8,6 +8,7 @@
  * This file is pure: it runs no step and builds no end; the caller that knows the run builds the end a reason calls for.
  */
 
+import { LOG_EFFECT, levelOfEffect, type LevelOfEffect } from "@kernel/ports/logger.port.ts";
 import { engineLog } from "@kernel/ports/process-logger.ts";
 import { isInfraError, isUntrustedGitTreeError } from "../../../../shared-kernel/domain-error.ts";
 import { isRunDeadlineError } from "../../../../shared-kernel/run-deadline.ts";
@@ -115,14 +116,14 @@ export async function guarded<O, E>(
       case "rethrow":
         throw err;
       case "fail-open":
-        engineLog.error(`[qa] ${site.id}: ${classifyFailure(err)} fault carried on (${site.class} step): ${messageOf(err)}`);
+        engineLog[levelOfEffect(LOG_EFFECT.CARRIED_ON)](`[qa] ${site.id}: ${classifyFailure(err)} fault carried on (${site.class} step): ${messageOf(err)}`);
         return undefined;
       case "end":
         return { end: endOf(action.reason, err) };
       case "degrade":
         /* Only a caller that knows where the run goes on from a degraded step says so; an effect that degrades asks the policy itself. */
         if (!degradeOf) throw err;
-        engineLog.error(`[qa] ${site.id}: ${classifyFailure(err)} fault degraded the run (${action.reason}): ${messageOf(err)}`);
+        engineLog[levelOfEffect(LOG_EFFECT.CARRIED_ON)](`[qa] ${site.id}: ${classifyFailure(err)} fault degraded the run (${action.reason}): ${messageOf(err)}`);
         return await degradeOf(action.reason, err);
     }
   }
@@ -130,9 +131,11 @@ export async function guarded<O, E>(
 
 /**
  * For a catch inside a step that carries on past a fault of something off the verdict's path: call it first in the block. It
- * returns when the policy lets that kind of fault be carried past, and rethrows the error otherwise (the deadline, a cancelled
- * run, an untrusted git tree, a sandbox that cannot be trusted), which the wrapping `guarded` then turns into the run's end.
+ * returns the level of the line that says the fault when the policy lets that kind of fault be carried past, and rethrows the
+ * error otherwise (the deadline, a cancelled run, an untrusted git tree, a sandbox that cannot be trusted), which the wrapping
+ * `guarded` then turns into the run's end.
  */
-export function carryOn(err: unknown): void {
+export function carryOn(err: unknown): LevelOfEffect<typeof LOG_EFFECT.CARRIED_ON> {
   if (POLICY[classifyFailure(err)]["off-path"].do !== "fail-open") throw err;
+  return levelOfEffect(LOG_EFFECT.CARRIED_ON);
 }

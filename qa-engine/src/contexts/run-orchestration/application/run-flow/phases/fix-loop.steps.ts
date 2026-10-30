@@ -414,7 +414,7 @@ export async function fingerprintGreenSuite(state: Readonly<RunState>, ctx: Work
       services.keepProof(file, sha256, "bytes" in read ? read.bytes : undefined);
     }
   } catch (fingerprintErr) {
-    carryOn(fingerprintErr);
-    ctx.host.announceSuite(`[qa] suite store fingerprint failed (off-path; no spec is admitted): ${fingerprintErr instanceof Error ? fingerprintErr.message : String(fingerprintErr)}`, "warn");
+    const level = carryOn(fingerprintErr);
+    ctx.host.announceSuite(`[qa] suite store fingerprint failed (off-path; no spec is admitted): ${fingerprintErr instanceof Error ? fingerprintErr.message : String(fingerprintErr)}`, level);
   }
 }

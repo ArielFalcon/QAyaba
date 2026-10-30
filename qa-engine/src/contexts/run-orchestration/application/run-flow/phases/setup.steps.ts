@@ -30,8 +30,8 @@ export async function restoreAcceptedSuite(state: Readonly<RunState>, ctx: Works
         restored.notRestored.length > 0 ? "warn" : "info",
       );
     } catch (err) {
-      carryOn(err);
-      ctx.host.announceSuite(`[qa] suite store restore failed (off-path; the run starts cold and keeps nothing): ${err instanceof Error ? err.message : String(err)}`, "warn");
+      const level = carryOn(err);
+      ctx.host.announceSuite(`[qa] suite store restore failed (off-path; the run starts cold and keeps nothing): ${err instanceof Error ? err.message : String(err)}`, level);
     }
   }
   return { update: { setup: { ...state.setup, suiteRestored, storeRestoredLogin } } };
@@ -130,8 +130,8 @@ export async function openAuthoringHandles(state: Readonly<RunState>, ctx: Works
         ...(signal ? { signal } : {}),
       });
     } catch (err) {
-      carryOn(err);
-      engineLog.error(`[qa] the authoring location could not be opened (the run goes on without it): ${err instanceof Error ? err.message : String(err)}`);
+      const level = carryOn(err);
+      engineLog[level](`[qa] the authoring location could not be opened (the run goes on without it): ${err instanceof Error ? err.message : String(err)}`);
     }
     trail.geolocation = geolocation;
   }
@@ -149,8 +149,8 @@ export async function openAuthoringHandles(state: Readonly<RunState>, ctx: Works
         ...(signal ? { signal } : {}),
       });
     } catch (err) {
-      carryOn(err);
-      engineLog.error(`[qa] the run_spec loop could not be opened (the run goes on without it): ${err instanceof Error ? err.message : String(err)}`);
+      const level = carryOn(err);
+      engineLog[level](`[qa] the run_spec loop could not be opened (the run goes on without it): ${err instanceof Error ? err.message : String(err)}`);
     }
     trail.closedLoop = closedLoop;
   }
@@ -170,8 +170,8 @@ export async function openAuthoringHandles(state: Readonly<RunState>, ctx: Works
         ...(geo ? { geolocation: { default: geo.default, forSession: (sessionId: string) => geo.forSession(sessionId) } } : {}),
       });
     } catch (err) {
-      carryOn(err);
-      engineLog.error(`[qa] the agent browser could not be opened (the run goes on without it): ${err instanceof Error ? err.message : String(err)}`);
+      const level = carryOn(err);
+      engineLog[level](`[qa] the agent browser could not be opened (the run goes on without it): ${err instanceof Error ? err.message : String(err)}`);
     }
     trail.agentBrowser = agentBrowser;
   }
@@ -181,8 +181,8 @@ export async function openAuthoringHandles(state: Readonly<RunState>, ctx: Works
     try {
       trail.codeGraphTools = await deps.codeGraphTools.open({ runId: input.runId });
     } catch (err) {
-      carryOn(err);
-      engineLog.error(`[qa] the code-graph tools could not be opened (the run goes on without them): ${err instanceof Error ? err.message : String(err)}`);
+      const level = carryOn(err);
+      engineLog[level](`[qa] the code-graph tools could not be opened (the run goes on without them): ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 }

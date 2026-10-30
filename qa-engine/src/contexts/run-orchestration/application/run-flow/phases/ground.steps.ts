@@ -61,10 +61,10 @@ export async function groundRepository(state: Readonly<RunState>, ctx: Workspace
         recordDecisions(ctx, grounding.changedDecisions);
       }
     } catch (err) {
-      carryOn(err);
+      const level = carryOn(err);
       /* Abort during grounding takes the abort route, not ungrounded continue. */
       throwIfAborted(signal);
-      engineLog.error("[qa] WARNING: pre-generation grounding failed (non-fatal, generation continues ungrounded):", { error: err });
+      engineLog[level]("[qa] WARNING: pre-generation grounding failed (non-fatal, generation continues ungrounded):", { error: err });
     }
   }
   return {
@@ -161,8 +161,8 @@ export async function resolveCrossRepoImpact(state: Readonly<RunState>, ctx: Wor
         const impact = await deps.crossRepoImpact.resolve(repo, sha, resolvedServiceLinks, ...(baseRef ? [baseRef] : []));
         if (impact) impacts.push(impact);
       } catch (err) {
-        carryOn(err);
-        engineLog.error("[qa] WARNING: cross-repo impact resolution failed (non-fatal, generation continues without it):", { error: err });
+        const level = carryOn(err);
+        engineLog[level]("[qa] WARNING: cross-repo impact resolution failed (non-fatal, generation continues without it):", { error: err });
       }
     }
   }
@@ -217,8 +217,8 @@ export async function computeChangeScope(state: Readonly<RunState>, ctx: Workspa
       crossRepoImpact: state.grounding.crossRepoImpact,
     });
   } catch (err) {
-    carryOn(err);
-    engineLog.error("[qa] WARNING: the change scope could not be computed (non-fatal, the run goes on without it):", { error: err });
+    const level = carryOn(err);
+    engineLog[level]("[qa] WARNING: the change scope could not be computed (non-fatal, the run goes on without it):", { error: err });
     scope = { repos: [], reach: [], hubs: [], disagreements: [], omitted: 0, degraded: [{ repo: input.changeSet.anchor.repo, reason: err instanceof Error ? err.message : String(err) }] };
   }
   const withSkipped: ChangeScope = skipped.length > 0 ? { ...scope, degraded: [...scope.degraded, ...skipped] } : scope;
@@ -227,8 +227,8 @@ export async function computeChangeScope(state: Readonly<RunState>, ctx: Workspa
   try {
     candidates = await deps.changeScope.candidates({ specDir: workspace.specDir, scope: withSkipped });
   } catch (err) {
-    carryOn(err);
-    engineLog.error("[qa] WARNING: the use-case candidates could not be derived (non-fatal, the run goes on without them):", { error: err });
+    const level = carryOn(err);
+    engineLog[level]("[qa] WARNING: the use-case candidates could not be derived (non-fatal, the run goes on without them):", { error: err });
   }
   recordCandidates(ctx, candidates);
   return { update: { grounding: { ...state.grounding, changeScope: withSkipped, candidates } } };

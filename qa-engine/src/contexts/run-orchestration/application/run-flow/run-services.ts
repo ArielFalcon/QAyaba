@@ -166,13 +166,13 @@ export function createRunServices(deps: RunQaUseCaseDeps, cfg: RunQaConfig, work
       };
     } catch (err) {
       /* A git dir that is not the orchestrator's is a security refusal, never a fault to isolate. */
-      carryOn(err);
+      const level = carryOn(err);
       /*
        * Log loudly, never throw, never alter the verdict or block publish. A thrown
        * enforce() means this call's counts are unknowable — increment dangerous
        * without fabricating a reverted path.
        */
-      engineLog.error(
+      engineLog[level](
         `[qa] write-confinement enforcement FAILED (fault-isolated — run continues, never blocks publish): ${err instanceof Error ? err.message : String(err)}`,
       );
       confinementAcc = {

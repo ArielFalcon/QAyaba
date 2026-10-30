@@ -8,7 +8,9 @@ export type LogEffect = (typeof LOG_EFFECT)[keyof typeof LOG_EFFECT];
 
 const LEVEL_OF_EFFECT = { ended: "error", "carried-on": "warn", expected: "info" } as const satisfies Record<LogEffect, LogLevel>;
 
-export function levelOfEffect<E extends LogEffect>(effect: E): (typeof LEVEL_OF_EFFECT)[E] {
+export type LevelOfEffect<E extends LogEffect> = (typeof LEVEL_OF_EFFECT)[E];
+
+export function levelOfEffect<E extends LogEffect>(effect: E): LevelOfEffect<E> {
   return LEVEL_OF_EFFECT[effect];
 }
 
