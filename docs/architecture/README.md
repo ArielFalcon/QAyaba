@@ -111,6 +111,7 @@ Decisions (ADR):
 | [ADR-0011](adr/0011-root-cause-fix-policy.md) | Root-cause fix policy and measurement conditions | Accepted | D12, D13 |
 | [ADR-0012](adr/0012-owner-decisions-rfc-0002-0010.md) | Owner decisions on RFC-0002 to RFC-0010 | Accepted | The 60 open questions of RFC-0002 to RFC-0010 (Correction 2026-10-29: this index said 56) |
 | [ADR-0013](adr/0013-owner-decisions-remaining-questions.md) | Owner decisions on the remaining open questions | Accepted | RFC-0001 OD-1 to OD-20, the open points of ADR-0001 to ADR-0011, the README's open questions |
+| [ADR-0014](adr/0014-owner-decisions-rfc-0011.md) | Owner decisions on RFC-0011 | Accepted | RFC-0011 Q1 to Q8 |
 
 Proposals (RFC):
 
@@ -126,6 +127,7 @@ Proposals (RFC):
 | [RFC-0008](rfc/0008-acceptance-records-what-it-ran.md) | A regeneration's acceptance records what it ran (N06) | Accepted (ADR-0012) | N06, confirmed (phase 3b) |
 | [RFC-0009](rfc/0009-pack-record-matches-prompt.md) | The Context Pack's id record lists what the prompt prints (N09) | Accepted (ADR-0012) | N09, confirmed (phase 3b) |
 | [RFC-0010](rfc/0010-tool-call-record-outcome.md) | Derive a tool call's record from its outcome (N12) | Accepted (ADR-0012) | N12, confirmed (phase 3b) |
+| [RFC-0011](rfc/0011-multi-hop-cross-repo-impact.md) | Multi-hop cross-repository impact | Accepted (ADR-0014) | Owner's observation of 2026-10-30 (feature document L21), confirmed by reading |
 
 Other:
 
@@ -133,7 +135,7 @@ Other:
 |---|---|---|
 | [Rejected explanations](rejected-explanations.md) | The refuted hypotheses and the run index | H03, H05, H10, H13, H14, H26, H27; later N03, N07, Q02, Q03, Q05, Q06, Q07 |
 
-These tables list every record through ADR-0013 and RFC-0010 (Correction 2026-10-30); a later record is added to its table by the change that adds it.
+These tables list every record through ADR-0014 and RFC-0011 (Correction 2026-10-30); a later record is added to its table by the change that adds it.
 
 Documents outside this folder that the records build on:
 
