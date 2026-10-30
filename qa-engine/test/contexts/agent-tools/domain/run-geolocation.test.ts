@@ -77,3 +77,17 @@ test("a place name is matched without case and must be a slug", () => {
   assert.equal(geo.set(undefined, { place: "  BARCELONA  " }).ok, true);
   assert.throws(() => new RunGeolocation({ default: MADRID, places: { "Not A Slug": BARCELONA } }), /invalid place/);
 });
+
+test("an unknown place is named back whole or not at all, so a cut never keeps the start of a secret an agent typed", () => {
+  const geo = state();
+  const short = geo.set(undefined, { place: "atlantis" });
+  if (!short.ok) assert.match(short.message, /"atlantis"/);
+  const secret = `${"p".repeat(70)}hunter2-correct-horse`;
+  const long = geo.set(undefined, { place: secret });
+  assert.equal(long.ok, false);
+  if (!long.ok) {
+    assert.equal(long.code, "unknown-place");
+    assert.ok(!long.message.includes("hunter2"), long.message);
+    assert.match(long.message, /barcelona, madrid/);
+  }
+});

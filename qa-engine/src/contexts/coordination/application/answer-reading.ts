@@ -46,7 +46,7 @@ export function readEntries<T>(raw: unknown, field: string, read: (entry: unknow
 /* The value when it is one of `allowed`, else why it is not. */
 export function readOneOf<T extends string>(value: unknown, allowed: readonly T[], what: string): EntryRead<T> {
   if (typeof value === "string" && (allowed as readonly string[]).includes(value)) return entryRead(value as T);
-  const shown = value === undefined ? "is missing" : `is ${JSON.stringify(value)?.slice(0, 80) ?? "not a value"}`;
+  const shown = value === undefined ? "is missing" : `is ${JSON.stringify(value) ?? "not a value"}`;
   return entryUnreadable(`${what} ${shown}, not one of ${allowed.join(", ")}`);
 }
 

@@ -269,7 +269,7 @@ export function admitLeadPlan(raw: unknown, limits: PlanLimits, deps: PlanDeps):
     const reason = text(deps.redaction, raw.reason, MAX_NOOP_REASON_CHARS);
     return reason === "" ? reject(PLAN_DOWNGRADE.MALFORMED, "a no-op needs its reason") : { kind: LEAD_PLAN_KIND.NOOP, reason };
   }
-  if (raw.kind !== LEAD_PLAN_KIND.FANOUT) return reject(PLAN_DOWNGRADE.MALFORMED, `kind ${JSON.stringify(raw.kind)?.slice(0, 40)} is neither "fanout" nor "noop"`);
+  if (raw.kind !== LEAD_PLAN_KIND.FANOUT) return reject(PLAN_DOWNGRADE.MALFORMED, `kind ${scrub(JSON.stringify(raw.kind) ?? "undefined").slice(0, 40)} is neither "fanout" nor "noop"`);
   if (!Array.isArray(raw.flows)) return reject(PLAN_DOWNGRADE.MALFORMED, "flows is not a list");
 
   if (raw.flows.length === 0) {

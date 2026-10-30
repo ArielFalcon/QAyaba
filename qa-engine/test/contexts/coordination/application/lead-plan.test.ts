@@ -335,3 +335,14 @@ test("a drop the engine cannot read is returned as unreadable beside the plan th
   const none = admitLeadPlan(fanout(flow("a")), limits, deps);
   assert.equal(none.kind === LEAD_PLAN_KIND.FANOUT ? none.unreadable : "not a fanout", undefined);
 });
+
+test("a plan kind the lead typed is redacted before it is cut for the reason it is refused with", () => {
+  const SECRET = "hunter2-correct-horse-battery";
+  const redacting: PlanDeps = { ...deps, redaction: { ...deps.redaction, redact: (text: string) => text.replaceAll(SECRET, "[REDACTED]") } as PlanDeps["redaction"] };
+  const plan = admitLeadPlan({ kind: `${"k".repeat(30)}${SECRET}`, flows: [] }, limits, redacting);
+  assert.equal(plan.kind, PLAN_REJECTED);
+  if (plan.kind === PLAN_REJECTED) {
+    assert.ok(!(plan.detail ?? "").includes("hunter2"), plan.detail);
+    assert.match(plan.detail ?? "", /is neither "fanout" nor "noop"/);
+  }
+});

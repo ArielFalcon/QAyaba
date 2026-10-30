@@ -48,6 +48,15 @@ function refusal(code: GeolocationRefusalCode, message: string): GeolocationRefu
   return { ok: false, code, message };
 }
 
+/* The longest name a refusal quotes back. */
+const MAX_QUOTED_PLACE_CHARS = 80;
+
+/* The place an agent named, quoted whole when it is short and only counted otherwise: a text the domain cannot redact is never cut, since a cut keeps the start of a secret no redaction can then recognise. */
+function namedBack(place: unknown): string {
+  const quoted = JSON.stringify(String(place));
+  return quoted.length <= MAX_QUOTED_PLACE_CHARS ? quoted : `of ${String(place).length} characters`;
+}
+
 export class RunGeolocation {
   private readonly places_: Readonly<Record<string, GeoLocation>>;
   private readonly default_: GeoLocation;
@@ -125,7 +134,7 @@ export class RunGeolocation {
         const names = this.placeNames();
         return refusal(
           GEOLOCATION_REFUSAL.UNKNOWN_PLACE,
-          `the app declares no place named ${JSON.stringify(String(input.place)).slice(0, 80)}${names.length > 0 ? `; it declares: ${names.join(", ")}` : ""}`,
+          `the app declares no place named ${namedBack(input.place)}${names.length > 0 ? `; it declares: ${names.join(", ")}` : ""}`,
         );
       }
       target = resolved.location;
