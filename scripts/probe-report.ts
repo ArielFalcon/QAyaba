@@ -8,7 +8,9 @@
  * Prints a markdown table of the runs and one of their agent turns, and writes each run's full report
  * (with the ordered tool sequence of every turn) to config/benchmarks/probe-results/<runId>.json
  * (gitignored: run ids and numbers only). Read-only: it changes nothing in the history, the working
- * copies or the service. A figure the run did not record reads `n/a`; a run older than the columns
+ * copies or the service. Phase times come from the run's phase spans (the cursor's own start and end, `phaseSource: "spans"`), and
+ * fall back to the coarse step events only for a run whose ledger holds none; the agent totals sum every recorded turn and name the
+ * turns that recorded no duration. A figure the run did not record reads `n/a`; a run older than the columns
  * it needs reports those as unknown, never zero.
  */
 import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
@@ -18,7 +20,7 @@ import type { RunEventBody } from "@kernel/contract/events.ts";
 import { readConfinedSpecFile } from "../qa-engine/src/shared-infrastructure/spec-path-confinement.ts";
 import type { AgentTurnRecord } from "../src/server/persistence/repositories/telemetry.repository.ts";
 import type { RunOutcome, RunRecord } from "../src/types.ts";
-import { buildPipelineReport, parseGroundTruth, renderMarkdown, type GroundTruth, type ProbeReport, type TimedRunEvent } from "./probe-metrics.ts";
+import { buildPipelineReport, parseGroundTruth, renderMarkdown, type GroundTruth, type PhaseSpan, type ProbeReport, type TimedRunEvent } from "./probe-metrics.ts";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -73,6 +75,8 @@ export interface ReportDeps {
   specSources(record: RunRecord, reported: readonly string[]): Map<string, string | null>;
   /** The context ids the run recorded, by source; absent when the ledger cannot be read. */
   contextIds?(runId: string): Array<{ source: string; ids: readonly string[] }>;
+  /** The run's phase spans from the span ledger; absent when the ledger cannot be read. */
+  phaseSpans?(runId: string): PhaseSpan[];
   /** The change-coverage minimum of the run's app. */
   minRatio(record: RunRecord): number;
 }
@@ -96,6 +100,7 @@ export async function collectReport(runId: string, deps: ReportDeps, groundTruth
     outcome,
     events,
     turns: deps.turns(runId),
+    ...(deps.phaseSpans ? { phaseSpans: deps.phaseSpans(runId) } : {}),
     changedFiles: record ? await deps.changedFiles(record) : null,
     specLines: record ? deps.specLines(record, reportedSpecPaths(record, events)) : new Map(),
     ...(record && groundTruth ? { specSources: deps.specSources(record, reportedSpecPaths(record, events)) } : {}),
@@ -179,6 +184,8 @@ export async function defaultReportDeps(warn: (line: string) => void = (l) => co
         return [];
       }
     }),
+    /* The phase spans only: the rest of the ledger is read for the context ids below. */
+    phaseSpans: (runId) => getHistory().telemetry.listRunSpans(runId).filter((span) => span.name.startsWith("qayaba.phase.")).map(({ name, startNs, endNs }) => ({ name, startNs, endNs })),
     minRatio: (record) => appOf(record)?.qa.changeCoverage?.minRatio ?? DEFAULT_COVERAGE_MIN_RATIO,
   };
 }

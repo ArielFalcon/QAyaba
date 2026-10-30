@@ -7,7 +7,7 @@ import type { ToolSequenceEntry } from "@contexts/generation/application/index.t
 import type { AgentTurnRecord } from "../src/server/persistence/repositories/telemetry.repository.ts";
 import type { RunOutcome, RunRecord } from "../src/types.ts";
 import {
-  DEFAULT_SUITE_DIR, PHASES, buildPipelineReport, contentReadsOf, coverageOf, gotoRoutes, normalizeRoute, parseGroundTruth, phaseDurations, promptSections, renderMarkdown, renderRunRow,
+  DEFAULT_SUITE_DIR, PHASES, buildPipelineReport, contentReadsOf, coverageOf, gotoRoutes, normalizeRoute, parseGroundTruth, phaseDurations, phaseDurationsFromSpans, promptSections, renderMarkdown, renderRunRow,
   renderNoopLines, scoreGroundTruth, specSourcesOf, stitcherMetrics, summarizeTools, toProbeTurn, turnFromCallMetrics, type GroundTruth, type ReadingContext, type TimedRunEvent,
 } from "./probe-metrics.ts";
 
@@ -50,6 +50,66 @@ test("a run with no events has no durations at all", () => {
   assert.equal(totalMs, null);
   assert.equal(finished, false);
   assert.ok(PHASES.every((p) => phases[p] === null));
+});
+
+/* The phase spans of the run's own ledger: the phase cursor's exact start and end, in epoch nanoseconds. */
+const ms = (n: number): bigint => BigInt(n) * 1_000_000n;
+const phaseSpan = (phase: string, startMs: number, endMs: number | null) => ({ name: `qayaba.phase.${phase}`, startNs: ms(startMs), endNs: endMs === null ? null : ms(endMs) });
+
+test("a phase lasts as long as its span says, whatever the coarse step events of the run showed", () => {
+  /* A baseline validate that took 106 s in the span and 3 s between two step events. */
+  const spans = [phaseSpan("gate", 0, 2_000), phaseSpan("ground", 2_000, 62_000), phaseSpan("generate", 62_000, 362_000), phaseSpan("validate", 362_000, 468_000), phaseSpan("execute", 468_000, 498_000), phaseSpan("decide", 498_000, 499_000)];
+  const from = phaseDurationsFromSpans(spans)!;
+  assert.equal(from.phases.gate, 2_000);
+  assert.equal(from.phases.grounding, 60_000, "ground is the probe's grounding");
+  assert.equal(from.phases.generation, 300_000);
+  assert.equal(from.phases.validate, 106_000);
+  assert.equal(from.phases.coverage, null, "a phase with no span is unknown, not zero");
+  const report = buildPipelineReport({
+    runId: RUN_ID, record: runRecord(), outcome: undefined,
+    events: [started(0), step(0, "gate"), step(2_000, "generate"), step(362_000, "validate"), step(365_000, "execute"), step(395_000, "done")],
+    turns: [], changedFiles: null, specLines: new Map(), minRatio: 0.7, phaseSpans: spans,
+  });
+  assert.equal(report.phases.validate, 106_000, "the span, not the 3 s between two step events");
+  assert.equal(report.phaseSource, "spans");
+});
+
+test("a phase entered twice is the sum of its spans, the fix loop is the probe's retry, and every engine phase is kept by its own name", () => {
+  const spans = [phaseSpan("generate", 0, 1_000), phaseSpan("fix_loop", 1_000, 4_000), phaseSpan("generate", 4_000, 4_500), phaseSpan("review", 4_500, 9_000), phaseSpan("publish", 9_000, 9_100), phaseSpan("workspace", 0, 50)];
+  const from = phaseDurationsFromSpans(spans)!;
+  assert.equal(from.phases.generation, 1_500);
+  assert.equal(from.phases.retry, 3_000);
+  assert.deepEqual(from.enginePhases, { generate: 1_500, fix_loop: 3_000, review: 4_500, publish: 100, workspace: 50 });
+});
+
+test("a phase still open when the report was made is cut at the latest moment the ledger saw", () => {
+  const from = phaseDurationsFromSpans([phaseSpan("gate", 0, 2_000), phaseSpan("generate", 2_000, null), { name: "qayaba.exec", startNs: ms(2_500), endNs: ms(7_000) }])!;
+  assert.equal(from.phases.gate, 2_000);
+  assert.equal(from.phases.generation, 5_000);
+});
+
+test("a run whose ledger holds no phase span has none, and the report falls back to the step events and says so", () => {
+  assert.equal(phaseDurationsFromSpans([{ name: "qayaba.exec", startNs: ms(0), endNs: ms(10) }]), undefined);
+  const report = buildPipelineReport({ runId: RUN_ID, record: runRecord(), outcome: undefined, events: baseEvents(), turns: [], changedFiles: null, specLines: new Map(), minRatio: 0.7, phaseSpans: [] });
+  assert.equal(report.phaseSource, "events");
+  assert.equal(report.phases.grounding, 60_000);
+});
+
+test("the agent totals sum every recorded turn, a failed one included, and name the turns whose time was not recorded", () => {
+  const report = buildPipelineReport({
+    runId: RUN_ID, record: runRecord(), outcome: undefined, events: baseEvents(),
+    turns: [
+      turnRecord({ role: "qa-author", durationMs: 299_000, cost: 0.5 }),
+      turnRecord({ role: "qa-author", round: 1, ended: "aborted", durationMs: 965_000, cost: 0.25 }),
+      turnRecord({ role: "qa-author", round: 2, ended: "aborted", durationMs: undefined }),
+    ],
+    changedFiles: null, specLines: new Map(), minRatio: 0.7,
+  });
+  assert.equal(report.totals.agentMs, 299_000 + 965_000);
+  assert.equal(report.totals.costUsd, 0.75);
+  assert.equal(report.totals.turns, 3);
+  assert.equal(report.totals.turnsWithoutDuration, 1);
+  assert.match(renderMarkdown([report]), /1 of 3 turn\(s\) recorded no duration/);
 });
 
 /* ── tools ── */

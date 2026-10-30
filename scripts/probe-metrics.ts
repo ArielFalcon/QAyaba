@@ -64,6 +64,45 @@ export function phaseDurations(events: readonly TimedRunEvent[]): { totalMs: num
   return { totalMs: Math.max(0, last - first), finished: steps.some((s) => s.step === "done"), phases };
 }
 
+/** A phase span of the run's own ledger (`run_spans`), as the probe reads it: the name and the exact start and end, epoch nanoseconds. */
+export interface PhaseSpan {
+  name: string;
+  startNs: bigint;
+  endNs: bigint | null;
+}
+
+const PHASE_SPAN_PREFIX = "qayaba.phase.";
+
+/** The probe's name for an engine phase; the engine phases the probe has no slot for (workspace, review, publish, learn) are kept only by their own name. */
+const PROBE_PHASE_OF: Readonly<Record<string, PhaseName>> = {
+  gate: "gate", classify: "classify", setup: "setup", ground: "grounding", generate: "generation", validate: "validate", health: "health", execute: "execute", fix_loop: "retry", coverage: "coverage", decide: "decide",
+};
+
+const NS_PER_MS = 1_000_000n;
+
+/**
+ * How long each phase took, from the phase spans the run recorded: the phase cursor's own start and end, so a stretch is never
+ * shortened to the gap between two step events. A phase entered twice is the sum of its spans; a span still open is cut at the
+ * latest moment the ledger saw. `enginePhases` is the same by the engine's own phase names, the ones the probe has no slot for
+ * included. Undefined when the ledger holds no phase span (telemetry was off, or the run is older than the ledger).
+ */
+export function phaseDurationsFromSpans(spans: readonly PhaseSpan[]): { phases: PhaseDurations; enginePhases: Record<string, number> } | undefined {
+  const phaseSpans = spans.filter((s) => s.name.startsWith(PHASE_SPAN_PREFIX));
+  if (phaseSpans.length === 0) return undefined;
+  const latest = spans.reduce((at, s) => (s.endNs !== null && s.endNs > at ? s.endNs : s.startNs > at ? s.startNs : at), 0n);
+  const phases = emptyPhases();
+  const enginePhases: Record<string, number> = {};
+  for (const span of phaseSpans) {
+    const engine = span.name.slice(PHASE_SPAN_PREFIX.length);
+    const ms = Number(((span.endNs ?? latest) - span.startNs) / NS_PER_MS);
+    const lasted = Math.max(0, ms);
+    enginePhases[engine] = (enginePhases[engine] ?? 0) + lasted;
+    const probe = PROBE_PHASE_OF[engine];
+    if (probe) phases[probe] = (phases[probe] ?? 0) + lasted;
+  }
+  return { phases, enginePhases };
+}
+
 /* ── tools ─────────────────────────────────────────────────────────────────────────── */
 
 /** What a run's diff says about where the agent should have looked. Null when unknown. */
@@ -292,6 +331,9 @@ export interface ProbeTotals {
   agentMs: number | null;
   /** Turns whose usage is only the last message's. */
   turnsWithPartialUsage: number;
+  /** Every turn the run recorded, a failed or cut one included, and how many of them recorded no duration (their time is in no sum above). Absent in a report made before they were counted. */
+  turns?: number;
+  turnsWithoutDuration?: number;
 }
 
 export interface ProbeReport {
@@ -310,6 +352,10 @@ export interface ProbeReport {
   finished: boolean;
   totalMs: number | null;
   phases: PhaseDurations;
+  /** Where `phases` came from: the run's phase spans (exact), or the coarse step events of an older run or one recorded without telemetry. */
+  phaseSource?: "spans" | "events";
+  /** The same time by the engine's own phase names (every phase span, the ones the probe's names have no slot for included); present with `phaseSource: "spans"`. */
+  enginePhases?: Record<string, number>;
   /** Time inside the phases above that the run also records separately. */
   nested: { domCaptureMs: number | null; reviewMs: number | null };
   turns: ProbeTurn[];
@@ -348,6 +394,8 @@ export function totalsOf(turns: readonly ProbeTurn[]): ProbeTotals {
     cacheReadTokens: sumKnown(turns.map((t) => t.usage.cacheRead)),
     agentMs: sumKnown(turns.map((t) => t.durationMs)),
     turnsWithPartialUsage: turns.filter((t) => t.usage.source === "last-message").length,
+    turns: turns.length,
+    turnsWithoutDuration: turns.filter((t) => t.durationMs === null).length,
   };
 }
 
@@ -380,6 +428,8 @@ export interface PipelineReportInput {
   contextIds?: ReadonlyArray<{ source: string; ids: readonly string[] }>;
   /** The hand-written ground truth to score the run against, when the operator gave one. */
   groundTruth?: GroundTruth;
+  /** The run's phase spans from the span ledger; absent or empty: the phases are read from the step events. */
+  phaseSpans?: readonly PhaseSpan[];
 }
 
 function reportedSpecs(input: PipelineReportInput): ProbeSpec[] {
@@ -399,7 +449,9 @@ const roleIs = (t: AgentTurnRecord, name: string): boolean => t.role === name ||
 /** One pipeline run's report, from what its history recorded. Pure: everything it needs is handed in. */
 export function buildPipelineReport(input: PipelineReportInput): ProbeReport {
   const { record, outcome, events } = input;
-  const { totalMs, finished, phases } = phaseDurations(events);
+  const { totalMs, finished, phases: fromEvents } = phaseDurations(events);
+  const fromSpans = input.phaseSpans ? phaseDurationsFromSpans(input.phaseSpans) : undefined;
+  const phases = fromSpans?.phases ?? fromEvents;
   const started = lastEvent(events, "run.started");
   const ctx: ReadingContext = { changedFiles: input.changedFiles, suiteDir: input.suiteDir ?? DEFAULT_SUITE_DIR };
   const turns = input.turns.map((t) => toProbeTurn(t, ctx));
@@ -430,6 +482,8 @@ export function buildPipelineReport(input: PipelineReportInput): ProbeReport {
     finished: finished || outcome !== undefined,
     totalMs,
     phases,
+    phaseSource: fromSpans ? "spans" : "events",
+    ...(fromSpans ? { enginePhases: fromSpans.enginePhases } : {}),
     nested: { domCaptureMs, reviewMs },
     turns,
     totals: totalsOf(turns),
@@ -872,6 +926,9 @@ export function renderMarkdown(reports: readonly ProbeReport[]): string {
   lines.push(...renderBrowserLines(reports));
   lines.push(...renderCoordinationLines(reports));
   lines.push(...renderNoopLines(reports));
+  for (const r of reports) {
+    if ((r.totals.turnsWithoutDuration ?? 0) > 0) lines.push("", `${r.id}: ${r.totals.turnsWithoutDuration} of ${r.totals.turns} turn(s) recorded no duration, so the agent time omits them.`);
+  }
   if (reports.some((r) => r.totals.turnsWithPartialUsage > 0)) {
     lines.push("", "`*` tokens and cost of a turn recorded before per-step usage existed: the last assistant message alone, which understates a many-step turn.");
   }

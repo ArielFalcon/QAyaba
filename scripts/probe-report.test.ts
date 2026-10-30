@@ -146,3 +146,10 @@ test("a ground-truth file that cannot be read or scored stops the report before 
 test("--ground-truth without a file is a usage error", async () => {
   assert.equal(await main(["run-1", "--ground-truth"], { deps: fakeDeps(["run-1"]), out: () => undefined }), 2);
 });
+
+test("a run's phase times are read from its phase spans when the ledger holds them", async () => {
+  const ns = (ms: number): bigint => BigInt(ms) * 1_000_000n;
+  const report = await collectReport("run-1", fakeDeps(["run-1"], { phaseSpans: () => [{ name: "qayaba.phase.gate", startNs: ns(0), endNs: ns(7_000) }] }));
+  assert.equal(report.phases.gate, 7_000, "the span, not the 2 s between the step events");
+  assert.equal(report.phaseSource, "spans");
+});
