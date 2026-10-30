@@ -114,6 +114,7 @@ Decisions (ADR):
 | [ADR-0014](adr/0014-owner-decisions-rfc-0011.md) | Owner decisions on RFC-0011 | Accepted | RFC-0011 Q1 to Q8 |
 | [ADR-0015](adr/0015-owner-decisions-2026-10-30.md) | Owner decisions of 2026-10-30: forbid `test.skip`, and decide without asking | Accepted | The owner's answers of 2026-10-30 (feature document L26) and the rules taken under them |
 | [ADR-0016](adr/0016-refactor-review-base-causes.md) | The refactor review's base causes, one task each | Accepted | The refactor review of 2026-10-30 (feature document L31) and the owner's rules of L30 |
+| [ADR-0017](adr/0017-time-authority-answers.md) | RFC-0012's answers: one time authority | Accepted | RFC-0012's questions, under ADR-0015 point 2 |
 
 Proposals (RFC):
 
@@ -130,6 +131,7 @@ Proposals (RFC):
 | [RFC-0009](rfc/0009-pack-record-matches-prompt.md) | The Context Pack's id record lists what the prompt prints (N09) | Accepted (ADR-0012) | N09, confirmed (phase 3b) |
 | [RFC-0010](rfc/0010-tool-call-record-outcome.md) | Derive a tool call's record from its outcome (N12) | Accepted (ADR-0012) | N12, confirmed (phase 3b) |
 | [RFC-0011](rfc/0011-multi-hop-cross-repo-impact.md) | Multi-hop cross-repository impact | Accepted (ADR-0014) | Owner's observation of 2026-10-30 (feature document L21), confirmed by reading |
+| [RFC-0012](rfc/0012-one-time-authority.md) | One time authority for a run | Accepted | ADR-0016 R2, ADR-0002 addition 7 (T33) |
 
 Other:
 
@@ -137,7 +139,7 @@ Other:
 |---|---|---|
 | [Rejected explanations](rejected-explanations.md) | The refuted hypotheses and the run index | H03, H05, H10, H13, H14, H26, H27; later N03, N07, Q02, Q03, Q05, Q06, Q07 |
 
-These tables list every record through ADR-0016 and RFC-0011 (Correction 2026-10-30); a later record is added to its table by the change that adds it.
+These tables list every record through ADR-0017 and RFC-0012 (Correction 2026-10-30); a later record is added to its table by the change that adds it.
 
 Documents outside this folder that the records build on:
 
