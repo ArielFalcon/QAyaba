@@ -19,23 +19,18 @@ export interface PhaseSpansDeps {
   telemetry: TelemetryPort;
   secrets: RedactionScope;
   app: string;
-  mode: string;
 }
 
 export class PhaseSpans implements PhaseObserver {
   private open: { phase: RunPhase; span: SpanHandle; since: number } | undefined;
-  private entered = 0;
   /* Step events that came while no phase was open; the next phase to open carries them. */
   private pendingSteps: Array<Parameters<SpanHandle["addEvent"]>[1]> = [];
 
   constructor(private readonly deps: PhaseSpansDeps) {}
 
   onEnter(phase: RunPhase, at: number): void {
-    const { telemetry, secrets, app, mode } = this.deps;
-    /* The enqueue span is in another trace, so the trace-level viewing attributes also ride the first span of this one (they are on the root too). */
-    const traceLevel = this.entered === 0 ? { "langfuse.trace.name": "qayaba.run", "langfuse.session.id": app, "langfuse.trace.tags": [app, mode] } : {};
-    this.entered += 1;
-    const span = telemetry.startSpan(`qayaba.phase.${phase}`, { kind: "internal", startTime: at, secrets, attrs: { "qayaba.phase": phase, ...traceLevel } });
+    const { telemetry, secrets } = this.deps;
+    const span = telemetry.startSpan(`qayaba.phase.${phase}`, { kind: "internal", startTime: at, secrets, attrs: { "qayaba.phase": phase } });
     this.open = { phase, span, since: at };
     for (const attrs of this.pendingSteps.splice(0)) span.addEvent("step", attrs);
     telemetry.flush();

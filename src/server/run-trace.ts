@@ -145,10 +145,6 @@ export class RunTrace {
       attrs: {
         ...identityAttrs(identity),
         "qayaba.queue.wait_ms": Math.max(0, this.startedAt - enqueued.at),
-        "langfuse.trace.name": "qayaba.run",
-        /* A campaign's runs are one session, so the viewer groups the replicates of every arm together. */
-        "langfuse.session.id": identity.campaign?.id ?? identity.app,
-        "langfuse.trace.tags": [identity.app, identity.mode, ...Object.values(identity.campaign?.variant ?? {})],
       },
     });
     this.unregisterHost = hostListeners.add(this.hostListener());

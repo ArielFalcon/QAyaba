@@ -82,8 +82,7 @@ test("the root span carries the campaign, groups the session by it, tags the var
   assert.equal(root.attributes["qayaba.campaign.replicate"], 2);
   assert.equal(root.attributes["qayaba.campaign.variant.arm"], "treatment");
   assert.equal(root.attributes["qayaba.campaign.variant.model_name"], "m1");
-  assert.equal(root.attributes["langfuse.session.id"], "ab-1");
-  assert.deepEqual((root.attributes["langfuse.trace.tags"] as string[]).slice(1), ["diff", "treatment", "m1"]);
+  assert.deepEqual(Object.keys(root.attributes).filter((key) => key.startsWith("langfuse.")), []);
   assert.equal(root.attributes["qayaba.trigger"], "campaign");
 });
 

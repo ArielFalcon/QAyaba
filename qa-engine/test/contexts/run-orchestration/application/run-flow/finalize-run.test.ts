@@ -48,7 +48,7 @@ function context(opts: { mode?: RunQaInput["mode"]; mirrorDir?: string | undefin
     observer: { onStep: (step: string) => { if (step === "done") calls.done += 1; }, onEvent: () => {} },
   } as unknown as RunQaUseCaseDeps;
   const clock = { now: () => 0 };
-  const spans = new PhaseSpans({ telemetry: new NoopTelemetry(), secrets: { redact: (text: string) => text } as never, app: "demo", mode: opts.mode ?? "diff" });
+  const spans = new PhaseSpans({ telemetry: new NoopTelemetry(), secrets: { redact: (text: string) => text } as never, app: "demo" });
   const trail = { phases: new RunPhaseCursor(clock, spans), spans };
   const state = initialRunState();
   const mirrorDir = "mirrorDir" in opts ? opts.mirrorDir : MIRROR;

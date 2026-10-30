@@ -110,15 +110,13 @@ test("a full run is one trace: a root, and the phases it entered as its children
   assert.deepEqual(h.orphans(), []);
 });
 
-test("the first phase of a run carries the trace-level viewing attributes, since the enqueue span lives in another trace", async () => {
+test("no phase of a run carries a langfuse attribute", async () => {
   const h = traceHarness();
   await runUnderRoot(h, useCaseWith(h.telemetry, h.clock));
 
-  const first = h.only("qayaba.phase.gate");
-  assert.equal(first.attributes["langfuse.trace.name"], "qayaba.run");
-  assert.equal(first.attributes["langfuse.session.id"], "demo");
-  assert.deepEqual(first.attributes["langfuse.trace.tags"], ["demo", "diff"]);
-  assert.equal(h.only("qayaba.phase.workspace").attributes["langfuse.trace.name"], undefined);
+  const keys = h.spans().flatMap((span) => Object.keys(span.attributes));
+  assert.ok(keys.includes("qayaba.phase"), "the phases were traced");
+  assert.deepEqual(keys.filter((key) => key.startsWith("langfuse.")), []);
 });
 
 test("the local ledger is told to commit on every phase change, so a hung run is visible while it hangs", async () => {

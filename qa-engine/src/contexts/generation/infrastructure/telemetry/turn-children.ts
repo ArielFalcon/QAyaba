@@ -7,7 +7,6 @@
  */
 import type { Attrs } from "@kernel/telemetry/attribute-registry.ts";
 import { GENAI, normalizeOpenCodeUsage } from "@kernel/telemetry/genai-semconv.ts";
-import { LANGFUSE, langfuseCostDetails, langfuseObservationType, langfuseUsageDetails } from "@contexts/generation/domain/langfuse-mapping.ts";
 import type { RedactionScope, SpanHandle, TelemetryPort } from "@kernel/telemetry/telemetry.port.ts";
 import { classifyNavOutcome, isNavigationCall, type NavOutcomeInput } from "../../domain/nav-outcome.ts";
 import { classifyStepIntents, type StepCall, type StepIntentContext } from "../../domain/step-intent.ts";
@@ -61,7 +60,6 @@ function navigation(call: CallTrace, intent: StepIntentContext): NavOutcomeInput
 function stepAttrs(step: StepTrace, intent: string, input: ChildrenInput): Attrs {
   const model = modelName(input.model);
   const usage = step.usage ? normalizeOpenCodeUsage(step.usage) : undefined;
-  const cost = step.usage ? langfuseCostDetails(step.usage.cost) : undefined;
   return {
     [GENAI.attrs.operationName]: GENAI.operations.chat,
     ...(model !== undefined ? { [GENAI.attrs.requestModel]: input.model.request ?? model } : {}),
@@ -76,9 +74,6 @@ function stepAttrs(step: StepTrace, intent: string, input: ChildrenInput): Attrs
           [GENAI.attrs.usageCacheWriteInputTokens]: usage.cacheWrite,
           [GENAI.attrs.usageReasoningOutputTokens]: usage.reasoning,
           "qayaba.usage.cost": step.usage!.cost,
-          /* A generation is the one observation Langfuse prices: its exclusive buckets, and the provider's cost when it reported one. */
-          [LANGFUSE.attrs.usageDetails]: langfuseUsageDetails(usage),
-          ...(cost !== undefined ? { [LANGFUSE.attrs.costDetails]: cost } : {}),
         }
       : {}),
     "qayaba.agent.step": step.index,
@@ -86,7 +81,6 @@ function stepAttrs(step: StepTrace, intent: string, input: ChildrenInput): Attrs
     "qayaba.step.intent": intent,
     "qayaba.span.synthesized": true,
     "qayaba.time.source": "receive",
-    [LANGFUSE.attrs.observationType]: langfuseObservationType(GENAI.operations.chat),
   };
 }
 
@@ -120,7 +114,6 @@ function toolAttrs(call: CallTrace, input: ChildrenInput): Attrs {
     ...(isNavigationCall(call.tool) && call.status !== "running" ? { "qayaba.nav.outcome": classifyNavOutcome(navigation(call, input.intent)) } : {}),
     "qayaba.span.synthesized": true,
     "qayaba.time.source": real ? "state" : "receive",
-    [LANGFUSE.attrs.observationType]: langfuseObservationType(GENAI.operations.executeTool),
   };
 }
 

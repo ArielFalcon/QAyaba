@@ -102,7 +102,7 @@ export class RunQaUseCase {
 
   /* The run's trail: its phase cursor and the spans the cursor opens, created before anything runs. */
   private trailOf(input: RunQaInput, secrets: RedactionScope): RunTrail {
-    const spans = new PhaseSpans({ telemetry: this.telemetry, secrets, app: input.app, mode: input.mode });
+    const spans = new PhaseSpans({ telemetry: this.telemetry, secrets, app: input.app });
     const phases = new RunPhaseCursor(this.deps.phaseClock ?? SYSTEM_PHASE_CLOCK, spans);
     return { phases, spans };
   }

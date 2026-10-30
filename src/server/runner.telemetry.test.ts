@@ -77,9 +77,7 @@ test("a run is a root span on a trace of its own, with a link to the enqueue spa
   assert.equal(attr(root, "qayaba.target"), "e2e");
   assert.equal(attr(root, "qayaba.trigger"), "webhook");
   assert.equal(attr(root, "qayaba.shadow"), true);
-  assert.equal(attr(root, "langfuse.trace.name"), "qayaba.run");
-  assert.equal(attr(root, "langfuse.session.id"), app);
-  assert.deepEqual(attr(root, "langfuse.trace.tags"), [app, "diff"]);
+  assert.deepEqual(Object.keys(root.attributes).filter((key) => key.startsWith("langfuse.")), []);
   assert.deepEqual(h.unended(), []);
 });
 

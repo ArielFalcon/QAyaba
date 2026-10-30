@@ -433,13 +433,6 @@ export const ATTRIBUTES = {
   "qayaba.auth.renewed": bool("The session was renewed after the call found it gone."),
 
   /* Langfuse viewing aids, set on the root. */
-  "langfuse.trace.name": str("Langfuse trace name."),
-  "langfuse.session.id": str("Langfuse session id.", "high"),
-  "langfuse.trace.tags": spec("string[]", "Langfuse trace tags: the app and the run mode."),
-  "langfuse.environment": str("Langfuse environment."),
-  "langfuse.observation.type": str("Langfuse observation type: agent, generation, tool or span."),
-  "langfuse.observation.usage_details": spec("string", "Langfuse usage buckets of a generation, as JSON (exclusive: input excludes the cache, output excludes reasoning)."),
-  "langfuse.observation.cost_details": spec("string", "The provider-reported cost of a generation, as JSON."),
 
   /* GenAI semantic conventions, spelled in genai-semconv.ts only. */
   [GENAI.attrs.operationName]: str("The GenAI operation: invoke_agent, chat or execute_tool."),

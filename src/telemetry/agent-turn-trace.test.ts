@@ -170,7 +170,6 @@ test("a turn is invoke_agent -> attempt -> chat and execute_tool, with the calls
   assert.equal(attr(first!, "qayaba.time.source"), "receive");
   assert.deepEqual([attr(first!, "qayaba.agent.step"), attr(first!, "qayaba.step.intent"), attr(first!, "qayaba.agent.step_budget.remaining")], [1, "explore", 24]);
   assert.deepEqual([attr(second!, "qayaba.agent.step"), attr(second!, "qayaba.step.intent"), attr(second!, "qayaba.agent.step_budget.remaining")], [2, "write_spec", 23]);
-  assert.equal(attr(first!, "langfuse.observation.type"), "generation");
   assert.equal(hrMs(first!.endTime) - hrMs(first!.startTime), 300, "the step runs from its start event to its finish event");
   assert.deepEqual(attr(first!, "gen_ai.response.finish_reasons"), ["tool-calls"]);
 
@@ -207,7 +206,6 @@ test("the turn names its agent, session, role, prompt and the models, and sums i
   const a = (k: string) => attr(turn, k);
   assert.deepEqual([a("gen_ai.operation.name"), a("gen_ai.agent.name"), a("gen_ai.conversation.id"), a("qayaba.agent.role"), a("qayaba.agent.round"), a("qayaba.agent.repair")], ["invoke_agent", "qa-author", SESSION, "qa-author", 0, false]);
   assert.deepEqual([a("gen_ai.request.model"), a("gen_ai.provider.name"), a("gen_ai.response.model")], ["asked-model", "p-answer", "m-answer"]);
-  assert.equal(a("langfuse.observation.type"), "agent");
   assert.equal(a("qayaba.agent.steps.limit"), 25);
   assert.deepEqual([a("qayaba.prompt.bytes"), a("qayaba.prompt.stable_prefix.bytes")], [14, 40]);
   assert.equal(a("qayaba.prompt.sections.degraded"), 2, "how many sections the window fit rule gave up to fit the role's window");
@@ -522,17 +520,11 @@ test("a step still open when the turn ends is clamped to the attempt's end", asy
   assert.deepEqual(r.h.unended(), []);
 });
 
-test("a chat span carries Langfuse's exclusive usage buckets and the provider's cost; a tool span is a tool observation", async () => {
+test("no span of a turn carries a langfuse attribute, and a chat span keeps the provider's cost under qayaba.usage.cost", async () => {
   const r = rig({ promptSession: twoSteps });
   await twoStepTurn(r);
   const [first, second] = r.h.named("chat m-answer").sort((a, b) => Number(attr(a, "qayaba.agent.step")) - Number(attr(b, "qayaba.agent.step")));
-  /* Step 1 reported input 100, output 10 (4 of them reasoning), cache read 5000 and write 10: the conventions' input is 5110, Langfuse's is 100 plus the two cache buckets. */
-  assert.deepEqual(JSON.parse(String(attr(first!, "langfuse.observation.usage_details"))), { input: 100, output: 6, cache_read_input_tokens: 5_000, cache_creation_input_tokens: 10, output_reasoning_tokens: 4 });
-  assert.deepEqual(JSON.parse(String(attr(first!, "langfuse.observation.cost_details"))), { total: 0.02 });
-  assert.deepEqual(JSON.parse(String(attr(second!, "langfuse.observation.cost_details"))), { total: 0.03 });
-  for (const tool of r.h.spans().filter((s) => s.name.startsWith("execute_tool "))) assert.equal(attr(tool, "langfuse.observation.type"), "tool", tool.name);
-  /* Usage and cost sit on generations only: the turn's span keeps its sums under qayaba.usage.*, so Langfuse cannot count a step twice. */
-  const turn = r.h.only("invoke_agent qa-author");
-  assert.equal(attr(turn, "langfuse.observation.usage_details"), undefined);
-  assert.equal(attr(turn, "langfuse.observation.cost_details"), undefined);
+  assert.deepEqual([attr(first!, "qayaba.usage.cost"), attr(second!, "qayaba.usage.cost")], [0.02, 0.03]);
+  const keys = r.h.spans().flatMap((span) => Object.keys(span.attributes));
+  assert.deepEqual(keys.filter((key) => key.startsWith("langfuse.")), []);
 });
