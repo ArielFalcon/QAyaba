@@ -3,6 +3,7 @@
 import { engineLog } from "@kernel/ports/process-logger.ts";
 import { CORRECTION_ORIGIN } from "@contexts/coordination/application/index.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
+import { hasProof } from "@kernel/case-proof.ts";
 import { MAX_SPEC_SOURCE_BYTES, type SpecRoot } from "@kernel/ports/spec-files.port.ts";
 import { FixLoop, type FixLoopState, type FixLoopInput, type FixLoopAcceptancePort, type FixLoopExecutionPort, type FixLoopRegenerationPort, type FixLoopSelectorCheckPort } from "../../../domain/fix-loop.aggregate.ts";
 import { checkSpecSelectors, contradictionOrigins } from "@contexts/generation/application/index.ts";
@@ -399,11 +400,13 @@ export async function fingerprintGreenSuite(state: Readonly<RunState>, ctx: Work
   const { deps, workspace, services } = ctx;
   if (!deps.suiteStore || !state.setup.suiteRestored || runOf(state).verdict !== "pass") return;
   try {
-    /* The green run executed the whole suite: every delivered spec on disk at this instant has run in these bytes. The store
+    /* The green run executed the whole suite: a delivered spec on disk at this instant ran in these bytes, and it is proven when one of its
+     * cases is a real pass (the one proof rule; a file whose tests were skipped, are all marked to fail or did not run has none). The store
      * leaves out a spec it cannot read confined, which seeds no proof (the final guard then refuses to publish it). */
+    const { cases } = runOf(state);
     const fingerprints = await deps.suiteStore.fingerprint(
       services.specRoot,
-      state.generation.delivered.map((d) => d.file),
+      state.generation.delivered.map((d) => d.file).filter((file) => hasProof(file, cases)),
     );
     /* The ledger holds the green bytes themselves when they can be read, so a later restore has them. */
     for (const [file, sha256] of fingerprints) {

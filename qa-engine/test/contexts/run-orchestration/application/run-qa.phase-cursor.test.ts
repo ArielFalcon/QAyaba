@@ -37,7 +37,7 @@ function harness(overrides: Overrides = {}) {
     ...served(generationOnDisk({ author: overrides.author ?? (async () => scriptedGeneration({ specs: ["a.spec.ts"]})) })),
     review: { review: async () => ({ approved: true, findings: [], blockingCount: 0, parsed: true }) },
     validation: { validate: overrides.validate ?? (async () => ({ ok: true, errors: [] })) },
-    execution: { execute: async () => ({ verdict: "pass", cases: [], logs: "" }) },
+    execution: { execute: async () => ({ verdict: "pass", cases: [{ name: "runs", status: "pass" }], logs: "" }) },
     objectiveSignal: { measure: async () => ({ status: "unknown", ratio: null }), blocks: () => false },
     publication: { publish: async () => ({ outcome: "pr" }) },
     workspace: fakeWorkspace(ws),

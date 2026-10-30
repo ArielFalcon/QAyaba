@@ -6,6 +6,7 @@
  */
 
 import { engineLog } from "@kernel/ports/process-logger.ts";
+import { hasRealPass } from "@kernel/case-proof.ts";
 import { createHash } from "node:crypto";
 import { MAX_SPEC_SOURCE_BYTES, type SpecFilesPort, type SpecRoot } from "@kernel/ports/spec-files.port.ts";
 import { dropOpaqueTokens } from "../domain/output-token-filter.ts";
@@ -336,7 +337,7 @@ export class RunSpecUseCase {
   }
 
   private statusOf(result: SpecExecutionResult): RunSpecStatus {
-    if (result.verdict === "pass" && result.cases.length > 0) return RUN_SPEC_STATUS.PASSED;
+    if (result.verdict === "pass" && hasRealPass(result.cases)) return RUN_SPEC_STATUS.PASSED;
     if (result.verdict === "fail" || result.verdict === "flaky") return RUN_SPEC_STATUS.FAILED;
     if (result.verdict === "infra-error" && /timed out after/i.test(result.logs)) return RUN_SPEC_STATUS.TIMED_OUT;
     return RUN_SPEC_STATUS.ERROR;

@@ -78,12 +78,15 @@ import { citingRejections } from "../../../support/cited-rejection.ts";
    defaults to "github-issue". ──────────────────────────────────────────────────────────────────
  */
 
-/* A passing execution that shows a case for each spec file it was asked to run, as an acceptance requires of the files it keeps. */
-const passPerSpec: ExecutionPort["execute"] = async (_dir, opts) => ({
-  verdict: "pass",
-  cases: ((opts as { specFiles?: string[] } | undefined)?.specFiles ?? []).map((file) => ({ name: file, status: "pass" as const, file })),
-  logs: "",
-});
+/* A passing execution that shows a case for each spec file it was asked to run, as an acceptance requires of the files it keeps; one asked for no file (the primary pass) shows a case no file is named for. */
+const passPerSpec: ExecutionPort["execute"] = async (_dir, opts) => {
+  const asked = (opts as { specFiles?: string[] } | undefined)?.specFiles;
+  return {
+    verdict: "pass",
+    cases: asked === undefined ? [{ name: "runs", status: "pass" as const }] : asked.map((file) => ({ name: file, status: "pass" as const, file })),
+    logs: "",
+  };
+};
 
 /*
  * An execution that, under an execution namespace (an acceptance's), shows a case of each spec file it was asked to run, as an acceptance
@@ -1083,7 +1086,7 @@ test("RunQaUseCase — fail-issue: the FixLoop genuinely engages (generate + exe
 test("RunQaUseCase — invalid-issue: execute() is NEVER called (static gate blocks before execution)", async () => {
   let executeCallCount = 0;
   const { ports } = stubPorts({ validate: async () => ({ ok: false, errors: ["[lint] no-wait-for-timeout"] }) });
-  ports.execution.execute = async () => { executeCallCount++; return { verdict: "pass", cases: [], logs: "" }; };
+  ports.execution.execute = async () => { executeCallCount++; return { verdict: "pass", cases: [{ name: "runs", status: "pass" }], logs: "" }; };
   const useCase = new RunQaUseCase({ ...ports, config: baseConfig });
 
   const out = await useCase.run({ ...baseInput, runId: "golden-invalid-issue-wiring-proof" });
@@ -1108,7 +1111,7 @@ test("RunQaUseCase — an e2e-target validation failure with infra:true ALSO res
 test("RunQaUseCase — infra-error: execute() is NEVER called (DEV unhealthy before execution)", async () => {
   let executeCallCount = 0;
   const { ports } = stubPorts({ waitUntilServing: async () => ({ ok: false, error: new Error("DEV unhealthy") }) });
-  ports.execution.execute = async () => { executeCallCount++; return { verdict: "pass", cases: [], logs: "" }; };
+  ports.execution.execute = async () => { executeCallCount++; return { verdict: "pass", cases: [{ name: "runs", status: "pass" }], logs: "" }; };
   const useCase = new RunQaUseCase({ ...ports, config: baseConfig });
 
   const out = await useCase.run({ ...baseInput, runId: "golden-infra-error-wiring-proof" });
@@ -1278,7 +1281,7 @@ test("reviewer parse-miss (parsed:false) must FAIL CLOSED — reviewerApproved=f
      not just an intermediate field.
    */
   const { ports } = stubPorts({
-    execute: async () => ({ verdict: "pass", cases: [], logs: "" }),
+    execute: async () => ({ verdict: "pass", cases: [{ name: "runs", status: "pass" }], logs: "" }),
     review: async () => ({ approved: false, findings: [], blockingCount: 0, parsed: false }),
   });
   const useCase = new RunQaUseCase({ ...ports, config: baseConfig }); /* baseConfig.needsReview === true */
@@ -1646,7 +1649,7 @@ test("context mode NEVER calls execute() (context.json is not a Playwright spec)
   const { ports } = stubPorts({
     generate: async () => (scriptedGeneration({ specs: [".qa/context.json"], note: "built map" })),
   });
-  ports.execution.execute = async () => { executeCallCount++; return { verdict: "pass", cases: [], logs: "" }; };
+  ports.execution.execute = async () => { executeCallCount++; return { verdict: "pass", cases: [{ name: "runs", status: "pass" }], logs: "" }; };
   const useCase = new RunQaUseCase({ ...ports, config: baseConfig });
 
   await useCase.run({ ...baseInput, runId: "fix-c-context-never-executes", mode: "context" });
@@ -1823,7 +1826,7 @@ test("a failing diff run hands the change's own files to the adjudicator, so an 
        objective_gap adjudication as its last one. */
     execute: async () => {
       calls += 1;
-      if (calls > 1) return { verdict: "pass" as const, cases: [], logs: "" };
+      if (calls > 1) return { verdict: "pass" as const, cases: [{ name: "runs", status: "pass" }], logs: "" };
       return {
         verdict: "fail" as const,
         cases: [{ name: "login", status: "fail" as const, detail: "expected 'Total: 10' to contain 'Total: 20'", file: "e2e/login.spec.ts" }],
@@ -2025,7 +2028,7 @@ test("follow-up #28: a NORMAL reviewer rejection (parsed:true) does NOT carry a 
 test("follow-up #28: a normal reviewer APPROVAL is unaffected — no reviewerNote, still routes to pr", async () => {
   let publishedDecision: { reviewerNote?: string } | undefined;
   const { ports } = stubPorts({
-    execute: async () => ({ verdict: "pass", cases: [], logs: "" }),
+    execute: async () => ({ verdict: "pass", cases: [{ name: "runs", status: "pass" }], logs: "" }),
     review: async () => ({ approved: true, findings: [], blockingCount: 0, parsed: true }),
   });
   ports.publication.publish = async (decision) => {
@@ -2661,6 +2664,7 @@ test("the coverage measurement is told the spec files of the passing cases, and 
     let saved: import("@kernel/run-outcome.ts").RunOutcome | undefined;
     let told: string[] | undefined;
     const { ports } = stubPorts({
+      generate: async () => scriptedGeneration({ specs: ["flows/pay.spec.ts"] }),
       execute: async () => ({ verdict: "pass", cases: [{ name: "pays", status: "pass", file: "flows/pay.spec.ts" }, { name: "lists", status: "pass", file: "flows/pay.spec.ts" }, { name: "no-file", status: "pass" }], logs: "" }),
       measure: async (_br, _dir, _diff, _cases, opts) => {
         told = opts?.caseFiles;
@@ -2814,7 +2818,7 @@ test("reviewerApproved is ABSENT (not fabricated) when needsReview is false, reg
 test("publish() is called with the reviewerApproved field threaded (not dropped) on the 'pr' side effect", async () => {
   let publishedDecision: { verdict: string; reviewerApproved?: boolean; coverageBlocks?: boolean } | undefined;
   const { ports } = stubPorts({
-    execute: async () => ({ verdict: "pass", cases: [], logs: "" }),
+    execute: async () => ({ verdict: "pass", cases: [{ name: "runs", status: "pass" }], logs: "" }),
     review: async () => ({ approved: true, findings: [], blockingCount: 0, parsed: true }),
   });
   ports.publication.publish = async (decision) => { publishedDecision = decision; return { outcome: "pr" }; };
@@ -2854,7 +2858,7 @@ test("publish() is called with the coverageBlocks field threaded (not dropped) u
 test("publish() is called with the handle WorkspacePort.prepare() issued on the 'pr' side effect", async () => {
   let publishedDecision: { verdict: string; workspace?: WorkspaceHandle } | undefined;
   const { ports, ws } = stubPorts({
-    execute: async () => ({ verdict: "pass", cases: [], logs: "" }),
+    execute: async () => ({ verdict: "pass", cases: [{ name: "runs", status: "pass" }], logs: "" }),
     review: async () => ({ approved: true, findings: [], blockingCount: 0, parsed: true }),
   });
   ports.publication.publish = async (decision) => { publishedDecision = decision; return { outcome: "pr" }; };
@@ -3041,7 +3045,7 @@ test("run() honors an already-aborted signal — no execution, no generation, no
   let saved = false;
   const { ports } = stubPorts({
     generate: async () => { generated = true; return scriptedGeneration({ specs: ["a.spec.ts"]}); },
-    execute: async () => { executed = true; return { verdict: "pass", cases: [], logs: "" }; },
+    execute: async () => { executed = true; return { verdict: "pass", cases: [{ name: "runs", status: "pass" }], logs: "" }; },
   });
   ports.runHistory.save = async () => { saved = true; };
   const useCase = new RunQaUseCase({ ...ports, config: baseConfig });
@@ -3060,7 +3064,7 @@ test("run() aborted mid-run (between validate and execute) stops before execute(
   let executed = false;
   const { ports } = stubPorts({
     validate: async () => { controller.abort(); return { ok: true, errors: [] }; },
-    execute: async () => { executed = true; return { verdict: "pass", cases: [], logs: "" }; },
+    execute: async () => { executed = true; return { verdict: "pass", cases: [{ name: "runs", status: "pass" }], logs: "" }; },
   });
   let saved = false;
   ports.runHistory.save = async () => { saved = true; };
@@ -5919,6 +5923,7 @@ test("tested is sourced from the initial generation's specMetas when the FixLoop
       specs: ["checkout.spec.ts"],
       specMetas: [{ flow: "Checkout", objective: "user can pay with a saved card" }],
     })),
+    execute: async () => ({ verdict: "pass", cases: [{ name: "pays", status: "pass", file: "checkout.spec.ts" }], logs: "" }),
     publish: async (decision) => { publishedTested = decision.tested; return { outcome: "pr" }; },
   });
   const useCase = new RunQaUseCase({ ...ports, ...loginToBeWritten(), config: baseConfig });
@@ -5974,6 +5979,7 @@ test("absent specMetas everywhere never throws and publish() receives no tested 
   let publishedDecisionHadTestedKey = true;
   const { ports } = stubPorts({
     generate: async () => (scriptedGeneration({ specs: ["checkout.spec.ts"]})),
+    execute: async () => ({ verdict: "pass", cases: [{ name: "pays", status: "pass", file: "checkout.spec.ts" }], logs: "" }),
     publish: async (decision) => {
       publishedDecisionHadTestedKey = "tested" in decision && decision.tested !== undefined;
       return { outcome: "pr" };
@@ -6670,7 +6676,7 @@ test("a pre-execute auth failure is only recorded: an infra-error outcome is per
   let executed = 0;
   let published = 0;
   const { ports, savedOutcomes } = stubPorts({
-    execute: async () => { executed += 1; return { verdict: "pass", cases: [], logs: "" }; },
+    execute: async () => { executed += 1; return { verdict: "pass", cases: [{ name: "runs", status: "pass" }], logs: "" }; },
     publish: async () => { published += 1; return { outcome: "pr" }; },
   });
   const useCase = new RunQaUseCase({
@@ -6757,7 +6763,7 @@ function preconditionRun(opts: { failAt: readonly ("pre-generate" | "pre-execute
       seen.generated += 1;
       return scriptedGeneration({ specs: opts.mode === "context" ? [".qa/context.json"] : ["a.spec.ts"]});
     },
-    execute: async () => { seen.executed += 1; return { verdict: "pass", cases: [], logs: "" }; },
+    execute: async () => { seen.executed += 1; return { verdict: "pass", cases: [{ name: "runs", status: "pass" }], logs: "" }; },
     publish: async () => { seen.published += 1; return { outcome: "pr" }; },
     ...(opts.classify ? { classify: opts.classify } : {}),
   });
@@ -6975,7 +6981,7 @@ function discoveryRun(opts: DiscoveryRunOptions) {
       seen.enrichments.push(enrichment);
       return scriptedGeneration({ specs: ["a.spec.ts"]});
     },
-    execute: async () => { seen.executed += 1; return { verdict: "pass", cases: [], logs: "" }; },
+    execute: async () => { seen.executed += 1; return { verdict: "pass", cases: [{ name: "runs", status: "pass" }], logs: "" }; },
     publish: async () => { seen.published += 1; return { outcome: "pr" }; },
   });
   const adapter = new AuthSessionAdapter({
@@ -7134,7 +7140,7 @@ async function runEndingWith(generation: ReturnType<typeof scriptedGeneration>, 
     generate: async () => generation,
     publish: async () => { published++; return { outcome: "issue" }; },
     validate: async () => { validated++; return { ok: true, errors: [] }; },
-    execute: async () => { executed++; return { verdict: "pass", cases: [], logs: "" }; },
+    execute: async () => { executed++; return { verdict: "pass", cases: [{ name: "runs", status: "pass" }], logs: "" }; },
   });
   const { observer, events } = fakeObserver();
   const out = await new RunQaUseCase({ ...ports, ...deps, observer, config, mirrorGc: { prune: async (w: WorkspaceHandle) => { pruned.push(rootsOf(w).mirrorDir); } } }).run(baseInput);
@@ -7245,7 +7251,7 @@ test("a regression run, which generates nothing, is not read as a generation end
   let executed = 0;
   const { ports } = stubPorts({
     classify: async () => ({ action: "regression", reason: "docs only", diff: "" }),
-    execute: async () => { executed++; return { verdict: "pass", cases: [], logs: "" }; },
+    execute: async () => { executed++; return { verdict: "pass", cases: [{ name: "runs", status: "pass" }], logs: "" }; },
   });
   const out = await new RunQaUseCase({ ...ports, config: baseConfig }).run(baseInput);
   assert.equal(out.decision.verdict, "pass");
@@ -8391,7 +8397,7 @@ test("an approval that carries plain-string notes is no dropped rejection: the r
   try {
     const { ports } = stubPorts({
       prepare: async () => fakeHandle({ specDir: fixtures.specDir, mirrorDir: fixtures.mirrorDir }),
-      execute: async () => ({ verdict: "pass" as const, cases: [], logs: "" }),
+      execute: async () => ({ verdict: "pass" as const, cases: [{ name: "runs", status: "pass" }], logs: "" }),
       review: async () => ({ approved: true, findings: [{ text: "minor: a name could be clearer", severity: "blocking" as const }], blockingCount: 0, parsed: true }),
     });
     ports.generation.author = generate;

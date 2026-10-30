@@ -605,7 +605,7 @@ test("a fix-loop round whose changed file holds a run_spec proof is executed by 
   assert.equal(out.decision.verdict, "fail", "the case that still fails is not dropped from the record");
 });
 
-test("a fix-loop round that changes a spec file whose tests all skipped is adopted: the file loaded, so the round is not rejected whole", async () => {
+test("a fix-loop round that changes a spec file whose tests all skipped leaves that file unproven: the run does not pass on it", async () => {
   const [fixed, skipped] = ["flows/fixed.spec.ts", "flows/skipped.spec.ts"];
   const files = [fixed!, skipped!];
   const r = rig();
@@ -633,7 +633,7 @@ test("a fix-loop round that changes a spec file whose tests all skipped is adopt
 
   const out = await new RunQaUseCase(deps).run(INPUT);
 
-  assert.equal(out.decision.verdict, "pass", "the round that fixed the failing case stands");
+  assert.notEqual(out.decision.verdict, "pass", "a delivered file none of whose tests ran has no proof, so the run cannot publish it");
 });
 
 /* A failing test cannot be made green by making it not run: a skip, an expected failure or its removal from the report leaves the run failing, for any app whatever its own lint. */

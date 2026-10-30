@@ -28,7 +28,7 @@ import { confinedSpecFiles } from "../../../../src/shared-infrastructure/spec-fi
 import { primaryChangeSet } from "../../../support/change-set.ts";
 import { citingRejections } from "../../../support/cited-rejection.ts";
 const INPUT: RunQaInput = { app: "demo", changeSet: primaryChangeSet("demo", Sha.of("abc1234")), sha: Sha.of("abc1234"), source: "manual", mode: "diff", target: "e2e", runId: "coord-run" };
-const PASS: QaCase[] = [{ name: "a", status: "pass", file: "flows/a.spec.ts" }];
+const PASS: QaCase[] = [{ name: "a", status: "pass", file: "flows/a.spec.ts" }, { name: "b", status: "pass", file: "flows/b.spec.ts" }];
 
 const signalOf = (over: Partial<CoordinationGateSignal> = {}): CoordinationGateSignal => ({ flows: 0, delivered: 0, incomplete: 0, ...over });
 

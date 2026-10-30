@@ -59,7 +59,7 @@ function stubPorts(overrides: Partial<{
     validate: overrides.validate ?? (async () => ({ ok: true, errors: [] })),
   };
   const execution: ExecutionPort = {
-    execute: overrides.execute ?? (async () => ({ verdict: "pass", cases: [], logs: "" })),
+    execute: overrides.execute ?? (async () => ({ verdict: "pass", cases: [{ name: "runs", status: "pass" }], logs: "" })),
   };
   const objectiveSignal: ObjectiveSignalPort = {
     measure: overrides.measure ?? (async () => ({ status: "unknown", ratio: null })),
@@ -250,7 +250,7 @@ for (const c of goldenScenarios) {
 test("RunPipelineAdapter: returns the SAME RunOutcome shape RunHistoryPort.save receives (fail-issue — retries + coverageRatio forwarded)", async () => {
   let savedOutcome: RunOutcome | undefined;
   const { ports } = stubPorts({
-    execute: async () => ({ verdict: "pass", cases: [], logs: "" }),
+    execute: async () => ({ verdict: "pass", cases: [{ name: "runs", status: "pass" }], logs: "" }),
     measure: async () => ({ status: "pass", ratio: 0.92 }),
   });
   ports.runHistory.save = async (outcome) => { savedOutcome = outcome; };

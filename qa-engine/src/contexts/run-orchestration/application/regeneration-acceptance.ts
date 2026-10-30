@@ -21,6 +21,7 @@
 import type { RunVerdict } from "@kernel/run-verdict.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 import { normalizeSpecPath } from "@kernel/spec-path.ts";
+import { hasProof } from "@kernel/case-proof.ts";
 import { RunDeadlineExceededError } from "@kernel/run-deadline.ts";
 import { MAX_ACCEPTANCE_EXECUTIONS } from "../../../shared-kernel/derive-cycle-backstop.ts";
 import type { ExecutionPort, ExpectedFailureTest, SkippedTest, ValidationPort } from "@contexts/test-execution/application/index.ts";
@@ -187,8 +188,8 @@ export class RegenerationAcceptance {
     if (execution === undefined || execution.verdict === "pass") {
       const accepted = await this.deps.snapshot.snapshot(input.specDir, [...kept]);
       for (const file of kept) {
-        /* A kept file none of whose tests ran (all skipped) loaded but proves nothing: it gets no proof. */
-        if (execution !== undefined && !execution.cases.some((c) => c.file !== undefined && sameSpec(file, c.file))) continue;
+        /* The one proof rule: a kept file none of whose cases is a real pass (all skipped, all marked to fail, none run) loaded but proves nothing. */
+        if (execution !== undefined && !hasProof(file, execution.cases)) continue;
         const bytes = accepted.files.get(file);
         if (bytes !== undefined) proof.push({ file, sha256: this.deps.fingerprint(bytes), bytes });
       }

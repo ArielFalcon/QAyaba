@@ -13,7 +13,7 @@ function counting(failures: number) {
     arm: (rig: ReturnType<typeof newRig>) => {
       rig.author = async () => { calls.generate += 1; return scriptedGeneration({ specs: [RIG_SPEC]}); };
       rig.validate = async () => { calls.validate += 1; return calls.validate <= failures ? { ok: false, errors: ["[lint] no-wait-for-timeout"] } : { ok: true, errors: [] }; };
-      rig.execute = async () => { calls.execute += 1; return { verdict: "pass", cases: [], logs: "" }; };
+      rig.execute = async () => { calls.execute += 1; return { verdict: "pass", cases: [{ name: "runs", status: "pass" }], logs: "" }; };
     },
   };
 }
