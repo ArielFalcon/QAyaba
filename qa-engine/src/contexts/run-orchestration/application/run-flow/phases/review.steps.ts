@@ -584,7 +584,7 @@ export const remeasuresStaleCoverage = (state: Readonly<RunState>): boolean =>
  * The coverage this run measured is stale when an accepted regeneration followed it. Under enforce, one whole-suite measured
  * execution before decide refreshes it (the coverage regeneration's own run counts when it is the last accepted one, so this
  * never runs twice); under signal the prior measurement is reused and marked stale. A measured execution that ends red is the
- * run's verdict: a red suite is never published.
+ * verdict of a passing run: a red suite is never published. A flaky run keeps its flaky verdict.
  */
 export async function remeasureStaleCoverage(state: Readonly<RunState>, ctx: WorkspaceRunContext): Result {
   const { deps, input, cfg, telemetry, workspace } = ctx;
@@ -592,8 +592,9 @@ export async function remeasureStaleCoverage(state: Readonly<RunState>, ctx: Wor
   if (cfg.coveragePolicyMode === "enforce") {
     const finalNamespace = `${input.runId}-coverage-final`;
     const measuredRun = await deps.execution.execute(workspace.specDir, { ...liveExecutionOptions(ctx), namespace: finalNamespace });
-    /* A flaky run was unstable in this run: a final execution that ran green, even first time, measures the bytes and changes neither its verdict nor its cases, so it stays quarantined. */
-    const flakyStands = run.verdict === "flaky" && hasGreenBytes(measuredRun.verdict);
+    /* A flaky run was unstable in this run, and that verdict stands: a final execution changes neither its verdict nor its cases, so it stays quarantined. One that ran green, even first time, measures the bytes; one that ran red measures nothing and the measurement the run keeps is marked stale. The coverage block applies to the decision, never by replacing the verdict. */
+    if (run.verdict === "flaky" && !hasGreenBytes(measuredRun.verdict)) return { update: { coverage: { ...state.coverage, coverageStale: true } } };
+    const flakyStands = run.verdict === "flaky";
     const finalRun = flakyStands ? run : { verdict: measuredRun.verdict, cases: measuredRun.cases, logs: run.logs };
     if (measuredRun.verdict !== "pass" && !flakyStands) return { update: { execution: withRun(state.execution, finalRun) } };
     const passed = measuredRun.cases.filter(isRealPass);
