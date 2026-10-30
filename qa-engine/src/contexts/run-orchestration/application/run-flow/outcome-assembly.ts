@@ -51,6 +51,7 @@ export interface OutcomeExtras {
   contractDriftCount?: number;
   /* Same "never ran" vs "ran and found zero" distinction as the sibling counts. */
   crossRepoImpactedCount?: number;
+  crossRepoImpactLowerBound?: true;
   /* Only the mainline post-execute caller has real logs. */
   logs?: string;
   /* Only the mainline post-FixLoop caller has a real adjudication class. */
@@ -169,6 +170,7 @@ export function toRunOutcome(
       ...(extra?.serviceLinksCount !== undefined ? { serviceLinksCount: extra.serviceLinksCount } : {}),
       ...(extra?.contractDriftCount !== undefined ? { contractDriftCount: extra.contractDriftCount } : {}),
       ...(extra?.crossRepoImpactedCount !== undefined ? { crossRepoImpactedCount: extra.crossRepoImpactedCount } : {}),
+      ...(extra?.crossRepoImpactLowerBound ? { crossRepoImpactLowerBound: true as const } : {}),
       ...(extra?.confinement !== undefined ? { confinement: extra.confinement } : {}),
       ...(extra?.closedLoop !== undefined ? { closedLoop: extra.closedLoop } : {}),
       ...(extra?.agentBrowser !== undefined ? { agentBrowser: extra.agentBrowser } : {}),

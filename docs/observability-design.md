@@ -329,7 +329,8 @@ Rules, from the brief §2.1 and the OTel spec:
   count first-hop links only (an epoch break: never pool the two). A repo a hop walks that the change did not reach is indexed
   on demand and leaves a `qayaba.code_graph.index` span like any other. The upstream hops a walk could not finish are
   `qayaba.change_scope.degraded` entries read `hop upstream: ...` (a downstream hop reaches no page and is no gap of the scope: it
-  is one line of the prompt); the cross-repo reach entries
+  is one line of the prompt and sets the flag below); when any hop was cut, `gateSignals.crossRepoImpactLowerBound` is `true` and the
+  count is a lower bound, even when it is 0; the cross-repo reach entries
   (`qayaba.change_scope.cross_repo`) carry the chain of links in their proofs.
 
 ### 4.3 Root attributes

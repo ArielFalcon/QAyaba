@@ -114,6 +114,8 @@ export interface RunOutcome {
     contractDriftCount?: number;
     /* Every distinct impacted link of the run, over any hop and either direction (RFC-0011), also set when the change is the app alone and a chain of links starts at it. A run stored before RFC-0011 keeps the first-hop count it was saved with and reads back unchanged (a plain optional number, no migration): the two series are not poolable. Persist-only. */
     crossRepoImpactedCount?: number;
+    /* Set when a hop of the cross-repo walk could not be finished or was left partial: `crossRepoImpactedCount` (even 0) is then a lower bound, not "none found". Absent when every walk finished or none ran. Persist-only. */
+    crossRepoImpactLowerBound?: true;
     /* The coverage signal was measured before the specs an accepted regeneration rewrote: the recorded ratio no longer describes the bytes on disk. Persist-only; never read by decide/verdict/gate/publish. */
     coverage?: { stale: boolean };
     /* Whether the run's failure is in the change's reach, and the evidence the label rests on (plain shape; the domain's CausalLabel). Absent when no case failed or the run was not decided. Persist-only: it records and decides nothing. */

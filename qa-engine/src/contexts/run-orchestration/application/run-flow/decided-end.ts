@@ -338,8 +338,8 @@ async function persistOutcome(state: Readonly<RunState>, ctx: WorkspaceRunContex
     ...(deps.serviceLinks
       ? { serviceLinksCount: serviceLinks.length, contractDriftCount: contractDrift.length }
       : {}),
-    /* impactedLinksCount is gated on the result, not the collaborator's presence: a same-repo run stays undefined (never ran), not a fabricated 0. Counted over distinct links. */
-    ...(crossRepoImpact ? { crossRepoImpactedCount: distinctLinkCount(crossRepoImpact.impactedLinks) } : {}),
+    /* impactedLinksCount is gated on the result, not the collaborator's presence: a same-repo run stays undefined (never ran), not a fabricated 0. Counted over distinct links; a hop the walk could not finish (or left partial) makes the count a lower bound, which the flag says. */
+    ...(crossRepoImpact ? { crossRepoImpactedCount: distinctLinkCount(crossRepoImpact.impactedLinks), ...(crossRepoImpact.stops?.length ? { crossRepoImpactLowerBound: true as const } : {}) } : {}),
     logs: run.logs,
     adjudicationClass: state.fixLoop.lastAdjudicatorVerdict?.class,
     /* Merged confinement across every enforce() this run made. Omitted when never wired. */

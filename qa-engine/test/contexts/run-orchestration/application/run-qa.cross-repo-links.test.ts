@@ -211,6 +211,36 @@ test("a link reached from both ends of a change in the app and in C is counted o
   }
 });
 
+test("a walk the budget left partial that found no link records the count as a lower bound, not as none found", async () => {
+  const w = world({
+    repos: [APP, "org/b", "org/c"], links: [appToList, bToC], changed: [{ repo: APP, role: "primary", file: X.file }],
+    indexes: { [APP]: { partial: 1, ...APP_INDEX } },
+  });
+  try {
+    const observed = await observe(w.rig, "links-lower-bound");
+    assert.deepEqual(w.impacts[0]?.impactedLinks, []);
+    assert.equal(w.impacts[0]?.stops?.length, 1);
+    assert.equal(observed.saved[0]?.gateSignals?.crossRepoImpactedCount, 0);
+    assert.equal(observed.saved[0]?.gateSignals?.crossRepoImpactLowerBound, true);
+  } finally {
+    dispose(w.rig);
+  }
+});
+
+test("a run whose walks all finished does not mark its count as a lower bound", async () => {
+  const w = world({
+    repos: [APP, "org/b", "org/c"], links: [appToList, bToC], changed: [{ repo: "org/c", role: "service", file: C_ITEMS.file }],
+    indexes: { "org/c": { changed: [C_ITEMS], routes: [route(C_ITEMS, "GET", "/items")] }, "org/b": { callers: { [key(B_CALL)]: [B_LIST] }, routes: [route(B_LIST, "GET", "/orders")] }, [APP]: APP_INDEX },
+  });
+  try {
+    const observed = await observe(w.rig, "links-complete");
+    assert.equal(observed.saved[0]?.gateSignals?.crossRepoImpactedCount, 2);
+    assert.equal(observed.saved[0]?.gateSignals?.crossRepoImpactLowerBound, undefined);
+  } finally {
+    dispose(w.rig);
+  }
+});
+
 test("a downstream walk left partial is told to the agent and recorded, and is no gap of the change scope", async () => {
   const w = world({
     repos: [APP, "org/b", "org/c"], links: [appToList, bToC], changed: [{ repo: APP, role: "primary", file: X.file }],
