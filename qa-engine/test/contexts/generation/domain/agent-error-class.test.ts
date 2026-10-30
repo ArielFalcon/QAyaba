@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { AgentTimeoutError, StalledAgentError, AgentUnavailableError } from "@kernel/domain-error.ts";
+import { SessionGoneError } from "@kernel/turn-end.ts";
 import { AGENT_ERROR_TYPES, carriedAgentErrorType, carryAgentErrorType, classifyAgentFault, classifyProviderError } from "@contexts/generation/domain/agent-error-class.ts";
 
 test("a provider payload is classified by its error name and HTTP status", () => {
@@ -108,4 +109,11 @@ test("carrying nothing, or carrying on a value that is not an object, changes no
   carryAgentErrorType(err, undefined);
   assert.equal(carriedAgentErrorType(err), undefined);
   assert.equal(carryAgentErrorType("text", "auth"), "text");
+});
+
+test("a session the runtime no longer has is classified session_gone, by type or by name across the shell", () => {
+  assert.equal(classifyAgentFault(new SessionGoneError("session s1 not found")), "session_gone");
+  const foreign = Object.assign(new Error("session s1 not found"), { name: "SessionGoneError" });
+  assert.equal(classifyAgentFault(foreign), "session_gone");
+  assert.equal(classifyAgentFault(new Error("the session s1 timed out")), "unknown");
 });

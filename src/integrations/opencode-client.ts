@@ -20,6 +20,7 @@ import { enforcedStepLimit } from "../agent-runtime/step-limit";
 import { openCodeServerAuth } from "./opencode-server-auth";
 import { AGENT_BROWSER_AGENTS, GEOLOCATION_AGENTS } from "@contexts/test-execution/application/index";
 import { CODE_GRAPH_AGENTS } from "@kernel/code-graph-tools";
+import { SessionGoneError } from "@kernel/turn-end";
 
 
 import {
@@ -337,6 +338,13 @@ function describeFailure(error: unknown): string {
   return error instanceof Error ? error.message : JSON.stringify(error);
 }
 
+/* The fault a failed `session.prompt` throws. The server answers 404 (`NotFoundError`) for the one thing the path names, the session: that is a session it no longer has, the only fault after which a holder starts a fresh one. Every other failure stays a plain error. */
+export function promptFailure(error: unknown, status: number | undefined): Error {
+  const message = `OpenCode session.prompt failed: ${describeFailure(error)}`;
+  const notFound = status === 404 || (typeof error === "object" && error !== null && (error as { name?: unknown }).name === "NotFoundError");
+  return notFound ? new SessionGoneError(message) : new Error(message);
+}
+
 /*
  * The agents the OpenCode server resolves for `directory` — its own configuration merged with the
  * directory's — each with the step cap it enforces there: `GET /agent?directory=…`, the same directory
@@ -639,9 +647,7 @@ async function buildRawAgentTransport(): Promise<RawAgentTransport> {
         query: { directory: cwd },
         body: openCodePromptBody({ agent, text, model, withoutTools, withoutWrites, hideBrowserTools: hidesBrowserTools(agent, id), hideGeolocationTool: hidesGeolocationTool(agent, id), hideCodeGraphTools: hidesCodeGraphTools(agent, id), denyTools: sessionToolDeny(id) }),
       });
-      if (res.error) {
-        throw new Error(`OpenCode session.prompt failed: ${describeFailure(res.error)}`);
-      }
+      if (res.error) throw promptFailure(res.error, res.response?.status);
       /*
        * A provider/agent fault (out of credits, auth, rate-limit, output-length) is embedded in the
        * assistant message (info.error), NOT in res.error — surfaced as data, classified by the

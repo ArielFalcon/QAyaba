@@ -12,6 +12,7 @@ import type { TimeLimitSource, TurnLimit } from "@kernel/turn-limit.ts";
 import { buildTurnStepBudget, type TurnCallMetrics, type TurnStepBudget } from "../domain/turn-efficiency-summary.ts";
 import { finalStepText } from "../domain/step-exhaustion.ts";
 import type { TurnEnd } from "@kernel/turn-end.ts";
+import { isSessionGoneError } from "@kernel/turn-end.ts";
 
 /* Types declared locally — qa-engine never imports src/. */
 
@@ -631,7 +632,8 @@ export function createAgentDeps(raw: RawAgentTransport, collab: AgentDepsCollabo
               });
           };
           const attempts = runPrompt(PRIMARY_ATTEMPT, opts?.model).catch((err) => {
-            if (closed || opts?.signal?.aborted || isInfraError(err)) throw err;
+            /* No other model can answer in a session the runtime does not have. */
+            if (closed || opts?.signal?.aborted || isInfraError(err) || isSessionGoneError(err)) throw err;
             const fallback = collab.getFallbackModel(agent);
             if (fallback) {
               engineLog.warn(`[qa] primary model failed for ${agent}, retrying with fallback ${fallback}: ${err instanceof Error ? err.message : String(err)}`);

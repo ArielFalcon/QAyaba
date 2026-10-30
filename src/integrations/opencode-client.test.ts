@@ -1,3 +1,4 @@
+import { isSessionGoneError } from "@kernel/turn-end";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, utimesSync } from "node:fs";
@@ -28,6 +29,7 @@ import {
   hidesBrowserTools,
   setGeolocationGrantLookup,
   hidesGeolocationTool,
+  promptFailure,
 } from "./opencode-client";
 import { setRawEventStreamOpener, startScopedEventStream } from "@contexts/generation/infrastructure/sse/event-stream";
 import type { StreamLifecycleSink, StreamToken } from "@contexts/generation/infrastructure/sse/call-efficiency-tracker";
@@ -1265,4 +1267,14 @@ test("the lead's code-graph tools are in the deny-all map and are hidden from a 
     setCodeGraphGrantLookup(undefined);
   }
   assert.equal(hidesCodeGraphTools("qa-lead", "granted"), true, "nothing is granted without a lookup");
+});
+
+test("a prompt the server answers 404 is a session the runtime no longer has; any other failure is not", () => {
+  const gone = promptFailure({ name: "NotFoundError", data: { message: "Session not found: ses_1" } }, 404);
+  assert.ok(isSessionGoneError(gone));
+  assert.match(gone.message, /Session not found: ses_1/);
+  assert.ok(isSessionGoneError(promptFailure({ name: "NotFoundError", data: { message: "gone" } }, undefined)));
+  const bad = promptFailure({ name: "BadRequestError", data: { message: "invalid agent" } }, 400);
+  assert.equal(isSessionGoneError(bad), false);
+  assert.match(bad.message, /OpenCode session.prompt failed/);
 });

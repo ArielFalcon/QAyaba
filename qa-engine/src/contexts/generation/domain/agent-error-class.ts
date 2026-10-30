@@ -5,6 +5,7 @@
  * words in the message ("quota", "usage limit", "insufficient", "credit", "billing"), because providers answer both with a 429.
  */
 import { AgentTimeoutError, StalledAgentError } from "@kernel/domain-error.ts";
+import { isSessionGoneError } from "@kernel/turn-end.ts";
 
 export const AGENT_ERROR_TYPES = [
   "quota_exceeded",
@@ -17,6 +18,7 @@ export const AGENT_ERROR_TYPES = [
   "aborted",
   "timeout",
   "circuit_open",
+  "session_gone",
   "unknown",
 ] as const;
 
@@ -108,6 +110,7 @@ function classifyFault(err: unknown, visited: Set<object>, depth: number): Agent
   if (named.name === "AgentTimeoutError" || named.name === "StalledAgentError") return "timeout";
   if (named.name === "CircuitOpenError" || (typeof named.message === "string" && CIRCUIT_WORDS.test(named.message))) return "circuit_open";
   if (named.name === "AbortError") return "aborted";
+  if (isSessionGoneError(err)) return "session_gone";
   const message = typeof named.message === "string" ? named.message : undefined;
   const code = typeof named.code === "string" ? named.code : undefined;
   if ((code !== undefined && SOCKET_CODES.has(code)) || (message !== undefined && SOCKET_WORDS.test(message))) return "socket_closed";

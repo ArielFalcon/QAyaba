@@ -446,8 +446,9 @@ the turn did not answer. Only `session-gone`, which the runtime says with `Sessi
 makes the executor and the holder dispose the session, and the lead's next `revise` of that flow becomes a `replace`; a
 timeout, a stop or a fault of the transport leaves the session, the flow's `run_spec` loop and its proof as they were, and
 the next `revise` reaches the same conversation. A flow whose session fails outside a turn (it could not be opened) is a
-`delegation` event with its typed end too. Today no transport raises `SessionGoneError`: the OpenCode client must throw it
-for the runtime's "session not found" answer before a gone session is told from any other fault. A signal's abort (a flow's time, the run's cancel) aborts the session's prompt and
+`delegation` event with its typed end too. The OpenCode client throws it when `session.prompt` is
+answered 404 (`NotFoundError`: the path names only the session), its class is `session_gone`, and the transport makes no
+fallback attempt for it (no other model can answer in a session that is not there). A signal's abort (a flow's time, the run's cancel) aborts the session's prompt and
 nothing else, and a `dispose` waits for the aborts still running before it deletes, so a delete never races a message the
 runtime is persisting. The orphan sweep (`cleanupOrphans`, every 60 s) is only the backstop for a holder that never
 disposed: a session is an orphan when no prompt is in flight and nothing has used it (opened it, started or ended a prompt)
