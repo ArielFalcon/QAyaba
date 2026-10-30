@@ -716,8 +716,9 @@ The full text is **already** stored redacted in `agent_turns`. In `metadata` mod
 A turn that ended without an answer (timeout, abort or a fault of the transport or the provider) has an empty `output_text`; its `partial_text` keeps what the
 session had streamed until then, whatever the `captureMode` (it is the run's own local history, like `output_text`):
 the turn's `text` and `reasoning` parts as the SSE tracker last saw them, in first-seen order, each prefixed by
-`[text] ` or `[reasoning] `, bounded to its last `STREAMED_TEXT_MAX_CHARS` (16 000) characters, and redacted by value
-and by pattern like the output. It is null for an answered turn, for one that streamed nothing and for a row written
+`[text] ` or `[reasoning] `, redacted by value and by pattern like the output and then bounded to its last
+`STREAMED_TEXT_MAX_CHARS` (16 000) characters (the tracker holds that much plus `REDACTION_LOOKAHEAD_CHARS` raw, so a secret that
+straddles the start of the tail is found whole before the cut; `shared-kernel/redact-then-bound.ts`). It is null for an answered turn, for one that streamed nothing and for a row written
 before the column (schema 2). `GET /api/v1/runs/:id/turns` serves it as `partialText`.
 Q3 and Q4 need no content at all; F3's "62k reasoning" replay needs `full`, or the reference.
 
@@ -786,7 +787,7 @@ Space: static layers (`agents/AGENTS.md`, `agent/*.md`, `skill/`) never pass thr
 digest and the bytes are in the repository at that digest. Section boundaries come from the assembler's own `sectionSizes`
 and `sectionHashes`; a slice is used only when its hash equals the assembler's, otherwise the prompt is stored whole (keyed by
 its own hash). A body over 256 K characters is cut and marked `truncated`; a longer line is split into numbered chunks.
-Governance: every body goes through the run's by-value scope and the outbound sanitizer first; a failed redaction drops the
+Governance: every body goes through the run's by-value scope and the outbound sanitizer first, and a body past `MAX_BODY_CHARS` is cut after that redaction, never before; a failed redaction drops the
 record and the turn record marks the section `dropped`.
 
 Sections are not deduplicated across turns. Measured on two replicates of one commit (`run-ed28973-mvqc7x8j-2da31df4`, 8 turns,
