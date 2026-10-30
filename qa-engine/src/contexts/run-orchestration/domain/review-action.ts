@@ -4,8 +4,6 @@
  * ends. `approve` and `reject` settle the review with that verdict; the two `end-*` cases end the run.
  */
 
-export const MAX_REVIEW_ROUNDS = 2;
-
 export type ReviewNext = "correct" | "resolve" | "judge" | "approve" | "reject" | "end-unavailable" | "end-disputed";
 
 export type ReviewTransition =

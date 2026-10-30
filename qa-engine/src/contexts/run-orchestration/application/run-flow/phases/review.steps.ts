@@ -12,7 +12,8 @@ import { precheckSpecsAgainstDom } from "@contexts/generation/application/index.
 import { specRelDirOf } from "@kernel/spec-path.ts";
 import { citedSpec, filterReviewFindings, takeMissingCases, type DropReason } from "../../../domain/review-finding-filter.service.ts";
 import { verifyRebuttals, findingKey } from "../../../domain/review-rebuttals.service.ts";
-import { MAX_REVIEW_ROUNDS, reviewAction } from "../../../domain/review-action.ts";
+import { MAX_REVIEW_ROUNDS } from "../../../../../shared-kernel/derive-cycle-backstop.ts";
+import { reviewAction } from "../../../domain/review-action.ts";
 import type { ReviewPort } from "@contexts/generation/application/index.ts";
 import { end, goto, type StepOutcome } from "../run-flow.ts";
 import { throwIfAborted } from "../abort.ts";
@@ -67,7 +68,7 @@ const sessionOf = (state: Readonly<RunState>): ReviewSession => {
 export const reviewInProgress = (state: Readonly<RunState>): boolean => state.review.session !== undefined;
 
 /*
- * MAX_REVIEW_ROUNDS = 2. parsed:false is a parse miss — fail closed immediately
+ * MAX_REVIEW_ROUNDS bounds the rounds. parsed:false is a parse miss — fail closed immediately
  * without burning a regen round. Gate is approved && blockingCount === 0;
  * absent blockingCount defaults to corrections.length (fail-closed).
  * Last-round rejection is terminal. A regen that produces zero specs must not

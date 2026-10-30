@@ -1,5 +1,5 @@
 /* Regeneration-loop caps. MAX_REVIEW_ROUNDS — reviewer reject→regenerate rounds inside one generateAndReview(). MAX_STATIC_FIX_ROUNDS — static-gate (Filter B) repair rounds (tsc/eslint/list). MAX_ACCEPTANCE_EXECUTIONS — acceptance executions of a regeneration per run (a further one is rejected with outcome "cap"). The derivation and the loops that consume these caps share this source of truth. */
-const MAX_REVIEW_ROUNDS = 2;
+export const MAX_REVIEW_ROUNDS = 2;
 export const MAX_STATIC_FIX_ROUNDS = 2;
 export const MAX_ACCEPTANCE_EXECUTIONS = 4;
 

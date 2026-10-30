@@ -4,11 +4,10 @@
  * the review's rounds with their one retry, and the flaky triage's one correction), so it equals the most a run can reach and tightens none of them. Pure: no I/O, no clock.
  */
 
-import { MAX_STATIC_FIX_ROUNDS } from "../../../shared-kernel/derive-cycle-backstop.ts";
+import { MAX_REVIEW_ROUNDS, MAX_STATIC_FIX_ROUNDS } from "../../../shared-kernel/derive-cycle-backstop.ts";
 import { MAX_COVERAGE_REGENERATIONS } from "./coverage-regen.ts";
 import { MAX_FLAKY_TRIAGE_CORRECTIONS } from "./flaky-triage.ts";
 import { MAX_PRE_EXEC_REGENERATIONS } from "./pre-exec-regen.ts";
-import { MAX_REVIEW_ROUNDS } from "./review-action.ts";
 
 export type LeadCorrectionAction = "through-lead" | "direct";
 

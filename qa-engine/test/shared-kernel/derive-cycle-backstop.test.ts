@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { deriveCycleBackstop } from "@kernel/derive-cycle-backstop.ts";
+import { deriveCycleBackstop, MAX_REVIEW_ROUNDS, MAX_STATIC_FIX_ROUNDS } from "@kernel/derive-cycle-backstop.ts";
 
 /* CYCLES_PER_GENERATE=2, MAX_STATIC_FIX_ROUNDS=2, REPAIR_HEADROOM_PER_GENERATE=2.
  */
@@ -28,4 +28,10 @@ test("deriveCycleBackstop: numObjectives>1 adds one session's worth of budget pe
 
 test("deriveCycleBackstop: numObjectives=0 never lowers the base (Math.max(0, ...) floor)", () => {
   assert.equal(deriveCycleBackstop(2, 0), deriveCycleBackstop(2));
+});
+
+test("deriveCycleBackstop: a generation costs its entry, its review-round regenerations and its repair headroom", () => {
+  const repairHeadroom = 2;
+  const perGenerate = 1 + (MAX_REVIEW_ROUNDS - 1) + repairHeadroom;
+  assert.equal(deriveCycleBackstop(3), (1 + MAX_STATIC_FIX_ROUNDS + 3 + 1) * perGenerate);
 });

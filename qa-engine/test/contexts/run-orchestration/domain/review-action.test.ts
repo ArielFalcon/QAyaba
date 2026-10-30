@@ -2,7 +2,8 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { reviewAction, MAX_REVIEW_ROUNDS, type ReviewTransition } from "@contexts/run-orchestration/domain/review-action.ts";
+import { reviewAction, type ReviewTransition } from "@contexts/run-orchestration/domain/review-action.ts";
+import { MAX_REVIEW_ROUNDS } from "@kernel/derive-cycle-backstop.ts";
 
 const judged: Extract<ReviewTransition, { after: "judgment" }> = { after: "judgment", round: 0, maxRounds: MAX_REVIEW_ROUNDS, unavailable: false, parsed: true, executedRed: false, gateApproves: false, unchangedSinceRejection: false };
 

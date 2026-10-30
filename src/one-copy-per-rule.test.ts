@@ -44,3 +44,7 @@ test("a spec path is compared in one place, the kernel's spec-path module", () =
   const tailCopies = filesMatching(/===\s*[\w.]+\s*\|\|\s*[\w.]+\.endsWith\(`\/\$\{[\w.]+\}`\)\s*\|\|\s*[\w.]+\.endsWith\(`\/\$\{[\w.]+\}`\)/);
   assert.deepEqual(tailCopies.filter((path) => path !== owner), []);
 });
+
+test("the review-round cap is defined once, in the kernel", () => {
+  assert.deepEqual(filesMatching(/\bMAX_REVIEW_ROUNDS\s*=\s*\d/), ["qa-engine/src/shared-kernel/derive-cycle-backstop.ts"]);
+});
