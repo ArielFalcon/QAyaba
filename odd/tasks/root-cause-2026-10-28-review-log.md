@@ -118,3 +118,38 @@ Verdicts: A (465cb6d0..4d4a8675, CP1 re-validation) no code defect, CP1 fixes ho
 | D-m9 | CP2 D | minor | RFC-0003:210 | Cites a test file C2 deleted | Correction | fixed 4089ca70 |
 | D-m11 | CP2 D | minor | T19, T20 rows | Omit the ADR-0013 corrections decided when they land | Add | fixed (T19, T20 rows) |
 
+
+## Checkpoint 3 (b900bc7e: step 1 plus T4-T11 integrated; four Opus 5.5 reviewers at max effort)
+
+Verdicts: A T5 unit 1 PASS, T8 FAIL (A-B1, A-B2); B T6, T7, T10 PASS, T11 PASS with B-J2, T9 FAIL (B-B1); C records FAIL (C-B1-C-B3); D whole branch PASS (invariants hold, no unrequested output change, the worker-exit flake did not recur in five full runs). Decisions on open points take the recommended option (owner, L26: "No te detengas más a preguntarme").
+
+| ID | Severity | Where | Problem | Decision / correction | Status |
+|---|---|---|---|---|---|
+| A-B1 | blocker | `e2e-execution.runner.ts:1033,1082`, `control-load.run.cjs:46` | The control waits for `networkidle` with the whole call's time; a never-idle launch page (SSE, polling) has the call killed before the spec child starts (probe: `infra-error` timed out, base passes in 1.4 s) | The control gets its own bound well below the call; on time-out it keeps what it saw and the spec child starts with the time left; RFC-0007 :126 amended; RED with a never-idle page | open (unit X) |
+| A-B2 | blocker | runner `:548` `readControls`, `control-load.ts:5` | The control file sits in the sandbox-writable capture dir and is read after the spec child: a spec rewrites it and charges 0 (base 7) | Read the control when its child closes, before the spec child starts, keep it in memory; any control file found later is forged; RED with a rewriting spec | open (X) |
+| A-J2 | major | `run-dump-bridge.ts:198` | The counters' own-budget guard (11d111db) no longer fails when broken | Fake clock advancing during the coverage job; counters keep their full budget | open (X) |
+| A-J3 | major | runner `:1100`, `control-load.run.cjs:47` | A failed control still exempts what it saw; RFC-0007 says a failed control leaves everything charged | Follow the RFC: a control that failed or timed out without closing cleanly exempts nothing (with A-B1: a time-out that closed cleanly keeps what it saw, said in the RFC) | open (X) |
+| A-J4 | major | `control-load.ts:5`, `dump-sanitizers.ts:4`, `run-spec.use-case.test.ts:343`, `seed-dev-write-counter.test.ts:1` | Comments misstate the code | Rewrite | open (X) |
+| A-m1 | minor | `off-loop-executor.ts:80` | `worker.terminate()` on abort unguarded | Test the worker exits on abort | open (X) |
+| A-m2 | minor | runner `:496,:503,:512` | Three T8 guards unguarded (no-sender ledger as page, project-name bound, control entry cap) | Tests through `readDevWrites` | open (X) |
+| A-m3 | minor | `run-output-reader.ts:21,73` | `OutOfTimeError` never thrown | Remove | open (X) |
+| B-B1 | blocker (also at base; the path L26 meant to close) | `eslint.config.js:32`, `regeneration-acceptance.ts:173-182`, `playwright-report.ts`, `review.steps.ts:93,517` | A failing test still turns green with nothing run: `test.fixme`, `info().skip()`, aliases, `test.fail()` pass the lint; Playwright reports them skipped/expected; the acceptance keeps and proves the file (use-case probe: verdict pass, side effect pr) | Engine rule from the report, any app: a test of a changed file that ran in its prior bytes (or a correction named) and is now skipped, or runs with `expectedStatus: "failed"`, is not a pass: the file is restored or the round rejected; a kept file with no executed case gets no proof; the lint adds `disallowFixme` as an early hint; RED at the acceptance and the fix loop | open (Y) |
+| B-J1 | major | `setup.adapter.ts:400,541,553`, AGENTS.md :206, :1041 | The lint refusal reaches only projects bootstrapped from this seed | B-B1's engine rule removes the dependence; correct both sentences | open (Y, records) |
+| B-J2 | major (change-caused) | `opencode-tool-outcome.ts:13,37` | The tool-target redaction window fell from 1000 to 400 chars: an 800-char JWT keeps up to 200 chars | Window max(1000, 2x cap) or whole string under a safety bound; test with a straddling token | open (Y) |
+| B-J3 | major | RFC-0008 :78, :183 | RFC-0008 says every kept file has a case; C-B1 and the skip decision are in no record | ADR-0015 records C-B1, the skip decision and B-B1; RFC-0008 correction note | open (records) |
+| B-m1 | minor | `review-port.adapter.ts:163` | The new parse-miss line logs error though the run carries on | Carried-on level, asserted | open (Y) |
+| B-m2 | minor | `failure-policy.ts:119,126` | `FailureAction` has no `satisfies Record` effect mapping | Add it | open (Y) |
+| B-m3 | minor | `flow-outcomes.ts:24-31`, `regeneration-acceptance.test.ts:147-165` | Two surviving mutants | Assert the over-window level; give the infra-error fixture a case | open (Y) |
+| B-m5 | advisory | `carry-on-level.test.ts:15`, `opencode-tool-outcome.test.ts:63-70` | Whole-file exemption; scan limited to `sse/` | Narrow and widen | open (Y) |
+| C-B1 | blocker | AGENTS.md :172, :174, :178 | Boundary table rows still "lands with RFC-0006/0007/0004" | "in force" | open (records) |
+| C-B2 / D-m4 / A-J1 | blocker | `docs/execution-sandbox.md:198` | Describes the rejected per-worker control | Rewrite to the final design | open (records) |
+| C-B3 | blocker | RFC-0009 F6, `rejected-explanations.md:165-181`, README :38 | The accepted epoch break is unrecorded | Epoch rows: baseline, T17, the RFC-0009 break at 2af99d58, the slices epoch | open (records) |
+| C-J1-C-J8, C-m1-C-m5 | major/minor | see reviewer C's table (CP3 C) | Record corrections, missing ADR for owner decisions, order line, verifier list | As reviewer C proposed | open (records) |
+| C-J6 | major | `scripts/check-previous-forms.ts` | No `qa.coveragePolicy` banned term | Add it with `exemptPrefixes` | open (Y) |
+| D-J1 | major | `eslint.config.js:32` | Same as B-B1's lint half | With B-B1 | open (Y) |
+| D-m1 | minor | `agents/package.json`, `agents/Dockerfile:22` | Plugin 1.16.0 beside OpenCode 1.17.7, no test ties them | Record why (no pin moved; smoke scripts unchanged) in the test's comment | open (Y) |
+| D-m2 | minor | `agents/.gitignore` | Ignores the tracked files and itself | Keep only `node_modules`, `bun.lock` (only if OpenCode accepts it: prove with the EROFS probe) | open (Y) |
+| D-m3 | minor | `src/settings/retired.ts` | `REFLECTOR_TIMEOUT_MS` missing | Add it | open (Y) |
+| D-m5, D-m6 | minor | feature doc, ADR-0014 :4 | Stale rows; untranslated quote | Records | open (records) |
+| D-m7 | advisory | `fixtures.ts:350`, `control-load.run.cjs:10` | Duplicated 300-char cut | Pin equal in a test | open (X) |
+| D-m8 | advisory | dead exports listed by D | Dead since step 1 | T13 | deferred (T13) |
