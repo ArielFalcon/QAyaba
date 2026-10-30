@@ -574,9 +574,12 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   is kept; off-path step: carried on). A deterministic
   phase (static gate, install, a Playwright execution, the DOM capture, the code-graph build) is cut at the deadline's instant, not
   at its purpose's allowance, because the phases after it depend on what it proves: the run carries the deadline's signal in its
-  `RunScope` and the execution launcher kills the child's process tree when it fires. A step during which the deadline fired ends
+  `RunScope` and the execution launcher kills the child's process tree when it fires. A step the deadline met (it fired during the step, or before the step began) ends
   the run through the same `RunDeadlineExceededError` (stop `mid-phase`, with the purpose it cut), whatever the cut made it throw
-  or return, except an end the run had already decided; `guarded` then ends `E-TIME-BUDGET` or keeps the proof (`deadline-after-proof`).
+  or return, except an end the run had already decided and the steps that survive the deadline (`survivesDeadline`: fingerprinting the
+  green suite, releasing the coordinated pass, the final proof guard and the decision start no process and spend no turn, so they have nothing for it to cut);
+  `guarded` then ends `E-TIME-BUDGET` or keeps the proof (`deadline-after-proof`): every step that only runs on a green suite (the coverage
+  announcement and measurement, the regenerations, the review) is `proven`, and the measurement is the `coverage` phase in every mode.
   The first generation pass is bounded by the smaller of its tier budget and the generate allowance, and a fix-loop
   regeneration or an acceptance execution starts only while the fix allowance is positive (`regenerationAllowed`); with the fix
   share spent and the run still holding time the regeneration is skipped, recorded as the fix loop's `allotment` limit, and the run

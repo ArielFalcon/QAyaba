@@ -9377,3 +9377,33 @@ test("the same cut with no phase history (the fallback reserve) leaves the revie
   assert.equal(out.decision.verdict, "pass");
   assert.ok(leftMs > 0);
 });
+
+test("a green suite whose coverage measurement meets the run's deadline keeps its proof and publishes: the deadline takes the measurement, not the verdict", async () => {
+  const clock = { t: 0 };
+  const fires: Array<() => void> = [];
+  const deadline = deadlineOn(clock, 30 * MIN, fires);
+  let measured = 0;
+  const { ports } = stubPorts({
+    generate: async () => { clock.t += 20 * MIN; return scriptedGeneration({ specs: ["a.spec.ts"] }); },
+    measure: async () => { measured++; clock.t += 11 * MIN; fires.at(-1)?.(); return { status: "unknown" as const, ratio: null }; },
+  });
+  const out = await new RunQaUseCase({ ...ports, runDeadline: deadline, config: { ...baseConfig, needsReview: false } }).run({ ...baseInput, mode: "manual", runId: "deadline-in-measure" });
+  assert.equal(measured, 1);
+  assert.equal(out.decision.verdict, "pass");
+  assert.equal(out.decision.sideEffect, "pr");
+  assert.ok(limitsOf(out).includes("run-deadline@coverage"), `the deadline is recorded as the limit that fired: ${limitsOf(out).join(", ")}`);
+  assert.ok((traceFactsOf(out)?.degradations ?? []).some((d) => d.reason === "deadline-after-proof"));
+});
+
+test("a green suite whose review is required still ends E-TIME-BUDGET when the deadline meets the coverage measurement: approval is the one thing the deadline takes", async () => {
+  const clock = { t: 0 };
+  const fires: Array<() => void> = [];
+  const deadline = deadlineOn(clock, 30 * MIN, fires);
+  const { ports } = stubPorts({
+    generate: async () => { clock.t += 20 * MIN; return scriptedGeneration({ specs: ["a.spec.ts"] }); },
+    measure: async () => { clock.t += 11 * MIN; fires.at(-1)?.(); return { status: "unknown" as const, ratio: null }; },
+  });
+  const out = await new RunQaUseCase({ ...ports, runDeadline: deadline, config: { ...baseConfig, needsReview: true } }).run({ ...baseInput, mode: "manual", runId: "deadline-in-measure-review" });
+  assert.equal(out.decision.verdict, "infra-error");
+  assert.equal(out.errorClass, ERROR_CLASS.TIME_BUDGET);
+});

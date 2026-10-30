@@ -31,6 +31,8 @@ export interface FlowStep<S, C, Id extends string = StepId> {
   id: Id;
   /** What the step is to the run (see failure-policy.ts); absent, it is `required`. */
   class?: StepClass;
+  /** A step that starts no process and spends no agent turn, so the deadline has nothing of it to cut: whatever it came to is its own, whenever the deadline fired. Absent, a step the deadline met is cut. */
+  survivesDeadline?: boolean;
   /** The phase the step opens on the cursor before it runs; absent, it runs inside the open phase. */
   phase?: RunPhase;
   /** Whether the step runs for this run; absent, it always does. */
@@ -113,9 +115,8 @@ export async function runFlow<S extends object, C, Id extends string = StepId>(
     }
     if (step.phase) hooks.enter(step.phase);
     const degrade = hooks.degrade;
-    const firedBefore = hooks.deadlineFired?.() === true;
-    /* A step during which the run's deadline fired was cut by it: its children were killed with it, so whatever it threw or came to says nothing but that. The policy then ends the run on its time budget, or keeps the proof the run already holds. */
-    const cutDuring = (): boolean => !firedBefore && hooks.deadlineFired?.() === true && hooks.deadlineCut !== undefined;
+    /* A step the run's deadline met (it fired during the step, or before the step began) was cut by it, unless the step survives the deadline: its children were killed with it, so whatever it threw or came to says nothing but that. The policy then ends the run on its time budget, or keeps the proof the run already holds. */
+    const cutDuring = (): boolean => step.survivesDeadline !== true && hooks.deadlineFired?.() === true && hooks.deadlineCut !== undefined;
     const outcome: StepOutcome<S, Id> = await guarded(
       { id: step.id, class: step.class ?? "required" },
       async () => {

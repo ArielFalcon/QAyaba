@@ -84,9 +84,9 @@ test("a green diff run opens every phase but the fix loop, in pipeline order", a
   assert.deepEqual(entered, ["gate", "workspace", "classify", "setup", "ground", "generate", "validate", "health", "execute", "coverage", "review", "decide", "publish", "learn"]);
 });
 
-test("a green manual run opens the same phases without classify and coverage, which only a per-commit diff run has", async () => {
+test("a green manual run opens the same phases without classify, which only a diff run has; its coverage measurement is the coverage phase, announced or not", async () => {
   const entered = await phasesOf({ ...base, mode: "manual", guidance: "test the contact form", runId: "sequence-manual" });
-  assert.deepEqual(entered, ["gate", "workspace", "setup", "ground", "generate", "validate", "health", "execute", "review", "decide", "publish", "learn"]);
+  assert.deepEqual(entered, ["gate", "workspace", "setup", "ground", "generate", "validate", "health", "execute", "coverage", "review", "decide", "publish", "learn"]);
 });
 
 test("a green diff run reports the steps it ran, and the ones it passed over, by id and in table order", async () => {

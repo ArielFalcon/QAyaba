@@ -211,11 +211,22 @@ test("a step that came to a result while the run's deadline fired is taken back,
   assert.ok("end" in out && out.end.reason === "run-deadline");
 });
 
-test("a deadline that fired before a step began is not that step's cut", async () => {
+test("a deadline that fired before a step began cuts that step too: it started past the run's time", async () => {
   const { clock, hooks } = deadlined();
   clock.fired = true;
   const out = await runFlow([recording("a"), recording("b")], { trace: [], n: 0 }, { skipB: false }, hooks);
-  assert.deepEqual(out, { state: { trace: ["a", "b"], n: 2 } });
+  assert.ok("end" in out && out.end.reason === "run-deadline");
+});
+
+test("a step that survives the deadline keeps what it came to whenever the deadline fired", async () => {
+  const { clock, hooks } = deadlined();
+  clock.fired = true;
+  const bookkeeping: Step = { ...recording("a"), survivesDeadline: true };
+  const out = await runFlow([bookkeeping], { trace: [], n: 0 }, { skipB: false }, hooks);
+  assert.deepEqual(out, { state: { trace: ["a"], n: 1 } });
+  const second = deadlined();
+  const during: Step = { id: "b", survivesDeadline: true, run: async () => { second.clock.fired = true; throw new Error("its own fault"); } };
+  await assert.rejects(runFlow([during], { trace: [], n: 0 }, { skipB: false }, second.hooks), /its own fault/);
 });
 
 test("a step that decides the run's end while the deadline fires keeps its decision", async () => {
