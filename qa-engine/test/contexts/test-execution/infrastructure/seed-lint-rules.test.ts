@@ -32,3 +32,22 @@ test("a comment in a spec cannot switch a rule of the seed's static gate off", a
 
   assert.ok(errors.includes("playwright/no-conditional-expect"), errors.join(", "));
 });
+
+/* A skipped test is not a case: a regeneration that skips the test it was asked to fix would otherwise turn the round
+   green with nothing proven (an acceptance keeps a file whose tests all skipped). The owner's decision, feature document L26. */
+test("a skipped test is refused by the static gate, with or without a condition", async () => {
+  for (const skip of [`  test.skip();`, `  test.skip(offered === 0, "no data on DEV");`]) {
+    const errors = await errorsOf(spec(`${skip}\n  expect(offered).toBeGreaterThan(0);`));
+
+    assert.ok(errors.includes("playwright/no-skipped-test"), `${skip}: ${errors.join(", ")}`);
+  }
+  const declared = `import { expect } from "@playwright/test";\nimport { test } from "../fixtures";\n\ntest.skip("filters", async ({ page }) => {\n  await page.goto("/search");\n  expect(await page.getByRole("button").count()).toBeGreaterThan(0);\n});\n`;
+  assert.ok((await errorsOf(declared)).includes("playwright/no-skipped-test"));
+});
+
+test("the seed's teardown pass keeps its skip", async () => {
+  const eslint = new ESLint({ cwd: SEED_DIR, overrideConfigFile: `${SEED_DIR}eslint.config.js` });
+  const [result] = await eslint.lintFiles([`${SEED_DIR}cleanup.spec.ts`]);
+
+  assert.deepEqual((result?.messages ?? []).filter((message) => message.severity === 2).map((message) => message.ruleId), []);
+});

@@ -27,6 +27,9 @@ export default tseslint.config(
       // An assertion that runs only while a condition on the page holds proves nothing when it does not:
       // the test passes over the very state it should catch (an empty list, every option disabled).
       "playwright/no-conditional-expect": "error",
+      // A skipped test proves nothing and is not a case: skipping the test a correction was asked to fix would turn
+      // the round green with nothing run. A state DEV cannot be brought to is the lead's to drop, with its basis.
+      "playwright/no-skipped-test": ["error", { allowConditional: false }],
     },
   },
   {

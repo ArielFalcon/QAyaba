@@ -203,7 +203,7 @@ is the only engine; webhook (`src/server/webhook-handler.ts`, wired by `src/serv
 6. **Validate** — `tsc` + ESLint (`eslint-plugin-playwright`) + `playwright --list` +
    manifest. The gate's rules are the e2e project's ESLint configuration only: the lint runs with
    `--no-inline-config` (`GATE_LINT_OPTIONS`), so an `eslint-disable` or rule comment in a spec has no effect and an
-   exemption lives in the configuration, as the seed's `cleanup.spec.ts` has. A failure first gets ESLint's own fixes on the delivered specs (computed in the sandbox with
+   exemption lives in the configuration, as the seed's `cleanup.spec.ts` has. A skipped test (`test.skip`, with or without a condition) is refused there: it is not a case, so a correction that skipped the test it was asked to fix would turn its round green with nothing run; a state DEV cannot be brought to is the lead's to drop with its basis. A failure first gets ESLint's own fixes on the delivered specs (computed in the sandbox with
    `--fix-dry-run`, under the same option, written by the orchestrator through the confined writer); what they leave goes to at most
    `MAX_STATIC_FIX_ROUNDS` repair turns, run while the run has delivered specs to repair, whatever the closed loop says (a
    spec `run_spec` saw pass is repaired like any other, and the run's log says so; the bytes a round writes are no longer
