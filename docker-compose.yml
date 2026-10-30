@@ -55,7 +55,11 @@ x-collector: &collector
 
 services:
   orchestrator:
-    build: .
+    build:
+      context: .
+      # The commit the image is built from, for the engine version each run records; `unknown` when unset.
+      args:
+        QAYABA_REVISION: ${QAYABA_REVISION:-}
     # An init as PID 1: the run's Playwright browsers (spawned as the sandbox uid) and tsx's esbuild are children whose parent can
     # exit first, and an orphan is reparented to PID 1. The service's own main process does not reap what it did not start, so
     # without an init those orphans stay defunct for the life of the container (the host-health gauge counts them).

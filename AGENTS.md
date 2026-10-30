@@ -84,7 +84,8 @@ npm run qa -- --app my-app --sha <sha> [--mode manual --guidance "test the conta
 npm run start               # webhook + queue service
 ```
 
-Stack: `doppler run -- docker compose up --build` (or `.env` from `.env.example`). The
+Stack: `QAYABA_REVISION=$(git rev-parse HEAD) doppler run -- docker compose up --build` (or `.env` from `.env.example`;
+`QAYABA_REVISION` gives the image the commit every run records as its engine version, `unknown` without it). The
 orchestrator listens on `PORT` (default **458**, `src/server/port.ts`); trigger with
 `curl -X POST localhost:458 -H 'content-type: application/json' -d '{"repo":"<owner>/<repo>","sha":"<sha>"}'`.
 

@@ -81,6 +81,11 @@ RUN npm install
 
 COPY . .
 
+# The commit of the code, for the engine version every run records (src/server/version.ts): the image holds no git history,
+# so the build is told it (compose passes QAYABA_REVISION). Empty when the build was not told: the version then says `unknown`.
+ARG QAYABA_REVISION=
+RUN printf '%s\n' "$QAYABA_REVISION" > /app/REVISION
+
 # The app configs live behind a directory only root may enter: compose bind-mounts the host's config folder at
 # /app/.host/config, and /app/config is a link to it. A host bind mount can sit on a filesystem that does not enforce
 # permissions (Docker Desktop's file sharing hands every uid what it asks for); the lookup of /app/.host/config is

@@ -80,9 +80,9 @@ export function revisionOf(root: string = APP_ROOT): string | null {
   return ref && gitDir ? commitOfRef(gitDir, ref) : null;
 }
 
-/* The version of the engine a run ran under: the package version and, when known, the first 12 characters of the commit of the code. The package version alone does not move between commits, so it cannot tell two runs' code apart. */
+/* The version of the engine a run ran under: the package version and the first 12 characters of the commit of the code, or `unknown` when no commit is known. The package version alone does not move between commits, so it never stands for a version on its own. */
 export function engineVersionOf(packageVersion: string, revision: string | null): string {
-  return revision ? `${packageVersion}+${revision.slice(0, 12)}` : packageVersion;
+  return `${packageVersion}+${revision ? revision.slice(0, 12) : "unknown"}`;
 }
 
 export const ENGINE_VERSION = engineVersionOf(SERVER_VERSION, revisionOf());

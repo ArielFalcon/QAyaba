@@ -52,7 +52,7 @@ function checkout(t: { after(fn: () => void): void }): string {
 
 test("the engine version is the package version with the revision of the code that runs, so runs of different code are told apart", () => {
   assert.equal(engineVersionOf("0.1.0", SHA), "0.1.0+0123456789ab");
-  assert.equal(engineVersionOf("0.1.0", null), "0.1.0", "no revision known: the package version alone, never an invented one");
+  assert.equal(engineVersionOf("0.1.0", null), "0.1.0+unknown", "no revision known: said so, never the package version alone, which every commit shares");
   assert.ok(ENGINE_VERSION.startsWith(SERVER_VERSION));
 });
 
