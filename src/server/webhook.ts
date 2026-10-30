@@ -1,7 +1,7 @@
 /* Webhook core: signature, payload, enqueue decision. HTTP wrapper lives in src/server/webhook-handler.ts. */
 
 import { createHmac, timingSafeEqual } from "node:crypto";
-import { RETIRED_RUN_MODES, RUN_MODES, RunMode } from "../types";
+import { parseRunMode, RunMode } from "../types";
 
 export interface WebhookPayload {
   repo: string;
@@ -9,10 +9,6 @@ export interface WebhookPayload {
   mode: RunMode;
   guidance?: string;
   baseSha?: string;
-}
-
-function asMode(v: unknown): RunMode {
-  return typeof v === "string" && (RUN_MODES as readonly string[]).includes(v) ? (v as RunMode) : "diff";
 }
 
 export function verifySignature(secret: string, body: string, signature?: string): boolean {
@@ -31,8 +27,11 @@ export function parseWebhook(body: unknown): WebhookPayload | null {
   const b = body as Record<string, unknown>;
   const guidance = typeof b.guidance === "string" ? b.guidance.slice(0, 2000) : undefined;
 
+  const mode = parseRunMode(b.mode);
+  if (!mode.ok) return null;
+
   if (typeof b.repo === "string" && typeof b.sha === "string" && HEX_SHA.test(b.sha)) {
-    return { repo: b.repo, sha: b.sha, mode: asMode(b.mode), guidance, baseSha: typeof b.baseSha === "string" && HEX_SHA.test(b.baseSha) ? b.baseSha : undefined };
+    return { repo: b.repo, sha: b.sha, mode: mode.mode, guidance, baseSha: typeof b.baseSha === "string" && HEX_SHA.test(b.baseSha) ? b.baseSha : undefined };
   }
 
   /* GitHub push: after is the SHA; before all-zeros means a new branch — drop it. */
@@ -40,7 +39,7 @@ export function parseWebhook(body: unknown): WebhookPayload | null {
   if (typeof repository?.full_name === "string" && typeof b.after === "string" && HEX_SHA.test(b.after)) {
     const before =
       typeof b.before === "string" && HEX_SHA.test(b.before) && !/^0+$/.test(b.before) ? b.before : undefined;
-    return { repo: repository.full_name, sha: b.after, mode: "diff", baseSha: before };
+    return { repo: repository.full_name, sha: b.after, mode: mode.mode, baseSha: before };
   }
 
   return null;
@@ -66,10 +65,8 @@ export function handleWebhook(
   } catch {
     return { status: 400, message: "invalid JSON" };
   }
-  const mode = (json as { mode?: unknown } | null)?.mode;
-  if (typeof mode === "string" && RETIRED_RUN_MODES.includes(mode)) {
-    return { status: 400, message: `mode "${mode}" was removed; use one of ${RUN_MODES.join(", ")}` };
-  }
+  const mode = parseRunMode((json as { mode?: unknown } | null)?.mode);
+  if (!mode.ok) return { status: 400, message: `mode ${mode.error}` };
   const payload = parseWebhook(json);
   if (!payload) return { status: 422, message: "payload without a recognizable repo/sha" };
   return { status: 202, message: "enqueued", payload };

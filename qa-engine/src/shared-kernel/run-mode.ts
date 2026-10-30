@@ -14,8 +14,13 @@ export type TriggerSource = "webhook" | "manual";
 export type RunMode = "diff" | "manual" | "context";
 export const RUN_MODES: readonly RunMode[] = ["diff", "manual", "context"] as const;
 
-/* Modes that were removed. A request that names one is refused, never run as another mode. */
-export const RETIRED_RUN_MODES: readonly string[] = ["complete", "exhaustive"] as const;
+/* Reads the mode a request names, for every entry point: none means "diff"; anything that is not a run mode (a removed mode
+   included) is refused with the reason, never run as another mode. */
+export function parseRunMode(value: unknown): { ok: true; mode: RunMode } | { ok: false; error: string } {
+  if (value === undefined || value === null) return { ok: true, mode: "diff" };
+  if (typeof value === "string" && (RUN_MODES as readonly string[]).includes(value)) return { ok: true, mode: value as RunMode };
+  return { ok: false, error: `${JSON.stringify(value)} is not a run mode; use one of ${RUN_MODES.join(", ")}` };
+}
 
 /**
  * Why a run was started, when it is not a change to test. The mode says what the run does; a purpose says what it is for, and is

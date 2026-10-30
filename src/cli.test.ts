@@ -1,7 +1,7 @@
 import { describe, it, mock } from "node:test";
 import assert from "node:assert/strict";
 import { parseArgs, delegateRunInput } from "./cli";
-import { RETIRED_RUN_MODES } from "./types";
+const NOT_RUN_MODES = ["complete", "exhaustive", "nope", "DIFF"];
 
 describe("delegateRunInput", () => {
   it("carries --base-sha into the run delegated to the service, so its diff spans the range like the standalone and webhook paths", () => {
@@ -88,12 +88,12 @@ describe("flags the CLI does not know", () => {
     }
   });
 
-  it("refuse a removed --mode with exit code 2 instead of starting a diff run", () => {
+  it("refuse a --mode that is not a run mode with exit code 2 instead of starting a diff run", () => {
     const exit = mock.method(process, "exit", () => { throw new Error("process.exit called"); });
     const error = mock.method(console, "error", () => {});
     try {
-      for (const mode of RETIRED_RUN_MODES) assert.throws(() => parseArgs(["--app", "x", "--sha", "bbbb222", "--mode", mode]));
-      assert.deepEqual(exit.mock.calls.map((c) => c.arguments[0]), RETIRED_RUN_MODES.map(() => 2));
+      for (const mode of NOT_RUN_MODES) assert.throws(() => parseArgs(["--app", "x", "--sha", "bbbb222", "--mode", mode]));
+      assert.deepEqual(exit.mock.calls.map((c) => c.arguments[0]), NOT_RUN_MODES.map(() => 2));
     } finally {
       exit.mock.restore();
       error.mock.restore();

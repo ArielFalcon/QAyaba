@@ -25,7 +25,7 @@ import { discoverApiToken } from "./server/api-token";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { loadAppConfig } from "./orchestrator/config-loader";
-import { RETIRED_RUN_MODES, RUN_MODES, RunMode } from "./types";
+import { parseRunMode, RUN_MODES, type RunMode } from "./types";
 import { runSucceeded } from "./cli-exit";
 import type { GroundingInput } from "./contract/commands";
 import { renderRunReport } from "./qa/value-report";
@@ -277,11 +277,12 @@ export function parseArgs(argv: string[]): { app: string; sha: string; baseSha?:
     );
     process.exit(2);
   }
-  if (out.mode !== undefined && RETIRED_RUN_MODES.includes(out.mode)) {
-    console.error(`--mode ${out.mode} was removed; use one of ${RUN_MODES.join("|")}`);
+  const parsedMode = parseRunMode(out.mode);
+  if (!parsedMode.ok) {
+    console.error(`--mode ${parsedMode.error}`);
     process.exit(2);
   }
-  const mode = (RUN_MODES as readonly string[]).includes(out.mode ?? "") ? (out.mode as RunMode) : "diff";
+  const mode = parsedMode.mode;
   /* The run's own choice about the run_spec loop; absent unless given, so the app's setting decides. */
   const closedLoop = out["closed-loop"] === "on" ? true : out["closed-loop"] === "off" ? false : undefined;
   if (out["closed-loop"] !== undefined && closedLoop === undefined) {
