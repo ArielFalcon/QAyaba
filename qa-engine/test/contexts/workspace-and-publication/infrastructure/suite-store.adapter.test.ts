@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import {
   AUTH_SETUP_PATH, SuiteStoreAdapter, deleteSuiteSnapshots, deleteSuiteStoreDir, suiteSnapshotDir, suiteStoreHoldsVerifiedLogin, gitBlobOid, gitListTracked, parseStagedListing, suiteEntryKind,
-  type SuiteManifest, type SuiteStoreLimits, type TrackedFile,
+  type SuiteManifest, type SuiteStoreDeps, type SuiteStoreLimits, type TrackedFile,
 } from "../../../../src/contexts/workspace-and-publication/infrastructure/suite-store.adapter.ts";
 import type { SuiteCaptureInput } from "../../../../src/shared-kernel/ports/suite-store.port.ts";
 
@@ -25,7 +25,7 @@ interface Rig {
   read(rel: string): string;
   has(rel: string): boolean;
   clean(): void;
-  store(limits?: SuiteStoreLimits, readOnly?: boolean): SuiteStoreAdapter;
+  store(limits?: SuiteStoreLimits, readOnly?: boolean, over?: Partial<SuiteStoreDeps>): SuiteStoreAdapter;
   /** The engine's seed project the store was told about; a test rewrites a file of it to stand for an engine upgrade. */
   seedDir: string;
   seed(rel: string, text: string): void;
@@ -50,7 +50,7 @@ function rig(t: TestContext): Rig {
   mkdirSync(seedDir, { recursive: true });
   const warnings: string[] = [];
   let tick = 0;
-  const store = (limits?: SuiteStoreLimits, readOnly?: boolean): SuiteStoreAdapter =>
+  const store = (limits?: SuiteStoreLimits, readOnly?: boolean, over?: Partial<SuiteStoreDeps>): SuiteStoreAdapter =>
     new SuiteStoreAdapter({
       storeDir, app: "demo", repo: "org/app", specRelDir: "e2e", seedDir,
       listTracked: async () => tracked,
@@ -58,6 +58,7 @@ function rig(t: TestContext): Rig {
       warn: (m) => warnings.push(m),
       ...(limits ? { limits } : {}),
       ...(readOnly ? { readOnly } : {}),
+      ...over,
     });
   const put = (rel: string, text: string | Buffer): void => {
     mkdirSync(dirname(join(specDir, rel)), { recursive: true });
@@ -772,6 +773,20 @@ test("an export of a store that is not readable whole is refused and leaves no d
   assert.deepEqual(readdirSync(r.base).filter((name) => name.startsWith("snapshot")), []);
 });
 
+test("an export leaves out the paths it is told to, and warns about a path the store does not hold", async (t) => {
+  const r = rig(t);
+  const snapshot = join(r.base, "snapshot");
+  r.put("flows/x.spec.ts", "x");
+  r.put("flows/y.spec.ts", "y");
+  await r.capture({ executedGreen: ["flows/x.spec.ts", "flows/y.spec.ts"] });
+
+  const exported = r.store().exportSnapshot(snapshot, { leaveOut: ["flows/y.spec.ts", "flows/nope.spec.ts"] });
+
+  assert.equal(exported.entries, 1);
+  assert.deepEqual(r.warnings.filter((w) => w.includes("flows/nope.spec.ts")).length, 1);
+  assert.equal(r.warnings.some((w) => w.includes("flows/y.spec.ts")), false);
+});
+
 test("an export does not replace a snapshot that exists", async (t) => {
   const r = rig(t);
   const snapshot = join(r.base, "snapshot");
@@ -836,12 +851,56 @@ test("a restore fails when the manifest it wrote names another set than the snap
   r.put("flows/y.spec.ts", "y");
   await r.capture({ executedGreen: ["flows/x.spec.ts", "flows/y.spec.ts"] });
   r.store().exportSnapshot(snapshot);
-  const store = r.store();
-  const write = Reflect.get(store, "writeStore") as (manifest: SuiteManifest, fresh: ReadonlyMap<string, Buffer>) => void;
-  Reflect.set(store, "writeStore", (manifest: SuiteManifest, fresh: ReadonlyMap<string, Buffer>) =>
-    write.call(store, { ...manifest, entries: manifest.entries.map((e) => (e.path === "flows/y.spec.ts" ? { ...e, path: "flows/z.spec.ts" } : e)) }, fresh));
+  const manifestPath = join(r.storeDir, "manifest.json");
+  /* A file system that stores the manifest as another set than the one it was handed. */
+  const renamesY = (path: string, bytes: string | Uint8Array): void => {
+    const text = path === manifestPath ? String(bytes).replace("flows/y.spec.ts", "flows/z.spec.ts") : bytes;
+    writeFileSync(path, text);
+  };
 
-  assert.throws(() => store.restoreSnapshot(snapshot), /digest/);
+  assert.throws(() => r.store(undefined, undefined, { writeFile: renamesY }).restoreSnapshot(snapshot), /digest/);
+});
+
+/** Rewrites the snapshot's manifest in place: what a snapshot taken from another app, repository or suite directory looks like. */
+function retarget(snapshot: string, change: Partial<Pick<SuiteManifest, "app" | "repo" | "specRelDir">>): void {
+  const path = join(snapshot, "manifest.json");
+  writeFileSync(path, JSON.stringify({ ...(JSON.parse(readFileSync(path, "utf8")) as SuiteManifest), ...change }));
+}
+
+test("a snapshot recorded for another app, repository or suite directory is refused naming what differs, and the store is untouched", async (t) => {
+  const r = rig(t);
+  r.put("flows/keep.spec.ts", "keep");
+  await r.capture({ executedGreen: ["flows/keep.spec.ts"] });
+  const untouched = storeFiles(r);
+  const cases = [
+    { change: { app: "other" }, named: /app.*other/ },
+    { change: { repo: "org/elsewhere" }, named: /repo.*org\/elsewhere/ },
+    { change: { specRelDir: "tests" }, named: /tests/ },
+  ];
+  for (const [index, { change, named }] of cases.entries()) {
+    const snapshot = join(r.base, `snapshot-${index}`);
+    r.store().exportSnapshot(snapshot);
+    retarget(snapshot, change);
+    assert.throws(() => r.store().restoreSnapshot(snapshot), named);
+  }
+  assert.deepEqual(storeFiles(r), untouched);
+});
+
+test("a snapshot over the store's limits is refused on restore and the store is untouched", async (t) => {
+  const r = rig(t);
+  const snapshot = join(r.base, "snapshot");
+  r.put("flows/a.spec.ts", "aaaa");
+  r.put("flows/b.spec.ts", "bbbb");
+  await r.capture({ executedGreen: ["flows/a.spec.ts", "flows/b.spec.ts"] });
+  r.store().exportSnapshot(snapshot);
+  r.put("flows/c.spec.ts", "cccc");
+  await r.capture({ runId: "run-2", executedGreen: ["flows/a.spec.ts", "flows/b.spec.ts", "flows/c.spec.ts"] });
+  const untouched = storeFiles(r);
+
+  assert.throws(() => r.store({ maxFileBytes: 8, maxTotalBytes: 20, maxEntries: 1 }).restoreSnapshot(snapshot), /over the store's limit of 1/);
+  assert.throws(() => r.store({ maxFileBytes: 8, maxTotalBytes: 5, maxEntries: 10 }).restoreSnapshot(snapshot), /over the store's limit of 5/);
+
+  assert.deepEqual(storeFiles(r), untouched);
 });
 
 test("a purge removes the app's suite snapshots and no other app's, and an app with none is already purged", async (t) => {

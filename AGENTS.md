@@ -654,11 +654,11 @@ test, and the verdict is its last action.
   replicate 1 invalid, and one with no digest "isolation unknown". A restored
   login that fails to sign in is demoted and the stock seed takes its place. Store faults are off-path
   (logged, never a verdict). Context-map, session state, credentials and `.qa-probe/` never enter it.
-  `deleteApp` with purge removes it (`suite:<name>`); a plain delete keeps it, like the mirror. Under
+  `deleteApp` with purge removes it (`suite:<name>`) and the app's snapshots (`data/suite-snapshots/<app>`, which can hold a stored login); a plain delete keeps both, like the mirror. Under
   `QA_CAMPAIGN_FREEZE` it is read-only; `warm-suite seed-store` loads an experiment snapshot into it
   (`docs/efficiency-benchmark.md`). The adapter is the only writer of the store's files (`manifest.json` and
   `blobs/`): `warm-suite store-export` and `store-restore` return the store to a recorded state through
-  `exportSnapshot` and `restoreSnapshot`, which check the snapshot whole before touching the store and read the
+  `exportSnapshot` and `restoreSnapshot`, which check the snapshot whole (the store's limits, and that it was taken from this app, repository and suite directory) before touching the store and read the
   store back afterwards; nothing copies the manifest alone. `qa-engine/test/arch/suite-store-writers.test.ts`
   freezes the modules that derive the store's directory.
 

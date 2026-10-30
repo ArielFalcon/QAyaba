@@ -118,6 +118,8 @@ export interface SuiteStoreDeps {
   warn?(message: string): void;
   /** A store the run only reads: a capture writes nothing, and a demotion only takes the login out of the working copy. For a run that must leave no cross-run state (a campaign's). */
   readOnly?: boolean;
+  /** How the store's own files (blobs and manifest) reach the disk; absent, a temporary file in the same directory renamed over the target. A test injects a file system that fails or alters a write. */
+  writeFile?(path: string, bytes: string | Uint8Array): void;
 }
 
 const sha256Of = (bytes: Uint8Array): string => createHash("sha256").update(bytes).digest("hex");
@@ -452,6 +454,8 @@ export class SuiteStoreAdapter implements SuiteStorePort {
     const manifest = this.load();
     const left = new Set(opts.leaveOut ?? []);
     const entries = manifest.entries.filter((entry) => !left.has(entry.path));
+    const unknown = [...left].filter((path) => !manifest.entries.some((entry) => entry.path === path));
+    if (unknown.length > 0) this.warn(`[suite-store] left out of the export but not in the store: ${unknown.join(", ")}`);
     const blobs = this.readAllBlobs(entries, "the store cannot be exported whole");
     const staging = `${snapshotDir}.${process.pid}.${randomBytes(4).toString("hex")}.tmp`;
     try {
@@ -473,6 +477,8 @@ export class SuiteStoreAdapter implements SuiteStorePort {
   restoreSnapshot(snapshotDir: string): { entries: number; digest: string } {
     const snapshot = readManifestFile(snapshotDir);
     if (snapshot === undefined) throw new Error(`there is no suite snapshot at ${snapshotDir}`);
+    this.assertRecordedFor(snapshot, snapshotDir);
+    this.assertWithinLimits(snapshot.entries);
     const blobs = this.readAllBlobs(snapshot.entries, "the snapshot is not whole", join(snapshotDir, BLOBS_DIR));
     this.writeStore(this.nextManifest(this.loadToReplace(), snapshot.entries, snapshot.auth), blobs);
     const digest = restoredSetDigest(snapshot.entries);
@@ -498,6 +504,15 @@ export class SuiteStoreAdapter implements SuiteStorePort {
     return entries
       .filter((entry) => entry.kind === "file" && exclusionReason(entry.rel, false) === undefined && storeExclusion(entry.rel) === undefined)
       .map((entry) => entry.rel);
+  }
+
+  /* A snapshot records the app, repository and suite directory it was taken from; one taken from another would put that suite under this app's name. */
+  private assertRecordedFor(snapshot: SuiteManifest, snapshotDir: string): void {
+    const own = this.deps;
+    const differs = (["app", "repo", "specRelDir"] as const).filter((key) => typeof snapshot[key] === "string" && snapshot[key] !== own[key]);
+    if (differs.length === 0) return;
+    const named = differs.map((key) => `${key} ${snapshot[key]} (this store's is ${own[key]})`).join(", ");
+    throw new Error(`the suite snapshot at ${snapshotDir} was taken from another suite: ${named}; nothing was restored`);
   }
 
   private assertWithinLimits(entries: readonly SuiteEntry[]): void {
@@ -568,15 +583,19 @@ export class SuiteStoreAdapter implements SuiteStorePort {
     }
   }
 
+  private write(path: string, bytes: string | Uint8Array): void {
+    (this.deps.writeFile ?? writeAtomically)(path, bytes);
+  }
+
   /* Blobs first, then the manifest swap, then the removal of what nothing references: a crash in between leaves the previous manifest whole. */
   private writeStore(manifest: SuiteManifest, fresh: ReadonlyMap<string, Buffer>): void {
     const blobs = join(this.deps.storeDir, BLOBS_DIR);
     mkdirSync(blobs, { recursive: true, mode: 0o700 });
     for (const [sha, bytes] of fresh) {
       const target = join(blobs, sha);
-      if (!this.blobIsIntact(sha)) writeAtomically(target, bytes);
+      if (!this.blobIsIntact(sha)) this.write(target, bytes);
     }
-    writeAtomically(join(this.deps.storeDir, MANIFEST_FILE), `${JSON.stringify(manifest, null, 2)}\n`);
+    this.write(join(this.deps.storeDir, MANIFEST_FILE), `${JSON.stringify(manifest, null, 2)}\n`);
     const referenced = new Set(manifest.entries.map((entry) => entry.sha256));
     for (const name of readdirSync(blobs)) {
       if (!referenced.has(name)) rmSync(join(blobs, name), { force: true });
