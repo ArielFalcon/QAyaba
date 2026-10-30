@@ -37,6 +37,7 @@ export type { LiveActivity };
 
 /* Re-export so control-plane importers keep resolving extractJsonObjects/parseVerdict here. */
 import { extractJsonObjects, parseVerdict } from "./verdict-parse";
+import { causeChain } from "../util/net";
 export { extractJsonObjects, parseVerdict };
 
 import {
@@ -334,8 +335,9 @@ export interface AgentCap {
  */
 type AgentOnTheWire = Pick<OpenCodeAgent, "name" | "steps" | "model"> & { maxSteps?: unknown };
 
+/* What a failed call reports, with the chain of causes under it: a request that never left (`fetch failed`) says why only in its cause. */
 function describeFailure(error: unknown): string {
-  return error instanceof Error ? error.message : JSON.stringify(error);
+  return error instanceof Error ? causeChain(error) : JSON.stringify(error);
 }
 
 /* The fault a failed `session.prompt` throws. The server answers 404 (`NotFoundError`) for the one thing the path names, the session: that is a session it no longer has, the only fault after which a holder starts a fresh one. Every other failure stays a plain error. */

@@ -1278,3 +1278,11 @@ test("a prompt the server answers 404 is a session the runtime no longer has; an
   assert.equal(isSessionGoneError(bad), false);
   assert.match(bad.message, /OpenCode session.prompt failed/);
 });
+
+test("a transport failure names its cause, so a request that never left says why", () => {
+  const cause = Object.assign(new Error("invalid onRequestStart method"), { code: "UND_ERR_INVALID_ARG" });
+  const failure = promptFailure(new TypeError("fetch failed", { cause }), undefined);
+  assert.match(failure.message, /fetch failed/);
+  assert.match(failure.message, /UND_ERR_INVALID_ARG/);
+  assert.match(failure.message, /invalid onRequestStart method/);
+});

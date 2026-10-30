@@ -864,6 +864,10 @@ test, and the verdict is its last action.
 - **Long agent turns:** every request to `opencode serve` goes through the agent transport's own dispatcher
   (`src/util/net.ts`), which has no headers or body deadline: a turn ends only by its own limit or the run's
   deadline (the prompt is aborted on the server), never by a transport timeout under a limit nobody set.
+  The dispatcher is the installed `undici`'s, so the request goes through that undici's own `fetch`: Node's global fetch
+  bundles another undici, and a dispatcher of a different version fails every request before it leaves. A request that
+  gets no answer is thrown with the runtime's address and the cause chain (`fetch failed` alone says nothing); a test
+  sends real requests through it to a loopback server, since a fake fetch cannot show the two disagree.
 - **Serena needs a language server per watched language** — add it in `agents/Dockerfile`
   when extending the language scope.
 
