@@ -10,7 +10,6 @@ import type { RunOutcome } from "@kernel/run-outcome.ts";
 import { GENERATION_END } from "@kernel/generation-end.ts";
 import { ERROR_CLASS } from "@kernel/error-class.ts";
 import { CycleBudget } from "@kernel/cycle-budget.ts";
-import { WallClockBudget } from "@kernel/wall-clock-budget.ts";
 import { RunPhaseCursor } from "@contexts/run-orchestration/domain/run-phase-cursor.ts";
 import { PhaseSpans } from "@contexts/run-orchestration/application/run-phase-spans.ts";
 import { finalizeRun, recordCrashEvidence } from "@contexts/run-orchestration/application/run-flow/finalize-run.ts";
@@ -62,7 +61,6 @@ function context(opts: { mode?: RunQaInput["mode"]; mirrorDir?: string | undefin
     cfg,
     startedAt: 0,
     cycleBudget,
-    wallClockBudget: WallClockBudget.derive({ cycleBudget, agentTimeoutMs: 0 }),
     ...(mirrorDir ? { workspace: fakeHandle({ mirrorDir, specDir: `${mirrorDir}/e2e` }) } : {}),
     host: {
       pruneMirror: async (workspace: WorkspaceHandle) => { calls.order.push("prune"); calls.pruned.push(rootsOf(workspace).mirrorDir); },

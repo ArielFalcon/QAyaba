@@ -1,10 +1,9 @@
-/* FixLoop aggregate: triage → selector check → adjudicate → regen → accept (validate + execute the changed specs; a rejected or capped round restores its bytes), with absentKeys short-circuit and a fewest-failures regression guard that restores the best round's bytes too. Triage and the typed test-correct claim run on the evidence the caller grants in `integrity`. CycleBudget/WallClockBudget are forwarded unread into every regenerate() call — this aggregate neither ticks nor inspects them, and neither does the generation adapter: CycleBudget.ceiling is telemetry-only, and WallClockBudget.exhausted() is checked directly by run-qa.use-case.ts before each regen round, not by this aggregate or the generator. break-needs-human exits without setting realBugDetected; the caller labels the Issue. Filtered-retry scopes to failing specs only when change-coverage will not measure this run. */
+/* FixLoop aggregate: triage → selector check → adjudicate → regen → accept (validate + execute the changed specs; a rejected or capped round restores its bytes), with absentKeys short-circuit and a fewest-failures regression guard that restores the best round's bytes too. Triage and the typed test-correct claim run on the evidence the caller grants in `integrity`. CycleBudget is forwarded unread into every regenerate() call — this aggregate neither ticks nor inspects them, and neither does the generation adapter: CycleBudget.ceiling is telemetry-only, and the run deadline is checked by the run flow before each regen round (run-flow/regeneration-allowed.ts), not by this aggregate or the generator. break-needs-human exits without setting realBugDetected; the caller labels the Issue. Filtered-retry scopes to failing specs only when change-coverage will not measure this run. */
 
 import type { RunVerdict } from "@kernel/run-verdict.ts";
 import type { RunMode } from "@kernel/run-mode.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 import type { CycleBudget } from "../../../shared-kernel/cycle-budget.ts";
-import type { WallClockBudget } from "../../../shared-kernel/wall-clock-budget.ts";
 import { classifyRuntimeErrors } from "@kernel/runtime-error-class.ts";
 import { adjudicate, type AdjFailureClass, type AdjudicatorEvidence, type AdjudicatorVerdict, ADJ_CLASS, ADJ_ACTION, ADJ_CONFIDENCE } from "./adjudicate.service.ts";
 import { classifyFailure } from "@kernel/failure-detail-class.ts";
@@ -26,9 +25,8 @@ export interface FixLoopGenerateInput {
   /* The spec that raised each of selectorContradictions, by its index among the spec sources the check read (the previous regeneration's). Absent when the check does not say. */
   selectorContradictionOrigins?: ContradictionOrigin[];
   domSnapshot?: string;
-  /* CycleBudget/WallClockBudget are forwarded unread into regenerate() — this aggregate never ticks or inspects them, and neither does the generation adapter (see this file's header comment). */
+  /* CycleBudget is forwarded unread into regenerate() — this aggregate never ticks or inspects them, and neither does the generation adapter (see this file's header comment). */
   cycleBudget: CycleBudget;
-  wallClockBudget: WallClockBudget;
 }
 export interface FixLoopGenerateResult {
   specs: string[];
@@ -146,7 +144,6 @@ export interface FixLoopInput {
   /* False retires the regeneration and the re-execution, which only repeat what the generator already saw pass: the failure is still adjudicated once, so the Issue carries its class and a defect or an infrastructure fault is still recognised. Absent: true. */
   regenerate?: boolean;
   cycleBudget: CycleBudget;
-  wallClockBudget: WallClockBudget;
   devHealthy: () => Promise<boolean>;
   namespace: string;
   initialSpecSources?: string[];
@@ -640,7 +637,7 @@ export class FixLoop {
       state.hasBestToken = true;
     }
 
-    /* Regeneration with review:skip. Cycle/wall-clock budgets are forwarded unread (see the header). */
+    /* Regeneration with review:skip. The cycle budget is forwarded unread (see the header). */
     const notes = round.availabilityNotes;
     const result = await this.deps.regeneration.regenerate({
       fixCases: notes ? round.failed.map((c) => (notes.has(c.name) ? { ...c, detail: `${c.detail ?? ""}\n${notes.get(c.name)!}`.trim() } : c)) : round.failed,
@@ -648,7 +645,6 @@ export class FixLoop {
       ...(round.selectorContradictions.length > 0 && round.origins ? { selectorContradictionOrigins: round.origins } : {}),
       ...(input.failureDomSnapshot ? { domSnapshot: input.failureDomSnapshot } : {}),
       cycleBudget: input.cycleBudget,
-      wallClockBudget: input.wallClockBudget,
     });
     round.result = result;
     /*

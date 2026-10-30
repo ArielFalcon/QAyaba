@@ -178,6 +178,21 @@ report:
     }
   });
 
+  test("loadAppConfig reports the retired qa.wallClockBudgetMs key and says the run deadline is the only clock", () => {
+    const lines = captureWarnings();
+    const { root } = loadWith("", VALID_APP.replace("  needsReview: true", "  needsReview: true\n  wallClockBudgetMs: 5000"));
+    try {
+      assert.equal(loadAppConfig("shop", root).repo, "org/shop-front");
+      const retired = lines.filter((l) => /qa\.wallClockBudgetMs/.test(l.message));
+      assert.equal(retired.length, 1);
+      assert.match(retired[0]?.message ?? "", /'shop'/);
+      assert.match(retired[0]?.message ?? "", /is retired/);
+      assert.match(retired[0]?.message ?? "", /run deadline/);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   test("loadAppConfig reports the retired reviewLoopIntegrity key as an unknown key, with no replacement named", () => {
     const lines = captureWarnings();
     const { root } = loadWith("", VALID_APP.replace("  needsReview: true", "  needsReview: true\n  reviewLoopIntegrity: false"));

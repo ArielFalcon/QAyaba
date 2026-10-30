@@ -324,14 +324,6 @@ export const AppConfigSchema = z
             .optional(),
         })
         .optional(),
-      /*
-       * Optional run-level wall-clock ceiling (ms). When the run's total elapsed time exceeds this at
-       * the ENTRY of a generation, no further generation starts and the run concludes on its current
-       * state — it NEVER aborts an in-flight execute/review or discards a green result. Default
-       * (undefined) → MAX_CYCLES * agentTimeout(mode), a conservative outer bound.
-       * Observation+safety, not a tuning lever.
-       */
-      wallClockBudgetMs: z.number().int().positive().optional(),
     }),
     /*
      * Per-app Playwright configuration. testIdAttribute overrides the default "data-testid"

@@ -73,6 +73,7 @@ function droppedKeyPaths(document: unknown, kept: unknown, prefix = ""): string[
 const warnedKeys = new Set<string>();
 
 const RETIRED_KEY_ADVICE: ReadonlyMap<string, string> = new Map([
+  ["qa.wallClockBudgetMs", "it is ignored; the run deadline (QA_RUN_TIME_BUDGET_MS_*) is the only clock that bounds a run, and a regeneration is held to it"],
   ["qa.valueOracle", "it is ignored; use 'qa.changeCoverage.bundleMutation' instead (bundle mutation now runs unless that key is 'off')"],
 ]);
 

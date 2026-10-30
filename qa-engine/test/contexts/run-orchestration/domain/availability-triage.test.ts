@@ -5,7 +5,6 @@ import { FixLoop, type FixLoopExecuteInput, type FixLoopGenerateInput, type FixL
 import { routesOpenedBy } from "@contexts/run-orchestration/domain/availability-triage.ts";
 import type { RouteAvailabilityFact, AvailabilityBasis } from "@kernel/route-availability.ts";
 import { CycleBudget } from "@kernel/cycle-budget.ts";
-import { WallClockBudget } from "@kernel/wall-clock-budget.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 import { UNPROVEN_INTEGRITY } from "../../../support/fix-loop-integrity.ts";
 
@@ -37,7 +36,6 @@ function harness() {
 
 function input(facts: readonly RouteAvailabilityFact[], cases: QaCase[] = [failing()]): FixLoopInput {
   const cycleBudget = CycleBudget.derive({ maxRetries: 1 });
-  const wallClockBudget = WallClockBudget.derive({ cycleBudget, agentTimeoutMs: 60_000 });
   return {
     initialRun: { verdict: "fail", cases },
     generating: true,
@@ -45,7 +43,6 @@ function input(facts: readonly RouteAvailabilityFact[], cases: QaCase[] = [faili
     objectiveSource: ["src/app.routes.ts"],
     maxRetries: 1,
     cycleBudget,
-    wallClockBudget,
     devHealthy: async () => true,
     namespace: "run",
     integrity: UNPROVEN_INTEGRITY,

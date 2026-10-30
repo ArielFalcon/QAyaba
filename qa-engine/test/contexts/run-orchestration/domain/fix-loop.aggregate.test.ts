@@ -15,7 +15,6 @@ import {
 } from "@contexts/run-orchestration/domain/fix-loop.aggregate.ts";
 import type { ContradictionOrigin, SpecSelectorFindings } from "@kernel/selector-findings.ts";
 import { CycleBudget } from "@kernel/cycle-budget.ts";
-import { WallClockBudget } from "@kernel/wall-clock-budget.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 
 /* ExecutionPort/the regeneration port/SelectorCheck (this file); each loop decision tested in isolation.
@@ -26,10 +25,8 @@ function makeCase(overrides: Partial<QaCase> = {}): QaCase {
   return { name: "login", status: "fail", detail: "getByRole resolved to 0 elements", ...overrides };
 }
 
-function budgets(): { cycleBudget: CycleBudget; wallClockBudget: WallClockBudget } {
-  const cycleBudget = CycleBudget.derive({ maxRetries: 2 });
-  const wallClockBudget = WallClockBudget.derive({ cycleBudget, agentTimeoutMs: 60_000 });
-  return { cycleBudget, wallClockBudget };
+function budgets(): { cycleBudget: CycleBudget } {
+  return { cycleBudget: CycleBudget.derive({ maxRetries: 2 }) };
 }
 
 /* A stub the regeneration port that always regenerates one spec with no selector-contradiction feedback. */
@@ -85,7 +82,7 @@ test("break-issue with runner_infra evidence -> infra-error, no regen call", asy
       return { specs: [], approved: true };
     },
   };
-  const { cycleBudget, wallClockBudget } = budgets();
+  const { cycleBudget } = budgets();
   const loop = new FixLoop({ execution, regeneration, selectorCheck: { check: () => ({ contradictions: [], absentKeys: new Set(), anyVerifiedPresent: false, anyNonExtractable: false, anyUnverifiable: false }) } });
 
   const result = await loop.run({
@@ -95,7 +92,6 @@ test("break-issue with runner_infra evidence -> infra-error, no regen call", asy
     objectiveSource: ["src/checkout.ts"],
     maxRetries: 2,
     cycleBudget,
-    wallClockBudget,
     integrity: integrity({ hasGreenProof: async () => false }),
     devHealthy: async () => true,
     namespace: "qa-bot-abc",
@@ -113,7 +109,7 @@ test("break-issue with app_defect (real-bug) evidence -> realBugDetected=true, v
     },
   };
   const regeneration = regenAlwaysSucceeds();
-  const { cycleBudget, wallClockBudget } = budgets();
+  const { cycleBudget } = budgets();
   const loop = new FixLoop({
     execution,
     regeneration,
@@ -130,7 +126,6 @@ test("break-issue with app_defect (real-bug) evidence -> realBugDetected=true, v
     objectiveSource: ["src/checkout.ts"],
     maxRetries: 2,
     cycleBudget,
-    wallClockBudget,
     integrity: integrity({ hasGreenProof: async () => false }),
     devHealthy: async () => true,
     namespace: "qa-bot-abc",
@@ -153,7 +148,7 @@ test("loop condition — maxRetries=0 disables the fix-loop entirely (no regen, 
       return { specs: [], approved: true };
     },
   };
-  const { cycleBudget, wallClockBudget } = budgets();
+  const { cycleBudget } = budgets();
   const loop = new FixLoop({ execution, regeneration, selectorCheck: { check: () => ({ contradictions: [], absentKeys: new Set(), anyVerifiedPresent: false, anyNonExtractable: false, anyUnverifiable: false }) } });
 
   const result = await loop.run({
@@ -163,7 +158,6 @@ test("loop condition — maxRetries=0 disables the fix-loop entirely (no regen, 
     objectiveSource: ["src/checkout.ts"],
     maxRetries: 0,
     cycleBudget,
-    wallClockBudget,
     integrity: integrity({ hasGreenProof: async () => false }),
     devHealthy: async () => true,
     namespace: "qa-bot-abc",
@@ -177,7 +171,7 @@ test("loop condition — maxRetries=0 disables the fix-loop entirely (no regen, 
 test("loop condition — verdict!=='fail' skips the loop entirely (already pass)", async () => {
   const execution: FixLoopExecutionPort = { execute: async () => { throw new Error("must not execute"); } };
   const regeneration: FixLoopRegenerationPort = { regenerate: async () => { throw new Error("must not regen"); } };
-  const { cycleBudget, wallClockBudget } = budgets();
+  const { cycleBudget } = budgets();
   const loop = new FixLoop({ execution, regeneration, selectorCheck: { check: () => ({ contradictions: [], absentKeys: new Set(), anyVerifiedPresent: false, anyNonExtractable: false, anyUnverifiable: false }) } });
 
   const result = await loop.run({
@@ -187,7 +181,6 @@ test("loop condition — verdict!=='fail' skips the loop entirely (already pass)
     objectiveSource: [],
     maxRetries: 2,
     cycleBudget,
-    wallClockBudget,
     integrity: integrity({ hasGreenProof: async () => false }),
     devHealthy: async () => true,
     namespace: "qa-bot-abc",
@@ -200,7 +193,7 @@ test("loop condition — verdict!=='fail' skips the loop entirely (already pass)
 test("loop condition — generating=false skips the loop entirely (regression-only run)", async () => {
   const execution: FixLoopExecutionPort = { execute: async () => { throw new Error("must not execute"); } };
   const regeneration: FixLoopRegenerationPort = { regenerate: async () => { throw new Error("must not regen"); } };
-  const { cycleBudget, wallClockBudget } = budgets();
+  const { cycleBudget } = budgets();
   const loop = new FixLoop({ execution, regeneration, selectorCheck: { check: () => ({ contradictions: [], absentKeys: new Set(), anyVerifiedPresent: false, anyNonExtractable: false, anyUnverifiable: false }) } });
 
   const result = await loop.run({
@@ -210,7 +203,6 @@ test("loop condition — generating=false skips the loop entirely (regression-on
     objectiveSource: [],
     maxRetries: 2,
     cycleBudget,
-    wallClockBudget,
     integrity: integrity({ hasGreenProof: async () => false }),
     devHealthy: async () => true,
     namespace: "qa-bot-abc",
@@ -246,7 +238,7 @@ test("Lever-2 absentKeys short-circuit — regenerates WITHOUT re-executing, loo
      This is the CORRECT ported behavior (fail-closed progress gate), not a bug: an agent that never
      changes the failure set only gets ONE regen before the loop stops for human review.
    */
-  const { cycleBudget, wallClockBudget } = budgets();
+  const { cycleBudget } = budgets();
   const loop = new FixLoop({
     execution,
     regeneration,
@@ -268,7 +260,6 @@ test("Lever-2 absentKeys short-circuit — regenerates WITHOUT re-executing, loo
     objectiveSource: ["src/checkout.ts"],
     maxRetries: 2,
     cycleBudget,
-    wallClockBudget,
     integrity: integrity({ hasGreenProof: async () => false }),
     devHealthy: async () => true,
     namespace: "qa-bot-abc",
@@ -291,7 +282,7 @@ async function regenInputFor(findings: Partial<SpecSelectorFindings> & { origins
       return { specs: ["login.spec.ts"], approved: true };
     },
   };
-  const { cycleBudget, wallClockBudget } = budgets();
+  const { cycleBudget } = budgets();
   const loop = new FixLoop({
     execution,
     regeneration,
@@ -304,7 +295,6 @@ async function regenInputFor(findings: Partial<SpecSelectorFindings> & { origins
     objectiveSource: ["src/checkout.ts"],
     maxRetries: 1,
     cycleBudget,
-    wallClockBudget,
     integrity: integrity({ hasGreenProof: async () => false }),
     devHealthy: async () => true,
     namespace: "qa-bot-abc",
@@ -344,7 +334,7 @@ test("filtered-retry — canFilter true (coverageWillMeasure=false, regen stayed
   const regeneration: FixLoopRegenerationPort = {
     regenerate: async () => ({ specs: ["login.spec.ts"], approved: true }),
   };
-  const { cycleBudget, wallClockBudget } = budgets();
+  const { cycleBudget } = budgets();
   const loop = new FixLoop({
     execution,
     regeneration,
@@ -358,7 +348,6 @@ test("filtered-retry — canFilter true (coverageWillMeasure=false, regen stayed
     objectiveSource: ["src/checkout.ts"],
     maxRetries: 1,
     cycleBudget,
-    wallClockBudget,
     integrity: integrity({ hasGreenProof: async () => false }),
     devHealthy: async () => true,
     namespace: "qa-bot-abc",
@@ -383,7 +372,7 @@ async function retryScopeFor(failingFile: string, regenSpecs: string[]): Promise
     regeneration: { regenerate: async () => ({ specs: regenSpecs, approved: true }) },
     selectorCheck: { check: () => ({ contradictions: [], absentKeys: new Set(), anyVerifiedPresent: true, anyNonExtractable: false, anyUnverifiable: false }) },
   });
-  const { cycleBudget, wallClockBudget } = budgets();
+  const { cycleBudget } = budgets();
   await loop.run({
     initialRun: { verdict: "fail", cases: [makeCase({ file: failingFile })] },
     generating: true,
@@ -391,7 +380,6 @@ async function retryScopeFor(failingFile: string, regenSpecs: string[]): Promise
     objectiveSource: ["src/login.ts"],
     maxRetries: 1,
     cycleBudget,
-    wallClockBudget,
     integrity: integrity({ hasGreenProof: async () => false }),
     devHealthy: async () => true,
     namespace: "qa-bot-abc",
@@ -431,7 +419,7 @@ test("filtered-retry — regen specs are ALL outside the failing set -> full re-
        run the file the regen actually produced. */
     regenerate: async () => ({ specs: ["checkout.spec.ts"], approved: true }),
   };
-  const { cycleBudget, wallClockBudget } = budgets();
+  const { cycleBudget } = budgets();
   const loop = new FixLoop({
     execution,
     regeneration,
@@ -445,7 +433,6 @@ test("filtered-retry — regen specs are ALL outside the failing set -> full re-
     objectiveSource: ["src/checkout.ts"],
     maxRetries: 1,
     cycleBudget,
-    wallClockBudget,
     integrity: integrity({ hasGreenProof: async () => false }),
     devHealthy: async () => true,
     namespace: "qa-bot-abc",
@@ -471,7 +458,7 @@ test("filtered-retry — canFilter false when coverageWillMeasure=true (never fi
   const regeneration: FixLoopRegenerationPort = {
     regenerate: async () => ({ specs: ["login.spec.ts"], approved: true }),
   };
-  const { cycleBudget, wallClockBudget } = budgets();
+  const { cycleBudget } = budgets();
   const loop = new FixLoop({
     execution,
     regeneration,
@@ -485,7 +472,6 @@ test("filtered-retry — canFilter false when coverageWillMeasure=true (never fi
     objectiveSource: ["src/checkout.ts"],
     maxRetries: 1,
     cycleBudget,
-    wallClockBudget,
     integrity: integrity({ hasGreenProof: async () => false }),
     devHealthy: async () => true,
     namespace: "qa-bot-abc",
@@ -522,7 +508,7 @@ test("bestRunSoFar regression guard — a worse terminal retry is discarded for 
   const regeneration: FixLoopRegenerationPort = {
     regenerate: async () => ({ specs: ["login.spec.ts", "checkout.spec.ts"], approved: true }),
   };
-  const { cycleBudget, wallClockBudget } = budgets();
+  const { cycleBudget } = budgets();
   const loop = new FixLoop({
     execution,
     regeneration,
@@ -542,7 +528,6 @@ test("bestRunSoFar regression guard — a worse terminal retry is discarded for 
     objectiveSource: ["src/checkout.ts"],
     maxRetries: 2,
     cycleBudget,
-    wallClockBudget,
     integrity: integrity({ hasGreenProof: async () => false }),
     devHealthy: async () => true,
     namespace: "qa-bot-abc",
@@ -574,7 +559,7 @@ test("bestRunSoFar guard is SKIPPED when realBugDetected fired (the current fail
   const regeneration: FixLoopRegenerationPort = {
     regenerate: async () => ({ specs: ["checkout.spec.ts"], approved: true }),
   };
-  const { cycleBudget, wallClockBudget } = budgets();
+  const { cycleBudget } = budgets();
   const loop = new FixLoop({
     execution,
     regeneration,
@@ -594,7 +579,6 @@ test("bestRunSoFar guard is SKIPPED when realBugDetected fired (the current fail
     objectiveSource: ["src/checkout.ts"],
     maxRetries: 2,
     cycleBudget,
-    wallClockBudget,
     integrity: integrity({ hasGreenProof: async () => false }),
     devHealthy: async () => true,
     namespace: "qa-bot-abc",
@@ -624,7 +608,7 @@ test("an accepted round's execution replaces its changed file's cases, and the l
     },
   };
   const regeneration: FixLoopRegenerationPort = { regenerate: async () => ({ specs: ["a.spec.ts"], approved: true }) };
-  const { cycleBudget, wallClockBudget } = budgets();
+  const { cycleBudget } = budgets();
   const loop = new FixLoop({
     execution,
     regeneration,
@@ -639,7 +623,6 @@ test("an accepted round's execution replaces its changed file's cases, and the l
     objectiveSource: ["src/checkout.ts"],
     maxRetries: 1,
     cycleBudget,
-    wallClockBudget,
     integrity: integrity({ hasGreenProof: async () => false }),
     devHealthy: async () => true,
     namespace: "qa-bot-abc",
@@ -666,7 +649,7 @@ test("a rejected acceptance keeps the prior run and stops without executing", as
     },
   };
   const regeneration: FixLoopRegenerationPort = { regenerate: async () => ({ specs: ["a.spec.ts"], approved: true }) };
-  const { cycleBudget, wallClockBudget } = budgets();
+  const { cycleBudget } = budgets();
   const loop = new FixLoop({
     execution,
     regeneration,
@@ -681,7 +664,6 @@ test("a rejected acceptance keeps the prior run and stops without executing", as
     objectiveSource: ["src/checkout.ts"],
     maxRetries: 2,
     cycleBudget,
-    wallClockBudget,
     integrity: integrity({ hasGreenProof: async () => false }),
     devHealthy: async () => true,
     namespace: "qa-bot-abc",
@@ -703,7 +685,7 @@ test("a capped acceptance keeps the prior run and stops without executing", asyn
     },
   };
   const regeneration: FixLoopRegenerationPort = { regenerate: async () => ({ specs: ["a.spec.ts"], approved: true }) };
-  const { cycleBudget, wallClockBudget } = budgets();
+  const { cycleBudget } = budgets();
   const loop = new FixLoop({
     execution,
     regeneration,
@@ -718,7 +700,6 @@ test("a capped acceptance keeps the prior run and stops without executing", asyn
     objectiveSource: ["src/checkout.ts"],
     maxRetries: 2,
     cycleBudget,
-    wallClockBudget,
     integrity: integrity({ hasGreenProof: async () => false }),
     devHealthy: async () => true,
     namespace: "qa-bot-abc",
@@ -749,7 +730,7 @@ test("the best round's snapshot is restored when a later round regresses", async
   });
   const execution: FixLoopExecutionPort = { execute: async () => { throw new Error("the accepted path must not execute directly"); } };
   const regeneration: FixLoopRegenerationPort = { regenerate: async () => ({ specs: ["a.spec.ts"], approved: true }) };
-  const { cycleBudget, wallClockBudget } = budgets();
+  const { cycleBudget } = budgets();
   const loop = new FixLoop({
     execution,
     regeneration,
@@ -764,7 +745,6 @@ test("the best round's snapshot is restored when a later round regresses", async
     objectiveSource: ["src/checkout.ts"],
     maxRetries: 2,
     cycleBudget,
-    wallClockBudget,
     integrity: integrity({ hasGreenProof: async () => false }),
     devHealthy: async () => true,
     namespace: "qa-bot-abc",
@@ -787,7 +767,7 @@ test("an accepted round names as re-run only the changed spec files its executio
   }));
   const execution: FixLoopExecutionPort = { execute: async () => { throw new Error("the accepted path must not execute directly"); } };
   const regeneration: FixLoopRegenerationPort = { regenerate: async () => ({ specs: ["a.spec.ts", "c.spec.ts"], approved: true }) };
-  const { cycleBudget, wallClockBudget } = budgets();
+  const { cycleBudget } = budgets();
   const loop = new FixLoop({
     execution,
     regeneration,
@@ -802,7 +782,6 @@ test("an accepted round names as re-run only the changed spec files its executio
     objectiveSource: ["src/checkout.ts"],
     maxRetries: 1,
     cycleBudget,
-    wallClockBudget,
     integrity: integrity({ hasGreenProof: async () => false }),
     devHealthy: async () => true,
     namespace: "qa-bot-abc",
@@ -820,7 +799,7 @@ test("an accepted round keeps a case the run cannot attribute to a file", async 
   }));
   const execution: FixLoopExecutionPort = { execute: async () => { throw new Error("the accepted path must not execute directly"); } };
   const regeneration: FixLoopRegenerationPort = { regenerate: async () => ({ specs: ["a.spec.ts"], approved: true }) };
-  const { cycleBudget, wallClockBudget } = budgets();
+  const { cycleBudget } = budgets();
   const loop = new FixLoop({
     execution,
     regeneration,
@@ -841,7 +820,6 @@ test("an accepted round keeps a case the run cannot attribute to a file", async 
     objectiveSource: ["src/checkout.ts"],
     maxRetries: 1,
     cycleBudget,
-    wallClockBudget,
     integrity: integrity({ hasGreenProof: async () => false }),
     devHealthy: async () => true,
     namespace: "qa-bot-abc",
@@ -869,7 +847,7 @@ test("the initial run's own bytes are restored when the first accepted round is 
   }));
   const execution: FixLoopExecutionPort = { execute: async () => { throw new Error("the accepted path must not execute directly"); } };
   const regeneration: FixLoopRegenerationPort = { regenerate: async () => ({ specs: ["a.spec.ts", "c.spec.ts"], approved: true }) };
-  const { cycleBudget, wallClockBudget } = budgets();
+  const { cycleBudget } = budgets();
   const loop = new FixLoop({
     execution,
     regeneration,
@@ -884,7 +862,6 @@ test("the initial run's own bytes are restored when the first accepted round is 
     objectiveSource: ["src/checkout.ts"],
     maxRetries: 1,
     cycleBudget,
-    wallClockBudget,
     integrity: integrity({ hasGreenProof: async () => false }),
     devHealthy: async () => true,
     namespace: "qa-bot-abc",
@@ -903,7 +880,7 @@ test("an accepted round never hides a flaky spec it did not re-run", async () =>
   }));
   const execution: FixLoopExecutionPort = { execute: async () => { throw new Error("the accepted path must not execute directly"); } };
   const regeneration: FixLoopRegenerationPort = { regenerate: async () => ({ specs: ["a.spec.ts"], approved: true }) };
-  const { cycleBudget, wallClockBudget } = budgets();
+  const { cycleBudget } = budgets();
   const loop = new FixLoop({
     execution,
     regeneration,
@@ -924,7 +901,6 @@ test("an accepted round never hides a flaky spec it did not re-run", async () =>
     objectiveSource: ["src/checkout.ts"],
     maxRetries: 1,
     cycleBudget,
-    wallClockBudget,
     integrity: integrity({ hasGreenProof: async () => false }),
     devHealthy: async () => true,
     namespace: "qa-bot-abc",
@@ -939,7 +915,7 @@ test("DEV unhealthy before a round's acceptance skips it", async () => {
   const acceptance = fakeAcceptance(async () => ({ kind: "cap" }));
   const execution: FixLoopExecutionPort = { execute: async () => { throw new Error("the accepted path must not execute directly"); } };
   const regeneration: FixLoopRegenerationPort = { regenerate: async () => ({ specs: ["a.spec.ts"], approved: true }) };
-  const { cycleBudget, wallClockBudget } = budgets();
+  const { cycleBudget } = budgets();
   const loop = new FixLoop({
     execution,
     regeneration,
@@ -954,7 +930,6 @@ test("DEV unhealthy before a round's acceptance skips it", async () => {
     objectiveSource: ["src/checkout.ts"],
     maxRetries: 1,
     cycleBudget,
-    wallClockBudget,
     integrity: integrity({ hasGreenProof: async () => false }),
     /* Healthy for the initial snapshot; down by the time the round's acceptance is asked to run. */
     devHealthy: async () => {
@@ -977,7 +952,7 @@ test("a rejected fail round ends as infra-error when DEV went unhealthy during i
   }));
   const execution: FixLoopExecutionPort = { execute: async () => { throw new Error("the accepted path must not execute directly"); } };
   const regeneration: FixLoopRegenerationPort = { regenerate: async () => ({ specs: ["a.spec.ts"], approved: true }) };
-  const { cycleBudget, wallClockBudget } = budgets();
+  const { cycleBudget } = budgets();
   const loop = new FixLoop({
     execution,
     regeneration,
@@ -992,7 +967,6 @@ test("a rejected fail round ends as infra-error when DEV went unhealthy during i
     objectiveSource: ["src/checkout.ts"],
     maxRetries: 1,
     cycleBudget,
-    wallClockBudget,
     integrity: integrity({ hasGreenProof: async () => false }),
     /* Healthy for the initial snapshot and the pre-acceptance check; down by the time the rejected failure is classified. */
     devHealthy: async () => {
@@ -1010,7 +984,7 @@ test("a validation rejection while DEV is down stays a validation rejection, not
   const acceptance = fakeAcceptance(async () => ({ kind: "rejected", reason: "TS2554: expected 2 arguments" }));
   const execution: FixLoopExecutionPort = { execute: async () => { throw new Error("the accepted path must not execute directly"); } };
   const regeneration: FixLoopRegenerationPort = { regenerate: async () => ({ specs: ["a.spec.ts"], approved: true }) };
-  const { cycleBudget, wallClockBudget } = budgets();
+  const { cycleBudget } = budgets();
   const loop = new FixLoop({
     execution,
     regeneration,
@@ -1025,7 +999,6 @@ test("a validation rejection while DEV is down stays a validation rejection, not
     objectiveSource: ["src/checkout.ts"],
     maxRetries: 1,
     cycleBudget,
-    wallClockBudget,
     integrity: integrity({ hasGreenProof: async () => false }),
     /* Healthy for the snapshot and the pre-acceptance check; down when the rejection is read. */
     devHealthy: async () => {
@@ -1047,7 +1020,7 @@ test("a rejected infra-error round ends the run as infra-error", async () => {
   }));
   const execution: FixLoopExecutionPort = { execute: async () => { throw new Error("the accepted path must not execute directly"); } };
   const regeneration: FixLoopRegenerationPort = { regenerate: async () => ({ specs: ["a.spec.ts"], approved: true }) };
-  const { cycleBudget, wallClockBudget } = budgets();
+  const { cycleBudget } = budgets();
   const loop = new FixLoop({
     execution,
     regeneration,
@@ -1062,7 +1035,6 @@ test("a rejected infra-error round ends the run as infra-error", async () => {
     objectiveSource: ["src/checkout.ts"],
     maxRetries: 2,
     cycleBudget,
-    wallClockBudget,
     integrity: integrity({ hasGreenProof: async () => false }),
     devHealthy: async () => true,
     namespace: "qa-bot-abc",
@@ -1102,7 +1074,7 @@ test("reexploreNavigations thrash-stop — a heavy re-exploration round downgrad
       return { specs: ["checkout.spec.ts"], approved: true, reexploreNavigations: 5 };
     },
   };
-  const { cycleBudget, wallClockBudget } = budgets();
+  const { cycleBudget } = budgets();
   const loop = new FixLoop({
     execution,
     regeneration,
@@ -1116,7 +1088,6 @@ test("reexploreNavigations thrash-stop — a heavy re-exploration round downgrad
     objectiveSource: ["src/checkout.ts"],
     maxRetries: 2,
     cycleBudget,
-    wallClockBudget,
     integrity: integrity({ hasGreenProof: async () => false }),
     devHealthy: async () => true,
     namespace: "qa-bot-f1",
@@ -1152,7 +1123,7 @@ test("mid-retry infra-error (DEV dies after a filtered retry-execute) discards c
   const regeneration: FixLoopRegenerationPort = {
     regenerate: async () => ({ specs: ["checkout.spec.ts"], approved: true }),
   };
-  const { cycleBudget, wallClockBudget } = budgets();
+  const { cycleBudget } = budgets();
   const loop = new FixLoop({
     execution,
     regeneration,
@@ -1170,7 +1141,6 @@ test("mid-retry infra-error (DEV dies after a filtered retry-execute) discards c
     objectiveSource: ["src/checkout.ts"],
     maxRetries: 2,
     cycleBudget,
-    wallClockBudget,
     integrity: integrity({ hasGreenProof: async () => false }),
     devHealthy: async () => {
       devHealthyCallCount++;
@@ -1189,12 +1159,12 @@ test("mid-retry infra-error (DEV dies after a filtered retry-execute) discards c
   assert.deepEqual(result.run.cases, [], "a discarded infra-error run must carry zero cases, matching every other infra-error assignment in this aggregate");
 });
 
-/* cycleBudget/wallClockBudget thread into the FixLoopthe author port call so a composed
+/* cycleBudget threads into the FixLoopthe author port call so a composed
    generation adapter can enforce the budget check at the generate() call boundary, rather than the
    fix-loop re-implementing budget logic it structurally does not own.
  */
-test("the regen call threads cycleBudget/wallClockBudget to the the regeneration port, not the fix-loop block)", async () => {
-  const receivedGenerateInputs: Array<{ cycleBudget?: CycleBudget; wallClockBudget?: WallClockBudget }> = [];
+test("the regen call threads cycleBudget to the the regeneration port, not the fix-loop block)", async () => {
+  const receivedGenerateInputs: Array<{ cycleBudget?: CycleBudget }> = [];
   const execution: FixLoopExecutionPort = {
     execute: async () => ({ verdict: "pass" as const, cases: [{ name: "checkout", status: "pass" as const }] }),
   };
@@ -1204,7 +1174,7 @@ test("the regen call threads cycleBudget/wallClockBudget to the the regeneration
       return { specs: ["checkout.spec.ts"], approved: true };
     },
   };
-  const { cycleBudget, wallClockBudget } = budgets();
+  const { cycleBudget } = budgets();
   const loop = new FixLoop({
     execution,
     regeneration,
@@ -1218,7 +1188,6 @@ test("the regen call threads cycleBudget/wallClockBudget to the the regeneration
     objectiveSource: ["src/checkout.ts"],
     maxRetries: 1,
     cycleBudget,
-    wallClockBudget,
     integrity: integrity({ hasGreenProof: async () => false }),
     devHealthy: async () => true,
     namespace: "qa-bot-f4",
@@ -1226,7 +1195,6 @@ test("the regen call threads cycleBudget/wallClockBudget to the the regeneration
 
   assert.equal(receivedGenerateInputs.length, 1);
   assert.strictEqual(receivedGenerateInputs[0]!.cycleBudget, cycleBudget, "the SAME immutable CycleBudget instance passed into FixLoopInput must reach the generation port call — the aggregate forwards the budget unread");
-  assert.strictEqual(receivedGenerateInputs[0]!.wallClockBudget, wallClockBudget, "the SAME immutable WallClockBudget instance must reach the generation port call — the aggregate forwards the budget unread");
 });
 
 /* FixLoopResult.lastSpecMetas surfaces the LAST regen round's own specMetas — the caller
@@ -1245,7 +1213,7 @@ test("lastSpecMetas reflects the FINAL regen round's own specMetas once the loop
       specMetas: [{ flow: "Checkout", objective: "user can pay with a saved card" }],
     }),
   };
-  const { cycleBudget, wallClockBudget } = budgets();
+  const { cycleBudget } = budgets();
   const loop = new FixLoop({
     execution,
     regeneration,
@@ -1259,7 +1227,6 @@ test("lastSpecMetas reflects the FINAL regen round's own specMetas once the loop
     objectiveSource: ["src/checkout.ts"],
     maxRetries: 1,
     cycleBudget,
-    wallClockBudget,
     integrity: integrity({ hasGreenProof: async () => false }),
     devHealthy: async () => true,
     namespace: "qa-bot-specmetas",
@@ -1280,7 +1247,7 @@ test("lastSpecMetas is undefined when the loop never regenerated (already passin
       throw new Error("generate must not be called — the loop never engages");
     },
   };
-  const { cycleBudget, wallClockBudget } = budgets();
+  const { cycleBudget } = budgets();
   const loop = new FixLoop({
     execution,
     regeneration,
@@ -1294,7 +1261,6 @@ test("lastSpecMetas is undefined when the loop never regenerated (already passin
     objectiveSource: ["src/checkout.ts"],
     maxRetries: 2,
     cycleBudget,
-    wallClockBudget,
     integrity: integrity({ hasGreenProof: async () => false }),
     devHealthy: async () => true,
     namespace: "qa-bot-specmetas-noop",
@@ -1350,7 +1316,7 @@ function recordingLoop(opts: {
 }
 
 function loopInput(overrides: Partial<FixLoopInput> = {}): FixLoopInput {
-  const { cycleBudget, wallClockBudget } = budgets();
+  const { cycleBudget } = budgets();
   return {
     initialRun: { verdict: "fail", cases: [makeCase({ file: "checkout.spec.ts" })] },
     generating: true,
@@ -1358,7 +1324,6 @@ function loopInput(overrides: Partial<FixLoopInput> = {}): FixLoopInput {
     objectiveSource: ["src/checkout.ts"],
     maxRetries: 1,
     cycleBudget,
-    wallClockBudget,
     devHealthy: async () => true,
     namespace: "qa-bot-run",
     coverageWillMeasure: false,

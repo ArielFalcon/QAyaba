@@ -74,13 +74,6 @@ export interface RunQaConfig {
    * rejects a regeneration, and the opacity ratio flags a contract, never blocks one.
    */
   intentLock?: { mode: "off" | "signal"; opacityFlagRatio: number };
-  /**
-   * Per-mode agent session budget (ms). 0 / omitted derives WallClockBudget but
-   * MUST NOT enforce it — a zero budget would abort every retry immediately.
-   */
-  agentTimeoutMs?: number;
-  /** When set, WallClockBudget uses this instead of cycleBudget.ceiling * agentTimeoutMs. */
-  wallClockBudgetMs?: number;
   iterationBudget?: number;
   /** Whether the reviewer runs the generator's own model; computed by the shell from the runtime assignment and only recorded on the run. */
   reviewerIndependence?: "shared-model" | "distinct-model";

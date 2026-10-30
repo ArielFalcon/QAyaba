@@ -357,8 +357,8 @@ the values `tier-budget | run-deadline | repair-cap | session-timeout | prompt-b
 facts on the root span and on the run record (`RunTraceFacts`, `qa-engine/src/shared-kernel/run-trace-facts.ts`); the run's note is
 derived from them and is never the only carrier:
 - **Limits.** `qayaba.limits` lists every limit that fired as `limit@role`: first the engine's own, whether the limit ended the run or
-  the run went on past it (the deadline that ended the run, or degraded it with `deadline-after-proof`; the wall-clock budget that refused
-  a regeneration, `wall-clock-budget`; the budget generation ended on, `tier-budget` or `step-cap`), then the limits agent turns ended on
+  the run went on past it (the deadline that ended the run, or degraded it with `deadline-after-proof`; the budget generation
+  ended on, `tier-budget` or `step-cap`), then the limits agent turns ended on
   and the run went on past (`repair-cap`, `stall`, ...), counted per role. `qayaba.limit.fired` is the first the engine met at run level, and a run whose only limits were met by
   turns has none: a cap a turn hit and the run went on past is listed, never the run's lead limit, and `qayaba.budget.exhausted` counts
   run-level limits only. The record's `limits` column holds the same list, `limit_fired`/`limit_role` the lead, and `budgets` in `GET /runs/:id` and the

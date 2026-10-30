@@ -2,7 +2,6 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { FixLoop, type FixLoopExecutionPort, type FixLoopRegenerationPort } from "@contexts/run-orchestration/domain/fix-loop.aggregate.ts";
 import { CycleBudget } from "@kernel/cycle-budget.ts";
-import { WallClockBudget } from "@kernel/wall-clock-budget.ts";
 import { UNPROVEN_INTEGRITY } from "../../../support/fix-loop-integrity.ts";
 
 /* The retry loop of the FixLoop aggregate: a run that fails the same way on every execution is retried once and ends
@@ -31,7 +30,6 @@ test("a run that fails identically on every execution is retried once and ends a
     },
   };
   const cycleBudget = CycleBudget.derive({ maxRetries: 2 });
-  const wallClockBudget = WallClockBudget.derive({ cycleBudget, agentTimeoutMs: 60_000 });
   const loop = new FixLoop({
     execution,
     regeneration,
@@ -46,7 +44,6 @@ test("a run that fails identically on every execution is retried once and ends a
     objectiveSource: ["src/x.ts"],
     maxRetries: 2, /* the default when the app sets no fix-loop override */
     cycleBudget,
-    wallClockBudget,
     devHealthy: async () => true,
     namespace: "fail-identically",
     integrity: UNPROVEN_INTEGRITY,
@@ -94,7 +91,6 @@ test("FixLoop's OWN retries counter reaches 2 under maxRetries=2 with a progress
     },
   };
   const cycleBudget = CycleBudget.derive({ maxRetries: 2 });
-  const wallClockBudget = WallClockBudget.derive({ cycleBudget, agentTimeoutMs: 60_000 });
   const loop = new FixLoop({
     execution,
     regeneration,
@@ -108,7 +104,6 @@ test("FixLoop's OWN retries counter reaches 2 under maxRetries=2 with a progress
     objectiveSource: ["src/checkout.ts"],
     maxRetries: 2,
     cycleBudget,
-    wallClockBudget,
     devHealthy: async () => true,
     namespace: "progress-preserved",
     integrity: UNPROVEN_INTEGRITY,
@@ -154,7 +149,6 @@ test("failureTrees are re-derived per-round from the CURRENT run's failing cases
     regenerate: async () => ({ specs: ["checkout.spec.ts"], approved: true }),
   };
   const cycleBudget = CycleBudget.derive({ maxRetries: 2 });
-  const wallClockBudget = WallClockBudget.derive({ cycleBudget, agentTimeoutMs: 60_000 });
   const loop = new FixLoop({
     execution,
     regeneration,
@@ -184,7 +178,6 @@ test("failureTrees are re-derived per-round from the CURRENT run's failing cases
     objectiveSource: ["src/checkout.ts"],
     maxRetries: 2,
     cycleBudget,
-    wallClockBudget,
     devHealthy: async () => true,
     namespace: "failure-trees",
     integrity: UNPROVEN_INTEGRITY,

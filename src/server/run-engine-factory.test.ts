@@ -39,7 +39,6 @@ import { BlastRadius } from "@kernel/blast-radius";
 import {
   reviewerTimeoutMs,
   agentPromptCapMs,
-  agentTimeout,
   withUsageSink,
   withStallWatchdog,
   withSessionRegistration,
@@ -892,12 +891,6 @@ test("buildEngineRootDeps sets reviewTimeoutMs to the reviewerTimeoutMs() settin
   const app = cfg("factory-review-timeout");
   const config = buildEngineRootDeps(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
   assert.equal(config.reviewTimeoutMs, reviewerTimeoutMs(), "the reviewer must get its OWN purpose-built budget, not the dispatcher's coarse ceiling");
-});
-
-test("factory threads agentTimeout(mode) into EngineRootDeps.agentTimeoutMs", () => {
-  const app = cfg("factory-agent-timeout");
-  const config = buildEngineRootDeps(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
-  assert.equal(config.agentTimeoutMs, agentTimeout("diff"));
 });
 
 /* a9e7dfb wired PreGenerationGroundingPort/ReviewDomGroundingPort into engine-root.ts's

@@ -6409,32 +6409,22 @@ test("a fix-loop round that re-ran one of two spec files still measures the othe
   }
 });
 
-test("wall-clock ceiling skips FixLoop regeneration without aborting the first generate", async () => {
+test("a regeneration is held to the run deadline alone: a second ceiling in the config no longer refuses it", async () => {
   let generateCalls = 0;
-  let executeCalls = 0;
   const { ports } = stubPorts({
     generate: async () => {
       generateCalls++;
-      /* WallClockBudget.exhausted is elapsedMs > budgetMs. Stubbed generate+execute can finish
-         in the same millisecond as startedAt, so a 1ms ceiling would not trip without a delay.
-       */
       await new Promise((r) => setTimeout(r, 5));
       return scriptedGeneration({ specs: ["a.spec.ts"]});
     },
-    execute: async () => {
-      executeCalls++;
-      return { verdict: "fail", cases: [{ name: "owners", status: "fail", detail: "boom", file: "owners.spec.ts" }], logs: "" };
-    },
+    execute: async () => ({ verdict: "fail", cases: [{ name: "owners", status: "fail", detail: "boom", file: "owners.spec.ts" }], logs: "" }),
   });
-  const useCase = new RunQaUseCase({
-    ...ports,
-    config: { ...baseConfig, needsReview: false, agentTimeoutMs: 60_000, wallClockBudgetMs: 1 },
-  });
+  const runDeadline = { arm: () => {}, remainingMs: () => 600_000, allowance: () => 600_000, describe: () => ({ label: "diff", budgetMs: 600_000 }) };
+  /* A key the engine retired: it must not be read, so the 1 ms below binds nothing. */
+  const retired = { wallClockBudgetMs: 1 } as object;
+  await new RunQaUseCase({ ...ports, runDeadline, config: { ...baseConfig, needsReview: false, ...retired } }).run({ ...baseInput, runId: "one-clock" });
 
-  await useCase.run({ ...baseInput, runId: "wall-clock-p0-5" });
-
-  assert.equal(generateCalls, 1, "a spent wall-clock budget must not start another agent turn");
-  assert.equal(executeCalls, 1, "FixLoop must not re-execute after skipping regeneration");
+  assert.ok(generateCalls > 1, "with time left on the deadline the fix loop regenerates, whatever a second clock says");
 });
 
 test("a run deadline with no time left for the fix loop's regeneration ends the run E-TIME-BUDGET, not a fail with an Issue", async () => {

@@ -99,14 +99,14 @@ export function evidenceFromSelectors(redaction: RedactionPort, input: { contrad
   };
 }
 
-export function evidenceFromBudget(redaction: RedactionPort, input: { cycleCeiling: number; wallClockMs: number }): EvidenceRef {
+export function evidenceFromBudget(redaction: RedactionPort, input: { cycleCeiling: number }): EvidenceRef {
   return {
     id: "budget",
     kind: "generation",
     source: "CoordinationBudget",
-    summary: redaction.redact(`cycleCeiling=${input.cycleCeiling}; wallClockMs=${input.wallClockMs}`),
+    summary: redaction.redact(`cycleCeiling=${input.cycleCeiling}`),
     confidence: "deterministic",
-    dataRef: "CycleBudget+WallClockBudget",
+    dataRef: "CycleBudget",
   };
 }
 

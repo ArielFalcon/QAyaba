@@ -32,7 +32,7 @@ test("evidence adapters produce refs with stable kinds and no OpencodeRunInput f
     evidenceFromCoverage(redaction, { status: "fail", ratio: 0.4 }),
     evidenceFromReview(redaction, { approved: false, blocking: 1 }),
     evidenceFromSelectors(redaction, { contradictions: 2 }),
-    evidenceFromBudget(redaction, { cycleCeiling: 4, wallClockMs: 60_000 }),
+    evidenceFromBudget(redaction, { cycleCeiling: 4 }),
     evidenceFromFailureClass(redaction, "selector"),
   ];
   for (const ref of refs) {
@@ -108,9 +108,9 @@ test("agentClaimInvalidatedBy is undefined when deterministic evidence agrees or
   assert.equal(agentClaimInvalidatedBy([evidenceFromExecution(redaction, { verdict: "fail", failing: 1 })]), undefined);
 });
 
-test("budget evidence reports both the cycle ceiling and the wall-clock budget", () => {
-  const ref = evidenceFromBudget(redaction, { cycleCeiling: 7, wallClockMs: 45_000 });
+test("budget evidence reports the cycle ceiling and names no clock", () => {
+  const ref = evidenceFromBudget(redaction, { cycleCeiling: 7 });
 
   assert.match(ref.summary, /\b7\b/);
-  assert.match(ref.summary, /\b45000\b/);
+  assert.doesNotMatch(ref.summary, /wallClock/);
 });

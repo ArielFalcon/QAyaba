@@ -7,7 +7,6 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { CycleBudget } from "@kernel/cycle-budget.ts";
-import { WallClockBudget } from "@kernel/wall-clock-budget.ts";
 import {
   COORDINATION_ACTIONS,
   isCoordinationAction,
@@ -21,8 +20,7 @@ const qaEngineRoot = join(here, "..", "..");
 
 function budgets() {
   const cycle = CycleBudget.derive({ maxRetries: 2 });
-  const wallClock = WallClockBudget.derive({ cycleBudget: cycle, agentTimeoutMs: 1_000 });
-  return { cycle, wallClock };
+  return { cycle };
 }
 
 function sampleEvidence(): EvidenceRef {
@@ -95,18 +93,12 @@ test("CoordinationContext is a minimal projection — no OpencodeRunInput fields
   }
 });
 
-test("CoordinationBudget holds the run CycleBudget and WallClockBudget intact — no duplicate ceilings", () => {
+test("CoordinationBudget holds the run CycleBudget intact — no duplicate ceiling, and no clock of its own", () => {
   const cycle = CycleBudget.derive({ maxRetries: 3, iterationBudget: 9 });
-  const wallClock = WallClockBudget.derive({
-    cycleBudget: cycle,
-    agentTimeoutMs: 500,
-    wallClockBudgetMs: 4_000,
-  });
-  const ctx = sampleContext({ budgets: { cycle, wallClock } });
+  const ctx = sampleContext({ budgets: { cycle } });
   assert.equal(ctx.budgets.cycle, cycle);
-  assert.equal(ctx.budgets.wallClock, wallClock);
   assert.equal(ctx.budgets.cycle.ceiling, 9);
-  assert.equal(ctx.budgets.wallClock.budgetMs, 4_000);
+  assert.deepEqual(Object.keys(ctx.budgets), ["cycle"]);
 });
 
 test("wires coordination only into RunQaUseCase — generation/FixLoop/AgentRuntime stay free of the seam", () => {

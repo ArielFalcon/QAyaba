@@ -6,9 +6,9 @@ import { isBindingLimit } from "@kernel/turn-limit.ts";
 export const RUN_DECISIONS = ["pr", "issue", "quarantine", "none"] as const;
 export type RunDecisionOutcome = (typeof RUN_DECISIONS)[number];
 
-/* A limit that fired in the run. `scope` says who saw it: the engine at run level (the deadline that ended or degraded the run, the wall-clock budget that refused a regeneration, the budget that ended generation) or the agent turns (a limit a turn ended on and the run went on past); `turns` counts them for the second. */
+/* A limit that fired in the run. `scope` says who saw it: the engine at run level (the deadline that ended or degraded the run, the budget that ended generation) or the agent turns (a limit a turn ended on and the run went on past); `turns` counts them for the second. */
 export interface RunLimitFact {
-  /* A value of the limit vocabulary: a turn limit ("tier-budget", "run-deadline", "repair-cap", "stall", "step-cap", ...) or "wall-clock-budget". */
+  /* A value of the limit vocabulary: a turn limit ("tier-budget", "run-deadline", "repair-cap", "stall", "step-cap", ...). */
   fired: string;
   role: string;
   scope: "run" | "turn";

@@ -89,9 +89,6 @@ export interface EngineRootDeps {
   coverageBranchCases?: "regenerate" | "off";
   /* The test-intent lock (off | signal) plus the opacity ratio it flags. Absent: signal, 0.5. */
   intentLock?: { mode: "off" | "signal"; opacityFlagRatio: number };
-  /* Per-mode agent session budget (ms). Factory maps agentTimeout(mode). Optional: omitted fakes keep the use-case default (0 = derived but not enforced). */
-  agentTimeoutMs?: number;
-  wallClockBudgetMs?: number;
   iterationBudget?: number;
   /* Whether the reviewer runs the generator's own model: the shell's per-run read of the live runtime assignment, asked once when the run is wired. Absent, or throwing, records nothing. */
   reviewerIndependence?: () => "shared-model" | "distinct-model" | undefined;
@@ -514,8 +511,6 @@ function assemble(cfg: EngineRootDeps): RunOrchestrationApi {
       ...(cfg.coverageMinRatio !== undefined ? { coverageMinRatio: cfg.coverageMinRatio } : {}),
       ...(cfg.coverageBranchCases !== undefined ? { coverageBranchCases: cfg.coverageBranchCases } : {}),
       ...(cfg.intentLock !== undefined ? { intentLock: cfg.intentLock } : {}),
-      ...(cfg.agentTimeoutMs !== undefined ? { agentTimeoutMs: cfg.agentTimeoutMs } : {}),
-      ...(cfg.wallClockBudgetMs !== undefined ? { wallClockBudgetMs: cfg.wallClockBudgetMs } : {}),
       ...(cfg.iterationBudget !== undefined ? { iterationBudget: cfg.iterationBudget } : {}),
       ...(cfg.reviewerIndependence ? { reviewerIndependence: cfg.reviewerIndependence } : {}),
     },

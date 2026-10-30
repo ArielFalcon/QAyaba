@@ -44,7 +44,6 @@ import type { RedactionScope } from "@kernel/telemetry/telemetry.port.ts";
 import { attachTraceFacts, primaryLimit, type RunLimitFact, type RunTraceFacts } from "@kernel/run-trace-facts.ts";
 import { AuthPreconditionError } from "@contexts/app-catalog/application/index.ts";
 import { CycleBudget } from "../../../shared-kernel/cycle-budget.ts";
-import { WallClockBudget } from "../../../shared-kernel/wall-clock-budget.ts";
 import type { PreconditionFailure, RunQaConfig, RunQaUseCaseDeps, RunQaInput, RunQaResult, RunTrail } from "./run-flow/run-types.ts";
 
 export type { PreconditionFailure, RunQaConfig, RunQaUseCaseDeps, RunQaInput, RunQaResult, RunTrail } from "./run-flow/run-types.ts";
@@ -346,15 +345,6 @@ export class RunQaUseCase {
       maxRetries: cfg.maxRetries,
       ...(cfg.iterationBudget !== undefined ? { iterationBudget: cfg.iterationBudget } : {}),
     });
-    /*
-     * A zero agentTimeoutMs with no YAML override derives to WallClockBudget.unbounded() —
-     * exhausted() then never fires, so a caller here needs no separate "is this armed" guard.
-     */
-    const wallClockBudget = WallClockBudget.derive({
-      cycleBudget,
-      agentTimeoutMs: cfg.agentTimeoutMs ?? 0,
-      ...(cfg.wallClockBudgetMs !== undefined ? { wallClockBudgetMs: cfg.wallClockBudgetMs } : {}),
-    });
     const host: RunHost = {
       recordCoordination: (coordinationSignal) => recordCoordination(state, coordinationSignal),
       recordCorrections: () => this.recordCorrections(state, trail),
@@ -373,7 +363,7 @@ export class RunQaUseCase {
       sandboxRefused: () => this.deps.execScope?.sandboxRefused() ?? false,
       sandboxSignal: () => this.deps.execScope?.sandboxSignal(),
     };
-    return { input, signal, trail, deps: this.deps, telemetry: this.telemetry, cfg, startedAt, cycleBudget, wallClockBudget, host };
+    return { input, signal, trail, deps: this.deps, telemetry: this.telemetry, cfg, startedAt, cycleBudget, host };
   }
 
   /* Walks the step tables and finalizes the end they reach. */

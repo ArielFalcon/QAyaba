@@ -11,7 +11,7 @@ import { readFileSync, mkdirSync, writeFileSync, realpathSync, lstatSync, rmSync
 import { execFileSync } from "node:child_process";
 import type { AppConfig } from "../orchestrator/config-loader";
 import type { AgentDeps } from "../integrations/opencode-client";
-import { reviewerTimeoutMs, agentPromptCapMs, agentTimeout, agentConfigFacts, maxStepsFromConfig, setSessionToolDeny, withTimeout } from "../integrations/opencode-client";
+import { reviewerTimeoutMs, agentPromptCapMs, agentConfigFacts, maxStepsFromConfig, setSessionToolDeny, withTimeout } from "../integrations/opencode-client";
 import { AGENT_NAME_FOR_ROLE, assignmentForRole, type AgentFacade, type AgentRuntimeConfig, type ModelWindows, type StepLimits } from "../agent-runtime/types";
 import { reviewerIndependence } from "../agent-runtime/config";
 import { enforcedStepLimit } from "../agent-runtime/step-limit";
@@ -915,8 +915,6 @@ export function buildEngineRootDeps(
     coverageBranchCases: coveragePolicy.branchCases,
     /* The same intentLock that configures the contract check, so the derived policy has one source. */
     intentLock,
-    agentTimeoutMs: agentTimeout(run.mode),
-    ...(app.qa.wallClockBudgetMs !== undefined ? { wallClockBudgetMs: app.qa.wallClockBudgetMs } : {}),
     ...(app.qa.iterationBudget !== undefined ? { iterationBudget: app.qa.iterationBudget } : {}),
     /* Read when the run is wired, from the live runtime assignment: the runtime is switchable. */
     ...(deps.getAgentFacade ? { reviewerIndependence: () => reviewerIndependence(deps.getAgentFacade!().config) } : {}),

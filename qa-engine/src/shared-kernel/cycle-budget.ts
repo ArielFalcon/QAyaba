@@ -2,8 +2,8 @@
  * Regeneration-loop telemetry: the configured ceiling (a backstop derived from maxRetries/
  * numObjectives, or an iterationBudget override), surfaced to evidence (evidenceFromBudget) for
  * observability. Nothing in the engine enforces this ceiling — the run's actual time-based cap is
- * the run deadline's allowance together with the wall-clock budget, read in one place before each
- * regeneration (run-flow/regeneration-allowed.ts, wall-clock-budget.ts). iterationBudget config override wins over the derived backstop.
+ * the run deadline's allowance, read in one place before each
+ * regeneration (run-flow/regeneration-allowed.ts). iterationBudget config override wins over the derived backstop.
  */
 
 import { deriveCycleBackstop } from "./derive-cycle-backstop.ts";

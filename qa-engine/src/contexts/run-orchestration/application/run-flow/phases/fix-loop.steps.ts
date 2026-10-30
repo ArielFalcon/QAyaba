@@ -18,7 +18,7 @@ import { addRetries, withRun } from "../reducers.ts";
 import { checkDevHealth, executeAccepted, liveExecutionOptions, validateAccepted } from "./execute.steps.ts";
 import { loopClosedNow, regenerate } from "./generation-services.ts";
 import { carryOn } from "../failure-policy.ts";
-import { refuseRegeneration, regenerationAllowed } from "../regeneration-allowed.ts";
+import { assertRegenerationTime } from "../regeneration-allowed.ts";
 import { specSetDigest } from "../spec-set-digest.ts";
 
 type Result = Promise<StepOutcome<RunState>>;
@@ -79,10 +79,8 @@ function fixLoopFor(state: Readonly<RunState>, ctx: WorkspaceRunContext, pending
   const fixLoopRegeneration: FixLoopRegenerationPort = {
     /* Forward FixLoopGenerateInput so a retry prompt sees what failed. */
     regenerate: async (fixLoopInput) => {
-      /* A run with no time left ends on its time budget; a spent wall-clock budget starts no further agent turn: the round returns nothing and the loop ends on what it has. */
-      if (!regenerationAllowed(ctx)) {
-        return { specs: [], note: refuseRegeneration(state) };
-      }
+      /* A run with no time left ends on its time budget: the deadline is the only clock. */
+      assertRegenerationTime(ctx);
       /*
        * Merge leftover pre-exec selector contradictions with FixLoop's post-failure
        * check — independent evidence; neither suppresses the other.
@@ -266,7 +264,6 @@ export async function runFixLoop(state: Readonly<RunState>, ctx: WorkspaceRunCon
     maxRetries: cfg.maxRetries,
     ...(fixLoopRetired ? { regenerate: false } : {}),
     cycleBudget: ctx.cycleBudget,
-    wallClockBudget: ctx.wallClockBudget,
     devHealthy: async () => (await checkDevHealth(ctx)).healthy,
     namespace: input.runId,
     coverageWillMeasure,

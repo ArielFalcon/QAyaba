@@ -2,7 +2,6 @@
 
 import type { PreconditionTerminal } from "../../domain/helpers/precondition-terminal.ts";
 import type { CycleBudget } from "../../../../shared-kernel/cycle-budget.ts";
-import type { WallClockBudget } from "../../../../shared-kernel/wall-clock-budget.ts";
 import type { TelemetryPort } from "@kernel/telemetry/telemetry.port.ts";
 import type { PreconditionFailure, RunQaConfig, RunQaInput, RunQaUseCaseDeps, RunTrail } from "./run-types.ts";
 import type { CoordinationGateSignal } from "@kernel/coordination.ts";
@@ -47,7 +46,6 @@ export interface RunContext {
   cfg: RunQaConfig;
   startedAt: number;
   cycleBudget: CycleBudget;
-  wallClockBudget: WallClockBudget;
   host: RunHost;
 }
 

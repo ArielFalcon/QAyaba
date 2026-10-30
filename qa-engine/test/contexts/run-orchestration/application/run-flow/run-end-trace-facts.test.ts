@@ -92,16 +92,3 @@ test("a limit that ended the run is recorded once, whichever place ended it", as
   assert.deepEqual(facts?.degradations, []);
 });
 
-test("a regeneration the run's wall-clock budget refuses is a limit and a degradation of the run", async () => {
-  const rig = newRig();
-  try {
-    rig.config = { ...rig.config, wallClockBudgetMs: 0 };
-    rig.execute = async () => ({ verdict: "fail", cases: [{ name: "a", status: "fail", file: "a.spec.ts" }], logs: "assertion failed" });
-    const observed = await observe(rig, "facts-wall-clock");
-    const facts = traceFactsOf(observed.result!);
-    assert.deepEqual(facts?.limits, [{ fired: "wall-clock-budget", role: "qa-author", scope: "run" }]);
-    assert.deepEqual(facts?.degradations?.map((d) => d.reason), ["regeneration-skipped"]);
-  } finally {
-    dispose(rig);
-  }
-});
