@@ -72,7 +72,7 @@ metadata, with dots replaced by underscores):
 
 The orchestrator ships log lines from its logging port, under the run's capture mode: `off` sends nothing, `metadata`
 caps a line at 1 KB, `full` at 4 KB. Only lines that explain how something went are shipped (every `warn`/`error`, and
-`info` lines whose call site sets `ship: true`); a line that restates a span stays in docker's json-file log
+`info` lines whose call site sets `ship: true`); `error` means the fact ended the run or the process and `warn` that the run went on past it. A line that restates a span stays in docker's json-file log
 (`docs/observability-design.md` §8.5). Loki is a viewing aid: nothing reads it programmatically, and
 `runs.logs`/`run_events` remain the API's record.
 

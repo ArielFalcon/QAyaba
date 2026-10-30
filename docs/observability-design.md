@@ -702,16 +702,29 @@ in the one open run root (a phase span is never ambient, so a phase's own lines 
 no trace (a process line). A failed redaction drops the record and never exports the raw line. docker and the rotating
 file still receive every line.
 
+A line's level answers one question: what did the fact do to the run? The module that owns an outcome maps it to an effect and
+the line is written at the level the effect gives (`LOG_EFFECT` and `levelOfEffect`, `qa-engine/src/shared-kernel/ports/logger.port.ts`):
+
+| Effect | Level | Meaning |
+|---|---|---|
+| `ended` | `error` | the fact ended the run, or the process cannot do its job |
+| `carried-on` | `warn` | the run went on past a fault or a loss (a fault `carryOn` admitted, a flow or findings lost, a stored copy skipped) |
+| `expected` | `info` | nothing went off the expected path (a decision a span already records, a passing boundary check) |
+
+So an `ERROR` filter finds the facts that ended a run, and the losses a run carried on past are the `warn` lines (and the typed
+facts, such as `qayaba.coordination.unrouted_reasons`).
+
 Which lines ship is decided by role, with one reserved field on the call (`ship`, consumed by the port):
 
 | Role | Example | Shipped |
 |---|---|---|
 | Restates a span or attribute | enqueue/finished lines, suite-store counts, `npm ci` skipped, `DOM captured N lines`, `N API contracts included`, SSE stream closed, background-failure counts, code-graph call counts | no (`info`, the default) |
 | Explains how something went and has no structured home | the Context Pack's routes left out (one line, grouped by reason), a failed or empty DOM capture with its reason, a degraded capture, the gated-app note, the pre-exec ambiguity text | yes (`warn`, or `info` with `ship: true`) |
-| Something went off the expected path | any `warn` or `error` | yes (`ship: false` withholds a warning that only restates a span fact) |
+| Something went off the expected path (the run ended or carried on) | any `warn` or `error` | yes (`ship: false` withholds a warning that only restates a span fact) |
 
 A repeated per-item line becomes one line carrying the list. A new call site picks its role by asking whether a span
-already records the fact: if so it logs at `info` and ships nothing.
+already records the fact and the run stayed on the expected path: if so it logs at `info` and ships nothing. A fact that is a
+span attribute and also a carried-on loss (the findings left unrouted) is `warn` and ships.
 
 OpenCode's logs reach Loki through the agents collector at WARN and above (provider failures, tool errors, stream
 errors; its INFO chatter is dropped there), and the collector copies the session id out of the body into

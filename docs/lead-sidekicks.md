@@ -368,7 +368,7 @@ findings, the run asks the lead, in the same planning session, instead of regene
    is about and then by file with the numbers of its findings, so a number still names a finding, the flow it is routed to is sent its
    text whole, and the omission is recorded as `window-fit`.
 6. Findings that remain (they name no spec, or one outside the spec directory, or a file that seeds no use case of the change, or no
-   maintenance flow could take them or it delivered nothing) are recorded as unrouted (a `lead-decision` event naming their numbers, an error line in the log and
+   maintenance flow could take them or it delivered nothing) are recorded as unrouted (a `lead-decision` event naming their numbers, a warn line in the log and
    `corrections.unrouted`) and nobody corrects them: a fresh run-level author, with no flow spec, no `run_spec` history and no
    instruction of the lead's, would repeat the whole first pass cold. Everything the flows delivered goes through the round's
    acceptance, and the lead's rebuttals through the same check as a generator's.
@@ -393,7 +393,7 @@ spec its text names as a whole path; one that names several is the lead's to pla
 spec it took, for the fix loop's next post-failure selector check. On a failing execution a sidekick may answer, changing
 nothing, that its test is right and the app or the environment is not (`testCorrect`); the claim reaches the fix loop as a
 generator's does, only when no flow changed a spec, and is checked against the run's evidence there. The
-round's acceptance, contract check and budgets are the caller's, unchanged. A run without a pass regenerates as it always did. A run with a pass whose budget of corrections through the lead is spent does not: the findings are recorded unrouted with the reason `lead correction budget spent` (`CoordinatedPass.leaveUnrouted`: a `lead-decision` event, an error line in the log, `corrections.unrouted`), the round's delivery is left as it is and its acceptance goes on.
+round's acceptance, contract check and budgets are the caller's, unchanged. A run without a pass regenerates as it always did. A run with a pass whose budget of corrections through the lead is spent does not: the findings are recorded unrouted with the reason `lead correction budget spent` (`CoordinatedPass.leaveUnrouted`: a `lead-decision` event, a warn line in the log, `corrections.unrouted`), the round's delivery is left as it is and its acceptance goes on.
 
 The pass is released as soon as the review ends, and in the run's `finally` however it ends. The corrections of every origin are
 recorded as `gateSignals.coordination.corrections { turns, routed, unrouted, revised, replaced, rebutted, maintained? }`.
