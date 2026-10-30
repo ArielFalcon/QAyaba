@@ -357,8 +357,9 @@ derived from them and is never the only carrier:
 - **Limits.** `qayaba.limits` lists every limit that fired as `limit@role`: first the engine's own, whether the limit ended the run or
   the run went on past it (the deadline that ended the run, or degraded it with `deadline-after-proof`; the wall-clock budget that refused
   a regeneration, `wall-clock-budget`; the budget generation ended on, `tier-budget` or `step-cap`), then the limits agent turns ended on
-  and the run went on past (`repair-cap`, `stall`, ...), counted per role. `qayaba.limit.fired` is the first of them. The record's
-  `limits` column holds the same list, `limit_fired`/`limit_role` its first, and `budgets` in `GET /runs/:id` and the
+  and the run went on past (`repair-cap`, `stall`, ...), counted per role. `qayaba.limit.fired` is the first the engine met at run level, and a run whose only limits were met by
+  turns has none: a cap a turn hit and the run went on past is listed, never the run's lead limit, and `qayaba.budget.exhausted` counts
+  run-level limits only. The record's `limits` column holds the same list, `limit_fired`/`limit_role` the lead, and `budgets` in `GET /runs/:id` and the
   `budget_exhaustion` grader (`also: ...` in its comment) read that record.
 - **Degradations.** `qayaba.degradations` lists every fault the run went on past, by reason: `publication-failed`,
   `deadline-after-proof`, `regeneration-skipped`. `qayaba.run.end_reason` stays `decided` for such a run: it ended, it did not fail.

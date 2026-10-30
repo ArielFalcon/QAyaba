@@ -246,8 +246,8 @@ export class RunTrace {
     if (f.verdict === "infra-error") {
       this.span.recordError(error ?? Object.assign(new Error(f.errorClass ?? "infra-error"), { name: f.errorClass ?? "infra-error" }));
     }
-    /* One count per limit that fired; a record with no list leads with its one limit. */
-    const fired = f.limits ?? (f.limitFired ? [{ fired: f.limitFired, role: f.limitRole ?? "" }] : []);
+    /* One count per limit the engine met at run level (the turns' own are on the turn spans); a record with no list leads with its one limit. */
+    const fired = f.limits?.filter((limit) => limit.scope === "run") ?? (f.limitFired ? [{ fired: f.limitFired, role: f.limitRole ?? "" }] : []);
     for (const limit of fired) {
       this.telemetry.counter("qayaba.budget.exhausted")(1, { "qayaba.limit.fired": limit.fired, ...(limit.role ? { "qayaba.agent.role": limit.role } : {}) });
     }

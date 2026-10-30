@@ -687,7 +687,7 @@ export const RunDetailSchema = RunRecordSchema.extend({
   shadowed: z.boolean().nullable(),
   /* Every fault the run went on past (reason: publication-failed | deadline-after-proof | regeneration-skipped, and the sentence its note carries); an empty list for a run that went on past none, null for a run stored before they were recorded. */
   degradations: z.array(z.object({ reason: z.string(), note: z.string() })).nullable(),
-  /* `limit` and `role` are the limit the run leads with (the first the engine met); `limits` lists every one that fired, scope "run" for the engine's own and "turn" for those only agent turns met (`turns` of them). Absent for a run stored before limits were recorded. */
+  /* `limit` and `role` are the limit the run leads with (the first the engine met at run level; absent when only agent turns met a limit); `limits` lists every one that fired, scope "run" for the engine's own and "turn" for those only agent turns met (`turns` of them). Absent for a run stored before limits were recorded. */
   budgets: z.object({
     exhausted: z.boolean(),
     limit: z.string().optional(),

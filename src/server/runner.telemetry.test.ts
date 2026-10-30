@@ -219,7 +219,7 @@ test("every limit that fired and every fault the run went on past is on the root
   assert.deepEqual(budget.map((m) => m.attrs["qayaba.limit.fired"]).sort(), ["run-deadline", "wall-clock-budget"]);
 });
 
-test("a limit a turn ended on is on the record even when the engine never met it at run level, and a cancel, a fault or no limit is none", async () => {
+test("a limit a turn ended on is on the record even when the engine never met it at run level, but leads nothing; a cancel, a fault or no limit is none", async () => {
   const h = traceHarness();
   const queue = new JobQueue();
   const app = uniqueApp();
@@ -237,8 +237,9 @@ test("a limit a turn ended on is on the record even when the engine never met it
   await queue.drain();
   const stored = getHistory().runs.getRunFacts(id);
   assert.deepEqual(stored?.limits, [{ fired: "repair-cap", role: "qa-author", scope: "turn", turns: 1 }]);
-  assert.equal(stored?.limitFired, "repair-cap");
-  assert.equal(attr(h.only("qayaba.run"), "qayaba.limit.fired"), "repair-cap");
+  assert.equal(stored?.limitFired, null);
+  assert.equal(attr(h.only("qayaba.run"), "qayaba.limit.fired"), undefined);
+  assert.deepEqual(attr(h.only("qayaba.run"), "qayaba.limits"), ["repair-cap@qa-author"]);
 });
 
 test("run duration is recorded in seconds, and only with allowed keys", async () => {

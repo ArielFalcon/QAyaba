@@ -210,7 +210,7 @@ function specCountsForTrace(runId: string, furthestPhase: string | null): RunFac
   }
 }
 
-/* The run's facts with the limits its agent turns ended on added to the ones the engine met at run level; the record and the root span both take the result, so they list the same limits and lead with the same one. Fail-open like the other reads for the trace: a history that cannot answer leaves the engine's own. */
+/* The run's facts with the limits its agent turns ended on added to the ones the engine met at run level; the record and the root span both take the result, so they list the same limits and lead with the same one (the first the engine met: a limit only turns met leads nothing). Fail-open like the other reads for the trace: a history that cannot answer leaves the engine's own. */
 function withTurnLimits<F extends Pick<RunFacts, "limits" | "limitFired" | "limitRole">>(facts: F, runId: string): F {
   try {
     /* A port that states only the limit it leads with is read as having met that one. */

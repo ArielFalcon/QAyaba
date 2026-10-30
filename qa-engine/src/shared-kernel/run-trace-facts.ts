@@ -33,7 +33,7 @@ export interface RunTraceFacts {
   generationEnd?: string;
   /* Why the run ended (a value of the engine's closed set of end reasons); absent when it ended on an error nothing handled. */
   endReason?: string;
-  /* Every limit that fired, in the order the engine met them; `limitFired`/`limitRole` are the first, the one the run's record and views lead with. */
+  /* Every limit that fired, in the order the engine met them; `limitFired`/`limitRole` are the first the engine met at run level, the one the run's record and views lead with (none when only turns met a limit). */
   limits?: RunLimitFact[];
   limitFired?: string;
   limitRole?: string;
@@ -45,9 +45,9 @@ export interface RunTraceFacts {
   coverage?: { status?: "pass" | "fail" | "unknown"; mode: string; minRatio?: number };
 }
 
-/* The limit the record and the views lead with: the first the engine met, else the first of the turns'. */
+/* The limit the record and the views lead with: the first the engine met at run level. A limit only agent turns met is listed with the others and leads nothing: a run that went on past a turn's cap is not one a budget ended. */
 export function primaryLimit(limits: readonly RunLimitFact[]): RunLimitFact | undefined {
-  return limits.find((limit) => limit.scope === "run") ?? limits[0];
+  return limits.find((limit) => limit.scope === "run");
 }
 
 /* The run's limits with the ones its turns ended on added (a cancel, a fault or no limit is none): a limit the engine already recorded at run level is the turn it stopped, seen from above, and is not counted twice. */
