@@ -30,6 +30,7 @@ import { branchCoverageOf, changeCoverageOf, traceAcceptedFiles } from "./covera
 import { addDroppedRejection, addReviewStats, annotateReviewPhase, greenSpecFiles, newReviewTally, readReviewedSpecs, rebuttalEvidence, recordReviewDecision } from "./review-services.ts";
 import { pathOnly } from "@kernel/route-availability.ts";
 import { dataContradictionRefs } from "@kernel/data-contradiction.ts";
+import { isRealPass } from "@kernel/case-proof.ts";
 
 type Result = Promise<StepOutcome<RunState>>;
 
@@ -488,7 +489,7 @@ export async function reviewResolve(state: Readonly<RunState>, ctx: WorkspaceRun
         session.reviewerApproved = false;
         return goto("review-settle");
       }
-      return end("review-disputed", { disputed: settled.disputed, passedCases: session.reviewCases.filter((c) => c.status === "pass").length, ...(await exitFactsOf(state, ctx)) });
+      return end("review-disputed", { disputed: settled.disputed, passedCases: session.reviewCases.filter(isRealPass).length, ...(await exitFactsOf(state, ctx)) });
     } else {
       session.reviewerApproved = false;
     }
@@ -594,7 +595,7 @@ export async function remeasureStaleCoverage(state: Readonly<RunState>, ctx: Wor
     const flakyStands = run.verdict === "flaky" && hasGreenBytes(measuredRun.verdict);
     const finalRun = flakyStands ? run : { verdict: measuredRun.verdict, cases: measuredRun.cases, logs: run.logs };
     if (measuredRun.verdict !== "pass" && !flakyStands) return { update: { execution: withRun(state.execution, finalRun) } };
-    const passed = measuredRun.cases.filter((c) => c.status === "pass");
+    const passed = measuredRun.cases.filter(isRealPass);
     const baselineCases = passed.map((c) => c.name);
     const caseFiles = [...new Set(passed.flatMap((c) => (c.file ? [c.file] : [])))];
     const finalSignal = await deps.objectiveSignal.measure(

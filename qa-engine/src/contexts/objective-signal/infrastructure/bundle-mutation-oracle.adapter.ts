@@ -6,6 +6,7 @@ import type { ObservedPage } from "../domain/observed-page.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 import { engineLog } from "@kernel/ports/process-logger.ts";
 import { redactAndBound } from "../../../shared-infrastructure/redaction/redact-and-bound.ts";
+import { isRealPass } from "@kernel/case-proof.ts";
 
 /* A re-run of `specFiles`: with `mutant` applied (or, for the unmutated re-runs a survivor is compared with, none, or one that edits no script and only names the tests to run); `observe` has the fixtures record the pages of its tests. */
 type RunMutant = (args: { dir: string; baseUrl: string; namespace: string; mutant?: string; specFiles: string[]; observe?: boolean }) => Promise<{ verdict: string; cases: QaCase[]; observations?: ObservedPage[] }>;
@@ -26,7 +27,7 @@ interface SurvivorPages {
 
 const pagesOf = (run: { cases: readonly QaCase[]; observations?: ObservedPage[] }, passed: readonly QaCase[]): SurvivorPages => ({
   pages: run.observations,
-  passed: new Set(passed.filter((c) => c.status === "pass").map((c) => c.name)),
+  passed: new Set(passed.filter(isRealPass).map((c) => c.name)),
   files: new Map(run.cases.flatMap((c) => (c.file ? [[c.name, c.file] as const] : []))),
 });
 

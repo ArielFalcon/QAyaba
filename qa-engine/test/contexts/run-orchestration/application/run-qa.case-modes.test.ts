@@ -24,7 +24,7 @@ const caseOf = (file: string, over: Partial<QaCase> = {}): QaCase => ({ name: `$
 type Reported = Awaited<ReturnType<ExecutionPort["execute"]>>;
 
 /* A first pass that delivers two specs; `b` is what the execution reports of the second. */
-async function firstPass(b: Pick<Reported, "cases"> & Partial<Pick<Reported, "skippedTests">>): Promise<{ sideEffect: string | undefined; verdict: string; stored: boolean }> {
+async function firstPass(b: Pick<Reported, "cases"> & Partial<Pick<Reported, "skippedTests">>, baselines: string[][] = []): Promise<{ sideEffect: string | undefined; verdict: string; stored: boolean }> {
   const ws = runWorkspace("qa-modes-");
   const deps = {
     changeAnalysis: { classify: async () => ({ action: "generate", reason: "diff touches src/x.ts", diff: "" }) },
@@ -32,7 +32,7 @@ async function firstPass(b: Pick<Reported, "cases"> & Partial<Pick<Reported, "sk
     review: { review: async () => ({ approved: true, findings: [], blockingCount: 0, parsed: true }) },
     validation: { validate: async () => ({ ok: true, errors: [] }) },
     execution: { execute: async () => ({ verdict: "pass", cases: [caseOf("flows/a.spec.ts"), ...b.cases], ...(b.skippedTests ? { skippedTests: b.skippedTests } : {}), logs: "" }) },
-    objectiveSignal: { measure: async () => ({ status: "unknown", ratio: null }), blocks: () => false },
+    objectiveSignal: { measure: async (_blast, _dir, _diff, baselineCases) => { baselines.push([...(baselineCases ?? [])]); return { status: "unknown", ratio: null }; }, blocks: () => false },
     publication: { publish: async () => ({ outcome: "pr" }) },
     workspace: fakeWorkspace(ws),
     specFiles: confinedSpecFiles,
@@ -83,4 +83,16 @@ test("a skipped test in a file the run did not deliver (the seed's own cleanup p
 
   assert.equal(r.verdict, "pass");
   assert.equal(r.sideEffect, "pr");
+});
+
+/* A test of the existing suite marked test.fail() is not among the delivered files, so the first pass does not refuse it; it still proves nothing, so the mutation baseline (the tests a mutant is judged against) must not hold it. */
+test("the measurement's passing baseline holds the tests that really passed, not an existing test marked test.fail()", async () => {
+  const baselines: string[][] = [];
+  await firstPass({ cases: [caseOf("flows/b.spec.ts"), caseOf("flows/old.spec.ts", { expectedStatus: "failed", name: "flows/old.spec.ts › known bug" })] }, baselines);
+
+  assert.ok(baselines.length > 0, "the run measured");
+  for (const baseline of baselines) {
+    assert.ok(baseline.includes("flows/b.spec.ts › works"));
+    assert.equal(baseline.includes("flows/old.spec.ts › known bug"), false);
+  }
 });

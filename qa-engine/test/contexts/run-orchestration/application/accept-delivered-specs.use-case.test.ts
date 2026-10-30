@@ -2,7 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Sha } from "@kernel/sha.ts";
-import type { QaCase } from "@kernel/qa-case.ts";
+import type { QaCase, SkippedTest } from "@kernel/qa-case.ts";
 import type { RunVerdict } from "@kernel/run-verdict.ts";
 import { AcceptDeliveredSpecsUseCase, type AcceptInput } from "@contexts/run-orchestration/application/accept-delivered-specs.use-case.ts";
 import type { ReviewFinding } from "@contexts/generation/domain/review-output.ts";
@@ -21,7 +21,7 @@ interface Rig {
 
 function rig(script: {
   validate?: { ok: boolean; errors: string[]; infra?: boolean };
-  runs?: Array<{ verdict: RunVerdict; cases: QaCase[] }>;
+  runs?: Array<{ verdict: RunVerdict; cases: QaCase[]; skippedTests?: SkippedTest[] }>;
   coverage?: { status: "pass" | "fail" | "unknown"; ratio: number | null };
   blocks?: boolean;
   review?: { approved: boolean; findings: ReviewFinding[]; blockingCount?: number; parsed?: boolean; unavailable?: boolean } | "none";
@@ -31,7 +31,7 @@ function rig(script: {
   let call = 0;
   r.useCase = new AcceptDeliveredSpecsUseCase({
     validation: { validate: async (specDir) => (r.validated.push({ specDir }), script.validate ?? { ok: true, errors: [] }) },
-    execution: { execute: async (specDir, opts) => { r.executed.push({ specDir, opts: opts as ExecutionOpts }); const run = runs[Math.min(call++, runs.length - 1)]!; return { verdict: run.verdict, cases: run.cases, logs: "" }; } },
+    execution: { execute: async (specDir, opts) => { r.executed.push({ specDir, opts: opts as ExecutionOpts }); const run = runs[Math.min(call++, runs.length - 1)]!; return { verdict: run.verdict, cases: run.cases, ...(run.skippedTests ? { skippedTests: run.skippedTests } : {}), logs: "" }; } },
     objectiveSignal: {
       measure: async (_br, _dir, _diff, baselineCases, opts) => { r.measured.push({ ...(opts?.namespace ? { namespace: opts.namespace } : {}), ...(baselineCases ? { baselineCases } : {}) }); return script.coverage ?? { status: "pass", ratio: 0.9 }; },
       blocks: () => script.blocks ?? false,
@@ -166,4 +166,38 @@ test("the shadow switch changes where a decision would go, never whether the sui
   const report = await rig().useCase.accept({ ...INPUT, shadow: true });
   assert.equal(report.accepted, true);
   assert.deepEqual(report.decision, { verdict: "pass", sideEffect: "shadow-log" });
+});
+
+/* The acceptance reads a run by the pipeline's own proof rule, so an arm is judged by what the pipeline would keep. */
+test("a delivered spec whose only test is marked test.fail() is not accepted, whatever the runner's verdict", async () => {
+  const known: QaCase[] = [{ name: "flows/a.spec.ts › known bug", status: "pass", expectedStatus: "failed", file: "flows/a.spec.ts" }];
+  const report = await rig({ runs: [{ verdict: "pass", cases: known }, { verdict: "pass", cases: known }] }).useCase.accept(INPUT);
+
+  assert.equal(report.accepted, false);
+  assert.equal(report.verdict, "fail");
+  assert.notEqual(report.decision.sideEffect, "pr");
+  assert.deepEqual(report.runs.map((run) => [run.passed, run.failed]), [[0, 1], [0, 1]], "the refused test is a failure and no pass");
+});
+
+test("a delivered spec that skips a test beside a passing one is not accepted", async () => {
+  const run = { verdict: "pass" as const, cases: PASS, skippedTests: [{ name: "flows/a.spec.ts › needs data", file: "flows/a.spec.ts", annotation: "skip" }] };
+  const report = await rig({ runs: [run, run] }).useCase.accept(INPUT);
+
+  assert.equal(report.accepted, false);
+  assert.equal(report.verdict, "fail");
+});
+
+test("a delivered spec none of whose cases names it is not accepted: a pass that names no file proves no file", async () => {
+  const unattributed: QaCase[] = [{ name: "loads", status: "pass" }];
+  const report = await rig({ runs: [{ verdict: "pass", cases: unattributed }, { verdict: "pass", cases: unattributed }] }).useCase.accept(INPUT);
+
+  assert.equal(report.accepted, false);
+});
+
+test("the measurement's baseline holds the tests that really passed", async () => {
+  const mixed: QaCase[] = [...PASS, { name: "flows/b.spec.ts › known bug", status: "pass", expectedStatus: "failed", file: "flows/b.spec.ts" }];
+  const r = rig({ runs: [{ verdict: "pass", cases: mixed }, { verdict: "pass", cases: mixed }] });
+  await r.useCase.accept({ ...INPUT, specs: ["flows/a.spec.ts"] });
+
+  assert.deepEqual(r.measured[0]?.baselineCases, ["flows/a.spec.ts › loads"]);
 });

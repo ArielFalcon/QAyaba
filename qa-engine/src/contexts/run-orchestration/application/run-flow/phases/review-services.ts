@@ -14,6 +14,7 @@ import { resolveSpecReference, specRelDirOf } from "@kernel/spec-path.ts";
 import { contractRefKey, refKey, type RebuttalEvidence, type ReviewRebuttal } from "../../../domain/review-rebuttals.service.ts";
 import type { DropReason } from "../../../domain/review-finding-filter.service.ts";
 import type { WorkspaceRunContext } from "../run-context.ts";
+import { isRealPass } from "@kernel/case-proof.ts";
 
 /*
  * The specs a round judges, read through the confined reader: a name that leaves the directory, or a file that is gone,
@@ -39,14 +40,15 @@ export function readReviewedSpecs(specFiles: SpecFilesPort, specRoot: SpecRoot, 
 export type ReviewedSpecs = ReturnType<typeof readReviewedSpecs>;
 
 /*
- * The spec files whose every executed case passed on the bytes the cases describe: at least one case, none failed or
- * flaky. A case that names no file attributes nothing to any file. Keyed by `key(file)` (default: the file as the case
+ * The spec files whose every executed case passed on the bytes the cases describe: at least one real pass (the one proof rule) and
+ * none failed or flaky. A test marked `test.fail()` is no pass, so a file of nothing else is not green. A case that names no file
+ * attributes nothing to any file. Keyed by `key(file)` (default: the file as the case
  * names it), so a caller compares in the form it holds its own references in.
  */
 export function greenSpecFiles(cases: readonly QaCase[], key: (file: string) => string = (file) => file): Set<string> {
   const failed = new Set(cases.filter((c) => c.status !== "pass" && c.file).map((c) => key(c.file!)));
   const green = new Set<string>();
-  for (const c of cases) if (c.status === "pass" && c.file && !failed.has(key(c.file))) green.add(key(c.file));
+  for (const c of cases) if (isRealPass(c) && c.file && !failed.has(key(c.file))) green.add(key(c.file));
   return green;
 }
 
@@ -62,7 +64,7 @@ export function rebuttalEvidence(ctx: WorkspaceRunContext, cases: readonly QaCas
   const specRelDir = specRelDirOf(specRoot);
   const suiteFile = (file: string): string => resolveSpecReference(file, specRelDir) ?? refKey(file);
   const greenCaseRefs = greenSpecFiles(cases, suiteFile);
-  for (const c of cases) if (c.status === "pass") greenCaseRefs.add(refKey(c.name));
+  for (const c of cases) if (isRealPass(c)) greenCaseRefs.add(refKey(c.name));
   const intactClauses = new Set<string>();
   const extractor = ctx.deps.intentContract;
   if (extractor) {

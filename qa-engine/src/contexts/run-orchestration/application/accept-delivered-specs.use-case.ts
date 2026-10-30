@@ -2,13 +2,16 @@
  * The acceptance an experiment judges every arm by, so that "what an arm delivered" means the same thing for the pipeline and for a
  * plain agent: the delivered specs are validated by the static gate, executed twice with no retry, measured for change-coverage and,
  * when the app requires it, reviewed, and the same decide() and isAccepted() the pipeline publishes by say whether the suite would
- * have been kept. There is no regeneration and no fix loop: an arm that wants its specs to pass has to deliver specs that pass.
+ * have been kept. There is no regeneration and no fix loop: an arm that wants its specs to pass has to deliver specs that pass. What
+ * "pass" means is the pipeline's own proof rule (`case-proof.ts`): a skipped test or a test marked `test.fail()` in a delivered spec
+ * fails the run, and a delivered spec none of whose tests ran and passed is no pass, however the runner's verdict reads.
  */
 
 import type { Sha } from "@kernel/sha.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 import type { RunVerdict } from "@kernel/run-verdict.ts";
 import { BlastRadius } from "@kernel/blast-radius.ts";
+import { hasProof, isRealPass, refuseOutright } from "@kernel/case-proof.ts";
 import { decide, isAccepted, type RunEvidence } from "../domain/run-decision.service.ts";
 import type { ExecutionPort, ValidationPort } from "@contexts/test-execution/application/index.ts";
 import type { ObjectiveSignalPort } from "@contexts/objective-signal/application/index.ts";
@@ -103,8 +106,13 @@ export class AcceptDeliveredSpecsUseCase {
         purpose: "acceptance",
         ...(input.signal ? { signal: input.signal } : {}),
       });
-      executions.push({ verdict: result.verdict, cases: result.cases });
-      runs.push({ verdict: result.verdict, passed: count(result.cases, "pass"), failed: count(result.cases, "fail"), flaky: count(result.cases, "flaky"), ms: now() - started });
+      const judged = refuseOutright(result, input.specs);
+      const cases = [...judged.cases, ...judged.refused];
+      /* A runner that says pass over a refused test, or over a delivered spec with no real passing case, has not shown the suite passing. */
+      const held = judged.refused.length > 0 || !input.specs.every((spec) => hasProof(spec, judged.cases));
+      const runVerdict: RunVerdict = held && (result.verdict === "pass" || result.verdict === "flaky") ? "fail" : result.verdict;
+      executions.push({ verdict: runVerdict, cases });
+      runs.push({ verdict: runVerdict, passed: cases.filter(isRealPass).length, failed: count(cases, "fail"), flaky: count(cases, "flaky"), ms: now() - started });
     }
     const verdict = combineRunVerdicts(runs.map((r) => r.verdict));
     if (verdict !== "pass") return conclude(verdict, { validate, runs, coverage: null, reviewer: null });
@@ -114,7 +122,7 @@ export class AcceptDeliveredSpecsUseCase {
       BlastRadius.of(input.sha, [...input.changedFiles]),
       input.specDir,
       input.diff,
-      first.cases.filter((c) => c.status === "pass").map((c) => c.name),
+      first.cases.filter(isRealPass).map((c) => c.name),
       { namespace: `${input.namespace}-acc1` },
     );
     const blocks = this.deps.objectiveSignal.blocks(measured.status);

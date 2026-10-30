@@ -16,6 +16,7 @@ import { executeAccepted, validateAccepted } from "./execute.steps.ts";
 import { regenerate, type EvidenceFinding } from "./generation-services.ts";
 import { branchCasesAction, coverageRegenAction } from "../../../domain/coverage-regen.ts";
 import { acceptanceNamespace } from "../../../domain/acceptance-namespace.ts";
+import { isRealPass } from "@kernel/case-proof.ts";
 
 type Result = Promise<StepOutcome<RunState>>;
 
@@ -97,7 +98,7 @@ export async function measureCoverage(state: Readonly<RunState>, ctx: WorkspaceR
     engineLog.info(`[qa] change-coverage: skipped — the changed lines live in ${input.triggerRepo}; browser coverage maps only the frontend (status=unknown).`);
   }
   /* This pass's own passing case names — the green baseline the mutation pass judges against. */
-  const passed = run.cases.filter((c) => c.status === "pass");
+  const passed = run.cases.filter(isRealPass);
   const baselineCases = passed.map((c) => c.name);
   /* The spec files of those cases: a mutant re-runs the ones whose tests reached it, and a dump tells which changed file a spec ran only among them. */
   const caseFiles = passingCaseFiles(run.cases);
@@ -326,7 +327,7 @@ export async function closeSurvivors(state: Readonly<RunState>, ctx: WorkspaceRu
   const changed = regen.changedSpecFiles ?? [];
   if (regen.outcome !== "accepted" || routed.length === 0 || changed.length === 0 || !deps.objectiveSignal.recheckSurvivors) return undefined;
   const changedSet = new Set(changed);
-  const baselineCases = regen.run.cases.filter((c) => c.status === "pass" && changedSet.has(c.file ?? c.name)).map((c) => c.name);
+  const baselineCases = regen.run.cases.filter((c) => isRealPass(c) && changedSet.has(c.file ?? c.name)).map((c) => c.name);
   const rechecks = survivorRechecks(routed, survivorsOf(state), changed);
   const result = baselineCases.length > 0 && rechecks.length > 0 ? await recheckOrNone(() => deps.objectiveSignal.recheckSurvivors!(rechecks, workspace.specDir, `${input.runId}-closure`, baselineCases)) : null;
   const closure = survivorClosureOf(routed.length, result);
@@ -371,7 +372,7 @@ export async function recountAfter(state: Readonly<RunState>, ctx: WorkspaceRunC
 
 /* The spec files of the passing cases of an execution. */
 function passingCaseFiles(cases: ReturnType<typeof runOf>["cases"]): string[] {
-  return [...new Set(cases.flatMap((c) => (c.status === "pass" && c.file ? [c.file] : [])))];
+  return [...new Set(cases.flatMap((c) => (isRealPass(c) && c.file ? [c.file] : [])))];
 }
 
 /* One unit of the gap: what the lead is shown, and the structured finding the orchestrator routes by the file it names. */
