@@ -1,8 +1,9 @@
 /*
  * Where a run goes on from a step whose fault the policy degrades. A spent deadline in a step that runs after a suite was proven
  * keeps what is proven: the run goes to the final proof guard, which fails closed unless every delivered spec still has proof for
- * its bytes, and then decides. The one thing the deadline can take is the approval: a review the run requires that has not given
- * its verdict proves nothing about approval, so the run ends on the deadline as it always did. What the run goes on past is recorded on its facts (the limit and the degradation), which its note and its trace are derived from.
+ * its bytes, and then decides. What the deadline can take is a gate's decision: a review the run requires that has not given
+ * its verdict proves nothing about approval, and an enforced coverage gate with no measurement kept for the green bytes proves
+ * nothing about coverage, so the run ends on the deadline as it always did rather than publish past a gate left undecided. What the run goes on past is recorded on its facts (the limit and the degradation), which its note and its trace are derived from.
  */
 
 import type { AllotmentSpentError, RunDeadlineExceededError } from "../../../../shared-kernel/run-deadline.ts";
@@ -27,6 +28,8 @@ export const deadlineNote = (stepId: StepId, purpose?: string): string =>
 export interface DegradeFacts {
   /** The run requires a review of its tests. */
   reviewRequired: boolean;
+  /** The coverage policy enforces a gate on this run's green bytes and no measurement of them was kept. */
+  coverageGateUndecided: boolean;
   /** The end a fault that cannot be degraded past is turned into. */
   endOf(reason: EndReason, err: unknown): RunEnd;
 }
@@ -34,7 +37,7 @@ export interface DegradeFacts {
 export function degradeFailedStep(reason: DegradeReason, err: unknown, stepId: StepId, state: Readonly<RunState>, facts: DegradeFacts): StepOutcome<RunState> {
   /* The publication effect degrades inside finalizeRun, which asks the policy itself: no step of the table reaches this with another reason. */
   if (reason !== "deadline-after-proof") throw err;
-  if (facts.reviewRequired && state.review.reviewerApprovedForOutcome === undefined) {
+  if ((facts.reviewRequired && state.review.reviewerApprovedForOutcome === undefined) || facts.coverageGateUndecided) {
     return { end: facts.endOf("run-deadline", err) };
   }
   /* The deadline, or the purpose's share of it, is what the run went on past: it is a limit that fired, whether it ended the run or not. */

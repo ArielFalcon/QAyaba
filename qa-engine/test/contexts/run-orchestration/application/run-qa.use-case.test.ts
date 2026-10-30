@@ -9417,3 +9417,18 @@ test("a green suite whose review is required still ends E-TIME-BUDGET when the d
   assert.equal(out.decision.verdict, "infra-error");
   assert.equal(out.errorClass, ERROR_CLASS.TIME_BUDGET);
 });
+
+test("an enforced coverage gate whose measurement meets the run's deadline ends E-TIME-BUDGET: the deadline never publishes past a gate it left undecided", async () => {
+  const clock = { t: 0 };
+  const fires: Array<() => void> = [];
+  const deadline = deadlineOn(clock, 30 * MIN, fires);
+  const { ports } = stubPorts({
+    generate: async () => { clock.t += 20 * MIN; return scriptedGeneration({ specs: ["a.spec.ts"] }); },
+    measure: async () => { clock.t += 11 * MIN; fires.at(-1)?.(); return { status: "fail" as const, ratio: 0.2, uncovered: [{ file: "src/a.ts", lines: [1] }] }; },
+    blocks: (status: string) => status === "fail",
+  });
+  const out = await new RunQaUseCase({ ...ports, runDeadline: deadline, config: { ...baseConfig, needsReview: false, coveragePolicyMode: "enforce" } }).run({ ...baseInput, mode: "manual", runId: "deadline-in-measure-enforce" });
+  assert.equal(out.decision.verdict, "infra-error");
+  assert.equal(out.errorClass, ERROR_CLASS.TIME_BUDGET);
+  assert.notEqual(out.decision.sideEffect, "pr");
+});

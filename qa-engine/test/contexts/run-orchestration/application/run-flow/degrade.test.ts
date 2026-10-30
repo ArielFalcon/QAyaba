@@ -9,7 +9,7 @@ import { recordDegradation } from "@contexts/run-orchestration/application/run-f
 import { RunDeadlineExceededError } from "@kernel/run-deadline.ts";
 
 const spent = new RunDeadlineExceededError(600_000, "diff-tiny", "reviewer", "mid-turn");
-const facts = (reviewRequired: boolean) => ({ reviewRequired, endOf: (reason: string) => runEnd("setup-failed", { note: reason }) });
+const facts = (reviewRequired: boolean, coverageGateUndecided = false) => ({ reviewRequired, coverageGateUndecided, endOf: (reason: string) => runEnd("setup-failed", { note: reason }) });
 
 test("a spent deadline after a proven suite goes on to the final proof guard and says so on the outcome", () => {
   const state = initialRunState();
@@ -22,6 +22,13 @@ test("a spent deadline after a proven suite goes on to the final proof guard and
 test("a required review that has not given its verdict proves nothing about approval: the run ends on the deadline, and nothing is recorded as kept", () => {
   const state = initialRunState();
   const outcome = degradeFailedStep("deadline-after-proof", spent, "review-round", state, facts(true));
+  assert.deepEqual(outcome, { end: runEnd("setup-failed", { note: "run-deadline" }) });
+  assert.deepEqual(state.run.degradations, []);
+});
+
+test("an enforced coverage gate the deadline left undecided ends the run on the deadline, and nothing is recorded as kept", () => {
+  const state = initialRunState();
+  const outcome = degradeFailedStep("deadline-after-proof", spent, "measure-coverage", state, facts(false, true));
   assert.deepEqual(outcome, { end: runEnd("setup-failed", { note: "run-deadline" }) });
   assert.deepEqual(state.run.degradations, []);
 });

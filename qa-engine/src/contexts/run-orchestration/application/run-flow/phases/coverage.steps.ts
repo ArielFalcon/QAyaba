@@ -9,7 +9,7 @@ import { isAllotmentSpentError } from "@kernel/run-deadline.ts";
 import type { GenerationEnrichment } from "@contexts/generation/application/index.ts";
 import { changedCodeFiles, isReadTrouble, renderBranchGap, renderCoverageGap, renderSurvivedMutants, survivorClosureOf, survivorFindings, survivorRechecks, testSupportFiles, unreachableByDesign, type BundleMutationResult, type CoverageExclusions, type CoverageMeasurement, type CoverageRerun, type SurvivedMutant, type SurvivorClosure } from "@contexts/objective-signal/application/index.ts";
 import type { StepOutcome } from "../run-flow.ts";
-import type { WorkspaceRunContext } from "../run-context.ts";
+import type { RunContext, WorkspaceRunContext } from "../run-context.ts";
 import { runOf, type BranchCasesOutcome, type CoverageOutcome, type RunState } from "../run-state.ts";
 import { acceptedRegeneration, recordLimit, remeasured, rollbackDelivered, withAcceptanceCalls, withRun } from "../reducers.ts";
 import { executeAccepted, validateAccepted } from "./execute.steps.ts";
@@ -20,7 +20,7 @@ import { acceptanceNamespace } from "../../../domain/acceptance-namespace.ts";
 type Result = Promise<StepOutcome<RunState>>;
 
 /* A context run executes nothing (its pass is synthetic), so it has no coverage or value to measure. */
-export const measuresCoverage = (state: Readonly<RunState>, ctx: WorkspaceRunContext): boolean => hasGreenBytes(runOf(state).verdict) && ctx.input.mode !== "context";
+export const measuresCoverage = (state: Readonly<RunState>, ctx: RunContext): boolean => hasGreenBytes(runOf(state).verdict) && ctx.input.mode !== "context";
 
 /* Why the measurement is passed over: a context run executes nothing, and a verdict with no green bytes has nothing to measure. */
 export const coverageSkipReason = (state: Readonly<RunState>, ctx: WorkspaceRunContext): string => (ctx.input.mode === "context" ? "context-run" : "no-green-bytes");
