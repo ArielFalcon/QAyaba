@@ -208,7 +208,7 @@ export class TelemetryRepository {
        @sectionSizes, @sectionHashes, @promptHash, @limitApplied, @limitFired, @sameFileReadCount, @graphProvidedReadCount, @partialText)
   `);
     this.turnsOfRun = raw.prepare("SELECT * FROM agent_turns WHERE run_id = ? ORDER BY id ASC");
-    this.turnLimitsOfRun = raw.prepare("SELECT role, limit_fired, COUNT(*) AS turns FROM agent_turns WHERE run_id = ? AND limit_fired IS NOT NULL AND limit_fired NOT IN ('none', 'cancel') GROUP BY role, limit_fired ORDER BY MIN(id) ASC");
+    this.turnLimitsOfRun = raw.prepare("SELECT role, limit_fired, COUNT(*) AS turns FROM agent_turns WHERE run_id = ? AND limit_fired IS NOT NULL GROUP BY role, limit_fired ORDER BY MIN(id) ASC");
     this.roleFacts = raw.prepare("SELECT role, provider, model_requested, model_answered, max_steps FROM agent_turns WHERE run_id = ? ORDER BY id ASC");
   }
 
@@ -432,7 +432,7 @@ export class TelemetryRepository {
     }));
   }
 
-  /* The budget limits the run's turns ended on, by role and limit, in the order they first fired. A turn that ended on a cancel, or on none, hit no limit. */
+  /* What the run's turns recorded as their `limit.fired`, by role and value, in the order each first appeared; which of them is a limit is the kernel's rule (`isBindingLimit`). */
   getTurnLimits(runId: string): Array<{ fired: string; role: string; turns: number }> {
     const rows = this.turnLimitsOfRun.all(runId) as Array<{ role: string; limit_fired: string; turns: number }>;
     return rows.map((r) => ({ fired: r.limit_fired, role: r.role, turns: r.turns }));

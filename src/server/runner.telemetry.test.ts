@@ -219,7 +219,7 @@ test("every limit that fired and every fault the run went on past is on the root
   assert.deepEqual(budget.map((m) => m.attrs["qayaba.limit.fired"]).sort(), ["run-deadline", "wall-clock-budget"]);
 });
 
-test("a limit a turn ended on is on the record even when the engine never met it at run level", async () => {
+test("a limit a turn ended on is on the record even when the engine never met it at run level, and a cancel, a fault or no limit is none", async () => {
   const h = traceHarness();
   const queue = new JobQueue();
   const app = uniqueApp();
@@ -229,6 +229,7 @@ test("a limit a turn ended on is on the record even when the engine never met it
       getHistory().telemetry.saveAgentTurn({ ...base, ended: "timeout", durationMs: 1000, limitFired: "repair-cap" });
       getHistory().telemetry.saveAgentTurn({ ...base, round: 1, ended: "aborted", durationMs: 1000, limitFired: "cancel" });
       getHistory().telemetry.saveAgentTurn({ ...base, round: 2, ended: "aborted", durationMs: 1000, limitFired: "none" });
+      getHistory().telemetry.saveAgentTurn({ ...base, round: 3, ended: "failed", durationMs: 1000, limitFired: "fault", errorType: "transport" });
       return outcomeOf(input, {}, { decision: "pr", shadowed: false, limits: [] });
     },
   };

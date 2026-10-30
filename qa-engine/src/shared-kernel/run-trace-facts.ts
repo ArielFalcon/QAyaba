@@ -1,5 +1,7 @@
 /* What a run's trace says about how it ended, beyond the verdict: the decision, how generation ended, every limit that fired and every degradation the run went on past. It rides on the outcome object the engine returns without being a field of it: the outcome's shape is the persisted one (pinned by the seam-parity contract), and these facts are for the shell that opens the run's root span and writes the run's record. */
 
+import { isBindingLimit } from "@kernel/turn-limit.ts";
+
 /* What the run decided to do with its result: open a pull request, open an Issue, quarantine a flaky suite, or nothing. Whether shadow replaced the decision is the separate `shadowed` fact, never a value of this one. */
 export const RUN_DECISIONS = ["pr", "issue", "quarantine", "none"] as const;
 export type RunDecisionOutcome = (typeof RUN_DECISIONS)[number];
@@ -48,10 +50,11 @@ export function primaryLimit(limits: readonly RunLimitFact[]): RunLimitFact | un
   return limits.find((limit) => limit.scope === "run") ?? limits[0];
 }
 
-/* The run's limits with the ones its turns ended on added: a limit the engine already recorded at run level is the turn it stopped, seen from above, and is not counted twice. */
+/* The run's limits with the ones its turns ended on added (a cancel, a fault or no limit is none): a limit the engine already recorded at run level is the turn it stopped, seen from above, and is not counted twice. */
 export function mergeTurnLimits(limits: readonly RunLimitFact[], turnLimits: ReadonlyArray<{ fired: string; role: string; turns: number }>): RunLimitFact[] {
   const merged = [...limits];
   for (const turn of turnLimits) {
+    if (!isBindingLimit(turn.fired)) continue;
     if (limits.some((limit) => limit.scope === "run" && limit.fired === turn.fired)) continue;
     merged.push({ fired: turn.fired, role: turn.role, scope: "turn", turns: turn.turns });
   }

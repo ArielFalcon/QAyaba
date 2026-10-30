@@ -20,3 +20,11 @@ export type TimeLimitSource = (typeof TIME_LIMIT_SOURCES)[number];
 /* `fault` is a turn ended by a fault of the transport or the provider and not by any limit: the turn's error class names the fault, and `none` stays for a turn nothing ended early. */
 export const TURN_LIMITS = [...TIME_LIMIT_SOURCES, "stall", "step-cap", "cancel", "fault", "none"] as const;
 export type TurnLimit = (typeof TURN_LIMITS)[number];
+
+/* The turn ends that are no limit: a cancel stopped the turn on purpose, a fault broke it, and `none` means nothing ended it early. */
+const NOT_A_LIMIT: ReadonlySet<string> = new Set<TurnLimit>(["cancel", "fault", "none"]);
+
+/* Whether a turn's recorded `limit.fired` names a limit that bound it. */
+export function isBindingLimit(fired: string): boolean {
+  return !NOT_A_LIMIT.has(fired);
+}

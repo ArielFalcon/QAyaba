@@ -7,6 +7,7 @@
  */
 
 import { RUN_PHASES } from "@kernel/run-step";
+import { isBindingLimit } from "@kernel/turn-limit";
 import type { EvidencePort } from "@contexts/evaluation/application/index.ts";
 import type { ContextEvidence, ContextFreshness, DeliveredContextSource, DeliveredOmission, DeliveredSpecEvidence, PlanEvidence, ReferenceEvidence, RunEvaluationEvidence, RunSpecCallEvidence, SidekickReportEvidence } from "@contexts/evaluation/application/index";
 import { AGENT_NAME_FOR_ROLE } from "../agent-runtime/types";
@@ -443,7 +444,7 @@ function limitIntentOf(spans: readonly LedgerSpan[], role: string | undefined): 
   });
   const fired = ofRole.filter((s) => {
     const limit = attrsOf(s)[LIMIT_FIRED_ATTR];
-    return typeof limit === "string" && limit !== "none";
+    return typeof limit === "string" && isBindingLimit(limit);
   });
   const turn = (fired.length > 0 ? fired : ofRole).at(-1);
   if (!turn) return undefined;
