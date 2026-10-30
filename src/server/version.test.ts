@@ -1,6 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { handshake, versionGte, SERVER_VERSION, MIN_CLIENT_VERSION, WIRE_API_VERSION, CAPABILITIES } from "./version";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { handshake, versionGte, engineVersionOf, revisionOf, ENGINE_VERSION, SERVER_VERSION, MIN_CLIENT_VERSION, WIRE_API_VERSION, CAPABILITIES } from "./version";
 
 test("handshake reports the server version, wire API and capabilities", () => {
   const info = handshake("0.1.0");
@@ -38,4 +41,64 @@ test("versionGte compares major.minor.patch numerically and tolerates a v prefix
   assert.equal(versionGte("0.1.0", "0.1.0"), true);
   assert.equal(versionGte("0.2.0", "0.10.0"), false);
   assert.equal(versionGte("v1.2.3-rc1", "1.2.3"), true);
+});
+
+const SHA = "0123456789abcdef0123456789abcdef01234567";
+function checkout(t: { after(fn: () => void): void }): string {
+  const root = mkdtempSync(join(tmpdir(), "qa-revision-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  return root;
+}
+
+test("the engine version is the package version with the revision of the code that runs, so runs of different code are told apart", () => {
+  assert.equal(engineVersionOf("0.1.0", SHA), "0.1.0+0123456789ab");
+  assert.equal(engineVersionOf("0.1.0", null), "0.1.0", "no revision known: the package version alone, never an invented one");
+  assert.ok(ENGINE_VERSION.startsWith(SERVER_VERSION));
+});
+
+test("the revision is the one an image build wrote beside the code, else the checkout's HEAD", (t) => {
+  const baked = checkout(t);
+  writeFileSync(join(baked, "REVISION"), `${SHA}\n`);
+  mkdirSync(join(baked, ".git"));
+  writeFileSync(join(baked, ".git", "HEAD"), `${"f".repeat(40)}\n`);
+  assert.equal(revisionOf(baked), SHA);
+
+  const detached = checkout(t);
+  mkdirSync(join(detached, ".git"));
+  writeFileSync(join(detached, ".git", "HEAD"), `${SHA}\n`);
+  assert.equal(revisionOf(detached), SHA);
+
+  assert.equal(revisionOf(checkout(t)), null, "neither: no revision");
+});
+
+test("a checkout on a branch reads the branch's commit, loose or packed", (t) => {
+  const loose = checkout(t);
+  mkdirSync(join(loose, ".git", "refs", "heads"), { recursive: true });
+  writeFileSync(join(loose, ".git", "HEAD"), "ref: refs/heads/main\n");
+  writeFileSync(join(loose, ".git", "refs", "heads", "main"), `${SHA}\n`);
+  assert.equal(revisionOf(loose), SHA);
+
+  const packed = checkout(t);
+  mkdirSync(join(packed, ".git"));
+  writeFileSync(join(packed, ".git", "HEAD"), "ref: refs/heads/main\n");
+  writeFileSync(join(packed, ".git", "packed-refs"), `# pack-refs\n${"a".repeat(40)} refs/heads/other\n${SHA} refs/heads/main\n`);
+  assert.equal(revisionOf(packed), SHA);
+});
+
+test("a linked worktree (a .git file) reads its own HEAD and the branch from the common directory", (t) => {
+  const main = checkout(t);
+  mkdirSync(join(main, ".git", "refs", "heads"), { recursive: true });
+  mkdirSync(join(main, ".git", "worktrees", "wt"), { recursive: true });
+  writeFileSync(join(main, ".git", "refs", "heads", "fix"), `${SHA}\n`);
+  writeFileSync(join(main, ".git", "worktrees", "wt", "HEAD"), "ref: refs/heads/fix\n");
+  writeFileSync(join(main, ".git", "worktrees", "wt", "commondir"), "../..\n");
+  const linked = checkout(t);
+  writeFileSync(join(linked, ".git"), `gitdir: ${join(main, ".git", "worktrees", "wt")}\n`);
+  assert.equal(revisionOf(linked), SHA);
+});
+
+test("a revision file or HEAD that is not a commit id is no revision", (t) => {
+  const root = checkout(t);
+  writeFileSync(join(root, "REVISION"), "not-a-sha\n");
+  assert.equal(revisionOf(root), null);
 });

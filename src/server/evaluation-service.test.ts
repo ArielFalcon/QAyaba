@@ -381,6 +381,15 @@ test("a run that went on past a spent deadline reports the limit, the degradatio
   assert.equal(score?.comment, "also: repair-cap/qa-author");
 });
 
+test("a run's view names the engine version it ran under; a run stored before it was recorded reads it as unknown", () => {
+  const r = getHistory().runs.createRecord({ target: "e2e", app: "eval-engine", sha: "abcdef1234", mode: "diff" });
+  getHistory().runs.updateRecord(r.id, { status: "done", verdict: "pass", facts: { traceId: null, decision: "pr", engineVersion: "0.1.0+0123456789ab" } });
+  assert.equal(buildRunViewExtras(r.id, viewDeps(true))?.engineVersion, "0.1.0+0123456789ab");
+  const old = getHistory().runs.createRecord({ target: "e2e", app: "eval-engine-old", sha: "abcdef1234", mode: "diff" });
+  getHistory().runs.updateRecord(old.id, { status: "done", verdict: "pass", facts: { traceId: null, decision: "pr" } });
+  assert.equal(buildRunViewExtras(old.id, viewDeps(true))?.engineVersion, null);
+});
+
 test("a run stored before limits and degradations were recorded reads them as unknown, not as none", () => {
   const r = getHistory().runs.createRecord({ target: "e2e", app: "eval-old", sha: "abcdef1234", mode: "diff" });
   getHistory().runs.updateRecord(r.id, { status: "done", verdict: "pass", facts: { traceId: null, decision: "pr" } });

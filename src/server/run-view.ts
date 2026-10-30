@@ -88,6 +88,7 @@ export function buildRunViewExtras(runId: string, deps: RunViewDeps): RunViewExt
     specCounts: { generated: evidence.specs.generated, valid: evidence.specs.valid, passed: evidence.specs.passed ?? null },
     decision: facts?.decision ?? null,
     shadowed: facts?.shadowed ?? null,
+    engineVersion: facts?.engineVersion ?? null,
     degradations: facts?.degradations ?? null,
     budgets: budgetsOf(facts),
     ...(campaign ? { campaign: { id: campaign.id, variant: { ...campaign.variant }, replicate: campaign.replicate } } : {}),

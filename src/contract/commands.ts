@@ -685,6 +685,8 @@ export const RunDetailSchema = RunRecordSchema.extend({
   decision: z.string().nullable(),
   /* Whether shadow replaced the decision (nothing was opened); null for a run that did not record it. */
   shadowed: z.boolean().nullable(),
+  /* The version of the engine that ran the run: the package version and the first 12 characters of the commit of its code ("0.1.0+0123456789ab"); the package version alone when the process could not tell its commit. Null for a run stored before it was recorded. */
+  engineVersion: z.string().nullable(),
   /* Every fault the run went on past (reason: publication-failed | deadline-after-proof | regeneration-skipped, and the sentence its note carries); an empty list for a run that went on past none, null for a run stored before they were recorded. */
   degradations: z.array(z.object({ reason: z.string(), note: z.string() })).nullable(),
   /* `limit` and `role` are the limit the run leads with (the first the engine met at run level; absent when only agent turns met a limit); `limits` lists every one that fired, scope "run" for the engine's own and "turn" for those only agent turns met (`turns` of them). Absent for a run stored before limits were recorded. */

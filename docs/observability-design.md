@@ -337,7 +337,7 @@ Grouped. The full list lives in the registry (§9.3).
 
 | Group | Attributes |
 |---|---|
-| Identity | `qayaba.run.id`, `qayaba.app`, `qayaba.commit.sha`, `qayaba.trigger`, `qayaba.mode`, `qayaba.target`, `qayaba.parent_run.id`, `qayaba.trigger_repo`, `qayaba.shadow` |
+| Identity | `qayaba.run.id`, `qayaba.app`, `qayaba.commit.sha`, `qayaba.trigger`, `qayaba.mode`, `qayaba.target`, `qayaba.parent_run.id`, `qayaba.trigger_repo`, `qayaba.shadow`, `qayaba.engine.version` |
 | Config in effect | `qayaba.runtime` (the runtime that served the turn), `qayaba.closed_loop.enabled`, `qayaba.agent_browser.enabled`, `qayaba.coverage.policy`, `qayaba.campaign.freeze`, `qayaba.prompt.static_hash` (hash of `agents/AGENTS.md` plus role files), `qayaba.capture_mode` |
 | Campaign | `qayaba.campaign.id`, `qayaba.campaign.variant.<key>`, `qayaba.campaign.replicate` |
 | Budgets | `qayaba.deadline.label`, `qayaba.deadline.budget_ms`, `qayaba.tier`, `qayaba.tier.budget_ms` |
@@ -372,6 +372,11 @@ derived from them and is never the only carrier:
   cannot be told from "no limit fired" for a limit its record never kept; one stored with decision `shadow-log` reads
   `shadowed: true` and `decision: null` (what shadow replaced was never recorded). Its Tempo trace keeps the old words
   (`shadow` for `qayaba.decision`).
+- **Engine version.** Every run records the version of the engine that ran it, as `qayaba.engine.version` on its root and enqueue spans, `runs.engine_version`
+  (schema 4, nullable, nothing rewritten) and `engineVersion` in `GET /runs/:id`: the package version and the first 12 characters of the commit of the
+  code (`0.1.0+0123456789ab`), read from the `REVISION` file an image build writes beside the code, else from the HEAD of the checkout the process
+  runs from (`src/server/version.ts`). Uncommitted edits are not part of it. A process that can tell no commit records the package version alone, which
+  does not move between commits; a run stored before reads null. It is what lets runs be read as a timeline of code changes.
 
 ### 4.4 Context spans and stable item ids (brief §3)
 

@@ -5549,6 +5549,10 @@
             "nullable": true,
             "type": "boolean"
           },
+          "engineVersion": {
+            "nullable": true,
+            "type": "string"
+          },
           "degradations": {
             "nullable": true,
             "type": "array",
@@ -5796,6 +5800,7 @@
           "specCounts",
           "decision",
           "shadowed",
+          "engineVersion",
           "degradations",
           "budgets",
           "effectiveConfig"

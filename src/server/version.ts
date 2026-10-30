@@ -3,8 +3,8 @@
  * even with a wrong token. The server owns compatibility policy.
  */
 
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { readFileSync, statSync } from "node:fs";
+import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { VersionInfo } from "../contract/commands";
 
@@ -17,17 +17,75 @@ export const CAPABILITIES = [
   "queue", "apps", "repos", "agent-runtime", "history",
 ] as const;
 
+const APP_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
+
 export const SERVER_VERSION = readServerVersion();
 
 function readServerVersion(): string {
   try {
-    const pkgPath = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "package.json");
-    const pkg = JSON.parse(readFileSync(pkgPath, "utf8")) as { version?: string };
+    const pkg = JSON.parse(readFileSync(join(APP_ROOT, "package.json"), "utf8")) as { version?: string };
     return pkg.version ?? "0.0.0";
   } catch {
     return "0.0.0";
   }
 }
+
+const COMMIT_ID = /^[0-9a-f]{40}$/;
+
+function readText(path: string): string | null {
+  try {
+    return readFileSync(path, "utf8").trim();
+  } catch {
+    return null;
+  }
+}
+
+/* The git directory of a checkout: `.git` itself, or the one a linked worktree's `.git` file points at. */
+function gitDirOf(root: string): string | null {
+  const dot = join(root, ".git");
+  try {
+    if (statSync(dot).isDirectory()) return dot;
+  } catch {
+    return null;
+  }
+  const pointer = readText(dot)?.match(/^gitdir:\s*(.+)$/)?.[1];
+  return pointer ? (isAbsolute(pointer) ? pointer : resolve(root, pointer)) : null;
+}
+
+/* The commit a ref names, from its loose file or the packed refs, in the common directory a linked worktree shares. */
+function commitOfRef(gitDir: string, ref: string): string | null {
+  const commonDir = readText(join(gitDir, "commondir"));
+  const common = commonDir ? resolve(gitDir, commonDir) : gitDir;
+  const loose = readText(join(common, ref));
+  if (loose !== null) return COMMIT_ID.test(loose) ? loose : null;
+  for (const line of (readText(join(common, "packed-refs")) ?? "").split("\n")) {
+    const [id, name] = line.split(" ");
+    if (name === ref && id !== undefined && COMMIT_ID.test(id)) return id;
+  }
+  return null;
+}
+
+/*
+ * The commit of the code at `root`: the `REVISION` file an image build writes beside the code (an image holds no git history), else the HEAD
+ * of the checkout the process runs from. Null when neither says, never a guess. The working tree's uncommitted edits are not part of it.
+ */
+export function revisionOf(root: string = APP_ROOT): string | null {
+  const baked = readText(join(root, "REVISION"));
+  if (baked !== null) return COMMIT_ID.test(baked) ? baked : null;
+  const gitDir = gitDirOf(root);
+  const head = gitDir ? readText(join(gitDir, "HEAD")) : null;
+  if (head === null) return null;
+  if (COMMIT_ID.test(head)) return head;
+  const ref = head.match(/^ref:\s*(.+)$/)?.[1];
+  return ref && gitDir ? commitOfRef(gitDir, ref) : null;
+}
+
+/* The version of the engine a run ran under: the package version and, when known, the first 12 characters of the commit of the code. The package version alone does not move between commits, so it cannot tell two runs' code apart. */
+export function engineVersionOf(packageVersion: string, revision: string | null): string {
+  return revision ? `${packageVersion}+${revision.slice(0, 12)}` : packageVersion;
+}
+
+export const ENGINE_VERSION = engineVersionOf(SERVER_VERSION, revisionOf());
 
 export function handshake(clientVersion?: string, githubClientId?: string): VersionInfo {
   const compatible = clientVersion ? versionGte(clientVersion, MIN_CLIENT_VERSION) : true;

@@ -18,6 +18,7 @@ import type { CaptureMode } from "@kernel/telemetry/capture-mode";
 import { attrKey } from "@kernel/telemetry/attribute-registry";
 import { guardTelemetry } from "@kernel/telemetry/guarded-telemetry";
 import type { SpanHandle, TelemetryClock, TelemetryContext, TelemetryPort } from "@kernel/telemetry/telemetry.port";
+import { ENGINE_VERSION } from "./version";
 import { hostListeners as processHostListeners, type HostEventListener, type HostListeners } from "../telemetry/host-listeners";
 
 /* What started a run. `campaign` is a run that names the campaign it is a replicate of. */
@@ -92,6 +93,7 @@ const isDead = (context: TelemetryContext): boolean => /^0+$/.test(context.spanI
 
 function identityAttrs(identity: RunIdentity) {
   return {
+    "qayaba.engine.version": ENGINE_VERSION,
     "qayaba.run.id": identity.runId,
     "qayaba.app": identity.app,
     "qayaba.commit.sha": identity.sha,

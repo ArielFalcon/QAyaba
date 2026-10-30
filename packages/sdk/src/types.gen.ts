@@ -1472,6 +1472,7 @@ export interface components {
             };
             decision: string | null;
             shadowed: boolean | null;
+            engineVersion: string | null;
             degradations: {
                 reason: string;
                 note: string;

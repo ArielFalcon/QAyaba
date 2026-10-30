@@ -48,6 +48,7 @@ const extras: RunViewExtras = {
   specCounts: { generated: 2, valid: 2, passed: 1 },
   decision: "pr",
   shadowed: false,
+  engineVersion: "0.1.0+0123456789ab",
   degradations: [],
   budgets: { exhausted: false },
   campaign: { id: "ab-1", variant: { arm: "treatment" }, replicate: 2 },

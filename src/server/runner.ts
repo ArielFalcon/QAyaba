@@ -31,6 +31,7 @@ import type { CampaignIdentity } from "../contract/campaign";
 import { capCaptureMode, DEFAULT_CAPTURE_MODE, type CaptureMode } from "@kernel/telemetry/capture-mode";
 import { configInEffect, resolveRunConfig, type RunConfigEnvironment, type StoredRunConfig } from "./effective-config";
 import type { GroundingInput } from "../contract/commands";
+import { ENGINE_VERSION } from "./version";
 import { RunTrace, SYSTEM_CLOCK, markEnqueued, type RunFacts, type RunIdentity, type RunTrigger } from "./run-trace";
 import { guardTelemetry } from "@kernel/telemetry/guarded-telemetry";
 import { NoopTelemetry } from "@kernel/telemetry/noop-telemetry";
@@ -467,6 +468,8 @@ function trackRun(req: RunRequest, deps: RunnerDeps, captureMode: CaptureMode, w
     ...(req.campaign ? { campaign: req.campaign } : {}),
     captureMode,
   });
+  /* The engine that ran the run is a fact of the run from its first moment, so a run that crashes, is cancelled or never ends still names it. */
+  getHistory().runs.updateRecord(record.id, { facts: { engineVersion: ENGINE_VERSION } });
   appLogger.info(`[qa] enqueued ${req.app}@${req.sha} mode=${req.mode}${req.parentRunId ? ` (continue of ${req.parentRunId})` : ""} (${where})`);
 
   /* The trace of the run: a short span here, in the caller's context, and a root of its own when the queue hands the run its turn (run-trace.ts). */

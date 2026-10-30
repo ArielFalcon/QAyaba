@@ -2460,6 +2460,7 @@ type RunDetail struct {
 		Runtime *string `json:"runtime"`
 	} `json:"effectiveConfig"`
 	EngineStatus  *RunDetailEngineStatus `json:"engineStatus,omitempty"`
+	EngineVersion *string                `json:"engineVersion"`
 	Failed        *int                   `json:"failed,omitempty"`
 	FurthestPhase *string                `json:"furthestPhase"`
 	Id            string                 `json:"id"`

@@ -8,6 +8,7 @@ import Database from "better-sqlite3";
 import { openHistoryDatabase } from "./database";
 import { RunRepository } from "./repositories/run.repository";
 import { migration0002 } from "./migrations/0002-agent-turn-partial-text";
+import { migration0003 } from "./migrations/0003-run-ending-facts";
 import { LATEST_SCHEMA_VERSION, type Migration } from "./migrations/index";
 import { SCHEMA_1_SQL, migration0001 } from "./migrations/0001-initial";
 
@@ -207,6 +208,30 @@ test("a schema 2 database keeps every run row as it was: the run-ending facts it
       ["none-recorded", null, null, null, null, null],
     ],
   );
+});
+
+test("a schema 3 database keeps every run row as it was: the engine version it never recorded reads as unknown", (t) => {
+  const path = join(scratch(t), "history.db");
+  const before = new Database(path);
+  migration0001.up(before);
+  migration0002.up(before);
+  migration0003.up(before);
+  before.pragma("user_version = 3");
+  before.prepare("INSERT INTO runs (id, app, sha, at, decision) VALUES ('old', 'app', 'abcdef1', '2026-10-01T00:00:00.000Z', 'pr')").run();
+  const rows = (db: Database.Database): string => JSON.stringify(db.prepare("SELECT id, app, sha, at, decision FROM runs").all());
+  const rowsBefore = rows(before);
+  before.close();
+
+  const history = openHistoryDatabase(path);
+  t.after(() => history.close());
+
+  assert.equal(history.read(userVersion), LATEST_SCHEMA_VERSION);
+  assert.equal(history.read(rows), rowsBefore, "no stored value was rewritten");
+  const runs = new RunRepository(history);
+  assert.equal(runs.getRunFacts("old")!.engineVersion, null);
+  const { id } = runs.createRecord({ app: "app", sha: "abcdef2", target: "e2e", mode: "diff" });
+  runs.updateRecord(id, { facts: { engineVersion: "0.1.0+0123456789ab" } });
+  assert.equal(runs.getRunFacts(id)!.engineVersion, "0.1.0+0123456789ab");
 });
 
 test("a run's limits, degradations and shadow flag are stored with its facts and read back as they were written", (t) => {

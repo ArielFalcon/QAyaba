@@ -32,6 +32,7 @@ export const ATTRIBUTES = {
   "qayaba.run.id": str("The run id.", "high"),
   "qayaba.app": str("The watched app's configured name."),
   "qayaba.commit.sha": str("The commit under test.", "high"),
+  "qayaba.engine.version": str("The version of the engine that ran the run: the package version, plus the first 12 characters of the commit of its code when the process can tell it (0.1.0+0123456789ab). Uncommitted edits are not part of it."),
   "qayaba.trigger": str("What started the run: webhook, api, cli, campaign, continuation, context or login-bootstrap."),
   "qayaba.mode": str("The run mode: diff, manual or context."),
   "qayaba.target": str("The test target of the run (always e2e)."),

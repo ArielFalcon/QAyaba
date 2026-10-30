@@ -17,6 +17,7 @@ import type { TelemetryPort } from "@kernel/telemetry/telemetry.port";
 import { SpanStatusCode, traceHarness } from "../telemetry/trace-harness";
 import { createTelemetry } from "../telemetry/bootstrap";
 import { getHistory } from "./persistence/index";
+import { ENGINE_VERSION } from "./version";
 
 const cfg = (name: string): AppConfig => ({
   name,
@@ -56,6 +57,26 @@ function deps(h: ReturnType<typeof traceHarness>, port: RunPipelinePort, extra: 
 }
 
 const attr = (span: { attributes: Record<string, unknown> }, key: string): unknown => span.attributes[key];
+
+test("every run records the version of the engine that ran it, on its record and on its root span", async () => {
+  const h = traceHarness();
+  const queue = new JobQueue();
+  const id = enqueueTrackedRun(queue, request(uniqueApp()), deps(h, portReturning()));
+  await queue.drain();
+
+  assert.equal(getHistory().runs.getRunFacts(id)?.engineVersion, ENGINE_VERSION);
+  assert.equal(attr(h.only("qayaba.run"), "qayaba.engine.version"), ENGINE_VERSION);
+  assert.equal(attr(h.only("qayaba.run.enqueue"), "qayaba.engine.version"), ENGINE_VERSION);
+});
+
+test("a run that crashed still names the engine that ran it", async () => {
+  const h = traceHarness();
+  const queue = new JobQueue();
+  const crashing: RunPipelinePort = { run: async () => { throw new Error("boom"); } };
+  const id = enqueueTrackedRun(queue, request(uniqueApp()), deps(h, crashing));
+  await queue.drain();
+  assert.equal(getHistory().runs.getRunFacts(id)?.engineVersion, ENGINE_VERSION);
+});
 
 test("a run is a root span on a trace of its own, with a link to the enqueue span and the identity of the run", async () => {
   const h = traceHarness();

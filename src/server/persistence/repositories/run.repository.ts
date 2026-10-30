@@ -65,6 +65,8 @@ export interface RunFactsPatch {
   coverageMinRatio?: number | null;
   /* An operator cancelled the run. */
   cancelled?: boolean | null;
+  /* The version of the engine that ran it (the package version and the commit of the code); null for a run that recorded none. */
+  engineVersion?: string | null;
 }
 
 /* The value the decision column held for a run whose decision shadow replaced, before `shadowed` was a fact of its own. */
@@ -72,7 +74,7 @@ const LEGACY_SHADOW_DECISION = "shadow-log";
 
 const FACT_COLUMNS: ReadonlyArray<[keyof RunFactsPatch, string]> = [
   ["traceId", "trace_id"], ["decision", "decision"], ["shadowed", "shadowed"], ["limitFired", "limit_fired"], ["limitRole", "limit_role"], ["limits", "limits"], ["degradations", "degradations"], ["reviewRequired", "review_required"],
-  ["coverageStatus", "coverage_status"], ["coverageMode", "coverage_mode"], ["coverageMinRatio", "coverage_min_ratio"], ["cancelled", "cancelled"],
+  ["coverageStatus", "coverage_status"], ["coverageMode", "coverage_mode"], ["coverageMinRatio", "coverage_min_ratio"], ["cancelled", "cancelled"], ["engineVersion", "engine_version"],
 ];
 
 /* The patch updateRecord takes: like RunRecord's optional fields, except stepDetail may be an explicit null so a step change can clear the last detail. */
@@ -300,6 +302,7 @@ export class RunRepository {
       coverageMode: row.coverage_mode as string | null,
       coverageMinRatio: row.coverage_min_ratio as number | null,
       cancelled: flag(row.cancelled!),
+      engineVersion: row.engine_version as string | null,
     };
   }
 
