@@ -9,6 +9,7 @@ import { PassThrough } from "node:stream";
 import { ProcessKillAdapter } from "../../../../src/shared-infrastructure/process-sandbox/process-kill.adapter.ts";
 import { createDefaultE2eCleanupDeps, createDefaultE2eExecuteDeps } from "@contexts/test-execution/infrastructure/e2e-execution.runner.ts";
 import type { ExecPurpose } from "../../../../src/shared-kernel/exec-purpose.ts";
+import { BundleMutationOracleAdapter } from "@contexts/objective-signal/infrastructure/bundle-mutation-oracle.adapter.ts";
 
 interface Spawn { purpose?: ExecPurpose; namespace?: string; commandClass?: string }
 
@@ -68,7 +69,7 @@ test("a run_spec call (the writes counted) is a control load and then the run-sp
 test("a mutant's re-run, an observation run and the caller's own name for a run are told apart", async () => {
   const r = rig();
   try {
-    await r.deps.runSuite({ ...base(r, "run-7-mut0"), mutant: "{}" });
+    await r.deps.runSuite({ ...base(r, "run-7-mut0"), mutant: JSON.stringify({ url: "https://dev/main.js", sha256: "h", start: 0, end: 1, replacement: "!" }) });
     await r.deps.runSuite({ ...base(r, "run-7-obs"), observe: true });
     await r.deps.runSuite({ ...base(r, "run-7-acc1"), purpose: "acceptance" });
     assert.deepEqual(r.spawned.map((s) => [s.purpose, s.namespace]), [["mutant", "run-7-mut0"], ["observation", "run-7-obs"], ["acceptance", "run-7-acc1"]]);
@@ -82,6 +83,32 @@ test("the orphan-data cleanup names itself", async () => {
   try {
     await createDefaultE2eCleanupDeps(new ProcessKillAdapter(), r.exec).runCleanup({ dir: r.workRoot, baseUrl: "https://dev", namespace: "qa-bot" });
     assert.deepEqual(r.spawned, [{ purpose: "cleanup", namespace: "qa-bot", commandClass: "playwright-test" }]);
+  } finally {
+    r.cleanup();
+  }
+});
+
+test("the oracle's re-runs are labelled by what they edit: a mutant names a script, the unmutated observation runs a survivor is compared with name none", async () => {
+  const r = rig();
+  try {
+    const asked: Array<{ namespace: string; mutant?: string; observe?: boolean }> = [];
+    const oracle = new BundleMutationOracleAdapter(
+      async (args) => {
+        asked.push({ namespace: args.namespace, ...(args.mutant !== undefined ? { mutant: args.mutant } : {}), ...(args.observe ? { observe: true } : {}) });
+        return r.deps.runSuite({ dir: args.dir, baseUrl: args.baseUrl, namespace: args.namespace, ...(args.mutant !== undefined ? { mutant: args.mutant } : {}), ...(args.observe ? { observe: true } : {}) }).then(() => ({ verdict: "pass", cases: [{ name: "pays", status: "pass" as const, file: "flows/pay.spec.ts" }] as never, observations: [] }));
+      },
+      () => 1,
+      "https://dev",
+    );
+    const site = { file: "src/checkout.ts", line: 1, column: 0, operator: "negate condition", script: { url: "https://dev/main.js", sha256: "h" }, edit: { start: 0, end: 1, replacement: "!" }, original: "x" };
+
+    await oracle.measure([{ site: site as never, specFiles: ["flows/pay.spec.ts"], tests: ["flows-pay-spec-ts-pays"] }], r.workRoot, "run-7", ["pays"], { observe: true });
+
+    assert.ok(asked.some((a) => a.namespace.endsWith("-obs") && a.observe), "the oracle ran its unmutated observation runs");
+    const purposeOf = (suffix: string) => r.spawned.filter((s) => s.namespace?.endsWith(suffix)).map((s) => s.purpose);
+    assert.deepEqual(purposeOf("-obs"), ["observation"]);
+    assert.deepEqual(purposeOf("-obs2"), ["observation"]);
+    assert.deepEqual(purposeOf("-mut0"), ["mutant"], "the mutated re-run, observed too, is still a mutant's");
   } finally {
     r.cleanup();
   }

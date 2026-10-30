@@ -9,11 +9,23 @@
 export const EXEC_PURPOSES = ["suite", "acceptance", "fix-retry", "run-spec", "control", "mutant", "observation", "cleanup"] as const;
 export type ExecPurpose = (typeof EXEC_PURPOSES)[number];
 
-/* What an execution is for when its caller does not say: the shape of the request tells (a mutant, an observation, a counted run_spec, the cleanup pass), and anything else is the suite. */
+/* Whether a mutant selection edits a script. The unmutated runs a survivor is compared with carry the selection of the tests to run and an edit that names no script (an empty address: no response has one), so they are no mutant's re-run; a selection that cannot be read is taken for a mutant's. */
+function namesScript(mutant: unknown): boolean {
+  if (typeof mutant !== "string") return true;
+  try {
+    const parsed: unknown = JSON.parse(mutant);
+    const url = typeof parsed === "object" && parsed !== null ? (parsed as { url?: unknown }).url : undefined;
+    return typeof url === "string" && url !== "";
+  } catch {
+    return true;
+  }
+}
+
+/* What an execution is for when its caller does not say: the shape of the request tells (a mutant that edits a script, an observation, a counted run_spec, the cleanup pass), and anything else is the suite. */
 export function purposeOfExecution(request: { purpose?: ExecPurpose; mutant?: unknown; observe?: boolean; countWrites?: boolean; cleanupPass?: boolean }): ExecPurpose {
   if (request.purpose) return request.purpose;
   if (request.cleanupPass) return "cleanup";
-  if (request.mutant !== undefined) return "mutant";
+  if (request.mutant !== undefined && namesScript(request.mutant)) return "mutant";
   if (request.observe) return "observation";
   if (request.countWrites) return "run-spec";
   return "suite";
