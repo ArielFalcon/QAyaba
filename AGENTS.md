@@ -952,6 +952,19 @@ that catches nothing. The objective signal that breaks the circle is **change-co
   scripts and none carried a map, the measurement ends `unknown` with `unmeasured: no-source-maps`
   (span `qayaba.coverage.unmeasured`), distinct from `no-changed-file-mapped` (maps existed, none
   reached a changed file). It is an app/DEV build property, fixed by serving maps, never by a guess.
+  **How a read of dumps ended is typed** (`objective-signal/domain/dump-outcome.ts`, one vocabulary for the decode and the harvest): `completed`,
+  `absent` (no dump was there), `aborted` (the work outlasted its budget), `heap-limit`, `crashed`, `unavailable` (the worker could not start),
+  `over-cap` (a dump or a set past its cap) or `unusable`. A read that does not complete is the measurement's `unmeasured` reason, never read as
+  `no-changed-file-mapped`: `decode-aborted | decode-heap-limit | decode-crashed | decode-unavailable | dumps-over-cap | dumps-unusable`, and
+  `no-dumps` when every read found none. The run records it in `gateSignals.changeCoverage` (`{ executableLines: 0, unmeasured }`; only a
+  read trouble is recorded, the other reasons stay on the span), a measurement that stands without a killed mutant's dumps says so in
+  `evidenceLeftOut` (span `qayaba.coverage.evidence_left_out`), and the collector tells every read it made (`CoverageRead`: namespace, start,
+  duration, dumps, bytes, outcome, the worker's start and work times) to `opts.onRead` of `measure`/`recount`, which the coverage port's trace
+  turns into a `qayaba.coverage.decode` span under `qayaba.coverage.measure` (or `.recount`); the dump bridge tells each kind it harvested to
+  `onHarvested`, a `qayaba.dumps.harvest` span (attributes `qayaba.dumps.*`). The budget of a worker job is the work's:
+  `runWithin` starts it when the worker says it has begun (`reportsStart`; the thread, its module and the transfer of the bytes were 1.6 to
+  2.5 s per read on real dumps and are no part of it) and bounds the start apart (`WORKER_START_BUDGET_MS`, then `unavailable`); the outcome
+  carries `timing: { startMs, workMs }`.
 - **Branch coverage** (signal, never a gate): the decisions of the scripts the page ran (if/else with the
   implicit else, `?:`, `&&`/`||`/`??`, switch clauses) are placed through the same maps, and an arm is
   taken when V8's block counts say it ran. The arms on changed lines go on the coverage span

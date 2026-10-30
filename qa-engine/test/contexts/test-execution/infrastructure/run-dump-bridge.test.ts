@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { DUMP_CHECK_BUDGET_MS, openDumpBridge } from "@contexts/test-execution/infrastructure/run-dump-bridge.ts";
+import { DUMP_CHECK_BUDGET_MS, openDumpBridge, type DumpHarvest } from "@contexts/test-execution/infrastructure/run-dump-bridge.ts";
 import { countInjectedResponses } from "@contexts/objective-signal/infrastructure/fault-injection-counter-reader.ts";
 import type { OffLoopExecutor, OffLoopOutcome } from "../../../../src/shared-infrastructure/worker/off-loop-executor.ts";
 
@@ -344,4 +344,53 @@ test("a check that ends before its time leaves no timer behind", async (t) => {
   await bridge.harvest();
   assert.equal(armed.length, 1, "one deadline was armed");
   assert.ok(cleared.includes(armed[0]), "and cleared when the job ended");
+});
+
+/* What the harvest tells of each kind of dump it handled: the dumps and bytes it was given, its time and how it ended. */
+
+function harvested(r: Rig, executor?: OffLoopExecutor): { bridge: ReturnType<typeof open>; told: DumpHarvest[] } {
+  const told: DumpHarvest[] = [];
+  const bridge = openDumpBridge({ specDir: r.specDir, namespace: NS, dumpRoot: r.dumpRoot, workRoot: r.workRoot, onHarvested: (h) => told.push(h), ...(executor ? { executor } : {}) });
+  return { bridge, told };
+}
+
+test("a harvest tells, per kind of dump, how many files and bytes it was given, how long it took and that it completed", async (t) => {
+  const r = rig(t);
+  const { bridge, told } = harvested(r);
+  writeFileSync(join(r.dumpRoot, "coverage", "w0-0.json"), DUMP);
+  writeFileSync(join(r.dumpRoot, "coverage", "w1-0.json"), DUMP);
+  await bridge.harvest();
+
+  const coverage = told.find((h) => h.kind === "coverage")!;
+  assert.deepEqual([coverage.namespace, coverage.outcome, coverage.dumps, coverage.bytes], [NS, "completed", 2, 2 * DUMP.length]);
+  assert.ok(coverage.durationMs >= 0 && coverage.startedAt > 0 && (coverage.workMs ?? -1) >= 0);
+  assert.equal(told.find((h) => h.kind === "fault-injection")?.outcome, "absent", "a kind with no dump is told as absent, not skipped");
+});
+
+for (const reason of ["aborted", "heap-limit", "crashed", "unavailable"] as const) {
+  test(`a harvest whose worker ends ${reason} says so, and the set is left out`, async (t) => {
+    const r = rig(t);
+    const { bridge, told } = harvested(r, { run: async () => ({ kind: "failed", reason }) });
+    writeFileSync(join(r.dumpRoot, "coverage", "w0-0.json"), DUMP);
+    await bridge.harvest();
+
+    assert.deepEqual(told.find((h) => h.kind === "coverage")?.outcome, reason);
+    assert.deepEqual(entries(join(r.specDir, ".qa", "coverage", NS)), []);
+  });
+}
+
+test("a dump the sanitizer refuses makes the harvest unusable, and one larger than the cap makes it over the cap", async (t) => {
+  const r = rig(t);
+  const { bridge, told } = harvested(r);
+  writeFileSync(join(r.dumpRoot, "coverage", "w0-0.json"), "not json at all");
+  await bridge.harvest();
+  assert.equal(told.find((h) => h.kind === "coverage")?.outcome, "unusable");
+});
+
+test("an observer that throws changes nothing about what is carried over", async (t) => {
+  const r = rig(t);
+  const bridge = openDumpBridge({ specDir: r.specDir, namespace: NS, dumpRoot: r.dumpRoot, workRoot: r.workRoot, onHarvested: () => { throw new Error("exporter down"); } });
+  writeFileSync(join(r.dumpRoot, "coverage", "w0-0.json"), DUMP);
+  await bridge.harvest();
+  assert.deepEqual(entries(join(r.specDir, ".qa", "coverage", NS)), ["w0-0.json"]);
 });

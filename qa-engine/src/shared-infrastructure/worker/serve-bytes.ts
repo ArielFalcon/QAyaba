@@ -19,6 +19,10 @@ export interface ByteJobRequest {
 export interface ByteJobResponse {
   outputs: Array<Uint8Array | null>;
 }
+/** Sent once, before the first input is worked on: the worker's fixed cost (its thread, its module, the bytes handed over) is paid. */
+export interface ByteJobStarted {
+  started: true;
+}
 
 export function serveBytes(fn: (bytes: Buffer) => Buffer): void {
   serveBytesWith(() => fn);
@@ -28,6 +32,8 @@ export function serveBytesWith<C = undefined>(open: (context: C) => (bytes: Buff
   if (parentPort === null) throw new Error("serveBytes must run in a worker thread");
   const { inputs, context } = workerData as ByteJobRequest;
   const fn = open(context as C);
+  const started: ByteJobStarted = { started: true };
+  parentPort.postMessage(started);
   const outputs = inputs.map((input): Uint8Array | null => {
     try {
       return ownedBytes(fn(Buffer.from(input.buffer, input.byteOffset, input.byteLength)));

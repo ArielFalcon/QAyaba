@@ -21,7 +21,9 @@ import { parsePlaywrightReport } from "./playwright-report.ts";
 import type { ExpectedFailureTest, SkippedTest } from "../domain/skipped-test.ts";
 import { PLAYWRIGHT_INFRA_RE } from "../../../shared-kernel/playwright-infra.ts";
 import { openDumpBridge } from "./run-dump-bridge.ts";
+import { harvestSpanObserver } from "./harvest-spans.ts";
 import type { OffLoopExecutor } from "../../../shared-infrastructure/worker/off-loop-executor.ts";
+import type { TelemetryPort } from "../../../shared-kernel/telemetry/telemetry.port.ts";
 import { readObservations } from "./observation-reader.ts";
 import type { ObservedPage } from "@contexts/objective-signal/application/index.ts";
 import { activeExecScope } from "../../../shared-infrastructure/process-sandbox/exec-scope.ts";
@@ -964,6 +966,8 @@ export function createDefaultE2eExecuteDeps(
   exitWaitMs: number = CHILD_EXIT_WAIT_MS,
   /* Where the coverage dumps are rebuilt, a seam so that a test can hold the work. Absent: a worker thread per harvest. */
   dumpExecutor?: OffLoopExecutor,
+  /* Where each harvest of dumps is recorded as a span. Absent: not traced. */
+  telemetry?: TelemetryPort,
 ): E2eExecuteDeps {
   if (!exec) {
     throw new Error("[qa] createDefaultE2eExecuteDeps requires an execution launcher — there is no safe default (the specs are agent-written code).");
@@ -986,7 +990,7 @@ export function createDefaultE2eExecuteDeps(
         writeFileSync(reporterPath, STREAM_REPORTER);
         /* The fixtures write the coverage and fault-injection dumps below the suite's own .qa, from the sandboxed child. Nothing the child writes lands in the mirror: those two paths lead to a folder of the run's work dir while it runs, and only the dumps that pass the check are carried over once it is gone (run-dump-bridge.ts). */
         const dumpRoot = exec.allocDir("dumps", ["coverage", "fault-injection"]);
-        const dumps = openDumpBridge({ specDir: dir, namespace, dumpRoot, workRoot, ...(dumpExecutor ? { executor: dumpExecutor } : {}) });
+        const dumps = openDumpBridge({ specDir: dir, namespace, dumpRoot, workRoot, ...(dumpExecutor ? { executor: dumpExecutor } : {}), ...(telemetry ? { onHarvested: harvestSpanObserver(telemetry) } : {}) });
         let dumpsClosed = false;
         const closeDumps = async (harvest: boolean): Promise<void> => {
           if (dumpsClosed) return;

@@ -440,6 +440,19 @@ export const ATTRIBUTES = {
   "qayaba.auth.invalidated": bool("The call found the saved session gone."),
   "qayaba.auth.renewed": bool("The session was renewed after the call found it gone."),
 
+  /* T32 unit D: how the reads of dumps and the executions of a run ended (ADR-0016, R1). */
+  "qayaba.dumps.kind": str("Which dumps a harvest rebuilt: coverage or fault-injection."),
+  "qayaba.dumps.namespace": str("The namespace whose dumps were read or harvested.", "high"),
+  "qayaba.dumps.count": int("The dump files a read or a harvest was given."),
+  "qayaba.dumps.bytes": int("The bytes of the dump files a read or a harvest was given."),
+  "qayaba.dumps.outcome": str("How a read or a harvest of dumps ended: completed, absent, aborted (at its deadline), heap-limit, crashed, unavailable (the worker could not start), over-cap or unusable."),
+  "qayaba.dumps.start_ms": int("Milliseconds from the call until the worker said it had begun (its thread, its module, the bytes handed over); absent when it never did."),
+  "qayaba.dumps.work_ms": int("Milliseconds from the moment the worker had begun to the outcome, which is what the budget of the work bounds."),
+  "qayaba.coverage.evidence_left_out": spec("string[]", "The ways a read ended that a measurement that decided something stands without: decode-aborted, decode-heap-limit, decode-crashed, decode-unavailable, dumps-over-cap or dumps-unusable.", "low", "none", 6),
+  "qayaba.exec.purpose": str("What a Playwright child was run for: suite (a whole-suite or re-run execution), run-spec, control, mutant, observation or cleanup."),
+  "qayaba.exec.namespace": str("The data namespace a Playwright child ran under (its dumps are read under it).", "high"),
+  "qayaba.tool.failure_kind": str("Why a run_spec call that did not pass failed: app-defect, page-not-settled, not-found, value-mismatch, load-error, session-lost, timed-out or other."),
+
   /* Langfuse viewing aids, set on the root. */
 
   /* GenAI semantic conventions, spelled in genai-semconv.ts only. */

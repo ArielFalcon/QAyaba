@@ -440,12 +440,17 @@ test("a run that is given enough time uses every dump, as it did", async () => {
   });
 });
 
-test("with the real worker: a run that has no time to start it leaves the set unused and says that it was the time, and one that has time reads both dumps", async () => {
+test("a decode that outlasts the time its worker is given leaves the set unused and says that it was the time; with the real worker, one that has time reads both dumps", async () => {
   await withRun(async (r) => {
     writeDump(r.e2e, "a-fine.json");
     writeDump(r.e2e, "b-fine.json");
 
-    const hurried = await capturing(() => readV8Coverage(r.e2e, NS, CHANGED, undefined, undefined, 1));
+    /* A worker that has begun and works for ever: the time is the work's, counted from the moment the worker says it has begun. */
+    const working: OffLoopExecutor = {
+      reportsStart: true,
+      run: (_inputs, signal, _context, hooks) => new Promise((resolve) => { hooks?.onStarted(); signal?.addEventListener("abort", () => resolve({ kind: "failed", reason: "aborted" }), { once: true }); }),
+    };
+    const hurried = await capturing(() => readV8Coverage(r.e2e, NS, CHANGED, undefined, working, 1));
     const unhurried = await capturing(() => readV8Coverage(r.e2e, NS, CHANGED, undefined, undefined, 60_000));
 
     assert.deepEqual(hurried.value, []);

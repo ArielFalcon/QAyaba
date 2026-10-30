@@ -6,5 +6,5 @@ import type { OffLoopExecutor } from "../../../shared-infrastructure/worker/off-
 
 /* `executor` decodes the dumps; absent, a worker thread per read. */
 export function makeTargetCoverageCollector(changedFiles: string[], executor?: OffLoopExecutor): CoverageCollectorPort {
-  return new V8BrowserCoverageAdapter((specDir, namespace, changed, scripts, branches, keep, executable, mutant, ranBy) => readV8Coverage(specDir, namespace, changed, undefined, executor, undefined, scripts, branches, keep, executable, mutant, ranBy), changedFiles);
+  return new V8BrowserCoverageAdapter((specDir, namespace, changed, scripts, branches, keep, executable, mutant, ranBy, reads) => readV8Coverage(specDir, namespace, changed, undefined, executor, undefined, scripts, branches, keep, executable, mutant, ranBy, reads), changedFiles);
 }

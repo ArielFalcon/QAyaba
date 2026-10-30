@@ -1,6 +1,7 @@
 import type { ObservedDifference } from "@kernel/observed-difference.ts";
 import type { SpecFileDifference } from "./observed-difference.ts";
 import type { DecisionKind } from "@kernel/changed-decision.ts";
+import type { CoverageReadFault, DumpOutcome } from "./dump-outcome.ts";
 
 export interface CoveredLines { file: string; lines: number[]; }
 
@@ -31,7 +32,10 @@ export interface MutantProof extends MutantEdit { namespace: string; specFiles: 
 /* `branches` and `mutationSites` are absent when the collector does not see decisions, or could not read them within its bounds. `executable` holds the lines of the changed files the loaded scripts hold code for, ran or not; absent when the collector cannot tell (a native report), and then every added line counts. */
 /* The dumps (one per test, by name) that ran a line of a changed file; absent for a collector that reads reports a run writes whole. In memory only. */
 export interface DumpsThatRan { file: string; dumps: string[]; }
-export interface CoverageReport { covered: CoveredLines[]; executable?: CoveredLines[]; scripts?: CoverageScripts; branches?: BranchHit[]; mutationSites?: MutationSite[]; ranBy?: DumpsThatRan[]; /* A source of a recollection yielded no dump: the report is a part of what it was asked for. */ incomplete?: true; }
+/* One read of the dumps of a namespace and how it ended: when it began (wall-clock ms), how long it took, the dumps and bytes it was given, and, when the executor said when its worker began, how long the start took (`startMs`, null when it never did) and the work (`workMs`). A record of the read, not of what the dumps held. */
+export interface CoverageRead { namespace: string; startedAt: number; durationMs: number; dumps: number; bytes: number; outcome: DumpOutcome; startMs: number | null; workMs: number; }
+/* `reads` holds one record per source read, in the order read; `fault` is the first way a read failed to use its dumps, absent when none did. They are told by a collector that reads the dumps itself. */
+export interface CoverageReport { covered: CoveredLines[]; executable?: CoveredLines[]; scripts?: CoverageScripts; branches?: BranchHit[]; mutationSites?: MutationSite[]; ranBy?: DumpsThatRan[]; /* A source of a recollection yielded no dump: the report is a part of what it was asked for. */ incomplete?: true; reads?: CoverageRead[]; fault?: CoverageReadFault; }
 /* The dumps of one namespace a recollection adds: without those the tests of `exceptSpecFiles` wrote, and, when `onlySpecFiles` is given, only those its tests wrote; `mutant` is the edit the page's script carried when they were written, undone before they are read. */
 export interface DumpSource { namespace: string; exceptSpecFiles?: readonly string[]; onlySpecFiles?: readonly string[]; mutant?: MutantEdit; }
 /* A mutant of the served script to re-run, with the spec files whose tests reached it and, when the dumps that ran it name their tests, those tests (each as the coverage fixture names its dumps): only they are re-run. */

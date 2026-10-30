@@ -1,7 +1,7 @@
 import type { BlastRadius } from "@kernel/blast-radius.ts";
 import type { UseCaseCandidate } from "@kernel/use-case-candidate.ts";
 import type { BundleMutationOutcome, CoverageMeasurement, CoverageRecount, CoverageRerun, FileRanBy, MutantSelectionRecord, UntakenArm } from "../../domain/objective-signal.ts";
-import type { BundleMutationResult, MutantProof, MutantRun } from "../../domain/coverage-collector.ts";
+import type { BundleMutationResult, CoverageRead, MutantProof, MutantRun } from "../../domain/coverage-collector.ts";
 import type { CoverageExclusions } from "../../domain/coverage-exclusions.ts";
 
 export interface ObjectiveSignalPort {
@@ -30,8 +30,9 @@ export interface ObjectiveSignalPort {
    * what they mutate, by why, and how many mutants re-run only the tests that reached them); absent when no mutant was looked for.
    * `ranBy` names, per changed file, the spec files among `opts.caseFiles` whose tests' dumps (those the measurement read) ran a line of
    * it; a dump no case file wrote counts for none. Absent when the collector cannot tell which dump ran what. In memory only.
+   * `opts.onRead` is told every read of dumps the measurement made, whatever it came to (the record of the read: dumps, bytes, time, outcome), for the trace.
    */
-  measure(br: BlastRadius, specDir: string, diff?: string, baselineCases?: string[], opts?: { namespace?: string; caseFiles?: string[]; candidates?: readonly UseCaseCandidate[]; crossRepo?: boolean; reruns?: readonly CoverageRerun[]; exclusions?: CoverageExclusions }): Promise<{ status: "pass" | "fail" | "unknown"; ratio: number | null; uncovered?: { file: string; lines: number[] }[]; untakenArms?: UntakenArm[]; bundleMutation?: BundleMutationOutcome; mutantSelection?: MutantSelectionRecord; mutantProofs?: MutantProof[]; survivorRuns?: MutantRun[]; measurement?: CoverageMeasurement; ranBy?: FileRanBy[] }>;
+  measure(br: BlastRadius, specDir: string, diff?: string, baselineCases?: string[], opts?: { namespace?: string; caseFiles?: string[]; candidates?: readonly UseCaseCandidate[]; crossRepo?: boolean; reruns?: readonly CoverageRerun[]; exclusions?: CoverageExclusions; onRead?: (read: CoverageRead) => void }): Promise<{ status: "pass" | "fail" | "unknown"; ratio: number | null; uncovered?: { file: string; lines: number[] }[]; untakenArms?: UntakenArm[]; bundleMutation?: BundleMutationOutcome; mutantSelection?: MutantSelectionRecord; mutantProofs?: MutantProof[]; survivorRuns?: MutantRun[]; measurement?: CoverageMeasurement; ranBy?: FileRanBy[] }>;
   /**
    * Single source of truth for whether a measured status blocks publish.
    * Only "enforce" + "fail" blocks; "unknown" never blocks regardless of mode.
@@ -50,5 +51,5 @@ export interface ObjectiveSignalPort {
    * was judged. Absent on a port with no mutation pass. A signal, never a gate.
    */
   recheckSurvivors?(survivors: readonly MutantRun[], specDir: string, namespace: string, baselineCases: readonly string[]): Promise<BundleMutationResult | null>;
-  recount?(br: BlastRadius, specDir: string, diff: string | undefined, reruns: readonly CoverageRerun[], opts?: { namespace?: string; proofs?: readonly MutantProof[]; exclusions?: CoverageExclusions; caseFiles?: readonly string[] }): Promise<CoverageRecount | null>;
+  recount?(br: BlastRadius, specDir: string, diff: string | undefined, reruns: readonly CoverageRerun[], opts?: { namespace?: string; proofs?: readonly MutantProof[]; exclusions?: CoverageExclusions; caseFiles?: readonly string[]; onRead?: (read: CoverageRead) => void }): Promise<CoverageRecount | null>;
 }

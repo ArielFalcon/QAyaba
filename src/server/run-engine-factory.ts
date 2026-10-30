@@ -823,7 +823,7 @@ export function buildEngineRootDeps(
 
 
   const e2eExecuteDeps: E2eExecuteDeps = {
-    ...createDefaultE2eExecuteDeps(new ProcessKillAdapter(), e2eDefaultTimeoutMs, exec, pwActionTimeoutMs),
+    ...createDefaultE2eExecuteDeps(new ProcessKillAdapter(), e2eDefaultTimeoutMs, exec, pwActionTimeoutMs, undefined, undefined, undefined, deps.telemetry),
     ...(app.dev.geolocation ? { geolocation: app.dev.geolocation } : {}),
     ...(app.dev.dataState ? { dataState: app.dev.dataState } : {}),
     /* The Playwright report as spans (spec files, cases, attempts) under the phase that executes. */

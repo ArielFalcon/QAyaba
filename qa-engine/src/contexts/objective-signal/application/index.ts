@@ -13,7 +13,7 @@ export type { IntentViolation, SpecContractExtraction, SpecIntent } from "../dom
 export type { IntentContractPort } from "./ports/intent-contract.port.ts";
 export type { CoverageCollectorPort } from "./ports/coverage-collector.port.ts";
 export type { ObjectiveSignalPort } from "./ports/objective-signal.port.ts";
-export type { CoverageReport, BranchHit, BranchKind, BranchArm, MutationSite, DumpSource, MutantRun, BundleMutationResult, MutantEdit, MutantProof, SurvivedMutant } from "../domain/coverage-collector.ts";
+export type { CoverageRead, CoverageReport, BranchHit, BranchKind, BranchArm, MutationSite, DumpSource, MutantRun, BundleMutationResult, MutantEdit, MutantProof, SurvivedMutant } from "../domain/coverage-collector.ts";
 export type { BundleMutationPort } from "./ports/bundle-mutation.port.ts";
 export type { CoverageMeasurement, CoverageRecount, CoverageRerun, UntakenArm, BundleMutationOutcome } from "../domain/objective-signal.ts";
 export { assembleChangeCoverage } from "../domain/assemble-change-coverage.ts";
@@ -25,3 +25,5 @@ export { changedCodeFiles, testSupportFiles, unreachableByDesign } from "../doma
 export type { CoverageExclusions, ReachScope, TestSupportFile, UnreachableByDesign } from "../domain/coverage-exclusions.ts";
 export { perCandidateCoverage } from "../domain/per-candidate-coverage.ts";
 export type { CandidateCoverage, CandidateUnmeasured } from "../domain/per-candidate-coverage.ts";
+export { COVERAGE_READ_FAULTS, DUMP_OUTCOMES, faultOfOutcome, isReadTrouble, unusedOutcome } from "../domain/dump-outcome.ts";
+export type { CoverageReadFault, DumpOutcome } from "../domain/dump-outcome.ts";

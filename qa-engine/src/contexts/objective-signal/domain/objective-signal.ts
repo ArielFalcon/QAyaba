@@ -2,6 +2,7 @@ import type { SkippedSites } from "./select-mutants.ts";
 import type { SurvivedMutant } from "./coverage-collector.ts";
 import type { AggregateUnmeasured, CandidateCoverage } from "./per-candidate-coverage.ts";
 import type { TestSupportFile, UnreachableByDesign } from "./coverage-exclusions.ts";
+import type { CoverageReadFault } from "./dump-outcome.ts";
 
 /** What a change-coverage measurement counted, and why a measurement that decides nothing did not. */
 export interface CoverageMeasurement {
@@ -31,6 +32,8 @@ export interface CoverageMeasurement {
   /** The share of each use case's changed lines the run executed, or why it has none; absent when no candidates were asked for. A signal beside the aggregate, which alone decides. */
   perCandidate?: CandidateCoverage[];
   unmeasured?: AggregateUnmeasured;
+  /** The ways a read of evidence ended that this measurement stands without: the dumps of a killed mutant's re-run that could not be read, so the verified coverage is the coverage by execution alone. Absent when no evidence was left out. */
+  evidenceLeftOut?: CoverageReadFault[];
 }
 
 /** An arm of a decision on a changed line that no test ran. */

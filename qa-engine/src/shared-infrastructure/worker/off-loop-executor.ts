@@ -7,38 +7,84 @@
  */
 
 import { Worker } from "node:worker_threads";
-import { ownedBytes, type ByteJobRequest, type ByteJobResponse } from "./serve-bytes.ts";
+import { ownedBytes, type ByteJobRequest, type ByteJobResponse, type ByteJobStarted } from "./serve-bytes.ts";
 
 /** `crashed` is a worker that died or answered something other than one result per input; `unavailable` is a worker that could not be created at all. */
 export type OffLoopFailure = "heap-limit" | "crashed" | "aborted" | "unavailable";
 
-/** One output per input, in the order given; `null` is an input the worker's function refused. */
-export type OffLoopOutcome = { kind: "done"; outputs: ReadonlyArray<Buffer | null> } | { kind: "failed"; reason: OffLoopFailure };
+/**
+ * How long a call took, in two parts: `startMs`, from the call until the worker said it had begun (the thread, its module, the bytes
+ * handed over; null when it never did), and `workMs`, from then to the outcome (0 when it never began).
+ */
+export interface OffLoopTiming {
+  startMs: number | null;
+  workMs: number;
+}
+
+/** One output per input, in the order given; `null` is an input the worker's function refused. `timing` is told by `runWithin`, which keeps the clock. */
+export type OffLoopOutcome = ({ kind: "done"; outputs: ReadonlyArray<Buffer | null> } | { kind: "failed"; reason: OffLoopFailure }) & { timing?: OffLoopTiming };
+
+export interface OffLoopRunHooks {
+  /** The worker has begun the work: its fixed cost is paid. */
+  onStarted(): void;
+}
 
 export interface OffLoopExecutor {
+  /** Whether `run` tells its hooks when the worker has begun. An executor that does not is given its budget from the call. */
+  readonly reportsStart?: boolean;
   /** `context` is plain data handed to the worker beside the inputs (structured-cloned, never transferred): what the job needs to know that is not one input. */
-  run(inputs: readonly Buffer[], signal?: AbortSignal, context?: unknown): Promise<OffLoopOutcome>;
+  run(inputs: readonly Buffer[], signal?: AbortSignal, context?: unknown, hooks?: OffLoopRunHooks): Promise<OffLoopOutcome>;
 }
 
 /**
- * Waits for the executor at most `budgetMs` and then tells it to end its worker, which is `aborted`. An executor that rejects instead
- * of answering is a worker that was not available: nothing of the error, which may quote an input, is kept.
+ * The time a worker is given to begin: the thread, its module and the bytes handed over, measured at 1.6 to 2.5 s on real coverage dumps. It
+ * bounds a worker that never starts and is no part of the budget of the work, which is counted from the moment the worker says it has begun.
  */
-export async function runWithin(executor: OffLoopExecutor, inputs: readonly Buffer[], budgetMs: number, context?: unknown): Promise<OffLoopOutcome> {
+export const WORKER_START_BUDGET_MS = 10_000;
+
+/**
+ * Waits for the executor at most `budgetMs` of work and then tells it to end its worker, which is `aborted`. The budget is the work's: an
+ * executor that reports its start (`reportsStart`) is given it from the moment its worker has begun, and the start itself is bounded by
+ * `startBudgetMs` (a worker that has not begun by then is `unavailable`); one that does not is given the budget from the call. An executor
+ * that rejects instead of answering is a worker that was not available: nothing of the error, which may quote an input, is kept. The outcome
+ * carries how long the start and the work took.
+ */
+export async function runWithin(executor: OffLoopExecutor, inputs: readonly Buffer[], budgetMs: number, context?: unknown, startBudgetMs: number = WORKER_START_BUDGET_MS): Promise<OffLoopOutcome> {
   const stop = new AbortController();
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const timeUp = new Promise<"time-up">((resolve) => {
-    timer = setTimeout(() => {
+  const called = performance.now();
+  let begunAt: number | null = null;
+  let startTimer: ReturnType<typeof setTimeout> | undefined;
+  let workTimer: ReturnType<typeof setTimeout> | undefined;
+  let timedOut: "start" | "work" | undefined;
+  let timeUp!: (why: "start" | "work") => void;
+  const timeIsUp = new Promise<"time-up">((resolve) => {
+    timeUp = (why) => {
+      timedOut = why;
       stop.abort();
       resolve("time-up");
-    }, budgetMs);
+    };
   });
-  const job = executor.run(inputs, stop.signal, context).catch((): OffLoopOutcome => ({ kind: "failed", reason: "unavailable" }));
+  const armWork = (): void => {
+    workTimer = setTimeout(() => timeUp("work"), budgetMs);
+  };
+  const begun = (): void => {
+    if (begunAt !== null) return;
+    begunAt = performance.now();
+    clearTimeout(startTimer);
+    armWork();
+  };
+  if (executor.reportsStart === true) startTimer = setTimeout(() => timeUp("start"), startBudgetMs);
+  else armWork();
+  const job = executor.run(inputs, stop.signal, context, { onStarted: begun }).catch((): OffLoopOutcome => ({ kind: "failed", reason: "unavailable" }));
   try {
-    const outcome = await Promise.race([job, timeUp]);
-    return outcome === "time-up" ? { kind: "failed", reason: "aborted" } : outcome;
+    const raced = await Promise.race([job, timeIsUp]);
+    const ended = performance.now();
+    const timing: OffLoopTiming = { startMs: begunAt === null ? null : begunAt - called, workMs: begunAt === null ? 0 : ended - begunAt };
+    if (raced === "time-up") return { kind: "failed", reason: timedOut === "start" ? "unavailable" : "aborted", timing };
+    return { ...raced, timing };
   } finally {
-    clearTimeout(timer);
+    clearTimeout(startTimer);
+    clearTimeout(workTimer);
   }
 }
 
@@ -70,7 +116,8 @@ export function workerExecArgv(execArgv: readonly string[]): string[] {
 
 export function createWorkerExecutor(options: WorkerExecutorOptions): OffLoopExecutor {
   return {
-    run: (inputs, signal, context) =>
+    reportsStart: true,
+    run: (inputs, signal, context, hooks) =>
       new Promise<OffLoopOutcome>((resolve) => {
         if (signal?.aborted) {
           resolve({ kind: "failed", reason: "aborted" });
@@ -103,7 +150,11 @@ export function createWorkerExecutor(options: WorkerExecutorOptions): OffLoopExe
           void worker.terminate();
         };
         signal?.addEventListener("abort", onAbort, { once: true });
-        worker.once("message", (message: ByteJobResponse) => {
+        worker.on("message", (message: ByteJobResponse | ByteJobStarted) => {
+          if ("started" in message) {
+            hooks?.onStarted();
+            return;
+          }
           const outputs = message.outputs;
           if (!Array.isArray(outputs) || outputs.length !== inputs.length) finish({ kind: "failed", reason: "crashed" });
           else finish({ kind: "done", outputs: outputs.map((output) => (output === null ? null : Buffer.from(output.buffer, output.byteOffset, output.byteLength))) });

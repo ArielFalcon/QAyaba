@@ -7,11 +7,14 @@
  */
 
 import { startRunChildSpan } from "../../../../shared-infrastructure/telemetry/run-spans.ts";
-import type { TelemetryPort } from "../../../../shared-kernel/telemetry/telemetry.port.ts";
+import { guardTelemetry } from "../../../../shared-kernel/telemetry/guarded-telemetry.ts";
+import type { SpanHandle, TelemetryPort } from "../../../../shared-kernel/telemetry/telemetry.port.ts";
 import type { Attrs } from "../../../../shared-kernel/telemetry/attribute-registry.ts";
 import type { CandidateCoverage } from "../../domain/per-candidate-coverage.ts";
+import type { CoverageRead } from "../../domain/coverage-collector.ts";
 import type { BundleMutationOutcome, CoverageMeasurement, MutantSelectionRecord } from "../../domain/objective-signal.ts";
 import type { ObjectiveSignalPort } from "../../application/ports/objective-signal.port.ts";
+import { engineLog } from "@kernel/ports/process-logger.ts";
 
 /* How many candidates were measured and, per reason, how many were not: `reason: count`, once each. */
 function candidateAttrs(perCandidate: readonly CandidateCoverage[]) {
@@ -49,6 +52,32 @@ function selectionAttrs(m: MutantSelectionRecord) {
   };
 }
 
+/*
+ * A read of dumps as a span of its own under `parent`: from when the read began for as long as it took, with the dumps and bytes it was
+ * given, how long the worker took to begin and to work, and how it ended. Made after the fact from the record the collection kept, so the
+ * collection itself has no telemetry. Total: a fault in it is the trace's and never the measurement's.
+ */
+function recordRead(telemetry: TelemetryPort, parent: SpanHandle, read: CoverageRead): void {
+  try {
+    const span = guardTelemetry(telemetry).startSpan("qayaba.coverage.decode", {
+      kind: "internal",
+      parent,
+      startTime: read.startedAt,
+      attrs: {
+        "qayaba.dumps.namespace": read.namespace,
+        "qayaba.dumps.count": read.dumps,
+        "qayaba.dumps.bytes": read.bytes,
+        "qayaba.dumps.outcome": read.outcome,
+        ...(read.startMs !== null ? { "qayaba.dumps.start_ms": Math.round(read.startMs) } : {}),
+        "qayaba.dumps.work_ms": Math.round(read.workMs),
+      },
+    });
+    span.end(read.startedAt + Math.round(read.durationMs));
+  } catch (err) {
+    engineLog.error(`[telemetry] a coverage read could not be recorded as a span (the measurement goes on): ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
 /* What a measurement counted, as span attributes. */
 function countsOf(m: CoverageMeasurement | undefined): Attrs {
   if (!m) return {};
@@ -60,6 +89,7 @@ function countsOf(m: CoverageMeasurement | undefined): Attrs {
     ...(m.changedBranches !== undefined ? { "qayaba.coverage.changed_branches": m.changedBranches, "qayaba.coverage.taken_branches": m.takenBranches ?? 0 } : {}),
     ...(m.noCodeFiles?.length ? { "qayaba.coverage.no_code_files": m.noCodeFiles } : {}),
     ...(m.unmeasured ? { "qayaba.coverage.unmeasured": m.unmeasured } : {}),
+    ...(m.evidenceLeftOut?.length ? { "qayaba.coverage.evidence_left_out": m.evidenceLeftOut } : {}),
     ...(m.perCandidate ? candidateAttrs(m.perCandidate) : {}),
   };
 }
@@ -77,7 +107,8 @@ export class TracedObjectiveSignalPort implements ObjectiveSignalPort {
       this.recount = async (...args) => {
         const span = startRunChildSpan(this.telemetry, "qayaba.coverage.recount");
         try {
-          const result = await recount.apply(inner, args);
+          const [br, specDir, diff, reruns, opts] = args;
+          const result = await recount.call(inner, br, specDir, diff, reruns, { ...opts, onRead: (read) => { recordRead(this.telemetry, span, read); opts?.onRead?.(read); } });
           span.setAttrs(result ? { "qayaba.coverage.status": result.status, ...(result.ratio !== null ? { "qayaba.coverage.ratio": result.ratio } : {}), ...countsOf(result.measurement) } : {});
           span.end();
           return result;
@@ -113,7 +144,8 @@ export class TracedObjectiveSignalPort implements ObjectiveSignalPort {
   async measure(...args: Parameters<ObjectiveSignalPort["measure"]>): ReturnType<ObjectiveSignalPort["measure"]> {
     const span = startRunChildSpan(this.telemetry, "qayaba.coverage.measure");
     try {
-      const result = await this.inner.measure(...args);
+      const [br, specDir, diff, baselineCases, opts] = args;
+      const result = await this.inner.measure(br, specDir, diff, baselineCases, { ...opts, onRead: (read) => { recordRead(this.telemetry, span, read); opts?.onRead?.(read); } });
       span.setAttrs({
         "qayaba.coverage.status": result.status,
         ...(result.bundleMutation ? survivorAttrs(result.bundleMutation) : {}),

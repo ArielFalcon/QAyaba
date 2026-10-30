@@ -6,8 +6,9 @@
 import type { UseCaseCandidate } from "@kernel/use-case-candidate.ts";
 import type { ChangeCoverage } from "./decide-coverage.service.ts";
 import { parseDiffHunks } from "./assemble-change-coverage.ts";
-/* Why the aggregate measurement decides nothing. */
-export type AggregateUnmeasured = "no-diff" | "not-assembled" | "no-changed-lines" | "deletion-only" | "no-changed-file-mapped" | "no-source-maps";
+import type { CoverageReadFault } from "./dump-outcome.ts";
+/* Why the aggregate measurement decides nothing: the diff or the assembler gave nothing to count, the executed code mapped to no changed file, or the evidence could not be read (no dump was left, or the read of the dumps ended in a way that left them unused: a `CoverageReadFault`). */
+export type AggregateUnmeasured = "no-diff" | "not-assembled" | "no-changed-lines" | "deletion-only" | "no-changed-file-mapped" | "no-source-maps" | "no-dumps" | CoverageReadFault;
 
 /* Why a candidate has no ratio: the aggregate's own reasons, and the two that only a candidate can have. */
 export type CandidateUnmeasured = AggregateUnmeasured | "backend" | "cross-repo";

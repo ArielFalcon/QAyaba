@@ -6,7 +6,7 @@ import { BlastRadius } from "@kernel/blast-radius.ts";
 import { candidatesSeededBy } from "@kernel/change-map.ts";
 import { hasGreenBytes } from "@kernel/run-verdict.ts";
 import type { GenerationEnrichment } from "@contexts/generation/application/index.ts";
-import { changedCodeFiles, renderBranchGap, renderCoverageGap, renderSurvivedMutants, survivorClosureOf, survivorFindings, survivorRechecks, testSupportFiles, unreachableByDesign, type BundleMutationResult, type CoverageExclusions, type CoverageMeasurement, type CoverageRerun, type SurvivedMutant, type SurvivorClosure } from "@contexts/objective-signal/application/index.ts";
+import { changedCodeFiles, isReadTrouble, renderBranchGap, renderCoverageGap, renderSurvivedMutants, survivorClosureOf, survivorFindings, survivorRechecks, testSupportFiles, unreachableByDesign, type BundleMutationResult, type CoverageExclusions, type CoverageMeasurement, type CoverageRerun, type SurvivedMutant, type SurvivorClosure } from "@contexts/objective-signal/application/index.ts";
 import type { StepOutcome } from "../run-flow.ts";
 import type { WorkspaceRunContext } from "../run-context.ts";
 import { runOf, type BranchCasesOutcome, type CoverageOutcome, type RunState } from "../run-state.ts";
@@ -25,9 +25,10 @@ export const measuresCoverage = (state: Readonly<RunState>, ctx: WorkspaceRunCon
 export const branchCoverageOf = (m: CoverageMeasurement | undefined): CoverageOutcome["branchCoverage"] =>
   m?.changedBranches !== undefined ? { changed: m.changedBranches, taken: m.takenBranches ?? 0 } : undefined;
 
-/* The part of a measurement the run records beside its ratio; undefined when it measured nothing. */
+/* The part of a measurement the run records beside its ratio; undefined when it measured nothing. A measurement that decides nothing because its evidence could not be read (no dump, or a read that ended in a fault) is recorded with that reason: an ending found only in a log line is not recorded. */
 export function changeCoverageOf(m: CoverageMeasurement | undefined): CoverageOutcome["changeCoverage"] {
-  if (!m || m.unmeasured !== undefined) return undefined;
+  if (!m) return undefined;
+  if (m.unmeasured !== undefined) return isReadTrouble(m.unmeasured) ? { executableLines: 0, unmeasured: m.unmeasured } : undefined;
   return {
     executableLines: m.changedLines,
     ...(m.notExecutableLines !== undefined ? { notExecutableLines: m.notExecutableLines } : {}),
@@ -38,6 +39,7 @@ export function changeCoverageOf(m: CoverageMeasurement | undefined): CoverageOu
     ...(m.coveredByExecution !== undefined ? { coveredByExecution: m.coveredByExecution } : {}),
     ...(m.provenByMutation !== undefined ? { provenByMutation: m.provenByMutation } : {}),
     ...(m.armsProvenByMutation !== undefined ? { armsProvenByMutation: m.armsProvenByMutation } : {}),
+    ...(m.evidenceLeftOut?.length ? { evidenceLeftOut: [...m.evidenceLeftOut] } : {}),
   };
 }
 
@@ -322,7 +324,7 @@ export async function recountAfter(state: Readonly<RunState>, ctx: WorkspaceRunC
         })
       : null;
   if (!recount) return { ...accepted, untakenArmsCurrent: false };
-  const arms: CoverageOutcome = { ...accepted, uncovered: recount.uncovered, untakenArms: recount.untakenArms, untakenArmsCurrent: true, ranBy: recount.ranBy, branchCoverage: branchCoverageOf(recount.measurement), changeCoverage: changeCoverageOf(recount.measurement) ?? accepted.changeCoverage };
+  const arms: CoverageOutcome = { ...accepted, uncovered: recount.uncovered, untakenArms: recount.untakenArms, untakenArmsCurrent: true, ranBy: recount.ranBy, branchCoverage: branchCoverageOf(recount.measurement), changeCoverage: recount.measurement.unmeasured === undefined ? (changeCoverageOf(recount.measurement) ?? accepted.changeCoverage) : accepted.changeCoverage };
   if (cfg.coveragePolicyMode !== "signal") return arms;
   return {
     ...remeasured(arms),

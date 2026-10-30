@@ -1,7 +1,8 @@
 /* src/contexts/objective-signal/infrastructure/v8-browser-coverage.adapter.ts CoverageCollectorPort over V8/Chromium browser coverage dumps (.json files in .qa/coverage/<ns>/). The missing DI seam: the read of the dumps is injected (no hard-coded readdirSync/readFileSync), so this is unit-testable without disk and fail-open by contract (no dumps → empty report, never a throw). The injected read hands back what each dump covers (the lines of the changed files), not the dump: a dump holds every script a page loaded with its source map, megabytes of it, and the dumps of a suite are many, so each is reduced as it is read and none is kept.
    A dump is written by code the agent wrote, so what decoding it costs is bounded by its size and never by how its numbers are chosen: ranges that each cover the whole script, a script of nothing but line breaks or a source map of a million segments cost the script's length or the dump's size, once, and a dump past a bound is not decoded at all. How fast the segments of a source map decode still varies with their shape (a fifth of the usual speed on a map made to be slow), which the time bounds: the decoding runs in a worker thread (`coverage-decode.ts`) that its caller ends when the time the dumps are given is spent. */
 import type { CoverageCollectorPort } from "../application/ports/coverage-collector.port.ts";
-import type { CoverageReport, CoverageScripts, DumpSource, MutantEdit } from "../domain/coverage-collector.ts";
+import type { CoverageRead, CoverageReport, CoverageScripts, DumpSource, MutantEdit } from "../domain/coverage-collector.ts";
+import { faultOfOutcome } from "../domain/dump-outcome.ts";
 import { isDumpOfSpecFile } from "../domain/dump-names.ts";
 import { BranchSink, type BranchAdder } from "./v8-branch-coverage.ts";
 import {
@@ -20,8 +21,8 @@ export type { MappingSegment, RawSourceMap, V8Entry, V8Range };
 /* What one dump covers: the lines (1-based) of each changed file that a script of the dump ran. */
 export type CoveredLines = Map<string, Set<number>>;
 
-/* Reads the dumps of a namespace (those `keep` accepts by name, when given) and reduces each to the lines of `changedFiles` it covers, one dump at a time; `branches`, when given, is added the decisions of the changed files each dump ran, `executable` the lines of the changed files the dumps' scripts hold code for, and `ranBy` the names of the dumps that ran a line of each changed file. */
-export type ReadV8Coverage = (specDir: string, namespace: string, changedFiles: string[], scripts?: CoverageScripts, branches?: BranchSink, keep?: (name: string) => boolean, executable?: CoveredLines, mutant?: MutantEdit, ranBy?: Map<string, Set<string>>) => Promise<CoveredLines[]>;
+/* Reads the dumps of a namespace (those `keep` accepts by name, when given) and reduces each to the lines of `changedFiles` it covers, one dump at a time; `branches`, when given, is added the decisions of the changed files each dump ran, `executable` the lines of the changed files the dumps' scripts hold code for, and `ranBy` the names of the dumps that ran a line of each changed file, `reads` the record of how the read ended. */
+export type ReadV8Coverage = (specDir: string, namespace: string, changedFiles: string[], scripts?: CoverageScripts, branches?: BranchSink, keep?: (name: string) => boolean, executable?: CoveredLines, mutant?: MutantEdit, ranBy?: Map<string, Set<string>>, reads?: CoverageRead[]) => Promise<CoveredLines[]>;
 
 export class V8BrowserCoverageAdapter implements CoverageCollectorPort {
   /* Declared fields, not parameter properties: a worker loads this module through Node's own type stripping, which has no syntax to transform. */
@@ -44,13 +45,14 @@ export class V8BrowserCoverageAdapter implements CoverageCollectorPort {
     const executable: CoveredLines = new Map();
     const ranBy = new Map<string, Set<string>>();
     const dumps: CoveredLines[] = [];
+    const reads: CoverageRead[] = [];
     let incomplete = false;
     for (const { namespace, exceptSpecFiles = [], onlySpecFiles, mutant } of sources) {
       const keep =
         exceptSpecFiles.length === 0 && onlySpecFiles === undefined
           ? undefined
           : (name: string) => !exceptSpecFiles.some((file) => isDumpOfSpecFile(name, file)) && (onlySpecFiles === undefined || onlySpecFiles.some((file) => isDumpOfSpecFile(name, file)));
-      const read = await this.readCoverage(specDir, namespace, changedFiles ?? this.changedFiles, scripts, branches, keep, executable, mutant, ranBy);
+      const read = await this.readCoverage(specDir, namespace, changedFiles ?? this.changedFiles, scripts, branches, keep, executable, mutant, ranBy, reads);
       /* A mutant's re-run proves what its dumps ran; one that wrote none proves nothing, and takes nothing from the rest. */
       if (read.length === 0 && !mutant) incomplete = true;
       dumps.push(...read);
@@ -68,7 +70,9 @@ export class V8BrowserCoverageAdapter implements CoverageCollectorPort {
     const sites = dumps.length > 0 ? branches.mutationSites() : undefined;
     const code = dumps.length > 0 ? [...executable].map(([file, lines]) => ({ file, lines: [...lines] })) : undefined;
     const ran = dumps.length > 0 ? [...ranBy].map(([file, names]) => ({ file, dumps: [...names].sort() })) : undefined;
-    return { covered: [...merged].map(([file, lines]) => ({ file, lines: [...lines] })), ...(code ? { executable: code } : {}), ...(ran ? { ranBy: ran } : {}), scripts, ...(decisions ? { branches: decisions } : {}), ...(sites ? { mutationSites: sites } : {}), ...(incomplete && sources.length > 1 ? { incomplete: true as const } : {}) };
+    /* The first read that ended in a way that left its dumps unused is the report's fault. */
+    const fault = reads.map((read) => faultOfOutcome(read.outcome)).find((f) => f !== undefined);
+    return { covered: [...merged].map(([file, lines]) => ({ file, lines: [...lines] })), reads, ...(fault ? { fault } : {}), ...(code ? { executable: code } : {}), ...(ran ? { ranBy: ran } : {}), scripts, ...(decisions ? { branches: decisions } : {}), ...(sites ? { mutationSites: sites } : {}), ...(incomplete && sources.length > 1 ? { incomplete: true as const } : {}) };
   }
 }
 

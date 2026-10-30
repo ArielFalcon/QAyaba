@@ -31,7 +31,7 @@ import type { ChangeAnalysisPort } from "@contexts/change-analysis/application/i
 import type { StructuralSignalPort } from "@kernel/ports/structural-signal.port.ts";
 import type { AuthorPort, LeadPort, ReviewPort, PreExecGroundingPort, PreGenerationGroundingPort, ReviewDomGroundingPort, ContextMapCapturePort, GenerationEnrichment } from "@contexts/generation/application/index.ts";
 import type { ValidationPort, ExecutionPort } from "@contexts/test-execution/application/index.ts";
-import type { ObjectiveSignalPort } from "@contexts/objective-signal/application/index.ts";
+import type { CoverageMeasurement, ObjectiveSignalPort } from "@contexts/objective-signal/application/index.ts";
 import type { PublicationPort } from "@contexts/workspace-and-publication/application/index.ts";
 import type { WorkspacePort } from "@contexts/workspace-and-publication/application/index.ts";
 import type { DeployGatePort } from "@kernel/ports/deploy-gate.port.ts";
@@ -8855,6 +8855,33 @@ test("the killed mutants the coverage counted are handed to the recount, and the
     assert.deepEqual(savedOutcomes.at(-1)!.gateSignals.changeCoverage, { executableLines: 10, notExecutableLines: 4, notLoadedFiles: ["src/lazy.ts"], coveredByExecution: 7, provenByMutation: 2, armsProvenByMutation: 1 });
   } finally {
     real.cleanup();
+  }
+});
+
+test("a measurement whose evidence could not be read is recorded with the reason, and one that stands without evidence says which", async () => {
+  const cases: Array<[CoverageMeasurement, unknown]> = [
+    [{ changedLines: 2, coveredChanged: 0, changedFiles: 1, mappedFiles: 0, unmeasured: "decode-aborted" }, { executableLines: 0, unmeasured: "decode-aborted" }],
+    [{ changedLines: 2, coveredChanged: 0, changedFiles: 1, mappedFiles: 0, unmeasured: "no-dumps" }, { executableLines: 0, unmeasured: "no-dumps" }],
+    [{ changedLines: 2, coveredChanged: 0, changedFiles: 1, mappedFiles: 0, unmeasured: "no-changed-file-mapped" }, undefined],
+    [{ changedLines: 2, coveredChanged: 1, changedFiles: 1, mappedFiles: 1, evidenceLeftOut: ["dumps-over-cap"] }, { executableLines: 2, evidenceLeftOut: ["dumps-over-cap"] }],
+  ];
+  for (const [measurement, expected] of cases) {
+    const real = realCoverageWorkspace();
+    try {
+      const { ports, savedOutcomes } = stubPorts({
+        prepare: real.prepare,
+        generate: real.generate,
+        execute: async () => ({ verdict: "pass" as const, cases: [{ name: "a works", status: "pass" as const, file: "a.spec.ts" }], logs: "" }),
+        measure: async () => ({ status: "unknown" as const, ratio: null, measurement }),
+      });
+      const useCase = new RunQaUseCase({ ...ports, config: { ...baseConfig, needsReview: false, coveragePolicyMode: "signal", coverageBranchCases: "off" } });
+
+      await useCase.run({ ...baseInput, runId: "unread" });
+
+      assert.deepEqual(savedOutcomes.at(-1)!.gateSignals.changeCoverage, expected, JSON.stringify(measurement));
+    } finally {
+      real.cleanup();
+    }
   }
 });
 

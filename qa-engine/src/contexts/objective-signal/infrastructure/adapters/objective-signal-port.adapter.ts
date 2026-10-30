@@ -7,7 +7,8 @@ import type { CoverageRecount, CoverageRerun, FileRanBy } from "../../domain/obj
 import { isDumpOfSpecFile } from "../../domain/dump-names.ts";
 import type { BundleMutationPort } from "../../application/ports/bundle-mutation.port.ts";
 import type { CoverageCollectorPort } from "../../application/ports/coverage-collector.port.ts";
-import type { BundleMutationResult, CoverageReport, DumpSource, MutantProof, MutantRun } from "../../domain/coverage-collector.ts";
+import type { BundleMutationResult, CoverageRead, CoverageReport, DumpSource, MutantProof, MutantRun } from "../../domain/coverage-collector.ts";
+import type { CoverageReadFault } from "../../domain/dump-outcome.ts";
 import { DecideCoverageService, type ChangeCoverage, type CoveragePolicy } from "../../domain/decide-coverage.service.ts";
 import { parseDiffHunks, type NoCodeLinesOf } from "../../domain/assemble-change-coverage.ts";
 import { linesWithoutCode } from "../statement-code-lines.ts";
@@ -38,9 +39,29 @@ export interface ObjectiveSignalPortStaticContext {
   namespace?: string;
 }
 
-/* What the measurement counted, and why one that decides nothing did not. `byExecution` is the same measurement before a killed mutant's dumps were added, when they were. */
-function measurementOf(cc: ChangeCoverage | null, skipped: CoverageMeasurement["unmeasured"], scripts?: CoverageReport["scripts"], diff?: string, byExecution?: ChangeCoverage): CoverageMeasurement {
-  if (!cc) return { changedLines: 0, coveredChanged: 0, changedFiles: 0, mappedFiles: 0, unmeasured: skipped ?? "not-assembled" };
+/* What a report says of how its evidence was read: the fault that left it unused, or that no dump was there at all. Nothing of either for a report whose collector does not record its reads. */
+function readTroubleOf(report: CoverageReport | null | undefined, fault?: CoverageReadFault): "no-dumps" | CoverageReadFault | undefined {
+  const reads = report?.reads ?? [];
+  const failed = fault ?? report?.fault;
+  if (failed) return failed;
+  return reads.length > 0 && reads.every((read) => read.outcome === "absent") ? "no-dumps" : undefined;
+}
+
+/* Every read of dumps a collection made is told to the observer, in the order read; an observer's fault is never a measurement's. */
+function tellReads(reads: readonly CoverageRead[] | undefined, observer: ((read: CoverageRead) => void) | undefined): void {
+  if (!observer) return;
+  for (const read of reads ?? []) {
+    try {
+      observer(read);
+    } catch {
+      /* observability never changes a measurement */
+    }
+  }
+}
+
+/* What the measurement counted, and why one that decides nothing did not. `byExecution` is the same measurement before a killed mutant's dumps were added, when they were. `trouble` is why the evidence could not be read, when it could not: it is the reason, ahead of any a reading of the evidence would give. `evidenceLeftOut` says the measurement stands without the evidence a read failed to give. */
+function measurementOf(cc: ChangeCoverage | null, skipped: CoverageMeasurement["unmeasured"], scripts?: CoverageReport["scripts"], diff?: string, byExecution?: ChangeCoverage, trouble?: "no-dumps" | CoverageReadFault, evidenceLeftOut?: readonly CoverageReadFault[]): CoverageMeasurement {
+  if (!cc) return { changedLines: 0, coveredChanged: 0, changedFiles: 0, mappedFiles: 0, unmeasured: skipped ?? trouble ?? "not-assembled" };
   const count = (lines: { lines: number[] }[] | undefined): number => (lines ?? []).reduce((n, f) => n + f.lines.length, 0);
   const counts = {
     changedLines: cc.overall.changedLines,
@@ -51,6 +72,7 @@ function measurementOf(cc: ChangeCoverage | null, skipped: CoverageMeasurement["
     ...(cc.notExecutable ? { notExecutableLines: count(cc.notExecutable) } : {}),
     ...(cc.notLoaded?.length ? { notLoadedFiles: cc.notLoaded.map((f) => f.file) } : {}),
     ...(cc.noCode?.length ? { noCodeFiles: cc.noCode } : {}),
+    ...(evidenceLeftOut && evidenceLeftOut.length > 0 ? { evidenceLeftOut: [...evidenceLeftOut] } : {}),
     ...(byExecution
       ? {
           coveredByExecution: byExecution.overall.coveredChanged,
@@ -64,7 +86,7 @@ function measurementOf(cc: ChangeCoverage | null, skipped: CoverageMeasurement["
   if (cc.measured) return counts;
   /* Scripts ran and none of them carried a source map: nothing could have mapped them to the repository, whatever the change was. */
   const unmappable = scripts !== undefined && scripts.total > 0 && scripts.withSourceMap === 0;
-  return { ...counts, unmeasured: unmappable ? "no-source-maps" : "no-changed-file-mapped" };
+  return { ...counts, unmeasured: trouble ?? (unmappable ? "no-source-maps" : "no-changed-file-mapped") };
 }
 
 /* What the measurement left out as no gap of the suite, recorded apart; nothing when it left none. */
@@ -160,7 +182,9 @@ export class ObjectiveSignalPortAdapter implements ObjectiveSignalPort {
     /* The latest dumps of every spec file: after re-runs of some of them, the namespace alone holds the others' only. */
     const rerun = (opts?.reruns?.length ?? 0) > 0;
     const sources = latestDumpsOf(namespace, opts?.reruns ?? []).sources;
-    const report = willAssemble ? await this.collectFrom(specDir, namespace, rerun ? sources : undefined, changedFiles) : null;
+    const collected = willAssemble ? await this.collectFrom(specDir, namespace, rerun ? sources : undefined, changedFiles) : undefined;
+    const report = collected?.report ?? null;
+    tellReads(collected?.reads, opts?.onRead);
     const noCodeOf = this.noCodeOf();
     const executed: ChangeCoverage | null = report ? this.ctx.assembleChangeCoverage!(changeDiff!, report, noCodeOf) : null;
 
@@ -176,7 +200,11 @@ export class ObjectiveSignalPortAdapter implements ObjectiveSignalPort {
     }
     const proofs = bundleMutation?.proofs ?? [];
     /* What a killed mutant made run, a test checked: the verified coverage adds it, the coverage by execution alone stays beside it. */
-    const withProofs = proofs.length > 0 && executed ? await this.withProofs(specDir, rerun ? sources : [{ namespace }], proofs, changeDiff!, changedFiles, noCodeOf) : null;
+    const proved = proofs.length > 0 && executed ? await this.withProofs(specDir, rerun ? sources : [{ namespace }], proofs, changeDiff!, changedFiles, noCodeOf) : null;
+    tellReads(proved?.report.reads, opts?.onRead);
+    /* A part never stands for the whole: a proof pass whose dumps could not be read leaves the measurement by execution, and says what it stands without. */
+    const withProofs = proved?.cc ? { cc: proved.cc, report: proved.report } : null;
+    const leftOut = proved && !proved.cc && proved.report.fault ? [proved.report.fault] : undefined;
     const verified = withProofs?.cc ?? null;
     const cc = verified ?? executed;
     /* Which spec ran each changed file, from the dumps the measurement that stands read. */
@@ -184,7 +212,8 @@ export class ObjectiveSignalPortAdapter implements ObjectiveSignalPort {
 
     const status = this.deps.decide.decide(cc, this.ctx.policy);
     const ratio = cc?.measured ? cc.overall.ratio : null;
-    const aggregate = measurementOf(cc, !diff ? "no-diff" : this.ctx.assembleChangeCoverage === undefined ? "not-assembled" : undefined, report?.scripts, changeDiff, verified ? executed! : undefined);
+    const trouble = readTroubleOf(report, collected?.fault);
+    const aggregate = measurementOf(cc, !diff ? "no-diff" : this.ctx.assembleChangeCoverage === undefined ? "not-assembled" : undefined, report?.scripts, changeDiff, verified ? executed! : undefined, trouble, leftOut);
     /* Per use case: figures beside the aggregate, which stays the only one that decides. */
     const candidates = opts?.candidates ?? [];
     const measurement: CoverageMeasurement = candidates.length > 0
@@ -218,24 +247,28 @@ export class ObjectiveSignalPortAdapter implements ObjectiveSignalPort {
   }
 
   /*
-   * The dumps a measurement reads: the namespace's, or, after re-runs of some spec files, the latest of every spec file. Null when a
-   * re-run's dumps could not be read with the rest, or the collector cannot add namespaces: a part never stands for the suite.
+   * The dumps a measurement reads: the namespace's, or, after re-runs of some spec files, the latest of every spec file. The report is
+   * null when a re-run's dumps could not be read with the rest, or the collector cannot add namespaces: a part never stands for the
+   * suite. Then `fault` says why the read ended badly, when it did, and `reads` holds the record of every read made.
    */
-  private async collectFrom(specDir: string, namespace: string, latest: readonly DumpSource[] | undefined, changedFiles: string[] | undefined): Promise<CoverageReport | null> {
-    if (latest === undefined) return this.deps.collector.collect(specDir, namespace, changedFiles);
+  private async collectFrom(specDir: string, namespace: string, latest: readonly DumpSource[] | undefined, changedFiles: string[] | undefined): Promise<{ report: CoverageReport | null; fault?: CoverageReadFault; reads: readonly CoverageRead[] }> {
+    if (latest === undefined) {
+      const report = await this.deps.collector.collect(specDir, namespace, changedFiles);
+      return { report, ...(report.fault ? { fault: report.fault } : {}), reads: report.reads ?? [] };
+    }
     const { recollect } = this.deps.collector;
-    if (!recollect) return null;
+    if (!recollect) return { report: null, reads: [] };
     const report = await recollect.call(this.deps.collector, specDir, latest, changedFiles);
-    return report.incomplete ? null : report;
+    return { report: report.incomplete ? null : report, ...(report.fault ? { fault: report.fault } : {}), reads: report.reads ?? [] };
   }
 
-  /* The coverage of `sources` with the dumps of each proof's re-run added (its edit undone, only its failing spec files); null when a source could not be read, so a part never stands for the whole. */
-  private async withProofs(specDir: string, sources: readonly DumpSource[], proofs: readonly MutantProof[], changeDiff: string, changedFiles: string[] | undefined, noCodeOf: NoCodeLinesOf): Promise<{ cc: ChangeCoverage; report: CoverageReport } | null> {
+  /* The coverage of `sources` with the dumps of each proof's re-run added (its edit undone, only its failing spec files); its `cc` is null when a source could not be read, so a part never stands for the whole, and the report it was asked of is told either way. Null when the collector cannot add namespaces. */
+  private async withProofs(specDir: string, sources: readonly DumpSource[], proofs: readonly MutantProof[], changeDiff: string, changedFiles: string[] | undefined, noCodeOf: NoCodeLinesOf): Promise<{ cc: ChangeCoverage | null; report: CoverageReport } | null> {
     const { recollect } = this.deps.collector;
     if (!recollect || !this.ctx.assembleChangeCoverage) return null;
     const proofSources = proofs.map(({ namespace, specFiles, ...mutant }) => ({ namespace, onlySpecFiles: specFiles, mutant }));
     const report = await recollect.call(this.deps.collector, specDir, [...sources, ...proofSources], changedFiles);
-    return report.incomplete ? null : { cc: this.ctx.assembleChangeCoverage(changeDiff, report, noCodeOf), report };
+    return { cc: report.incomplete ? null : this.ctx.assembleChangeCoverage(changeDiff, report, noCodeOf), report };
   }
 
   /* An unloaded changed file's statements, read from the working copy once per measurement. */
@@ -252,7 +285,7 @@ export class ObjectiveSignalPortAdapter implements ObjectiveSignalPort {
     return this.deps.decide.blocks(status, this.ctx.policy);
   }
 
-  async recount(br: BlastRadius, specDir: string, diff: string | undefined, reruns: readonly CoverageRerun[], opts?: { namespace?: string; proofs?: readonly MutantProof[]; exclusions?: CoverageExclusions; caseFiles?: readonly string[] }): Promise<CoverageRecount | null> {
+  async recount(br: BlastRadius, specDir: string, diff: string | undefined, reruns: readonly CoverageRerun[], opts?: { namespace?: string; proofs?: readonly MutantProof[]; exclusions?: CoverageExclusions; caseFiles?: readonly string[]; onRead?: (read: CoverageRead) => void }): Promise<CoverageRecount | null> {
     const { recollect } = this.deps.collector;
     if (this.ctx.policy.mode === "off" || !diff || !this.ctx.assembleChangeCoverage || !recollect) return null;
     const changeDiff = changeDiffOf(diff, opts?.exclusions)!;
@@ -262,7 +295,8 @@ export class ObjectiveSignalPortAdapter implements ObjectiveSignalPort {
     const proofs = (opts?.proofs ?? []).map((p) => ({ ...p, specFiles: p.specFiles.filter((file) => !rewritten.includes(file)) })).filter((p) => p.specFiles.length > 0);
     const proofSources = proofs.map(({ namespace, specFiles, ...mutant }) => ({ namespace, onlySpecFiles: specFiles, mutant }));
     const report = await recollect.call(this.deps.collector, specDir, [...sources, ...proofSources], [...parseDiffHunks(changeDiff).keys()]);
-    /* A source that could not be read would count a part of the suite as the whole: the measurement before the recount stands. */
+    tellReads(report.reads, opts?.onRead);
+    /* A source that could not be read would count a part of the suite as the whole: the measurement before the recount stands, and the read that failed is told to the observer. */
     if (report.incomplete) return null;
     const cc = this.ctx.assembleChangeCoverage(changeDiff, report, this.noCodeOf());
     const ranBy = ranByOf(report, opts?.caseFiles ?? []);
@@ -271,7 +305,7 @@ export class ObjectiveSignalPortAdapter implements ObjectiveSignalPort {
       ratio: cc.measured ? cc.overall.ratio : null,
       uncovered: cc.uncovered,
       untakenArms: cc.untakenArms ?? [],
-      measurement: { ...measurementOf(cc, undefined, report.scripts), ...recordedExclusions(opts?.exclusions) },
+      measurement: { ...measurementOf(cc, undefined, report.scripts, undefined, undefined, readTroubleOf(report)), ...recordedExclusions(opts?.exclusions) },
       ...(ranBy ? { ranBy } : {}),
     };
   }
