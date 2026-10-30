@@ -70,7 +70,7 @@ export async function prepareLogin(state: Readonly<RunState>, ctx: WorkspaceRunC
   if ("failed" in auth) return end("auth-failed", { note: auth.failed });
   if ("precondition" in auth) {
     const terminal = terminalForPrecondition(input.mode);
-    ctx.host.announcePrecondition(auth.precondition, terminal.action === "end");
+    ctx.host.announcePrecondition(auth.precondition, terminal.action, "pre-generate");
     if (terminal.action === "end") {
       return end("login-precondition", { generating, note: ctx.host.preconditionNote(auth.precondition) });
     }

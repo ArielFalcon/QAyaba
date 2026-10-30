@@ -23,6 +23,8 @@ import type { RecordMeasurement, SpanHandle, StartSpanOptions } from "@kernel/te
 import { CoordinationTelemetryRecorder } from "@contexts/coordination/application/index.ts";
 import type { CoordinateInput, CoordinateResult } from "@contexts/coordination/application/lead-sidekicks.ts";
 import { Sha } from "@kernel/sha.ts";
+import { memoryLogger } from "@kernel/ports/logger.port.ts";
+import { installProcessLogger, resetProcessLoggerForTests } from "@kernel/ports/process-logger.ts";
 import { UntrustedGitTreeError } from "../../../../src/shared-infrastructure/process-sandbox/git-hardening.ts";
 import type { ChangeAnalysisPort } from "@contexts/change-analysis/application/index.ts";
 import type { StructuralSignalPort } from "@kernel/ports/structural-signal.port.ts";
@@ -6794,8 +6796,27 @@ test("a context run still prepares its session, logs the failed login loudly by 
   assert.equal(seen.generated, 1, "the run continues to generation");
   assert.notEqual(out.errorClass, ERROR_CLASS.PRECONDITION);
   assert.equal(savedOutcomes.some((o) => o.errorClass === ERROR_CLASS.PRECONDITION), false);
-  const loud = events.filter((e) => e.type === "log.line" && (e.level === "warn" || e.level === "error") && e.text.includes(REJECTED.kind));
-  assert.ok(loud.length > 0, "a warn or error log line names the kind");
+  const loud = events.filter((e) => e.type === "log.line" && e.level === "warn" && e.text.includes(REJECTED.kind));
+  assert.ok(loud.length > 0, "a warn log line names the kind");
+});
+
+test("a failed login is announced once, at one level on the process log and on the run event: error when it ends the run, warn when a context run carries on", async () => {
+  const errorLog = mock.method(console, "error", () => {});
+  try {
+    for (const { mode, level } of [{ mode: "context", level: "warn" }, { mode: "diff", level: "error" }] as const) {
+      const memory = memoryLogger();
+      installProcessLogger(memory);
+      const { run, events } = preconditionRun({ failAt: ["pre-generate"], mode });
+      await run(`precondition-level-${mode}`);
+      const lines = memory.entries.filter((e) => e.message.includes(REJECTED.kind));
+      const announced = events.filter((e) => e.type === "log.line" && e.text.includes(REJECTED.kind));
+      assert.deepEqual(lines.map((e) => e.level), [level], `${mode}: the process log carries the failed login once`);
+      assert.deepEqual(announced.map((e) => e.type === "log.line" && e.level), [level], `${mode}: the run event carries the same level`);
+    }
+  } finally {
+    errorLog.mock.restore();
+    resetProcessLoggerForTests();
+  }
 });
 
 test("an abort that lands while the login fails wins over the precondition terminal at either phase", async () => {

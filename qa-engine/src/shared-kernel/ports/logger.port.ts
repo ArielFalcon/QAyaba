@@ -2,6 +2,16 @@
 
 export type LogLevel = "debug" | "info" | "warn" | "error";
 
+/* What a fact did to the run. A line's level answers that one question, and the module that owns an outcome maps it to an effect: `ended` (the run ended or the process cannot do its job) is error, `carried-on` (the run went on past a fault or a loss) is warn, `expected` (nothing left the expected path) is info. */
+export const LOG_EFFECT = { ENDED: "ended", CARRIED_ON: "carried-on", EXPECTED: "expected" } as const;
+export type LogEffect = (typeof LOG_EFFECT)[keyof typeof LOG_EFFECT];
+
+const LEVEL_OF_EFFECT = { ended: "error", "carried-on": "warn", expected: "info" } as const satisfies Record<LogEffect, LogLevel>;
+
+export function levelOfEffect<E extends LogEffect>(effect: E): (typeof LEVEL_OF_EFFECT)[E] {
+  return LEVEL_OF_EFFECT[effect];
+}
+
 /* Extra structured data of a line. A field named `error` accepts any thrown value: the adapter renders it as a redacted message (and its stack, redacted, at `debug`). */
 export type LogFields = Readonly<Record<string, unknown>>;
 

@@ -8,7 +8,9 @@
  * Pre-exec gateSignals use the number 0, not undefined, when unwired.
  */
 
+import { levelOfEffect } from "@kernel/ports/logger.port.ts";
 import { engineLog } from "@kernel/ports/process-logger.ts";
+import { PRECONDITION_EFFECT, type PreconditionTerminal } from "../domain/helpers/precondition-terminal.ts";
 import { createRunSecretScope, redactByValue, withRunSecretScope } from "../../../shared-kernel/run-secret-redaction.ts";
 import type { ExecScopePort } from "../../../shared-kernel/ports/exec-scope.port.ts";
 import type { AuthSession } from "@contexts/app-catalog/application/index.ts";
@@ -358,7 +360,7 @@ export class RunQaUseCase {
       prepareAuth: (specDir, phase, abortSignal) => this.prepareAuth(specDir, phase, abortSignal),
       replaceRestoredLogin: (workspace, abortSignal) => this.replaceRestoredLogin(workspace, abortSignal),
       announceSuite: (text, level) => this.announceSuite(text, level),
-      announcePrecondition: (failure, ends) => this.announcePrecondition(failure, ends),
+      announcePrecondition: (failure, action, phase) => this.announcePrecondition(failure, action, phase),
       preconditionNote: (failure) => this.preconditionNote(failure),
       coordination: () => state.coordination,
       sandboxRefused: () => this.deps.execScope?.sandboxRefused() ?? false,
@@ -424,11 +426,7 @@ export class RunQaUseCase {
         phase,
       }, signal);
     } catch (err) {
-      if (err instanceof AuthPreconditionError) {
-        /* Its own fields only: a login failure never prints the error object, which could carry anything a page or a network said. */
-        engineLog.error(`[qa] auth precondition failed${phase === "pre-execute" ? " before execute" : ""}: kind=${err.kind} note=${err.note} ms=${err.ms}`);
-        return { precondition: { kind: err.kind, note: err.note, ms: err.ms } };
-      }
+      if (err instanceof AuthPreconditionError) return { precondition: { kind: err.kind, note: err.note, ms: err.ms } };
       engineLog.error(`[qa] auth session failed${phase === "pre-execute" ? " before execute" : ""}:`, { error: err });
       return { failed: `auth session failed: ${err instanceof Error ? err.message : String(err)}` };
     }
@@ -473,14 +471,17 @@ export class RunQaUseCase {
     return `the app's login could not be completed before testing (${failure.kind}): ${failure.note}`;
   }
 
-  /* A failed login is always loud: an error when it ends the run, a warning when a context run carries on without a session. */
-  private announcePrecondition(failure: PreconditionFailure, ends: boolean): void {
+  /* A failed login is announced once, on the process log and on the run's own log at one level. Its own fields only: the error object could carry anything a page or a network said. */
+  private announcePrecondition(failure: PreconditionFailure, action: PreconditionTerminal["action"], phase: "pre-generate" | "pre-execute"): void {
+    const level = levelOfEffect(PRECONDITION_EFFECT[action]);
+    engineLog[level](`[qa] auth precondition failed${phase === "pre-execute" ? " before execute" : ""}: kind=${failure.kind} note=${failure.note} ms=${failure.ms}`);
     this.deps.observer?.onEvent({
       type: "log.line",
-      level: ends ? "error" : "warn",
-      text: ends
-        ? `[qa] the run ended before generation (${failure.kind}) after ${failure.ms}ms: the app's login could not be completed, not a fault in the code under test`
-        : `[qa] the app's login could not be completed (${failure.kind}) after ${failure.ms}ms; this context run continues without a session`,
+      level,
+      text:
+        action === "end"
+          ? `[qa] the run ended before generation (${failure.kind}) after ${failure.ms}ms: the app's login could not be completed, not a fault in the code under test`
+          : `[qa] the app's login could not be completed (${failure.kind}) after ${failure.ms}ms; this context run continues without a session`,
     });
   }
 

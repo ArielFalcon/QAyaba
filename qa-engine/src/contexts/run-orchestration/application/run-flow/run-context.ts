@@ -1,5 +1,6 @@
 /* What every step of a run may use and never returns: the run's input, its dependencies and configuration, the trail of its phase cursor and live handles, and (once the working copy is prepared) the run's live services. Separate from the run's state, which holds only data. */
 
+import type { PreconditionTerminal } from "../../domain/helpers/precondition-terminal.ts";
 import type { CycleBudget } from "../../../../shared-kernel/cycle-budget.ts";
 import type { WallClockBudget } from "../../../../shared-kernel/wall-clock-budget.ts";
 import type { TelemetryPort } from "@kernel/telemetry/telemetry.port.ts";
@@ -24,7 +25,7 @@ export interface RunHost {
   prepareAuth(specDir: string, phase: "pre-generate" | "pre-execute", signal?: AbortSignal): Promise<{ unauthored: boolean; setupSha256?: string } | { failed: string } | { precondition: PreconditionFailure }>;
   replaceRestoredLogin(workspace: WorkspaceHandle, signal?: AbortSignal): Promise<"replaced" | "unchanged" | "setup-failed">;
   announceSuite(text: string, level: "info" | "warn"): void;
-  announcePrecondition(failure: PreconditionFailure, ends: boolean): void;
+  announcePrecondition(failure: PreconditionFailure, action: PreconditionTerminal["action"], phase: "pre-generate" | "pre-execute"): void;
   preconditionNote(failure: PreconditionFailure): string;
   /** What the lead/sidekick mode came to, as recorded for this run; absent when the run was not coordinated. */
   coordination(): CoordinationGateSignal | undefined;

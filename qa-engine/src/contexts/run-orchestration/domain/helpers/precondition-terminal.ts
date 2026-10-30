@@ -1,3 +1,4 @@
+import { LOG_EFFECT, type LogEffect } from "@kernel/ports/logger.port.ts";
 import type { RunMode } from "@kernel/run-mode.ts";
 
 /**
@@ -16,3 +17,9 @@ export function terminalForPrecondition(mode: RunMode): PreconditionTerminal {
   if (mode === "context") return { action: "continue" };
   return { action: "end", verdict: "infra-error" };
 }
+
+/** What a failed login does to the run, for the level of the line that announces it. */
+export const PRECONDITION_EFFECT = {
+  continue: LOG_EFFECT.CARRIED_ON,
+  end: LOG_EFFECT.ENDED,
+} as const satisfies Record<PreconditionTerminal["action"], LogEffect>;

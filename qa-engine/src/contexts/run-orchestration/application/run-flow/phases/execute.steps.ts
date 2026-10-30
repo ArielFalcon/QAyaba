@@ -199,7 +199,7 @@ export async function prepareExecuteAuth(state: Readonly<RunState>, ctx: Workspa
   if ("failed" in auth) return await preExecuteInfraError(state, ctx, auth.failed);
   if ("precondition" in auth) {
     /* Reached only by a run that generates tests (the guard above), which a failed login always ends. */
-    ctx.host.announcePrecondition(auth.precondition, true);
+    ctx.host.announcePrecondition(auth.precondition, "end", "pre-execute");
     return await preExecuteInfraError(state, ctx, ctx.host.preconditionNote(auth.precondition), { preconditionFailed: true });
   }
   return { update: { execution: { ...state.execution, authVerifiedSha256: auth.setupSha256 } } };
