@@ -23,7 +23,7 @@ import type { RecordMeasurement, SpanHandle, StartSpanOptions } from "@kernel/te
 import { CoordinationTelemetryRecorder } from "@contexts/coordination/application/index.ts";
 import type { CoordinateInput, CoordinateResult } from "@contexts/coordination/application/lead-sidekicks.ts";
 import { Sha } from "@kernel/sha.ts";
-import { memoryLogger } from "@kernel/ports/logger.port.ts";
+import { LOG_EFFECT, levelOfEffect, memoryLogger } from "@kernel/ports/logger.port.ts";
 import { installProcessLogger, resetProcessLoggerForTests } from "@kernel/ports/process-logger.ts";
 import { UntrustedGitTreeError } from "../../../../src/shared-infrastructure/process-sandbox/git-hardening.ts";
 import type { ChangeAnalysisPort } from "@contexts/change-analysis/application/index.ts";
@@ -7815,6 +7815,42 @@ class RecordingTelemetry extends NoopTelemetry {
     };
   }
 }
+
+test("a review round decided without a model says so at the level of an expected fact, once on the process log and the run event, and ships nothing the span already holds", async () => {
+  const fixtures = reviewFixtures();
+  const memory = memoryLogger();
+  installProcessLogger(memory);
+  const errorLog = mock.method(console, "error", () => {});
+  try {
+    const { ports } = stubPorts({
+      prepare: async () => fakeHandle({ specDir: fixtures.specDir, mirrorDir: fixtures.mirrorDir }),
+      captureReviewDom: async () => R4_DOM,
+      execute: async () => ({ verdict: "pass", cases: [{ name: "flows/restaurants.spec.ts", status: "pass" }], logs: "" }),
+    });
+    ports.generation.author = async (_specDir) => {
+      fixtures.write("flows/restaurants.spec.ts", R4_SPEC);
+      return scriptedGeneration({ specs: ["flows/restaurants.spec.ts"]});
+    };
+    const { observer, events } = fakeObserver();
+    await new RunQaUseCase({ ...ports, observer, config: baseConfig }).run({ ...baseInput, runId: "review-decision-level" });
+
+    const expected = levelOfEffect(LOG_EFFECT.EXPECTED);
+    const precheck = memory.entries.filter((e) => e.message.startsWith("[qa] reviewer pre-check:"));
+    const unchanged = memory.entries.filter((e) => e.message.includes("did not change since the last rejection"));
+    assert.ok(precheck.length >= 2, "the pre-check says its summary and each finding");
+    assert.equal(unchanged.length, 1);
+    for (const line of [...precheck, ...unchanged]) {
+      assert.equal(line.level, expected, line.message);
+      assert.notEqual(line.fields.ship, true, "a fact the span records is not shipped");
+    }
+    const unchangedEvent = events.filter((e) => e.type === "log.line" && e.text.includes("no material spec change"));
+    assert.deepEqual(unchangedEvent.map((e) => e.type === "log.line" && e.level), [unchanged[0]!.level]);
+  } finally {
+    errorLog.mock.restore();
+    resetProcessLoggerForTests();
+    fixtures.cleanup();
+  }
+});
 
 test("each review round records a bounded qayaba.review metric: what decided it and how it read", async () => {
   const fixtures = reviewFixtures();

@@ -1,5 +1,6 @@
 /* The review phase of a run: the independent reviewer's rounds over a green run, and the re-measure of a coverage that an accepted regeneration made stale. */
 
+import { levelOfEffect } from "@kernel/ports/logger.port.ts";
 import { engineLog } from "@kernel/ports/process-logger.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 import { BlastRadius } from "@kernel/blast-radius.ts";
@@ -16,7 +17,7 @@ import type { ReviewPort } from "@contexts/generation/application/index.ts";
 import { end, goto, type StepOutcome } from "../run-flow.ts";
 import { throwIfAborted } from "../abort.ts";
 import type { WorkspaceRunContext } from "../run-context.ts";
-import { runOf, type ReviewSession, type RunState } from "../run-state.ts";
+import { REVIEW_DECISION_EFFECT, runOf, type ReviewDecidedBy, type ReviewSession, type RunState } from "../run-state.ts";
 import { acceptedRegeneration, addRetries, remeasured, rollbackDelivered, withAcceptanceCalls, withRun } from "../reducers.ts";
 import { liveExecutionOptions, executeAccepted, validateAccepted } from "./execute.steps.ts";
 import { reviewRequired } from "../../../domain/review-required.ts";
@@ -164,7 +165,7 @@ export async function reviewRound(state: Readonly<RunState>, ctx: WorkspaceRunCo
     sameReviewedSpecs(previousRoundSpecs, reviewedSpecs);
 
   let reviewResult: Awaited<ReturnType<ReviewPort["review"]>>;
-  let decidedBy: "model" | "precheck" | "unchanged" = "model";
+  let decidedBy: ReviewDecidedBy = "model";
   let roundRationale: string | undefined;
 
   if (unchangedSinceRejection) {
@@ -178,10 +179,11 @@ export async function reviewRound(state: Readonly<RunState>, ctx: WorkspaceRunCo
       parsed: true,
     };
     decidedBy = "unchanged";
-    engineLog.error("[qa] reviewer: the specs did not change since the last rejection (comments/whitespace only) — the previous verdict stands without a second model round.");
+    const unchangedLevel = levelOfEffect(REVIEW_DECISION_EFFECT.unchanged);
+    engineLog[unchangedLevel]("[qa] reviewer: the specs did not change since the last rejection (comments/whitespace only) — the previous verdict stands without a second model round.");
     deps.observer?.onEvent({
       type: "log.line",
-      level: "info",
+      level: unchangedLevel,
       text: "[qa] reviewer: no material spec change since the last rejection; the previous corrections stand (no second model review)",
     });
   } else {
@@ -206,8 +208,9 @@ export async function reviewRound(state: Readonly<RunState>, ctx: WorkspaceRunCo
         parsed: true,
       };
       decidedBy = "precheck";
-      engineLog.error(`[qa] reviewer pre-check: ${precheckFindings.length} clear contradiction(s) between the specs and the captured DOM — rejecting without a model round.`);
-      for (const finding of precheckFindings) engineLog.error(`[qa] reviewer pre-check: ${finding.correction}`);
+      const precheckLevel = levelOfEffect(REVIEW_DECISION_EFFECT.precheck);
+      engineLog[precheckLevel](`[qa] reviewer pre-check: ${precheckFindings.length} clear contradiction(s) between the specs and the captured DOM — rejecting without a model round.`);
+      for (const finding of precheckFindings) engineLog[precheckLevel](`[qa] reviewer pre-check: ${finding.correction}`);
     } else {
       const specChanges = previousRoundSpecs
         ? renderSpecChanges(previousRoundSpecs, reviewedSpecs)

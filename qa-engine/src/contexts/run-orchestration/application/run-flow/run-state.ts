@@ -1,5 +1,6 @@
 /* The data a run carries from one phase to the next. Each section is written by the phase that owns it and read by the later ones; it holds no live object, so it can be recorded as it stands. */
 
+import { LOG_EFFECT, type LogEffect } from "@kernel/ports/logger.port.ts";
 import type { ContractDrift, CrossRepoImpact, ServiceLink } from "@kernel/service-links.ts";
 import type { ArchitectureContext, GroundingOmission, HarnessFacts } from "@kernel/grounding.ts";
 import type { RouteAvailabilityFact } from "@kernel/route-availability.ts";
@@ -222,10 +223,20 @@ export interface CoverageOutcome {
   exclusions: CoverageExclusions | undefined;
 }
 
+/** What decided a review round: the reviewer's model, the deterministic DOM pre-check, or the unchanged specs since a rejection. */
+export type ReviewDecidedBy = "model" | "precheck" | "unchanged";
+
+/** What each way of deciding a round did to the run, for the lines that say it; null: no line is written. The span holds the decision, so the lines that restate it are expected facts. */
+export const REVIEW_DECISION_EFFECT = {
+  model: null,
+  precheck: LOG_EFFECT.EXPECTED,
+  unchanged: LOG_EFFECT.EXPECTED,
+} as const satisfies Record<ReviewDecidedBy, LogEffect | null>;
+
 /** The round in progress: what a step hands to the next one of the same round. */
 export interface ReviewRoundScratch {
   reviewResult: Awaited<ReturnType<ReviewPort["review"]>>;
-  decidedBy: "model" | "precheck" | "unchanged";
+  decidedBy: ReviewDecidedBy;
   /** The spec each verified finding's citation names. */
   blockingSpecs: Map<string, string>;
   snapshot: SuiteRestorePoint;
