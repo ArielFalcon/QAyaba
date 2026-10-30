@@ -6,7 +6,9 @@
  * under the egress filter, which rejects every loopback connection of the sandbox uid. The saved session is never staged to
  * this process: the cookies reach it through the protocol, from memory.
  * An optional wrapper (`timeout`) gives the browser a lifetime of its own, so that one the orchestrator forgot, because it was
- * restarted in place, ends by itself.
+ * restarted in place, ends by itself. Disposing always ends in the kill of the process group: the closes of the protocol are
+ * given `CLOSE_GRACE_MS` and the kill follows whether they answered or not, so the `qayaba.exec browser` span (ended by the
+ * launcher on the process's exit) cannot outlive the run that closed the browser.
  */
 
 import type { ChildProcess } from "node:child_process";
@@ -31,11 +33,15 @@ export interface SandboxedChromiumLauncherDeps {
   ttlWrapper?: { command: string; seconds: number };
   /* A signal that fires when the browser has had long enough to be driven. Defaults to a timer. */
   startSignal?: () => AbortSignal;
+  /* A signal that fires when the browser has had long enough to close by itself. Defaults to a timer. */
+  closeSignal?: () => AbortSignal;
   /* Test seam: the bridge in front of the pipe. */
   startBridge?: (pipe: CdpPipe) => Promise<CdpPipeBridge>;
 }
 
 const START_MS = 30_000;
+/* How long the protocol is given to close the browser and the bridge before the process is killed anyway: a close is a request to a peer that may no longer answer. */
+const CLOSE_GRACE_MS = 5_000;
 /* The browser's fd 3 and fd 4 in the stdio array of the child: commands in, answers out. */
 const COMMANDS_FD = 3;
 const ANSWERS_FD = 4;
@@ -92,11 +98,27 @@ export class SandboxedChromiumLauncher implements BrowserLauncherPort {
       dispose: async () => {
         if (disposed) return;
         disposed = true;
-        await connected.close().catch(() => undefined);
-        await open.close().catch(() => undefined);
-        this.deps.kill.killTree(child);
+        /* The process group is killed whatever the closes do: a close that never answers must not leave the browser, and the span of its launch, running. */
+        try {
+          await this.gracefully(Promise.all([connected.close().catch(() => undefined), open.close().catch(() => undefined)]));
+        } finally {
+          this.deps.kill.killTree(child);
+        }
       },
     };
+  }
+
+  /* The closes, unless they take longer than their grace: the caller goes on to the kill either way. */
+  private gracefully(closes: Promise<unknown>): Promise<void> {
+    const stop = this.deps.closeSignal?.() ?? AbortSignal.timeout(CLOSE_GRACE_MS);
+    return new Promise<void>((resolve) => {
+      const done = (): void => {
+        stop.removeEventListener("abort", done);
+        resolve();
+      };
+      stop.addEventListener("abort", done, { once: true });
+      void closes.then(done, done);
+    });
   }
 
   /* The connection, unless the browser ends first or takes too long: a browser that never comes up must not hold the call. */

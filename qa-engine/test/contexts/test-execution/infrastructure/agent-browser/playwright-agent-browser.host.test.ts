@@ -433,6 +433,19 @@ test("closing the host while the session is being read does not build a context 
   assert.equal(counts().disposed, 1);
 });
 
+test("closing ends the browser process even when the protocol never answers the closes of the context and the browser", async () => {
+  const { browser, call, host, counts } = setup();
+  await call("s1", { kind: "snapshot" });
+  const never = new Promise<void>(() => undefined);
+  browser.contexts[0]!.close = async () => never;
+  browser.close = async () => { browser.closed = true; await never; };
+  const closing = host.close();
+  const settled = await Promise.race([closing.then(() => true), new Promise<boolean>((r) => setImmediate(() => r(false)))]);
+  assert.equal(settled, true, "the close of the host does not wait for a protocol that is not answering");
+  assert.equal(counts().disposed, 1, "the process is stopped");
+  assert.equal(browser.closed, true);
+});
+
 test("closing the host while the context is being built closes that context too", async () => {
   const { host, browser, call } = setup();
   const building = gate();

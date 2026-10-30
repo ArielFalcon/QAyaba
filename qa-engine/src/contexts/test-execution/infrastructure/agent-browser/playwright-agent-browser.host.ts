@@ -160,8 +160,11 @@ export class PlaywrightAgentBrowserHost implements AgentBrowserHostPort {
     this.closed = true;
     const launched = this.launched;
     this.launched = undefined;
-    await this.reset();
-    if (launched) await this.stop(launched);
+    /* The process is stopped whether or not the protocol answers the close of the context: killing it settles that close, so it is not waited for once there is a process to stop. */
+    const resetting = this.reset();
+    if (!launched) return resetting;
+    void resetting.catch(() => undefined);
+    await this.stop(launched);
   }
 
   /* Every page goes with its context. A reset on one session's account of the login renews the session for all of them, so the sessions that had a page are remembered, to be told when they get a new one. */
@@ -175,7 +178,8 @@ export class PlaywrightAgentBrowserHost implements AgentBrowserHostPort {
 
   /* Stops a browser and its process; never throws. */
   private async stop(launched: LaunchedBrowser): Promise<void> {
-    await launched.browser.close().catch(() => undefined);
+    /* The browser's own close is a request that may never be answered: it is asked, and `dispose` (bounded, and ending in the kill of the process) is what is waited for. */
+    void launched.browser.close().catch(() => undefined);
     await launched.dispose().catch(() => undefined);
   }
 

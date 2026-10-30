@@ -15,7 +15,7 @@ class FakeChild extends EventEmitter {
   pid = 4242;
 }
 
-function setup(over: { exitCode?: number; connectFails?: boolean; connectHangs?: boolean; wrapper?: string; startSignal?: AbortSignal; noPipe?: boolean } = {}) {
+function setup(over: { exitCode?: number; connectFails?: boolean; connectHangs?: boolean; wrapper?: string; startSignal?: AbortSignal; noPipe?: boolean; browserCloseHangs?: boolean; bridgeCloseHangs?: boolean; closeSignal?: AbortSignal } = {}) {
   const child = new FakeChild();
   const spawns: { cmd: string; args: readonly string[]; options: ExecSpawnOptions }[] = [];
   const exec: Partial<ExecSandboxPort> = {
@@ -30,7 +30,7 @@ function setup(over: { exitCode?: number; connectFails?: boolean; connectHangs?:
   const connects: string[] = [];
   const pipes: { pipe: unknown; closed: number }[] = [];
   let browserClosed = 0;
-  const browser: PwBrowser = { newContext: async () => { throw new Error("unused"); }, close: async () => { browserClosed += 1; } };
+  const browser: PwBrowser = { newContext: async () => { throw new Error("unused"); }, close: async () => { browserClosed += 1; if (over.browserCloseHangs) await new Promise<void>(() => undefined); } };
   const chromium: PlaywrightChromium = {
     executablePath: () => "/ms-playwright/chromium/chrome",
     connectOverCDP: async (url) => {
@@ -47,10 +47,11 @@ function setup(over: { exitCode?: number; connectFails?: boolean; connectHangs?:
     kill: { killTree: (c) => { killed.push(c); } },
     ...(over.wrapper !== undefined ? { ttlWrapper: { command: over.wrapper, seconds: 3600 } } : {}),
     startSignal: () => over.startSignal ?? new AbortController().signal,
+    ...(over.closeSignal ? { closeSignal: () => over.closeSignal! } : {}),
     startBridge: async (pipe) => {
       const record = { pipe, closed: 0 };
       pipes.push(record);
-      return { url: "ws://127.0.0.1:41233/secret-path", close: async () => { record.closed += 1; } };
+      return { url: "ws://127.0.0.1:41233/secret-path", close: async () => { record.closed += 1; if (over.bridgeCloseHangs) await new Promise<void>(() => undefined); } };
     },
   });
   return { launcher, child, spawns, connects, killed, pipes, browserClosed: () => browserClosed };
@@ -123,4 +124,23 @@ test("a browser started without its pipe is killed at once", async () => {
   const { launcher, killed } = setup({ noPipe: true });
   await assert.rejects(launcher.launch(), /pipe/);
   assert.equal(killed.length, 1);
+});
+
+/* A turn of the event loop is enough for every settled promise below to have run; a promise still pending after it is hung. */
+async function settledAfterATurn(work: Promise<void>): Promise<boolean> {
+  return Promise.race([work.then(() => true), new Promise<boolean>((r) => setImmediate(() => r(false)))]);
+}
+
+test("a browser whose protocol close never answers is still killed when the time for a graceful close is up", async () => {
+  for (const hang of [{ browserCloseHangs: true }, { bridgeCloseHangs: true }]) {
+    const closing = new AbortController();
+    const { launcher, killed } = setup({ ...hang, closeSignal: closing.signal });
+    const launched = await launcher.launch();
+    const disposing = launched.dispose();
+    await new Promise((r) => setImmediate(r));
+    assert.equal(killed.length, 0, "the graceful close is given its time first");
+    closing.abort();
+    assert.equal(await settledAfterATurn(disposing), true, `dispose ends: ${JSON.stringify(hang)}`);
+    assert.equal(killed.length, 1, `the whole process group is killed: ${JSON.stringify(hang)}`);
+  }
 });

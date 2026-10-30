@@ -401,7 +401,7 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   and a bounded wait answers `DEV busy`. A session of a flow of a plan spends only its flow's share (the calls the flow's time runs), so
   the run's total for its flows is the sum of their shares (`gateSignals.agentBrowser.granted`); the run's own total holds the sessions bound
   to no flow. The session is bound by `AgentBrowserRegistry` to the sessions the agent transport reports
-  for the author of the run; the capability is revoked, the browser closed and its work dir removed when the run ends, and
+  for the author of the run; the capability is revoked, the browser closed (the protocol's closes are bounded and the process group is killed whatever they do, so its `qayaba.exec` span ends with the run) and its work dir removed when the run ends, and
   a boot sweep ends a browser a previous process left. A prompt of an authoring session the run did not grant hides the tools
   (a per-prompt `tools` map, `openCodePromptBody`). The `Authenticated browser budget` prompt section (facts only) exists only
   when granted.
