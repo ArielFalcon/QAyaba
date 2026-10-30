@@ -103,7 +103,7 @@ The single engine is `RunQaUseCase` (`qa-engine/src/contexts/run-orchestration/a
    - the first pass;
    - the contract **repair** turn (tools disabled, ≤ 2 min);
    - regenerations (static-fix rounds, pre-exec corrective, fix loop, enforce-mode coverage regen);
-   - in lead+sidekicks mode: the **plan** turn (read-only), then N sidekick turns under `FanOutDispatcher`, with an escalation ladder (retry, then the lead takes over).
+   - in lead+sidekicks mode: the **plan** turn (read-only), then N sidekick turns under `FanOutDispatcher`; the lead reviews each flow and may revise it in the same sidekick session, replace it or drop it.
 
    The generation end is classified as one of `delivered`, `declared-noop`, `exhausted` (E-STEP-BUDGET), `time-budget` (E-TIME-BUDGET), `undecided-empty` (E-NO-DECISION), `no-author` (E-NO-AUTHOR) or `no-verdict`. See `generation/domain/generation-end.ts`.
 7. **`validate`**: `tsc`, ESLint (`eslint-plugin-playwright`), `playwright --list`, the manifest check. Failure → `invalid`. Also the pre-exec grounding: the catalog gate (fabricated test-ids) and the selector-ambiguity advisory.
@@ -261,7 +261,7 @@ You are done when each of these can be answered from your traces and metrics alo
 8. Per route of the DOM capture: grounded, degraded, redirected or empty? How long? Did the changed element appear (the "Changed values" facts)?
 9. Per agent turn: tool calls by family; reads of files the prompt already supplied; wasted browser navigations (auth errors).
 10. When the generator declared a no-op: which kind, and did it contradict the pack's facts?
-11. In lead+sidekicks mode: per sidekick, steps, calls, writes, lease wait, escalation outcome.
+11. In lead+sidekicks mode: per sidekick, steps, calls, writes, lease wait.
 12. Across runs: the funnel (furthest phase reached), the verdict mix by error code, p50/p95 per phase, tokens and cost per role, and the share of context bytes that are tool schemas.
 
 ---

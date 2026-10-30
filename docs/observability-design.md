@@ -978,7 +978,7 @@ The LLM judges and their calibration were removed (RFC-0001 OD-1): none ever pro
 | DOM capture per route, changed element present (C8) | `context.dom-capture` route events; `fact:` ids |
 | Tool calls by family, prompt-provided reads, wasted navigations (C9) | `calls.<bucket>`, `reads.prompt_provided`; `execute_tool` status/HTTP status (F9) |
 | No-op kind versus pack facts (C10) | `noop_kind`; `noop_consistent` grader |
-| Sidekicks: steps, calls, writes, lease wait, escalation (C11) | sidekick `invoke_agent` under `qayaba.fanout` (overlap visible); `lease.wait_ms`; escalation events |
+| Sidekicks: steps, calls, writes, lease wait (C11) | sidekick `invoke_agent` under `qayaba.fanout` (overlap visible); `lease.wait_ms` |
 | Funnel, verdict mix, p50/p95, tokens and cost per role, schema share (C12) | metrics §8.1; `tools_offered.bytes / prompt.bytes` |
 | Context provided versus used (B3–4) | `context.*` spans and the `context_utilization` grader |
 | Why a spec failed (B5) | `qayaba.test` failure category, `strict_mode_violation` events |

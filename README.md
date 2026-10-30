@@ -134,7 +134,7 @@ Every e2e run is coordinated this way; `qa.coordination` only tunes its limits. 
 
 Every flow's result must be earned: a claimed file the brief did not name is not taken back, and the run's gates (validation, execution, change-coverage, review) are the same for every spec.
 
-**Coordination telemetry** — every delegation, escalation, and final outcome of a coordinated run is appended to `data/coordination-events.jsonl` (one JSON object per line, survives restarts). Inspect it at any time:
+**Coordination telemetry** — every delegation, lead decision, and final outcome of a coordinated run is appended to `data/coordination-events.jsonl` (one JSON object per line, survives restarts). Inspect it at any time:
 
 ```bash
 tail -n 5 data/coordination-events.jsonl

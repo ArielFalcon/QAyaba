@@ -1329,7 +1329,7 @@ export class LeadSidekicks {
     if (coverage.unresolved.length > 0) this.record(input, { kind: "lead-decision", candidateIds: coverage.unresolved.map((c) => c.id), reason: `plan: ${coverage.unresolved.length} use case(s) neither covered nor dropped, recorded as unplanned: ${coverage.unresolved.map((c) => c.id).join(", ")}` });
   }
 
-  private record(input: CoordinateInput, event: Omit<CoordinationTelemetryEvent, "runId" | "app" | "at" | "kind" | "action"> & { kind: "proposal" | "delegation" | "escalation" | "lead-decision"; action?: "direct" | "delegate" | "escalate-sidekick" | "abort-human" }): void {
+  private record(input: CoordinateInput, event: Omit<CoordinationTelemetryEvent, "runId" | "app" | "at" | "kind" | "action"> & { kind: "proposal" | "delegation" | "lead-decision"; action?: "direct" | "delegate" | "abort-human" }): void {
     this.deps.telemetry?.record({ runId: input.runId, app: input.app, at: this.now(), ...event });
   }
 }

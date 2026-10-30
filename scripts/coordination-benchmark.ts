@@ -72,7 +72,6 @@ export interface CoordinationRunSample {
   readonly reviewOutcome?: string;
   readonly latencyMs?: number;
   readonly delegations: number;
-  readonly escalations: number;
 }
 
 export function sampleFromTelemetry(events: readonly CoordinationTelemetryEvent[]): CoordinationRunSample {
@@ -82,7 +81,6 @@ export function sampleFromTelemetry(events: readonly CoordinationTelemetryEvent[
     ...(outcome?.reviewOutcome !== undefined ? { reviewOutcome: outcome.reviewOutcome } : {}),
     ...(typeof outcome?.durationMs === "number" ? { latencyMs: outcome.durationMs } : {}),
     delegations: events.filter((event) => event.kind === "delegation").length,
-    escalations: events.filter((event) => event.kind === "escalation").length,
   };
 }
 
