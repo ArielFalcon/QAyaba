@@ -294,3 +294,42 @@ test("a harvest with no coverage dump starts no job", async (t) => {
   await bridge.harvest();
   assert.equal(started, 0);
 });
+
+test("an executor that rejects leaves the coverage set out with its own reason, and the counters beside it are still read", async (t) => {
+  const warnings: string[] = [];
+  t.mock.method(console, "warn", (...args: unknown[]) => { warnings.push(args.map(String).join(" ")); });
+  const r = rig(t);
+  const executor: OffLoopExecutor = { run: () => Promise.reject(new Error("could not start a worker")) };
+  const bridge = openDumpBridge({ specDir: r.specDir, namespace: NS, dumpRoot: r.dumpRoot, workRoot: r.workRoot, executor });
+  writeFileSync(join(r.dumpRoot, "coverage", "w0-0.json"), DUMP);
+  writeFileSync(join(r.dumpRoot, "fault-injection", "injected-1.json"), JSON.stringify({ corrupted: 4 }));
+  await bridge.harvest();
+  assert.deepEqual(entries(join(r.specDir, ".qa", "coverage", NS)), []);
+  assert.equal(lstatSync(join(r.specDir, ".qa", "coverage", NS)).isFile(), true, "the folder holds the marker that says the set was left out");
+  assert.equal(countInjectedResponses(r.specDir, NS), 4, "the counters were read");
+  assert.ok(warnings.some((w) => /could not be started/.test(w)), `the log says why; warnings: ${JSON.stringify(warnings)}`);
+  assert.equal(warnings.some((w) => /could not start a worker/.test(w)), false, "the executor's own message, which may quote an input, is not logged");
+});
+
+test("a check that ends before its time leaves no timer behind", async (t) => {
+  const r = rig(t);
+  const armed: unknown[] = [];
+  const cleared: unknown[] = [];
+  const realSet = globalThis.setTimeout;
+  const realClear = globalThis.clearTimeout;
+  t.mock.method(globalThis, "setTimeout", ((fn: () => void, ms?: number, ...rest: unknown[]) => {
+    const timer = realSet(fn, ms, ...rest);
+    if (ms === DUMP_CHECK_BUDGET_MS) armed.push(timer);
+    return timer;
+  }) as typeof setTimeout);
+  t.mock.method(globalThis, "clearTimeout", ((timer?: Parameters<typeof clearTimeout>[0]) => {
+    cleared.push(timer);
+    realClear(timer);
+  }) as typeof clearTimeout);
+  const executor: OffLoopExecutor = { run: async (inputs) => ({ kind: "done", outputs: inputs.map(() => Buffer.from(DUMP)) }) };
+  const bridge = openDumpBridge({ specDir: r.specDir, namespace: NS, dumpRoot: r.dumpRoot, workRoot: r.workRoot, executor });
+  writeFileSync(join(r.dumpRoot, "coverage", "w0-0.json"), DUMP);
+  await bridge.harvest();
+  assert.equal(armed.length, 1, "one deadline was armed");
+  assert.ok(cleared.includes(armed[0]), "and cleared when the job ended");
+});

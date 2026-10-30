@@ -20,7 +20,7 @@ import { join } from "node:path";
 import { MAX_V8_DUMP_FILES, MAX_V8_DUMP_BYTES, MAX_V8_DUMPS_TOTAL_BYTES, MAX_FAULT_INJECTION_COUNTER_BYTES, MAX_FAULT_INJECTION_COUNTER_FILES, sanitizeFaultCounter } from "@contexts/objective-signal/application/index.ts";
 import { describeReasons, OUT_OF_TIME, scanRunOutputDir, UNUSABLE, type RunOutputLimits } from "../../../shared-infrastructure/run-output-reader.ts";
 import { ensureOwnedSpecDir, purgeRefusedDirectory, writeOwnedSpecFile, type SpecRoot } from "../../../shared-infrastructure/spec-path-confinement.ts";
-import { createWorkerExecutor, type OffLoopExecutor, type OffLoopFailure } from "../../../shared-infrastructure/worker/off-loop-executor.ts";
+import { createWorkerExecutor, type OffLoopExecutor, type OffLoopFailure, type OffLoopOutcome } from "../../../shared-infrastructure/worker/off-loop-executor.ts";
 
 /* The namespace is the run's data prefix; it names a folder, so it names nothing else: Unicode letters, combining marks and numbers, plus the separators a folder name may carry. A path separator, a control character, and a leading dot or dash (which a hidden or relative name needs) are none of them. */
 const NAMESPACE_RE = /^[\p{L}\p{N}][\p{L}\p{M}\p{N}._-]{0,127}$/u;
@@ -37,6 +37,7 @@ const WORKER_FAILURE_REASONS: Record<OffLoopFailure, string> = {
   aborted: OUT_OF_TIME,
   "heap-limit": "the worker that checks the files of this directory ran out of memory",
   crashed: "the worker that checks the files of this directory stopped before it answered",
+  unavailable: "the worker that checks the files of this directory could not be started",
 };
 
 interface RawDump {
@@ -131,9 +132,8 @@ async function checkInExecutor(files: readonly RawDump[], executor: OffLoopExecu
       resolve("time-up");
     }, DUMP_CHECK_BUDGET_MS);
   });
-  const job = executor.run(files.map((file) => file.bytes), stop.signal);
-  /* A job abandoned at the deadline has no one left to hear it fail. */
-  job.catch(() => undefined);
+  /* An executor that rejects instead of answering is a worker that was not available: the set is left out with that reason and nothing of the error, which may quote an input, is kept. */
+  const job = executor.run(files.map((file) => file.bytes), stop.signal).catch((): OffLoopOutcome => ({ kind: "failed", reason: "unavailable" }));
   let outcome: Awaited<typeof job> | "time-up";
   try {
     outcome = await Promise.race([job, timeUp]);

@@ -167,11 +167,21 @@ module.exports = {
     {
       name: "cross-context-internals",
       severity: "error",
-      comment: "A context reaches another context only through its public surface, application/index.ts. Composition roots wire contexts together by design and are exempt. Everything else of another context (domain, infrastructure, other application files) is internal. The one other exemption is the coverage harvest's worker module: a worker thread resolves no path alias, so its closed module graph imports the pure sanitizer of objective-signal by relative path.",
+      comment: "A context reaches another context only through its public surface, application/index.ts. Composition roots wire contexts together by design and are exempt. Everything else of another context (domain, infrastructure, other application files) is internal. The one other exemption is the coverage harvest's worker module, which has a rule of its own below.",
       from: { path: "^qa-engine/src/contexts/([^/]+)/", pathNot: ["composition/", "^qa-engine/src/contexts/test-execution/infrastructure/dump-sanitize\\.worker\\.ts$"] },
       to: {
         path: "^qa-engine/src/contexts/",
         pathNot: ["^qa-engine/src/contexts/$1/", "^qa-engine/src/contexts/[^/]+/application/index\\.ts$"],
+      },
+    },
+    {
+      name: "dump-worker-cross-context-import",
+      severity: "error",
+      comment: "A worker thread resolves no path alias, so the coverage harvest's worker module imports the pure sanitizer of objective-signal by relative path instead of through that context's public surface. That one file is the whole exemption: any other cross-context import of the worker module is internal like everywhere else.",
+      from: { path: "^qa-engine/src/contexts/test-execution/infrastructure/dump-sanitize\\.worker\\.ts$" },
+      to: {
+        path: "^qa-engine/src/contexts/",
+        pathNot: ["^qa-engine/src/contexts/test-execution/", "^qa-engine/src/contexts/[^/]+/application/index\\.ts$", "^qa-engine/src/contexts/objective-signal/domain/dump-sanitizers\\.ts$"],
       },
     },
     {

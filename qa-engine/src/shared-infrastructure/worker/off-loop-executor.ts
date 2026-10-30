@@ -9,8 +9,8 @@
 import { Worker } from "node:worker_threads";
 import { ownedBytes, type ByteJobRequest, type ByteJobResponse } from "./serve-bytes.ts";
 
-/** `crashed` is a worker that died or answered something other than one result per input. */
-export type OffLoopFailure = "heap-limit" | "crashed" | "aborted";
+/** `crashed` is a worker that died or answered something other than one result per input; `unavailable` is a worker that could not be created at all. */
+export type OffLoopFailure = "heap-limit" | "crashed" | "aborted" | "unavailable";
 
 /** One output per input, in the order given; `null` is an input the worker's function refused. */
 export type OffLoopOutcome = { kind: "done"; outputs: ReadonlyArray<Buffer | null> } | { kind: "failed"; reason: OffLoopFailure };
@@ -25,8 +25,25 @@ export interface WorkerExecutorOptions {
   maxHeapMb: number;
 }
 
-/** A worker inherits the loader flags it needs to read `.ts` files, and must not inherit the flags that make a process a test run: its reporter would write over the parent's report file. */
-const TEST_RUNNER_FLAG = /^--test(-|$)/;
+/**
+ * The flags that make a module loadable (`--import`, `--require`/`-r`, `--loader`, `--experimental-loader`, `--conditions`/`-C`),
+ * each with its value, whether given as `--flag=value` or as `--flag value`. A Worker refuses the flags that belong to a process
+ * (`ERR_WORKER_INVALID_EXEC_ARGV`: `--stack-trace-limit`, `--tls-cipher-list`, `--secure-heap`, `--v8-pool-size`, `--node-snapshot`, ...),
+ * which `node --test` gives each test file's process, and must not inherit the flags that make a process a test run (its reporter would
+ * write over the parent's report file), so the worker is given only what it needs to read its own `.ts` module.
+ */
+const LOADER_FLAGS = new Set(["--import", "--require", "-r", "--loader", "--experimental-loader", "--conditions", "-C"]);
+const LOADER_FLAG_WITH_VALUE = /^(--import|--require|--loader|--experimental-loader|--conditions)=/;
+
+export function workerExecArgv(execArgv: readonly string[]): string[] {
+  const kept: string[] = [];
+  for (let index = 0; index < execArgv.length; index++) {
+    const arg = execArgv[index]!;
+    if (LOADER_FLAG_WITH_VALUE.test(arg)) kept.push(arg);
+    else if (LOADER_FLAGS.has(arg) && index + 1 < execArgv.length) kept.push(arg, execArgv[++index]!);
+  }
+  return kept;
+}
 
 export function createWorkerExecutor(options: WorkerExecutorOptions): OffLoopExecutor {
   return {
@@ -38,12 +55,19 @@ export function createWorkerExecutor(options: WorkerExecutorOptions): OffLoopExe
         }
         const handed = inputs.map(ownedBytes);
         const request: ByteJobRequest = { inputs: handed };
-        const worker = new Worker(options.worker, {
-          workerData: request,
-          transferList: handed.map((bytes) => bytes.buffer as ArrayBuffer),
-          resourceLimits: { maxOldGenerationSizeMb: options.maxHeapMb },
-          execArgv: process.execArgv.filter((arg) => !TEST_RUNNER_FLAG.test(arg)),
-        });
+        let worker: Worker;
+        try {
+          worker = new Worker(options.worker, {
+            workerData: request,
+            transferList: handed.map((bytes) => bytes.buffer as ArrayBuffer),
+            resourceLimits: { maxOldGenerationSizeMb: options.maxHeapMb },
+            execArgv: workerExecArgv(process.execArgv),
+          });
+        } catch {
+          /* Nothing of the error is quoted: it may name an input. */
+          resolve({ kind: "failed", reason: "unavailable" });
+          return;
+        }
         let finished = false;
         const finish = (outcome: OffLoopOutcome): void => {
           if (finished) return;
