@@ -213,3 +213,44 @@ test("a page only the map links to the changed files is seeded by those files an
   assert.deepEqual(candidate!.seeds.map((s) => [s.file, s.range]), [[STYLE, undefined]]);
   assert.deepEqual(candidate!.changedFiles, [{ file: STYLE, addedLines: 3 }]);
 });
+
+/* Links beyond the first hop (RFC-0011): the call site is in the app's repo only for the link the walk ends on. */
+const API_CALL = { file: "web/src/app/orders/orders.api.ts", symbol: "listOrders" };
+const pagesGraph = (seen: LocalSymbolRef[][] = []) =>
+  graph({ callersOf: async (_repo, symbols) => { seen.push([...symbols]); return report([sym(ORDERS, "load", 1, API_CALL), sym(API_CALL.file, API_CALL.symbol, 0)]); } });
+const backendLink: ServiceLink = { from: { repo: "org/orders-api", file: "api/StockClient.java", symbol: "fetch" }, to: { repo: "org/stock-api", file: "stock/api.yaml", symbol: "list" }, transport: "http", operation: { verb: "GET", path: "/stock" }, confidence: 0.9, source: "http-backend-resolver" };
+const withTier = (l: ServiceLink, extra: object = {}) => ({ link: l, tier: "impacted-symbol", ...extra });
+const request = (impactedLinks: object[], extra: object = {}) => ({ specDir: "/s", repos: [apiRepo], pages: { repo: "org/web", repoDir: "/m/web" }, crossRepoImpact: { impactedLinks, ...extra } as never });
+
+test("a link whose call site is in another service is not looked up in the app's index", async () => {
+  const seen: LocalSymbolRef[][] = [];
+  const scope = await withProofs(pagesGraph(seen)).resolve(request([withTier(backendLink)]));
+  assert.deepEqual(seen, [], "the app's index does not hold a backend's call site");
+  assert.deepEqual(scope.reach.filter((r) => r.entry.kind === "page"), []);
+});
+
+test("a page reached through a chain of links shows the links in order, the change's end first", async () => {
+  const seen: LocalSymbolRef[][] = [];
+  const appLink = link(API_CALL);
+  const scope = await withProofs(pagesGraph(seen)).resolve(request([withTier(backendLink), withTier(appLink, { reach: { direction: "upstream", via: [backendLink] } })]));
+  assert.deepEqual(seen, [[API_CALL]]);
+  const page = scope.reach.find((r) => r.entry.kind === "page");
+  assert.deepEqual(page?.evidence.slice(0, 2), ["org/stock-api: GET /stock", "org/orders-api: GET /api/orders"]);
+  assert.equal(page?.tier, "cross-repo");
+  assert.equal(page?.basis, "call-site");
+});
+
+test("a link reached downstream seeds no walk and is no operation entry", async () => {
+  const seen: LocalSymbolRef[][] = [];
+  const scope = await withProofs(pagesGraph(seen)).resolve(request([withTier(link(API_CALL), { reach: { direction: "downstream", via: [] } })]));
+  assert.deepEqual(seen, []);
+  assert.deepEqual(scope.reach, []);
+});
+
+test("the stops of the impact are degraded entries of the scope", async () => {
+  const scope = await withProofs(graph()).resolve(request([], { stops: [{ repo: "org/b", direction: "upstream", reason: "the repo has no mirror to index in this run" }, { repo: "org/c", direction: "downstream", reason: "partial: 2 of 3 seed(s) left open at the expansion budget" }] }));
+  assert.deepEqual(scope.degraded, [
+    { repo: "org/b", reason: "hop upstream: the repo has no mirror to index in this run" },
+    { repo: "org/c", reason: "hop downstream: partial: 2 of 3 seed(s) left open at the expansion budget" },
+  ]);
+});

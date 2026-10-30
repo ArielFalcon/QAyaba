@@ -8,6 +8,7 @@
 import { engineLog } from "@kernel/ports/process-logger.ts";
 import type { CodeGraphPort } from "@kernel/ports/code-graph.port.ts";
 import type { GraphRoute, ImpactBudget, ImpactReport, LocalSymbolRef } from "@kernel/code/index.ts";
+import type { ServiceLink } from "@kernel/service-links.ts";
 import type { Attrs } from "@kernel/telemetry/attribute-registry.ts";
 import { activeExecScope } from "../../../../shared-infrastructure/process-sandbox/exec-scope.ts";
 import { walkAttrs, walkSummary } from "./structural-signal-port.adapter.ts";
@@ -38,7 +39,8 @@ export class ChangeScopePortAdapter implements ChangeScopePort {
   constructor(private readonly deps: ChangeScopePortAdapterDeps) {}
 
   async resolve(request: ChangeScopeRequest): Promise<ChangeScope> {
-    const degraded: Array<{ repo: string; reason: string }> = [];
+    /* A hop of the cross-repo walk that could not be finished is as much a gap of the scope as an index that did not answer. */
+    const degraded: Array<{ repo: string; reason: string }> = (request.crossRepoImpact?.stops ?? []).map((stop) => ({ repo: stop.repo, reason: `hop ${stop.direction}: ${stop.reason}` }));
     const repos: RepoScope[] = [];
     const walks: ProofWalk[] = [];
     const routesByDir = new Map<string, GraphRoute[]>();
@@ -160,18 +162,23 @@ export class ChangeScopePortAdapter implements ChangeScopePort {
     }
   }
 
-  /* A service's change on the app's pages: from the call sites of the links reached, inbound in the app's index. */
+  /*
+   * A service's change on the app's pages: from the call sites of the links reached, inbound in the app's index. Only a call site
+   * the app's index holds is a seed (a link whose call site is in another service claims nothing here), and a link reached
+   * downstream is no way into a page. Each proof opens with the links crossed from the change, in order, then the link itself.
+   */
   private async callSiteWalk(request: ChangeScopeRequest, pages: { repo: string; repoDir: string } | undefined, degraded: Array<{ repo: string; reason: string }>): Promise<ProofWalk | undefined> {
     const prefixOf = new Map<string, string[]>();
     const seeds: LocalSymbolRef[] = [];
-    for (const { link, operationChange } of request.crossRepoImpact?.impactedLinks ?? []) {
+    for (const { link, operationChange, reach } of request.crossRepoImpact?.impactedLinks ?? []) {
       /* An operation added by the change has no caller yet. */
       if (operationChange === "added") continue;
+      if (reach?.direction === "downstream") continue;
       if (!link.from.file || !link.from.symbol) continue;
+      if (pages !== undefined && link.from.repo !== pages.repo) continue;
       const seed = { file: link.from.file, symbol: link.from.symbol };
       if (prefixOf.has(keyOf(seed))) continue;
-      const operation = link.operation ? `${link.operation.verb} ${link.operation.path}` : (link.contractRef ?? link.to.symbol ?? link.to.file);
-      prefixOf.set(keyOf(seed), [`${link.to.repo}: ${operation}${operationChange === "removed" ? " (removed)" : ""}`]);
+      prefixOf.set(keyOf(seed), [...(reach?.via ?? []).map((via) => describeLink(via)), describeLink(link, operationChange)]);
       seeds.push(seed);
     }
     if (seeds.length === 0) return undefined;
@@ -187,6 +194,12 @@ export class ChangeScopePortAdapter implements ChangeScopePort {
     observeWalk(pages.repo, walk.value);
     return { repo: pages.repo, reached: walk.value.symbols, prefixOf, handlers: false, ...walkFacts(walk.value) };
   }
+}
+
+/* A link as the evidence names it: the repo it lands in and the operation it calls. */
+function describeLink(link: ServiceLink, operationChange?: "added" | "removed" | "changed"): string {
+  const operation = link.operation ? `${link.operation.verb} ${link.operation.path}` : (link.contractRef ?? link.to.symbol ?? link.to.file);
+  return `${link.to.repo}: ${operation}${operationChange === "removed" ? " (removed)" : ""}`;
 }
 
 /* What a walk's answer says about its seeds for the proofs: a lower bound, the partial seeds, the hubs it pruned. */
@@ -222,8 +235,8 @@ function mapLinksOf(scope: ChangeScope, map: PageMap): MapLink[] {
 /* The operations of the impacted links, one per operation. */
 function linksOf(request: ChangeScopeRequest): ReachLink[] {
   const byKey = new Map<string, ReachLink>();
-  for (const { link, operationChange } of request.crossRepoImpact?.impactedLinks ?? []) {
-    if (!link.operation) continue;
+  for (const { link, operationChange, reach } of request.crossRepoImpact?.impactedLinks ?? []) {
+    if (!link.operation || reach?.direction === "downstream") continue;
     const key = `${link.to.repo} ${link.operation.verb.toUpperCase()} ${link.operation.path}`;
     if (!byKey.has(key)) byKey.set(key, { repo: link.to.repo, verb: link.operation.verb.toUpperCase(), path: link.operation.path, file: link.to.file, confidence: link.confidence, ...(operationChange ? { change: operationChange } : {}) });
   }

@@ -108,7 +108,7 @@ function world(links: readonly ServiceLink[], changed: "c" | "app"): World {
 
 const pageEntries = (scope: ChangeScope) => scope.reach.filter((r) => r.entry.kind === "page");
 
-test("a change in service C reaches the app's page through the unchanged service B: the chain is the evidence and both links are counted", { todo: "RFC-0011 U4: the walk follows the chain" }, async () => {
+test("a change in service C reaches the app's page through the unchanged service B: the chain is the evidence and both links are counted", async () => {
   const w = world([appToB, bToC], "c");
   try {
     const observed = await observe(w.rig, "hops-upstream");
@@ -157,6 +157,7 @@ test("a hop through a repo with no mirror is a stop in the scope, the first hop 
     const observed = await observe(w.rig, "hops-no-mirror");
     assert.equal(observed.result?.decision.verdict, "pass");
     assert.deepEqual(pageEntries(w.scopes[0]!), []);
+    assert.deepEqual(w.scopes[0]!.degraded, [{ repo: B, reason: "hop upstream: the repo has no mirror to index in this run" }]);
     assert.equal(observed.saved[0]?.gateSignals?.crossRepoImpactedCount, 1);
   } finally {
     dispose(w.rig);
