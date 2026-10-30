@@ -1,6 +1,8 @@
 import type { AcceptanceReportDefect, AcceptanceReportEntry } from "./acceptance-report.ts";
 import type { EvidenceRef } from "./evidence-ref.ts";
 import type { UNREADABLE_ANSWER } from "@kernel/unreadable-answer.ts";
+import { describeTurnEnd, type SidekickTurnEnd } from "./sidekick-turn-end.ts";
+import type { DelegationBrief } from "./delegation-brief.ts";
 
 export const DELEGATION_STATUSES = [
   "completed",
@@ -61,6 +63,8 @@ export interface DelegationResult {
   readonly readMiss?: typeof UNREADABLE_ANSWER;
   /** Set when the result is the orchestrator's own statement about an answer it could not take (unreadable, or addressed to another brief): its summary and concerns are the orchestrator's words, never the sidekick's. */
   readonly answerMiss?: AnswerMiss;
+  /** Set when the turn never answered (out of its time, stopped, ended by a fault of the runtime, or its session gone): the result is the orchestrator's own statement of it, and the end says which. */
+  readonly turnEnd?: SidekickTurnEnd;
 }
 
 /** Why the orchestrator holds no answer of the sidekick's: the output held no DelegationResult, or the one it held answered a different brief. */
@@ -69,4 +73,20 @@ export type AnswerMiss = (typeof ANSWER_MISS)[keyof typeof ANSWER_MISS];
 
 export function belongsToBrief(result: DelegationResult, delegationId: string, runId: string): boolean {
   return result.delegationId === delegationId && result.runId === runId;
+}
+
+/* What a turn that never answered came to: the orchestrator's own failed result, with the turn's typed end. */
+export function unansweredTurn(brief: Pick<DelegationBrief, "delegationId" | "runId">, end: SidekickTurnEnd): DelegationResult {
+  return {
+    delegationId: brief.delegationId,
+    runId: brief.runId,
+    status: "failed",
+    summary: describeTurnEnd(end),
+    filesChanged: [],
+    concerns: [],
+    unresolvedQuestions: [],
+    recommendation: "retry",
+    acceptance: [],
+    turnEnd: end,
+  };
 }

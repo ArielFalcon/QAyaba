@@ -11,7 +11,9 @@ import type { FlowOutcome } from "../flow-outcomes.ts";
 export type SidekickAnswer =
   | { kind: "read"; summary?: string; concerns: readonly string[]; devLimits?: readonly string[] }
   | { kind: "unreadable" }
-  | { kind: "foreign-brief" };
+  | { kind: "foreign-brief" }
+  /* The turn never answered; `end` is how it ended (a `SidekickEnd`). */
+  | { kind: "unanswered"; end: string };
 
 /* Which bytes a flow's last run_spec failure was seen on: the spec it holds now, an earlier version of it, or no spec at all (it delivered none, or it could not be read). */
 export type FailureBytes = "current" | "earlier" | "no-spec";
@@ -141,6 +143,7 @@ function flowBlock(scrub: (text: string) => string, flow: FlowUnderReview, specS
 function answerLines(scrub: (text: string) => string, answer: SidekickAnswer): string[] {
   if (answer.kind === "unreadable") return ["Sidekick answer: the orchestrator could not read it (its output held no result of the contract)."];
   if (answer.kind === "foreign-brief") return ["Sidekick answer: the orchestrator did not admit it (it answered another brief)."];
+  if (answer.kind === "unanswered") return [answer.end === "session-gone" ? "Sidekick turn: it did not answer, and the runtime no longer holds its session; a revision starts a fresh sidekick on the flow." : `Sidekick turn: it did not answer (the turn ended ${answer.end}); its session is kept, so a revision reaches it with the conversation it has.`];
   return [
     answer.summary ? `Sidekick says: ${scrub(answer.summary)}` : "",
     answer.concerns.length > 0 ? `Sidekick concerns: ${answer.concerns.map((concern) => scrub(concern)).join("; ")}` : "",

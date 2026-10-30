@@ -6,6 +6,7 @@ import type { AgentPromptOpts, OpenSessionOpts } from "@kernel/ports/agent-runti
 import type { AgentRole } from "@kernel/agent-role.ts";
 import { AgentTimeoutError } from "@kernel/domain-error.ts";
 import { RunDeadlineExceededError } from "@kernel/run-deadline.ts";
+import { SessionGoneError } from "@kernel/turn-end.ts";
 import { PatternRedactionAdapter } from "../../../../src/shared-infrastructure/redaction/pattern-redaction.adapter.ts";
 
 const redaction = new PatternRedactionAdapter();
@@ -101,7 +102,7 @@ function stoppedFirstTurn(error: unknown, calls: { disposed: number; prompts: nu
 
 test("a first turn that ran out of its time leaves the session to a holder that asked to keep it, idle and able to answer the lead's follow-up, with no answer read", async () => {
   const calls = { disposed: 0, prompts: 0 };
-  const session = await stoppedFirstTurn(new AgentTimeoutError("OpenCode prompt: timed out after 90000ms"), calls).open(brief, { cwd: "/w", kind: "author", keepStopped: true });
+  const session = await stoppedFirstTurn(new AgentTimeoutError("OpenCode prompt: timed out after 90000ms"), calls).open(brief, { cwd: "/w", kind: "author", keepUnanswered: true });
   assert.equal(calls.disposed, 0);
   assert.equal(session.first.status, "failed");
   assert.deepEqual(session.first.filesChanged, []);
@@ -115,7 +116,7 @@ test("a first turn that ended because its flow was stopped is kept the same way,
   const stopped = new AbortController();
   stopped.abort();
   const kept = { disposed: 0, prompts: 0 };
-  const session = await stoppedFirstTurn(new Error("the agent turn was aborted"), kept).open(brief, { cwd: "/w", kind: "author", keepStopped: true, signal: stopped.signal });
+  const session = await stoppedFirstTurn(new Error("the agent turn was aborted"), kept).open(brief, { cwd: "/w", kind: "author", keepUnanswered: true, signal: stopped.signal });
   assert.equal(kept.disposed, 0);
   await session.dispose();
   const dropped = { disposed: 0, prompts: 0 };
@@ -123,12 +124,77 @@ test("a first turn that ended because its flow was stopped is kept the same way,
   assert.equal(dropped.disposed, 1);
 });
 
-test("a first turn that failed for any other reason, or that the run's own deadline ended, is never kept", async () => {
-  for (const error of [new Error("boom"), new RunDeadlineExceededError(1000, "diff-tiny", "author", "mid-turn")]) {
-    const calls = { disposed: 0, prompts: 0 };
-    await assert.rejects(stoppedFirstTurn(error, calls).open(brief, { cwd: "/w", kind: "author", keepStopped: true }));
-    assert.equal(calls.disposed, 1, error.message);
-  }
+test("a first turn that the run's own deadline ended is never kept, and one that failed for another reason is kept only for a holder that asked to", async () => {
+  const deadline = { disposed: 0, prompts: 0 };
+  await assert.rejects(stoppedFirstTurn(new RunDeadlineExceededError(1000, "diff-tiny", "author", "mid-turn"), deadline).open(brief, { cwd: "/w", kind: "author", keepUnanswered: true }));
+  assert.equal(deadline.disposed, 1);
+  const kept = { disposed: 0, prompts: 0 };
+  const session = await stoppedFirstTurn(new Error("boom"), kept).open(brief, { cwd: "/w", kind: "author", keepUnanswered: true });
+  assert.equal(kept.disposed, 0, "a fault of the runtime does not end the session");
+  assert.equal(session.first.turnEnd?.kind, "failed");
+  assert.equal((await session.ask("Try again.")).status, "completed", "the same session answers");
+  await session.dispose();
+  const dropped = { disposed: 0, prompts: 0 };
+  await assert.rejects(stoppedFirstTurn(new Error("boom"), dropped).open(brief, { cwd: "/w", kind: "author" }), /boom/);
+  assert.equal(dropped.disposed, 1, "a caller that did not ask to keep the session gets the error and no session");
+});
+
+function askFaulting(error: unknown, calls: { disposed: number; prompts: number }) {
+  return new SidekickExecutor({ redaction,
+    runtime: {
+      openSession: async () => ({
+        prompt: async () => {
+          calls.prompts += 1;
+          if (calls.prompts === 2) throw error;
+          return { output: RESULT };
+        },
+        dispose: async () => { calls.disposed += 1; },
+      }),
+    },
+  });
+}
+
+test("a follow-up that met a fault of the transport is a turn that did not answer, typed, and the session answers the next one", async () => {
+  const calls = { disposed: 0, prompts: 0 };
+  const fault = Object.assign(new TypeError("fetch failed"), { cause: Object.assign(new Error("connect timeout"), { code: "UND_ERR_CONNECT_TIMEOUT" }) });
+  const session = await askFaulting(fault, calls).open(brief, { cwd: "/w", kind: "author" });
+  const faulted = await session.ask("Assert the total.");
+  assert.equal(faulted.status, "failed");
+  assert.equal(faulted.turnEnd?.kind, "failed");
+  assert.equal(faulted.turnEnd?.errorType, "transport");
+  assert.deepEqual(faulted.filesChanged, []);
+  assert.equal(calls.disposed, 0, "the session outlives the fault");
+  assert.equal((await session.ask("Again.")).status, "completed");
+  await session.dispose();
+  assert.equal(calls.disposed, 1);
+});
+
+test("a follow-up that ran out of its time is a typed end of its own and keeps the session", async () => {
+  const calls = { disposed: 0, prompts: 0 };
+  const session = await askFaulting(new AgentTimeoutError("OpenCode prompt: timed out after 30000ms"), calls).open(brief, { cwd: "/w", kind: "author" });
+  const late = await session.ask("Assert the total.", { timeoutMs: 30_000 });
+  assert.equal(late.turnEnd?.kind, "timeout");
+  assert.equal(calls.disposed, 0);
+  await session.dispose();
+});
+
+test("only a session the runtime says is gone is ended by the executor, in a first turn and in a follow-up", async () => {
+  const followUp = { disposed: 0, prompts: 0 };
+  const session = await askFaulting(new SessionGoneError("session ses_1 not found"), followUp).open(brief, { cwd: "/w", kind: "author" });
+  assert.equal((await session.ask("Assert the total.")).turnEnd?.kind, "session-gone");
+  assert.equal(followUp.disposed, 1, "the session the runtime no longer holds is ended");
+  await session.dispose();
+  assert.equal(followUp.disposed, 1, "and only once");
+  const first = { disposed: 0, prompts: 0 };
+  const gone = await stoppedFirstTurn(new SessionGoneError("session ses_1 not found"), first).open(brief, { cwd: "/w", kind: "author", keepUnanswered: true });
+  assert.equal(gone.first.turnEnd?.kind, "session-gone");
+  assert.equal(first.disposed, 1);
+});
+
+test("the run's own deadline in a follow-up ends the run: it is thrown, not typed", async () => {
+  const calls = { disposed: 0, prompts: 0 };
+  const session = await askFaulting(new RunDeadlineExceededError(1000, "diff-tiny", "author", "mid-turn"), calls).open(brief, { cwd: "/w", kind: "author" });
+  await assert.rejects(session.ask("Assert the total."), RunDeadlineExceededError);
 });
 
 test("the lead's feedback is a registered section: the follow-up and the first prompt carry its sizes and hashes beside the brief's", async () => {

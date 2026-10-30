@@ -52,6 +52,7 @@ import { aggregateFlowOutcomes, FLOW_OUTCOME, FLOW_OUTCOME_EFFECT, type Aggregat
 import { admitLeadPlan, LEAD_PLAN_KIND, PLAN_DOWNGRADE, PLAN_REJECTED, assembleRejectedPlanRequest, type AdmittedFlow, type AdmittedPlan } from "./lead-plan.ts";
 import { SIDEKICK_AUTHORING, sidekickAuthoring, sidekickDeniedTools, type SidekickAuthoringMode } from "./sidekick-authoring.ts";
 import type { SidekickExecutor, SidekickSession } from "./sidekick-executor.ts";
+import { SESSION_GONE, turnEndOf } from "./sidekick-turn-end.ts";
 import { packPagesFor, recordedRequestsFor } from "@contexts/generation/application/index.ts";
 import { namesTemplatePage } from "@contexts/generation/application/index.ts";
 import type { HarnessFacts } from "@kernel/grounding.ts";
@@ -487,7 +488,7 @@ export class LeadSidekicks {
     let handed = false;
     try {
       const results = await this.dispatcher.run(flows, { maxParallel: parallel, ...(input.signal ? { signal: input.signal } : {}) }, (flow, signal) => this.author(flow, context, live, signal));
-      await this.settle(results, live, reports);
+      await this.settle(input, results, live, reports);
 
       const tally: ReviewTally = { turns: 0, accepted: 0, revised: 0, replaced: 0, dropped: 0, refused: 0 };
       if (how.lead && !input.signal?.aborted) await this.review(how.lead, flows, parallel, context, live, reports, tally, decided);
@@ -524,7 +525,7 @@ export class LeadSidekicks {
   }
 
   /* What each dispatched turn came to, as the flow's report. A flow whose turn did not settle has no session left to ask. */
-  private async settle(results: ReadonlyArray<{ id: string; status: string; value?: FlowReport; error?: unknown }>, live: Map<string, LiveFlow>, reports: Map<string, FlowReport>): Promise<void> {
+  private async settle(input: CoordinateInput, results: ReadonlyArray<{ id: string; status: string; value?: FlowReport; error?: unknown }>, live: Map<string, LiveFlow>, reports: Map<string, FlowReport>): Promise<void> {
     for (const result of results) {
       switch (result.status) {
         case FLOW_RESULT.SETTLED:
@@ -541,11 +542,28 @@ export class LeadSidekicks {
           /* The run's own time spent ends the run, not a flow. */
           if (isRunDeadlineError(result.error)) throw result.error;
           engineLog[levelOfEffect(FLOW_OUTCOME_EFFECT[FLOW_OUTCOME.FAILED])](`[qa] flow ${result.id} failed: ${result.error instanceof Error ? result.error.message : String(result.error)}`);
+          this.recordFlowFault(input, live.get(result.id), result.id, result.error);
           reports.set(result.id, this.keepDelivered(live.get(result.id), { outcome: { id: result.id, kind: FLOW_OUTCOME.FAILED, reason: "the sidekick's session failed" }, proposals: undefined }));
           break;
       }
       await this.closeSession(live.get(result.id));
     }
+  }
+
+  /* A flow whose sidekick's session failed outside a turn's answer (it could not be opened, or the flow was stopped under it): said in the run's decisions with the typed end of the fault, never only in the log. */
+  private recordFlowFault(input: CoordinateInput, entry: LiveFlow | undefined, flowId: string, error: unknown): void {
+    const end = turnEndOf(error, input.signal?.aborted === true);
+    this.record(input, {
+      kind: "delegation",
+      action: "delegate",
+      sidekickKind: entry?.flow.kind ?? SIDEKICK_KIND.AUTHOR,
+      reason: `flow ${flowId}: the sidekick's session failed (${end.kind}${end.errorType !== undefined ? `, ${end.errorType}` : ""})`.slice(0, 400),
+      flowId,
+      ...(entry ? { delegationId: entry.delegationId, attempt: entry.turns } : {}),
+      failureClass: "failed",
+      turnEnd: end.kind,
+      ...(end.errorType !== undefined ? { errorType: end.errorType } : {}),
+    });
   }
 
   /* The flow's first turn: its workspace, loop, location and browser share, and the sidekick's session on the brief. */
@@ -620,7 +638,7 @@ export class LeadSidekicks {
     const session = await this.deps.sidekick.open(brief, {
       cwd: entry.workspace.dir,
       kind: entry.flow.kind,
-      keepStopped: true,
+      keepUnanswered: true,
       signal,
       timeoutMs: Math.max(1, timeoutMs),
       delegationId: entry.delegationId,
@@ -712,6 +730,8 @@ export class LeadSidekicks {
     entry.turns += 1;
     entry.last = result;
     const attempt = entry.turns;
+    /* A session the runtime says is gone is ended; any other turn that did not answer leaves its session to the lead's next order. */
+    if (result.turnEnd?.kind === SESSION_GONE) await this.closeSession(entry);
     const eligible = result.status === "completed" || result.status === "completed-with-concerns";
     let copied = false;
     let proposals: FlowProposals | undefined;
@@ -734,13 +754,14 @@ export class LeadSidekicks {
       kind: "delegation",
       action: "delegate",
       sidekickKind,
-      reason: result.readMiss ? `flow ${flow.id} turn ${attempt}: sidekick answer ${result.readMiss}${copied ? ", file taken back" : ""}` : `flow ${flow.id} turn ${attempt}: sidekick status=${result.status}${copied ? ", file taken back" : ""}`,
+      reason: result.readMiss ? `flow ${flow.id} turn ${attempt}: sidekick answer ${result.readMiss}${copied ? ", file taken back" : ""}` : result.turnEnd ? `flow ${flow.id} turn ${attempt}: the turn did not answer (${result.turnEnd.kind}${result.turnEnd.errorType !== undefined ? `, ${result.turnEnd.errorType}` : ""})${copied ? ", file taken back" : ""}` : `flow ${flow.id} turn ${attempt}: sidekick status=${result.status}${copied ? ", file taken back" : ""}`,
       delegationId,
       attempt,
       flowId: flow.id,
       ...(flow.candidates.length > 0 ? { candidateIds: flow.candidates } : {}),
       ...(failureClass ? { failureClass } : {}),
       sidekickStatus: result.readMiss ?? result.status,
+      ...(result.turnEnd ? { turnEnd: result.turnEnd.kind, ...(result.turnEnd.errorType !== undefined ? { errorType: result.turnEnd.errorType } : {}) } : {}),
       ...(lastCall ? { lastRunSpec: lastCall.status } : {}),
     });
 
@@ -832,7 +853,7 @@ export class LeadSidekicks {
         this.record(input, { kind: "lead-decision", flowId: order.flowId, decision: order.action, overridden: order.overrideReason !== undefined, ...(order.overrideReason !== undefined ? { overrideReason: order.overrideReason } : {}), reason: `review turn ${turn}: flow ${order.flowId} ${order.action}`, delegationId: live.get(order.flowId)!.delegationId });
       }
       const results = await this.dispatcher.run(slots, { maxParallel: parallel, ...(input.signal ? { signal: input.signal } : {}) }, (slot, signal) => this.revise(live.get(slot.flowId)!, slot, slot.budgetMs, context, signal));
-      await this.settle(results, live, reports);
+      await this.settle(input, results, live, reports);
       if (input.signal?.aborted) break;
     }
   }
@@ -895,7 +916,7 @@ export class LeadSidekicks {
       objective: flow.objective,
       acceptance: flow.acceptance,
       outcome: report.outcome,
-      answer: last?.answerMiss ? { kind: last.answerMiss } : { kind: "read", ...(last?.summary ? { summary: last.summary } : {}), concerns: last?.concerns ?? [], ...(last?.unmetByDevState?.length ? { devLimits: last.unmetByDevState.map((u) => `criterion ${u.criterion} (${flow.acceptance[u.criterion - 1] ?? "?"}) on ${u.pages.join(", ")}; ${u.backing}`) } : {}) },
+      answer: last?.answerMiss ? { kind: last.answerMiss } : last?.turnEnd ? { kind: "unanswered", end: last.turnEnd.kind } : { kind: "read", ...(last?.summary ? { summary: last.summary } : {}), concerns: last?.concerns ?? [], ...(last?.unmetByDevState?.length ? { devLimits: last.unmetByDevState.map((u) => `criterion ${u.criterion} (${flow.acceptance[u.criterion - 1] ?? "?"}) on ${u.pages.join(", ")}; ${u.backing}`) } : {}) },
       ...(loop ? { runSpec: { calls: ledger.length, maxCalls: loop.limits.maxCalls, ...(lastCall ? { lastStatus: lastCall.status } : {}), ...(lastFailure ? { lastFailure, lastFailureOn } : {}), ...noWritesLeftOf(loop) } } : {}),
       verified: loop ? await loop.isClosed().catch(() => false) : false,
       ...(entry?.appDefect ? { appDefect: entry.appDefect } : {}),
@@ -1031,7 +1052,7 @@ export class LeadSidekicks {
     const results = await this.dispatcher.run(tasks, { maxParallel: parallel, ...(input.signal ? { signal: input.signal } : {}) }, (task, signal) => (task.maintain
       ? this.author(task.maintain, context, live, signal)
       : this.amend(live.get(task.slot!.flowId)!, task.slot!, origin, task.budgetMs, context, signal)));
-    await this.settle(results, live, new Map());
+    await this.settle(input, results, live, new Map());
     const specs = [...new Set([...slots.map((slot) => slot.flowId), ...maintenance.map((m) => m.flow.id)].flatMap((id) => (live.get(id)?.taken ? [live.get(id)!.flow.specFile] : [])))];
     /* The findings of a maintenance flow that put nothing in the working copy were corrected by nobody. */
     const idle = maintenance.filter((m) => !live.get(m.flow.id)?.taken);

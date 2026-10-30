@@ -142,7 +142,7 @@ function rig(scriptOver: Partial<Script> = {}): Rig {
         const session = ++r.sessionsOpened;
         r.executed.push({ brief, opts, session });
         /* A turn marked stoppable ends when its flow is stopped, as the executor's does for a holder that asked to keep the stopped session: the session is returned idle, its first result a failure. */
-        const stopped = opts.keepStopped && opts.signal && script.answers[flowOf(brief.delegationId)]?.[0]?.stoppable
+        const stopped = opts.keepUnanswered && opts.signal && script.answers[flowOf(brief.delegationId)]?.[0]?.stoppable
           ? new Promise<"stopped">((resolve) => opts.signal!.addEventListener("abort", () => resolve("stopped"), { once: true }))
           : undefined;
         const answered = answerOf(brief);

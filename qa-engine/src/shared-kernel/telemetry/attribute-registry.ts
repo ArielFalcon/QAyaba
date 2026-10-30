@@ -112,6 +112,8 @@ export const ATTRIBUTES = {
   "qayaba.coordination.decision": str("What the lead decided about a flow: accept, revise, replace or drop."),
   "qayaba.coordination.decision_overridden": bool("Whether the orchestrator did not take the lead's decision as given."),
   "qayaba.coordination.override_reason": str("The code of why the orchestrator did not take the decision as given."),
+  "qayaba.coordination.turn_end": str("How a sidekick's turn that never answered ended: timeout, aborted, failed (a fault of the runtime) or session-gone (the runtime no longer holds the session; the only end that ends the session)."),
+  "qayaba.coordination.error_type": str("The class of the fault that ended a sidekick's turn, from the agent runtime's closed set of error types."),
   "qayaba.coordination.failure_class": str("How a flow's turn failed, by the fixed classes of the coordination."),
   "qayaba.campaign.freeze": bool("Campaign freeze is on: the run neither reads nor writes learned state."),
   "qayaba.prompt.static_hash": str("Hash of the static prompt layers.", "high"),

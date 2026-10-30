@@ -226,9 +226,10 @@ the transport, as the sidekick's brief and its feedback do. It answers per flow:
 
 - `accept`;
 - `revise`: its instruction goes to the SAME sidekick session, which is kept, with the flow's workspace, `run_spec`
-  loop and location, until the coordinated pass ends. A flow that ran out of its time (or was stopped) keeps its session
-  too, idle and aborted, so a `revise` of it reaches that session instead of becoming a `replace`: the stop of a flow
-  aborts its prompt and never deletes the session;
+  loop and location, until the coordinated pass ends. A flow whose turn did not answer (it ran out of its time, it was
+  stopped, or a fault of the transport or the provider ended it) keeps its session too, idle, so a `revise` of it reaches
+  that session instead of becoming a `replace`: only the run's own deadline and a session the runtime says is gone end it
+  (see "Session lifecycle");
 - `replace`: the old session is ended and a fresh sidekick takes the flow from its brief and the instruction;
 - `drop`: a flow that delivered nothing is settled with the lead's reason.
 
@@ -435,7 +436,15 @@ leaves nothing behind).
 ## Session lifecycle
 
 A transport session ends in exactly one place: its holder's `dispose` (`closeSession`, a flow's `release`, the pass's
-`release`, the `finally` of `coordinate`). A signal's abort (a flow's time, the run's cancel) aborts the session's prompt and
+`release`, the `finally` of `coordinate`). A turn that does not answer ends as one typed end (`sidekick-turn-end.ts`: `timeout`,
+`aborted`, `failed` with its `AgentErrorType`, or `session-gone`), carried on the result (`DelegationResult.turnEnd`) and on
+the turn's `delegation` event (`qayaba.coordination.turn_end`, `qayaba.coordination.error_type`), and the lead is shown that
+the turn did not answer. Only `session-gone`, which the runtime says with `SessionGoneError` (`shared-kernel/turn-end.ts`),
+makes the executor and the holder dispose the session, and the lead's next `revise` of that flow becomes a `replace`; a
+timeout, a stop or a fault of the transport leaves the session, the flow's `run_spec` loop and its proof as they were, and
+the next `revise` reaches the same conversation. A flow whose session fails outside a turn (it could not be opened) is a
+`delegation` event with its typed end too. Today no transport raises `SessionGoneError`: the OpenCode client must throw it
+for the runtime's "session not found" answer before a gone session is told from any other fault. A signal's abort (a flow's time, the run's cancel) aborts the session's prompt and
 nothing else, and a `dispose` waits for the aborts still running before it deletes, so a delete never races a message the
 runtime is persisting. The orphan sweep (`cleanupOrphans`, every 60 s) is only the backstop for a holder that never
 disposed: a session is an orphan when no prompt is in flight and nothing has used it (opened it, started or ended a prompt)

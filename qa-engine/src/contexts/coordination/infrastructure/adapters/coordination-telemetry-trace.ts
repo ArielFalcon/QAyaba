@@ -28,6 +28,8 @@ export class TracedCoordinationTelemetry implements CoordinationTelemetryPort {
       ...(event.attempt !== undefined ? { "qayaba.coordination.attempt": event.attempt } : {}),
       ...(event.failureClass ? { "qayaba.coordination.failure_class": event.failureClass } : {}),
       ...(event.sidekickStatus ? { "qayaba.delegation.status": event.sidekickStatus } : {}),
+      ...(event.turnEnd ? { "qayaba.coordination.turn_end": event.turnEnd } : {}),
+      ...(event.errorType ? { "qayaba.coordination.error_type": event.errorType } : {}),
       ...(event.lastRunSpec ? { "qayaba.delegation.last_run_spec": event.lastRunSpec } : {}),
       ...(event.flowId ? { "qayaba.coordination.flow_id": event.flowId } : {}),
       ...(event.candidateIds && event.candidateIds.length > 0 ? { "qayaba.coordination.candidate_ids": event.candidateIds.slice(0, MAX_LISTED) } : {}),

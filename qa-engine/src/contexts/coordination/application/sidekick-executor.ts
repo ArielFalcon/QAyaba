@@ -3,13 +3,13 @@ import type { ContextFit } from "@kernel/context-budget.ts";
 import type { AgentRuntimePort } from "@kernel/ports/agent-runtime.port.ts";
 import type { RedactionPort } from "@kernel/ports/redaction.port.ts";
 import type { DelegationBrief } from "./delegation-brief.ts";
-import type { DelegationResult } from "./delegation-result.ts";
-import { isAgentTimeoutError } from "@kernel/domain-error.ts";
+import { unansweredTurn, type DelegationResult } from "./delegation-result.ts";
 import { isRunDeadlineError } from "@kernel/run-deadline.ts";
 import { assembleDefs, type AssembledPrompt, type WindowFitOutcome } from "@kernel/prompt-sections.ts";
 import { FEEDBACK_SECTIONS } from "./coordination-sections/feedback-sections.ts";
 import type { DevStateGround } from "./dev-state-backing.ts";
 import { delegatingKindSpec, type SidekickKind } from "./sidekick-kinds.ts";
+import { SESSION_GONE, turnEndOf } from "./sidekick-turn-end.ts";
 
 export interface SidekickRender {
   (brief: DelegationBrief): { text: string; sectionSizes: Record<string, number>; sectionHashes?: Record<string, string>; stablePrefixBytes?: number; sectionsDegraded?: number };
@@ -39,15 +39,15 @@ export interface SidekickExecuteOpts {
   fit?: (bytes: number) => WindowFitOutcome;
   /** What the orchestrator holds of the flow by its own means, read afresh for each answer (the flow's reads grow turn by turn): an unmet criterion the sidekick attributes to DEV's state is backed by it or blocks. */
   devStateGround?: () => DevStateGround;
-  /** The holder reuses a session whose first turn was cut short (it ran out of its time, or its flow was stopped): the session is kept, idle, with a failed first result that says so, instead of being disposed before the error leaves. The run's own deadline and any other fault still dispose it. */
-  keepStopped?: boolean;
+  /** The holder reuses a session whose first turn did not answer (it ran out of its time, its flow was stopped, or a fault of the transport or provider ended it): the session is kept, idle, with a failed first result that carries the turn's typed end, instead of being disposed before the error leaves. Only the run's own deadline and a session the runtime says is gone dispose it. */
+  keepUnanswered?: boolean;
 }
 
 /* A sidekick's session, held open after its first answer so that the lead's follow-up reaches the session that did the work. */
 export interface SidekickSession {
   /* What the brief's prompt came to. */
   readonly first: DelegationResult;
-  /* Asks the same session again; the answer is read as the first one was. */
+  /* Asks the same session again; the answer is read as the first one was. A turn that does not answer returns a failed result with its typed end and leaves the session as it was; only the run's own deadline throws. A session the runtime says is gone is ended here. */
   ask(instruction: string, opts?: { timeoutMs?: number }): Promise<DelegationResult>;
   /* Ends the session. Idempotent. */
   dispose(): Promise<void>;
@@ -94,8 +94,15 @@ export class SidekickExecutor {
     const feedbackOf = (feedback: string) => assembleSidekickFeedback(this.deps.redaction, feedback, contract);
     const askAgain: SidekickSession["ask"] = async (instruction, askOpts) => {
       const followUp = feedbackOf(instruction);
-      const answer = await session.prompt(followUp.text, { sectionSizes: followUp.sectionSizes, ...(followUp.sectionHashes ? { sectionHashes: followUp.sectionHashes } : {}), promptStablePrefixBytes: followUp.stablePrefixBytes, ...(askOpts?.timeoutMs !== undefined ? { timeoutMs: askOpts.timeoutMs } : {}) });
-      return read(answer.output);
+      try {
+        const answer = await session.prompt(followUp.text, { sectionSizes: followUp.sectionSizes, ...(followUp.sectionHashes ? { sectionHashes: followUp.sectionHashes } : {}), promptStablePrefixBytes: followUp.stablePrefixBytes, ...(askOpts?.timeoutMs !== undefined ? { timeoutMs: askOpts.timeoutMs } : {}) });
+        return read(answer.output);
+      } catch (err) {
+        if (isRunDeadlineError(err)) throw err;
+        const end = turnEndOf(err, false);
+        if (end.kind === SESSION_GONE) await dispose();
+        return unansweredTurn(brief, end);
+      }
     };
     const contract = `Respond with the SAME JSON output contract for delegationId=${brief.delegationId} runId=${brief.runId}.`;
     try {
@@ -114,27 +121,13 @@ export class SidekickExecutor {
       });
       return { first: read(output), ask: askAgain, dispose };
     } catch (err) {
-      const ranOutOfTime = isAgentTimeoutError(err);
-      if (!opts.keepStopped || !(ranOutOfTime || opts.signal?.aborted === true) || isRunDeadlineError(err)) {
+      if (!opts.keepUnanswered || isRunDeadlineError(err)) {
         await dispose();
         throw err;
       }
-      return { first: stoppedFirstTurn(brief, ranOutOfTime), ask: askAgain, dispose };
+      const end = turnEndOf(err, opts.signal?.aborted === true);
+      if (end.kind === SESSION_GONE) await dispose();
+      return { first: unansweredTurn(brief, end), ask: askAgain, dispose };
     }
   }
-}
-
-/* What the first turn of a session came to when it was cut short before it answered: the orchestrator's own statement, not the sidekick's. */
-function stoppedFirstTurn(brief: DelegationBrief, ranOutOfTime: boolean): DelegationResult {
-  return {
-    delegationId: brief.delegationId,
-    runId: brief.runId,
-    status: "failed",
-    summary: ranOutOfTime ? "The turn ran out of its time before the sidekick answered." : "The turn was stopped before the sidekick answered.",
-    filesChanged: [],
-    concerns: [],
-    unresolvedQuestions: [],
-    recommendation: "retry",
-    acceptance: [],
-  };
 }

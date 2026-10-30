@@ -46,6 +46,9 @@ export interface CoordinationTelemetryEvent {
   readonly progressFingerprint?: string;
   /** What the sidekick reported its turn came to (its DelegationStatus), when kind is delegation. */
   readonly sidekickStatus?: string;
+  /** How a turn that never answered ended (`timeout`, `aborted`, `failed` or `session-gone`) and, for a fault, its class (an `AgentErrorType`), when kind is delegation. */
+  readonly turnEnd?: string;
+  readonly errorType?: string;
   /** How the flow's last run_spec call ended when the sidekick reported, when kind is delegation and the flow called it. */
   readonly lastRunSpec?: string;
   /** The flow the event is about, and the ids of the use cases it covers (bounded by the exporter). */
