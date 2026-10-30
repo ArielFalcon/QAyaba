@@ -205,6 +205,18 @@ test("a ran report that executed zero tests is infra-error, not a false pass", a
   assert.equal(run.passed, false);
 });
 
+test("a suite whose every test was skipped is infra-error and still hands on the skipped tests, which the engine refuses", async () => {
+  const report = {
+    config: { rootDir: "/dir" },
+    suites: [{ title: "flows/a.spec.ts", file: "flows/a.spec.ts", specs: [{ title: "needs data", tests: [{ status: "skipped", expectedStatus: "skipped", annotations: [{ type: "skip" }], results: [{ status: "skipped" }] }] }] }],
+    stats: { expected: 0, unexpected: 0, flaky: 0, skipped: 1 },
+  };
+  const run = await runE2E("/dir", { baseUrl: "https://dev", namespace: "qa-bot-all-skipped" }, { runSuite: async () => ({ report, logs: "", ran: true }) });
+
+  assert.equal(run.verdict, "infra-error");
+  assert.deepEqual(run.skippedTests, [{ name: "flows/a.spec.ts › needs data", file: "flows/a.spec.ts", annotation: "skip" }]);
+});
+
 test("a run whose report holds no test but names load errors hands them on relative to the spec directory", async () => {
   const report = {
     suites: [],

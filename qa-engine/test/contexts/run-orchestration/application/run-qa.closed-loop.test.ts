@@ -605,7 +605,7 @@ test("a fix-loop round whose changed file holds a run_spec proof is executed by 
   assert.equal(out.decision.verdict, "fail", "the case that still fails is not dropped from the record");
 });
 
-test("a fix-loop round that changes a spec file whose tests all skipped leaves that file unproven: the run does not pass on it", async () => {
+test("a fix-loop round that leaves a changed spec file with only skipped tests is refused for the skip it adds: the run keeps its failure and opens an issue", async () => {
   const [fixed, skipped] = ["flows/fixed.spec.ts", "flows/skipped.spec.ts"];
   const files = [fixed!, skipped!];
   const r = rig();
@@ -633,7 +633,11 @@ test("a fix-loop round that changes a spec file whose tests all skipped leaves t
 
   const out = await new RunQaUseCase(deps).run(INPUT);
 
-  assert.notEqual(out.decision.verdict, "pass", "a delivered file none of whose tests ran has no proof, so the run cannot publish it");
+  /* The round's acceptance reads the file it changed by its declared modes: one more skipped test than before refuses the round, so the run keeps the failure its first execution reported. */
+  assert.equal(out.decision.verdict, "fail");
+  assert.equal(out.decision.sideEffect, "issue", "nothing is published: the failure opens an issue");
+  assert.equal(out.errorClass, "E-EXEC-FAIL");
+  assert.deepEqual(out.cases.map((c) => [c.name, c.status]), [[fixed!, "fail"]], "the case that failed stays failed");
 });
 
 /* A failing test cannot be made green by making it not run: a skip, an expected failure or its removal from the report leaves the run failing, for any app whatever its own lint. */

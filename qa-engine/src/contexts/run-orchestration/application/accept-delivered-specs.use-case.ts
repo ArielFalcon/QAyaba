@@ -11,7 +11,7 @@ import type { Sha } from "@kernel/sha.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 import type { RunVerdict } from "@kernel/run-verdict.ts";
 import { BlastRadius } from "@kernel/blast-radius.ts";
-import { hasProof, isRealPass, refuseOutright } from "@kernel/case-proof.ts";
+import { hasProof, isRealPass, refuseOutright, verdictAfterRefusal } from "@kernel/case-proof.ts";
 import { decide, isAccepted, type RunEvidence } from "../domain/run-decision.service.ts";
 import type { ExecutionPort, ValidationPort } from "@contexts/test-execution/application/index.ts";
 import type { ObjectiveSignalPort } from "@contexts/objective-signal/application/index.ts";
@@ -109,8 +109,8 @@ export class AcceptDeliveredSpecsUseCase {
       const judged = refuseOutright(result, input.specs);
       const cases = [...judged.cases, ...judged.refused];
       /* A runner that says pass over a refused test, or over a delivered spec with no real passing case, has not shown the suite passing. */
-      const held = judged.refused.length > 0 || !input.specs.every((spec) => hasProof(spec, judged.cases));
-      const runVerdict: RunVerdict = held && (result.verdict === "pass" || result.verdict === "flaky") ? "fail" : result.verdict;
+      const unproven = result.verdict === "pass" && !input.specs.every((spec) => hasProof(spec, judged.cases));
+      const runVerdict: RunVerdict = unproven ? "fail" : verdictAfterRefusal(result.verdict, judged.refused.length);
       executions.push({ verdict: runVerdict, cases });
       runs.push({ verdict: runVerdict, passed: cases.filter(isRealPass).length, failed: count(cases, "fail"), flaky: count(cases, "flaky"), ms: now() - started });
     }

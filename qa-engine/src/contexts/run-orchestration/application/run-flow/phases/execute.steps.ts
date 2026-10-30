@@ -4,7 +4,7 @@ import { engineLog } from "@kernel/ports/process-logger.ts";
 import { CORRECTION_ORIGIN } from "@contexts/coordination/application/index.ts";
 import { stripAnsi } from "@kernel/ansi.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
-import { refuseOutright } from "@kernel/case-proof.ts";
+import { refuseOutright, verdictAfterRefusal } from "@kernel/case-proof.ts";
 import { MAX_STATIC_FIX_ROUNDS } from "../../../../../shared-kernel/derive-cycle-backstop.ts";
 import { staticFixAction } from "../../../domain/static-fix.ts";
 import type { ExecutionPort, ValidationPort } from "@contexts/test-execution/application/index.ts";
@@ -222,7 +222,7 @@ export async function executeSpecs(state: Readonly<RunState>, ctx: WorkspaceRunC
   const run =
     judged.refused.length === 0
       ? reported
-      : { ...reported, verdict: reported.verdict === "pass" || reported.verdict === "flaky" ? ("fail" as const) : reported.verdict, cases: [...judged.cases, ...judged.refused], skippedTests: judged.skippedTests };
+      : { ...reported, verdict: verdictAfterRefusal(reported.verdict, judged.refused.length), cases: [...judged.cases, ...judged.refused], skippedTests: judged.skippedTests };
   if (judged.refused.length > 0) deps.observer?.onEvent({ type: "log.line", level: "info", text: `[qa] ${judged.refused.length} skipped or test.fail() test(s) in the delivered specs are not a pass and are handed to the fix loop as failures` });
   /* The primary pass just ran: its bytes fix the contract every later regeneration is measured against (A5). */
   await services.primeIntentBaseline();

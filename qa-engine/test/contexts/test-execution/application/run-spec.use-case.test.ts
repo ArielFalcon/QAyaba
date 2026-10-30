@@ -742,6 +742,17 @@ test("a spec whose only test is skipped is not passed: the author is told which 
   assert.match(response.report.tests.map((x) => `${x.title}: ${x.error?.message}`).join("\n"), /needs data: .*skipped/);
 });
 
+test("a spec whose every test is skipped answers failed and lists them, not an error about the path", async (t) => {
+  const h = harness(t);
+  /* The runner calls a suite that executed nothing infrastructure, but its report named the skipped tests: they are what the author must make run. */
+  h.next.result = { verdict: "infra-error", cases: [], skippedTests: [{ name: "flows/a.spec.ts › needs data", file: "flows/a.spec.ts", annotation: "skip" }], logs: "executed zero tests" };
+  const response = await call(h, "flows/a.spec.ts");
+  assert.ok(response.ok);
+  assert.equal(response.report.status, "failed");
+  assert.match(response.report.tests.map((x) => `${x.title}: ${x.error?.message}`).join("\n"), /needs data: .*skipped/);
+  assert.doesNotMatch(response.report.note ?? "", /check the path and the grep/);
+});
+
 test("a spec with a passing test and a test marked test.fail() is not passed: the expected failure is named", async (t) => {
   const h = harness(t);
   h.next.result = { verdict: "pass", cases: [{ name: "flows/a.spec.ts › loads", status: "pass", expectedStatus: "passed" }, { name: "flows/a.spec.ts › known bug", status: "pass", expectedStatus: "failed" }], logs: "" };

@@ -15,7 +15,7 @@ export type ExpectedStatus = "passed" | "failed" | "skipped";
 
 /*
  * A test the report says was skipped: it did not run, so it is no passing case and proves nothing, but its file loaded and was reported. `file`
- * is as the report wrote it, the spec's top suite title; `annotation` is the type of the annotation that skipped it (`skip`, `fixme`), absent
+ * is the spec's path relative to the suite, as a case's is; `annotation` is the type of the annotation that skipped it (`skip`, `fixme`), absent
  * when the report carries none.
  */
 export interface SkippedTest {

@@ -5,6 +5,7 @@
  * pass and passed. A file whose tests were all skipped, are all marked `test.fail()` or did not run has no proof. Pure.
  */
 import type { QaCase, SkippedTest } from "./qa-case.ts";
+import type { RunVerdict } from "./run-verdict.ts";
 import { normalizeSpecPath } from "./spec-path.ts";
 
 /* What an execution reported of its tests: the cases that ran and the tests it says were skipped. */
@@ -124,3 +125,11 @@ export function refuseOutright(reported: ReportedTests, files?: readonly string[
   }
   return { cases, skippedTests, refused };
 }
+
+/*
+ * The verdict of an execution once its refused tests are counted: a pass or a flaky run that holds a refused test fails, and so does a
+ * run that executed nothing because every test it found was refused (a suite of skipped tests reports no case, which the runner calls
+ * infrastructure). A report that parsed is the only one that names tests, so an infrastructure error with refused tests is that run.
+ */
+export const verdictAfterRefusal = (verdict: RunVerdict, refused: number): RunVerdict =>
+  refused > 0 && (verdict === "pass" || verdict === "flaky" || verdict === "infra-error") ? "fail" : verdict;

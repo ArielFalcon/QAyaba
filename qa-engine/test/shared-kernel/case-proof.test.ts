@@ -1,7 +1,7 @@
 /* The one proof rule and the mode tally every rule about skipped and expected-to-fail tests reads: a file is proven by a case that executed, was declared to pass and passed, and the modes are counted per file, never matched by a title. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { hasProof, hasRealPass, isRealPass, modeRefusals, refuseOutright, tallyOf } from "@kernel/case-proof.ts";
+import { hasProof, hasRealPass, isRealPass, modeRefusals, refuseOutright, tallyOf, verdictAfterRefusal } from "@kernel/case-proof.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 
 const caseOf = (file: string, over: Partial<QaCase> = {}): QaCase => ({ name: `${file} › t`, status: "pass", expectedStatus: "passed", file, ...over });
@@ -89,4 +89,10 @@ test("a pass that names no file proves no file, whatever else the run reported",
   assert.equal(hasProof("flows/a.spec.ts", [unattributed]), false, "the only pass of a run cannot stand for a file it does not name");
   assert.equal(hasProof("flows/a.spec.ts", [unattributed, caseOf("flows/b.spec.ts")]), false);
   assert.equal(hasProof("flows/a.spec.ts", [unattributed, caseOf("flows/a.spec.ts")]), true);
+});
+
+test("a refused test fails a run that passed, was flaky or executed nothing, and leaves a failure or a crash with no refusal as it was", () => {
+  assert.deepEqual((["pass", "flaky", "infra-error"] as const).map((v) => verdictAfterRefusal(v, 1)), ["fail", "fail", "fail"]);
+  assert.deepEqual((["pass", "flaky", "infra-error", "fail"] as const).map((v) => verdictAfterRefusal(v, 0)), ["pass", "flaky", "infra-error", "fail"]);
+  assert.equal(verdictAfterRefusal("skipped", 1), "skipped");
 });
