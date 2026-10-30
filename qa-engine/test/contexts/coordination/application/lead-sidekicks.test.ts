@@ -2320,6 +2320,15 @@ test("the lead is not asked again when that would leave its orders less than a f
   assert.ok(r.events.some((e) => /too little of the run is left to ask the lead again/.test(e.reason ?? "")));
 });
 
+test("findings a pass had no room to correct are counted unrouted, whether or not the lead was asked", async () => {
+  const { start } = timedPass([], 10_000);
+  const outcome = await start(100_000);
+  const corrected = await outcome.pass!.correct([CART_FINDING], CORRECTION_ORIGIN.COVERAGE);
+  assert.deepEqual(corrected.unrouted, [0]);
+  assert.equal(outcome.pass!.tally().unrouted, 1);
+  await outcome.pass!.release();
+});
+
 test("a fast lead turn with ample room is handed the plan budget and is routed as before", async () => {
   const { r, asked, timeouts, start } = timedPass([OUT_OF_RANGE_ORDER, VALID_ORDER], 5_000);
   const outcome = await start(3_000_000);

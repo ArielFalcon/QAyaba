@@ -937,6 +937,7 @@ export class LeadSidekicks {
   private async correct(lead: LeadSessionHandle, flows: AdmittedFlow[], parallel: number, context: FlowContext, live: Map<string, LiveFlow>, findings: readonly CorrectionFinding[], origin: CorrectionOrigin, tally: CorrectionTally, state: { released: boolean }): Promise<PassCorrection> {
     const { input } = context;
     const nothing = (why: string, code: string): PassCorrection => {
+      tally.unrouted += findings.length;
       this.record(input, { kind: "lead-decision", origin, findings: findings.length, routes: { spec: 0, candidate: 0, lead: 0, candidateFlow: 0, unrouted: findings.length }, unroutedReasons: findings.length > 0 ? [code] : [], reason: `correction (${origin}): ${why}; the findings stand` });
       return { readable: false, specs: [], rebuttals: [], unrouted: findings.map((_, i) => i) };
     };

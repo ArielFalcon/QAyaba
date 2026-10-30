@@ -407,7 +407,8 @@ generator's does, only when no flow changed a spec, and is checked against the r
 round's acceptance, contract check and budgets are the caller's, unchanged. A run without a pass regenerates as it always did. A run with a pass whose budget of corrections through the lead is spent does not: the findings are recorded unrouted with the reason `lead correction budget spent` (`CoordinatedPass.leaveUnrouted`: a `lead-decision` event, a warn line in the log, `corrections.unrouted`), the round's delivery is left as it is and its acceptance goes on.
 
 The pass is released as soon as the review ends, and in the run's `finally` however it ends. The corrections of every origin are
-recorded as `gateSignals.coordination.corrections { turns, routed, unrouted, revised, replaced, rebutted, maintained? }`.
+recorded as `gateSignals.coordination.corrections { turns, routed, unrouted, revised, replaced, rebutted, maintained? }`. Every finding a correction call is given
+is counted routed or unrouted, also when the lead was not asked (no room, a released pass, a spent budget).
 
 ## Cleanup
 
