@@ -81,6 +81,8 @@ Defects found while verifying the last four fixes on main (F18-F21, commits c6a3
 | B2' | c6a37c9a | `lead-sidekicks.ts:1273-1278`, `:1070-1071` | `leadTurnBudget` is `room - MIN_FLOW_MS`, which leaves no margin when the reserve is pinned (under 480 s left). A lead turn that runs to its timeout still drops every order. Not fixed by F18 in that regime; not a new regression. | the run's time authority |
 | B3 | c6a37c9a | `lead-sidekicks.ts:1045`, `run-qa.use-case.ts:272` | An unsent correction turn leaves `tally.turns` at 0, so `gateSignals.coordination.corrections` is not recorded. | the coordination record |
 
+Fixed on the refactor branch (2026-10-30, task T28, each with its RED test): B2 00ca6f63 (one capacity per amendment request: the flows listed as past it are the plan's flows past the capacity the request states), B2' 6068d481 (a lead turn is held to the room less two `MIN_FLOW_MS`, one for the orders and one of slack), B3 e876b565 for the coordination half (a correction call that had no room counts its findings unrouted). B3's other half, the record's guard in `run-qa.use-case.ts` (`recordCorrections` records only when `turns > 0`), is still open.
+
 Not decided here (decided 2026-10-28 as recommended, [ADR-0013](0013-owner-decisions-remaining-questions.md)):
 
 - **Where a defect goes when its family is not confirmed.** B1-B3 are not defects of H06, H11 or H20, so rule 5 has no slice to put their RED tests in. Recommended: each gets its own RED test and fix commit on the refactor branch, scheduled with the first step or slice that already edits the same function, never earlier.
