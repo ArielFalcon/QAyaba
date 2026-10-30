@@ -287,8 +287,9 @@ async function indexForHop(ctx: WorkspaceRunContext, repo: string, held: Map<str
 
 async function indexMirrorOf(ctx: WorkspaceRunContext, repo: string): Promise<HopIndex> {
   const { deps } = ctx;
+  if (!deps.codeGraph) return { ok: false, reason: "the run has no code graph to index the repo with" };
   const mirror = deps.codeGraphMirrors?.get(repo);
-  if (!deps.codeGraph || !mirror) return { ok: false, reason: "the repo has no mirror to index in this run" };
+  if (!mirror) return { ok: false, reason: "the repo has no mirror to index in this run" };
   let head: string | null;
   try {
     head = await mirror.headSha();

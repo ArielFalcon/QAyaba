@@ -254,3 +254,21 @@ test("a downstream walk left partial is told to the agent and recorded, and is n
     dispose(w.rig);
   }
 });
+
+test("a hop that cannot be indexed because the run has no code graph says so, not that the repo has no mirror", async () => {
+  const w = world({
+    repos: [APP, "org/b", "org/c"], links: [appToList, bToC], changed: [{ repo: "org/c", role: "service", file: C_ITEMS.file }],
+    indexes: { "org/c": { changed: [C_ITEMS], routes: [route(C_ITEMS, "GET", "/items")] } },
+  });
+  try {
+    const { codeGraph: _held, ...withoutGraph } = w.rig.extra;
+    w.rig.extra = withoutGraph;
+    await observe(w.rig, "links-no-code-graph");
+    const reasons = (w.impacts[0]?.stops ?? []).filter((s) => s.repo === "org/b").map((s) => s.reason);
+    assert.equal(reasons.length, 1);
+    assert.match(reasons[0]!, /code graph/);
+    assert.doesNotMatch(reasons[0]!, /mirror/);
+  } finally {
+    dispose(w.rig);
+  }
+});
