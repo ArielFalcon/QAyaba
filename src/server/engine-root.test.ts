@@ -87,7 +87,7 @@ function fakeConfig(overrides: Partial<EngineRootDeps> = {}): EngineRootDeps {
       e2e: { validateAll: async () => ({ ok: true, errors: [], infra: false }) },
     },
     executionStrategies: {
-      e2e: { run: async () => ({ verdict: "pass", cases: [], logs: "" }) },
+      e2e: { run: async () => ({ verdict: "pass", cases: [{ name: "runs", status: "pass" }], logs: "" }) },
     },
     objectiveSignal: {
       collector: { collect: async () => ({ covered: [] }) },
@@ -387,7 +387,7 @@ test("buildEngine threads testIdAttribute into the ExecutionPortAdapter", async 
       e2e: {
         run: async (req) => {
           capturedTestIdAttribute = req.testIdAttribute;
-          return { verdict: "pass", cases: [], logs: "" };
+          return { verdict: "pass", cases: [{ name: "runs", status: "pass" }], logs: "" };
         },
       },
     },

@@ -204,7 +204,7 @@ is the only engine; webhook (`src/server/webhook-handler.ts`, wired by `src/serv
 6. **Validate** — `tsc` + ESLint (`eslint-plugin-playwright`) + `playwright --list` +
    manifest. The gate's rules are the e2e project's ESLint configuration only: the lint runs with
    `--no-inline-config` (`GATE_LINT_OPTIONS`), so an `eslint-disable` or rule comment in a spec has no effect and an
-   exemption lives in the configuration, as the seed's `cleanup.spec.ts` has. A skipped test (`test.skip`, with or without a condition, and `test.fixme`) is refused there, as an early hint for a project bootstrapped from the seed (`playwright/no-skipped-test`, `disallowFixme`); the rule that holds for any app is the engine's, below, in per-file acceptance: a skipped test is not a case, so a correction that skipped the test it was asked to fix would turn its round green with nothing run. A state DEV cannot be brought to is the lead's to drop with its basis. A failure first gets ESLint's own fixes on the delivered specs (computed in the sandbox with
+   exemption lives in the configuration, as the seed's `cleanup.spec.ts` has. A skipped test (`test.skip`, with or without a condition, and `test.fixme`) is refused there, as an early hint for a project bootstrapped from the seed (`playwright/no-skipped-test`, `disallowFixme`) and nothing depends on it: the rule that holds for every app on every pass is the engine's, read from the report by the declared mode of each test (`shared-kernel/case-proof.ts`). A case records the status its test declared (`QaCase.expectedStatus`: `passed`, `failed` for `test.fail()`, `not-run` for a refused skip; a case stored before the field has none and is never read as passing). On the first pass every skipped test and every `test.fail()` test of the files the run delivered is taken out of the report and handed to the fix loop as a failing case that says why (`refuseOutright`), so the run does not pass on it; a regeneration is judged by the acceptance below; `run_spec` answers `failed` for it. A skipped test is no pass, so a correction that skipped the test it was asked to fix could not turn its round green with nothing run. A state DEV cannot be brought to is the lead's to drop with its basis. A failure first gets ESLint's own fixes on the delivered specs (computed in the sandbox with
    `--fix-dry-run`, under the same option, written by the orchestrator through the confined writer); what they leave goes to at most
    `MAX_STATIC_FIX_ROUNDS` repair turns, run while the run has delivered specs to repair, whatever the closed loop says (a
    spec `run_spec` saw pass is repaired like any other, and the run's log says so; the bytes a round writes are no longer
@@ -396,7 +396,7 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   recorded apart as `controlRequests` on the result and the call's span as `qayaba.tool.dev_control_requests`. An API client's request is never
   exempt, nor one recorded without a sender, and no exemption reads a protocol, a body, a path or an origin's role; a test whose project has no readable control, or any control that is forged, oversized,
   unreadable or claimed by two files for one project, exempts nothing; a control that fails (it could not start, crashed, ended with a status or a signal) exempts nothing whatever it left, is logged, and leaves the call's page traffic charged in full), a ledger of every call's sha256, revoked when the run ends. Scratch specs live in `e2e/.qa-probe/` and are swept
-  after every generation: never delivered, stored or validated. When `loopClosed` (every delivered spec's current bytes are those
+  after every generation: never delivered, stored or validated. A call says `passed` only for bytes with a real passing case and no test that does not stand as a pass: a skipped test or a `test.fail()` test makes it `failed`, each listed with why. When `loopClosed` (every delivered spec's current bytes are those
   whose last call passed) the regenerations that only repeat that work are skipped (the pre-exec corrective regeneration and
   the fix loop's), but an acceptance still executes every spec it accepts; the static-fix rounds, the declared no-op, `E-NO-DECISION` / `E-STEP-BUDGET` / `E-TIME-BUDGET` and the single
   coverage or branch-case regeneration are unchanged. The `Run spec budget` prompt
@@ -700,7 +700,7 @@ test, and the verdict is its last action.
   yet, while every run's checkout wipes the untracked `e2e/`; without the store each run starts cold,
   re-seeds the stock login and orders the agent to author it again. An accepted run captures (specs
   that ran green *with the bytes that executed* (fingerprinted right after the final execution, so a
-  reviewer-round or coverage regeneration never enters unproven), support files, the app's `auth.setup.ts`
+  reviewer-round or coverage regeneration never enters unproven; a file is proven by one rule everywhere, at least one real passing case of its own, a case that executed, was declared to pass and passed, so a file whose tests were all skipped or are all marked `test.fail()` is not admitted), support files, the app's `auth.setup.ts`
   only when it actually signed in, and never a file byte-equal to the engine's seed in `config/e2e/`); the
   next run restores before setup (into a cold working copy it starts from the seed, then lays the stored
   files over it, so seed upgrades reach apps) and reconciles with git (untracked: store wins; tracked and
@@ -1106,11 +1106,9 @@ that catches nothing. The objective signal that breaks the circle is **change-co
   changed file gets its prior bytes, cases and delivery back. A file that still exists and that the run
   reported nothing of (no case and no skipped test, so it did not load) is never kept, whatever the verdict (a
   passing run and an adopted fix-loop round included); a file whose tests all skipped loaded and stands, with no
-  case recorded for it and no proof, and a file the turn deleted has no case by nature, so its deletion stands. The engine, for any app whatever its own lint, does not
-  count as a pass a test of a changed file that ran in the file's prior bytes (`priorCases`) and is now skipped, runs with `expectedStatus: "failed"`
-  (`test.fixme`, `testInfo.skip()`, `test.fail()`, an alias), or, when it was failing, is gone while the file reports fewer cases than before (a renamed test keeps the count): that file
-  gets its prior bytes back, or the round is rejected when it is judged whole. Only the kept files that have an executed case get a proof, so the bytes on
-  disk are still the last that ran green, file by file, and the suite store captures only those; survivor
+  case recorded for it and no proof, and a file the turn deleted has no case by nature, so its deletion stands. The engine, for any app whatever its own lint, reads what a regeneration did to a file's tests from the mode each declared and the counts per file, never from their titles (`modeRefusals`): it refuses a file left with more skipped tests (`test.skip`, `test.fixme`, `testInfo.skip()`, an alias) or more tests expected to fail (`test.fail()`) than the run before it had, or, when a test was failing, with fewer tests declared to pass (a renamed test keeps the count and is no escape), and a test a correction names (`named`) that comes back skipped or expected to fail; a skip or a `test.fail()` already in the prior bytes (`prior`: the cases and skipped tests of the run before) is not the regeneration's doing and blocks nothing. That file
+  gets its prior bytes back, or the round is rejected when it is judged whole. Only the kept files with a real passing case get a proof (the one rule above), so the bytes on
+disk are still the last that ran green, file by file, and the suite store captures only those; survivor
   closure is judged on the kept files. With none kept, or a changed file the specs import, it is accepted or
   rejected whole. The recount reads the kept files from the acceptance's dumps (a re-run's namespace is read for
   its own spec files only) and the restored files from the dumps of the bytes they were given back.

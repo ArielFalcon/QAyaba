@@ -831,8 +831,8 @@ test("a test.fail() test that was already in the prior bytes does not block the 
 test("a skipped test that was already in the prior bytes does not block the fix of another test of the file", async () => {
   const h = harness();
   const outcome = await accepting(h, {
-    prior: { cases: [test_(A, { name: "broken", status: "fail" })], skippedTests: [skippedIn(A, "legacy", "fixme")] },
-    execute: executing([test_(A, { name: "broken" })], [skippedIn(A, "legacy", "fixme")]),
+    prior: { cases: [test_(A, { name: "broken", status: "fail" })], skippedTests: [skippedIn(A, "older", "fixme")] },
+    execute: executing([test_(A, { name: "broken" })], [skippedIn(A, "older", "fixme")]),
   });
 
   assert.equal(outcome.kind, "accepted");

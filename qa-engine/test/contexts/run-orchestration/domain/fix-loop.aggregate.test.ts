@@ -648,7 +648,7 @@ test("each round's acceptance is given the run before it with the tests it skipp
     return {
       kind: "accepted",
       changedSpecFiles: ["b.spec.ts"],
-      execution: { verdict: "fail", cases: [{ name: `b${round}`, status: "fail", file: "b.spec.ts", detail: "getByRole resolved to 0 elements" }], skippedTests: [{ name: `legacy${round}`, file: "b.spec.ts" }] },
+      execution: { verdict: "fail", cases: [{ name: `b${round}`, status: "fail", file: "b.spec.ts", detail: "getByRole resolved to 0 elements" }], skippedTests: [{ name: `older${round}`, file: "b.spec.ts" }] },
       accepted: `round-${round}`,
     };
   });
@@ -661,7 +661,7 @@ test("each round's acceptance is given the run before it with the tests it skipp
   });
 
   await loop.run({
-    initialRun: { ...oneFailure(), skippedTests: [{ name: "legacy0", file: "b.spec.ts" }] },
+    initialRun: { ...oneFailure(), skippedTests: [{ name: "older0", file: "b.spec.ts" }] },
     generating: true,
     mode: "diff",
     objectiveSource: ["src/checkout.ts"],
@@ -672,8 +672,8 @@ test("each round's acceptance is given the run before it with the tests it skipp
     namespace: "qa-bot-abc",
   });
 
-  assert.deepEqual(seen[0], { cases: ["b"], skipped: ["legacy0"], named: ["b.spec.ts:b"] });
-  assert.deepEqual(seen[1], { cases: ["b1"], skipped: ["legacy1"], named: ["b.spec.ts:b1"] }, "the second round compares against what the first one reported");
+  assert.deepEqual(seen[0], { cases: ["b"], skipped: ["older0"], named: ["b.spec.ts:b"] });
+  assert.deepEqual(seen[1], { cases: ["b1"], skipped: ["older1"], named: ["b.spec.ts:b1"] }, "the second round compares against what the first one reported");
 });
 
 test("a rejected acceptance keeps the prior run and stops without executing", async () => {
