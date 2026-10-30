@@ -2,7 +2,8 @@
 import { relative } from "node:path";
 import { parseAriaSnapshotWithState } from "@contexts/generation/application/index.ts";
 import { MAX_OBSERVED_DOM_LINES, MAX_OBSERVED_LINE_CHARS, MAX_OBSERVED_REQUESTS, type ObservedPage, type ObservedRequest } from "@contexts/objective-signal/application/index.ts";
-import { PRODUCER_ADDRESS_CHARS, wholeSegmentsOfProducerCut } from "../../../shared-kernel/address-cut.ts";
+import { PRODUCER_ADDRESS_CHARS } from "../../../shared-kernel/address-cut.ts";
+import { addressOfProducerCut } from "../domain/producer-address.ts";
 import { redactByValue } from "../../../shared-kernel/run-secret-redaction.ts";
 import { sanitizeText } from "../../../shared-infrastructure/redaction/pattern-redaction.adapter.ts";
 import { readRunOutputDir, type RunOutputLimits } from "../../../shared-infrastructure/run-output-reader.ts";
@@ -34,7 +35,7 @@ function recordedRequest(raw: unknown): ObservedRequest {
   if (typeof method !== "string" || !METHOD_RE.test(method)) throw new Error("not a method");
   if (typeof url !== "string" || url.length > PRODUCER_ADDRESS_CHARS) throw new Error("not a url");
   if (typeof count !== "number" || !Number.isInteger(count) || count < 1 || count > MAX_RECORDED_COUNT) throw new Error("not a count");
-  const parsed = new URL(wholeSegmentsOfProducerCut(url, PRODUCER_ADDRESS_CHARS));
+  const parsed = new URL(addressOfProducerCut(url, PRODUCER_ADDRESS_CHARS));
   if (parsed.protocol !== "http:" && parsed.protocol !== "https:") throw new Error("not a url");
   return { method, url: clean(`${parsed.origin}${parsed.pathname}`), count };
 }

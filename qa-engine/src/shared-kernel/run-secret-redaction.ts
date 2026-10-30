@@ -32,6 +32,8 @@ export interface RunSecretScope {
   redactCounted(text: string): { text: string; count: number };
   /* The same, for a caller that has no use for the count. */
   redact(text: string): string;
+  /* Where a value of the scope begins in the tail of a text that stops short of it: the first index from which the rest of the text is the start of a value, up to one of the value's own slashes. A text cut at a path segment ends there, and a value that holds a slash can no longer be found whole in it; undefined when the tail begins no value. */
+  partialValueStart(text: string): number | undefined;
 }
 
 const store = new AsyncLocalStorage<RunSecretScope>();
@@ -60,14 +62,19 @@ export function createRunSecretScope(): RunSecretScope {
   const values = new Set<string>();
   const opaque = new Set<string>();
   let pattern: RegExp | undefined;
+  let slashed: string[] | undefined;
 
+  const changed = (): void => {
+    pattern = undefined;
+    slashed = undefined;
+  };
   const add = (candidates: ReadonlyArray<string | undefined>, minChars: number): void => {
     for (const candidate of candidates) {
       if (typeof candidate !== "string" || candidate.length < minChars || candidate.length > MAX_SECRET_VALUE_CHARS) continue;
       if (values.has(candidate)) continue;
       if (values.size >= MAX_SECRET_VALUES) return;
       values.add(candidate);
-      pattern = undefined;
+      changed();
     }
   };
   const addOpaque = (buffers: ReadonlyArray<Buffer | undefined>): void => {
@@ -77,15 +84,26 @@ export function createRunSecretScope(): RunSecretScope {
       if (opaque.has(text)) continue;
       opaque.add(text);
       for (const spelling of [text, ...encodedSpellings(buffer)]) opaque.add(spelling);
-      pattern = undefined;
+      changed();
     }
   };
+  const spelled = (): Set<string> => new Set([...[...values].flatMap(spellings), ...opaque]);
   const compiled = (): RegExp | undefined => {
     if (pattern === undefined && (values.size > 0 || opaque.size > 0)) {
-      const all = new Set([...[...values].flatMap(spellings), ...opaque]);
-      pattern = new RegExp([...all].sort((a, b) => b.length - a.length || (a < b ? -1 : 1)).map(escapeRegExp).join("|"), "g");
+      pattern = new RegExp([...spelled()].sort((a, b) => b.length - a.length || (a < b ? -1 : 1)).map(escapeRegExp).join("|"), "g");
     }
     return pattern;
+  };
+  const partialValueStart = (text: string): number | undefined => {
+    slashed ??= [...spelled()].filter((spelling) => spelling.includes("/"));
+    let start: number | undefined;
+    for (const spelling of slashed) {
+      for (let slash = spelling.indexOf("/"); slash !== -1 && slash <= text.length; slash = spelling.indexOf("/", slash + 1)) {
+        const at = text.length - slash;
+        if (slash > 0 && (start === undefined || at < start) && text.endsWith(spelling.slice(0, slash))) start = at;
+      }
+    }
+    return start;
   };
 
   const redactCounted = (text: string): { text: string; count: number } => {
@@ -105,6 +123,7 @@ export function createRunSecretScope(): RunSecretScope {
     addOpaqueBytes: addOpaque,
     redactCounted,
     redact: (text) => redactCounted(text).text,
+    partialValueStart,
   };
 }
 
@@ -121,6 +140,11 @@ export function activeRunSecretScope(): RunSecretScope | undefined {
 /* The text with the secrets of the run it belongs to replaced; unchanged outside a run. */
 export function redactByValue(text: string): string {
   return store.getStore()?.redact(text) ?? text;
+}
+
+/* Where a value of the run this call is part of begins in the tail of a text cut short of it (see `RunSecretScope.partialValueStart`); undefined outside a run. */
+export function partialSecretStartByValue(text: string): number | undefined {
+  return store.getStore()?.partialValueStart(text);
 }
 
 /* The same, with the number of replacements, for the text seam that reports what it redacted. */

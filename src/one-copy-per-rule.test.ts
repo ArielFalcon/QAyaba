@@ -58,3 +58,7 @@ test("the bounds a sandboxed producer's addresses and project names are read wit
   assert.deepEqual(filesMatching(/\bPRODUCER_ADDRESS_CHARS\s*=\s*\d/), ["qa-engine/src/shared-kernel/address-cut.ts"]);
   assert.deepEqual(filesMatching(/\bMAX_PROJECT_NAME_CHARS\s*=\s*\d/), ["qa-engine/src/contexts/test-execution/domain/dev-write-request.ts"]);
 });
+
+test("a producer's cut address is read through one function, which also drops what begins a run secret", () => {
+  assert.deepEqual(filesMatching(/\bwholeSegmentsOfProducerCut\(/), ["qa-engine/src/contexts/test-execution/domain/producer-address.ts", "qa-engine/src/shared-kernel/address-cut.ts"]);
+});

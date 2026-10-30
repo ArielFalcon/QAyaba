@@ -7,7 +7,8 @@ import { tmpdir } from "node:os";
 import { dirname, join, relative } from "node:path";
 import type { QaCase, CaseStatus, FailureSettle, FailureAttemptEvidence } from "@kernel/qa-case.ts";
 import type { RunVerdict } from "@kernel/run-verdict.ts";
-import { PRODUCER_ADDRESS_CHARS, wholeSegmentsOfProducerCut } from "@kernel/address-cut.ts";
+import { PRODUCER_ADDRESS_CHARS } from "@kernel/address-cut.ts";
+import { addressOfProducerCut } from "../domain/producer-address.ts";
 import { redactByValue } from "../../../shared-kernel/run-secret-redaction.ts";
 import { sanitizeText } from "../../../shared-infrastructure/redaction/pattern-redaction.adapter.ts";
 import { parseAriaSnapshot } from "@contexts/generation/application/index.ts";
@@ -486,7 +487,7 @@ function ledgerRequest(raw: unknown): { method: string; url: string } {
   const { method, url } = (raw ?? {}) as { method?: unknown; url?: unknown };
   if (typeof method !== "string" || !WRITE_METHOD_RE.test(method)) throw new Error("not a write");
   if (typeof url !== "string" || url.length > PRODUCER_ADDRESS_CHARS) throw new Error("not a url");
-  const parsed = new URL(wholeSegmentsOfProducerCut(url, PRODUCER_ADDRESS_CHARS));
+  const parsed = new URL(addressOfProducerCut(url, PRODUCER_ADDRESS_CHARS));
   if (parsed.protocol !== "http:" && parsed.protocol !== "https:") throw new Error("not a url");
   return { method, url: sanitizeText(`${parsed.origin}${parsed.pathname}`).text };
 }

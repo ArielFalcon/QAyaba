@@ -7,6 +7,7 @@
  */
 
 import { cutAddress } from "./address-cut.ts";
+import { redactByValue } from "./run-secret-redaction.ts";
 
 /* A request the page made, as method + origin + pathname (no query, fragment, body, headers, cookies or userinfo), with how many times. */
 export interface ObservedRequest {
@@ -35,10 +36,12 @@ export const MAX_LOGGED_PATH_CHARS = 500;
 export const MAX_LOGGED_TOTAL_CHARS = 24_000;
 const CUT_MARK = "…[cut]";
 
-/* An address or host past the bound is cut and says so, an address at a path segment (`cutAddress`), so the answer, redacted later, never holds part of a secret the cut split; cutting a cut one changes nothing (a parsed address never holds the mark's `…`, which a URL encodes). */
+/* An address or host past the bound is redacted by value, so no run secret is split by the cut, and then cut and says so, an address at a path segment (`cutAddress`), so the answer, redacted later, never holds part of a pattern secret the cut split; cutting a cut one changes nothing (a parsed address never holds the mark's `…`, which a URL encodes). */
 export function boundedAddress(text: string): string {
   if (text.endsWith(CUT_MARK) && text.length <= MAX_LOGGED_PATH_CHARS + CUT_MARK.length) return text;
-  return text.length <= MAX_LOGGED_PATH_CHARS ? text : `${cutAddress(text, MAX_LOGGED_PATH_CHARS)}${CUT_MARK}`;
+  if (text.length <= MAX_LOGGED_PATH_CHARS) return text;
+  const redacted = redactByValue(text);
+  return redacted.length <= MAX_LOGGED_PATH_CHARS ? redacted : `${cutAddress(redacted, MAX_LOGGED_PATH_CHARS)}${CUT_MARK}`;
 }
 
 /* The address a request is kept by: its origin and pathname, or undefined when it is no URL. */
