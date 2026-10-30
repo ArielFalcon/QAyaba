@@ -89,3 +89,40 @@ export function modeRefusals(files: readonly string[], prior: ReportedTests, now
   }
   return refusals;
 }
+
+export interface RefusedTests {
+  /* The report's cases without the tests marked to fail it refused. */
+  cases: QaCase[];
+  /* The report's skipped tests without the ones it refused. */
+  skippedTests: SkippedTest[];
+  /* One failing case per refused test, named as the test is, declared `not-run`: what the author is told and what the fix loop repairs. */
+  refused: QaCase[];
+}
+
+const skipMessage = (t: SkippedTest): string =>
+  `"${t.name}" is skipped${t.annotation ? ` (test.${t.annotation})` : ""}: a skipped test is not a pass and proves nothing, whatever the app's own lint says. Make it run and pass, or remove it.`;
+const expectedFailureMessage = (name: string): string =>
+  `"${name}" is marked test.fail(): a test expected to fail is not a pass of the behavior it names, whatever the app's own lint says. Fix the behavior it checks, or remove the test.`;
+
+/*
+ * The engine's rule where there is no earlier run to compare with (the first pass over the files a run delivered, and a single spec
+ * run through `run_spec`): every skipped test and every test marked `test.fail()` in `files` is refused, so none of them is a pass, whatever
+ * the app's own lint says. They leave the report and come back as failing cases the author can read and the fix loop can repair; the tests
+ * that remain are the baseline a later round is compared with, and a round that keeps a refused test has added one. `files` absent: every test
+ * of the report is judged (a run of one spec file).
+ */
+export function refuseOutright(reported: ReportedTests, files?: readonly string[]): RefusedTests {
+  const judged = (file: string | undefined): boolean => files === undefined || files.some((f) => sameFile(f, file));
+  const refused: QaCase[] = [];
+  const cases: QaCase[] = [];
+  for (const c of reported.cases) {
+    if (c.expectedStatus === "failed" && judged(c.file)) refused.push({ name: c.name, status: "fail", expectedStatus: "not-run", detail: expectedFailureMessage(c.name), ...(c.file !== undefined ? { file: c.file } : {}) });
+    else cases.push(c);
+  }
+  const skippedTests: SkippedTest[] = [];
+  for (const t of reported.skippedTests ?? []) {
+    if (judged(t.file)) refused.push({ name: t.name, status: "fail", expectedStatus: "not-run", detail: skipMessage(t), ...(t.file !== undefined ? { file: t.file } : {}) });
+    else skippedTests.push(t);
+  }
+  return { cases, skippedTests, refused };
+}

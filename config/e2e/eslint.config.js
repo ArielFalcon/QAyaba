@@ -29,8 +29,9 @@ export default tseslint.config(
       "playwright/no-conditional-expect": "error",
       // A skipped test proves nothing and is not a case: skipping the test a correction was asked to fix would turn
       // the round green with nothing run. A state DEV cannot be brought to is the lead's to drop, with its basis.
-      // `test.fixme` skips the same way. This is an early hint: the engine's acceptance refuses a test that ran before
-      // and is now skipped or expected to fail whatever form did it (an alias, `testInfo.skip()`, `test.fail()`).
+      // `test.fixme` skips the same way. This is an early hint for projects bootstrapped from this seed, nothing more:
+      // the engine refuses a skipped test and a test marked `test.fail()` in the files a run delivers or changes, from
+      // the report and on every pass, for any project, whatever form did it (an alias, `testInfo.skip()`, `test.fail()`).
       "playwright/no-skipped-test": ["error", { allowConditional: false, disallowFixme: true }],
     },
   },

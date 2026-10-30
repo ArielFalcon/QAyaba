@@ -63,8 +63,24 @@ test("a delivered spec file whose only test is marked test.fail() is not proven:
   assert.equal(r.stored, false);
 });
 
-test("a delivered spec file with a real passing case beside a test.fail() one is proven by the passing case", async () => {
+/* The engine is the one authority on a skipped or expected-to-fail test in the files a run delivers, whatever the app's own lint: such a test is not a pass, so the run does not pass on it. */
+test("a delivered spec file that skips a test beside a passing one does not pass: the skip is the engine's to refuse, not the app's lint", async () => {
+  const r = await firstPass({ cases: [caseOf("flows/b.spec.ts")], skippedTests: [{ name: "flows/b.spec.ts › needs data", file: "flows/b.spec.ts", annotation: "fixme" }] });
+
+  assert.equal(r.verdict, "fail");
+  assert.notEqual(r.sideEffect, "pr");
+});
+
+test("a delivered spec file that marks a test test.fail() beside a passing one does not pass", async () => {
   const r = await firstPass({ cases: [caseOf("flows/b.spec.ts"), caseOf("flows/b.spec.ts", { expectedStatus: "failed", name: "flows/b.spec.ts › known bug" })] });
 
-  assert.equal(r.stored, true);
+  assert.equal(r.verdict, "fail");
+  assert.notEqual(r.sideEffect, "pr");
+});
+
+test("a skipped test in a file the run did not deliver (the seed's own cleanup pass) does not touch the verdict", async () => {
+  const r = await firstPass({ cases: [caseOf("flows/b.spec.ts")], skippedTests: [{ name: "cleanup.spec.ts › removes orphaned data", file: "cleanup.spec.ts", annotation: "skip" }] });
+
+  assert.equal(r.verdict, "pass");
+  assert.equal(r.sideEffect, "pr");
 });

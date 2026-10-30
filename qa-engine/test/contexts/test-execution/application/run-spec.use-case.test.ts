@@ -730,3 +730,34 @@ test("a call with no grep and no load error keeps the note it always had", async
   assert.ok(response.ok);
   assert.equal(response.report.note, "no test ran: check the path and the grep");
 });
+
+/* The engine is the one authority on skipped and expected-to-fail tests, for every app: run_spec says "passed" only for bytes with a real passing case and no test that does not stand as a pass, and tells the author which. */
+test("a spec whose only test is skipped is not passed: the author is told which test did not run", async (t) => {
+  const h = harness(t);
+  h.next.result = { verdict: "pass", cases: [], skippedTests: [{ name: "flows/a.spec.ts › needs data", file: "flows/a.spec.ts", annotation: "fixme" }], logs: "RAW" };
+  const response = await call(h, "flows/a.spec.ts");
+  assert.ok(response.ok);
+  assert.equal(response.report.status, "failed");
+  assert.equal(response.report.passedTests, 0);
+  assert.match(response.report.tests.map((x) => `${x.title}: ${x.error?.message}`).join("\n"), /needs data: .*skipped/);
+});
+
+test("a spec with a passing test and a test marked test.fail() is not passed: the expected failure is named", async (t) => {
+  const h = harness(t);
+  h.next.result = { verdict: "pass", cases: [{ name: "flows/a.spec.ts › loads", status: "pass", expectedStatus: "passed" }, { name: "flows/a.spec.ts › known bug", status: "pass", expectedStatus: "failed" }], logs: "" };
+  const response = await call(h, "flows/a.spec.ts");
+  assert.ok(response.ok);
+  assert.equal(response.report.status, "failed");
+  assert.equal(response.report.passedTests, 1, "the test that really passed is still counted");
+  assert.match(response.report.tests.map((x) => `${x.title}: ${x.error?.message}`).join("\n"), /known bug: .*test\.fail\(\)/);
+});
+
+test("a spec whose only test is marked test.fail() has no real pass and is never recorded as passed", async (t) => {
+  const h = harness(t);
+  h.next.result = { verdict: "pass", cases: [{ name: "flows/a.spec.ts › known bug", status: "pass", expectedStatus: "failed" }], logs: "" };
+  const response = await call(h, "flows/a.spec.ts");
+  assert.ok(response.ok);
+  assert.notEqual(response.report.status, "passed");
+  assert.equal(response.report.passedTests, 0);
+  assert.equal(h.capability.ledger.at(-1)?.status, "failed", "the ledger the closed loop's proof reads says the same");
+});

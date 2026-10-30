@@ -1,5 +1,5 @@
 import type { RunVerdict } from "@kernel/run-verdict.ts";
-import type { QaCase } from "@kernel/qa-case.ts";
+import type { QaCase, SkippedTest } from "@kernel/qa-case.ts";
 import type { DevWriteRequest } from "./dev-write-request.ts";
 import type { SpecLoadError } from "./spec-load-error.ts";
 
@@ -16,6 +16,8 @@ export interface SpecExecutionRequest {
 export interface SpecExecutionResult {
   verdict: RunVerdict;
   cases: readonly QaCase[];
+  /* The tests the report says were skipped: no case, but the engine refuses them (see `refuseOutright`). Absent: none. */
+  skippedTests?: readonly SkippedTest[];
   /* Stays inside the executor's boundary: the use case never forwards it. */
   logs: string;
   /* Mutating requests to DEV the executed spec is charged: those the fixtures counted that the control load does not account for. Absent: nothing could be counted. */

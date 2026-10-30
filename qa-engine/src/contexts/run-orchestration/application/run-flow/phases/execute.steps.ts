@@ -4,6 +4,7 @@ import { engineLog } from "@kernel/ports/process-logger.ts";
 import { CORRECTION_ORIGIN } from "@contexts/coordination/application/index.ts";
 import { stripAnsi } from "@kernel/ansi.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
+import { refuseOutright } from "@kernel/case-proof.ts";
 import { MAX_STATIC_FIX_ROUNDS } from "../../../../../shared-kernel/derive-cycle-backstop.ts";
 import { staticFixAction } from "../../../domain/static-fix.ts";
 import type { ExecutionPort, ValidationPort } from "@contexts/test-execution/application/index.ts";
@@ -213,9 +214,16 @@ export async function announceExecution(_state: Readonly<RunState>, ctx: Workspa
 /* The primary pass. A successful context generation is an immediate pass with zero cases. */
 export async function executeSpecs(state: Readonly<RunState>, ctx: WorkspaceRunContext): Result {
   const { deps, input, workspace, services } = ctx;
-  const run = input.mode === "context"
+  const reported = input.mode === "context"
     ? { verdict: "pass" as const, cases: [] as QaCase[], logs: state.generation.generated.note ?? "" }
     : await deps.execution.execute(workspace.specDir, liveExecutionOptions(ctx));
+  /* The engine is the one authority on a skipped test and a test marked to fail in the files this run delivered, whatever the app's own lint: they are not a pass, so the run fails on them and the fix loop is told which they are. */
+  const judged = refuseOutright(reported, state.generation.delivered.map((d) => d.file).filter((file) => file.endsWith(".spec.ts")));
+  const run =
+    judged.refused.length === 0
+      ? reported
+      : { ...reported, verdict: reported.verdict === "pass" || reported.verdict === "flaky" ? ("fail" as const) : reported.verdict, cases: [...judged.cases, ...judged.refused], skippedTests: judged.skippedTests };
+  if (judged.refused.length > 0) deps.observer?.onEvent({ type: "log.line", level: "info", text: `[qa] ${judged.refused.length} skipped or test.fail() test(s) in the delivered specs are not a pass and are handed to the fix loop as failures` });
   /* The primary pass just ran: its bytes fix the contract every later regeneration is measured against (A5). */
   await services.primeIntentBaseline();
   return { update: { execution: withRun(state.execution, run) } };
