@@ -10,7 +10,7 @@
    Every spec is listed, the ones a signal names and the ones only the fallback adds, however many a run delivered. A prompt over its role's window gives the entries to leave alone up as the directories they are in, then the unnamed editable ones (the line that says every delivered spec is editable stays), never the ones a signal names (suite-listing-render.ts). */
 import type { QaCase } from "@kernel/qa-case.ts";
 import { upsertDeliveredSpec, type DeliveredSpec } from "@kernel/delivered-spec.ts";
-import { normalizeSpecPath } from "@kernel/spec-path.ts";
+import { normalizeSpecPath, sameSpecPathByTail } from "@kernel/spec-path.ts";
 import { formatSuiteEntry, suiteEntryFile } from "./suite-entry.ts";
 
 /*
@@ -85,11 +85,6 @@ function pathTokens(text: string): string[] {
   return Array.from(text.matchAll(/[A-Za-z0-9._@/\\-]+/g), ([run]) => normalizeSpecPath(run.replace(/\.+$/, "")));
 }
 
-/* A path names an entry when it is its path, or one of the two ends at a folder boundary of the other: a name alone names every entry with that name, and a path with folders above the suite's names the entry under them. */
-function names(token: string, file: string): boolean {
-  return token === file || file.endsWith(`/${token}`) || token.endsWith(`/${file}`);
-}
-
 export function buildSuiteListing(input: SuiteListingInput, options: ListingOptions): SuiteListing {
   const { sanitize } = options;
   const corrections = input.reviewCorrections ?? [];
@@ -115,7 +110,7 @@ export function buildSuiteListing(input: SuiteListingInput, options: ListingOpti
 
   /* What the turn's signals are matched against: the specs listed so far, so that a file appended below is never what a later one matches. */
   const listed = [...known];
-  const namedBy = (token: string): string[] => listed.filter(([file]) => names(token, file)).map(([file]) => file);
+  const namedBy = (token: string): string[] => listed.filter(([file]) => sameSpecPathByTail(token, file)).map(([file]) => file);
   /* The specs a text names. */
   const namedIn = (text: string): string[] => pathTokens(text).flatMap(namedBy);
   /* The specs a signal of the turn names. */

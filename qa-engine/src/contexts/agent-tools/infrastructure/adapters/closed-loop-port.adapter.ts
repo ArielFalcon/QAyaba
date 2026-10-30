@@ -22,7 +22,7 @@ import { AccountLock } from "@contexts/test-execution/application/index.ts";
 import { PROBE_REL_DIR, RUN_SPEC_FLOW_AGENT, RunDevWriteLedger, RunSpecCapability, loopClosed } from "@contexts/test-execution/application/index.ts";
 import { RunSpecUseCase, type RunSpecRequest, type RunSpecResponse } from "@contexts/test-execution/application/index.ts";
 import type { SpecCleanupPort, SpecExecutorPort } from "@contexts/test-execution/application/index.ts";
-import { normalizeSpecPath } from "@kernel/spec-path.ts";
+import { normalizeSpecPath, sameSpecPath } from "@kernel/spec-path.ts";
 import type { AuthSessionContext, AuthSessionPort } from "@contexts/app-catalog/application/index.ts";
 import type { ClosedLoopCleanupPort } from "../../application/ports/closed-loop-cleanup.port.ts";
 import type { ClosedLoopExecutionPort } from "../../application/ports/closed-loop-execution.port.ts";
@@ -214,7 +214,7 @@ export class ClosedLoopPortAdapter implements ClosedLoopPort {
       ...(session ? { session } : {}),
       ...(this.deps.deadline ? { deadline: this.deps.deadline } : {}),
       redact: this.deps.redact,
-      allowPath: (rel) => normalizeSpecPath(rel) === only,
+      allowPath: (rel) => sameSpecPath(rel, flow.specFile),
       allowedDescription: `${this.deps.specRelDir}/${only}`,
       ...(input.signal ? { signal: input.signal } : {}),
       ...(this.deps.now ? { now: this.deps.now } : {}),

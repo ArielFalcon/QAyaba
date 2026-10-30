@@ -8,7 +8,7 @@
 import { LanguageRegistry, type LanguageId } from "./language-id.ts";
 import { classifyPath, type FileClass } from "./file-classes.ts";
 import { sectionPath, sectionStat } from "./diff-hunks.ts";
-import { normalizeSpecPath } from "./spec-path.ts";
+import { sameSpecPath } from "./spec-path.ts";
 import type { ChangedSymbol } from "./change-reach.ts";
 import type { UseCaseCandidate } from "./use-case-candidate.ts";
 
@@ -30,13 +30,10 @@ export function candidateSeeds(candidate: SeededCandidate): ChangedSymbol[] {
   return [...candidate.seeds, ...(candidate.sharedSeeds ?? [])];
 }
 
-/* Whether two repository-relative paths name one file: equality of their canonical form, never a suffix, so a same-named file under another package of a monorepo is another file. */
-const sameFile = (a: string, b: string): boolean => normalizeSpecPath(a) === normalizeSpecPath(b);
-
 /* How `file` seeds the candidate: `direct` when one of its seeds is in the file, `shared` when only a shared seed is, undefined when none is. */
 export function seedingOf(file: string, candidate: SeededCandidate): Seeding | undefined {
-  if (candidate.seeds.some((seed) => sameFile(seed.file, file))) return "direct";
-  return (candidate.sharedSeeds ?? []).some((seed) => sameFile(seed.file, file)) ? "shared" : undefined;
+  if (candidate.seeds.some((seed) => sameSpecPath(seed.file, file))) return "direct";
+  return (candidate.sharedSeeds ?? []).some((seed) => sameSpecPath(seed.file, file)) ? "shared" : undefined;
 }
 
 /* The candidates `file` seeds: those it seeds directly first, then those it seeds only as shared code, each in the order given. */

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { normalizeSpecPath, resolveCitedSpec, resolveSpecReference, specRelDirOf } from "@kernel/spec-path.ts";
+import { endsWithSpecPath, normalizeSpecPath, resolveCitedSpec, resolveSpecReference, sameSpecPath, sameSpecPathByTail, specRelDirOf } from "@kernel/spec-path.ts";
 
 test("a spec named inside prose resolves whatever characters its name holds, and stops at whitespace, a clause marker or a quote", () => {
   assert.equal(resolveCitedSpec("see e2e/flows/café-ñame.spec.ts#clause-1", "e2e"), "flows/café-ñame.spec.ts");
@@ -102,4 +102,27 @@ test("a reference that is absolute, climbs, is hidden or is no spec file resolve
 test("the spec directory of a run is where its specs sit under the mirror", () => {
   assert.equal(specRelDirOf({ mirrorDir: "/m/app", specDir: "/m/app/tests/e2e" }), "tests/e2e");
   assert.equal(specRelDirOf({ mirrorDir: "/m/app", specDir: "/m/app" }), "");
+});
+
+test("two spellings of a path are one file exactly when their canonical forms are equal, and an absent path is no file", () => {
+  assert.equal(sameSpecPath("./flows//x.spec.ts", "flows\\x.spec.ts"), true);
+  assert.equal(sameSpecPath("flows/x.spec.ts", "e2e/flows/x.spec.ts"), false);
+  assert.equal(sameSpecPath("pkg-a/src/x.ts", "pkg-b/src/x.ts"), false);
+  assert.equal(sameSpecPath(undefined, "flows/x.spec.ts"), false);
+  assert.equal(sameSpecPath(undefined, undefined), false);
+});
+
+test("a path ends a spec at a directory boundary and never inside a name", () => {
+  assert.equal(endsWithSpecPath("e2e/flows/x.spec.ts", "flows/x.spec.ts"), true);
+  assert.equal(endsWithSpecPath("flows/x.spec.ts", "flows/x.spec.ts"), true);
+  assert.equal(endsWithSpecPath("flows/x.spec.ts", "e2e/flows/x.spec.ts"), false);
+  assert.equal(endsWithSpecPath("flows/boxx.spec.ts", "x.spec.ts"), false);
+});
+
+test("two specs named from different roots are one file when either is the other's tail", () => {
+  assert.equal(sameSpecPathByTail("e2e/flows/x.spec.ts", "flows/x.spec.ts"), true);
+  assert.equal(sameSpecPathByTail("flows/x.spec.ts", "e2e/flows/x.spec.ts"), true);
+  assert.equal(sameSpecPathByTail("./flows/x.spec.ts", "e2e\\flows\\x.spec.ts"), true);
+  assert.equal(sameSpecPathByTail("flows/ax.spec.ts", "x.spec.ts"), false);
+  assert.equal(sameSpecPathByTail("flows/x.spec.ts", "flows/y.spec.ts"), false);
 });

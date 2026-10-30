@@ -8,7 +8,7 @@
  */
 import type { EntryPoint } from "@kernel/change-reach.ts";
 import { entryKey } from "@kernel/change-reach.ts";
-import { sameSpecFile } from "./spec-match.ts";
+import { sameSpecPathByTail } from "@kernel/spec-path.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 
 export type CausalReach = "in-reach" | "out-of-reach" | "unknown";
@@ -122,7 +122,7 @@ function byPage(c: CausalInput["cases"][number], input: CausalInput): Found {
 
 function byFlow(c: CausalInput["cases"][number], input: CausalInput): Found {
   if (c.file === undefined) return NONE;
-  const flow = input.flows.find((f) => f.candidates.length > 0 && sameSpecFile(f.specFile, c.file!));
+  const flow = input.flows.find((f) => f.candidates.length > 0 && sameSpecPathByTail(f.specFile, c.file!));
   return flow ? { reach: "in-reach", basis: "flow", via: [...flow.candidates] } : NONE;
 }
 

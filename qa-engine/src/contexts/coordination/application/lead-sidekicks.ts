@@ -10,6 +10,7 @@
  */
 
 import type { DeadlinePurpose } from "@kernel/deadline-purpose.ts";
+import { endsWithSpecPath } from "@kernel/spec-path.ts";
 import { heldTo, type HeldTime } from "@kernel/allotment-cap.ts";
 import type { TimeLimitSource } from "@kernel/turn-limit.ts";
 import { LOG_EFFECT, levelOfEffect } from "@kernel/ports/logger.port.ts";
@@ -1202,7 +1203,7 @@ export class LeadSidekicks {
         skip(spec, "the spec is not readable in the working copy");
         continue;
       }
-      const owners = (input.candidates ?? []).filter((c) => c.existingSpecs.some((file) => file === spec || file.endsWith(`/${spec}`)));
+      const owners = (input.candidates ?? []).filter((c) => c.existingSpecs.some((file) => endsWithSpecPath(file, spec)));
       const flow = maintenanceFlowOf({
         id: maintenanceFlowId(spec, new Set(pool.map((f) => f.id))),
         specFile: spec,

@@ -7,6 +7,23 @@ export function normalizeSpecPath(path: string): string {
   return (slashed.startsWith("/") ? "/" : "") + segments.join("/");
 }
 
+/* Whether two spellings name one file: their canonical forms are equal, never a suffix, so a file and a same-named file under another folder of a monorepo are two files. A path that is absent names no file. */
+export function sameSpecPath(a: string | undefined, b: string | undefined): boolean {
+  return a !== undefined && b !== undefined && normalizeSpecPath(a) === normalizeSpecPath(b);
+}
+
+/* Whether `path` is `spec` or a longer path that ends with it at a directory boundary, never inside a name. */
+export function endsWithSpecPath(path: string, spec: string): boolean {
+  const longer = normalizeSpecPath(path);
+  const tail = normalizeSpecPath(spec);
+  return longer === tail || longer.endsWith(`/${tail}`);
+}
+
+/* Whether two specs are one file when the directory the suite sits in is not at hand (a stored record names a spec from the repository root, a report from the test directory): either path ends with the other at a directory boundary. */
+export function sameSpecPathByTail(a: string, b: string): boolean {
+  return endsWithSpecPath(a, b) || endsWithSpecPath(b, a);
+}
+
 /* Where a run's spec directory sits under its mirror, in canonical form (empty when the suite sits at the mirror's root): the prefix agents spell in front of a spec path. */
 export function specRelDirOf(root: { readonly mirrorDir: string; readonly specDir: string }): string {
   return normalizeSpecPath(relative(root.mirrorDir, root.specDir));

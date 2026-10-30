@@ -36,3 +36,11 @@ test("the run modes and the run steps are listed once, in the kernel", () => {
   assert.deepEqual(filesMatching(/\[\s*"diff",\s*"manual",\s*"context"\s*\]/), ["qa-engine/src/shared-kernel/run-mode.ts"]);
   assert.deepEqual(filesMatching(/"gate",\s*"classify",\s*"setup",\s*"generate",\s*"validate"/), ["qa-engine/src/shared-kernel/run-step.ts"]);
 });
+
+test("a spec path is compared in one place, the kernel's spec-path module", () => {
+  const owner = "qa-engine/src/shared-kernel/spec-path.ts";
+  const strictCopies = filesMatching(/normalizeSpecPath\([^()]*\)\s*===\s*normalizeSpecPath\(|const sameSpec\b|const sameFile = \(a: string \| undefined|export function sameFile\b/);
+  assert.deepEqual(strictCopies.filter((path) => path !== owner), []);
+  const tailCopies = filesMatching(/===\s*[\w.]+\s*\|\|\s*[\w.]+\.endsWith\(`\/\$\{[\w.]+\}`\)\s*\|\|\s*[\w.]+\.endsWith\(`\/\$\{[\w.]+\}`\)/);
+  assert.deepEqual(tailCopies.filter((path) => path !== owner), []);
+});

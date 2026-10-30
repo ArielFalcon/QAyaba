@@ -23,7 +23,7 @@
  */
 import type { RunVerdict } from "@kernel/run-verdict.ts";
 import type { QaCase, SkippedTest } from "@kernel/qa-case.ts";
-import { normalizeSpecPath } from "@kernel/spec-path.ts";
+import { sameSpecPath } from "@kernel/spec-path.ts";
 import { hasProof, modeRefusals, type NamedTest, type ReportedTests } from "@kernel/case-proof.ts";
 import { AllotmentSpentError, RunDeadlineExceededError } from "@kernel/run-deadline.ts";
 import { MAX_ACCEPTANCE_EXECUTIONS } from "../../../shared-kernel/derive-cycle-backstop.ts";
@@ -184,8 +184,8 @@ export class RegenerationAcceptance {
         await this.deps.snapshot.restore(input.specDir, { files: back }, created.filter((file) => split.restored.includes(file)));
         ({ kept, restored } = split);
         executedSpecs = kept;
-        const keptCases = result.cases.filter((c) => c.file !== undefined && kept.some((file) => sameSpec(file, c.file!)));
-        const keptSkipped = (result.skippedTests ?? []).filter((t) => t.file !== undefined && kept.some((file) => sameSpec(file, t.file!)));
+        const keptCases = result.cases.filter((c) => c.file !== undefined && kept.some((file) => sameSpecPath(file, c.file!)));
+        const keptSkipped = (result.skippedTests ?? []).filter((t) => t.file !== undefined && kept.some((file) => sameSpecPath(file, t.file!)));
         execution = { verdict: failed ? "pass" : result.verdict, cases: keptCases, skippedTests: keptSkipped, logs: result.logs };
       }
     }
@@ -231,14 +231,12 @@ export class RegenerationAcceptance {
   }
 }
 
-const sameSpec = (a: string, b: string): boolean => normalizeSpecPath(a) === normalizeSpecPath(b);
-
 /* What an execution reported of its files: the cases that ran and the tests it says were skipped. */
 type ReportedFiles = ReportedTests;
 
 /* Whether the execution reported anything of `file`: a case, or a skipped test (a spec whose tests all skipped loaded and ran nothing). A file it reports nothing of did not load. */
 const reports = (file: string, { cases, skippedTests }: ReportedFiles): boolean =>
-  cases.some((c) => c.file !== undefined && sameSpec(file, c.file)) || (skippedTests ?? []).some((s) => s.file !== undefined && sameSpec(file, s.file));
+  cases.some((c) => c.file !== undefined && sameSpecPath(file, c.file)) || (skippedTests ?? []).some((s) => s.file !== undefined && sameSpecPath(file, s.file));
 
 /*
  * The changed spec files a failing execution leaves standing: those the execution reported, none of whose cases failed. Undefined when
@@ -248,9 +246,9 @@ const reports = (file: string, { cases, skippedTests }: ReportedFiles): boolean 
 function greenSpecFiles(changed: readonly string[], result: ReportedFiles, unproven: readonly string[] = []): { kept: string[]; restored: string[] } | undefined {
   const { cases } = result;
   const failing = cases.filter((c) => c.status !== "pass");
-  if (failing.length === 0 || failing.some((c) => c.file === undefined || !changed.some((file) => sameSpec(file, c.file!)))) return undefined;
+  if (failing.length === 0 || failing.some((c) => c.file === undefined || !changed.some((file) => sameSpecPath(file, c.file!)))) return undefined;
   const green = (file: string): boolean => {
-    return !unproven.includes(file) && reports(file, result) && cases.filter((c) => c.file !== undefined && sameSpec(file, c.file)).every((c) => c.status === "pass");
+    return !unproven.includes(file) && reports(file, result) && cases.filter((c) => c.file !== undefined && sameSpecPath(file, c.file)).every((c) => c.status === "pass");
   };
   const kept = changed.filter(green);
   if (kept.length === 0) return undefined;

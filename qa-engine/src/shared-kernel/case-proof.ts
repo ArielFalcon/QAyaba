@@ -6,7 +6,7 @@
  */
 import type { QaCase, SkippedTest } from "./qa-case.ts";
 import type { RunVerdict } from "./run-verdict.ts";
-import { normalizeSpecPath } from "./spec-path.ts";
+import { sameSpecPath } from "./spec-path.ts";
 
 /* What an execution reported of its tests: the cases that ran and the tests it says were skipped. */
 export interface ReportedTests {
@@ -17,13 +17,11 @@ export interface ReportedTests {
 /* A case that executed, was declared to pass and passed. A case recorded without a declared status is a stored case from before the declaration was kept: it states no `test.fail()` or skip, and is read as a test that was declared to pass. */
 export const isRealPass = (c: QaCase): boolean => c.status === "pass" && c.refused !== true && c.expectedStatus !== "failed" && c.expectedStatus !== "skipped";
 
-export const sameFile = (a: string | undefined, b: string | undefined): boolean => a !== undefined && b !== undefined && normalizeSpecPath(a) === normalizeSpecPath(b);
-
 /*
  * Whether `file`'s bytes ran with at least one real passing case of their own. A case names the file it belongs to (every report does,
  * suite-relative), and a case that names none proves no file: no pass stands for a file by being the only one the run reported.
  */
-export const hasProof = (file: string, cases: readonly QaCase[]): boolean => cases.some((c) => sameFile(c.file, file) && isRealPass(c));
+export const hasProof = (file: string, cases: readonly QaCase[]): boolean => cases.some((c) => sameSpecPath(c.file, file) && isRealPass(c));
 
 /* Whether any case of the execution is a real pass: what a single spec's run must show before it says "passed". */
 export const hasRealPass = (cases: readonly QaCase[]): boolean => cases.some(isRealPass);
@@ -39,14 +37,14 @@ export interface ModeTally {
 export function tallyOf(file: string, reported: ReportedTests): ModeTally {
   const tally: ModeTally = { ran: 0, passing: 0, expectedFailures: 0, skipped: 0 };
   for (const c of reported.cases) {
-    if (!sameFile(c.file, file) || c.refused === true) continue;
+    if (!sameSpecPath(c.file, file) || c.refused === true) continue;
     if (c.expectedStatus === "failed") tally.expectedFailures += 1;
     else {
       tally.ran += 1;
       if (c.status === "pass") tally.passing += 1;
     }
   }
-  tally.skipped = (reported.skippedTests ?? []).filter((t) => sameFile(t.file, file)).length;
+  tally.skipped = (reported.skippedTests ?? []).filter((t) => sameSpecPath(t.file, file)).length;
   return tally;
 }
 
@@ -80,9 +78,9 @@ export function modeRefusals(files: readonly string[], prior: ReportedTests, now
     if (after.skipped > before.skipped) refusals.push({ file, why: times(after.skipped - before.skipped, "skipped test(s)") });
     const reported = after.ran + after.expectedFailures + after.skipped > 0;
     if (reported && before.passing < before.ran && after.ran < before.ran) refusals.push({ file, why: "a test that was failing is gone from the file rather than fixed" });
-    for (const test of named.filter((t) => sameFile(t.file, file))) {
-      const skipped = (now.skippedTests ?? []).some((t) => sameFile(t.file, file) && t.name === test.name);
-      const expectedToFail = now.cases.some((c) => sameFile(c.file, file) && c.name === test.name && c.expectedStatus === "failed");
+    for (const test of named.filter((t) => sameSpecPath(t.file, file))) {
+      const skipped = (now.skippedTests ?? []).some((t) => sameSpecPath(t.file, file) && t.name === test.name);
+      const expectedToFail = now.cases.some((c) => sameSpecPath(c.file, file) && c.name === test.name && c.expectedStatus === "failed");
       if (skipped || expectedToFail) refusals.push({ file, why: `the test a correction named is ${skipped ? "skipped" : "expected to fail (test.fail())"}` });
     }
   }
@@ -111,7 +109,7 @@ const expectedFailureMessage = (name: string): string =>
  * of the report is judged (a run of one spec file).
  */
 export function refuseOutright(reported: ReportedTests, files?: readonly string[]): RefusedTests {
-  const judged = (file: string | undefined): boolean => files === undefined || files.some((f) => sameFile(f, file));
+  const judged = (file: string | undefined): boolean => files === undefined || files.some((f) => sameSpecPath(f, file));
   const refused: QaCase[] = [];
   const cases: QaCase[] = [];
   for (const c of reported.cases) {

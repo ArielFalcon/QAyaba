@@ -17,7 +17,7 @@ import { LEAD_CORRECTION_SECTIONS, REFUSED_CORRECTION_SECTIONS, type CorrectionF
 export type { CorrectionFinding, FlowUnderCorrection };
 import { lastJsonObjectWhere } from "@kernel/last-json-object.ts";
 import { entryRead, entryUnreadable, readEntries, readOneOf, type UnreadableEntry } from "./answer-reading.ts";
-import { normalizeSpecPath } from "@kernel/spec-path.ts";
+import { endsWithSpecPath, sameSpecPath } from "@kernel/spec-path.ts";
 import type { RedactionPort } from "@kernel/ports/redaction.port.ts";
 
 const MAX_REF_CHARS = 400;
@@ -130,15 +130,6 @@ function namesSpecIn(text: string, spec: string): boolean {
 }
 
 /*
- * Whether two repository-relative paths name one file: equality of the one canonical form (`normalizeSpecPath`), never a suffix. The diff,
- * the seeds and the coverage gap all spell a changed file from the repository root, so a file and a same-named file under another
- * package of a monorepo are two files.
- */
-export function sameFile(a: string, b: string): boolean {
-  return normalizeSpecPath(a) === normalizeSpecPath(b);
-}
-
-/*
  * The flow a finding belongs to: the one whose spec its citation names, or failing that the one spec its text names as a whole
  * path, or failing that, for a finding about a changed file, a flow that holds it (covers a use case that file seeds). A file
  * several flows hold reaches exactly one by default: the first flow, in the pass's order (the plan's, then the flows the pass
@@ -151,27 +142,21 @@ export function flowOfFinding(finding: CorrectionFinding, flows: readonly FlowUn
   return routeOfFinding(finding, flows)?.flowId;
 }
 
-/* Whether a path names the spec: the spec itself, or a longer path it ends. */
-const namesSpec = (path: string, spec: string): boolean => {
-  const slashed = path.replaceAll("\\", "/");
-  return slashed === spec || slashed.endsWith(`/${spec}`);
-};
-
 /* The flows that hold a finding about a changed file, in the pass's order: those covering a use case the file seeds. Empty when the finding names no file. */
 export function flowsHoldingFile(finding: CorrectionFinding, flows: readonly FlowUnderCorrection[]): FlowUnderCorrection[] {
   if (finding.file === undefined) return [];
-  return flows.filter((flow) => flow.seedFiles?.some((file) => sameFile(file, finding.file!)) ?? false);
+  return flows.filter((flow) => flow.seedFiles?.some((file) => sameSpecPath(file, finding.file!)) ?? false);
 }
 
 /* The flow a finding belongs to and what decided it: the spec it cites or names, or the changed file that seeds a use case the flow covers. */
 export function routeOfFinding(finding: CorrectionFinding, flows: readonly FlowUnderCorrection[]): { flowId: string; by: "spec" | "candidate" } | undefined {
   const cited = finding.spec;
   const bySpec = (id: string | undefined): { flowId: string; by: "spec" } | undefined => (id === undefined ? undefined : { flowId: id, by: "spec" });
-  if (cited) return bySpec(flows.find((flow) => namesSpec(cited, flow.specFile))?.id);
+  if (cited) return bySpec(flows.find((flow) => endsWithSpecPath(cited, flow.specFile))?.id);
   const named = flows.filter((flow) => namesSpecIn(finding.text, flow.specFile));
   if (named.length > 0) return named.length === 1 ? bySpec(named[0]!.id) : undefined;
-  const ran = (flow: FlowUnderCorrection): boolean => finding.ranBy?.some((spec) => namesSpec(spec, flow.specFile)) ?? false;
-  const direct = (flow: FlowUnderCorrection): boolean => flow.directSeedFiles?.some((file) => sameFile(file, finding.file!)) ?? false;
+  const ran = (flow: FlowUnderCorrection): boolean => finding.ranBy?.some((spec) => endsWithSpecPath(spec, flow.specFile)) ?? false;
+  const direct = (flow: FlowUnderCorrection): boolean => flow.directSeedFiles?.some((file) => sameSpecPath(file, finding.file!)) ?? false;
   const rank = (flow: FlowUnderCorrection): number => (ran(flow) ? 0 : 2) + (direct(flow) ? 0 : 1);
   const owner = flowsHoldingFile(finding, flows).reduce<FlowUnderCorrection | undefined>((best, flow) => (best === undefined || rank(flow) < rank(best) ? flow : best), undefined);
   return owner === undefined ? undefined : { flowId: owner.id, by: "candidate" };

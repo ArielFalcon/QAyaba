@@ -8,6 +8,7 @@
 
 import { RUN_PHASES } from "@kernel/run-step";
 import { isBindingLimit } from "@kernel/turn-limit";
+import { sameSpecPathByTail } from "@kernel/spec-path";
 import type { EvidencePort } from "@contexts/evaluation/application/index.ts";
 import type { ContextEvidence, ContextFreshness, DeliveredContextSource, DeliveredOmission, DeliveredSpecEvidence, PlanEvidence, ReferenceEvidence, RunEvaluationEvidence, RunSpecCallEvidence, SidekickReportEvidence } from "@contexts/evaluation/application/index";
 import { AGENT_NAME_FOR_ROLE } from "../agent-runtime/types";
@@ -79,7 +80,7 @@ function attrsOf(s: LedgerSpan): Record<string, unknown> {
  */
 function specOfCase(file: string | undefined, specNames: readonly string[]): string | undefined {
   if (!file) return undefined;
-  const fits = specNames.filter((s) => s === file || s.endsWith(`/${file}`) || file.endsWith(`/${s}`));
+  const fits = specNames.filter((s) => sameSpecPathByTail(s, file));
   return fits.length === 1 ? fits[0] : undefined;
 }
 

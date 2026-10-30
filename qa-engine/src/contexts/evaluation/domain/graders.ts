@@ -9,6 +9,7 @@ import { RUN_PHASES } from "@kernel/run-step";
 import { STEP_INTENTS, scoreOf } from "./grader-catalog.ts";
 import { extractReferences } from "./context-refs.ts";
 import { itemId } from "@kernel/context-item-ids.ts";
+import { sameSpecPathByTail } from "@kernel/spec-path.ts";
 import { WINDOW_FIT_REASON } from "@kernel/prompt-sections.ts";
 import type { ContextEvidence, RunEvaluationEvidence as Evidence } from "./run-evaluation-evidence.ts";
 import type { RawScore, Score } from "./score.ts";
@@ -441,9 +442,6 @@ const flowDeliveryRate: Grader = {
   }),
 };
 
-/* A path two records name alike: the same, or one the other's tail on a directory boundary (one is relative to the test directory). */
-const samePath = (a: string, b: string): boolean => a === b || a.endsWith(`/${b}`) || b.endsWith(`/${a}`);
-
 const ROUTE_PREFIX = "route:";
 
 /*
@@ -471,7 +469,7 @@ const changePagesGrounded: Grader = {
 const runSpecFinalAgreement: Grader = {
   names: ["run_spec_final_agreement"],
   grade: finishedOnly((e) => {
-    const proven = e.deliveredSpecs.filter((spec) => spec.passed !== undefined && spec.sha256 !== undefined && e.runSpecCalls.some((c) => c.outcome === "passed" && c.sha256 === spec.sha256 && samePath(c.path, spec.path)));
+    const proven = e.deliveredSpecs.filter((spec) => spec.passed !== undefined && spec.sha256 !== undefined && e.runSpecCalls.some((c) => c.outcome === "passed" && c.sha256 === spec.sha256 && sameSpecPathByTail(c.path, spec.path)));
     if (proven.length === 0) return [];
     const disagreed = proven.filter((spec) => spec.passed !== true).map((spec) => spec.path);
     return [{ name: "run_spec_final_agreement", value: ratio(proven.length - disagreed.length, proven.length), ...(disagreed.length > 0 ? { comment: `passed run_spec, failed the final execution on the same bytes: ${disagreed.join(", ")}` } : {}) }];

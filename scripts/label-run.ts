@@ -13,6 +13,7 @@
  */
 import { pathToFileURL } from "node:url";
 import { MAX_SCORE_COMMENT_CHARS, specOfScore, type ScoreDataType, type ScorePolarity } from "../qa-engine/src/contexts/evaluation/application/index.ts";
+import { sameSpecPathByTail } from "@kernel/spec-path.ts";
 import { referenceFor, type UseCaseReference } from "../qa-engine/src/contexts/evaluation/application/index.ts";
 import { USE_CASES_DIR, loadReferences } from "../src/server/use-case-reference-loader.ts";
 
@@ -121,7 +122,7 @@ function show(runId: string, deps: LabelRunDeps): number {
   const specs = deps.deliveredSpecs(runId);
   out(`\ndelivered specs: ${specs.length}`);
   for (const spec of specs) {
-    const cases = record.cases.filter((c) => c.file !== undefined && (spec.path === c.file || spec.path.endsWith(`/${c.file}`) || c.file.endsWith(`/${spec.path}`)));
+    const cases = record.cases.filter((c) => c.file !== undefined && sameSpecPathByTail(spec.path, c.file));
     out(`  ${spec.path}`);
     for (const title of testTitles(spec.text)) out(`    test: ${title}${cases.some((c) => c.name.includes(title)) ? ` [${cases.find((c) => c.name.includes(title))!.status}]` : ""}`);
   }
