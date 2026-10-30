@@ -2,6 +2,7 @@
 
 - **Status:** Accepted, 2026-10-30, under the owner's rule of [ADR-0015](../adr/0015-owner-decisions-2026-10-30.md) point 2 (the recommended answer of every question below is taken; [ADR-0017](../adr/0017-time-authority-answers.md) records them)
 - **Code references at be6d70f7** (the map was made on that commit; read a line with `git show be6d70f7:<path>`).
+- **Implementation:** T33 landed on `fix/root-cause-t33` in five commits (one clock `7fe20132`; closed `limit.fired` set `5794c454`; allotment by purpose with the measured reserve `ac05a929`; deterministic phases cut at the deadline `e4514de7`; caps as upper bounds with typed ends `355fcb58`; delegated-run wait `fc727698`). Deviations: the deterministic phases are cut at the deadline's instant, not at their purpose's allowance (the phases after them depend on what they prove); unmeasured later purposes share one fallback reserve, not one per phase; the per-allotment signal exists for the run (the launcher's choke point) while an agent turn's signal is the timeout the transport enforces, because a second signal raced it (contradiction E); no `agent_turns` column was added for the cut purpose (it rides the run limit fact and the root span).
 - **Related:** [ADR-0002](../adr/0002-architecture-direction.md) (addition 7, "one time authority"), [ADR-0016](../adr/0016-refactor-review-base-causes.md) (base cause R2, task T33), [ADR-0001](../adr/0001-design-pillars.md) (P1-P7), [ADR-0011](../adr/0011-root-cause-fix-policy.md) (B2'), commit a6a1532b (the agent transport's own deadline removed).
 
 ## Summary

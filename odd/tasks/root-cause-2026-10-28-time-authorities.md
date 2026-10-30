@@ -41,3 +41,34 @@ Read-only map, 2026-10-30 (an explorer over `qa-engine/src` and `src`, nothing r
 | 35 | `src/server/wire-app.ts:339` | orphan-session TTL | longest run budget + 5 min | derived (the model) | cleanup |
 
 Contradictions (one fires while the other believes time remains): A #23 vs #1 (an execution overshoots, the next turn fails before-turn); B #4 vs #2 (allowance not by purpose, tier snapshot, two typed ends); C #7 vs #1 (never binds by default, fires quietly when set); D #9-#11 vs #3 (the reserve is not enforced by the runtime); E #15 vs #3 (flow timer and runtime clamp race, two error kinds); F #20/#22 vs #23 (the same spec run under two deadline rules); G #18 vs #16 (a hung session stalls first, not retried against the time left); H #34 vs #1 (the CLI gives up on a live run); I #32 (the graph build overshoots a small remaining budget).
+
+## Outcome after T33 (branch `fix/root-cause-t33`)
+
+Kept = stays a named safety bound or a cap; each fires with its own typed name. Contradictions A-I: all answered, G kept as a documented bound.
+
+| # | Outcome |
+|---|---|
+| 1 | Is the deadline; also hands out `signal()` and the cut purpose (`e4514de7`). |
+| 2 | Replaced: `allowance(purpose)` = time left less the app's measured later-phase time, fallback recorded on the `allotment` event (`ac05a929`). |
+| 3 | Kept as the one runtime clamp; reads `allowance()` of the current purpose, the error carries the purpose (`355fcb58`). |
+| 4 | Kept as the cap `tier-budget`; the pass is told `heldTo(tier, allowance("generate"))` and its limit (`355fcb58`). The snapshot taken once at the start is gone. |
+| 5 | Kept: the host-cap comparison of `generatorTimeBudgetMs` is the composition clamp the port supplies (`agentPromptCapMs`), not a second clock; not removed (see report). |
+| 6 | Kept: `repair-cap`, clamped by #3. |
+| 7 | Deleted (`7fe20132`); `qa.wallClockBudgetMs` retired with a warning. |
+| 8 | Deleted with the setting. |
+| 9, 10, 11 | Deleted `MIN_RESERVE_MS`, `RESERVE_SHARE`, the lead-turn margins; `MIN_FLOW_MS` stays as a floor under which a turn is not worth sending (`ac05a929`). |
+| 12 | Kept as caps `plan-budget` / `flow-budget`; turns report them (`355fcb58`). |
+| 13, 14 | Read the review/generate allowance (`ac05a929`). |
+| 15 | Kept as the cap `flow-budget`; no timer when the flow's time is the deadline's, so the runtime's `run-deadline` is the only end (`355fcb58`). |
+| 16 | `agentTimeout()` deleted; `agentPromptCapMs` stays as the host cap (`host-cap`). |
+| 17 | Kept, clamped by #3. |
+| 18 | Kept as an activity detector with its own typed end (`stall`), per ADR-0017 answer 4. |
+| 19 | Kept: abort settle bound. |
+| 20, 22 | Kept as the cap `tool-call`; the call reports `qayaba.limit.applied` (`355fcb58`). |
+| 21 | Kept: a lease lives until the run ends (`remainingMs`), not an allotment. |
+| 23, 24, 25, 29, 30, 31, 32 | The launcher kills the child tree when the run's deadline signal fires (`e4514de7`); their own bounds stay as hang catchers. The graph build, the DOM capture, the static gate, the install and the login all start there. |
+| 26, 27 | Read `allowance("fix")` (`ac05a929`). |
+| 28 | Kept: dump read bounds, named. |
+| 33 | Kept: before arming by design. |
+| 34 | Derived from the longest run budget plus a buffer (`fc727698`). |
+| 35 | The model. |

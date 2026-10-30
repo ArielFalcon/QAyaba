@@ -152,7 +152,7 @@ The per-tier budget above bounds only a diff run's generator first pass. A regen
 a repair, the coverage regeneration, the reviewer and every non-diff mode were unbounded, so a broad run
 could spend half an hour in the fix loop. One run-level deadline now bounds all of them: it is armed after
 classification, counts down on the orchestrator's clock, and every agent turn is given the smaller of its
-own limit and what is left. When it is spent, the run ends as a persisted `infra-error` `E-TIME-BUDGET`
+own limit and what its purpose is allotted (what is left less the measured time of the phases after it); a deterministic phase is cut at the deadline's instant. When it is spent, the run ends as a persisted `infra-error` `E-TIME-BUDGET`
 whose note names the budget (`diff-tiny`, `manual`, ...) and the turn that was stopped or not started; nothing is
 published and nothing is learned. Set these on the orchestrator (`.env` or Doppler) and restart it:
 
