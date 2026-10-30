@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { redactByValue } from "../../../shared-kernel/run-secret-redaction.ts";
 import { PRODUCER_MEMORY_BOUND_CHARS } from "../../../shared-kernel/redact-then-bound.ts";
 import { boundProducerText } from "../../../shared-infrastructure/redaction/redact-and-bound.ts";
-import { MAX_LOGGED_PATH_CHARS, MAX_LOGGED_REQUESTS, RequestLedger, requestAddress, type ObservedRequest } from "@kernel/observed-requests.ts";
+import { MAX_LOGGED_REQUESTS, RequestLedger, boundedAddress, requestAddress, type ObservedRequest } from "@kernel/observed-requests.ts";
 import type { ExecSandboxPort } from "../../../shared-infrastructure/process-sandbox/exec-sandbox.ts";
 import { ProcessKillAdapter } from "../../../shared-infrastructure/process-sandbox/process-kill.adapter.ts";
 import { BoundedWholeOutput } from "../../../shared-kernel/process-sandbox/bounded-whole-output.ts";
@@ -771,11 +771,10 @@ function requestsFrom(value: unknown, scriptOmitted: unknown): PageRequests | un
 
 /* A name of a field the capture keeps: letters, digits and the few marks field names use, no space, no control character, none of the other. */
 const FIELD_NAME = /^[\p{L}\p{N}_$.@:-]+$/u;
-const CUT_MARK = "…[cut]";
 
 /*
  * The shapes of the JSON answers the script reported for a route. Nothing the script sent is believed past its form: the operation is
- * method + origin + pathname (a query or fragment left on is dropped, an address past MAX_LOGGED_PATH_CHARS is cut and says so), the
+ * method + origin + pathname (a query or fragment left on is dropped, an address past MAX_LOGGED_PATH_CHARS is cut at a path segment and says so), the
  * item count a whole number, a key a name of a field within MAX_SHAPE_KEY_CHARS and at most MAX_SHAPE_KEYS of them, a name at any depth
  * the same within MAX_SHAPE_NAMES. A key or a name that was dropped, cut off by the bound, a report without the names, or a shape the
  * script itself called incomplete, makes the shape incomplete: a key or a name missing from it is then no proof of anything. Past MAX_SHAPES_PER_ROUTE operations the rest is only counted, with what the script left out.
@@ -790,7 +789,7 @@ function shapesFrom(value: unknown, scriptOmitted: unknown): PageDataShapes | un
     if (typeof method !== "string" || !/^[A-Za-z]{1,16}$/.test(method) || typeof url !== "string" || !Number.isInteger(items) || (items as number) < 0 || !Array.isArray(keys)) continue;
     const address = requestAddress(url);
     if (address === undefined || (address.protocol !== "http:" && address.protocol !== "https:")) continue;
-    const operation = address.address.length <= MAX_LOGGED_PATH_CHARS ? address.address : `${address.address.slice(0, MAX_LOGGED_PATH_CHARS)}${CUT_MARK}`;
+    const operation = boundedAddress(address.address);
     const identity = `${method.toUpperCase()} ${operation}`;
     if (seen.has(identity)) continue;
     if (listed.length >= MAX_SHAPES_PER_ROUTE) {

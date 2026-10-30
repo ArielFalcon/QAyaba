@@ -1,8 +1,10 @@
 /*
  * Where a request address (origin + pathname) may be cut. A path segment is where a session token, an id or a run secret sits, and
  * redaction by value finds a secret only whole, so an address cut inside a segment would carry a prefix of a secret no redaction can
- * recognise. Every cut of an address therefore keeps whole path segments only: up to and including the last `/` the cut reaches
- * past the origin, never part of the segment after it. An address with no `/` past its origin (a host) is cut at the bound. Pure.
+ * recognise. Every cut of an address therefore keeps whole path segments only: up to the last `/` the cut reaches past the origin,
+ * never part of the segment after it, and without that `/`, since a path that ends in an empty segment reads to the pattern policy as
+ * no path (its last run would be redacted whole and distinct addresses would share one key). A cut that reaches only the root `/` keeps
+ * it; an address with no `/` past its origin (a host) is cut at the bound. Pure.
  */
 
 /* The address cut at `max` characters, keeping whole path segments only; an address within the bound is returned as it is. */
@@ -12,7 +14,8 @@ export function cutAddress(address: string, max: number): string {
   const scheme = head.indexOf("//");
   const pathStart = scheme < 0 ? 0 : head.indexOf("/", scheme + 2);
   const lastSlash = head.lastIndexOf("/");
-  return pathStart >= 0 && lastSlash >= pathStart ? head.slice(0, lastSlash + 1) : head;
+  if (pathStart < 0 || lastSlash < pathStart) return head;
+  return lastSlash > pathStart ? head.slice(0, lastSlash) : head.slice(0, pathStart + 1);
 }
 
 /*

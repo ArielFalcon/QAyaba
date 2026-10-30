@@ -35,8 +35,9 @@ export const MAX_LOGGED_PATH_CHARS = 500;
 export const MAX_LOGGED_TOTAL_CHARS = 24_000;
 const CUT_MARK = "…[cut]";
 
-/* An address or host past the bound is cut and says so, an address at a path segment (`cutAddress`), so the answer, redacted later, never holds part of a secret the cut split; cutting a cut one changes nothing. */
-function bounded(text: string): string {
+/* An address or host past the bound is cut and says so, an address at a path segment (`cutAddress`), so the answer, redacted later, never holds part of a secret the cut split; cutting a cut one changes nothing (a parsed address never holds the mark's `…`, which a URL encodes). */
+export function boundedAddress(text: string): string {
+  if (text.endsWith(CUT_MARK) && text.length <= MAX_LOGGED_PATH_CHARS + CUT_MARK.length) return text;
   return text.length <= MAX_LOGGED_PATH_CHARS ? text : `${cutAddress(text, MAX_LOGGED_PATH_CHARS)}${CUT_MARK}`;
 }
 
@@ -65,7 +66,7 @@ export class RequestLedger {
   private chars = 0;
 
   addListed(method: string, address: string, blocked: boolean, count: number): void {
-    const url = bounded(address);
+    const url = boundedAddress(address);
     const key = `${blocked ? "!" : ""}${method} ${url}`;
     const held = this.listed.get(key);
     if (held) held.count += count;
@@ -74,7 +75,7 @@ export class RequestLedger {
   }
 
   addHost(name: string, count: number): void {
-    const host = bounded(name);
+    const host = boundedAddress(name);
     const held = this.hosts.get(host);
     if (held !== undefined) this.hosts.set(host, held + count);
     else if (this.hosts.size < MAX_LOGGED_HOSTS && this.fits(host)) this.hosts.set(host, count);

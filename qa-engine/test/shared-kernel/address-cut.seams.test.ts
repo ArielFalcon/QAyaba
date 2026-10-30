@@ -38,11 +38,11 @@ const seedCut = (raw: string): string => {
 
 test("a cut address keeps whole path segments, and an address within its bound is unchanged", () => {
   assert.equal(cutAddress(`${ORIGIN}/abcdef`, `${ORIGIN}/ab`.length), `${ORIGIN}/`);
-  assert.equal(cutAddress(`${ORIGIN}/abc/def/ghi`, `${ORIGIN}/abc/de`.length), `${ORIGIN}/abc/`);
+  assert.equal(cutAddress(`${ORIGIN}/abc/def/ghi`, `${ORIGIN}/abc/de`.length), `${ORIGIN}/abc`);
   assert.equal(cutAddress(`${ORIGIN}/abc`, 100), `${ORIGIN}/abc`);
   assert.equal(cutAddress("x".repeat(30), 10), "x".repeat(10));
   assert.equal(wholeSegmentsOfProducerCut(`${ORIGIN}/abc/def`, 100), `${ORIGIN}/abc/def`);
-  assert.equal(wholeSegmentsOfProducerCut(`${ORIGIN}/abc/de`, `${ORIGIN}/abc/de`.length), `${ORIGIN}/abc/`);
+  assert.equal(wholeSegmentsOfProducerCut(`${ORIGIN}/abc/de`, `${ORIGIN}/abc/de`.length), `${ORIGIN}/abc`);
 });
 
 test("a DEV write whose path holds a run secret across the seed's cut leaves no part of it in the counted requests", async () => {
@@ -88,7 +88,42 @@ test("the request ledger's bound on an address cuts at a segment, so the redacte
     const kept = ledger.drain();
     const answer = scoped(() => sanitizeText(redactByValue(JSON.stringify(kept))).text);
     assert.equal(kept.listed.length, 1);
-    assert.match(answer, /\/api\/v1\/sessions\/[a-]+\//);
+    assert.match(answer, /\/api\/v1\/sessions\/[a-]+…\[cut\]/);
     assert.deepEqual(fragments(answer), [], `inside=${inside}: ${answer}`);
   }
+});
+
+/* A cut path made only of letters, digits and slashes (an id under an id): the pattern policy reads a path ending in an empty segment as a base64 run, so a cut that kept the trailing `/` would redact the whole tail and give two endpoints one key. */
+test("a cut address of letters, digits and slashes stays readable and distinct, so two endpoints are counted apart", async () => {
+  const longPath = (resource: string): string => `${ORIGIN}/api/v2/${resource}/${"item1234/".repeat(40)}${TOKEN}/close`;
+  const root = mkdtempSync(join(tmpdir(), "qa-address-cut-"));
+  try {
+    const dumps = join(root, "dumps");
+    mkdirSync(dumps);
+    const requests = ["orders", "telemetry"].map((resource) => ({ method: "POST", url: seedCut(longPath(resource)), sender: "page", count: 1 }));
+    writeFileSync(join(dumps, "ledger-0-1.json"), JSON.stringify({ v: 2, writes: 2, pending: 0, done: true, project: "desktop", requests }));
+    const deps = { allocateFailureDir: () => ({ dir: dumps, root, dispose: () => {} }), runSuite: async () => ({ report: { stats: { expected: 1 }, suites: [] }, logs: "ok", ran: true }) } as unknown as E2eExecuteDeps;
+    const run = await scoped(() => runE2E("/dir", { baseUrl: ORIGIN, namespace: "ns", countWrites: true }, deps));
+    const urls = (run.devWriteRequests ?? []).map(describeDevWriteRequest);
+    assert.equal(urls.length, 2, JSON.stringify(urls));
+    assert.match(urls.join(" "), /\/api\/v2\/orders\/item1234/);
+    assert.match(urls.join(" "), /\/api\/v2\/telemetry\/item1234/);
+    assert.deepEqual(fragments(urls.join(" ")), []);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+  const ledger = new RequestLedger();
+  ledger.addListed("GET", `${ORIGIN}/api/v2/orders/${"item1234/".repeat(60)}close`, false, 1);
+  const answer = scoped(() => sanitizeText(redactByValue(JSON.stringify(ledger.drain()))).text);
+  assert.match(answer, /\/api\/v2\/orders\/item1234/);
+  assert.deepEqual(fragments(answer), []);
+});
+
+test("a ledger that takes in an address already cut keeps it as it is", () => {
+  const first = new RequestLedger();
+  first.addListed("GET", straddling(MAX_LOGGED_PATH_CHARS, 30), false, 1);
+  const kept = first.drain();
+  const second = new RequestLedger();
+  second.absorb(kept);
+  assert.deepEqual(second.drain(), kept);
 });
