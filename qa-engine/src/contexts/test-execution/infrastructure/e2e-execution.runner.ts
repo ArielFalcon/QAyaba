@@ -2,7 +2,7 @@
 
 import { engineLog } from "@kernel/ports/process-logger.ts";
 import { createHash } from "node:crypto";
-import { writeFileSync, mkdtempSync, rmSync } from "node:fs";
+import { writeFileSync, mkdtempSync, rmSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, relative } from "node:path";
 import type { QaCase, CaseStatus, FailureSettle, FailureAttemptEvidence } from "@kernel/qa-case.ts";
@@ -373,7 +373,7 @@ export async function runE2E(
     }
       /* mutation-scope:end no-report-outcome */
   };
-  const parsed = parsePlaywrightReport(report);
+  const parsed = parsePlaywrightReport(report, { specRoots: specRootsOf(specDir) });
 
   if (parsed.executed === 0) {
     tell(report, parsed.cases);
@@ -608,6 +608,16 @@ function redactCaseByValue(c: QaCase): void {
       ...(e.errorText !== undefined ? { errorText: redactByValue(e.errorText) } : {}),
       ...(e.resourceType !== undefined ? { resourceType: redactByValue(e.resourceType) } : {}),
     }));
+  }
+}
+
+/* The directory the child ran in as the report may spell it: as given and with its links resolved (a temp directory behind a link is reported by its real path). A directory that cannot be resolved is only its own spelling. */
+function specRootsOf(specDir: string): string[] {
+  try {
+    const real = realpathSync(specDir);
+    return real === specDir ? [specDir] : [specDir, real];
+  } catch {
+    return [specDir];
   }
 }
 

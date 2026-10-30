@@ -12,6 +12,7 @@ import { fakeWorkspace } from "./run-flow/fake-workspace.ts";
 import { confinedSpecFiles } from "../../../../src/shared-infrastructure/spec-files.adapter.ts";
 import { served } from "../../../support/coordinator-over-author.ts";
 import { primaryChangeSet } from "../../../support/change-set.ts";
+import { passingCases } from "../../../support/passing-cases.ts";
 
 async function persistedOutcome(config: Partial<RunQaConfig>): Promise<RunOutcome> {
   const ws = runWorkspace("qa-reviewer-independence-");
@@ -21,7 +22,7 @@ async function persistedOutcome(config: Partial<RunQaConfig>): Promise<RunOutcom
     ...served(generationOnDisk({ author: async () => scriptedGeneration({ specs: ["a.spec.ts"]}) })),
     review: { review: async () => ({ approved: true, findings: [], blockingCount: 0, parsed: true }) },
     validation: { validate: async () => ({ ok: true, errors: [] }) },
-    execution: { execute: async () => ({ verdict: "pass", cases: [{ name: "runs", status: "pass" }], logs: "" }) },
+    execution: { execute: async (dir, opts) => ({ verdict: "pass", cases: passingCases(dir, opts), logs: "" }) },
     objectiveSignal: { measure: async () => ({ status: "unknown", ratio: null }), blocks: () => false },
     publication: { publish: async () => ({ outcome: "pr" }) },
     workspace: fakeWorkspace(ws),

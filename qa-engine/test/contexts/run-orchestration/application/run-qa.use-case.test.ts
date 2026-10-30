@@ -70,6 +70,7 @@ import { ChangeSet } from "@contexts/change-analysis/application/index.ts";
 import { primaryChangeSet } from "../../../support/change-set.ts";
 import { sanitizeText } from "../../../../src/shared-infrastructure/redaction/pattern-redaction.adapter.ts";
 import { citingRejections } from "../../../support/cited-rejection.ts";
+import { passingCases } from "../../../support/passing-cases.ts";
 /* Ports through the full lifecycle. NO inline IO, NO prompt strings, NO learning side-effects on
    the verdict path (the process audit is off-path). Drives the SAME stub shapes scenarios.ts
    provides for the equivalent runPipeline scenario.
@@ -81,15 +82,8 @@ import { citingRejections } from "../../../support/cited-rejection.ts";
    defaults to "github-issue". ──────────────────────────────────────────────────────────────────
  */
 
-/* A passing execution that shows a case for each spec file it was asked to run, as an acceptance requires of the files it keeps; one asked for no file (the primary pass) shows a case no file is named for. */
-const passPerSpec: ExecutionPort["execute"] = async (_dir, opts) => {
-  const asked = (opts as { specFiles?: string[] } | undefined)?.specFiles;
-  return {
-    verdict: "pass",
-    cases: asked === undefined ? [{ name: "runs", status: "pass" as const }] : asked.map((file) => ({ name: file, status: "pass" as const, file })),
-    logs: "",
-  };
-};
+/* A passing execution that shows a case for each spec file it ran, as a report does: the files it was asked for, else the suite's own on disk. */
+const passPerSpec: ExecutionPort["execute"] = async (dir, opts) => ({ verdict: "pass", cases: passingCases(dir, opts), logs: "" });
 
 /*
  * An execution that, under an execution namespace (an acceptance's), shows a case of each spec file it was asked to run, as an acceptance
@@ -315,7 +309,7 @@ test("RunQaUseCase: PreExecGroundingPort wired — an ambiguity that persists ne
   /* capture() reports the SAME duplicate-node tree on every call: the ambiguity is always there. */
   const passing = stubPorts({
     capture: async () => ({ specFiles: ["a.spec.ts"], specSources: [AMBIGUOUS_SPEC_SOURCE], routes: AMBIGUOUS_ROUTES }),
-    execute: async () => ({ verdict: "pass", cases: [{ name: "owners", status: "pass" }], logs: "" }),
+    execute: async () => ({ verdict: "pass", cases: [{ name: "owners", status: "pass", file: "a.spec.ts" }], logs: "" }),
   });
   const failing = stubPorts({
     capture: async () => ({ specFiles: ["a.spec.ts"], specSources: [AMBIGUOUS_SPEC_SOURCE], routes: AMBIGUOUS_ROUTES }),
@@ -1089,7 +1083,7 @@ test("RunQaUseCase — fail-issue: the FixLoop genuinely engages (generate + exe
 test("RunQaUseCase — invalid-issue: execute() is NEVER called (static gate blocks before execution)", async () => {
   let executeCallCount = 0;
   const { ports } = stubPorts({ validate: async () => ({ ok: false, errors: ["[lint] no-wait-for-timeout"] }) });
-  ports.execution.execute = async () => { executeCallCount++; return { verdict: "pass", cases: [{ name: "runs", status: "pass" }], logs: "" }; };
+  ports.execution.execute = async (dir, opts) => { executeCallCount++; return { verdict: "pass", cases: passingCases(dir, opts), logs: "" }; };
   const useCase = new RunQaUseCase({ ...ports, config: baseConfig });
 
   const out = await useCase.run({ ...baseInput, runId: "golden-invalid-issue-wiring-proof" });
@@ -1114,7 +1108,7 @@ test("RunQaUseCase — an e2e-target validation failure with infra:true ALSO res
 test("RunQaUseCase — infra-error: execute() is NEVER called (DEV unhealthy before execution)", async () => {
   let executeCallCount = 0;
   const { ports } = stubPorts({ waitUntilServing: async () => ({ ok: false, error: new Error("DEV unhealthy") }) });
-  ports.execution.execute = async () => { executeCallCount++; return { verdict: "pass", cases: [{ name: "runs", status: "pass" }], logs: "" }; };
+  ports.execution.execute = async (dir, opts) => { executeCallCount++; return { verdict: "pass", cases: passingCases(dir, opts), logs: "" }; };
   const useCase = new RunQaUseCase({ ...ports, config: baseConfig });
 
   const out = await useCase.run({ ...baseInput, runId: "golden-infra-error-wiring-proof" });
@@ -1284,7 +1278,7 @@ test("reviewer parse-miss (parsed:false) must FAIL CLOSED — reviewerApproved=f
      not just an intermediate field.
    */
   const { ports } = stubPorts({
-    execute: async () => ({ verdict: "pass", cases: [{ name: "runs", status: "pass" }], logs: "" }),
+    execute: async (dir, opts) => ({ verdict: "pass", cases: passingCases(dir, opts), logs: "" }),
     review: async () => ({ approved: false, findings: [], blockingCount: 0, parsed: false }),
   });
   const useCase = new RunQaUseCase({ ...ports, config: baseConfig }); /* baseConfig.needsReview === true */
@@ -1652,7 +1646,7 @@ test("context mode NEVER calls execute() (context.json is not a Playwright spec)
   const { ports } = stubPorts({
     generate: async () => (scriptedGeneration({ specs: [".qa/context.json"], note: "built map" })),
   });
-  ports.execution.execute = async () => { executeCallCount++; return { verdict: "pass", cases: [{ name: "runs", status: "pass" }], logs: "" }; };
+  ports.execution.execute = async (dir, opts) => { executeCallCount++; return { verdict: "pass", cases: passingCases(dir, opts), logs: "" }; };
   const useCase = new RunQaUseCase({ ...ports, config: baseConfig });
 
   await useCase.run({ ...baseInput, runId: "fix-c-context-never-executes", mode: "context" });
@@ -1827,9 +1821,9 @@ test("a failing diff run hands the change's own files to the adjudicator, so an 
     /* The first round fails on a plain value mismatch (no 5xx, no locator error) in a spec that shares
        no file basename with the change; the retry passes, so the loop ends with the first round's
        objective_gap adjudication as its last one. */
-    execute: async () => {
+    execute: async (dir, opts) => {
       calls += 1;
-      if (calls > 1) return { verdict: "pass" as const, cases: [{ name: "runs", status: "pass" }], logs: "" };
+      if (calls > 1) return { verdict: "pass" as const, cases: passingCases(dir, opts), logs: "" };
       return {
         verdict: "fail" as const,
         cases: [{ name: "login", status: "fail" as const, detail: "expected 'Total: 10' to contain 'Total: 20'", file: "e2e/login.spec.ts" }],
@@ -2031,7 +2025,7 @@ test("follow-up #28: a NORMAL reviewer rejection (parsed:true) does NOT carry a 
 test("follow-up #28: a normal reviewer APPROVAL is unaffected — no reviewerNote, still routes to pr", async () => {
   let publishedDecision: { reviewerNote?: string } | undefined;
   const { ports } = stubPorts({
-    execute: async () => ({ verdict: "pass", cases: [{ name: "runs", status: "pass" }], logs: "" }),
+    execute: async (dir, opts) => ({ verdict: "pass", cases: passingCases(dir, opts), logs: "" }),
     review: async () => ({ approved: true, findings: [], blockingCount: 0, parsed: true }),
   });
   ports.publication.publish = async (decision) => {
@@ -2821,7 +2815,7 @@ test("reviewerApproved is ABSENT (not fabricated) when needsReview is false, reg
 test("publish() is called with the reviewerApproved field threaded (not dropped) on the 'pr' side effect", async () => {
   let publishedDecision: { verdict: string; reviewerApproved?: boolean; coverageBlocks?: boolean } | undefined;
   const { ports } = stubPorts({
-    execute: async () => ({ verdict: "pass", cases: [{ name: "runs", status: "pass" }], logs: "" }),
+    execute: async (dir, opts) => ({ verdict: "pass", cases: passingCases(dir, opts), logs: "" }),
     review: async () => ({ approved: true, findings: [], blockingCount: 0, parsed: true }),
   });
   ports.publication.publish = async (decision) => { publishedDecision = decision; return { outcome: "pr" }; };
@@ -2861,7 +2855,7 @@ test("publish() is called with the coverageBlocks field threaded (not dropped) u
 test("publish() is called with the handle WorkspacePort.prepare() issued on the 'pr' side effect", async () => {
   let publishedDecision: { verdict: string; workspace?: WorkspaceHandle } | undefined;
   const { ports, ws } = stubPorts({
-    execute: async () => ({ verdict: "pass", cases: [{ name: "runs", status: "pass" }], logs: "" }),
+    execute: async (dir, opts) => ({ verdict: "pass", cases: passingCases(dir, opts), logs: "" }),
     review: async () => ({ approved: true, findings: [], blockingCount: 0, parsed: true }),
   });
   ports.publication.publish = async (decision) => { publishedDecision = decision; return { outcome: "pr" }; };
@@ -3048,7 +3042,7 @@ test("run() honors an already-aborted signal — no execution, no generation, no
   let saved = false;
   const { ports } = stubPorts({
     generate: async () => { generated = true; return scriptedGeneration({ specs: ["a.spec.ts"]}); },
-    execute: async () => { executed = true; return { verdict: "pass", cases: [{ name: "runs", status: "pass" }], logs: "" }; },
+    execute: async (dir, opts) => { executed = true; return { verdict: "pass", cases: passingCases(dir, opts), logs: "" }; },
   });
   ports.runHistory.save = async () => { saved = true; };
   const useCase = new RunQaUseCase({ ...ports, config: baseConfig });
@@ -3067,7 +3061,7 @@ test("run() aborted mid-run (between validate and execute) stops before execute(
   let executed = false;
   const { ports } = stubPorts({
     validate: async () => { controller.abort(); return { ok: true, errors: [] }; },
-    execute: async () => { executed = true; return { verdict: "pass", cases: [{ name: "runs", status: "pass" }], logs: "" }; },
+    execute: async (dir, opts) => { executed = true; return { verdict: "pass", cases: passingCases(dir, opts), logs: "" }; },
   });
   let saved = false;
   ports.runHistory.save = async () => { saved = true; };
@@ -3481,7 +3475,7 @@ test("live events: a passing execute() invoking onCase/onRunning/onDiscovered em
       o.onDiscovered?.("checkout flow", "checkout.spec.ts");
       o.onRunning?.("checkout flow");
       o.onCase?.({ name: "checkout flow", status: "pass", durationMs: 1200 });
-      return { verdict: "pass", cases: [{ name: "checkout flow", status: "pass", durationMs: 1200 }], logs: "" };
+      return { verdict: "pass", cases: [{ name: "checkout flow", status: "pass", durationMs: 1200, file: "a.spec.ts" }], logs: "" };
     },
   });
   const { observer, events } = fakeObserver();
@@ -4088,7 +4082,7 @@ test("a terminal reviewer rejection threads its corrections into gateSignals.rev
 
 test("an APPROVED review (no rejection) still persists gateSignals.reviewerCorrections as [] — never fabricated", async () => {
   const { ports } = stubPorts({
-    execute: async () => ({ verdict: "pass" as const, cases: [{ name: "login", status: "pass" as const }], logs: "" }),
+    execute: async () => ({ verdict: "pass" as const, cases: [{ name: "login", status: "pass" as const, file: "a.spec.ts" }], logs: "" }),
   });
   ports.review.review = citingRejections(async () => ({ approved: true, findings: [], blockingCount: 0, parsed: true }));
   const useCase = new RunQaUseCase({ ...ports, config: baseConfig });
@@ -4109,7 +4103,7 @@ test("an APPROVED review (no rejection) still persists gateSignals.reviewerCorre
 test("BOUNDARY: approved with ADVISORY-ONLY corrections (blockingCount 0) — errorClass stays null, audit() does NOT fire, persisted reviewerCorrections is []", async () => {
   let auditCallCount = 0;
   const { ports } = stubPorts({
-    execute: async () => ({ verdict: "pass" as const, cases: [{ name: "login", status: "pass" as const }], logs: "" }),
+    execute: async () => ({ verdict: "pass" as const, cases: [{ name: "login", status: "pass" as const, file: "a.spec.ts" }], logs: "" }),
   });
   ports.review.review = citingRejections(async () => ({
     approved: true,
@@ -4180,7 +4174,7 @@ test("parsed:false (a parse miss) fails closed WITHOUT burning a regeneration ro
   let reviewCallCount = 0;
   let generateCallCount = 0;
   const { ports } = stubPorts({
-    execute: async () => ({ verdict: "pass" as const, cases: [{ name: "login", status: "pass" as const }], logs: "" }),
+    execute: async () => ({ verdict: "pass" as const, cases: [{ name: "login", status: "pass" as const, file: "a.spec.ts" }], logs: "" }),
   });
   ports.review.review = async () => {
     reviewCallCount++;
@@ -4386,7 +4380,7 @@ test("an early-exit terminal (static-gate invalid) never reaches the mainline te
  */
 
 test("a passing run's RunQaResult.cases mirrors ExecutionPort.execute()'s real cases, not an empty array", async () => {
-  const realCases = [{ name: "checkout flow", status: "pass" as const }];
+  const realCases = [{ name: "checkout flow", status: "pass" as const, file: "a.spec.ts" }];
   const { ports } = stubPorts({
     execute: async () => ({ verdict: "pass", cases: realCases, logs: "1 passed" }),
   });
@@ -4399,7 +4393,7 @@ test("a passing run's RunQaResult.cases mirrors ExecutionPort.execute()'s real c
 });
 
 test("the persisted RunOutcome carries the SAME cases/logs as the returned RunQaResult (adapter parity)", async () => {
-  const realCases = [{ name: "login flow", status: "pass" as const }];
+  const realCases = [{ name: "login flow", status: "pass" as const, file: "a.spec.ts" }];
   let savedOutcome: { cases?: unknown[]; logs?: string } | undefined;
   const { ports } = stubPorts({
     execute: async () => ({ verdict: "pass", cases: realCases, logs: "1 passed, 0 failed" }),
@@ -4433,8 +4427,8 @@ test("an early-exit terminal (invalid) carries cases:[] and no logs — nothing 
 
 test("measure() receives the run's own passing case names as baselineCases", async () => {
   const passingCases = [
-    { name: "login flow", status: "pass" as const },
-    { name: "checkout flow", status: "pass" as const },
+    { name: "login flow", status: "pass" as const, file: "a.spec.ts" },
+    { name: "checkout flow", status: "pass" as const, file: "a.spec.ts" },
   ];
   let capturedBaselineCases: string[] | undefined;
   const { ports } = stubPorts({
@@ -4584,7 +4578,7 @@ test("executedRed: the outer review gate is unreachable for a fail verdict — r
 
 test("executedRed: evidence green (run.verdict==='pass') — a genuine reviewer approval stands, the override's condition never evaluates true", async () => {
   const { ports } = stubPorts({
-    execute: async () => ({ verdict: "pass", cases: [{ name: "checkout flow", status: "pass" as const }], logs: "1 passed" }),
+    execute: async () => ({ verdict: "pass", cases: [{ name: "checkout flow", status: "pass" as const, file: "a.spec.ts" }], logs: "1 passed" }),
     review: async () => ({ approved: true, findings: [], blockingCount: 0, parsed: true }),
   });
   const useCase = new RunQaUseCase({ ...ports, config: baseConfig });
@@ -6698,7 +6692,7 @@ test("a pre-execute auth failure is only recorded: an infra-error outcome is per
   let executed = 0;
   let published = 0;
   const { ports, savedOutcomes } = stubPorts({
-    execute: async () => { executed += 1; return { verdict: "pass", cases: [{ name: "runs", status: "pass" }], logs: "" }; },
+    execute: async (dir, opts) => { executed += 1; return { verdict: "pass", cases: passingCases(dir, opts), logs: "" }; },
     publish: async () => { published += 1; return { outcome: "pr" }; },
   });
   const useCase = new RunQaUseCase({
@@ -6785,7 +6779,7 @@ function preconditionRun(opts: { failAt: readonly ("pre-generate" | "pre-execute
       seen.generated += 1;
       return scriptedGeneration({ specs: opts.mode === "context" ? [".qa/context.json"] : ["a.spec.ts"]});
     },
-    execute: async () => { seen.executed += 1; return { verdict: "pass", cases: [{ name: "runs", status: "pass" }], logs: "" }; },
+    execute: async (dir, opts) => { seen.executed += 1; return { verdict: "pass", cases: passingCases(dir, opts), logs: "" }; },
     publish: async () => { seen.published += 1; return { outcome: "pr" }; },
     ...(opts.classify ? { classify: opts.classify } : {}),
   });
@@ -7003,7 +6997,7 @@ function discoveryRun(opts: DiscoveryRunOptions) {
       seen.enrichments.push(enrichment);
       return scriptedGeneration({ specs: ["a.spec.ts"]});
     },
-    execute: async () => { seen.executed += 1; return { verdict: "pass", cases: [{ name: "runs", status: "pass" }], logs: "" }; },
+    execute: async (dir, opts) => { seen.executed += 1; return { verdict: "pass", cases: passingCases(dir, opts), logs: "" }; },
     publish: async () => { seen.published += 1; return { outcome: "pr" }; },
   });
   const adapter = new AuthSessionAdapter({
@@ -7162,7 +7156,7 @@ async function runEndingWith(generation: ReturnType<typeof scriptedGeneration>, 
     generate: async () => generation,
     publish: async () => { published++; return { outcome: "issue" }; },
     validate: async () => { validated++; return { ok: true, errors: [] }; },
-    execute: async () => { executed++; return { verdict: "pass", cases: [{ name: "runs", status: "pass" }], logs: "" }; },
+    execute: async (dir, opts) => { executed++; return { verdict: "pass", cases: passingCases(dir, opts), logs: "" }; },
   });
   const { observer, events } = fakeObserver();
   const out = await new RunQaUseCase({ ...ports, ...deps, observer, config, mirrorGc: { prune: async (w: WorkspaceHandle) => { pruned.push(rootsOf(w).mirrorDir); } } }).run(baseInput);
@@ -7273,7 +7267,7 @@ test("a regression run, which generates nothing, is not read as a generation end
   let executed = 0;
   const { ports } = stubPorts({
     classify: async () => ({ action: "regression", reason: "docs only", diff: "" }),
-    execute: async () => { executed++; return { verdict: "pass", cases: [{ name: "runs", status: "pass" }], logs: "" }; },
+    execute: async (dir, opts) => { executed++; return { verdict: "pass", cases: passingCases(dir, opts), logs: "" }; },
   });
   const out = await new RunQaUseCase({ ...ports, config: baseConfig }).run(baseInput);
   assert.equal(out.decision.verdict, "pass");
@@ -7757,7 +7751,7 @@ test("reviewer pre-check: a legitimate spec whose assertions the captured DOM co
     const { ports, savedOutcomes } = stubPorts({
       prepare: async () => fakeHandle({ specDir: fixtures.specDir, mirrorDir: fixtures.mirrorDir }),
       captureReviewDom: async () => R4_DOM,
-      execute: showingACase(async () => ({ verdict: "pass", cases: [{ name: "flows/restaurants.spec.ts", status: "pass" }], logs: "" })),
+      execute: showingACase(async () => ({ verdict: "pass", cases: [{ name: "flows/restaurants.spec.ts", status: "pass", file: "flows/restaurants.spec.ts" }], logs: "" })),
       review: async () => {
         modelReviews++;
         return { approved: true, findings: [], blockingCount: 0, rationale: "the list is asserted against the captured page", parsed: true };
@@ -8028,8 +8022,8 @@ test("the reviewer judges only the specs this run delivered; the existing suite 
       execute: async () => ({
         verdict: "pass",
         cases: [
-          { name: "flows/auth.spec.ts", status: "pass" },
-          { name: "flows/restaurants.spec.ts", status: "pass" },
+          { name: "flows/auth.spec.ts", status: "pass", file: "flows/auth.spec.ts" },
+          { name: "flows/restaurants.spec.ts", status: "pass", file: "flows/restaurants.spec.ts" },
         ],
         logs: "",
       }),
@@ -8429,7 +8423,7 @@ test("an approval that carries plain-string notes is no dropped rejection: the r
   try {
     const { ports } = stubPorts({
       prepare: async () => fakeHandle({ specDir: fixtures.specDir, mirrorDir: fixtures.mirrorDir }),
-      execute: async () => ({ verdict: "pass" as const, cases: [{ name: "runs", status: "pass" }], logs: "" }),
+      execute: async (dir, opts) => ({ verdict: "pass" as const, cases: passingCases(dir, opts), logs: "" }),
       review: async () => ({ approved: true, findings: [{ text: "minor: a name could be clearer", severity: "blocking" as const }], blockingCount: 0, parsed: true }),
     });
     ports.generation.author = generate;

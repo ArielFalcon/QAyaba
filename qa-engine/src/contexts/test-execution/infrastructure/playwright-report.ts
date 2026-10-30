@@ -1,3 +1,4 @@
+import { isAbsolute, join, relative } from "node:path";
 import type { CaseStatus, ExpectedStatus, QaCase } from "@kernel/qa-case.ts";
 import type { RunVerdict } from "@kernel/run-verdict.ts";
 import type { SkippedTest } from "../domain/skipped-test.ts";
@@ -41,10 +42,12 @@ interface PwSpec {
 }
 interface PwSuite {
   title?: string;
+  file?: string;
   specs?: PwSpec[];
   suites?: PwSuite[];
 }
 interface PwReport {
+  config?: { rootDir?: string };
   suites?: PwSuite[];
   errors?: unknown;
   stats?: { expected?: number; unexpected?: number; flaky?: number; skipped?: number };
@@ -73,7 +76,30 @@ function split(spec: PwSpec): { ran: PwTest[]; declaredSkip: PwTest[] } {
   return { ran, declaredSkip };
 }
 
-export function parsePlaywrightReport(json: unknown): ParsedReport {
+/* Where the run's suite sits, as the run spells it: the directories the report's paths may be relative to the suite of (a symlinked temp directory is spelled both ways). */
+export interface ReportOptions {
+  specRoots?: readonly string[];
+}
+
+/*
+ * The suite-relative path of the file a top suite stands for, once. Playwright states a suite's file relative to its `rootDir`, which is
+ * the config's `testDir` and not the suite root (`testDir: './flows'` reports `plain.spec.ts` for the delivered `flows/plain.spec.ts`),
+ * so a case's file is made whole here and every reader of a case's file compares one spelling. A report that names no root, or one that is
+ * none of the run's, keeps the file as it stands.
+ */
+function suiteFileOf(top: PwSuite, report: PwReport, specRoots: readonly string[]): string | undefined {
+  const reported = top.title || top.file || undefined;
+  const rootDir = report.config?.rootDir;
+  if (reported === undefined || typeof rootDir !== "string" || !isAbsolute(rootDir)) return reported;
+  const absolute = isAbsolute(reported) ? reported : join(rootDir, reported);
+  for (const root of specRoots) {
+    const rel = relative(root, absolute);
+    if (rel !== "" && !rel.startsWith("..") && !isAbsolute(rel)) return rel.split("\\").join("/");
+  }
+  return reported;
+}
+
+export function parsePlaywrightReport(json: unknown, opts: ReportOptions = {}): ParsedReport {
   const report = (json ?? {}) as PwReport;
   const cases: PwCase[] = [];
   const skippedTests: SkippedTest[] = [];
@@ -119,8 +145,7 @@ export function parsePlaywrightReport(json: unknown): ParsedReport {
   };
 
   for (const topSuite of report.suites ?? []) {
-    const fileTitle = topSuite.title || undefined;
-    walk([topSuite], "", fileTitle);
+    walk([topSuite], "", suiteFileOf(topSuite, report, opts.specRoots ?? []));
   }
 
   const executed = countExecuted(report, cases);

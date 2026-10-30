@@ -83,3 +83,10 @@ test("a refusal record counts toward no mode: the baseline a later round is comp
   const kept = { cases: [caseOf("a.spec.ts", { expectedStatus: "failed" })], skippedTests: [{ name: "x", file: "a.spec.ts" }] };
   assert.equal(modeRefusals(["a.spec.ts"], { cases: refused.refused }, kept).length, 2, "a round that keeps what was refused has added one of each");
 });
+
+test("a pass that names no file proves no file, whatever else the run reported", () => {
+  const unattributed: QaCase = { name: "runs", status: "pass" };
+  assert.equal(hasProof("flows/a.spec.ts", [unattributed]), false, "the only pass of a run cannot stand for a file it does not name");
+  assert.equal(hasProof("flows/a.spec.ts", [unattributed, caseOf("flows/b.spec.ts")]), false);
+  assert.equal(hasProof("flows/a.spec.ts", [unattributed, caseOf("flows/a.spec.ts")]), true);
+});

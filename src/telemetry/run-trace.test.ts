@@ -28,6 +28,7 @@ import { traceHarness } from "./trace-harness";
 import { confinedSpecFiles } from "../../qa-engine/src/shared-infrastructure/spec-files.adapter";
 import { loginToBeWritten, served } from "../../qa-engine/test/support/coordinator-over-author";
 import { primaryChangeSet } from "../../qa-engine/test/support/change-set";
+import { passingCases } from "../../qa-engine/test/support/passing-cases";
 
 type Overrides = Partial<{
   classify: RunQaUseCaseDeps["changeAnalysis"]["classify"];
@@ -46,7 +47,7 @@ function baseDeps(clock: { now(): number }, overrides: Overrides = {}): RunQaUse
     ...served(generationOnDisk({ author: overrides.generate ?? (async () => scriptedGeneration({ specs: ["a.spec.ts"]})) })),
     review: { review: async () => ({ approved: true, findings: [], blockingCount: 0, parsed: true }) },
     validation: { validate: overrides.validate ?? (async () => ({ ok: true, errors: [] })) },
-    execution: { execute: async () => ({ verdict: "pass", cases: [{ name: "runs", status: "pass" }], logs: "" }) },
+    execution: { execute: async (dir, opts) => ({ verdict: "pass", cases: passingCases(dir, opts), logs: "" }) },
     objectiveSignal: { measure: async () => ({ status: "unknown", ratio: null }), blocks: () => false },
     publication: { publish: async () => ({ outcome: "pr" }) },
     workspace: fakeWorkspace(ws),

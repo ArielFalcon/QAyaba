@@ -322,3 +322,17 @@ test("real report: a project listed twice reports its skip and its test.fail() o
   assert.equal(parsed.skippedTests.filter((t) => t.name.endsWith("static skip")).length, 1);
   assert.deepEqual(parsed.cases.filter((c) => c.name.endsWith("known app bug")).map((c) => c.expectedStatus), ["failed"]);
 });
+
+test("real report: with a testDir the case's file is the suite-relative path, whichever way the run's directory is spelled", () => {
+  /* testDir './flows' makes the top suite's title relative to the flows directory; the delivered spec is `flows/plain.spec.ts`. */
+  for (const specRoots of [["/work/e2e"], ["/var/elsewhere/e2e", "/work/e2e"]]) {
+    const parsed = parsePlaywrightReport(fixture("testdir-flows"), { specRoots });
+    assert.deepEqual([...new Set(parsed.cases.map((c) => c.file))].sort(), ["flows/only-fail.spec.ts", "flows/plain.spec.ts"]);
+    assert.ok(parsed.cases.every((c) => c.name.startsWith("plain.spec.ts") || c.name.startsWith("only-fail.spec.ts")), "the case's name keeps the report's own spelling");
+  }
+});
+
+test("real report: a report whose directory is not one of the run's keeps the file as the report spelled it", () => {
+  const parsed = parsePlaywrightReport(fixture("testdir-flows"), { specRoots: ["/somewhere/else"] });
+  assert.deepEqual([...new Set(parsed.cases.map((c) => c.file))].sort(), ["only-fail.spec.ts", "plain.spec.ts"]);
+});

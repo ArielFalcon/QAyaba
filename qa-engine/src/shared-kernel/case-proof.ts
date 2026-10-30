@@ -13,18 +13,16 @@ export interface ReportedTests {
   skippedTests?: readonly SkippedTest[];
 }
 
-/* A case that executed, was declared to pass and passed. A case recorded without a declared status is read as the runner reports it: an execution that states none (the repo's own test runner) has no `test.fail()` to state. */
+/* A case that executed, was declared to pass and passed. A case recorded without a declared status is a stored case from before the declaration was kept: it states no `test.fail()` or skip, and is read as a test that was declared to pass. */
 export const isRealPass = (c: QaCase): boolean => c.status === "pass" && c.refused !== true && c.expectedStatus !== "failed" && c.expectedStatus !== "skipped";
 
 export const sameFile = (a: string | undefined, b: string | undefined): boolean => a !== undefined && b !== undefined && normalizeSpecPath(a) === normalizeSpecPath(b);
 
 /*
- * Whether `file`'s bytes ran with at least one real passing case of their own. An execution that names a file for none of its cases (a
- * runner that cannot attribute, as the repo's own test runner) cannot say which file a case belongs to, so its real passes stand for the
- * whole run; one that names a file for any case is read strictly, and a case with none proves no file.
+ * Whether `file`'s bytes ran with at least one real passing case of their own. A case names the file it belongs to (every report does,
+ * suite-relative), and a case that names none proves no file: no pass stands for a file by being the only one the run reported.
  */
-export const hasProof = (file: string, cases: readonly QaCase[]): boolean =>
-  cases.some((c) => c.file !== undefined) ? cases.some((c) => sameFile(c.file, file) && isRealPass(c)) : hasRealPass(cases);
+export const hasProof = (file: string, cases: readonly QaCase[]): boolean => cases.some((c) => sameFile(c.file, file) && isRealPass(c));
 
 /* Whether any case of the execution is a real pass: what a single spec's run must show before it says "passed". */
 export const hasRealPass = (cases: readonly QaCase[]): boolean => cases.some(isRealPass);

@@ -24,6 +24,7 @@ import { served } from "../../../support/coordinator-over-author.ts";
 import { fakeHandle, rootsOf } from "../application/run-flow/fake-workspace.ts";
 import { confinedSpecFiles } from "../../../../src/shared-infrastructure/spec-files.adapter.ts";
 import { primaryChangeSet } from "../../../support/change-set.ts";
+import { passingCases } from "../../../support/passing-cases.ts";
 /* so the adapter's own scenario tests are apples-to-apples with the use-case's own 10-scenario
    parity: same green-pr fixture semantics (scenarioApp needsReview:true, makeDeps({}) — generate()
    approved:true with 1 spec, execute() a clean pass, no coverage config, not shadow, onFailure
@@ -59,7 +60,7 @@ function stubPorts(overrides: Partial<{
     validate: overrides.validate ?? (async () => ({ ok: true, errors: [] })),
   };
   const execution: ExecutionPort = {
-    execute: overrides.execute ?? (async () => ({ verdict: "pass", cases: [{ name: "runs", status: "pass" }], logs: "" })),
+    execute: overrides.execute ?? (async (dir, opts) => ({ verdict: "pass", cases: passingCases(dir, opts), logs: "" })),
   };
   const objectiveSignal: ObjectiveSignalPort = {
     measure: overrides.measure ?? (async () => ({ status: "unknown", ratio: null })),
@@ -250,7 +251,7 @@ for (const c of goldenScenarios) {
 test("RunPipelineAdapter: returns the SAME RunOutcome shape RunHistoryPort.save receives (fail-issue — retries + coverageRatio forwarded)", async () => {
   let savedOutcome: RunOutcome | undefined;
   const { ports } = stubPorts({
-    execute: async () => ({ verdict: "pass", cases: [{ name: "runs", status: "pass" }], logs: "" }),
+    execute: async (dir, opts) => ({ verdict: "pass", cases: passingCases(dir, opts), logs: "" }),
     measure: async () => ({ status: "pass", ratio: 0.92 }),
   });
   ports.runHistory.save = async (outcome) => { savedOutcome = outcome; };

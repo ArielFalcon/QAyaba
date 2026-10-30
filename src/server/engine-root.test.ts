@@ -32,6 +32,7 @@ import { SpecSnapshotValidationPort } from "@contexts/workspace-and-publication/
 import { TracedSuiteStore } from "@contexts/workspace-and-publication/infrastructure/adapters/suite-store-trace";
 import { SuiteStoreAdapter } from "@contexts/workspace-and-publication/infrastructure/suite-store.adapter";
 import { primaryChangeSet } from "../../qa-engine/test/support/change-set";
+import { passingCases } from "../../qa-engine/test/support/passing-cases";
 /* ── A minimal fake EngineRootDeps — every collaborator is a lightweight stub, matching the
    SAME stub shapes run-pipeline.adapter.test.ts already uses for the 10-scenario parity
    (this test does not re-run that parity; it proves the composition root wires the RIGHT classes).
@@ -87,7 +88,7 @@ function fakeConfig(overrides: Partial<EngineRootDeps> = {}): EngineRootDeps {
       e2e: { validateAll: async () => ({ ok: true, errors: [], infra: false }) },
     },
     executionStrategies: {
-      e2e: { run: async () => ({ verdict: "pass", cases: [{ name: "runs", status: "pass" }], logs: "" }) },
+      e2e: { run: async (req) => ({ verdict: "pass", cases: passingCases(req.specDir, req), logs: "" }) },
     },
     objectiveSignal: {
       collector: { collect: async () => ({ covered: [] }) },
@@ -379,7 +380,7 @@ test("buildEngine selects the real DeployGatePortAdapter when versionUrl is pres
    context so PW_TEST_ID_ATTRIBUTE reaches the verdictual Playwright run. NO defaulting logic here —
    undefined flows through; the seed playwright.config.ts already defaults to data-testid.
  */
-test("buildEngine threads testIdAttribute into the ExecutionPortAdapter", async () => {
+test("buildEngine threads testIdAttribute into the ExecutionPortAdapter", async (req) => {
   let capturedTestIdAttribute: string | undefined;
   const cfg = fakeConfig({
     testIdAttribute: "data-cy",
@@ -387,7 +388,7 @@ test("buildEngine threads testIdAttribute into the ExecutionPortAdapter", async 
       e2e: {
         run: async (req) => {
           capturedTestIdAttribute = req.testIdAttribute;
-          return { verdict: "pass", cases: [{ name: "runs", status: "pass" }], logs: "" };
+          return { verdict: "pass", cases: passingCases(req.specDir, req), logs: "" };
         },
       },
     },

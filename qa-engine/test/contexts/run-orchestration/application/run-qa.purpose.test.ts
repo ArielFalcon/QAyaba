@@ -13,6 +13,7 @@ import { fakeWorkspace } from "./run-flow/fake-workspace.ts";
 import { confinedSpecFiles } from "../../../../src/shared-infrastructure/spec-files.adapter.ts";
 import { served } from "../../../support/coordinator-over-author.ts";
 import { primaryChangeSet } from "../../../support/change-set.ts";
+import { passingCases } from "../../../support/passing-cases.ts";
 
 const INPUT = { app: "demo", changeSet: primaryChangeSet("demo", Sha.of("abc1234")), sha: Sha.of("abc1234"), source: "manual" as const, mode: "manual" as const, target: "e2e" as const, runId: "purpose-run" };
 
@@ -23,7 +24,7 @@ function useCase(saved: RunOutcome[], opts: { verdict?: "pass" | "fail"; note?: 
     ...served(generationOnDisk({ author: async () => scriptedGeneration({ specs: ["a.spec.ts"]}) })),
     review: { review: async () => ({ approved: true, findings: [], blockingCount: 0, parsed: true }) },
     validation: { validate: async () => ({ ok: true, errors: [] }) },
-    execution: { execute: async () => ({ verdict: opts.verdict ?? "pass", cases: [{ name: "runs", status: "pass" }], logs: "" }) },
+    execution: { execute: async (dir, asked) => ({ verdict: opts.verdict ?? "pass", cases: passingCases(dir, asked), logs: "" }) },
     objectiveSignal: { measure: async () => ({ status: "unknown", ratio: null }), blocks: () => false },
     publication: { publish: async () => ({ outcome: "pr" }) },
     workspace: fakeWorkspace(ws),

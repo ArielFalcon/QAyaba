@@ -5,6 +5,7 @@ import { traceFactsOf } from "@kernel/run-trace-facts.ts";
 import { MAX_STATIC_FIX_ROUNDS } from "@kernel/derive-cycle-backstop.ts";
 import { scriptedGeneration } from "../../../../support/generation-output.ts";
 import { RIG_SPEC, dispose, newRig, observe } from "./run-end-rig.ts";
+import { passingCases } from "../../../../support/passing-cases.ts";
 
 function counting(failures: number) {
   const calls = { generate: 0, validate: 0, execute: 0 };
@@ -13,7 +14,7 @@ function counting(failures: number) {
     arm: (rig: ReturnType<typeof newRig>) => {
       rig.author = async () => { calls.generate += 1; return scriptedGeneration({ specs: [RIG_SPEC]}); };
       rig.validate = async () => { calls.validate += 1; return calls.validate <= failures ? { ok: false, errors: ["[lint] no-wait-for-timeout"] } : { ok: true, errors: [] }; };
-      rig.execute = async () => { calls.execute += 1; return { verdict: "pass", cases: [{ name: "runs", status: "pass" }], logs: "" }; };
+      rig.execute = async (dir, opts) => { calls.execute += 1; return { verdict: "pass", cases: passingCases(dir, opts), logs: "" }; };
     },
   };
 }
