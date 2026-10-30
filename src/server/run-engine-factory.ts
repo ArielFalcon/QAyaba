@@ -657,7 +657,7 @@ export function buildEngineRootDeps(
 
   /*
    * QA_CAMPAIGN_FREEZE (operator switch, off by default; read here once because qa-engine reads no environment):
-   * the run reads and writes no cross-run learning state. The collaborators below are left out, which the
+   * the run starts from a fixed state (the suite store read-only, the context map and the login not rebuilt, no process audit). The collaborators below are left out, which the
    * composition root reads as "not wired" (a provable no-op), never as a stub that pretends to learn.
    */
   const campaignFrozen = resolveCampaignFreeze(deps.env ?? activeEnvironment());

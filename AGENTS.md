@@ -884,7 +884,7 @@ that a test *runs*, not that it is *meaningful* — left alone it drifts into a 
 that catches nothing. The objective signal that breaks the circle is **change-coverage**
 (`qa-engine/src/contexts/objective-signal/domain/`):
 
-- `qa.coveragePolicy.mode`: `off` | `signal` (default, record only) | `enforce` (gate);
+- `qa.changeCoverage.mode`: `off` | `signal` (default, record only) | `enforce` (gate);
   `minRatio` default `0.7`.
 - `DecideCoverageService.blocks(status)` is the single source of truth for blocking.
   **`unknown` never blocks.**

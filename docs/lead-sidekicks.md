@@ -414,7 +414,7 @@ leaves nothing behind).
 
 - The lead cannot drop a spec that reached the working copy, nor add a flow its plan did not name; sidekick proposals
   (changes outside the brief's file) are reported, not consolidated.
-- Read-only concurrency is unreachable until the proxy can enforce read-only access.
+- Actions against DEV never overlap: the lease holds DEV alone, because the proxy has no read-only mode and no caller can ask for a shared hold. Concurrent read-only access would need a proxy that enforces it.
 - Each flow's `run_spec` and browser caps are shares of the run's; the shares are not reconciled with what the
   generator spends in the same run.
 - No live run of this mode has been recorded: the behavior is verified by unit and contract tests, not by a

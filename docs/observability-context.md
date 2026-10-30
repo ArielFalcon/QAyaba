@@ -108,7 +108,7 @@ The single engine is `RunQaUseCase` (`qa-engine/src/contexts/run-orchestration/a
    The generation end is classified as one of `delivered`, `declared-noop`, `exhausted` (E-STEP-BUDGET), `time-budget` (E-TIME-BUDGET), `undecided-empty` (E-NO-DECISION), `no-author` (E-NO-AUTHOR) or `no-verdict`. See `generation/domain/generation-end.ts`.
 7. **`validate`**: `tsc`, ESLint (`eslint-plugin-playwright`), `playwright --list`, the manifest check. Failure → `invalid`. Also the pre-exec grounding: the catalog gate (fabricated test-ids) and the selector-ambiguity advisory.
 8. **`execute`**: Playwright against DEV (profile `suite`), per-test results, retries. Pass only on retry means flaky.
-9. **`coverage`**: change-coverage. Did the green run exercise the diff's changed lines? `qa.coveragePolicy` is `off|signal|enforce`; `unknown` never blocks.
+9. **`coverage`**: change-coverage. Did the green run exercise the diff's changed lines? `qa.changeCoverage.mode` is `off|signal|enforce`; `unknown` never blocks.
 10. **`review`**: a reviewer agent span. Unreachable → `infra-error E-REVIEWER-UNAVAILABLE`.
 11. **`decide`**: PR / Issue / shadow log line. When accepted, a suite-store capture.
 
