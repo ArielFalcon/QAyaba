@@ -245,6 +245,8 @@ export interface RunQaUseCaseDeps {
   codeGraphPrimary?: { repo: string; repoDir: string; headSha(): Promise<string | null> };
   /** The mirror of each other repo of a run over several repos, by repo: indexed at its head too, and walked for the change scope. */
   codeGraphRepoDirs?: ReadonlyMap<string, string>;
+  /** The mirror of every declared service, by repo: a cross-repo hop that walks through a repo the change did not reach indexes it here, at the commit its mirror holds. */
+  codeGraphMirrors?: ReadonlyMap<string, { repoDir: string; headSha(): Promise<string | null> }>;
   /** The reach of the run's change over the call graph. Absent: the run has no scope. */
   changeScope?: ChangeScopePort;
   /** Absent: a coordinated run writes nothing to the ledger of decisions. */
