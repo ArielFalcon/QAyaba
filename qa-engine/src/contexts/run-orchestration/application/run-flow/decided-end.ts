@@ -24,6 +24,7 @@ import { recordDegradation } from "./reducers.ts";
 import { routeAvailabilitySignal, type RouteAvailabilityFact } from "@kernel/route-availability.ts";
 import { detectStubbedState, type SpecText } from "@contexts/test-execution/application/index.ts";
 import { dataContradictionsSignal } from "@kernel/data-contradiction.ts";
+import { distinctLinkCount } from "@kernel/service-links.ts";
 
 /* The availability facts a PR or an Issue lists: the change's own unavailabilities and the possible regressions. */
 function publishedAvailability(state: Readonly<RunState>): RouteAvailabilityFact[] {
@@ -337,8 +338,8 @@ async function persistOutcome(state: Readonly<RunState>, ctx: WorkspaceRunContex
     ...(deps.serviceLinks
       ? { serviceLinksCount: serviceLinks.length, contractDriftCount: contractDrift.length }
       : {}),
-    /* impactedLinksCount is gated on the result, not the collaborator's presence: a same-repo run stays undefined (never ran), not a fabricated 0. */
-    ...(crossRepoImpact ? { crossRepoImpactedCount: crossRepoImpact.impactedLinks.length } : {}),
+    /* impactedLinksCount is gated on the result, not the collaborator's presence: a same-repo run stays undefined (never ran), not a fabricated 0. Counted over distinct links. */
+    ...(crossRepoImpact ? { crossRepoImpactedCount: distinctLinkCount(crossRepoImpact.impactedLinks) } : {}),
     logs: run.logs,
     adjudicationClass: state.fixLoop.lastAdjudicatorVerdict?.class,
     /* Merged confinement across every enforce() this run made. Omitted when never wired. */

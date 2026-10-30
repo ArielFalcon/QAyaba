@@ -76,3 +76,8 @@ export interface CrossRepoImpact {
   impactedLinks: ImpactedLink[];
   stops?: ImpactStop[];
 }
+
+/** How many distinct links the impacts hold: a link reached in both directions, or by two hops, is one. */
+export function distinctLinkCount(impacted: readonly ImpactedLink[]): number {
+  return new Set(impacted.map(({ link }) => linkIdentity(link))).size;
+}

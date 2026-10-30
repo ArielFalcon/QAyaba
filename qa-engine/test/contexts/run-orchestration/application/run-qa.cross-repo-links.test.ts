@@ -193,6 +193,24 @@ test("downstream, the second operation a changed call site calls leads on to the
   }
 });
 
+test("a link reached from both ends of a change in the app and in C is counted once", async () => {
+  const w = world({
+    repos: [APP, "org/b", "org/c"], links: [appToList, bToC], changed: [{ repo: APP, role: "primary", file: X.file }, { repo: "org/c", role: "service", file: C_ITEMS.file }],
+    indexes: {
+      "org/c": { changed: [C_ITEMS], routes: [route(C_ITEMS, "GET", "/items")] },
+      "org/b": { callers: { [key(B_CALL)]: [B_LIST] }, routes: [route(B_LIST, "GET", "/orders")] },
+      [APP]: { changed: [X], ...APP_INDEX },
+    },
+  });
+  try {
+    const observed = await observe(w.rig, "links-both-ways");
+    assert.equal(w.impacts[0]?.impactedLinks.length, 4, "each link is listed in each direction it was reached");
+    assert.equal(observed.saved[0]?.gateSignals?.crossRepoImpactedCount, 2, "the count is of distinct links");
+  } finally {
+    dispose(w.rig);
+  }
+});
+
 test("a downstream walk left partial is told to the agent and recorded, and is no gap of the change scope", async () => {
   const w = world({
     repos: [APP, "org/b", "org/c"], links: [appToList, bToC], changed: [{ repo: APP, role: "primary", file: X.file }],

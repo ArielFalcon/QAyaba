@@ -291,7 +291,7 @@ lands in whose call site reaches the handler that entered it; downstream links a
 page, candidate or operation entry. A hop whose index cannot be had, whose walk fails or is left partial is an `ImpactStop`: for an upstream hop a
 `degraded` entry of the scope (`hop upstream: ...`), for any hop one unverified line of the prompt's service-links section
 ("not walked", or "walked partially" for a walk left partial); nothing beyond it is claimed. A page reached through a chain shows the links in its evidence, the change's end first. The call-site
-walk seeds only call sites in the app's own repo. A link is one by its identity (both ends, transport, contract operation and the operation called), never by call site and repo alone. `crossRepoImpactedCount` counts every impacted link, any hop and direction, and
+walk seeds only call sites in the app's own repo. A link is one by its identity (both ends, transport, contract operation and the operation called), never by call site and repo alone. `crossRepoImpactedCount` counts every distinct impacted link, any hop and direction, and
 is also set when the run's change is the app alone: runs before RFC-0011 count first-hop links only, so do not pool the series.
 
 ### What the agent receives: grounding and learning

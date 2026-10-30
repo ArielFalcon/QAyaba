@@ -1,7 +1,7 @@
 /* The links of a run as a graph over repositories: what enters and leaves a repo, the repos a hop walks next, and a walk that admits each link once. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { linkIdentity, type ImpactedLink, type ServiceLink } from "@kernel/service-links.ts";
+import { distinctLinkCount, linkIdentity, type ImpactedLink, type ServiceLink } from "@kernel/service-links.ts";
 import { LinkGraph, LinkWalk } from "@contexts/service-topology/domain/link-graph.ts";
 
 const link = (from: string, to: string, symbol = "call"): ServiceLink => ({
@@ -62,4 +62,11 @@ test("two links of one call site to two operations of one service are two links,
 test("two links that differ only by the verb or the path of the operation they call are two links", () => {
   assert.notEqual(linkIdentity(withOperation(appToB, "op", "GET", "/orders")), linkIdentity(withOperation(appToB, "op", "POST", "/orders")));
   assert.notEqual(linkIdentity(withOperation(appToB, "op", "GET", "/orders")), linkIdentity(withOperation(appToB, "op", "GET", "/orders/{id}")));
+});
+
+test("a link reached in both directions, or by two hops, is counted once", () => {
+  const list = withOperation(appToB, "list", "GET", "/orders");
+  const reached = [impacted(list), impacted(list, { reach: { direction: "downstream", via: [] } }), impacted(bToC, { reach: { direction: "upstream", via: [list] } })];
+  assert.equal(distinctLinkCount(reached), 2);
+  assert.equal(distinctLinkCount([]), 0);
 });
