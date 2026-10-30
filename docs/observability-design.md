@@ -553,6 +553,7 @@ The launcher (`exec-sandbox.ts` `spawn`) is the one place every agent-influenced
 through. It opens `qayaba.exec <profile>` (INTERNAL) at spawn and ends it on `close`. Attributes:
 - `qayaba.exec.profile`
 - `qayaba.exec.command_class` (`tsc|eslint|playwright-list|playwright-test|npm-ci|login|dom-capture|browser|code-test`, a closed set taken from the call site)
+- `qayaba.exec.purpose` and `qayaba.exec.namespace` on a Playwright child: what the execution was for (`suite` the whole suite, `acceptance` a regeneration's changed spec files, `fix-retry` a fix-loop re-run, `run-spec`, `control`, `mutant`, `observation`, `cleanup`; `purposeOfExecution` in `shared-kernel/exec-purpose.ts` derives the last four from the request, the call sites name the others) and the data namespace its dumps are read under
 - `process.exit.code`, `qayaba.exec.signal`, `qayaba.exec.timed_out`
 - `qayaba.reaper.killed`
 - `qayaba.egress.denied_cotemporal`: hosts denied **while this child was alive**, via a per-child
@@ -1203,7 +1204,7 @@ until spike S0.4, and live in one function (`normalizeOpenCodeUsage`).
 `qayaba.tool.run_spec` / `qayaba.tool.authbrowser` SERVER spans opened inside `inRunContext` with the attempt as explicit parent
 (`adapters/tool-call-trace.ts`), and a scope whose child-parent is the call's span (`withExecScopeParent`), so the launcher's
 `qayaba.exec` spans are grandchildren of the attempt. Lease wait, namespace, spec path and sha256, outcome, refusal code, DEV-busy,
-co-temporal egress denials, browser action, guard block reasons, document status and session invalidation are attributes; no secret
+co-temporal egress denials, `qayaba.tool.failure_kind` on a `run_spec` call that did not pass (`app-defect|page-not-settled|not-found|value-mismatch|load-error|session-lost|timed-out|other`: the kind of the facts the call's failing tests left, `runSpecFailureKind` in `agent-tools/domain/authoring-failure.ts`, the lead's own classifier), browser action, guard block reasons, document status and session invalidation are attributes; no secret
 and no page content. The synthesized `execute_tool run_spec|authbrowser_*` span carries a span LINK to the server span, matched by
 session, tool, message id (when both sides carry it) and time overlap (`generation/domain/tool-link.ts`, pure); a match that cannot
 be made without a guess is not made. The attempt-to-tool-span edge is **connected** (parent/child); the tool-span-to-agent

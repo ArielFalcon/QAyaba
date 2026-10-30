@@ -109,6 +109,14 @@ test("a green manual run reports the same steps except the ones only a per-commi
   assert.deepEqual(await idsOf(input, "skipped"), ["classify-change", "run-fix-loop", "fix-triage", "fix-adjudicate", "fix-regenerate", "fix-accept", "fix-reexecute", "settle-fix-loop", "announce-coverage", "regenerate-for-coverage", "regenerate-for-branch-cases", "triage-flaky-cases", "remeasure-stale-coverage"]);
 });
 
+test("the coverage measurement of a run that has no green bytes is passed over with its reason, and one of a run that has them is not", async () => {
+  const failing = await runOf({ ...base, mode: "diff", runId: "sequence-skip-reason" }, async () => ({ verdict: "fail", cases: [{ name: "a", status: "fail", file: "a.spec.ts", detail: "boom" }], logs: "" }), "fail");
+  assert.deepEqual(failing.steps.find((step) => step.id === "measure-coverage"), { id: "measure-coverage", outcome: "skipped", phase: failing.steps.find((step) => step.id === "measure-coverage")!.phase, reason: "no-green-bytes" });
+
+  const green = await runOf({ ...base, mode: "diff", runId: "sequence-no-skip-reason" });
+  assert.equal(green.steps.find((step) => step.id === "measure-coverage")?.outcome, "ran");
+});
+
 test("the first step of a run is reported in the phase it opens", async () => {
   const recorder = await runOf({ ...base, mode: "diff", runId: "sequence-first-phase" });
   assert.deepEqual(recorder.steps[0], { id: "wait-for-deploy", outcome: "ran", phase: "gate" });

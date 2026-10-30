@@ -393,6 +393,7 @@ export class RunQaUseCase {
           "qayaba.run_step.id": event.id,
           "qayaba.run_step.outcome": event.outcome,
           ...(event.outcome === "ended" ? { "qayaba.run_step.reason": event.reason } : {}),
+          ...(event.outcome === "skipped" && event.reason !== undefined ? { "qayaba.run_step.reason": event.reason } : {}),
         });
         this.deps.stateObserver?.(state, event);
         if (this.deps.onCheckpoint) this.deps.onCheckpoint(checkpointOf(state, live, event.id));

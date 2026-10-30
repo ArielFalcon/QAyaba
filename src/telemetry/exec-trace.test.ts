@@ -84,6 +84,24 @@ test("a page-opening child carries the app's geolocation in its span and its env
   }
 });
 
+test("a Playwright child names what it was run for and under which namespace, and a child that names neither carries neither", () => {
+  const t = launcher();
+  try {
+    t.port.spawn("npx", ["playwright", "test"], { cwd: "/m", profile: "suite", commandClass: "playwright-test", purpose: "mutant", namespace: "run-7-mut0", scope: t.scope });
+    t.port.spawn("npx", ["tsc"], { cwd: "/m", profile: "offline", commandClass: "tsc", scope: t.scope });
+    t.children[0]!.emit("close", 0, null);
+    t.children[1]!.emit("close", 0, null);
+
+    const [mutant, tsc] = t.h.named("qayaba.exec");
+    assert.equal(mutant!.attributes["qayaba.exec.purpose"], "mutant");
+    assert.equal(mutant!.attributes["qayaba.exec.namespace"], "run-7-mut0");
+    assert.equal(tsc!.attributes["qayaba.exec.purpose"], undefined);
+    assert.equal(tsc!.attributes["qayaba.exec.namespace"], undefined);
+  } finally {
+    t.dispose();
+  }
+});
+
 test("a call site that names no command class is recorded as other", () => {
   const t = launcher();
   try {

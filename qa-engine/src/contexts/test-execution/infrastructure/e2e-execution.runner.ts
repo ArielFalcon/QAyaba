@@ -24,6 +24,7 @@ import { openDumpBridge } from "./run-dump-bridge.ts";
 import { harvestSpanObserver } from "./harvest-spans.ts";
 import type { OffLoopExecutor } from "../../../shared-infrastructure/worker/off-loop-executor.ts";
 import type { TelemetryPort } from "../../../shared-kernel/telemetry/telemetry.port.ts";
+import { purposeOfExecution, type ExecPurpose } from "../../../shared-kernel/exec-purpose.ts";
 import { readObservations } from "./observation-reader.ts";
 import type { ObservedPage } from "@contexts/objective-signal/application/index.ts";
 import { activeExecScope } from "../../../shared-infrastructure/process-sandbox/exec-scope.ts";
@@ -97,6 +98,8 @@ export interface E2eExecuteOptions {
   grep?: string;
   /* Have the fixtures count the mutating requests the specs send to DEV, and run a control load (a Playwright child of its own, before the spec child) whose findings the fixtures' ledgers are charged against (PW_COUNT_DEV_WRITES), and report in `devWrites` the writes the control does not account for. Such a run is a spec the generator is trying, not the suite: it is not measured for change-coverage (PW_COVERAGE=0), which would only slow it. */
   countWrites?: boolean;
+  /* What the execution is for, named in the trace. Absent, the shape of the request tells (a mutant, an observation, a counted run_spec, the cleanup pass), and anything else is the suite. */
+  purpose?: ExecPurpose;
   /* Run as the dedicated cleanup pass: the child is handed PW_CLEANUP=1, which the seed's cleanup.spec.ts needs to do anything (it skips otherwise), and `namespace` is then the BASE data prefix to clean. */
   cleanupPass?: boolean;
 }
@@ -170,6 +173,8 @@ export interface E2eExecuteDeps {
     grep?: string;
     countWrites?: boolean;
     cleanupPass?: boolean;
+    /** What the execution is for, named on the spans of its children. Absent: told by the shape of the request. */
+    purpose?: ExecPurpose;
     signal?: AbortSignal;
     timeoutMs?: number;
     onEvent?: (ev: StreamEvent) => void;
@@ -295,6 +300,7 @@ export async function runE2E(
     ...(deps.dataState ? { dataState: deps.dataState } : {}),
     ...(opts.mutant !== undefined ? { mutant: opts.mutant } : {}),
     ...(opts.observe ? { observe: true } : {}),
+    ...(opts.purpose ? { purpose: opts.purpose } : {}),
     /* No project unless one is configured: the repo owns its playwright.config.ts, so every project it defines runs. The seed keeps its login setup project out of a suite run itself (it is defined only under PW_AUTH_SETUP). */
     project: opts.project,
     testIdAttribute: opts.testIdAttribute,
@@ -873,6 +879,8 @@ export function createDefaultE2eCleanupDeps(processKill: ProcessKillPort = new P
           cwd: dir,
           profile: "suite",
           commandClass: "playwright-test",
+          purpose: "cleanup",
+          namespace,
           extraEnv: { PW_BASE_URL: baseUrl, PW_NAMESPACE: namespace, PW_CLEANUP: "1", ...(testIdAttribute ? { PW_TEST_ID_ATTRIBUTE: testIdAttribute } : {}) },
           /* Nothing reads the cleanup's output. Piped and unread, it would block the child once the OS pipe buffer fills, and keep the pipes open to any descendant that outlives it. */
           stdio: "ignore",
@@ -979,7 +987,7 @@ export function createDefaultE2eExecuteDeps(
       const dir = exec.allocDir("failures", ["dumps"]);
       return { dir: join(dir, "dumps"), root: exec.workDir(), dispose: () => { try { rmSync(dir, { recursive: true, force: true }); } catch { /* best-effort */ } } };
     },
-    runSuite: ({ dir, baseUrl, namespace, geolocation, dataState, testIdAttribute, mutant, observe, project, specFiles, retries, grep, countWrites, cleanupPass, signal, timeoutMs, onEvent, onChildClosed, failureCaptureDir, onControlRead }) =>
+    runSuite: ({ dir, baseUrl, namespace, geolocation, dataState, testIdAttribute, mutant, observe, project, specFiles, retries, grep, countWrites, cleanupPass, purpose, signal, timeoutMs, onEvent, onChildClosed, failureCaptureDir, onControlRead }) =>
       new Promise((resolve, reject) => {
         /* The specs to run, as a file the orchestrator writes (root-owned, read-only to the sandbox): the child is told which files by an exact list, never by a pattern. */
         const testListPath = specFiles !== undefined && specFiles.length > 0 ? exec.writeScript("spec-list.txt", specListContent(specFiles)) : undefined;
@@ -1056,6 +1064,8 @@ export function createDefaultE2eExecuteDeps(
             cwd: dir,
             profile: "suite",
             commandClass: "playwright-test",
+            purpose: purposeOfExecution({ ...(purpose ? { purpose } : {}), ...(mutant !== undefined ? { mutant } : {}), ...(observe ? { observe } : {}), ...(countWrites ? { countWrites } : {}), ...(cleanupPass ? { cleanupPass } : {}) }),
+            namespace,
             ...(geolocation ? { geolocation } : {}),
             extraEnv: { ...sharedEnv, PLAYWRIGHT_JSON_OUTPUT_NAME: jsonPath, ...(cleanupPass ? { PW_CLEANUP: "1" } : {}), ...(countWrites ? { PW_COUNT_DEV_WRITES: "1", PW_COVERAGE: "0" } : {}), ...(mutant ? { PW_MUTANT: mutant } : {}), ...(observe ? { PW_OBSERVE: "1" } : {}), ...(failureCaptureDir && dataState ? { PW_DATA_STATE: JSON.stringify(dataState) } : {}) },
           });
@@ -1092,6 +1102,8 @@ export function createDefaultE2eExecuteDeps(
             cwd: dir,
             profile: "suite",
             commandClass: "playwright-test",
+            purpose: "control",
+            namespace,
             ...(geolocation ? { geolocation } : {}),
             extraEnv: { ...sharedEnv, PW_CONTROL_TIMEOUT_MS: String(controlLoadMs(ms)) },
           });

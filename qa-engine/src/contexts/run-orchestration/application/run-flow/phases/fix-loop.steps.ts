@@ -68,6 +68,7 @@ function fixLoopFor(state: Readonly<RunState>, ctx: WorkspaceRunContext, pending
     execute: async (fixLoopInput) => {
       const r = await deps.execution.execute(workspace.specDir, {
         ...liveExecutionOpts,
+        purpose: "fix-retry",
         ...(fixLoopInput.specFiles ? { specFiles: fixLoopInput.specFiles } : {}),
         ...(fixLoopInput.namespace ? { namespace: fixLoopInput.namespace } : {}),
         ...(fixLoopInput.retries !== undefined ? { retries: fixLoopInput.retries } : {}),

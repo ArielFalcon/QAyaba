@@ -138,7 +138,7 @@ function rig(t: TestContext, over: { telemetry?: TelemetryPort } = {}): Rig {
   };
 }
 
-async function openLoop(r: Rig, over: { execute?: () => Promise<void>; trace?: ToolTraceWiring | undefined; devWrites?: number } = {}) {
+async function openLoop(r: Rig, over: { execute?: () => Promise<void>; trace?: ToolTraceWiring | undefined; devWrites?: number; cases?: Array<{ name: string; status: "pass" | "fail"; detail?: string; httpStatus?: number }>; verdict?: "pass" | "fail" } = {}) {
   const registry = new ClosedLoopRegistry();
   const adapter = new ClosedLoopPortAdapter({
     registry,
@@ -148,7 +148,7 @@ async function openLoop(r: Rig, over: { execute?: () => Promise<void>; trace?: T
       execute: async () => {
         await over.execute?.();
         r.spawnInScope();
-        return { verdict: "pass", cases: [{ name: "loads", status: "pass" }], logs: "", devWrites: over.devWrites ?? 0 };
+        return { verdict: over.verdict ?? "pass", cases: over.cases ?? [{ name: "loads", status: "pass" }], logs: "", devWrites: over.devWrites ?? 0 };
       },
     },
     specRelDir: "e2e",
@@ -190,6 +190,35 @@ test("a sandboxed child of a run_spec call is a grandchild of the attempt that m
   assert.equal(tool.attributes["gen_ai.conversation.id"], SESSION);
   assert.deepEqual(r.h.unended(), []);
   assert.deepEqual(r.h.orphans(), []);
+});
+
+test("a run_spec call that did not pass says why in the vocabulary the loop already uses for its facts, and one that passed says nothing", async (t) => {
+  const kinds: Array<[string, { name: string; status: "fail"; detail: string; httpStatus?: number }, string]> = [
+    ["a value read differently", { name: "loads", status: "fail", detail: "expect(locator).toHaveText(expected)\nExpected: 3\nReceived: 4" }, "value-mismatch"],
+    ["an element that was not there", { name: "loads", status: "fail", detail: "locator.click: Timeout 8000ms exceeded.\nwaiting for getByRole('button', { name: 'Pay' })" }, "not-found"],
+    ["a page that answered 500", { name: "loads", status: "fail", detail: "expect(locator).toBeVisible()", httpStatus: 503 }, "app-defect"],
+  ];
+  for (const [label, failing, kind] of kinds) {
+    const r = rig(t);
+    const registry = await openLoop(r, { verdict: "fail", cases: [failing] });
+    await r.turn(async (stream) => {
+      stream(stepStart("a"), toolEvent("c1", "run_spec", "running", { start: r.clock.now() }));
+      await registry.find(SESSION)!.call({ sessionId: SESSION, agent: "qa-author", path: "flows/a.spec.ts", messageId: "m1" });
+      stream(toolEvent("c1", "run_spec", "completed", { start: T0 + 10, end: r.clock.now() }));
+    });
+    const tool = r.h.only("qayaba.tool.run_spec");
+    assert.equal(tool.attributes["qayaba.tool.outcome"], "failed", label);
+    assert.equal(tool.attributes["qayaba.tool.failure_kind"], kind, label);
+  }
+
+  const green = rig(t);
+  const registry = await openLoop(green);
+  await green.turn(async (stream) => {
+    stream(stepStart("a"), toolEvent("c1", "run_spec", "running", { start: green.clock.now() }));
+    await registry.find(SESSION)!.call({ sessionId: SESSION, agent: "qa-author", path: "flows/a.spec.ts", messageId: "m1" });
+    stream(toolEvent("c1", "run_spec", "completed", { start: T0 + 10, end: green.clock.now() }));
+  });
+  assert.equal(green.h.only("qayaba.tool.run_spec").attributes["qayaba.tool.failure_kind"], undefined);
 });
 
 test("the wait for the test account's lease is recorded on the call", async (t) => {

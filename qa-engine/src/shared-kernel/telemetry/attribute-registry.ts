@@ -449,7 +449,7 @@ export const ATTRIBUTES = {
   "qayaba.dumps.start_ms": int("Milliseconds from the call until the worker said it had begun (its thread, its module, the bytes handed over); absent when it never did."),
   "qayaba.dumps.work_ms": int("Milliseconds from the moment the worker had begun to the outcome, which is what the budget of the work bounds."),
   "qayaba.coverage.evidence_left_out": spec("string[]", "The ways a read ended that a measurement that decided something stands without: decode-aborted, decode-heap-limit, decode-crashed, decode-unavailable, dumps-over-cap or dumps-unusable.", "low", "none", 6),
-  "qayaba.exec.purpose": str("What a Playwright child was run for: suite (a whole-suite or re-run execution), run-spec, control, mutant, observation or cleanup."),
+  "qayaba.exec.purpose": str("What a Playwright child was run for: suite (the whole suite), acceptance (a regeneration's changed spec files), fix-retry (a fix-loop re-run), run-spec, control, mutant, observation or cleanup."),
   "qayaba.exec.namespace": str("The data namespace a Playwright child ran under (its dumps are read under it).", "high"),
   "qayaba.tool.failure_kind": str("Why a run_spec call that did not pass failed: app-defect, page-not-settled, not-found, value-mismatch, load-error, session-lost, timed-out or other."),
 

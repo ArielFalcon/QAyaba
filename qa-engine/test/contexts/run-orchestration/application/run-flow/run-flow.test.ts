@@ -38,6 +38,17 @@ test("a step whose condition says no is passed over without opening its phase", 
   assert.deepEqual(entered, []);
 });
 
+test("a step passed over says why when its table says why, and says nothing otherwise", async () => {
+  const { events, hooks } = recorder();
+  await runFlow(
+    [recording("a", undefined, { runs: () => false }), recording("b", undefined, { runs: () => false, skipReason: () => "no-green-bytes" }), recording("c")],
+    { trace: [], n: 0 },
+    { skipB: false },
+    hooks,
+  );
+  assert.deepEqual(events, [{ id: "a", outcome: "skipped" }, { id: "b", outcome: "skipped", reason: "no-green-bytes" }, { id: "c", outcome: "ran" }]);
+});
+
 test("the first step that ends the run stops the walk and its end, with the reason and facts, is returned", async () => {
   const ending: Step = { id: "end", phase: "validate", run: async () => end("setup-failed", { note: "npm ci failed" }) };
   const { entered, hooks } = recorder();

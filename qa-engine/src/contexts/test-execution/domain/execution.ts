@@ -1,4 +1,5 @@
 import type { QaCase } from "@kernel/qa-case.ts";
+import type { ExecPurpose } from "@kernel/exec-purpose.ts";
 
 /**
  * Optional execute bag. Also accepts a bare AbortSignal (normalized to
@@ -29,4 +30,6 @@ export interface ExecutionOpts {
    * the first run. Absent falls back to the composition-time namespace.
    */
   namespace?: string;
+  /** What the execution is for, for the trace. Absent, the shape of the request tells (a counted run is a run_spec call) and anything else is the suite. */
+  purpose?: ExecPurpose;
 }

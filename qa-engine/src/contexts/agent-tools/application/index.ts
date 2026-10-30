@@ -8,6 +8,8 @@ export type { ClosedLoopPort } from "./ports/closed-loop.port.ts";
 export type { CodeGraphToolsPort } from "./ports/code-graph-tools.port.ts";
 export type { GeolocationPort } from "./ports/geolocation.port.ts";
 export type { AgentBrowserHandle, AgentBrowserOpenInput } from "../domain/agent-browser.ts";
+export { AUTHORING_FAILURE, classifyAuthoringFailure, RUN_SPEC_FAILURE_KINDS, runSpecFailureKind } from "../domain/authoring-failure.ts";
+export type { AuthoringFailure, AuthoringFailureKind, RunSpecFailureKind } from "../domain/authoring-failure.ts";
 export type { ClosedLoopHandle, ClosedLoopOpenInput, ClosedLoopSignals, FlowFailureFact, FlowLedgerEntry, FlowLoopHandle, FlowLoopOpenInput } from "../domain/closed-loop.ts";
 export type { CodeGraphToolsHandle, CodeGraphToolsOpenInput } from "../domain/code-graph-tools.ts";
 export type { FlowGeolocationHandle, GeolocationHandle, GeolocationOpenInput } from "../domain/geolocation.ts";

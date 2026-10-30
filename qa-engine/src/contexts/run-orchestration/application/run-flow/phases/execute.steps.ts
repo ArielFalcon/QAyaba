@@ -51,6 +51,7 @@ export function liveExecutionOptions(ctx: WorkspaceRunContext) {
 export const executeAccepted = (ctx: WorkspaceRunContext): ExecutionPort["execute"] => (specDir, opts) =>
   ctx.deps.execution.execute(specDir, {
     ...liveExecutionOptions(ctx),
+    purpose: "acceptance",
     ...(opts === undefined ? {} : opts instanceof AbortSignal ? { signal: opts } : opts),
   });
 

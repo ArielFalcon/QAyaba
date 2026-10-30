@@ -21,6 +21,9 @@ type Result = Promise<StepOutcome<RunState>>;
 /* A context run executes nothing (its pass is synthetic), so it has no coverage or value to measure. */
 export const measuresCoverage = (state: Readonly<RunState>, ctx: WorkspaceRunContext): boolean => hasGreenBytes(runOf(state).verdict) && ctx.input.mode !== "context";
 
+/* Why the measurement is passed over: a context run executes nothing, and a verdict with no green bytes has nothing to measure. */
+export const coverageSkipReason = (state: Readonly<RunState>, ctx: WorkspaceRunContext): string => (ctx.input.mode === "context" ? "context-run" : "no-green-bytes");
+
 /* The arms of the decisions on changed lines a measurement counted, and how many ran; undefined when it saw none. */
 export const branchCoverageOf = (m: CoverageMeasurement | undefined): CoverageOutcome["branchCoverage"] =>
   m?.changedBranches !== undefined ? { changed: m.changedBranches, taken: m.takenBranches ?? 0 } : undefined;

@@ -35,14 +35,17 @@ export interface FlowStep<S, C, Id extends string = StepId> {
   phase?: RunPhase;
   /** Whether the step runs for this run; absent, it always does. */
   runs?: (state: Readonly<S>, ctx: C) => boolean;
+  /** Why the step was passed over, when `runs` said no: a step that is passed over by a decision of the run (a measurement with no green bytes to measure) says so in its event, so the trace never leaves a skipped step unexplained. Absent, the event carries no reason (the step's condition is the run's ordinary flow). */
+  skipReason?: (state: Readonly<S>, ctx: C) => string;
   /** The top-level fields of the state the step updates; an update outside them is a defect of the step and the runner refuses it. */
   writes?: readonly (keyof S)[];
   run: (state: Readonly<S>, ctx: C) => Promise<StepOutcome<S, Id>>;
 }
 
-/** What the runner tells the recorder about one step: it ran, it was passed over, or it ended the run (with the reason). */
+/** What the runner tells the recorder about one step: it ran, it was passed over (with its reason when the table gives one), or it ended the run (with the reason). */
 export type StepEvent<Id extends string = StepId> =
-  | { id: Id; outcome: "ran" | "skipped" }
+  | { id: Id; outcome: "ran" }
+  | { id: Id; outcome: "skipped"; reason?: string }
   | { id: Id; outcome: "ended"; reason: RunEnd["reason"] };
 
 /** What the runner needs from the run: the phase cursor, and somewhere to report the steps. */
@@ -96,7 +99,8 @@ export async function runFlow<S extends object, C, Id extends string = StepId>(
       return { end: runEnd("aborted") };
     }
     if (step.runs && !step.runs(state, ctx)) {
-      hooks.record({ id: step.id, outcome: "skipped" });
+      const reason = step.skipReason?.(state, ctx);
+      hooks.record({ id: step.id, outcome: "skipped", ...(reason !== undefined ? { reason } : {}) });
       index++;
       continue;
     }

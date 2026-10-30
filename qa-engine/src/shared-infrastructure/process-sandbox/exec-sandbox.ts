@@ -11,6 +11,7 @@ import type { SpanHandle, TelemetryPort } from "../../shared-kernel/telemetry/te
 import { activeRunSecretScope } from "../../shared-kernel/run-secret-redaction.ts";
 import { mirrorTopDir, openMirrorForSandbox, type MirrorFsOps } from "./mirror-access.ts";
 import { allocWorkSubdir, stageAuthMaterial, writeWorkScript } from "./exec-workdir.ts";
+import type { ExecPurpose } from "../../shared-kernel/exec-purpose.ts";
 import { sandboxSpawnOptions, type Sandbox } from "./sandbox.ts";
 import { SandboxResidueError, liveSandboxChildren, trackSandboxChild, type SandboxReaper } from "./sandbox-reaper.ts";
 
@@ -83,6 +84,9 @@ export interface ExecSpawnOptions {
   profile: SandboxProfile;
   /* What the child is for, for its span. Absent: other. */
   commandClass?: ExecCommandClass;
+  /* What a Playwright child was run for (a whole suite, a run_spec call, a control load, a mutant's re-run...) and the data namespace it runs under, for its span: the command class cannot tell them apart. Absent: neither is recorded. */
+  purpose?: ExecPurpose;
+  namespace?: string;
   /* The browser position a suite or login child opens pages with. Absent: the seed's default. */
   geolocation?: GeoPoint;
   /* The account, honored by the login profile alone. */
@@ -322,6 +326,8 @@ function openExecSpan(telemetry: TelemetryPort, scope: RunScope, options: ExecSp
       attrs: {
         "qayaba.exec.profile": options.profile,
         "qayaba.exec.command_class": options.commandClass ?? "other",
+        ...(options.purpose ? { "qayaba.exec.purpose": options.purpose } : {}),
+        ...(options.namespace ? { "qayaba.exec.namespace": options.namespace } : {}),
         ...(options.geolocation ? { "qayaba.geo.lat": options.geolocation.latitude, "qayaba.geo.lng": options.geolocation.longitude } : {}),
       },
     });

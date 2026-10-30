@@ -1,5 +1,6 @@
 import type { RunVerdict } from "@kernel/run-verdict.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
+import type { ExecPurpose } from "@kernel/exec-purpose.ts";
 import type { DevWriteRequest } from "./dev-write-request.ts";
 import type { SpecLoadError } from "./spec-load-error.ts";
 import type { ExpectedFailureTest, SkippedTest } from "./skipped-test.ts";
@@ -23,6 +24,8 @@ export interface ExecutionRequest {
   grep?: string;
   /** Have the fixtures count the writes the specs send to DEV; the total comes back as `devWrites`. */
   countWrites?: boolean;
+  /** What the execution is for, for the trace. */
+  purpose?: ExecPurpose;
   signal?: AbortSignal;
   timeoutMs?: number;
   testIdAttribute?: string;

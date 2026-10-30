@@ -100,6 +100,7 @@ export class AcceptDeliveredSpecsUseCase {
         specFiles: [...input.specs],
         namespace: `${input.namespace}-acc${n}`,
         retries: 0,
+        purpose: "acceptance",
         ...(input.signal ? { signal: input.signal } : {}),
       });
       executions.push({ verdict: result.verdict, cases: result.cases });

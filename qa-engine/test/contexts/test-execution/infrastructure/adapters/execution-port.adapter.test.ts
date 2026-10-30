@@ -18,7 +18,7 @@ import type { E2eExecuteOptions } from "@contexts/test-execution/infrastructure/
 const E2E_EXECUTE_OPTIONS_ALL_FIELDS = {
   baseUrl: true, namespace: true, onCase: true, onRunning: true, onDiscovered: true,
   signal: true, timeoutMs: true, project: true, testIdAttribute: true,
-  specFiles: true, retries: true, grep: true, countWrites: true, cleanupPass: true, mutant: true, observe: true,
+  specFiles: true, retries: true, grep: true, countWrites: true, purpose: true, cleanupPass: true, mutant: true, observe: true,
 } satisfies Record<keyof E2eExecuteOptions, true>;
 
 const E2E_EXECUTE_OPTIONS_ALLOWLIST: Record<string, string> = {
@@ -30,7 +30,7 @@ const E2E_EXECUTE_OPTIONS_ALLOWLIST: Record<string, string> = {
 };
 
 test("E2eExecuteOptions' own field list matches the allowlist + ExecutionPortAdapter's mapped set exactly (retired seam-parity block (c))", () => {
-  const mapped = ["onCase", "onRunning", "onDiscovered", "signal", "timeoutMs", "project", "testIdAttribute", "specFiles", "retries", "grep", "countWrites"];
+  const mapped = ["onCase", "onRunning", "onDiscovered", "signal", "timeoutMs", "project", "testIdAttribute", "specFiles", "retries", "grep", "countWrites", "purpose"];
   const allFieldNames = Object.keys(E2E_EXECUTE_OPTIONS_ALL_FIELDS).sort();
   const accountedFor = [...new Set([...mapped, ...Object.keys(E2E_EXECUTE_OPTIONS_ALLOWLIST)])].sort();
   assert.deepEqual(accountedFor, allFieldNames, "every E2eExecuteOptions field must be either mapped by ExecutionPortAdapter or allowlisted with a reason");
@@ -54,6 +54,20 @@ test("execute() dispatches to E2eExecutionStrategy and forwards baseUrl/namespac
 });
 
 /* The queue's AbortSignal must reach Playwright: the adapter declares and forwards it. */
+
+test("execute() forwards what the execution is for into the e2e strategy's ExecutionRequest", async () => {
+  let captured: unknown;
+  const e2e = new E2eExecutionStrategy(async (_specDir, opts) => {
+    captured = opts;
+    return { verdict: "pass", cases: [], logs: "" };
+  });
+  const adapter = new ExecutionPortAdapter({ e2e }, { baseUrl: "https://dev.example.com", namespace: "qa-bot-abc1234" });
+
+  await adapter.execute("/mirrors/org/app/e2e", { purpose: "acceptance" });
+  assert.equal((captured as { purpose?: string }).purpose, "acceptance");
+  await adapter.execute("/mirrors/org/app/e2e", {});
+  assert.equal("purpose" in (captured as object), false, "a caller that names none leaves the runner to tell");
+});
 
 test("execute() forwards an AbortSignal into the e2e strategy's ExecutionRequest", async () => {
   const controller = new AbortController();

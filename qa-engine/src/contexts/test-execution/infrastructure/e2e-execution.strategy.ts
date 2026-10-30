@@ -1,6 +1,7 @@
 import type { ExecutionStrategyPort } from "../application/ports/execution-strategy.port.ts";
 import type { ExecutionRequest, ExecutionResult } from "../domain/execution-strategy.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
+import type { ExecPurpose } from "@kernel/exec-purpose.ts";
 import { InfraError } from "@kernel/domain-error.ts";
 import type { DevWriteRequest } from "../domain/dev-write-request.ts";
 import type { SpecLoadError } from "../domain/spec-load-error.ts";
@@ -16,6 +17,7 @@ type RunE2eFn = (
     retries?: number;
     grep?: string;
     countWrites?: boolean;
+    purpose?: ExecPurpose;
     signal?: AbortSignal;
     timeoutMs?: number;
     testIdAttribute?: string;
@@ -38,6 +40,7 @@ export class E2eExecutionStrategy implements ExecutionStrategyPort {
       ...(req.retries !== undefined ? { retries: req.retries } : {}),
       ...(req.grep !== undefined ? { grep: req.grep } : {}),
       ...(req.countWrites ? { countWrites: true } : {}),
+      ...(req.purpose ? { purpose: req.purpose } : {}),
       ...(req.signal ? { signal: req.signal } : {}),
       ...(req.timeoutMs !== undefined ? { timeoutMs: req.timeoutMs } : {}),
       ...(req.testIdAttribute !== undefined ? { testIdAttribute: req.testIdAttribute } : {}),

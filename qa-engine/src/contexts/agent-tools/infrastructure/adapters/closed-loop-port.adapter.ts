@@ -31,7 +31,7 @@ import type { ClosedLoopPort } from "../../application/ports/closed-loop.port.ts
 import type { ClosedLoopRegistry } from "../closed-loop-registry.ts";
 import { trustedSessionRenewal } from "./trusted-session-renewal.ts";
 import { traceToolCall, type ToolObserver, type ToolTraceWiring } from "./tool-call-trace.ts";
-import { runSpecOutcome } from "./tool-call-outcome.ts";
+import { runSpecFailureAttrs, runSpecOutcome } from "./tool-call-outcome.ts";
 
 /* How many times a run's calls may renew the saved session from inside the authoring loop (trusted-session-renewal.ts). */
 export const MAX_RUN_SPEC_RENEWALS = 1;
@@ -117,7 +117,7 @@ export class ClosedLoopPortAdapter implements ClosedLoopPort {
         mine.add(own);
         running.set(request.sessionId, mine);
         try {
-          return await inRunContext(() => this.served(request, (observer) => useCase.run(request, own.signal, observer)));
+          return await inRunContext(() => this.served(request, capability, (observer) => useCase.run(request, own.signal, observer)));
         } finally {
           mine.delete(own);
           if (mine.size === 0) running.delete(request.sessionId);
@@ -131,8 +131,11 @@ export class ClosedLoopPortAdapter implements ClosedLoopPort {
   }
 
   /* One call, as a span of the orchestrator's own when tracing is wired; the answer is the use case's, untouched. */
-  private served(request: RunSpecRequest, run: (observer: ToolObserver) => Promise<RunSpecResponse>): Promise<RunSpecResponse> {
-    return traceToolCall(this.deps.trace, { span: "qayaba.tool.run_spec", tool: "run_spec", sessionId: request.sessionId, messageId: request.messageId }, run, runSpecOutcome);
+  private served(request: RunSpecRequest, capability: RunSpecCapability, run: (observer: ToolObserver) => Promise<RunSpecResponse>): Promise<RunSpecResponse> {
+    /* A call that began settles its ledger entry before it answers: a new last entry is this call's, none is a call that never ran a spec. */
+    const before = capability.ledger.length;
+    const outcome = (answer: RunSpecResponse) => ({ ...runSpecOutcome(answer), ...runSpecFailureAttrs(answer, capability.ledger.length > before ? capability.ledger.at(-1)?.failures : undefined) });
+    return traceToolCall(this.deps.trace, { span: "qayaba.tool.run_spec", tool: "run_spec", sessionId: request.sessionId, messageId: request.messageId }, run, outcome);
   }
 
   private handle(input: ClosedLoopOpenInput, capability: RunSpecCapability, runWrites: RunDevWriteLedger, root: SpecRoot, inRunContext: <R>(fn: () => R) => R, session: ReturnType<typeof trustedSessionRenewal> | undefined): ClosedLoopHandle {
@@ -227,7 +230,7 @@ export class ClosedLoopPortAdapter implements ClosedLoopPort {
         mine.add(own);
         running.set(request.sessionId, mine);
         try {
-          return await inRunContext(() => this.served(request, (observer) => useCase.run(request, own.signal, observer)));
+          return await inRunContext(() => this.served(request, capability, (observer) => useCase.run(request, own.signal, observer)));
         } finally {
           mine.delete(own);
           if (mine.size === 0) running.delete(request.sessionId);
