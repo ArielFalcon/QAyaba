@@ -555,7 +555,7 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   runs of the same kind (the row of the run time budget table a run was bounded as: `diff-tiny`, `diff-focused`, `diff-broad`,
   `manual` or `context`, stored as `runs.time_budget`; a tiny change's reserve is not set by broader runs) that entered the purpose's
   phases, finished them and were not cut in them (`runs.phase_timings`, `runs.limits`, read once when the deadline is armed through
-  `PhaseHistoryPort`; a phase a run never entered is no sample of it, and a purpose a run's deadline or share cut is none either; a purpose no run entered although runs finished whole and uncut measures 0, an empty history nothing). Following purposes with
+  `PhaseHistoryPort`; a phase a run never entered is no sample of it, and a purpose a run's deadline or share cut is none either; a purpose no run entered although runs with green bytes finished whole and uncut measures 0 (a streak of failing runs says nothing about the review or the coverage), an empty history nothing). Following purposes with
   no completed run share one fallback reserve, a quarter of what is left and at least 120 s (`FALLBACK_RESERVE_SHARE`,
   `FALLBACK_RESERVE_MIN_MS`), except the decision, which holds back only its measured time (publication takes seconds and is never
   cut at the deadline); a history that cannot be read leaves every reserve on the fallback and logs it. The first time each

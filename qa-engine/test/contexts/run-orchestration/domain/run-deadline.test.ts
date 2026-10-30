@@ -210,9 +210,19 @@ test("a phase a run never entered is no sample of it: runs that failed before th
   assert.equal(measured.get("review"), 4 * MIN, "the nine runs that reviewed set it, the eleven that never entered it add no zero");
   assert.equal(measured.get("coverage"), 2 * MIN);
   const never = measuredPurposeDurations(Array.from({ length: 5 }, failedBeforeReview));
-  assert.equal(never.get("review"), 0, "no run of the history entered the review although they finished whole: runs of this kind spend no time there");
+  assert.equal(never.has("review"), false, "a streak of runs that failed before the review never had green bytes to review: the fallback stands, not a zero");
+  assert.equal(never.has("coverage"), false);
   assert.equal(never.get("execute"), 3 * MIN);
   assert.equal(measuredPurposeDurations([]).has("review"), false, "no history says nothing: the fallback stands");
+});
+
+test("a purpose that whole runs with green bytes passed over takes no time for runs of that kind", () => {
+  const { review: _review, ...noReview } = TYPICAL.phaseTimings;
+  const greenWithoutReview: PhaseRecord = { furthestPhase: "learn", phaseTimings: noReview };
+  const measured = measuredPurposeDurations([greenWithoutReview, greenWithoutReview]);
+  assert.equal(measured.get("review"), 0, "an app whose green runs are never reviewed spends no time there");
+  assert.equal(measured.get("fix"), 0, "green runs that never entered the fix loop");
+  assert.equal(measured.get("coverage"), 2 * MIN);
 });
 
 test("a purpose that no run entered is not measured as none when every run that could say so was cut", () => {

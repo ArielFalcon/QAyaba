@@ -78,13 +78,14 @@ function median(samples: readonly number[]): number {
  * The typical time each purpose took in the app's recent runs of one kind. A run is a sample of a purpose only when it entered one of
  * its phases, finished every phase of it that it entered and was not cut in it: a phase a run never entered (a run that failed before the
  * review) took no time for want of being run, which says nothing about how long it takes, and a cut phase says how long the cut came. A
- * purpose no run sampled is absent, and its reserve falls back, except one that no run of the history entered although runs finished
- * whole (reached the end, cut nowhere): runs of that kind spend no time there (an app that does not review, a fix loop only a failing
- * run enters), which is its measure, 0.
+ * purpose no run sampled is absent, and its reserve falls back, except one that no run of the history entered although runs with green
+ * bytes finished whole (reached the end, cut nowhere, measured their coverage, which every run with green bytes does): runs of that kind
+ * spend no time there (an app that does not review, a fix loop only a failing run enters), which is its measure, 0. Runs that never had
+ * green bytes say nothing about what only green bytes reach: a streak of failing runs leaves the review and the coverage to the fallback.
  */
 export function measuredPurposeDurations(records: readonly PhaseRecord[]): Map<DeadlinePurpose, number> {
   const measured = new Map<DeadlinePurpose, number>();
-  const finishedWhole = records.some((record) => (record.furthestPhase === "learn" || record.furthestPhase === "publish") && (record.cutPurposes?.length ?? 0) === 0);
+  const finishedWholeGreen = records.some((record) => (record.furthestPhase === "learn" || record.furthestPhase === "publish") && (record.cutPurposes?.length ?? 0) === 0 && PHASES_OF_PURPOSE.coverage.some((phase) => record.phaseTimings[phase] !== undefined));
   for (const purpose of DEADLINE_PURPOSES) {
     const samples: number[] = [];
     let anyEntered = false;
@@ -96,7 +97,7 @@ export function measuredPurposeDurations(records: readonly PhaseRecord[]): Map<D
       samples.push(entered.reduce((sum, phase) => sum + Math.max(0, record.phaseTimings[phase] ?? 0), 0));
     }
     if (samples.length > 0) measured.set(purpose, median(samples));
-    else if (!anyEntered && finishedWhole) measured.set(purpose, 0);
+    else if (!anyEntered && finishedWholeGreen) measured.set(purpose, 0);
   }
   return measured;
 }
