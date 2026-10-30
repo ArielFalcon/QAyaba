@@ -11,8 +11,10 @@ const repoRoot = join(import.meta.dirname, "..", "..", "..");
 const SCANNED_ROOTS = ["src", "qa-engine/src"];
 const LEVEL_METHODS = new Set(["debug", "info", "warn", "error"]);
 
-/* The catch throws the run's end right after carryOn, so its line is an end, not a carried-on fault. */
-const ENDS_THE_RUN: readonly string[] = ["qa-engine/src/contexts/run-orchestration/application/run-flow/phases/generate.steps.ts"];
+/* The catch throws the run's end right after carryOn, so its line is an end, not a carried-on fault. Only that line is exempt: the file is named with the start of the call. */
+const ENDS_THE_RUN: Readonly<Record<string, string>> = {
+  "qa-engine/src/contexts/run-orchestration/application/run-flow/phases/generate.steps.ts": "engineLog.error(`[qa] coordination failed (no author sidekick ran)",
+};
 
 function sourceFiles(dir: string): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
@@ -60,8 +62,11 @@ function containsCall(node: ts.Node, name: string): boolean {
 test("no catch block that carries on past a fault writes its line at a literal level", () => {
   const offenders = SCANNED_ROOTS.flatMap((root) => sourceFiles(join(repoRoot, root)))
     .map((file) => relative(repoRoot, file).split("\\").join("/"))
-    .filter((rel) => !ENDS_THE_RUN.includes(rel))
-    .flatMap((rel) => literalLevelsAfterCarryOn(readFileSync(join(repoRoot, rel), "utf8")).map((call) => `${rel}: ${call.split("\n")[0]}`));
+    .flatMap((rel) =>
+      literalLevelsAfterCarryOn(readFileSync(join(repoRoot, rel), "utf8"))
+        .filter((call) => !(ENDS_THE_RUN[rel] !== undefined && call.startsWith(ENDS_THE_RUN[rel]!)))
+        .map((call) => `${rel}: ${call.split("\n")[0]}`),
+    );
   assert.deepEqual(offenders, []);
 });
 
@@ -74,9 +79,16 @@ test("a literal level after carryOn is caught, a level the policy returned is no
   assert.deepEqual(literalLevelsAfterCarryOn(unrelated), []);
 });
 
-test("the one catch allowed to keep a literal level still ends the run after carryOn", () => {
-  for (const rel of ENDS_THE_RUN) {
-    const text = readFileSync(join(repoRoot, rel), "utf8");
-    assert.ok(literalLevelsAfterCarryOn(text).length > 0, `${rel} no longer needs its exception`);
+test("the one line allowed to keep a literal level is still in a catch that ends the run after carryOn, and is the only literal level of its file", () => {
+  for (const [rel, start] of Object.entries(ENDS_THE_RUN)) {
+    const calls = literalLevelsAfterCarryOn(readFileSync(join(repoRoot, rel), "utf8"));
+    assert.deepEqual(calls.filter((call) => call.startsWith(start)).length, 1, `${rel} no longer needs its exception`);
+    assert.deepEqual(calls.filter((call) => !call.startsWith(start)), [], `${rel} has another literal level after carryOn`);
   }
+});
+
+test("an exempt line does not exempt another literal level of its file", () => {
+  const text = "try { go(); } catch (err) { carryOn(err); engineLog.error('ends'); } try { go(); } catch (err) { carryOn(err); engineLog.warn('lost'); }";
+  const calls = literalLevelsAfterCarryOn(text);
+  assert.deepEqual(calls.filter((call) => !call.startsWith("engineLog.error('ends'")), ["engineLog.warn('lost')"]);
 });

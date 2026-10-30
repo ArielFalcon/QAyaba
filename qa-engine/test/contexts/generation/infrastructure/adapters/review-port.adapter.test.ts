@@ -18,6 +18,8 @@ import type { ReviewJudgment } from "@contexts/generation/domain/manifest-reposi
 import type { ReviewInput, StepLimitRole } from "@contexts/generation/domain/generation-input.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 import { RunDeadlineExceededError } from "@kernel/run-deadline.ts";
+import { LOG_EFFECT, levelOfEffect, memoryLogger } from "@kernel/ports/logger.port.ts";
+import { installProcessLogger, resetProcessLoggerForTests } from "@kernel/ports/process-logger.ts";
 import { AgentTimeoutError } from "@kernel/domain-error.ts";
 import type { RepairPort, ReviewPort } from "@contexts/generation/application/index.ts";
 import { REPAIR_TURN_TIMEOUT_MS } from "@contexts/generation/domain/repair-turn.ts";
@@ -691,6 +693,23 @@ test("review() still fails closed when the repair turn outlasts its cap: the fir
   assert.equal(result.parsed, false);
   assert.equal(result.approved, false);
   assert.equal("unavailable" in result, false);
+});
+
+/* A parse miss is carried past: the run goes on without burning a round, so its line is a carried-on fault, not an end. */
+test("the line that says a reviewer answer was unreadable, or its repair outlasted its cap, is written at the level of a carried-on fault", async () => {
+  const memory = memoryLogger();
+  installProcessLogger(memory);
+  try {
+    const unreadable = fakeVerdicts({ approved: false, findings: [], parsed: false, valid: false, issues: ["no verdict JSON found"] });
+    await new ReviewPortAdapter({ runtime: fakeRuntime("I think the tests look fine"), rendering: fakeRendering(), verdicts: unreadable }, REVIEW_CTX).review("/mirrors/org/app/e2e", cases);
+    const reviewer = scriptedReviewer([CUT_ANSWER, new AgentTimeoutError("prompt exceeded 100ms")]);
+    await new ReviewPortAdapter({ runtime: reviewer.runtime, rendering: fakeRendering(), verdicts: verdictsByShape, repair: repairPort }, REVIEW_CONTEXT, { repairTimeoutMs: 100 }).review("/mirrors/org/app/e2e", cases);
+  } finally {
+    resetProcessLoggerForTests();
+  }
+  const lines = memory.entries.filter((e) => /unreadable|contract-repair turn timed out/.test(e.message));
+  assert.ok(lines.length >= 2, "both lines were written");
+  assert.deepEqual([...new Set(lines.map((e) => e.level))], [levelOfEffect(LOG_EFFECT.CARRIED_ON)]);
 });
 
 test("review() sends no repair turn for a readable verdict, for an empty answer, or when no repair is wired", async () => {

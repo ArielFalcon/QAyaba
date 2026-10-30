@@ -8,7 +8,7 @@
  * This file is pure: it runs no step and builds no end; the caller that knows the run builds the end a reason calls for.
  */
 
-import { LOG_EFFECT, levelOfEffect, type LevelOfEffect } from "@kernel/ports/logger.port.ts";
+import { LOG_EFFECT, levelOfEffect, type LevelOfEffect, type LogEffect } from "@kernel/ports/logger.port.ts";
 import { engineLog } from "@kernel/ports/process-logger.ts";
 import { isInfraError, isUntrustedGitTreeError } from "../../../../shared-kernel/domain-error.ts";
 import { isRunDeadlineError } from "../../../../shared-kernel/run-deadline.ts";
@@ -55,6 +55,14 @@ export type StepClass = (typeof STEP_CLASSES)[number];
 export type DegradeReason = "publication-failed" | "deadline-after-proof";
 
 export type FailureAction = { do: "rethrow" } | { do: "fail-open" } | { do: "end"; reason: EndReason } | { do: "degrade"; reason: DegradeReason };
+
+/* What each action does to the run, for the line that says it; null: no line is written (the error goes on to its owner). */
+export const FAILURE_ACTION_EFFECT = {
+  rethrow: null,
+  "fail-open": LOG_EFFECT.CARRIED_ON,
+  end: LOG_EFFECT.ENDED,
+  degrade: LOG_EFFECT.CARRIED_ON,
+} as const satisfies Record<FailureAction["do"], LogEffect | null>;
 
 const RETHROW: FailureAction = { do: "rethrow" };
 const FAIL_OPEN: FailureAction = { do: "fail-open" };
@@ -116,14 +124,14 @@ export async function guarded<O, E>(
       case "rethrow":
         throw err;
       case "fail-open":
-        engineLog[levelOfEffect(LOG_EFFECT.CARRIED_ON)](`[qa] ${site.id}: ${classifyFailure(err)} fault carried on (${site.class} step): ${messageOf(err)}`);
+        engineLog[levelOfEffect(FAILURE_ACTION_EFFECT["fail-open"])](`[qa] ${site.id}: ${classifyFailure(err)} fault carried on (${site.class} step): ${messageOf(err)}`);
         return undefined;
       case "end":
         return { end: endOf(action.reason, err) };
       case "degrade":
         /* Only a caller that knows where the run goes on from a degraded step says so; an effect that degrades asks the policy itself. */
         if (!degradeOf) throw err;
-        engineLog[levelOfEffect(LOG_EFFECT.CARRIED_ON)](`[qa] ${site.id}: ${classifyFailure(err)} fault degraded the run (${action.reason}): ${messageOf(err)}`);
+        engineLog[levelOfEffect(FAILURE_ACTION_EFFECT.degrade)](`[qa] ${site.id}: ${classifyFailure(err)} fault degraded the run (${action.reason}): ${messageOf(err)}`);
         return await degradeOf(action.reason, err);
     }
   }
@@ -135,7 +143,7 @@ export async function guarded<O, E>(
  * error otherwise (the deadline, a cancelled run, an untrusted git tree, a sandbox that cannot be trusted), which the wrapping
  * `guarded` then turns into the run's end.
  */
-export function carryOn(err: unknown): LevelOfEffect<typeof LOG_EFFECT.CARRIED_ON> {
+export function carryOn(err: unknown): LevelOfEffect<typeof FAILURE_ACTION_EFFECT["fail-open"]> {
   if (POLICY[classifyFailure(err)]["off-path"].do !== "fail-open") throw err;
-  return levelOfEffect(LOG_EFFECT.CARRIED_ON);
+  return levelOfEffect(FAILURE_ACTION_EFFECT["fail-open"]);
 }

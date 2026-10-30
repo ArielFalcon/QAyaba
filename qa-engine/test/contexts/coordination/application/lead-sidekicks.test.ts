@@ -1159,7 +1159,17 @@ test("a flow whose brief is over the author's known window even with all its cha
   /* The login flow's brief carries no change, so it is the same brief under any window: the window is set just above it. */
   const wide = await run(10_000_000);
   const loginTokens = wide.r.executed.find((e) => e.brief.delegationId === "run-1-flow-login")!.opts.contextFit!.promptTokens;
-  const { r, outcome } = await run(loginTokens + 10);
+  const memory = memoryLogger();
+  installProcessLogger(memory);
+  let narrow: Awaited<ReturnType<typeof run>>;
+  try {
+    narrow = await run(loginTokens + 10);
+  } finally {
+    resetProcessLoggerForTests();
+  }
+  const { r, outcome } = narrow;
+  /* The run goes on without the flow: its line is a carried-on loss. */
+  assert.deepEqual(memory.entries.filter((e) => e.message.includes("flow cart:")).map((e) => e.level), [levelOfEffect(LOG_EFFECT.CARRIED_ON)]);
 
   assert.deepEqual(r.executed.map((e) => e.brief.delegationId), ["run-1-flow-login"], "the cart flow's brief is never sent");
   if (outcome.action !== "fanout") return assert.fail(`fanout expected, got ${outcome.action}`);

@@ -1,6 +1,7 @@
 /* ReviewPort: the `review` sidekick kind (session opened as the registry's review entry names it: `REVIEW_SIDEKICK`). Fail-closed on parse miss or session fault (approved:false, parsed:false). A session fault, or a reviewer that returned nothing, is also marked `unavailable`: no judgment was made, which the run must not mistake for a rejection. */
 
 import { engineLog } from "@kernel/ports/process-logger.ts";
+import { LOG_EFFECT, levelOfEffect } from "@kernel/ports/logger.port.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 import type { ReviewPort } from "../../application/ports/review.port.ts";
 import type { ReviewEnrichment } from "../../domain/review-enrichment.ts";
@@ -160,7 +161,7 @@ export class ReviewPortAdapter implements ReviewPort {
 
       /* An answer the engine could not read whole is a parse miss: never a rejection, never a free pass, and nothing of it reaches the decision. */
       if (!isReadable(judgment)) {
-        engineLog.error(`[qa] the reviewer's answer is unreadable (${judgment.issues.join("; ")}) — failing closed as a parse miss without burning a regeneration round.`);
+        engineLog[levelOfEffect(LOG_EFFECT.CARRIED_ON)](`[qa] the reviewer's answer is unreadable (${judgment.issues.join("; ")}) — failing closed as a parse miss without burning a regeneration round.`);
         return { approved: false, findings: [], parsed: false, issues: judgment.issues, stats };
       }
 
@@ -193,7 +194,7 @@ export class ReviewPortAdapter implements ReviewPort {
     } catch (err) {
       rethrowIfRunDeadline(err);
       if (!isAgentTimeoutError(err)) throw err;
-      engineLog.error(`[qa] the reviewer's contract-repair turn timed out after ${timeoutMs}ms (tools disabled); its first answer stands as a parse miss`);
+      engineLog[levelOfEffect(LOG_EFFECT.CARRIED_ON)](`[qa] the reviewer's contract-repair turn timed out after ${timeoutMs}ms (tools disabled); its first answer stands as a parse miss`);
       return undefined;
     }
   }
