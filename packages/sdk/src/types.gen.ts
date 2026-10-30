@@ -1254,7 +1254,7 @@ export interface components {
                 [key: string]: number;
             } | null;
             /** @enum {string|null} */
-            ended: "completed" | "exhausted" | "timeout" | "aborted" | null;
+            ended: "completed" | "exhausted" | "timeout" | "aborted" | "failed" | null;
             durationMs: number | null;
             timeToFirstCallMs: number | null;
             timeToFirstWriteMs: number | null;

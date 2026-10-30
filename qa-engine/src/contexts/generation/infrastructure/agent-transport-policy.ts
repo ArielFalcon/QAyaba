@@ -306,6 +306,22 @@ export interface AgentDepsCollaborators {
   outerLimit?(sessionId: string, prompt: number): TurnLimit | undefined;
 }
 
+/* What ended a turn, in the vocabulary of the limits: the limit a time-out names, a cancel, the step cap, or a fault that is no limit at all. */
+function limitEndingTurn(ended: TurnEnd, applied: TimeLimitSource): TurnLimit | null {
+  switch (ended) {
+    case "timeout":
+      return applied;
+    case "aborted":
+      return "cancel";
+    case "exhausted":
+      return "step-cap";
+    case "failed":
+      return "fault";
+    case "completed":
+      return null;
+  }
+}
+
 /* Classification is for the trace: whatever it does, it never changes the error a prompt fails with and never comes before the breaker's count. */
 function safeClassify(classify: () => AgentErrorType): AgentErrorType {
   let type: AgentErrorType;
@@ -448,6 +464,8 @@ export function createAgentDeps(raw: RawAgentTransport, collab: AgentDepsCollabo
           let liveAttempt: { number: number; requested: string | undefined; end(info: EndInfo): void } | undefined;
           let answeredBy: AttemptAnswer | undefined;
           let lastErrorType: AgentErrorType | undefined;
+          /* What the last attempt that reached an answer spent, kept so a turn that fails on a fault the answer carried still records its usage. */
+          let answeredUsage: { tokens: RawPromptResult["tokens"]; cost: number | undefined } | undefined;
 
           /* The tracker is flushed once per prompt, whether or not a turn sink is listening, and every consumer of the turn (the persisted row, the caller's stats) reads that flush. An attempt that could not be prepared was not observed completely, whatever the tracker says. */
           const flushCalls = (): TurnCallMetrics | null => {
@@ -476,10 +494,10 @@ export function createAgentDeps(raw: RawAgentTransport, collab: AgentDepsCollabo
             callMetrics: TurnCallMetrics | null;
             ended: TurnEnd;
             partialRaw?: string;
+            errorType?: AgentErrorType;
           }): void => {
             if (!effectiveOnTurn && !collab.onAttempt) return;
-            const limitFired: TurnLimit | null =
-              collab.outerLimit?.(id, thisRound) ?? (turn.ended === "timeout" ? limitApplied.source : turn.ended === "aborted" ? "cancel" : turn.ended === "exhausted" ? "step-cap" : null);
+            const limitFired: TurnLimit | null = collab.outerLimit?.(id, thisRound) ?? limitEndingTurn(turn.ended, limitApplied.source);
             const turnEvent: AgentTurnEvent = {
               runId: opts?.descriptor?.runId ?? null,
               sessionId: id,
@@ -508,7 +526,7 @@ export function createAgentDeps(raw: RawAgentTransport, collab: AgentDepsCollabo
               provider: answeredBy?.providerId ?? null,
               attempt: liveAttempt?.number ?? null,
               fallbackUsed: liveAttempt?.number === FALLBACK_ATTEMPT + 1,
-              errorType: lastErrorType ?? (turn.ended === "timeout" ? "timeout" : turn.ended === "aborted" ? "aborted" : null),
+              errorType: turn.errorType ?? lastErrorType ?? (turn.ended === "timeout" ? "timeout" : turn.ended === "aborted" ? "aborted" : null),
               sectionHashes: promptOpts?.sectionHashes ?? null,
               promptHash: sha256Hex(text),
               limitApplied: limitApplied.source,
@@ -517,13 +535,26 @@ export function createAgentDeps(raw: RawAgentTransport, collab: AgentDepsCollabo
             effectiveOnTurn?.(turnEvent);
             notify({ kind: "turn", prompt: thisRound, turn: turnEvent, at: clock() });
           };
-          /* A prompt that ended without an answer still leaves its turn: the calls it made before it ended are the evidence of how it spent its time. */
-          const recordUnansweredTurn = (ended: "timeout" | "aborted", errorType?: AgentErrorType): void => {
+          /*
+           * A prompt that ended without an answer still leaves its turn, whatever ended it: the calls it made before it ended are the
+           * evidence of how it spent its time, and the tracker's flush here keeps them out of the session's next turn. The end is
+           * `timeout` (the prompt's time ran out), `aborted` (the caller cancelled) or `failed` (a fault of the transport or the provider
+           * ended it, classed by `errorType`).
+           */
+          const recordUnansweredTurn = (ended: "timeout" | "aborted" | "failed", errorType?: AgentErrorType): void => {
             closed = true;
-            /* The attempt may never settle (the transport can hang): it ends with the turn, and is told apart as abandoned. */
-            liveAttempt?.end({ abandoned: true, errorType: errorType ?? (ended === "timeout" ? "timeout" : "aborted") });
+            /* The attempt may never settle (the transport can hang): it ends with the turn, and is told apart as abandoned. An attempt that failed has already ended with its fault, and this changes nothing. */
+            liveAttempt?.end({ abandoned: true, errorType: errorType ?? (ended === "timeout" ? "timeout" : ended === "aborted" ? "aborted" : "unknown") });
             const callMetrics = flushCalls();
-            emitTurn({ outputRaw: "", stepBudget: budgetOf(callMetrics, ""), callMetrics, ended, partialRaw: callMetrics?.streamedText });
+            emitTurn({
+              outputRaw: "",
+              stepBudget: budgetOf(callMetrics, ""),
+              callMetrics,
+              ended,
+              partialRaw: callMetrics?.streamedText,
+              ...(answeredUsage ? { tokens: answeredUsage.tokens, ...(answeredUsage.cost !== undefined ? { cost: answeredUsage.cost } : {}) } : {}),
+              ...(errorType !== undefined ? { errorType } : {}),
+            });
           };
 
           const runPrompt = (attempt: number, modelOverride?: string) => {
@@ -547,6 +578,7 @@ export function createAgentDeps(raw: RawAgentTransport, collab: AgentDepsCollabo
               .then((res) => {
                 recordCircuitSuccess(TRANSPORT_BREAKER_KEY);
                 answeredBy = res.answered;
+                if (res.tokens) answeredUsage = { tokens: res.tokens, cost: res.cost };
                 const snapshot: UsageSnapshot | undefined = res.tokens
                   ? {
                       input: res.tokens.input ?? 0,
@@ -613,16 +645,19 @@ export function createAgentDeps(raw: RawAgentTransport, collab: AgentDepsCollabo
             sessionRetryListeners.set(id, (message) => {
               const type = terminalRetryFault(message);
               if (!type || closed) return;
-              recordUnansweredTurn("aborted", type);
+              recordUnansweredTurn("failed", type);
               reject(carryAgentErrorType(new AgentUnavailableError(`OpenCode provider fault the runtime was retrying: ${message}. INCONCLUSIVE (infrastructure), not a test failure.`), type));
             });
           });
           return withTimeout(Promise.race([attempts, providerFault]), promptOpts?.timeoutMs ?? sessionTimeoutMs, "OpenCode prompt")
             .catch((err: unknown) => {
               abortRun();
-              /* An error the prompt itself raised was thrown before any turn was emitted; only a prompt that was cut short from outside (the deadline, the caller's abort) has a turn still to record. */
-              if (!closed && err instanceof AgentTimeoutError) recordUnansweredTurn("timeout");
-              else if (!closed && opts?.signal?.aborted) recordUnansweredTurn("aborted");
+              /* Every way the prompt ends without an answer leaves one turn, recorded here once: the deadline, the caller's abort, or a fault the prompt itself raised (transport, provider, auth, a session the runtime no longer has). */
+              if (!closed) {
+                if (err instanceof AgentTimeoutError) recordUnansweredTurn("timeout");
+                else if (opts?.signal?.aborted) recordUnansweredTurn("aborted");
+                else recordUnansweredTurn("failed", lastErrorType ?? safeClassify(() => classifyAgentFault(err)));
+              }
               throw err;
             })
             .finally(() => {

@@ -4551,7 +4551,8 @@
               "completed",
               "exhausted",
               "timeout",
-              "aborted"
+              "aborted",
+              "failed"
             ]
           },
           "durationMs": {

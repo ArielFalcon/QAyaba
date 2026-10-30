@@ -162,7 +162,7 @@ export const ATTRIBUTES = {
   "qayaba.review.issues": spec("string[]", "What the engine could not read of the reviewer's answer, or read and set aside, as path: message. Absent when nothing was lost.", "high", "redacted-text", 6),
   "qayaba.review.rationale": text("The bounded rationale of the review round."),
   "qayaba.review.rebuttal.outcome": str("What became of a generator rebuttal: withdrawn (the orchestrator verified the basis it named) or disputed (it could not check it)."),
-  "qayaba.limit.fired": str("The limit that ended the run or turn: tier-budget, run-deadline, repair-cap, session-timeout, prompt-budget, host-cap, stall, step-cap, cancel or none."),
+  "qayaba.limit.fired": str("The limit that ended the run or turn: tier-budget, run-deadline, repair-cap, session-timeout, prompt-budget, host-cap, stall, step-cap, cancel, fault (a transport or provider fault ended the turn; error.type names it) or none."),
   "qayaba.limit.applied": str("The time limit that bound the turn (the smallest that applied), named like the limit that fires."),
   "qayaba.limit.applied_ms": int("The time limit that bound the turn, in milliseconds."),
   "qayaba.cost.total": dbl("Total agent cost in USD."),

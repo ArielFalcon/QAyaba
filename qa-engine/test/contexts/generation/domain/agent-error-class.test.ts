@@ -44,6 +44,24 @@ test("a thrown fault is classified by its class, its socket code or its status",
   for (const [fault, expected] of cases) assert.equal(classifyAgentFault(fault), expected, String(fault));
 });
 
+test("a fetch that failed is classed by the cause it carries, and by the transport when the cause says nothing more", () => {
+  const withCode = (code: string, message = "boom") => Object.assign(new Error(message), { code });
+  const fetchFailed = (cause?: unknown) => new TypeError("fetch failed", cause === undefined ? undefined : { cause });
+  const cases: Array<[unknown, string]> = [
+    [fetchFailed(withCode("UND_ERR_HEADERS_TIMEOUT", "Headers Timeout Error")), "transport"],
+    [fetchFailed(withCode("UND_ERR_BODY_TIMEOUT", "Body Timeout Error")), "transport"],
+    [fetchFailed(withCode("UND_ERR_CONNECT_TIMEOUT", "Connect Timeout Error")), "transport"],
+    [fetchFailed(withCode("ECONNREFUSED")), "transport"],
+    [fetchFailed(withCode("ENOTFOUND")), "transport"],
+    [fetchFailed(withCode("ECONNRESET")), "socket_closed"],
+    [fetchFailed(new Error("no code, no words")), "transport"],
+    [fetchFailed(), "transport"],
+    [withCode("UND_ERR_HEADERS_TIMEOUT"), "transport"],
+    [new TypeError("not a fetch fault"), "unknown"],
+  ];
+  for (const [fault, expected] of cases) assert.equal(classifyAgentFault(fault), expected, String((fault as Error).cause ?? fault));
+});
+
 test("a fault that carries its provider classification keeps it", () => {
   const err = carryAgentErrorType(new AgentUnavailableError("out of credits"), "quota_exceeded");
   assert.equal(classifyAgentFault(err), "quota_exceeded");

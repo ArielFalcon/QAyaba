@@ -242,3 +242,51 @@ test("an error whose cause chain loops reaches the caller as it is, and the brea
   assert.equal(end.errorType, "unknown");
   assert.throws(() => session.prompt("hello"), /circuit breaker is OPEN/);
 });
+
+/* The shape undici gave the live interim run: the HTTP client's headers timeout, seen by the caller as "fetch failed". */
+const headersTimeout = (): TypeError => new TypeError("fetch failed", { cause: Object.assign(new Error("Headers Timeout Error"), { code: "UND_ERR_HEADERS_TIMEOUT" }) });
+
+test("a prompt the transport rejects by itself records one failed turn: the fault's class, the fault as the limit, and the calls and usage seen", async (t) => {
+  const { deps, turns, events } = observed(t, transport(async () => { throw headersTimeout(); }), { takeTurnCalls: () => ({ totalCalls: 3, stepsUsed: 2, observationComplete: true }) as never });
+  const session = await deps.open("qa-author", "/w", { model: "prov/asked", descriptor: { runId: "r1", role: "qa-author" } });
+  await assert.rejects(session.prompt("hello"), /fetch failed/);
+
+  assert.equal(turns.length, 1, "the turn is recorded once");
+  const turn = turns[0]!;
+  assert.deepEqual([turn.ended, turn.errorType, turn.limitFired, turn.outputText, turn.attempt, turn.modelRequested], ["failed", "transport", "fault", "", 1, "prov/asked"]);
+  assert.equal(turn.callMetrics?.totalCalls, 3);
+  assert.deepEqual(events.map((e) => e.kind), ["start", "end", "turn"], "the attempt ends with its fault before the turn is recorded");
+  const end = events[1]!;
+  assert.ok(end.kind === "end");
+  assert.equal(end.errorType, "transport");
+  assert.equal(end.abandoned, undefined, "an attempt that failed was not abandoned");
+});
+
+test("when both the primary and the fallback fail, the turn is recorded once, as failed, on the second attempt", async (t) => {
+  let calls = 0;
+  const { deps, turns } = observed(t, transport(async () => { calls += 1; throw calls === 1 ? headersTimeout() : Object.assign(new Error("closed"), { code: "ECONNRESET" }); }), { getFallbackModel: () => "prov/fallback" });
+  const session = await deps.open("qa-author", "/w", { descriptor: { runId: "r1", role: "qa-author" } });
+  await assert.rejects(session.prompt("hello"), /closed/);
+  assert.equal(turns.length, 1);
+  assert.deepEqual([turns[0]!.ended, turns[0]!.attempt, turns[0]!.fallbackUsed, turns[0]!.errorType, turns[0]!.limitFired], ["failed", 2, true, "socket_closed", "fault"]);
+});
+
+test("a provider fault embedded in the answer records a failed turn that keeps the usage the answer reported and the model that answered", async (t) => {
+  const { deps, turns } = observed(t, transport(async () => answered({ agentError: { name: "APIError", data: { statusCode: 503, message: "overloaded" } } })));
+  const session = await deps.open("qa-author", "/w", { descriptor: { runId: "r1", role: "qa-author" } });
+  await assert.rejects(session.prompt("hello"), /OpenCode API error 503/);
+  assert.equal(turns.length, 1);
+  const turn = turns[0]!;
+  assert.deepEqual([turn.ended, turn.errorType, turn.limitFired], ["failed", "provider_5xx", "fault"]);
+  assert.deepEqual([turn.tokensInput, turn.tokensOutput, turn.tokensCacheRead, turn.cost], [10, 2, 5, 0.01]);
+  assert.deepEqual([turn.modelAnswered, turn.provider], ["m-answer", "p-answer"]);
+});
+
+test("a prompt that fails records its turn once however many layers see the fault", async (t) => {
+  const { deps, turns, events } = observed(t, transport(async () => { throw headersTimeout(); }));
+  const session = await deps.open("qa-author", "/w", { timeoutMs: 20, descriptor: { runId: "r1", role: "qa-author" } });
+  await assert.rejects(session.prompt("a"), /fetch failed/);
+  await assert.rejects(session.prompt("b"), /fetch failed/);
+  assert.deepEqual(turns.map((x) => [x.round, x.ended]), [[0, "failed"], [1, "failed"]]);
+  assert.equal(events.filter((e) => e.kind === "turn").length, 2);
+});

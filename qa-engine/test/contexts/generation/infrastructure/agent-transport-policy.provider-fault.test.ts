@@ -45,6 +45,11 @@ test("a quota retry reported for the session ends its prompt at once as an infra
   const end = events.find((e) => e.kind === "end");
   assert.ok(end && end.kind === "end");
   assert.equal(end.errorType, "quota_exceeded");
+  /* The runtime was still retrying: the attempt never settled, and the turn it left says a provider fault ended it, not a cancel. */
+  assert.equal(end.abandoned, true);
+  const turn = events.find((e) => e.kind === "turn");
+  assert.ok(turn && turn.kind === "turn");
+  assert.deepEqual([turn.turn.ended, turn.turn.errorType, turn.turn.limitFired], ["failed", "quota_exceeded", "fault"]);
 });
 
 test("a rate-limit retry leaves the prompt to the runtime: it still resolves with the answer", async () => {

@@ -11,6 +11,7 @@ export const AGENT_ERROR_TYPES = [
   "rate_limited",
   "auth",
   "socket_closed",
+  "transport",
   "provider_5xx",
   "output_length",
   "aborted",
@@ -47,6 +48,10 @@ export interface ProviderErrorPayload {
 
 const QUOTA_WORDS = /quota|usage limit|insufficient|credit|billing|exceeded your current|payment required/i;
 const SOCKET_CODES = new Set(["ECONNRESET", "EPIPE", "ECONNABORTED", "UND_ERR_SOCKET", "UND_ERR_CLOSED", "UND_ERR_ABORTED"]);
+/* The HTTP client's own faults between the orchestrator and the runtime (undici's connect, headers and body timeouts, a refused or unresolvable address): the request never completed, and no limit of ours cut it. */
+const TRANSPORT_CODES = new Set(["UND_ERR_CONNECT_TIMEOUT", "UND_ERR_HEADERS_TIMEOUT", "UND_ERR_BODY_TIMEOUT", "ETIMEDOUT", "ECONNREFUSED", "ENOTFOUND", "EAI_AGAIN", "EHOSTUNREACH", "ENETUNREACH"]);
+/* What fetch throws, with the real cause on `cause`, for any failure to complete a request. */
+const FETCH_FAILED = "fetch failed";
 const SOCKET_WORDS = /other side closed|socket hang up|socket closed|connection (was )?(closed|reset)|terminated/i;
 const CIRCUIT_WORDS = /circuit breaker is open/i;
 
@@ -109,6 +114,9 @@ function classifyFault(err: unknown, visited: Set<object>, depth: number): Agent
   const status = numericField(err, "status") ?? numericField(err, "statusCode");
   const fromStatus = byStatus(status, message);
   if (fromStatus !== undefined) return fromStatus;
+  if (code !== undefined && TRANSPORT_CODES.has(code)) return "transport";
   const cause = causeOf(err);
-  return cause !== undefined ? classifyFault(cause, visited, depth + 1) : "unknown";
+  const viaCause = cause !== undefined ? classifyFault(cause, visited, depth + 1) : "unknown";
+  /* A bare "fetch failed" whose cause says nothing more is still a transport fault: fetch throws it for nothing else. */
+  return viaCause === "unknown" && message === FETCH_FAILED ? "transport" : viaCause;
 }

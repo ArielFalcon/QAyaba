@@ -763,6 +763,7 @@ test, and the verdict is its last action.
   explicit method check; a write is never fulfilled nor let through changed; a stubbed test sits beside the live test of its
   page. The reviewer judges it by what the frontend does with the stated response and rejects one that asserts only what it
   stubbed. Never widen the exception to a write, to a HAR replay or to a test with no live counterpart.
+- **Every way an agent prompt ends is a recorded turn.** `createAgentDeps` records the turn once, where the prompt ends: answered, `timeout`, `aborted`, or `failed` (a fault of the transport or the provider; `limit.fired` is `fault` and `error.type` names the class, read through the fault's `cause` chain), with the calls and usage the tracker saw and its `chat`/`execute_tool` children. A turn the tracker flushed cannot leak its calls into the session's next turn.
 - **Surface integration errors loudly** — never swallow agent-runtime, runner or git
   errors into an empty result. Throw and log.
 - **Sanitize data leaving the system** — logs → Issue via `src/orchestrator/sanitizer.ts`

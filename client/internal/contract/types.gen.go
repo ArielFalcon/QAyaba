@@ -167,6 +167,7 @@ const (
 	AgentTurnViewEndedAborted   AgentTurnViewEnded = "aborted"
 	AgentTurnViewEndedCompleted AgentTurnViewEnded = "completed"
 	AgentTurnViewEndedExhausted AgentTurnViewEnded = "exhausted"
+	AgentTurnViewEndedFailed    AgentTurnViewEnded = "failed"
 	AgentTurnViewEndedTimeout   AgentTurnViewEnded = "timeout"
 )
 
@@ -178,6 +179,8 @@ func (e AgentTurnViewEnded) Valid() bool {
 	case AgentTurnViewEndedCompleted:
 		return true
 	case AgentTurnViewEndedExhausted:
+		return true
+	case AgentTurnViewEndedFailed:
 		return true
 	case AgentTurnViewEndedTimeout:
 		return true

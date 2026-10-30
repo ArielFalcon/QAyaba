@@ -1600,14 +1600,15 @@ test("createAgentDeps: a turn cut short by the caller's abort is persisted with 
   assert.equal(persisted[0]!.outputText, "");
 });
 
-test("createAgentDeps: a prompt that fails without timing out or being aborted still records no turn", async () => {
+test("createAgentDeps: a prompt that fails without timing out or being aborted records one failed turn, with the fault's class and no limit that fired", async () => {
   resetCircuit();
   const raw = makeRawTransport({ promptSession: async () => { throw new Error("boom"); } });
   const persisted: AgentTurnEvent[] = [];
   const deps = createAgentDeps(raw, { defaultPromptTimeoutMs: 5000, getFallbackModel: () => undefined, persistTurn: (t) => persisted.push(t) });
   const session = await deps.open("qa-author", "/tmp", { descriptor: { runId: "run-boom" } });
   await assert.rejects(() => session.prompt("p"), /boom/);
-  assert.deepEqual(persisted, []);
+  assert.equal(persisted.length, 1);
+  assert.deepEqual([persisted[0]!.ended, persisted[0]!.errorType, persisted[0]!.limitFired, persisted[0]!.outputText], ["failed", "unknown", "fault", ""]);
 });
 
 test("createAgentDeps: the primary model failing after the timeout does not start the fallback model's prompt", async () => {

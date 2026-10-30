@@ -17,5 +17,6 @@ export const TIME_LIMIT_SOURCES = [
 
 export type TimeLimitSource = (typeof TIME_LIMIT_SOURCES)[number];
 
-export const TURN_LIMITS = [...TIME_LIMIT_SOURCES, "stall", "step-cap", "cancel", "none"] as const;
+/* `fault` is a turn ended by a fault of the transport or the provider and not by any limit: the turn's error class names the fault, and `none` stays for a turn nothing ended early. */
+export const TURN_LIMITS = [...TIME_LIMIT_SOURCES, "stall", "step-cap", "cancel", "fault", "none"] as const;
 export type TurnLimit = (typeof TURN_LIMITS)[number];

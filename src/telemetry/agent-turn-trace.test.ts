@@ -265,6 +265,65 @@ test("a prompt cut by its time limit records which limit, ends as a timeout, and
   assert.deepEqual(r.h.unended(), []);
 });
 
+/* The shape the live interim run showed: undici cut the request after the HTTP client's headers timeout, and the runtime's fetch rejected with the bare "fetch failed" and the real cause one level down. */
+const undiciHeadersTimeout = (): Error => new TypeError("fetch failed", { cause: Object.assign(new Error("Headers Timeout Error"), { code: "UND_ERR_HEADERS_TIMEOUT" }) });
+
+test("a prompt the transport fails by itself is a recorded turn: its row, its calls and usage, its children, the fault class and the end that was not a limit", async () => {
+  const r = rig({
+    promptSession: async ({ stream, clock }) => {
+      clock.advance(100);
+      stream(stepStart("a"));
+      stream(tool("c1", "read", "running", { start: 5_000 }, { filePath: `${CWD}/src/cart.ts` }));
+      stream(tool("c1", "read", "completed", { start: 5_000, end: 5_040 }, { filePath: `${CWD}/src/cart.ts` }, "const cart = 1"));
+      clock.advance(250);
+      stream(stepFinish("fa", "tool-calls", { input: 100, output: 10, reasoning: 4, read: 5_000, write: 10 }, 0.02));
+      clock.advance(900_000);
+      throw undiciHeadersTimeout();
+    },
+  });
+  const session = await r.deps.open("qa-author", CWD, { model: "prov/asked-model", descriptor: { runId: "run-1", role: "qa-author" } });
+  await assert.rejects(session.prompt("write the spec", { stepLimit: 25 }), /fetch failed/);
+  await session.dispose();
+
+  assert.equal(r.rows.length, 1, "one failed prompt, one agent_turns row");
+  const row = r.rows[0]!;
+  assert.deepEqual([row.ended, row.errorType, row.limitFired, row.outputText], ["failed", "transport", "fault", ""]);
+  assert.equal(row.callMetrics?.totalCalls, 1, "the calls the turn made before it failed are on its row");
+  assert.ok((row.durationMs ?? 0) >= 900_000);
+
+  const turn = r.h.only("invoke_agent qa-author");
+  assert.deepEqual([attr(turn, "qayaba.agent.end"), attr(turn, "qayaba.limit.fired"), attr(turn, "error.type")], ["failed", "fault", "transport"]);
+  assert.equal(turn.status.code, SpanStatusCode.ERROR);
+  assert.equal(attr(turn, "qayaba.usage.source"), "steps", "the usage of the steps that finished is kept");
+  assert.equal(attr(turn, "qayaba.usage.cost"), 0.02);
+  assert.equal(attr(turn, "qayaba.agent.calls.total"), 1);
+  assert.equal(r.h.spans().filter((s) => s.name.startsWith("chat")).length, 1, "a chat child per step the turn finished");
+  assert.equal(r.h.spans().filter((s) => s.name.startsWith("execute_tool ")).length, 1);
+  const attempt = r.h.only("qayaba.agent.attempt");
+  assert.equal(attr(attempt, "error.type"), "transport");
+  assert.deepEqual(r.h.unended(), []);
+});
+
+test("the calls of a prompt that failed are flushed into its own turn and never counted again in the session's next turn", async () => {
+  const r = rig({
+    promptSession: async ({ stream, clock, call }) => {
+      clock.advance(10);
+      stream(stepStart(`s${call}`));
+      stream(tool(`c${call}`, "read", "running", { start: 5_000 }, { filePath: `${CWD}/src/f${call}.ts` }));
+      stream(tool(`c${call}`, "read", "completed", { start: 5_000, end: 5_040 }, { filePath: `${CWD}/src/f${call}.ts` }, `body ${call}`));
+      stream(stepFinish(`f${call}`, call === 1 ? "tool-calls" : "stop", { input: 10, output: 1 }, 0.01));
+      if (call === 1) throw undiciHeadersTimeout();
+      return answered();
+    },
+  });
+  const session = await r.deps.open("qa-author", CWD, { descriptor: { runId: "run-1", role: "qa-author" } });
+  await assert.rejects(session.prompt("first"), /fetch failed/);
+  await session.prompt("second");
+  await session.dispose();
+
+  assert.deepEqual(r.rows.map((row) => [row.ended, row.callMetrics?.totalCalls, row.callMetrics?.stepsUsed]), [["failed", 1, 1], ["completed", 1, 1]]);
+});
+
 test("the run's deadline, the repair cap, the session's timeout and the host cap are each named by the layer that fired them", async () => {
   for (const [promptOpts, openOpts, expected] of [
     [{ timeoutMs: 5, timeLimit: "run-deadline" as const }, {}, "run-deadline"],

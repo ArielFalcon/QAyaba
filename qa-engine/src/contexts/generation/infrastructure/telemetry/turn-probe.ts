@@ -276,8 +276,8 @@ export class TurnProbe {
       } as Attrs);
     }
     record.endedAt = event.at;
-    /* A failed attempt has no turn to build children for; one that answered, or was abandoned, ends when its turn is recorded. */
-    if (event.error !== undefined || (event.errorType !== undefined && !event.abandoned)) this.endSpan(record);
+    /* An attempt ends when its turn is recorded, so the children built from the turn's records (a failed turn keeps its steps and calls too) end inside it; one that ends after its turn was recorded has nothing left to wait for. */
+    if (this.turn !== undefined) this.endSpan(record);
   }
 
   private endSpan(record: AttemptRecord): void {
@@ -402,6 +402,8 @@ export class TurnProbe {
       });
       if (!outcome.ok) this.span.recordError(outcome.error, failure ? { "error.type": failure } : undefined);
       this.unwatchHost?.();
+      /* An attempt the transport closed without a turn to follow (a refusal before any attempt, a probe closed early) still ends before its turn does. */
+      this.flushEnds();
       this.span.end(this.deps.clock.now());
     });
   }
