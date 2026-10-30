@@ -97,7 +97,7 @@ function main(): number {
   }
   writeStatus(statusFile, formatFileBoundaryStatus(verdict));
   if (verdict.holds) {
-    appLogger.error("[qa] file-boundary: the sandbox uid reaches none of the orchestrator's secrets, code or config");
+    appLogger.info("[qa] file-boundary: the sandbox uid reaches none of the orchestrator's secrets, code or config");
     return 0;
   }
   appLogger.error(`[qa] file-boundary: the boundary does NOT hold on this host: ${verdict.exposures.join("; ")}`);
