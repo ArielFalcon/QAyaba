@@ -32,6 +32,22 @@ export const MATCH_TIER = {
 } as const;
 export type MatchTier = (typeof MATCH_TIER)[keyof typeof MATCH_TIER];
 
+/** Which way a link was reached from the change: `upstream`, a repo that depends on what changed; `downstream`, a repo the changed code depends on. */
+export type ImpactDirection = "upstream" | "downstream";
+
+/** How a link beyond the first hop was reached: the direction, and the links crossed from the changed repo to its call site, nearest the change first. */
+export interface ImpactReach {
+  direction: ImpactDirection;
+  via: ServiceLink[];
+}
+
+/** A hop the walk could not finish: the repo it stopped at and why. What lies beyond it is neither claimed nor ruled out. */
+export interface ImpactStop {
+  repo: string;
+  direction: ImpactDirection;
+  reason: string;
+}
+
 /** tier is a closed, code-defined literal — never a sanitizer-sentinel string and never attacker/agent-controlled. */
 export interface ImpactedLink {
   link: ServiceLink;
@@ -40,9 +56,11 @@ export interface ImpactedLink {
   operationChange?: "added" | "removed" | "changed";
   /* `contract-file`: the contract file changed and its two versions could not be compared, so the link is impacted on the file alone. */
   basis?: "contract-file";
+  /* Absent: reached in one hop, upstream. */
+  reach?: ImpactReach;
 }
 
 export interface CrossRepoImpact {
   impactedLinks: ImpactedLink[];
-  serviceImpacted?: ServiceSymbolRef[];
+  stops?: ImpactStop[];
 }

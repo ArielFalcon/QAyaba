@@ -12,6 +12,7 @@ import { throwIfAborted } from "../abort.ts";
 import type { WorkspaceRunContext } from "../run-context.ts";
 import type { RunState } from "../run-state.ts";
 import { carryOn } from "../failure-policy.ts";
+import { mergeImpactedLinks } from "@contexts/service-topology/application/index.ts";
 import { availabilityGroundingOf, withRouteConfigCandidates } from "../route-availability-grounding.ts";
 
 type Result = Promise<StepOutcome<RunState>>;
@@ -171,10 +172,10 @@ export async function resolveCrossRepoImpact(state: Readonly<RunState>, ctx: Wor
 }
 
 function mergeImpacts(impacts: readonly CrossRepoImpact[]): CrossRepoImpact {
-  const serviceImpacted = impacts.flatMap((i) => i.serviceImpacted ?? []);
+  const stops = impacts.flatMap((i) => i.stops ?? []);
   return {
-    impactedLinks: impacts.flatMap((i) => i.impactedLinks),
-    ...(serviceImpacted.length > 0 ? { serviceImpacted } : {}),
+    impactedLinks: mergeImpactedLinks(impacts.map((i) => i.impactedLinks)),
+    ...(stops.length > 0 ? { stops } : {}),
   };
 }
 

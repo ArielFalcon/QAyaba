@@ -14,3 +14,5 @@ export type { OnboardingResult, OnboardingRoundProgress } from "./onboarding-ser
 export type { EventBoundaryProfile, HttpBackendBoundaryProfile, HttpBoundaryProfile } from "../domain/index.ts";
 export { operationUrlPattern, requestServesOperation } from "../domain/operation-url-pattern.ts";
 export { responseFieldNames } from "../domain/response-fields.ts";
+export { LinkGraph, LinkWalk, linkKey, mergeImpactedLinks } from "../domain/link-graph.ts";
+export type { FrontierRepo } from "../domain/link-graph.ts";
