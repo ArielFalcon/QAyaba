@@ -1,7 +1,7 @@
 # ADR-0014: Owner decisions on RFC-0011
 
 - **Status:** Accepted, 2026-10-30, owner
-- **Decision source:** the owner's answer of 2026-10-30 to the question that listed RFC-0011's open questions Q1 to Q8 with their recommendations: "Aceptar todas (Recomendado)".
+- **Decision source:** the owner's answer of 2026-10-30 to the question that listed RFC-0011's open questions Q1 to Q8 with their recommendations: "Aceptar todas (Recomendado)" (translated, Correction 2026-10-30: "Accept all (Recommended)").
 - **Code references at:** e844d7f9
 - **Related:** [RFC-0011](../rfc/0011-multi-hop-cross-repo-impact.md), [ADR-0001](0001-design-pillars.md), [ADR-0011](0011-root-cause-fix-policy.md), [ADR-0013](0013-owner-decisions-remaining-questions.md)
 

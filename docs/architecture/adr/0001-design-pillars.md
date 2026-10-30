@@ -22,7 +22,7 @@ The root-cause investigation of the runs of 2026-10-26 to 2026-10-28 ended in de
 
 All quotes are the owner's words of 2026-10-28 13:36Z, translated from Spanish.
 
-**What is the owner's and what is not.** The owner stated the criteria: the quotes in the third column. The assistant proposes, and the owner has not approved, three things: the split of those words into seven numbered pillars and their names, the fourth column (a question a review may ask), and the review procedure under the table.
+**What is the owner's and what is not.** The owner stated the criteria: the quotes in the third column. The assistant proposes, and the owner has not approved, three things: the split of those words into seven numbered pillars and their names, the fourth column (a question a review may ask), and the review procedure under the table. (Correction 2026-10-30: the owner accepted all three as proposed on 2026-10-28, [ADR-0013](0013-owner-decisions-remaining-questions.md), as the Status line says; the sentence above describes the record as written.)
 
 | # | Pillar | The owner's words (translated) | A question a review may ask of an RFC (proposed) |
 |---|---|---|---|
@@ -34,7 +34,7 @@ All quotes are the owner's words of 2026-10-28 13:36Z, translated from Spanish.
 | P6 | Test quality is the product | "We have not yet gone into the quality of the tests that qayaba generates. The app is a QA tester; if its priority is to make green tests, it becomes a garbage generator. The architecture has to focus on tests being generated with quality and testing real flows, forcing neither the FAIL nor the PASS state." | Can this change make a weak test pass or a sound test fail? Which objective signal (killed mutants, changed lines covered on the final bytes, defects found) shows the suite got better and not only greener? |
 | P7 | No pattern for its own sake | "Regarding the Command pattern, if it brings no real value, do not do it. In general it is not about applying patterns just because; each decision must be grounded, and any added complexity, logical or cognitive, must be justified." | Which failure family (run ids, hypothesis) does the structure remove? What complexity does it add, and is there a smaller change that removes the same cause? What returns if it is deleted? |
 
-Proposed use in a review (not owner-approved):
+Proposed use in a review (not owner-approved): (Correction 2026-10-30: approved as proposed, [ADR-0013](0013-owner-decisions-remaining-questions.md), 2026-10-28.)
 
 1. A review may ask the questions above. The RFC would answer them as a checklist inside its Recommendation, one line each, with evidence (a run id, a `path:line`, a number) or "not affected" (Open question 1).
 2. A pillar the RFC cannot answer is named under "Owner decisions needed".

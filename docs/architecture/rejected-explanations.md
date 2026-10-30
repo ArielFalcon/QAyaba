@@ -160,7 +160,7 @@ Seven more claims were refuted after the first version of this page: two narrowe
 
 ## Run index
 
-Runs are numbered by start time among the 29 runs of one app (app commit ed28973, except #4, which ran 76c3067) on 2026-10-26 to 2026-10-28, plus three runs of cycle 3 (#30-#32). The table lists the runs this page cites, and #6, which [ADR-0005](adr/0005-coverage-enforce-activation.md) cites. An epoch is one orchestrator process, so the engine code a run executed: O0b e6c7d095, O2 7207dca0, O3 482e9a20, O4 94f2b45e, O5 f96f958f, O6 f96f958f, O7 e4efa50e, O8 27238792, O9 58151b36, O10 bd1d2e46, O11 40513c1e. "x5" is an uncommitted experiment that raised hard time limits fivefold, live from #10 (the app configuration kept it through #29). O4 and O6 also ran uncommitted changes; the epoch's commit is the base.
+Runs are numbered by start time among the 29 runs of one app (app commit ed28973, except #4, which ran 76c3067) on 2026-10-26 to 2026-10-28, plus three runs of cycle 3 (#30-#32). The table lists the runs this page cites, and #6, which [ADR-0005](adr/0005-coverage-enforce-activation.md) cites. An epoch is one orchestrator process, so the engine code a run executed: O0b e6c7d095, O2 7207dca0, O3 482e9a20, O4 94f2b45e, O5 f96f958f, O6 f96f958f, O7 e4efa50e, O8 27238792, O9 58151b36, O10 bd1d2e46, O11 40513c1e (Correction 2026-10-30: O12 to O16 are the root-cause branch's, in the second table below). "x5" is an uncommitted experiment that raised hard time limits fivefold, live from #10 (the app configuration kept it through #29). O4 and O6 also ran uncommitted changes; the epoch's commit is the base.
 
 | # | Run id | Epoch | # | Run id | Epoch |
 |---|---|---|---|---|---|
@@ -179,3 +179,15 @@ Runs are numbered by start time among the 29 runs of one app (app commit ed28973
 | 15 | run-ed28973-mvpu85em-1b65ceb1 | O5 | 29 | run-ed28973-mvrxb30p-ecfe944b | O10 |
 | 30 | run-ed28973-mvs0onsn-6ad17f30 | O11 | 31 | run-ed28973-mvs2ukug-c82da7be | O11 |
 | 32 | run-ed28973-mvs49h5y-acdab309 | O11 | | | |
+
+### Epochs after O11 (the root-cause branch)
+
+Correction 2026-10-30 (checkpoint 3, C-B3; [RFC-0009](rfc/0009-pack-record-matches-prompt.md) F6 asks for the break to be recorded in this table). The runs of the root-cause branch are read in the epoch they ran in ([ADR-0011](adr/0011-root-cause-fix-policy.md), rule 7): a run is never pooled with a run of another epoch, and a series that crosses a row below changes meaning there. These runs have no `#` number; the epoch is the engine code of the commit.
+
+| Epoch | Commit | Run | What it carries, and what changes meaning |
+|---|---|---|---|
+| O12 | 4105c582 | the baseline, `run-ed28973-mvs7oo0f-17041c71` | Four engine commits after O11 (F18-F21, [ADR-0011](adr/0011-root-cause-fix-policy.md)). The "before" of the baseline measurement. |
+| O13 | 60d4b7bf | T17, `run-ed28973-mvuspjsx-a31b6838` | Platform step 1 (the deletions) plus T4 (the suite store's one writer). The slices' "before" and [RFC-0005](rfc/0005-suite-store-single-writer.md)'s after (feature document L18-L20). The first launch, `run-ed28973-mvusl6a5-2cffc23a`, ended `E-NO-AUTHOR` for an environment cause (L19) and is excluded. |
+| O14 | 2af99d58 (the slice's two commits, 88d2a300 and 2af99d58) | none | The break of [RFC-0009](rfc/0009-pack-record-matches-prompt.md) (F6): `context_utilization` and the pack series (`change_pages_grounded`, the delivered ids) change meaning, because the id record now lists what the prompt printed. Do not pool across it; old runs keep their spans and their stored scores, with no regrade. |
+| O15 | b900bc7e | `run-ed28973-mvv7lrgu-65aff66e` (verdict `fail`; feature document L28) | Every slice T4-T11 integrated: the dump harvest in a worker (T5 unit 1), the log level derived from the outcome (T6), the review answer whole (T7), the DEV-write control (T8, first design), the acceptance that records what it ran (T9) and the skip refusal in the seed, the pack record (T10, O14), the tool call's outcome (T11). One replicate: a direction, not proof. |
+| O16 | 17bb77c1 | none yet | The checkpoint 3 corrections: the control load bounded apart from the call and read before the spec child starts (`b690fa8c`, which changes `generate` and `run_spec` time), the engine rule against a test that ran before turning green by being skipped, expected to fail or removed (`a6cded89`), the tool-target redaction window (`9b243fab`), the carried-on log levels (`c71b0438`). T5 unit 2 and the T12 after-measurement run in a later epoch. |

@@ -107,6 +107,8 @@ Decided 2026-10-28: each recommended answer below is accepted ([ADR-0013](0013-o
 | C | The records cite files step 1 deletes, and the previous-forms gate would flag them. | Skip only the path and citation checks for `docs/architecture/` and keep its banned-term rules: [RFC-0002](../rfc/0002-platform-steps-0-1.md) Q1, commit G1, which lands before the first deletion. The records are dated to a commit by design; the gate already skips `odd/` for the same reason (`scripts/check-previous-forms.ts:54`). The [README](../README.md) compares the options. |
 | D | What counts as a "stable E2E MVP" for reopening code-level testing? | One definition for the whole project: reuse the activation criterion of [ADR-0005](0005-coverage-enforce-activation.md) (consecutive replicates with a trustworthy measurement). That is a proposal; ADR-0005 is about coverage, not about this. |
 
+Correction 2026-10-30 (point B): the owner's app configuration for qayaba itself was backed up to the data volume (`backups/qayaba-app-config-2026-10-29.yaml`) and removed by the agent on the owner's go of 2026-10-30, "de las acciones que marcas como mias, resuelve tu todas las que puedas" (translated: "of the actions you mark as mine, you resolve all you can"; feature document L13, [ADR-0013](0013-owner-decisions-remaining-questions.md) correction). The same file is not in the worktree (L22).
+
 ## Enforcement
 
 Not enforced yet. At 4105c582 nothing prevents the code target from returning. Step 1 adds, in the same commit series:

@@ -208,7 +208,7 @@ Each for the owner to decide; the recommended answer first.
 
 - **Unresolvable links.** External calls, dynamic call paths and `rpc` links are dropped by the adapter (`service-links-port.adapter.ts:38`); a hop that depends on one stays invisible. Not changed here.
 - **Event matching.** First-match-wins joins and the stem fallback (`event-resolver.adapter.ts:94-95`) can make a wrong link; a multi-hop walk inherits it. The resolver's header names the risk; a separate question.
-- **The dead field `CrossRepoImpact.serviceImpacted`** (`service-links.ts:47`; merged at `ground.steps.ts:174` and set nowhere at f8d25c3e). Removal belongs to platform step 1, not here.
+- **The dead field `CrossRepoImpact.serviceImpacted`** (`service-links.ts:47`; merged at `ground.steps.ts:174` and set nowhere at f8d25c3e). Removal belongs to platform step 1, not here. (Correction 2026-10-30: step 1 did not remove it; it is still at `service-links.ts:47` and `ground.steps.ts:174` at 17bb77c1. Unit U2 changes the same kernel types (`CrossRepoImpact`), so T29 U2 carries its removal.)
 - **The deploy gate of an intermediate service** and any use of its version beyond Q2.
 - **Whether the app's pages that reach the changed service are tested well** (P6): this record grounds the agent with the change; test quality is read from the signals of ADR-0005.
 

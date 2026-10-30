@@ -220,3 +220,11 @@ Plausible neighbours of the same family, not confirmed by N06 and so not fixed h
 - Whether the stale-coverage flag after a review acceptance should be a recount (the `remeasure-stale-coverage` step, `review.steps.ts:615`). Not part of N06.
 - Whether stale or dropped cases changed any published test. Not shown.
 - The review answer crossing the pipeline whole (N02, [RFC-0006](./0006-review-answer-crosses-whole.md)): a different mechanism in the same phase; separate commit. (Correction 2026-10-29: the slices are not independent. This slice's test fake returns the reviewer shape `corrections`, which RFC-0006 changes to `findings`; whichever slice lands second ports the fake.)
+
+## Corrections and implementation notes
+
+Correction 2026-10-30 (checkpoint 3, B-J3; the decisions are in [ADR-0015](../adr/0015-owner-decisions-2026-10-30.md)):
+
+- **Goal 1 and test T4 ("a case for each kept file").** A kept file may have no case. A spec file whose tests all skipped loaded and stands with no case recorded for it, and it gets no proof, so the suite store never captures bytes nothing ran (`31306add`, `a6cded89`). A file the report says nothing of (no case and no skipped test) did not load and is never kept (`80ab4482`); a file the turn deleted has no case by nature and its deletion stands.
+- **A rule the text above does not have (B-B1, `a6cded89`).** For any app, whatever its own lint, a test of a changed file that ran in the file's prior bytes and is now skipped, expected to fail (`test.fixme`, `testInfo.skip()`, `test.fail()`, an alias) or, when it was failing, removed (the file reports fewer cases than before; a renamed test keeps the count), is not a pass: the file gets its prior bytes back when the acceptance is judged file by file, and the round is rejected when it is judged whole. The seed's static gate refuses a skipped test (`b900bc7e`, the owner's decision of L26) with `disallowFixme` as an early hint; the engine rule is what holds for an app that was not bootstrapped from the seed. Not implemented: a test a correction named that never ran before.
+- **Landing.** The slice was re-applied on the root-cause branch as `4209c1c8`, `974ea34a`, `80ab4482` and `31306add` (T9, with checkpoint 2's C-B1), then `b900bc7e` and `a6cded89`.

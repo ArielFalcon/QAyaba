@@ -221,6 +221,15 @@ The proof is the RED tests: the record shape is a constant, so a run measures on
 
 One against one shows a direction, never proof (ADR-0011, rule 4). The trigger may not recur: 22 of the 34 runs with spans carried a failed call, so a replicate with none is likely enough (hypothesis; no rate is claimed) to leave the fix "unproven", as ADR-0011 says of an unfired trigger. If it fires, the first use is the open question: the message of the baseline's kind of `invalid` call answers whether they are model argument errors or an engine contract mismatch.
 
+## Implementation notes
+
+Landed as `9fa0ce64` and `b7bf0102` (picked from `10aa4667` and `32451b21`; the contract types regenerated), then `9b243fab` after checkpoint 3 (B-J2). What the code does at 17bb77c1:
+
+- **One classifier owns the words.** The runtime's error text, the denial wording and the `invalid` pseudo-tool are read in one adapter-side module, `opencode-tool-outcome.ts` (`generation/infrastructure/sse`), which derives the closed `ToolOutcome`; the tracker, the mapper and the span read it. The redaction of a target and of an error message is `redactedText` in that module (with an injected redactor, so a fault in redaction is testable), not code in the tracker.
+- **The redaction window.** The text is redacted over a window and cut afterwards: the window is the larger of `EVIDENCE_TEXT_SAFETY_BOUND` and twice the cap (`max(EVIDENCE_TEXT_SAFETY_BOUND, 2 x cap)`; 8,000 characters for both the error, cap 1,000, and the target, cap 200). The first form used twice the cap (`b7bf0102`), which left a quoted credential longer than the window cut before its closing quote, so the pattern took the first word and left the rest; `9b243fab` widened it, with tests of an 800-character quoted credential and a long JWT at the cap.
+- **`qayaba.tool.attempted` is registered as redacted text**, not as a metadata attribute, so `off` capture omits it (it is agent-chosen text).
+- **The ownership scan** of the tool state's `error` field covers the engine and the shell (`9b243fab`, `c71b0438`).
+
 ## Owner decisions needed
 
 - **N1. Where does the message live?** Recommended: on the span only (Tempo, and `run_spans` through the ledger), plus the closed `outcome` kind and `attempted` on the sequence entry; the message does not go into `agent_turns` or the API. Alternative: add it to the entry, which puts redacted error text in the history table and the `/turns` response, pattern-redacted at the tracker only (no by-value scope there).

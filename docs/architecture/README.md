@@ -1,6 +1,6 @@
 # Architecture records
 
-Decision records of the root-cause investigation of qayaba (runs of 2026-10-26 to 2026-10-28). An RFC proposes, the owner decides, an ADR records what the owner decided. Every code reference is pinned to commit 4105c582.
+Decision records of the root-cause investigation of qayaba (runs of 2026-10-26 to 2026-10-28). An RFC proposes, the owner decides, an ADR records what the owner decided. Every code reference is pinned to commit 4105c582 (Correction 2026-10-30: a record written after that commit pins its own, and its header says which: RFC-0011 and ADR-0014 pin f8d25c3e and e844d7f9, ADR-0015 pins 17bb77c1).
 
 ## Quick path
 
@@ -35,7 +35,7 @@ Rules:
 - Ids that are not record ids:
   - `D1` to `D14`: the owner's decisions of 2026-10-28. They are the decision source of the ADRs ([RFC-0001](rfc/0001-dormant-features.md), "Decisions already taken", maps each to its ADR).
   - `H01` to `H27`: the investigation's hypotheses. Three are confirmed (H06, H11, H20), 17 plausible, 7 refuted ([ADR-0002](adr/0002-architecture-direction.md) lists all 27).
-  - `run-...` ids, `#n` run numbers and `O0b` to `O11` epochs: defined in the run index of [Rejected explanations](rejected-explanations.md#run-index).
+  - `run-...` ids, `#n` run numbers and `O0b` to `O16` epochs: defined in the run index of [Rejected explanations](rejected-explanations.md#run-index) (Correction 2026-10-30: O12 to O16 are the root-cause branch's, in the second table of that index, which also records the break of RFC-0009 F6).
 - Owner questions are numbered inside each record, so quote the record with the number (for example "RFC-0004 F1").
 
 ## The two templates
@@ -86,7 +86,7 @@ Some ADRs add an "Open questions" section after "Alternatives considered"; other
 - A claim carries its evidence: a run id, a `path:line`, a number or a quoted source. A conclusion is labelled "confirmed" or "hypothesis". A cause is never generalised from one run, and a run is read in the code epoch it ran in ([ADR-0011](adr/0011-root-cause-fix-policy.md), rule 7).
 - The owner's words are given as a translation marked "(translated)", with the date. The owner is named by role only.
 - No record holds an absolute path of a machine, a scratch path or a secret. The product is called qayaba.
-- `npm run previous-forms:check` scans the records for banned terms, dead paths and dead `file:line` citations. It checks that a full path exists. It checks that a line is inside the file only for a bare file name with one match ([ADR-0011](adr/0011-root-cause-fix-policy.md), Enforcement, row 7).
+- `npm run previous-forms:check` scans the records for banned terms, dead paths and dead `file:line` citations. It checks that a full path exists. It checks that a line is inside the file only for a bare file name with one match ([ADR-0011](adr/0011-root-cause-fix-policy.md), Enforcement, row 7). Correction 2026-10-30: since `a4cde318` (RFC-0002 Q1, option B of open question 1 below) the gate skips the path and citation checks for `docs/architecture/` and keeps its banned-term rules, with the retired-name rules exempting the folder one by one (`exemptPrefixes`); so a record's citation of a deleted file is expected and the gate no longer checks it. The correctness of a citation is checked once, against the pinned commit, when a record is written or reviewed.
 
 ## Where rejected explanations live
 
@@ -112,6 +112,7 @@ Decisions (ADR):
 | [ADR-0012](adr/0012-owner-decisions-rfc-0002-0010.md) | Owner decisions on RFC-0002 to RFC-0010 | Accepted | The 60 open questions of RFC-0002 to RFC-0010 (Correction 2026-10-29: this index said 56) |
 | [ADR-0013](adr/0013-owner-decisions-remaining-questions.md) | Owner decisions on the remaining open questions | Accepted | RFC-0001 OD-1 to OD-20, the open points of ADR-0001 to ADR-0011, the README's open questions |
 | [ADR-0014](adr/0014-owner-decisions-rfc-0011.md) | Owner decisions on RFC-0011 | Accepted | RFC-0011 Q1 to Q8 |
+| [ADR-0015](adr/0015-owner-decisions-2026-10-30.md) | Owner decisions of 2026-10-30: forbid `test.skip`, and decide without asking | Accepted | The owner's answers of 2026-10-30 (feature document L26) and the rules taken under them |
 
 Proposals (RFC):
 
@@ -135,7 +136,7 @@ Other:
 |---|---|---|
 | [Rejected explanations](rejected-explanations.md) | The refuted hypotheses and the run index | H03, H05, H10, H13, H14, H26, H27; later N03, N07, Q02, Q03, Q05, Q06, Q07 |
 
-These tables list every record through ADR-0014 and RFC-0011 (Correction 2026-10-30); a later record is added to its table by the change that adds it.
+These tables list every record through ADR-0015 and RFC-0011 (Correction 2026-10-30); a later record is added to its table by the change that adds it.
 
 Documents outside this folder that the records build on:
 

@@ -204,6 +204,16 @@ One replicate before (D13, one per version): run-ed28973-mvs7oo0f-17041c71 on 41
 
 Read the structure, not the counts: DEV state moves them (456, 397 and 444 across the three states). If the after replicate overflows with no copy in the record, own ids alone exceed the cap: that is the evidence that opens F4, and a signal for the cap, not for this RFC. A run with no redirected route and no seed is the control the replicate will not give; T5 is that control.
 
+## Implementation notes
+
+Landed as `88d2a300` and `2af99d58` (picked from `0b8382cc` and `8907e0bf`), 2026-10-29. What the code does at 17bb77c1, where it differs from or fills in the text above:
+
+- **The renderer states what it prints.** `reportedRouteOf` (`dom-snapshot.ts`) decides under which route a page is reported; the captured page carries that decision (printed, reached), and the pack's DOM and fact enumerators read it: a grounded page under its route (a template page under its template), a redirect's reached page once under the path it reached, nothing for a link seed or for a route that redirected. A test fails when the record and the text disagree for any shape.
+- **An unprinted page still weighs on the absence guard.** A link seed, or a failed or empty render, supplies no ids or facts, but its unconfirmed data state reaches the fact guard, because it bears on whether the absence of a changed test id is proof (checkpoint 1, B2).
+- **The window fit keeps the advisory's ids.** It no longer prunes the elements of a page it left out of the Live DOM while the redirect advisory still prints the same tree (checkpoint 1, J4).
+- **A tree printed under one name by several routes keeps the ids of every print**, not the last one's (checkpoint 1, m10).
+- **F4 and F6.** The cap policy is unchanged. The break of F6 is recorded as epoch O14 in the run index of [Rejected explanations](../rejected-explanations.md#run-index): `context_utilization` and the pack series change meaning there and are not pooled across it.
+
 ## Owner decisions needed
 
 - **F1. Source of the record.** The bytes the prompt carried (the pages the report prints, once), not the capture's list of asked routes. Recommended: yes.

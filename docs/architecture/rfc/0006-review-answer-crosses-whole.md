@@ -133,6 +133,8 @@ A typed `review-unreadable` ending instead of reusing the parse miss.
 
 **Where it lives.** Engine, in the `generation` context: the reviewer-verdict schema (`schemas.ts:536-590`) and the reviewer half of `verdict-validate.ts` (`:50-100`) decide something about a run, which is row 3 of the decision table (`docs/engine-platform-architecture.md:84-97`; RFC-0002 already places `verdict-validate.ts` in row 3 and splits `schemas.ts`). They move with this change, as the work order asks (hypothesis: the module placement is RFC-0002 step 2's to confirm). The port stays declared by its consumer, `review.port.ts`. The change follows platform steps 0-1 in the approved order and ships as its own commit with its tests.
 
+Correction 2026-10-30 (checkpoint 3, C-J2): the schema and `verdict-validate.ts` did not move. The change landed as `aa34ddc6`, `b572d49f` and `aac2c0e3` (re-applied from `4542a739`, `b138043e` and `fed90885`), and at 17bb77c1 `ReviewerVerdictSchema` is still in `src/orchestrator/schemas.ts` and the reviewer half of the validation is still in `src/integrations/verdict-validate.ts`. The move to the `generation` context is platform step 2's, over the inventory rows no slice moved (feature document, T13); this RFC's placement stands as the destination, not as done.
+
 **The guards it must not regress (`AGENTS.md:20-21`).** Checked against the tests that pin them:
 
 | Guard | Pinned by | What the change does |
