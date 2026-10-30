@@ -7,8 +7,9 @@
  * its pre-turn bytes restored and the files its turn created removed, so the bytes on disk always
  * equal the last bytes that executed green. A regeneration that changed spec files only
  * (`independentSpecs`) is judged file by file: when its execution fails, every spec file whose cases
- * all passed is kept and only the others are restored; with none kept it is rejected whole. A spec file that still exists and that the execution showed no case of
- * is never kept, whatever the verdict (a deleted file has no case by nature, and its deletion stands). An iterative fix-loop round may adopt a failing execution
+ * all passed is kept and only the others are restored; with none kept it is rejected whole. A spec file that still exists and that the execution reported nothing of
+ * (no case and no skipped test: it did not load) is never kept, whatever the verdict (a file whose tests all skipped loaded and stands;
+ * a deleted file has no case by nature, and its deletion stands). An iterative fix-loop round may adopt a failing execution
  * (`adoptFailures`): its bytes and cases stand while the loop repairs them, but only green bytes get a
  * proof, so nothing can publish them. Built once per run; the run's own counter caps how many
  * acceptance executions one run spends, and the run's deadline bounds each of them.
@@ -18,7 +19,7 @@ import type { QaCase } from "@kernel/qa-case.ts";
 import { normalizeSpecPath } from "@kernel/spec-path.ts";
 import { RunDeadlineExceededError } from "@kernel/run-deadline.ts";
 import { MAX_ACCEPTANCE_EXECUTIONS } from "../../../shared-kernel/derive-cycle-backstop.ts";
-import type { ExecutionPort, ValidationPort } from "@contexts/test-execution/application/index.ts";
+import type { ExecutionPort, SkippedTest, ValidationPort } from "@contexts/test-execution/application/index.ts";
 import type { RunDeadlinePort } from "./ports/run-deadline.port.ts";
 import type { SuiteRestorePoint } from "../domain/suite-restore-point.ts";
 import type { SuiteRestorePort } from "./ports/suite-restore.port.ts";
@@ -142,20 +143,20 @@ export class RegenerationAcceptance {
       const result = await input.execute(input.specDir, { specFiles: [...input.changedSpecFiles], retries: 0, namespace: input.namespace });
       execution = { verdict: result.verdict, cases: result.cases, logs: result.logs };
       const failed = result.verdict !== "pass" && (!input.adoptFailures || result.verdict === "infra-error");
-      /* 5b. A file that is still there and that the execution showed no case of has no result to stand on, whatever the verdict; a deleted file has no case by nature. */
-      const silent = failed ? [] : await this.silentFiles(input, result.cases);
+      /* 5b. A file that is still there and that the execution reported nothing of (no case, no skipped test) did not load and has no result to stand on, whatever the verdict; a deleted file has no case by nature. */
+      const silent = failed ? [] : await this.silentFiles(input, result);
       if (failed || silent.length > 0) {
         const split =
           input.independentSpecs && result.verdict !== "infra-error"
             ? failed
-              ? greenSpecFiles(input.changedSpecFiles, result.cases)
+              ? greenSpecFiles(input.changedSpecFiles, result)
               : standingSpecFiles(input.changedSpecFiles, silent)
             : undefined;
         if (!split) {
           await restore();
           return {
             kind: "rejected",
-            reason: failed ? `execution ended ${result.verdict}` : `execution showed no case of ${silent.join(", ")}`,
+            reason: failed ? `execution ended ${result.verdict}` : `execution reported nothing of ${silent.join(", ")}`,
             execution,
           };
         }
@@ -190,10 +191,10 @@ export class RegenerationAcceptance {
     };
   }
 
-  /* The changed spec files that exist after the turn and that `cases` holds no case of. */
-  private async silentFiles(input: AcceptanceInput, cases: readonly QaCase[]): Promise<string[]> {
+  /* The changed spec files that exist after the turn and that the execution reported nothing of: no case and no skipped test, so the file did not load. */
+  private async silentFiles(input: AcceptanceInput, result: ReportedFiles): Promise<string[]> {
     const now = await this.deps.snapshot.snapshot(input.specDir, [...input.changedSpecFiles]);
-    return input.changedSpecFiles.filter((file) => now.files.has(file) && !cases.some((c) => c.file !== undefined && sameSpec(file, c.file)));
+    return input.changedSpecFiles.filter((file) => now.files.has(file) && !reports(file, result));
   }
 
   private requireTime(deadline: RunDeadlinePort): void {
@@ -206,17 +207,24 @@ export class RegenerationAcceptance {
 
 const sameSpec = (a: string, b: string): boolean => normalizeSpecPath(a) === normalizeSpecPath(b);
 
+/* What an execution reported of its files: the cases that ran and the tests it says were skipped. */
+type ReportedFiles = { cases: readonly QaCase[]; skippedTests?: readonly SkippedTest[] };
+
+/* Whether the execution reported anything of `file`: a case, or a skipped test (a spec whose tests all skipped loaded and ran nothing). A file it reports nothing of did not load. */
+const reports = (file: string, { cases, skippedTests }: ReportedFiles): boolean =>
+  cases.some((c) => c.file !== undefined && sameSpec(file, c.file)) || (skippedTests ?? []).some((s) => s.file !== undefined && sameSpec(file, s.file));
+
 /*
- * The changed spec files a failing execution leaves standing: those with at least one case, every one of them passed. Undefined when
+ * The changed spec files a failing execution leaves standing: those the execution reported, none of whose cases failed. Undefined when
  * the failure cannot be laid on spec files (a case that did not pass names no changed file, or no case failed at all) or when no file
  * is left standing: the regeneration is then rejected whole.
  */
-function greenSpecFiles(changed: readonly string[], cases: readonly QaCase[]): { kept: string[]; restored: string[] } | undefined {
+function greenSpecFiles(changed: readonly string[], result: ReportedFiles): { kept: string[]; restored: string[] } | undefined {
+  const { cases } = result;
   const failing = cases.filter((c) => c.status !== "pass");
   if (failing.length === 0 || failing.some((c) => c.file === undefined || !changed.some((file) => sameSpec(file, c.file!)))) return undefined;
   const green = (file: string): boolean => {
-    const own = cases.filter((c) => c.file !== undefined && sameSpec(file, c.file));
-    return own.length > 0 && own.every((c) => c.status === "pass");
+    return reports(file, result) && cases.filter((c) => c.file !== undefined && sameSpec(file, c.file)).every((c) => c.status === "pass");
   };
   const kept = changed.filter(green);
   if (kept.length === 0) return undefined;

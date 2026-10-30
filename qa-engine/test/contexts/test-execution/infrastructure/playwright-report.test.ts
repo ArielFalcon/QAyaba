@@ -113,6 +113,21 @@ test("stats-only report passes only when tests actually executed", () => {
   assert.equal(parsePlaywrightReport({ stats: { expected: 1, unexpected: 2 } }).passed, false);
 });
 
+test("the tests the report says were skipped are carried with their file, and are not cases", () => {
+  const report = {
+    suites: [
+      { title: "flows/a.spec.ts", specs: [{ title: "ran", tests: [{ status: "expected" }] }, { title: "fixme", tests: [{ status: "skipped" }] }] },
+      { title: "flows/b.spec.ts", specs: [{ title: "needs a seeded account", tests: [{ status: "skipped" }] }] },
+    ],
+  };
+  const parsed = parsePlaywrightReport(report);
+  assert.deepEqual(parsed.cases.map((c) => c.name), ["flows/a.spec.ts › ran"]);
+  assert.deepEqual(parsed.skippedTests, [
+    { name: "flows/a.spec.ts › fixme", file: "flows/a.spec.ts" },
+    { name: "flows/b.spec.ts › needs a seeded account", file: "flows/b.spec.ts" },
+  ]);
+});
+
 test("a spec with one executed pass and one skipped test still passes", () => {
   const report = { suites: [{ specs: [{ title: "mixed", tests: [{ status: "expected" }, { status: "skipped" }] }] }] };
   assert.equal(parsePlaywrightReport(report).passed, true);

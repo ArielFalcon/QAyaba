@@ -587,6 +587,37 @@ test("a fix-loop round whose changed file holds a run_spec proof is executed by 
   assert.equal(out.decision.verdict, "fail", "the case that still fails is not dropped from the record");
 });
 
+test("a fix-loop round that changes a spec file whose tests all skipped is adopted: the file loaded, so the round is not rejected whole", async () => {
+  const [fixed, skipped] = ["flows/fixed.spec.ts", "flows/skipped.spec.ts"];
+  const files = [fixed!, skipped!];
+  const r = rig();
+  let turns = 0;
+  const deps = r.deps({
+    ...served({
+      author: async (specDir) => {
+        r.generations++;
+        turns++;
+        mkdirSync(join(specDir, "flows"), { recursive: true });
+        for (const file of files) writeFileSync(join(specDir, file), `await page.goto("/pass-${turns}");\n`);
+        return scriptedGeneration({ specs: files });
+      },
+    }),
+    execution: {
+      execute: async (_dir, opts) => {
+        const { specFiles } = (opts ?? {}) as { specFiles?: string[] };
+        /* The primary execution (the whole suite) fails; the round's acceptance runs the files it changed: the fixed file goes green while the other file's tests are all skipped. */
+        return specFiles !== undefined
+          ? { verdict: "pass", cases: [{ name: fixed!, status: "pass", file: fixed! }], skippedTests: [{ name: "needs a seeded account", file: skipped! }], logs: "" }
+          : { verdict: "fail", cases: [{ name: fixed!, status: "fail", file: fixed!, detail: "expected 1 got 2" }], logs: "" };
+      },
+    },
+  });
+
+  const out = await new RunQaUseCase(deps).run(INPUT);
+
+  assert.equal(out.decision.verdict, "pass", "the round that fixed the failing case stands");
+});
+
 test("a sweep that fails ends the run as an infra-error before anything validates, executes or publishes: probes the sweep left must not be judged or delivered", async () => {
   const r = rig();
   r.handle.sweepProbes = async () => { throw new Error("the probe tree could not be removed"); };

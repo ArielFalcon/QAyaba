@@ -471,6 +471,68 @@ test("a regeneration that changed a file the specs import is judged whole: a spe
   assert.deepEqual(h.restores, [{ created: [], files: ["flows/green.spec.ts", "flows/silent.spec.ts"] }]);
 });
 
+test("a spec file whose tests all skipped loaded and showed it: it is kept beside the files that ran, and no case is recorded for it", async () => {
+  const h = harness();
+  const outcome = await h.service.accept({
+    specDir: "/w/e2e",
+    changedSpecFiles: ["flows/green.spec.ts", "flows/skipped.spec.ts"],
+    namespace: NAMESPACE,
+    snapshot: snapshotOf(["flows/green.spec.ts", "flows/skipped.spec.ts"]),
+    independentSpecs: true,
+    deadline: deadline(60_000),
+    validate,
+    execute: async () => ({ verdict: "pass", cases: [caseOf("flows/green.spec.ts", "pass")], skippedTests: [{ name: "needs a seeded account", file: "flows/skipped.spec.ts" }], logs: "" }),
+  });
+
+  assert.equal(outcome.kind, "accepted");
+  if (outcome.kind === "accepted") {
+    assert.deepEqual(outcome.kept, ["flows/green.spec.ts", "flows/skipped.spec.ts"]);
+    assert.deepEqual(outcome.restored, []);
+    assert.deepEqual(outcome.execution?.cases.map((c) => c.file), ["flows/green.spec.ts"], "a skipped test is not a case: nothing ran");
+    assert.deepEqual(outcome.proof.map((p) => p.file), ["flows/green.spec.ts", "flows/skipped.spec.ts"]);
+  }
+  assert.equal(h.restores.length, 0, "no bytes are given back: the skipped file loaded");
+});
+
+test("a regeneration whose only changed spec file has all its tests skipped is accepted, judged whole or file by file", async () => {
+  for (const independentSpecs of [true, false]) {
+    const h = harness();
+    const outcome = await h.service.accept({
+      specDir: "/w/e2e",
+      changedSpecFiles: ["flows/skipped.spec.ts"],
+      namespace: NAMESPACE,
+      snapshot: snapshotOf(["flows/skipped.spec.ts"]),
+      ...(independentSpecs ? { independentSpecs } : {}),
+      deadline: deadline(60_000),
+      validate,
+      execute: async () => ({ verdict: "pass", cases: [], skippedTests: [{ name: "fixme", file: "flows/skipped.spec.ts" }], logs: "" }),
+    });
+
+    assert.equal(outcome.kind, "accepted", `independentSpecs ${independentSpecs}`);
+    assert.equal(h.restores.length, 0);
+  }
+});
+
+test("a skipped test of one file does not vouch for another spec file that showed nothing", async () => {
+  const h = harness();
+  const outcome = await h.service.accept({
+    specDir: "/w/e2e",
+    changedSpecFiles: ["flows/skipped.spec.ts", "flows/silent.spec.ts"],
+    namespace: NAMESPACE,
+    snapshot: snapshotOf(["flows/skipped.spec.ts", "flows/silent.spec.ts"]),
+    independentSpecs: true,
+    deadline: deadline(60_000),
+    validate,
+    execute: async () => ({ verdict: "pass", cases: [], skippedTests: [{ name: "fixme", file: "flows/skipped.spec.ts" }], logs: "" }),
+  });
+
+  assert.equal(outcome.kind, "accepted");
+  if (outcome.kind === "accepted") {
+    assert.deepEqual(outcome.kept, ["flows/skipped.spec.ts"]);
+    assert.deepEqual(outcome.restored, ["flows/silent.spec.ts"], "a file the report said nothing of did not load");
+  }
+});
+
 test("a spec file the turn deleted has no case by nature: its deletion stands in a passing execution", async () => {
   const h = harness(["flows/deleted.spec.ts"]);
   const outcome = await h.service.accept({

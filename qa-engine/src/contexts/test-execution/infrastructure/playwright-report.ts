@@ -1,5 +1,6 @@
 import type { CaseStatus, QaCase } from "@kernel/qa-case.ts";
 import type { RunVerdict } from "@kernel/run-verdict.ts";
+import type { SkippedTest } from "../domain/skipped-test.ts";
 import { LOAD_ERROR_MESSAGE_SAFETY_BOUND, MAX_LOAD_ERRORS_KEPT, type SpecLoadError } from "../domain/spec-load-error.ts";
 
 export interface PwCase {
@@ -13,6 +14,8 @@ export interface ParsedReport {
   verdict: RunVerdict;
   passed: boolean;
   cases: PwCase[];
+  /* The tests the report says were skipped: no case, but their file loaded. */
+  skippedTests: SkippedTest[];
   executed: number;
   /* The report's top-level errors: what stopped a spec from loading. Their file is as Playwright wrote it (absolute); the caller makes it suite-relative. */
   loadErrors: SpecLoadError[];
@@ -49,13 +52,17 @@ type SpecOutcome = CaseStatus | "skipped";
 export function parsePlaywrightReport(json: unknown): ParsedReport {
   const report = (json ?? {}) as PwReport;
   const cases: PwCase[] = [];
+  const skippedTests: SkippedTest[] = [];
 
   const walk = (suites: PwSuite[] | undefined, prefix: string, file: string | undefined): void => {
     for (const suite of suites ?? []) {
       const title = [prefix, suite.title].filter(Boolean).join(" › ");
       for (const spec of suite.specs ?? []) {
         const outcome = specOutcome(spec);
-        if (outcome === "skipped") continue;
+        if (outcome === "skipped") {
+          skippedTests.push({ name: [title, spec.title].filter(Boolean).join(" › "), ...(file ? { file } : {}) });
+          continue;
+        }
         const c: PwCase & Pick<QaCase, "file"> = {
           name: [title, spec.title].filter(Boolean).join(" › "),
           status: outcome,
@@ -80,7 +87,7 @@ export function parsePlaywrightReport(json: unknown): ParsedReport {
 
   const executed = countExecuted(report, cases);
   const verdict = aggregate(cases, report, executed);
-  return { verdict, passed: verdict === "pass", cases, executed, loadErrors: readLoadErrors(report.errors) };
+  return { verdict, passed: verdict === "pass", cases, skippedTests, executed, loadErrors: readLoadErrors(report.errors) };
 }
 
 /* The report is the child's: every field is checked, and an entry that is not a message is left out. */

@@ -1036,9 +1036,10 @@ that catches nothing. The objective signal that breaks the circle is **change-co
 - **Per-file acceptance**: a regeneration (gap, flaky or review correction) that changed spec files only is
   accepted file by file (`RegenerationAcceptance`, `independentSpecs`): when its acceptance run fails, every
   spec file whose cases all passed stands, and every other
-  changed file gets its prior bytes, cases and delivery back. A file that still exists and that the run showed
-  no case of is never kept, whatever the verdict (a passing run and an adopted fix-loop round included); a file
-  the turn deleted has no case by nature, and its deletion stands. Only the kept files get a proof, so the bytes on
+  changed file gets its prior bytes, cases and delivery back. A file that still exists and that the run
+  reported nothing of (no case and no skipped test, so it did not load) is never kept, whatever the verdict (a
+  passing run and an adopted fix-loop round included); a file whose tests all skipped loaded and stands, with no
+  case recorded for it, and a file the turn deleted has no case by nature, so its deletion stands. Only the kept files get a proof, so the bytes on
   disk are still the last that ran green, file by file, and the suite store captures only those; survivor
   closure is judged on the kept files. With none kept, or a changed file the specs import, it is accepted or
   rejected whole. The recount reads the kept files from the acceptance's dumps (a re-run's namespace is read for
