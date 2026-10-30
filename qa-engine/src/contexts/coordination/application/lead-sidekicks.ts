@@ -9,6 +9,7 @@
  * Nothing here decides a verdict: it returns what a generation would, and the run reads it as it reads any generation.
  */
 
+import { LOG_EFFECT, levelOfEffect } from "@kernel/ports/logger.port.ts";
 import { engineLog } from "@kernel/ports/process-logger.ts";
 import { sha256Hex } from "@kernel/content-hash.ts";
 import type { ChangedDecision } from "@kernel/changed-decision.ts";
@@ -47,7 +48,7 @@ import type { DevStateGround } from "./dev-state-backing.ts";
 import { observationConflictIn } from "./evidence-precedence.ts";
 import { AUTHORING_FAILURE, authoringFailureFeedback, classifyAuthoringFailure, type AuthoringFailure } from "./authoring-failure.ts";
 import { FanOutDispatcher, FLOW_RESULT, type TimerPort } from "./fan-out-dispatcher.ts";
-import { aggregateFlowOutcomes, FLOW_OUTCOME, type AggregatedFlows, type FlowOutcome } from "./flow-outcomes.ts";
+import { aggregateFlowOutcomes, FLOW_OUTCOME, FLOW_OUTCOME_EFFECT, type AggregatedFlows, type FlowOutcome } from "./flow-outcomes.ts";
 import { admitLeadPlan, LEAD_PLAN_KIND, PLAN_DOWNGRADE, PLAN_REJECTED, assembleRejectedPlanRequest, type AdmittedFlow, type AdmittedPlan } from "./lead-plan.ts";
 import { SIDEKICK_AUTHORING, sidekickAuthoring, sidekickDeniedTools, type SidekickAuthoringMode } from "./sidekick-authoring.ts";
 import type { SidekickExecutor, SidekickSession } from "./sidekick-executor.ts";
@@ -537,7 +538,7 @@ export class LeadSidekicks {
         case FLOW_RESULT.THREW:
           /* The run's own time spent ends the run, not a flow. */
           if (isRunDeadlineError(result.error)) throw result.error;
-          engineLog.error(`[qa] flow ${result.id} failed: ${result.error instanceof Error ? result.error.message : String(result.error)}`);
+          engineLog[levelOfEffect(FLOW_OUTCOME_EFFECT[FLOW_OUTCOME.FAILED])](`[qa] flow ${result.id} failed: ${result.error instanceof Error ? result.error.message : String(result.error)}`);
           reports.set(result.id, this.keepDelivered(live.get(result.id), { outcome: { id: result.id, kind: FLOW_OUTCOME.FAILED, reason: "the sidekick's session failed" }, proposals: undefined }));
           break;
       }
@@ -606,7 +607,7 @@ export class LeadSidekicks {
   private overWindow(entry: LiveFlow, input: CoordinateInput, fit: ContextFit): FlowReport {
     const { flow } = entry;
     const reason = `its brief, with all its change named by reference and its suite listing and pages given up to the window, is ${fit.promptTokens} tokens and its turn needs ${fit.workingRoomTokens ?? 0} tokens of working room, over the author's window of ${fit.windowTokens ?? 0} tokens; it was not sent`;
-    engineLog.warn(`[qa] flow ${flow.id}: ${reason}`);
+    engineLog[levelOfEffect(FLOW_OUTCOME_EFFECT[FLOW_OUTCOME.OVER_WINDOW])](`[qa] flow ${flow.id}: ${reason}`);
     this.record(input, { kind: "lead-decision", flowId: flow.id, overWindow: [flow.id], contextFit: fit, delegationId: entry.delegationId, reason: `flow ${flow.id}: ${reason}` });
     return this.keepDelivered(entry, { outcome: { id: flow.id, kind: FLOW_OUTCOME.OVER_WINDOW, reason }, proposals: undefined });
   }
@@ -1167,7 +1168,7 @@ export class LeadSidekicks {
     if (indices.length === 0) return;
     const which = indices.map((i) => i + 1).join(", ");
     this.record(input, { kind: "lead-decision", origin, findings: indices.length, unroutedReasons: [code], reason: `correction (${origin}): finding(s) ${which} left unrouted: ${reason}` });
-    engineLog.error(`[qa] correction (${origin}): ${indices.length} finding(s) left unrouted (${which}): ${reason}`);
+    engineLog[levelOfEffect(LOG_EFFECT.CARRIED_ON)](`[qa] correction (${origin}): ${indices.length} finding(s) left unrouted (${which}): ${reason}`);
   }
 
   /* One flow's correction: its workspace brought up to the working copy, then the findings and the lead's instruction to its sidekick. */

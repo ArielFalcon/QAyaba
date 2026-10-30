@@ -31,7 +31,7 @@ import type { AgentBrowserHandle, ClosedLoopHandle, FlowLedgerEntry, FlowLoopHan
 import type { LeadTurnOpts, PlanOutput } from "@kernel/plan-output.ts";
 import { sha256Hex } from "@kernel/content-hash.ts";
 import { installProcessLogger, resetProcessLoggerForTests } from "@kernel/ports/process-logger.ts";
-import type { LoggerPort } from "@kernel/ports/logger.port.ts";
+import { LOG_EFFECT, levelOfEffect, memoryLogger, type LoggerPort } from "@kernel/ports/logger.port.ts";
 import { AGENT_TOOL, SIDEKICK_KIND, sidekickKindSpec } from "@contexts/coordination/application/sidekick-kinds.ts";
 import type { GeoLocation } from "@kernel/geolocation.ts";
 
@@ -849,6 +849,20 @@ test("a sidekick whose session fails is that flow's failure; the others are unto
   assert.ok(r.disposed.includes("/w/run-1-flow-cart"), "the failed flow's workspace is removed too");
 });
 
+test("a flow lost to its session failing is said at the level of a carried-on loss, as the run goes on without it", async () => {
+  const memory = memoryLogger();
+  installProcessLogger(memory);
+  try {
+    const r = rig({ answers: { cart: [{ throws: new Error("provider down") }] }, hasFile: new Set(["login"]) });
+    const outcome = await r.coordinator.coordinate(input(r));
+    if (outcome.action !== "fanout") return assert.fail("fanout expected");
+    assert.deepEqual(outcome.aggregated.incompleteFlows.map((f) => [f.id, f.kind]), [["cart", "failed"]]);
+    assert.deepEqual(memory.entries.filter((e) => e.message.includes("provider down")).map((e) => e.level), [levelOfEffect(LOG_EFFECT.CARRIED_ON)]);
+  } finally {
+    resetProcessLoggerForTests();
+  }
+});
+
 test("the end of the run's own time is not a flow's failure: it ends the run", async () => {
   const r = rig({ answers: { cart: [{ throws: new RunDeadlineExceededError(60_000, "diff", "sidekick", "mid-turn") }] } });
   await assert.rejects(r.coordinator.coordinate(input(r)), RunDeadlineExceededError);
@@ -1334,6 +1348,24 @@ test("an order the re-answer still gets refused is recorded, asked about once on
   assert.ok(r.events.some((e) => /not taken: the order names no finding/.test(e.reason ?? "")), "the refusal is on the record");
   assert.ok(r.events.some((e) => /left unrouted/.test(e.reason ?? "")), "the unrouted findings are on the record");
   assert.equal(outcome.pass!.tally().unrouted, 2, "counted once, not once per asking");
+});
+
+test("findings left unrouted are said at the level of a carried-on loss and still ship to the log store", async () => {
+  const memory = memoryLogger();
+  installProcessLogger(memory);
+  try {
+    const lead = leadAnswering([ACCEPT_ALL, OUT_OF_RANGE_ORDER, OUT_OF_RANGE_ORDER]);
+    const r = rig();
+    const outcome = await new LeadSidekicks(r.deps).coordinate(input(r, { plan: lead.plan, closedLoop: undefined }));
+    if (outcome.action !== "fanout") return assert.fail("fanout expected");
+    await outcome.pass!.correct(LOOSE_ARMS, CORRECTION_ORIGIN.COVERAGE);
+    await outcome.pass!.release();
+    const unrouted = memory.entries.filter((e) => /left unrouted/.test(e.message));
+    assert.deepEqual(unrouted.map((e) => e.level), [levelOfEffect(LOG_EFFECT.CARRIED_ON)]);
+    assert.notEqual(unrouted[0]!.fields.ship, false);
+  } finally {
+    resetProcessLoggerForTests();
+  }
 });
 
 test("an answer that is admitted at once is not asked about again", async () => {

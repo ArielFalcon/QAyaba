@@ -5,6 +5,7 @@
  * its time budget; anything else is no decision, because silence is not one.
  */
 
+import { LOG_EFFECT, type LogEffect } from "@kernel/ports/logger.port.ts";
 import { GENERATION_END, type GenerationEndKind } from "@kernel/generation-end.ts";
 import { GENERATION_NOTE_MAX_CHARS } from "@contexts/generation/application/index.ts";
 
@@ -18,6 +19,16 @@ export const FLOW_OUTCOME = {
   OVER_WINDOW: "over-window",
 } as const;
 export type FlowOutcomeKind = (typeof FLOW_OUTCOME)[keyof typeof FLOW_OUTCOME];
+
+/* What a flow's outcome did to the run, for the process line that says it; null: no line is written for that outcome. */
+export const FLOW_OUTCOME_EFFECT = {
+  [FLOW_OUTCOME.DELIVERED]: null,
+  [FLOW_OUTCOME.DECLINED]: null,
+  [FLOW_OUTCOME.TIMED_OUT]: null,
+  [FLOW_OUTCOME.NEEDS_LEAD]: null,
+  [FLOW_OUTCOME.FAILED]: LOG_EFFECT.CARRIED_ON,
+  [FLOW_OUTCOME.OVER_WINDOW]: LOG_EFFECT.CARRIED_ON,
+} as const satisfies Record<FlowOutcomeKind, LogEffect | null>;
 
 export interface FlowOutcome {
   id: string;
