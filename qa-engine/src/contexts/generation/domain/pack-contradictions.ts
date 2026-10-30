@@ -6,14 +6,12 @@
  * flow's brief carries those of its pages (`packPagesFor`). Pure.
  */
 import { dataContradictionStatement, type DataContradiction } from "@kernel/data-contradiction.ts";
+import { printedRoute } from "@kernel/printed-route.ts";
 
 /* How the section introduces itself: what the facts are, and what a test does with them. */
 export const CONTRADICTIONS_SECTION_INTRO = `(a field the consumer's own code expects of an answer — its declared response type holds it, non-test code reads it and nothing writes it — that no answer the page received while it was captured carries at any depth: a possible defect of the app's data or of the provider's contract, not a fact to adapt a test to — a test that passes by reading its expected value from the state it checks, or by skipping a check when that state is empty, hides it)`;
 
-/* How a page is named on a fact: its address, and the template it was opened from. */
-const labelOf = (page: { route: string; template?: string }): string => (page.template === undefined ? page.route : `${page.route} (instance of ${page.template})`);
-
 /* The section's facts, or none when no page shows a contradiction. */
 export function contradictionsSectionLines(facts: readonly DataContradiction[]): string[] {
-  return facts.map((fact) => `- ${labelOf(fact)}: ${dataContradictionStatement(fact)}`);
+  return facts.map((fact) => `- ${printedRoute(fact)}: ${dataContradictionStatement(fact)}`);
 }

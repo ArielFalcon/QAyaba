@@ -4,6 +4,7 @@ import type { QaCase } from "@kernel/qa-case.ts";
 import { outcomeText, type RouteAvailabilityFact } from "@kernel/route-availability.ts";
 import { dataContradictionStatement, type DataContradiction } from "@kernel/data-contradiction.ts";
 import { redactThenBound } from "@kernel/redact-then-bound.ts";
+import { printedRoute } from "@kernel/printed-route.ts";
 
 export interface TestedItem {
   flow?: string;
@@ -198,7 +199,7 @@ function corroboratingStubs(fact: DataContradiction, state: StubbedStateView | u
 function renderDataContradictionsSection(facts: readonly DataContradiction[] | undefined, stubbed: StubbedStateView | undefined, bound: Bound): string {
   const shown = (facts ?? []).slice(0, MAX_ITEMS);
   if (shown.length === 0) return "";
-  const page = (fact: DataContradiction): string => (fact.template === undefined ? `\`${bound(fact.route, CAP_FLOW)}\`` : `\`${bound(fact.route, CAP_FLOW)}\` (instance of \`${bound(fact.template, CAP_FLOW)}\`)`);
+  const page = (fact: DataContradiction): string => printedRoute(fact, (part) => `\`${bound(part, CAP_FLOW)}\``);
   const more = (facts ?? []).length - shown.length;
   const omitted = more > 0 ? `\n_…and ${more} more omitted._` : "";
   const lines = shown.flatMap((fact) => [`- ${page(fact)}: ${bound(dataContradictionStatement(fact), CAP_CONTRADICTION)}`, ...corroboratingStubs(fact, stubbed, bound)]);

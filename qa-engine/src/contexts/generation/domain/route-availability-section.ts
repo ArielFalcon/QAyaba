@@ -4,6 +4,7 @@
  * heading and redacts.
  */
 import { outcomeText, type AvailabilityBasis, type AvailabilityClass, type RouteAvailabilityFact } from "@kernel/route-availability.ts";
+import { printedRoute } from "@kernel/printed-route.ts";
 
 const ORDER: readonly AvailabilityClass[] = ["change-introduced", "regression-candidate", "environment", "pre-existing", "unexplained"];
 
@@ -52,8 +53,7 @@ export function availabilityReason(basis: AvailabilityBasis): string {
 export function availabilityLine(fact: RouteAvailabilityFact): string {
   const session = fact.sessionAttached === true ? "with this run's session " : fact.sessionAttached === false ? "with no session " : "";
   const where = fact.outcome.kind === "redirected" ? `${session}the browser ends on ${outcomeText(fact.outcome)}` : `${session}the document answers ${outcomeText(fact.outcome)}`;
-  const label = fact.template === undefined ? fact.route : `${fact.route} (page of ${fact.template})`;
-  return `- ${label}: ${where}. ${availabilityReason(fact.basis)}`;
+  return `- ${printedRoute(fact)}: ${where}. ${availabilityReason(fact.basis)}`;
 }
 
 /* The section's body under its heading, or no line when no route was unavailable. Every fact, the change's own first: no count bound cuts them, and the prompt that carries them fits them to its role's window (referenceSectionFacts). */

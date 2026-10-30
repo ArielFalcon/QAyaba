@@ -23,6 +23,7 @@ import { parseAriaSnapshot, parseAriaSnapshotWithState } from "../domain/aria-sn
 import type { DataShape, NodeAttr, PageDataShapes, PageRequests, RepeatedName, RouteSnapshot } from "../domain/route-snapshot.ts";
 import type { RouteNavigation } from "../domain/route-availability-classifier.ts";
 import { pathOnly } from "@kernel/route-availability.ts";
+import { printedRoute } from "@kernel/printed-route.ts";
 
 const processKill = new ProcessKillAdapter();
 
@@ -291,21 +292,18 @@ function renderNodeLines(s: RouteSnapshot, allChanged?: ChangedElement[]): strin
   return lines;
 }
 
-/* How a page is named in the report: its address, and the template of the map it was opened from when it was. */
-const routeLabel = (s: RouteSnapshot): string => (s.template === undefined ? s.route : `${s.route} (instance of ${s.template})`);
-
 /* The grounded routes: each captured route with its tree and test-ids, and every other route as a plain state. A route that failed to capture, rendered empty or ended on another page renders NO tree here: the agent must not trust this route's grounding. The page a redirect reached is formatRedirectAdvisory's, never part of this text. */
 export function formatDomSnapshot(snaps: RouteSnapshot[], changed?: ChangedElement[]): string {
   const lines: string[] = [];
   for (const s of snaps) {
     if (s.error) {
-      lines.push(`route ${routeLabel(s)}: (could not capture — ${s.error})`);
+      lines.push(`route ${printedRoute(s)}: (could not capture — ${s.error})`);
       continue;
     }
     /* A route that STRUCTURALLY failed to render (empty nodes, or a redirect — the buildRouteCatalog degrade policy) gets a state line instead of a silent bare header and its nodes are NOT rendered. The state is a plain fact: it says which, and where a redirect went, with no directive and no opinion about the app. */
     const catalog = buildRouteCatalog(s);
     if (catalog.status === ROUTE_STATUS.DEGRADED) {
-      lines.push(`route ${routeLabel(s)}: (${catalog.degradeReason === DEGRADE_REASON.REDIRECTED ? `redirected to ${catalog.redirectedTo}` : DEGRADED_ROUTE_LABEL})`);
+      lines.push(`route ${printedRoute(s)}: (${catalog.degradeReason === DEGRADE_REASON.REDIRECTED ? `redirected to ${catalog.redirectedTo}` : DEGRADED_ROUTE_LABEL})`);
       continue;
     }
     /* Live-probe fix: a route that DID render but whose app logged a runtime error (a missing icon, an uncaught handler, a framework error) stays a TRUSTED grounding source — its nodes ARE rendered below — but the agent still gets an advisory heads-up so it asserts only what this tree shows and does not blindly assert app-generated content. The note is data, not a directive: the prompt forbids re-navigating a route the tree covers, so it must never send the agent back to the page. This warning is DECOUPLED from grounding trust: the route is captured, the selectors are real, only the app's own health is in question. */
@@ -313,7 +311,7 @@ export function formatDomSnapshot(snaps: RouteSnapshot[], changed?: ChangedEleme
       ? " (note: the app logged runtime errors on this route — possibly a defect; assert only content this tree shows)"
       : "";
   /* mutation-scope:end non-table-overflow-note */
-    lines.push(`route ${routeLabel(s)}:${runtimeErrorAdvisory}`);
+    lines.push(`route ${printedRoute(s)}:${runtimeErrorAdvisory}`);
     lines.push(...renderNodeLines(s, changed));
     if (s.testIds && s.testIds.size > 0) {
       const entries = [...s.testIds.entries()];

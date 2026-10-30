@@ -7,6 +7,7 @@
  * (`packPagesFor`, `recordedRequestsFor`). Pure.
  */
 import type { PageRequests } from "./route-snapshot.ts";
+import { PRINTED_ROUTE_SOURCE, printedRoute } from "@kernel/printed-route.ts";
 
 /* A captured page and the requests it made: its address, and the template of the map it was opened from when it was. */
 export interface PageRequestFacts {
@@ -18,13 +19,10 @@ export interface PageRequestFacts {
 /* How the section introduces itself: what the facts are and what they are not. */
 export const REQUESTS_SECTION_INTRO = `(data requests — fetch and XHR — the page's code made while it was captured, as method + origin + path with a count; never a query, body or header)`;
 
-/* How a page is named on a fact: its address, and the template it was opened from. */
-const labelOf = (page: { route: string; template?: string }): string => (page.template === undefined ? page.route : `${page.route} (instance of ${page.template})`);
-
 /* The section's facts, or none when no page made a request. */
 export function requestsSectionLines(pages: readonly PageRequestFacts[]): string[] {
   const facts = pages.flatMap((page) => {
-    const label = labelOf(page);
+    const label = printedRoute(page);
     const listed = page.requests.listed.map((r) => `- ${label}: ${r.method} ${r.url}${r.count > 1 ? ` (×${r.count})` : ""}${r.blocked ? " [did not complete]" : ""}`);
     return page.requests.omitted > 0 ? [...listed, `- ${label}: (+${page.requests.omitted} more request(s) not kept, past the capture's safety bound)`] : listed;
   });
@@ -39,7 +37,7 @@ export interface RequestFact {
   isOmittedCount: boolean;
 }
 
-const FACT_LINE = /^- (\S+?)(?: \(instance of (\S+?)\))?: (.*)$/;
+const FACT_LINE = new RegExp(`^- ${PRINTED_ROUTE_SOURCE}: (.*)$`);
 const OMITTED_FACT = /^\(\+\d+ more request\(s\)/;
 
 export function requestFactOf(line: string): RequestFact | undefined {

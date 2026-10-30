@@ -15,6 +15,7 @@
  */
 
 import { REVIEW_CORRECTIONS_MAX } from "@contexts/generation/domain/review-output.ts";
+import { INSTANCE_OF_SEPARATOR } from "@kernel/printed-route.ts";
 import {
   confidentWindowEnd,
   extractProposedSelectorsWithIndex,
@@ -72,7 +73,7 @@ function routeAddress(header: string): { route: string; degraded: boolean } {
   const suffixAt = header.indexOf(": (");
   const addressPart = (suffixAt === -1 ? header.replace(/:\s*$/, "") : header.slice(0, suffixAt)).trim();
   const suffix = suffixAt === -1 ? "" : header.slice(suffixAt + 1);
-  const instanceAt = addressPart.indexOf(" (instance of ");
+  const instanceAt = addressPart.indexOf(INSTANCE_OF_SEPARATOR);
   const route = (instanceAt === -1 ? addressPart : addressPart.slice(0, instanceAt)).trim();
   const degraded = /(?:could not capture|redirected to)/i.test(suffix);
   return { route, degraded };

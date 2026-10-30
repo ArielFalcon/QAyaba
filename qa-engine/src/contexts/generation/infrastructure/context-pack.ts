@@ -25,6 +25,7 @@ import { contradictionsSectionLines, CONTRADICTIONS_SECTION_INTRO } from "../dom
 import { findExpectationGaps, type ResponseFieldsOf } from "../domain/expectation-gaps.ts";
 import type { ConsumerExpectationsOf } from "../domain/consumer-expectation.ts";
 import type { DataContradiction } from "@kernel/data-contradiction.ts";
+import { printedRoute } from "@kernel/printed-route.ts";
 export { PACK_HEADINGS };
 
 const SECTION_FACTS: ReadonlyArray<readonly [string, FactId]> = [
@@ -322,7 +323,7 @@ function captureStateLabel(page: CapturedPage): string {
     try { finalPath = new URL(page.finalUrl).pathname; } catch { finalPath = page.finalUrl; }
   }
   if (finalPath !== undefined && finalPath !== page.route) return finalPath;
-  return page.template !== undefined ? `${page.route} (instance of ${page.template})` : page.route;
+  return printedRoute(page);
 }
 
 /* One "Capture state" line for a page whose dev.dataState route matched: its result count, effective location and, when the state could not be confirmed, the explicit warning that an empty tree is not proof. */

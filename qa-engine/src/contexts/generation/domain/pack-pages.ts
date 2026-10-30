@@ -7,10 +7,11 @@
  * (the pack's requests section) come with them, as the facts of those pages only. Pure.
  */
 import { PACK_HEADINGS } from "./prompt-headings.ts";
+import { PRINTED_ROUTE_SOURCE } from "@kernel/printed-route.ts";
 import { requestFactOf } from "./pack-requests.ts";
 import { namesTemplatePage } from "./route-instantiation.ts";
 
-const PAGE_LINE = /^route (\S+?)(?: \(instance of (\S+?)\))?:(?=\s|$)/;
+const PAGE_LINE = new RegExp(`^route ${PRINTED_ROUTE_SOURCE}:(?=\\s|$)`);
 
 const normalized = (route: string): string => {
   const path = route.replace(/[?#].*$/, "");
