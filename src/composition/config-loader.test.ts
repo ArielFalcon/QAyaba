@@ -4,7 +4,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { installLogShipper, type ShippedLine } from "../telemetry/redacting-logger";
-import { AppConfigInvalidError, AppNotFoundError, describeAppLoadFailure, listAppConfigs, loadAppConfig } from "./config-loader";
+import { AppConfigInvalidError, AppNotFoundError, describeAppLoadFailure, listAppConfigs, loadAppConfig, scanAppConfigs } from "./config-loader";
 
 test("loadAppConfig expands placeholders against the active environment", () => {
   const root = makeRoot({ "shop.yaml": FRONT.replace("https://dev.shop.io", "${PIN_SHOP_URL}") });
@@ -113,7 +113,7 @@ report:
   });
 }
 
-function describe_unknownKeys(): void {
+function describe_strictConfig(): void {
   const VALID_APP = `
 name: "shop"
 repo: "org/shop-front"
@@ -128,196 +128,185 @@ report:
   onFailure: "github-issue"
 `;
 
-  function captureWarnings(): ShippedLine[] {
+  function captureLines(levels: readonly string[] = ["warn", "error"]): ShippedLine[] {
     const lines: ShippedLine[] = [];
     installLogShipper((line) => {
-      if (line.level === "warn") lines.push(line);
+      if (levels.includes(line.level)) lines.push(line);
     });
     return lines;
   }
   afterEach(() => installLogShipper(undefined));
 
-  function loadWith(extra: string, files = VALID_APP): { root: string; yaml: string } {
-    const yaml = `${files}${extra}`;
-    return { root: makeRoot({ "shop.yaml": yaml }), yaml };
-  }
-
-  test("loadAppConfig warns once for an unknown key, naming the app and the key path and never a value", () => {
-    const lines = captureWarnings();
-    const { root } = loadWith('typo_key: "s3cr3t-unknown-value"\n');
+  const withQa = (extra: string) => VALID_APP.replace("  needsReview: true", `  needsReview: true\n${extra}`);
+  const reasonOf = (yaml: string): string => {
+    const root = makeRoot({ "shop.yaml": yaml });
     try {
       loadAppConfig("shop", root);
-      loadAppConfig("shop", root);
-      const unknown = lines.filter((l) => /unknown key/.test(l.message));
-      assert.equal(unknown.length, 1);
-      assert.match(unknown[0]?.message ?? "", /'shop'/);
-      assert.match(unknown[0]?.message ?? "", /'typo_key'/);
-      assert.ok(!JSON.stringify(unknown[0]).includes("s3cr3t-unknown-value"));
+    } catch (err) {
+      assert.ok(err instanceof AppConfigInvalidError, String(err));
+      return err.reason;
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+    return assert.fail("the config loaded");
+  };
+
+  test("loadAppConfig refuses an unknown key, naming the app and the key path and never a value", () => {
+    const yaml = `${VALID_APP}typo_key: "s3cr3t-unknown-value"\n`;
+    const root = makeRoot({ "shop.yaml": yaml });
+    try {
+      assert.throws(
+        () => loadAppConfig("shop", root),
+        (err) => err instanceof AppConfigInvalidError && err.app === "shop" && /unknown key 'typo_key'/.test(err.reason) && !err.message.includes("s3cr3t-unknown-value"),
+      );
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
   });
 
-  test("loadAppConfig warns that the retired code key is ignored and still loads the e2e app that carries it", () => {
-    const lines = captureWarnings();
-    const { root } = loadWith("code: true\n");
-    try {
-      assert.equal(loadAppConfig("shop", root).repo, "org/shop-front");
-      const unknown = lines.filter((l) => /unknown key/.test(l.message));
-      assert.equal(unknown.length, 1);
-      assert.match(unknown[0]?.message ?? "", /'code'/);
-    } finally {
-      rmSync(root, { recursive: true, force: true });
-    }
+  test("loadAppConfig refuses the retired code key and an app that declares it with no dev block says both", () => {
+    assert.match(reasonOf(`${VALID_APP}code: true\n`), /unknown key 'code'/);
+    const noDev = VALID_APP.replace('dev:\n  baseUrl: "https://dev.shop.io"\n', "").replace('services:\n  - repo: "org/orders-svc"\n', "");
+    const reason = reasonOf(`${noDev}code: true\n`);
+    assert.match(reason, /dev is required/);
+    assert.match(reason, /unknown key 'code'/);
   });
 
   test("loadAppConfig names the replacement of the retired qa.valueOracle key and says bundle mutation now runs unless it is off", () => {
-    const lines = captureWarnings();
-    const { root } = loadWith("", VALID_APP.replace("  needsReview: true", "  needsReview: true\n  valueOracle: signal"));
-    try {
-      assert.equal(loadAppConfig("shop", root).repo, "org/shop-front");
-      const retired = lines.filter((l) => /qa\.valueOracle/.test(l.message));
-      assert.equal(retired.length, 1);
-      assert.match(retired[0]?.message ?? "", /'shop'/);
-      assert.match(retired[0]?.message ?? "", /qa\.changeCoverage\.bundleMutation/);
-      assert.match(retired[0]?.message ?? "", /runs unless .*off/);
-    } finally {
-      rmSync(root, { recursive: true, force: true });
-    }
+    const reason = reasonOf(withQa("  valueOracle: signal"));
+    assert.match(reason, /retired key 'qa\.valueOracle'/);
+    assert.match(reason, /qa\.changeCoverage\.bundleMutation/);
+    assert.match(reason, /runs unless .*off/);
   });
 
-  test("loadAppConfig reports the retired qa.wallClockBudgetMs key and says the run deadline is the only clock", () => {
-    const lines = captureWarnings();
-    const { root } = loadWith("", VALID_APP.replace("  needsReview: true", "  needsReview: true\n  wallClockBudgetMs: 5000"));
-    try {
-      assert.equal(loadAppConfig("shop", root).repo, "org/shop-front");
-      const retired = lines.filter((l) => /qa\.wallClockBudgetMs/.test(l.message));
-      assert.equal(retired.length, 1);
-      assert.match(retired[0]?.message ?? "", /'shop'/);
-      assert.match(retired[0]?.message ?? "", /is retired/);
-      assert.match(retired[0]?.message ?? "", /run deadline/);
-    } finally {
-      rmSync(root, { recursive: true, force: true });
-    }
+  test("loadAppConfig refuses the retired qa.wallClockBudgetMs key and says the run deadline is the only clock", () => {
+    const reason = reasonOf(withQa("  wallClockBudgetMs: 5000"));
+    assert.match(reason, /retired key 'qa\.wallClockBudgetMs'/);
+    assert.match(reason, /run deadline/);
   });
 
-  test("loadAppConfig reports the retired reviewLoopIntegrity key as an unknown key, with no replacement named", () => {
-    const lines = captureWarnings();
-    const { root } = loadWith("", VALID_APP.replace("  needsReview: true", "  needsReview: true\n  reviewLoopIntegrity: false"));
-    try {
-      loadAppConfig("shop", root);
-      const warned = lines.filter((l) => /reviewLoopIntegrity/.test(l.message));
-      assert.equal(warned.length, 1);
-      assert.match(warned[0]?.message ?? "", /unknown key 'qa\.reviewLoopIntegrity' is ignored/);
-    } finally {
-      rmSync(root, { recursive: true, force: true });
-    }
+  test("loadAppConfig refuses the retired reviewLoopIntegrity key as an unknown key, with no replacement named", () => {
+    const reason = reasonOf(withQa("  reviewLoopIntegrity: false"));
+    assert.match(reason, /unknown key 'qa\.reviewLoopIntegrity'/);
+    assert.doesNotMatch(reason, /retired/);
   });
 
-  test("loadAppConfig loads an app that still sets the retired enforce value of qa.intentLock.mode, runs it as signal and warns", () => {
-    const withMode = (mode: string) => VALID_APP.replace("  needsReview: true", `  needsReview: true\n  intentLock:\n    mode: ${mode}`);
-    const lines = captureWarnings();
-    const retired = loadWith("", withMode("enforce"));
-    try {
-      assert.equal(loadAppConfig("shop", retired.root).qa.intentLock?.mode, "signal");
-      loadAppConfig("shop", retired.root);
-      const warned = lines.filter((l) => /intentLock/.test(l.message));
-      assert.equal(warned.length, 1);
-      assert.match(warned[0]?.message ?? "", /'shop'/);
-      assert.match(warned[0]?.message ?? "", /'enforce'/);
-      assert.match(warned[0]?.message ?? "", /runs as 'signal'/);
-      assert.deepEqual(listAppConfigs(retired.root).map((app) => app.name), ["shop"]);
-    } finally {
-      rmSync(retired.root, { recursive: true, force: true });
-    }
+  test("loadAppConfig refuses the retired enforce value of qa.intentLock.mode with its advice, and loads the modes it has", () => {
+    const withMode = (mode: string) => withQa(`  intentLock:\n    mode: ${mode}`);
+    const reason = reasonOf(withMode("enforce"));
+    assert.match(reason, /qa\.intentLock\.mode: /);
+    assert.match(reason, /'enforce' is retired; use 'signal'/);
     for (const mode of ["signal", "off"]) {
-      const accepted = loadWith("", withMode(mode));
+      const root = makeRoot({ "shop.yaml": withMode(mode) });
       try {
-        assert.equal(loadAppConfig("shop", accepted.root).qa.intentLock?.mode, mode);
-        assert.equal(lines.filter((l) => /intentLock/.test(l.message)).length, 1, `${mode} adds no warning`);
+        assert.equal(loadAppConfig("shop", root).qa.intentLock?.mode, mode);
       } finally {
-        rmSync(accepted.root, { recursive: true, force: true });
+        rmSync(root, { recursive: true, force: true });
       }
     }
   });
 
-  test("loadAppConfig keeps the generic unknown-key warning for every other unknown key of the qa block", () => {
-    const lines = captureWarnings();
-    const { root } = loadWith("", VALID_APP.replace("  needsReview: true", "  needsReview: true\n  valueOraclee: signal"));
-    try {
-      const unknown = lines.filter((l) => /unknown key/.test(l.message));
-      loadAppConfig("shop", root);
-      const warned = lines.filter((l) => /valueOraclee/.test(l.message));
-      assert.equal(unknown.length, 0);
-      assert.equal(warned.length, 1);
-      assert.match(warned[0]?.message ?? "", /unknown key 'qa\.valueOraclee' is ignored/);
-      assert.doesNotMatch(warned[0]?.message ?? "", /bundleMutation/);
-    } finally {
-      rmSync(root, { recursive: true, force: true });
-    }
+  test("loadAppConfig names every unknown key of the file by its full path, nested in an object and in a list", () => {
+    const yaml = withQa("  testDataPrefixx: oops").replace('  - repo: "org/orders-svc"', '  - repo: "org/orders-svc"\n    verionUrl: "https://v.example"') + "first_typo: 1\nsecond_typo: 2\n";
+    const reason = reasonOf(yaml);
+    for (const key of ["qa.testDataPrefixx", "services[0].verionUrl", "first_typo", "second_typo"]) assert.match(reason, new RegExp(`unknown key '${key.replace(/[[\].]/g, "\\$&")}'`));
   });
 
-  test("loadAppConfig refuses an app that declared code: true and has no dev block", () => {
-    captureWarnings();
-    const noDev = VALID_APP.replace('dev:\n  baseUrl: "https://dev.shop.io"\n', "").replace('services:\n  - repo: "org/orders-svc"\n', "");
-    const root = makeRoot({ "shop.yaml": `${noDev}code: true\n` });
-    try {
-      assert.throws(() => loadAppConfig("shop", root), (err) => err instanceof AppConfigInvalidError && /dev is required/.test(err.reason));
-    } finally {
-      rmSync(root, { recursive: true, force: true });
-    }
-  });
-
-  test("loadAppConfig names an unknown key nested in an object and in a list by its full path", () => {
-    const lines = captureWarnings();
-    const yaml = VALID_APP.replace("  needsReview: true", "  needsReview: true\n  testDataPrefixx: oops").replace('  - repo: "org/orders-svc"', '  - repo: "org/orders-svc"\n    verionUrl: "https://v.example"');
-    const root = makeRoot({ "shop.yaml": yaml });
-    try {
-      loadAppConfig("shop", root);
-      const messages = lines.map((l) => l.message).join("\n");
-      assert.match(messages, /'qa\.testDataPrefixx'/);
-      assert.match(messages, /'services\[0\]\.verionUrl'/);
-    } finally {
-      rmSync(root, { recursive: true, force: true });
-    }
-  });
-
-  test("loadAppConfig warns for each distinct unknown key of the same file", () => {
-    const lines = captureWarnings();
-    const { root } = loadWith("first_typo: 1\nsecond_typo: 2\n");
-    try {
-      loadAppConfig("shop", root);
-      const keys = lines.filter((l) => /unknown key/.test(l.message)).map((l) => /'(first_typo|second_typo)'/.exec(l.message)?.[1]);
-      assert.deepEqual(keys.sort(), ["first_typo", "second_typo"]);
-    } finally {
-      rmSync(root, { recursive: true, force: true });
-    }
-  });
-
-  test("loadAppConfig warns about nothing for a config that declares only known keys", () => {
-    const lines = captureWarnings();
+  test("loadAppConfig returns the config of a file that declares only known keys, and logs nothing", () => {
+    const lines = captureLines();
     const root = makeRoot({ "shop.yaml": VALID_APP });
     try {
-      loadAppConfig("shop", root);
+      const config = loadAppConfig("shop", root);
+      assert.equal(config.repo, "org/shop-front");
+      assert.equal(config.services?.[0]?.repo, "org/orders-svc");
       assert.deepEqual(lines, []);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
   });
 
-  test("loadAppConfig returns the same config with an unknown key as without it", () => {
-    captureWarnings();
-    const withKey = loadWith('typo_key: "x"\n');
-    const without = makeRoot({ "shop.yaml": VALID_APP });
+  test("listAppConfigs skips an app whose file fails validation, keeps loading the others, and logs an error naming the file, the key and the reason", () => {
+    const lines = captureLines();
+    const root = makeRoot({
+      "good.yaml": VALID_APP.replace('name: "shop"', 'name: "good"'),
+      "typo.yaml": `${VALID_APP.replace('name: "shop"', 'name: "typo"')}typo_key: "s3cr3t-unknown-value"\n`,
+      "old.yaml": withQa("  valueOracle: signal").replace('name: "shop"', 'name: "old"'),
+    });
     try {
-      assert.equal(JSON.stringify(loadAppConfig("shop", withKey.root)), JSON.stringify(loadAppConfig("shop", without)));
+      assert.deepEqual(listAppConfigs(root).map((app) => app.name), ["good"]);
+      const errors = lines.filter((line) => line.level === "error");
+      assert.equal(errors.length, 2);
+      const typo = errors.find((line) => /typo\.yaml/.test(line.message));
+      assert.match(typo?.message ?? "", /unknown key 'typo_key'/);
+      assert.match(typo?.message ?? "", /NOT be watched/);
+      assert.deepEqual(typo?.fields, { app: "typo", file: "config/apps/typo.yaml" });
+      assert.match(errors.find((line) => /old\.yaml/.test(line.message))?.message ?? "", /retired key 'qa\.valueOracle'/);
+      assert.equal(lines.filter((line) => line.level === "warn").length, 0);
+      assert.ok(!JSON.stringify(lines).includes("s3cr3t-unknown-value"));
     } finally {
-      rmSync(withKey.root, { recursive: true, force: true });
-      rmSync(without, { recursive: true, force: true });
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("scanAppConfigs lists every app that did not load with its file and reason, whatever stopped it", () => {
+    captureLines();
+    const root = makeRoot({
+      "good.yaml": VALID_APP.replace('name: "shop"', 'name: "good"'),
+      "typo.yaml": `${VALID_APP}typo_key: 1\n`,
+      "unset.yaml": VALID_APP.replace("https://dev.shop.io", "${QA_TEST_UNSET_BASE_URL}"),
+      "broken.yaml": "name: [unclosed",
+      "example.yaml": "not an app",
+    });
+    try {
+      const scan = scanAppConfigs(root);
+      assert.deepEqual(scan.loaded.map((app) => app.name), ["good"]);
+      assert.deepEqual(scan.notLoaded.map((entry) => [entry.app, entry.file]).sort(), [
+        ["broken", "config/apps/broken.yaml"],
+        ["typo", "config/apps/typo.yaml"],
+        ["unset", "config/apps/unset.yaml"],
+      ]);
+      assert.match(scan.notLoaded.find((entry) => entry.app === "typo")?.reason ?? "", /unknown key 'typo_key'/);
+      assert.match(scan.notLoaded.find((entry) => entry.app === "unset")?.reason ?? "", /unset env var \$\{QA_TEST_UNSET_BASE_URL\}/);
+      assert.deepEqual(scanAppConfigs(makeRoot({})).notLoaded, []);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("a config that cannot be read or parsed is an error line too, never a quiet warning", () => {
+    const lines = captureLines();
+    const root = makeRoot({ "broken.yaml": "name: [unclosed" });
+    try {
+      assert.deepEqual(listAppConfigs(root), []);
+      assert.equal(lines.filter((line) => line.level === "error" && /broken\.yaml/.test(line.message)).length, 1);
+      assert.equal(lines.filter((line) => line.level === "warn").length, 0);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("a skipped app is reported once per reason, again when the reason changes, and again after it loaded and broke", () => {
+    const lines = captureLines(["error"]);
+    const root = makeRoot({ "shop.yaml": `${VALID_APP}typo_key: 1\n` });
+    const file = join(root, "config", "apps", "shop.yaml");
+    try {
+      scanAppConfigs(root);
+      scanAppConfigs(root);
+      assert.equal(lines.length, 1);
+      writeFileSync(file, `${VALID_APP}other_typo: 1\n`);
+      scanAppConfigs(root);
+      assert.equal(lines.length, 2);
+      writeFileSync(file, VALID_APP);
+      assert.deepEqual(scanAppConfigs(root).notLoaded, []);
+      writeFileSync(file, `${VALID_APP}other_typo: 1\n`);
+      scanAppConfigs(root);
+      assert.equal(lines.length, 3);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
     }
   });
 }
-describe_unknownKeys();
+describe_strictConfig();
 
 test("describeAppLoadFailure words an absent app and an unloadable config, and leaves any other failure to the caller", () => {
   assert.equal(describeAppLoadFailure("shop", new AppNotFoundError("shop")), "app not found: 'shop'");

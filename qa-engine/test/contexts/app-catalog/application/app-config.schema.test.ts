@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { AppConfigSchema } from "@contexts/app-catalog/application/index.ts";
+import { AppConfigSchema, describeAppConfigError } from "@contexts/app-catalog/application/index.ts";
 
 const base = {
   name: "shop",
@@ -108,21 +108,111 @@ test("qa.structuralSignals rejects the keys that used to switch the signal or th
   }
 });
 
-/*
- * parallelDiff/sessionContinuity/specTriage were removed from the schema (never implemented —
- * see the removed SCHEMA-ONLY comments). AppConfigSchema's qa object has no .strict()/.passthrough(),
- * so Zod's default behavior applies: an unrecognized key is silently STRIPPED, not rejected. A
- * config/apps/*.yaml written before this change (still setting one of these) must therefore keep
- * parsing without error — it just no longer round-trips the dead field.
- */
-test("qa: an unknown key (e.g. a since-removed schema-only flag) is silently stripped, never rejected", () => {
-  const cfg = AppConfigSchema.parse({
-    ...base,
-    qa: { ...base.qa, parallelDiff: true, sessionContinuity: true, specTriage: true },
-  });
-  assert.equal("parallelDiff" in cfg.qa, false);
-  assert.equal("sessionContinuity" in cfg.qa, false);
-  assert.equal("specTriage" in cfg.qa, false);
+/* Every object the app config declares, with every option the schema documents set, as an operator who used all of them writes it. */
+const EVERY_OPTION = {
+  name: "shop",
+  repo: "org/shop-front",
+  baseBranch: "main",
+  openapi: ["**/openapi/*.yaml"],
+  services: [{ repo: "org/orders-svc", baseBranch: "main", openapi: "**/openapi/*.yaml", versionUrl: "https://dev-api.shop.io/version", pollIntervalMs: 1000, deployTimeoutMs: 60000 }],
+  dev: {
+    baseUrl: "https://dev.shop.io",
+    versionUrl: "https://dev.shop.io/version",
+    pollIntervalMs: 1000,
+    deployTimeoutMs: 60000,
+    allowedOrigins: ["https://idp.shop.io"],
+    blockedOrigins: ["https://ads.shop.io"],
+    geolocation: { latitude: 40.4, longitude: -3.6, places: { barcelona: { latitude: 41.3, longitude: 2.1 } } },
+    dataState: { routes: { "/restaurants": { readySelector: "#list", resultSelector: ".card", resultTextSelector: "#count", locationSelector: "#where", timeoutMs: 8000 } } },
+    routeSamples: { "/restaurants/:city": "/restaurants/madrid" },
+  },
+  egress: { installOrigins: ["https://registry.shop.io"] },
+  qa: {
+    needsReview: true,
+    testDataPrefix: "qa-shop",
+    shadow: false,
+    domPack: true,
+    changeCoverage: { mode: "signal", minRatio: 0.7, branchCases: "regenerate", bundleMutation: "signal" },
+    intentLock: { mode: "signal", opacityFlagRatio: 0.5 },
+    structuralSignals: { exclude: ["dist/**"] },
+    reports: { weights: { "change-coverage": 1.5 } },
+    fixLoop: { maxRetries: 2 },
+    iterationBudget: 3,
+    closedLoop: { enabled: true, maxCalls: 10, perCallMs: 120000, maxDevWrites: 20 },
+    agentBrowser: { enabled: true, denyRoutes: ["/admin/**"], allowMutating: ["POST /api/search"] },
+    coordination: { maxParallel: 3, maxFlows: 6, planBudgetMs: 300000, flowBudgetMs: { opencode: 600000 } },
+  },
+  e2e: { testIdAttribute: "data-cy", specCredentials: "none" },
+  auth: { kind: "form", usernameEnv: "QA_SHOP_TEST_USER", passwordEnv: "QA_SHOP_TEST_PASS", loginPath: "/signin" },
+  boundaries: [
+    { transport: "http", frontFiles: "**/*.api.ts", frontCallSite: { kind: "receiver-verb-call", receiver: "this.rest" }, servicePrefixTemplate: "shop-{service}-api", serviceRepoTemplate: "ms-shop-{service}", openApiPath: "openapi.yaml" },
+    { transport: "event", files: "**/*.java", eventPattern: { kind: "class-based-domain-events", listenerBaseType: "L", listenerEventCall: "c", subscriberBaseType: "S", publishCall: "p" } },
+    { transport: "http-backend", sourceFiles: "**/*.java", callPattern: { kind: "rest-template-exchange", receiver: "restTemplate" }, servicePrefixTemplate: "shop-{service}-api", serviceRepoTemplate: "ms-shop-{service}", openApiPath: "openapi.yaml" },
+  ],
+  report: { onFailure: "github-issue" },
+};
+
+/* The path of every object in EVERY_OPTION; a key added at any of them is one the schema does not declare. */
+const OBJECT_PATHS: ReadonlyArray<readonly (string | number)[]> = [
+  [], ["services", 0], ["dev"], ["dev", "geolocation"], ["dev", "geolocation", "places", "barcelona"], ["dev", "dataState"], ["dev", "dataState", "routes", "/restaurants"],
+  ["egress"], ["qa"], ["qa", "changeCoverage"], ["qa", "intentLock"], ["qa", "structuralSignals"], ["qa", "reports"], ["qa", "fixLoop"], ["qa", "closedLoop"],
+  ["qa", "agentBrowser"], ["qa", "coordination"], ["qa", "coordination", "flowBudgetMs"], ["e2e"], ["auth"],
+  ["boundaries", 0], ["boundaries", 0, "frontCallSite"], ["boundaries", 1], ["boundaries", 1, "eventPattern"], ["boundaries", 2], ["boundaries", 2, "callPattern"], ["report"],
+];
+
+function withKeyAt(path: readonly (string | number)[], key: string, value: unknown = 1): unknown {
+  const copy = structuredClone(EVERY_OPTION) as Record<string, unknown>;
+  let at: unknown = copy;
+  for (const part of path) at = (at as Record<string | number, unknown>)[part];
+  (at as Record<string, unknown>)[key] = value;
+  return copy;
+}
+
+const pathText = (path: readonly (string | number)[]) => path.reduce<string>((text, part) => (typeof part === "number" ? `${text}[${part}]` : text === "" ? part : `${text}.${part}`), "");
+
+test("a config that sets every documented option parses to exactly what it declares", () => {
+  assert.deepEqual(AppConfigSchema.parse(EVERY_OPTION), EVERY_OPTION);
+});
+
+test("a key the schema does not declare is an error at every object of the config, naming the key by its full path and never its value", () => {
+  for (const path of OBJECT_PATHS) {
+    const result = AppConfigSchema.safeParse(withKeyAt(path, "typo_key", "s3cr3t-unknown-value"));
+    assert.equal(result.success, false, `typo_key at ${pathText(path) || "the root"} is refused`);
+    const messages = result.success ? "" : result.error.issues.map((issue) => issue.message).join("\n");
+    const full = pathText([...path, "typo_key"]);
+    assert.ok(messages.includes(`unknown key '${full}'`), `${full}: ${messages}`);
+    assert.ok(!messages.includes("s3cr3t-unknown-value"));
+  }
+});
+
+test("every unknown key of one object is named, and a retired key says what replaces it", () => {
+  const result = AppConfigSchema.safeParse({ ...EVERY_OPTION, qa: { ...EVERY_OPTION.qa, valueOracle: "signal", wallClockBudgetMs: 5000, parallelDiff: false, typo_key: 1 } });
+  assert.equal(result.success, false);
+  const messages = result.success ? [] : result.error.issues.map((issue) => issue.message);
+  const all = messages.join("\n");
+  assert.match(all, /retired key 'qa\.valueOracle': .*qa\.changeCoverage\.bundleMutation.*runs unless .*off/);
+  assert.match(all, /retired key 'qa\.wallClockBudgetMs': .*run deadline/);
+  assert.match(all, /unknown key 'qa\.parallelDiff'/);
+  assert.doesNotMatch(all, /unknown key 'qa\.(valueOracle|wallClockBudgetMs)'/);
+  assert.match(all, /unknown key 'qa\.typo_key'/);
+});
+
+test("a retired key is refused with its advice and never dropped", () => {
+  for (const key of ["valueOracle", "wallClockBudgetMs"]) {
+    assert.equal(AppConfigSchema.safeParse({ ...EVERY_OPTION, qa: { ...EVERY_OPTION.qa, [key]: 1 } }).success, false, key);
+  }
+  assert.equal(AppConfigSchema.safeParse({ ...EVERY_OPTION, code: true }).success, false);
+});
+
+test("describeAppConfigError words each issue as its path and reason, and leaves any other error as it is", () => {
+  const bad = AppConfigSchema.safeParse({ ...EVERY_OPTION, repo: 42, qa: { ...EVERY_OPTION.qa, valueOracle: "signal" }, services: [{ repo: "org/orders-svc", verionUrl: "x" }] });
+  assert.equal(bad.success, false);
+  const text = bad.success ? "" : describeAppConfigError(bad.error);
+  assert.match(text, /^repo: /);
+  assert.match(text, /retired key 'qa\.valueOracle'/);
+  assert.match(text, /unknown key 'services\[0\]\.verionUrl'/);
+  assert.doesNotMatch(text, /[{}]|"code"/);
+  assert.equal(describeAppConfigError(new Error("disk unreachable")), "disk unreachable");
 });
 
 test("qa.changeCoverage.bundleMutation accepts signal and off, is optional, and refuses another value", () => {
@@ -162,12 +252,21 @@ test("every message the app config's own rules give is the one an operator reads
   assert.deepEqual(issues({ ...base, services: [{ repo: "" }] }), ["services.0.repo: service repo is required (e.g. 'org/svc')"]);
 });
 
-test("a retired intent-lock mode runs as signal, and a mode it never had is refused", () => {
-  for (const [declared, parsed] of [["off", "off"], ["signal", "signal"], ["enforce", "signal"]] as const) {
-    assert.equal(AppConfigSchema.parse({ ...base, qa: { ...base.qa, intentLock: { mode: declared } } }).qa.intentLock?.mode, parsed, declared);
+const RETIRED_MODE = "enforce";
+
+test("the retired intent-lock mode is refused with its advice, and the modes it has load", () => {
+  for (const mode of ["off", "signal"] as const) {
+    assert.equal(AppConfigSchema.parse({ ...base, qa: { ...base.qa, intentLock: { mode } } }).qa.intentLock?.mode, mode, mode);
   }
   assert.equal(AppConfigSchema.parse({ ...base, qa: { ...base.qa, intentLock: {} } }).qa.intentLock?.mode, undefined);
-  assert.equal(AppConfigSchema.safeParse({ ...base, qa: { ...base.qa, intentLock: { mode: "strict" } } }).success, false);
+  const retired = AppConfigSchema.safeParse({ ...base, qa: { ...base.qa, intentLock: { mode: RETIRED_MODE } } });
+  assert.equal(retired.success, false);
+  const reason = retired.success ? "" : describeAppConfigError(retired.error);
+  assert.match(reason, /^qa\.intentLock\.mode: /);
+  assert.match(reason, /'enforce' is retired; use 'signal'/);
+  const never = AppConfigSchema.safeParse({ ...base, qa: { ...base.qa, intentLock: { mode: "strict" } } });
+  assert.equal(never.success, false);
+  assert.doesNotMatch(never.success ? "" : describeAppConfigError(never.error), /retired/);
   assert.equal(AppConfigSchema.safeParse({ ...base, qa: { ...base.qa, intentLock: { opacityFlagRatio: 1.5 } } }).success, false);
 });
 
@@ -392,9 +491,10 @@ test("qa.coordination is absent unless an app sets it, accepts only the lead-sid
   const on = AppConfigSchema.parse({ ...base, qa: { ...base.qa, coordination: { maxParallel: 2, maxFlows: 4, planBudgetMs: 120_000, flowBudgetMs: { opencode: 300_000 } } } });
   assert.deepEqual(on.qa.coordination, { maxParallel: 2, maxFlows: 4, planBudgetMs: 120_000, flowBudgetMs: { opencode: 300_000 } });
 
-  /* An app file written before the second runtime was removed still loads: its budget is dropped, not rejected. */
-  const retired = AppConfigSchema.parse({ ...base, qa: { ...base.qa, coordination: { flowBudgetMs: { opencode: 300_000, codex: 400_000 } } } });
-  assert.deepEqual(retired.qa.coordination, { flowBudgetMs: { opencode: 300_000 } });
+  /* An app file written before the second runtime was removed is refused naming the key: its budget is never dropped. */
+  const retired = AppConfigSchema.safeParse({ ...base, qa: { ...base.qa, coordination: { flowBudgetMs: { opencode: 300_000, codex: 400_000 } } } });
+  assert.equal(retired.success, false);
+  assert.match(retired.success ? "" : describeAppConfigError(retired.error), /unknown key 'qa\.coordination\.flowBudgetMs\.codex'/);
 
   const limitsOnly = AppConfigSchema.parse({ ...base, qa: { ...base.qa, coordination: { maxFlows: 4 } } });
   assert.deepEqual(limitsOnly.qa.coordination, { maxFlows: 4 });

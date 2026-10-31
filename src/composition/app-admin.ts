@@ -5,7 +5,7 @@
 
 import { parse } from "yaml";
 import {
-  AppConfigSchema, APP_NAME_RULE, appCreationDefaults, buildYaml, expandEnv, isValidAppName, patchAppYaml, suggestName,
+  AppConfigSchema, APP_NAME_RULE, describeAppConfigError, appCreationDefaults, buildYaml, expandEnv, isValidAppName, patchAppYaml, suggestName,
   type OnboardAuthInput, type OnboardInput, type OnboardServiceInput,
 } from "@contexts/app-catalog/application/index";
 import { AppConfigInvalidError, AppNotFoundError, type AppConfig } from "./config-loader";
@@ -109,7 +109,7 @@ export async function createApp(input: CreateAppInput, deps: AppAdminDeps): Prom
   try {
     AppConfigSchema.parse(parse(expandEnv(yaml, expansionEnv)));
   } catch (err) {
-    return { ok: false, errors: [err instanceof Error ? err.message : String(err)], yaml };
+    return { ok: false, errors: [describeAppConfigError(err)], yaml };
   }
 
   if (input.dryRun) return { ok: true, repoInfo, name, yaml };
@@ -178,7 +178,7 @@ export async function updateApp(input: UpdateAppInput, deps: AppAdminDeps): Prom
   try {
     AppConfigSchema.parse(parse(expandEnv(yaml, expansionEnv)));
   } catch (err) {
-    return { ok: false, errors: [err instanceof Error ? err.message : String(err)], yaml };
+    return { ok: false, errors: [describeAppConfigError(err)], yaml };
   }
 
   if (input.dryRun) return { ok: true, repoInfo, name: input.name, yaml };

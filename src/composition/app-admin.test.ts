@@ -57,7 +57,6 @@ auth:
   kind: form
   usernameEnv: SHOP_USER
   passwordEnv: SHOP_PASS
-  futureOption: keep-me
 
 e2e:
   testIdAttribute: data-cy
@@ -174,16 +173,16 @@ test("updateApp clearAuth drops the auth block", async () => {
   assert.equal(deps.written["shop"], SHOP_YAML.replace(/auth:\n(?: {2}.*\n)+\n/, ""));
 });
 
-test("updateApp with a login that names only its kind and variables keeps the login keys it does not know", async () => {
-  const deps = makeDeps(withConfig(SHOP_YAML));
-  const r = await updateApp({ name: "shop", auth: { kind: "form", usernameEnv: "SHOP_OTHER_USER", passwordEnv: "SHOP_PASS" } }, deps);
-  assert.equal(r.ok, true, JSON.stringify(r.errors));
-  const auth = writtenConfig(deps)["auth"] as Record<string, unknown>;
-  assert.equal(auth["usernameEnv"], "SHOP_OTHER_USER");
-  assert.equal(auth["futureOption"], "keep-me");
+test("updateApp refuses a config that carries a key the schema does not declare, naming the key, and writes nothing", async () => {
+  const unknown = SHOP_YAML.replace("  passwordEnv: SHOP_PASS\n", "  passwordEnv: SHOP_PASS\n  futureOption: keep-me\n");
+  const readOnly = makeDeps({ readConfig: () => unknown, loadApp: () => loadedFrom(SHOP_YAML, SHOP_ENV), env: SHOP_ENV });
+  const r = await updateApp({ name: "shop", baseUrl: "https://new.shop.example" }, readOnly);
+  assert.equal(r.ok, false);
+  assert.match(r.errors?.join("\n") ?? "", /unknown key 'auth\.futureOption'/);
+  assert.deepEqual(readOnly.written, {});
 });
 
-const SHOP_WITH_LOGIN_PATH = SHOP_YAML.replace("  futureOption: keep-me", '  loginPath: "/signin"\n  futureOption: keep-me');
+const SHOP_WITH_LOGIN_PATH = SHOP_YAML.replace("  passwordEnv: SHOP_PASS\n", '  passwordEnv: SHOP_PASS\n  loginPath: "/signin"\n');
 
 test("updateApp with a login that names only its kind and variables keeps the login path already declared", async () => {
   const deps = makeDeps(withConfig(SHOP_WITH_LOGIN_PATH));
@@ -314,7 +313,7 @@ test("updateApp of a url equal to what a variable set in the same call expands t
 
 test("updateApp reports a config that shares a block through an alias, and writes nothing", async () => {
   const aliased = 'name: "shop"\nrepo: "org/shop-front"\nbaseBranch: "main"\nbase: &base\n  baseUrl: "https://x"\ndev: *base\nqa:\n  needsReview: true\n  testDataPrefix: "qa"\nreport:\n  onFailure: "github-issue"\n';
-  const deps = makeDeps(withConfig(aliased, {}));
+  const deps = makeDeps({ readConfig: () => aliased });
   const r = await updateApp({ name: "shop", baseUrl: "https://y" }, deps);
   assert.equal(r.ok, false);
   assert.match(r.errors?.[0] ?? "", /unsupported: alias at dev/);
@@ -386,6 +385,7 @@ test("invalid config returns the Zod errors and writes nothing", async () => {
   );
   assert.equal(r.ok, false);
   assert.ok((r.errors ?? []).length > 0);
+  assert.match(r.errors?.join("\n") ?? "", /^dev\.baseUrl: dev\.baseUrl must be a valid URL$/);
   assert.deepEqual(deps.written, {});
 });
 

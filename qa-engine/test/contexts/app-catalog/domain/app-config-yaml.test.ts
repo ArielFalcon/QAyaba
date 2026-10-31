@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildYaml, suggestName, type OnboardInput } from "@contexts/app-catalog/application/index.ts";
+import { parse } from "yaml";
+import { AppConfigSchema, buildYaml, suggestName, type OnboardInput } from "@contexts/app-catalog/application/index.ts";
 
 test("suggestName extracts the repo name from org/name", () => {
   assert.equal(suggestName("facebook/react"), "react");
@@ -91,4 +92,19 @@ test("buildYaml renders a form login's path override, and never for a client-cer
 test("buildYaml omits services when absent", () => {
   const none = buildYaml({ name: "a", repo: "o/a", baseBranch: "main", baseUrl: "https://x", needsReview: true, shadow: true, testDataPrefix: "qa" });
   assert.doesNotMatch(none, /services:/);
+});
+
+test("a config buildYaml writes for every option it carries passes the strict app-config schema", () => {
+  const base = { name: "shop", repo: "org/shop-front", baseBranch: "main", baseUrl: "https://dev.shop.io", needsReview: true, shadow: false, testDataPrefix: "qa-shop" } as const;
+  const inputs: OnboardInput[] = [
+    base,
+    { ...base, versionUrl: "https://dev.shop.io/version" },
+    { ...base, services: [{ repo: "org/orders-svc" }, { repo: "org/pay-svc", openapi: "**/openapi/*.yaml", versionUrl: "https://dev-api.shop.io/version" }] },
+    { ...base, auth: { kind: "form", usernameEnv: "QA_USER", passwordEnv: "QA_PASS", loginPath: "/signin" } },
+    { ...base, auth: { kind: "mtls", certEnv: "QA_CERT", certPassEnv: "QA_CERT_PASS" } },
+  ];
+  for (const input of inputs) {
+    const result = AppConfigSchema.safeParse(parse(buildYaml(input)));
+    assert.equal(result.success, true, result.success ? "" : result.error.message);
+  }
 });

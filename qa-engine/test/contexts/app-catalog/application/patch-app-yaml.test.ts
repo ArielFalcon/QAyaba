@@ -6,7 +6,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { parse } from "yaml";
-import { AppConfigSchema, expandEnv, patchAppYaml } from "@contexts/app-catalog/application/index.ts";
+import { AppConfigSchema, describeAppConfigError, expandEnv, patchAppYaml } from "@contexts/app-catalog/application/index.ts";
 
 const ENV = { DEMO_DEV_URL: "https://dev.demo.example", DEMO_SVC_URL: "https://svc.demo.example/version" };
 
@@ -83,10 +83,28 @@ report:
   onFailure: "github-issue"
 `;
 
-/* Reads a patched config the way the loader does: env-expanded, then the app schema. */
+/* The keys the fixture carries only to prove the patcher keeps what it does not manage. The app schema is strict and refuses them, so `load` takes them out. */
+const KEYS_THE_SCHEMA_REFUSES = ["customKey", "auth.futureOption"] as const;
+
+/* Reads a patched config the way the loader does: env-expanded, then the app schema (without the keys the fixture carries to be kept). */
 function load(yaml: string): ReturnType<typeof AppConfigSchema.parse> {
-  return AppConfigSchema.parse(parse(expandEnv(yaml, ENV)));
+  const document = parse(expandEnv(yaml, ENV)) as Record<string, Record<string, unknown> | unknown>;
+  for (const path of KEYS_THE_SCHEMA_REFUSES) {
+    const [head, tail] = path.split(".") as [string, string | undefined];
+    if (tail === undefined) delete document[head];
+    else delete (document[head] as Record<string, unknown> | undefined)?.[tail];
+  }
+  return AppConfigSchema.parse(document);
 }
+
+test("the app schema refuses the unmanaged keys a patch keeps, so a kept unknown key shows at the next load, not silently", () => {
+  const out = patchAppYaml(CONFIG, { baseBranch: "trunk" });
+  const result = AppConfigSchema.safeParse(parse(expandEnv(out, ENV)));
+  assert.equal(result.success, false);
+  const reason = describeAppConfigError(result.success ? undefined : result.error);
+  assert.match(reason, /unknown key 'customKey'/);
+  assert.match(reason, /unknown key 'auth\.futureOption'/);
+});
 
 function raw(yaml: string): Record<string, unknown> {
   return parse(yaml) as Record<string, unknown>;

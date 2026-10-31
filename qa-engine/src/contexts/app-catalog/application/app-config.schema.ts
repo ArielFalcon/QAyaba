@@ -6,6 +6,46 @@ import { mutatingEntryError, routePatternError } from "@contexts/test-execution/
 import { isPageOfTemplate } from "@contexts/generation/application/index.ts";
 import { LoginPathSchema } from "../domain/login-path.ts";
 
+/* The text of a path into a config: `services[0].repo`. */
+function pathText(path: readonly PropertyKey[]): string {
+  return path.reduce<string>((text, part) => (typeof part === "number" ? `${text}[${part}]` : text === "" ? String(part) : `${text}.${String(part)}`), "");
+}
+
+/* A key the schema once declared and no longer reads. It is an error like any unknown key, and its advice says what to do instead. */
+const RETIRED_KEY_ADVICE: ReadonlyMap<string, string> = new Map([
+  ["qa.wallClockBudgetMs", "remove it; the run deadline (QA_RUN_TIME_BUDGET_MS_*) is the only clock that bounds a run, and a regeneration is held to it"],
+  ["qa.valueOracle", "use 'qa.changeCoverage.bundleMutation' instead (bundle mutation now runs unless that key is 'off')"],
+]);
+
+/* What an unrecognized key means to an operator: never dropped, always named by its full path. Names only, never a value. */
+function unknownKeyReason(path: readonly PropertyKey[], keys: readonly string[]): string {
+  return keys
+    .map((key) => {
+      const full = pathText([...path, key]);
+      const advice = RETIRED_KEY_ADVICE.get(full);
+      return advice !== undefined ? `retired key '${full}': ${advice}` : `unknown key '${full}': the schema does not declare it (check the spelling against config/apps/example.yaml)`;
+    })
+    .join("; ");
+}
+
+type ObjectIssue = { readonly code: string; readonly input?: unknown; readonly path?: PropertyKey[]; readonly keys?: string[] };
+
+/*
+ * Every object of the app config is strict: a key the schema does not declare is an error, never dropped, so a typo cannot fall
+ * back to a default and a retired key cannot linger unread. `own` words the object's other issues (it may decline with undefined).
+ */
+function configObject<T extends z.ZodRawShape>(shape: T, own?: (issue: ObjectIssue) => string | undefined) {
+  return z.strictObject(shape, {
+    error: (issue) => (issue.code === "unrecognized_keys" ? unknownKeyReason(issue.path ?? [], issue.keys) : own?.(issue)),
+  });
+}
+
+/* The reason a config was refused, one clause per issue: `path: message`, and for an unknown key the message alone (it names the key by its full path). A thrown thing that is no validation error keeps its own message. */
+export function describeAppConfigError(err: unknown): string {
+  if (!(err instanceof z.ZodError)) return err instanceof Error ? err.message : String(err);
+  return err.issues.map((issue) => (issue.code === "unrecognized_keys" || issue.path.length === 0 ? issue.message : `${pathText(issue.path)}: ${issue.message}`)).join("; ");
+}
+
 /*
  * A list of origins the execution sandbox may reach (`scheme://host[:port]`, or `scheme://*.suffix[:port]`). Each is compiled
  * here, so an origin the egress filter would refuse is refused when the config is loaded, not when the first run starts.
@@ -34,26 +74,26 @@ const checkedList = (check: (entry: string) => string | undefined) =>
  * ── boundaries[] schema (Stitcher → Generation seam) ──────────────────────────
  * SHALLOW by design: deep per-entry validation (catalog keys, blank-string rejection,
  * transport dispatch) is owned by YamlBoundaryProfileAdapter (qa-engine service-topology),
- * which re-reads the YAML itself. This schema exists ONLY to (a) stop config-loader
- * stripping the block, (b) give AppConfig.boundaries a shape the factory gates
+ * which re-reads the YAML itself. This schema exists ONLY to (a) declare the block's keys, so the
+ * strict config refuses a typo in them, (b) give AppConfig.boundaries a shape the factory gates
  * ACTIVE-supply on. Do NOT re-encode the adapter's field lists here — a divergent
  * schema would drift from the adapter's authoritative rules (two validators for one
  * block is the exact anti-pattern this design forbids). Field names below are copied
  * VERBATIM from YamlBoundaryProfileAdapter's required-string-field lists and its
  * HttpBoundaryProfile/EventBoundaryProfile/HttpBackendBoundaryProfile domain interfaces.
  */
-const HttpBoundarySchema = z.object({
+const HttpBoundarySchema = configObject({
   transport: z.literal("http"),
   frontFiles: z.string().min(1),
-  frontCallSite: z.object({ kind: z.string().min(1), receiver: z.string().optional() }),
+  frontCallSite: configObject({ kind: z.string().min(1), receiver: z.string().optional() }),
   servicePrefixTemplate: z.string().min(1),
   serviceRepoTemplate: z.string().min(1),
   openApiPath: z.string().min(1),
 });
-const EventBoundarySchema = z.object({
+const EventBoundarySchema = configObject({
   transport: z.literal("event"),
   files: z.string().min(1),
-  eventPattern: z.object({
+  eventPattern: configObject({
     kind: z.string().min(1),
     listenerBaseType: z.string().min(1),
     listenerEventCall: z.string().min(1),
@@ -61,10 +101,10 @@ const EventBoundarySchema = z.object({
     publishCall: z.string().min(1),
   }),
 });
-const HttpBackendBoundarySchema = z.object({
+const HttpBackendBoundarySchema = configObject({
   transport: z.literal("http-backend"),
   sourceFiles: z.string().min(1),
-  callPattern: z.object({ kind: z.string().min(1), receiver: z.string().optional() }),
+  callPattern: configObject({ kind: z.string().min(1), receiver: z.string().optional() }),
   servicePrefixTemplate: z.string().min(1),
   serviceRepoTemplate: z.string().min(1),
   openApiPath: z.string().min(1),
@@ -81,7 +121,7 @@ const BoundarySchema = z.discriminatedUnion("transport", [
 ]);
 
 /* A browser position (Playwright's geolocation): the shape dev.geolocation and each of its named places share. */
-const GeoPointSchema = z.object({
+const GeoPointSchema = configObject({
   latitude: z.number().min(-90, { error: "latitude must be between -90 and 90" }).max(90, { error: "latitude must be between -90 and 90" }),
   longitude: z.number().min(-180, { error: "longitude must be between -180 and 180" }).max(180, { error: "longitude must be between -180 and 180" }),
 });
@@ -91,8 +131,7 @@ const GeoPointSchema = z.object({
  * Validates YAML config loaded from config/apps/<name>.yaml. Replaces the unsafe
  * `parse(raw) as AppConfig` cast with runtime validation.
  */
-export const AppConfigSchema = z
-  .object({
+export const AppConfigSchema = configObject({
     name: z.string().min(1, { error: "app name is required" }),
     repo: z.string().min(1, { error: "repo is required (e.g. 'org/repo')", abort: true }).refine(isRepoSlug, { error: "repo must be parts joined by '/', none of them . or .. or starting with a dash (e.g. 'org/repo')" }),
     baseBranch: z.string().optional(),
@@ -105,7 +144,7 @@ export const AppConfigSchema = z
      */
     services: z
       .array(
-        z.object({
+        configObject({
           repo: z.string().min(1, { error: "service repo is required (e.g. 'org/svc')", abort: true }).refine(isRepoSlug, { error: "service repo must be parts joined by '/', none of them . or .. or starting with a dash (e.g. 'org/svc')" }),
           baseBranch: z.string().optional(),
           openapi: z.union([z.string(), z.array(z.string())]).optional(),
@@ -116,8 +155,7 @@ export const AppConfigSchema = z
       )
       .optional(),
     /* `dev` is the live site every run tests: required, so every reader holds it. */
-    dev: z
-      .object({
+    dev: configObject({
         baseUrl: z.url({ error: "dev.baseUrl must be a valid URL" }),
         versionUrl: z.url().optional(),
         pollIntervalMs: z.number().int().positive().optional(),
@@ -154,12 +192,11 @@ export const AppConfigSchema = z
          * effective location the page shows. A key ending `/*` names a prefix and its root. Selectors are app data, never a
          * fact the engine infers.
          */
-        dataState: z
-          .object({
+        dataState: configObject({
             routes: z
               .record(
                 z.string().min(1),
-                z.object({
+                configObject({
                   readySelector: z.string().min(1, { error: "a data-state selector is non-empty" }).max(200, { error: "a data-state selector is at most 200 characters" }).optional(),
                   resultSelector: z.string().min(1, { error: "a data-state selector is non-empty" }).max(200, { error: "a data-state selector is at most 200 characters" }).optional(),
                   resultTextSelector: z.string().min(1, { error: "a data-state selector is non-empty" }).max(200, { error: "a data-state selector is at most 200 characters" }).optional(),
@@ -186,7 +223,7 @@ export const AppConfigSchema = z
             }
           })
           .optional(),
-      }, { error: (issue) => (issue.input === undefined ? "dev is required" : undefined) })
+      }, (issue) => (issue.input === undefined ? "dev is required" : undefined))
       .superRefine((dev, ctx) => {
         if (dev.blockedOrigins === undefined) return;
         /* An origin that is both reachable and blocked on purpose says two things at once; the app's own origin is reachable by definition. */
@@ -212,8 +249,8 @@ export const AppConfigSchema = z
      * Extra origins for the e2e project's `npm ci`, on top of the registries in config/egress/registries.yaml: a private
      * registry or mirror.
      */
-    egress: z.object({ installOrigins: OriginListSchema.optional() }).optional(),
-    qa: z.object({
+    egress: configObject({ installOrigins: OriginListSchema.optional() }).optional(),
+    qa: configObject({
       needsReview: z.boolean(),
       testDataPrefix: z.string().min(1, { error: "qa.testDataPrefix is required" }),
       shadow: z.boolean().optional(),
@@ -223,8 +260,7 @@ export const AppConfigSchema = z
        * Change-coverage policy (the value keystone). off = skip; signal (default) = measure +
        * record only; enforce = also try to close the gap and block publishing if it stays low.
        */
-      changeCoverage: z
-        .object({
+      changeCoverage: configObject({
           mode: z.enum(["off", "signal", "enforce"]).optional(),
           minRatio: z.number().min(0).max(1).optional(),
           /* regenerate (default) = one regeneration from the arms of the changed code no test ran; off = none. */
@@ -235,13 +271,11 @@ export const AppConfigSchema = z
         .optional(),
       /*
        * Test-intent lock. off = the contract is not derived; signal (default) = derive it and record
-       * the would-be rejections. The retired value `enforce` is still accepted and runs as `signal`: the
-       * loader warns, so an app left on it keeps being watched (config-loader.ts). opacityFlagRatio flags a
+       * the would-be rejections. The retired value `enforce` is refused with its advice. opacityFlagRatio flags a
        * contract whose statically unreadable clauses cross it; the flag never blocks.
        */
-      intentLock: z
-        .object({
-          mode: z.enum(["off", "signal", "enforce"]).transform((mode) => (mode === "enforce" ? "signal" : mode)).optional(),
+      intentLock: configObject({
+          mode: z.enum(["off", "signal"], { error: (issue) => (issue.input === "enforce" ? "'enforce' is retired; use 'signal' (the intent lock only records would-be rejections) or 'off'" : undefined) }).optional(),
           opacityFlagRatio: z.number().min(0).max(1).optional(),
         })
         .optional(),
@@ -249,18 +283,15 @@ export const AppConfigSchema = z
        * The code graph is part of every run's grounding; the app declares only its scope.
        * `exclude`: repo-relative globs kept out of the index (generated or vendored source the app commits).
        */
-      structuralSignals: z
-        .object({
+      structuralSignals: configObject({
           exclude: z.array(z.string().min(1)).optional(),
         })
-        .strict()
         .optional(),
       /*
        * Run-intelligence report tuning. `weights` overrides the ranker's per-insight interestingness
        * weight by insight id (e.g. { "change-coverage": 1.5 }); ids left out keep their defaults.
        */
-      reports: z
-        .object({
+      reports: configObject({
           weights: z.record(z.string(), z.number().nonnegative()).optional(),
         })
         .optional(),
@@ -268,8 +299,7 @@ export const AppConfigSchema = z
        * Fix-loop budget: cap the number of grounded regeneration retries (default 2, max 5).
        * Set 0 to disable the loop entirely. The progress gate may stop sooner; this is the hard cap.
        */
-      fixLoop: z
-        .object({
+      fixLoop: configObject({
           maxRetries: z.number().int().min(0).max(5).optional(),
         })
         .optional(),
@@ -283,8 +313,7 @@ export const AppConfigSchema = z
        * derived from the plan. On unless `enabled` is false. Needs the OpenCode runtime and an app whose login the saved session
        * covers; a run can be forced on or off for an A/B.
        */
-      closedLoop: z
-        .object({
+      closedLoop: configObject({
           enabled: z.boolean().optional(),
           maxCalls: z.number().int().min(1).max(50).optional(),
           perCallMs: z.number().int().min(10_000).max(600_000).optional(),
@@ -298,8 +327,7 @@ export const AppConfigSchema = z
        * `denyRoutes` are paths (`*` within a segment, `**` across) it never reaches, and `allowMutating` (`[POST ]/path`) names the
        * only requests that write which it lets through (a search that is a POST, a GraphQL endpoint).
        */
-      agentBrowser: z
-        .object({
+      agentBrowser: configObject({
           enabled: z.boolean().optional(),
           denyRoutes: checkedList(routePatternError).optional(),
           allowMutating: checkedList(mutatingEntryError).optional(),
@@ -313,13 +341,11 @@ export const AppConfigSchema = z
        * runs on. Needs the OpenCode runtime for the sidekicks and, for an app with a login, the run_spec loop or the authenticated
        * browser: without them the work stays with the lead.
        */
-      coordination: z
-        .object({
+      coordination: configObject({
           maxParallel: z.number().int().min(1).max(6).optional(),
           maxFlows: z.number().int().min(1).optional(),
           planBudgetMs: z.number().int().min(30_000).max(900_000).optional(),
-          flowBudgetMs: z
-            .object({
+          flowBudgetMs: configObject({
               opencode: z.number().int().min(60_000).max(3_600_000).optional(),
             })
             .optional(),
@@ -332,8 +358,7 @@ export const AppConfigSchema = z
      * Flows into PW_TEST_ID_ATTRIBUTE env, threading through capture and execute spawns.
      * No app-specific names are hardcoded in src/ — the value comes from config only.
      */
-    e2e: z
-      .object({
+    e2e: configObject({
         testIdAttribute: z.string().min(1).optional(),
         /*
          * Whether the generated specs may log in themselves. `none` (default): they get the saved session and never the
@@ -350,8 +375,7 @@ export const AppConfigSchema = z
      * handshake. Values stay in the env store — these fields are variable names.
      * HTTP Basic of the DEV environment stays DEV_ENV_USER/PASS and is not this block.
      */
-    auth: z
-      .object({
+    auth: configObject({
         kind: z.enum(["form", "mtls"]),
         usernameEnv: z.string().regex(/^[A-Z][A-Z0-9_]*$/).optional(),
         passwordEnv: z.string().regex(/^[A-Z][A-Z0-9_]*$/).optional(),
@@ -369,7 +393,7 @@ export const AppConfigSchema = z
      * schema block above for the shallow/deep split rationale.
      */
     boundaries: z.array(BoundarySchema).optional(),
-    report: z.object({
+    report: configObject({
       onFailure: z.string().min(1),
     }),
   })
