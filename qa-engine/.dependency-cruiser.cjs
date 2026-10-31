@@ -145,7 +145,7 @@ module.exports = {
       // engine, not the reverse) and is NOT machine-enforced by this rule; src/server/
       // run-engine-factory.ts (the composition factory) is one such importer, but not the
       // only one — src/integrations/repo-mirror.ts (MirrorProvisionAdapter),
-      // src/orchestrator/sanitizer.ts, src/server/webhook-routing.ts, and src/contract/{commands,
+      // src/orchestrator/sanitizer.ts and src/contract/{commands,
       // events}.ts all import qa-engine/src/ deliberately too. `*-parity.
       // test.ts` files under qa-engine/test/ are also outside this rule's
       // `from` scope (qa-engine/src/ only), so none of the above ever trips this gate.

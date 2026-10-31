@@ -10,7 +10,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadAppConfig, listAppConfigs } from "../orchestrator/config-loader";
 import { YamlAppConfigAdapter } from "../../qa-engine/src/contexts/app-catalog/infrastructure/yaml-app-config.adapter";
-import { resolveWebhookDispatch, type WebhookDispatch } from "./webhook-routing";
+import { resolveWebhookDispatch, type WebhookDispatch } from "@contexts/run-orchestration/application/index";
 
 function makeRoot(files: Record<string, string>): string {
   const root = mkdtempSync(join(tmpdir(), "webhook-routing-"));

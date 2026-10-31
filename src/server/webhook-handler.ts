@@ -5,7 +5,7 @@ import type { AppRepositoryPort } from "@contexts/app-catalog/application/index.
 import type { ApiDeps } from "./api/deps";
 import { guardResponse } from "./guarded-handler";
 import { handleWebhook } from "./webhook";
-import { resolveWebhookDispatch, type WebhookDispatch } from "./webhook-routing";
+import { resolveWebhookDispatch, type WebhookDispatch } from "@contexts/run-orchestration/application/index";
 
 /* The most bytes of a webhook body the handler reads. */
 export const MAX_WEBHOOK_BODY = 1_000_000;

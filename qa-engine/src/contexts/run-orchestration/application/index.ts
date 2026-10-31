@@ -49,3 +49,5 @@ export { liveAnnouncement, terminalCaseEvent } from "../domain/case-announcement
 export type { LiveAnnouncedStatus } from "../domain/case-announcement.ts";
 export { runCrashEnding, runFactsOfCrash, runFactsOfOutcome, withTurnLimits } from "../domain/run-crash.ts";
 export type { CrashEnding, CrashErrorClass } from "../domain/run-crash.ts";
+export { resolveWebhookDispatch } from "./webhook-dispatch.ts";
+export type { WebhookDispatch } from "./webhook-dispatch.ts";
