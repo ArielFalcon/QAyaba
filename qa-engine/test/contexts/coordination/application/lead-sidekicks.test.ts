@@ -1565,6 +1565,25 @@ test("a review entry still unreadable after the one repair turn is recorded and 
   assert.ok(r.events.some((e) => e.answer === "review" && e.unreadable === 1 && e.repairTurn === true && /review\[0\]/.test(e.reason ?? "")), "the entry that stays unreadable is on the record with where it sits");
 });
 
+test("the lead's repair turn of a review is held to leave the flows it orders their minimum time, and is not sent when it cannot", async () => {
+  const unreadable = [{ flow: "cart", action: "sing", instruction: "assert the total" }, { flow: "login", action: "accept" }];
+  const reviewWithRoom = async (room: number) => {
+    const lead = leadWith([unreadable, unreadable, []]);
+    const r = rig({ answers: { cart: [{ status: "failed", summary: "x", filesChanged: [] }] }, hasFile: new Set(["login"]) });
+    let calls = 0;
+    const outcome = await new LeadSidekicks(r.deps).coordinate(input(r, { plan: lead.plan, closedLoop: undefined, deadline: { allowance: () => (++calls <= 2 ? 3_600_000 : room) } }));
+    if (outcome.action === "fanout") await outcome.pass?.release();
+    return { lead, r };
+  };
+  const roomy = 200_000;
+  const held = await reviewWithRoom(roomy);
+  assert.equal(held.lead.asked.length, 2, "the review and its repair turn");
+  assert.ok(held.lead.turnOpts[1]!.timeoutMs <= roomy - 2 * MIN_FLOW_MS, "the repair leaves the run a flow's minimum and the slack of a second");
+  const tight = await reviewWithRoom(3 * MIN_FLOW_MS - 1);
+  assert.equal(tight.lead.asked.length, 1, "the review is asked, its repair is not");
+  assert.ok(tight.r.events.some((e) => e.answer === "review" && e.unreadable === 1 && e.repairTurn !== true), "what stays unread is on the record");
+});
+
 test("a review answer that reads whole is not asked about again", async () => {
   const lead = leadAnswering([ACCEPT_ALL]);
   const r = rig();

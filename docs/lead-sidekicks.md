@@ -350,7 +350,9 @@ findings, the run asks the lead, in the same planning session, instead of regene
    has time to carry an order out either: without the first turn each finding goes
    to its default owner (the spec it cites or names, the flow whose test ran the file, the flow whose use case holds it as a direct
    seed, plan order), without the re-ask the first answer stands, and each is recorded as a `lead-decision`. A run with no
-   deadline is bounded by `planBudgetMs` alone. The values come from the run's own budget, never from the app.
+   deadline is bounded by `planBudgetMs` alone. The lead review's repair turn (the one asking about entries the reader could not
+   read) is held by the same rule (`leadTurnTime`): not sent when it cannot leave the flows that minimum, its first answer then
+   standing, on the record. The values come from the run's own budget, never from the app.
 4. Each flow's workspace is refreshed from the working copy (the run may have changed the spec since), then its sidekick gets the
    findings verbatim, the lead's instruction and the orchestrator's facts. Only a change made after the refresh comes back.
 5. A finding no flow took that names a spec of the suite no flow of the plan authored (a static-gate error or a failing case in a

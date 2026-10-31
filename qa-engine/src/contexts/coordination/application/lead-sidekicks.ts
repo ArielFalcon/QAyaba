@@ -876,17 +876,17 @@ export class LeadSidekicks {
       const read = (output: string) => admitLeadReview(this.deps.redaction, output, underReview, { revisionsAllowed: turn < MAX_REVIEW_TURNS });
       let admission = read(reply.output);
       let repairTurn = false;
-      /* A part of the answer the reader could not read is asked about once, in the lead's own session; an answer with nothing in it is the lead's absence, not an answer to repair. */
+      /* A part of the answer the reader could not read is asked about once, in the lead's own session, held as a correction turn is to leave the flows it orders their minimum time; an answer with nothing in it is the lead's absence, not an answer to repair. */
       if (admission.unreadable.length > 0 && reply.output.trim() !== "") {
-        const left = this.room(input);
-        if (left !== undefined && left < MIN_FLOW_MS) {
-          this.recordUnreadable(input, "review", admission.unreadable, false, `review turn ${turn}: too little of the run is left to ask the lead about what could not be read`);
+        const turnTime = this.leadTurnTime(input);
+        if (turnTime === undefined) {
+          this.recordUnreadable(input, "review", admission.unreadable, false, `review turn ${turn}: too little of the run is left to ask the lead about what could not be read without costing the flows their minimum time`);
         } else {
           repairTurn = true;
           tally.repairs += 1;
           try {
             const request = assembleUnreadableReviewRequest(admission.unreadable);
-            const again = await lead.ask(request.text, planTurnOpts(request, input.settings.planBudgetMs, left));
+            const again = await lead.ask(request.text, turnOpts(request, turnTime.ms, turnTime.limit));
             if (!again.timedOut) {
               const second = read(again.output);
               if (second.readable && (!admission.readable || readsBetter(second.unreadable, admission.unreadable))) admission = second;
@@ -1326,7 +1326,7 @@ export class LeadSidekicks {
   }
 
   /*
-   * The time one of the lead's correction turns may take, or undefined when none fits. A turn is held to the room less two flows'
+   * The time one of the lead's correction turns, or the repair turn of its review, may take, or undefined when none fits. A turn is held to the room less two flows'
    * minimum: one is what the lead's orders need to run, the other is the slack for a turn that ends after its timeout (an abort never
    * lands on it). The room is the allowance of the purpose the run is in, which shrinks by at most what the turn spends. A turn that
    * could be given less than a flow's minimum is not worth sending. Up to the plan budget (`plan-budget`, or `allotment` when the room
