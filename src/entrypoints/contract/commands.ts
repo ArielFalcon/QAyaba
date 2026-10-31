@@ -219,8 +219,11 @@ export const ContinueResultSchema = z.object({
   parentRunId: z.string(),
 });
 
+/* A repo becomes a mirror directory and a remote URL: the one rule for it is the kernel's. */
+const RepoSlugSchema = z.string().refine(isRepoSlug, { error: "repo must be parts joined by '/', none of them . or .. or starting with a dash (e.g. 'org/repo')" });
+
 export const OnboardServiceInputSchema = z.object({
-  repo: z.string(),
+  repo: RepoSlugSchema,
   openapi: z.string().optional(),
   versionUrl: z.string().optional(),
 });
@@ -249,7 +252,7 @@ export const AppAuthInputSchema = z
   });
 
 export const CreateAppInputSchema = z.object({
-  repo: z.string(),
+  repo: RepoSlugSchema,
   name: z.string().optional(),
   baseUrl: z.string().optional(),
   versionUrl: z.string().optional(),
@@ -265,7 +268,7 @@ export const CreateAppInputSchema = z.object({
 });
 
 export const UpdateAppInputSchema = z.object({
-  repo: z.string().optional(),
+  repo: RepoSlugSchema.optional(),
   baseUrl: z.string().optional(),
   versionUrl: z.string().optional(),
   target: TestTargetSchema.optional(),
@@ -414,9 +417,6 @@ export const LoginBootstrapResultSchema = z.object({
   sha: z.string(),
   status: z.string(),
 });
-
-/* A repo becomes a mirror directory and a remote URL: the one rule for it is the kernel's. */
-const RepoSlugSchema = z.string().refine(isRepoSlug, { error: "repo must be parts joined by '/', none of them . or .. or starting with a dash (e.g. 'org/repo')" });
 
 export const ProposeBoundariesInputSchema = z.object({
   repo: RepoSlugSchema.optional(),

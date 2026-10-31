@@ -30,3 +30,9 @@ test("mirrorDir is reached through the MirrorRegistryPort interface (no static s
   const dir = await adapter.mirrorDir("org/svc");
   assert.equal(dir, "/mirrors/org__svc");
 });
+
+test("mirrorDir refuses a repo that names no directory below the mirror root, whoever calls it", async () => {
+  const adapter = new MirrorRegistryAdapter("/app/mirrors");
+  for (const bad of ["..", ".", "org/..", "../x", "-x", "org//x", ""]) await assert.rejects(adapter.mirrorDir(bad), /invalid repo/, bad);
+  assert.equal(await adapter.mirrorDir("store"), "/app/mirrors/store");
+});

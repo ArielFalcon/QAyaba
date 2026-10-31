@@ -251,3 +251,14 @@ test("ProposeBoundariesInput refuses a repo or a service that names no directory
     assert.throws(() => ProposeBoundariesInputSchema.parse({ services: ["org/svc", bad] }), bad);
   }
 });
+
+test("CreateAppInput and UpdateAppInput refuse a repo or a service repo that names no directory below the mirrors root", () => {
+  assert.doesNotThrow(() => CreateAppInputSchema.parse({ repo: "org/front", services: [{ repo: "org/svc" }] }));
+  assert.doesNotThrow(() => UpdateAppInputSchema.parse({ repo: "org/front", services: [{ repo: "store" }] }));
+  for (const bad of ["..", ".", "org/..", "-x", "org//x"]) {
+    assert.throws(() => CreateAppInputSchema.parse({ repo: bad }), bad);
+    assert.throws(() => CreateAppInputSchema.parse({ repo: "org/front", services: [{ repo: bad }] }), bad);
+    assert.throws(() => UpdateAppInputSchema.parse({ repo: bad }), bad);
+    assert.throws(() => UpdateAppInputSchema.parse({ services: [{ repo: bad }] }), bad);
+  }
+});
