@@ -1,6 +1,7 @@
 /* Tracked strays revert via staged-aware `git restore --staged --worktree --source=HEAD` (a plain checkout would leave a staged-new stray). Untracked strays: `git clean -f`. A symlink whose realpath escapes mirrorDir is dangerous and reverted. Git errors throw here; RunQaUseCase fail-opens around enforce(). */
 import { engineLog } from "@kernel/ports/process-logger.ts";
 import { dirname, isAbsolute, join, sep } from "node:path";
+import { literalPathspecs } from "../../../shared-infrastructure/process-sandbox/git-hardening.ts";
 import { WriteConfinementService, type GitRename } from "../domain/write-confinement.service.ts";
 
 export type Git = (args: string[], cwd?: string) => Promise<string>;
@@ -69,26 +70,26 @@ export class WriteConfinementAdapter {
     if (candidateDeleted.length > 0 && untracked.length > 0) {
       let gitRenames: GitRename[] = [];
       try {
-        await this.deps.git(["add", "-N", "--", ...untracked], mirrorDir);
+        await this.deps.git(["add", "-N", "--", ...literalPathspecs(untracked)], mirrorDir);
         const diffOut = await this.deps.git(
           ["diff", "--find-renames", "-M50%", "--diff-filter=R", "--name-status", IGNORE_SUBMODULE_CONTENT, "HEAD"],
           mirrorDir,
         );
         gitRenames = parseRenameNameStatus(diffOut, (raw) => this.classifier.decodeGitPath(raw));
       } finally {
-        await this.deps.git(["reset", "--", ...untracked], mirrorDir);
+        await this.deps.git(["reset", "--", ...literalPathspecs(untracked)], mirrorDir);
       }
       restoredDeleted = this.classifier.pairUnstagedRenames(candidateDeleted, untracked, gitRenames).restore;
     }
 
     if (tracked.length > 0) {
-      await this.deps.git(["restore", "--staged", "--worktree", "--source=HEAD", "--", ...tracked], mirrorDir);
+      await this.deps.git(["restore", "--staged", "--worktree", "--source=HEAD", "--", ...literalPathspecs(tracked)], mirrorDir);
     }
     if (untracked.length > 0) {
-      await this.deps.git(["clean", "-f", "--", ...untracked], mirrorDir);
+      await this.deps.git(["clean", "-f", "--", ...literalPathspecs(untracked)], mirrorDir);
     }
     if (restoredDeleted.length > 0) {
-      await this.deps.git(["restore", "--source=HEAD", "--", ...restoredDeleted], mirrorDir);
+      await this.deps.git(["restore", "--source=HEAD", "--", ...literalPathspecs(restoredDeleted)], mirrorDir);
     }
 
     return {

@@ -33,7 +33,7 @@ test("Scenario: out-of-area write is reverted", async () => {
   const restoreCall = gitCalls.find((a) => a[0] === "restore");
   assert.deepEqual(
     restoreCall,
-    ["restore", "--staged", "--worktree", "--source=HEAD", "--", "src/config.ts"],
+    ["restore", "--staged", "--worktree", "--source=HEAD", "--", ":(literal)src/config.ts"],
     "revert must be staged-aware (unstage + restore worktree from HEAD), matching runConfinement's own git semantics",
   );
   assert.equal(gitCalls.find((a) => a[0] === "clean"), undefined);
@@ -132,7 +132,7 @@ test("untracked stray -> git clean called (not restore), dangerous counted for a
   assert.equal(result.strays, 1);
   assert.equal(result.dangerous, 1);
   const cleanCall = gitCalls.find((a) => a[0] === "clean");
-  assert.ok(cleanCall?.includes("secret.env"));
+  assert.ok(cleanCall?.includes(":(literal)secret.env"));
   assert.equal(gitCalls.find((a) => a[0] === "restore"), undefined);
 });
 
@@ -962,6 +962,62 @@ test("real git fixture: an embedded repository that cannot be removed fails the 
 
     await assert.rejects(new WriteConfinementAdapter(withoutRemoval).enforce(repo), /tmp-fixture-repo/);
     assert.equal(existsSync(join(repo, "tmp-fixture-repo")), true);
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+/* A file name the agent chose is a name, never a pathspec: git reads `:(top)`, `:!x`, `*` and `:(glob)**` as magic and would clean or restore the whole working copy, the agent's own spec included. */
+const PATHSPEC_LOOKALIKES = [":(top)", ":!x", "*", ":(glob)**", "-x"];
+
+test("real git fixture: untracked strays named like pathspecs are cleaned by name, never the agent's spec beside them", async () => {
+  const repo = initRepo();
+  try {
+    writeFileSync(join(repo, "e2e", "new.spec.ts"), "test('new', () => {});\n");
+    for (const name of PATHSPEC_LOOKALIKES) writeFileSync(join(repo, name), "stray\n");
+
+    const result = await new WriteConfinementAdapter(realFsDeps(repo)).enforce(repo);
+
+    assert.deepEqual([...result.reverted].sort(), [...PATHSPEC_LOOKALIKES].sort());
+    for (const name of PATHSPEC_LOOKALIKES) assert.equal(existsSync(join(repo, name)), false, `${name} must be cleaned`);
+    assert.equal(readFileSync(join(repo, "e2e", "new.spec.ts"), "utf8"), "test('new', () => {});\n", "the agent's spec survives");
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+test("real git fixture: tracked strays named like pathspecs are restored by name, never the agent's edit to a spec beside them", async () => {
+  const repo = initRepo();
+  try {
+    const git = (...args: string[]): string => execFileSync("git", args, { cwd: repo, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+    for (const name of PATHSPEC_LOOKALIKES) writeFileSync(join(repo, name), "tracked\n");
+    git("add", "-A");
+    git("-c", "user.email=t@t.com", "-c", "user.name=t", "commit", "-qm", "chore: lookalikes");
+    for (const name of PATHSPEC_LOOKALIKES) writeFileSync(join(repo, name), "edited by the sandbox\n");
+    writeFileSync(join(repo, "e2e", "existing.spec.ts"), "test('edited', () => {});\n");
+
+    await new WriteConfinementAdapter(realFsDeps(repo)).enforce(repo);
+
+    for (const name of PATHSPEC_LOOKALIKES) assert.equal(readFileSync(join(repo, name), "utf8"), "tracked\n", `${name} must be restored`);
+    assert.equal(readFileSync(join(repo, "e2e", "existing.spec.ts"), "utf8"), "test('edited', () => {});\n", "the agent's edit survives");
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+test("real git fixture: a rename pairing probe stages and unstages only the untracked file it names", async () => {
+  const repo = initRepo();
+  try {
+    unlinkSync(join(repo, "e2e", "existing.spec.ts"));
+    writeFileSync(join(repo, ":(top)"), "test('x', () => {});\n");
+    writeFileSync(join(repo, "e2e", "new.spec.ts"), "test('new', () => {});\n");
+
+    await new WriteConfinementAdapter(realFsDeps(repo)).enforce(repo);
+
+    assert.equal(existsSync(join(repo, ":(top)")), false);
+    assert.equal(existsSync(join(repo, "e2e", "new.spec.ts")), true);
+    const staged = execFileSync("git", ["diff", "--cached", "--name-only"], { cwd: repo, encoding: "utf8" });
+    assert.equal(staged.trim(), "", "the probe leaves nothing staged");
   } finally {
     rmSync(repo, { recursive: true, force: true });
   }

@@ -12,7 +12,7 @@ import { InfraError } from "@kernel/domain-error";
 /* A sha or ref handed to git as a positional argument is judged by @kernel/git-revision first: a value that passes can never be read as an option (`--output=...`). */
 import { assertCommitSha, assertRefName } from "@kernel/git-revision";
 import { MirrorProvisionAdapter, type MirrorProvisionDeps } from "../../qa-engine/src/contexts/workspace-and-publication/infrastructure/mirror-provision.adapter";
-import { hardenGitArgs } from "../../qa-engine/src/shared-infrastructure/process-sandbox/git-hardening";
+import { hardenGitArgs, literalPathspecs } from "../../qa-engine/src/shared-infrastructure/process-sandbox/git-hardening";
 import { hardenDetachedGitArgs } from "../../qa-engine/src/shared-infrastructure/process-sandbox/detached-git-hardening";
 import { activeEnvironment } from "../settings/active";
 import { activeSettings } from "../settings/store";
@@ -128,7 +128,7 @@ export async function getCommitDiff(dir: string, sha: string, deps: MirrorDeps, 
  * directories and lists each file, so the specs are seen on the first run too.
  */
 export async function listChangedSpecs(dir: string, e2eRelDir: string, deps: MirrorDeps): Promise<string[]> {
-  const out = await deps.git(["status", "--porcelain", "--untracked-files=all", "--ignore-submodules=dirty", "--", e2eRelDir], dir);
+  const out = await deps.git(["status", "--porcelain", "--untracked-files=all", "--ignore-submodules=dirty", "--", ...literalPathspecs([e2eRelDir])], dir);
   return out
     .split("\n")
     .filter((l) => l.length > 3)  /* "XY path" — 2 status chars + a space + the path */

@@ -807,6 +807,11 @@ test, and the verdict is its last action.
   API `ref`, an app's `baseBranch`, a run's publication branch) passes `assertRefName`, both in `qa-engine/src/shared-kernel/git-revision.ts`,
   before the argv is built; a value that passes can never be read as an option. A new git call with a revision from outside the
   code uses them, and does not write a regex of its own. `contextMapFitsRun` refuses a map whose recorded commit is not a sha.
+- **A file name from the working copy is a name, never a pathspec.** git reads a pathspec that starts with `:` as magic and one with
+  `*` or `?` as a glob, so a file the sandbox named `:(top)` or `*` would make `clean`, `restore` or `add` cover the whole working
+  copy. Every name the agent can influence (a `git status` entry, a path it wrote) goes after `--` through `literalPathspecs`
+  (`qa-engine/src/shared-infrastructure/process-sandbox/git-hardening.ts`), per pathspec: a global `--literal-pathspecs` would also turn
+  the `:(exclude)` pathspecs `hardenGitArgs` appends to `add` into file names.
 - **Governance-sensitive changes ship alone** — security invariants, agent write
   authority, production activation switches: their own PR.
 - **Sequential queue** — one run at a time; runs never overlap against DEV. Within a run, every `run_spec` call and

@@ -2,6 +2,7 @@
 import { engineLog } from "@kernel/ports/process-logger.ts";
 import { assertRefName } from "@kernel/git-revision.ts";
 import type { VcsWritePort } from "../application/ports/vcs-write.port.ts";
+import { literalPathspecs } from "../../../shared-infrastructure/process-sandbox/git-hardening.ts";
 import { WriteConfinementService } from "../domain/write-confinement.service.ts";
 
 export interface VcsCommitResult {
@@ -56,7 +57,7 @@ export class VcsWriteAdapter implements VcsWritePort {
         engineLog.error(
           `[qa] vcs-write: a denylisted staged path was detected and reverted before commit: ${revertedDenylisted.join(", ")}`,
         );
-        await this.git(["restore", "--staged", "--worktree", "--source=HEAD", "--", ...revertedDenylisted], dir);
+        await this.git(["restore", "--staged", "--worktree", "--source=HEAD", "--", ...literalPathspecs(revertedDenylisted)], dir);
       }
     }
     try {

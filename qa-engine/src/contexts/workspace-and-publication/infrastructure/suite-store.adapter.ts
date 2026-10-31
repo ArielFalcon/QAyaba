@@ -21,7 +21,7 @@ import { SKIP_REASON } from "@kernel/ports/suite-store.port.ts";
 import type { SuiteCaptureInput, SuiteCaptureResult, SuiteRestoreResult, SuiteRoot, SuiteStorePort } from "@kernel/ports/suite-store.port.ts";
 import { normalizeSpecPath } from "@kernel/spec-path.ts";
 import { isStockAuthSetup } from "../../../shared-infrastructure/e2e-seed/auth-setup-seed.ts";
-import { hardenGitArgs } from "../../../shared-infrastructure/process-sandbox/git-hardening.ts";
+import { hardenGitArgs, literalPathspecs } from "../../../shared-infrastructure/process-sandbox/git-hardening.ts";
 import type { SandboxedBinaryRunner } from "../../../shared-infrastructure/process-sandbox/sandboxed-binary-runner.ts";
 import { scrubEnv } from "../../../shared-infrastructure/process-sandbox/scrub-env.ts";
 import { readOwnedSpecFile, writeOwnedSpecFile } from "../../../shared-infrastructure/spec-path-confinement.ts";
@@ -160,7 +160,7 @@ export function parseStagedListing(stdout: string, specRelDir: string): Map<stri
 /** `listTracked` over git, run as every engine git call is: hardened, with a scrubbed environment. */
 export function gitListTracked(runner: SandboxedBinaryRunner): SuiteStoreDeps["listTracked"] {
   return async (mirrorDir, specRelDir) => {
-    const r = await runner.run({ command: "git", args: hardenGitArgs(["ls-files", "-s", "-z", "--", specRelDir], mirrorDir), cwd: mirrorDir, env: scrubEnv() });
+    const r = await runner.run({ command: "git", args: hardenGitArgs(["ls-files", "-s", "-z", "--", ...literalPathspecs([specRelDir])], mirrorDir), cwd: mirrorDir, env: scrubEnv() });
     if (r.timedOut) throw new Error(`git ls-files timed out in ${mirrorDir}`);
     if (r.exitCode !== 0) throw new Error(`git ls-files failed (exit ${r.exitCode}) in ${mirrorDir}: ${r.stderr.trim()}`);
     return parseStagedListing(r.stdout, specRelDir);

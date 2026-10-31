@@ -464,3 +464,27 @@ test("real git fixture: staging the whole tree is refused when the sandbox popul
     await assert.rejects(new VcsWriteAdapter(hardenedGit).commit(repo, "test: qa", ["."]), UntrustedGitTreeError);
     assert.equal(ranPlantedCommand(marker), false, "add ran the planted filter");
   }));
+
+test("a denylisted path with glob characters in its name is restored by name, never the specs it would match", async () => {
+  const repo = mkdtempSync(join(tmpdir(), "qa-vcs-literal-"));
+  try {
+    const git = (...args: string[]): string => execFileSync("git", args, { cwd: repo, encoding: "utf8", env: { ...process.env, ...GIT_ENV }, stdio: ["ignore", "pipe", "pipe"] });
+    git("init", "-q");
+    mkdirSync(join(repo, "e2e"));
+    writeFileSync(join(repo, "e2e", "a.spec.ts"), "base\n");
+    writeFileSync(join(repo, "e2e", "*"), "tracked\n");
+    git("add", "-A");
+    git("-c", "user.email=t@t.com", "-c", "user.name=t", "commit", "-qm", "base");
+    writeFileSync(join(repo, "e2e", "a.spec.ts"), "agent's spec\n");
+    writeFileSync(join(repo, "e2e", "*"), "edited\n");
+    const adapter = new VcsWriteAdapter(async (args, cwd = repo) => execFileSync("git", ["-c", "user.email=t@t.com", "-c", "user.name=t", ...args], { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }));
+
+    const result = await adapter.commit(repo, "test(e2e): qa", ["e2e"], (path) => path === "e2e/*");
+
+    assert.deepEqual(result.revertedDenylisted, ["e2e/*"]);
+    assert.equal(readFileSync(join(repo, "e2e", "*"), "utf8"), "tracked\n");
+    assert.equal(git("show", "HEAD:e2e/a.spec.ts"), "agent's spec\n", "the spec beside it is committed");
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+  }
+});

@@ -289,6 +289,17 @@ function embeddedRepositories(topLevel: string): string[] {
     .map((entry) => entry.slice(0, -1));
 }
 
+/**
+ * File names as pathspecs that mean exactly those files. Git reads a pathspec that starts with `:` as magic and one with
+ * `*` or `?` as a glob, so a file the sandbox named `:(top)` or `*` would make `clean`, `restore` or `add` cover the whole
+ * working copy. Every name that comes from the working copy (a `git status` entry, a path the agent wrote) is passed
+ * through here before it follows `--`. A global `--literal-pathspecs` would also turn the `:(exclude)` pathspecs
+ * hardenGitArgs appends to `add` into file names, so literalness is per pathspec.
+ */
+export function literalPathspecs(names: readonly string[]): string[] {
+  return names.map((name) => `:(literal)${name}`);
+}
+
 /** The first word of a git argv that is not an option: its subcommand, after any leading `-c key=value` or `-C path` pairs. */
 function subcommandOf(args: readonly string[]): string | undefined {
   let i = 0;
