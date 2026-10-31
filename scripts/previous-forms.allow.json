@@ -184,5 +184,17 @@
     "path": "src/settings/settings.test.ts",
     "contains": "QA_DIFF_TIME_BUDGET_MS_",
     "reason": "Names the retired variable so a load that still finds it set reports it once (src/settings/retired.ts). Remove this entry with that warning."
+  },
+  {
+    "rule": "diff-tier",
+    "path": "docker-compose.override.yml",
+    "contains": "QA_DIFF_TIME_BUDGET_MS_",
+    "reason": "Passes the retired variable through for one release so a value still set reaches the container and the retirement warning fires. Remove this entry with the lines."
+  },
+  {
+    "rule": "diff-tier",
+    "path": "src/settings/compose-parity.test.ts",
+    "contains": "QA_DIFF_TIME_BUDGET_MS_",
+    "reason": "Pins that the override still passes the retired variables through. Remove this entry with the lines."
   }
 ]
