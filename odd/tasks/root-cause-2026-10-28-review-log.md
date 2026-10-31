@@ -152,7 +152,7 @@ Verdicts: A T5 unit 1 PASS, T8 FAIL (A-B1, A-B2); B T6, T7, T10 PASS, T11 PASS w
 | D-m3 | minor | `src/settings/retired.ts` | `REFLECTOR_TIMEOUT_MS` missing | Add it | fixed 17bb77c1 |
 | D-m5, D-m6 | minor | feature doc, ADR-0014 :4 | Stale rows; untranslated quote | Records | fixed by the records unit (Tasks rows; ADR-0014 translated) |
 | D-m7 | advisory | `fixtures.ts:350`, `control-load.run.cjs:10` | Duplicated 300-char cut | Pin equal in a test | fixed b690fa8c |
-| D-m8 | advisory | dead exports listed by D | Dead since step 1 | T13 | deferred (T13) |
+| D-m8 | advisory | dead exports listed by D | Dead since step 1 | T13 | list regenerated at f2f7203b (T13 U1, section "D-m8 regenerated" at the end of this log); deletions in T13 U2 |
 
 ### Records unit (CP3 C rows, done in the records commit)
 
@@ -206,3 +206,806 @@ Asked by the owner (L31). Five Opus 5.5 reviewers at max effort, read-only, each
 | R7. Placement and process | Row-3 logic written into the shell: app-config validation, the bundle-mutation switch, context-heal qualification (plat M3); no file moved out of `src/` (ADR-0002 decision 2 unmet); commits with a Risk item and no verifier: b690fa8c, a6cded89, 86f903e3, 9b243fab, 84c34afa, T6, T7, T9-T11, T28 (xcut M4); stale records: T24 row, T28 cites a missing L30, L20 and L28 misread where time went, ADR-0011 "B1-B3 closed", RFC-0003 measurement, ADR-0015 points 3-4 hold only on the acceptance path | T37 (records now, verifiers at CP4), T13 (moves) |
 
 Live evidence confirmed: T6 (Loki ERROR 1, 1, 0 across baseline, T17, interim), T10 (the DOM denominator change of O14), T4 (12 restored, `not_restored=0`, digest `fc7ad52e` equal), T8 (control children 3.5-14.7 s, about 47 s of the interim's 43.2-min generate: not its cause), T5 (identical measurement on the interim's real dumps; unit 2 slower by 1.6-2.5 s a read, unproven live). T17 against the baseline is a direction only (O11 ranged 0.74-0.90 on the same app commit). Probe tests that reproduced R1, R3 and R5 are kept for the RED tests of their tasks.
+
+## D-m8 regenerated: exported symbols no other module imports (T13 U1, code at f2f7203b)
+
+Method (a throwaway script on the TypeScript compiler API, not committed): the program holds every .ts/.tsx/.mts file of `src`, `qa-engine/src`, `qa-engine/test`, `scripts`, `packages` and `agents`; each identifier and each destructured property of an `await import(...)` is resolved through aliases to its declaration; an export counts as imported when a file other than its own resolves to it. A barrel re-export (`export { x } from`) is not a use; the symbol it re-exports is. Test files are `*.test.ts`, `qa-engine/test/**`, `__fixtures__`, `test-support`. An export of a test-support module is listed like any other. Dynamic loads by a computed specifier, string references and non-TypeScript consumers (the Go client, `web/public`) are not seen: a symbol named below was also searched by name across the repository before it was deleted.
+
+| Class | Count | Meaning |
+|---|---|---|
+| A | 70 | no importer and no reference at all, in its own file or elsewhere |
+| B | 58 | imported only by tests, no reference in its own file |
+| C | 943 | no importer; used only inside its own file (the `export` keyword is the only excess) |
+| D | 532 | imported only by tests; also used inside its own file |
+
+Classes A and B are the candidates for deletion (T13 U2 records its decisions below this list). Classes C and D are not dead code: the symbol is live, only its `export` is unused, so they are listed for the ownership work of steps 3 to 6 (a module that narrows its surface drops the keyword) and are not changed by U2.
+
+### Class A (no reference anywhere)
+
+```
+qa-engine/src/contexts/coordination/application/coordination-sections/index.ts:CoordinationPromptId
+qa-engine/src/contexts/coordination/application/lead-correction.ts:renderRefusedCorrection
+qa-engine/src/contexts/coordination/application/lead-plan.ts:renderRejectedPlanRequest
+qa-engine/src/contexts/coordination/application/lead-review.ts:ReviewAction
+qa-engine/src/contexts/evaluation/domain/grader-catalog.ts:StepIntent
+qa-engine/src/contexts/generation/domain/manifest-repository.ts:ContextPackResult
+qa-engine/src/contexts/generation/domain/manifest-repository.ts:DomGrounding
+qa-engine/src/contexts/generation/domain/manifest-repository.ts:PlanObjectiveView
+qa-engine/src/contexts/generation/domain/selector-check.ts:CatalogSelectors
+qa-engine/src/shared-infrastructure/process-sandbox/exec-scope-provider.ts:defaultWorkRoot
+qa-engine/src/shared-infrastructure/process-sandbox/sandbox.ts:prepareSandboxWorkdir
+qa-engine/src/shared-infrastructure/telemetry/run-spans.ts:withRunChildSpan
+qa-engine/src/shared-kernel/agent-browser.ts:AgentBrowserSetting
+qa-engine/src/shared-kernel/context-item-ids.ts:IdKind
+qa-engine/src/shared-kernel/contract/events.ts:RunEventType
+qa-engine/src/shared-kernel/file-classes.ts:isLowRelevance
+qa-engine/src/shared-kernel/file-classes.ts:isStyleSheet
+qa-engine/src/shared-kernel/ports/plan-snapshot.port.ts:NO_PLAN_SNAPSHOTS
+qa-engine/src/shared-kernel/route-availability.ts:factsOfClass
+qa-engine/src/shared-kernel/telemetry/genai-semconv.ts:GenAiAttrKey
+qa-engine/src/shared-kernel/telemetry/genai-semconv.ts:GenAiMetricName
+src/contract/commands.ts:AgentActivity
+src/contract/commands.ts:AgentConfigApplyResult
+src/contract/commands.ts:AgentRestartRequest
+src/contract/commands.ts:AgentRestartResponse
+src/contract/commands.ts:AgentTurnView
+src/contract/commands.ts:ApiError
+src/contract/commands.ts:AppView
+src/contract/commands.ts:AskRequest
+src/contract/commands.ts:AskResponse
+src/contract/commands.ts:BoundaryProfileWire
+src/contract/commands.ts:CampaignInput
+src/contract/commands.ts:ChatEntry
+src/contract/commands.ts:ConfirmBoundariesInput
+src/contract/commands.ts:ContextMapView
+src/contract/commands.ts:ContinueRequest
+src/contract/commands.ts:ContinueResult
+src/contract/commands.ts:CreateAppInput
+src/contract/commands.ts:CreateAppResult
+src/contract/commands.ts:CreateRunInput
+src/contract/commands.ts:CreateRunResult
+src/contract/commands.ts:DeleteAppResult
+src/contract/commands.ts:LoginBootstrapResult
+src/contract/commands.ts:LoginRequest
+src/contract/commands.ts:LoginResponse
+src/contract/commands.ts:OnboardingJobStatus
+src/contract/commands.ts:OnboardServiceInput
+src/contract/commands.ts:ProposeBoundariesInput
+src/contract/commands.ts:QueueStatus
+src/contract/commands.ts:RegradeJob
+src/contract/commands.ts:RegradeRequest
+src/contract/commands.ts:RegradeStarted
+src/contract/commands.ts:RepoInfo
+src/contract/commands.ts:RepoListItem
+src/contract/commands.ts:RepoListResponse
+src/contract/commands.ts:RoleAssignment
+src/contract/commands.ts:RunEvaluation
+src/contract/commands.ts:RunReportView
+src/contract/commands.ts:Score
+src/contract/commands.ts:SignalsView
+src/contract/commands.ts:SpecRecord
+src/contract/commands.ts:UpdateAppInput
+src/integrations/opencode-client.ts:getOpenSessions
+src/orchestrator/config-loader.ts:RepoMatch
+src/orchestrator/schemas.ts:GeneratorRebuttal
+src/orchestrator/schemas.ts:ServiceConfig
+src/orchestrator/schemas.ts:ValidatedGeneratorVerdict
+src/orchestrator/schemas.ts:ValidatedReviewerVerdict
+src/orchestrator/schemas.ts:ValidatedWebhookPayload
+src/server/onboarding/proposer-verdict.schema.ts:ProposerVerdict
+```
+
+### Class B (tests only, no use in its own file)
+
+```
+qa-engine/src/contexts/app-catalog/infrastructure/login-discovery/login-discovery.page-readers.ts:isVisibleChallenge  <- login-discovery.challenge.test.ts
+qa-engine/src/contexts/coordination/application/coordination-context.ts:CoordinationContext  <- coordination-seam.contract.test.ts
+qa-engine/src/contexts/coordination/application/coordination-decision.ts:CoordinationDecision  <- coordination-seam.contract.test.ts
+qa-engine/src/contexts/coordination/application/coordination-decision.ts:isCoordinationAction  <- coordination-seam.contract.test.ts
+qa-engine/src/contexts/coordination/application/evidence-from.ts:evidenceFromBudget  <- coordination-evidence.contract.test.ts
+qa-engine/src/contexts/coordination/application/evidence-from.ts:evidenceFromChangeAnalysis  <- coordination-evidence.contract.test.ts, coordination-sanitization.contract.test.ts
+qa-engine/src/contexts/coordination/application/evidence-from.ts:evidenceFromCoverage  <- coordination-evidence.contract.test.ts
+qa-engine/src/contexts/coordination/application/evidence-from.ts:evidenceFromExecution  <- coordination-evidence.contract.test.ts
+qa-engine/src/contexts/coordination/application/evidence-from.ts:evidenceFromFailureClass  <- coordination-evidence.contract.test.ts
+qa-engine/src/contexts/coordination/application/evidence-from.ts:evidenceFromFixLoop  <- coordination-evidence.contract.test.ts
+qa-engine/src/contexts/coordination/application/evidence-from.ts:evidenceFromGeneration  <- coordination-evidence.contract.test.ts
+qa-engine/src/contexts/coordination/application/evidence-from.ts:evidenceFromReview  <- coordination-evidence.contract.test.ts
+qa-engine/src/contexts/coordination/application/evidence-from.ts:evidenceFromSelectors  <- coordination-evidence.contract.test.ts
+qa-engine/src/contexts/coordination/application/evidence-from.ts:evidenceFromValidation  <- coordination-evidence.contract.test.ts, coordination-phases-5-14.contract.test.ts
+qa-engine/src/contexts/coordination/application/evidence-precedence.ts:agentClaimInvalidatedBy  <- coordination-evidence.contract.test.ts
+qa-engine/src/contexts/coordination/application/evidence-precedence.ts:confidenceRank  <- coordination-evidence.contract.test.ts
+qa-engine/src/contexts/coordination/application/evidence-precedence.ts:preferredEvidence  <- coordination-evidence.contract.test.ts
+qa-engine/src/contexts/coordination/application/kind-session.ts:openKindSession  <- kind-session.test.ts
+qa-engine/src/contexts/coordination/application/lead-correction.ts:renderLeadCorrection  <- lead-correction.test.ts, lead-turns.window-fit.test.ts, model-agnostic-prompts.test.ts
+qa-engine/src/contexts/coordination/application/lead-review.ts:renderLeadReview  <- lead-review.test.ts, lead-turns.window-fit.test.ts
+qa-engine/src/contexts/coordination/application/plan-coverage.ts:renderReplanRequest  <- plan-coverage.requests.test.ts, plan-coverage.test.ts
+qa-engine/src/contexts/coordination/application/pushback.ts:validateDelegationAuthority  <- coordination-pushback.test.ts
+qa-engine/src/contexts/coordination/application/sidekick-kinds.ts:REGISTERED_SIDEKICK_KINDS  <- sidekick-kinds.test.ts
+qa-engine/src/contexts/coordination/infrastructure/adapters/coordination-telemetry-port.adapter.ts:resetSharedCoordinationTelemetryForTests  <- build-coordination.test.ts
+qa-engine/src/contexts/generation/infrastructure/dom-snapshot.ts:captureDomByRoute  <- dom-snapshot.test.ts, dom-snapshot.testid-grounding.test.ts
+qa-engine/src/contexts/generation/infrastructure/prompt-builders/context-assembler.ts:section  <- context-assembler.adapter.wrap.test.ts, context-assembler.test.ts, prompts.test.ts
+qa-engine/src/contexts/run-orchestration/application/run-flow/run-flow.ts:next  <- run-flow.test.ts
+qa-engine/src/contexts/test-execution/domain/output-token-filter.ts:MIN_OPAQUE_TOKEN_CHARS  <- output-token-filter.test.ts
+qa-engine/src/contexts/test-execution/infrastructure/e2e-execution.runner.ts:matchFailureDumps  <- e2e-execution.runner.test.ts
+qa-engine/src/shared-infrastructure/egress/dns-filter.ts:buildDnsQuery  <- dns-filter.test.ts
+qa-engine/src/shared-infrastructure/process-sandbox/auth-session-env.ts:authSessionEnv  <- auth-session.adapter.test.ts, auth-session-env.test.ts
+qa-engine/src/shared-infrastructure/process-sandbox/exec-sandbox.ts:resetExecSandboxWarnings  <- exec-sandbox.test.ts, exec-trace.test.ts, tool-trace.test.ts
+qa-engine/src/shared-infrastructure/process-sandbox/git-hardening.ts:setVerificationTimeout  <- git-hardening.test.ts
+qa-engine/src/shared-kernel/agent-browser.ts:AGENT_BROWSER_TOOLS  <- prompts.live-browser.test.ts, agent-tool-surface.test.ts
+qa-engine/src/shared-kernel/code-graph-tools.ts:CODE_GRAPH_TOOLS  <- agent-tool-surface.test.ts
+qa-engine/src/shared-kernel/context-budget.ts:bytesOfTokens  <- context-budget.test.ts
+qa-engine/src/shared-kernel/ports/logger.port.ts:memoryLogger  <- lead-sidekicks.test.ts, review-port.adapter.test.ts, failure-policy.test.ts ...
+qa-engine/src/shared-kernel/ports/process-logger.ts:resetProcessLoggerForTests  <- lead-sidekicks.test.ts, process-audit-port.adapter.test.ts, review-port.adapter.test.ts ...
+qa-engine/src/shared-kernel/result.ts:map  <- result.test.ts
+qa-engine/src/shared-kernel/telemetry/genai-semconv.ts:GENAI_SEMCONV_REV  <- attribute-registry.test.ts
+qa-engine/src/shared-kernel/telemetry/guarded-telemetry.ts:ThrowingTelemetry  <- guarded-telemetry.test.ts, runner.telemetry.test.ts, agent-turn-trace.test.ts ...
+src/agent-runtime/declared-model.ts:declaredModelsFrom  <- declared-model.test.ts
+src/contract/commands.ts:QaCase  <- commands.test.ts
+src/integrations/fixtures/opencode-roster.ts:loadRoster  <- opencode-roster-fixture.test.ts
+src/integrations/fixtures/opencode-roster.ts:rosterFixturePath  <- opencode-roster-fixture.test.ts, run-engine-factory.step-limit.test.ts, run-engine-factory.test.ts
+src/integrations/opencode-client.ts:setAgentsConfigPath  <- run-engine-factory.step-limit.test.ts, run-engine-factory.test.ts
+src/no-console.scan.ts:consoleCallLines  <- no-console.scan.test.ts, no-console.test.ts
+src/server/engine-root.ts:wireEngine  <- engine-root.test.ts, seam-parity.contract.test.ts
+src/server/web-console/console-harness.ts:appView  <- console-views.test.ts, fleet-model.test.ts
+src/server/web-console/console-harness.ts:controlApi  <- console-login.test.ts, console-views.test.ts, fleet-model.test.ts
+src/server/web-console/console-harness.ts:loadConsole  <- console-login.test.ts, console-views.test.ts, fleet-model.test.ts ...
+src/server/web-console/console-harness.ts:runRecord  <- console-views.test.ts, fleet-model.test.ts
+src/server/web-console/console-harness.ts:sseEvent  <- console-views.test.ts, run-stream.test.ts
+src/settings/active.ts:resetActiveSettingsForTests  <- active.test.ts
+src/settings/registry.ts:isRegisteredSetting  <- compose-parity.test.ts
+src/telemetry/instrument-table.ts:checkInstrumentTable  <- agent-turn-trace.test.ts, instrument-table.test.ts, run-trace.test.ts
+src/telemetry/process-telemetry.ts:resetProcessTelemetryForTests  <- process-telemetry.test.ts
+src/telemetry/trace-harness.ts:traceHarness  <- evaluation-service.test.ts, run-engine-factory.test.ts, runner.after-run.test.ts ...
+```
+
+### Class C (no importer, used inside its own file), by file
+
+```
+qa-engine/src/contexts/agent-tools/composition/build-agent-tools.ts: AgentToolsApi
+qa-engine/src/contexts/agent-tools/domain/authoring-failure.ts: AuthoringFailureKind, RUN_SPEC_FAILURE_KINDS, RunSpecFailureKind
+qa-engine/src/contexts/agent-tools/domain/closed-loop.ts: ClosedLoopSignals
+qa-engine/src/contexts/agent-tools/domain/code-graph-query.ts: CodeGraphQuery
+qa-engine/src/contexts/agent-tools/domain/explore-answer.ts: Size
+qa-engine/src/contexts/agent-tools/domain/run-geolocation.ts: GEOLOCATION_REFUSAL, GeolocationChange, GeolocationRefusal, RunGeolocationInit
+qa-engine/src/contexts/agent-tools/infrastructure/adapters/agent-browser-port.adapter.ts: MAX_AGENT_BROWSER_RENEWALS
+qa-engine/src/contexts/agent-tools/infrastructure/adapters/closed-loop-port.adapter.ts: MAX_RUN_SPEC_RENEWALS
+qa-engine/src/contexts/agent-tools/infrastructure/adapters/tool-call-trace.ts: ToolCallTrace
+qa-engine/src/contexts/agent-tools/infrastructure/geolocation-registry.ts: BoundGeolocation
+qa-engine/src/contexts/app-catalog/composition/build-app-catalog.ts: AppCatalogApi
+qa-engine/src/contexts/app-catalog/domain/app-repository.ts: ServiceConfig
+qa-engine/src/contexts/app-catalog/domain/app.aggregate.ts: AppConfigInput, AppServiceConfig
+qa-engine/src/contexts/app-catalog/domain/auth-session.ts: AuthResolution, AuthResolutionMethod
+qa-engine/src/contexts/app-catalog/domain/helpers/login-evidence.ts: FormState, LoginMarkers, LoginRequest
+qa-engine/src/contexts/app-catalog/domain/repo-resolution.service.ts: RepoResolution
+qa-engine/src/contexts/app-catalog/infrastructure/auth-session.adapter.ts: ContextRoute, ContextRouteMap
+qa-engine/src/contexts/app-catalog/infrastructure/login-discovery/login-discovery.page-readers.ts: IS_VISIBLE_CHALLENGE_SOURCE
+qa-engine/src/contexts/app-catalog/infrastructure/login-discovery/login-discovery.runner.ts: LOGIN_DISCOVERY_KILL_HEADROOM_MS, LoginDiscoveryCrash, LoginDiscoveryRunnerDeps
+qa-engine/src/contexts/app-catalog/infrastructure/login-discovery/login-discovery.script.ts: DEFAULT_LADDER_BUDGET_MS
+qa-engine/src/contexts/app-catalog/infrastructure/yaml-app-config.adapter.ts: ConfigLoaders, ConfigSkipLogger
+qa-engine/src/contexts/change-analysis/composition/build-change-analysis.ts: ChangeAnalysisApi, ChangeAnalysisDeps, CodeGraphDeps
+qa-engine/src/contexts/change-analysis/domain/change-scope.ts: ScopeDisagreement
+qa-engine/src/contexts/change-analysis/domain/commit-classification.ts: CommitAction, CommitClassification, CommitIntent, CommitType
+qa-engine/src/contexts/change-analysis/domain/page-files.ts: PageFilesDisagreement
+qa-engine/src/contexts/change-analysis/domain/reach-proof.ts: WalkChain
+qa-engine/src/contexts/change-analysis/infrastructure/adapters/blast-radius-signal.ts: ScoredSymbolRef
+qa-engine/src/contexts/change-analysis/infrastructure/adapters/change-scope-port.adapter.ts: ChangeScopePortAdapterDeps
+qa-engine/src/contexts/change-analysis/infrastructure/adapters/structural-signal-port.adapter.ts: DOSSIER_LIMITS, StructuralDossier
+qa-engine/src/contexts/change-analysis/infrastructure/adapters/suite-enrichment.ts: MAX_SUITE_FILES_READ, MAX_SUITE_FILE_BYTES
+qa-engine/src/contexts/coordination/application/acceptance-report.ts: AcceptanceReport, AcceptanceReportDefectReason, MAX_DEV_STATE_PAGES, UNMET_CAUSES
+qa-engine/src/contexts/coordination/application/answer-reading.ts: EntriesRead, MAX_UNREADABLE_LISTED
+qa-engine/src/contexts/coordination/application/author-dispatch.ts: AuthorRequest, RunAuthorTarget
+qa-engine/src/contexts/coordination/application/brief-change.ts: ChangeFacts, boundedSteps
+qa-engine/src/contexts/coordination/application/coordination-sections/brief-sections.ts: BriefPromptContext
+qa-engine/src/contexts/coordination/application/coordination-sections/feedback-sections.ts: FeedbackPromptContext
+qa-engine/src/contexts/coordination/application/coordination-sections/lead-turn-sections.ts: CorrectionPromptContext, FAILURE_BYTES_NOTE, RefusedCorrectionPromptContext, RejectedPlanPromptContext, ReviewPromptContext, UnreadableAnswerPromptContext
+qa-engine/src/contexts/coordination/application/coordination-sections/replan-sections.ts: ReplanPromptContext
+qa-engine/src/contexts/coordination/application/coordination-telemetry.ts: CoordinationRouteCounts, CoordinationTelemetryKind, LeadDecisionAction
+qa-engine/src/contexts/coordination/application/delegation-brief.ts: ArtifactReference, DelegationScope
+qa-engine/src/contexts/coordination/application/delegation-failure-class.ts: DelegationFailureClass
+qa-engine/src/contexts/coordination/application/delegation-result.ts: FileChange
+qa-engine/src/contexts/coordination/application/dev-state-backing.ts: pathOfRef
+qa-engine/src/contexts/coordination/application/evidence-ref.ts: EvidenceKind
+qa-engine/src/contexts/coordination/application/fan-out-dispatcher.ts: DEFAULT_ABORT_GRACE_MS, FanOutDispatcherDeps, FanOutOptions, FlowResult, FlowSlot
+qa-engine/src/contexts/coordination/application/flow-capacity.ts: CapacityInput, GrantInput
+qa-engine/src/contexts/coordination/application/flow-outcomes.ts: FlowOutcomeKind, IncompleteFlow
+qa-engine/src/contexts/coordination/application/lead-correction.ts: CorrectionAdmission, flowsHoldingFile
+qa-engine/src/contexts/coordination/application/lead-plan.ts: DropBasis, MAX_ACCEPTANCE_CHARS, MAX_ACCEPTANCE_ITEMS, MAX_CANDIDATE_ID_CHARS, MAX_DROPPED, MAX_FLOW_CANDIDATES, MAX_FLOW_ID_CHARS, MAX_NOOP_REASON_CHARS, MAX_OBJECTIVE_CHARS, MAX_ROUTES, MAX_ROUTE_CHARS, PlanDowngrade, ROUTE, isRecord, slugOf, text
+qa-engine/src/contexts/coordination/application/lead-review.ts: ReviewAdmission
+qa-engine/src/contexts/coordination/application/lead-sidekicks.ts: CorrectionTally, FlowProposals
+qa-engine/src/contexts/coordination/application/maintenance-flow.ts: CandidateFlowInput, MaintenanceFlowInput, confinedSpecFile
+qa-engine/src/contexts/coordination/application/plan-coverage.ts: dropRefusal
+qa-engine/src/contexts/coordination/application/pushback.ts: DevStateBacker, PUSHBACK_REASONS, PushbackFinding, PushbackReason
+qa-engine/src/contexts/coordination/application/sidekick-authoring.ts: SidekickAuthoringDecision
+qa-engine/src/contexts/coordination/application/sidekick-executor.ts: SidekickExecutorDeps, SidekickRender
+qa-engine/src/contexts/coordination/application/sidekick-kinds.ts: AuthorTargetSpec, DelegatingKindSpec, ReviewKindSpec, SidekickBudget, SidekickKindSpec, SidekickWorkspace
+qa-engine/src/contexts/coordination/application/sidekick-turn-end.ts: SidekickEnd
+qa-engine/src/contexts/coordination/composition/build-coordination.ts: CoordinationApi
+qa-engine/src/contexts/coordination/domain/delegation-workspace.ts: WorkspaceChangeKind
+qa-engine/src/contexts/coordination/infrastructure/adapters/coordination-telemetry-port.adapter.ts: defaultCoordinationTelemetryFsDeps
+qa-engine/src/contexts/coordination/infrastructure/adapters/delegation-workspace.adapter.ts: DEFAULT_WORKSPACE_LIMITS, FsDelegationWorkspaceDeps, WorkspaceLimits
+qa-engine/src/contexts/cross-run-learning/composition/build-cross-run-learning.ts: CrossRunLearningApi, CrossRunLearningDeps
+qa-engine/src/contexts/cross-run-learning/domain/learning-gates.ts: LearningGateInput, LearningGates
+qa-engine/src/contexts/cross-run-learning/domain/process-audit.ts: AppliedAudit, Disposition
+qa-engine/src/contexts/cross-run-learning/infrastructure/process-audit-port.adapter.ts: ProcessAuditPortDeps
+qa-engine/src/contexts/evaluation/application/grade-run.use-case.ts: GradeRunDeps
+qa-engine/src/contexts/evaluation/application/regrade.use-case.ts: RegradeDeps
+qa-engine/src/contexts/evaluation/domain/benchmark-dataset.ts: DATASET_NAME_PATTERN, DATASET_VERSION_PATTERN, DatasetItem, MAX_DATASET_ITEMS, MAX_GUIDANCE_CHARS
+qa-engine/src/contexts/evaluation/domain/campaign-comparison.ts: ArmStat, ArmSummary, Assessment, CONFIDENCE, CompareOptions, DataType, Difference, Interval, MIN_REPLICATES, Polarity, RenderOptions, ScoreComparison
+qa-engine/src/contexts/evaluation/domain/campaign-runs.ts: EvaluationState
+qa-engine/src/contexts/evaluation/domain/context-refs.ts: ExtractReferencesInput, ExtractedReferences
+qa-engine/src/contexts/evaluation/domain/evidence.ts: RegradeJobStatus
+qa-engine/src/contexts/evaluation/domain/grader-catalog.ts: CONTEXT_FOCUSED_SOURCES, COVERAGE_CLASSES, FLAKY_CLASSES, REVIEW_VERDICTS, ScoreSpec
+qa-engine/src/contexts/evaluation/domain/graders.ts: Grader
+qa-engine/src/contexts/evaluation/domain/score.ts: SCORE_DATA_TYPES, SCORE_POLARITIES, SCORE_SOURCES, ScoreSource, ScoreValue
+qa-engine/src/contexts/evaluation/domain/use-case-reference.ts: REACHABILITY, Reachability, ReferenceChange, ReferenceUseCase
+qa-engine/src/contexts/generation/application/generate-tests.use-case.ts: LeadSession, PlanResult
+qa-engine/src/contexts/generation/composition/build-generation.ts: GenerationApi
+qa-engine/src/contexts/generation/domain/agent-error-class.ts: MAX_CAUSE_DEPTH, ProviderErrorPayload
+qa-engine/src/contexts/generation/domain/call-sequence.ts: CallStatus
+qa-engine/src/contexts/generation/domain/changed-values.ts: CHANGED_VALUES_LEGEND
+qa-engine/src/contexts/generation/domain/data-state-route.ts: fillsDataStateTemplate
+qa-engine/src/contexts/generation/domain/deterministic-review-precheck.ts: ReviewPrecheckFinding, ReviewPrecheckInput, ReviewSpecSource, precheckSpecAgainstDom
+qa-engine/src/contexts/generation/domain/expectation-gaps.ts: GapSources
+qa-engine/src/contexts/generation/domain/generation-end.ts: GenerationEndFacts, GenerationNoteInput, GenerationTurnFacts
+qa-engine/src/contexts/generation/domain/generation-input.ts: CommitType, FeBeLink, FlowEntry, RouteEntry
+qa-engine/src/contexts/generation/domain/generator-time-budget.ts: GeneratorTimeBudgetInput
+qa-engine/src/contexts/generation/domain/harness-facts.ts: MAX_PROJECT_NAME_LENGTH, PlaywrightConfigFacts, PlaywrightProjectFact
+qa-engine/src/contexts/generation/domain/nav-outcome.ts: NavOutcome
+qa-engine/src/contexts/generation/domain/pack-pages.ts: LeftOutPage, pageIsNamed, wantedPages
+qa-engine/src/contexts/generation/domain/pack-requests.ts: PageRequestFacts, RequestFact
+qa-engine/src/contexts/generation/domain/pre-exec-grounding.service.ts: PreExecGroundingInput, PreExecGroundingResult
+qa-engine/src/contexts/generation/domain/prompt-contract-lint.ts: ESTABLISHED_TRUST_LEXICON, FLOOR_PHRASES, LintBudget, LintOptions, LintRule, NEGATED_TRUST_LEXICON
+qa-engine/src/contexts/generation/domain/review-change-view.ts: HunklessSection, ReviewFlowSlice
+qa-engine/src/contexts/generation/domain/review-output.ts: ReviewCorrectionClass
+qa-engine/src/contexts/generation/domain/route-availability-classifier.ts: AvailabilityContext
+qa-engine/src/contexts/generation/domain/route-availability-section.ts: availabilityReason
+qa-engine/src/contexts/generation/domain/route-instantiation.ts: MISSING_PAGE_SEGMENT
+qa-engine/src/contexts/generation/domain/route-ranking.ts: RankableMap, RankingChange
+qa-engine/src/contexts/generation/domain/route-table.ts: MAX_UNRESOLVED_LINKS, MatchStep, RouteMatch
+qa-engine/src/contexts/generation/domain/selector-check.ts: PresenceResult, extractProposedSelectors, hasNonExtractableLocator, selectorKey, selectorUnique
+qa-engine/src/contexts/generation/domain/step-intent.ts: StepIntent, StepOfCalls
+qa-engine/src/contexts/generation/domain/step-limit.ts: TurnShape
+qa-engine/src/contexts/generation/domain/suite-listing.ts: ListingEntry, ListingOptions
+qa-engine/src/contexts/generation/domain/tool-outcome.ts: ToolCallReading
+qa-engine/src/contexts/generation/domain/tool-sequence.ts: ToolCallSubject, ToolSubjectKind
+qa-engine/src/contexts/generation/domain/turn-efficiency-summary.ts: BuildTurnCallMetricsInput
+qa-engine/src/contexts/generation/infrastructure/adapters/changed-decisions.ts: MAX_FILES_READ_FOR_DECISIONS
+qa-engine/src/contexts/generation/infrastructure/adapters/changed-label-lines.ts: MAX_FILES_READ_FOR_LABELS
+qa-engine/src/contexts/generation/infrastructure/adapters/generation-turns.adapter.ts: GenerationTurnsContext
+qa-engine/src/contexts/generation/infrastructure/adapters/implementation-resources.ts: MAX_DECLARED_FILES_PER_ROUTE, MAX_IMPLEMENTATION_FILES_READ_PER_MAP, MAX_IMPLEMENTATION_FILES_READ_PER_ROUTE
+qa-engine/src/contexts/generation/infrastructure/adapters/pre-exec-grounding-port.adapter.ts: PreExecGroundingStaticContext
+qa-engine/src/contexts/generation/infrastructure/adapters/pre-generation-grounding-port.adapter.ts: PreGenerationGroundingStaticContext, readHarnessFacts
+qa-engine/src/contexts/generation/infrastructure/adapters/review-dom-grounding-port.adapter.ts: ReviewDomGroundingStaticContext
+qa-engine/src/contexts/generation/infrastructure/adapters/review-port.adapter.ts: ReviewPortCollaborators, ReviewPortStaticContext
+qa-engine/src/contexts/generation/infrastructure/adapters/route-change-evidence.ts: RouteEvidenceInput
+qa-engine/src/contexts/generation/infrastructure/agent-transport-policy.ts: AgentDepsCollaborators, AttemptUsage, DEFAULT_ABORT_SETTLE_MS, WatchdogFactory
+qa-engine/src/contexts/generation/infrastructure/consumer-expectation/consumer-expectations.source.ts: MAX_CONSUMER_SOURCES, MAX_CONSUMER_SOURCE_BYTES
+qa-engine/src/contexts/generation/infrastructure/consumer-expectation/typescript-expectations.ts: MAX_DECLARED_TYPE_CHARS, TypeScriptExpectationInput
+qa-engine/src/contexts/generation/infrastructure/context-pack.ts: ContextPackTrace
+qa-engine/src/contexts/generation/infrastructure/dom-capture-trace.ts: pageOf, routeEventAttrs
+qa-engine/src/contexts/generation/infrastructure/dom-snapshot.ts: MAX_CAPTURE_OUTPUT_CHARS, MAX_LINK_SEEDS, MAX_NAMES_RESOLVED, MAX_REPEATED_PER_ROUTE, MAX_SCOPE_CHARS, MAX_SCOPE_DEPTH, MAX_SHAPE_BODY_BYTES, MAX_SHAPE_DEPTH, MAX_SHAPE_ITEMS, MIN_DATA_STATE_READ_MS, RawAttr, RawNavigationFacts, SHAPE_READ_TIMEOUT_MS, reportedRouteOf
+qa-engine/src/contexts/generation/infrastructure/manifest-repository.adapter.ts: ManifestFns
+qa-engine/src/contexts/generation/infrastructure/openapi-response-fields.source.ts: MAX_OPENAPI_DOCUMENTS, MAX_OPENAPI_DOCUMENT_BYTES
+qa-engine/src/contexts/generation/infrastructure/pack-availability.ts: PackAvailability
+qa-engine/src/contexts/generation/infrastructure/prompt-builders/generator-context.ts: LiveBrowser
+qa-engine/src/contexts/generation/infrastructure/prompt-builders/prompts.ts: GeneratorPrompt
+qa-engine/src/contexts/generation/infrastructure/prompt-builders/review-render.ts: ReviewSpecsOutcome
+qa-engine/src/contexts/generation/infrastructure/prompt-builders/reviewer-change-sections.ts: ChangeItem, ReviewerChangeContext
+qa-engine/src/contexts/generation/infrastructure/prompt-builders/reviewer-sections.ts: ReviewerContext, ReviewerContextOpts
+qa-engine/src/contexts/generation/infrastructure/prompt-builders/task-builders.ts: EffortTier, TaskGuards, TaskParts
+qa-engine/src/contexts/generation/infrastructure/prompt-rendering.adapter.ts: PromptWindows
+qa-engine/src/contexts/generation/infrastructure/resilience/circuit-breaker.ts: CircuitOpenError
+qa-engine/src/contexts/generation/infrastructure/resilience/stall-watchdog.ts: StallWatchdogOptions, StallWatchdogTimers
+qa-engine/src/contexts/generation/infrastructure/route-catalog.ts: DegradeReason, RouteCatalog, RouteStatus
+qa-engine/src/contexts/generation/infrastructure/route-table/angular-router.extractor.ts: RawChildRef, RawExport, RawGuard, RawImport
+qa-engine/src/contexts/generation/infrastructure/route-table/route-tables.source.ts: MAX_ROUTE_SOURCE_FILES, RouteTablesInput
+qa-engine/src/contexts/generation/infrastructure/sse/agent-activity.ts: DropReason, RawEvent, RouteResult, RoutedActivity
+qa-engine/src/contexts/generation/infrastructure/sse/event-stream.ts: EventStreamReconnectOptions, OpenStreamFn
+qa-engine/src/contexts/generation/infrastructure/sse/opencode-tool-outcome.ts: ToolOutcomeDeps, defaultToolOutcomeDeps
+qa-engine/src/contexts/generation/infrastructure/telemetry/turn-children.ts: ChildrenInput, ChildrenSummary
+qa-engine/src/contexts/generation/infrastructure/telemetry/turn-probe.ts: TurnProbeDeps
+qa-engine/src/contexts/generation/infrastructure/verdict-parser.adapter.ts: VerdictParsers
+qa-engine/src/contexts/objective-signal/composition/build-objective-signal.ts: ObjectiveSignalApi, ObjectiveSignalDeps
+qa-engine/src/contexts/objective-signal/domain/assemble-change-coverage.ts: addedLines, executableChanged
+qa-engine/src/contexts/objective-signal/domain/causal-label.ts: CausalBasis, CausalCaseLabel, CausalFlow, CausalReach, MAX_CAUSAL_VIA
+qa-engine/src/contexts/objective-signal/domain/coverage-collector.ts: BranchArm, CoveredLines, DumpsThatRan
+qa-engine/src/contexts/objective-signal/domain/coverage-exclusions.ts: UnreachableInput
+qa-engine/src/contexts/objective-signal/domain/decide-coverage.service.ts: CoverageMode
+qa-engine/src/contexts/objective-signal/domain/dump-outcome.ts: COVERAGE_READ_FAULTS, DUMP_OUTCOMES
+qa-engine/src/contexts/objective-signal/domain/dump-sanitizers.ts: MAX_FAULT_INJECTION_COUNT
+qa-engine/src/contexts/objective-signal/domain/enforce-readiness.ts: CaseReadiness, UntrustedReason
+qa-engine/src/contexts/objective-signal/domain/observed-difference.ts: MAX_MOVED_TESTS, UnmutatedPages
+qa-engine/src/contexts/objective-signal/domain/per-candidate-coverage.ts: CandidateUnmeasured
+qa-engine/src/contexts/objective-signal/domain/render-coverage-gap.ts: renderObservedDifference
+qa-engine/src/contexts/objective-signal/domain/select-mutants.ts: MAX_RERUN_TESTS, MutantSelection, SelectedMutant
+qa-engine/src/contexts/objective-signal/domain/test-intent-contract.ts: Anchoring, IntentViolationRule
+qa-engine/src/contexts/objective-signal/infrastructure/adapters/objective-signal-port.adapter.ts: ObjectiveSignalPortCollaborators, ObjectiveSignalPortStaticContext
+qa-engine/src/contexts/objective-signal/infrastructure/coverage-decode.ts: DecodeSinks, DecodedDump, Lines, decodeDump
+qa-engine/src/contexts/objective-signal/infrastructure/coverage-dump-reader.ts: createCoverageDecodeExecutor
+qa-engine/src/contexts/objective-signal/infrastructure/fault-injection-counter-reader.ts: FAULT_INJECTION_COUNTER_LIMITS
+qa-engine/src/contexts/objective-signal/infrastructure/v8-branch-coverage.ts: MAX_MUTANT_TEXT, MAX_SOURCE_LINE_TEXT, ReadDecision, ReadSite, ScriptBranchRead, ScriptBranchReader, analyzeScript, countsAt
+qa-engine/src/contexts/objective-signal/infrastructure/v8-browser-coverage.adapter.ts: ReadV8Coverage, resolveUrlToRepoFile, sourcePathOf
+qa-engine/src/contexts/run-orchestration/application/accept-delivered-specs.use-case.ts: ACCEPTANCE_RUNS, AcceptDeliveredSpecsDeps, AcceptanceRun, combineRunVerdicts
+qa-engine/src/contexts/run-orchestration/application/regeneration-acceptance.ts: AcceptanceInput, AcceptanceOutcome, AcceptanceProofEntry, RegenerationAcceptanceDeps
+qa-engine/src/contexts/run-orchestration/application/run-flow/degrade.ts: DegradeFacts, deadlineNote
+qa-engine/src/contexts/run-orchestration/application/run-flow/failure-policy.ts: FAILURE_ACTION_EFFECT, FailureAction, FailureKind
+qa-engine/src/contexts/run-orchestration/application/run-flow/outcome-assembly.ts: ErrorClassEnds, OutcomeExtras
+qa-engine/src/contexts/run-orchestration/application/run-flow/phases/coverage.steps.ts: GapUnit, closeSurvivors, gapReference
+qa-engine/src/contexts/run-orchestration/application/run-flow/phases/decide.steps.ts: causalLabelOf
+qa-engine/src/contexts/run-orchestration/application/run-flow/phases/execute.steps.ts: deliveredNow
+qa-engine/src/contexts/run-orchestration/application/run-flow/phases/generation-services.ts: LEAD_CORRECTION_BUDGET_SPENT, Regenerated, withoutProbeSpecs
+qa-engine/src/contexts/run-orchestration/application/run-flow/phases/review-services.ts: ReviewDecisionRecord
+qa-engine/src/contexts/run-orchestration/application/run-flow/review-change.ts: ReviewChangeInput
+qa-engine/src/contexts/run-orchestration/application/run-flow/route-availability-grounding.ts: AvailabilityGrounding, routeConfigEvidence
+qa-engine/src/contexts/run-orchestration/application/run-flow/run-end.ts: ABORT_SUPERSEDES, NotedFailure, UnreachedVerdict
+qa-engine/src/contexts/run-orchestration/application/run-flow/run-flow.ts: FlowOutcome
+qa-engine/src/contexts/run-orchestration/application/run-flow/run-state.ts: Classification, FixLoopOutcome, FlakyTriageOutcome, GenerationOutcome, Grounding, RegressionStandIn, ReviewOutcome, ReviewRoundScratch, SetupOutcome, initialLoopCounters
+qa-engine/src/contexts/run-orchestration/application/run-phase-spans.ts: PhaseSpansDeps
+qa-engine/src/contexts/run-orchestration/composition/build-run-orchestration.ts: RunConfigDeps
+qa-engine/src/contexts/run-orchestration/domain/adjudicate.service.ts: AdjudicatorClass, AdjudicatorConfidence
+qa-engine/src/contexts/run-orchestration/domain/availability-triage.ts: AvailabilityDecision, AvailabilityMatch
+qa-engine/src/contexts/run-orchestration/domain/context-map-validity.ts: ContextMapValidity
+qa-engine/src/contexts/run-orchestration/domain/coverage-regen.ts: BranchCasesAction, BranchCasesInput, CoverageRegenAction, CoverageRegenInput
+qa-engine/src/contexts/run-orchestration/domain/fix-loop.aggregate.ts: FixLoopDeps, FixLoopRerun, FixLoopResult, FixLoopTriage
+qa-engine/src/contexts/run-orchestration/domain/flaky-triage.ts: FlakyClass
+qa-engine/src/contexts/run-orchestration/domain/helpers/generation-end-terminal.ts: GenerationTerminal
+qa-engine/src/contexts/run-orchestration/domain/helpers/progress-gate.ts: GateDecision
+qa-engine/src/contexts/run-orchestration/domain/lead-correction-budget.ts: LeadCorrectionAction
+qa-engine/src/contexts/run-orchestration/domain/pre-exec-regen.ts: PreExecAction, PreExecInput
+qa-engine/src/contexts/run-orchestration/domain/review-action.ts: ReviewNext
+qa-engine/src/contexts/run-orchestration/domain/review-finding-filter.service.ts: FilteredReviewFindings, ReviewCitation, ReviewCitationKind
+qa-engine/src/contexts/run-orchestration/domain/review-rebuttals.service.ts: RebuttalBasis, VerifiedRebuttals
+qa-engine/src/contexts/run-orchestration/domain/run-deadline.ts: FALLBACK_RESERVE_MIN_MS, FALLBACK_RESERVE_SHARE, Reserve, ReserveSource, RunDeadlineDeps
+qa-engine/src/contexts/run-orchestration/domain/run-decision.ts: SideEffect
+qa-engine/src/contexts/run-orchestration/domain/run-phase-cursor.ts: PhaseSnapshot
+qa-engine/src/contexts/run-orchestration/domain/run-time-budget.ts: RunDeadlineNoteInput
+qa-engine/src/contexts/run-orchestration/domain/static-fix.ts: StaticFixAction
+qa-engine/src/contexts/run-orchestration/infrastructure/adapters/deploy-gate-port.adapter.ts: DeployGatePortConfig
+qa-engine/src/contexts/run-orchestration/infrastructure/adapters/served-version-http.adapter.ts: SERVED_VERSION_READ_TIMEOUT_MS
+qa-engine/src/contexts/run-orchestration/infrastructure/run-deadline-runtime.adapter.ts: RunDeadlineRuntimeOptions
+qa-engine/src/contexts/service-topology/application/onboarding-service.ts: OnboardingBudget, ScoredCandidate
+qa-engine/src/contexts/service-topology/composition/build-service-topology.ts: ServiceTopologyApi, ServiceTopologyDeps
+qa-engine/src/contexts/service-topology/domain/link-graph.ts: FrontierRepo
+qa-engine/src/contexts/service-topology/domain/operation-diff.ts: CONTRACT_KEYS, OperationChangeKind
+qa-engine/src/contexts/service-topology/infrastructure/adapters/cross-repo-impact-port.adapter.ts: CrossRepoImpactPortAdapterDeps
+qa-engine/src/contexts/service-topology/infrastructure/adapters/service-links-port.adapter.ts: ServiceLinksStaticContext
+qa-engine/src/contexts/service-topology/infrastructure/call-pattern-catalog.ts: CallPatternOccurrence
+qa-engine/src/contexts/test-execution/application/agent-browser.use-case.ts: AgentBrowserBudget, AgentBrowserDeps, AgentBrowserPageReport
+qa-engine/src/contexts/test-execution/application/run-spec.use-case.ts: DURATION_GRANULARITY_MS, MAX_FACT_RUNTIME_ERRORS, MAX_FACT_TEXT_CHARS, MAX_FAILURE_DOM_CHARS, MAX_GREP_CHARS, RUN_SPEC_INVALID, RunSpecLoadError, RunSpecReport, RunSpecTestReport
+qa-engine/src/contexts/test-execution/composition/build-test-execution.ts: TestExecutionApi
+qa-engine/src/contexts/test-execution/domain/agent-browser-capability.ts: AgentBrowserCapabilityInit, AgentBrowserRefusal
+qa-engine/src/contexts/test-execution/domain/agent-browser-route-guard.ts: GuardRequest
+qa-engine/src/contexts/test-execution/domain/agent-browser-session-invalidation.ts: Invalidation, InvalidationHints, InvalidationKind, PageObservation
+qa-engine/src/contexts/test-execution/domain/dev-write-charge.ts: TestCharge, WriteSender
+qa-engine/src/contexts/test-execution/domain/failure-category.ts: ClassifyContext
+qa-engine/src/contexts/test-execution/domain/output-token-filter.ts: MIN_OPAQUE_TOKEN_ENTROPY
+qa-engine/src/contexts/test-execution/domain/playwright-report-plan.ts: AttemptStatus, CaseStatus, MAX_PLANNED_ATTEMPTS, MAX_PLANNED_FILES, PlannedFile, ReportPlan, START_SLACK_MS
+qa-engine/src/contexts/test-execution/domain/run-spec-capability.ts: CLEANUP_RESERVE_MS, CallReservation, ClosedLoopRefusal, RunSpecCapabilityInit
+qa-engine/src/contexts/test-execution/domain/stubbed-state.ts: StubbedTest, StubbedViolation, StubbedViolationKind
+qa-engine/src/contexts/test-execution/infrastructure/adapters/execution-port.adapter.ts: ExecutionPortStaticContext, ExecutionPortStrategies
+qa-engine/src/contexts/test-execution/infrastructure/adapters/validation-port.adapter.ts: ValidationPortStrategies
+qa-engine/src/contexts/test-execution/infrastructure/agent-browser/chromium-sandbox.launcher.ts: SandboxedChromiumLauncherDeps
+qa-engine/src/contexts/test-execution/infrastructure/agent-browser/playwright-agent-browser.host.ts: BLOCK_SERVICE_WORKERS_SCRIPT, PlaywrightAgentBrowserHostDeps
+qa-engine/src/contexts/test-execution/infrastructure/e2e-execution.runner.ts: CHILD_EXIT_WAIT_MS, ControlsByProject, DEFAULT_CLEANUP_TIMEOUT_MS, E2eCleanupDeps, E2eDataState, E2eRunResult, PW_PROJECT_RE, PlaywrightReportRead, cleanupArgs, failureDumpsOf, suiteRelativeLoadErrors, titleSegments
+qa-engine/src/contexts/test-execution/infrastructure/observation-reader.ts: OBSERVATION_LIMITS
+qa-engine/src/contexts/test-execution/infrastructure/playwright-report.ts: PwCase, ReportOptions
+qa-engine/src/contexts/test-execution/infrastructure/report-spans.ts: MAX_SPANS_PER_REPORT, MAX_SPANS_PER_RUN, ReportSpanDeps
+qa-engine/src/contexts/test-execution/infrastructure/run-dump-bridge.ts: DumpBridge, DumpBridgeInput
+qa-engine/src/contexts/test-execution/infrastructure/static-gate.checks.ts: DEFAULT_VALIDATE_CHECK_TIMEOUT_MS, ESLINT_COMMAND, GATE_LINT_OPTIONS
+qa-engine/src/contexts/test-execution/infrastructure/static-gate.trace.ts: ValidateCheckName
+qa-engine/src/contexts/workspace-and-publication/application/publish-workspace.use-case.ts: PublishOutcome
+qa-engine/src/contexts/workspace-and-publication/composition/build-workspace-and-publication.ts: WorkspaceAndPublicationApi
+qa-engine/src/contexts/workspace-and-publication/domain/publish-decision.service.ts: PublishContext, PublishDecision, PublishOutcome
+qa-engine/src/contexts/workspace-and-publication/domain/render-publication.ts: AdjudicationLabel, CausalLabelView, RenderIssueInput, RenderPrBodyInput, TestedItem
+qa-engine/src/contexts/workspace-and-publication/domain/write-confinement.service.ts: ClassifiedStrays, ParsedChange, UnstagedRenamePairing
+qa-engine/src/contexts/workspace-and-publication/infrastructure/adapters/cleanup-port.adapter.ts: CleanupFn, CleanupPortStaticContext
+qa-engine/src/contexts/workspace-and-publication/infrastructure/adapters/multi-repo-checkout.adapter.ts: DeclaredService, MultiRepoCheckoutStaticContext, StagedServiceRef
+qa-engine/src/contexts/workspace-and-publication/infrastructure/adapters/publication-port.adapter.ts: PublicationRenderCollaborator, PublishDecisionCollaborator, ShadowLogCollaborator
+qa-engine/src/contexts/workspace-and-publication/infrastructure/adapters/setup-port.adapter.ts: SetupFn
+qa-engine/src/contexts/workspace-and-publication/infrastructure/adapters/spec-snapshot-validation.adapter.ts: MAX_REMEMBERED_RUNS, SpecSnapshotDeps, snapshotSpecs
+qa-engine/src/contexts/workspace-and-publication/infrastructure/adapters/suite-store-trace.ts: SkipClass
+qa-engine/src/contexts/workspace-and-publication/infrastructure/adapters/workspace-port.adapter.ts: WorkspacePortStaticContext
+qa-engine/src/contexts/workspace-and-publication/infrastructure/adapters/workspace-registry.ts: WorkspaceRecord
+qa-engine/src/contexts/workspace-and-publication/infrastructure/mirror-provision.adapter.ts: Git
+qa-engine/src/contexts/workspace-and-publication/infrastructure/setup.adapter.ts: DEFAULT_E2E_INSTALL_TIMEOUT_MS, FAILURE_CAPTURE_FIXTURE_MARKER, InstallGuard, MUTATION_FIXTURE_MARKER, SOURCE_MAPS_MARKER, SetupAdapterDeps, SetupOptions
+qa-engine/src/contexts/workspace-and-publication/infrastructure/suite-store.adapter.ts: AUTH_STATUS, AuthStatus, DEFAULT_SUITE_STORE_LIMITS, SUITE_ENTRY_KIND, SUITE_MANIFEST_SCHEMA, SUITE_SNAPSHOTS_DIR, SuiteAuthRecord, SuiteEntry, SuiteEntryAdmission, SuiteEntryKind, restoredSetDigest
+qa-engine/src/contexts/workspace-and-publication/infrastructure/vcs-write.adapter.ts: VcsCommitResult
+qa-engine/src/contexts/workspace-and-publication/infrastructure/write-confinement.adapter.ts: ConfinementResult, Git
+qa-engine/src/shared-infrastructure/bounded-tree-removal.ts: DEFAULT_TREE_REMOVAL_LIMITS, TreeRemovalClock, TreeRemovalLimits
+qa-engine/src/shared-infrastructure/code-graph/codegraph-code-graph.adapter.ts: CodegraphCodeGraphDeps
+qa-engine/src/shared-infrastructure/code-graph/codegraph-engine.ts: DEFAULT_ENGINE_TIMEOUTS, EngineTimeouts, REQUEST_CHUNK
+qa-engine/src/shared-infrastructure/code-graph/codegraph-store-cache.ts: MAX_STORE_BYTES, StoreCacheTuning, StoreLock
+qa-engine/src/shared-infrastructure/code-graph/codegraph-workspace.ts: ExportWorkspaceInput, WorkspaceExport
+qa-engine/src/shared-infrastructure/code-graph/git-co-change.adapter.ts: HISTORY_COMMITS, MIN_COUPLING, MIN_CO_CHANGES
+qa-engine/src/shared-infrastructure/decision-listing.ts: FileDecisions
+qa-engine/src/shared-infrastructure/egress/address-class.ts: AddressClass
+qa-engine/src/shared-infrastructure/egress/destination-sniffer.ts: Sniff
+qa-engine/src/shared-infrastructure/egress/dns-filter.ts: DnsFilterDeps
+qa-engine/src/shared-infrastructure/egress/egress-controller.ts: DnsPort, EgressHooks, ProxyPort
+qa-engine/src/shared-infrastructure/egress/iptables-runner.ts: CommandRunner
+qa-engine/src/shared-infrastructure/egress/transparent-proxy.ts: TransparentProxyDeps, isLoopbackAddress
+qa-engine/src/shared-infrastructure/module-resolution/dynamic-loads.ts: ModuleLoads
+qa-engine/src/shared-infrastructure/process-sandbox/exec-sandbox.ts: EXEC_COMMAND_CLASSES
+qa-engine/src/shared-infrastructure/process-sandbox/exec-scope-provider.ts: ExecScopeProviderDeps
+qa-engine/src/shared-infrastructure/process-sandbox/file-boundary.ts: FileBoundaryOutcome, FileBoundaryProbeKind, FileBoundaryProbeResult
+qa-engine/src/shared-infrastructure/process-sandbox/git-hardening.ts: TrustedGitTree, resolveTrustedGitTree
+qa-engine/src/shared-infrastructure/process-sandbox/mirror-access.ts: nodeMirrorFsOps
+qa-engine/src/shared-infrastructure/process-sandbox/orphan-browser-sweep.ts: procFsDeps
+qa-engine/src/shared-infrastructure/process-sandbox/sandbox-reaper.ts: DEFAULT_REAP_TIMEOUT_MS, SandboxReaperDeps, TrackableChild
+qa-engine/src/shared-infrastructure/process-sandbox/sandbox.ts: ChownRunner
+qa-engine/src/shared-infrastructure/process-sandbox/scrub-env.ts: ScrubEnvOptions
+qa-engine/src/shared-infrastructure/repo-reader.ts: RepoReaderLimits
+qa-engine/src/shared-infrastructure/spec-path-confinement.ts: OpenedFileStats, OwnedDirListing, PurgeStat, RepoWalk, SpecTree, UnwalkedPath
+qa-engine/src/shared-infrastructure/suite-tree.ts: EntryKind, MAX_TREE_ENTRIES, TreeEntry
+qa-engine/src/shared-infrastructure/telemetry/run-auth-notes.ts: SuiteAuthNotes
+qa-engine/src/shared-infrastructure/telemetry/run-spans.ts: ContextRecord
+qa-engine/src/shared-infrastructure/worker/off-loop-executor.ts: OffLoopRunHooks, OffLoopTiming, WORKER_START_BUDGET_MS, WorkerExecutorOptions
+qa-engine/src/shared-kernel/address-cut.ts: segmentsBefore
+qa-engine/src/shared-kernel/allotment-cap.ts: CapLimit
+qa-engine/src/shared-kernel/case-proof.ts: ModeRefusal, ModeTally
+qa-engine/src/shared-kernel/change-map.ts: ChangeMapCandidate, SeededCandidate, Seeding
+qa-engine/src/shared-kernel/change-slice.ts: ReferenceWhy
+qa-engine/src/shared-kernel/code/index.ts: INDEX_OUTCOMES
+qa-engine/src/shared-kernel/context-budget.ts: BYTES_PER_TOKEN_ESTIMATE, FitRequest, PromptSize
+qa-engine/src/shared-kernel/context-item-ids.ts: CONTEXT_SOURCES, MIN_DOM_IDS_PER_ROUTE, MapLike, ServiceLinkLike
+qa-engine/src/shared-kernel/contract/events.ts: ActivityStatusSchema, LogLevelSchema, TodoStatusSchema
+qa-engine/src/shared-kernel/coordination.ts: FlowBudgets
+qa-engine/src/shared-kernel/cycle-budget.ts: CycleBudgetInput
+qa-engine/src/shared-kernel/data-contradiction.ts: MAX_DATA_CONTRADICTIONS_RECORDED
+qa-engine/src/shared-kernel/diff-hunks.ts: SectionStat
+qa-engine/src/shared-kernel/diff-parser/changed-literal.ts: isClassList, isLabelLike
+qa-engine/src/shared-kernel/egress-policy.ts: EgressRule, PUBLIC_SUFFIXES
+qa-engine/src/shared-kernel/error-class.ts: ResolveErrorClassInput
+qa-engine/src/shared-kernel/exec-purpose.ts: EXEC_PURPOSES
+qa-engine/src/shared-kernel/geolocation.ts: GeolocationScope
+qa-engine/src/shared-kernel/language-id.ts: ExpectationSyntax
+qa-engine/src/shared-kernel/ports/exec-scope.port.ts: ExecScopeSession, SandboxRefusal
+qa-engine/src/shared-kernel/ports/logger.port.ts: LogEntry, MemoryLogger, silentLogger
+qa-engine/src/shared-kernel/ports/plan-snapshot.port.ts: PlanCandidateState, PlanSnapshotFlowCandidate
+qa-engine/src/shared-kernel/ports/suite-store.port.ts: DEMOTE_REASON_CLASS, DemoteReasonClass
+qa-engine/src/shared-kernel/prompt-sections.ts: DegradedSection, SectionStability, WindowFit
+qa-engine/src/shared-kernel/route-availability.ts: RedirectMechanism
+qa-engine/src/shared-kernel/route-capturability.ts: ClassifiedRoute, RouteClassification, RoutePartition, UncapturableRoute
+qa-engine/src/shared-kernel/run-outcome.ts: ErrorClass
+qa-engine/src/shared-kernel/run-secret-redaction.ts: MAX_SECRET_VALUES, MIN_ENCODED_VARIANT_CHARS
+qa-engine/src/shared-kernel/run-trace-facts.ts: RUN_DECISIONS, RUN_DEGRADATIONS
+qa-engine/src/shared-kernel/runtime-error-class.ts: RuntimeErrorVerdict
+qa-engine/src/shared-kernel/served-version.ts: UNREADABLE_REASONS, UnreadableReason
+qa-engine/src/shared-kernel/service-links.ts: MatchTier
+qa-engine/src/shared-kernel/sidekick-session.ts: SidekickIdentity
+qa-engine/src/shared-kernel/telemetry/attribute-registry.ts: AttrKey, AttrType, AttrValue, Cardinality, ContentClass, MAX_ITEM_IDS_PER_SPAN, TemplateKey
+qa-engine/src/shared-kernel/telemetry/genai-semconv.ts: ConventionTokenUsage, RuntimeTokenUsage
+qa-engine/src/shared-kernel/telemetry/telemetry.port.ts: SpanLink
+qa-engine/src/shared-kernel/turn-limit.ts: TIME_LIMIT_SOURCES
+qa-engine/src/shared-kernel/working-room.ts: EstimateWorkingRoomInput, MIN_HISTORY_SAMPLES, RecordedTurn, USUAL_PERCENTILE
+src/agent-runtime/config.ts: AgentConfigValidation, KeyPresence, ReviewerIndependence
+src/agent-runtime/index.ts: AgentConfigValidation, AgentFacadeDeps, AgentRuntimeStatus, KeyPresence, ReviewerIndependence, tierForRole
+src/agent-runtime/run-context-budget.ts: InstallRunContext
+src/agent-runtime/types.ts: AgentFacadeDeps, AgentRuntimeStatus, tierForRole
+src/contract/commands.ts: AgentAssignmentsSchema, AgentConfigValidationSchema, AgentHealthMapSchema, AgentRuntimeStatusSchema, ArchitectureApiOperationSchema, ArchitectureFeBeLinkSchema, ArchitectureFlowSchema, ArchitectureRouteSchema, BoundaryEdgeSummarySchema, BoundaryEdgeTransportSchema, BoundaryProfileSchema, BreakdownItemSchema, CaseStatusSchema, CoordinationSignalsSchema, DurationTrendSchema, EffectiveConfigSchema, EventBoundaryProfileSchema, ExpectedStatusSchema, FlowStabilitySchema, HttpBackendBoundaryProfileSchema, HttpBoundaryProfileSchema, InsightIntentSchema, InsightUnitSchema, KeyPresenceSchema, LoginBootstrapStatusSchema, LoginProgressSchema, MappingProgressSchema, NetworkClassSchema, NetworkErrorSchema, OnboardOutcomeSchema, RepoIndexStatusSchema, ReportChartSchema, RunStatusSchema, ToolSequenceEntryViewSchema, TurnUsageViewSchema
+src/contract/login-path.ts: LOGIN_PATH_MAX_LENGTH, LOGIN_PATH_PATTERN
+src/contract/openapi.ts: API_VERSION
+src/index.ts: main
+src/integrations/fixtures/opencode-roster.ts: Roster, RosterRole
+src/integrations/github.ts: defaultGitHubDeps
+src/integrations/logger.ts: JsonLogger, JsonLoggerOptions
+src/integrations/opencode-client.ts: EventStreamOpenerDeps, NO_WRITE_TOOLS, defaultAgentListDeps
+src/integrations/opencode-server-auth.ts: OpenCodeServerAuth
+src/integrations/redacting-logger.ts: LogSink, RedactingLoggerDeps
+src/integrations/repo-mirror.ts: assertHexSha
+src/integrations/verdict-parse.ts: FinalVerdict
+src/integrations/verdict-validate.ts: RepairInstructionOpts, ReviewerFinding, ReviewerVerdict, VerdictCheck
+src/orchestrator/config-loader.ts: RepoRole
+src/orchestrator/schemas.ts: SpecMetaSchema
+src/qa/value-report.ts: ReportOptions
+src/server/agent-runtime.ts: AgentRuntimeManager, CreateAgentRuntimeManagerOptions
+src/server/api-token.ts: ApiTokenDeps
+src/server/api/api-error.ts: ApiErrorOptions
+src/server/api/deps.ts: LoginOutcome
+src/server/api/request.ts: ParseBodyOptions
+src/server/api/route-table.ts: ApiRoute, RouteMatch, RouteMethod, createMatcher
+src/server/api/use-cases/continue-run.ts: Continuable
+src/server/auth.ts: MACHINE_PRINCIPAL
+src/server/chat.ts: ContextLimits
+src/server/coordination-events.ts: CoordinationEventsFilter, defaultCoordinationLedgerFsDeps
+src/server/create-app.ts: LOGIN_WINDOW_MS
+src/server/dns-forward.ts: firstNameserver
+src/server/durable-run-events.ts: DurableRunEventDeps
+src/server/effective-config.ts: RecordedRunFacts, RunConfigRequest, agentsOfTurns
+src/server/egress-wiring.ts: RegistryGroups, RunEgressOrigins
+src/server/evaluation-evidence.ts: SpecCounts, deliveredSpecNames, deliveredSpecsOf, planEvidenceOf, referenceEvidenceOf, runSpecCallsOf, sidekickReportsOf
+src/server/evaluation-service.ts: CampaignRunsView, CatalogScoreView, EvaluationServiceDeps, HistoryRunSelector, RegradeJobView, RunEvaluationView, SqliteRegradeJobStore, SqliteScoreStore
+src/server/exec-sandbox-factory.ts: ExecWiring, ExecWiringInput, ScriptExec, ScriptMirrors, gateCredsFrom
+src/server/metrics.ts: ArtifactSizeEntry
+src/server/mirror-prune.ts: ActiveRunLookups, MirrorPruneResult
+src/server/onboarding/onboarding-job.ts: ConfirmResult, ContextMapRunRequest, ContextMapRunSnapshot, LoginProgress, LoginRunRequest, LoginStatus, MappingProgress, OnboardOutcome, OnboardState, OnboardingJob, ProposeBoundariesRequest, ProposeResult, REPO_INDEX_STATUS, RepoIndexStatus
+src/server/onboarding/patch-app-yaml.ts: AppYamlPatch, AppYamlPatchOptions
+src/server/onboarding/resolution-summary.ts: BoundaryEdgeSummary
+src/server/persistence/database.ts: OpenHistoryOptions
+src/server/persistence/json-column.ts: JsonColumnSite
+src/server/persistence/migrations/index.ts: MIGRATIONS
+src/server/persistence/repositories/evaluation.repository.ts: RegradeJobRow, ScoreRow
+src/server/persistence/repositories/run.repository.ts: CampaignRunRecord, RunPhasesPatch, RunRecordPatch
+src/server/persistence/repositories/telemetry.repository.ts: AgentTurnTraceRecord, RecentTurnFigures
+src/server/persistence/retention.ts: PruneReport, RUN_SPAN_PRUNE_CHUNK
+src/server/phase-history.ts: StoredPhaseRecord
+src/server/port.ts: ServerErrorListenerDeps
+src/server/run-delegate.ts: DelegateRunDeps
+src/server/run-engine-factory.ts: AcceptanceHarness, AcceptanceHarnessInput, TurnTelemetryContext, buildMirrorGc, githubHttpDeps
+src/server/run-history-sqlite-adapter.ts: defaultRunHistorySqliteAdapterDeps
+src/server/run-report-view.ts: RunReportInput
+src/server/run-trace.ts: EnqueueMark, RUN_TRIGGERS
+src/server/runner.ts: LOGIN_BOOTSTRAP_GUIDANCE
+src/server/sandbox-health.ts: SandboxHealth
+src/server/service-context.ts: OmittedEntry, StageServiceContextInput, StagedServiceContext
+src/server/shutdown.ts: SignalSource
+src/server/static.ts: ServeDashboardOptions
+src/server/tools-endpoint.ts: MAX_TOOLS_BODY_BYTES, QA_TOOLS_LISTEN_HOST_ENV, QA_TOOLS_PORT_ENV, QA_TOOLS_TOKEN_ENV, RUN_SPEC_PATH, TOOLS_BODY_TIMEOUT_MS, TOOLS_HEADERS_TIMEOUT_MS, TOOLS_REQUEST_TIMEOUT_MS, ToolsHandlerDeps, ToolsRateLimiter, ToolsRateLimiterOptions, ToolsResponse, ToolsServerOptions
+src/server/trends-view.ts: TrendsInput
+src/server/turn-telemetry-config.ts: StepIntentConfigInput
+src/server/web-console/console-harness.ts: ConsoleApi, ConsoleHarness, JsonReply, LoadOptions, Routes, RunHandlers, SseReply
+src/server/webhook.ts: WebhookPayload, WebhookResult
+src/server/wire-app.ts: WiredApp
+src/settings/registry.ts: SettingGroup, SettingType
+src/settings/settings.ts: SettingProblem
+src/telemetry/backend-health.ts: BACKEND_HEALTH_TTL_MS, BACKEND_PROBE_TIMEOUT_MS, BackendFetchInit, BackendHealthDeps, BackendResponse, DISK_USED_DEGRADED_RATIO, QUEUE_FILL_DEGRADED_RATIO
+src/telemetry/bootstrap.ts: DEFAULT_SHUTDOWN_TIMEOUT_MS, PruneFns
+src/telemetry/config.ts: BatchProcessorOptions, MAX_SPAN_RETENTION_DAYS, TelemetryMode
+src/telemetry/host-health.ts: DEFAULT_THRESHOLD_MS, EVENT_LOOP_BLOCKED_MS, EVENT_LOOP_SAMPLE_INTERVAL_MS, HEARTBEAT_INTERVAL_MS, HostClocks, HostHealthDeps, HostHealthSnapshot, ZOMBIE_SCAN_INTERVAL_MS, systemClocks, systemProcFs, systemScheduler
+src/telemetry/instrument-table.ts: InstrumentSpec, InstrumentType
+src/telemetry/ledger.ts: DEFAULT_FLUSH_EVERY, LedgerOptions, LedgerStats, PRUNE_EVERY_MS
+src/telemetry/log-shipper.ts: LogShipperDeps
+src/telemetry/otel-telemetry.adapter.ts: CONTENT_CAP_CHARS, ERROR_TYPE_CAP_CHARS, METRIC_VALUE_CAP_CHARS, NAME_CAP_CHARS, NONE_CAP_CHARS, OtelTelemetryDeps, TelemetryAdapterStats, toHrTime
+src/telemetry/prompt-body-logs.ts: BodyKind, PromptBodyDeps, PromptBodyInput
+src/telemetry/score-metrics-sink.ts: ScoreMetricsSinkDeps
+src/telemetry/telemetry-health.ts: TelemetryModeName
+src/telemetry/trace-harness.ts: Measurement
+src/telemetry/with-prompt-bodies.ts: PromptBodyDecoratorDeps, PromptBodyHost
+src/types.ts: ActivityKind
+src/util/net.ts: AgentTransportFetchDeps
+```
+
+### Class D (imported only by tests, used inside its own file), by file
+
+```
+qa-engine/src/contexts/agent-tools/composition/build-agent-tools.ts: AgentToolsDeps
+qa-engine/src/contexts/agent-tools/domain/code-graph-query.ts: CODE_GRAPH_ACTION, MAX_EXPLORE_TERMS, MAX_TERM_CHARS
+qa-engine/src/contexts/agent-tools/infrastructure/agent-browser-registry.ts: LiveBrowser
+qa-engine/src/contexts/agent-tools/infrastructure/closed-loop-registry.ts: LiveLoop
+qa-engine/src/contexts/agent-tools/infrastructure/code-graph-tool-registry.ts: LiveCodeGraph
+qa-engine/src/contexts/app-catalog/domain/auth-precondition.ts: CLASSIFIED_PRECONDITION_KIND
+qa-engine/src/contexts/app-catalog/infrastructure/auth-session.adapter.ts: AUTH_SETUP_ENV, AuthDiscoveryDeps, AuthSessionSpawnResult
+qa-engine/src/contexts/app-catalog/infrastructure/login-discovery/login-discovery.page-readers.ts: ChallengeCandidate
+qa-engine/src/contexts/app-catalog/infrastructure/login-discovery/login-discovery.runner.ts: LOGGED_TEXT_MAX, LOGIN_DISCOVERY_HARD_KILL_MS
+qa-engine/src/contexts/app-catalog/infrastructure/login-discovery/login-discovery.script.ts: DEFAULT_ACTION_CALL_MS, DEFAULT_NAV_TIMEOUT_MS, LOGIN_WELL_KNOWN_PATHS, MAX_GATED_ROUTES, POST_SUBMIT_MIN_WAIT_MS
+qa-engine/src/contexts/change-analysis/domain/commit-classification.ts: classifyCommit
+qa-engine/src/contexts/change-analysis/domain/reach-proof.ts: ScopeInput, tierOf
+qa-engine/src/contexts/change-analysis/infrastructure/adapters/blast-radius-signal.ts: BlastRadiusSignalInput
+qa-engine/src/contexts/change-analysis/infrastructure/adapters/change-scope-port.adapter.ts: entryPointsOf
+qa-engine/src/contexts/change-analysis/infrastructure/git-mirror-read.adapter.ts: MAX_FILE_AT_CHARS
+qa-engine/src/contexts/coordination/application/acceptance-report.ts: AcceptanceStatus
+qa-engine/src/contexts/coordination/application/brief-change.ts: MAX_PROOF_STEPS
+qa-engine/src/contexts/coordination/application/coordination-decision.ts: COORDINATION_ACTIONS
+qa-engine/src/contexts/coordination/application/coordination-sections/brief-sections.ts: BRIEF_DECISIONS_SECTION_ID
+qa-engine/src/contexts/coordination/application/coordination-sections/index.ts: COORDINATION_PROMPTS
+qa-engine/src/contexts/coordination/application/lead-correction.ts: DEFAULT_CORRECTION_INSTRUCTION, flowOfFinding
+qa-engine/src/contexts/coordination/application/lead-plan.ts: PlanDeps, PlanLimits
+qa-engine/src/contexts/coordination/application/lead-sidekicks.ts: CoordinateInput, LeadSidekicksDeps, MIN_FLOW_MS, PassCorrection
+qa-engine/src/contexts/coordination/application/plan-coverage.ts: MAX_ADMISSION_CANDIDATES
+qa-engine/src/contexts/coordination/application/sidekick-authoring.ts: AuthoringFacts
+qa-engine/src/contexts/coordination/application/sidekick-executor.ts: SidekickExecuteOpts
+qa-engine/src/contexts/coordination/application/sidekick-kinds.ts: AGENT_TOOL, AgentTool, SIDEKICK_BUDGET, SIDEKICK_WORKSPACE
+qa-engine/src/contexts/coordination/composition/build-coordination.ts: CoordinationDeps
+qa-engine/src/contexts/coordination/infrastructure/adapters/coordination-telemetry-port.adapter.ts: CoordinationTelemetryFsDeps, FileCoordinationTelemetryAdapter, MAX_LEDGER_EVENTS, ROTATE_TO_EVENTS
+qa-engine/src/contexts/cross-run-learning/domain/process-audit.ts: AuditInput, AuditRouterDeps, ProcessFinding
+qa-engine/src/contexts/cross-run-learning/infrastructure/process-audit-port.adapter.ts: PROCESS_AUDIT_TIMEOUT_MS
+qa-engine/src/contexts/evaluation/application/grade-run.use-case.ts: GradeRunResult
+qa-engine/src/contexts/evaluation/application/regrade.use-case.ts: MAX_JOB_ERROR_CHARS, REGRADE_PROGRESS_EVERY
+qa-engine/src/contexts/evaluation/domain/campaign-comparison.ts: armKey, bootstrapDiffCi, bootstrapMeanCi, mean, seededRandom
+qa-engine/src/contexts/evaluation/domain/campaign-runs.ts: matchesVariant
+qa-engine/src/contexts/evaluation/domain/context-refs.ts: matchRouteTemplate, normalizeRoutePath
+qa-engine/src/contexts/evaluation/domain/grader-catalog.ts: CONTEXT_SOURCES
+qa-engine/src/contexts/evaluation/domain/graders.ts: GRADERS
+qa-engine/src/contexts/generation/application/generate-tests.use-case.ts: AuthoringPorts
+qa-engine/src/contexts/generation/composition/build-generation.ts: GenerationDeps
+qa-engine/src/contexts/generation/domain/abort-race.ts: AbortRaceError
+qa-engine/src/contexts/generation/domain/agent-error-class.ts: AGENT_ERROR_TYPES, carriedAgentErrorType
+qa-engine/src/contexts/generation/domain/changed-values.ts: MAX_ROUTES_NAMED_PER_VALUE, WORDING, nodeShowsText
+qa-engine/src/contexts/generation/domain/consumer-expectation.ts: OperationExpectation
+qa-engine/src/contexts/generation/domain/declared-resources.ts: MAX_DECLARED_PER_FILE
+qa-engine/src/contexts/generation/domain/deterministic-review-precheck.ts: parseDomRouteBlocks
+qa-engine/src/contexts/generation/domain/expectation-gaps.ts: MAX_GAPS_PER_PAGE, PageShapes
+qa-engine/src/contexts/generation/domain/generator-time-budget.ts: DIFF_TIME_BUDGET_ENV
+qa-engine/src/contexts/generation/domain/harness-facts.ts: MAX_ATTRIBUTE_NAME_LENGTH, MAX_DECLARATION_LENGTH, MAX_DECLARATION_LINES, MAX_EXPORT_NAME_LENGTH, MAX_FIXTURE_EXPORTS, MAX_PROJECTS, isSafeIdentifier
+qa-engine/src/contexts/generation/domain/nav-outcome.ts: NAV_OUTCOMES
+qa-engine/src/contexts/generation/domain/objective.ts: Flow
+qa-engine/src/contexts/generation/domain/pre-exec-grounding.service.ts: RouteTree
+qa-engine/src/contexts/generation/domain/prompt-contract-lint.ts: BLIND_COMPLIANCE_PHRASES, DELEGATED_AUTHORITY_PHRASES, DIRECTIVE_LEXICON, MIN_DUPLICATE_LINE_BYTES, TRUST_LEXICON, hasFloorLanguage, hasTrustLanguage
+qa-engine/src/contexts/generation/domain/provided-context.ts: PROVIDED_CONTEXT_MATCH_RATIO, PROVIDED_CONTEXT_MIN_LINE_LENGTH, PROVIDED_CONTEXT_MIN_SAMPLE_LINES, PROVIDED_CONTEXT_SAMPLE_LINES
+qa-engine/src/contexts/generation/domain/review-fingerprint.ts: normalizeSpecForReview, reviewSpecsKey
+qa-engine/src/contexts/generation/domain/review-output.ts: REVIEW_CORRECTION_CLASSES
+qa-engine/src/contexts/generation/domain/route-availability-classifier.ts: ClassifyInput, classifyRouteAvailability
+qa-engine/src/contexts/generation/domain/route-ranking.ts: ROUTE_LINK_FIELDS
+qa-engine/src/contexts/generation/domain/selector-check.ts: ProposedSelector
+qa-engine/src/contexts/generation/domain/shell-command-class.ts: ShellCommandClass
+qa-engine/src/contexts/generation/domain/step-exhaustion.ts: TurnPart, detectStepExhaustion
+qa-engine/src/contexts/generation/domain/step-intent.ts: STEP_INTENTS
+qa-engine/src/contexts/generation/domain/step-limit.ts: STEP_LIMIT_MIDPOINT_FRACTION, stepMidpoint
+qa-engine/src/contexts/generation/domain/suite-listing-render.ts: PLAIN_LISTING_NOTE, everyDeliveredLine
+qa-engine/src/contexts/generation/domain/suite-listing.ts: LISTING_ENTRY_SAFETY_BOUND, SuiteListingInput
+qa-engine/src/contexts/generation/domain/tool-call-taxonomy.ts: AgentActivityKind
+qa-engine/src/contexts/generation/domain/tool-link.ts: LINK_TOLERANCE_MS, LinkableCall
+qa-engine/src/contexts/generation/domain/turn-efficiency-summary.ts: tallyBuckets
+qa-engine/src/contexts/generation/infrastructure/adapters/pre-generation-grounding-port.adapter.ts: MAX_CONTEXT_MAP_BYTES, MAX_FIXTURES_FILE_BYTES
+qa-engine/src/contexts/generation/infrastructure/context-pack.ts: ContextPackInput, MAX_LISTED_UNCAPTURABLE, NODE_SAFETY_BOUND_REASON, TEMPLATE_LEFT_OUT
+qa-engine/src/contexts/generation/infrastructure/dom-capture-trace.ts: recordDomCapture
+qa-engine/src/contexts/generation/infrastructure/dom-snapshot.ts: CAPTURE_LIMITS, CAPTURE_ROUTE_READ_MS, CaptureDataState, CaptureDomInput, DEGRADED_ROUTE_LABEL, MAX_NODES_PER_PAGE, MAX_SHAPES_PER_ROUTE, MAX_SHAPE_KEYS, MAX_SHAPE_KEY_CHARS, MAX_SHAPE_NAMES, buildCaptureScript, buildChangedMarker, capDomLines, captureTimeoutMs, extractTargetRoutes, formatRedirectAdvisory, isPriorityNode, mergeAttrs, navigationFactsOf, navigationOf, normalizeKey, normalizeRoutes
+qa-engine/src/contexts/generation/infrastructure/loggable-route.ts: MAX_LOGGED_ROUTES, MAX_LOGGED_ROUTE_CHARS
+qa-engine/src/contexts/generation/infrastructure/prompt-builders/architecture-context.ts: MAP_ITEMS_SAFETY_BOUND
+qa-engine/src/contexts/generation/infrastructure/prompt-builders/generator-context.ts: LIVE_BROWSERS
+qa-engine/src/contexts/generation/infrastructure/prompt-builders/generator-renderers.ts: BACKEND_TO_BACKEND_LABEL, HTTP_UNKNOWN_LABEL, IMPACTED_MARKER_PREFIX, MILESTONE_OUTCOME_PHRASES, SETTLE_LABELS, describeResultCount, describeSettle, impactedMarker
+qa-engine/src/contexts/generation/infrastructure/prompt-builders/generator-sections.ts: PACK_CONTRACTS_NOUN
+qa-engine/src/contexts/generation/infrastructure/prompt-builders/reviewer-change-sections.ts: REVIEWER_CHANGED_FILES_SECTION_ID, REVIEWER_FLOW_SLICES_SECTION_ID, REVIEWER_UNASSIGNED_CHANGE_SECTION_ID
+qa-engine/src/contexts/generation/infrastructure/prompt-builders/reviewer-sections.ts: REVIEWER_STEP_LIMIT_SECTION_ID
+qa-engine/src/contexts/generation/infrastructure/prompt-builders/task-builders.ts: ANTI_WEAKENING_RULE, EFFORT_BY_TIER, EFFORT_NO_OP_CLAUSE, EFFORT_PER_BEHAVIOUR, NO_OP_REASONS, OBJECTIVE_HEADING, OBJECTIVE_QUESTION
+qa-engine/src/contexts/generation/infrastructure/prompt-cap.ts: EVIDENCE_TEXT_SAFETY_BOUND
+qa-engine/src/contexts/generation/infrastructure/prompt-rendering.adapter.ts: PromptBuilders
+qa-engine/src/contexts/generation/infrastructure/resilience/circuit-breaker.ts: CIRCUIT_THRESHOLD
+qa-engine/src/contexts/generation/infrastructure/route-catalog.ts: REDIRECT_PATH_MAX_CHARS
+qa-engine/src/contexts/generation/infrastructure/sse/agent-activity.ts: routeEvent
+qa-engine/src/contexts/generation/infrastructure/sse/call-efficiency-tracker.ts: NAV_OUTPUT_MAX_KEPT, OBSERVATION_READY_TIMEOUT_MS, TrackerTimer
+qa-engine/src/contexts/generation/infrastructure/sse/event-stream.ts: EventStreamManager, startEventStreamWithReconnect, startScopedEventStream
+qa-engine/src/contexts/generation/infrastructure/sse/opencode-tool-outcome.ts: TOOL_ERROR_MAX_CHARS
+qa-engine/src/contexts/generation/infrastructure/telemetry/turn-probe.ts: recordDeliveredContextSpans
+qa-engine/src/contexts/generation/infrastructure/telemetry/turn-trace-registry.ts: DEFAULT_TRACE_MAX_AGE_MS
+qa-engine/src/contexts/generation/infrastructure/telemetry/with-turn-telemetry.ts: TurnTelemetryDeps
+qa-engine/src/contexts/generation/infrastructure/verdict-parser.adapter.ts: listSuiteSpecFiles
+qa-engine/src/contexts/objective-signal/domain/assemble-change-coverage.ts: computeChangeCoverage
+qa-engine/src/contexts/objective-signal/domain/causal-label.ts: CausalInput, CausalMatchers, CausalScope, MAX_CAUSAL_CASES
+qa-engine/src/contexts/objective-signal/domain/coverage-exclusions.ts: ReachScope
+qa-engine/src/contexts/objective-signal/domain/dump-sanitizers.ts: MAX_FAULT_COUNTER_KEY_CHARS, MAX_FAULT_COUNTER_OPERATIONS, MAX_FAULT_COUNTER_TEST_CHARS
+qa-engine/src/contexts/objective-signal/domain/enforce-readiness.ts: ReplicateSignals, untrustedReasons
+qa-engine/src/contexts/objective-signal/domain/observed-difference.ts: MAX_MOVED_ITEMS
+qa-engine/src/contexts/objective-signal/domain/per-candidate-coverage.ts: PerCandidateInput
+qa-engine/src/contexts/objective-signal/domain/render-coverage-gap.ts: renderSurvivedMutant
+qa-engine/src/contexts/objective-signal/domain/select-mutants.ts: MAX_MUTANTS, specFilesOf
+qa-engine/src/contexts/objective-signal/domain/test-intent-contract.ts: anchoring
+qa-engine/src/contexts/objective-signal/infrastructure/coverage-dump-reader.ts: V8_DECODE_BUDGET_MS, V8_DUMP_LIMITS
+qa-engine/src/contexts/objective-signal/infrastructure/fault-injection-counter-reader.ts: readFaultCounters
+qa-engine/src/contexts/objective-signal/infrastructure/v8-branch-coverage.ts: MAX_BRANCH_DECISIONS
+qa-engine/src/contexts/run-orchestration/application/accept-delivered-specs.use-case.ts: AcceptInput
+qa-engine/src/contexts/run-orchestration/application/run-flow/checkpoint.ts: RunCheckpoint
+qa-engine/src/contexts/run-orchestration/application/run-flow/failure-policy.ts: FAILURE_KINDS, POLICY, STEP_CLASSES
+qa-engine/src/contexts/run-orchestration/application/run-flow/phases/coverage.steps.ts: GapRegeneration, coverageExclusionsOf, gapFindings, gapUnits
+qa-engine/src/contexts/run-orchestration/application/run-flow/phases/generation-services.ts: BoundText
+qa-engine/src/contexts/run-orchestration/application/run-flow/route-availability-grounding.ts: CHANGE_CLOSURE_POLICY, runBaseRef
+qa-engine/src/contexts/run-orchestration/application/run-flow/run-flow.ts: StepEvent, validateTable
+qa-engine/src/contexts/run-orchestration/application/run-flow/step-ids.ts: STEP_IDS
+qa-engine/src/contexts/run-orchestration/domain/fix-loop-action.ts: FixLoopTransition
+qa-engine/src/contexts/run-orchestration/domain/fix-loop.aggregate.ts: FixLoopAcceptanceOutcome, FixLoopExecuteInput, FixLoopGenerateInput, FixLoopGenerateResult, FixLoopIntegrity, FixLoopRun
+qa-engine/src/contexts/run-orchestration/domain/flaky-triage.ts: classifyFlakyCase
+qa-engine/src/contexts/run-orchestration/domain/review-action.ts: ReviewTransition
+qa-engine/src/contexts/run-orchestration/domain/review-finding-filter.service.ts: CitedFinding, ReviewScope
+qa-engine/src/contexts/run-orchestration/domain/run-deadline.ts: measuredPurposeDurations
+qa-engine/src/contexts/run-orchestration/domain/run-time-budget.ts: RUN_TIME_BUDGET_ENV, RUN_TIME_BUDGET_KEYS, RUN_TIME_BUDGET_MS
+qa-engine/src/contexts/run-orchestration/domain/static-fix.ts: StaticFixInput
+qa-engine/src/contexts/service-topology/domain/operation-url-pattern.ts: MAX_OPERATION_PATTERN_CHARS, operationUrlPattern
+qa-engine/src/contexts/service-topology/infrastructure/call-pattern-catalog.ts: CallPatternExtractor
+qa-engine/src/contexts/service-topology/infrastructure/call-site-catalog.ts: CallSiteExtractor
+qa-engine/src/contexts/service-topology/infrastructure/event-pattern-catalog.ts: EventPatternExtractor
+qa-engine/src/contexts/service-topology/infrastructure/openapi-http-resolver.adapter.ts: extractEnclosingMethodFallback
+qa-engine/src/contexts/service-topology/infrastructure/yaml-boundary-profile.adapter.ts: parseEventBoundaryProfile, parseHttpBackendBoundaryProfile, parseHttpBoundaryProfile
+qa-engine/src/contexts/test-execution/application/agent-browser.use-case.ts: LOW_CALLS, MAX_REPORTED_BLOCKS, MAX_SNAPSHOT_CHARS, MAX_TYPED_CHARS, MAX_URL_CHARS
+qa-engine/src/contexts/test-execution/application/run-spec.use-case.ts: MAX_ERROR_CHARS, MAX_REPORTED_LOAD_ERRORS, MAX_REPORTED_TESTS, MAX_TITLE_CHARS, RunSpecDeps, SPEC_PATH_PATTERN, escapeGrep
+qa-engine/src/contexts/test-execution/composition/build-test-execution.ts: TestExecutionDeps
+qa-engine/src/contexts/test-execution/domain/agent-browser-capability.ts: MAX_RENEWALS
+qa-engine/src/contexts/test-execution/domain/agent-browser-route-guard.ts: RouteGuardPolicy
+qa-engine/src/contexts/test-execution/domain/agent-browser-session-invalidation.ts: INVALIDATION_KIND
+qa-engine/src/contexts/test-execution/domain/failure-category.ts: FAILURE_CATEGORY
+qa-engine/src/contexts/test-execution/domain/output-token-filter.ts: OPAQUE_TOKEN_REMOVED
+qa-engine/src/contexts/test-execution/domain/playwright-report-plan.ts: MAX_PLANNED_CASES
+qa-engine/src/contexts/test-execution/domain/playwright-types.ts: PwDialog, PwFrame, PwGeolocation, PwLocator, PwResponse, PwRoute, PwWebSocketRoute
+qa-engine/src/contexts/test-execution/domain/run-spec-capability.ts: CLOSED_LOOP_REFUSAL, LedgerEntry, MIN_CALL_MS
+qa-engine/src/contexts/test-execution/domain/stubbed-state.ts: StubbedStateReport
+qa-engine/src/contexts/test-execution/infrastructure/e2e-execution.runner.ts: DEFAULT_E2E_TIMEOUT_MS, E2E_STDERR_KEEP_CHARS, E2eExecuteOptions, E2eRunOutput, FAILURE_DUMP_LIMITS, FailureDump, MAX_FAILURE_DUMPS_TOTAL_BYTES, MAX_FAILURE_DUMP_BYTES, MAX_FAILURE_DUMP_FILES, MAX_PLAYWRIGHT_REPORT_BYTES, MAX_STREAM_EVENT_LINE_CHARS, SPEC_FILE_RE, StreamEvent, allFailuresAreRunnerInfra, parseStreamEvent, playwrightArgs, readControlFiles, readFailureDumps, readPlaywrightReport, segmentsAreTail, specListContent, streamStatusToCase
+qa-engine/src/contexts/test-execution/infrastructure/run-dump-bridge.ts: DUMP_CHECK_BUDGET_MS, createDumpExecutor
+qa-engine/src/contexts/test-execution/infrastructure/static-gate.adapter.ts: StaticGateChecks
+qa-engine/src/contexts/test-execution/infrastructure/static-gate.checks.ts: CHECK_OUTPUT_KEEP_CHARS, runCheck, validateManifest
+qa-engine/src/contexts/test-execution/infrastructure/static-gate.trace.ts: countCheckErrors, firstCheckError
+qa-engine/src/contexts/workspace-and-publication/composition/build-workspace-and-publication.ts: WorkspaceAndPublicationDeps
+qa-engine/src/contexts/workspace-and-publication/infrastructure/adapters/multi-repo-checkout.adapter.ts: MultiRepoCheckoutDeps, ServiceStageInput
+qa-engine/src/contexts/workspace-and-publication/infrastructure/adapters/publication-port.adapter.ts: PublicationPortCollaborators, PublicationPortStaticContext
+qa-engine/src/contexts/workspace-and-publication/infrastructure/adapters/suite-store-trace.ts: SKIP_CLASS, classifySkipReason
+qa-engine/src/contexts/workspace-and-publication/infrastructure/github-http.ts: GITHUB_MAX_BODY, GITHUB_MAX_TITLE
+qa-engine/src/contexts/workspace-and-publication/infrastructure/setup.adapter.ts: FAILURE_CAPTURE_MARKER, MAX_INSTALL_MARKER_BYTES, MAX_LOCK_FILE_BYTES, SetupAdapterFsDeps, failureCaptureBlockFrom
+qa-engine/src/contexts/workspace-and-publication/infrastructure/suite-store.adapter.ts: SuiteManifest, SuiteStoreDeps, SuiteStoreLimits, TrackedFile, gitBlobOid, parseStagedListing, suiteEntryKind
+qa-engine/src/contexts/workspace-and-publication/infrastructure/write-confinement.adapter.ts: WriteConfinementAdapterDeps
+qa-engine/src/shared-infrastructure/bounded-tree-removal.ts: TreeRemovalLimitError
+qa-engine/src/shared-infrastructure/code-graph/codegraph-store-cache.ts: StoreMeta
+qa-engine/src/shared-infrastructure/code-graph/codegraph-workspace.ts: selectWorkspacePaths
+qa-engine/src/shared-infrastructure/code-graph/git-co-change.adapter.ts: BULK_COMMIT_FILES, couplingOf, parseHistory
+qa-engine/src/shared-infrastructure/egress/dns-filter.ts: parseDnsQuestion
+qa-engine/src/shared-infrastructure/egress/egress-controller.ts: EgressControllerDeps
+qa-engine/src/shared-infrastructure/process-sandbox/exec-env.ts: ExecEnvInput, SANDBOX_PROFILES
+qa-engine/src/shared-infrastructure/process-sandbox/exec-sandbox.ts: ExecSandboxDeps, ExecSpawnOptions
+qa-engine/src/shared-infrastructure/process-sandbox/orphan-browser-sweep.ts: OrphanSweepDeps
+qa-engine/src/shared-infrastructure/process-sandbox/sandbox-reaper.ts: ProcessInfo, ProcessTable, createSandboxReaper, procTable
+qa-engine/src/shared-infrastructure/redaction/pattern-redaction.adapter.ts: containsSecrets
+qa-engine/src/shared-infrastructure/repo-reader.ts: REPO_READER_LIMITS
+qa-engine/src/shared-infrastructure/spec-fixtures-import.ts: importsTestFromFixtures
+qa-engine/src/shared-infrastructure/spec-path-confinement.ts: MAX_SPEC_WALK_ENTRIES, SpecPurgeDeps, SpecReadDeps, SpecWriteDeps, defaultSpecPurgeDeps, defaultSpecReadDeps, defaultSpecWriteDeps, specReadDepsFor, specWriteDepsFor
+qa-engine/src/shared-infrastructure/worker/off-loop-executor.ts: OffLoopOutcome, workerExecArgv
+qa-engine/src/shared-kernel/case-proof.ts: tallyOf
+qa-engine/src/shared-kernel/context-budget.ts: roomTokens
+qa-engine/src/shared-kernel/context-item-ids.ts: ID_KIND, MAX_ITEM_IDS, MAX_ITEM_ID_CHARS
+qa-engine/src/shared-kernel/contract/events.ts: AgentActivityKindSchema, RunStepSchema
+qa-engine/src/shared-kernel/diff-stat.ts: DIFF_TIERS
+qa-engine/src/shared-kernel/error-class.ts: errorClassFromCorrections, errorClassFromVerdict
+qa-engine/src/shared-kernel/manifest/manifest-entry.ts: ManifestEntrySchema, ManifestSchema
+qa-engine/src/shared-kernel/observed-requests.ts: MAX_LOGGED_HOSTS, MAX_LOGGED_PATH_CHARS, MAX_LOGGED_TOTAL_CHARS
+qa-engine/src/shared-kernel/route-availability.ts: MAX_AVAILABILITY_FACTS_RECORDED
+qa-engine/src/shared-kernel/route-capturability.ts: RouteReason
+qa-engine/src/shared-kernel/run-secret-redaction.ts: MAX_OPAQUE_BYTES, MIN_ACCOUNT_SECRET_CHARS, MIN_SESSION_VALUE_CHARS, RunSecretScope
+qa-engine/src/shared-kernel/served-version.ts: SERVED_VERSION_STATES
+qa-engine/src/shared-kernel/telemetry/attribute-registry.ts: ATTRIBUTES, ATTRIBUTE_TEMPLATES
+qa-engine/src/shared-kernel/working-room.ts: COLD_START_STEP_GROWTH_TOKENS
+src/agent-runtime/config.ts: providerConfig
+src/agent-runtime/index.ts: providerConfig
+src/agent-runtime/run-context-budget.ts: roleOfRecordedTurn, samplesOfRecordedTurns
+src/cli.ts: delegateRunInput, parseArgs
+src/contract/commands.ts: OnboardStateSchema, RepoIndexOutcomeSchema, ResolutionSummarySchema
+src/contract/openapi.ts: ARTIFACT_PATH
+src/integrations/github.ts: GitHubDeps
+src/integrations/logger.ts: createJsonLogger
+src/integrations/opencode-client.ts: AgentListDeps, NO_TOOLS, answeredFrom, createRawEventStreamOpener, fallbackModelFromConfig, hidesBrowserTools, hidesCodeGraphTools, hidesGeolocationTool, openCodePromptBody, promptFailure, sessionToolDeny, turnStepLimit
+src/integrations/opencode-server-auth.ts: OPENCODE_SERVER_PASSWORD_ENV, OpenCodeAuthError
+src/integrations/redacting-logger.ts: ShippedLine, createRedactingLogger
+src/integrations/repo-mirror.ts: MirrorDeps
+src/orchestrator/schemas.ts: WebhookPayloadSchema
+src/qa/test-data.ts: shortSha
+src/qa/value-report.ts: RunReportInput, ValueSignals, deriveAction
+src/server/api/route-table.ts: routes
+src/server/auth.ts: LOCAL_CONSOLE_PRINCIPAL, allowLocalWebLogin, isLoopbackAddress, isLoopbackHost, localWebLoginAllowed, validateSession
+src/server/campaign-freeze.ts: CAMPAIGN_FREEZE_ENV
+src/server/context-map-wiring.ts: ContextMapQuestionDeps
+src/server/coordination-events.ts: CoordinationLedgerFsDeps, parseCoordinationLedger, readCoordinationLedger
+src/server/create-app.ts: AppDeps, LOGIN_ATTEMPTS_PER_WINDOW
+src/server/evaluation-evidence.ts: EvidenceDeps, LedgerSpan, countPassedSpecs, defaultEvidenceDeps
+src/server/evaluation-service.ts: catalogView
+src/server/file-boundary-check.ts: probeFailureReason, probeSpawnFor, writeStatus
+src/server/github-auth.ts: FetchLike
+src/server/guidance.ts: MAX_GUIDANCE_LENGTH
+src/server/health-poller.ts: BACKUP_INTERVAL_TICKS, HEALTH_POLL_INTERVAL_MS, HealthPollerDeps, PRUNE_INTERVAL_TICKS
+src/server/metrics.ts: ArtifactBytesDeps, collectArtifactBytes
+src/server/mirror-prune.ts: MirrorEntry, MirrorPruneDeps, PRUNE_MAX_AGE_MS, computeActiveRepoSlugs, repoSlug
+src/server/onboarding/llm-profile-proposer.adapter.ts: commonSessionRoot
+src/server/onboarding/onboarding-job.ts: LOGIN_STATUS, ONBOARD_OUTCOME, ONBOARD_STATE, OnboardingJobDeps, OnboardingJobStatus
+src/server/persistence/index.ts: History, createHistory
+src/server/persistence/migrations/index.ts: LATEST_SCHEMA_VERSION
+src/server/persistence/repositories/telemetry.repository.ts: AgentTurnEventInput
+src/server/persistence/retention.ts: DELETE_MAX_AGE_DAYS, RetentionPolicy
+src/server/phase-history.ts: phaseRecordOf
+src/server/port.ts: listenErrorHint
+src/server/run-delegate.ts: DELEGATE_WAIT_BUFFER_MS
+src/server/run-engine-factory.ts: RunEngineFactoryDeps, STEP_LIMIT_READ_TIMEOUT_MS, buildConfinement, buildEngineRootDeps, engineAgentDeps, publishWiring, roleToAgentName
+src/server/run-history-sqlite-adapter.ts: RunHistorySqliteAdapterDeps
+src/server/run-view.ts: RunViewDeps
+src/server/runner.ts: ONBOARDING_INDEXING_CEILING_MS, ONBOARDING_JOB_CEILING_MS, ONBOARDING_MIRROR_CEILING_MS, ONBOARDING_WAIT_MARGIN_MS, ONBOARDING_WAIT_MAX_MS, sourceOfTrigger
+src/server/service-context.ts: ServiceContextManifest, StageDeps, defaultStageDeps
+src/server/shutdown.ts: ShutdownDeps
+src/server/tools-endpoint.ts: AUTHBROWSER_PATH, CODEGRAPH_PATH, GEOLOCATION_PATH, MIN_TOOLS_TOKEN_CHARS, ToolsRequest, createToolsRateLimiter, handleToolsRequest
+src/server/version.ts: CAPABILITIES, MIN_CLIENT_VERSION, SERVER_VERSION, WIRE_API_VERSION, engineVersionOf, revisionOf, versionGte
+src/server/web-console/console-harness.ts: ConsoleRequest, Reply
+src/server/webhook-handler.ts: MAX_WEBHOOK_BODY
+src/server/webhook.ts: parseWebhook, verifySignature
+src/settings/settings.ts: SettingsError, describeSettings
+src/telemetry/backend-health.ts: BackendFetch
+src/telemetry/bootstrap.ts: BootstrapDeps, retentionPrune
+src/telemetry/config.ts: parseMaxCapture
+src/telemetry/host-health.ts: EventLoopMonitor, HostScheduler, ProcFs, countSandboxZombies
+src/telemetry/log-shipper.ts: LOG_BODY_CAP_CHARS
+src/telemetry/otel-telemetry.adapter.ts: ARRAY_CAP
+src/telemetry/prompt-body-logs.ts: MAX_BODY_CHARS, MAX_LINE_BYTES, chunkBody, splitSections
+src/telemetry/trace-harness.ts: FakeClock, T0
+src/util/net.ts: createAgentTransportFetch
+```
