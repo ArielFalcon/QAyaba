@@ -1,7 +1,7 @@
 /* The task block of a generator prompt: what this turn is asked to do, per mode, target and turn kind. The "how" lives in agents/agent/*.md. Never import src/. */
 
 import { sanitizeText } from "../../../../shared-infrastructure/redaction/pattern-redaction.adapter.ts";
-import { diffStat, diffTier, type DiffStat, type DiffTier } from "@kernel/diff-stat.ts";
+import { diffStat, type DiffStat } from "@kernel/diff-stat.ts";
 import { PROMPT_HEADINGS } from "@contexts/generation/domain/prompt-headings.ts";
 import { isReGenTurn } from "@contexts/generation/domain/regen-turn.ts";
 import { claim, type PromptClaim } from "@contexts/generation/domain/prompt-contract-lint.ts";
@@ -200,14 +200,7 @@ export interface TaskGuards {
   commitBody?: "whole" | "reference";
 }
 
-/* What a diff of each size asks of the agent. The effort is a ceiling on the work and never a floor: no tier asks for a spec, and declaring the no-op, for either of its reasons, is within every bound. `upperBound` counts spec files (a flow each) for the whole change, or for each affected flow; inside each, a test per behaviour the change decides. The texts carry no figure and no word the lint counts, so the line adds nothing to the directive budget and declares no claim. */
-export interface EffortTier {
-  upperBound: { specs: number; per: "change" | "flow" };
-  admitsNoOp: true;
-  text: string;
-}
-
-/* The clause every tier ends with, so that what the data declares (the no-op is admitted) is what the text says. */
+/* The clause the effort sentence ends with, so that what the data declares (the no-op is admitted) is what the text says. */
 export const NO_OP_REASONS = {
   nothingWorthATest: "nothing here is worth a test",
   devCannotShow: "cannot be observed on DEV in its current state",
@@ -215,13 +208,8 @@ export const NO_OP_REASONS = {
 export const EFFORT_NO_OP_CLAUSE = `or none if ${NO_OP_REASONS.nothingWorthATest} or the change ${NO_OP_REASONS.devCannotShow}`;
 /* What each spec file holds: the change's own decisions, not its happy path alone. */
 export const EFFORT_PER_BEHAVIOUR = "each with a test per behaviour the change decides";
-const effortText = (tier: DiffTier, bound: string): string => `Expected effort (${tier} change): at most ${bound}, ${EFFORT_PER_BEHAVIOUR}, ${EFFORT_NO_OP_CLAUSE}.`;
-
-export const EFFORT_BY_TIER: Record<DiffTier, EffortTier> = {
-  tiny: { upperBound: { specs: 2, per: "change" }, admitsNoOp: true, text: effortText("tiny", "one or two spec files") },
-  focused: { upperBound: { specs: 4, per: "change" }, admitsNoOp: true, text: effortText("focused", "a few spec files for the affected flows") },
-  broad: { upperBound: { specs: 1, per: "flow" }, admitsNoOp: true, text: effortText("broad", "one spec file per affected flow, not a suite rewrite") },
-};
+/* What a diff first pass asks of the agent, whatever the change's size: a ceiling on the work and never a floor, one spec file per affected flow (the use cases the change makes testable that the plan covers), inside each a test per behaviour the change decides, and declaring the no-op, for either of its reasons, is within the bound. The text carries no figure, no tier and no word the lint counts, so the line adds nothing to the directive budget and declares no claim. */
+export const EFFORT_TEXT = `Expected effort: at most one spec file per affected flow, not a suite rewrite, ${EFFORT_PER_BEHAVIOUR}, ${EFFORT_NO_OP_CLAUSE}.`;
 
 /* The change's real size, from the changed files and the diff's own lines. */
 function sizeSentence({ files, added, removed }: DiffStat): string {
@@ -288,7 +276,7 @@ export function buildTask(input: OpencodeRunInput, guards: TaskGuards): TaskPart
     ...(guards.suiteListed ? [] : [`- Read existing specs ONLY for the one or two flows this commit actually touches.`]),
     /* The bound holds in every diff cell. It names no exploration: where the live page is navigated is the working rules' to say, and only without a pack DOM and a tree. */
     `- Work ONLY on the page(s) the change affects — not the whole app.`,
-    EFFORT_BY_TIER[diffTier(stat)].text,
+    EFFORT_TEXT,
     ...buildServiceBlock(input),
   ].join("\n");
   const claims: PromptClaim[] = [...objective.claims];

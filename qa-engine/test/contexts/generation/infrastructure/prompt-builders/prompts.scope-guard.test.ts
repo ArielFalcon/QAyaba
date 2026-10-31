@@ -1,4 +1,4 @@
-/* The scope guard counts the grounding the prompt supplies. A structural signal that names symbols is an explored blast radius, so the symbol-by-symbol lookup is dropped and a regeneration may say the blast radius was explored. A signal of co-change files alone is no blast radius: it keeps the lookup, claims nothing explored and satisfies no reference to one, on a first pass and on a regeneration. A listing of the existing suite supplies the suite, so the read of it is dropped. A diff first pass states the effort its size asks for as a ceiling that admits the no-op, and leaves the navigation of a live page to the working rules. Asserted on claims, providers, the declared effort data, the exported reference pattern and lint findings, never on prompt wording. */
+/* The scope guard counts the grounding the prompt supplies. A structural signal that names symbols is an explored blast radius, so the symbol-by-symbol lookup is dropped and a regeneration may say the blast radius was explored. A signal of co-change files alone is no blast radius: it keeps the lookup, claims nothing explored and satisfies no reference to one, on a first pass and on a regeneration. A listing of the existing suite supplies the suite, so the read of it is dropped. A diff first pass states one effort, a ceiling of one spec file per affected flow that admits the no-op, and leaves the navigation of a live page to the working rules. Asserted on claims, providers, the declared effort text, the exported reference pattern and lint findings, never on prompt wording. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
@@ -6,13 +6,12 @@ import {
   type AssembledPrompt,
 } from "@contexts/generation/infrastructure/prompt-builders/prompts.ts";
 import {
-  EFFORT_BY_TIER,
+  EFFORT_TEXT,
   EFFORT_NO_OP_CLAUSE,
   EFFORT_PER_BEHAVIOUR,
 } from "@contexts/generation/infrastructure/prompt-builders/task-builders.ts";
 import { PROMPT_HEADINGS } from "@contexts/generation/domain/prompt-headings.ts";
 import { ARTIFACT_REFERENCES } from "@contexts/generation/domain/prompt-artifact-references.ts";
-import { DIFF_TIER_NAMES, DIFF_TIERS, type DiffTier } from "@kernel/diff-stat.ts";
 import { PACK_HEADINGS } from "@contexts/generation/infrastructure/context-pack.ts";
 import {
   claim,
@@ -215,21 +214,20 @@ function changeOf(files: number, lines: number): Partial<OpencodeRunInput> {
   };
 }
 
-const { tiny: TINY_LIMITS, focused: FOCUSED_LIMITS } = DIFF_TIERS;
-
-/* Sizes at and around each limit, and the tier each belongs to. */
-const SIZES: ReadonlyArray<[label: string, tier: DiffTier, change: Partial<OpencodeRunInput>]> = [
-  ["an empty diff", "tiny", changeOf(0, 0)],
-  ["a diff at both tiny limits", "tiny", changeOf(TINY_LIMITS.maxFiles, TINY_LIMITS.maxLines)],
-  ["one file past the tiny limit", "focused", changeOf(TINY_LIMITS.maxFiles + 1, 1)],
-  ["one line past the tiny limit", "focused", changeOf(1, TINY_LIMITS.maxLines + 1)],
-  ["a diff at both focused limits", "focused", changeOf(FOCUSED_LIMITS.maxFiles, FOCUSED_LIMITS.maxLines)],
-  ["one file past the focused limit", "broad", changeOf(FOCUSED_LIMITS.maxFiles + 1, 1)],
-  ["one line past the focused limit", "broad", changeOf(1, FOCUSED_LIMITS.maxLines + 1)],
+/* Sizes from an empty diff to a wide one: the effort is the same for each. */
+const SIZES: ReadonlyArray<[label: string, change: Partial<OpencodeRunInput>]> = [
+  ["an empty diff", changeOf(0, 0)],
+  ["one file, three lines", changeOf(1, 3)],
+  ["two files, forty lines", changeOf(2, 40)],
+  ["two files, forty-one lines", changeOf(2, 41)],
+  ["nine files, one line", changeOf(9, 1)],
+  ["twelve files, nine hundred lines", changeOf(12, 900)],
 ];
 
 const taskOf = (a: AssembledPrompt): string => sectionText(a, "task");
 const taskSizeOf = (input: Partial<OpencodeRunInput>): number => buildPromptAssembled(mkInput(input)).sectionSizes["task"] ?? 0;
+/* The effort sentence of a task: the line the scope budget ends with. */
+const effortLineOf = (a: AssembledPrompt): string => taskOf(a).split("\n").find((line) => line.startsWith("Expected effort")) ?? "";
 
 const sectionsDirecting = (a: AssembledPrompt, action: ClaimAction): string[] =>
   Object.entries(a.claims)
@@ -237,84 +235,60 @@ const sectionsDirecting = (a: AssembledPrompt, action: ClaimAction): string[] =>
     .map(([id]) => id)
     .sort();
 
-test("every tier declares its effort as a ceiling that admits the reasoned no-op, in a text with no figure, no directive word and no trust word", () => {
-  assert.ok(DIFF_TIER_NAMES.length > 0, "setup: the tiers are declared");
-  for (const tier of DIFF_TIER_NAMES) {
-    const effort = EFFORT_BY_TIER[tier];
-    assert.ok(Number.isInteger(effort.upperBound.specs) && effort.upperBound.specs > 0, `${tier}: an upper bound`);
-    assert.equal(effort.admitsNoOp, true, `${tier}: deciding that nothing is worth a test is within the bound`);
-    assert.ok(effort.text.includes(EFFORT_NO_OP_CLAUSE), `${tier}: the text says what the data declares, that doing nothing is within the bound`);
-    assert.equal(hasFloorLanguage(effort.text), false, `${tier}: the text states no minimum`);
-    assert.equal(countDirectives(effort.text), 0, `${tier}: no directive word`);
-    assert.equal(hasTrustLanguage(effort.text), false, `${tier}: no trust word`);
-    assert.doesNotMatch(effort.text, /\d/, `${tier}: no figure`);
-  }
-  assert.equal(new Set(DIFF_TIER_NAMES.map((tier) => EFFORT_BY_TIER[tier].text)).size, DIFF_TIER_NAMES.length, "each tier says something of its own");
+test("a diff's scope budget ends with one effort sentence, the same for a one-file change and a twelve-file one, and it names no tier", () => {
+  const small = effortLineOf(buildPromptAssembled(mkInput(changeOf(1, 3))));
+  const wide = effortLineOf(buildPromptAssembled(mkInput(changeOf(12, 900))));
+  assert.notEqual(small, "", "setup: the task carries an effort sentence");
+  assert.equal(small, wide);
+  assert.doesNotMatch(small, /\b(?:tiny|focused|broad)\b/i);
 });
 
-test("every tier bounds the spec files, one per flow, and asks within each for a test per behaviour the change decides", () => {
-  for (const tier of DIFF_TIER_NAMES) {
-    const { text } = EFFORT_BY_TIER[tier];
-    assert.match(text, /\bspec files?\b/, `${tier}: the bound counts spec files, not tests`);
-    assert.ok(text.includes(EFFORT_PER_BEHAVIOUR), `${tier}: a test per behaviour inside each spec`);
-  }
+test("the effort sentence bounds spec files by the affected flows, asks within each for a test per behaviour the change decides, and is a ceiling that admits the reasoned no-op with no figure, directive or trust word", () => {
+  const text = effortLineOf(buildPromptAssembled(mkInput()));
+  assert.match(text, /\bone spec file per affected flow\b/, "the bound counts spec files per flow, not tests and not a size");
+  assert.ok(text.includes(EFFORT_PER_BEHAVIOUR), "a test per behaviour inside each spec");
+  assert.ok(text.includes(EFFORT_NO_OP_CLAUSE), "the text says what the data declares, that doing nothing is within the bound");
+  assert.equal(hasFloorLanguage(text), false, "the text states no minimum");
+  assert.equal(countDirectives(text), 0, "no directive word");
+  assert.equal(hasTrustLanguage(text), false, "no trust word");
+  assert.doesNotMatch(text, /\d/, "no figure");
 });
 
-test("a diff's task carries the effort of its own tier at, below and above each limit, and no other tier's, and every cell is clean", () => {
-  for (const [label, tier, change] of SIZES) {
+test("every size of diff carries the one effort sentence, with the same claims and directive count, and every cell is clean", () => {
+  const reference = buildPromptAssembled(mkInput(changeOf(1, 1)));
+  assert.ok((reference.claims["task"] ?? []).length > 0, "setup: the task declares claims");
+  for (const [label, change] of SIZES) {
     const a = buildPromptAssembled(mkInput(change));
-    const task = taskOf(a);
-    for (const other of DIFF_TIER_NAMES) {
-      assert.equal(task.includes(EFFORT_BY_TIER[other].text), other === tier, `${label}: the ${other} effort is ${other === tier ? "" : "not "}carried`);
-    }
+    assert.equal(effortLineOf(a), EFFORT_TEXT, `${label}: the one effort`);
+    assert.deepEqual(a.claims["task"], reference.claims["task"], `${label}: the same claims`);
+    assert.equal(countDirectives(taskOf(a)), countDirectives(taskOf(reference)), `${label}: the same directive count`);
     assert.deepEqual(findingsOf(a, false), [], `${label}: the lint reports nothing`);
   }
 });
 
-test("the tier follows the files the run reports as changed, and the diff's own file headers when it reports none", () => {
-  const oneHeader = changeOf(1, 1);
-  const reported = Array.from({ length: TINY_LIMITS.maxFiles + 1 }, (_, i) => `src/app/cart/part${i}.ts`);
-  const moreReportedThanShown = buildPromptAssembled(mkInput({ ...oneHeader, intent: { type: "feat", breaking: false, message: "feat(cart): show the total", changedFiles: reported } }));
-  assert.ok(taskOf(moreReportedThanShown).includes(EFFORT_BY_TIER.focused.text), "the reported files decide, not the one header the diff shows");
-
-  const headersOnly = changeOf(TINY_LIMITS.maxFiles + 1, 1);
-  for (const intent of [undefined, { type: "feat" as const, breaking: false, message: "feat(cart): show the total", changedFiles: [] }]) {
-    const a = buildPromptAssembled(mkInput({ ...headersOnly, intent }));
-    assert.ok(taskOf(a).includes(EFFORT_BY_TIER.focused.text), `${intent === undefined ? "no intent" : "no files reported"}: the headers of the diff decide`);
-  }
+test("the files the run reports as changed and the diff's own file headers change the size sentence and leave the effort sentence alone", () => {
+  const reported = Array.from({ length: 12 }, (_, i) => `src/app/cart/part${i}.ts`);
+  const moreReportedThanShown = buildPromptAssembled(mkInput({ ...changeOf(1, 1), intent: { type: "feat", breaking: false, message: "feat(cart): show the total", changedFiles: reported } }));
+  assert.ok(taskOf(moreReportedThanShown).includes("touches 12 files"), "the reported files decide the size sentence");
+  const headersOnly = buildPromptAssembled(mkInput({ ...changeOf(9, 1), intent: undefined }));
+  assert.ok(taskOf(headersOnly).includes("touches 9 files"), "the headers of the diff decide when none are reported");
+  for (const a of [moreReportedThanShown, headersOnly]) assert.equal(effortLineOf(a), EFFORT_TEXT);
 });
 
-test("an empty diff is stated as a tiny change whose effort admits doing nothing: no spec is asked for", () => {
-  const task = taskOf(buildPromptAssembled(mkInput(changeOf(0, 0))));
-  assert.ok(task.includes(EFFORT_BY_TIER.tiny.text));
-  assert.equal(EFFORT_BY_TIER.tiny.admitsNoOp, true);
+test("an empty diff carries the effort that admits doing nothing: no spec is asked for", () => {
+  assert.ok(effortLineOf(buildPromptAssembled(mkInput(changeOf(0, 0)))).includes(EFFORT_NO_OP_CLAUSE));
 });
 
-test("the effort line adds no claim and no directive word: the task declares and counts the same for every tier", () => {
-  const tinyTask = buildPromptAssembled(mkInput(changeOf(1, 1)));
-  assert.ok((tinyTask.claims["task"] ?? []).length > 0, "setup: the task declares claims");
-  for (const [label, , change] of SIZES) {
-    const a = buildPromptAssembled(mkInput(change));
-    assert.deepEqual(a.claims["task"], tinyTask.claims["task"], `${label}: the same claims`);
-    assert.equal(countDirectives(taskOf(a)), countDirectives(taskOf(tinyTask)), `${label}: the same directive count`);
-  }
-});
-
-test("a manual or context run and a regeneration state no effort tier, however large the diff", () => {
-  const texts = DIFF_TIER_NAMES.map((tier) => EFFORT_BY_TIER[tier].text);
+test("a manual or context run and a regeneration state no effort sentence, however large the diff", () => {
   const others: ReadonlyArray<[string, Partial<OpencodeRunInput>]> = [
     ["manual", { mode: "manual", guidance: "cover the cart" }],
     ["context", { mode: "context" }],
     ["e2e regeneration", FIX],
   ];
-  for (const [sizeLabel, , change] of [SIZES[1]!, SIZES[6]!]) {
-    assert.ok(
-      texts.some((text) => buildPromptAssembled(mkInput(change)).text.includes(text)),
-      `${sizeLabel}: the diff first pass carries one`,
-    );
+  for (const [sizeLabel, change] of [SIZES[1]!, SIZES[5]!]) {
+    assert.ok(buildPromptAssembled(mkInput(change)).text.includes(EFFORT_TEXT), `${sizeLabel}: the diff first pass carries it`);
     for (const [label, shape] of others) {
-      const a = buildPromptAssembled(mkInput({ ...change, ...shape }));
-      for (const text of texts) assert.equal(a.text.includes(text), false, `${label} with ${sizeLabel}`);
+      assert.equal(buildPromptAssembled(mkInput({ ...change, ...shape })).text.includes(EFFORT_TEXT), false, `${label} with ${sizeLabel}`);
     }
   }
 });

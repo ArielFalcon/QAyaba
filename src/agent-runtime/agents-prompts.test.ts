@@ -9,7 +9,6 @@ import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { DIFF_TIERS } from "@kernel/diff-stat";
 import { classifyGenerationEnd } from "@contexts/generation/application/index";
 import { PACK_HEADINGS, PROMPT_HEADINGS } from "@contexts/generation/application/index";
 import { ROUTE_LINK_FIELDS } from "@contexts/generation/application/index";
@@ -335,10 +334,10 @@ describe("agent prompt guard", () => {
   const AFFECTED_PAGES_BOUND = phrasePattern("ONLY on the page(s) the change affects");
   const EXPLORE_AFFECTED_PAGES = phrasePattern("Explore ONLY the page(s) the change affects");
   const HANDFUL_OF_SPECS = phrasePattern("A handful of focused specs is the right output here");
-  /* Only a broad diff states that its effort is not a suite rewrite: a smaller one is already bounded by its own ceiling. Every tier's effort is a ceiling that admits doing nothing. */
+  /* Every diff first pass states that its effort is not a suite rewrite, one spec file per affected flow, a ceiling that admits doing nothing. */
   const SUITE_REWRITE_BOUND = phrasePattern("not a suite rewrite");
   const EFFORT_NO_OP = phrasePattern(EFFORT_NO_OP_CLAUSE);
-  const EFFORT_CEILING = /Expected effort \((?:tiny|focused|broad) change\): at most\b/g;
+  const EFFORT_CEILING = /Expected effort: at most\b/g;
   /* The listing of the existing suite carries paths, a flow and an objective, never a spec's content, so the one spec a run updates is read first. The shared layer's reuse protocol owns that read; no assembled prompt repeats it. */
   const READ_BEFORE_UPDATE = phrasePattern("read it, and update it");
   /* No role keeps a memory across runs: no layer names the memory server or one of its tools. */
@@ -404,17 +403,17 @@ describe("agent prompt guard", () => {
     { rule: "an operation's id, method and path not supplying its contract", pattern: CONTRACT_IDENTITY_RULE, shape: "openapi", inStatic: 1, inAssembled: { exactly: 0 } },
     /* The generator role owns consulting the authoring skill; the assembled working rules do not restate it. */
     { rule: "consulting the authoring skill for the how of a spec", pattern: AUTHORING_SKILL_CONSULT, shape: "tree", inStatic: 1, inAssembled: { exactly: 0 } },
-    /* A diff run is bounded to the pages the change affects in every cell, with a tree, with a pack DOM, with neither and with a broad change; only the broad one says it is not a suite rewrite. */
+    /* A diff run is bounded to the pages the change affects in every cell, with a tree, with a pack DOM, with neither and with a wide change; and its effort is not a suite rewrite. */
     { rule: "bounding a diff run to the pages the change affects (a tree supplied)", pattern: AFFECTED_PAGES_BOUND, shape: "tree", inStatic: 0, inAssembled: { exactly: 1 } },
     { rule: "bounding a diff run to the pages the change affects (a pack DOM supplied)", pattern: AFFECTED_PAGES_BOUND, shape: "pack", inStatic: 0, inAssembled: { exactly: 1 } },
     { rule: "bounding a diff run to the pages the change affects (no tree)", pattern: AFFECTED_PAGES_BOUND, shape: "openapi", inStatic: 0, inAssembled: { exactly: 1 } },
-    { rule: "bounding a diff run to the pages the change affects (a broad change)", pattern: AFFECTED_PAGES_BOUND, shape: "broad", inStatic: 0, inAssembled: { exactly: 1 } },
-    { rule: "keeping the effort of a broad change from a suite rewrite", pattern: SUITE_REWRITE_BOUND, shape: "broad", inStatic: 0, inAssembled: { exactly: 1 } },
-    { rule: "keeping the effort of a tiny change from a suite rewrite, which its own ceiling already bounds", pattern: SUITE_REWRITE_BOUND, shape: "tree", inStatic: 0, inAssembled: { exactly: 0 } },
-    { rule: "an effort that admits doing nothing (a tiny change)", pattern: EFFORT_NO_OP, shape: "tree", inStatic: 0, inAssembled: { exactly: 1 } },
-    { rule: "an effort that admits doing nothing (a broad change)", pattern: EFFORT_NO_OP, shape: "broad", inStatic: 0, inAssembled: { exactly: 1 } },
-    { rule: "an effort stated as a ceiling (a tiny change)", pattern: EFFORT_CEILING, shape: "tree", inStatic: 0, inAssembled: { exactly: 1 } },
-    { rule: "an effort stated as a ceiling (a broad change)", pattern: EFFORT_CEILING, shape: "broad", inStatic: 0, inAssembled: { exactly: 1 } },
+    { rule: "bounding a diff run to the pages the change affects (a wide change)", pattern: AFFECTED_PAGES_BOUND, shape: "broad", inStatic: 0, inAssembled: { exactly: 1 } },
+    { rule: "keeping the effort of a wide change from a suite rewrite", pattern: SUITE_REWRITE_BOUND, shape: "broad", inStatic: 0, inAssembled: { exactly: 1 } },
+    { rule: "keeping the effort of a one-file change from a suite rewrite", pattern: SUITE_REWRITE_BOUND, shape: "tree", inStatic: 0, inAssembled: { exactly: 1 } },
+    { rule: "an effort that admits doing nothing (a one-file change)", pattern: EFFORT_NO_OP, shape: "tree", inStatic: 0, inAssembled: { exactly: 1 } },
+    { rule: "an effort that admits doing nothing (a wide change)", pattern: EFFORT_NO_OP, shape: "broad", inStatic: 0, inAssembled: { exactly: 1 } },
+    { rule: "an effort stated as a ceiling (a one-file change)", pattern: EFFORT_CEILING, shape: "tree", inStatic: 0, inAssembled: { exactly: 1 } },
+    { rule: "an effort stated as a ceiling (a wide change)", pattern: EFFORT_CEILING, shape: "broad", inStatic: 0, inAssembled: { exactly: 1 } },
     /* The generator cannot call the session-summary tool, so no layer it reads names it. */
     /* The step limit the runtime enforces is stated once by every generator prompt built with one, whatever the turn, and by none built without; the milestone is a turn that writes tests' alone, a first pass offering the first test file or the reasoned no-op and a regeneration the first correction or the reason none applies. The static layers state neither: the limit is the runtime's and the milestone is the turn's. */
     ...limitRules("stating the step limit the runtime enforces", STEP_LIMIT_STATEMENT, { firstPass: 1, regeneration: 1, writesNone: 1 }),
@@ -482,8 +481,8 @@ describe("agent prompt guard", () => {
     appName: "shop",
   };
   const FAILING_CASE = { name: "cart total", status: "fail", detail: "boom" };
-  /* One file past the largest change the focused tier admits, so the diff is broad. */
-  const BROAD_DIFF = Array.from({ length: DIFF_TIERS.focused.maxFiles + 1 }, (_, i) => `diff --git a/f${i}.ts b/f${i}.ts\n+x\n`).join("");
+  /* A wide diff, so the cell is not the one-file change the other shapes carry. */
+  const BROAD_DIFF = Array.from({ length: 12 }, (_, i) => `diff --git a/f${i}.ts b/f${i}.ts\n+x\n`).join("");
   const PACK_WITH_LIVE_DOM = `## ${PACK_HEADINGS.pack}\n\n### ${PACK_HEADINGS.liveDom} (x)\n  heading: Cart`;
   /* The shapes a turn that writes tests takes (a diff first pass, or a regeneration) and the one that does not (a context run, which maps the architecture). */
   const e2eInput = { ...assembledInput, target: "e2e", baseUrl: "http://localhost:3000" };

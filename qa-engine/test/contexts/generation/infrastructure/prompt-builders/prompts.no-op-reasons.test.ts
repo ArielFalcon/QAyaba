@@ -8,7 +8,7 @@ import {
   buildPromptAssembled,
 } from "@contexts/generation/infrastructure/prompt-builders/prompts.ts";
 import {
-  EFFORT_BY_TIER,
+  EFFORT_TEXT,
   EFFORT_NO_OP_CLAUSE,
   NO_OP_REASONS,
 } from "@contexts/generation/infrastructure/prompt-builders/task-builders.ts";
@@ -30,9 +30,9 @@ const input: OpencodeRunInput = {
   intent: { type: "feat", breaking: false, message: "feat: a", changedFiles: ["src/a.ts"] },
 };
 
-test("the effort of every tier admits doing nothing for either reason of the no-op", () => {
+test("the effort admits doing nothing for either reason of the no-op", () => {
   for (const reason of Object.values(NO_OP_REASONS)) assert.ok(EFFORT_NO_OP_CLAUSE.includes(reason), reason);
-  for (const tier of Object.values(EFFORT_BY_TIER)) assert.ok(tier.text.endsWith(`${EFFORT_NO_OP_CLAUSE}.`));
+  assert.ok(EFFORT_TEXT.endsWith(`${EFFORT_NO_OP_CLAUSE}.`));
 });
 
 test("the no-op of a lead's plan names both reasons", () => {
