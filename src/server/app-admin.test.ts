@@ -403,6 +403,61 @@ test("duplicate name or invalid name is rejected", async () => {
   assert.equal(bad.ok, false);
 });
 
+test("create names the rule an app name breaks, and writes nothing", async () => {
+  for (const name of ["../evil", "Shop", "-shop", "sh op", ""]) {
+    const deps = makeDeps();
+    const r = await createApp({ repo: "o/r", name, baseUrl: "https://x" }, deps);
+    assert.deepEqual(r.errors, [`invalid app name '${name}' (expected [a-z0-9][a-z0-9-]*)`], JSON.stringify(name));
+    assert.deepEqual(deps.written, {});
+  }
+  for (const name of ["shop", "a", "0shop", "shop-2-front"]) {
+    const r = await createApp({ repo: "o/r", name, baseUrl: "https://x", dryRun: true }, makeDeps());
+    assert.equal(r.ok, true, name);
+  }
+});
+
+test("deleteApp refuses an app name that breaks the rule before it loads or removes anything", () => {
+  for (const name of ["../evil", "Shop", "-shop", "", "a/b"]) {
+    const deps = makeDeps({ loadApp: () => { throw new Error("loaded"); } });
+    assert.throws(() => deleteApp(name, true, deps), { message: `invalid app name: ${JSON.stringify(name)}` });
+    assert.deepEqual(deps.removed, []);
+  }
+});
+
+test("create fills what the caller left out: the repo's own branch, the repo's page as the url, review and shadow on, the qa-bot prefix", async () => {
+  const deps = makeDeps({
+    getRepoInfo: async (repo: string) => ({ name: "shop-front", fullName: `Org/${repo.split("/")[1]}`, private: false, defaultBranch: "develop", description: null }),
+  });
+  const r = await createApp({ repo: "org/shop-front", name: "shop", dryRun: true }, deps);
+  assert.equal(r.ok, true);
+  const config = parse(r.yaml ?? "") as Record<string, any>;
+  assert.equal(config.repo, "Org/shop-front");
+  assert.equal(config.baseBranch, "develop");
+  assert.equal(config.dev.baseUrl, "https://github.com/Org/shop-front");
+  assert.equal(config.dev.versionUrl, undefined);
+  assert.equal(config.qa.needsReview, true);
+  assert.equal(config.qa.shadow, true);
+  assert.equal(config.qa.testDataPrefix, "qa-bot");
+});
+
+test("create keeps what the caller chose, and treats an empty url or prefix as left out", async () => {
+  const chosen = await createApp(
+    { repo: "org/shop-front", name: "shop", baseUrl: "https://dev.shop.io", versionUrl: "https://dev.shop.io/version", needsReview: false, shadow: false, testDataPrefix: "qa-shop", dryRun: true },
+    makeDeps(),
+  );
+  const config = parse(chosen.yaml ?? "") as Record<string, any>;
+  assert.equal(config.dev.baseUrl, "https://dev.shop.io");
+  assert.equal(config.dev.versionUrl, "https://dev.shop.io/version");
+  assert.equal(config.qa.needsReview, false);
+  assert.equal(config.qa.shadow, false);
+  assert.equal(config.qa.testDataPrefix, "qa-shop");
+  const empty = await createApp({ repo: "org/shop-front", name: "shop", baseUrl: "", versionUrl: "", testDataPrefix: "", dryRun: true }, makeDeps());
+  const defaults = parse(empty.yaml ?? "") as Record<string, any>;
+  assert.equal(defaults.dev.baseUrl, "https://github.com/org/shop-front");
+  assert.equal(defaults.dev.versionUrl, undefined);
+  assert.equal(defaults.qa.testDataPrefix, "qa-bot");
+});
+
 /* Login material (session cookies, client certificate and its passphrase) is a credential for an app
    that no longer exists once it is deleted, so every delete removes it, purge or not. */
 test("deleteApp without purge removes the config and the stored login material, and keeps the mirror and run history", () => {

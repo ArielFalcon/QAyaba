@@ -134,6 +134,70 @@ test("qa.changeCoverage.bundleMutation accepts signal and off, is optional, and 
   assert.throws(() => AppConfigSchema.parse({ ...base, qa: { ...base.qa, changeCoverage: { bundleMutation: "enforce" } } }), /bundleMutation/);
 });
 
+test("a minimal config parses to exactly what it declares: the schema adds no default", () => {
+  assert.deepEqual(AppConfigSchema.parse(base), base);
+});
+
+test("every message the app config's own rules give is the one an operator reads", () => {
+  const issues = (config: unknown) => {
+    const result = AppConfigSchema.safeParse(config);
+    assert.equal(result.success, false);
+    return result.success ? [] : result.error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`);
+  };
+  assert.deepEqual(
+    issues({ name: "", repo: "", dev: { baseUrl: "nope" }, qa: { needsReview: true, testDataPrefix: "" }, report: { onFailure: "" } }),
+    [
+      "name: app name is required",
+      "repo: repo is required (e.g. 'org/repo')",
+      "dev.baseUrl: dev.baseUrl must be a valid URL",
+      "qa.testDataPrefix: qa.testDataPrefix is required",
+      "report.onFailure: Too small: expected string to have >=1 characters",
+    ],
+  );
+  assert.deepEqual(issues({ ...base, dev: undefined }), ["dev: dev is required"]);
+  assert.deepEqual(issues({ ...base, auth: { kind: "form" } }), ["auth: auth.kind form requires usernameEnv and passwordEnv"]);
+  assert.deepEqual(issues({ ...base, auth: { kind: "mtls", certEnv: "QA_CERT" } }), ["auth: auth.kind mtls requires certEnv and certPassEnv"]);
+  assert.deepEqual(issues({ ...base, auth: { ...FORM_LOGIN, usernameEnv: "lower" } }), ["auth.usernameEnv: Invalid string: must match pattern /^[A-Z][A-Z0-9_]*$/"]);
+  assert.deepEqual(issues({ ...base, services: [{ repo: "org/shop-front" }] }), ["services: service repos must be unique and different from the primary repo"]);
+  assert.deepEqual(issues({ ...base, services: [{ repo: "" }] }), ["services.0.repo: service repo is required (e.g. 'org/svc')"]);
+});
+
+test("a retired intent-lock mode runs as signal, and a mode it never had is refused", () => {
+  for (const [declared, parsed] of [["off", "off"], ["signal", "signal"], ["enforce", "signal"]] as const) {
+    assert.equal(AppConfigSchema.parse({ ...base, qa: { ...base.qa, intentLock: { mode: declared } } }).qa.intentLock?.mode, parsed, declared);
+  }
+  assert.equal(AppConfigSchema.parse({ ...base, qa: { ...base.qa, intentLock: {} } }).qa.intentLock?.mode, undefined);
+  assert.equal(AppConfigSchema.safeParse({ ...base, qa: { ...base.qa, intentLock: { mode: "strict" } } }).success, false);
+  assert.equal(AppConfigSchema.safeParse({ ...base, qa: { ...base.qa, intentLock: { opacityFlagRatio: 1.5 } } }).success, false);
+});
+
+test("qa.changeCoverage, qa.fixLoop, qa.iterationBudget and qa.reports accept their documented range and refuse outside it", () => {
+  const parseQa = (qa: Record<string, unknown>) => AppConfigSchema.safeParse({ ...base, qa: { ...base.qa, ...qa } }).success;
+  for (const mode of ["off", "signal", "enforce"]) assert.equal(parseQa({ changeCoverage: { mode } }), true, mode);
+  assert.equal(parseQa({ changeCoverage: { mode: "strict" } }), false);
+  assert.equal(parseQa({ changeCoverage: { minRatio: 0 } }) && parseQa({ changeCoverage: { minRatio: 1 } }), true);
+  assert.equal(parseQa({ changeCoverage: { minRatio: 1.01 } }) || parseQa({ changeCoverage: { minRatio: -0.01 } }), false);
+  assert.equal(parseQa({ changeCoverage: { branchCases: "regenerate" } }) && parseQa({ changeCoverage: { branchCases: "off" } }), true);
+  assert.equal(parseQa({ changeCoverage: { branchCases: "signal" } }), false);
+  assert.equal(parseQa({ fixLoop: { maxRetries: 0 } }) && parseQa({ fixLoop: { maxRetries: 5 } }), true);
+  assert.equal(parseQa({ fixLoop: { maxRetries: 6 } }) || parseQa({ fixLoop: { maxRetries: 1.5 } }) || parseQa({ fixLoop: { maxRetries: -1 } }), false);
+  assert.equal(parseQa({ iterationBudget: 1 }), true);
+  assert.equal(parseQa({ iterationBudget: 0 }), false);
+  assert.equal(parseQa({ reports: { weights: { "change-coverage": 1.5, other: 0 } } }), true);
+  assert.equal(parseQa({ reports: { weights: { "change-coverage": -1 } } }), false);
+  assert.equal(parseQa({ shadow: true, domPack: false }), true);
+  assert.equal(parseQa({ needsReview: "yes" }), false);
+});
+
+test("dev and services accept their optional urls and intervals, and refuse a non-url or a non-positive whole number", () => {
+  const dev = (extra: Record<string, unknown>) => AppConfigSchema.safeParse({ ...base, dev: { ...base.dev, ...extra } }).success;
+  assert.equal(dev({ versionUrl: "https://dev.shop.io/version", pollIntervalMs: 1, deployTimeoutMs: 1 }), true);
+  assert.equal(dev({ versionUrl: "not-a-url" }) || dev({ pollIntervalMs: 0 }) || dev({ deployTimeoutMs: 1.5 }), false);
+  const service = (extra: Record<string, unknown>) => AppConfigSchema.safeParse({ ...base, services: [{ repo: "org/svc", ...extra }] }).success;
+  assert.equal(service({ openapi: ["a.yaml", "b.yaml"], versionUrl: "https://svc.shop.io/version", pollIntervalMs: 5, deployTimeoutMs: 5 }), true);
+  assert.equal(service({ versionUrl: "svc" }) || service({ pollIntervalMs: -1 }), false);
+});
+
 const manifestEntry = {
   id: "login",
   objective: "valid credentials reach the dashboard",
