@@ -80,7 +80,7 @@ One replicate per measurement (S3): a direction, not proof. Baseline: `run-ed289
 
 - `timeBudget` is `diff`; wall time and `phaseTimings` per phase; whether the run ended `E-TIME-BUDGET`, and `limits[].fired` (no `tier-budget` after U2).
 - `gateSignals.coordination`: flows planned against the direct candidates (`plan`, `flows`, `dropped`), and specs generated per flow after U1.
-- `qayaba.allotment.reserve_source` (`measured` after U3 means C4 held; `fallback` means the former labels were not read).
+- `qayaba.allotment.reserve_source` (`measured` after U3 means C4 held; `fallback` means the stored tier labels were not read).
 - `deadline-after-proof` degradations and whether a `review_verdict` was recorded (the T17 finding).
 - Cost and `flow_delivery_rate` against the baseline (feature document L20).
 
@@ -92,7 +92,7 @@ A regression to look for: a small change that now plans more flows than it has d
 2. The first-pass cap of the run-level author? **Recommended: delete it**; the turn runs under its allotment, the stall watchdog and the step cap (Proposal 2). Alternative: one constant cap.
 3. The effort rule? **Recommended: one sentence, "one spec file per affected flow, not a suite rewrite"**, the affected flows being the candidates the plan covers (Proposal 3). Alternative: state the direct candidate count in the sentence (adds a fact to every prompt; consider if the measurement shows over-planning).
 4. Operator settings? **Recommended: the three run-budget names keep working for one release with a warning and the largest set value; the three first-pass names retire with a warning** (Proposal 7). Alternative: retire all six at once.
-5. History continuity? **Recommended: read the former labels for `diff`; rewrite nothing** (Proposal 4). Alternative: a migration that relabels stored rows (item 1 of the high-risk list; not needed).
+5. History continuity? **Recommended: read the stored tier labels for `diff`; rewrite nothing** (Proposal 4). Alternative: a migration that relabels stored rows (item 1 of the high-risk list; not needed).
 6. The `tier-budget` value in the closed limit vocabulary? **Recommended: keep it, marked no longer produced**, and remove it with the epoch that prunes the old data. Alternative: remove it now (old stored values would no longer parse).
 7. The benchmark's declared tier? **Recommended: keep the operator's label; the type moves into the script** (Proposal 5). Alternative: drop the label and group by measured size.
 8. Does flow capacity get a signal of its own? **Recommended: no; it stays a ceiling** (Proposal 6), revisited only if the measurement shows planned flows beyond the candidates and their drops.
@@ -105,7 +105,7 @@ A regression to look for: a small change that now plans more flows than it has d
 - **P4:** nothing app-specific; the candidates come from the language registry and the code graph.
 - **P5:** the mechanism is shown by the code (`diff-stat.ts:40`, `:46-53`) and by what each consumer is for, not by one app's run; the history runs of the evidence are pre-window and not re-checked, and no record shows a misjudged run. The case does not rest on them.
 - **P6:** nothing makes a test greener. "The effort is a ceiling on the work and never a floor" stays (`task-builders.ts:203`); the review is required as before. A risk: a small change runs up to 60 min instead of 25 when it stops converging (hypothesis, Measurement).
-- **P7:** removes `DIFF_TIERS`, `DiffTier`, `diffTier`, `EFFORT_BY_TIER`, `generator-time-budget.ts`, six settings (replaced by one) and one history label set; adds one read of three former labels. A smaller change considered: keep the tiers and only exclude generated files from the count; it leaves the threshold (Alternatives).
+- **P7:** removes `DIFF_TIERS`, `DiffTier`, `diffTier`, `EFFORT_BY_TIER`, `generator-time-budget.ts`, six settings (replaced by one) and one history label set; adds one read of three stored labels. A smaller change considered: keep the tiers and only exclude generated files from the count; it leaves the threshold (Alternatives).
 
 ## Implementation note
 
@@ -115,6 +115,6 @@ Landed in the order of the work units, each with its RED test through the public
 - **U2** `c4db4bec`: `DIFF_TIME_BUDGET_MS`, `generator-time-budget.ts`, the `promptCapMs`, `timeBudgets` and `now` ports, the `diffTimeBudgets` setting and `repairTurnLimit` are gone, and so is the unused `deadline` hand-off from the engine root to the generation adapter. The first pass states no time of its own: `RunDeadlineRuntime` holds it to the generate allotment and types the end (`allotment` or `run-deadline`); a timeout of the host surfaces as the integration error a broad change already met. `GenerationEndFacts.timedOut` is optional and no longer reported. `QA_DIFF_TIME_BUDGET_MS_TINY|FOCUSED|BROAD` retired with a warning.
 - **U3** `0a265e0b`: one `diff` row at 60 minutes, `QA_RUN_TIME_BUDGET_MS_DIFF`, the three former names read for one release (a warning each, the largest set value), `recentPhaseRecords` for `diff` reads `diff-tiny`, `diff-focused` and `diff-broad` rows too, `RunTimeBudgetScope` is the mode alone, and the benchmark's size label moved into `scripts/efficiency-benchmark.ts`. `tier-budget` stays in the limit vocabulary, marked no longer produced. The compose pass-through lines of the three former names stay (marked deprecated) so they keep reaching the container for the release; they go with the names.
 - `3e22f47c`: `diffStat` moved from the kernel into the generation context, its only reader, because the kernel owner rule (two parties or a port) no longer held for it. The budget table's kinds are the kernel's run modes (`RUN_TIME_BUDGET_KEYS = RUN_MODES`) for the same reason: a second list of the three modes fails the one-copy-per-rule test.
-- **U4** this commit: the records, the `diff-tier` banned term of `npm run previous-forms:check` (RED test first: a deleted name fails outside `docs/architecture/`), and the removal of the unemitted `qayaba.tier` and `qayaba.tier.budget_ms` attributes from the attribute registry. The gate was already red on `f2f7203b` for three uses of a banned word for the earlier labels in this record; they now read "former".
+- **U4** this commit: the records, the `diff-tier` banned term of `npm run previous-forms:check` (RED test first: a deleted name fails outside `docs/architecture/`), and the removal of the unemitted `qayaba.tier` and `qayaba.tier.budget_ms` attributes from the attribute registry. The gate was already red on `f2f7203b` for three uses of a banned word for the earlier labels in this record; they now read "stored" labels.
 
 One change of reading follows from U3 and was not in the proposal: a diff run stored with no recorded kind (written before schema 6) is now of the `diff` kind, as a manual one is of `manual`, where before it was in no per-size row.
