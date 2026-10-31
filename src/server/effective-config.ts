@@ -13,75 +13,27 @@ import { createHash } from "node:crypto";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { isCaptureMode, type CaptureMode } from "@kernel/telemetry/capture-mode";
-import { resolveCoveragePolicy } from "@contexts/objective-signal/application/index";
-import { agentBrowserEnabled, closedLoopEnabled, resolveDomPack, serviceTopologyWired } from "@contexts/run-orchestration/application/index";
+import { agentsOfTurns, recordRunConfig, type RunConfigEnvironment, type RunConfigRequest as EngineRunConfigRequest } from "@contexts/run-orchestration/application/index";
 import { decideRunFreeze } from "./run-freeze";
 import type { AppConfig } from "../orchestrator/config-loader";
 import type { EffectiveConfig, GroundingInput } from "../contract/commands";
 import type { AgentRoleFacts } from "./persistence/repositories/telemetry.repository";
-import type { RunConfigInEffect } from "./run-trace";
 
 /* The part of the configuration fixed when the run starts. `agents` is not in it: it comes from the turns the run recorded. */
 export type StoredRunConfig = Omit<EffectiveConfig, "agents">;
 
-/* The process-level facts a run's configuration depends on, read by the composition root (qa-engine never reads the environment). */
-export interface RunConfigEnvironment {
-  /* The agent runtime that authors specs for runs started now (the primary role's provider), or null when it cannot be told. */
-  runtime(): string | null;
-  /* Hash of the static prompt layers, or null when they cannot be read here. */
-  staticPromptHash(): string | null;
-  /* The run_spec and authenticated browser tools can be granted to a run (the service token is configured). */
-  toolsGranted: boolean;
-  /* The server's ceiling on content capture (QA_TELEMETRY_MAX_CAPTURE): no run, whatever it asks, captures more. */
-  maxCapture: CaptureMode;
-}
+export type { RunConfigEnvironment } from "@contexts/run-orchestration/application/index";
+export { configInEffect } from "@contexts/run-orchestration/application/index";
 
-export interface RunConfigRequest {
+export interface RunConfigRequest extends EngineRunConfigRequest {
   /* Only its presence is read (run-freeze.ts). */
   campaign?: unknown;
-  closedLoop?: boolean | undefined;
-  agentBrowser?: boolean | undefined;
   grounding?: GroundingInput | undefined;
 }
 
+/* The run's recorded configuration: the engine's rules over the freeze the server decided from the request. */
 export function resolveRunConfig(app: AppConfig, request: RunConfigRequest, captureMode: CaptureMode, env: RunConfigEnvironment): StoredRunConfig {
-  /* Same predicates as the engine factory's wiring (run-orchestration). The tools also need the service token; otherwise the lever cannot take effect, whatever was asked. */
-  const closedLoopAsked = request.closedLoop ?? closedLoopEnabled(app);
-  const agentBrowserAsked = request.agentBrowser ?? agentBrowserEnabled(app);
-  const stitched = serviceTopologyWired(app);
-  const requestedGrounding = request.grounding ?? {};
-  const freeze = decideRunFreeze(request);
-  const coverage = resolveCoveragePolicy(app.qa.changeCoverage);
-  return {
-    levers: {
-      closedLoop: env.toolsGranted && closedLoopAsked,
-      agentBrowser: env.toolsGranted && agentBrowserAsked,
-      captureMode,
-    },
-    campaignFreeze: freeze.frozen,
-    runtime: env.runtime(),
-    prompt: { staticHash: env.staticPromptHash() },
-    grounding: {
-      /* The service-topology collaborator is one of the two advisory structural signals: it exists only for an app with services and declared boundaries. */
-      stitcher: stitched ? (requestedGrounding.stitcher === false ? "off" : "signal") : null,
-      domPack: resolveDomPack(requestedGrounding.domPack, app.qa.domPack),
-      lessons: freeze.lessons,
-    },
-    coverage: { mode: coverage.mode, minRatio: coverage.minRatio },
-  };
-}
-
-/* What the run's trace root records about the configuration (the same facts). */
-export function configInEffect(config: StoredRunConfig): RunConfigInEffect {
-  return {
-    runtime: config.runtime,
-    closedLoop: config.levers.closedLoop,
-    agentBrowser: config.levers.agentBrowser,
-    coveragePolicy: config.coverage.mode,
-    campaignFreeze: config.campaignFreeze,
-    staticPromptHash: config.prompt.staticHash,
-    captureMode: config.levers.captureMode,
-  };
+  return recordRunConfig(app, request, decideRunFreeze(request), captureMode, env);
 }
 
 const NOT_RECORDED: StoredRunConfig = {
@@ -113,21 +65,6 @@ export function parseStoredRunConfig(json: string | null | undefined): StoredRun
   } catch {
     return undefined;
   }
-}
-
-/* The roles a run invoked, from the turns it recorded: the last provider and model the runtime reported, and the largest step limit it stated. reasoningEffort is null: the runtime's live agent list does not carry it. */
-export function agentsOfTurns(turns: readonly AgentRoleFacts[]): EffectiveConfig["agents"] {
-  const agents: EffectiveConfig["agents"] = {};
-  for (const turn of turns) {
-    const current = agents[turn.role] ?? { provider: null, model: null, reasoningEffort: null, stepLimit: null };
-    agents[turn.role] = {
-      provider: turn.provider ?? current.provider,
-      model: turn.modelAnswered ?? turn.modelRequested ?? current.model,
-      reasoningEffort: null,
-      stepLimit: turn.maxSteps === null ? current.stepLimit : Math.max(current.stepLimit ?? 0, turn.maxSteps),
-    };
-  }
-  return agents;
 }
 
 export interface RecordedRunFacts {

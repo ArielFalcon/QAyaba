@@ -31,3 +31,5 @@ export { contextMapFitsRun } from "../domain/context-map-fit.ts";
 export type { ContextMapFit, ContextMapFitReason, FittedContextMap } from "../domain/context-map-fit.ts";
 export { contextMapNeedsRebuild } from "./context-map-rebuild.ts";
 export type { ContextMapRebuildPorts } from "./context-map-rebuild.ts";
+export { agentsOfTurns, configInEffect, recordRunConfig } from "./recorded-run-config.ts";
+export type { RecordedAgent, RecordedAgentTurn, RecordedRunConfig, RunConfigDeclaration, RunConfigEnvironment, RunConfigInEffect, RunConfigRequest, RunFreezeFact } from "./recorded-run-config.ts";

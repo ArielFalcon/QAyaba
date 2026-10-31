@@ -15,6 +15,7 @@ import type { RunVerdict } from "@kernel/run-verdict";
 import type { RunDegradationFact, RunLimitFact } from "@kernel/run-trace-facts";
 import type { CampaignIdentity } from "../contract/campaign";
 import type { CaptureMode } from "@kernel/telemetry/capture-mode";
+import type { RunConfigInEffect } from "@contexts/run-orchestration/application/index";
 import { attrKey } from "@kernel/telemetry/attribute-registry";
 import { guardTelemetry } from "@kernel/telemetry/guarded-telemetry";
 import type { SpanHandle, TelemetryClock, TelemetryContext, TelemetryPort } from "@kernel/telemetry/telemetry.port";
@@ -41,17 +42,6 @@ export interface RunIdentity {
   campaign?: CampaignIdentity | undefined;
   /* The content capture the run asked for, already capped by the server's ceiling. Absent: the run takes the process default. */
   captureMode?: CaptureMode | undefined;
-}
-
-/* The configuration a run started with, as the trace records it (the run's effectiveConfig carries the same facts). */
-export interface RunConfigInEffect {
-  runtime: string | null;
-  closedLoop: boolean | null;
-  agentBrowser: boolean | null;
-  coveragePolicy: string | null;
-  campaignFreeze: boolean | null;
-  staticPromptHash: string | null;
-  captureMode: string | null;
 }
 
 /* The campaign's identity as root attributes: the id, the replicate and one attribute per variant label. */

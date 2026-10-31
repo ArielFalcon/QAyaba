@@ -4,40 +4,11 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AppConfig } from "../orchestrator/config-loader";
-import { serviceTopologyWired } from "@contexts/run-orchestration/application/index";
 import { buildEffectiveConfig, hashStaticPrompts, parseStoredRunConfig, resolveRunConfig, type RunConfigEnvironment } from "./effective-config";
 
 const env: RunConfigEnvironment = { runtime: () => "opencode", staticPromptHash: () => "sha256:x", toolsGranted: true, maxCapture: "full" };
 const app = (over: Record<string, unknown> = {}, qa: Record<string, unknown> = {}): AppConfig =>
   ({ name: "a", repo: "o/a", dev: { baseUrl: "https://dev" }, qa: { needsReview: true, testDataPrefix: "qa", ...qa }, report: { onFailure: "x" }, ...over }) as AppConfig;
-
-test("the request's lever wins over the app's setting, and the app's setting decides when the request says nothing", () => {
-  const configured = app({}, { closedLoop: { enabled: true }, agentBrowser: { enabled: false } });
-  assert.deepEqual(resolveRunConfig(configured, {}, "metadata", env).levers, { closedLoop: true, agentBrowser: false, captureMode: "metadata" });
-  assert.deepEqual(resolveRunConfig(configured, { closedLoop: false, agentBrowser: true }, "full", env).levers, { closedLoop: false, agentBrowser: true, captureMode: "full" });
-});
-
-test("a lever that cannot take effect is not reported as applied", () => {
-  const asked = { closedLoop: true, agentBrowser: true };
-  assert.deepEqual(resolveRunConfig(app(), asked, "metadata", { ...env, toolsGranted: false }).levers.closedLoop, false);
-});
-
-test("grounding and policy are what the run's app declares, with the engine's defaults where it declares nothing", () => {
-  const plain = resolveRunConfig(app(), {}, "metadata", env);
-  assert.deepEqual(plain.grounding, { stitcher: null, domPack: true, lessons: true });
-  assert.deepEqual(plain.coverage, { mode: "signal", minRatio: 0.7 });
-  const stitched = resolveRunConfig(app({ services: [{ repo: "o/s" }], boundaries: [{}] }, { changeCoverage: { mode: "enforce", minRatio: 0.9 } }), {}, "metadata", env);
-  assert.deepEqual(stitched.grounding, { stitcher: "signal", domPack: true, lessons: true });
-  assert.deepEqual(stitched.coverage, { mode: "enforce", minRatio: 0.9 });
-  const withBoundaries = resolveRunConfig(app({ services: [{ repo: "o/s" }], boundaries: [{}] }), {}, "metadata", env);
-  assert.equal(withBoundaries.grounding.stitcher, "signal");
-});
-
-test("a run's grounding lever wins over the app's setting", () => {
-  const withServices = app({ services: [{ repo: "o/s" }], boundaries: [{}] });
-  const asked = resolveRunConfig(withServices, { grounding: { stitcher: false } }, "metadata", env);
-  assert.deepEqual(asked.grounding, { stitcher: "off", domPack: true, lessons: true });
-});
 
 test("the freeze and the lessons arm are recorded from the request: a campaign freezes the run, the lever lifts the lesson state only", () => {
   const campaign = { id: "c", variant: {}, replicate: 1 };
@@ -46,13 +17,6 @@ test("the freeze and the lessons arm are recorded from the request: a campaign f
   assert.deepEqual(record({ campaign }), [true, false]);
   assert.deepEqual(record({ campaign, grounding: { lessons: true } }), [true, true]);
   assert.deepEqual(record({ grounding: { lessons: false } }), [false, false]);
-});
-
-test("domPack: the request wins over the app, the app applies when the request says nothing, and absent on both defaults to true", () => {
-  assert.equal(resolveRunConfig(app({}, { domPack: true }), { grounding: { domPack: false } }, "metadata", env).grounding.domPack, false);
-  assert.equal(resolveRunConfig(app({}, { domPack: false }), {}, "metadata", env).grounding.domPack, false);
-  assert.equal(resolveRunConfig(app(), {}, "metadata", env).grounding.domPack, true);
-  assert.equal(resolveRunConfig(app(), { grounding: { domPack: true } }, "metadata", env).grounding.domPack, true);
 });
 
 test("parseStoredRunConfig of an old record reads a missing domPack as null and leaves out the keys this version no longer records (kept parseable)", () => {
@@ -103,22 +67,19 @@ test("the static prompt hash covers AGENTS.md and every role file, in name order
   }
 });
 
-test("the applied grounding records no structural-signal or dossier lever: the code graph is wired for every app", () => {
-  const recorded = resolveRunConfig(app(), {}, "metadata", env).grounding;
-  assert.deepEqual(Object.keys(recorded).sort(), ["domPack", "lessons", "stitcher"]);
+test("the recorded configuration follows the request's levers over the app's settings and the environment's tools", () => {
+  const configured = app({}, { closedLoop: { enabled: true }, agentBrowser: { enabled: false } });
+  assert.deepEqual(resolveRunConfig(configured, {}, "metadata", env).levers, { closedLoop: true, agentBrowser: false, captureMode: "metadata" });
+  assert.deepEqual(resolveRunConfig(configured, { closedLoop: false, agentBrowser: true }, "full", env).levers, { closedLoop: false, agentBrowser: true, captureMode: "full" });
+  assert.deepEqual(resolveRunConfig(configured, { closedLoop: true }, "off", { ...env, toolsGranted: false }).levers, { closedLoop: false, agentBrowser: false, captureMode: "off" });
 });
 
-test("the run_spec loop and the authenticated browser are reported on for an app that says nothing and off for one that turns them off", () => {
-  const silent = resolveRunConfig(app(), {}, "metadata", env).levers;
-  assert.deepEqual([silent.closedLoop, silent.agentBrowser], [true, true]);
-  const optedOut = resolveRunConfig(app({}, { closedLoop: { enabled: false }, agentBrowser: { enabled: false } }), {}, "metadata", env).levers;
-  assert.deepEqual([optedOut.closedLoop, optedOut.agentBrowser], [false, false]);
-});
-
-test("effectiveConfig reports the service topology exactly when the engine wires it, for every combination", () => {
-  for (const boundaries of [true, false]) {
-    const a = app({ services: [{ repo: "o/s" }], ...(boundaries ? { boundaries: [{}] } : {}) });
-    const c = resolveRunConfig(a, { closedLoop: true, agentBrowser: true }, "metadata", env);
-    assert.equal(c.grounding.stitcher !== null, serviceTopologyWired(a));
-  }
+test("the served effectiveConfig lists the roles the run's turns invoked and nothing for a run with none", () => {
+  const stored = resolveRunConfig(app(), {}, "metadata", env);
+  const turns = [
+    { role: "author", provider: "p", modelRequested: "m1", modelAnswered: null, maxSteps: 10 },
+    { role: "author", provider: null, modelRequested: null, modelAnswered: "m2", maxSteps: 40 },
+  ];
+  assert.deepEqual(buildEffectiveConfig(stored, turns, undefined).agents, { author: { provider: "p", model: "m2", reasoningEffort: null, stepLimit: 40 } });
+  assert.deepEqual(buildEffectiveConfig(stored, [], undefined).agents, {});
 });
