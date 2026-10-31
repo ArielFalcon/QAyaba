@@ -12,6 +12,7 @@ import { migration0003 } from "./migrations/0003-run-ending-facts";
 import { migration0004 } from "./migrations/0004-run-engine-version";
 import { migration0005 } from "./migrations/0005-case-expected-status";
 import { migration0006 } from "./migrations/0006-run-time-budget";
+import { migration0007 } from "./migrations/0007-lesson-observations";
 import { LATEST_SCHEMA_VERSION, type Migration } from "./migrations/index";
 import { SCHEMA_1_SQL, migration0001 } from "./migrations/0001-initial";
 
@@ -47,8 +48,9 @@ function buildUnversioned(path: string, mutate?: (db: Database.Database) => void
   db.close();
 }
 
-/* The tables later schemas added: each is a migration of its own, and the first schema's list stays what it declared. */
+/* The tables later schemas added and dropped: each is a migration of its own, and the first schema's list stays what it declared. */
 const LATER_TABLES = ["lesson_observations"];
+const DROPPED_TABLES = ["curriculum", "learning_rules", "scorecard"];
 
 test("an empty database ends at the latest schema version with exactly the tables the migrations declare", (t) => {
   const path = join(scratch(t), "history.db");
@@ -57,7 +59,7 @@ test("an empty database ends at the latest schema version with exactly the table
 
   assert.equal(history.read(userVersion), LATEST_SCHEMA_VERSION);
   assert.ok(SCHEMA_1_TABLES.length > 0, "the migration declares tables");
-  assert.deepEqual(history.read(tableNames), [...SCHEMA_1_TABLES, ...LATER_TABLES].sort());
+  assert.deepEqual(history.read(tableNames), [...SCHEMA_1_TABLES.filter((name) => !DROPPED_TABLES.includes(name)), ...LATER_TABLES].sort());
 });
 
 test("reopening a database keeps its rows and its version", (t) => {
@@ -277,7 +279,7 @@ test("a schema 6 database is brought to the latest schema with every stored row 
   before.pragma("user_version = 6");
   before.prepare("INSERT INTO runs (id, app, sha, at, decision) VALUES ('old', 'app', 'abcdef1', '2026-10-01T00:00:00.000Z', 'pr')").run();
   before.prepare("INSERT INTO run_outcomes (id, app, sha, mode, target, verdict, error_class, gate_signals, at) VALUES ('old', 'app', 'abcdef1', 'diff', 'e2e', 'pass', NULL, '{}', '2026-10-01T00:00:00.000Z')").run();
-  const rows = (db: Database.Database): string => JSON.stringify([db.prepare("SELECT * FROM runs").all(), db.prepare("SELECT * FROM run_outcomes").all()]);
+  const rows = (db: Database.Database): string => JSON.stringify([db.prepare("SELECT * FROM runs").all(), db.prepare("SELECT id, app, sha, mode, target, verdict, error_class, gate_signals, at FROM run_outcomes").all()]);
   const rowsBefore = rows(before);
   before.close();
 
@@ -287,5 +289,33 @@ test("a schema 6 database is brought to the latest schema with every stored row 
   assert.equal(history.read(userVersion), LATEST_SCHEMA_VERSION);
   assert.equal(history.read(rows), rowsBefore, "no stored value was rewritten");
   assert.equal(history.read((db) => (db.prepare("SELECT COUNT(*) AS n FROM lesson_observations").get() as { n: number }).n), 0);
-  assert.ok(SCHEMA_1_TABLES.every((table) => history.read(tableNames).includes(table)), "nothing existing is dropped");
+  assert.ok(SCHEMA_1_TABLES.filter((table) => !DROPPED_TABLES.includes(table)).every((table) => history.read(tableNames).includes(table)), "nothing but the dead learning tables is dropped");
+});
+
+test("a schema 7 database loses the learning tables and the two outcome columns nothing reads, and keeps every other outcome as it was", (t) => {
+  const path = join(scratch(t), "history.db");
+  const before = new Database(path);
+  for (const migration of [migration0001, migration0002, migration0003, migration0004, migration0005, migration0006, migration0007]) migration.up(before);
+  before.pragma("user_version = 7");
+  before.prepare("INSERT INTO run_outcomes (id, app, sha, mode, target, verdict, error_class, gate_signals, rules_retrieved, reflection, at) VALUES ('r1', 'app', 'abcdef1', 'diff', 'e2e', 'pass', NULL, '{\"static\":true}', '[\"rule-1\"]', 'learned', '2026-10-01T00:00:00.000Z')").run();
+  before.prepare("INSERT INTO learning_rules (id, app, trigger_text, action_text, error_class, source, at) VALUES ('l1', 'app', 't', 'a', 'E-X', 's', '2026-10-01T00:00:00.000Z')").run();
+  before.prepare("INSERT INTO curriculum (app, data, updated_at) VALUES ('app', '{}', '2026-10-01T00:00:00.000Z')").run();
+  before.prepare("INSERT INTO scorecard (app, data, updated_at) VALUES ('app', '{}', '2026-10-01T00:00:00.000Z')").run();
+  before.prepare("INSERT INTO lesson_observations (id, app, run_id, sha, repo, kind, scope, served_state, admitted, left_out_reason, fact, at) VALUES ('o1', 'app', 'r1', 'abcdef1', 'org/app', 'data-volatility', '/x', 'equal', 1, NULL, '{}', '2026-10-01T00:00:00.000Z')").run();
+  const kept = "id, app, sha, mode, target, verdict, error_class, gate_signals, at";
+  const outcomes = (db: Database.Database): string => JSON.stringify(db.prepare(`SELECT ${kept} FROM run_outcomes ORDER BY id`).all());
+  const observations = (db: Database.Database): string => JSON.stringify(db.prepare("SELECT * FROM lesson_observations ORDER BY id").all());
+  const outcomesBefore = outcomes(before);
+  const observationsBefore = observations(before);
+  before.close();
+
+  const history = openHistoryDatabase(path);
+  t.after(() => history.close());
+
+  assert.equal(history.read(userVersion), LATEST_SCHEMA_VERSION);
+  for (const table of DROPPED_TABLES) assert.equal(history.read(tableNames).includes(table), false, table);
+  const outcomeColumns = history.read((db) => (db.prepare("PRAGMA table_info(run_outcomes)").all() as Array<{ name: string }>).map((c) => c.name));
+  assert.deepEqual(outcomeColumns, kept.split(", "));
+  assert.equal(history.read(outcomes), outcomesBefore);
+  assert.equal(history.read(observations), observationsBefore);
 });

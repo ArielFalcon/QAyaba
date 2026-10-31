@@ -1,33 +1,25 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { join } from "node:path";
-import Database from "better-sqlite3";
 import { getHistory } from "../index";
 import type { RunOutcome } from "../types";
 
-test("purging an app removes the scorecard row earlier runs left", () => {
-  const app = "hist-scorecard-purge";
-  getHistory(); /* opens the history database, and so creates its tables, before a second connection reads it */
-  /* Nothing reads or writes a scorecard any more: the row is left by a second connection to the same on-disk db, as an earlier version of the engine left it. */
-  const dbPath = process.env.HISTORY_DB_PATH ?? join(process.env.QAYABA_ROOT ?? process.cwd(), "data", "qayaba.db");
-  const countRows = (): number => {
-    const raw = new Database(dbPath);
-    try {
-      return (raw.prepare("SELECT COUNT(*) AS n FROM scorecard WHERE app = ?").get(app) as { n: number }).n;
-    } finally {
-      raw.close();
-    }
-  };
-  const raw = new Database(dbPath);
+test("purging an app empties its run outcomes and leaves another app's", () => {
+  const app = "hist-outcome-purge";
+  const other = "hist-outcome-keep";
+  const outcome = (runId: string, of: string): RunOutcome => ({
+    runId, app: of, sha: "deadbeef0", mode: "diff", target: "e2e", verdict: "pass", errorClass: null,
+    gateSignals: { static: true, coverageRatio: null, reviewerCorrections: [], flaky: false, retries: 0 }, at: "2026-10-31T00:00:00.000Z",
+  });
   try {
-    raw.prepare("INSERT INTO scorecard (app, data, updated_at) VALUES (?, ?, ?)").run(app, "{}", "2026-06-13T00:00:00.000Z");
+    getHistory().learning.saveRunOutcome(outcome("run-purge-1", app));
+    getHistory().learning.saveRunOutcome(outcome("run-keep-1", other));
+    getHistory().purgeApp(app);
+    assert.deepEqual(getHistory().learning.listRunOutcomes(app), []);
+    assert.deepEqual(getHistory().learning.listRunOutcomes(other).map((o) => o.runId), ["run-keep-1"]);
   } finally {
-    raw.close();
+    getHistory().purgeApp(app);
+    getHistory().purgeApp(other);
   }
-  assert.equal(countRows(), 1);
-
-  getHistory().purgeApp(app);
-  assert.equal(countRows(), 0);
 });
 
 test("getRunOutcome returns the single run's outcome and round-trips the reviewer verdict", () => {

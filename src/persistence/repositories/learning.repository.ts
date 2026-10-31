@@ -5,7 +5,7 @@ import { parseJsonColumn } from "../json-column";
 
 const EMPTY_GATE_SIGNALS: RunOutcome["gateSignals"] = { static: false, coverageRatio: null, reviewerCorrections: [], flaky: false, retries: 0 };
 
-/* What a run taught: run_outcomes (append-only). The learning_rules, curriculum and scorecard tables and the rules_retrieved and reflection columns of run_outcomes are no longer written or read; the schema keeps them, and purging an app still empties its rows. */
+/* What a run ended with: run_outcomes (append-only). */
 export class LearningRepository {
   private readonly insertOutcome;
   private readonly reclassifyOutcome;
@@ -23,10 +23,10 @@ export class LearningRepository {
     this.getOutcome = raw.prepare("SELECT * FROM run_outcomes WHERE id = ?");
   }
 
-  /* Removes what an app's runs taught: outcomes, rules, curriculum and scorecard rows. Returns nothing; a table that holds no row for the app is left as it is. */
+  /* Removes an app's run outcomes. */
   deleteApp(app: string): void {
     this.db.write(() => {
-      for (const table of ["run_outcomes", "learning_rules", "curriculum", "scorecard"]) this.db.statement(`DELETE FROM ${table} WHERE app = ?`).run(app);
+      this.db.statement("DELETE FROM run_outcomes WHERE app = ?").run(app);
     });
   }
 

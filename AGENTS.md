@@ -672,9 +672,9 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   classes a stale map explains; and the campaign freeze. No agent keeps a memory of its own across
   runs: an agent memory held what the agent believed, with no SHA, no expiry and no check against DEV,
   and later runs read those beliefs as facts over what the Context Pack read live; what a run reuses
-  comes from the orchestrator (the suite store, the Context Pack). The tables the removed loop wrote
-  (`learning_rules`, `curriculum`, `scorecard`) and the `rules_retrieved` and `reflection` columns of `run_outcomes` stay in the schema,
-  unread.
+  comes from the orchestrator (the suite store, the Context Pack). History schema 8 drops the tables the removed loop wrote
+  (`learning_rules`, `curriculum`, `scorecard`) and the `rules_retrieved` and `reflection` columns of `run_outcomes`; copy the history
+  file before the first boot of a build that holds it, since an earlier build refuses schema 8.
 
 ### The agent and its prompts
 
