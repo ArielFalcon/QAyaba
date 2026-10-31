@@ -9,11 +9,12 @@ import { appLogger } from "../integrations/redacting-logger";
 import { openSync, fstatSync, readSync, closeSync } from "node:fs";
 import { resolveCoordinationTelemetryPath } from "./run-engine-factory";
 import type { CoordinationEvent, CoordinationEventsView, CoordinationSignals } from "../contract/commands";
-import { DELEGATION_FAILURE_CLASSES } from "../../qa-engine/src/contexts/coordination/application/index";
+import { DELEGATION_FAILURE_CLASSES, type CoordinationTelemetryKind } from "../../qa-engine/src/contexts/coordination/application/index";
 
 const CONTRACT_FAILURE_CLASSES: ReadonlySet<string> = new Set(DELEGATION_FAILURE_CLASSES);
 
-const KINDS = new Set(["proposal", "delegation", "escalation", "lead-decision", "pushback", "outcome"]);
+/* The kinds a ledger line may carry: the engine's union, checked by the compiler, so a kind the engine adds fails here until the reader lists it. */
+const KINDS: ReadonlySet<string> = new Set(Object.keys({ proposal: true, delegation: true, escalation: true, "lead-decision": true, pushback: true, outcome: true } satisfies Record<CoordinationTelemetryKind, true>));
 
 export interface CoordinationLedgerFsDeps {
   readonly openSync: typeof openSync;
@@ -80,7 +81,7 @@ function coerce(o: Record<string, unknown>): CoordinationEvent {
   /* An invalid count is an undefined value, which serializes exactly like an absent key. */
   return {
     runId: o.runId as string,
-    kind: o.kind as CoordinationEvent["kind"],
+    kind: o.kind as CoordinationTelemetryKind,
     reason: o.reason as string,
     at: o.at as number,
     ...(optStr(o.action) ? { action: optStr(o.action) } : {}),
