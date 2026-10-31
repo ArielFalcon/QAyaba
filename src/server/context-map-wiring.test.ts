@@ -1,49 +1,18 @@
-/* The composition root's question behind the context-map rebuild before a run (runner.ts, RunnerDeps.contextMapNeedsRebuild). */
+/* The composition root's wiring of the context-map rebuild question (runner.ts, RunnerDeps.contextMapNeedsRebuild); the rule itself is the engine's. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { contextMapNeedsRebuildFor, type ContextMapQuestionDeps } from "./context-map-wiring";
-import type { AppConfig } from "../orchestrator/config-loader";
-import type { ChangedFile } from "@contexts/run-orchestration/application/index";
+import { contextMapNeedsRebuildFor } from "./context-map-wiring";
 
-const BUILT = "aaaa111";
-const RUN = "bbbb222";
-const app = (over: Partial<AppConfig> = {}): AppConfig => ({
-  name: "demo",
-  repo: "org/demo",
-  dev: { baseUrl: "https://dev" },
-  qa: { needsReview: true, testDataPrefix: "qa-bot" },
-  report: { onFailure: "github-issue" },
-  ...over,
-});
-const MAP = { builtAtSha: BUILT, routes: [{ path: "/shops", source: "src/shops.routes.ts", implementationFiles: ["src/shops/shops.page.ts"] }], api: [], feBe: [] };
-
-function rig(over: Partial<ContextMapQuestionDeps> & { changes?: ChangedFile[] | undefined } = {}) {
+test("the wiring answers the engine's question over the ports it is given", async () => {
   const synced: string[] = [];
-  const deps: ContextMapQuestionDeps = {
-    loadApp: over.loadApp ?? (() => app()),
-    loadStoredMap: over.loadStoredMap ?? (() => ({ builtAtSha: BUILT, data: MAP, updatedAt: "2026-10-25T00:00:00Z" })),
-    isStale: over.isStale ?? (() => false),
-    syncMirror: over.syncMirror ?? (async (repo, sha) => { synced.push(`${repo}@${sha}`); return "/mirrors/org__demo"; }),
-    changesBetween: over.changesBetween ?? (() => ("changes" in over ? over.changes : [])),
-  };
-  return { ask: contextMapNeedsRebuildFor(deps), synced };
-}
-
-test("a map built at the run's commit, or whose named files did not change, needs no rebuild", async () => {
-  assert.equal(await rig({ loadStoredMap: () => ({ builtAtSha: RUN, data: MAP, updatedAt: "" }) }).ask("demo", RUN), false);
-  const modifiedPage = rig({ changes: [{ status: "M", path: "src/shops/shops.page.ts" }] });
-  assert.equal(await modifiedPage.ask("demo", RUN), false);
-  assert.deepEqual(modifiedPage.synced, ["org/demo@bbbb222"], "the comparison reads the mirror at the run's commit");
+  const ask = contextMapNeedsRebuildFor({
+    loadApp: () => ({ repo: "org/demo" }),
+    loadStoredMap: () => ({ builtAtSha: "aaaa111", data: { routes: [], api: [], feBe: [] } }),
+    isStale: () => false,
+    syncMirror: async (repo, sha) => { synced.push(`${repo}@${sha}`); return "/mirrors/org__demo"; },
+    changesBetween: () => [],
+  });
+  assert.equal(await ask("demo", "bbbb222"), false);
+  assert.deepEqual(synced, ["org/demo@bbbb222"]);
+  assert.equal(await contextMapNeedsRebuildFor({ loadApp: () => ({ repo: "org/demo" }), loadStoredMap: () => undefined, isStale: () => false, syncMirror: async () => "", changesBetween: () => [] })("demo", "bbbb222"), true);
 });
-
-test("a missing map, a map marked stale, a changed route declaration or commits that cannot be compared need a rebuild", async () => {
-  assert.equal(await rig({ loadStoredMap: () => undefined }).ask("demo", RUN), true);
-  assert.equal(await rig({ isStale: () => true }).ask("demo", RUN), true);
-  assert.equal(await rig({ changes: [{ status: "M", path: "src/shops.routes.ts" }] }).ask("demo", RUN), true);
-  assert.equal(await rig({ changes: undefined }).ask("demo", RUN), true);
-  const unsafe = rig({ loadStoredMap: () => ({ builtAtSha: "--output=/tmp/x", data: MAP, updatedAt: "" }) });
-  assert.equal(await unsafe.ask("demo", RUN), true, "a recorded commit that is not a sha is never handed to git");
-  assert.deepEqual(unsafe.synced, []);
-});
-
-

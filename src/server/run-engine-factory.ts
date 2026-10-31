@@ -25,7 +25,23 @@ import {
   stallMs,
 } from "../integrations/opencode-client";
 import type { RunPipelinePort, ObserverPort } from "@contexts/run-orchestration/application/index.ts";
-import { RequestContextHeal, agentBrowserEnabled, baseBranchOf, closedLoopEnabled, deployGateTiming, fixLoopMaxRetries, resolveDomPack, resolveIntentLock, serviceTopologyWired, type EnqueueContextRunPort } from "@contexts/run-orchestration/application/index";
+import {
+  RequestContextHeal,
+  agentBrowserEnabled,
+  baseBranchOf,
+  closedLoopEnabled,
+  contextMapFitsRun,
+  deployGateTiming,
+  fixLoopMaxRetries,
+  parseNameStatusZ,
+  resolveDomPack,
+  resolveIntentLock,
+  serviceTopologyWired,
+  staleFlagHeal,
+  staleMapHeal,
+  type ChangedFile,
+  type EnqueueContextRunPort,
+} from "@contexts/run-orchestration/application/index";
 import { buildEngine, codeGraphFor, type EngineRootDeps } from "./engine-root";
 import type { PublishDeps } from "./engine-root";
 import { createDiscoverLogin } from "@contexts/app-catalog/infrastructure/login-discovery/login-discovery.runner";
@@ -68,7 +84,6 @@ import { GenerateTestsUseCase } from "@contexts/generation/application/index";
 import { AgentRuntimeAdapter } from "@contexts/generation/infrastructure/agent-runtime.adapter";
 import { RunDeadline } from "@contexts/run-orchestration/application/index";
 import type { ArchitectureContext } from "@contexts/generation/application/index.ts";
-import { contextMapValidity, parseNameStatusZ, type ChangedFile } from "@contexts/run-orchestration/application/index";
 import type { TelemetryClock, TelemetryPort } from "@kernel/telemetry/telemetry.port";
 import { CONTEXT_MAP_MAX_AGE_MS, contextMapResultCount, type ContextProvenance } from "@kernel/telemetry/context-provenance";
 import { withPromptBodies } from "../telemetry/with-prompt-bodies";
@@ -672,11 +687,12 @@ export function buildEngineRootDeps(
    * `!triggerService` (a service-triggered run's sha belongs to the service repo, not the primary).
    */
   const contextHeal = new RequestContextHeal(deps.enqueueContextRun, { clear: (app) => getHistory().contexts.clearContextStale(app) });
-  const contextStale = run.mode !== "context" && !triggerService && getHistory().contexts.isContextStale(app.name);
-  if (contextStale && campaignFrozen) {
+  const flagHeal = staleFlagHeal({ mode: run.mode, triggeredByService: triggerService !== undefined, frozen: campaignFrozen }, () => getHistory().contexts.isContextStale(app.name));
+  const contextStale = flagHeal !== "none";
+  if (flagHeal === "withhold") {
     /* A campaign's queue holds only its own runs: the rebuild is left for after it, and the flag stays as the campaign found it. */
     appLogger.info(`[qa] context map for ${app.name} was marked stale by the process audit — skipping the stored/disk map this run; the campaign freeze requests no rebuild.`);
-  } else if (contextStale) {
+  } else if (flagHeal === "request") {
     appLogger.info(`[qa] context map for ${app.name} was marked stale by the process audit — skipping the stored/disk map this run and requesting a rebuild.`);
     contextHeal.execute(app.name, run.sha, run.runId);
   }
@@ -686,9 +702,10 @@ export function buildEngineRootDeps(
   /* An off-path rebuild for a map stale by SHA/age, asked once per app and commit, never by a context run (it is the rebuild).
    * The process-audit flag keeps its own path above; this one never clears that flag. */
   const requestMapHealIfDue = (): void => {
-    if (!mapProvenance?.stale || run.mode === "context") return;
     const key = `${app.name}@${run.sha ?? ""}`;
-    if (campaignFrozen || contextHealRequested.has(key)) {
+    const heal = staleMapHeal({ mode: run.mode, frozen: campaignFrozen }, mapProvenance, contextHealRequested.has(key));
+    if (heal === "none" || !mapProvenance) return;
+    if (heal === "withhold") {
       mapProvenance = { ...mapProvenance, recapture: "skipped" };
       return;
     }
@@ -698,24 +715,10 @@ export function buildEngineRootDeps(
     contextHeal.execute(app.name, run.sha, run.runId);
   };
 
-  /*
-   * Whether a map built at `capturedSha` describes this run's commit (context-map-validity.ts: the files the map names are the
-   * same in both commits). A map that does not fit is not used; the run grounds without it and a rebuild is requested.
-   * A page whose implementation files were only modified keeps its route, and the front-to-back links of that page are
-   * dropped from the map the run receives, since what the page calls may have changed.
-   * A service-triggered run's sha belongs to the service repo, so the primary repo's map cannot be compared with it: that
-   * case, and a run with no sha, keep the plain sha comparison and still use the map.
-   */
+  /* Whether a map built at `capturedSha` describes this run's commit, and the map the run receives if it does (context-map-fit.ts). */
   const changesBetween = deps.contextMapChanges ?? gitChangedFiles;
-  const mapFitsRun = (map: ArchitectureContext, capturedSha: string): { fits: boolean; map: ArchitectureContext | undefined; reason: string } => {
-    if (capturedSha === run.sha) return { fits: true, map, reason: "none" };
-    if (triggerService || !run.sha) return { fits: false, map, reason: "sha-mismatch" };
-    const validity = contextMapValidity(map, capturedSha, run.sha, changesBetween(mirrorDir, capturedSha, run.sha));
-    if (!validity.valid) return { fits: false, map: undefined, reason: validity.reason === "inputs-changed" ? "inputs-changed" : "sha-mismatch" };
-    if (validity.reason !== "pages-modified") return { fits: true, map, reason: "none" };
-    const unverified = new Set(validity.unverifiedRoutes);
-    return { fits: true, map: { ...map, feBe: map.feBe.filter((link) => !unverified.has(link.route)) }, reason: "none" };
-  };
+  const mapFitsRun = (map: ArchitectureContext, capturedSha: string) =>
+    contextMapFitsRun(map, capturedSha, { sha: run.sha, triggeredByService: triggerService !== undefined }, (fromSha, toSha) => changesBetween(mirrorDir, fromSha, toSha));
 
   /*
    * deps.mirror is a test seam only. Production checkout always uses defaultMirrorDeps
