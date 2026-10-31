@@ -18,6 +18,7 @@ import {
   AgentDeps,
   askAssistant,
   maxStepsFromConfig,
+  checkAgentsConfigAtBoot,
   agentConfigFacts,
   answeredFrom,
   fallbackModelFromConfig,
@@ -1012,6 +1013,27 @@ test("maxStepsFromConfig says so loudly, once per version of the file, when the 
 test("maxStepsFromConfig does not report a config file that is simply absent", (t) => {
   const errors = t.mock.method(console, "error", () => {});
   assert.equal(maxStepsFromConfig("qa-author", join(tmpdir(), "definitely-not-here", "opencode.json")), undefined);
+  assert.equal(errors.mock.callCount(), 0);
+});
+
+test("the boot check names a missing roster and what is lost, once, while the per-turn readers stay quiet about it", (t) => {
+  const errors = t.mock.method(console, "error", () => {});
+  const missing = join(tmpdir(), "boot-check-not-here", "opencode.json");
+  checkAgentsConfigAtBoot(missing);
+  checkAgentsConfigAtBoot(missing);
+  assert.equal(maxStepsFromConfig("qa-author", missing), undefined);
+  assert.equal(errors.mock.callCount(), 1, "one report, not one per call");
+  const report = String(errors.mock.calls[0]!.arguments[0]);
+  assert.match(report, new RegExp(missing.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")), "the report names the file");
+  assert.match(report, /step limits/);
+  assert.match(report, /model assignments/);
+});
+
+test("the boot check says nothing about a roster that is there", (t) => {
+  const errors = t.mock.method(console, "error", () => {});
+  const { path, cleanup } = writeAgentsConfig({ agent: { "qa-author": { maxSteps: 50 } } });
+  t.after(cleanup);
+  checkAgentsConfigAtBoot(path);
   assert.equal(errors.mock.callCount(), 0);
 });
 

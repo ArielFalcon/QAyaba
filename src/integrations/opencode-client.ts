@@ -131,6 +131,29 @@ function reportAgentsConfigProblem(configPath: string, problem: string): void {
   appLogger.error(`[qa] agent config ${configPath}: ${problem}`);
 }
 
+/* The paths already reported as missing: a roster that is not there reads as "nothing declared" in every reader below, which looks the same as a roster that declares nothing, so it is said aloud, once. */
+const missingAgentsConfigs = new Set<string>();
+
+/* What a missing roster takes with it: every reader below answers absent for each of these. */
+export function reportMissingAgentsConfig(configPath: string): void {
+  if (missingAgentsConfigs.has(configPath)) return;
+  missingAgentsConfigs.add(configPath);
+  reportAgentsConfigProblem(configPath, "does not exist; everything it supplies reads as absent: the step limits of the agents, their model assignments and reasoning effort, and the fallback models");
+}
+
+/* The check a host makes once at boot: a roster that is missing, unreadable or unparsable is reported on the error log naming the file, instead of every reader below answering absent in silence. The readers themselves stay quiet about a missing file, since they are asked on every turn. */
+export function checkAgentsConfigAtBoot(configPath: string = DEFAULT_AGENTS_CONFIG_PATH()): void {
+  try {
+    statSync(configPath);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+      reportMissingAgentsConfig(configPath);
+      return;
+    }
+  }
+  readAgentsConfigEntry(configPath);
+}
+
 function readAgentsConfigEntry(configPath: string): AgentsConfigEntry | null {
   let stats;
   try {

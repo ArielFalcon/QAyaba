@@ -1,0 +1,10 @@
+{
+  "scripts/agent-browser-smoke.ts": "Operator smoke test of the agent browser: it looks for the browser process it started with pgrep; the browser itself starts through the execution launcher.",
+  "scripts/check-contract-fresh.ts": "CI gate: runs the pinned OpenAPI and Go type generators on the committed contract into a temp directory and diffs the output; no agent-influenced input.",
+  "scripts/check-previous-forms.ts": "CI gate: lists the tracked files with git ls-files and git check-ignore; reads the repository, runs nothing an agent wrote.",
+  "scripts/mutate.ts": "Mutation testing: starts Stryker over the repository's own test files, on the operator's machine or in CI.",
+  "scripts/run-in-group.mjs": "The test command Stryker is handed: it runs the command in its own process group so a timed-out mutant leaves no process behind.",
+  "scripts/run-tests.mjs": "The repository's own test runner (`npm test`): it starts the node:test workers over the repository's test files.",
+  "scripts/sandbox-smoke/checks/daemon-spawn.spec.ts": "A smoke check that runs as a spec inside the sandbox: it starts a detached daemon on purpose to prove the sandbox ends it; the code it runs is the check's own.",
+  "scripts/walk-profile.ts": "Operator measurement: reads a copy of a code-graph store through the store reader script in a child process; read-only, no agent code."
+}

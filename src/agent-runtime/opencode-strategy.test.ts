@@ -1,4 +1,4 @@
-import { describe, it } from "node:test";
+import { describe, it, mock } from "node:test";
 import assert from "node:assert/strict";
 import { writeFileSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -62,6 +62,56 @@ describe("OpenCodeRuntimeStrategy.listModels", () => {
       }
     });
   }
+});
+
+describe("OpenCodeRuntimeStrategy at boot", () => {
+  /* The boot report is said once per path, so each case names a path of its own. */
+  function bootReports(configure: (configPath: string) => void): string[] {
+    const dir = mkdtempSync(join(tmpdir(), "opencode-config-test-"));
+    const errors = mock.method(console, "error", () => {});
+    try {
+      const configPath = join(dir, "opencode.json");
+      configure(configPath);
+      new OpenCodeRuntimeStrategy({ env: {}, configPath });
+      return errors.mock.calls.map((call) => String(call.arguments[0])).filter((line) => line.includes(configPath));
+    } finally {
+      errors.mock.restore();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+
+  it("says loudly that a missing roster supplies nothing, naming the path and what is lost", () => {
+    const reports = bootReports(() => {});
+    assert.equal(reports.length, 1, "one error line, naming the path");
+    assert.match(reports[0]!, /does not exist/);
+    assert.match(reports[0]!, /step limits/);
+    assert.match(reports[0]!, /models/);
+  });
+
+  it("says nothing about a roster that is there", () => {
+    assert.deepEqual(bootReports((path) => writeFileSync(path, JSON.stringify({ agent: { "qa-author": { model: "p/m", steps: 5 } } }))), []);
+  });
+
+  it("reports a roster that cannot be parsed, once, at boot", () => {
+    const reports = bootReports((path) => writeFileSync(path, "{ not valid json"));
+    assert.equal(reports.length, 1);
+    assert.match(reports[0]!, /cannot be parsed/);
+  });
+
+  it("does not repeat the report when the models of a missing roster are listed", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "opencode-config-test-"));
+    const errors = mock.method(console, "error", () => {});
+    try {
+      const configPath = join(dir, "opencode.json");
+      const strategy = new OpenCodeRuntimeStrategy({ env: {}, configPath });
+      assert.deepEqual(await strategy.listModels(), []);
+      assert.deepEqual(await strategy.listModels(), []);
+      assert.equal(errors.mock.calls.filter((call) => String(call.arguments[0]).includes(configPath)).length, 1, "boot said it; listing again does not");
+    } finally {
+      errors.mock.restore();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("OpenCodeRuntimeStrategy.stepLimits", () => {

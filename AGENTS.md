@@ -775,9 +775,10 @@ test, and the verdict is its last action.
   allowlist per profile (never `scrubEnv(process.env)`), a per-run work dir (`/tmp/qa-exec/<runId>`) for Playwright's
   output, report and dumps, read back through the strict readers. **Only the `login` profile carries the test account**
   (a suite gets it only for an app that sets `e2e.specCredentials: account`); a suite gets a per-spawn copy of the saved
-  session and never the auth dir. A new module that
+  session and never the auth dir. A new module of `src/`, `qa-engine/src` or `scripts/` that
   imports `child_process` is a build failure (`npm run arch:check`, rule `no-child-process-outside-launchers`); add a
-  spawn site by adding a profile call, not an exception. `QA_EXEC_SANDBOX=required` (compose) refuses to run agent code
+  spawn site by adding a profile call, not an exception. The repository tooling scripts that spawn today (CI gates, the test
+  runner, the mutation run) are a frozen list with a reason each (`qa-engine/.dependency-cruiser-tooling-spawners.json`) that may only shrink. `QA_EXEC_SANDBOX=required` (compose) refuses to run agent code
   without the sandbox uid, or with a file boundary the boot check did not prove (`infra-error E-SANDBOX`, never learned from, no Issue).
 - **The sandbox uid's network is closed by default.** An iptables chain matched on that uid redirects its DNS and TCP to a
   DNS filter and a transparent proxy that allow only the origins declared in config (`dev.allowedOrigins`, the app's own

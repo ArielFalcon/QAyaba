@@ -41,6 +41,10 @@ const path = require("node:path");
 const EXCEPTIONS_FILE = path.join(__dirname, ".dependency-cruiser-shell-exceptions.json");
 const SHELL_INFRASTRUCTURE_EXCEPTIONS = fs.existsSync(EXCEPTIONS_FILE) ? JSON.parse(fs.readFileSync(EXCEPTIONS_FILE, "utf8")) : [];
 
+/* The repository tooling scripts that start child processes of their own (a CI gate, the test runner, the mutation run, an operator measurement): none runs code an agent influenced. The list is frozen: it may only shrink, each entry carries its reason, qa-engine/.dependency-cruiser-tooling-spawners.json holds it and qa-engine/test/arch/exec-launcher-spawn-sites.test.ts fails on an entry that no longer imports child_process and on any growth past its ceiling. A new script that spawns is judged by whoever adds it: it goes through the launcher or it is argued onto the list. */
+const TOOLING_SPAWNERS_FILE = path.join(__dirname, ".dependency-cruiser-tooling-spawners.json");
+const TOOLING_SPAWNERS = fs.existsSync(TOOLING_SPAWNERS_FILE) ? Object.keys(JSON.parse(fs.readFileSync(TOOLING_SPAWNERS_FILE, "utf8"))) : [];
+
 module.exports = {
   forbidden: [
     {
@@ -93,9 +97,9 @@ module.exports = {
     {
       name: "no-child-process-outside-launchers",
       severity: "error",
-      comment: "Every child process that runs code an agent influenced (a spec, a login script, the e2e project's tsc/eslint/--list and installs) starts through the execution launcher, which owns the sandbox uid, the profile's environment, the work directory and the egress lease. A module that imports child_process can start a child as the orchestrator, with its environment and its network, so the allowlist is the launcher, the generic runner for trusted binaries (git), the git hardening, and the privilege-drop module (chown), the iptables applier of the egress filter, and, in the shell, the mirror's git runner, the engine factory's hardened git calls and the boot probe that runs as the sandbox uid. Type-only imports (ChildProcess) are not a way to start anything, and the shell's test files are not production code.",
+      comment: "Every child process that runs code an agent influenced (a spec, a login script, the e2e project's tsc/eslint/--list and installs) starts through the execution launcher, which owns the sandbox uid, the profile's environment, the work directory and the egress lease. A module that imports child_process can start a child as the orchestrator, with its environment and its network, so the allowlist is the launcher, the generic runner for trusted binaries (git), the git hardening, and the privilege-drop module (chown), the iptables applier of the egress filter, and, in the shell, the mirror's git runner, the engine factory's hardened git calls and the boot probe that runs as the sandbox uid, and the frozen list of repository tooling scripts (each with its reason in qa-engine/.dependency-cruiser-tooling-spawners.json). Type-only imports (ChildProcess) are not a way to start anything, and the test files of the shell and of scripts/ are not production code.",
       from: {
-        path: "^(qa-engine/src|src)/",
+        path: "^(qa-engine/src|src|scripts)/",
         pathNot: [
           "^qa-engine/src/shared-infrastructure/process-sandbox/exec-sandbox\\.ts$",
           "^qa-engine/src/shared-infrastructure/process-sandbox/sandboxed-binary-runner\\.adapter\\.ts$",
@@ -105,7 +109,8 @@ module.exports = {
           "^src/integrations/repo-mirror\\.ts$",
           "^src/server/run-engine-factory\\.ts$",
           "^src/server/file-boundary-check\\.ts$",
-          "^src/.*\\.test\\.ts$",
+          "^(src|scripts)/.*\\.test\\.ts$",
+          ...TOOLING_SPAWNERS.map((f) => "^" + f.replace(/\./g, "\\.") + "$"),
         ],
       },
       to: { path: "^(node:)?child_process$", dependencyTypes: ["core"], dependencyTypesNot: ["type-only"] },

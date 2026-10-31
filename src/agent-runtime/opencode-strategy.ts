@@ -3,8 +3,10 @@ import { appLogger } from "../integrations/redacting-logger";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
+  checkAgentsConfigAtBoot,
   defaultAgentDeps,
   disposeSharedClient,
+  reportMissingAgentsConfig,
   listAgentCaps,
   listModelWindows,
   startActivitySink,
@@ -62,6 +64,7 @@ export class OpenCodeRuntimeStrategy implements AgentRuntimeStrategy {
     this.startEvents = opts.startEvents ?? startActivitySink;
     this.disposeClient = opts.dispose ?? disposeSharedClient;
     this.configPath = opts.configPath ?? join(process.cwd(), "agents", "opencode.json");
+    checkAgentsConfigAtBoot(this.configPath);
     this.listCaps = opts.listAgentCaps ?? ((directory) => listAgentCaps(directory));
     this.listWindows = opts.listModelWindows ?? ((directory) => listModelWindows(directory));
   }
@@ -208,9 +211,12 @@ async function supervisorRestart(
   return body.health;
 }
 
-/* The models agents/opencode.json assigns; a roster that is missing, unreadable or assigns none lists none. */
+/* The models agents/opencode.json assigns; a roster that is missing, unreadable or assigns none lists none, and a missing one is said aloud (once, beside the boot report). */
 function modelsFromOpenCodeConfig(path: string): AgentModelInfo[] {
-  if (!existsSync(path)) return [];
+  if (!existsSync(path)) {
+    reportMissingAgentsConfig(path);
+    return [];
+  }
   try {
     const raw = JSON.parse(readFileSync(path, "utf8")) as { agent?: Record<string, { model?: string }> };
     const ids = new Set<string>();
