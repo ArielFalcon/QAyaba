@@ -45,12 +45,12 @@ Sources: CP1 to CP4 are the owner's quality checkpoints (Opus 5.5, maximum effor
 |---|---|---|---|---|---|---|
 | V1 | V (G1) | advisory | `.gitignore` `/docs/architecture/*` | A new non-record file there needs `git add -f` to be seen by the checker | none | noted |
 | V2 | V (T4) | advisory | `restoreSnapshot` | A snapshot of another app restores without a word (app, repo, spec dir ignored) | Refuse a snapshot whose app differs | fixed b13b1df0 |
-| V3 | V (T4) | advisory | `suite-store-writers.test.ts` | The ownership scan matches only `appSuiteStoreDir(`; a hand-built path or manifest write escapes it | Widen the scan | follow-up |
+| V3 | V (T4) | advisory | `suite-store-writers.test.ts` | The ownership scan matches only `appSuiteStoreDir(`; a hand-built path or manifest write escapes it | Widen the scan | done e7b6f8f1 (aliases, re-exports and path segments caught; a constant- or concatenation-built path still escapes: advisory) |
 | V4 | V (T4) | advisory | `warm-suite --leave-out` | A path not in the store is ignored silently | Warn | fixed b13b1df0 |
-| V5 | V (gov) | advisory | model resolution | A missing `agents/opencode.json` is no longer loud at boot | Warn at boot | follow-up |
+| V5 | V (gov) | advisory | model resolution | A missing `agents/opencode.json` is no longer loud at boot | Warn at boot | done e7b6f8f1 |
 | V6 | V (gov) | advisory | proposer | Now follows the operator's `AGENT_PRIMARY_MODEL` | none (matches the settings text) | noted |
-| V7 | V (gov) | advisory | M4 rule | Does not cover `scripts/` | Decide whether scripts are launchers | follow-up |
-| W1 | W (C2/C3) | follow-up | sandbox env allowlists, `docs/execution-sandbox.md:31` | Still pass `JAVA_HOME`, `GOPATH`, `CARGO_*`, `GRADLE_*`, `MAVEN_*` after the code target left | Remove them | follow-up |
+| V7 | V (gov) | advisory | M4 rule | Does not cover `scripts/` | Decide whether scripts are launchers | done e7b6f8f1 (ADR-0020 row 7: frozen tooling list of 8) |
+| W1 | W (C2/C3) | follow-up | sandbox env allowlists, `docs/execution-sandbox.md:31` | Still pass `JAVA_HOME`, `GOPATH`, `CARGO_*`, `GRADLE_*`, `MAVEN_*` after the code target left | Remove them | done 3c33b25d, 02efb2db (Python too, ADR-0020 row 8) |
 | W2 | W (C3) | follow-up | Dockerfile | `python3-venv` has no user found | Remove after a check | fixed (T24 commit) |
 | W3 | W (T11) | noted | Go client types | The generator renamed unused `RunRecordMode*` constants | Keep Go generator churn out of unrelated commits | noted |
 | W4 | W (T11) | process | test runners | A writer ran `pkill -f scripts/run-tests.mjs` (kills every worktree's runner) and used `git stash` (shared across worktrees) | Forbidden in every brief since | fixed (briefs) |
@@ -67,7 +67,7 @@ Sources: CP1 to CP4 are the owner's quality checkpoints (Opus 5.5, maximum effor
 | V8 | V (V-series) | advisory | Z a1b1c44b | Stored `gate_signals` JSON key order changed to the engine's assembly order; keys and values identical; every reader parses | none | noted |
 | V9 | V (V-series) | gap | T16 | The retired `qa.valueOracle` got only the generic warning; ADR-0006 Q2 wants the replacement named | Name the replacement | fixed f9a10040 |
 | V10 | V (V-series) | advisory | T16 | Shadow apps now run bundle mutation; a retired `valueOracle: off` no longer turns it off | Owner moves portfolio's off to the new key | done (portfolio YAML, L13) |
-| W10 | W (V2) | follow-up | `dump-sanitizers.ts`, `FaultCounterRecord` | `byOperation`, `test`, `parseFaultCounterFields`, `MAX_FAULT_COUNTER_*` dead but pinned by tests; `countInjectedResponses` lost its factory test | Remove the dead fields; restore a wiring test | follow-up |
+| W10 | W (V2) | follow-up | `dump-sanitizers.ts`, `FaultCounterRecord` | `byOperation`, `test`, `parseFaultCounterFields`, `MAX_FAULT_COUNTER_*` dead but pinned by tests; `countInjectedResponses` lost its factory test | Remove the dead fields; restore a wiring test | done 112d3d2a, 1f7ee799 (the wiring test) |
 | W11 | W (V2) | record | `docs/testing-standards.md`, `docs/architecture-remediation.md` | Historical narrative still mentions the oracle and fault injection | Correct | follow-up |
 | W12 | W (T18) | owner | OD-13 | `recurring-test-failure` rename has no name in the record | Owner names it or keeps it | decided L15: the name stays (the misleading "rule promotion (oracle)" advice was the defect and is gone) |
 | W13 | W (T18) | follow-up | wire | Judge residue: `llm_judge` source, `judgeModel`, catalog `status`, `run_scores.judge_model`, tables `judge_attempts`/`judge_calibrations`, `scoreSink` in telemetry health, `langfuse.*` span attributes; coordination event field `tier`; `OpenSessionOpts.model` | One contract change | follow-up |
