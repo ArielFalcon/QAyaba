@@ -577,3 +577,18 @@ test("an app onboarding wrote comes back from an update as the rebuild would hav
   assert.equal(r.ok, true, JSON.stringify(r.errors));
   assert.equal(deps.written["shop"], buildYaml({ ...STOCK_ONBOARD, baseUrl: "https://new" }));
 });
+
+test("a repo that names no directory below the mirrors root is refused before GitHub is asked about it, on create and on update", async () => {
+  for (const repo of ["..", "org/..", "-x/y", "org//x"]) {
+    const asked: string[] = [];
+    const deps = makeDeps({ ...withConfig(SHOP_YAML), getRepoInfo: async (r: string) => { asked.push(r); return { name: "x", fullName: r, private: false, defaultBranch: "main", description: null }; } });
+    const created = await createApp({ repo, validateOnly: true }, deps);
+    assert.equal(created.ok, false, repo);
+    assert.match(created.errors?.[0] ?? "", /invalid repo/, repo);
+    const updated = await updateApp({ name: "shop", repo }, deps);
+    assert.equal(updated.ok, false, repo);
+    assert.match(updated.errors?.[0] ?? "", /invalid repo/, repo);
+    assert.deepEqual(asked, [], repo);
+    assert.deepEqual(deps.written, {}, repo);
+  }
+});

@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { RunRecord as TypesRunRecord, QaCase as TypesQaCase } from "../../persistence/types";
 import {
+  ProposeBoundariesInputSchema,
   RunRecordSchema,
   QaCaseSchema,
   CreateRunInputSchema,
@@ -241,4 +242,12 @@ test("create and update inputs carry the login path through their auth", () => {
   const updated = UpdateAppInputSchema.parse({ auth });
   assert.equal(created.auth?.loginPath, "/signin");
   assert.equal(updated.auth?.loginPath, "/signin");
+});
+
+test("ProposeBoundariesInput refuses a repo or a service that names no directory below the mirrors root", () => {
+  assert.deepEqual(ProposeBoundariesInputSchema.parse({ repo: "org/front", services: ["org/svc", "store"] }), { repo: "org/front", services: ["org/svc", "store"] });
+  for (const bad of ["..", ".", "org/..", "-x", "org//x"]) {
+    assert.throws(() => ProposeBoundariesInputSchema.parse({ repo: bad }), bad);
+    assert.throws(() => ProposeBoundariesInputSchema.parse({ services: ["org/svc", bad] }), bad);
+  }
 });

@@ -2,6 +2,7 @@
 import { z } from "zod";
 import { TURN_ENDS } from "../../../qa-engine/src/shared-kernel/turn-end";
 import { LoginPathSchema } from "@contexts/app-catalog/application/index";
+import { isRepoSlug } from "../../../qa-engine/src/shared-kernel/repo-slug";
 import { TestTargetSchema, RunModeSchema, RunVerdictSchema, RunEngineStatusSchema } from "../../../qa-engine/src/shared-kernel/contract/events";
 import { CAMPAIGN_ID_PATTERN, CAMPAIGN_LABEL_PATTERN, MAX_CAMPAIGN_REPLICATE, MAX_VARIANT_KEYS } from "./campaign";
 import { CAPTURE_MODES } from "../../../qa-engine/src/shared-kernel/telemetry/capture-mode";
@@ -414,9 +415,12 @@ export const LoginBootstrapResultSchema = z.object({
   status: z.string(),
 });
 
+/* A repo becomes a mirror directory and a remote URL: the one rule for it is the kernel's. */
+const RepoSlugSchema = z.string().refine(isRepoSlug, { error: "repo must be parts joined by '/', none of them . or .. or starting with a dash (e.g. 'org/repo')" });
+
 export const ProposeBoundariesInputSchema = z.object({
-  repo: z.string().optional(),
-  services: z.array(z.string()).optional(),
+  repo: RepoSlugSchema.optional(),
+  services: z.array(RepoSlugSchema).optional(),
 });
 
 export const ConfirmBoundariesInputSchema = z.object({

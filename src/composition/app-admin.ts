@@ -10,6 +10,7 @@ import {
 } from "@contexts/app-catalog/application/index";
 import { AppConfigInvalidError, AppNotFoundError, type AppConfig } from "./config-loader";
 import type { RepoInfo } from "./github";
+import { isRepoSlug } from "@kernel/repo-slug";
 
 export interface AppAdminDeps {
   getRepoInfo(repo: string): Promise<RepoInfo>;
@@ -76,7 +77,14 @@ export interface CreateAppResult {
   warnings?: string[];
 }
 
+/* A repo is judged before GitHub is asked about it: it is interpolated into the API's address, and later becomes a mirror directory. */
+function repoRefusal(repo: string): string | undefined {
+  return isRepoSlug(repo) ? undefined : `invalid repo '${repo}': parts joined by '/', none of them . or .. or starting with a dash (e.g. 'org/repo')`;
+}
+
 export async function createApp(input: CreateAppInput, deps: AppAdminDeps): Promise<CreateAppResult> {
+  const refused = repoRefusal(input.repo);
+  if (refused) return { ok: false, errors: [refused] };
   let repoInfo: RepoInfo;
   try {
     repoInfo = await deps.getRepoInfo(input.repo);
@@ -130,6 +138,8 @@ export async function updateApp(input: UpdateAppInput, deps: AppAdminDeps): Prom
   const repo = input.repo ?? existing.repo;
   let repoInfo: RepoInfo | undefined;
   if (repo !== existing.repo) {
+    const refused = repoRefusal(repo);
+    if (refused) return { ok: false, errors: [refused] };
     try {
       repoInfo = await deps.getRepoInfo(repo);
     } catch (err) {
