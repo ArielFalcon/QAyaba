@@ -245,7 +245,8 @@ is the only engine; webhook (`src/entrypoints/webhook-handler.ts`, wired by `src
    clause, an execution of this run or a DOM fact, the orchestrator verifies the citation
    (`review-finding-filter.service.ts`; a cited or rebutted spec is resolved by `resolveCitedSpec` /
    `resolveSpecReference` in `shared-kernel/spec-path.ts`, never compared raw) and only a verified blocking finding blocks — an uncited,
-   out-of-scope or DOM-only one is advisory telemetry, never sent to the author. Every finding the filter admits gets an id
+   out-of-scope or DOM-only one is advisory telemetry, never sent to the author, and an `ambient` citation (a case that checked a
+   page only as DEV served it empty, below) is advisory once verified. Every finding the filter admits gets an id
    (`identifyFindings`): routing, the lead's numbered answers and rebuttals name a finding by it, never by its text, so two
    findings with the same text that cite two specs stay two findings. A finding that cites
    an arm of the changed code no test ran (`{"kind":"arm","ref":"<file>:<line>"}`, tagged
@@ -519,6 +520,22 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   under "Tested against a stated response, not DEV". A violation (a fulfil no explicit GET check guards, a `continue` that sets
   the method or body, a HAR replay, a handler outside the file, a spec file whose every test is stubbed) is recorded and
   listed, never a gate on the verdict. `docs/stubbed-state.md`.
+- **Ambient data state** — a passing case whose every assertion ran on a page as it loaded, before any step of the test's own,
+  on a page the Context Pack read as a confirmed empty state (`emptyConfirmed` on its own address, read with results by no read
+  of the run, never a template: `emptyConfirmedPages`, `shared-kernel/page-data-read.ts`) tests DEV's data, not the change. The
+  orchestrator finds it from the delivered specs' syntax tree and the final execution's real passes
+  (`test-execution/domain/ambient-data-state.ts`: a window opens at `page.goto(<path from the root>)` on the test's own `page`
+  fixture and stays open while every statement only reads, an assertion, a locator, a read or a wait; any other statement is a
+  step of the test's own and closes it, so an empty state the test produced stays legitimate; a computed title or address, a
+  helper navigation, a fixture other than the read-only ones, a `beforeAll` or `test.use`, a test in a loop or a condition yields
+  nothing). The fact (an ambient pin) names its pages; the change's untaken arms whose file seeds a use case on those pages are
+  attributed to the data DEV lacks there (`armsOnPinnedPages`); the reviewer may cite a pin (`{"kind":"ambient","ref":"<spec>#<title path>"}`),
+  verified against the run's pins and advisory whatever its severity (drop reason `no-ambient-fact`); each pin joins the run's one
+  gap regeneration (coverage or branch cases) as a finding on its spec, naming the places the app declares
+  (`dev.geolocation.places`) or, when it declares none, the stubbed-test route; and the PR and Issue list the pins with those arms.
+  `gateSignals.ambientDataState { cases, pages, arms }` and a `qayaba.ambient_data_state` span record it. The Context Pack states a
+  confirmed empty page as DEV's data, never an outcome to assert as it loads. A signal, never a gate: it starts no regeneration
+  and decides nothing.
 - **Step limit and milestone** — the author, lead and reviewer prompts state the cap
   their runtime enforces (facts-only `step-limit` section): one live read per run of the
   OpenCode server's resolved agents (`steps`, the deprecated `maxSteps` mapped into it; `stepLimits`

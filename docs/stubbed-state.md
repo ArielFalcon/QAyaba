@@ -60,6 +60,13 @@ would discard a green suite, while a missed violation only costs a visible line 
 detector is conservative in the direction of the record (ambiguity reads as stubbed, an unguarded fulfil
 as a violation) and the verdict never depends on it.
 
+## Where a stubbed test is asked for
+
+Besides a `needs-unavailable-state` case, the orchestrator asks for one when a passing case checked a page only as DEV served
+it confirmed empty (an ambient pin, AGENTS.md "Ambient data state"): the pin joins the run's gap regeneration as a finding on
+its spec, and when the app declares no place (`dev.geolocation.places`) where the page could have data, the finding names this
+route: a stubbed test beside the live one that states the data the page needs, so the change's handling of it is asserted.
+
 ## What is recorded
 
 - `gateSignals.stubbedState { specFiles, tests, violations?: [{ file, kind }] }`, absent when no delivered

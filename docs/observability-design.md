@@ -327,6 +327,11 @@ Rules, from the brief §2.1 and the OTel spec:
   `.outcome` (`no-flaky-case`, `no-pass`, or the correction's `accepted`/`empty`/`rejected`/`capped`), and
   `gateSignals.flakyTriage { cases, dataInstability, timing, outcome, kept?, restored? }`. Its findings carry the `flaky`
   correction origin ("passed on retry"), counted in the lead's correction budget.
+- **Ambient data state** (T38). A passing case whose every assertion ran on a page as it loaded, before any step of its own, on a
+  page the Context Pack read as a confirmed empty state is recorded at the decided end as
+  `gateSignals.ambientDataState { cases, pages, arms }` (`arms`: the untaken arms of the changed code on those pages, while the
+  measured arms describe the bytes on disk) and a `qayaba.ambient_data_state` span with `qayaba.ambient.cases`, `.pages` and `.arms`.
+  Absent when no case is pinned. Persist-only: it reads nothing back into a verdict.
 - **Impact walk.** The code-graph walks of the change run under one `WalkPolicy` (`shared-kernel/code`): depth, a
   fan-in limit (the index's own in-degree percentile with test-file callers left out, clamped to a floor and a
   ceiling) and a count of caller queries. The phase that walked records `qayaba.code_graph.walk.seeds`,
