@@ -265,8 +265,9 @@ export async function reviewRound(state: Readonly<RunState>, ctx: WorkspaceRunCo
    * The findings filter (D): only a finding that cites a contract clause, an execution or a DOM
    * fact this run can verify may block. Everything else is advisory telemetry, never sent to the
    * generator. The pre-check is the orchestrator's own deterministic evidence, so it is not a
-   * reviewer finding and is never filtered. Every finding the round admits gets its id here, and is
-   * named by it from then on.
+   * reviewer finding and is never filtered. A readable model round is judged even when it holds no
+   * finding: a rejection with no verified blocking finding does not block. Every finding the round
+   * admits gets its id here, and is named by it from then on.
    */
   let filteredReviewFindings = 0;
   let advisoryReviewFindings = 0;
@@ -275,7 +276,8 @@ export async function reviewRound(state: Readonly<RunState>, ctx: WorkspaceRunCo
   let blockingSpecs = new Map<string, string>();
   /* The round's findings as the run admitted them, each with its id. */
   let admitted: ReadonlyArray<{ readonly id: string; readonly text: string }>;
-  if (decidedBy === "model" && reviewResult.findings.length > 0) {
+  const readableModelRound = reviewResult.parsed !== false && !reviewResult.unavailable;
+  if (decidedBy === "model" && (reviewResult.findings.length > 0 || readableModelRound)) {
     const findings = reviewResult.findings;
     /* The scope and the citations meet in the suite-relative form: the spec directory an agent prefixes to a path is not part of the file's name. */
     const specRelDir = specRelDirOf(specRoot);

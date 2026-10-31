@@ -8385,6 +8385,43 @@ test("with the integrity switch on, a blocking finding that cites a spec outside
   }
 });
 
+test("a readable rejection with no findings holds no verified blocking finding, so it does not block and the run publishes", async () => {
+  const { fixtures, generate } = findingFixtures();
+  try {
+    const { ports } = stubPorts({
+      prepare: async () => fakeHandle({ specDir: fixtures.specDir, mirrorDir: fixtures.mirrorDir }),
+      execute: passPerSpec,
+      review: async () => ({ approved: false, findings: [], blockingCount: 2, rationale: "the specs look weak", parsed: true }),
+    });
+    ports.generation.author = generate;
+    const out = await new RunQaUseCase({ ...ports, config: { ...baseConfig, needsReview: true } }).run({ ...baseInput, runId: "findings-none-rejection" });
+
+    assert.equal(out.decision.verdict, "pass");
+    assert.equal(out.decision.sideEffect, "pr", "only a verified blocking finding blocks");
+    assert.equal(out.gateSignals.reviewer?.approved, true);
+  } finally {
+    fixtures.cleanup();
+  }
+});
+
+test("a reviewer answer that cannot be read stays a fail-closed parse miss, findings or none", async () => {
+  const { fixtures, generate } = findingFixtures();
+  try {
+    const { ports } = stubPorts({
+      prepare: async () => fakeHandle({ specDir: fixtures.specDir, mirrorDir: fixtures.mirrorDir }),
+      execute: passPerSpec,
+      review: async () => ({ approved: false, findings: [], blockingCount: 0, parsed: false }),
+    });
+    ports.generation.author = generate;
+    const out = await new RunQaUseCase({ ...ports, config: { ...baseConfig, needsReview: true } }).run({ ...baseInput, runId: "findings-none-parse-miss" });
+
+    assert.notEqual(out.decision.sideEffect, "pr");
+    assert.equal(out.gateSignals.reviewer?.approved, false);
+  } finally {
+    fixtures.cleanup();
+  }
+});
+
 test("a verified blocking finding on a spec this run delivered still rejects", async () => {
   const { fixtures, generate } = findingFixtures();
   try {
