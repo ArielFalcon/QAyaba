@@ -569,6 +569,7 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
       `${TOPO_TEST}/http-backend-resolver.adapter.test.ts`,
       `${TOPO_TEST}/openapi-http-resolver.adapter.test.ts`,
       "src/server/service-context.confinement.test.ts",
+      "src/server/service-context.sweep.test.ts",
       "src/server/service-context.test.ts",
     ],
     thresholds: DEFAULT_THRESHOLDS,
