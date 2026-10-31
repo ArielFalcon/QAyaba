@@ -40,7 +40,18 @@ export class NoAuthorError extends Error {
   }
 }
 
-export const FAILURE_KINDS = ["aborted", "run-deadline", "allotment", "no-author", "sandbox-unavailable", "probe-sweep", "untrusted-tree", "publication", "integration", "unknown"] as const;
+/** The reason a run whose session the app ended records on its E-PRECONDITION: recorded, never learned from, no Issue. */
+export const SESSION_LOST = "session-lost";
+
+/** A judging execution ended on the app's login page, and again once the run signed in anew (or the run could not sign in): the specs were never judged. */
+export class SessionLostError extends Error {
+  constructor(reason: string) {
+    super(reason);
+    this.name = "SessionLostError";
+  }
+}
+
+export const FAILURE_KINDS = ["aborted", "run-deadline", "allotment", "no-author", "sandbox-unavailable", "probe-sweep", "session-lost", "untrusted-tree", "publication", "integration", "unknown"] as const;
 export type FailureKind = (typeof FAILURE_KINDS)[number];
 
 /*
@@ -89,6 +100,8 @@ export const POLICY: Readonly<Record<FailureKind, Readonly<Record<StepClass, Fai
   "no-author": endFor("no-author"),
   "sandbox-unavailable": endFor("sandbox-unavailable"),
   "probe-sweep": endFor("probe-sweep-failed"),
+  /* The app ended the session the executions ran with: what they said is no judgment of the specs, so nothing they gave is kept. */
+  "session-lost": endFor("login-precondition"),
   "untrusted-tree": always(RETHROW),
   /* The verdict was decided before the port failed: the run keeps it, says the publication failed, and records the run. */
   publication: { required: RETHROW, proven: RETHROW, "off-path": RETHROW, publish: { do: "degrade", reason: "publication-failed" } },
@@ -106,6 +119,7 @@ export function classifyFailure(err: unknown): FailureKind {
   if (err instanceof Error && err.name === "SandboxUnavailableError" && (err as { reason?: unknown }).reason !== "scope") return "sandbox-unavailable";
   if (err instanceof NoAuthorError) return "no-author";
   if (err instanceof ProbeSweepError) return "probe-sweep";
+  if (err instanceof SessionLostError) return "session-lost";
   if (isUntrustedGitTreeError(err)) return "untrusted-tree";
   if (err instanceof PublicationFailedError) return "publication";
   if (isInfraError(err)) return "integration";

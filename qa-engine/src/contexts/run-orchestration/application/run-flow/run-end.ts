@@ -50,8 +50,8 @@ export type RunEnd =
   | { reason: NotedFailure; note: string }
   /** A declared no-op: a skip the run records. */
   | { reason: "generation-noop"; note: string | undefined; noop?: { kind: NoopKind }; confinement?: ConfinementTotals; closedLoop?: ClosedLoopGateSignal; agentBrowser?: AgentBrowserGateSignal }
-  /** The app's login could not be completed, on a positive piece of evidence. */
-  | { reason: "login-precondition"; generating: boolean; note: string }
+  /** The app's login could not be completed, on a positive piece of evidence; `sessionLost`: the app ended the session the run's executions ran with. */
+  | { reason: "login-precondition"; generating: boolean; note: string; sessionLost?: true }
   /** The generation delivered no specs and decided nothing; `generationEnd` names how it ended. */
   | ({ reason: "generation-ended-without-specs"; generationEnd: GenerationEndKind; note: string } & EndEvidence)
   /** No author sidekick could run: `refusal` is the code (`AUTHORING_REFUSAL`) the coordination recorded. */

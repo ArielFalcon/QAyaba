@@ -9,7 +9,7 @@ import { GENERATION_END } from "@kernel/generation-end.ts";
 import { ERROR_CLASS } from "@kernel/error-class.ts";
 import { renderAllotmentNote, renderRunDeadlineNote } from "../../domain/run-time-budget.ts";
 import type { AllotmentSpentError, RunDeadlineExceededError } from "../../../../shared-kernel/run-deadline.ts";
-import { NoAuthorError, classifyFailure } from "./failure-policy.ts";
+import { NoAuthorError, SessionLostError, classifyFailure } from "./failure-policy.ts";
 import type { EndReason } from "./end-reason.ts";
 import { runEnd, type RunEnd } from "./run-end.ts";
 import type { RunQaUseCaseDeps } from "./run-types.ts";
@@ -81,6 +81,14 @@ export function failureEnd(reason: EndReason, err: unknown, run: { deps: RunQaUs
       engineLog.error(`[qa] ${note}`);
       deps.observer?.onEvent({ type: "agent.error", detail: note });
       return runEnd("probe-sweep-failed", { note });
+    }
+    case "login-precondition": {
+      /* The app ended the run's session under its executions: recorded under E-PRECONDITION with the reason session-lost, never learned from and with no Issue, since it says nothing about the tests. */
+      if (!(err instanceof SessionLostError)) throw err;
+      const note = `The app ended the run's session (${ERROR_CLASS.PRECONDITION}, session lost): ${messageOf(err)}. The executions it cut judged nothing about the specs, so nothing was published.`;
+      engineLog.error(`[qa] ${note}`);
+      deps.observer?.onEvent({ type: "agent.error", detail: note });
+      return runEnd("login-precondition", { generating: state.classification.generating, note, sessionLost: true });
     }
     default:
       throw new Error(`no end is built for a failure that ends the run as "${reason}"`);

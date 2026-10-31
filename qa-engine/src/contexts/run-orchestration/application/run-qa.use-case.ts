@@ -404,7 +404,11 @@ export class RunQaUseCase {
       executions: () => trail.executions.signal(),
     };
     /* Every execution of the run's suite goes through the run's own port, which records the conditions it ran under. */
-    const execution = trail.executions.port(this.deps.execution);
+    const execution = trail.executions.port(this.deps.execution, async (specDir, abortSignal) => {
+      /* The run's own login, as before its first execution: it never runs while an agent authors, and a completed one tells every later execution when. */
+      const renewed = await host.prepareAuth(specDir, "pre-execute", abortSignal);
+      return !("failed" in renewed) && !("precondition" in renewed);
+    });
     /* A view, not a copy: every other dependency is read from the use case's own as it stands when a step reads it. */
     const deps = new Proxy(this.deps, { get: (target, key, receiver) => (key === "execution" ? execution : Reflect.get(target, key, receiver)) });
     return { input, signal, trail, deps, telemetry: this.telemetry, cfg, startedAt, cycleBudget, host };

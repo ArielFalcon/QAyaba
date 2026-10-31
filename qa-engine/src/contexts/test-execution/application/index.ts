@@ -36,3 +36,4 @@ export { blockedHostMatcher, installOriginsOf, resolveRunOrigins } from "../doma
 export type { RegistryGroups, RunEgressDeclaration, RunEgressOrigins } from "../domain/run-egress-origins.ts";
 export { suiteAccountFor } from "../domain/suite-account.ts";
 export type { SuiteAccountDeclaration } from "../domain/suite-account.ts";
+export { endedOnLoginWall } from "../domain/login-wall.ts";
