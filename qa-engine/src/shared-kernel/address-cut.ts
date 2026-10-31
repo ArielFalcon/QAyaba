@@ -21,6 +21,15 @@ export function cutAddress(address: string, max: number): string {
   return lastSlash > pathStart ? head.slice(0, lastSlash) : head.slice(0, pathStart + 1);
 }
 
+/* The address before the path segment that holds index `at`: the whole segments before it, never less than the origin and its root `/`, so what is left is still an address of the same origin. An address with no path is returned as it is. */
+export function segmentsBefore(address: string, at: number): string {
+  const scheme = address.indexOf("//");
+  const pathStart = scheme < 0 ? 0 : address.indexOf("/", scheme + 2);
+  if (pathStart < 0) return address;
+  const slash = address.lastIndexOf("/", at);
+  return slash > pathStart ? address.slice(0, slash) : address.slice(0, pathStart + 1);
+}
+
 /*
  * An address a producer outside the orchestrator may have cut at `bound` (a sandboxed child slices it there and cannot redact):
  * one whose length reached the bound is read as cut, and its trailing segment, which may be part of a secret, is dropped. An address

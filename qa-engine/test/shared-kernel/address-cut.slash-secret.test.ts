@@ -101,3 +101,54 @@ test("the request ledger redacts an address by value before it cuts it, so a sec
     assert.ok(!answer.includes(HEAD.slice(0, 8)), `inside=${inside}: ${answer}`);
   }
 });
+
+/* A session value is any cookie or storage value the run holds: an app keeps URLs and paths there, and their beginnings are ordinary path segments. */
+const withSession = <T>(values: string[], fn: () => T): T => {
+  const scope = createRunSecretScope();
+  scope.addSessionValues(values);
+  return withRunSecretScope(scope, fn);
+};
+
+test("an address a producer cut keeps its origin and root when a value of the run begins inside it, so it is still read and counted", async () => {
+  const value = `${ORIGIN}/orders/42`;
+  const cut = seedCut(`${ORIGIN}/orders/${"0123456789abcdef".repeat(19)}/lines`);
+  const kept = withSession([value, "dev.example.test/orders/42"], () => addressOfProducerCut(cut, PRODUCER_ADDRESS_CHARS));
+  assert.equal(new URL(kept).origin, ORIGIN, kept);
+  const root = mkdtempSync(join(tmpdir(), "qa-slash-secret-"));
+  try {
+    const dumps = join(root, "dumps");
+    mkdirSync(dumps);
+    writeFileSync(join(dumps, "ledger-0-1.json"), JSON.stringify({ v: 2, writes: 1, pending: 0, done: true, project: "desktop", requests: [{ method: "DELETE", url: cut, sender: "page", count: 1 }] }));
+    const deps = { allocateFailureDir: () => ({ dir: dumps, root, dispose: () => {} }), runSuite: async () => ({ report: { stats: { expected: 1 }, suites: [] }, logs: "ok", ran: true }) } as unknown as E2eExecuteDeps;
+    const run = await withSession([value], () => runE2E("/dir", { baseUrl: ORIGIN, namespace: "ns", countWrites: true }, deps));
+    assert.equal(run.devWrites, 1, "the ledger is read");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("a value that begins at a slash drops only its own segments: the whole segments before it stay, and distinct endpoints stay apart", () => {
+  const seven = seedCut(`${ORIGIN}/customers/7/orders/${"f".repeat(290)}`);
+  const eight = seedCut(`${ORIGIN}/customers/8/orders/${"f".repeat(290)}`);
+  const [a, b] = withSession(["/orders/42"], () => [addressOfProducerCut(seven, PRODUCER_ADDRESS_CHARS), addressOfProducerCut(eight, PRODUCER_ADDRESS_CHARS)]);
+  assert.equal(a, `${ORIGIN}/customers/7`);
+  assert.equal(b, `${ORIGIN}/customers/8`);
+  const secret = `/${HEAD}/Hy6cBd3fGj7sTu5a`;
+  const scope = createRunSecretScope();
+  scope.addAccountSecrets([secret]);
+  const cut = seedCut(`${ORIGIN}/a/b/${"c".repeat(250)}/x/${HEAD}/Hy6cBd3fGj7sTu5a/close`);
+  const kept = withRunSecretScope(scope, () => addressOfProducerCut(cut, PRODUCER_ADDRESS_CHARS));
+  assert.ok(kept.endsWith("/x"), kept);
+});
+
+test("an address over the ledger's bound whose redaction fits it still loses its trailing segment, which a producer's own cut may have split", () => {
+  const value = "plain-session-value-".repeat(25);
+  const raw = `${ORIGIN}/p/${value}/q/${value.slice(0, 300)}`;
+  const kept = withSession([value], () => {
+    const ledger = new RequestLedger();
+    ledger.addListed("GET", raw, false, 1);
+    return JSON.stringify(ledger.drain());
+  });
+  assert.ok(!kept.includes(value.slice(0, 40)), kept);
+  assert.match(kept, /\/p\/\[REDACTED\]/);
+});
