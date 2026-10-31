@@ -40,6 +40,8 @@ export interface ApiDeps {
   enqueue(request: ApiRunRequest): string;
   loadApp(name: string): AppConfig;  /* throws AppNotFoundError when the app has no config and AppConfigInvalidError when its config cannot be loaded */
   listApps(): AppConfig[];
+  /* The apps whose config file did not load (file and reason), for GET /health. Absent ⇒ /health omits the list. */
+  notLoadedApps?(): { readonly app: string; readonly file: string; readonly reason: string }[];
   resolveRef(repo: string, ref: string): Promise<string>;
   getRecord(id: string): RunRecord | undefined;
   listRecords(app: string, limit: number): RunRecord[];

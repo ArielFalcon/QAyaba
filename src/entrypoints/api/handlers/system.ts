@@ -10,6 +10,7 @@ import { handshake } from "../../version";
 import { ApiError } from "../api-error";
 import type { ApiContext } from "../context";
 import { reply, type ApiResult } from "../respond";
+import { redactionPort } from "../support";
 
 export function health(ctx: ApiContext): ApiResult {
   const { deps } = ctx;
@@ -24,10 +25,13 @@ export function health(ctx: ApiContext): ApiResult {
   } catch {
     backends = undefined;
   }
+  /* Still 200 when an app did not load: the container stays up for the operator to read which app is not watched, and why. The reason names a key and a rule, redacted like any line that leaves the process. */
+  const notLoaded = deps.notLoadedApps?.();
   return reply.json(200, {
     ok: true,
     openSessions: getOpenSessionCount(),
     sandbox,
+    ...(notLoaded ? { apps: { notLoaded: notLoaded.map((entry) => ({ app: entry.app, file: entry.file, reason: redactionPort.redact(entry.reason) })) } } : {}),
     ...(telemetry ? { telemetry: { mode: telemetry.mode, ledgerOk: telemetry.ledger.ok, otlpConfigured: telemetry.otlp.configured, ...(backends ? { backendsOk: backends.ok } : {}) } } : {}),
   });
 }

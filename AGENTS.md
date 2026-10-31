@@ -546,7 +546,7 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   `QA_RUN_TIME_BUDGET_MS_DIFF_TINY|DIFF_FOCUSED|DIFF_BROAD` are read for one more release with a warning each (the new name when
   set, else the largest of the old values set). The use case arms it once after classification
   (`RunDeadlinePort.arm`), so a classify-skip spends no agent time; it counts from there, so the deploy-gate wait is
-  not on it. The app-config key `qa.wallClockBudgetMs` is retired (the loader warns and ignores it).
+  not on it. The app-config key `qa.wallClockBudgetMs` is retired (the schema refuses it, with this advice).
   **Allotment by purpose**: the deadline allots time by purpose (`shared-kernel/deadline-purpose.ts`: ground, generate,
   validate, execute, fix, coverage, review, decide, the run's phases in order), and `allowance(purpose)` is the time left less
   the reserve held for the purposes after it. A consumer asks with its purpose (an `allowance()` without one is the purpose of
@@ -704,7 +704,7 @@ test, and the verdict is its last action.
 - The suite's source of truth is **git** (app repo `e2e/`). Run history
   (`qayaba-data` volume) is the only non-regenerable data; Serena index and mirrors are caches.
 - The history database carries a schema version (`PRAGMA user_version`). Opening never prunes; retention (`pruneHistory`) runs at boot and every 24 h. A file that does not match schema 1 is refused at start with `history database at <path> predates schema 1 and cannot be adopted; remove or move it aside`; nothing deletes it.
-- Onboarding an app = `config/apps/<app>.yaml` + `.env`. `${VARS}` expand from the env. The schema is not strict: a key it does not declare is dropped and the default applies, and the loader logs one warning per process for each such key, naming the app and the key path and never the value (`src/composition/config-loader.ts`), so a typo of a threshold key is visible.
+- Onboarding an app = `config/apps/<app>.yaml` + `.env`. `${VARS}` expand from the env. The schema is strict at every level (`qa-engine/src/contexts/app-catalog/application/app-config.schema.ts`): an unknown key, a retired key and a retired value (each with the advice to use instead) are validation errors, never dropped, so a typo cannot fall back to a default. A file that fails validation is skipped, the other apps still load: the loader logs an `error` line naming the file, the key path and the reason (once per reason per process, never a value), and `GET /api/health` lists the app under `apps.notLoaded` with its file and reason (`scanAppConfigs`, `src/composition/config-loader.ts`). A caller that names a skipped app gets `AppConfigInvalidError` (a 422 on the API); the list-based callers (webhook dispatch, mirror prune, metrics) do not see it.
 - **Suite store** (`qa-engine/src/contexts/workspace-and-publication/infrastructure/suite-store.adapter.ts`,
   `data/suites/<app>/` in the qayaba-data volume, never mounted into the agents container): the accepted
   suite of an app that git does not hold yet. Shadow mode never publishes and a PR may not be merged

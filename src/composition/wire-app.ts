@@ -7,7 +7,7 @@ import { qayabaDataDir, qayabaRoot } from "../settings/paths";
 import { randomBytes } from "node:crypto";
 import { writeFileSync, readFileSync, rmSync, unlinkSync, existsSync } from "node:fs";
 import { JobQueue } from "../entrypoints/queue";
-import { describeAppLoadFailure, loadAppConfig, listAppConfigs } from "./config-loader";
+import { describeAppLoadFailure, loadAppConfig, listAppConfigs, scanAppConfigs } from "./config-loader";
 
 import { YamlAppConfigAdapter } from "../../qa-engine/src/contexts/app-catalog/infrastructure/yaml-app-config.adapter";
 import { routeApi } from "../entrypoints/api";
@@ -637,6 +637,7 @@ export function wireApp(settingsStore: SettingsStore): WiredApp {
     enqueue: enqueueApiRun,
     loadApp: (name) => loadAppConfig(name),
     listApps: () => listAppConfigs(),
+    notLoadedApps: () => scanAppConfigs().notLoaded,
     createApp: (input) => adminCreateApp(input, appAdminDeps),
     updateApp: (input) => adminUpdateApp(input, appAdminDeps),
     deleteApp: (name, purge) => adminDeleteApp(name, purge, appAdminDeps),

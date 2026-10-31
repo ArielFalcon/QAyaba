@@ -720,6 +720,34 @@ test("GET /api/health carries a telemetry summary without secrets, and omits it 
   assert.equal(JSON.parse(bare.body).telemetry, undefined);
 });
 
+test("GET /api/health lists every app whose config did not load with its file and reason, and still answers 200", async () => {
+  const notLoaded = [
+    { app: "typo", file: "config/apps/typo.yaml", reason: "unknown key 'qa.typo_key': the schema does not declare it" },
+    { app: "old", file: "config/apps/old.yaml", reason: "retired key 'qa.valueOracle': use 'qa.changeCoverage.bundleMutation' instead" },
+  ];
+  const res = mkRes();
+  await routeApi(mkReq("GET", "/api/health"), res, deps({ notLoadedApps: () => notLoaded }));
+  assert.equal(res.status, 200);
+  const body = JSON.parse(res.body);
+  assert.equal(body.ok, true);
+  assert.deepEqual(body.apps, { notLoaded });
+});
+
+test("GET /api/health says no app is missing when every config loaded, and omits the list when it is not wired", async () => {
+  const none = mkRes();
+  await routeApi(mkReq("GET", "/api/health"), none, deps({ notLoadedApps: () => [] }));
+  assert.deepEqual(JSON.parse(none.body).apps, { notLoaded: [] });
+  const bare = mkRes();
+  await routeApi(mkReq("GET", "/api/health"), bare, deps());
+  assert.equal(JSON.parse(bare.body).apps, undefined);
+});
+
+test("GET /api/health keeps the reason of a not-loaded app free of anything the log redaction removes", async () => {
+  const res = mkRes();
+  await routeApi(mkReq("GET", "/api/health"), res, deps({ notLoadedApps: () => [{ app: "a", file: "config/apps/a.yaml", reason: "dev.baseUrl: bad token ghp_abcdefghijklmnopqrstuvwxyz0123456789ab" }] }));
+  assert.ok(!res.body.includes("ghp_abcdefghijklmnopqrstuvwxyz0123456789ab"));
+});
+
 const backendEntry = { status: "ok" as const, checkedAt: "2026-10-25T12:00:00.000Z" };
 const downBackends = {
   ok: false,
