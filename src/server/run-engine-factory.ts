@@ -81,7 +81,7 @@ import type { RunMode } from "@kernel/run-mode";
 
 import { GitMirrorReadAdapter } from "@contexts/change-analysis/infrastructure/git-mirror-read.adapter";
 import type { ChangeSet, VcsReadPort } from "@contexts/change-analysis/application/index";
-import { GenerateTestsUseCase } from "@contexts/generation/application/index";
+import { GenerateTestsUseCase, stepIntentContextFor } from "@contexts/generation/application/index";
 import { AgentRuntimeAdapter } from "@contexts/generation/infrastructure/agent-runtime.adapter";
 import { RunDeadline } from "@contexts/run-orchestration/application/index";
 import type { ArchitectureContext } from "@contexts/generation/application/index.ts";
@@ -94,7 +94,6 @@ import { agentTurnTraces } from "@contexts/generation/infrastructure/telemetry/t
 import type { StepIntentContext } from "@contexts/generation/application/index";
 import { watchSpanForHost } from "../telemetry/host-listeners";
 import { SYSTEM_CLOCK } from "./run-trace";
-import { stepIntentContextFor } from "./turn-telemetry-config";
 import { resolveRunTimeBudgets } from "@contexts/run-orchestration/application/index";
 import { RunDeadlineRuntime } from "@contexts/run-orchestration/infrastructure/run-deadline-runtime.adapter";
 import { RunRoundRuntime } from "@contexts/run-orchestration/infrastructure/run-round-runtime.adapter";

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { stepIntentContextFor } from "./turn-telemetry-config";
+import { stepIntentContextFor } from "@contexts/generation/domain/step-intent-context.ts";
 
 test("an e2e app's tests are written in its suite directory and its login is the declared path on its own origin", () => {
   const ctx = stepIntentContextFor({ e2eRelDir: "e2e", baseUrl: "https://dev.shop.example", loginPath: "/signin", reviewAgents: ["qa-reviewer"] });

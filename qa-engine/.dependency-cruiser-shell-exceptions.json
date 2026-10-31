@@ -24,7 +24,6 @@
   "src/server/spec-snapshot.test.ts",
   "src/server/tools-endpoint.test.ts",
   "src/server/tools-endpoint.ts",
-  "src/server/turn-telemetry-config.ts",
   "src/server/webhook-routing.test.ts",
   "src/server/wire-app.ts",
   "src/telemetry/agent-turn-trace.test.ts",

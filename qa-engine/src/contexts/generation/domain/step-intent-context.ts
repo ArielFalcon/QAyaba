@@ -1,10 +1,12 @@
 /*
  * What classifies an agent step for a run's trace, built from the app's own configuration and nothing else: where its tests are
  * written, which file and which addresses are its login, and which agents judge instead of author. Never from a name, a stack or
- * a model. The engine's classifiers (qa-engine/.../domain/step-intent.ts, nav-outcome.ts) are pure functions of this context.
+ * a model. The classifiers (step-intent.ts, nav-outcome.ts) are pure functions of this context.
  */
-import type { StepIntentContext } from "@contexts/generation/application/index";
-import { AUTH_SETUP_PATH } from "@contexts/workspace-and-publication/infrastructure/suite-store.adapter";
+import type { StepIntentContext } from "./step-intent.ts";
+
+/* The app's login script, relative to its suite directory. */
+export const LOGIN_SCRIPT_FILE = "auth.setup.ts";
 
 export interface StepIntentConfigInput {
   /* The suite directory, relative to the working copy. */
@@ -29,7 +31,7 @@ export function stepIntentContextFor(input: StepIntentConfigInput): StepIntentCo
   const app = input.baseUrl !== undefined ? absolute("/", input.baseUrl) : undefined;
   return {
     specTargets: { kind: "dir", relDir: input.e2eRelDir },
-    authFiles: [`${input.e2eRelDir}/${AUTH_SETUP_PATH}`],
+    authFiles: [`${input.e2eRelDir}/${LOGIN_SCRIPT_FILE}`],
     loginUrls: login ? [login.href] : [],
     /* A login on an origin of its own: every page there is a login step. */
     authOnlyOrigins: login && app && login.origin !== app.origin ? [login.origin] : [],

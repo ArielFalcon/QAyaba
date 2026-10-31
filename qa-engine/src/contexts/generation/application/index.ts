@@ -55,6 +55,8 @@ export { isPageOfTemplate } from "../domain/route-instantiation.ts";
 export { ROUTE_LINK_FIELDS } from "../domain/route-ranking.ts";
 export { finalStepText } from "../domain/step-exhaustion.ts";
 export type { StepIntentContext } from "../domain/step-intent.ts";
+export { stepIntentContextFor } from "../domain/step-intent-context.ts";
+export type { StepIntentConfigInput } from "../domain/step-intent-context.ts";
 export { STEP_MILESTONE_SECTION_ID, isTestWritingTurn } from "../domain/step-limit.ts";
 export type { MilestoneOutcome } from "../domain/step-limit.ts";
 export { everyDeliveredLine } from "../domain/suite-listing-render.ts";
