@@ -661,7 +661,6 @@
   "src/server/sandbox-health.test.ts": 1,
   "src/server/seam-parity.contract.test.ts": 66,
   "src/server/service-context.confinement.test.ts": 538,
-  "src/server/service-context.test.ts": 6,
   "src/server/shutdown.test.ts": 33,
   "src/server/signals-view.test.ts": 0,
   "src/server/spec-snapshot.test.ts": 82,
@@ -710,5 +709,7 @@
   "src/telemetry/validate-trace.test.ts": 2,
   "src/types.test.ts": 1,
   "src/util/sleep.test.ts": 52,
-  "qa-engine/test/contexts/run-orchestration/infrastructure/static-prompt-hash.test.ts": 3
+  "qa-engine/test/contexts/run-orchestration/infrastructure/static-prompt-hash.test.ts": 3,
+  "qa-engine/test/contexts/service-topology/application/stage-service-context.test.ts": 6,
+  "src/server/service-context.sweep.test.ts": 0
 }

@@ -5,7 +5,8 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { stageServiceContext, serviceContextDir, defaultStageDeps, type ServiceContextManifest, type StageDeps } from "./service-context";
+import { stageServiceContext, serviceContextDir, type ServiceContextManifest, type ServiceContextStagingPort } from "@contexts/service-topology/application/index";
+import { defaultStageDeps } from "./service-context";
 
 const CLOCK = 1_700_000_000_000;
 const STAMP = new Date(CLOCK).toISOString();
@@ -55,7 +56,7 @@ async function withService(files: Record<string, string | Buffer>, run: (s: Serv
   }
 }
 
-const deps: StageDeps = { ...defaultStageDeps, now: () => CLOCK };
+const deps: ServiceContextStagingPort = { ...defaultStageDeps, now: () => CLOCK };
 const stage = (s: Service, extra: { sha?: string; openapi?: string | string[] } = {}) =>
   stageServiceContext({ workingCopyDir: s.front, service: { repo: "org/svc", mirrorDir: s.svc, ...(extra.openapi ? { openapi: extra.openapi } : {}) }, ...(extra.sha ? { sha: extra.sha } : {}) }, deps);
 const manifestOf = (path: string): ServiceContextManifest => JSON.parse(readFileSync(path, "utf8")) as ServiceContextManifest;

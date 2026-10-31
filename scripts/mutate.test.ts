@@ -326,6 +326,7 @@ test("the repo-reads preset mutates the reader of a repository's files, the line
     "qa-engine/src/contexts/service-topology/infrastructure/event-resolver.adapter.ts",
     "qa-engine/src/contexts/service-topology/infrastructure/http-backend-resolver.adapter.ts",
     "qa-engine/src/contexts/service-topology/infrastructure/openapi-http-resolver.adapter.ts",
+    "qa-engine/src/contexts/service-topology/application/stage-service-context.ts",
     "src/server/service-context.ts",
   ]);
   assert.ok(
@@ -338,8 +339,9 @@ test("the repo-reads preset mutates the reader of a repository's files, the line
     "infrastructure/event-resolver.adapter.test.ts",
     "infrastructure/http-backend-resolver.adapter.test.ts",
     "infrastructure/openapi-http-resolver.adapter.test.ts",
+    "application/stage-service-context.test.ts",
     "server/service-context.confinement.test.ts",
-    "server/service-context.test.ts",
+    "server/service-context.sweep.test.ts",
   ]) {
     assert.ok(preset.tests.some((t) => t.endsWith(tests)), `${tests} runs against every mutant`);
   }

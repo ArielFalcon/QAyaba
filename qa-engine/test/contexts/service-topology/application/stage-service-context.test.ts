@@ -1,21 +1,21 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { UntrustedGitTreeError } from "@kernel/domain-error";
-import { stageServiceContext, serviceContextDir, type StageDeps, type ServiceContextManifest } from "./service-context";
+import { UntrustedGitTreeError } from "@kernel/domain-error.ts";
+import { stageServiceContext, serviceContextDir, type ServiceContextStagingPort, type ServiceContextManifest } from "@contexts/service-topology/application/index.ts";
 
-/* ── in-memory fake StageDeps ────────────────────────────────────────────────
+/* ── in-memory fake ServiceContextStagingPort ────────────────────────────────────────────────
    No real disk/git touched: `files` seeds the SOURCE mirror content, `written`/`removed`
    record what the pure logic did, so every test is deterministic and fast.
  */
 function fakeDeps(
   files: Record<string, string | Buffer>,
-  overrides: Partial<StageDeps> = {},
-): StageDeps & { written: Record<string, Buffer>; removed: string[]; gitCalls: Array<{ args: string[]; cwd?: string }> } {
+  overrides: Partial<ServiceContextStagingPort> = {},
+): ServiceContextStagingPort & { written: Record<string, Buffer>; removed: string[]; gitCalls: Array<{ args: string[]; cwd?: string }> } {
   const written: Record<string, Buffer> = {};
   const removed: string[] = [];
   const dirs = new Set<string>();
   const gitCalls: Array<{ args: string[]; cwd?: string }> = [];
-  const deps: StageDeps & { written: Record<string, Buffer>; removed: string[]; gitCalls: typeof gitCalls } = {
+  const deps: ServiceContextStagingPort & { written: Record<string, Buffer>; removed: string[]; gitCalls: typeof gitCalls } = {
     written,
     removed,
     gitCalls,
@@ -39,7 +39,7 @@ function fakeDeps(
     readFile: (p) => {
       const v = files[p];
       if (v === undefined) throw new Error(`ENOENT: ${p}`);
-      return Buffer.isBuffer(v) ? v : Buffer.from(v);
+      return { bytes: Buffer.isBuffer(v) ? v : Buffer.from(v) };
     },
     writeFile: (p, data) => {
       written[p] = Buffer.isBuffer(data) ? data : Buffer.from(data);
@@ -310,4 +310,41 @@ test("manifest.json carries stagedAt from the injected clock, not a direct Date.
   );
   const manifest = readManifest(deps, result.dir);
   assert.equal(manifest.stagedAt, new Date(42).toISOString());
+});
+
+test("a read the strict calls refuse is omitted as refused with their reason, any other read failure as unreadable, and the staging goes on with the rest", async () => {
+  const dir = "/work/front";
+  const mirror = "/mirrors/svc";
+  const files: Record<string, string> = { [`${mirror}/openapi.yaml`]: "openapi: 3.0.3\n", [`${mirror}/openapi.json`]: "{}", [`${mirror}/swagger.yaml`]: "swagger: '2.0'\n" };
+  const deps = fakeDeps(files, {
+    readFile: (p) => {
+      if (p.endsWith("openapi.yaml")) return { refused: "the file is a symbolic link or not a regular file" };
+      if (p.endsWith("openapi.json")) throw new Error("EIO: input/output error");
+      return { bytes: Buffer.from(files[p]!) };
+    },
+  });
+
+  await stageServiceContext({ workingCopyDir: dir, service: { repo: "org/svc", mirrorDir: mirror } }, deps);
+
+  const manifest = readManifest(deps, serviceContextDir(dir, "org/svc"));
+  assert.deepEqual(manifest.contracts, ["swagger.yaml"]);
+  assert.deepEqual(manifest.omitted, [
+    { path: "openapi.yaml", reason: "refused: the file is a symbolic link or not a regular file" },
+    { path: "openapi.json", reason: "unreadable: EIO: input/output error" },
+  ]);
+});
+
+test("every read is asked for with the per-file cap, so the strict read refuses a file over it before its bytes are held", async () => {
+  const mirror = "/mirrors/svc";
+  const asked: number[] = [];
+  const deps = fakeDeps({ [`${mirror}/openapi.yaml`]: "openapi: 3.0.3\n" }, {
+    readFile: (p, _root, maxBytes) => {
+      asked.push(maxBytes);
+      return { bytes: Buffer.from("openapi: 3.0.3\n") };
+    },
+  });
+
+  await stageServiceContext({ workingCopyDir: "/work/front", service: { repo: "org/svc", mirrorDir: mirror } }, deps);
+
+  assert.deepEqual(asked, [512 * 1024]);
 });

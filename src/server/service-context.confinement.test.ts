@@ -5,7 +5,8 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { stageServiceContext, serviceContextDir, defaultStageDeps, type ServiceContextManifest, type StageDeps } from "./service-context";
+import { stageServiceContext, serviceContextDir, type ServiceContextManifest, type ServiceContextStagingPort } from "@contexts/service-topology/application/index";
+import { defaultStageDeps } from "./service-context";
 import { ConfinedPathError } from "../../qa-engine/src/shared-infrastructure/spec-path-confinement";
 import { withoutWaitingOnNamedPipe } from "../../qa-engine/test/support/named-pipe-watch";
 
@@ -66,13 +67,13 @@ async function withFixture(files: Record<string, string>, run: (f: Fixture, sha:
 }
 
 /* The real strict calls over a git that reports the fixture's commit. */
-const depsOf = (f: Fixture, overrides: Partial<StageDeps> = {}): StageDeps => ({
+const depsOf = (f: Fixture, overrides: Partial<ServiceContextStagingPort> = {}): ServiceContextStagingPort => ({
   ...defaultStageDeps,
   git: async (args: string[]) => (args.includes("--name-only") ? `${f.committed.join("\n")}\n` : "a patch\n"),
   ...overrides,
 });
 
-const stage = (f: Fixture, sha?: string, deps: StageDeps = depsOf(f)) => stageServiceContext({ workingCopyDir: f.front, service: { repo: "org/svc", mirrorDir: f.svc }, ...(sha ? { sha } : {}) }, deps);
+const stage = (f: Fixture, sha?: string, deps: ServiceContextStagingPort = depsOf(f)) => stageServiceContext({ workingCopyDir: f.front, service: { repo: "org/svc", mirrorDir: f.svc }, ...(sha ? { sha } : {}) }, deps);
 const manifestOf = (path: string): ServiceContextManifest => JSON.parse(readFileSync(path, "utf8")) as ServiceContextManifest;
 const stagedDir = (f: Fixture): string => serviceContextDir(f.front, "org/svc");
 

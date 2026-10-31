@@ -158,7 +158,8 @@ import type { EffectiveConfig, GroundingInput } from "../contract/commands";
 import { requireEnv } from "../util/env";
 import { RedactionPortAdapter, redactSourceForModel } from "../orchestrator/sanitizer";
 import { ensureMirror, ensureMirrorAtBranch, defaultMirrorDeps, workdirRoot, realGit, authHeaderArgs, hardenGitArgs, assertTrustedGitTree } from "../integrations/repo-mirror";
-import { stageServiceContext, serviceContextDir } from "./service-context";
+import { stageServiceContext, serviceContextDir, type StageServiceContextInput, type StagedServiceContext } from "@contexts/service-topology/application/index";
+import { defaultStageDeps } from "./service-context";
 import { SqliteRunHistoryAdapter } from "./run-history-sqlite-adapter";
 import type { RunFreeze } from "./run-freeze";
 import { SqliteLessonStoreAdapter } from "./lesson-store-sqlite-adapter";
@@ -344,7 +345,7 @@ export interface RunEngineFactoryDeps {
     ensureMirrorAtBranch: typeof ensureMirrorAtBranch;
   };
   /* Test seam: inject a spy/no-op for service-context staging instead of real disk/git. */
-  stageServiceContext?: typeof stageServiceContext;
+  stageServiceContext?: (input: StageServiceContextInput) => Promise<StagedServiceContext>;
   /*
    * The process-audit context-heal's REBUILD side: enqueue a `mode: context` run of `app` at `sha`
    * and return its run id, or "" when the queue refuses new work. Called when a run sees the
@@ -730,7 +731,7 @@ export function buildEngineRootDeps(
    */
   const mirror = deps.mirror ?? { ensureMirror, ensureMirrorAtBranch };
   /* Defaults to the real stageServiceContext in production. */
-  const stage = deps.stageServiceContext ?? stageServiceContext;
+  const stage = deps.stageServiceContext ?? ((input: StageServiceContextInput) => stageServiceContext(input, defaultStageDeps));
 
 
   const branch = namespace;

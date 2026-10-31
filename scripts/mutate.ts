@@ -85,6 +85,8 @@ const OS_INFRA = "qa-engine/src/contexts/objective-signal/infrastructure";
 const OS_INFRA_TEST = "qa-engine/test/contexts/objective-signal/infrastructure";
 const TOPO = "qa-engine/src/contexts/service-topology/infrastructure";
 const TOPO_TEST = "qa-engine/test/contexts/service-topology/infrastructure";
+const TOPO_APP = "qa-engine/src/contexts/service-topology/application";
+const TOPO_APP_TEST = "qa-engine/test/contexts/service-topology/application";
 const TE = "qa-engine/src/contexts/test-execution";
 const TE_TEST = "qa-engine/test/contexts/test-execution";
 
@@ -554,12 +556,12 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
       `${TOPO}/http-backend-resolver.adapter.ts@reader-warning`,
       `${TOPO}/openapi-http-resolver.adapter.ts@system-scan`,
       /* The staging: the reset of the directory, what is staged and what is read, the listing, the manifest and the default strict calls. */
-      "src/server/service-context.ts@reset-staging-dir",
-      "src/server/service-context.ts@destination-path",
-      "src/server/service-context.ts@source-read",
-      "src/server/service-context.ts@list-candidate-contracts",
-      "src/server/service-context.ts@patch-read",
-      "src/server/service-context.ts@manifest-write",
+      `${TOPO_APP}/stage-service-context.ts@reset-staging-dir`,
+      `${TOPO_APP}/stage-service-context.ts@destination-path`,
+      `${TOPO_APP}/stage-service-context.ts@source-read`,
+      `${TOPO_APP}/stage-service-context.ts@list-candidate-contracts`,
+      `${TOPO_APP}/stage-service-context.ts@patch-read`,
+      `${TOPO_APP}/stage-service-context.ts@manifest-write`,
       "src/server/service-context.ts@sweep-skip-dirs",
     ],
     tests: [
@@ -568,9 +570,9 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
       `${TOPO_TEST}/event-resolver.adapter.test.ts`,
       `${TOPO_TEST}/http-backend-resolver.adapter.test.ts`,
       `${TOPO_TEST}/openapi-http-resolver.adapter.test.ts`,
+      `${TOPO_APP_TEST}/stage-service-context.test.ts`,
       "src/server/service-context.confinement.test.ts",
       "src/server/service-context.sweep.test.ts",
-      "src/server/service-context.test.ts",
     ],
     thresholds: DEFAULT_THRESHOLDS,
   },
