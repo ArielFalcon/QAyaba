@@ -43,8 +43,8 @@ function treeWithSrcImportViolation(): string {
   const files: Record<string, string> = {
     "tsconfig.json": tsconfig,
     "qa-engine/tsconfig.json": tsconfig,
-    "src/types.ts": "export type TestTarget = string;\n",
-    "qa-engine/src/leaky-module.ts": 'import type { TestTarget } from "../../src/types.ts";\nexport type Probe = TestTarget;\n',
+    "src/persistence/types.ts": "export type TestTarget = string;\n",
+    "qa-engine/src/leaky-module.ts": 'import type { TestTarget } from "../../src/persistence/types.ts";\nexport type Probe = TestTarget;\n',
   };
   for (const [rel, content] of Object.entries(files)) {
     mkdirSync(dirname(join(treeRoot, rel)), { recursive: true });

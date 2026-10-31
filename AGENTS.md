@@ -112,8 +112,8 @@ Keep the two rigorously separate.
   error answers `{ schemaVersion: 1, error }`; a known path with an unsupported method answers 405.
 - **Provider I/O edges** (rows 6 and 4) — `src/integrations/opencode-client.ts` (raw SDK primitives
   only) and `src/agent-runtime/*` (provider-agnostic facade + the OpenCode strategy).
-- **Persistence** (rows 6 and 4) — `src/server/persistence/` (schema, migrations, repositories) behind `getHistory()`, and
-  `src/server/run-history-sqlite-adapter.ts`.
+- **Persistence** (rows 6 and 4) — `src/persistence/` (schema, migrations, repositories) behind `getHistory()`, and
+  `src/persistence/run-history-sqlite-adapter.ts`.
 
 Seams are pinned by `src/server/seam-parity.contract.test.ts`.
 

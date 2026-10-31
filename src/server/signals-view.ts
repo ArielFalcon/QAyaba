@@ -1,5 +1,5 @@
 import type { CoordinationSignals } from "../contract/commands";
-import type { RunRecord, RunOutcome } from "../types";
+import type { RunRecord, RunOutcome } from "../persistence/types";
 
 /*
  * toSignalsView aggregates per-app integrity data into the fleet-wide readout the

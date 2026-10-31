@@ -12,7 +12,7 @@ import { GENERATION_END } from "@kernel/generation-end";
 import { wireEngine, type EngineRootDeps } from "./engine-root";
 import { ConfinedPathError } from "../../qa-engine/src/shared-infrastructure/spec-path-confinement";
 
-import { type RunHistorySqliteAdapterDeps, SqliteRunHistoryAdapter } from "./run-history-sqlite-adapter";
+import { type RunHistorySqliteAdapterDeps, SqliteRunHistoryAdapter } from "../persistence/run-history-sqlite-adapter";
 import { buildEngineRootDeps, type RunEngineFactoryDeps } from "./run-engine-factory";
 import type { AppConfig } from "../orchestrator/config-loader";
 import type { AgentDeps } from "../integrations/opencode-client";

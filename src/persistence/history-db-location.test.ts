@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { getHistory } from "./persistence/index";
+import { getHistory } from "./index";
 
 /* The history store opens lazily on first use and resolves its location then, so this file (its own
    process) points HISTORY_DB_PATH into a directory that does not exist yet, and QAYABA_ROOT at an

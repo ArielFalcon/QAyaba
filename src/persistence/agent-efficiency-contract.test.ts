@@ -5,8 +5,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { AgentTurnViewSchema } from "../contract/commands";
 import type { AgentTurnEvent } from "@contexts/generation/infrastructure/agent-transport-policy";
-import type { RunOutcome } from "../types";
-import { getHistory } from "./persistence/index";
+import type { RunOutcome } from "./types";
+import { getHistory } from "./index";
 
 function turnEvent(runId: string, overrides: Partial<AgentTurnEvent> = {}): AgentTurnEvent {
   return {

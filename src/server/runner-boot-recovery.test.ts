@@ -6,7 +6,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { finalizeInterruptedRuns } from "./runner";
 import { createDurableRunEventStore } from "./durable-run-events";
-import { getHistory } from "./persistence/index";
+import { getHistory } from "../persistence/index";
 import { installLogShipper, type ShippedLine } from "../integrations/redacting-logger";
 
 test("a run interrupted by a restart is finalized and its event stream ends with a verdict a resuming client sees", () => {

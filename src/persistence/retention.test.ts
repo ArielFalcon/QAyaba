@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openHistoryDatabase, type HistoryDatabase } from "./database";
-import { loadSettings } from "../../settings/settings";
+import { loadSettings } from "../settings/settings";
 import { DELETE_MAX_AGE_DAYS, pruneHistory, retentionPolicyFrom, type RetentionPolicy } from "./retention";
 import { getHistory, getHistoryDatabase } from "./index";
 

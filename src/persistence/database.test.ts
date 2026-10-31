@@ -167,7 +167,7 @@ test("a migration that throws rolls back: the version stays and the tables it cr
   };
 
   assert.throws(() => openHistoryDatabase(path, { migrations: [failing] }), (error: Error) => {
-    assert.match(error.message, /migration 1 \(src\/server\/persistence\/migrations\/0001-failing\.ts\) failed/);
+    assert.match(error.message, /migration 1 \(src\/persistence\/migrations\/0001-failing\.ts\) failed/);
     assert.match(error.message, /boom/);
     return true;
   });

@@ -5,11 +5,11 @@
 
 import { RUN_PHASES } from "@kernel/run-step";
 import type { RunDetail, RunRecord } from "../contract/commands";
-import { HistoryEvidenceAdapter } from "./evaluation-evidence";
-import type { AgentRoleFacts, AgentTurnRecord } from "./persistence/repositories/telemetry.repository";
+import { HistoryEvidenceAdapter } from "../persistence/evaluation-evidence";
+import type { AgentRoleFacts, AgentTurnRecord } from "../persistence/repositories/telemetry.repository";
 import { buildEffectiveConfig, parseStoredRunConfig } from "./effective-config";
-import { getHistory } from "./persistence/index";
-import type { RunRepository } from "./persistence/repositories/run.repository";
+import { getHistory } from "../persistence/index";
+import type { RunRepository } from "../persistence/repositories/run.repository";
 import { activeEnvironment } from "../settings/active";
 
 export type RunViewExtras = Omit<RunDetail, keyof RunRecord | "schemaVersion">;

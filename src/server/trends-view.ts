@@ -6,7 +6,7 @@
  * call site. Every reading is null/0 when its source is absent — nothing is invented, and absence is
  * never painted as a hard zero.
  */
-import type { RunOutcome, RunRecord } from "../types";
+import type { RunOutcome, RunRecord } from "../persistence/types";
 
 const round = (n: number): number => Math.round(n * 1e4) / 1e4;
 

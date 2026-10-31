@@ -1,6 +1,6 @@
 import type { RunEvent } from "@kernel/contract/events";
 import { createRunEventStore, type RunEventStore } from "./run-events";
-import { getHistory } from "./persistence/index";
+import { getHistory } from "../persistence/index";
 
 export interface DurableRunEventDeps {
   saveRunEvent?: (event: { runId: string; seq: number; ts: number; body: unknown }) => void;

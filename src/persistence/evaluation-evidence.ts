@@ -6,11 +6,11 @@
 
 import { assembleRunEvidence, type EvidencePort, type EvidenceSources, type LedgerSpan, type RunEvaluationEvidence, type UseCaseReference } from "@contexts/evaluation/application/index";
 import { AGENT_NAME_FOR_ROLE } from "../agent-runtime/types";
-import type { RunFactsPatch, RunPhases, SpecSnapshotRow } from "./persistence/repositories/run.repository";
-import type { AgentTurnRecord } from "./persistence/repositories/telemetry.repository";
-import type { RunOutcome, RunRecord } from "../types";
+import type { RunFactsPatch, RunPhases, SpecSnapshotRow } from "./repositories/run.repository";
+import type { AgentTurnRecord } from "./repositories/telemetry.repository";
+import type { RunOutcome, RunRecord } from "./types";
 import { loadReferencesLeniently } from "./use-case-reference-loader";
-import { getHistory } from "./persistence/index";
+import { getHistory } from "./index";
 
 export interface EvidenceDeps {
   getRecord(id: string): RunRecord | undefined;

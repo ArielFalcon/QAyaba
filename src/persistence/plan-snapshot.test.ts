@@ -3,9 +3,9 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { sanitizedPlanSnapshots, type PlanSnapshot } from "@kernel/ports/plan-snapshot.port";
 import { SqlitePlanSnapshotAdapter } from "./plan-snapshot-sqlite.adapter";
-import { getHistoryDatabase } from "./persistence/index";
-import { pruneRunPlans } from "./persistence/retention";
-import { getHistory } from "./persistence/index";
+import { getHistoryDatabase } from "./index";
+import { pruneRunPlans } from "./retention";
+import { getHistory } from "./index";
 
 const SECRET = "s3cr3t-account-pass-value";
 

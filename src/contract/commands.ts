@@ -73,7 +73,7 @@ export const RunRecordSchema = z.object({
   step: z.string().optional(),
   stepDetail: z.string().optional(),
   verdict: RunVerdictSchema.optional(),
-  /* Derived from `verdict` once the run is `done` (src/types.ts engineStatus). OPTIONAL — absent while the run is enqueued/running and has no verdict yet; a still-running run is not an "error". */
+  /* Derived from `verdict` once the run is `done` (src/persistence/types.ts engineStatus). OPTIONAL — absent while the run is enqueued/running and has no verdict yet; a still-running run is not an "error". */
   engineStatus: RunEngineStatusSchema.optional(),
   passed: z.number().int().nonnegative().optional(),
   failed: z.number().int().nonnegative().optional(),

@@ -7,7 +7,7 @@
  * that recorded no phase (one older than the columns, or one cancelled before the engine reported) is listed as unknown.
  */
 import { pathToFileURL } from "node:url";
-import type { RunFunnelRow } from "../src/server/persistence/repositories/run.repository.ts";
+import type { RunFunnelRow } from "../src/persistence/repositories/run.repository.ts";
 
 export type Parsed = { ok: true; app: string | undefined; since: string | undefined } | { ok: false; problem: string };
 
@@ -67,7 +67,7 @@ export async function main(argv: readonly string[], deps: FunnelDeps): Promise<n
 
 /** The run history of the orchestrator container, imported lazily so a test that injects its own never opens it. */
 export async function defaultDeps(): Promise<FunnelDeps> {
-  const { getHistory } = await import("../src/server/persistence/index.ts");
+  const { getHistory } = await import("../src/persistence/index.ts");
   return { funnel: (opts) => getHistory().runs.getRunFunnel(opts), out: (line) => console.log(line) };
 }
 

@@ -92,7 +92,7 @@ export function migrate(db: Database.Database, path: string, migrations: readonl
         db.pragma(`user_version = ${migration.version}`);
       })();
     } catch (error) {
-      throw new Error(`history database migration ${migration.version} (src/server/persistence/migrations/${migration.name}.ts) failed on ${path}: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(`history database migration ${migration.version} (src/persistence/migrations/${migration.name}.ts) failed on ${path}: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 }

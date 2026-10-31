@@ -1,6 +1,6 @@
 
 
-import type { ActivityKindSchema, RunChangeEntrySchema } from "./contract/commands";
+import type { ActivityKindSchema, RunChangeEntrySchema } from "../contract/commands";
 import type { z } from "zod";
 import { parseRunMode, RUN_MODES, type RunMode, type TestTarget, type TriggerSource } from "@kernel/run-mode";
 import { RUN_ENGINE_STATUSES, engineStatus, type RunEngineStatus, type RunVerdict } from "@kernel/run-verdict";
@@ -33,7 +33,7 @@ export interface AgentActivity {
   ts: string;                /* ISO timestamp — for ordering and elapsed */
 }
 
-/* Full run history record persisted in SQLite (src/server/persistence/repositories/run.repository.ts). */
+/* Full run history record persisted in SQLite (src/persistence/repositories/run.repository.ts). */
 export type RunChangeEntry = z.infer<typeof RunChangeEntrySchema>;
 
 export interface RunRecord {

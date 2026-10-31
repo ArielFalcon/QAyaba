@@ -492,7 +492,7 @@ export async function defaultDeps(env: Record<string, string | undefined> = proc
   const { collectReport, defaultReportDeps, defaultProbeResultsDir, readGroundTruthFile, writeJsonAtomically } = await import("./probe-report.ts");
   const { loadSnapshot, restoreSuite, seedSuiteStore, warmSnapshotDir } = await import("./warm-suite.ts");
   const { suiteDelta } = await import("./campaign-suite.ts");
-  const { getHistory } = await import("../src/server/persistence/index.ts");
+  const { getHistory } = await import("../src/persistence/index.ts");
   const { prepareHarnessAuth } = await import("./harness-auth.ts");
   const baseline = await import("./baseline-agent.ts");
 

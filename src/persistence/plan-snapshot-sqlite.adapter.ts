@@ -2,7 +2,7 @@
 
 import { appLogger } from "../integrations/redacting-logger";
 import type { PlanSnapshot, PlanSnapshotPort } from "@kernel/ports/plan-snapshot.port";
-import { getHistory } from "./persistence/index";
+import { getHistory } from "./index";
 
 export class SqlitePlanSnapshotAdapter implements PlanSnapshotPort {
   constructor(private readonly commit: (runId: string, plan: string, recordedAt: number) => void = (runId, plan, recordedAt) => getHistory().runs.commitRunPlan(runId, plan, recordedAt)) {}

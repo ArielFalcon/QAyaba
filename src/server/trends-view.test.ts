@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { toTrendsView } from "./trends-view";
-import type { RunOutcome, RunVerdict, RunRecord } from "../types";
+import type { RunOutcome, RunVerdict, RunRecord } from "../persistence/types";
 
 const round = (n: number): number => Math.round(n * 1e4) / 1e4;
 

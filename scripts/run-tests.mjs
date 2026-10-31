@@ -42,11 +42,11 @@ export const DEFAULT_TEST_GLOBS = [
    leaks state, and is fixed by restoring that state, not by joining this list. */
 export const ISOLATED_FILES = new Map([
   [
-    "src/server/history-db-location.test.ts",
+    "src/persistence/history-db-location.test.ts",
     "the history store resolves its location once per process, on first use: the file sets HISTORY_DB_PATH before that",
   ],
   [
-    "src/server/history-db-default-location.test.ts",
+    "src/persistence/history-db-default-location.test.ts",
     "the history store resolves its location once per process, on first use: the file unsets HISTORY_DB_PATH before that",
   ],
 ]);

@@ -1,9 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { SqliteRunHistoryAdapter } from "./run-history-sqlite-adapter";
-import { getHistory } from "./persistence/index";
+import { getHistory } from "./index";
 import type { RunOutcome as KernelRunOutcome } from "@kernel/run-outcome.ts";
-import type { RunOutcome as StoredRunOutcome } from "../types";
+import type { RunOutcome as StoredRunOutcome } from "./types";
 
 function kernelOutcome(overrides: Partial<KernelRunOutcome> = {}): KernelRunOutcome {
   return {

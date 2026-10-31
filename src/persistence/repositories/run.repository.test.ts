@@ -6,8 +6,8 @@ import { join, basename } from "node:path";
 import Database from "better-sqlite3";
 import { getHistory, getHistoryDatabase } from "../index";
 import { backupDatabase } from "../backup";
-import { SpecRecordSchema } from "../../../contract/commands";
-import type { RunOutcome } from "../../../types";
+import { SpecRecordSchema } from "../../contract/commands";
+import type { RunOutcome } from "../types";
 
 test("createRecord stores an enqueued record findable by id", () => {
   const r = getHistory().runs.createRecord({ target: "e2e",  app: "hist-a", sha: "abcdef1234", mode: "diff" });

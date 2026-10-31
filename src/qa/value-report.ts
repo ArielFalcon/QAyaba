@@ -1,6 +1,6 @@
 
 
-import type { RunVerdict } from "../types";
+import type { RunVerdict } from "../persistence/types";
 import { infraErrorGloss } from "./learning/infra-error-gloss";
 
 /*

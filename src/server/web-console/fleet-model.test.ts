@@ -7,7 +7,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { appView, controlApi, loadConsole, runRecord } from "../../test-support/console-harness";
 import { toSignalsView } from "../signals-view";
-import type { RunRecord } from "../../types";
+import type { RunRecord } from "../../persistence/types";
 
 async function fleetModel(verdicts: string[]) {
   const runs = verdicts.map((verdict, i) => runRecord(`run-${i}`, { verdict }));

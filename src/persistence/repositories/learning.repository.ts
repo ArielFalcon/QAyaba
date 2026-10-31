@@ -1,5 +1,5 @@
 import type { ErrorClass } from "@kernel/error-class";
-import type { RunMode, RunOutcome, RunRecord, RunVerdict, TestTarget } from "../../../types";
+import type { RunMode, RunOutcome, RunRecord, RunVerdict, TestTarget } from "../types";
 import type { HistoryDatabase } from "../database";
 import { parseJsonColumn } from "../json-column";
 

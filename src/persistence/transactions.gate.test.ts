@@ -156,7 +156,7 @@ test("purging an app and pruning history write only inside transactions", (t) =>
   assert.deepEqual(writes.filter((w) => !w.inTransaction), []);
 });
 
-const SRC = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
+const SRC = join(dirname(fileURLToPath(import.meta.url)), "..");
 
 function productionFiles(dir: string): string[] {
   const found: string[] = [];
@@ -169,7 +169,7 @@ function productionFiles(dir: string): string[] {
 }
 
 test("only the persistence module opens a database or prepares a statement", () => {
-  const persistence = join(SRC, "server", "persistence");
+  const persistence = join(SRC, "persistence");
   const offenders = productionFiles(SRC)
     .filter((file) => !file.startsWith(persistence))
     .filter((file) => /\bnew Database\(|\bdb\.prepare\(|\braw\.prepare\(/.test(readFileSync(file, "utf8")));

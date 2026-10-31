@@ -41,7 +41,7 @@ const RECORDS_PREFIX = "docs/architecture/";
 /* The seed revisions the setup adapter upgrades are kept byte-for-byte as they shipped, so they name what the seed has since dropped. */
 /* The tests that pin what a retired name leaves behind (a stored row that still carries the value fields, a grade that is no longer emitted): they have to write the names. */
 const RETIRED_FIELD_TESTS = [
-  "src/server/persistence/repositories/learning.repository.retired-fields.test.ts",
+  "src/persistence/repositories/learning.repository.retired-fields.test.ts",
   "qa-engine/test/contexts/evaluation/retired-graders.test.ts",
 ];
 const SHIPPED_SEED_REVISIONS_PREFIX = "qa-engine/test/contexts/workspace-and-publication/infrastructure/__fixtures__/seed-revisions/";

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { getHistory } from "./persistence/index";
+import { getHistory } from "./index";
 
 /* Without HISTORY_DB_PATH the store lives at <QAYABA_ROOT>/data/qayaba.db. The store resolves its
    location on first use, so this file (its own process) sets both variables before any history call. */

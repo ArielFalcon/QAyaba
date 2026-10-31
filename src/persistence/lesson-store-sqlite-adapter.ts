@@ -1,5 +1,5 @@
 import type { LessonStorePort } from "@contexts/cross-run-learning/application/index";
-import { getHistory } from "./persistence/index";
+import { getHistory } from "./index";
 
 /* The lesson store over the history database: the engine's port on the repository the shell owns. */
 export class SqliteLessonStoreAdapter implements LessonStorePort {

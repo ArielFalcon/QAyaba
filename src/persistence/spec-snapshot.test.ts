@@ -12,9 +12,9 @@ import { createRunSecretScope, withRunSecretScope } from "../../qa-engine/src/sh
 import { MAX_SPEC_SNAPSHOT_BYTES_PER_RUN, MAX_SPEC_SNAPSHOT_TEXT_BYTES, type SpecSnapshot, type SpecSnapshotPort } from "@kernel/ports/spec-snapshot.port";
 import type { ValidationPort } from "@contexts/test-execution/application/index.ts";
 import { SqliteSpecSnapshotAdapter } from "./spec-snapshot-sqlite.adapter";
-import { getHistoryDatabase } from "./persistence/index";
-import { pruneSpecSnapshots } from "./persistence/retention";
-import { getHistory } from "./persistence/index";
+import { getHistoryDatabase } from "./index";
+import { pruneSpecSnapshots } from "./retention";
+import { getHistory } from "./index";
 
 const SECRET = "s3cr3t-account-pass-value";
 const RESULT = { ok: false, errors: ["[lint] nope"], infra: false };

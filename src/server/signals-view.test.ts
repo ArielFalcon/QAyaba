@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { toSignalsView } from "./signals-view";
-import type { RunRecord, RunOutcome } from "../types";
+import type { RunRecord, RunOutcome } from "../persistence/types";
 
 function run(verdict: RunRecord["verdict"]): RunRecord {
   return {

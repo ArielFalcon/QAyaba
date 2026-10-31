@@ -1,7 +1,7 @@
 /* Webhook core: signature, payload, enqueue decision. HTTP wrapper lives in src/server/webhook-handler.ts. */
 
 import { createHmac, timingSafeEqual } from "node:crypto";
-import { parseRunMode, RunMode } from "../types";
+import { parseRunMode, RunMode } from "../persistence/types";
 import { boundGuidance } from "./guidance";
 import { isCommitSha } from "@kernel/git-revision";
 

@@ -3,7 +3,7 @@
 import { contextMapNeedsRebuild, type ContextMapRebuildPorts } from "@contexts/run-orchestration/application/index";
 import { loadAppConfig } from "../orchestrator/config-loader";
 import { ensureMirror, defaultMirrorDeps } from "../integrations/repo-mirror";
-import { getHistory } from "./persistence/index";
+import { getHistory } from "../persistence/index";
 import { gitChangedFiles } from "./run-engine-factory";
 
 const defaultPorts: ContextMapRebuildPorts = {

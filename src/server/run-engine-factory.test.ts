@@ -19,7 +19,7 @@ import type { ArchitectureContext } from "@contexts/generation/application/index
 import type { AgentDeps } from "../integrations/opencode-client";
 import { assertTrustedGitTree, defaultMirrorDeps, hardenGitArgs, UntrustedGitTreeError, type MirrorDeps } from "../integrations/repo-mirror";
 import { closeGitDir, GIT_ENV, makeGitlinkRepo, plantNestedRepo, ranPlantedCommand, writeMarkerCommand } from "../../qa-engine/test/shared-infrastructure/process-sandbox/git-fixtures";
-import { SqliteRunHistoryAdapter } from "./run-history-sqlite-adapter";
+import { SqliteRunHistoryAdapter } from "../persistence/run-history-sqlite-adapter";
 import { defaultCaptureDomDeps } from "@contexts/generation/infrastructure/dom-snapshot";
 import { AUTH_SETUP_ENV } from "@contexts/app-catalog/infrastructure/auth-session.adapter";
 import { AuthPreconditionError, PRECONDITION_KIND } from "@contexts/app-catalog/application/index";
@@ -46,7 +46,7 @@ import {
 import { rosterFixturePath } from "../test-support/fixtures/opencode-roster";
 import { setAgentsConfigPath } from "../integrations/opencode-client";
 import type { RunMode } from "@kernel/run-mode";
-import { getHistory } from "./persistence/index";
+import { getHistory } from "../persistence/index";
 import type { RunFreeze } from "./run-freeze";
 
 const FROZEN: RunFreeze = { frozen: true, lessons: false };

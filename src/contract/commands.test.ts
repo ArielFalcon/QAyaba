@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import type { RunRecord as TypesRunRecord, QaCase as TypesQaCase } from "../types";
+import type { RunRecord as TypesRunRecord, QaCase as TypesQaCase } from "../persistence/types";
 import {
   RunRecordSchema,
   QaCaseSchema,
@@ -21,7 +21,7 @@ import {
 } from "./commands";
 
 /* ── Compile-time drift guard ──────────────────────────────────────────────────
-   The zod contract and src/types.ts must be MUTUALLY assignable. If a field is
+   The zod contract and src/persistence/types.ts must be MUTUALLY assignable. If a field is
    added, removed, or retyped on either side, `true` stops being assignable to the
    computed type and `npm run typecheck` fails. (Tuples avoid union distribution.)
  */

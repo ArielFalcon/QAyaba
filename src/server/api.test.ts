@@ -7,7 +7,7 @@ import { AppConfigInvalidError, AppNotFoundError } from "../orchestrator/config-
 import { createLocalConsoleLogin, LOCAL_CONSOLE_PRINCIPAL, validateSession } from "./auth";
 import { toTrendsView } from "./trends-view";
 import { toReportView } from "./report-view";
-import { RunRecord, RunOutcome } from "../types";
+import { RunRecord, RunOutcome } from "../persistence/types";
 import {
   AgentConfigApplyResultSchema,
   AgentModelsResponseSchema,
@@ -25,7 +25,7 @@ import {
 import type { TelemetryHealth } from "../telemetry/telemetry-health";
 import { RunEventSchema, RunEvent } from "@kernel/contract/events";
 import { createRunEventStore, RunEventStore } from "./run-events";
-import type { AgentTurnRecord } from "./persistence/repositories/telemetry.repository";
+import type { AgentTurnRecord } from "../persistence/repositories/telemetry.repository";
 
 function mkReq(method: string, url: string, body?: string, headers?: Record<string, string>): any {
   const r: any = Readable.from(body != null ? [body] : []);

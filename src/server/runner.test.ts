@@ -28,7 +28,7 @@ import type { RunPipelinePort, RunInput } from "@contexts/run-orchestration/appl
 import type { RunOutcome } from "@kernel/run-outcome.ts";
 import { AgentTimeoutError, UntrustedGitTreeError } from "@kernel/domain-error";
 import { traceHarness } from "../test-support/trace-harness";
-import { getHistory } from "./persistence/index";
+import { getHistory } from "../persistence/index";
 import { testDataNamespace } from "../qa/test-data";
 
 const cfg = (name: string): AppConfig => ({

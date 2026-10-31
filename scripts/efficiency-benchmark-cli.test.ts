@@ -5,7 +5,7 @@ import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DIFF_TIER_NAMES, main, readRegistry, readSnapshot, registerRun, writeSnapshot, takeSnapshot, type RunDataSource } from "./efficiency-benchmark.ts";
-import type { RunOutcome, RunRecord } from "../src/types.ts";
+import type { RunOutcome, RunRecord } from "../src/persistence/types.ts";
 
 function harness(t: import("node:test").TestContext) {
   const dir = mkdtempSync(join(tmpdir(), "efficiency-cli-"));

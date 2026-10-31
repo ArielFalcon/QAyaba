@@ -17,8 +17,8 @@ import { BatchLogRecordProcessor, LoggerProvider, type LogRecordExporter } from 
 import { NoopTelemetry } from "@kernel/telemetry/noop-telemetry";
 import type { TelemetryHealth } from "./telemetry-health";
 import type { TelemetryClock, TelemetryPort } from "@kernel/telemetry/telemetry.port";
-import { getHistory, getHistoryDatabase } from "../server/persistence/index";
-import { pruneRunPlans, pruneRunSpans, pruneSpecSnapshots } from "../server/persistence/retention";
+import { getHistory, getHistoryDatabase } from "../persistence/index";
+import { pruneRunPlans, pruneRunSpans, pruneSpecSnapshots } from "../persistence/retention";
 import { sanitizeText } from "../../qa-engine/src/shared-infrastructure/redaction/pattern-redaction.adapter";
 import { resolveTelemetryConfig, type TelemetryConfig } from "./config";
 import { LedgerSpanProcessor, type RunSpanStore } from "./ledger";

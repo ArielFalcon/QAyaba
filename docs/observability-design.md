@@ -1276,7 +1276,7 @@ findings, 16 warnings and 11 suggestions. The load-bearing claims were re-verifi
 | W1 queue inherits the enqueue context | Root on `ROOT_CONTEXT` | §4.1 |
 | W2 phase closures, crash-lost funnel, hung runs invisible | Phase cursor, persisted on `run_outcomes`, ledger rows on start | §4.2, §3.3 |
 | W3 synchronous ledger cost | Buffered transactions, `synchronous=NORMAL` | §3.3 |
-| W4 duplicate stores, retention | Agent-turn fields: **columns on `agent_turns` are the record**; spans mirror them. The prune at `pruneHistory` (`src/server/persistence/retention.ts`) becomes campaign-aware per R4 | §5.4, §17 |
+| W4 duplicate stores, retention | Agent-turn fields: **columns on `agent_turns` are the record**; spans mirror them. The prune at `pruneHistory` (`src/persistence/retention.ts`) becomes campaign-aware per R4 | §5.4, §17 |
 | W5 abandoned fan-out flows | The flow span ends on `TIMED_OUT`; added to the ended-span matrix | §15 |
 | W6 egress attribution | Renamed co-temporal | §6.1 |
 | W7 context utilization validity | Extractable vs n/a per source; recall over change-relevant items; no self-report | §11.1 |

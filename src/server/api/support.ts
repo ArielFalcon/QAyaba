@@ -3,7 +3,7 @@
 import { sanitizeText } from "../../../qa-engine/src/shared-infrastructure/redaction/pattern-redaction.adapter";
 import { RedactionPortAdapter } from "../../orchestrator/sanitizer";
 import { AppConfigInvalidError, AppNotFoundError, type AppConfig } from "../../orchestrator/config-loader";
-import { engineStatus, type RunRecord } from "../../types";
+import { engineStatus, type RunRecord } from "../../persistence/types";
 import { ApiError } from "./api-error";
 import type { ApiDeps } from "./deps";
 

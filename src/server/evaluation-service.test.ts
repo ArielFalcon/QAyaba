@@ -2,13 +2,13 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createEvaluationService } from "./evaluation-service";
 import { GRADER_VERSION, gradeEvidence } from "@contexts/evaluation/application/index";
-import { HistoryEvidenceAdapter, defaultEvidenceDeps } from "./evaluation-evidence";
+import { HistoryEvidenceAdapter, defaultEvidenceDeps } from "../persistence/evaluation-evidence";
 import { buildRunViewExtras, type RunViewDeps } from "./run-view";
 import Database from "better-sqlite3";
 import { RegradeRequestError } from "@contexts/evaluation/application/index";
 import { traceHarness } from "../test-support/trace-harness";
 import { ScoreMetricsSink } from "../telemetry/score-metrics-sink";
-import type { RunOutcome } from "../types";
+import type { RunOutcome } from "../persistence/types";
 
 const quiet = () => undefined;
 
@@ -408,8 +408,8 @@ function viewDeps(on: boolean, template?: string): RunViewDeps {
 }
 
 import { defaultRunViewDeps } from "./run-view";
-import { getHistory } from "./persistence/index";
-import type { RunRepository } from "./persistence/repositories/run.repository";
+import { getHistory } from "../persistence/index";
+import type { RunRepository } from "../persistence/repositories/run.repository";
 const defaultViewDeps = defaultRunViewDeps(() => true, {});
 
 test("by default only grader rows are returned, one per name; human labels appear with versions=all", () => {

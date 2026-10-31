@@ -2,8 +2,8 @@
 
 import { appLogger } from "../integrations/redacting-logger";
 import type { SpecSnapshot, SpecSnapshotPort } from "@kernel/ports/spec-snapshot.port";
-import { getHistory } from "./persistence/index";
-import type { SpecSnapshotRow } from "./persistence/repositories/run.repository";
+import { getHistory } from "./index";
+import type { SpecSnapshotRow } from "./repositories/run.repository";
 
 export class SqliteSpecSnapshotAdapter implements SpecSnapshotPort {
   constructor(private readonly commit: (rows: readonly SpecSnapshotRow[]) => void = (rows) => getHistory().runs.commitSpecSnapshots(rows)) {}

@@ -3,10 +3,10 @@ import assert from "node:assert/strict";
 import { BasicTracerProvider } from "@opentelemetry/sdk-trace-base";
 import { SpanStatusCode, ROOT_CONTEXT, trace } from "@opentelemetry/api";
 import { LedgerSpanProcessor, type RunSpanStore } from "./ledger";
-import type { RunSpanRow } from "../server/persistence/repositories/telemetry.repository";
-import { getHistoryDatabase } from "../server/persistence/index";
-import { pruneRunSpans } from "../server/persistence/retention";
-import { getHistory } from "../server/persistence/index";
+import type { RunSpanRow } from "../persistence/repositories/telemetry.repository";
+import { getHistoryDatabase } from "../persistence/index";
+import { pruneRunSpans } from "../persistence/retention";
+import { getHistory } from "../persistence/index";
 
 function fakeStore(): RunSpanStore & { commits: RunSpanRow[][]; failNext: boolean } {
   const store = {

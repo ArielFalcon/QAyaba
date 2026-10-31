@@ -14,7 +14,7 @@ import { agentsOfTurns, recordRunConfig, type RunConfigEnvironment, type RunConf
 import { decideRunFreeze } from "./run-freeze";
 import type { AppConfig } from "../orchestrator/config-loader";
 import type { EffectiveConfig, GroundingInput } from "../contract/commands";
-import type { AgentRoleFacts } from "./persistence/repositories/telemetry.repository";
+import type { AgentRoleFacts } from "../persistence/repositories/telemetry.repository";
 
 /* The part of the configuration fixed when the run starts. `agents` is not in it: it comes from the turns the run recorded. */
 export type StoredRunConfig = Omit<EffectiveConfig, "agents">;

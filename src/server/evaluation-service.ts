@@ -12,9 +12,9 @@ import { campaignRunsView, type CampaignRunRow, type CampaignRunView } from "@co
 import { GRADER_CATALOG } from "@contexts/evaluation/application/index";
 import { currentScores, isScoreSource, type Score, type ScoreDataType, type ScorePolarity } from "@contexts/evaluation/application/index";
 import { RUN_PHASES } from "@kernel/run-step";
-import { HistoryEvidenceAdapter } from "./evaluation-evidence";
+import { HistoryEvidenceAdapter } from "../persistence/evaluation-evidence";
 import { RedactionPortAdapter } from "../orchestrator/sanitizer";
-import { getHistory } from "./persistence/index";
+import { getHistory } from "../persistence/index";
 
 const redaction = new RedactionPortAdapter();
 

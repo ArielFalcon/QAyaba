@@ -3,7 +3,7 @@
 import { appLogger } from "../../../integrations/redacting-logger";
 import { z } from "zod";
 import { ContinueResultSchema } from "../../../contract/commands";
-import type { RunRecord } from "../../../types";
+import type { RunRecord } from "../../../persistence/types";
 import { ApiError } from "../api-error";
 import type { ApiDeps } from "../deps";
 import { reply, type ApiResult } from "../respond";

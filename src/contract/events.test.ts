@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { RUN_MODES } from "../types";
-import { RUN_ENGINE_STATUSES } from "../types";
+import { RUN_MODES } from "../persistence/types";
+import { RUN_ENGINE_STATUSES } from "../persistence/types";
 import {
   RunEventSchema,
   RunEventBodySchema,
@@ -44,7 +44,7 @@ test("run.verdict carries the engineStatus (required) so consumers see success v
   assert.throws(() => RunEventBodySchema.parse({ type: "run.verdict", verdict: "pass" }));
 });
 
-test("RunEngineStatusSchema stays in lockstep with src/types.ts RUN_ENGINE_STATUSES", () => {
+test("RunEngineStatusSchema stays in lockstep with src/persistence/types.ts RUN_ENGINE_STATUSES", () => {
   assert.deepEqual([...RunEngineStatusSchema.options], Object.values(RUN_ENGINE_STATUSES));
 });
 
@@ -67,7 +67,7 @@ test("agent.activity carries only structured fields (no prose passthrough)", () 
   assert.equal(body.type === "agent.activity" && body.kind, "analyzing");
 });
 
-test("enums stay in lockstep with src/types.ts (drift guard during migration)", () => {
+test("enums stay in lockstep with src/persistence/types.ts (drift guard during migration)", () => {
   assert.deepEqual([...RunModeSchema.options], [...RUN_MODES]);
   assert.deepEqual([...RunVerdictSchema.options], ["pass", "fail", "flaky", "invalid", "infra-error", "skipped"]);
   assert.deepEqual([...TestTargetSchema.options], ["e2e"]);

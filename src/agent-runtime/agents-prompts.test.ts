@@ -19,7 +19,7 @@ import { ANTI_WEAKENING_RULE, EFFORT_NO_OP_CLAUSE, OBJECTIVE_QUESTION, buildCont
 import { MILESTONE_OUTCOME_PHRASES } from "@contexts/generation/infrastructure/prompt-builders/generator-renderers";
 import { GENERATION_END } from "@kernel/generation-end";
 import { checkGeneratorVerdict, parseVerdict } from "@contexts/generation/application/index";
-import { RUN_MODES } from "../types";
+import { RUN_MODES } from "../persistence/types";
 
 /* The roster is an input here: window budgets resolve from the roster fixture, never the deployable agents/opencode.json. */
 

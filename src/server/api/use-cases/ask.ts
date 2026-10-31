@@ -6,7 +6,7 @@ import { sanitizeText } from "../../../../qa-engine/src/shared-infrastructure/re
 import { activityRouter } from "../../../integrations/opencode-client";
 import { infraErrorGloss } from "../../../qa/learning/infra-error-gloss";
 import { DEFAULT_HOST } from "../../port";
-import { getHistory } from "../../persistence/index";
+import { getHistory } from "../../../persistence/index";
 import { ApiError } from "../api-error";
 import type { ApiDeps } from "../deps";
 import { reply, type ApiResult } from "../respond";

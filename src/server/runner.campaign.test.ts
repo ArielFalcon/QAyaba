@@ -11,7 +11,7 @@ import type { CampaignIdentity } from "../contract/campaign";
 import { traceHarness } from "../test-support/trace-harness";
 import { CampaignCaptureMismatchError } from "@contexts/evaluation/application/index";
 import type { RunConfigEnvironment } from "./effective-config";
-import { getHistory } from "./persistence/index";
+import { getHistory } from "../persistence/index";
 import { parseStoredRunConfig } from "./effective-config";
 import { continuationRequestOf } from "./wire-app";
 

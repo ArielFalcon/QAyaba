@@ -1,4 +1,4 @@
-import { logJson } from "../../../integrations/logger";
+import { logJson } from "../../integrations/logger";
 import type { HistoryDatabase } from "../database";
 import { parseJsonColumn } from "../json-column";
 import { scoreValueOf } from "../score-value";

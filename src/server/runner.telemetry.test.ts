@@ -3,7 +3,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { JobQueue } from "./queue";
 import { enqueueTrackedRun, enqueueContextMapRun, enqueueLoginBootstrapRun, cancelTrackedRun, type RunnerDeps, type RunRequest } from "./runner";
-import { HistoryEvidenceAdapter, defaultEvidenceDeps } from "./evaluation-evidence";
+import { HistoryEvidenceAdapter, defaultEvidenceDeps } from "../persistence/evaluation-evidence";
 import { gradeEvidence } from "@contexts/evaluation/application/index";
 import { recordPhaseSnapshot } from "@contexts/run-orchestration/application/index";
 import type { AppConfig } from "../orchestrator/config-loader";
@@ -16,7 +16,7 @@ import { INSTRUMENTS } from "../telemetry/instrument-table";
 import type { TelemetryPort } from "@kernel/telemetry/telemetry.port";
 import { SpanStatusCode, traceHarness } from "../test-support/trace-harness";
 import { createTelemetry } from "../telemetry/bootstrap";
-import { getHistory } from "./persistence/index";
+import { getHistory } from "../persistence/index";
 import { ENGINE_VERSION } from "./version";
 
 const cfg = (name: string): AppConfig => ({

@@ -10,10 +10,10 @@ import { withTurnTelemetry } from "@contexts/generation/infrastructure/telemetry
 import { AgentTurnTraces } from "@contexts/generation/infrastructure/telemetry/turn-trace-registry";
 import type { StepIntentContext } from "@contexts/generation/application/index";
 import { gradeEvidence } from "@contexts/evaluation/application/index";
-import { HistoryEvidenceAdapter, defaultEvidenceDeps } from "../server/evaluation-evidence";
+import { HistoryEvidenceAdapter, defaultEvidenceDeps } from "../persistence/evaluation-evidence";
 import type { LedgerSpan } from "@contexts/evaluation/application/index";
 import { traceHarness } from "../test-support/trace-harness";
-import { getHistory } from "../server/persistence/index";
+import { getHistory } from "../persistence/index";
 
 const CWD = "/mirrors/org__app";
 const SESSION = "ses_shapes";

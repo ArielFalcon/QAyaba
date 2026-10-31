@@ -10,7 +10,7 @@
  * to the top so problems surface first; a clean green run lists the facts in natural importance
  * order. Absence is never painted as a hard zero (a not-measured ratio is null, not 0).
  */
-import type { RunRecord, RunOutcome } from "../types";
+import type { RunRecord, RunOutcome } from "../persistence/types";
 import type { RunUsage } from "../qa/usage";
 import type { ReportView } from "../contract/commands";
 import { infraErrorGloss } from "../qa/learning/infra-error-gloss";

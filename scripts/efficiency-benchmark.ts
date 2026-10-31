@@ -26,8 +26,8 @@ import { classifyRunEfficiency, type CoarseRunEfficiency } from "@contexts/gener
 import { CALL_BUCKETS } from "@contexts/generation/application/index.ts";
 import { delegateRun } from "../src/server/run-delegate.ts";
 import { discoverApiToken } from "../src/server/api-token.ts";
-import { type RunOutcome, type RunRecord } from "../src/types.ts";
-import type { AgentTurnRecord } from "../src/server/persistence/repositories/telemetry.repository.ts";
+import { type RunOutcome, type RunRecord } from "../src/persistence/types.ts";
+import type { AgentTurnRecord } from "../src/persistence/repositories/telemetry.repository.ts";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -664,7 +664,7 @@ export async function defaultService(env: Record<string, string | undefined>): P
 
 /* The orchestrator's own history store, imported lazily so the commands that never read it do not open it. */
 async function historySource(): Promise<(runId: string) => RunDataSource> {
-  const { getHistory } = await import("../src/server/persistence/index.ts");
+  const { getHistory } = await import("../src/persistence/index.ts");
   const { runs } = getHistory();
   const source: RunDataSource = {
     events: (runId) => runs.loadRunEvents(runId).map((e) => e.body as RunEventBody),

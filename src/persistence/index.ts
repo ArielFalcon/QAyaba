@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import { qayabaDataDir } from "../../paths";
+import { qayabaDataDir } from "../paths";
 import { openHistoryDatabase, type HistoryDatabase } from "./database";
 import { ContextRepository } from "./repositories/context.repository";
 import { EvaluationRepository } from "./repositories/evaluation.repository";
@@ -7,7 +7,7 @@ import { LearningRepository } from "./repositories/learning.repository";
 import { LessonRepository } from "./repositories/lesson.repository";
 import { RunRepository } from "./repositories/run.repository";
 import { TelemetryRepository } from "./repositories/telemetry.repository";
-import { activeSettings } from "../../settings/store";
+import { activeSettings } from "../settings/store";
 
 let shared: HistoryDatabase | undefined;
 let history: History | undefined;

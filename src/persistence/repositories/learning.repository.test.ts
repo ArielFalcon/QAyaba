@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { join } from "node:path";
 import Database from "better-sqlite3";
 import { getHistory } from "../index";
-import type { RunOutcome } from "../../../types";
+import type { RunOutcome } from "../types";
 
 test("purging an app removes the scorecard row earlier runs left", () => {
   const app = "hist-scorecard-purge";

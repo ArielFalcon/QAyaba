@@ -11,7 +11,7 @@ import { appLogger } from "../integrations/redacting-logger";
 import { JobQueue } from "./queue";
 import { loadAppConfig, AppConfig } from "../orchestrator/config-loader";
 import { assertUniformCapture, CAMPAIGN_CAPTURE_MODE, requestedCaptureMode, specCountsOf } from "@contexts/evaluation/application/index";
-import { serializablePhases, type RunFactsPatch } from "./persistence/repositories/run.repository";
+import { serializablePhases, type RunFactsPatch } from "../persistence/repositories/run.repository";
 import {
   ONBOARDING_POLL_MS,
   ONBOARDING_WAIT_MAX_MS,
@@ -47,7 +47,7 @@ import {
   type RunTrigger,
 } from "@contexts/run-orchestration/application/index";
 import { testDataNamespace } from "../qa/test-data";
-import { RunMode, TestTarget, TriggerSource, QaCase, QaRunResult, engineStatus, type RunChangeEntry } from "../types";
+import { RunMode, TestTarget, TriggerSource, QaCase, QaRunResult, engineStatus, type RunChangeEntry } from "../persistence/types";
 import { RedactionPortAdapter } from "../orchestrator/sanitizer";
 import { sleep as sleepWithAbort } from "../util/sleep";
 import type { RunEventStore } from "./run-events";
@@ -66,7 +66,7 @@ import { guardTelemetry } from "@kernel/telemetry/guarded-telemetry";
 import { NoopTelemetry } from "@kernel/telemetry/noop-telemetry";
 import type { TelemetryClock, TelemetryPort } from "@kernel/telemetry/telemetry.port";
 import type { RunPipelinePort, RunInput, ObserverPort } from "@contexts/run-orchestration/application/index.ts";
-import { getHistory } from "./persistence/index";
+import { getHistory } from "../persistence/index";
 
 type RunStepEvent = Extract<RunEventBody, { type: "step.changed" }>;
 type RunStep = RunStepEvent["step"];

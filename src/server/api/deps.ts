@@ -2,7 +2,7 @@
 
 import type { z } from "zod";
 import type { TelemetryBackendsHealth, TelemetryHealth } from "../../telemetry/telemetry-health";
-import type { RunRecord } from "../../types";
+import type { RunRecord } from "../../persistence/types";
 import type { AppConfig } from "../../orchestrator/config-loader";
 import type { CreateAppInput as AdminCreateAppInput, CreateAppResult, UpdateAppInput as AdminUpdateAppInput } from "../app-admin";
 import type {
@@ -21,7 +21,7 @@ import type {
   TelemetryHealthView,
 } from "../../contract/commands";
 import type { RunEventStore } from "../run-events";
-import type { AgentTurnRecord } from "../persistence/repositories/telemetry.repository";
+import type { AgentTurnRecord } from "../../persistence/repositories/telemetry.repository";
 import type { EvaluationService } from "../evaluation-service";
 import type { RunViewExtras } from "../run-view";
 import type { ApiRunRequest } from "./run-request";

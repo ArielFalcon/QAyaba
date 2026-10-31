@@ -4,8 +4,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { PRE_GENERATION_GROUNDING_STEP_DETAIL } from "@kernel/run-step.ts";
 import type { ToolSequenceEntry } from "@contexts/generation/application/index.ts";
-import type { AgentTurnRecord } from "../src/server/persistence/repositories/telemetry.repository.ts";
-import type { RunOutcome, RunRecord } from "../src/types.ts";
+import type { AgentTurnRecord } from "../src/persistence/repositories/telemetry.repository.ts";
+import type { RunOutcome, RunRecord } from "../src/persistence/types.ts";
 import {
   DEFAULT_SUITE_DIR, PHASES, buildPipelineReport, contentReadsOf, coverageOf, gotoRoutes, normalizeRoute, parseGroundTruth, phaseDurations, phaseDurationsFromSpans, promptSections, renderMarkdown, renderRunRow,
   renderNoopLines, scoreGroundTruth, specSourcesOf, stitcherMetrics, summarizeTools, toProbeTurn, turnFromCallMetrics, type GroundTruth, type ReadingContext, type TimedRunEvent,

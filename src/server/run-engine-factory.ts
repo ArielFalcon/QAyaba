@@ -49,8 +49,8 @@ import { createCaptureDomDeps } from "@contexts/generation/infrastructure/dom-sn
 import { domCaptureObserver } from "@contexts/generation/infrastructure/dom-capture-trace";
 import { traceValidateDeps } from "@contexts/test-execution/infrastructure/static-gate.trace";
 import { synthesizeReportSpans } from "@contexts/test-execution/infrastructure/report-spans";
-import { SqliteSpecSnapshotAdapter } from "./spec-snapshot-sqlite.adapter";
-import { SqlitePlanSnapshotAdapter } from "./plan-snapshot-sqlite.adapter";
+import { SqliteSpecSnapshotAdapter } from "../persistence/spec-snapshot-sqlite.adapter";
+import { SqlitePlanSnapshotAdapter } from "../persistence/plan-snapshot-sqlite.adapter";
 import { defaultContextPackDeps } from "@contexts/generation/infrastructure/context-pack";
 import { loadContextMapFromDisk } from "@contexts/generation/infrastructure/adapters/pre-generation-grounding-port.adapter";
 import { ContextMapCapturePortAdapter, type ContextMapSave, type ContextMapWrittenThisRun } from "@contexts/generation/infrastructure/adapters/context-map-capture-port.adapter";
@@ -158,14 +158,14 @@ import { RedactionPortAdapter, redactSourceForModel } from "../orchestrator/sani
 import { ensureMirror, ensureMirrorAtBranch, defaultMirrorDeps, workdirRoot, realGit, authHeaderArgs, hardenGitArgs, assertTrustedGitTree } from "../integrations/repo-mirror";
 import { stageServiceContext, serviceContextDir, type StageServiceContextInput, type StagedServiceContext } from "@contexts/service-topology/application/index";
 import { defaultStageDeps } from "./service-context";
-import { SqliteRunHistoryAdapter } from "./run-history-sqlite-adapter";
+import { SqliteRunHistoryAdapter } from "../persistence/run-history-sqlite-adapter";
 import type { RunFreeze } from "./run-freeze";
-import { SqliteLessonStoreAdapter } from "./lesson-store-sqlite-adapter";
+import { SqliteLessonStoreAdapter } from "../persistence/lesson-store-sqlite-adapter";
 import { ProcessAuditPortAdapter } from "@contexts/cross-run-learning/infrastructure/process-audit-port.adapter";
 import { YamlBoundaryProfileAdapter } from "@contexts/service-topology/infrastructure/yaml-boundary-profile.adapter";
 import { expandEnv } from "@contexts/app-catalog/application/index";
-import { getHistory } from "./persistence/index";
-import { historyPhaseHistory } from "./phase-history";
+import { getHistory } from "../persistence/index";
+import { historyPhaseHistory } from "../persistence/phase-history";
 import { activeEnvironment } from "../settings/active";
 import { activeSettings } from "../settings/store";
 

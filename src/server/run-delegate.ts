@@ -3,7 +3,7 @@
  * Keeps the one-run-at-a-time-against-DEV invariant: the server owns the only queue.
  */
 
-import type { RunMode, TestTarget } from "../types";
+import type { RunMode, TestTarget } from "../persistence/types";
 import type { GroundingInput } from "../contract/commands";
 import { longestRunTimeBudgetMs, resolveRunTimeBudgets } from "@contexts/run-orchestration/application/index";
 

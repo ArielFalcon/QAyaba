@@ -1,5 +1,5 @@
 /* Behavioral tests for parsePlaywrightReport. QaCase comes from the qa-engine kernel, not
-   src/types.ts.
+   src/persistence/types.ts.
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";

@@ -3,13 +3,13 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { JobQueue } from "./queue";
 import { enqueueTrackedRun } from "./runner";
-import { HistoryEvidenceAdapter, defaultEvidenceDeps } from "./evaluation-evidence";
+import { HistoryEvidenceAdapter, defaultEvidenceDeps } from "../persistence/evaluation-evidence";
 import { gradeEvidence } from "@contexts/evaluation/application/index";
 import type { RunPipelinePort } from "@contexts/run-orchestration/application/index.ts";
 import type { RunOutcome } from "@kernel/run-outcome";
 import { attachTraceFacts } from "@kernel/run-trace-facts";
 import { traceHarness } from "../test-support/trace-harness";
-import { getHistory } from "./persistence/index";
+import { getHistory } from "../persistence/index";
 import { buildRunViewExtras, defaultRunViewDeps } from "./run-view";
 
 test("a clean decided run with one repair-cap turn lists that limit and leads with none", async () => {

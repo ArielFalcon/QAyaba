@@ -9,7 +9,7 @@ import { RegradeRequestError } from "@contexts/evaluation/application/index";
 import { GRADER_CATALOG } from "@contexts/evaluation/application/index";
 import { RUN_PHASES } from "@kernel/run-step";
 import { CampaignRunsSchema, CreateRunResultSchema, EvaluationCatalogSchema, RegradeJobSchema, RunDetailSchema, RunEvaluationSchema } from "../contract/commands";
-import type { RunRecord } from "../types";
+import type { RunRecord } from "../persistence/types";
 import { catalogView, type EvaluationService } from "./evaluation-service";
 import type { RunViewExtras } from "./run-view";
 

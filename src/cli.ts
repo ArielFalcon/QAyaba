@@ -26,7 +26,7 @@ import { discoverApiToken } from "./server/api-token";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { loadAppConfig } from "./orchestrator/config-loader";
-import { parseRunMode, RUN_MODES, type RunMode } from "./types";
+import { parseRunMode, RUN_MODES, type RunMode } from "./persistence/types";
 import { runSucceeded } from "./cli-exit";
 import type { GroundingInput } from "./contract/commands";
 import { renderRunReport } from "./qa/value-report";
@@ -37,8 +37,8 @@ import { createSettingsStore, installSettingsStore, type SettingsStore } from ".
 import { OpenCodeRuntimeStrategy } from "./agent-runtime";
 import { getOpenSessionCount } from "./integrations/opencode-client";
 import { createRunEngineFactory } from "./server/run-engine-factory";
-import { getHistory } from "./server/persistence/index";
-import type { RunRecord } from "./types";
+import { getHistory } from "./persistence/index";
+import type { RunRecord } from "./persistence/types";
 
 
 /* The CLI is a composition root: the settings load once, on first use, from the process environment. */
