@@ -41,6 +41,7 @@ export const STEP_IDS = [
   "triage-flaky-cases",
   "announce-coverage",
   "measure-coverage",
+  "measure-mutation",
   "regenerate-for-coverage",
   "regenerate-for-branch-cases",
   "review-tests",

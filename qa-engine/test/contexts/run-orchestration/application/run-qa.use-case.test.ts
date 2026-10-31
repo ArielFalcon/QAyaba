@@ -1452,6 +1452,62 @@ test("enforce mode — the run deadline is spent during the coverage regeneratio
   assert.equal(measureCallCount, 1);
 });
 
+/* What the coverage measured by execution alone, and what the mutation pass made of it: the verified measurement, with the mutants it judged. */
+const measuredByExecution = { status: "pass" as const, ratio: 0.8, measurement: { changedLines: 10, coveredChanged: 8, changedFiles: 1, mappedFiles: 1, changedBranches: 4, takenBranches: 2 }, mutationDue: true };
+const measuredWithMutants = { status: "pass" as const, ratio: 0.9, measurement: { changedLines: 10, coveredChanged: 9, changedFiles: 1, mappedFiles: 1, changedBranches: 4, takenBranches: 3, coveredByExecution: 8, provenByMutation: 1 }, bundleMutation: { applied: 2, killed: 1, survived: [{ file: "src/a.ts", line: 3, operator: "negate condition" }] } };
+
+/* A measurement port that measures by execution when asked to, and otherwise also runs the mutation pass, during which `duringMutants` happens. */
+const measuringInTwoPasses = (duringMutants: (opts: Parameters<ObjectiveSignalPort["measure"]>[4]) => void = () => {}): ObjectiveSignalPort["measure"] => async (_br, _dir, _diff, _cases, opts) => {
+  if (opts?.byExecution) return measuredByExecution;
+  duringMutants(opts);
+  return measuredWithMutants;
+};
+
+test("the run deadline spent during the mutation re-runs keeps the coverage the execution measured on the saved outcome", async () => {
+  const { deadline, fire } = deadlineFiredByHand(3_600_000);
+  const { ports, savedOutcomes } = stubPorts({ execute: passPerSpec, measure: measuringInTwoPasses(() => fire()) });
+
+  const out = await new RunQaUseCase({ ...ports, runDeadline: deadline, config: { ...baseConfig, needsReview: false } }).run({ ...baseInput, runId: "mutation-cut-by-deadline" });
+
+  assert.equal(out.decision.verdict, "pass", "the green suite is kept past the deadline");
+  const { coverageRatio, branchCoverage, changeCoverage, bundleMutation } = savedOutcomes.at(-1)!.gateSignals;
+  assert.equal(coverageRatio, measuredByExecution.ratio);
+  assert.deepEqual(branchCoverage, { changed: measuredByExecution.measurement.changedBranches, taken: measuredByExecution.measurement.takenBranches });
+  assert.equal(changeCoverage?.executableLines, measuredByExecution.measurement.changedLines);
+  assert.equal(bundleMutation, undefined, "nothing the cut mutation pass came to is kept");
+});
+
+test("a run with time for the mutation pass records the measurement the mutants verified and the mutants it judged", async () => {
+  const { ports, savedOutcomes } = stubPorts({ execute: passPerSpec, measure: measuringInTwoPasses() });
+
+  const out = await new RunQaUseCase({ ...ports, config: { ...baseConfig, needsReview: false } }).run({ ...baseInput, runId: "mutation-pass-completes" });
+
+  assert.equal(out.decision.verdict, "pass");
+  const { coverageRatio, branchCoverage, changeCoverage, bundleMutation } = savedOutcomes.at(-1)!.gateSignals;
+  assert.equal(coverageRatio, measuredWithMutants.ratio);
+  assert.deepEqual(branchCoverage, { changed: measuredWithMutants.measurement.changedBranches, taken: measuredWithMutants.measurement.takenBranches });
+  assert.equal(changeCoverage?.provenByMutation, measuredWithMutants.measurement.provenByMutation);
+  assert.deepEqual(bundleMutation, measuredWithMutants.bundleMutation);
+});
+
+test("the mutation pass is held to the coverage allowance and estimated from the run's final execution", async () => {
+  const { deadline } = deadlineFiredByHand(3_600_000);
+  let handed: Parameters<ObjectiveSignalPort["measure"]>[4];
+  let executed: QaCase[] = [];
+  const execute: ExecutionPort["execute"] = async (dir, opts) => {
+    const result = await passPerSpec(dir, opts);
+    executed = result.cases;
+    return result;
+  };
+  const { ports } = stubPorts({ execute, measure: measuringInTwoPasses((opts) => { handed = opts; }) });
+
+  await new RunQaUseCase({ ...ports, runDeadline: deadline, config: { ...baseConfig, needsReview: false } }).run({ ...baseInput, runId: "mutation-pass-budget" });
+
+  assert.ok(executed.length > 0);
+  assert.deepEqual(handed?.rerunBudget?.cases, executed, "the cases of the execution the coverage measured");
+  assert.equal(handed?.rerunBudget?.allowance(), deadline.allowance("coverage"));
+});
+
 test("enforce mode — the regen produces ZERO specs — KEEPS the first measurement's blocksPublish, only ONE measure() call", async () => {
   let measureCallCount = 0;
   const { ports } = stubPorts({

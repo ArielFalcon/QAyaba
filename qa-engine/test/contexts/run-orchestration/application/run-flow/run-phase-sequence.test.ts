@@ -97,7 +97,7 @@ test("a green diff run reports the steps it ran, and the ones it passed over, by
     "assemble-enrichment", "generate-first-pass", "settle-generation-end", "ground-before-execution", "pre-exec-regenerate", "validate-statically", "static-fix-round", "check-health", "prepare-execute-auth", "announce-execution",
     "execute-specs", "fingerprint-green-suite", "announce-coverage", "measure-coverage", "review-tests", "review-round", "review-settle", "release-coordinated-pass", "guard-final-proof",
   ]);
-  assert.deepEqual(await idsOf(input, "skipped"), ["run-fix-loop", "fix-triage", "fix-adjudicate", "fix-regenerate", "fix-accept", "fix-reexecute", "settle-fix-loop", "regenerate-for-coverage", "regenerate-for-branch-cases", "triage-flaky-cases", "remeasure-stale-coverage"]);
+  assert.deepEqual(await idsOf(input, "skipped"), ["run-fix-loop", "fix-triage", "fix-adjudicate", "fix-regenerate", "fix-accept", "fix-reexecute", "settle-fix-loop", "measure-mutation", "regenerate-for-coverage", "regenerate-for-branch-cases", "triage-flaky-cases", "remeasure-stale-coverage"]);
   assert.deepEqual((await runOf(input)).steps.filter((step) => step.outcome === "ended"), [{ id: "decide-run", outcome: "ended", phase: "decide", reason: "decided" }]);
 });
 
@@ -106,7 +106,7 @@ test("a green manual run reports the same steps except the ones only a per-commi
   const ran = await idsOf(input, "ran");
   assert.equal(ran.includes("classify-change"), false);
   assert.equal(ran.includes("announce-coverage"), false);
-  assert.deepEqual(await idsOf(input, "skipped"), ["classify-change", "run-fix-loop", "fix-triage", "fix-adjudicate", "fix-regenerate", "fix-accept", "fix-reexecute", "settle-fix-loop", "announce-coverage", "regenerate-for-coverage", "regenerate-for-branch-cases", "triage-flaky-cases", "remeasure-stale-coverage"]);
+  assert.deepEqual(await idsOf(input, "skipped"), ["classify-change", "run-fix-loop", "fix-triage", "fix-adjudicate", "fix-regenerate", "fix-accept", "fix-reexecute", "settle-fix-loop", "announce-coverage", "measure-mutation", "regenerate-for-coverage", "regenerate-for-branch-cases", "triage-flaky-cases", "remeasure-stale-coverage"]);
 });
 
 test("the coverage measurement of a run that has no green bytes is passed over with its reason, and one of a run that has them is not", async () => {

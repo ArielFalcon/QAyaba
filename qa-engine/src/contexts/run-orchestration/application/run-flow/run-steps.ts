@@ -22,7 +22,7 @@ import {
 import { announceExecution, checkHealth, executeSpecs, prepareExecuteAuth, staticFixRound, validateStatically } from "./phases/execute.steps.ts";
 import { fingerprintGreenSuite, fixAccept, fixAdjudicate, fixReexecute, fixRegenerate, fixTriage, runFixLoop, settleFixLoop } from "./phases/fix-loop.steps.ts";
 import { triageFlakyCases, triagesFlaky } from "./phases/flaky.steps.ts";
-import { announceCoverage,announcesCoverage, coverageSkipReason, measureCoverage, measuresCoverage, regenerateForBranchCases, regenerateForCoverage, regeneratesForBranchCases, regeneratesForCoverage } from "./phases/coverage.steps.ts";
+import { announceCoverage,announcesCoverage, coverageSkipReason, measureCoverage, measureMutation, measuresCoverage, measuresMutation, regenerateForBranchCases, regenerateForCoverage, regeneratesForBranchCases, regeneratesForCoverage } from "./phases/coverage.steps.ts";
 import { releaseCoordinatedPass, remeasureStaleCoverage, remeasuresStaleCoverage, reviewCorrect, reviewInProgress, reviewResolve, reviewRound, reviewSettle, reviewTests, reviewsRun } from "./phases/review.steps.ts";
 import { decideRun, guardFinalProof, guardsFinalProof } from "./phases/decide.steps.ts";
 import { armRunDeadline, classifyChange, indexMirror, waitForDeploy } from "./phases/opening.steps.ts";
@@ -67,6 +67,7 @@ export const IN_WORKSPACE: ReadonlyArray<FlowStep<RunState, WorkspaceRunContext>
   { id: "fingerprint-green-suite", writes: [], survivesDeadline: true, run: fingerprintGreenSuite },
   { id: "announce-coverage", writes: [], class: "proven", runs: announcesCoverage, run: announceCoverage },
   { id: "measure-coverage", writes: ["coverage"], class: "proven", phase: "coverage", runs: measuresCoverage, skipReason: coverageSkipReason, run: measureCoverage },
+  { id: "measure-mutation", writes: ["coverage"], class: "proven", runs: measuresMutation, run: measureMutation },
   { id: "regenerate-for-coverage", writes: ["coverage", "execution", "loops"], class: "proven", runs: regeneratesForCoverage, run: regenerateForCoverage },
   { id: "regenerate-for-branch-cases", writes: ["coverage", "execution", "loops"], class: "proven", runs: regeneratesForBranchCases, run: regenerateForBranchCases },
   { id: "triage-flaky-cases", writes: ["coverage", "execution", "loops"], class: "proven", runs: triagesFlaky, run: triageFlakyCases },

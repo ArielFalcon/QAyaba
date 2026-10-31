@@ -207,6 +207,8 @@ export interface CoverageOutcome {
   flakyTriage: FlakyTriageOutcome | undefined;
   /** What the mutants of the changed code did; undefined when none was judged. A signal, never a gate. */
   bundleMutation: BundleMutationOutcome | undefined;
+  /** The measurement by execution chose mutants to judge: the mutation pass is still to run on it. */
+  mutationDue: boolean;
   /** The killed mutants whose re-runs the coverage counts, so a recount counts them again; empty when none added a line. */
   mutantProofs: MutantProof[];
   /** The mutants of `bundleMutation.survived`, in its order, as they were run, so a regeneration they drove can apply them again; they name the served script and its edit and never reach an agent or the record. */
@@ -427,6 +429,7 @@ export function initialRunState(): RunState {
       branchCases: undefined,
       flakyTriage: undefined,
       bundleMutation: undefined,
+      mutationDue: false,
       mutantProofs: [],
       survivorRuns: [],
       survivorClosure: undefined,
