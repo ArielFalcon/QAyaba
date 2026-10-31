@@ -60,7 +60,7 @@ const TEST_MODIFIERS = new Set(["only", "skip", "fixme", "fail", "slow"]);
 const DESCRIBE_MODIFIERS = new Set(["only", "skip", "fixme", "serial", "parallel"]);
 const REQUEST_REPLACING_SCRIPT = /\b(?:fetch|XMLHttpRequest|WebSocket)\b/;
 
-type Fn = ts.ArrowFunction | ts.FunctionExpression | ts.FunctionDeclaration;
+export type Fn = ts.ArrowFunction | ts.FunctionExpression | ts.FunctionDeclaration;
 
 interface Interception {
   /* `route`: a handler answers; `har`: a recorded replay; `socket`: a fake WebSocket server; `script`: a script replaces the request API; `fulfil`: a fulfil with no registration in sight; `helper`: a function from another module. */
@@ -70,19 +70,19 @@ interface Interception {
   names?: string[];
 }
 
-const isFn = (node: ts.Node | undefined): node is Fn => node !== undefined && (ts.isArrowFunction(node) || ts.isFunctionExpression(node) || ts.isFunctionDeclaration(node));
+export const isFn = (node: ts.Node | undefined): node is Fn => node !== undefined && (ts.isArrowFunction(node) || ts.isFunctionExpression(node) || ts.isFunctionDeclaration(node));
 
-const unwrap = (node: ts.Expression): ts.Expression => (ts.isParenthesizedExpression(node) || ts.isAwaitExpression(node) ? unwrap(node.expression) : node);
+export const unwrap = (node: ts.Expression): ts.Expression => (ts.isParenthesizedExpression(node) || ts.isAwaitExpression(node) ? unwrap(node.expression) : node);
 
-const literalText = (node: ts.Node | undefined): string | undefined => (node !== undefined && (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) ? node.text : undefined);
+export const literalText = (node: ts.Node | undefined): string | undefined => (node !== undefined && (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) ? node.text : undefined);
 
 /* The method a call is named by: `x.name(...)` gives `name`. */
-function memberName(call: ts.CallExpression): string | undefined {
+export function memberName(call: ts.CallExpression): string | undefined {
   return ts.isPropertyAccessExpression(call.expression) ? call.expression.name.text : undefined;
 }
 
 /* `test`, `test.only`, `test.describe.serial`: the identifier a chain starts at and the names after it. */
-function chainOf(expression: ts.Expression): { root: string; names: string[] } | undefined {
+export function chainOf(expression: ts.Expression): { root: string; names: string[] } | undefined {
   const names: string[] = [];
   let current = expression;
   while (ts.isPropertyAccessExpression(current)) {
@@ -97,10 +97,10 @@ function callbackOf(call: ts.CallExpression): Fn | undefined {
   return isFn(last) ? last : undefined;
 }
 
-type Structural = { kind: "test"; name: string; body: Fn } | { kind: "describe"; name: string; body: Fn } | { kind: "hook"; body: Fn };
+export type Structural = { kind: "test"; name: string; body: Fn } | { kind: "describe"; name: string; body: Fn } | { kind: "hook"; body: Fn };
 
 /* What a call is in a spec's structure: a test, a describe block or a hook, or none of them. */
-function structuralCall(call: ts.CallExpression): Structural | undefined {
+export function structuralCall(call: ts.CallExpression): Structural | undefined {
   const chain = chainOf(call.expression);
   const body = callbackOf(call);
   if (chain === undefined || body === undefined) return undefined;
