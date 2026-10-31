@@ -696,7 +696,7 @@
   "src/telemetry/backend-health.test.ts": 8,
   "src/telemetry/bootstrap.test.ts": 23,
   "src/telemetry/compose-telemetry.test.ts": 9,
-  "src/telemetry/config.test.ts": 2,
+  "src/settings/telemetry-config.test.ts": 2,
   "src/telemetry/context-trace.test.ts": 1344,
   "src/telemetry/coordination-coverage-trace.test.ts": 6,
   "src/telemetry/evaluation-span-shapes.test.ts": 15,

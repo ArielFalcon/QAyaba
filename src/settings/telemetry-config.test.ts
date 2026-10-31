@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { resolveTelemetryConfig, parseRetentionDays, parseCampaignRetentionDays, parseMaxCapture, DEFAULT_SPAN_RETENTION_DAYS, DEFAULT_CAMPAIGN_RETENTION_DAYS } from "./config";
+import { resolveTelemetryConfig, parseRetentionDays, parseCampaignRetentionDays, parseMaxCapture, DEFAULT_SPAN_RETENTION_DAYS, DEFAULT_CAMPAIGN_RETENTION_DAYS } from "./telemetry-config";
 
 test("telemetry defaults to local with no exporter and the default service name", () => {
   const c = resolveTelemetryConfig({});

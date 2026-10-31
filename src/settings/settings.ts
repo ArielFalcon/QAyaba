@@ -4,7 +4,7 @@ import { inspect } from "node:util";
 import { DEFAULT_PORT, resolveListenHost, resolvePort } from "./port";
 import { resolveToolsPort } from "../entrypoints/tools-endpoint";
 import { resolveEgressMode, type EgressMode } from "../composition/egress-wiring";
-import { parseCampaignRetentionDays, parseRetentionDays, resolveTelemetryConfig, type TelemetryConfig } from "../telemetry/config";
+import { parseCampaignRetentionDays, parseRetentionDays, resolveTelemetryConfig, type TelemetryConfig } from "./telemetry-config";
 import { resolveBackendHealthConfig, type BackendHealthConfig } from "../telemetry/backend-health";
 import { resolveRunTimeBudgets } from "@contexts/run-orchestration/application/index";
 import { resolveExecSandboxMode, type ExecSandboxMode } from "../../qa-engine/src/shared-infrastructure/process-sandbox/exec-sandbox";

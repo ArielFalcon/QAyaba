@@ -2,7 +2,7 @@
 
 import { DEFAULT_LISTEN_HOST, DEFAULT_PORT } from "./port";
 import { DEFAULT_TOOLS_PORT } from "../entrypoints/tools-endpoint";
-import { DEFAULT_CAMPAIGN_RETENTION_DAYS, DEFAULT_SERVICE_NAME, DEFAULT_SPAN_RETENTION_DAYS } from "../telemetry/config";
+import { DEFAULT_CAMPAIGN_RETENTION_DAYS, DEFAULT_SERVICE_NAME, DEFAULT_SPAN_RETENTION_DAYS } from "./telemetry-config";
 import { resolveRunTimeBudgets } from "@contexts/run-orchestration/application/index";
 
 import { DEFAULT_REVIEWER_TIMEOUT_MS, DEFAULT_SESSION_TTL_SECONDS, DEFAULT_STALL_MS } from "./defaults";

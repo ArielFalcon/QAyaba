@@ -9,7 +9,7 @@
    Bounded and cheap: every request has a timeout, the result is cached for a short ttl, concurrent callers share one probe, and `peek` never waits (it starts a background refresh when stale). Everything is fail-open: a fault becomes a `down` entry with an address-free reason, never a throw. Addresses come from the environment (QA_TELEMETRY_LOKI_URL, QA_TELEMETRY_TEMPO_URL, QA_TELEMETRY_COLLECTOR_METRICS_URLS); a backend with none is `unconfigured` and does not make the stack unhealthy. HTTP, the clock and the ttl are injected. */
 
 import type { BackendHealth, BackendStatus, TelemetryBackendsHealth } from "./telemetry-health";
-import { DEFAULT_SERVICE_NAME } from "./config";
+import { DEFAULT_SERVICE_NAME } from "../settings/telemetry-config";
 import { redactAndBound } from "../../qa-engine/src/shared-infrastructure/redaction/redact-and-bound";
 
 export const BACKEND_HEALTH_TTL_MS = 30_000;

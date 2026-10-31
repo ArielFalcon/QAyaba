@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { parse } from "yaml";
-import { DEFAULT_CAMPAIGN_RETENTION_DAYS } from "./config";
+import { DEFAULT_CAMPAIGN_RETENTION_DAYS } from "../settings/telemetry-config";
 
 const ROOT = join(import.meta.dirname, "..", "..");
 const read = (file: string): string => readFileSync(join(ROOT, file), "utf8");
