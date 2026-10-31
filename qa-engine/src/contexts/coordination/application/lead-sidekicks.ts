@@ -446,7 +446,8 @@ export class LeadSidekicks {
   }
 
   /*
-   * The one amendment turn: a plan that leaves use cases unresolved (a drop the facts contradict among them), names flows past the
+   * The one amendment turn: a plan, of flows or of none, that leaves use cases unresolved (a drop the facts contradict or the reader
+   * could not read among them), names flows past the
    * run's capacity, or admits a flow too large for one author goes back to the lead in its open session, once (`MAX_PLAN_ROUNDS`),
    * with every one of those facts in the same request. Its answer replaces the plan only when it is a flow plan the run admits;
    * otherwise, and when no session, time or round is left, the plan stands and what is still unsettled is recorded (unplanned use
@@ -463,8 +464,8 @@ export class LeadSidekicks {
   ): Promise<{ plan: AdmittedPlan; coverage: PlanCoverage }> {
     const stands = { plan: first as AdmittedPlan, coverage: firstCoverage };
     const flows = first.kind === LEAD_PLAN_KIND.FANOUT ? this.flowAmendment(first, change, input) : {};
-    /* A plan of no flows is asked again only for a drop the facts contradict: the lead's other no-ops stand as they always did. */
-    const needed = first.kind === LEAD_PLAN_KIND.NOOP ? (firstCoverage.refused?.length ?? 0) > 0 : needsAmendment(firstCoverage.unresolved, flows);
+    /* A plan of no flows is asked again as a plan of flows is: for every use case it leaves unresolved (a drop the facts contradict, a drop the reader could not read, a use case it names nowhere). A no-op whose drops all read and stand is not asked again. */
+    const needed = needsAmendment(firstCoverage.unresolved, flows);
     if (!needed || !lead || MAX_PLAN_ROUNDS < 2 || input.signal?.aborted) return stands;
     const { settings } = input;
     const left = this.allowance(input);

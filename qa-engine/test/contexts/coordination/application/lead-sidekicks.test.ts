@@ -1757,6 +1757,29 @@ test("a drop of the plan the reader cannot read is recorded and counted, never t
   assert.deepEqual(r.plans.at(-1)!.candidates.map((c) => [c.id, c.state]), [["uc-/cart", "planned"], ["uc-/login", "unplanned"]], "an unreadable drop drops nothing");
 });
 
+test("a plan of no flows whose one drop the reader cannot read is asked about in the amendment turn before it stands as the lead's no-op", async () => {
+  const r = rig();
+  const readable = { candidate: "uc-/cart", basis: "no-observable-change", reason: "only a comment changed in the cart page" };
+  const unreadableDrop = { candidate: "uc-/login", basis: "no-such-basis", reason: "only a style change" };
+  const lead = leadReplanning(planOf([], [readable, unreadableDrop]), [undefined]);
+  const outcome = await r.coordinator.coordinate(input(r, { candidates: pageCandidates(["/cart", "/login"]), plan: lead.plan }));
+  assert.equal(outcome.action, "noop", "the first plan stands when the amendment turn brings nothing better");
+  assert.equal(lead.replans.length, 1, "the use case the unreadable drop named was asked about, once");
+  assert.match(lead.replans[0]!, /uc-\/login/);
+  assert.equal(r.created.length, 0);
+});
+
+test("a plan of no flows whose drops all read and no fact contradicts stands as the lead's no-op without another plan turn", async () => {
+  const r = rig();
+  const lead = leadReplanning(planOf([], [
+    { candidate: "uc-/cart", basis: "no-observable-change", reason: "only a comment changed in the cart page" },
+    { candidate: "uc-/login", basis: "no-observable-change", reason: "only a style change" },
+  ]), [undefined]);
+  const outcome = await r.coordinator.coordinate(input(r, { candidates: pageCandidates(["/cart", "/login"]), plan: lead.plan }));
+  assert.equal(outcome.action, "noop");
+  assert.equal(lead.replans.length, 0);
+});
+
 test("after the second plan still leaves a candidate unresolved, the plan is admitted, the candidate is recorded unplanned, the lead is not asked again and every review turn names it", async () => {
   const r = rig();
   const lead = leadReplanning(planOf([cartFlow]), [planOf([cartFlow])]);
