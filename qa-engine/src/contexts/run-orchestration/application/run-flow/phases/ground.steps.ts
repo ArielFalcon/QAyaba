@@ -5,7 +5,7 @@ import { engineLog } from "@kernel/ports/process-logger.ts";
 import type { ServiceLink, ContractDrift, CrossRepoImpact, ImpactDirection, ImpactedLink, ImpactStop } from "@kernel/service-links.ts";
 import { PRE_GENERATION_GROUNDING_STEP_DETAIL } from "@kernel/run-step.ts";
 import { BlastRadius } from "@kernel/blast-radius.ts";
-import type { PageDataRead } from "@kernel/page-data-read.ts";
+import { emptyConfirmedPages, type PageDataRead } from "@kernel/page-data-read.ts";
 import { DiffParserService } from "@kernel/diff-parser/diff-parser.service.ts";
 import type { DecisionListing } from "@kernel/changed-decision.ts";
 import type { ChangeScope, ChangeScopeRepo, ReachTier, UseCaseCandidate } from "@contexts/change-analysis/application/index.ts";
@@ -89,6 +89,7 @@ export async function groundRepository(state: Readonly<RunState>, ctx: Workspace
         harnessFacts: groundingHarnessFacts,
         moreNodes: groundingMoreNodes,
         confirmedDataRoutes: groundingConfirmedDataRoutes,
+        emptyDataPages: emptyConfirmedPages(groundingPageReads ?? []),
         lessons,
         changedDecisions: groundingChangedDecisions,
         routeAvailability: groundingRouteAvailability,

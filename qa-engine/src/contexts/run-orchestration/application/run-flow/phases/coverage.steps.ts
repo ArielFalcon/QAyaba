@@ -414,9 +414,11 @@ function groupBy<T>(items: readonly T[], key: (item: T) => string): Map<string, 
  * by number, so each number must name one unit it can hand to a flow, and each unit names its file so the orchestrator can route it by
  * the use case that file seeds, and the spec files whose tests ran that file (`ranBy`, from the dumps the measurement read), which settle
  * the flow of a file several flows hold. Every unit is kept: files are listed across use cases and arms across files, so what comes first
- * is the breadth of the gap, and the lead's turn gives them up as references to their files only when its window cannot hold them.
+ * is the breadth of the gap, and the lead's turn gives them up as references to their files only when its window cannot hold them. An arm
+ * on a page a passing case checked only as DEV served it empty (`onEmptyPages`, from `armsOnPinnedPages`) says so: the data that takes
+ * it may be what DEV lacks there.
  */
-export function gapUnits(uncovered: CoverageOutcome["uncovered"], arms: CoverageOutcome["untakenArms"], candidates: RunState["grounding"]["candidates"], ranBy: CoverageOutcome["ranBy"] = []): GapUnit[] {
+export function gapUnits(uncovered: CoverageOutcome["uncovered"], arms: CoverageOutcome["untakenArms"], candidates: RunState["grounding"]["candidates"], ranBy: CoverageOutcome["ranBy"] = [], onEmptyPages: ReadonlyArray<{ file: string; line: number; pages: readonly string[] }> = []): GapUnit[] {
   const ran = (file: string): Pick<CorrectionFinding, "ranBy"> => {
     const specs = ranBy.find((r) => r.file === file)?.specFiles;
     return specs && specs.length > 0 ? { ranBy: specs } : {};
@@ -428,7 +430,9 @@ export function gapUnits(uncovered: CoverageOutcome["uncovered"], arms: Coverage
       return { text, finding: { text, file: u.file, ...ran(u.file) } };
     }),
     ...interleave(groupBy(arms, (u) => u.file)).map((u) => {
-      const text = `decision arm on a changed line that NO test ran: ${u.file}:${u.line} ${u.kind}: ${u.arm}`;
+      const pages = onEmptyPages.find((a) => a.file === u.file && a.line === u.line)?.pages ?? [];
+      const empty = pages.length > 0 ? ` (on ${pages.join(", ")}, which DEV served as a confirmed empty state: the data that takes this arm may be what DEV lacks there)` : "";
+      const text = `decision arm on a changed line that NO test ran: ${u.file}:${u.line} ${u.kind}: ${u.arm}${empty}`;
       return { text, finding: { text, file: u.file, line: u.line, ...ran(u.file) } };
     }),
   ];

@@ -73,6 +73,8 @@ export interface Grounding {
   moreNodes: readonly string[];
   /** The pages the pack read with results under the declared data state: the witness a failure that reads them empty contradicts. */
   confirmedDataRoutes: readonly { path: string; resultCount: number }[] | undefined;
+  /** The pages the pack read as a confirmed empty state on their own address and no read of the run read with results (`emptyConfirmedPages`): what an ambient pin is checked against. Empty when the pack read none. */
+  emptyDataPages: readonly string[];
   /** What earlier runs' observations teach about the pages this run read, derived at read. Empty when the run's lessons lever is off or nothing was observed before. */
   lessons: readonly Lesson[];
   /** The decisions on the changed lines of the run's own diff, from the static listing of the working copy: they rank the hunks every prompt shows and name the cases a flow's brief must test. Empty when none was listed. */
@@ -385,6 +387,7 @@ export function initialRunState(): RunState {
       harnessFacts: undefined,
       moreNodes: [],
       confirmedDataRoutes: undefined,
+      emptyDataPages: [],
       lessons: [],
       changedDecisions: [],
       blastRadiusSignal: "",
