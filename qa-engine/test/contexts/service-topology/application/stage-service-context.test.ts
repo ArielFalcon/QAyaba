@@ -1,5 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { UntrustedGitTreeError } from "@kernel/domain-error.ts";
 import { stageServiceContext, serviceContextDir, type ServiceContextStagingPort, type ServiceContextManifest } from "@contexts/service-topology/application/index.ts";
 
@@ -347,4 +351,64 @@ test("every read is asked for with the per-file cap, so the strict read refuses 
   await stageServiceContext({ workingCopyDir: "/work/front", service: { repo: "org/svc", mirrorDir: mirror } }, deps);
 
   assert.deepEqual(asked, [512 * 1024]);
+});
+
+/* ── what is never staged: git's own directory, and an object that is not a commit ──────────── */
+
+test("a file under the mirror's .git directory is never staged, whatever contract hint or sweep matches it", async () => {
+  const mirror = "/m/svc";
+  const files = { [`${mirror}/.git/openapi.json`]: "{}", [`${mirror}/api/.git/swagger.yaml`]: "x", [`${mirror}/api/openapi.json`]: "{}" };
+  for (const openapi of [undefined, "**/*.json", "**/*"]) {
+    const deps = fakeDeps(files);
+    const { dir } = await stageServiceContext({ workingCopyDir: "/wc", service: { repo: "org/svc", mirrorDir: mirror, ...(openapi ? { openapi } : {}) } }, deps);
+    const manifest = readManifest(deps, dir);
+    assert.ok(manifest.contracts.includes("api/openapi.json"), String(openapi));
+    assert.deepEqual(manifest.contracts.filter((p) => p.split("/").includes(".git")), [], String(openapi));
+    assert.deepEqual(Object.keys(deps.written).filter((p) => p.split("/").includes(".git")), [], String(openapi));
+  }
+});
+
+test("a changed path under .git that git reports is never staged", async () => {
+  const mirror = "/m/svc";
+  const deps = fakeDeps(
+    { [`${mirror}/.git/config`]: "[core]", [`${mirror}/src/a.ts`]: "a" },
+    { git: async (args) => (args.includes("--name-only") ? ".git/config\nsrc/a.ts\n" : "") },
+  );
+  const { dir } = await stageServiceContext({ workingCopyDir: "/wc", service: { repo: "org/svc", mirrorDir: mirror }, sha: "a".repeat(40) }, deps);
+  const manifest = readManifest(deps, dir);
+  assert.deepEqual(manifest.changed, ["src/a.ts"]);
+  assert.equal(Object.keys(deps.written).some((p) => p.split("/").includes(".git")), false);
+});
+
+test("a sha that names a blob, not a commit, stages no file named by the blob's content", async () => {
+  const root = mkdtempSync(join(tmpdir(), "stage-svc-"));
+  try {
+    const mirror = join(root, "svc");
+    const wc = join(root, "wc");
+    mkdirSync(mirror);
+    mkdirSync(wc);
+    const git = (...args: string[]): string => execFileSync("git", args, { cwd: mirror, encoding: "utf8", env: { ...process.env, GIT_CONFIG_NOSYSTEM: "1", HOME: root, GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@t", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@t" } });
+    git("init", "-q");
+    writeFileSync(join(mirror, "secret.txt"), "not for the agent");
+    writeFileSync(join(mirror, "names.txt"), "secret.txt\n");
+    git("add", ".");
+    git("commit", "-qm", "c");
+    const blob = git("rev-parse", "HEAD:names.txt").trim();
+    const deps: ServiceContextStagingPort = {
+      git: async (args) => git(...args),
+      exists: (p) => existsSync(p),
+      mkdir: (p) => void mkdirSync(p, { recursive: true }),
+      rm: (p) => rmSync(p, { recursive: true, force: true }),
+      listFiles: () => [],
+      readFile: (p) => ({ bytes: readFileSync(p) }),
+      writeFile: (p, data) => writeFileSync(p, data),
+      now: () => 0,
+    };
+    const { dir } = await stageServiceContext({ workingCopyDir: wc, service: { repo: "org/svc", mirrorDir: mirror }, sha: blob }, deps);
+    const manifest = JSON.parse(readFileSync(join(dir, "manifest.json"), "utf8")) as ServiceContextManifest;
+    assert.deepEqual(manifest.changed, []);
+    assert.equal(existsSync(join(dir, "changed", "secret.txt")), false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });

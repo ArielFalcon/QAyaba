@@ -102,6 +102,11 @@ function globToRegExp(glob: string): RegExp {
   return new RegExp(`^${re}$`, "i");
 }
 
+/* Git's own directory holds the mirror's configuration and objects, never the service's code: nothing under it is staged. */
+function insideGitDir(relPath: string): boolean {
+  return relPath.split("/").includes(".git");
+}
+
 function isBinary(buf: Buffer): boolean {
   return buf.subarray(0, BINARY_SNIFF_BYTES).includes(0);
 }
@@ -162,7 +167,7 @@ export async function stageServiceContext(
   /* 1. OpenAPI/contract files — hinted glob(s) when declared, otherwise the default sweep. */
   const hints = service.openapi ? (Array.isArray(service.openapi) ? service.openapi : [service.openapi]) : undefined;
   /* mutation-scope:begin list-candidate-contracts */
-  const allFiles = deps.listFiles(service.mirrorDir);
+  const allFiles = deps.listFiles(service.mirrorDir).filter((f) => !insideGitDir(f));
   /* mutation-scope:end list-candidate-contracts */
   const candidateContracts =
     hints && hints.length > 0
@@ -186,7 +191,7 @@ export async function stageServiceContext(
     /* mutation-scope:begin patch-read */
     let patch: string | undefined;
     try {
-      patch = await deps.git(["show", "--stat", "--patch", sha], service.mirrorDir);
+      patch = await deps.git(["show", "--stat", "--patch", `${sha}^{commit}`], service.mirrorDir);
     } catch (e) {
       rethrowIfUntrusted(e); /* a service mirror whose git dir is not the orchestrator's is a security refusal, not an omitted file */
       omitted.push({ path: "CHANGE.patch", reason: `git show --patch failed: ${e instanceof Error ? e.message : String(e)}` });
@@ -200,7 +205,8 @@ export async function stageServiceContext(
 
     let changedPaths: string[] = [];
     try {
-      const out = await deps.git(["show", "--name-only", "--pretty=format:", sha], service.mirrorDir);
+      /* `^{commit}`: a sha that names a blob or a tree makes git print its content, which would be read as paths. */
+      const out = await deps.git(["show", "--name-only", "--pretty=format:", `${sha}^{commit}`], service.mirrorDir);
       changedPaths = out
         .split("\n")
         .map((l) => l.trim())
@@ -210,6 +216,10 @@ export async function stageServiceContext(
       omitted.push({ path: "changed/*", reason: `git show --name-only failed: ${e instanceof Error ? e.message : String(e)}` });
     }
     for (const relPath of changedPaths) {
+      if (insideGitDir(relPath)) {
+        omitted.push({ path: relPath, reason: "inside .git (never staged)" });
+        continue;
+      }
       const result = tryStageFromMirror(relPath, join("changed", relPath));
       if (result === true) changed.push(relPath);
       else omitted.push({ path: relPath, reason: result });
