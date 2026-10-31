@@ -55,7 +55,7 @@ export interface SidekickExecuteOpts {
 export interface SidekickSession {
   /* What the brief's prompt came to. */
   readonly first: DelegationResult;
-  /* Asks the same session again; the answer is read as the first one was. A turn that does not answer returns a failed result with its typed end and leaves the session as it was; only the run's own deadline throws. A session the runtime says is gone is ended here. */
+  /* Asks the same session again; the answer is read as the first one was. A turn that does not answer returns a failed result with its typed end and leaves the session as it was; only the run's own deadline throws. A session the runtime says is gone is ended here, and a session already ended (the runtime said so in an earlier turn, its repair included) is not prompted: the turn ends `session-gone`. */
   ask(instruction: string, opts?: { timeoutMs?: number; timeLimit?: TimeLimitSource }): Promise<DelegationResult>;
   /* Ends the session. Idempotent. */
   dispose(): Promise<void>;
@@ -131,13 +131,14 @@ export class SidekickExecutor {
       }
     };
     const askAgain: SidekickSession["ask"] = async (instruction, askOpts) => {
+      if (disposed) return unansweredTurn(brief, { kind: SESSION_GONE });
       const followUp = feedbackOf(instruction);
       try {
         const answer = await session.prompt(followUp.text, { sectionSizes: followUp.sectionSizes, ...(followUp.sectionHashes ? { sectionHashes: followUp.sectionHashes } : {}), promptStablePrefixBytes: followUp.stablePrefixBytes, ...(askOpts?.timeoutMs !== undefined ? { timeoutMs: askOpts.timeoutMs, ...(askOpts.timeLimit !== undefined ? { timeLimit: askOpts.timeLimit } : {}) } : {}) });
         return await answered(answer.output);
       } catch (err) {
         if (isRunDeadlineError(err)) throw err;
-        const end = turnEndOf(err, false);
+        const end = turnEndOf(err);
         if (end.kind === SESSION_GONE) await dispose();
         return unansweredTurn(brief, end);
       }
@@ -163,7 +164,7 @@ export class SidekickExecutor {
         await dispose();
         throw err;
       }
-      const end = turnEndOf(err, opts.signal?.aborted === true);
+      const end = turnEndOf(err, opts.signal);
       if (end.kind === SESSION_GONE) await dispose();
       return { first: unansweredTurn(brief, end), ask: askAgain, dispose };
     }

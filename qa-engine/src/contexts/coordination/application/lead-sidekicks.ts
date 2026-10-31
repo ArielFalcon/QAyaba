@@ -39,7 +39,7 @@ import { candidateSeeds } from "@kernel/change-map.ts";
 import { admissionSetOf, flowCovers, honorContradictedDrops, impliedNoopDrops, MAX_PLAN_ROUNDS, needsAmendment, planCoverage, assembleReplanRequest, unvisitedBy, type AdmissionSet, type PlanAmendment, type PlanCoverage, type PlanFacts } from "./plan-coverage.ts";
 import { candidateSlicesOf, changeViewOf, ownedSliceOf, type ChangeView } from "./owned-slices.ts";
 import { flowCapacity } from "./flow-capacity.ts";
-import type { CandidateClaim, DelegationResult } from "./delegation-result.ts";
+import { unansweredTurn, type CandidateClaim, type DelegationResult } from "./delegation-result.ts";
 import { classifyDelegationFailure } from "./delegation-failure-class.ts";
 import { admitLeadReview, assembleUnreadableReviewRequest, candidateGapsOf, assembleLeadReview, MAX_REVIEW_TURNS, REVIEW_ACTION, REVIEW_OVERRIDE, withSpecDigests, type FailureBytes, type FlowUnderReview, type NoWritesLeft, type ReviewOrder, type SeenSpecs } from "./lead-review.ts";
 import type { CoordinationTelemetryEvent, CoordinationTelemetryPort } from "./coordination-telemetry.ts";
@@ -547,7 +547,11 @@ export class LeadSidekicks {
     }
   }
 
-  /* What each dispatched turn came to, as the flow's report. A flow whose turn did not settle has no session left to ask. */
+  /*
+   * What each dispatched turn came to, as the flow's report. A flow's session is ended here only when the run was cancelled or the
+   * runtime says the session is gone: a flow out of its time, or met by a fault outside its turn, keeps its idle session for the
+   * lead's next order, and the pass's release ends it.
+   */
   private async settle(input: CoordinateInput, results: ReadonlyArray<{ id: string; status: string; value?: FlowReport; error?: unknown }>, live: Map<string, LiveFlow>, reports: Map<string, FlowReport>): Promise<void> {
     for (const result of results) {
       switch (result.status) {
@@ -567,6 +571,7 @@ export class LeadSidekicks {
           engineLog[levelOfEffect(FLOW_OUTCOME_EFFECT[FLOW_OUTCOME.FAILED])](`[qa] flow ${result.id} failed: ${result.error instanceof Error ? result.error.message : String(result.error)}`);
           this.recordFlowFault(input, live.get(result.id), result.id, result.error);
           reports.set(result.id, this.keepDelivered(live.get(result.id), { outcome: { id: result.id, kind: FLOW_OUTCOME.FAILED, reason: "the sidekick's session failed" }, proposals: undefined }));
+          if (!input.signal?.aborted && turnEndOf(result.error).kind !== SESSION_GONE) continue;
           break;
       }
       await this.closeSession(live.get(result.id));
@@ -575,7 +580,7 @@ export class LeadSidekicks {
 
   /* A flow whose sidekick's session failed outside a turn's answer (it could not be opened, or the flow was stopped under it): said in the run's decisions with the typed end of the fault, never only in the log. */
   private recordFlowFault(input: CoordinateInput, entry: LiveFlow | undefined, flowId: string, error: unknown): void {
-    const end = turnEndOf(error, input.signal?.aborted === true);
+    const end = turnEndOf(error, input.signal);
     this.record(input, {
       kind: "delegation",
       action: "delegate",
@@ -923,7 +928,7 @@ export class LeadSidekicks {
         else tally.replaced += 1;
         this.record(input, { kind: "lead-decision", flowId: order.flowId, decision: order.action, overridden: order.overrideReason !== undefined, ...(order.overrideReason !== undefined ? { overrideReason: order.overrideReason } : {}), reason: `review turn ${turn}: flow ${order.flowId} ${order.action}`, delegationId: live.get(order.flowId)!.delegationId });
       }
-      const results = await this.dispatcher.run(slots, { maxParallel: parallel, ...(input.signal ? { signal: input.signal } : {}) }, (slot, signal) => this.revise(live.get(slot.flowId)!, slot, slot.budgetMs, context, signal));
+      const results = await this.dispatcher.run(slots, { maxParallel: parallel, ...(input.signal ? { signal: input.signal } : {}) }, (slot, signal) => this.revise(live.get(slot.flowId)!, slot, this.now() + slot.budgetMs, context, signal));
       await this.settle(input, results, live, reports);
       if (input.signal?.aborted) break;
     }
@@ -937,11 +942,15 @@ export class LeadSidekicks {
     }
   }
 
-  /* One revision the lead ordered: its instruction, with the orchestrator's facts, to the sidekick's own session; or to a fresh one. */
-  private async revise(entry: LiveFlow, order: ReviewOrder, timeoutMs: number, context: FlowContext, signal: AbortSignal): Promise<FlowReport> {
+  /*
+   * One revision the lead ordered: its instruction, with the orchestrator's facts, to the sidekick's own session; or to a fresh one.
+   * The turn is given what is left of the flow's slot at `due`, so its own limit runs out with the slot, not after it.
+   */
+  private async revise(entry: LiveFlow, order: ReviewOrder, due: number, context: FlowContext, signal: AbortSignal): Promise<FlowReport> {
     const instruction = [order.instruction, orchestratorFacts(entry, await this.currentSpecSha(entry, context.input))].filter(Boolean).join("\n");
-    if (order.action === REVIEW_ACTION.REVISE && entry.session) {
-      const result = await this.untilStopped(entry, entry.session.ask(instruction, { timeoutMs: Math.max(1, timeoutMs), timeLimit: "flow-budget" }), signal);
+    const timeoutMs = Math.max(1, due - this.now());
+    if (order.action === REVIEW_ACTION.REVISE && entry.session && sessionOpenOf(entry)) {
+      const result = await this.followUp(entry, entry.session, instruction, timeoutMs, context.input, signal);
       return this.assess(entry, context, result, signal);
     }
     await this.closeSession(entry);
@@ -949,20 +958,18 @@ export class LeadSidekicks {
   }
 
   /*
-   * A follow-up turn in a session kept open, ended with its flow: the session's own signal belonged to the turn that opened it, so
-   * a stop of the run (or of this flow's slot) closes the session, which ends the turn, and the flow is stopped.
+   * A follow-up turn in a session kept open, bounded by the flow's slot. The session's own signal belonged to the turn that opened
+   * it, so a stop of the slot ends the turn here, as its typed end (the flow's time spent: `timeout`; the run cancelled: `aborted`),
+   * and leaves the session: the prompt still running is ended by its own limit, which runs out with the slot, and the transport
+   * aborts it without deleting the session. A cancelled run's sessions are ended where the dispatch settles.
    */
-  private async untilStopped<T>(entry: LiveFlow, turn: Promise<T>, signal: AbortSignal): Promise<T> {
-    if (signal.aborted) {
-      await this.closeSession(entry);
-      throw new Error(`flow ${entry.flow.id} was stopped before its follow-up turn`);
-    }
+  private async followUp(entry: LiveFlow, session: SidekickSession, instruction: string, timeoutMs: number, input: CoordinateInput, signal: AbortSignal): Promise<DelegationResult> {
+    const stoppedTurn = (): DelegationResult => unansweredTurn({ delegationId: entry.delegationId, runId: input.runId }, turnEndOf(undefined, signal));
+    if (signal.aborted) return stoppedTurn();
+    const turn = session.ask(instruction, { timeoutMs, timeLimit: "flow-budget" });
     let onAbort: (() => void) | undefined;
-    const stopped = new Promise<never>((_resolve, reject) => {
-      onAbort = () => {
-        void this.closeSession(entry);
-        reject(new Error(`flow ${entry.flow.id} was stopped during its follow-up turn`));
-      };
+    const stopped = new Promise<DelegationResult>((resolve) => {
+      onAbort = () => resolve(stoppedTurn());
       signal.addEventListener("abort", onAbort, { once: true });
     });
     try {
@@ -999,7 +1006,7 @@ export class LeadSidekicks {
       ...(loop ? { runSpec: { calls: ledger.length, maxCalls: loop.limits.maxCalls, ...(lastCall ? { lastStatus: lastCall.status } : {}), ...(lastFailure ? { lastFailure, lastFailureOn } : {}), ...noWritesLeftOf(loop) } } : {}),
       verified: loop ? await loop.isClosed().catch(() => false) : false,
       ...(entry?.appDefect ? { appDefect: entry.appDefect } : {}),
-      sessionOpen: entry?.session !== undefined,
+      sessionOpen: sessionOpenOf(entry),
       specFile: flow.specFile,
       ...(spec !== undefined ? { spec } : {}),
     };
@@ -1054,7 +1061,7 @@ export class LeadSidekicks {
     const under: FlowUnderCorrection[] = await Promise.all(flows.filter((flow) => live.has(flow.id)).map(async (flow) => {
       const spec = this.deps.readSpec ? await this.deps.readSpec({ mirrorDir: input.mirrorDir, specDir: input.specDir }, flow.specFile).catch(() => undefined) : undefined;
       const cited = (input.candidates ?? []).filter((c) => flowCovers(flow, c));
-      return { id: flow.id, objective: flow.objective, specFile: flow.specFile, sessionOpen: live.get(flow.id)!.session !== undefined, candidates: cited.map((c) => c.id), seedFiles: [...new Set(cited.flatMap((c) => candidateSeeds(c).map((seed) => seed.file)))], directSeedFiles: [...new Set(cited.flatMap((c) => c.seeds.map((seed) => seed.file)))], ...(spec !== undefined ? { spec } : {}) };
+      return { id: flow.id, objective: flow.objective, specFile: flow.specFile, sessionOpen: sessionOpenOf(live.get(flow.id)), candidates: cited.map((c) => c.id), seedFiles: [...new Set(cited.flatMap((c) => candidateSeeds(c).map((seed) => seed.file)))], directSeedFiles: [...new Set(cited.flatMap((c) => c.seeds.map((seed) => seed.file)))], ...(spec !== undefined ? { spec } : {}) };
     }));
     /*
      * The lead's turns are bounded by what the flows they order need: a turn that would leave the run less than a flow's minimum is
@@ -1296,6 +1303,7 @@ export class LeadSidekicks {
 
   /* One flow's correction: its workspace brought up to the working copy, then the findings and the lead's instruction to its sidekick. */
   private async amend(entry: LiveFlow, order: CorrectionOrder, origin: CorrectionOrigin, timeoutMs: number, context: FlowContext, signal: AbortSignal): Promise<FlowReport> {
+    const due = this.now() + timeoutMs;
     await this.deps.workspaces.refresh(entry.workspace, entry.request).catch((err: unknown) => engineLog.error(`[qa] refreshing flow ${entry.flow.id}'s workspace failed (it corrects the bytes it has): ${err instanceof Error ? err.message : String(err)}`));
     const instruction = [
       correctionPreamble(origin),
@@ -1308,7 +1316,7 @@ export class LeadSidekicks {
         ? [`If you hold the test right and the failure the app's or the environment's, change nothing and add to your result \`"testCorrect":{"cause":"app"|"env","reason":"<the evidence>"}\`. The orchestrator checks the claim against this run's evidence; it is never taken on your word.`]
         : []),
     ].join("\n");
-    return this.revise(entry, { flowId: order.flowId, action: order.action, instruction }, timeoutMs, context, signal);
+    return this.revise(entry, { flowId: order.flowId, action: order.action, instruction }, due, context, signal);
   }
 
   /* What the run can still spend on flows and the lead's turns: the time its deadline allots to the phase the run is in, net of what the phases after it are owed. Undefined: no deadline. */
@@ -1589,6 +1597,11 @@ function turnOpts(assembled: AssembledPrompt, timeoutMs: number, timeLimit?: Tim
 function planTurnOpts(assembled: AssembledPrompt, planBudgetMs: number, allowanceMs: number | undefined): ReturnType<typeof turnOpts> {
   const held = heldTo({ ms: planBudgetMs, limit: "plan-budget" }, allowanceMs);
   return turnOpts(assembled, Math.max(1, held.ms), held.limit);
+}
+
+/* Whether the flow's sidekick can be asked again: its holder still holds the session, and the flow's last turn did not end with the runtime saying the session is gone. */
+function sessionOpenOf(entry: LiveFlow | undefined): boolean {
+  return entry?.session !== undefined && entry.last?.turnEnd?.kind !== SESSION_GONE;
 }
 
 /* What the orchestrator adds to an instruction of the lead's: what it saw of the flow's last run_spec call, the kind of failure it met, and the reads that disagree. */

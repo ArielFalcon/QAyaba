@@ -3,8 +3,10 @@
  * and not from the moment it was queued; what one flow does (runs out of time, throws, ignores its stop) is that flow's result and
  * never another's. A flow that is stopped is given a short grace to wind down before its place is taken, so a flow that never
  * answers cannot keep the pool from moving, and a flow that does answer does not run beside its successor longer than that.
- * The clock is injected: nothing here reads the time.
+ * A flow's signal says why it was stopped: a flow out of its time is stopped by a timeout (`AgentTimeoutError`), a cancelled run by
+ * the run's own reason. The clock is injected: nothing here reads the time.
  */
+import { AgentTimeoutError } from "@kernel/domain-error.ts";
 
 export const FLOW_RESULT = {
   SETTLED: "settled",
@@ -92,7 +94,7 @@ export class FanOutDispatcher {
     try {
       const first = await Promise.race([execution, budget]);
       if (first === "budget") {
-        child.abort(new Error(`flow ${flow.id} ran out of its ${flow.budgetMs} ms`));
+        child.abort(new AgentTimeoutError(`flow ${flow.id} ran out of its ${flow.budgetMs} ms`));
         await this.windDown(execution);
         return { id: flow.id, status: FLOW_RESULT.TIMED_OUT };
       }

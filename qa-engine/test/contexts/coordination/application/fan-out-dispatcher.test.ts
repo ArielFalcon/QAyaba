@@ -6,6 +6,7 @@ import {
   type TimerPort,
 } from "@contexts/coordination/application/fan-out-dispatcher.ts";
 import { createAgentDeps, type RawAgentTransport } from "@contexts/generation/infrastructure/agent-transport-policy.ts";
+import { isAgentTimeoutError } from "@kernel/domain-error.ts";
 
 /* A clock the test moves by hand: a timer fires when the clock reaches it, never before. */
 class FakeTimers implements TimerPort {
@@ -226,6 +227,23 @@ test("cancelling the run stops the running flows through their signals and start
   const results = await run;
   assert.deepEqual(started, ["a"]);
   assert.deepEqual(results.map((r) => r.status), [FLOW_RESULT.ABORTED, FLOW_RESULT.ABORTED, FLOW_RESULT.ABORTED]);
+});
+
+test("a flow's signal says why it was stopped: its time ran out, or the run was cancelled", async () => {
+  const timers = new FakeTimers();
+  const dispatcher = new FanOutDispatcher({ timers, abortGraceMs: 0 });
+  const controller = new AbortController();
+  const reasons = new Map<string, unknown>();
+  const run = dispatcher.run([slot("slow", 500), slot("cancelled", 5_000)], { maxParallel: 2, signal: controller.signal }, async (flow, signal) => {
+    await new Promise<void>((resolve) => signal.addEventListener("abort", () => { reasons.set(flow.id, signal.reason); resolve(); }, { once: true }));
+  });
+  await settle();
+  timers.advance(500);
+  await settle();
+  controller.abort(new Error("the run was cancelled"));
+  await run;
+  assert.equal(isAgentTimeoutError(reasons.get("slow")), true, "a flow stopped for its time is stopped by a timeout");
+  assert.equal(isAgentTimeoutError(reasons.get("cancelled")), false, "a cancelled flow is not");
 });
 
 test("a run that is already cancelled starts nothing", async () => {

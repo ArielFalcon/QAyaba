@@ -478,9 +478,10 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   decline). Flows that deliver are added up like a generation (`aggregateFlowOutcomes`), and the rest of the run (validate,
   execute, coverage, review, decide) goes on as for any generation, with the pass kept open (`CoordinatedPass`: the lead's session and
   every flow's session, workspace, loop and location) until the review ends. A session ends only in its holder's `dispose`: a
-  signal's abort (a flow's time, the run's cancel) aborts the prompt and never deletes the session, a turn that did not answer
-  ends as one typed end on its result and event (`timeout`, `aborted`, `failed` with its error class, or `session-gone`) and only a
-  session the runtime says is gone (`SessionGoneError`) is disposed, so a flow that ran out of its time or met a fault of the transport keeps its idle
+  signal's abort (a flow's time, the run's cancel) aborts the prompt and never deletes the session, a turn that did not answer (a
+  first turn or a revision) ends as one typed end on its result and event (`timeout`, `aborted`, `failed` with its error class, or `session-gone`) and a
+  session is disposed only when the runtime says it is gone (`SessionGoneError`), the run is cancelled or its holder releases it (the pass, a `replace`),
+  so a flow that ran out of its time, in any turn, or met a fault of the transport or one outside its turn keeps its idle
   session, its `run_spec` loop and its proof for the lead's `revise`, and the orphan sweep collects only a session with no prompt in flight
   and no use for longer than the longest run budget in force (`docs/lead-sidekicks.md`, "Session lifecycle"). The reviewer's verified corrections go to the lead
   (`lead-correction.ts`), which routes each to the flow whose spec it cites (revise in the same sidekick session, replace with a fresh

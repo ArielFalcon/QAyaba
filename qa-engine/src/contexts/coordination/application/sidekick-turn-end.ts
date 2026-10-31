@@ -17,11 +17,16 @@ export interface SidekickTurnEnd {
   readonly errorType?: AgentErrorType;
 }
 
-/* The end a fault of a turn is: the runtime's own word that its session is gone, then the turn's time, then a stop the caller asked for, then any other fault with its class. The run's own deadline is not a turn's end: it ends the run, and the caller rethrows it before asking. */
-export function turnEndOf(err: unknown, stopped: boolean): SidekickTurnEnd {
+/*
+ * The end a fault of a turn is: the runtime's own word that its session is gone, then the turn's time, then a stop of the signal
+ * that bounded the turn (a stop for the turn's time, whose reason is a timeout, is a timeout; any other is a stop the caller asked
+ * for), then any other fault with its class. The run's own deadline is not a turn's end: it ends the run, and the caller rethrows it
+ * before asking.
+ */
+export function turnEndOf(err: unknown, stop?: AbortSignal): SidekickTurnEnd {
   if (isSessionGoneError(err)) return { kind: SESSION_GONE };
   if (isAgentTimeoutError(err)) return { kind: "timeout" };
-  if (stopped) return { kind: "aborted" };
+  if (stop?.aborted) return isAgentTimeoutError(stop.reason) ? { kind: "timeout" } : { kind: "aborted" };
   return { kind: "failed", errorType: classifyAgentFault(err) };
 }
 

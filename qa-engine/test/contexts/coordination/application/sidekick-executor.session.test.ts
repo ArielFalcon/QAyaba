@@ -272,3 +272,23 @@ test("an answer that reads whole is not asked about again, and nor is an answer 
   assert.equal(empty.prompts.length, 1, "an answer with nothing in it is the sidekick's absence, not a result to repair");
   assert.equal(session.first.readMiss, "unreadable");
 });
+
+test("a session the runtime said was gone during the repair turn is not asked again: the next turn ends session-gone without a prompt", async () => {
+  const calls = { prompts: 0, disposed: 0 };
+  const session = await new SidekickExecutor({ redaction,
+    runtime: {
+      openSession: async () => ({
+        prompt: async () => {
+          calls.prompts += 1;
+          if (calls.prompts === 2) throw new SessionGoneError("session ses_1 not found");
+          return { output: FOUND_NOTHING };
+        },
+        dispose: async () => { calls.disposed += 1; },
+      }),
+    },
+  }).open(brief, { cwd: "/w", kind: "author" });
+  assert.equal(calls.disposed, 1, "the repair turn met a session the runtime no longer holds, which is ended");
+  const next = await session.ask("Assert the total.");
+  assert.equal(next.turnEnd?.kind, "session-gone");
+  assert.equal(calls.prompts, 2, "no prompt is sent to a session that is gone");
+});
