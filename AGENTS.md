@@ -38,12 +38,12 @@ auto-merge**. Failures open an Issue. The suite lives in git and improves run af
 |---|---|
 | `qa-engine/src/` | The engine: bounded contexts (`change-analysis`, `generation`, `coordination`, `agent-tools`, `test-execution`, `objective-signal`, `cross-run-learning`, `run-orchestration`, …), hexagonal. New engine logic goes here. |
 | `src/` | The shell the migration empties: its modules sit in the platform's subfolders below, which become `platform/` at step 5 of `docs/engine-platform-architecture.md` (see [Boundary](#boundary-qa-engine--src)). |
-| `src/composition/` | The process roots (`index.ts`, `cli.ts`, `wire-app.ts`), the engine root and the factory, and the wiring that builds adapters (sandbox, egress, file boundary, config loader, GitHub, repo mirror). |
-| `src/entrypoints/` | The HTTP API (`api/`), the wire contract (`contract/`), the webhook, the queue, the runner, the views, the tools listener, the boot check of the file boundary, onboarding and the operator reports. |
+| `src/composition/` | The process roots (`index.ts`, `cli.ts`, `wire-app.ts`), the engine root and the factory, and the wiring that builds adapters (sandbox, egress, file boundary, config loader, GitHub, repo mirror). The only folder that imports the others, and the only shell folder that may import a context's infrastructure. |
+| `src/entrypoints/` | The HTTP API (`api/`, with the ports it declares for the app admin and the evaluation service), the wire contract (`contract/`), the CLI's argument parsing (`cli-args.ts`), the webhook, the queue, the runner, the views, the tools listener, the boot check of the file boundary, onboarding and the operator reports. |
 | `src/persistence/` | The one database: connection, schema, migrations, repositories, and the adapters of engine ports over it. |
 | `src/telemetry/` | The tracing and metrics SDK, its exporters and bootstrap, the process loggers and the sanitizer. |
 | `src/agent-runtime/` | The agent-server client, the provider-agnostic facade and the runtime manager. |
-| `src/settings/` | The typed Settings: one registry of every environment variable, `loadSettings(env)`, the store, the paths, the control-plane port and API token; `docs/settings.md` is generated from it. |
+| `src/settings/` | The typed Settings: one registry of every environment variable, `loadSettings(env)`, the store, the paths, the control-plane port and API token, and the values other folders read from the environment (telemetry and backend-health config, the sandbox switches and status files, the tools port); `docs/settings.md` is generated from it. It imports no other platform folder. |
 | `src/test-support/` | Test-only modules (the trace harness, the console harness, the roster fixture, the console scan); no production module imports them. |
 | `agents/` | `agents` container: OpenCode config (`opencode.json`), prompts (`AGENTS.md`, `agent/*.md`, `skill/`), MCPs (Serena, Playwright). |
 | `config/apps/` | Watched-app YAMLs (gitignored user data; template: `example.yaml`). `config/e2e/` is the seed copied into a repo's `e2e/`. |
@@ -120,6 +120,15 @@ Keep the two rigorously separate.
   only) and `src/agent-runtime/*` (provider-agnostic facade + the OpenCode strategy).
 - **Persistence** (rows 6 and 4) — `src/persistence/` (schema, migrations, repositories) behind `getHistory()`, and
   `src/persistence/run-history-sqlite-adapter.ts`.
+
+Inside the platform, dependencies point toward `composition/` (step 6 of `docs/engine-platform-architecture.md`), held by
+`npm run arch:check`: no folder but `composition/` imports it (`platform-composition-is-the-root`; what a folder needs from the
+root is a port it declares, such as the API's `app-admin.port.ts`, or a value the root hands in, such as the runner's
+`loadApp`), `settings/` imports no other platform folder (`platform-settings-reads-no-other-folder`), and no production module
+imports `src/test-support/` (`platform-production-imports-no-test-support`). The composition root may import a context's
+infrastructure, never its domain (`composition-builds-adapters-from-infrastructure`). The imports between `entrypoints/`,
+`persistence/`, `telemetry/` and `agent-runtime/` (the loggers, the sanitizer, the stored run shapes, the history) are not ruled
+yet: whether those shared leaves stay leaves or become injected ports is open (ADR-0022 row 7).
 
 Seams are pinned by `src/composition/seam-parity.contract.test.ts`.
 

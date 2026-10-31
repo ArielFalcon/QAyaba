@@ -685,3 +685,28 @@ Counts of production imports between the subfolders after step 4, measured on th
 | `telemetry` | `settings` | 2 (not toward composition) |
 
 The couplings the step-0 part "rest" lists ("Platform-internal couplings Step 4 must break") that this map keeps: `settings/registry.ts` and `settings/settings.ts` import `entrypoints/tools-endpoint` and `composition/egress-wiring` for constants and a parser; `telemetry/ledger.ts` and `telemetry/bootstrap.ts` import `persistence/`; `telemetry/with-prompt-bodies.ts` imports `agent-runtime/opencode-client`; `persistence/` and `agent-runtime/` import `telemetry/` (the logger and the sanitizer) and `settings/active`. None of these needs breaking for a move, and each is a code change.
+
+### After step 6 (T13 U8)
+
+Measured on the import graph of the U8 branch head with the same rule (production modules only; `composition -> x` allowed). Every import into `composition/` and every import out of `settings/` is gone and held by a rule (`platform-composition-is-the-root`, `platform-settings-reads-no-other-folder`); the rows left are the shared leaves ADR-0022 row 7 leaves open.
+
+| From | To | Imports |
+|---|---|---|
+| `agent-runtime` | `entrypoints` | 1 (`AgentConfigUpdate`, `AgentModelInfo` of the wire contract) |
+| `agent-runtime` | `persistence` | 2 |
+| `agent-runtime` | `settings` | 6 |
+| `agent-runtime` | `telemetry` | 5 |
+| `entrypoints` | `agent-runtime` | 3 |
+| `entrypoints` | `persistence` | 21 |
+| `entrypoints` | `settings` | 8 |
+| `entrypoints` | `telemetry` | 16 |
+| `persistence` | `agent-runtime` | 1 |
+| `persistence` | `settings` | 3 |
+| `persistence` | `telemetry` | 11 |
+| `telemetry` | `agent-runtime` | 1 |
+| `telemetry` | `persistence` | 3 |
+| `telemetry` | `settings` | 4 |
+| `test-support` | `telemetry` | 2 (test code) |
+
+The most imported targets: `telemetry/redacting-logger.ts` 13, `persistence/types.ts` 13, `telemetry/sanitizer.ts` 10, `settings/active.ts` 7, `telemetry/logger.ts` 6, `persistence/index.ts` 5.
+

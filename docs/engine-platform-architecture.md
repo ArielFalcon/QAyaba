@@ -100,7 +100,7 @@ Rules that matter during the migration:
 | Subfolder | Holds | Must not hold |
 |---|---|---|
 | `composition/` | The one root that builds every adapter, calls every `build<Context>`, and starts the process (`main`) | Any policy: a branch that changes a run's outcome |
-| `entrypoints/` | HTTP routes, the webhook, the queue, CLI commands (the CLI's parsing; until step 6 splits it, `cli.ts` is a second process root in `composition/`, ADR-0022 row 3), the wire contract and its generated OpenAPI | Any decision beyond parsing, authorizing the caller, calling one public use case and mapping its result |
+| `entrypoints/` | HTTP routes, the webhook, the queue, CLI commands (the CLI's parsing, `cli-args.ts`; `cli.ts`, which wires and starts the CLI's process, is a second process root in `composition/`, ADR-0022 row 3), the wire contract and its generated OpenAPI | Any decision beyond parsing, authorizing the caller, calling one public use case and mapping its result |
 | `persistence/` | The one database: connection, schema, migrations, backup, retention, and the repositories that implement engine ports | Rules about what a record means |
 | `telemetry/` | The tracing and metrics SDK, its exporters, its bootstrap; the adapter of the engine's `TelemetryPort` | Engine-specific span names chosen here instead of in the engine |
 | `agent-runtime/` | The agent-server client and the provider-agnostic facade behind the engine's agent port | Prompt content, role behaviour |
@@ -172,6 +172,18 @@ Two mechanical commits, each alone: `src/` â†’ `platform/`, then `qa-engine/` â†
 - Add the retired roots and folder names to the banned terms of `npm run previous-forms:check`, so no document or comment
   keeps describing the old layout.
 - Update `AGENTS.md`'s repo map, boundary section and every doc that names a path.
+
+Where step 6 stands (T13 U8, 2026-10-31): three platform rules hold, with probe tests in
+`qa-engine/test/arch/shell-public-surface.test.ts`: no folder but `composition/` imports it
+(`platform-composition-is-the-root`), `settings/` imports no other platform folder (`platform-settings-reads-no-other-folder`)
+and no production module imports `src/test-support/` (`platform-production-imports-no-test-support`); the composition root may
+import a context's infrastructure (`composition-builds-adapters-from-infrastructure`). The shell exceptions list holds 27
+entries: the 11 `scripts/` entries, 13 tests of `agent-runtime/`, `persistence/` and `telemetry/` that drive engine adapters, the
+agent transport (`src/agent-runtime/opencode-client.ts`), the tools endpoint's test and the composition root's mirror prune
+(`wire-app.ts`, ADR-0021's note). Not done: the rule between `entrypoints/`, `persistence/`, `telemetry/` and `agent-runtime/`
+(their imports of the loggers, the sanitizer, the stored run shapes and the history; ADR-0022 row 7 leaves open whether those
+stay shared leaves or become injected ports), the rule renames and the banned old roots (they follow the root renames of
+step 5).
 
 ## Rules for every migration commit
 
