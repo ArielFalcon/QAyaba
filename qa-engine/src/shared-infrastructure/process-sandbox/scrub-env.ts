@@ -7,11 +7,10 @@ const BLOCKED_ENV_PREFIX = /^(?:GITHUB_TOKEN|GH_TOKEN|OPENCODE_API_KEY|OPENCODE_
 /* Any provider's API key, whatever the provider is named: a model provider added in config brings its key with it. */
 const BLOCKED_ENV_SUFFIX = /_API_KEY$/;
 
-/* Allowed exact var names (OS + language essentials that are single vars, not families). */
+/* Allowed exact var names (OS + language essentials that are single vars, not families). Every spawn the sandbox serves runs the e2e project, a Playwright TypeScript project whatever the app's own stack is, so no other toolchain's variables (JVM, Go, Rust) are listed: they would only widen what an agent-influenced process receives. */
 const ALLOWED_ENV_EXACT = new Set([
   "PATH", "HOME", "USER", "SHELL", "TERM", "LANG", "TMPDIR", "TEMPDIR", "TMP", "TEMP",
-  "NODE_ENV", "CI", "PYTHON", "VIRTUAL_ENV", "GOPATH", "GOROOT", "GOPRIVATE", "GOPROXY",
-  "GONOSUMCHECK", "GOFLAGS", "GOCACHE", "JAVA_HOME", "M2_HOME", "M2_REPO", "M2", "NVM_DIR", "NODE_PATH", "NODE_OPTIONS",
+  "NODE_ENV", "CI", "PYTHON", "VIRTUAL_ENV", "NVM_DIR", "NODE_PATH", "NODE_OPTIONS",
   "DISPLAY", "SSH_AUTH_SOCK", "COLORTERM", "NO_COLOR", "FORCE_COLOR", "DEBUG",
   "PKG_CONFIG_PATH", "LD_LIBRARY_PATH", "DYLD_LIBRARY_PATH",
   "PLAYWRIGHT_BROWSERS_PATH",
@@ -20,7 +19,7 @@ const ALLOWED_ENV_EXACT = new Set([
 /* Exported so sandbox.ts can scope its own home-rebase rule to exactly this family of
    package-manager/locale vars (never to PATH or other executable-search vars) — single source of
    truth for "which prefixes are package-manager config", kept in lockstep with the allowlist. */
-export const ALLOWED_ENV_PREFIX = /^(?:LC_|npm_config_|PIP_|CGO_|CARGO_|RUSTUP_|RUST_|GRADLE_|MAVEN_|PNPM_|YARN_|COREPACK_)/;
+export const ALLOWED_ENV_PREFIX = /^(?:LC_|npm_config_|PIP_|PNPM_|YARN_|COREPACK_)/;
 
 export interface ScrubEnvOptions {
   extraAllowed?: RegExp;

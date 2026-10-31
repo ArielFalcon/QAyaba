@@ -46,22 +46,22 @@ test("sandboxSpawnOptions: passthrough env when no sandbox; uid/gid + redirected
    npm_config_cache=/root/.npm (and siblings) into every child process, and a child that kept them
    would try to write to a cache directory it cannot own (EACCES, `npm ci` exit 243). The rule is
    general: ANY inherited package-manager config var (npm_config_*, PNPM_, YARN_, COREPACK_,
-   CARGO_, GRADLE_, MAVEN_, PIP_, ...) whose value sits under the parent's HOME is rebased onto the
+   PIP_, ...) whose value sits under the parent's HOME is rebased onto the
    sandbox's own (writable) home, not just npm's cache var specifically. */
 test("sandboxSpawnOptions rebases root-home package-manager config paths onto the sandbox home", () => {
   const env = {
     HOME: "/root",
     npm_config_cache: "/root/.npm",
     npm_config_userconfig: "/root/.npmrc",
-    CARGO_HOME: "/root/.cargo",
-    GRADLE_USER_HOME: "/root/.gradle",
+    PNPM_HOME: "/root/.pnpm",
+    YARN_CACHE_FOLDER: "/root/.yarn",
     PIP_CACHE_DIR: "/root/.cache/pip",
   };
   const opts = sandboxSpawnOptions(env, { uid: 1001, gid: 1001, home: "/home/sandbox" });
   assert.equal(opts.env.npm_config_cache, "/home/sandbox/.npm");
   assert.equal(opts.env.npm_config_userconfig, "/home/sandbox/.npmrc");
-  assert.equal(opts.env.CARGO_HOME, "/home/sandbox/.cargo");
-  assert.equal(opts.env.GRADLE_USER_HOME, "/home/sandbox/.gradle");
+  assert.equal(opts.env.PNPM_HOME, "/home/sandbox/.pnpm");
+  assert.equal(opts.env.YARN_CACHE_FOLDER, "/home/sandbox/.yarn");
   assert.equal(opts.env.PIP_CACHE_DIR, "/home/sandbox/.cache/pip");
 });
 

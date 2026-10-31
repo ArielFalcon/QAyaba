@@ -7,7 +7,7 @@ import { scrubEnvFrom } from "./scrub-env.ts";
 /* offline: runs agent code with no network (tsc, eslint, `playwright test --list`).
    suite: runs the agent's specs against DEV with the saved session, never the account.
    login: the profile that carries the test account (the auth setup and the login discovery); a suite gets it only when its app opted in (e2e.specCredentials: account).
-   install: package-manager and toolchain work that reaches registries only (npm ci, mvn, pip, cargo, go).
+   install: package-manager work that reaches registries only (the e2e project's `npm ci`).
    graph: the code-graph engine, which parses source from repos the system does not control: no network, its telemetry and update check off, nothing a page or a registry needs. */
 export const SANDBOX_PROFILES = ["offline", "suite", "login", "install", "graph"] as const;
 export type SandboxProfile = (typeof SANDBOX_PROFILES)[number];

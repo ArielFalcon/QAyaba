@@ -125,16 +125,15 @@ test("a login's session file must be inside the run's work dir", () => {
   assert.throws(() => buildExecEnv(input("login", { extraEnv: { PW_STORAGE_STATE: "/app/data/auth/x/user.json" } })), /work dir/i);
 });
 
-test("the install profile keeps the toolchain and package-manager variables and rebases the cache under the run's home", () => {
+test("the install profile keeps the package-manager variables and rebases the cache under the run's home", () => {
   const env = buildExecEnv(input("install"));
-  assert.equal(env.JAVA_HOME, "/usr/lib/jvm/default-java");
+  assert.equal("JAVA_HOME" in env, false, "another toolchain's variable is not passed");
   assert.equal(env.npm_config_registry, "https://registry.npmjs.org/");
   assert.equal(env.npm_config_cache, "/tmp/qa-exec/run-1/home/.npm");
 });
 
-test("the suite profile does not carry the toolchain variables it does not need", () => {
+test("the suite profile does not carry the package-manager variables it does not need", () => {
   const env = buildExecEnv(input("suite"));
-  assert.equal("JAVA_HOME" in env, false);
   assert.equal("npm_config_registry" in env, false);
 });
 
