@@ -41,9 +41,11 @@ import {
   sourceOfTrigger,
   terminalCaseEvent,
   withTurnLimits as withTurnLimitsOf,
+  decideRunFreeze,
   type DeclaredRepos,
   type LiveAnnouncedStatus,
   type RunFacts,
+  type RunFreeze,
   type RunTrigger,
 } from "@contexts/run-orchestration/application/index";
 import { testDataNamespace } from "./test-data";
@@ -57,7 +59,6 @@ import { ChangeSet, anchorProjection, type ChangeEntry } from "@contexts/change-
 import type { RunPurpose } from "@kernel/run-mode";
 import type { CampaignIdentity } from "./contract/campaign";
 import { capCaptureMode, type CaptureMode } from "@kernel/telemetry/capture-mode";
-import { decideRunFreeze, type RunFreeze } from "./run-freeze";
 import { configInEffect, resolveRunConfig, type RunConfigEnvironment, type StoredRunConfig } from "./effective-config";
 import type { GroundingInput } from "./contract/commands";
 import { ENGINE_VERSION } from "./version";

@@ -159,7 +159,7 @@ import { ensureMirror, ensureMirrorAtBranch, defaultMirrorDeps, workdirRoot, rea
 import { stageServiceContext, serviceContextDir, type StageServiceContextInput, type StagedServiceContext } from "@contexts/service-topology/application/index";
 import { defaultStageDeps } from "./service-context";
 import { SqliteRunHistoryAdapter } from "../persistence/run-history-sqlite-adapter";
-import type { RunFreeze } from "../entrypoints/run-freeze";
+import type { RunFreeze } from "@contexts/run-orchestration/application/index";
 import { SqliteLessonStoreAdapter } from "../persistence/lesson-store-sqlite-adapter";
 import { ProcessAuditPortAdapter } from "@contexts/cross-run-learning/infrastructure/process-audit-port.adapter";
 import { YamlBoundaryProfileAdapter } from "@contexts/service-topology/infrastructure/yaml-boundary-profile.adapter";

@@ -9,8 +9,6 @@
  * campaign-tagged run that declares `grounding.lessons: true`; the replicate isolation and the process audit stay withheld.
  */
 
-import type { GroundingInput } from "./contract/commands";
-
 export interface RunFreeze {
   /* The suite store is read-only, the context map is not rebuilt, no automatic login bootstrap is queued, no process audit is built. */
   readonly frozen: boolean;
@@ -21,7 +19,8 @@ export interface RunFreeze {
 /* The part of a run request the decision reads. */
 export interface RunFreezeRequest {
   readonly campaign?: unknown;
-  readonly grounding?: GroundingInput | undefined;
+  /* The request's grounding choices; only the lessons lever is read. */
+  readonly grounding?: (Readonly<Record<string, unknown>> & { readonly lessons?: boolean | undefined }) | undefined;
 }
 
 export function decideRunFreeze(request: RunFreezeRequest): RunFreeze {

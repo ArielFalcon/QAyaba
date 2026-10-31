@@ -10,8 +10,7 @@
  */
 
 import { isCaptureMode, type CaptureMode } from "@kernel/telemetry/capture-mode";
-import { agentsOfTurns, recordRunConfig, type RunConfigEnvironment, type RunConfigRequest as EngineRunConfigRequest } from "@contexts/run-orchestration/application/index";
-import { decideRunFreeze } from "./run-freeze";
+import { agentsOfTurns, decideRunFreeze, recordRunConfig, type RunConfigEnvironment, type RunConfigRequest as EngineRunConfigRequest } from "@contexts/run-orchestration/application/index";
 import type { AppConfig } from "../composition/config-loader";
 import type { EffectiveConfig, GroundingInput } from "./contract/commands";
 import type { AgentRoleFacts } from "../persistence/repositories/telemetry.repository";

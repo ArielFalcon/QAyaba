@@ -660,7 +660,7 @@
   "src/composition/run-engine-factory.step-limit.test.ts": 217,
   "src/composition/run-engine-factory.test.ts": 7802,
   "src/entrypoints/run-events.test.ts": 4,
-  "src/entrypoints/run-freeze.test.ts": 0,
+  "qa-engine/test/contexts/run-orchestration/domain/run-freeze.test.ts": 0,
   "src/persistence/run-history-sqlite-adapter.test.ts": 1,
   "src/entrypoints/run-report-view.test.ts": 2,
   "src/entrypoints/runner-boot-recovery.test.ts": 22,

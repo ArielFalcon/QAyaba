@@ -1131,7 +1131,7 @@ ingest times.
   What makes an arm behave differently is **only** the explicit request levers (`closedLoop`,
   `agentBrowser`, `captureMode`, `grounding`) and the deployment's config.
 - **The presence of a campaign freezes the run.** The server decides it per request, for every door
-  (`src/entrypoints/run-freeze.ts`): a run that carries a `campaign` starts from a fixed state (the suite store is
+  (`qa-engine/src/contexts/run-orchestration/domain/run-freeze.ts`): a run that carries a `campaign` starts from a fixed state (the suite store is
   read-only, no context-map rebuild, no automatic login bootstrap, no process audit) and records
   `effectiveConfig.campaignFreeze: true`. The one lever that lifts anything is `grounding.lessons: true`, which
   lifts the lesson state only (docs/architecture/rfc/0013-learning-slice.md); a run without a campaign is not

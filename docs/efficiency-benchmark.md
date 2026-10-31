@@ -510,7 +510,7 @@ After each arm-run the harness takes the files the arm delivered and judges them
 
 ### Freeze: the server decides per run
 
-A run that carries a `campaign` is frozen by the server, whichever door it came through (`src/entrypoints/run-freeze.ts`, ADR-0009):
+A run that carries a `campaign` is frozen by the server, whichever door it came through (`qa-engine/src/contexts/run-orchestration/domain/run-freeze.ts`, ADR-0009):
 nothing is set on the orchestrator. For that run it:
 
 | Skips | Because |

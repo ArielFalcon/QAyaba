@@ -47,7 +47,7 @@ import { rosterFixturePath } from "../test-support/fixtures/opencode-roster";
 import { setAgentsConfigPath } from "../agent-runtime/opencode-client";
 import type { RunMode } from "@kernel/run-mode";
 import { getHistory } from "../persistence/index";
-import type { RunFreeze } from "../entrypoints/run-freeze";
+import type { RunFreeze } from "@contexts/run-orchestration/application/index";
 
 const FROZEN: RunFreeze = { frozen: true, lessons: false };
 

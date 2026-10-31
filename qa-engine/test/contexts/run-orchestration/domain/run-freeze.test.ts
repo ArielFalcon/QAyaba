@@ -1,7 +1,7 @@
 /* The freeze is one function of the run request: the campaign identity and the lessons lever decide it, never a label or the process environment. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { decideRunFreeze } from "./run-freeze";
+import { decideRunFreeze } from "@contexts/run-orchestration/domain/run-freeze.ts";
 
 const campaign = (variant: Record<string, string> = {}) => ({ id: "ab-1", variant, replicate: 1 });
 

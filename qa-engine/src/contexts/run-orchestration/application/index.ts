@@ -44,6 +44,8 @@ export type { HostEventListener, RunCampaign, RunFacts, RunIdentity, RunIdentity
 export { sourceOfTrigger } from "../domain/run-origin.ts";
 export { LOGIN_BOOTSTRAP_GUIDANCE, PreworkMemory, contextMapRebuildRequest, contextMapRequest, loginBootstrapRequest, mayBePreceded, needsLoginBootstrap } from "../domain/run-prework.ts";
 export type { PreworkRequest } from "../domain/run-prework.ts";
+export { decideRunFreeze } from "../domain/run-freeze.ts";
+export type { RunFreeze, RunFreezeRequest } from "../domain/run-freeze.ts";
 export { mayHaveLeftTestData } from "../domain/orphan-test-data.ts";
 export { ONBOARDING_INDEXING_CEILING_MS, ONBOARDING_JOB_CEILING_MS, ONBOARDING_MIRROR_CEILING_MS, ONBOARDING_POLL_MS, ONBOARDING_WAIT_MARGIN_MS, ONBOARDING_WAIT_MAX_MS, onboardingWaitStep } from "../domain/onboarding-wait.ts";
 export { liveAnnouncement, terminalCaseEvent } from "../domain/case-announcement.ts";
