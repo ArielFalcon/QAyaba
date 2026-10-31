@@ -1,7 +1,8 @@
-/* What the boot check tries at the composition root's layout: the status files the service trusts must be unwritable, and so must the directory they sit in. */
+/* What the boot check tries on this host's layout: the status files the service trusts must be unwritable, and so must the directory they sit in. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { fileBoundaryLayout, fileBoundaryStatusFile } from "./file-boundary";
+import { fileBoundaryLayout } from "./file-boundary-check";
+import { fileBoundaryStatusFile } from "../settings/sandbox-status";
 
 test("the directory each status file sits in must refuse a write as well as the files", () => {
   const layout = fileBoundaryLayout({}, "/app");

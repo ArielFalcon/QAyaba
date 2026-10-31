@@ -7,7 +7,7 @@ import type { ExecScopePort } from "../../qa-engine/src/shared-infrastructure/pr
 import { createExecScopeProvider } from "../../qa-engine/src/shared-infrastructure/process-sandbox/exec-scope-provider";
 import type { Sandbox } from "../../qa-engine/src/shared-infrastructure/process-sandbox/sandbox";
 import type { MirrorFsOps } from "../../qa-engine/src/shared-infrastructure/process-sandbox/mirror-access";
-import { resolveEgressMode } from "./egress-wiring";
+import { resolveEgressMode } from "../settings/sandbox-status";
 import { fileBoundaryGateFor } from "./file-boundary";
 import type { TelemetryPort } from "@kernel/telemetry/telemetry.port";
 import { processReaper } from "../../qa-engine/src/shared-infrastructure/process-sandbox/sandbox-reaper";

@@ -3,9 +3,8 @@
 import { readFileSync } from "node:fs";
 import { resolveExecSandboxMode } from "../../qa-engine/src/shared-infrastructure/process-sandbox/exec-sandbox";
 import { resolveSandbox, type Sandbox } from "../../qa-engine/src/shared-infrastructure/process-sandbox/sandbox";
-import { resolveEgressMode } from "../composition/egress-wiring";
 import { parseFileBoundaryStatus } from "../../qa-engine/src/shared-infrastructure/process-sandbox/file-boundary";
-import { readFileBoundaryStatusFile } from "../composition/file-boundary";
+import { readFileBoundaryStatusFile, resolveEgressMode } from "../settings/sandbox-status";
 
 export interface SandboxHealth {
   degraded: boolean;

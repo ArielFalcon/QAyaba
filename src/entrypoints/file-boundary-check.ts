@@ -31,12 +31,45 @@ import {
   mountPointsUnder,
   planFileBoundaryProbes,
   readProbeReport,
+  type FileBoundaryLayout,
   type FileBoundaryProbe,
   type FileBoundaryVerdict,
 } from "../../qa-engine/src/shared-infrastructure/process-sandbox/file-boundary";
 import { resolveSandbox, type Sandbox } from "../../qa-engine/src/shared-infrastructure/process-sandbox/sandbox";
 import { qayabaRoot } from "../settings/paths";
-import { fileBoundaryLayout, fileBoundaryStatusFile } from "../composition/file-boundary";
+import { apiTokenPath } from "../settings/api-token";
+import { egressStatusFile, fileBoundaryStatusFile } from "../settings/sandbox-status";
+
+/* What the sandbox uid must not be able to do on this host, besides writing any mount under the root (found in the mount table, not listed here): read the service's environment and the API token, list the orchestrator's state, write its code, its config, the status files the service trusts and the directories they sit in. */
+export function fileBoundaryLayout(env: NodeJS.ProcessEnv, root: string): FileBoundaryLayout {
+  const data = join(root, "data");
+  const config = join(root, "config");
+  const mirrors = env.MIRROR_DIR && env.MIRROR_DIR !== "" ? env.MIRROR_DIR : join(root, ".mirrors");
+  return {
+    appRoot: root,
+    secretFiles: ["/proc/1/environ", apiTokenPath(root)],
+    closedDirs: [data, join(data, "auth"), config, join(config, "apps"), mirrors],
+    unwritable: [
+      data,
+      config,
+      join(config, "apps"),
+      join(config, "e2e"),
+      join(config, "egress"),
+      mirrors,
+      join(root, "src"),
+      join(root, "qa-engine"),
+      join(root, "bin"),
+      join(root, "scripts"),
+      join(root, "node_modules"),
+      join(root, "package.json"),
+      fileBoundaryStatusFile(env),
+      egressStatusFile(env),
+      /* A status file is absent when the probe runs (the entrypoint removes it first), so writing it proves nothing: who may create it is who may write the directory it sits in. */
+      dirname(fileBoundaryStatusFile(env)),
+      dirname(egressStatusFile(env)),
+    ],
+  };
+}
 
 const PROBE_SCRIPT = join(dirname(fileURLToPath(import.meta.url)), "file-boundary-probe.mjs");
 const PROBE_TIMEOUT_MS = 60_000;

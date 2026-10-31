@@ -1,16 +1,9 @@
-/* The registries file and the egress mode are read here; which origins a run may reach is decided in the engine (test-execution), and the controller is tested where it lives. */
+/* The registries file is read here (the egress mode is a setting, src/settings/sandbox-status.ts); which origins a run may reach is decided in the engine (test-execution), and the controller is tested where it lives. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { loadRegistryGroups, resolveEgressMode } from "./egress-wiring";
+import { loadRegistryGroups } from "./egress-wiring";
 
 const REGISTRIES = { npm: ["https://registry.npmjs.org"], maven: ["https://repo.maven.apache.org"], pip: ["https://pypi.org"] };
-
-test("QA_EGRESS_MODE: enforce is the default, warn is the operator's choice, anything else is a configuration error", () => {
-  assert.equal(resolveEgressMode({}), "enforce");
-  assert.equal(resolveEgressMode({ QA_EGRESS_MODE: "" }), "enforce");
-  assert.equal(resolveEgressMode({ QA_EGRESS_MODE: "warn" }), "warn");
-  assert.throws(() => resolveEgressMode({ QA_EGRESS_MODE: "off" }), /QA_EGRESS_MODE/);
-});
 
 test("registries are read from the groups file, and a malformed group is refused with its name", () => {
   const groups = loadRegistryGroups("/root", () => "npm:\n  - https://registry.npmjs.org\n");

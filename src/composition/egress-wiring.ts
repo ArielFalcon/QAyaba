@@ -14,17 +14,8 @@ import type { EgressGate } from "../../qa-engine/src/shared-infrastructure/proce
 import type { Sandbox } from "../../qa-engine/src/shared-infrastructure/process-sandbox/sandbox";
 import { loadAppConfig } from "./config-loader";
 import { qayabaRoot } from "../settings/paths";
+import { resolveEgressMode } from "../settings/sandbox-status";
 import { forwardDnsQuery } from "../../qa-engine/src/shared-infrastructure/egress/dns-forward";
-
-export type EgressMode = "enforce" | "warn";
-
-/* QA_EGRESS_MODE: `enforce` (the default) ends a run that would execute agent code without the filter; `warn` lets it run unfiltered and says so in the run's gate signals. */
-export function resolveEgressMode(env: NodeJS.ProcessEnv): EgressMode {
-  const raw = env.QA_EGRESS_MODE;
-  if (raw === undefined || raw === "") return "enforce";
-  if (raw === "enforce" || raw === "warn") return raw;
-  throw new Error(`QA_EGRESS_MODE must be "enforce" or "warn", got ${JSON.stringify(raw)}`);
-}
 
 /* config/egress/registries.yaml: group name to origins. A group that is not a list of strings is a configuration error, said with its name. */
 let warnedNoRegistries = false;
