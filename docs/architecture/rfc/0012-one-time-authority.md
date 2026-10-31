@@ -39,6 +39,7 @@ The full table with path:line and the nine contradictions are in `odd/tasks/root
 ## What does not change
 
 - The run budget table (`run-time-budget.ts`) and its env overrides: they set the deadline. The tiers that choose its row stay until T22 replaces them with a signal.
+  - Amended by [RFC-0014](./0014-diff-tier-signal.md) (T22): the three diff rows became one `diff` row, the tier budget is deleted (the caps that remain are `planBudgetMs`, `flowBudgetMs` and `perCallMs`) and `tier-budget` is no longer produced.
 - The deploy gate's wait runs before the deadline is armed (AGENTS.md "Gate").
 - A deadline spent after a proven green suite still degrades to `deadline-after-proof`.
 

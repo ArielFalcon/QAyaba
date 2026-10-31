@@ -228,6 +228,12 @@ export const BANNED_RULES: BannedRule[] = [
     ],
     exemptPrefixes: [RECORDS_PREFIX],
   },
+  /* The size tiers of a diff (RFC-0014): a diff run is one kind whatever its change's size. The benchmark's own `DIFF_TIER_NAMES` label is the operator's and is not one of these. */
+  {
+    id: "diff-tier",
+    patterns: [/\b(?:DIFF_TIERS|diffTier|EFFORT_BY_TIER|EffortTier|DIFF_TIME_BUDGET_MS|DIFF_TIME_BUDGET_ENV|DIFF_KEY_FOR_TIER|generatorTimeBudgetMs|resolveDiffTimeBudgets)\b/, /\bQA_DIFF_TIME_BUDGET_MS_[A-Z]+\b/],
+    exemptPrefixes: [RECORDS_PREFIX],
+  },
   { id: "stored-outcome-copy", patterns: [/\b(?:toStoredRunOutcome|StructuredReflection)\b/], exemptPrefixes: [RECORDS_PREFIX] },
   { id: "shell-dead-run-types", patterns: [/\bAgentResult\b/], exemptPrefixes: [RECORDS_PREFIX] },
   { id: "shell-events-reexport", patterns: [/\bsrc\/contract\/events(?:\.ts)?(?![\w.-])/], exemptPrefixes: [RECORDS_PREFIX] },

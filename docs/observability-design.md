@@ -234,8 +234,8 @@ The design uses a **phase cursor** instead, a small domain object owned by the u
 - As built in S1a, the record lives on the `runs` row (`furthest_phase`, `phase_timings`), written by the runner
   in the same statement that sets the final status, so a run is never seen finished without it. `run_outcomes`
   carries none of it. `gateSignals.phaseTimings` and `furthestPhase` are on the returned outcome, not on the saved one.
-  The row also carries `time_budget`, the kind of run the deadline bounded it as (`diff-tiny`, `diff-focused`, `diff-broad`, `manual`,
-  `context`; schema 5), and its `limits` say which purposes were cut: a later run's reserve is the median of the phases that runs of its own
+  The row also carries `time_budget`, the kind of run the deadline bounded it as (`diff`, `manual`,
+  `context`; schema 5; rows stored earlier may carry `diff-tiny`, `diff-focused` or `diff-broad`, read as `diff`), and its `limits` say which purposes were cut: a later run's reserve is the median of the phases that runs of its own
   kind entered, finished and were not cut in.
 - Semantics of the record:
   - A timing is time spent inside a region of the run, not the pure cost of a phase. A review-round regeneration
@@ -345,7 +345,7 @@ Grouped. The full list lives in the registry (§9.3).
 | Identity | `qayaba.run.id`, `qayaba.app`, `qayaba.commit.sha`, `qayaba.trigger`, `qayaba.mode`, `qayaba.target`, `qayaba.parent_run.id`, `qayaba.trigger_repo`, `qayaba.shadow`, `qayaba.engine.version` |
 | Config in effect | `qayaba.runtime` (the runtime that served the turn), `qayaba.closed_loop.enabled`, `qayaba.agent_browser.enabled`, `qayaba.coverage.policy`, `qayaba.campaign.freeze`, `qayaba.prompt.static_hash` (hash of `agents/AGENTS.md` plus role files), `qayaba.capture_mode` |
 | Campaign | `qayaba.campaign.id`, `qayaba.campaign.variant.<key>`, `qayaba.campaign.replicate` |
-| Budgets | `qayaba.deadline.label`, `qayaba.deadline.budget_ms`, `qayaba.allotment.purpose`, `qayaba.allotment.ms`, `qayaba.allotment.reserve_ms`, `qayaba.allotment.reserve_source`, `qayaba.allotment.unmeasured` (the `allotment` event: once per purpose, the time it may spend and where the reserve held for the purposes after it came from: `none`, `measured` from the app's recent runs, or `fallback`), `qayaba.tier`, `qayaba.tier.budget_ms` |
+| Budgets | `qayaba.deadline.label`, `qayaba.deadline.budget_ms`, `qayaba.allotment.purpose`, `qayaba.allotment.ms`, `qayaba.allotment.reserve_ms`, `qayaba.allotment.reserve_source`, `qayaba.allotment.unmeasured` (the `allotment` event: once per purpose, the time it may spend and where the reserve held for the purposes after it came from: `none`, `measured` from the app's recent runs, or `fallback`) |
 | Outcome | `qayaba.verdict`, `qayaba.error_class`, `qayaba.generation.end`, `qayaba.decision`, `qayaba.furthest_phase`, `qayaba.specs.generated/valid/passed`, `qayaba.reviewer.turn_happened`, `qayaba.limit.fired`, `qayaba.limits`, `qayaba.degradations`, `qayaba.decision.shadowed` |
 | Totals | `gen_ai.usage.*` sums, `qayaba.cost.total`, `qayaba.agent.turns`, `qayaba.agent.steps` |
 | Host | `qayaba.host.suspended_ms`, `qayaba.host.event_loop.max_ms` (§7) |

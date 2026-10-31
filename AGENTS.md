@@ -176,7 +176,7 @@ The RFC that lands a row flips it to **in force** in the same commit.
 | Whether a request is a write the spec caused | Engine, from a signal | Cause is measured against a control load, not read from the request's destination | [RFC-0007](docs/architecture/rfc/0007-dev-write-attribution.md) | in force |
 | Whether change coverage blocks a publication | Engine, from a signal | The measurement on the final bytes; `unknown` never blocks; only `enforce` blocks | [ADR-0005](docs/architecture/adr/0005-coverage-enforce-activation.md) | in force |
 | When `enforce` may be switched on | Engine, from a signal | Only after three consecutive replicates with a trustworthy measurement and bundle mutation on | [ADR-0005](docs/architecture/adr/0005-coverage-enforce-activation.md) | lands with ADR-0005 |
-| How much time and effort a change gets | Signal (not yet named) | Today a count of files and lines against constants (`DIFF_TIERS`), which P3 forbids; the replacing signal is an open question | [ADR-0001](docs/architecture/adr/0001-design-pillars.md), Open question 3 | lands with the RFC that names the signal |
+| How much time and effort a change gets | Engine, from a fact | The run's bound is one `diff` row that reads nothing of the change; the effort is one spec file per affected flow, the flows being the use cases the change makes testable that the plan covers | [RFC-0014](docs/architecture/rfc/0014-diff-tier-signal.md), [ADR-0019](docs/architecture/adr/0019-owner-decisions-rfc-0014.md) | in force |
 | Which level a log line has | Engine | At a seam that holds a typed outcome the level comes from it through `levelOfEffect`, never from the call site, and a catch that carries on takes it from `carryOn` (`qa-engine/test/arch/carry-on-level.test.ts` pins that catch); every other line chooses its level by the meaning in Invariants, "Logging is redacted at the port" | [RFC-0004](docs/architecture/rfc/0004-log-level-from-outcome.md) | in force at those seams |
 | Which commit DEV serves | Engine, from the product | The product states its version; qayaba never infers it and records `undeclared` until the product declares a source | [ADR-0008](docs/architecture/adr/0008-product-version-source.md) | lands with ADR-0008 |
 | Whether a campaign run may learn | Engine | The server freezes a campaign-tagged run unless its request declares a learning arm | [ADR-0009](docs/architecture/adr/0009-campaign-freeze-on-server.md) | lands with ADR-0009 |
@@ -196,8 +196,7 @@ is the only engine; webhook (`src/server/webhook-handler.ts`, wired by `src/serv
 4. **Ground** — assemble what the agent receives (see below).
 5. **Generate** — the lead plans and author sidekicks (`qa-author`) write/improve specs + `e2e/.qa/manifest.json`; an independent
    reviewer judges. Authors for context and login-seed runs and for corrections are author sidekicks too, in the run's working copy, with no `run_spec` budget and no continuation session; an e2e run with no coordinator ends `E-NO-AUTHOR` (`no-coordinator`). Declared `noop` + zero specs → `skipped`. Zero specs without `noop`
-   → `infra-error E-NO-DECISION`; no author sidekick able to run → `infra-error E-NO-AUTHOR`; step budget exhausted → `infra-error E-STEP-BUDGET`; a diff run's
-   first pass stopped by its tier's time budget, or any agent turn of the run stopped by the run's
+   → `infra-error E-NO-DECISION`; no author sidekick able to run → `infra-error E-NO-AUTHOR`; step budget exhausted → `infra-error E-STEP-BUDGET`; any agent turn of the run stopped by the run's
    wall-clock deadline (below) → `infra-error E-TIME-BUDGET`. With the closed loop on (below) the author of a flow may also
    execute a spec it wrote while it authors; a run whose every delivered spec was seen passing in its final bytes
    skips the pre-exec corrective regeneration and the fix loop's regeneration (never the static-fix rounds: `run_spec`
@@ -522,41 +521,33 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   verdict's `noop.reason`). Exhaustion is classified against the number the prompt stated.
   Whether the runtime's count resets every turn is still open (the statement holds either way;
   see `docs/efficiency-benchmark.md`).
-- **Effort tier** — an e2e `diff` first pass gets the diff's real size and the effort its tier
-  warrants (`shared-kernel/diff-stat.ts`: tiny ≤2 files and 40 lines, focused ≤8 and 400,
-  broad above): always an upper bound on spec files (a flow each), each holding a test per behaviour
-  the change decides (its success and each other state it handles that the page can be brought to
-  through the UI), and every tier admits the reasoned no-op. A lead's plan names one acceptance
-  outcome per such behaviour, and an author writes a test per criterion. The same tiers bound
-  the first pass's wall time (`DIFF_TIME_BUDGET_MS`: tiny 6 min, focused 12 min, broad none), because a
-  step can be arbitrarily long and the step cap alone never ends a turn spent on a few slow ones. The
-  budget covers the whole first pass: the session carries it and each prompt, the repair included, is
-  given only what is left of it as its own `timeoutMs`; a repair with none left is not
-  sent. The tier's time is a cap, never a clock: the pass is told the smaller of it and what the deadline allots the generate
-  purpose, and the limit that is the smaller (`heldTo`, `shared-kernel/allotment-cap.ts`: `tier-budget`, or `allotment` on a tie), so
-  the time a prompt states is the time it gets and the turn ends as the bound that ended it. A tier whose time the transport's own
-  deadline (`agentPromptCapMs`) does not exceed sets no budget, since that deadline would fire first. A turn the tier budget stops ends `time-budget`, unless the
-  main turn already delivered specs or declared a no-op, which stand when only the repair was cut.
-  The tiers' times are operator-tunable without a rebuild: `QA_DIFF_TIME_BUDGET_MS_TINY`,
-  `_FOCUSED` and `_BROAD` (a positive whole number of milliseconds, or `none` for no bound beyond the
-  host's deadline; blank or unset keeps the default; anything else fails the composition loudly). They
-  are resolved once in the composition root (`resolveDiffTimeBudgets`, qa-engine never reads the
-  environment) and stay clamped by `agentPromptCapMs`: a value at or above it sets no budget.
-  `E-TIME-BUDGET` is never learned from (DEV latency confounds it).
+- **Effort** — an e2e `diff` first pass is told the change's real size (a fact: "touches N files with +A/-R lines") and one
+  effort, whatever that size: at most one spec file per affected flow, not a suite rewrite, each holding a test per behaviour
+  the change decides (its success and each other state it handles that the page can be brought to through the UI), and the
+  reasoned no-op is within the bound (`EFFORT_TEXT`, `task-builders.ts`). The affected flows are the use cases the change makes
+  testable (`PlanningLimits.candidates`; the plan must cite each direct one or drop it with a typed basis, see "Lead and
+  sidekicks"), so the bound scales with the change by a fact the engine computes and no branch compares a size to a constant. A
+  lead's plan names one acceptance outcome per such behaviour, and an author writes a test per criterion. The effort is a ceiling on
+  the work and never a floor. The first pass states no time of its own: it runs under what the run deadline allots the generate
+  purpose, the stall watchdog and the step cap, each ending the turn with its own typed end (the former `tier-budget` limit is no
+  longer produced; it stays in the limit vocabulary because stored spans and runs carry it). `E-TIME-BUDGET` is never learned from
+  (DEV latency confounds it).
 - **Run deadline** — one wall-clock deadline bounds the whole run, and it is the only clock
-  (`run-orchestration/domain/run-time-budget.ts`, one named table: `diff-tiny` 25 min, `diff-focused` 40,
-  `diff-broad` 60, `manual` 45, `context` 60; override per row with
-  `QA_RUN_TIME_BUDGET_MS_DIFF_TINY|DIFF_FOCUSED|DIFF_BROAD|MANUAL|CONTEXT`, a positive whole number of milliseconds, there is
-  deliberately no `none`; a mistyped value fails the composition). The use case arms it once after classification
-  (`RunDeadlinePort.arm`), because a diff run's row follows its change's size; it counts from there, so the deploy-gate wait is
+  (`run-orchestration/domain/run-time-budget.ts`, one named table: `diff` 60 min, `manual` 45, `context` 60; override per row with
+  `QA_RUN_TIME_BUDGET_MS_DIFF|MANUAL|CONTEXT`, a positive whole number of milliseconds, there is
+  deliberately no `none`; a mistyped value fails the composition). A diff run has one row whatever its change's size: the bound
+  ends a run that stopped converging and estimates nothing, so it reads nothing of the change. The former per-size names
+  `QA_RUN_TIME_BUDGET_MS_DIFF_TINY|DIFF_FOCUSED|DIFF_BROAD` are read for one more release with a warning each (the new name when
+  set, else the largest of the old values set). The use case arms it once after classification
+  (`RunDeadlinePort.arm`), so a classify-skip spends no agent time; it counts from there, so the deploy-gate wait is
   not on it. The app-config key `qa.wallClockBudgetMs` is retired (the loader warns and ignores it).
   **Allotment by purpose**: the deadline allots time by purpose (`shared-kernel/deadline-purpose.ts`: ground, generate,
   validate, execute, fix, coverage, review, decide, the run's phases in order), and `allowance(purpose)` is the time left less
   the reserve held for the purposes after it. A consumer asks with its purpose (an `allowance()` without one is the purpose of
   the phase the run is in: the use case tells the deadline each phase it enters); none keeps a reserve or a margin of its own.
   The reserve of a following purpose is the app's measured duration of its phases: the median over the app's last 20 finished
-  runs of the same kind (the row of the run time budget table a run was bounded as: `diff-tiny`, `diff-focused`, `diff-broad`,
-  `manual` or `context`, stored as `runs.time_budget`; a tiny change's reserve is not set by broader runs) that entered the purpose's
+  runs of the same kind (the row of the run time budget table a run was bounded as: `diff`, `manual` or `context`, stored as
+  `runs.time_budget`; a diff run's history also reads the rows stored as `diff-tiny`, `diff-focused` and `diff-broad`, none rewritten; a manual run's reserve is not set by diff runs) that entered the purpose's
   phases, finished them and were not cut in them (`runs.phase_timings`, `runs.limits`, read once when the deadline is armed through
   `PhaseHistoryPort`; a phase a run never entered is no sample of it, and a purpose a run's deadline or share cut is none either; a purpose no run entered although runs with green bytes finished whole and uncut measures 0 (a streak of failing runs says nothing about the review or the coverage), an empty history nothing). Following purposes with
   no completed run share one fallback reserve, a quarter of what is left and at least 120 s (`FALLBACK_RESERVE_SHARE`,
@@ -565,9 +556,8 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   purpose is allotted time the trace gets an `allotment` event (`qayaba.allotment.purpose|ms|reserve_ms|reserve_source|unmeasured`;
   the source is `none`, `measured` or `fallback`). Every agent turn goes through `RunDeadlineRuntime`, a decorator over the
   agent runtime: a turn whose purpose is allotted nothing is not sent, and every other runs under the smaller of its own limit
-  and its purpose's allowance (the tier budget above still applies, inside it). Every cap on a purpose's time (the tier budget,
-  `planBudgetMs`, `flowBudgetMs`, a tool's `perCallMs`) is an upper bound of that allowance, stated with its own name (`tier-budget`,
-  `plan-budget`, `flow-budget`, `tool-call`) as the limit a turn or call reports (`qayaba.limit.applied`); when the allowance is the
+  and its purpose's allowance. Every cap on a purpose's time (`planBudgetMs`, `flowBudgetMs`, a tool's `perCallMs`) is an upper bound of
+  that allowance, stated with its own name (`plan-budget`, `flow-budget`, `tool-call`) as the limit a turn or call reports (`qayaba.limit.applied`); when the allowance is the
   smaller it is `allotment` (a share of the run's time, the run itself still has time), and `run-deadline` only when the
   allowance is all that is left of the run. The two ends are typed apart: the end of a purpose's share raises `AllotmentSpentError`
   (an `AgentTimeoutError`: the timeout of that turn alone, which its owner handles as any timeout: a sidekick unanswered, a reviewer
@@ -585,7 +575,7 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   green suite, releasing the coordinated pass, the final proof guard and the decision start no process and spend no turn, so they have nothing for it to cut);
   `guarded` then ends `E-TIME-BUDGET` or keeps the proof (`deadline-after-proof`): every step that only runs on a green suite (the coverage
   announcement and measurement, the regenerations, the review) is `proven`, and the measurement is the `coverage` phase in every mode.
-  The first generation pass is bounded by the smaller of its tier budget and the generate allowance, and a fix-loop
+  The first generation pass is bounded by the generate allowance (its turn states no time of its own), and a fix-loop
   regeneration or an acceptance execution starts only while the fix allowance is positive (`regenerationAllowed`); with the fix
   share spent and the run still holding time the regeneration is skipped, recorded as the fix loop's `allotment` limit, and the run
   keeps its failing verdict and Issue (only a run with no time at all ends `E-TIME-BUDGET`); neither stops
@@ -594,11 +584,10 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   folds or changes a rule.
 - **Contract repair** — the re-prompt that only restates a verdict (author or reviewer) runs with tools
   disabled (`AgentPromptOpts.withoutTools`; OpenCode sends a per-prompt `tools` deny map) and under its own short timeout (`REPAIR_TURN_TIMEOUT_MS`,
-  2 min, further cut to the time left). A repair that outlasts its cap leaves the first answer standing:
+  2 min). A repair that outlasts its cap leaves the first answer standing:
   the generation then ends `no-verdict` (loudly noted) and an unreadable review fails closed. The reviewer's
   repair names the issues the parser found. A timeout
-  in a run with no tier budget (broad, other modes, a regeneration) is still the integration error it was,
-  unless it is the run deadline.
+  of the first pass or a regeneration is still the integration error it was, unless it is the run deadline.
 - **Regeneration listing** — a regeneration lists the suite as that turn knows it (the specs
   the suite had before a diff/manual run, plus those this run delivered, each only while its
   file is still there): the specs it must change under "Editable" (all those a signal names;

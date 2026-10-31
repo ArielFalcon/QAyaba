@@ -142,8 +142,6 @@ export const ATTRIBUTES = {
   "qayaba.allotment.reserve_ms": int("Milliseconds held back for the purposes after this one."),
   "qayaba.allotment.reserve_source": str("Where the reserve came from: none (nothing follows the purpose), measured (the app's recent runs) or fallback (a share of the time left, for a phase the app has no completed run of)."),
   "qayaba.allotment.unmeasured": spec("string[]", "The following purposes the app has no completed run of; they share the fallback reserve. Empty when the reserve was measured."),
-  "qayaba.tier": str("The diff effort tier: tiny, focused or broad."),
-  "qayaba.tier.budget_ms": int("The first pass time budget of the tier in milliseconds."),
 
   /* Outcome. */
   "qayaba.verdict": str("The run verdict."),

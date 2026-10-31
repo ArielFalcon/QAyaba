@@ -802,8 +802,8 @@ the new code all died on the first run.
 The scope budget of a diff first pass then learned the effort its size asks for (2026-10-07, default
 workers, 770 mutants, 254 of them compile errors, 12 minutes on a loaded machine): 506 killed, 6
 timeouts, 4 survivors, the same four documented below, and none in the diff size (43 killed, 8 compile
-errors) or in the lint. A change is tiny, focused or broad by two named limits that `diffTier` reads, so
-its mutants die on the boundary tests: a change at both limits, one file or one line past either, each
+errors) or in the lint. A change was then tiny, focused or broad by two named limits that a tier function read (the tiers are
+removed since, RFC-0014), so its mutants died on the boundary tests: a change at both limits, one file or one line past either, each
 limit on its own, the two sides of a change counted together and an empty diff. What the prompt then
 carries sits outside the preset, so it was broken by hand against its own tests, 49 mutants in all: the
 tier taken as always tiny, focused or broad, dropped, or read from a size that ignores the reported
@@ -830,9 +830,9 @@ shared layer now says to read the existing spec before it updates it, nine bytes
 layer, recorded as a raise. A pin holds it once per runtime in the shared layer, and a test holds it in
 that protocol in both mirrors; its four mutants (the read dropped in either mirror, reworded, or stated
 a second time in the generator role) all die, which makes 53 hand mutants for the slice. The diff
-size's tiers count raw files and changed lines, so generated files and lockfiles inflate a tier and a
-one-line change can have a wide blast radius: a limitation declared beside `DIFF_TIERS`, and harmless
-because a tier is only an upper bound on the effort and always admits the no-op.
+size's tiers counted raw files and changed lines, so generated files and lockfiles inflated a tier and a
+one-line change could have a wide blast radius: a limitation declared beside the tier limits, harmless
+because a tier was only an upper bound on the effort and always admitted the no-op, and the reason RFC-0014 deleted them.
 
 The matrix then learned to assemble each layer's cell for its own runtime (2026-10-07, 3 workers, 770
 mutants, 254 of them compile errors, 13 minutes 51 seconds): the OpenCode runtime enforces a step limit

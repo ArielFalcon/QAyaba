@@ -121,7 +121,7 @@ The single engine is `RunQaUseCase` (`qa-engine/src/contexts/run-orchestration/a
 | `E-NO-DECISION` | Zero specs and no no-op declared |
 | `E-NO-AUTHOR` | No author sidekick could run; `gateSignals.coordination.refusal` names why |
 | `E-STEP-BUDGET` | The step cap was hit |
-| `E-TIME-BUDGET` | The tier budget or the run deadline was hit |
+| `E-TIME-BUDGET` | The run deadline was hit |
 | `E-PRECONDITION` | The login could not complete (kinds incl. egress-denied) |
 | `E-SANDBOX` | The sandbox uid, the egress filter or the file boundary is not proven |
 | `E-REVIEWER-UNAVAILABLE` | The reviewer could not be reached |
@@ -152,8 +152,7 @@ engine port  →  RunDeadlineRuntime (run-orchestration/infrastructure/run-deadl
 
 | Limit | Default | Where |
 |---|---|---|
-| Diff-tier first-pass budget | tiny 6 min, focused 12 min, broad none | `generation/domain/diff-stat.ts`, env `QA_DIFF_TIME_BUDGET_MS_*` |
-| Run deadline | diff-tiny 25 min, focused 40, broad 60, manual 45, context 60 | `run-time-budget.ts`, env `QA_RUN_TIME_BUDGET_MS_*`. Armed **after** classification |
+| Run deadline | diff 60 min, manual 45, context 60 | `run-time-budget.ts`, env `QA_RUN_TIME_BUDGET_MS_*`. Armed **after** classification |
 | Repair turn cap | 2 min | `generation/domain/repair-turn.ts` |
 | Host prompt cap | `OPENCODE_TIMEOUT_MS` (900 s in the current env) | `agentPromptCapMs()` in `opencode-client.ts` |
 | Stall watchdog (no SSE activity) | 180 s default; 600 s in the current env | `OPENCODE_STALL_MS`. |
@@ -162,7 +161,7 @@ engine port  →  RunDeadlineRuntime (run-orchestration/infrastructure/run-deadl
 ### Attributes worth recording per agent turn
 
 These map naturally onto the GenAI conventions: `invoke_agent` / `chat` / `execute_tool`.
-- **Identity:** role (`gen_ai.agent.name`), OpenCode session id (the conversation id), run id, round (first pass, regen n, repair), mode, tier.
+- **Identity:** role (`gen_ai.agent.name`), OpenCode session id (the conversation id), run id, round (first pass, regen n, repair), mode.
 - **Model:** the requested model, the model that actually answered (the fallback can differ), provider, reasoning effort (`options.reasoningEffort` per role in `agents/opencode.json`).
 - **Tokens:** input, output, **reasoning**, cache read and cache write, per step and totalled. Old turns recorded only the last message's usage, which understates.
 - **Time:** time to first step response, **time to first tool call** (`timeToFirstCallMs`, already computed), time to first write, total duration, per-step durations.
@@ -251,7 +250,7 @@ Every piece of agent-influenced code runs through the exec launcher (`qa-engine/
 
 You are done when each of these can be answered from your traces and metrics alone. No container shell, no SQLite, no OpenCode log.
 
-1. For run X: which phase took the time, and which limit ended it (tier budget, run deadline, host cap, stall, step cap, cancellation)?
+1. For run X: which phase took the time, and which limit ended it (run deadline, host cap, stall, step cap, cancellation)?
 2. Was the process suspended, or the event loop blocked, during run X, and for how long?
 3. For an agent turn: how long until the first tool call, how many reasoning tokens before it, and which model and effort actually answered (fallback included)?
 4. Was the prompt of turn A identical to that of turn B? If not, which sections differed, and by how many bytes?
@@ -290,5 +289,4 @@ You are done when each of these can be answered from your traces and metrics alo
 | Suite store | Per-app storage of accepted specs and a verified login across runs (`/app/data/suites/<app>/`) |
 | Shadow | A mode where PRs and Issues are replaced by log lines (name-webapp runs in shadow) |
 | Campaign | An A/B measurement: pipeline (arm B) vs plain agent (arm A), with no-retry validity re-runs |
-| Tier | The diff size class: tiny ≤2 files and 40 lines, focused ≤8 and 400, broad above |
 | Cross-repo run | A service repo's change triggering the front end's suite (stitcher links FE↔BE) |

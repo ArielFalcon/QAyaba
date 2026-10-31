@@ -127,3 +127,15 @@ test("a retired name fails outside docs/architecture and passes in the records, 
   assert.deepEqual(check([file("docs/guide.md", retired)]).violations.map((v) => v.rule), ["shell-error-taxonomy"]);
   assert.deepEqual(check([file("docs/architecture/adr/0001-x.md", retired)]).violations, []);
 });
+
+test("a name of the deleted diff tiers fails outside docs/architecture and passes in the records, which cite it on purpose", () => {
+  for (const name of ["DIFF_TIERS", "diffTier(stat)", "EFFORT_BY_TIER", "DIFF_TIME_BUDGET_MS", "resolveDiffTimeBudgets", "QA_DIFF_TIME_BUDGET_MS_TINY"]) {
+    const text = `the size is read by ${name}`;
+    assert.deepEqual(check([file("docs/guide.md", text)]).violations.map((v) => v.rule), ["diff-tier"], name);
+    assert.deepEqual(check([file("docs/architecture/rfc/0014-x.md", text)]).violations, [], name);
+  }
+});
+
+test("the operator's own size label of a benchmark case is not a deleted tier name", () => {
+  assert.deepEqual(check([file("scripts/efficiency-benchmark.ts", "export const DIFF_TIER_NAMES = [\"tiny\"] as const;\ntype DiffTier = string;\n")]).violations, []);
+});

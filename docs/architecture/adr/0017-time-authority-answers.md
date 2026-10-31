@@ -15,6 +15,7 @@
 
 - T33 implements RFC-0012 in that order: one clock (3), allotment by purpose with the reserve's port (2), one signal per allotment including the deterministic phases (1), caps clamped at composition, typed ends.
 - AGENTS.md's "Run deadline" and "Effort tier" paragraphs change with the code that changes them.
+- Amended 2026-10-31 by [ADR-0019](0019-owner-decisions-rfc-0014.md) (T22): the run deadline's diff rows are one `diff` row and the first-pass tier cap is deleted, so answer 2's reserves read the `diff` history (the former per-size labels included); the "Effort tier" paragraph is now "Effort".
 
 ## Amendments
 

@@ -172,5 +172,17 @@
     "path": "src/settings/settings.test.ts",
     "contains": "QA_REFLECTOR_ENABLED",
     "reason": "Names the retired variable so a load that still finds it set reports it once (src/settings/retired.ts). Remove this entry with that warning."
+  },
+  {
+    "rule": "diff-tier",
+    "path": "src/settings/retired.ts",
+    "contains": "QA_DIFF_TIME_BUDGET_MS_",
+    "reason": "Names the retired variable so a load that still finds it set reports it once (src/settings/retired.ts). Remove this entry with that warning."
+  },
+  {
+    "rule": "diff-tier",
+    "path": "src/settings/settings.test.ts",
+    "contains": "QA_DIFF_TIME_BUDGET_MS_",
+    "reason": "Names the retired variable so a load that still finds it set reports it once (src/settings/retired.ts). Remove this entry with that warning."
   }
 ]
