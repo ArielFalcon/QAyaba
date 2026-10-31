@@ -22,6 +22,7 @@ import { lstatSync, rmSync, unlinkSync } from "node:fs";
 import type { Git } from "../integrations/repo-mirror";
 import { realGit } from "../integrations/repo-mirror";
 import { rethrowIfUntrusted } from "@kernel/domain-error";
+import { assertCommitSha } from "@kernel/git-revision";
 import { ConfinedPathError, ensureOwnedSpecDir, readOwnedSpecFile, writeOwnedSpecFile, type SpecRoot } from "../../qa-engine/src/shared-infrastructure/spec-path-confinement";
 import { RepoReader } from "../../qa-engine/src/shared-infrastructure/repo-reader";
 
@@ -198,6 +199,7 @@ export async function stageServiceContext(
    * (context-mode services carry no per-run commit; contracts-only staging applies then).
    */
   if (sha) {
+    assertCommitSha(sha);
     /* mutation-scope:begin patch-read */
     let patch: string | undefined;
     try {

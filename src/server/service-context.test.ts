@@ -179,6 +179,21 @@ test("any other git failure while staging the diff is listed as omitted and neve
   assert.ok(readManifest(deps, result.dir).omitted.some((o) => o.path === "CHANGE.patch"));
 });
 
+test("a sha that is not a commit id never reaches git: the staging refuses it before git reads an option", async () => {
+  const calls: string[][] = [];
+  const deps = fakeDeps({}, {
+    git: async (args) => {
+      calls.push(args);
+      return "";
+    },
+  });
+  await assert.rejects(
+    stageServiceContext({ workingCopyDir: "/work", service: { repo: "org/svc", mirrorDir: "/mirrors/svc" }, sha: "--output=/tmp/qayaba-probe" }, deps),
+    /invalid commit sha/,
+  );
+  assert.deepEqual(calls.filter((args) => args.includes("--output=/tmp/qayaba-probe")), []);
+});
+
 test("no sha: diff/changed staging is skipped entirely (context-mode services carry no per-run commit)", async () => {
   const deps = fakeDeps({});
   const result = await stageServiceContext(

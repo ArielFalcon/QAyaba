@@ -25,6 +25,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, w
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import type { RunVerdict } from "@kernel/run-verdict.ts";
+import { isCommitSha } from "@kernel/git-revision.ts";
 import type { GroundingInput } from "../src/contract/commands.ts";
 import { CAMPAIGN_ID_PATTERN, type CampaignIdentity } from "../src/contract/campaign.ts";
 import { EXPERIMENT_COPIES_DIR, WARM_SNAPSHOTS_DIR } from "../src/paths.ts";
@@ -574,6 +575,7 @@ export async function defaultDeps(env: Record<string, string | undefined> = proc
     campaignDir: (label) => join(defaultCampaignsDir(), label),
     campaignExists: (label) => existsSync(join(defaultCampaignsDir(), label)),
     commitsAvailable: async (app, c) => {
+      if (!isCommitSha(c.sha)) return `${JSON.stringify(c.sha)} is not a commit sha`;
       const has = (repo: string, rev: string): Promise<boolean> => realGit(["cat-file", "-e", rev], join(mirrorsRoot, slug(repo))).then(() => true, () => false);
       if (c.kind === CASE_KIND.DIFF) return (await has(app.repo, `${c.sha}^{commit}`)) ? null : `commit ${c.sha} is not in the mirror of ${app.repo}`;
       if (!(await has(c.serviceRepo!, `${c.sha}^{commit}`))) return `commit ${c.sha} is not in the mirror of ${c.serviceRepo}`;

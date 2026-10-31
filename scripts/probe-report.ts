@@ -17,6 +17,7 @@ import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import type { RunEventBody } from "@kernel/contract/events.ts";
+import { assertCommitSha } from "@kernel/git-revision.ts";
 import { readConfinedSpecFile } from "../qa-engine/src/shared-infrastructure/spec-path-confinement.ts";
 import type { AgentTurnRecord } from "../src/server/persistence/repositories/telemetry.repository.ts";
 import type { RunOutcome, RunRecord } from "../src/types.ts";
@@ -162,6 +163,7 @@ export async function defaultReportDeps(warn: (line: string) => void = (l) => co
       /* A cross-repo run's diff is the service repo's. */
       const repo = record.triggerRepo ?? app.repo;
       try {
+        assertCommitSha(record.sha);
         const out = await realGit(["show", "--format=", "--name-only", "-m", "--first-parent", record.sha], mirrorOf(repo));
         return out.split("\n").map((l) => l.trim()).filter(Boolean);
       } catch (err) {
