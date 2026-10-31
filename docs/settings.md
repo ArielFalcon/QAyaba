@@ -94,9 +94,10 @@ The orchestrator reads its environment once, in `loadSettings(env)`. An empty va
 | `QA_E2E_TIMEOUT_MS` | - | integer | - | - | Time a Playwright execution may take, in milliseconds. Unset, or a value that is not a positive number, the engine's default of fifteen minutes applies. Read live. |
 | `PW_ACTION_TIMEOUT_MS` | `run.pwActionTimeoutMs` | string | - | - | Overrides Playwright's per-action timeout for the suite (milliseconds, passed through unchanged). |
 | `QA_CAMPAIGN_FREEZE` | `run.campaignFrozen` | boolean | `false` | - | When 1 or true, a run starts from a fixed state: the suite store is read-only, the context map is not rebuilt, no automatic login bootstrap runs and no process audit is wired. 0, false or empty turn it off; any other value stops the boot. |
-| `QA_RUN_TIME_BUDGET_MS_DIFF_TINY` | - | integer | `1500000` | - | Wall time of a tiny diff run, in milliseconds. |
-| `QA_RUN_TIME_BUDGET_MS_DIFF_FOCUSED` | - | integer | `2400000` | - | Wall time of a focused diff run, in milliseconds. |
-| `QA_RUN_TIME_BUDGET_MS_DIFF_BROAD` | - | integer | `3600000` | - | Wall time of a broad diff run, in milliseconds. |
+| `QA_RUN_TIME_BUDGET_MS_DIFF` | - | integer | `3600000` | - | Wall time of a diff run, in milliseconds. |
+| `QA_RUN_TIME_BUDGET_MS_DIFF_TINY` | - | integer | - | - | Deprecated, read for one more release: use QA_RUN_TIME_BUDGET_MS_DIFF. Applies, with the other two per-size names, only while QA_RUN_TIME_BUDGET_MS_DIFF is unset, and the largest value set wins. |
+| `QA_RUN_TIME_BUDGET_MS_DIFF_FOCUSED` | - | integer | - | - | Deprecated, read for one more release: use QA_RUN_TIME_BUDGET_MS_DIFF. Applies, with the other two per-size names, only while QA_RUN_TIME_BUDGET_MS_DIFF is unset, and the largest value set wins. |
+| `QA_RUN_TIME_BUDGET_MS_DIFF_BROAD` | - | integer | - | - | Deprecated, read for one more release: use QA_RUN_TIME_BUDGET_MS_DIFF. Applies, with the other two per-size names, only while QA_RUN_TIME_BUDGET_MS_DIFF is unset, and the largest value set wins. |
 | `QA_RUN_TIME_BUDGET_MS_MANUAL` | - | integer | `2700000` | - | Wall time of a manual run, in milliseconds. |
 | `QA_RUN_TIME_BUDGET_MS_CONTEXT` | - | integer | `3600000` | - | Wall time of a context-map run, in milliseconds. |
 

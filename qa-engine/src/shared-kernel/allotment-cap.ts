@@ -1,11 +1,12 @@
 /*
- * A cap on a purpose's time (the tier budget, `planBudgetMs`, `flowBudgetMs`, `perCallMs`) is an upper bound of the allowance the run
+ * A cap on a purpose's time (`planBudgetMs`, `flowBudgetMs`, `perCallMs`) is an upper bound of the allowance the run
  * deadline gives that purpose, never a clock of its own. Whoever states a time for a prompt, a flow or a tool call states the smaller of
  * the two and the limit that is the smaller one, so the time a turn is told is the time it gets and the end it comes to is typed by the
  * bound that ended it.
  */
 import type { TimeLimitSource } from "./turn-limit.ts";
 
+/* `tier-budget` is no longer produced (the first-pass cap was deleted); it stays in the vocabulary because stored spans and runs carry it. */
 export type CapLimit = Extract<TimeLimitSource, "tier-budget" | "plan-budget" | "flow-budget" | "tool-call">;
 
 export interface HeldTime {

@@ -5,18 +5,9 @@ import assert from "node:assert/strict";
 import { closeSync, mkdtempSync, openSync, readdirSync, readFileSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-  measureRun,
-  readRegistry,
-  readSnapshot,
-  registerRun,
-  takeSnapshot,
-  writeSnapshot,
-  type RunDataSource,
-} from "./efficiency-benchmark.ts";
+import { measureRun, readRegistry, readSnapshot, registerRun, takeSnapshot, writeSnapshot, type RunDataSource, DIFF_TIER_NAMES } from "./efficiency-benchmark.ts";
 import { PRE_GENERATION_GROUNDING_STEP_DETAIL } from "@kernel/run-step.ts";
 import type { RunEventBody } from "@kernel/contract/events.ts";
-import { DIFF_TIER_NAMES } from "@kernel/diff-stat.ts";
 import { type RunOutcome, type RunRecord } from "../src/types.ts";
 import type { AgentTurnRecord } from "../src/server/persistence/repositories/telemetry.repository.ts";
 

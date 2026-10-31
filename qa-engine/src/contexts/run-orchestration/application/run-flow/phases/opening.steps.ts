@@ -167,12 +167,12 @@ export async function classifyChange(_state: Readonly<RunState>, ctx: WorkspaceR
 /* The finished runs of the app whose phases set the reserves (the median of what they took). */
 const RECENT_RUNS_FOR_RESERVE = 20;
 
-/* Armed here because a diff run's budget follows the size of its change, known only now; a classify-skip has already returned without spending any agent time. */
+/* Armed here, after a classify-skip has returned without spending any agent time: the countdown counts from the end of classification. */
 export async function armRunDeadline(state: Readonly<RunState>, ctx: WorkspaceRunContext): Result {
-  const { diff, intent } = state.classification;
+  const { diff } = state.classification;
   ctx.services.intentState.tokens = changeTokens(diff ?? "");
   const deadline = ctx.deps.runDeadline;
-  const scope = { mode: ctx.input.mode, ...(diff !== undefined ? { diff } : {}), ...(intent ? { changedFiles: intent.changedFiles } : {}) };
+  const scope = { mode: ctx.input.mode };
   deadline?.arm(scope);
   /* The kind of run it is bounded as: the history it reads, and the one later runs read of it, is that kind's. */
   const budget = runTimeBudgetKey(scope);

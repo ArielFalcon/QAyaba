@@ -11,7 +11,7 @@ import { resolveRunTimeBudgets } from "@contexts/run-orchestration/application/i
 import { resolveExecSandboxMode, type ExecSandboxMode } from "../../qa-engine/src/shared-infrastructure/process-sandbox/exec-sandbox";
 import { DEFAULT_DRAIN_MS, DEFAULT_REVIEWER_TIMEOUT_MS, DEFAULT_SESSION_TTL_SECONDS, DEFAULT_STALL_MS } from "./defaults";
 import { SETTINGS_REGISTRY, settingDef } from "./registry";
-import { retiredSettingWarnings } from "./retired";
+import { deprecatedSettingWarnings, retiredSettingWarnings } from "./retired";
 
 type RunTimeBudgets = ReturnType<typeof resolveRunTimeBudgets>;
 
@@ -177,7 +177,7 @@ export function loadSettings(env: EnvironmentMap): Settings {
   const spanDays = r.run(["QA_TELEMETRY_RETENTION_DAYS"], () => parseRetentionDays(env.QA_TELEMETRY_RETENTION_DAYS), 0);
   const campaignDays = r.run(["QA_TELEMETRY_CAMPAIGN_RETENTION_DAYS"], () => parseCampaignRetentionDays(env.QA_TELEMETRY_CAMPAIGN_RETENTION_DAYS), 0);
   const backendHealth = resolveBackendHealthConfig(env);
-  r.warnings.push(...retiredSettingWarnings(env));
+  r.warnings.push(...retiredSettingWarnings(env), ...deprecatedSettingWarnings(env));
 
   const settings: Settings = {
     environment: env,

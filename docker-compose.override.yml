@@ -38,6 +38,8 @@ services:
       QA_WEB_AUTO_LOGIN: ${QA_WEB_AUTO_LOGIN:-true}
       # Wall-time bound of a WHOLE run, per kind of run (positive whole milliseconds; empty keeps the default,
       # there is no way to remove it) (docs/efficiency-benchmark.md, "Run deadline").
+      QA_RUN_TIME_BUDGET_MS_DIFF: ${QA_RUN_TIME_BUDGET_MS_DIFF:-}
+      # The three per-size names below are deprecated and read for one more release (they apply only while the line above is empty).
       QA_RUN_TIME_BUDGET_MS_DIFF_TINY: ${QA_RUN_TIME_BUDGET_MS_DIFF_TINY:-}
       QA_RUN_TIME_BUDGET_MS_DIFF_FOCUSED: ${QA_RUN_TIME_BUDGET_MS_DIFF_FOCUSED:-}
       QA_RUN_TIME_BUDGET_MS_DIFF_BROAD: ${QA_RUN_TIME_BUDGET_MS_DIFF_BROAD:-}

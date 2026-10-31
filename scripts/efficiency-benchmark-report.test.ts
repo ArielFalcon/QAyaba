@@ -2,8 +2,7 @@
    whether an efficiency gain was bought with quality, and an explicit line for every case. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { DIFF_TIER_NAMES } from "@kernel/diff-stat.ts";
-import { compareSnapshots, renderReport, type CaseMeasurement, type EfficiencySnapshot, type TurnMeasurement } from "./efficiency-benchmark.ts";
+import { DIFF_TIER_NAMES, compareSnapshots, renderReport, type CaseMeasurement, type EfficiencySnapshot, type TurnMeasurement } from "./efficiency-benchmark.ts";
 
 const summary = (overrides: Partial<CaseMeasurement["coarse"]["firstPass"]> = {}) => ({
   totalCalls: 30, callsBeforeFirstWrite: 26, writeCount: 2, commandCount: 1, subagentCount: 0, repeatedCallCount: 3, ...overrides,

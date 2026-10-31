@@ -711,7 +711,7 @@ test("buildEngineRootDeps wires a non-undefined RepairPort into GenerateTestsUse
 test("buildEngineRootDeps reads the run-level time budgets from the environment it is given and a mistyped value stops the composition", () => {
   const build = (env: Record<string, string>) => buildEngineRootDeps(cfg("factory-run-budget"), { getAgentDeps: stubAgentDeps, env }, "qa-bot-abc1234-run1", { mode: "diff" });
   assert.ok(build({}).runDeadline, "the deadline is wired into the composition");
-  assert.throws(() => build({ [RUN_TIME_BUDGET_ENV["diff-broad"]]: "1h" }), new RegExp(RUN_TIME_BUDGET_ENV["diff-broad"]));
+  assert.throws(() => build({ [RUN_TIME_BUDGET_ENV.diff]: "1h" }), new RegExp(RUN_TIME_BUDGET_ENV.diff));
 });
 
 test("the composed engine's agent turns are held to the run's deadline: once it is spent, no session is opened for the generator or the reviewer", async () => {

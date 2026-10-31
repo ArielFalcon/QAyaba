@@ -27,7 +27,7 @@ test("a minimal environment yields the defaults each parser yields on its own", 
   assert.equal(settings.agent.timeoutMs, undefined);
   assert.equal(settings.sandbox.egressMode, "enforce");
   assert.equal(settings.run.campaignFrozen, false);
-  assert.equal(settings.run.runTimeBudgets["diff-tiny"], resolveRunTimeBudgets({})["diff-tiny"]);
+  assert.equal(settings.run.runTimeBudgets.diff, resolveRunTimeBudgets({}).diff);
   assert.equal(settings.telemetry.config.serviceName, DEFAULT_SERVICE_NAME);
   assert.equal(settings.retention.spanDays, DEFAULT_SPAN_RETENTION_DAYS);
   assert.equal(settings.retention.campaignDays, DEFAULT_CAMPAIGN_RETENTION_DAYS);
@@ -181,6 +181,28 @@ test("each retired variable that is still set is reported once at load; an unset
   const warnings = loadSettings(Object.fromEntries(retired.map((name) => [name, "true"]))).warnings;
   assert.equal(warnings.length, retired.length);
   for (const name of retired) assert.equal(warnings.filter((w) => w.startsWith(`${name} is set but no longer read`)).length, 1, name);
+});
+
+test("the former per-size diff run budgets keep working for one release: the largest set value applies, each set name is reported once, and the new name wins over them", () => {
+  const former = { QA_RUN_TIME_BUDGET_MS_DIFF_TINY: "600000", QA_RUN_TIME_BUDGET_MS_DIFF_BROAD: "1200000" };
+  const loaded = loadSettings(former);
+  assert.equal(loaded.run.runTimeBudgets.diff, 1_200_000);
+  assert.equal(loaded.warnings.length, 2);
+  for (const name of Object.keys(former)) {
+    const warning = loaded.warnings.filter((w) => w.startsWith(`${name} is deprecated`));
+    assert.equal(warning.length, 1, name);
+    assert.match(warning[0]!, /QA_RUN_TIME_BUDGET_MS_DIFF instead/);
+  }
+  assert.equal(loadSettings({ ...former, QA_RUN_TIME_BUDGET_MS_DIFF: "900000" }).run.runTimeBudgets.diff, 900_000);
+  assert.deepEqual(loadSettings({ QA_RUN_TIME_BUDGET_MS_DIFF: "900000" }).warnings, [], "the new name warns about nothing");
+  assert.throws(() => loadSettings({ QA_RUN_TIME_BUDGET_MS_DIFF_FOCUSED: "soon" }), /QA_RUN_TIME_BUDGET_MS_DIFF_FOCUSED/);
+});
+
+test("the rows of the other modes keep their names and defaults in the settings", () => {
+  const { manual, context } = loadSettings({}).run.runTimeBudgets;
+  assert.deepEqual({ manual, context }, { manual: 45 * 60_000, context: 60 * 60_000 });
+  const loaded = loadSettings({ QA_RUN_TIME_BUDGET_MS_MANUAL: "90000", QA_RUN_TIME_BUDGET_MS_CONTEXT: "120000" }).run.runTimeBudgets;
+  assert.deepEqual({ manual: loaded.manual, context: loaded.context }, { manual: 90_000, context: 120_000 });
 });
 
 test("a first-pass time cap of a diff tier is reported as retired and neither fails the load nor changes a setting, whatever the value", () => {

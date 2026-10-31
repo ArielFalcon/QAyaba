@@ -1,7 +1,7 @@
 /* The limits that can bind or end an agent turn, as a closed set: the time limits (named by where their number comes from) and the other ways a turn is cut short. A caller that states a time for a prompt also states which limit it is, so the layer that finally fires it can say what fired. */
 
 export const TIME_LIMIT_SOURCES = [
-  /* The first-pass time of a diff run's effort tier. */
+  /* The first-pass time cap of a diff run's size tier. No longer produced (the cap was deleted); stored spans and runs carry it, so it stays readable until the epoch that prunes that data. */
   "tier-budget",
   /* The run's own wall-clock deadline: nothing is left of the run. */
   "run-deadline",

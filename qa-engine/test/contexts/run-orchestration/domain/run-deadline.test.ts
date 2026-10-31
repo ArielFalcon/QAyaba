@@ -6,14 +6,14 @@ import { RunDeadline, measuredPurposeDurations, type PhaseRecord } from "@contex
 import {
   RUN_TIME_BUDGET_ENV,
   RUN_TIME_BUDGET_KEYS,
+  RUN_TIME_BUDGET_FORMER_ENV,
+  RUN_TIME_BUDGET_FORMER_LABELS,
   RUN_TIME_BUDGET_MS,
   longestRunTimeBudgetMs,
   renderRunDeadlineNote,
   resolveRunTimeBudgets,
   runTimeBudgetKey,
 } from "@contexts/run-orchestration/domain/run-time-budget.ts";
-
-const bigDiff = Array.from({ length: 5 }, (_, i) => `diff --git a/f${i}.ts b/f${i}.ts\n@@ -1 +1 @@\n-a\n+b\n`).join("");
 
 test("every kind of run has a finite default and its own variable", () => {
   for (const key of RUN_TIME_BUDGET_KEYS) {
@@ -25,31 +25,56 @@ test("every kind of run has a finite default and its own variable", () => {
 
 test("the longest a run can last is the largest of the budgets in force, an operator's override included", () => {
   assert.equal(longestRunTimeBudgetMs(resolveRunTimeBudgets({})), Math.max(...Object.values(RUN_TIME_BUDGET_MS)));
-  const raised = resolveRunTimeBudgets({ [RUN_TIME_BUDGET_ENV["diff-tiny"]]: String(10 * RUN_TIME_BUDGET_MS.context) });
+  const raised = resolveRunTimeBudgets({ [RUN_TIME_BUDGET_ENV.diff]: String(10 * RUN_TIME_BUDGET_MS.context) });
   assert.equal(longestRunTimeBudgetMs(raised), 10 * RUN_TIME_BUDGET_MS.context);
 });
 
-test("a bigger change is never given less time than a smaller one", () => {
-  assert.ok(RUN_TIME_BUDGET_MS["diff-tiny"] <= RUN_TIME_BUDGET_MS["diff-focused"]);
-  assert.ok(RUN_TIME_BUDGET_MS["diff-focused"] <= RUN_TIME_BUDGET_MS["diff-broad"]);
+test("a diff run is one kind whatever the size of its change, and every other mode is itself", () => {
+  assert.equal(runTimeBudgetKey({ mode: "diff" }), "diff");
+  assert.equal(RUN_TIME_BUDGET_MS.diff, 60 * 60_000);
+  for (const mode of ["manual", "context"] as const) assert.equal(runTimeBudgetKey({ mode }), mode);
 });
 
-test("a diff run is keyed by the size of its change and every other mode by itself", () => {
-  assert.equal(runTimeBudgetKey({ mode: "diff", diff: "diff --git a/a b/a\n@@ -1 +1 @@\n-a\n+b\n" }), "diff-tiny");
-  assert.equal(runTimeBudgetKey({ mode: "diff", diff: bigDiff }), "diff-focused");
-  assert.equal(runTimeBudgetKey({ mode: "diff", diff: "", changedFiles: Array.from({ length: 30 }, (_, i) => `f${i}.ts`) }), "diff-broad");
-  for (const mode of ["manual", "context"] as const) assert.equal(runTimeBudgetKey({ mode }), mode);
+test("a deadline armed for a diff run counts down the one diff budget", () => {
+  const deadline = new RunDeadline({ now: () => 0, budgets: RUN_TIME_BUDGET_MS });
+  deadline.arm({ mode: "diff" });
+  assert.deepEqual(deadline.describe(), { label: "diff", budgetMs: RUN_TIME_BUDGET_MS.diff });
+});
+
+test("the rows of the other modes keep their time and their variable", () => {
+  assert.deepEqual({ manual: RUN_TIME_BUDGET_MS.manual, context: RUN_TIME_BUDGET_MS.context }, { manual: 45 * 60_000, context: 60 * 60_000 });
+  assert.deepEqual({ manual: RUN_TIME_BUDGET_ENV.manual, context: RUN_TIME_BUDGET_ENV.context, diff: RUN_TIME_BUDGET_ENV.diff }, { manual: "QA_RUN_TIME_BUDGET_MS_MANUAL", context: "QA_RUN_TIME_BUDGET_MS_CONTEXT", diff: "QA_RUN_TIME_BUDGET_MS_DIFF" });
 });
 
 test("the defaults stand when no variable is set or a blank one is", () => {
   assert.deepEqual(resolveRunTimeBudgets({}), RUN_TIME_BUDGET_MS);
-  assert.deepEqual(resolveRunTimeBudgets({ [RUN_TIME_BUDGET_ENV["diff-broad"]]: "  " }), RUN_TIME_BUDGET_MS);
+  assert.deepEqual(resolveRunTimeBudgets({ [RUN_TIME_BUDGET_ENV.diff]: "  ", [RUN_TIME_BUDGET_FORMER_ENV[0]]: " " }), RUN_TIME_BUDGET_MS);
 });
 
 test("a variable overrides only its own kind", () => {
   const budgets = resolveRunTimeBudgets({ [RUN_TIME_BUDGET_ENV.manual]: "90000" });
   assert.equal(budgets.manual, 90_000);
   assert.equal(budgets.context, RUN_TIME_BUDGET_MS.context);
+});
+
+test("the diff budget is the new variable when set, else the largest of the former per-size variables that are set, else the default", () => {
+  const [tiny, focused, broad] = RUN_TIME_BUDGET_FORMER_ENV;
+  assert.equal(resolveRunTimeBudgets({ [RUN_TIME_BUDGET_ENV.diff]: "900000" }).diff, 900_000);
+  assert.equal(resolveRunTimeBudgets({ [tiny]: "600000", [broad]: "1200000" }).diff, 1_200_000, "an operator who lengthened a bound keeps the longest");
+  assert.equal(resolveRunTimeBudgets({ [tiny]: "600000", [focused]: "300000" }).diff, 600_000);
+  assert.equal(resolveRunTimeBudgets({ [RUN_TIME_BUDGET_ENV.diff]: "900000", [broad]: "1200000" }).diff, 900_000, "the new variable wins over every former one");
+  assert.equal(resolveRunTimeBudgets({ [tiny]: " " }).diff, RUN_TIME_BUDGET_MS.diff, "a blank former variable is unset");
+});
+
+test("a former per-size variable is held to the same rule as the new one: a mistyped value fails loudly and names it", () => {
+  for (const name of RUN_TIME_BUDGET_FORMER_ENV) {
+    for (const bad of ["6min", "0", "none"]) assert.throws(() => resolveRunTimeBudgets({ [name]: bad }), new RegExp(name), `${name}=${bad}`);
+  }
+});
+
+test("the former labels of the diff row are the three per-size rows and no other row has one", () => {
+  assert.deepEqual(RUN_TIME_BUDGET_FORMER_LABELS, { diff: ["diff-tiny", "diff-focused", "diff-broad"] });
+  assert.deepEqual([...RUN_TIME_BUDGET_FORMER_ENV], ["QA_RUN_TIME_BUDGET_MS_DIFF_TINY", "QA_RUN_TIME_BUDGET_MS_DIFF_FOCUSED", "QA_RUN_TIME_BUDGET_MS_DIFF_BROAD"]);
 });
 
 test("a value that is not a positive whole number of milliseconds fails loudly and names its variable, and 'none' is not a way out", () => {
@@ -88,8 +113,8 @@ test("arming again restarts the countdown for the new scope", () => {
 });
 
 test("the note says what the budget was, where the run stopped and that it is not a finding about the app", () => {
-  const mid = renderRunDeadlineNote({ budgetMs: 25 * 60_000, label: "diff-tiny", role: "primary", stop: "mid-turn" });
-  assert.match(mid, /25 min \(diff-tiny\)/);
+  const mid = renderRunDeadlineNote({ budgetMs: 25 * 60_000, label: "diff", role: "primary", stop: "mid-turn" });
+  assert.match(mid, /25 min \(diff\)/);
   assert.match(mid, /primary turn in progress was stopped/);
   assert.match(mid, /not a finding about the app/);
   const before = renderRunDeadlineNote({ budgetMs: 90_500, label: "manual", role: "reviewer", stop: "before-turn" });
@@ -143,8 +168,8 @@ test("a deadline cut in a phase reports the purpose of that phase", () => {
 });
 
 test("the note of a cut deterministic phase names the phase and the purpose it cut", () => {
-  const note = renderRunDeadlineNote({ budgetMs: 60_000, label: "diff-tiny", role: "primary", stop: "mid-phase", purpose: "execute" });
-  assert.match(note, /1 min \(diff-tiny\)/);
+  const note = renderRunDeadlineNote({ budgetMs: 60_000, label: "diff", role: "primary", stop: "mid-phase", purpose: "execute" });
+  assert.match(note, /1 min \(diff\)/);
   assert.match(note, /The purpose cut was execute\./);
 });
 

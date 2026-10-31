@@ -69,11 +69,11 @@ change. After a pin moves, call `GET /agent` on the new server and compare the c
 | One context-map case | `"mode": "context"` |
 
 `name`, `app` and `sha` are required; `baseSha`, `mode`, `target`, `guidance` and `tier` are optional.
-`tier` is one of `tiny`, `focused`, `broad`: the size class **you declare** for the case's diff, using
-the boundaries in `DIFF_TIERS` (`qa-engine/src/shared-kernel/diff-stat.ts`: tiny is at
-most 2 files and 40 changed lines, focused at most 8 files and 400, broad above). The benchmark does
-not measure the diff and never sends the tier to the service; it only groups the report. A value that
-is not a size class fails the load, naming the case. A case with no tier reads `undeclared`.
+`tier` is one of `tiny`, `focused`, `broad`: the size class **you declare** for the case's diff (the
+rough boundaries are yours to choose: about 2 files and 40 changed lines for tiny, 8 files and 400 for
+focused). The engine has no size classes; the type lives in `scripts/efficiency-benchmark.ts`. The
+benchmark does not measure the diff and never sends the tier to the service; it only groups the report.
+A value that is not a size class fails the load, naming the case. A case with no tier reads `undeclared`.
 
 ## What the report adds
 
@@ -136,23 +136,25 @@ unbounded by anything but their own limits, so a run could spend half an hour in
 deadline bounds all of them, the generator's first pass included (it has no time cap of its own): it is armed after
 classification, counts down on the orchestrator's clock, and every agent turn is given the smaller of its
 own limit and what its purpose is allotted (what is left less the measured time of the phases after it); a deterministic phase is cut at the deadline's instant. When it is spent, the run ends as a persisted `infra-error` `E-TIME-BUDGET`
-whose note names the budget (`diff-tiny`, `manual`, ...) and the turn that was stopped or not started; nothing is
+whose note names the budget (`diff`, `manual`, ...) and the turn that was stopped or not started; nothing is
 published and nothing is learned. Set these on the orchestrator (`.env` or Doppler) and restart it:
 
 | Variable | Run | Default |
 |---|---|---|
-| `QA_RUN_TIME_BUDGET_MS_DIFF_TINY` | diff run, tiny change | 25 min |
-| `QA_RUN_TIME_BUDGET_MS_DIFF_FOCUSED` | diff run, focused change | 40 min |
-| `QA_RUN_TIME_BUDGET_MS_DIFF_BROAD` | diff run, broad change | 60 min |
+| `QA_RUN_TIME_BUDGET_MS_DIFF` | diff run, whatever the size of the change | 60 min |
 | `QA_RUN_TIME_BUDGET_MS_MANUAL` | manual run | 45 min |
 | `QA_RUN_TIME_BUDGET_MS_CONTEXT` | context run | 60 min |
 
 Each accepts a positive whole number of milliseconds; blank or unset keeps the default, and anything else
 (`1h`, `0`, `none`) stops the composition with an error naming the variable. There is no way to remove a bound.
+The per-size names `QA_RUN_TIME_BUDGET_MS_DIFF_TINY`, `_FOCUSED` and `_BROAD` are deprecated and read for one more
+release, each with a warning at load: they apply only while `QA_RUN_TIME_BUDGET_MS_DIFF` is unset, and the largest
+value set wins. Runs stored under those labels (`diff-tiny`, `diff-focused`, `diff-broad`) stay in the history and are
+read as diff runs when the deadline measures an app's phases.
 
 Reading the evidence: a run that hit it has `error class E-TIME-BUDGET` and a note starting `Run time budget
-of N min (<kind>) exhausted`, against a tier-budget end's `Time budget of N min exhausted ... the generator's
-turn`. Three of them in a row log `[audit] observe (recurring-time-exhaustion)` on the orchestrator: the
+of N min (<kind>) exhausted` (a run before the first-pass cap was deleted could instead end with `Time budget of N min exhausted ... the generator's
+turn`). Three of them in a row log `[audit] observe (recurring-time-exhaustion)` on the orchestrator: the
 signal is visibility only (a slow DEV, or a budget too tight for the changes it meets). The contract-repair turn (the re-prompt that only restates a verdict) now runs with tools
 disabled under a 2 minute cap, so a `repair` turn with tool calls in an old report is the thing this removes.
 

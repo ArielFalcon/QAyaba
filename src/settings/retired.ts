@@ -1,3 +1,5 @@
+import { RUN_TIME_BUDGET_ENV, RUN_TIME_BUDGET_FORMER_ENV } from "@contexts/run-orchestration/application/index";
+
 /*
  * Variables of features that were removed. Nothing reads them; one still set in an environment would be ignored in
  * silence, so a load reports each once. The operator's environment files are the operator's to edit.
@@ -26,6 +28,22 @@ const RETIRED_SETTINGS: ReadonlyArray<{ readonly name: string; readonly gone: st
   { name: "AGENT_REVIEWER_PROVIDER", gone: "every role runs on the one agent runtime" },
   { name: "AGENT_CHAT_PROVIDER", gone: "every role runs on the one agent runtime" },
 ];
+
+/*
+ * Variables a replacement variable supersedes but that are still read for one more release: a load reports each one that is set, with the
+ * name to set instead.
+ */
+const DEPRECATED_SETTINGS: ReadonlyArray<{ readonly name: string; readonly use: string; readonly note: string }> = RUN_TIME_BUDGET_FORMER_ENV.map((name) => ({
+  name,
+  use: RUN_TIME_BUDGET_ENV.diff,
+  note: "it applies only while that one is unset, the largest of the old per-size values winning",
+}));
+
+export function deprecatedSettingWarnings(env: Readonly<Record<string, string | undefined>>): string[] {
+  return DEPRECATED_SETTINGS.filter(({ name }) => env[name] !== undefined && env[name] !== "").map(
+    ({ name, use, note }) => `${name} is deprecated and read for one more release: set ${use} instead (${note})`,
+  );
+}
 
 export function retiredSettingWarnings(env: Readonly<Record<string, string | undefined>>): string[] {
   return RETIRED_SETTINGS.filter(({ name }) => env[name] !== undefined && env[name] !== "").map(

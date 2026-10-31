@@ -22,7 +22,6 @@ import { RUN_MODES, type RunMode, type TestTarget } from "@kernel/run-mode.ts";
 import type { RunEventBody } from "@kernel/contract/events.ts";
 import { QueueStatusSchema } from "../src/contract/commands.ts";
 import { classifyRunEfficiency, type CoarseRunEfficiency } from "@contexts/generation/application/index.ts";
-import { DIFF_TIER_NAMES, type DiffTier } from "@kernel/diff-stat.ts";
 import { CALL_BUCKETS } from "@contexts/generation/application/index.ts";
 import { delegateRun } from "../src/server/run-delegate.ts";
 import { discoverApiToken } from "../src/server/api-token.ts";
@@ -49,9 +48,13 @@ export interface EfficiencyBenchmarkCase {
   readonly mode?: RunMode;
   readonly target?: TestTarget;
   readonly guidance?: string;
-  /** The size class the operator declares for the case's diff (see `DIFF_TIERS`). The benchmark never checks it against the real diff and never sends it to the service: it only groups the report. */
+  /** The size class the operator declares for the case's diff. The benchmark never checks it against the real diff and never sends it to the service: it only groups the report. */
   readonly tier?: DiffTier;
 }
+
+/* The size classes an operator may label a case with, smallest first. The engine has no such classes: a label only groups the report. */
+export const DIFF_TIER_NAMES = ["tiny", "focused", "broad"] as const;
+export type DiffTier = (typeof DIFF_TIER_NAMES)[number];
 
 /* The same commit-id rule the service applies to a run's sha and baseSha. */
 const HEX_COMMIT_ID = /^[0-9a-f]{7,40}$/i;

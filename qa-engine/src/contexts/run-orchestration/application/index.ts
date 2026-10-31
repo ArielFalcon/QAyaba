@@ -17,6 +17,6 @@ export { contextMapValidity, parseNameStatusZ } from "../domain/context-map-vali
 export type { ChangedFile } from "../domain/context-map-validity.ts";
 export { RunDeadline } from "../domain/run-deadline.ts";
 export { phaseSnapshotOf, recordPhaseSnapshot } from "../domain/run-phase-cursor.ts";
-export { RUN_TIME_BUDGET_ENV, longestRunTimeBudgetMs, resolveRunTimeBudgets } from "../domain/run-time-budget.ts";
+export { RUN_TIME_BUDGET_ENV, RUN_TIME_BUDGET_FORMER_ENV, RUN_TIME_BUDGET_FORMER_LABELS, longestRunTimeBudgetMs, resolveRunTimeBudgets } from "../domain/run-time-budget.ts";
 export type { RunTimeBudgetKey } from "../domain/run-time-budget.ts";
 export { AcceptDeliveredSpecsUseCase } from "./accept-delivered-specs.use-case.ts";

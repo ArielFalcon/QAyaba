@@ -7489,9 +7489,9 @@ test("an exhausted or undecided end reports no reviewer outcome when none ran", 
 /* ── The run-level wall-clock deadline ──────────────────────────────────────────────────────────── */
 
 const DEADLINE_BUDGET_MS = 25 * 60_000;
-const deadlineExceeded = (role: string, stop: "before-turn" | "mid-turn" = "mid-turn") => new RunDeadlineExceededError(DEADLINE_BUDGET_MS, "diff-tiny", role, stop);
+const deadlineExceeded = (role: string, stop: "before-turn" | "mid-turn" = "mid-turn") => new RunDeadlineExceededError(DEADLINE_BUDGET_MS, "diff", role, stop);
 
-interface ArmedScope { mode: string; diff?: string; changedFiles?: readonly string[] }
+interface ArmedScope { mode: string }
 
 /** A deadline port that records when and with what it was armed, against the other phases of the run. */
 function recordingDeadline(trace: string[]): { port: RunDeadlinePort; armed: ArmedScope[] } {
@@ -7499,7 +7499,7 @@ function recordingDeadline(trace: string[]): { port: RunDeadlinePort; armed: Arm
   return { armed, port: { arm: (scope) => { trace.push("arm"); armed.push(scope); } } };
 }
 
-test("the run arms its deadline once, after the deploy gate and the classification, with the change it classified", async () => {
+test("the run arms its deadline once, after the deploy gate and the classification, for its mode alone", async () => {
   const trace: string[] = [];
   const { ports } = stubPorts({
     waitUntilHealthy: async () => { trace.push("gate"); return ok(true); },
@@ -7510,9 +7510,7 @@ test("the run arms its deadline once, after the deploy gate and the classificati
   await new RunQaUseCase({ ...ports, runDeadline: port, config: baseConfig }).run(baseInput);
   assert.deepEqual(trace.slice(0, 4), ["gate", "classify", "arm", "generate"]);
   assert.equal(armed.length, 1);
-  assert.equal(armed[0]!.mode, "diff");
-  assert.match(armed[0]!.diff ?? "", /diff --git a\/x/);
-  assert.deepEqual(armed[0]!.changedFiles, ["x"]);
+  assert.deepEqual(armed[0], { mode: "diff" }, "the bound reads nothing of the change");
 });
 
 test("the run hands its deadline the app's recent finished runs by phase, read after arming and for the app and mode of this run", async () => {
@@ -7529,14 +7527,14 @@ test("the run hands its deadline the app's recent finished runs by phase, read a
   assert.deepEqual(queries, [{ app: baseInput.app, budget: "manual", limit: 20 }]);
 });
 
-test("a diff run reads the history of runs of its own size: the reserve of a tiny change is not set by broader ones", async () => {
+test("a diff run reads the history of runs of its own kind and records that kind, whatever the size of its change", async () => {
   const { ports } = stubPorts();
   const queries: unknown[] = [];
   const runDeadline: RunDeadlinePort = { arm: () => {}, measure: () => {} };
   const phaseHistory = { recentPhaseRecords: async (query: unknown) => { queries.push(query); return []; } };
   const out = await new RunQaUseCase({ ...ports, runDeadline, phaseHistory, config: baseConfig }).run({ ...baseInput, mode: "diff" });
-  assert.deepEqual(queries, [{ app: baseInput.app, budget: "diff-tiny", limit: 20 }]);
-  assert.equal(traceFactsOf(out)?.timeBudget, "diff-tiny", "the run records the kind of run it was, so its own phases are read by later runs of that kind");
+  assert.deepEqual(queries, [{ app: baseInput.app, budget: "diff", limit: 20 }]);
+  assert.equal(traceFactsOf(out)?.timeBudget, "diff", "the run records the kind of run it was, so its own phases are read by later runs of that kind");
 });
 
 test("a history that cannot be read leaves the run going on the deadline's fallback reserve, and says so", async () => {
@@ -7559,7 +7557,7 @@ test("a history that cannot be read leaves the run going on the deadline's fallb
 /** A real deadline whose timer the test fires by hand: the moment a deterministic phase is cut. */
 function deadlineFiredByHand(budgetMs: number) {
   const fires: Array<() => void> = [];
-  const deadline = new RunDeadline({ now: () => 0, budgets: { ...RUN_TIME_BUDGET_MS, "diff-tiny": budgetMs, "diff-focused": budgetMs, "diff-broad": budgetMs, manual: budgetMs, context: budgetMs }, schedule: (_ms, fire) => { fires.push(fire); return () => {}; } });
+  const deadline = new RunDeadline({ now: () => 0, budgets: { ...RUN_TIME_BUDGET_MS, diff: budgetMs, manual: budgetMs, context: budgetMs }, schedule: (_ms, fire) => { fires.push(fire); return () => {}; } });
   return { deadline, fire: () => fires.at(-1)?.() };
 }
 
@@ -7617,7 +7615,7 @@ test("a first generation stopped by the run's deadline ends the run as a persist
   assert.equal(run.savedOutcomes.length, 1, "the run is persisted: it never ends as a silent empty result");
   assert.equal(run.savedOutcomes[0]!.errorClass, ERROR_CLASS.TIME_BUDGET);
   const note = run.savedOutcomes[0]!.note ?? "";
-  assert.match(note, /Run time budget of 25 min \(diff-tiny\) exhausted/);
+  assert.match(note, /Run time budget of 25 min \(diff\) exhausted/);
   assert.match(note, /primary turn in progress was stopped/);
   assert.match(note, /not a finding about the app/);
   assert.ok((run.out.note ?? "").includes("Run time budget of 25 min"));
@@ -9296,7 +9294,7 @@ function turnNeeding(clock: { t: number }, needMs: number) {
 
 /* A real deadline on the shared clock; its timer is fired by hand (`fires`). */
 function deadlineOn(clock: { t: number }, budgetMs: number, fires: Array<() => void> = []) {
-  return new RunDeadline({ now: () => clock.t, budgets: { ...RUN_TIME_BUDGET_MS, "diff-tiny": budgetMs, "diff-focused": budgetMs, "diff-broad": budgetMs, manual: budgetMs, context: budgetMs }, schedule: (_ms, fire) => { fires.push(fire); return () => {}; } });
+  return new RunDeadline({ now: () => clock.t, budgets: { ...RUN_TIME_BUDGET_MS, diff: budgetMs, manual: budgetMs, context: budgetMs }, schedule: (_ms, fire) => { fires.push(fire); return () => {}; } });
 }
 
 const limitsOf = (out: object) => (traceFactsOf(out)?.limits ?? []).map((l) => `${l.fired}${l.purpose ? `@${l.purpose}` : ""}`);

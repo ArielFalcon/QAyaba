@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { RUN_PHASES } from "@kernel/run-step";
+import { RUN_TIME_BUDGET_FORMER_LABELS } from "@contexts/run-orchestration/application/index";
 import type { CaptureMode } from "@kernel/telemetry/capture-mode";
 import type { CampaignIdentity } from "../../../contract/campaign";
 import { logJson } from "../../../integrations/logger";
@@ -73,7 +74,7 @@ export interface RunFactsPatch {
   degradations?: RunDegradationFact[] | null;
   /* Whether the engine ran a reviewer for the run. */
   reviewRequired?: boolean | null;
-  /* The kind of run the deadline bounded it as (diff-tiny, diff-focused, diff-broad, manual or context); null for a run that recorded none. */
+  /* The kind of run the deadline bounded it as (diff, manual or context; a run stored earlier may carry diff-tiny, diff-focused or diff-broad); null for a run that recorded none. */
   timeBudget?: string | null;
   /* The engine's change-coverage decision (pass|fail|unknown), the policy mode and threshold in force. */
   coverageStatus?: string | null;
@@ -297,13 +298,15 @@ export class RunRepository {
 
   /*
    * The phases of an app's most recent runs of one kind that recorded any, newest first: how far each got, how long each phase it entered
-   * took and the purposes its deadline cut. The kind is the row of the run time budget a run was bounded as; a run stored before it was
-   * recorded is of the kind that is its mode (every mode but diff, whose kind follows the size of the change and is then unknown).
+   * took and the purposes its deadline cut. The kind is the row of the run time budget a run was bounded as, read under the labels it was
+   * stored with (a diff run stored as diff-tiny, diff-focused or diff-broad is a diff run; nothing stored is rewritten); a run stored
+   * before the kind was recorded is of the kind that is its mode.
    */
   recentPhaseRecords(app: string, budget: string, limit: number): Array<{ furthestPhase: string | null; phaseTimings: Record<string, number>; cutPurposes: string[] }> {
+    const labels = [budget, ...(RUN_TIME_BUDGET_FORMER_LABELS[budget as keyof typeof RUN_TIME_BUDGET_FORMER_LABELS] ?? [])];
     const rows = this.db
-      .statement("SELECT id, furthest_phase, phase_timings, limits FROM runs WHERE app = ? AND (time_budget = ? OR (time_budget IS NULL AND mode = ?)) AND phase_timings IS NOT NULL ORDER BY at DESC, rowid DESC LIMIT ?")
-      .all(app, budget, budget, limit) as Array<{ id: string; furthest_phase: string | null; phase_timings: string; limits: string | null }>;
+      .statement(`SELECT id, furthest_phase, phase_timings, limits FROM runs WHERE app = ? AND (time_budget IN (${labels.map(() => "?").join(", ")}) OR (time_budget IS NULL AND mode = ?)) AND phase_timings IS NOT NULL ORDER BY at DESC, rowid DESC LIMIT ?`)
+      .all(app, ...labels, budget, limit) as Array<{ id: string; furthest_phase: string | null; phase_timings: string; limits: string | null }>;
     return rows.map((row) => {
       const limits = row.limits === null ? [] : parseJsonColumn<RunLimitFact[]>(row.limits, [], { table: "runs", column: "limits", id: row.id });
       return {

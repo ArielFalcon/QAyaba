@@ -14,8 +14,8 @@ test("a stored row keeps the phases the engine knows and drops a phase name or a
 test("the history port asks for the app, kind of run and limit it is given and returns the checked rows", async () => {
   const asked: unknown[] = [];
   const port = historyPhaseHistory((app, budget, limit) => (asked.push({ app, budget, limit }), [{ furthestPhase: "publish", phaseTimings: { decide: 4 } }]));
-  assert.deepEqual(await port.recentPhaseRecords({ app: "shop", budget: "diff-tiny", limit: 20 }), [{ furthestPhase: "publish", phaseTimings: { decide: 4 } }]);
-  assert.deepEqual(asked, [{ app: "shop", budget: "diff-tiny", limit: 20 }]);
+  assert.deepEqual(await port.recentPhaseRecords({ app: "shop", budget: "diff", limit: 20 }), [{ furthestPhase: "publish", phaseTimings: { decide: 4 } }]);
+  assert.deepEqual(asked, [{ app: "shop", budget: "diff", limit: 20 }]);
 });
 
 test("the purposes a run's deadline cut are kept when the engine knows them and dropped when it does not", () => {
