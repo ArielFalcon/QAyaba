@@ -31,7 +31,7 @@ const ROOT = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const TIMINGS_FILE = join(ROOT, "scripts", "test-timings.json");
 const REPORTER = join(ROOT, "scripts", "test-run-reporter.mjs");
 export const DEFAULT_TEST_GLOBS = [
-  "src/**/*.test.ts",
+  "platform/**/*.test.ts",
   "qa-engine/test/**/*.test.ts",
   "packages/sdk/**/*.test.ts",
   "agents/**/*.test.mjs",
@@ -42,11 +42,11 @@ export const DEFAULT_TEST_GLOBS = [
    leaks state, and is fixed by restoring that state, not by joining this list. */
 export const ISOLATED_FILES = new Map([
   [
-    "src/persistence/history-db-location.test.ts",
+    "platform/persistence/history-db-location.test.ts",
     "the history store resolves its location once per process, on first use: the file sets HISTORY_DB_PATH before that",
   ],
   [
-    "src/persistence/history-db-default-location.test.ts",
+    "platform/persistence/history-db-default-location.test.ts",
     "the history store resolves its location once per process, on first use: the file unsets HISTORY_DB_PATH before that",
   ],
 ]);

@@ -1,0 +1,2108 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { Readable } from "node:stream";
+import { JobQueue } from "./queue";
+import { routeApi } from "./api";
+import {
+  enqueueTrackedRun,
+  enqueueDoorRun,
+  enqueueContextMapRun,
+  enqueueLoginBootstrapRun,
+  cancelTrackedRun,
+  type RunnerDeps,
+  type RunRequest,
+} from "./runner";
+import {
+  ONBOARDING_INDEXING_CEILING_MS,
+  ONBOARDING_JOB_CEILING_MS,
+  ONBOARDING_MIRROR_CEILING_MS,
+  ONBOARDING_WAIT_MARGIN_MS,
+  ONBOARDING_WAIT_MAX_MS,
+  PendingChangeSets,
+  recordPhaseSnapshot,
+  sourceOfTrigger,
+} from "@contexts/run-orchestration/application/index";
+import { AppConfig } from "../composition/config-loader";
+import { createRunEventStore } from "./run-events";
+import type { RunPipelinePort, RunInput } from "@contexts/run-orchestration/application/index.ts";
+import type { RunOutcome } from "@kernel/run-outcome.ts";
+import { AgentTimeoutError, UntrustedGitTreeError } from "@kernel/domain-error";
+import { traceHarness } from "../test-support/trace-harness";
+import { getHistory } from "../persistence/index";
+import { engineStatus } from "../persistence/types";
+import { testDataNamespace } from "./test-data";
+
+const cfg = (name: string): AppConfig => ({
+  name,
+  repo: "org/demo",
+  dev: { baseUrl: "https://dev" },
+  qa: { needsReview: true, testDataPrefix: "qa-bot", shadow: true },
+  report: { onFailure: "github-issue" },
+});
+
+/* A fake RunPipelinePort that records whether it was invoked, so the dispatch tests below can */
+function fakePort(outcome: Partial<RunOutcome> = {}): { port: RunPipelinePort; calls: RunInput[] } {
+  const calls: RunInput[] = [];
+  const port: RunPipelinePort = {
+    async run(input) {
+      calls.push(input);
+      return {
+        runId: input.runId,
+        app: input.app,
+        sha: input.sha.value,
+        mode: input.mode,
+        target: input.target,
+        verdict: "pass",
+        errorClass: null,
+        gateSignals: { static: true, coverageRatio: null, reviewerCorrections: [], flaky: false, retries: 0 },
+        at: new Date().toISOString(),
+        ...outcome,
+      };
+    },
+  };
+  return { port, calls };
+}
+
+/* enqueueTrackedRun REQUIRES RunnerDeps.engineFactory — a missing factory throws loudly
+   (a boot-time wiring defect), never silently falls back.
+ */
+
+test("enqueueTrackedRun with no engineFactory supplied — throws loudly, finalizes as infra-error (no silent fallback)", async () => {
+  const queue = new JobQueue();
+  const id = enqueueTrackedRun(
+    queue,
+    { app: "runner-flag-no-factory", sha: "abc1234", target: "e2e", mode: "diff", source: "manual" },
+    { loadApp: cfg },
+  );
+  await queue.drain();
+  const r = getHistory().runs.getRecord(id)!;
+  assert.equal(r.status, "done");
+  assert.equal(r.verdict, "infra-error", "a missing engineFactory must surface as a loud infra-error");
+  assert.match(r.note ?? "", /engineFactory is required/);
+});
+
+test("a note the engine ends a run with is redacted before the record and the verdict event carry it", async () => {
+  const queue = new JobQueue();
+  const token = `ghp_${"a1B2c3D4".repeat(4)}abcd`;
+  const { port } = fakePort({ verdict: "infra-error", note: `the publication failed with ${token}` });
+  const events: unknown[] = [];
+  const id = enqueueTrackedRun(
+    queue,
+    { app: "runner-note-redaction", sha: "abc9999", target: "e2e", mode: "diff", source: "manual" },
+    { loadApp: cfg, engineFactory: () => port, runEvents: { publish: (_id: string, event: unknown) => void events.push(event) } as never },
+  );
+  await queue.drain();
+  const note = getHistory().runs.getRecord(id)!.note ?? "";
+  assert.ok(!note.includes(token), "the stored note carries no raw token");
+  assert.ok(note.includes("[REDACTED]"));
+  assert.ok(!JSON.stringify(events).includes(token), "the verdict event carries no raw token");
+});
+
+test("engineFactory supplied — routes to port.run", async () => {
+  const queue = new JobQueue();
+  const { port, calls } = fakePort({ verdict: "pass" });
+  const id = enqueueTrackedRun(
+    queue,
+    { app: "runner-flag-rewritten", sha: "def5678", target: "e2e", mode: "diff", source: "manual" },
+    { loadApp: cfg, engineFactory: () => port },
+  );
+  await queue.drain();
+  const r = getHistory().runs.getRecord(id)!;
+  assert.equal(r.status, "done");
+  assert.equal(r.verdict, "pass");
+  assert.equal(calls.length, 1, "the port must be invoked exactly once");
+  assert.equal(calls[0]?.app, "runner-flag-rewritten");
+  assert.equal(calls[0]?.sha.value, "def5678");
+  assert.equal(calls[0]?.mode, "diff");
+  assert.equal(calls[0]?.target, "e2e");
+  assert.equal(calls[0]?.source, "manual");
+});
+
+/* The engine's agent transport throws qa-engine's AgentTimeoutError when an agent call exceeds its
+   hard deadline, and nothing between RunQaUseCase and the runner wraps it. */
+test("an agent call that exceeded its deadline finalizes as infrastructure, not as an internal crash", async () => {
+  const queue = new JobQueue();
+  const port: RunPipelinePort = {
+    async run() {
+      throw new AgentTimeoutError("generate: timed out after 900000ms");
+    },
+  };
+  const id = enqueueTrackedRun(
+    queue,
+    { app: "runner-agent-timeout", sha: "abc1234", target: "e2e", mode: "diff", source: "webhook" },
+    { loadApp: cfg, engineFactory: () => port },
+  );
+  await queue.drain();
+  const r = getHistory().runs.getRecord(id)!;
+  assert.equal(r.verdict, "infra-error");
+  assert.doesNotMatch(r.note ?? "", /unexpected internal error/);
+});
+
+/* A working copy whose git dir is not the orchestrator's own is a security refusal: loud, with its own note. */
+test("a run refused because the working copy's git dir is untrusted is finalized as a security refusal, not an internal crash", async () => {
+  const queue = new JobQueue();
+  const port: RunPipelinePort = {
+    async run() {
+      throw new UntrustedGitTreeError("refusing to run git on /mirrors/org__app/sub/.git: it sits inside the submodule directory sub");
+    },
+  };
+  const errors: string[] = [];
+  const originalError = console.error;
+  console.error = (...args: unknown[]) => void errors.push(args.map(String).join(" "));
+  try {
+    const id = enqueueTrackedRun(
+      queue,
+      { app: "runner-untrusted-git-tree", sha: "abc1234", target: "e2e", mode: "diff", source: "webhook" },
+      { loadApp: cfg, engineFactory: () => port },
+    );
+    await queue.drain();
+    const r = getHistory().runs.getRecord(id)!;
+    assert.equal(r.status, "done");
+    assert.equal(r.verdict, "infra-error", "the run is inconclusive: no test ran");
+    assert.match(r.note ?? "", /security refusal/i);
+    assert.match(r.note ?? "", /org__app\/sub\/\.git/, "the operator is told which path was refused");
+    assert.doesNotMatch(r.note ?? "", /unexpected internal error|investigate/i);
+    assert.ok(errors.some((line) => /security refusal/i.test(line)), "the refusal is logged loudly");
+  } finally {
+    console.error = originalError;
+  }
+});
+
+test("a context-map run is an e2e context-mode run at the given sha, from a manual source, never tied to a service repo", async () => {
+  const queue = new JobQueue();
+  const { port, calls } = fakePort({ verdict: "pass" });
+  const id = enqueueContextMapRun(queue, "runner-context-map", "c0ffee1", { loadApp: cfg, engineFactory: () => port });
+  await queue.drain();
+  const [run] = calls;
+  assert.equal(getHistory().runs.getRecord(id)?.status, "done");
+  assert.equal(run?.app, "runner-context-map");
+  assert.equal(run?.sha.value, "c0ffee1");
+  assert.equal(run?.mode, "context");
+  assert.equal(run?.target, "e2e");
+  assert.equal(run?.source, "manual");
+  assert.equal(run?.triggerRepo, undefined, "context mode cannot be driven from a service repo");
+});
+
+test("a login-bootstrap run is an e2e manual run for the login purpose, guided to author the login and prove it, never tied to a service repo", async () => {
+  const queue = new JobQueue();
+  const { port, calls } = fakePort({ verdict: "pass" });
+  const id = enqueueLoginBootstrapRun(queue, "runner-login-bootstrap", "c0ffee1", { loadApp: cfg, engineFactory: () => port });
+  await queue.drain();
+  const [run] = calls;
+  assert.equal(getHistory().runs.getRecord(id)?.status, "done");
+  assert.equal(run?.mode, "manual");
+  assert.equal(run?.target, "e2e");
+  assert.equal(run?.source, "manual");
+  assert.equal(run?.purpose, "login-bootstrap");
+  assert.equal(run?.triggerRepo, undefined);
+  assert.match(run?.guidance ?? "", /auth\.setup\.ts/);
+  assert.match(run?.guidance ?? "", /one smoke spec/);
+});
+
+/* An app onboarded before the suite store has no verified login to start from: the queue authors it first, once, ahead of the run
+   that asked, and never again on its own. The decision reads the app's own declaration and the store through an injected question. */
+const withLogin = (name: string): AppConfig => ({ ...cfg(name), auth: { kind: "form", usernameEnv: "QA_USER", passwordEnv: "QA_PASS" } });
+
+function bootstrapRig(over: { holds?: (app: string) => boolean; load?: (name: string) => AppConfig; withoutQuestion?: boolean } = {}) {
+  const queue = new JobQueue();
+  const { port, calls } = fakePort({ verdict: "pass" });
+  const deps = {
+    loadApp: over.load ?? withLogin,
+    engineFactory: () => port,
+    ...(over.withoutQuestion ? {} : { suiteHoldsVerifiedLogin: over.holds ?? (() => false) }),
+  };
+  const run = (app: string, extra: Partial<Parameters<typeof enqueueTrackedRun>[1]> = {}): string =>
+    enqueueTrackedRun(queue, { app, sha: "abc1234", target: "e2e", mode: "diff", source: "webhook", ...extra }, deps);
+  return { queue, calls, run, deps };
+}
+
+test("a run for an app that declares a login and has none verified is preceded by the app's login bootstrap, on the same sha, in queue order", async () => {
+  const r = bootstrapRig();
+  r.run("runner-boot-first");
+  await r.queue.drain();
+  assert.deepEqual(r.calls.map((c) => c.purpose ?? c.mode), ["login-bootstrap", "diff"]);
+  assert.equal(r.calls[0]?.sha.value, "abc1234");
+  assert.equal(r.calls[0]?.mode, "manual");
+});
+
+test("the bootstrap is asked for once per app and process: a later run does not queue another, whether or not the first worked", async () => {
+  const r = bootstrapRig();
+  r.run("runner-boot-once");
+  r.run("runner-boot-once");
+  await r.queue.drain();
+  r.run("runner-boot-once");
+  await r.queue.drain();
+  assert.equal(r.calls.filter((c) => c.purpose === "login-bootstrap").length, 1);
+  assert.equal(r.calls.filter((c) => c.purpose === undefined).length, 3);
+});
+
+test("a bootstrap an operator already asked for is not asked for again by the next run", async () => {
+  const r = bootstrapRig();
+  enqueueLoginBootstrapRun(r.queue, "runner-boot-explicit", "c0ffee1", r.deps);
+  r.run("runner-boot-explicit");
+  await r.queue.drain();
+  assert.equal(r.calls.filter((c) => c.purpose === "login-bootstrap").length, 1);
+});
+
+test("no bootstrap is queued for a public app, an app that already holds a verified login, a run that cannot use one, or when the question is not wired", async () => {
+  const none = (r: ReturnType<typeof bootstrapRig>): number => r.calls.filter((c) => c.purpose === "login-bootstrap").length;
+
+  const pub = bootstrapRig({ load: cfg });
+  pub.run("runner-boot-public");
+  await pub.queue.drain();
+  assert.equal(none(pub), 0, "a public app has no login to author");
+
+  const warm = bootstrapRig({ holds: () => true });
+  warm.run("runner-boot-warm");
+  await warm.queue.drain();
+  assert.equal(none(warm), 0, "the store already holds a verified login");
+
+  const unwired = bootstrapRig({ withoutQuestion: true });
+  unwired.run("runner-boot-unwired");
+  await unwired.queue.drain();
+  assert.equal(none(unwired), 0, "no question wired, no bootstrap");
+
+  const frozen = bootstrapRig();
+  frozen.run("runner-boot-frozen", { campaign: { id: "c-1", variant: {}, replicate: 1 } });
+  await frozen.queue.drain();
+  assert.equal(none(frozen), 0, "a campaign controls warmth itself");
+
+  const other = bootstrapRig();
+  other.run("runner-boot-context", { mode: "context" });
+  other.run("runner-boot-service", { triggerRepo: "org/service" });
+  other.run("runner-boot-continue", { parentRunId: "run-earlier" });
+  other.run("runner-boot-purpose", { purpose: "login-bootstrap" });
+  await other.queue.drain();
+  assert.equal(none(other), 1, "only the run that was itself the bootstrap");
+});
+
+test("a store that cannot be asked, or an app that cannot be loaded for the question, never keeps the requested run from running", async () => {
+  const broken = bootstrapRig({ holds: () => { throw new Error("manifest unreadable"); } });
+  const warnings: string[] = [];
+  const original = console.warn;
+  console.warn = (...args: unknown[]) => void warnings.push(args.map(String).join(" "));
+  try {
+    broken.run("runner-boot-broken");
+    await broken.queue.drain();
+  } finally {
+    console.warn = original;
+  }
+  assert.deepEqual(broken.calls.map((c) => c.purpose ?? c.mode), ["diff"]);
+  assert.ok(warnings.some((w) => w.includes("runner-boot-broken") && w.includes("manifest unreadable")), "the operator is told why no bootstrap was queued");
+});
+
+test("a bootstrap queued ahead of a run is announced in the log with the app and the reason", async () => {
+  const r = bootstrapRig();
+  const lines: string[] = [];
+  const original = console.log;
+  console.log = (...args: unknown[]) => void lines.push(args.map(String).join(" "));
+  try {
+    r.run("runner-boot-log");
+    await r.queue.drain();
+  } finally {
+    console.log = original;
+  }
+  const said = lines.find((l) => l.includes("login bootstrap"));
+  assert.ok(said?.includes("runner-boot-log"));
+});
+
+/* AGENTS.md invariant ("surface integration errors loudly — never swallow errors into an empty
+   result"): a live portfolio run once produced verdict:infra-error with NO note/log/cases on the
+   engine path — undiagnosable without instrumenting a live container. Root cause:
+   runViaEngine (this file) mapped RunOutcome -> QaRunResult but dropped `note` entirely.
+   This test pins that the note now survives all the way out to the run record.
+ */
+test("outcome.note is forwarded into the run record's note field", async () => {
+  const queue = new JobQueue();
+  const { port } = fakePort({ verdict: "infra-error", note: "DEV did not serve sha def5678 within 5000ms" });
+  const id = enqueueTrackedRun(
+    queue,
+    { app: "runner-flag-rewritten-note", sha: "def5678", target: "e2e", mode: "diff", source: "manual" },
+    { loadApp: cfg, engineFactory: () => port },
+  );
+  await queue.drain();
+  const r = getHistory().runs.getRecord(id)!;
+  assert.equal(r.status, "done");
+  assert.equal(r.verdict, "infra-error");
+  assert.equal(
+    r.note,
+    "DEV did not serve sha def5678 within 5000ms",
+    "the engine's diagnostic note must reach the run record — previously silently dropped by runViaEngine's RunOutcome -> QaRunResult mapping",
+  );
+});
+
+test("the runner passes a testDataNamespace-shaped, per-run namespace to engineFactory (never a static literal)", async () => {
+  const queue = new JobQueue();
+  const { port } = fakePort({ verdict: "pass" });
+  let receivedNamespace: string | undefined;
+  const id = enqueueTrackedRun(
+    queue,
+    { app: "runner-namespace-shape", sha: "def5678", target: "e2e", mode: "diff", source: "manual" },
+    {
+      loadApp: cfg,
+      engineFactory: (_appConfig, namespace) => {
+        receivedNamespace = namespace;
+        return port;
+      },
+    },
+  );
+  await queue.drain();
+  assert.equal(getHistory().runs.getRecord(id)!.verdict, "pass");
+  assert.ok(receivedNamespace, "engineFactory must receive a namespace argument");
+  assert.notEqual(receivedNamespace, "qa-bot/rewritten", "must never be the old static literal");
+  /* testDataNamespace(prefix, sha, runId) formula: `${prefix}-${shortSha(sha)}-${runToken(runId)}`.
+     cfg(...) fixtures use testDataPrefix "qa-bot"; shortSha("def5678") === "def5678" (already 7 chars).
+   */
+  assert.match(receivedNamespace!, /^qa-bot-def5678-/, "namespace must start with testDataPrefix-shortSha");
+});
+
+/* The data a run left in DEV is cleaned by the next run of the app: the rule is which prior record counts as a run that left some. */
+async function previousNamespaceSeenBy(app: string, prior: { status?: "running" | "enqueued" | "done"; verdict?: "pass" | "fail" | "infra-error" } | undefined, request: Partial<RunRequest> = {}): Promise<{ seen: string | undefined; priorId: string | undefined }> {
+  const queue = new JobQueue();
+  const { port } = fakePort();
+  let priorId: string | undefined;
+  if (prior) {
+    const rec = getHistory().runs.createRecord({ app, sha: "9abcdef0", target: "e2e", mode: "diff" });
+    getHistory().runs.updateRecord(rec.id, { ...(prior.status ? { status: prior.status } : {}), ...(prior.verdict ? { verdict: prior.verdict } : {}) });
+    priorId = rec.id;
+  }
+  let seen: string | undefined;
+  enqueueTrackedRun(queue, { app, sha: "def5678", target: "e2e", mode: "diff", source: "manual", ...request }, {
+    loadApp: cfg,
+    engineFactory: (_appConfig, _namespace, _run, _observer, previousNamespace) => {
+      seen = previousNamespace;
+      return port;
+    },
+  });
+  await queue.drain();
+  return { seen, priorId };
+}
+
+test("a prior run of the app left running, enqueued or ended as infra-error has its test data cleaned by the next run, under the namespace it used", async () => {
+  for (const [app, prior] of [["orphan-running", { status: "running" }], ["orphan-enqueued", { status: "enqueued" }], ["orphan-infra", { status: "done", verdict: "infra-error" }]] as const) {
+    const { seen, priorId } = await previousNamespaceSeenBy(app, prior);
+    assert.equal(seen, testDataNamespace("qa-bot", "9abcdef0", priorId), app);
+    assert.match(seen!, /^qa-bot-9abcdef-/, app);
+  }
+});
+
+test("a prior run that finished with a verdict of its own, or no prior run, leaves nothing to clean", async () => {
+  assert.equal((await previousNamespaceSeenBy("orphan-pass", { status: "done", verdict: "pass" })).seen, undefined);
+  assert.equal((await previousNamespaceSeenBy("orphan-fail", { status: "done", verdict: "fail" })).seen, undefined);
+  assert.equal((await previousNamespaceSeenBy("orphan-none", undefined)).seen, undefined);
+});
+
+test("a request that names the namespace to clean keeps it, empty included, whatever the prior run was", async () => {
+  assert.equal((await previousNamespaceSeenBy("orphan-named", { status: "running" }, { previousNamespace: "qa-bot-custom" })).seen, "qa-bot-custom");
+  assert.equal((await previousNamespaceSeenBy("orphan-empty", { status: "running" }, { previousNamespace: "" })).seen, "");
+});
+
+test("two DIFFERENT runs (different sha) produce DIFFERENT namespaces passed to engineFactory", async () => {
+  const queue1 = new JobQueue();
+  const queue2 = new JobQueue();
+  const { port: port1 } = fakePort({ verdict: "pass" });
+  const { port: port2 } = fakePort({ verdict: "pass" });
+  let namespace1: string | undefined;
+  let namespace2: string | undefined;
+  const id1 = enqueueTrackedRun(
+    queue1,
+    { app: "runner-namespace-diff", sha: "aaa1111", target: "e2e", mode: "diff", source: "manual" },
+    { loadApp: cfg, engineFactory: (_a, ns) => { namespace1 = ns; return port1; } },
+  );
+  const id2 = enqueueTrackedRun(
+    queue2,
+    { app: "runner-namespace-diff", sha: "bbb2222", target: "e2e", mode: "diff", source: "manual" },
+    { loadApp: cfg, engineFactory: (_a, ns) => { namespace2 = ns; return port2; } },
+  );
+  await Promise.all([queue1.drain(), queue2.drain()]);
+  assert.equal(getHistory().runs.getRecord(id1)!.verdict, "pass");
+  assert.equal(getHistory().runs.getRecord(id2)!.verdict, "pass");
+  assert.ok(namespace1);
+  assert.ok(namespace2);
+  assert.notEqual(namespace1, namespace2, "two different-sha runs must never share the same DEV test-data namespace");
+});
+
+/* mode/guidance MUST thread through the engineFactory seam, per-run, following the namespace
+   precedent. Hardcoding mode:"diff" and dropping guidance would make a manual run with --guidance
+   generate with a stale diff-mode prompt.
+ */
+
+test("the runner passes req.mode to engineFactory's 3rd (run) argument", async () => {
+  const queue = new JobQueue();
+  const { port } = fakePort({ verdict: "pass" });
+  let receivedMode: string | undefined;
+  const id = enqueueTrackedRun(
+    queue,
+    { app: "runner-mode-manual", sha: "def5678", target: "e2e", mode: "manual", source: "manual", guidance: "test the contact form" },
+    {
+      loadApp: cfg,
+      engineFactory: (_appConfig, _namespace, run) => {
+        receivedMode = run.mode;
+        return port;
+      },
+    },
+  );
+  await queue.drain();
+  assert.equal(getHistory().runs.getRecord(id)!.verdict, "pass");
+  assert.equal(receivedMode, "manual", "engineFactory must receive req.mode, not a hardcoded 'diff'");
+});
+
+test("the runner passes req.guidance to engineFactory's 3rd (run) argument when present", async () => {
+  const queue = new JobQueue();
+  const { port } = fakePort({ verdict: "pass" });
+  let receivedGuidance: string | undefined;
+  const id = enqueueTrackedRun(
+    queue,
+    { app: "runner-guidance", sha: "def5678", target: "e2e", mode: "manual", source: "manual", guidance: "test the contact form" },
+    {
+      loadApp: cfg,
+      engineFactory: (_appConfig, _namespace, run) => {
+        receivedGuidance = run.guidance;
+        return port;
+      },
+    },
+  );
+  await queue.drain();
+  assert.equal(getHistory().runs.getRecord(id)!.verdict, "pass");
+  assert.equal(receivedGuidance, "test the contact form", "engineFactory must receive req.guidance when the run supplies it");
+});
+
+test("engineFactory's run.guidance is absent (not an empty string) when req.guidance is omitted", async () => {
+  const queue = new JobQueue();
+  const { port } = fakePort({ verdict: "pass" });
+  let receivedRun: { mode: string; guidance?: string } | undefined;
+  const id = enqueueTrackedRun(
+    queue,
+    { app: "runner-guidance-absent", sha: "def5678", target: "e2e", mode: "diff", source: "manual" },
+    {
+      loadApp: cfg,
+      engineFactory: (_appConfig, _namespace, run) => {
+        receivedRun = run;
+        return port;
+      },
+    },
+  );
+  await queue.drain();
+  assert.equal(getHistory().runs.getRecord(id)!.verdict, "pass");
+  assert.equal(receivedRun?.guidance, undefined, "guidance must be absent, not fabricated, when the request never supplied one");
+});
+
+/* Cross-repo coverage guard: the coverage-collect gate is `mode === "diff" && ... && !triggerService`.
+   A cross-repo (deploy-event) run must degrade change-coverage to "unknown", never a real ratio.
+   runViaEngine must thread req.triggerRepo into the RunInput it hands to port.run() so
+   RunQaUseCase can starve the ObjectiveSignalPort.measure() diff arg for these runs.
+ */
+
+test("the runner threads req.triggerRepo into port.run's RunInput when present", async () => {
+  const queue = new JobQueue();
+  const { port, calls } = fakePort({ verdict: "pass" });
+  /* Must be a declared service — an undeclared triggerRepo rejects before port.run(). */
+  const id = enqueueTrackedRun(
+    queue,
+    { app: "runner-trigger-repo", sha: "def5678", target: "e2e", mode: "diff", source: "webhook", triggerRepo: "org/orders-svc" },
+    { loadApp: (name) => ({ ...cfg(name), services: [{ repo: "org/orders-svc" }] }), engineFactory: () => port },
+  );
+  await queue.drain();
+  assert.equal(getHistory().runs.getRecord(id)!.verdict, "pass");
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0]!.triggerRepo, "org/orders-svc", "RunInput.triggerRepo must carry req.triggerRepo through to port.run");
+});
+
+/* An undeclared triggerRepo throws `trigger repo ${x} is not a declared service of app ${y}`.
+   triggerRepo could otherwise route a real GitHub Issue (decision.issueRepo defaults to
+   input.triggerRepo) into an arbitrary repo. RunQaUseCase has no app.services knowledge —
+   assertTriggerRepoDeclared closes that gap at runViaEngine. A rejected run finalizes
+   as verdict "infra-error" (a plain Error — isInfraError(err) is false for it, matching the
+   existing "unexpected internal error" classification the queue callback's catch block already
+   applies to non-InfraError throws).
+ */
+
+test("rejects an undeclared triggerRepo (finalizes infra-error, never reaches port.run)", async () => {
+  const queue = new JobQueue();
+  const { port, calls } = fakePort({ verdict: "pass" });
+  const id = enqueueTrackedRun(
+    queue,
+    { app: "runner-trigger-repo-undeclared", sha: "def5678", target: "e2e", mode: "diff", source: "webhook", triggerRepo: "org/evil-repo" },
+    /* cfg() declares no services[] at all — org/evil-repo cannot be a declared service. */
+    { loadApp: cfg, engineFactory: () => port },
+  );
+  await queue.drain();
+  const r = getHistory().runs.getRecord(id)!;
+  assert.equal(r.status, "done");
+  assert.equal(r.verdict, "infra-error", "an undeclared triggerRepo must never reach a real verdict — the run is rejected outright");
+  assert.match(r.note ?? "", /trigger repo org\/evil-repo is not a declared service of app runner-trigger-repo-undeclared/);
+  assert.equal(calls.length, 0, "port.run must NEVER be invoked for an undeclared triggerRepo");
+});
+
+test("accepts a DECLARED service triggerRepo", async () => {
+  const queue = new JobQueue();
+  const { port, calls } = fakePort({ verdict: "pass" });
+  const id = enqueueTrackedRun(
+    queue,
+    { app: "runner-trigger-repo-declared", sha: "def5678", target: "e2e", mode: "diff", source: "webhook", triggerRepo: "org/orders-svc" },
+    { loadApp: (name) => ({ ...cfg(name), services: [{ repo: "org/orders-svc" }] }), engineFactory: () => port },
+  );
+  await queue.drain();
+  assert.equal(getHistory().runs.getRecord(id)!.verdict, "pass");
+  assert.equal(calls.length, 1, "a declared service triggerRepo must reach port.run normally");
+});
+
+test("an app with NO services[] rejects ANY triggerRepo other than its own repo", async () => {
+  const queue = new JobQueue();
+  const { port, calls } = fakePort({ verdict: "pass" });
+  const id = enqueueTrackedRun(
+    queue,
+    { app: "runner-trigger-repo-no-services", sha: "def5678", target: "e2e", mode: "diff", source: "webhook", triggerRepo: "org/anything" },
+    /* cfg() has no `services` key at all — matches `app.services?.find(...)` on undefined. */
+    { loadApp: cfg, engineFactory: () => port },
+  );
+  await queue.drain();
+  assert.equal(getHistory().runs.getRecord(id)!.verdict, "infra-error");
+  assert.equal(calls.length, 0);
+});
+
+test("RunInput.triggerRepo is absent (not fabricated) when req.triggerRepo is omitted", async () => {
+  const queue = new JobQueue();
+  const { port, calls } = fakePort({ verdict: "pass" });
+  const id = enqueueTrackedRun(
+    queue,
+    { app: "runner-trigger-repo-absent", sha: "def5678", target: "e2e", mode: "diff", source: "manual" },
+    { loadApp: cfg, engineFactory: () => port },
+  );
+  await queue.drain();
+  assert.equal(getHistory().runs.getRecord(id)!.verdict, "pass");
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0]!.triggerRepo, undefined, "an ordinary (non-cross-repo) run must never fabricate a triggerRepo");
+});
+
+/* req.baseSha was ALREADY parsed correctly at both entry points (platform/composition/index.ts's webhook handler,
+   platform/composition/cli.ts's --base-sha flag) and threaded into RunRequest — but runViaEngine's own
+   RunInput construction (this file) dropped it before it ever reached the engine. These tests pin
+   the exact seam that fix closes: the ONE place a RunRequest becomes a RunInput.
+ */
+
+test("the runner threads req.baseSha into port.run's RunInput when present", async () => {
+  const queue = new JobQueue();
+  const { port, calls } = fakePort({ verdict: "pass" });
+  const id = enqueueTrackedRun(
+    queue,
+    { app: "runner-base-sha", sha: "def5678", target: "e2e", mode: "diff", source: "webhook", baseSha: "abc1234" },
+    { loadApp: cfg, engineFactory: () => port },
+  );
+  await queue.drain();
+  assert.equal(getHistory().runs.getRecord(id)!.verdict, "pass");
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0]!.baseSha?.value, "abc1234", "RunInput.baseSha must carry req.baseSha through to port.run");
+});
+
+test("RunInput.baseSha is absent (not fabricated) when req.baseSha is omitted", async () => {
+  const queue = new JobQueue();
+  const { port, calls } = fakePort({ verdict: "pass" });
+  const id = enqueueTrackedRun(
+    queue,
+    { app: "runner-base-sha-absent", sha: "def5678", target: "e2e", mode: "diff", source: "manual" },
+    { loadApp: cfg, engineFactory: () => port },
+  );
+  await queue.drain();
+  assert.equal(getHistory().runs.getRecord(id)!.verdict, "pass");
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0]!.baseSha, undefined, "a single-commit run must never fabricate a baseSha — backward compatible with today's behavior");
+});
+
+/* req.parentRunId was ALREADY set correctly by platform/composition/index.ts's continueRun (the ONLY real producer,
+   the /continue API flow) — but runViaEngine's own RunInput construction (this file)
+   above. These tests pin the exact seam that fix closes.
+ */
+
+test("the runner threads req.parentRunId into port.run's RunInput when present (a /continue-driven run)", async () => {
+  const queue = new JobQueue();
+  const { port, calls } = fakePort({ verdict: "pass" });
+  const id = enqueueTrackedRun(
+    queue,
+    { app: "runner-parent-run-id", sha: "def5678", target: "e2e", mode: "diff", source: "manual", parentRunId: "prior-run-abc123" },
+    { loadApp: cfg, engineFactory: () => port },
+  );
+  await queue.drain();
+  assert.equal(getHistory().runs.getRecord(id)!.verdict, "pass");
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0]!.parentRunId, "prior-run-abc123", "RunInput.parentRunId must carry req.parentRunId through to port.run");
+});
+
+test("RunInput.parentRunId is absent (not fabricated) when req.parentRunId is omitted", async () => {
+  const queue = new JobQueue();
+  const { port, calls } = fakePort({ verdict: "pass" });
+  const id = enqueueTrackedRun(
+    queue,
+    { app: "runner-parent-run-id-absent", sha: "def5678", target: "e2e", mode: "diff", source: "webhook" },
+    { loadApp: cfg, engineFactory: () => port },
+  );
+  await queue.drain();
+  assert.equal(getHistory().runs.getRecord(id)!.verdict, "pass");
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0]!.parentRunId, undefined, "an ordinary webhook run must never fabricate a parentRunId — backward compatible with today's behavior");
+});
+
+/* ── Bug fix (cross-repo composition threading) — engineFactory's `run` param must ALSO carry
+   triggerRepo, not just mode/guidance. Prior to this fix, req.triggerRepo reached RunInput (pinned
+   above) but never reached the engineFactory's `run` object, so run-engine-factory.ts had no
+   way to route vcs/checkout/the deploy gate to the declared service — this is the seam that closes
+   that gap. Mirrors this file's own "engineFactory's run.guidance is absent..." precedent exactly.
+ */
+
+test("engineFactory's run param carries req.triggerRepo when present", async () => {
+  const queue = new JobQueue();
+  const { port } = fakePort({ verdict: "pass" });
+  let receivedRun: { mode: string; guidance?: string; triggerRepo?: string } | undefined;
+  const id = enqueueTrackedRun(
+    queue,
+    { app: "runner-engfactory-triggerrepo", sha: "def5678", target: "e2e", mode: "diff", source: "webhook", triggerRepo: "org/orders-svc" },
+    {
+      loadApp: (name) => ({ ...cfg(name), services: [{ repo: "org/orders-svc" }] }),
+      engineFactory: (_appConfig, _namespace, run) => {
+        receivedRun = run;
+        return port;
+      },
+    },
+  );
+  await queue.drain();
+  assert.equal(getHistory().runs.getRecord(id)!.verdict, "pass");
+  assert.equal(receivedRun?.triggerRepo, "org/orders-svc", "engineFactory's run param must carry req.triggerRepo so the factory can route vcs/checkout/gate to the declared service");
+});
+
+test("engineFactory's run.triggerRepo is absent (not fabricated) when req.triggerRepo is omitted", async () => {
+  const queue = new JobQueue();
+  const { port } = fakePort({ verdict: "pass" });
+  let receivedRun: { mode: string; guidance?: string; triggerRepo?: string } | undefined;
+  const id = enqueueTrackedRun(
+    queue,
+    { app: "runner-engfactory-triggerrepo-absent", sha: "def5678", target: "e2e", mode: "diff", source: "manual" },
+    {
+      loadApp: cfg,
+      engineFactory: (_appConfig, _namespace, run) => {
+        receivedRun = run;
+        return port;
+      },
+    },
+  );
+  await queue.drain();
+  assert.equal(getHistory().runs.getRecord(id)!.verdict, "pass");
+  assert.equal(receivedRun?.triggerRepo, undefined, "an ordinary (non-cross-repo) run must never fabricate a triggerRepo on the engineFactory's run param either");
+});
+
+test("the run path finalizes the record + publishes run.verdict RunEvents from the port's RunOutcome", async () => {
+  const queue = new JobQueue();
+  const runEvents = createRunEventStore({ now: () => 999 });
+  const { port } = fakePort({ verdict: "fail" });
+  const id = enqueueTrackedRun(
+    queue,
+    { app: "runner-flag-events", sha: "def5678", target: "e2e", mode: "diff", source: "webhook" },
+    { loadApp: cfg, runEvents, engineFactory: () => port },
+  );
+  await queue.drain();
+  const r = getHistory().runs.getRecord(id)!;
+  assert.equal(r.status, "done");
+  assert.equal(r.verdict, "fail");
+  const bodies = runEvents.replay(id).map((e) => e.body);
+  assert.deepEqual(bodies[0], { type: "run.started", app: "runner-flag-events", sha: "def5678", mode: "diff", target: "e2e" });
+  const last = bodies.at(-1) as { type: string; verdict: string };
+  assert.equal(last.type, "run.verdict");
+  assert.equal(last.verdict, "fail");
+});
+
+/* Runs must not leave their RunRecord/RunEvents frozen — record.step must advance and
+   /api/runs/:id/events must populate. The runner wires this via buildRunObserver +
+   engineFactory's 4th (observer) argument. These tests pin: (1) engineFactory receives a live
+   ObserverPort as its 4th argument, and (2) a port that drives that observer mid-run produces
+   the SAME updateRecord + step.changed RunEvent shape the TUI/API already render.
+ */
+
+test("the runner passes a live ObserverPort as engineFactory's 4th argument", async () => {
+  const queue = new JobQueue();
+  const { port } = fakePort();
+  let receivedObserver: unknown;
+  enqueueTrackedRun(
+    queue,
+    { app: "runner-observer-arg", sha: "abc1234", target: "e2e", mode: "diff", source: "manual" },
+    {
+      loadApp: cfg,
+      engineFactory: (_appConfig, _namespace, _run, observer) => {
+        receivedObserver = observer;
+        return port;
+      },
+    },
+  );
+  await queue.drain();
+  assert.ok(receivedObserver, "engineFactory must receive a 4th (observer) argument");
+  assert.equal(typeof (receivedObserver as { onStep?: unknown }).onStep, "function");
+  assert.equal(typeof (receivedObserver as { onEvent?: unknown }).onEvent, "function");
+});
+
+test("a port that drives ObserverPort.onStep mid-run updates the record's step + publishes step.changed RunEvents live (not just at the final verdict)", async () => {
+  const queue = new JobQueue();
+  const runEvents = createRunEventStore({ now: () => 1234 });
+  /* A port standing in for RunPipelineAdapter -> RunQaUseCase: it drives the SAME
+     observer the runner handed it through a representative phase sequence BEFORE resolving,
+     exactly as RunQaUseCase.run() now does at each phase boundary.
+   */
+  const observingPort: RunPipelinePort = {
+    run: async (input) => {
+      const stepsSeenMidRun = ["gate", "classify", "generate", "validate", "health", "execute"] as const;
+      for (const step of stepsSeenMidRun) {
+        currentObserver?.onStep(step);
+        /* Assert the record already reflects this step BEFORE the run finishes — proving the
+           update is live, not batched until the final verdict.
+         */
+        assert.equal(getHistory().runs.getRecord(id)?.step, step, `record.step must advance to '${step}' while the run is still in flight`);
+      }
+      return {
+        runId: input.runId,
+        app: input.app,
+        sha: input.sha.value,
+        mode: input.mode,
+        target: input.target,
+        verdict: "pass",
+        errorClass: null,
+        gateSignals: { static: true, coverageRatio: null, reviewerCorrections: [], flaky: false, retries: 0 },
+        at: new Date().toISOString(),
+      };
+    },
+  };
+  let currentObserver: { onStep(step: string, detail?: string): void } | undefined;
+  const id = enqueueTrackedRun(
+    queue,
+    { app: "runner-observer-live", sha: "def5678", target: "e2e", mode: "diff", source: "webhook" },
+    {
+      loadApp: cfg,
+      runEvents,
+      engineFactory: (_appConfig, _namespace, _run, observer) => {
+        currentObserver = observer as { onStep(step: string, detail?: string): void };
+        return observingPort;
+      },
+    },
+  );
+  await queue.drain();
+
+  const r = getHistory().runs.getRecord(id)!;
+  assert.equal(r.status, "done");
+  assert.equal(r.verdict, "pass");
+  assert.equal(r.step, "done", "the record's final step is 'done' (set by the queue callback's own finalize, after the port resolved)");
+
+  const bodies = runEvents.replay(id).map((e) => e.body);
+  const stepEvents = bodies.filter((b): b is Extract<typeof b, { type: "step.changed" }> => b.type === "step.changed");
+  assert.deepEqual(
+    stepEvents.map((e) => e.step),
+    ["gate", "classify", "generate", "validate", "health", "execute"],
+    "every onStep() call the port made mid-run must publish its own step.changed RunEvent, in order",
+  );
+});
+
+test("ObserverPort.onStep('retry', detail) sets record.stepDetail and record.retrying:true", async () => {
+  const queue = new JobQueue();
+  let currentObserver: { onStep(step: string, detail?: string): void } | undefined;
+  const retryingPort: RunPipelinePort = {
+    run: async (input) => {
+      currentObserver?.onStep("retry", "static-fix round 1/2");
+      assert.equal(getHistory().runs.getRecord(id)?.retrying, true);
+      assert.equal(getHistory().runs.getRecord(id)?.stepDetail, "static-fix round 1/2");
+      return {
+        runId: input.runId,
+        app: input.app,
+        sha: input.sha.value,
+        mode: input.mode,
+        target: input.target,
+        verdict: "pass",
+        errorClass: null,
+        gateSignals: { static: true, coverageRatio: null, reviewerCorrections: [], flaky: false, retries: 1 },
+        at: new Date().toISOString(),
+      };
+    },
+  };
+  const id = enqueueTrackedRun(
+    queue,
+    { app: "runner-observer-retry", sha: "abc1234", target: "e2e", mode: "diff", source: "manual" },
+    {
+      loadApp: cfg,
+      engineFactory: (_appConfig, _namespace, _run, observer) => {
+        currentObserver = observer as { onStep(step: string, detail?: string): void };
+        return retryingPort;
+      },
+    },
+  );
+  await queue.drain();
+  /* The queue callback's own happy-path finalize always writes retrying:false — this proves the
+     mid-run retrying:true was genuinely observed above (asserted synchronously inside run()),
+     not that it survives to the terminal record.
+   */
+  assert.equal(getHistory().runs.getRecord(id)?.retrying, false);
+});
+
+/* buildRunObserver's onStep/onEvent wrap updateRecord/runEvents.publish in try/catch — a
+   transient write failure (e.g. a flaky event-bus subscriber) must never propagate up through
+   ObserverPort and abort an otherwise-healthy run. Before this fix, a throwing onStep call would
+   have escaped RunQaUseCase's `this.deps.observer?.onStep(...)` call site and converted a genuine
+   "pass" into an unrelated crash — the SAME class of bug AGENTS.md's own "a bad event must never
+   break..." pattern (platform/composition/index.ts) already guards against elsewhere in this codebase.
+   Scoped precisely to buildRunObserver's own onStep/onEvent (not every runEvents.publish
+   call site in the runner, several of which are outside this fix's scope): the throwing stub only
+   fails on "step.changed" events, which are published EXCLUSIVELY from inside
+   buildRunObserver.onStep — every other event type in this run (run.started, etc.) still
+   publishes normally, isolating the assertion to the observer's own fault boundary.
+ */
+test("a port that drives ObserverPort.onStep, where runEvents.publish throws on step.changed, still finalizes the run's own verdict (non-fatal, isolated)", async () => {
+  const queue = new JobQueue();
+  let currentObserver: { onStep(step: string, detail?: string): void } | undefined;
+  const observingPort: RunPipelinePort = {
+    run: async (input) => {
+      /* Drive onStep through several phases — every call must swallow the publish throw below
+         without ever propagating into this run() call (which would otherwise reject the port's
+         own promise and convert this "pass" into an infra-error).
+       */
+      for (const step of ["gate", "generate", "validate", "execute"] as const) {
+        currentObserver?.onStep(step);
+      }
+      return {
+        runId: input.runId,
+        app: input.app,
+        sha: input.sha.value,
+        mode: input.mode,
+        target: input.target,
+        verdict: "pass",
+        errorClass: null,
+        gateSignals: { static: true, coverageRatio: null, reviewerCorrections: [], flaky: false, retries: 0 },
+        at: new Date().toISOString(),
+      };
+    },
+  };
+  const realRunEvents = createRunEventStore({ now: () => 1 });
+  const throwingOnStepChanged = {
+    ...realRunEvents,
+    publish(runId: string, body: Parameters<typeof realRunEvents.publish>[1]) {
+      if (body.type === "step.changed") throw new Error("simulated event-bus failure on step.changed");
+      return realRunEvents.publish(runId, body);
+    },
+  };
+  const id = enqueueTrackedRun(
+    queue,
+    { app: "runner-observer-fault", sha: "abc1234", target: "e2e", mode: "diff", source: "manual" },
+    {
+      loadApp: cfg,
+      runEvents: throwingOnStepChanged,
+      engineFactory: (_appConfig, _namespace, _run, observer) => {
+        currentObserver = observer as { onStep(step: string, detail?: string): void };
+        return observingPort;
+      },
+    },
+  );
+  await queue.drain();
+  const record = getHistory().runs.getRecord(id);
+  assert.equal(record?.status, "done", "a throwing observer must not prevent the run from finalizing");
+  assert.equal(record?.verdict, "pass", "a throwing observer must not change the run's own verdict");
+});
+
+test("a crashing rewritten port finalizes the record as infra-error (no zombie)", async () => {
+  const queue = new JobQueue();
+  const crashingPort: RunPipelinePort = { run: async () => { throw new Error("engine boom"); } };
+  const id = enqueueTrackedRun(
+    queue,
+    { app: "runner-flag-crash", sha: "abc1234", target: "e2e", mode: "diff", source: "manual" },
+    { loadApp: cfg, engineFactory: () => crashingPort },
+  );
+  await queue.drain();
+  const r = getHistory().runs.getRecord(id)!;
+  assert.equal(r.status, "done");
+  assert.equal(r.verdict, "infra-error");
+  assert.match(r.note ?? "", /boom/);
+});
+
+/* cancelTrackedRun must abort the in-flight port.run via AbortSignal so a stop does not leave
+   the record running. The port's late resolution (after the record is already finalized as
+   cancelled) must NEVER overwrite it.
+ */
+
+test("cancelTrackedRun aborts the port's in-flight run.run() AND the record is not overwritten by the port's late resolution", async () => {
+  const queue = new JobQueue();
+  let observedAborted = false;
+  let resolveLate: (() => void) | undefined;
+  /* A port whose run() observes the signal (proving it was actually threaded in) and stays
+     pending until the test explicitly resolves it late — standing in for an engine
+     that keeps running headless after cancellation.
+   */
+  const cancellablePort: RunPipelinePort = {
+    run: async (input, signal) => {
+      await new Promise<void>((resolve) => {
+        if (signal?.aborted) { observedAborted = true; return resolve(); }
+        signal?.addEventListener("abort", () => { observedAborted = true; resolve(); }, { once: true });
+      });
+      /* Simulate the late resolution: the port's own promise only settles AFTER this point,
+         well after cancelTrackedRun has already finalized the record.
+       */
+      await new Promise<void>((resolve) => { resolveLate = resolve; });
+      return {
+        runId: input.runId,
+        app: input.app,
+        sha: input.sha.value,
+        mode: input.mode,
+        target: input.target,
+        verdict: "pass",
+        errorClass: null,
+        gateSignals: { static: true, coverageRatio: null, reviewerCorrections: [], flaky: false, retries: 0 },
+        at: new Date().toISOString(),
+      };
+    },
+  };
+  const id = enqueueTrackedRun(
+    queue,
+    { app: "runner-rewritten-cancel", sha: "abc1234", target: "e2e", mode: "diff", source: "manual" },
+    { loadApp: cfg, engineFactory: () => cancellablePort },
+  );
+  await new Promise((r) => setImmediate(r)); /* let the job claim the queue controller */
+  assert.equal(cancelTrackedRun(queue, id), true, "a live rewritten run must be cancellable via the queue signal");
+  await new Promise((r) => setImmediate(r));
+  assert.equal(observedAborted, true, "the port's run() must observe the queue's AbortSignal — the gap this closes");
+  const cancelledRecord = getHistory().runs.getRecord(id)!;
+  assert.equal(cancelledRecord.status, "done");
+  assert.equal(cancelledRecord.verdict, "infra-error", "matches cancelTrackedRun's own aborted-terminal mapping");
+  /* Now let the port's stale promise resolve LATE (as if it kept running headless) — this must
+     NEVER overwrite the already-finalized cancelled record with a stale "pass" verdict.
+   */
+  resolveLate?.();
+  await queue.drain();
+  const finalRecord = getHistory().runs.getRecord(id)!;
+  assert.equal(finalRecord.status, "done");
+  assert.equal(finalRecord.verdict, "infra-error", "a late resolution from a cancelled run must NOT overwrite the finalized cancelled record");
+});
+
+test("cancelTrackedRun + an UNRELATED late crash: the catch branch must NOT overwrite the finalized cancelled record", async () => {
+  const queue = new JobQueue();
+  let rejectLate: ((e: Error) => void) | undefined;
+  /* A port that observes the cancel, then — in the async gap after cancelTrackedRun has
+     already finalized the record — its own work rejects with an UNRELATED (non-cancel) error,
+     routing to the queue callback's catch branch. Without the catch-branch guard, that catch would
+     overwrite the accurate "cancelled" record with a crash note.
+   */
+  const crashingPort: RunPipelinePort = {
+    run: async (_input, signal) => {
+      await new Promise<void>((resolve) => {
+        if (signal?.aborted) return resolve();
+        signal?.addEventListener("abort", () => resolve(), { once: true });
+      });
+      await new Promise<never>((_resolve, reject) => { rejectLate = reject; });
+      throw new Error("unreachable — rejectLate drives the crash");
+    },
+  };
+  const id = enqueueTrackedRun(
+    queue,
+    { app: "runner-catch-cancel-race", sha: "abc1234", target: "e2e", mode: "diff", source: "manual" },
+    { loadApp: cfg, engineFactory: () => crashingPort },
+  );
+  await new Promise((r) => setImmediate(r)); /* let the job claim the queue controller */
+  assert.equal(cancelTrackedRun(queue, id), true);
+  await new Promise((r) => setImmediate(r)); /* let the port's abort listener fire */
+  const cancelledNote = getHistory().runs.getRecord(id)!.note;
+  /* Now the port's own work rejects LATE with an unrelated error → the catch branch runs. */
+  rejectLate?.(new Error("OpenCode 500 — unrelated crash racing the cancel"));
+  await queue.drain();
+  const finalRecord = getHistory().runs.getRecord(id)!;
+  assert.equal(finalRecord.verdict, "infra-error");
+  assert.equal(finalRecord.note, cancelledNote, "the catch branch must NOT overwrite the cancelled record's note with a crash note");
+});
+
+test("the run does NOT execute synchronously — it is deferred to the queue (no bypass)", async () => {
+  const queue = new JobQueue();
+  const { port } = fakePort({ verdict: "skipped" });
+  const id = enqueueTrackedRun(
+    queue,
+    { app: "runner-skip", sha: "abc1234", target: "e2e", mode: "diff", source: "manual" },
+    { loadApp: cfg, engineFactory: () => port },
+  );
+  /* Right after enqueue, before draining: the job has not run yet. */
+  assert.equal(getHistory().runs.getRecord(id)?.status, "enqueued");
+  await queue.drain();
+  const r = getHistory().runs.getRecord(id)!;
+  assert.equal(r.status, "done");
+  assert.equal(r.verdict, "skipped");
+});
+
+test("a green run finalizes the record with verdict + case counts", async () => {
+  const queue = new JobQueue();
+  const { port } = fakePort({
+    verdict: "pass",
+    cases: [
+      { name: "t1", status: "pass" },
+      { name: "t2", status: "pass" },
+    ],
+  });
+  const id = enqueueTrackedRun(
+    queue,
+    { app: "runner-pass", sha: "def5678", target: "e2e", mode: "diff", source: "webhook" },
+    { loadApp: cfg, engineFactory: () => port },
+  );
+  await queue.drain();
+  const r = getHistory().runs.getRecord(id)!;
+  assert.equal(r.verdict, "pass");
+  assert.equal(r.passed, 2);
+  assert.equal(r.failed, 0);
+  assert.equal(r.cases.length, 2);
+});
+
+test("a green run publishes live RunEvents for steps and the final verdict", async () => {
+  const queue = new JobQueue();
+  const runEvents = createRunEventStore({ now: () => 123 });
+  const port: RunPipelinePort = {
+    run: async (input, _signal) => {
+      return {
+        runId: input.runId, app: input.app, sha: input.sha.value, mode: input.mode, target: input.target,
+        verdict: "pass", errorClass: null,
+        gateSignals: { static: true, coverageRatio: null, reviewerCorrections: [], flaky: false, retries: 0 },
+at: new Date().toISOString(),
+        cases: [{ name: "checkout", status: "pass" }],
+      };
+    },
+  };
+  const id = enqueueTrackedRun(
+    queue,
+    { app: "runner-events", sha: "def5678", target: "e2e", mode: "diff", source: "webhook" },
+    { loadApp: cfg, runEvents, engineFactory: () => port },
+  );
+
+  await queue.drain();
+
+  const bodies = runEvents.replay(id).map((event) => event.body);
+  assert.deepEqual(bodies[0], { type: "run.started", app: "runner-events", sha: "def5678", mode: "diff", target: "e2e" });
+  assert.ok(bodies.some((body) => body.type === "test.passed" && body.name === "checkout"));
+  const last = bodies.at(-1) as { type: string; verdict: string; passed: number; failed: number };
+  assert.equal(last.type, "run.verdict");
+  assert.equal(last.verdict, "pass");
+  assert.equal(last.passed, 1);
+  assert.equal(last.failed, 0);
+});
+
+test("a crashing rewritten port finalizes the record as infra-error with the message (no zombie)", async () => {
+  const queue = new JobQueue();
+  const crashingPort: RunPipelinePort = { run: async () => { throw new Error("boom"); } };
+  const id = enqueueTrackedRun(
+    queue,
+    { app: "runner-crash", sha: "999aaaa", target: "e2e", mode: "diff", source: "manual" },
+    { loadApp: cfg, engineFactory: () => crashingPort },
+  );
+  await queue.drain();
+  const r = getHistory().runs.getRecord(id)!;
+  assert.equal(r.status, "done");
+  assert.equal(r.verdict, "infra-error");
+  assert.match(r.note ?? "", /boom/);
+});
+
+test("a continuation records the parent run", async () => {
+  const queue = new JobQueue();
+  const { port } = fakePort({ verdict: "pass" });
+  const id = enqueueTrackedRun(
+    queue,
+    {
+      app: "runner-cont",
+      sha: "ccc1234", target: "e2e",
+      mode: "diff",
+      source: "manual",
+      parentRunId: "parent-1",
+      fixCases: [{ name: "checkout", status: "fail" }],
+    },
+    { loadApp: cfg, engineFactory: () => port },
+  );
+  await queue.drain();
+  const r = getHistory().runs.getRecord(id)!;
+  assert.equal(r.parentRunId, "parent-1");
+  assert.equal(r.verdict, "pass");
+});
+
+test("a bad app name is finalized (not a zombie) — loadApp throwing is caught", async () => {
+  const queue = new JobQueue();
+  const { port } = fakePort({ verdict: "pass" });
+  const id = enqueueTrackedRun(
+    queue,
+    { app: "runner-noapp", sha: "111bbbb", target: "e2e", mode: "diff", source: "manual" },
+    { loadApp: () => { throw new Error("config/apps/x.yaml not found"); }, engineFactory: () => port },
+  );
+  await queue.drain();
+  const r = getHistory().runs.getRecord(id)!;
+  assert.equal(r.status, "done");
+  assert.equal(r.verdict, "infra-error");
+});
+
+/* ── cancelTrackedRun ──────────────────────────────────────────────────────────
+   The operator's stop control. Two close-together but distinct failures used to make a run
+   "impossible to stop" from the dashboard: a stale "running" record the live queue no longer
+   held would answer 409 and never clear. These pin the funnel's cancel behavior.
+ */
+
+test("cancelTrackedRun aborts a LIVE run and finalizes its record (returns true)", async () => {
+  const queue = new JobQueue();
+  let aborted = false;
+  const rec = getHistory().runs.createRecord({ app: "cancel-live", sha: "aaa1111", target: "e2e", mode: "diff" });
+  getHistory().runs.updateRecord(rec.id, { status: "running" });
+  /* A job that blocks until its signal aborts — stands in for an in-flight agent turn. */
+  queue.enqueue(async (signal) => {
+    await new Promise<void>((resolve) => {
+      if (signal.aborted) return resolve();
+      signal.addEventListener("abort", () => { aborted = true; resolve(); }, { once: true });
+    });
+  }, rec.id);
+  await new Promise((r) => setImmediate(r)); /* let the job claim the queue controller */
+  assert.equal(cancelTrackedRun(queue, rec.id), true);
+  await queue.drain();
+  assert.equal(aborted, true, "the live turn must be interrupted via the signal");
+  assert.equal(getHistory().runs.getRecord(rec.id)?.status, "done");
+});
+
+test("cancelTrackedRun finalizes a STALE running record the queue no longer holds (the stuck-at-0% bug)", () => {
+  const queue = new JobQueue(); /* empty: nothing is actually executing */
+  const rec = getHistory().runs.createRecord({ app: "cancel-zombie", sha: "bbb2222", target: "e2e", mode: "diff" });
+  getHistory().runs.updateRecord(rec.id, { status: "running" }); /* a zombie left "running" by a restart/crash race */
+  /* Not the live queue job, so nothing is aborted (false) — but the stuck record MUST be
+     finalized so the operator's stop actually clears it (it used to stay "running" → 409).
+   */
+  assert.equal(cancelTrackedRun(queue, rec.id), false);
+  const r = getHistory().runs.getRecord(rec.id)!;
+  assert.equal(r.status, "done");
+  assert.equal(r.verdict, "infra-error");
+});
+
+test("cancelTrackedRun dequeues an enqueued run so it never executes", () => {
+  const queue = new JobQueue();
+  const rec = getHistory().runs.createRecord({ app: "cancel-enq", sha: "ccc3333", target: "e2e", mode: "diff" });
+  /* status stays "enqueued" (createRecord default) — never started */
+  assert.equal(cancelTrackedRun(queue, rec.id), false);
+  assert.equal(getHistory().runs.getRecord(rec.id)?.status, "done");
+});
+
+test("cancelTrackedRun is a no-op on an already-terminal record", () => {
+  const queue = new JobQueue();
+  const rec = getHistory().runs.createRecord({ app: "cancel-done", sha: "ddd4444", target: "e2e", mode: "diff" });
+  getHistory().runs.updateRecord(rec.id, { status: "done", verdict: "pass" });
+  assert.equal(cancelTrackedRun(queue, rec.id), false);
+  assert.equal(getHistory().runs.getRecord(rec.id)?.verdict, "pass"); /* untouched, not overwritten to infra-error */
+});
+
+/* A cancelled run must END its live event stream: without a terminal event, a watching console
+   only learns the run is over by polling, and the stream of a run cancelled while enqueued has
+   nothing to replay at all. */
+for (const [branch, label] of [["live", "live run"], ["enqueued", "run still enqueued"], ["stale running", "stale running record"]] as const) {
+  test(`cancelling a ${label} ends its event stream with exactly one infra-error verdict`, async () => {
+    const queue = new JobQueue();
+    const runEvents = createRunEventStore();
+    const rec = getHistory().runs.createRecord({ app: `cancel-event-${branch.replace(" ", "-")}`, sha: "fff6666", target: "e2e", mode: "diff" });
+    if (branch !== "enqueued") getHistory().runs.updateRecord(rec.id, { status: "running" });
+    if (branch === "live") {
+      queue.enqueue(async (signal) => {
+        await new Promise<void>((resolve) => signal.addEventListener("abort", () => resolve(), { once: true }));
+      }, rec.id);
+      await new Promise((r) => setImmediate(r));
+    }
+    const seen: string[] = [];
+    runEvents.subscribe(rec.id, (e) => { if (e.body.type === "run.verdict") seen.push(e.body.verdict); });
+
+    cancelTrackedRun(queue, rec.id, { runEvents });
+    await queue.drain();
+
+    assert.deepEqual(seen, ["infra-error"], "a watcher already on the stream receives the terminal verdict");
+    const verdicts = runEvents.replay(rec.id).filter((e) => e.body.type === "run.verdict");
+    assert.equal(verdicts.length, 1, "a client connecting later replays exactly one verdict");
+  });
+}
+
+test("cancelling an already-finished run publishes nothing", () => {
+  const runEvents = createRunEventStore();
+  const rec = getHistory().runs.createRecord({ app: "cancel-event-done", sha: "fff7777", target: "e2e", mode: "diff" });
+  getHistory().runs.updateRecord(rec.id, { status: "done", verdict: "pass" });
+  cancelTrackedRun(new JobQueue(), rec.id, { runEvents });
+  assert.deepEqual(runEvents.replay(rec.id), []);
+});
+
+/* How a run that never reaches its own verdict ends, whichever way it was left: the record's verdict, note and cancelled fact, and the stream's last event. */
+for (const [branch, note, cancelled] of [
+  ["live", "cancelled by operator", true],
+  ["enqueued", "cancelled by operator", true],
+  ["stale running", "cancelled by operator (run was no longer active)", true],
+] as const) {
+  test(`a cancelled ${branch} run ends as infra-error with the note "${note}" and the cancelled fact`, async () => {
+    const queue = new JobQueue();
+    const runEvents = createRunEventStore();
+    const rec = getHistory().runs.createRecord({ app: `cancel-end-${branch.replace(" ", "-")}`, sha: "abc1234", target: "e2e", mode: "diff" });
+    if (branch !== "enqueued") getHistory().runs.updateRecord(rec.id, { status: "running" });
+    if (branch === "live") {
+      queue.enqueue(async (signal) => {
+        await new Promise<void>((resolve) => signal.addEventListener("abort", () => resolve(), { once: true }));
+      }, rec.id);
+      await new Promise((r) => setImmediate(r));
+    }
+    assert.equal(cancelTrackedRun(queue, rec.id, { runEvents }), branch === "live");
+    await queue.drain();
+    const record = getHistory().runs.getRecord(rec.id)!;
+    assert.deepEqual({ status: record.status, step: record.step, verdict: record.verdict, note: record.note }, { status: "done", step: "done", verdict: "infra-error", note });
+    assert.equal(getHistory().runs.getRunFacts(rec.id)?.cancelled, cancelled);
+    const last = runEvents.replay(rec.id).map((e) => e.body).filter((b) => b.type === "run.verdict");
+    assert.deepEqual(last, [{ type: "run.verdict", verdict: "infra-error", engineStatus: engineStatus("infra-error"), outcome: note }]);
+  });
+}
+
+test("cancelTrackedRun returns false for an unknown run id", () => {
+  assert.equal(cancelTrackedRun(new JobQueue(), "does-not-exist"), false);
+});
+
+/* runViaEngine maps outcome.cases -> history.addCase + outcome.logs -> the run record.
+   Hardcoding cases:[]/logs:"" would show passed=0/failed=0 with an empty case list regardless of
+   what actually ran.
+ */
+
+test("outcome.cases populate the run record's cases + passed/failed counts (was: permanent 0/0)", async () => {
+  const queue = new JobQueue();
+  const { port } = fakePort({
+    verdict: "pass",
+    cases: [
+      { name: "login flow", status: "pass" },
+      { name: "checkout flow", status: "fail", detail: "timeout" },
+    ],
+  });
+  const id = enqueueTrackedRun(
+    queue,
+    { app: "runner-w3f3-cases", sha: "def5678", target: "e2e", mode: "diff", source: "manual" },
+    { loadApp: cfg, engineFactory: () => port },
+  );
+  await queue.drain();
+  const r = getHistory().runs.getRecord(id)!;
+  assert.equal(r.status, "done");
+  assert.equal(r.cases.length, 2, "the run record's cases must reflect the REAL outcome.cases, not the previous permanent []");
+  assert.equal(r.passed, 1, "passed must be recomputed from the real cases (history.addCase's own single-source-of-truth contract)");
+  assert.equal(r.failed, 1);
+});
+
+test("an absent outcome.cases (early-exit terminal) leaves the run record's cases empty, never throws", async () => {
+  const queue = new JobQueue();
+  const { port } = fakePort({ verdict: "invalid", cases: undefined });
+  const id = enqueueTrackedRun(
+    queue,
+    { app: "runner-w3f3-no-cases", sha: "def5678", target: "e2e", mode: "diff", source: "manual" },
+    { loadApp: cfg, engineFactory: () => port },
+  );
+  await queue.drain();
+  const r = getHistory().runs.getRecord(id)!;
+  assert.equal(r.status, "done");
+  assert.equal(r.verdict, "invalid");
+  assert.deepEqual(r.cases, []);
+});
+
+/* Per-case RunEvents (test.passed/test.failed/test.flaky) + reviewer.verdict are published from
+   the already-returned RunOutcome. True per-case LIVE events during execution are a separate
+   ExecutionPort widening, not this mapping.
+ */
+
+test("outcome.cases publish test.passed/test.failed RunEvents", async () => {
+  const queue = new JobQueue();
+  const runEvents = createRunEventStore();
+  const { port } = fakePort({
+    verdict: "pass",
+    cases: [
+      { name: "login flow", status: "pass", durationMs: 500 },
+      { name: "checkout flow", status: "fail", detail: "timeout" },
+    ],
+  });
+  const id = enqueueTrackedRun(
+    queue,
+    { app: "runner-w3f4-case-events", sha: "def5678", target: "e2e", mode: "diff", source: "manual" },
+    { loadApp: cfg, engineFactory: () => port, runEvents },
+  );
+  await queue.drain();
+  const events = runEvents.replay(id).map((e) => e.body);
+  const passed = events.find((e) => e.type === "test.passed");
+  const failed = events.find((e) => e.type === "test.failed");
+  assert.ok(passed, "a test.passed event must be published for the passing case");
+  assert.ok(failed, "a test.failed event must be published for the failing case");
+  assert.equal((passed as { name: string }).name, "login flow");
+  assert.equal((failed as { name: string }).name, "checkout flow");
+});
+
+test("a flaky case publishes a test.flaky RunEvent", async () => {
+  const queue = new JobQueue();
+  const runEvents = createRunEventStore();
+  const { port } = fakePort({
+    verdict: "flaky",
+    cases: [{ name: "flaky checkout", status: "flaky" }],
+  });
+  const id = enqueueTrackedRun(
+    queue,
+    { app: "runner-w3f4-flaky-event", sha: "def5678", target: "e2e", mode: "diff", source: "manual" },
+    { loadApp: cfg, engineFactory: () => port, runEvents },
+  );
+  await queue.drain();
+  const events = runEvents.replay(id).map((e) => e.body);
+  const flaky = events.find((e) => e.type === "test.flaky");
+  assert.ok(flaky, "a test.flaky event must be published for the flaky case");
+});
+
+test("outcome.gateSignals.reviewerApproved publishes a reviewer.verdict RunEvent", async () => {
+  const queue = new JobQueue();
+  const runEvents = createRunEventStore();
+  const { port } = fakePort({
+    verdict: "pass",
+    gateSignals: { static: true, coverageRatio: null, reviewerCorrections: ["nit: naming"], reviewerApproved: true, flaky: false, retries: 0 },
+  });
+  const id = enqueueTrackedRun(
+    queue,
+    { app: "runner-w3f4-reviewer-event", sha: "def5678", target: "e2e", mode: "diff", source: "manual" },
+    { loadApp: cfg, engineFactory: () => port, runEvents },
+  );
+  await queue.drain();
+  const events = runEvents.replay(id).map((e) => e.body);
+  const verdict = events.find((e) => e.type === "reviewer.verdict");
+  assert.ok(verdict, "a reviewer.verdict event must be published when the outcome carries reviewerApproved");
+  assert.equal((verdict as { approved: boolean }).approved, true);
+  assert.deepEqual((verdict as { reasons: string[] }).reasons, ["nit: naming"]);
+});
+
+/* Playwright fires onTestEnd PER ATTEMPT (config/e2e/playwright.config.ts retries:2): a flaky test
+   live-announces test.failed then test.passed within ONE execute(), but the final report correctly
+   classifies it "flaky" (src/qa/playwright-report.ts). A naive Set<string> dedup ("was this name
+   announced live at all?") permanently suppressed the terminal event once ANY live event fired for
+   that name — silently dropping the correcting test.flaky the record store itself carries. These
+   tests drive the SAME seam the engineFactory-based tests above use: the port receives the live
+   ObserverPort as its 4th engineFactory argument (so it can fire onEvent mid-run, standing in for
+   RunQaUseCase's own ExecutionOpts.onCase streaming) and returns outcome.cases for the post-hoc
+   recordCase loop — exactly how runViaEngine wires the two paths together.
+ */
+
+test("liveAnnounced dedup — a case announced live with a MATCHING final status publishes its terminal event exactly once (no re-publish)", async () => {
+  const queue = new JobQueue();
+  const runEvents = createRunEventStore();
+  let observer: { onEvent(body: { type: string; name?: string; durationMs?: number; attempts?: number }): void } | undefined;
+  const port: RunPipelinePort = {
+    run: async (input, _signal) => {
+      /* Live-announce a clean pass for "login flow" BEFORE the run resolves — mirrors
+         ExecutionOpts.onCase streaming test.passed through the use-case's own onEvent.
+       */
+      observer?.onEvent({ type: "test.passed", name: "login flow", durationMs: 500 });
+      return {
+        runId: input.runId, app: input.app, sha: input.sha.value, mode: input.mode, target: input.target,
+        verdict: "pass", errorClass: null,
+        gateSignals: { static: true, coverageRatio: null, reviewerCorrections: [], flaky: false, retries: 0 },
+at: new Date().toISOString(),
+        cases: [{ name: "login flow", status: "pass", durationMs: 500 }],
+      };
+    },
+  };
+  const id = enqueueTrackedRun(
+    queue,
+    { app: "runner-dedup-match", sha: "def5678", target: "e2e", mode: "diff", source: "manual" },
+    {
+      loadApp: cfg,
+      runEvents,
+      engineFactory: (_appConfig, _namespace, _run, obs) => {
+        observer = obs as { onEvent(body: { type: string; name?: string; durationMs?: number; attempts?: number }): void };
+        return port;
+      },
+    },
+  );
+  await queue.drain();
+  const r = getHistory().runs.getRecord(id)!;
+  assert.equal(r.status, "done");
+  /* The record store's own write (addCase) still happened — the case is present in the record. */
+  assert.equal(r.cases.length, 1);
+  assert.equal(r.cases[0]?.status, "pass");
+  const passedEvents = runEvents.replay(id).map((e) => e.body).filter((b) => b.type === "test.passed");
+  assert.equal(passedEvents.length, 1, "a matching final status must publish its terminal event exactly once (live announcement, no post-hoc re-publish)");
+});
+
+test("liveAnnounced dedup — the flaky divergence: live announces failed then passed, final status flaky → publishes the correcting test.flaky exactly once", async () => {
+  const queue = new JobQueue();
+  const runEvents = createRunEventStore();
+  let observer: { onEvent(body: { type: string; name?: string; durationMs?: number; attempts?: number }): void } | undefined;
+  const port: RunPipelinePort = {
+    run: async (input, _signal) => {
+      /* Playwright retries:2 — attempt 1 fails live, attempt 2 (retry) passes live. The final
+         report classifies the case as "flaky" (src/qa/playwright-report.ts), which diverges from
+         the LAST live-announced status ("passed").
+       */
+      observer?.onEvent({ type: "test.failed", name: "checkout flow" });
+      observer?.onEvent({ type: "test.passed", name: "checkout flow", durationMs: 300 });
+      return {
+        runId: input.runId, app: input.app, sha: input.sha.value, mode: input.mode, target: input.target,
+        verdict: "flaky", errorClass: null,
+        gateSignals: { static: true, coverageRatio: null, reviewerCorrections: [], flaky: true, retries: 1 },
+at: new Date().toISOString(),
+        cases: [{ name: "checkout flow", status: "flaky" }],
+      };
+    },
+  };
+  const id = enqueueTrackedRun(
+    queue,
+    { app: "runner-dedup-flaky", sha: "def5678", target: "e2e", mode: "diff", source: "manual" },
+    {
+      loadApp: cfg,
+      runEvents,
+      engineFactory: (_appConfig, _namespace, _run, obs) => {
+        observer = obs as { onEvent(body: { type: string; name?: string; durationMs?: number; attempts?: number }): void };
+        return port;
+      },
+    },
+  );
+  await queue.drain();
+  const r = getHistory().runs.getRecord(id)!;
+  assert.equal(r.status, "done");
+  assert.equal(r.verdict, "flaky");
+  assert.equal(r.cases.length, 1);
+  assert.equal(r.cases[0]?.status, "flaky", "the record store's own truth is flaky");
+  const bodies = runEvents.replay(id).map((e) => e.body);
+  const flakyEvents = bodies.filter((b) => b.type === "test.flaky");
+  assert.equal(flakyEvents.length, 1, "the divergence (live: passed, final: flaky) must publish exactly one correcting test.flaky event");
+  /* The live-announced test.failed/test.passed from onEvent are still present (they are real
+     per-attempt announcements) — the correction is additive, not a rewrite of history.
+   */
+  assert.ok(bodies.some((b) => b.type === "test.failed" && (b as { name: string }).name === "checkout flow"));
+  assert.ok(bodies.some((b) => b.type === "test.passed" && (b as { name: string }).name === "checkout flow"));
+});
+
+test("liveAnnounced dedup — a case NEVER announced live (e.g. a strategy without live callbacks) always publishes post-hoc", async () => {
+  const queue = new JobQueue();
+  const runEvents = createRunEventStore();
+  /* No onEvent calls at all — standing in for a strategy without live callbacks. */
+  const { port } = fakePort({
+    verdict: "pass",
+    cases: [{ name: "unit: parses config", status: "pass" }],
+  });
+  const id = enqueueTrackedRun(
+    queue,
+    { app: "runner-dedup-never-announced", sha: "def5678", target: "e2e", mode: "diff", source: "manual" },
+    { loadApp: cfg, runEvents, engineFactory: () => port },
+  );
+  await queue.drain();
+  const bodies = runEvents.replay(id).map((e) => e.body);
+  const passedEvents = bodies.filter((b) => b.type === "test.passed" && (b as { name: string }).name === "unit: parses config");
+  assert.equal(passedEvents.length, 1, "a never-announced case must publish its terminal event post-hoc (the safety net for a strategy without live callbacks)");
+});
+
+test("liveAnnounced dedup — addCase (the record-store write) always runs regardless of live announcement or dedup outcome", async () => {
+  const queue = new JobQueue();
+  const runEvents = createRunEventStore();
+  let observer: { onEvent(body: { type: string; name?: string; durationMs?: number; attempts?: number }): void } | undefined;
+  const port: RunPipelinePort = {
+    run: async (input, _signal) => {
+      observer?.onEvent({ type: "test.passed", name: "case A", durationMs: 100 }); /* live-announced, matching final */
+      /* "case B" is never live-announced at all. */
+      return {
+        runId: input.runId, app: input.app, sha: input.sha.value, mode: input.mode, target: input.target,
+        verdict: "pass", errorClass: null,
+        gateSignals: { static: true, coverageRatio: null, reviewerCorrections: [], flaky: false, retries: 0 },
+at: new Date().toISOString(),
+        cases: [
+          { name: "case A", status: "pass" },
+          { name: "case B", status: "pass" },
+        ],
+      };
+    },
+  };
+  const id = enqueueTrackedRun(
+    queue,
+    { app: "runner-dedup-addcase-always", sha: "def5678", target: "e2e", mode: "diff", source: "manual" },
+    {
+      loadApp: cfg,
+      runEvents,
+      engineFactory: (_appConfig, _namespace, _run, obs) => {
+        observer = obs as { onEvent(body: { type: string; name?: string; durationMs?: number; attempts?: number }): void };
+        return port;
+      },
+    },
+  );
+  await queue.drain();
+  const r = getHistory().runs.getRecord(id)!;
+  assert.equal(r.cases.length, 2, "addCase must write BOTH cases to the record store regardless of live-announcement/dedup status");
+  assert.equal(r.passed, 2);
+});
+
+test("no reviewer.verdict event when outcome.gateSignals.reviewerApproved is absent (review never ran)", async () => {
+  const queue = new JobQueue();
+  const runEvents = createRunEventStore();
+  const { port } = fakePort({ verdict: "invalid" }); /* no reviewerApproved on the default outcome */
+  const id = enqueueTrackedRun(
+    queue,
+    { app: "runner-w3f4-no-reviewer-event", sha: "def5678", target: "e2e", mode: "diff", source: "manual" },
+    { loadApp: cfg, engineFactory: () => port, runEvents },
+  );
+  await queue.drain();
+  const events = runEvents.replay(id).map((e) => e.body);
+  assert.equal(events.some((e) => e.type === "reviewer.verdict"), false, "no reviewer.verdict must be fabricated when the use-case never computed one");
+});
+
+/* ── Mirror-race guard: bounded poll loop deferring to an in-flight onboarding job ──────────────
+   caller (or test) that omits it gets () => false, so the guard is a byte-identical no-op on the
+   idle path. onboardingPollMs/onboardingWaitMaxMs/sleep are also injectable so tests never wait
+   out real timers.
+ */
+
+/* The post-confirm indexing phase extends the mirror-race guard's busy window — the defensive
+   breakout ceiling must be widened by the indexing budget or the breakout could fire mid-index.
+   Pins the SUMMED derivation so the indexing budget can never be silently dropped.
+ */
+test("ONBOARDING_WAIT_MAX_MS is the sum of the named per-phase ceilings, including the NEW indexing budget (40 min total)", () => {
+  assert.equal(ONBOARDING_MIRROR_CEILING_MS, 5 * 60 * 1000);
+  assert.equal(ONBOARDING_JOB_CEILING_MS, 20 * 60 * 1000);
+  assert.equal(ONBOARDING_INDEXING_CEILING_MS, 10 * 60 * 1000);
+  assert.equal(ONBOARDING_WAIT_MARGIN_MS, 5 * 60 * 1000);
+  assert.equal(
+    ONBOARDING_WAIT_MAX_MS,
+    ONBOARDING_MIRROR_CEILING_MS + ONBOARDING_JOB_CEILING_MS + ONBOARDING_INDEXING_CEILING_MS + ONBOARDING_WAIT_MARGIN_MS,
+  );
+  assert.equal(ONBOARDING_WAIT_MAX_MS, 40 * 60 * 1000);
+});
+
+test("defer-while-active: mirror work (engineFactory) is deferred until isOnboardingActive clears, then the run completes normally", async () => {
+  const queue = new JobQueue();
+  const { port, calls } = fakePort({ verdict: "pass" });
+  let pollsRemaining = 3;
+  let sleepCalls = 0;
+  const id = enqueueTrackedRun(
+    queue,
+    { app: "runner-onboarding-defer", sha: "abc1234", target: "e2e", mode: "diff", source: "manual" },
+    {
+      loadApp: cfg,
+      engineFactory: () => port,
+      isOnboardingActive: () => {
+        if (pollsRemaining <= 0) return false;
+        pollsRemaining -= 1;
+        return true;
+      },
+      onboardingPollMs: 1,
+      onboardingWaitMaxMs: 10_000,
+      sleep: async () => { sleepCalls += 1; },
+    },
+  );
+  await queue.drain();
+  const r = getHistory().runs.getRecord(id)!;
+  assert.equal(r.status, "done");
+  assert.equal(r.verdict, "pass");
+  assert.equal(calls.length, 1, "engineFactory's port must be invoked exactly once, only after onboarding cleared");
+  assert.equal(sleepCalls, 3, "the loop must poll (sleep) once per true reading before onboarding clears");
+});
+
+test("breakout path: isOnboardingActive stuck true past onboardingWaitMaxMs — a single loud warning is logged and the run PROCEEDS anyway", async () => {
+  const queue = new JobQueue();
+  const { port, calls } = fakePort({ verdict: "pass" });
+  const originalWarn = console.warn;
+  const warnings: string[] = [];
+  console.warn = (...args: unknown[]) => { warnings.push(String(args[0])); };
+  try {
+    const id = enqueueTrackedRun(
+      queue,
+      { app: "runner-onboarding-breakout", sha: "abc1234", target: "e2e", mode: "diff", source: "manual" },
+      {
+        loadApp: cfg,
+        engineFactory: () => port,
+        isOnboardingActive: () => true,
+        onboardingPollMs: 1,
+        onboardingWaitMaxMs: 5, /* tiny test bound — real Date.now() trips it within a couple polls */
+        sleep: async () => { await new Promise((r) => setTimeout(r, 2)); },
+      },
+    );
+    await queue.drain();
+    const r = getHistory().runs.getRecord(id)!;
+    assert.equal(r.status, "done");
+    assert.equal(r.verdict, "pass", "the run must PROCEED — QA is the product, a wedged advisory flag never permanently starves the pipeline");
+    assert.equal(calls.length, 1, "engineFactory must still be called on breakout");
+    assert.equal(warnings.length, 1, "exactly one loud warning, not one per poll");
+    assert.match(warnings[0] ?? "", /onboarding/i);
+  } finally {
+    console.warn = originalWarn;
+  }
+});
+
+test("abort-during-wait: cancelling mid-poll resolves promptly (signal-aware sleep) and engineFactory is never called", async () => {
+  const queue = new JobQueue();
+  const { port, calls } = fakePort({ verdict: "pass" });
+  let sawSignal: AbortSignal | undefined;
+  const id = enqueueTrackedRun(
+    queue,
+    { app: "runner-onboarding-abort", sha: "abc1234", target: "e2e", mode: "diff", source: "manual" },
+    {
+      loadApp: cfg,
+      engineFactory: () => port,
+      isOnboardingActive: () => true, /* stuck — only the abort ends the wait */
+      onboardingPollMs: 100,
+      onboardingWaitMaxMs: 10_000,
+      sleep: async (_ms: number, opts?: { signal?: AbortSignal }) => {
+        sawSignal = opts?.signal;
+        /* Simulate a signal-aware sleep: resolve immediately once the signal aborts, otherwise
+           hang so the ONLY way this test completes is via the abort short-circuiting it.
+         */
+        await new Promise<void>((resolve) => {
+          if (opts?.signal?.aborted) return resolve();
+          opts?.signal?.addEventListener("abort", () => resolve(), { once: true });
+        });
+      },
+    },
+  );
+  await new Promise((r) => setImmediate(r)); /* let the job claim the queue controller and enter the poll loop */
+  assert.equal(cancelTrackedRun(queue, id), true, "a run waiting in the poll loop must still be cancellable");
+  await queue.drain();
+  assert.ok(sawSignal, "the poll loop's sleep must receive the queue's own AbortSignal");
+  assert.equal(calls.length, 0, "engineFactory must never be reached once the wait was aborted");
+  const r = getHistory().runs.getRecord(id)!;
+  assert.equal(r.status, "done");
+  assert.equal(r.verdict, "infra-error", "matches cancelTrackedRun's own aborted-terminal mapping");
+});
+
+test("idle path (isOnboardingActive omitted): behavior is byte-identical to before — zero sleep calls, engineFactory called exactly as today", async () => {
+  const queue = new JobQueue();
+  const { port, calls } = fakePort({ verdict: "pass" });
+  let sleepCalls = 0;
+  const id = enqueueTrackedRun(
+    queue,
+    { app: "runner-onboarding-idle", sha: "abc1234", target: "e2e", mode: "diff", source: "manual" },
+    {
+      loadApp: cfg,
+      engineFactory: () => port,
+      /* isOnboardingActive intentionally OMITTED — must default to () => false. */
+      sleep: async () => { sleepCalls += 1; },
+    },
+  );
+  await queue.drain();
+  const r = getHistory().runs.getRecord(id)!;
+  assert.equal(r.status, "done");
+  assert.equal(r.verdict, "pass");
+  assert.equal(calls.length, 1);
+  assert.equal(sleepCalls, 0, "the poll loop body must never execute when isOnboardingActive is not supplied (the honest idle-path proof)");
+});
+
+test("idle path with isOnboardingActive explicitly () => false: same zero-sleep proof", async () => {
+  const queue = new JobQueue();
+  const { port, calls } = fakePort({ verdict: "pass" });
+  let sleepCalls = 0;
+  const id = enqueueTrackedRun(
+    queue,
+    { app: "runner-onboarding-idle-explicit", sha: "abc1234", target: "e2e", mode: "diff", source: "manual" },
+    {
+      loadApp: cfg,
+      engineFactory: () => port,
+      isOnboardingActive: () => false,
+      sleep: async () => { sleepCalls += 1; },
+    },
+  );
+  await queue.drain();
+  const r = getHistory().runs.getRecord(id)!;
+  assert.equal(r.status, "done");
+  assert.equal(calls.length, 1);
+  assert.equal(sleepCalls, 0);
+});
+
+test("multi-run FIFO during onboarding: several runs enqueued while onboarding is active drain in arrival order once it clears, no reorder/drop", async () => {
+  const queue = new JobQueue();
+  const order: string[] = [];
+  let pollsRemaining = 2;
+  const isOnboardingActive = (): boolean => {
+    if (pollsRemaining <= 0) return false;
+    pollsRemaining -= 1;
+    return true;
+  };
+  const makePort = (name: string): RunPipelinePort => ({
+    async run(input) {
+      order.push(name);
+      return {
+        runId: input.runId,
+        app: input.app,
+        sha: input.sha.value,
+        mode: input.mode,
+        target: input.target,
+        verdict: "pass",
+        errorClass: null,
+        gateSignals: { static: true, coverageRatio: null, reviewerCorrections: [], flaky: false, retries: 0 },
+        at: new Date().toISOString(),
+      };
+    },
+  });
+  const deps = {
+    loadApp: cfg,
+    isOnboardingActive,
+    onboardingPollMs: 1,
+    onboardingWaitMaxMs: 10_000,
+    sleep: async () => {},
+  };
+  const idA = enqueueTrackedRun(queue, { app: "runner-fifo-a", sha: "abc1234", target: "e2e", mode: "diff", source: "manual" }, { ...deps, engineFactory: () => makePort("a") });
+  const idB = enqueueTrackedRun(queue, { app: "runner-fifo-b", sha: "abc1234", target: "e2e", mode: "diff", source: "manual" }, { ...deps, engineFactory: () => makePort("b") });
+  const idC = enqueueTrackedRun(queue, { app: "runner-fifo-c", sha: "abc1234", target: "e2e", mode: "diff", source: "manual" }, { ...deps, engineFactory: () => makePort("c") });
+  await queue.drain();
+  assert.deepEqual(order, ["a", "b", "c"], "runs enqueued during an onboarding window must drain in arrival (FIFO) order — no reorder");
+  for (const id of [idA, idB, idC]) {
+    assert.equal(getHistory().runs.getRecord(id)!.status, "done");
+    assert.equal(getHistory().runs.getRecord(id)!.verdict, "pass");
+  }
+});
+
+test("the runner hands the run's own choice about the run_spec loop to the engine, and invents none", async () => {
+  const queue = new JobQueue();
+  const { port, calls } = fakePort({ verdict: "pass" });
+  enqueueTrackedRun(queue, { app: "runner-loop-on", sha: "def5678", target: "e2e", mode: "diff", source: "manual", closedLoop: true }, { loadApp: cfg, engineFactory: () => port });
+  enqueueTrackedRun(queue, { app: "runner-loop-off", sha: "def5678", target: "e2e", mode: "diff", source: "manual", closedLoop: false }, { loadApp: cfg, engineFactory: () => port });
+  enqueueTrackedRun(queue, { app: "runner-loop-none", sha: "def5678", target: "e2e", mode: "diff", source: "manual" }, { loadApp: cfg, engineFactory: () => port });
+  await queue.drain();
+  assert.deepEqual(calls.map((c) => c.closedLoop), [true, false, undefined]);
+});
+
+test("the runner hands the run's own choice about the agent browser to the engine, and invents none", async () => {
+  const queue = new JobQueue();
+  const { port, calls } = fakePort({ verdict: "pass" });
+  enqueueTrackedRun(queue, { app: "runner-browser-on", sha: "def5678", target: "e2e", mode: "diff", source: "manual", agentBrowser: true }, { loadApp: cfg, engineFactory: () => port });
+  enqueueTrackedRun(queue, { app: "runner-browser-off", sha: "def5678", target: "e2e", mode: "diff", source: "manual", agentBrowser: false }, { loadApp: cfg, engineFactory: () => port });
+  enqueueTrackedRun(queue, { app: "runner-browser-none", sha: "def5678", target: "e2e", mode: "diff", source: "manual" }, { loadApp: cfg, engineFactory: () => port });
+  await queue.drain();
+  assert.deepEqual(calls.map((c) => c.agentBrowser), [true, false, undefined]);
+});
+
+test("a finished run records the furthest phase and the phase timings its outcome carried", async () => {
+  const queue = new JobQueue();
+  const { port } = fakePort({
+    verdict: "infra-error",
+    gateSignals: { static: false, coverageRatio: null, reviewerCorrections: [], flaky: false, retries: 0, furthestPhase: "setup", phaseTimings: { gate: 2, setup: 700 } },
+  });
+  const id = enqueueTrackedRun(queue, { app: "runner-phases-recorded", sha: "abc1234", target: "e2e", mode: "diff", source: "manual" }, { loadApp: cfg, engineFactory: () => port });
+  await queue.drain();
+
+  assert.deepEqual(getHistory().runs.getRunPhases(id), { furthestPhase: "setup", phaseTimings: { gate: 2, setup: 700 } });
+});
+
+test("a run whose outcome carries no phase record leaves the phase columns empty", async () => {
+  const queue = new JobQueue();
+  const { port } = fakePort({ verdict: "pass" });
+  const id = enqueueTrackedRun(queue, { app: "runner-phases-absent", sha: "abc1234", target: "e2e", mode: "diff", source: "manual" }, { loadApp: cfg, engineFactory: () => port });
+  await queue.drain();
+
+  assert.deepEqual(getHistory().runs.getRunPhases(id), { furthestPhase: null, phaseTimings: null });
+});
+
+test("a run the engine ended with an error still records how far it got", async () => {
+  const queue = new JobQueue();
+  const failure = new Error("agent runtime failed mid-turn");
+  recordPhaseSnapshot(failure, { furthestPhase: "generate", phaseTimings: { gate: 1, generate: 5_000 } });
+  const port: RunPipelinePort = { async run() { throw failure; } };
+  const id = enqueueTrackedRun(queue, { app: "runner-phases-on-error", sha: "abc1234", target: "e2e", mode: "diff", source: "manual" }, { loadApp: cfg, engineFactory: () => port });
+  await queue.drain();
+
+  assert.equal(getHistory().runs.getRecord(id)!.verdict, "infra-error");
+  assert.deepEqual(getHistory().runs.getRunPhases(id), { furthestPhase: "generate", phaseTimings: { gate: 1, generate: 5_000 } });
+});
+
+test("a run that ended with an error nobody recorded phases for leaves the phase columns empty", async () => {
+  const queue = new JobQueue();
+  const port: RunPipelinePort = { async run() { throw new Error("the factory blew up"); } };
+  const id = enqueueTrackedRun(queue, { app: "runner-phases-error-bare", sha: "abc1234", target: "e2e", mode: "diff", source: "manual" }, { loadApp: cfg, engineFactory: () => port });
+  await queue.drain();
+
+  assert.deepEqual(getHistory().runs.getRunPhases(id), { furthestPhase: null, phaseTimings: null });
+});
+
+test("a phase record that cannot be stored never stops the failed run from being finalized, announced and reported", async () => {
+  const queue = new JobQueue();
+  const failure = new Error("agent runtime failed mid-turn");
+  recordPhaseSnapshot(failure, { furthestPhase: "generate", phaseTimings: { generate: 10n as unknown as number } });
+  const port: RunPipelinePort = { async run() { throw failure; } };
+  const events = createRunEventStore();
+  const errors: string[] = [];
+  const originalError = console.error;
+  console.error = (...args: unknown[]) => void errors.push(args.map(String).join(" "));
+  let id: string;
+  try {
+    id = enqueueTrackedRun(queue, { app: "runner-phases-unstorable", sha: "abc1234", target: "e2e", mode: "diff", source: "manual" }, { loadApp: cfg, engineFactory: () => port, runEvents: events });
+    await queue.drain();
+  } finally {
+    console.error = originalError;
+  }
+
+  const r = getHistory().runs.getRecord(id)!;
+  assert.equal(r.status, "done");
+  assert.equal(r.verdict, "infra-error");
+  assert.deepEqual(getHistory().runs.getRunPhases(id), { furthestPhase: null, phaseTimings: null });
+  const bodies = events.replay(id).map((e) => e.body.type);
+  assert.ok(bodies.includes("agent.error"));
+  assert.ok(bodies.includes("run.verdict"));
+  assert.ok(errors.some((l) => /phase/i.test(l)), "the dropped phase record is said aloud");
+});
+
+/* The signal a crash used to carry as a maintainer incident is the error-level line: console.error is the error sink, an info line would go to console.log. */
+test("an unexpected internal error is logged at error level as a crash naming the app, the commit and the message", async () => {
+  const queue = new JobQueue();
+  const port: RunPipelinePort = { async run() { throw new Error("the factory blew up"); } };
+  const errors: string[] = [];
+  const originalError = console.error;
+  console.error = (...args: unknown[]) => void errors.push(args.map(String).join(" "));
+  try {
+    enqueueTrackedRun(queue, { app: "runner-crash-line", sha: "abc1234", target: "e2e", mode: "diff", source: "manual" }, { loadApp: cfg, engineFactory: () => port });
+    await queue.drain();
+  } finally {
+    console.error = originalError;
+  }
+  assert.ok(errors.some((l) => /CRASHED \(internal error\) runner-crash-line@abc1234: the factory blew up/.test(l)), `no error-level crash line in: ${JSON.stringify(errors)}`);
+});
+
+/* A run whose app map does not describe its commit gets the map rebuilt first, in its own queue turn, so that run already grounds on it.
+   The question (does this app's map fit this commit?) is injected; the rebuild is an ordinary context run linked to the run that asked. */
+function mapRig(needs?: (app: string, sha: string) => Promise<boolean>) {
+  const queue = new JobQueue();
+  const { port, calls } = fakePort({ verdict: "pass" });
+  const asked: string[] = [];
+  const deps = {
+    loadApp: cfg,
+    engineFactory: () => port,
+    ...(needs ? { contextMapNeedsRebuild: async (app: string, sha: string) => { asked.push(`${app}@${sha}`); return needs(app, sha); } } : {}),
+  };
+  const run = (app: string, extra: Partial<Parameters<typeof enqueueTrackedRun>[1]> = {}): string =>
+    enqueueTrackedRun(queue, { app, sha: "abc1234", target: "e2e", mode: "diff", source: "webhook", ...extra }, deps);
+  return { queue, calls, asked, run };
+}
+
+test("a run whose map does not fit its commit runs a context run at its sha first, linked to it, before its own pipeline", async () => {
+  const r = mapRig(async () => true);
+  const id = r.run("runner-map-first");
+  await r.queue.drain();
+  assert.deepEqual(r.calls.map((c) => c.mode), ["context", "diff"]);
+  assert.equal(r.calls[0]?.sha.value, "abc1234");
+  assert.equal(r.calls[0]?.parentRunId, id);
+  assert.equal(r.calls[0]?.previousNamespace || undefined, undefined, "the run it serves is not an interrupted run to clean up after");
+  assert.equal(getHistory().runs.getRecord(r.calls[0]!.runId)?.status, "done");
+  assert.equal(getHistory().runs.getRecord(id)?.status, "done");
+});
+
+test("the map is rebuilt once per app and commit: a later run at the same sha does not rebuild it again, whether or not the rebuild worked", async () => {
+  const r = mapRig(async () => true);
+  r.run("runner-map-once");
+  await r.queue.drain();
+  r.run("runner-map-once");
+  r.run("runner-map-once", { sha: "def5678" });
+  await r.queue.drain();
+  assert.deepEqual(r.calls.map((c) => `${c.mode}@${c.sha.value}`), ["context@abc1234", "diff@abc1234", "diff@abc1234", "context@def5678", "diff@def5678"]);
+});
+
+test("no rebuild runs when the map fits, for a run that cannot use a map, when the question fails, or when it is not wired", async () => {
+  const fits = mapRig(async () => false);
+  fits.run("runner-map-fits");
+  await fits.queue.drain();
+  assert.deepEqual(fits.calls.map((c) => c.mode), ["diff"]);
+
+  const others = mapRig(async () => true);
+  others.run("runner-map-others", { mode: "context" });
+  others.run("runner-map-others", { triggerRepo: "org/svc" });
+  others.run("runner-map-others", { purpose: "login-bootstrap", mode: "manual" });
+  await others.queue.drain();
+  assert.equal(others.calls.filter((c) => c.mode === "context").length, 1, "only the context run that was asked for");
+  assert.deepEqual(others.asked, []);
+
+  const broken = mapRig(async () => { throw new Error("mirror unreachable"); });
+  broken.run("runner-map-broken");
+  await broken.queue.drain();
+  assert.deepEqual(broken.calls.map((c) => c.mode), ["diff"], "the run goes on without the rebuild");
+
+  const unwired = mapRig();
+  unwired.run("runner-map-unwired");
+  await unwired.queue.drain();
+  assert.deepEqual(unwired.calls.map((c) => c.mode), ["diff"]);
+});
+
+test("a context run rebuilt inside a run's turn opens its own trace: no span of the run's trace names the rebuild as its run", async () => {
+  const h = traceHarness();
+  const queue = new JobQueue();
+  const port: RunPipelinePort = { run: async (input) => { h.telemetry.startSpan(`phase of ${input.mode}`).end(); return (await fakePort().port.run(input)); } };
+  const id = enqueueTrackedRun(queue, { app: "runner-map-trace", sha: "abc1234", target: "e2e", mode: "diff", source: "webhook" }, { loadApp: cfg, engineFactory: () => port, telemetry: h.telemetry, contextMapNeedsRebuild: async () => true });
+  await queue.drain();
+  const runRootOf = (runId: string) => h.named("qayaba.run").find((s) => s.attributes["qayaba.run.id"] === runId)!;
+  const parentTrace = runRootOf(id).spanContext().traceId;
+  const inParentTrace = h.spans().filter((s) => s.spanContext().traceId === parentTrace);
+  assert.ok(inParentTrace.some((s) => s.name === "phase of diff"));
+  assert.deepEqual(inParentTrace.flatMap((s) => (s.attributes["qayaba.run.id"] !== undefined && s.attributes["qayaba.run.id"] !== id ? [s.name] : [])), []);
+  assert.equal(inParentTrace.some((s) => s.name === "phase of context"), false);
+  await h.dispose();
+});
+
+test("the run's change set carries the request's commit count and projects to the run input", async () => {
+  const queue = new JobQueue();
+  const { port, calls } = fakePort({ verdict: "pass" });
+  enqueueTrackedRun(
+    queue,
+    { app: "runner-commits", sha: "def5678", target: "e2e", mode: "diff", source: "webhook", commits: 3 },
+    { loadApp: (name) => cfg(name), engineFactory: () => port },
+  );
+  await queue.drain();
+  const input = calls[0]!;
+  assert.equal(input.changeSet.anchor.commits, 3);
+  assert.equal(input.changeSet.anchor.headSha.value, input.sha.value);
+  assert.equal(input.baseSha, undefined);
+});
+
+test("a service push with a base projects its repo and base onto the run input", async () => {
+  const queue = new JobQueue();
+  const { port, calls } = fakePort({ verdict: "pass" });
+  enqueueTrackedRun(
+    queue,
+    { app: "runner-service-base", sha: "def5678", target: "e2e", mode: "diff", source: "webhook", triggerRepo: "org/orders-svc", baseSha: "bad00001" },
+    { loadApp: (name) => ({ ...cfg(name), services: [{ repo: "org/orders-svc" }] }), engineFactory: () => port },
+  );
+  await queue.drain();
+  const input = calls[0]!;
+  assert.equal(input.changeSet.anchor.role, "service");
+  assert.equal(input.changeSet.anchor.repo, "org/orders-svc");
+  assert.equal(input.triggerRepo, "org/orders-svc");
+  assert.equal(input.baseSha?.value, "bad00001");
+  assert.equal(input.changeSet.anchor.baseSha?.value, "bad00001");
+});
+
+function coalescingRig(app: string) {
+  const queue = new JobQueue();
+  const { port, calls } = fakePort({ verdict: "pass" });
+  const pendingChangeSets = new PendingChangeSets();
+  const factoryRuns: Array<{ sha?: string; triggerRepo?: string; changeSet?: unknown }> = [];
+  const deps: RunnerDeps = {
+    loadApp: (name) => ({ ...cfg(name), services: [{ repo: "org/orders-svc" }] }),
+    engineFactory: (_app, _ns, run) => { factoryRuns.push(run); return port; },
+    pendingChangeSets,
+  };
+  /* A job that holds the queue until released, so the runs enqueued behind it are all still waiting. */
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => { release = resolve; });
+  queue.enqueue(async () => { await held; });
+  return { queue, calls, deps, release, app, factoryRuns };
+}
+const frontPush = (app: string): RunRequest => ({ app, sha: "f111111", baseSha: "f000000", target: "e2e", mode: "diff", source: "webhook" });
+const servicePush = (app: string): RunRequest => ({ app, sha: "b222222", baseSha: "b000000", target: "e2e", mode: "diff", source: "webhook", triggerRepo: "org/orders-svc" });
+
+test("two webhook pushes of one app that land while the queue is busy are one run that reads both repos", async () => {
+  const rig = coalescingRig("coalesce-two");
+  const first = enqueueTrackedRun(rig.queue, frontPush(rig.app), rig.deps);
+  const second = enqueueTrackedRun(rig.queue, servicePush(rig.app), rig.deps);
+  assert.equal(second, first, "the second push joins the first run");
+  assert.equal(getHistory().runs.listRecords(rig.app, 10).length, 1, "one record, not two");
+
+  rig.release();
+  await rig.queue.drain();
+
+  assert.equal(rig.calls.length, 1);
+  const input = rig.calls[0]!;
+  assert.deepEqual(input.changeSet.entries.map((e) => `${e.repo}@${e.headSha.value}`), ["org/demo@f111111", "org/orders-svc@b222222"]);
+  assert.equal(input.triggerRepo, undefined, "the primary entry anchors the run");
+  assert.equal(rig.factoryRuns[0]?.triggerRepo, undefined);
+  assert.equal((rig.factoryRuns[0]?.changeSet as { entries: unknown[] }).entries.length, 2);
+});
+
+test("the record of a run that pushes joined lists every entry, and a run no push joined lists none", async () => {
+  const rig = coalescingRig("coalesce-record");
+  const first = enqueueTrackedRun(rig.queue, frontPush(rig.app), rig.deps);
+  assert.equal(getHistory().runs.getRecord(first)?.changeSet, undefined, "a run of its own request lists no entries");
+  enqueueTrackedRun(rig.queue, servicePush(rig.app), rig.deps);
+
+  assert.deepEqual(getHistory().runs.getRecord(first)?.changeSet, [
+    { repo: "org/demo", role: "primary", headSha: "f111111", baseSha: "f000000" },
+    { repo: "org/orders-svc", role: "service", headSha: "b222222", baseSha: "b000000" },
+  ]);
+  rig.release();
+  await rig.queue.drain();
+  assert.equal(getHistory().runs.getRecord(first)?.changeSet?.length, 2, "the entries outlive the run");
+});
+
+test("two pushes of one repo that land while the queue is busy are one run over both pushes' range", async () => {
+  const rig = coalescingRig("coalesce-same-repo");
+  const first = enqueueTrackedRun(rig.queue, frontPush(rig.app), rig.deps);
+  const second = enqueueTrackedRun(rig.queue, { ...frontPush(rig.app), sha: "f222222", baseSha: "f111111" }, rig.deps);
+  assert.equal(second, first, "the second push joins the first run");
+
+  rig.release();
+  await rig.queue.drain();
+
+  assert.equal(rig.calls.length, 1);
+  const entries = rig.calls[0]!.changeSet.entries;
+  assert.deepEqual(entries.map((e) => `${e.repo}@${e.headSha.value}..${e.baseSha?.value}`), ["org/demo@f222222..f000000"]);
+  assert.equal(rig.factoryRuns[0]?.sha, "f222222", "the run tests the later head");
+});
+
+test("a push that lands after the run started queues a run of its own", async () => {
+  const rig = coalescingRig("coalesce-late");
+  const first = enqueueTrackedRun(rig.queue, frontPush(rig.app), rig.deps);
+  rig.release();
+  await new Promise((r) => setTimeout(r, 20)); /* the held job ends, then the first run takes its turn */
+  const late = enqueueTrackedRun(rig.queue, servicePush(rig.app), rig.deps);
+  await rig.queue.drain();
+
+  assert.notEqual(late, first);
+  assert.equal(rig.calls.length, 2);
+  assert.equal(rig.calls[0]!.changeSet.entries.length, 1);
+});
+
+test("a manual run and a guided run never join a queued run", async () => {
+  const rig = coalescingRig("coalesce-refused");
+  const first = enqueueTrackedRun(rig.queue, frontPush(rig.app), rig.deps);
+  const manual = enqueueTrackedRun(rig.queue, { ...servicePush(rig.app), source: "manual" }, rig.deps);
+  const guided = enqueueTrackedRun(rig.queue, { ...servicePush(rig.app), guidance: "test the form" }, rig.deps);
+
+  assert.equal(new Set([first, manual, guided]).size, 3);
+  rig.release();
+  await rig.queue.drain();
+});
+
+test("a push that would join a run cancelled while it waited queues a run of its own", async () => {
+  const rig = coalescingRig("coalesce-cancelled");
+  const first = enqueueTrackedRun(rig.queue, frontPush(rig.app), rig.deps);
+  cancelTrackedRun(rig.queue, first);
+  const second = enqueueTrackedRun(rig.queue, servicePush(rig.app), rig.deps);
+
+  assert.notEqual(second, first);
+  rig.release();
+  await rig.queue.drain();
+  assert.equal(rig.calls.length, 1);
+  assert.equal(rig.calls[0]!.changeSet.anchor.repo, "org/orders-svc");
+});
+
+test("cancelling a queued run that pushes joined logs the pushes it drops", async (t) => {
+  const rig = coalescingRig("coalesce-cancel-joined");
+  const first = enqueueTrackedRun(rig.queue, frontPush(rig.app), rig.deps);
+  enqueueTrackedRun(rig.queue, servicePush(rig.app), rig.deps);
+  const logged = t.mock.method(console, "log", () => {});
+  cancelTrackedRun(rig.queue, first);
+  rig.release();
+  await rig.queue.drain();
+
+  assert.equal(rig.calls.length, 0, "nothing runs");
+  const lines = logged.mock.calls.map((c) => String(c.arguments[0]));
+  assert.ok(lines.some((l) => l.includes(first) && l.includes("org/demo@f111111") && l.includes("org/orders-svc@b222222")), lines.join("\n"));
+});
+
+test("without a registry a second push queues its own run, as before", async () => {
+  const queue = new JobQueue();
+  const { port } = fakePort({ verdict: "pass" });
+  const deps: RunnerDeps = { loadApp: (name) => cfg(name), engineFactory: () => port };
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => { release = resolve; });
+  queue.enqueue(async () => { await held; });
+  const a = enqueueTrackedRun(queue, frontPush("coalesce-off"), deps);
+  const b = enqueueTrackedRun(queue, { ...frontPush("coalesce-off"), sha: "f222222", baseSha: "f111111" }, deps);
+  assert.notEqual(a, b);
+  release();
+  await queue.drain();
+});
+
+test("only a deploy's webhook starts a run the engine treats as deploy-triggered; a control-API run, a campaign replicate included, is manual", () => {
+  assert.equal(sourceOfTrigger("webhook"), "webhook");
+  assert.equal(sourceOfTrigger("api"), "manual");
+});
+
+/* The control API and the webhook enter through the one door the host wires (wire-app.ts); this drives it as the host does, the API from a real POST. */
+async function sourceReachingEngine(door: "api" | "webhook"): Promise<string | undefined> {
+  const queue = new JobQueue();
+  const { port, calls } = fakePort({ verdict: "pass" });
+  const runnerDeps = { loadApp: cfg, engineFactory: () => port };
+  const enqueue = (request: Parameters<typeof enqueueDoorRun>[2]): string => enqueueDoorRun(queue, door, request, runnerDeps);
+  if (door === "api") {
+    const res = { status: 0, body: "", headers: {} as Record<string, string>, writeHead(s: number) { this.status = s; return this; }, setHeader() {}, end(b?: string) { this.body = b ?? ""; } };
+    const req = Object.assign(Readable.from([JSON.stringify({ app: "demo", sha: "abc1234", mode: "diff", target: "e2e" })]), { method: "POST", url: "/api/v1/runs", headers: { host: "x", "content-type": "application/json" } });
+    await routeApi(req as never, res as never, { queue: { size: 0 }, enqueue, loadApp: cfg, listApps: () => [cfg("demo")], resolveRef: async () => "f".repeat(40), getRecord: () => undefined, listRecords: () => [], currentRun: () => undefined } as never);
+    assert.equal(res.status, 202);
+  } else {
+    enqueue({ app: "demo", sha: "abc1234", mode: "diff", target: "e2e" });
+  }
+  await queue.drain();
+  return calls[0]?.source;
+}
+
+test("a run posted to the control API reaches the engine as manual, and a deploy's webhook as webhook", async () => {
+  assert.equal(await sourceReachingEngine("api"), "manual");
+  assert.equal(await sourceReachingEngine("webhook"), "webhook");
+});

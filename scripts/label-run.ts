@@ -15,7 +15,7 @@ import { pathToFileURL } from "node:url";
 import { MAX_SCORE_COMMENT_CHARS, specOfScore, type ScoreDataType, type ScorePolarity } from "../qa-engine/src/contexts/evaluation/application/index.ts";
 import { sameSpecPathByTail } from "@kernel/spec-path.ts";
 import { referenceFor, type UseCaseReference } from "../qa-engine/src/contexts/evaluation/application/index.ts";
-import { USE_CASES_DIR, loadReferences } from "../src/persistence/use-case-reference-loader.ts";
+import { USE_CASES_DIR, loadReferences } from "../platform/persistence/use-case-reference-loader.ts";
 
 export { USE_CASES_DIR, loadReferences };
 
@@ -174,8 +174,8 @@ export function main(argv: readonly string[], deps: LabelRunDeps): number {
 
 /** The run history of the orchestrator container, imported lazily so a test that injects its own never opens it. */
 export async function defaultDeps(): Promise<LabelRunDeps> {
-  const { getHistory } = await import("../src/persistence/index.ts");
-  const { RedactionPortAdapter } = await import("../src/telemetry/sanitizer.ts");
+  const { getHistory } = await import("../platform/persistence/index.ts");
+  const { RedactionPortAdapter } = await import("../platform/telemetry/sanitizer.ts");
   const redaction = new RedactionPortAdapter();
   return {
     getRecord: (id) => getHistory().runs.getRecord(id),

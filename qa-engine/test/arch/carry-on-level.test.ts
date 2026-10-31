@@ -8,7 +8,7 @@ import { join, relative } from "node:path";
 import ts from "typescript";
 
 const repoRoot = join(import.meta.dirname, "..", "..", "..");
-const SCANNED_ROOTS = ["src", "qa-engine/src"];
+const SCANNED_ROOTS = ["platform", "qa-engine/src"];
 const LEVEL_METHODS = new Set(["debug", "info", "warn", "error"]);
 
 /* The catch throws the run's end right after carryOn, so its line is an end, not a carried-on fault. Only that line is exempt: the file is named with the start of the call. */

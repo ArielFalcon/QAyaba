@@ -11,7 +11,7 @@
 import { existsSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import { REQUIRED_CONSECUTIVE_REPLICATES, enforceReadiness, type AppReadiness, type Replicate } from "../qa-engine/src/contexts/objective-signal/application/index.ts";
-import type { CampaignReplicateRow } from "../src/persistence/repositories/run.repository.ts";
+import type { CampaignReplicateRow } from "../platform/persistence/repositories/run.repository.ts";
 
 export type Parsed = { ok: true; app: string | undefined; since: string | undefined } | { ok: false; problem: string };
 
@@ -79,7 +79,7 @@ export async function main(argv: readonly string[], deps: ReadinessDeps): Promis
 
 /** The run history of the orchestrator container, imported lazily so a test that injects its own never opens it. */
 export async function defaultDeps(): Promise<ReadinessDeps> {
-  const { getHistory, historyDatabasePath } = await import("../src/persistence/index.ts");
+  const { getHistory, historyDatabasePath } = await import("../platform/persistence/index.ts");
   /* Opening a history creates and migrates one that is not there: a read-only check refuses a missing one instead. */
   if (!existsSync(historyDatabasePath())) throw new Error(`no run history at ${historyDatabasePath()}`);
   return { replicates: (opts) => getHistory().runs.listCampaignReplicates(opts), out: (line) => console.log(line) };

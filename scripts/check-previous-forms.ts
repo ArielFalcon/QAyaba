@@ -41,7 +41,7 @@ const RECORDS_PREFIX = "docs/architecture/";
 /* The seed revisions the setup adapter upgrades are kept byte-for-byte as they shipped, so they name what the seed has since dropped. */
 /* The tests that pin what a retired name leaves behind (a stored row that still carries the value fields, a grade that is no longer emitted): they have to write the names. */
 const RETIRED_FIELD_TESTS = [
-  "src/persistence/repositories/learning.repository.retired-fields.test.ts",
+  "platform/persistence/repositories/learning.repository.retired-fields.test.ts",
   "qa-engine/test/contexts/evaluation/retired-graders.test.ts",
 ];
 const SHIPPED_SEED_REVISIONS_PREFIX = "qa-engine/test/contexts/workspace-and-publication/infrastructure/__fixtures__/seed-revisions/";
@@ -198,17 +198,17 @@ export const BANNED_RULES: BannedRule[] = [
   {
     id: "review-loop-switch",
     patterns: [/\breviewLoopIntegrity\b/, /\bintegrity\??\.reviewLoop\b/],
-    exemptPrefixes: [RECORDS_PREFIX, "src/composition/config-loader.test.ts"],
+    exemptPrefixes: [RECORDS_PREFIX, "platform/composition/config-loader.test.ts"],
   },
   {
     id: "intent-lock-enforce",
     patterns: [/\b(?:contractFeedback|ContractFeedback|contract-feedback|MAX_CONTRACT_RETRIES|renderContractViolations|ContractViolationShape)\b/, /\bintentLock\b[^\n]*\benforce\b/, /\bintent lock\b[^\n]*\b(?:refused|enforce)\b/i],
-    exemptPrefixes: [RECORDS_PREFIX, "src/composition/config-loader.test.ts", "src/composition/config-loader.ts"],
+    exemptPrefixes: [RECORDS_PREFIX, "platform/composition/config-loader.test.ts", "platform/composition/config-loader.ts"],
   },
   {
     id: "app-telemetry-route",
     patterns: [/\b(?:AppTelemetryView|AppTelemetryViewSchema|getAppTelemetry|computeTelemetryAnalysis|TelemetryAnalysis|TelemetryRoleStat|TelemetryEfficiency)\b/, /\/apps\/(?::name|\{name\}|[\w-]+)\/telemetry\b/],
-    exemptPrefixes: [RECORDS_PREFIX, "src/entrypoints/api.test.ts", "src/entrypoints/contract/openapi.test.ts"],
+    exemptPrefixes: [RECORDS_PREFIX, "platform/entrypoints/api.test.ts", "platform/entrypoints/contract/openapi.test.ts"],
   },
   {
     id: "escalation-signal",
@@ -236,7 +236,7 @@ export const BANNED_RULES: BannedRule[] = [
   },
   { id: "stored-outcome-copy", patterns: [/\b(?:toStoredRunOutcome|StructuredReflection)\b/], exemptPrefixes: [RECORDS_PREFIX] },
   { id: "shell-dead-run-types", patterns: [/\bAgentResult\b/], exemptPrefixes: [RECORDS_PREFIX] },
-  { id: "shell-events-reexport", patterns: [/\bsrc\/entrypoints\/contract\/events(?:\.ts)?(?![\w.-])/], exemptPrefixes: [RECORDS_PREFIX] },
+  { id: "shell-events-reexport", patterns: [/\bplatform\/entrypoints\/contract\/events(?:\.ts)?(?![\w.-])/], exemptPrefixes: [RECORDS_PREFIX] },
   {
     id: "narration",
     patterns: [/migration-tier/i, /\bSlice \d/i, /\bcutover\b/i, /deleted twin/i, /frozen oracle/i, /the (old|earlier|former) (engine|pipeline|loader|path|build)/i, /\bcharacterization\b/i, /\bported (from|to)\b/i],

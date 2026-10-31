@@ -19,7 +19,7 @@
       "@interface/*": ["qa-engine/src/interface/*"]
     }
   },
-  "include": ["src"],
-  "exclude": ["src/**/__fixtures__"],
+  "include": ["platform"],
+  "exclude": ["platform/**/__fixtures__"],
   "references": [{ "path": "./qa-engine" }]
 }

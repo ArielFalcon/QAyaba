@@ -3,7 +3,7 @@
   "info": {
     "title": "Qayaba Control Plane",
     "version": "1.0.0",
-    "description": "The Channel Gateway contract: queued commands + the RunEvent SSE stream. Every non-2xx answer is an ApiError body; a request to a known path with a method it does not take answers 405 with an Allow header. Source of truth: src/entrypoints/contract/*.ts (zod). GENERATED — do not edit by hand; run `npm run contract:gen`."
+    "description": "The Channel Gateway contract: queued commands + the RunEvent SSE stream. Every non-2xx answer is an ApiError body; a request to a known path with a method it does not take answers 405 with an Allow header. Source of truth: platform/entrypoints/contract/*.ts (zod). GENERATED — do not edit by hand; run `npm run contract:gen`."
   },
   "paths": {
     "/api/v1/version": {

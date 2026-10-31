@@ -1,0 +1,1028 @@
+/* platform/entrypoints/onboarding/onboarding-job.test.ts
+   OnboardingJob is the server-side, in-memory single-job state machine that composes the LLM
+   proposer adapter + the REAL OnboardingService (qa-engine) with server-side mirror provisioning,
+   a runner-busy guard, an env-guard, and a round-budget timeout with AbortSignal cancellation.
+ */
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import {
+  ONBOARD_STATE,
+  ONBOARD_OUTCOME,
+  LOGIN_STATUS,
+  createOnboardingJob,
+  type OnboardingJobDeps,
+  type OnboardingJobStatus,
+  type RepoIndexOutcome,
+} from "./onboarding-job";
+import type { ProfileProposerPort, ResolveLinksResult } from "@contexts/service-topology/application/index.ts";
+import type { BoundaryProfile, HttpBoundaryProfile } from "@contexts/service-topology/application/index.ts";
+import type { OnboardingResult, OnboardingRoundProgress } from "@contexts/service-topology/application/index.ts";
+
+const CORRECT_PROFILE: HttpBoundaryProfile = {
+  transport: "http",
+  frontFiles: "**/*.api.ts",
+  frontCallSite: { kind: "receiver-verb-call", receiver: "this.rest" },
+  servicePrefixTemplate: "name-{service}-api",
+  serviceRepoTemplate: "ms-name-{service}",
+  openApiPath: "openapi.yaml",
+};
+
+/* A ProfileProposerPort stub with an injectable propose() body — lets each test control the
+   round-by-round result AND observe the AbortSignal ctx threading without touching the real
+   LlmProfileProposerAdapter or the agent runtime.
+ */
+function stubProposer(propose: ProfileProposerPort["propose"]): ProfileProposerPort {
+  return { propose };
+}
+
+function alwaysCorrectProposer(): ProfileProposerPort {
+  return stubProposer(async () => [CORRECT_PROFILE]);
+}
+
+function neverResolvingProposer(signalCapture?: { signal?: AbortSignal }): ProfileProposerPort {
+  return stubProposer(() => new Promise<BoundaryProfile[]>(() => {
+    /* never resolves — the job's own round-budget race must be what ends this. */
+  }));
+}
+
+function noWinnerProposer(): ProfileProposerPort {
+  return stubProposer(async () => []);
+}
+
+/* A fake "OnboardingService"-shaped object (structurally, not `instanceof`) that drives the
+   injected onRound observer and returns a deterministic OnboardingResult — job-level tests exist
+   to prove the JOB's own orchestration (env-guards, mirror phase, mutex, timeout/abort, outcome
+   mapping), not OnboardingService's real filesystem-backed scoring (already covered exhaustively
+   in onboarding-service.test.ts). Calls the real proposer.propose() once (so proposer-driven tests
+   like the AbortSignal thread-through and the never-resolving proposer still exercise it), then
+   reports either a winning or a no-winner OnboardingResult depending on what the proposer returned.
+   buildOnboardingServiceFake is the type onboarding-job.ts's OnboardingJobDeps.buildOnboardingService
+   expects — a real `OnboardingService` instance — so this is intentionally cast at the call site.
+ */
+function fakeOnboardingService(winningProfile: BoundaryProfile) {
+  return (
+    proposer: ProfileProposerPort,
+    onRound: (p: OnboardingRoundProgress) => void,
+  ): { onboard: (system: unknown[], front: unknown) => Promise<OnboardingResult> } => ({
+    onboard: async (system, front) => {
+      const proposed = await proposer.propose(system as never, front as never, { priorCandidates: [] });
+      const won = proposed.some((p) => p === winningProfile);
+      onRound({ round: 1, proposed: proposed.length, scored: proposed.length, bestResolvedScore: won ? 1 : 0 });
+      return won
+        ? { profile: winningProfile, candidates: [{ profile: winningProfile, score: { links: 1, drift: 0, external: 0, unresolved: 0, coverage: 1, resolutionRatio: 1, resolvedScore: 1 } }], rounds: 1 }
+        : { profile: null, candidates: [], rounds: 1 };
+    },
+  });
+}
+
+/* Builds a full OnboardingJobDeps fixture with sane defaults, overridable per test. */
+function buildDeps(overrides: Partial<OnboardingJobDeps> = {}): OnboardingJobDeps {
+  return {
+    isRunnerBusy: () => false,
+    ensureMirrorAtBranch: async (repo: string) => `/mirrors/${repo.replaceAll("/", "__")}`,
+    hasOpencodeApiKey: () => true,
+    hasProposerAgent: async () => true,
+    buildProposer: () => alwaysCorrectProposer(),
+    buildOnboardingService: fakeOnboardingService(CORRECT_PROFILE) as OnboardingJobDeps["buildOnboardingService"],
+    writeConfig: () => {},
+    readConfig: () => 'name: "fixture"\nrepo: "org/fixture"\n',
+    mirrorTimeoutMs: 5_000,
+    jobTimeoutMs: 5_000,
+    ...overrides,
+  };
+}
+
+/* ── State machine + status DTO ──────────────────────────────── */
+
+test("ONBOARD_STATE is a const-object, not a raw string union (typescript SKILL convention)", () => {
+  assert.deepEqual(
+    Object.values(ONBOARD_STATE).sort(),
+    ["done", "failed", "idle", "indexing", "login", "mapping", "proposing", "resolvingMirrors", "scoring"].sort(),
+  );
+});
+
+test("job status starts idle before propose() is ever called", () => {
+  const job = createOnboardingJob(buildDeps());
+  const status = job.status();
+  assert.equal(status.state, ONBOARD_STATE.idle);
+});
+
+/* isActive() is the mutex the QA runner polls so mirror work waits while onboarding is in flight. */
+
+test("isActive() is false before any propose() call", () => {
+  const job = createOnboardingJob(buildDeps());
+  assert.equal(job.isActive(), false);
+});
+
+test("isActive() is true while a job is in flight (mid-run, before its finally releases the mutex)", async () => {
+  let resolveProposer!: (profiles: BoundaryProfile[]) => void;
+  const slowProposer = stubProposer(() => new Promise<BoundaryProfile[]>((resolve) => { resolveProposer = resolve; }));
+  const job = createOnboardingJob(buildDeps({ buildProposer: () => slowProposer }));
+
+  const kickoff = job.propose({ app: "nname", repo: "ArielFalcon/nname-gateway", services: [] });
+  await new Promise((r) => setImmediate(r)); /* let run() past its own synchronous awaits into the proposer call */
+  assert.equal(job.isActive(), true, "busy is set true in propose(), before run()'s finally clears it");
+
+  resolveProposer([CORRECT_PROFILE]);
+  await kickoff;
+});
+
+test("isActive() is false again after settled() resolves (run()'s finally cleared the mutex)", async () => {
+  const job = createOnboardingJob(buildDeps());
+  await job.propose({ app: "nname", repo: "ArielFalcon/nname-gateway", services: [] });
+  await job.settled();
+  assert.equal(job.isActive(), false);
+});
+
+test("propose(): transitions resolvingMirrors -> proposing/scoring -> done with outcome winner", async () => {
+  const job = createOnboardingJob(buildDeps());
+  await job.propose({ app: "nname", repo: "ArielFalcon/nname-gateway", services: ["ArielFalcon/ms-name-orders"] });
+
+  const status = job.status();
+  assert.equal(status.state, ONBOARD_STATE.done);
+  assert.equal(status.outcome, "winner");
+  assert.deepEqual(status.resolvedProfile, CORRECT_PROFILE);
+});
+
+test("propose(): the mutex-accept decision is synchronous — a caller does not have to await the round to know it was accepted", async () => {
+  let resolveProposer!: (profiles: BoundaryProfile[]) => void;
+  const slowProposer = stubProposer(() => new Promise<BoundaryProfile[]>((resolve) => { resolveProposer = resolve; }));
+  const job = createOnboardingJob(buildDeps({ buildProposer: () => slowProposer }));
+
+  /* The 202-fire-and-forget contract lives at the HTTP handler layer: the handler
+     calls propose() and responds 202 WITHOUT awaiting its returned promise. Here we only prove the
+     accept/reject decision (job.propose(...).then(...) is not required before the caller can move
+     on) — kickoff's SETTLEMENT is allowed to wait for the round; NOT awaiting it is the point.
+   */
+  const kickoff = job.propose({ app: "nname", repo: "ArielFalcon/nname-gateway", services: [] });
+  assert.ok(kickoff instanceof Promise, "propose() returns a promise the HTTP handler may choose not to await");
+
+  /* Let run()'s own awaits (env-guard, mirror provisioning) drain before the proposer is reached. */
+  await new Promise((r) => setImmediate(r));
+  resolveProposer([CORRECT_PROFILE]);
+  await kickoff;
+  assert.equal(job.status().state, ONBOARD_STATE.done);
+});
+
+test("resolvingMirrors runs BEFORE the round-budget timer starts, calling ensureMirrorAtBranch for front + every service", async () => {
+  const calls: string[] = [];
+  const deps = buildDeps({
+    ensureMirrorAtBranch: async (repo: string) => {
+      calls.push(repo);
+      return `/mirrors/${repo.replaceAll("/", "__")}`;
+    },
+  });
+  const job = createOnboardingJob(deps);
+  await job.propose({ app: "nname", repo: "ArielFalcon/nname-gateway", services: ["ArielFalcon/ms-name-orders", "ArielFalcon/ms-name-billing"] });
+
+  assert.deepEqual(calls.sort(), ["ArielFalcon/ms-name-billing", "ArielFalcon/ms-name-orders", "ArielFalcon/nname-gateway"].sort());
+});
+
+test("a slow/hanging mirror provisioning trips ONBOARD_MIRROR_TIMEOUT_MS and lands failed WITHOUT starting the round-budget clock", async () => {
+  const deps = buildDeps({
+    mirrorTimeoutMs: 20,
+    jobTimeoutMs: 10_000,
+    ensureMirrorAtBranch: () => new Promise(() => {
+      /* never resolves */
+    }),
+  });
+  const job = createOnboardingJob(deps);
+  await job.propose({ app: "nname", repo: "ArielFalcon/nname-gateway", services: [] });
+
+  const status = job.status();
+  assert.equal(status.state, ONBOARD_STATE.failed);
+  assert.match(status.error ?? "", /resolving mirrors timed out/);
+});
+
+/* ── One-job mutex ────────────────────────────────────────────── */
+
+test("starting a second propose while a job is non-terminal returns a 409-shaped rejection; mutex released in finally", async () => {
+  /* Round 1 (the "first" propose below) is held open until resolveFirstRound fires; every
+     SUBSEQUENT round (the "third" propose, after the mutex releases) resolves immediately — proves
+     the mutex release without making the assertion itself wait out a timeout.
+   */
+  let resolveFirstRound!: (profiles: BoundaryProfile[]) => void;
+  let calls = 0;
+  const proposer = stubProposer(() => {
+    calls += 1;
+    if (calls === 1) return new Promise<BoundaryProfile[]>((resolve) => { resolveFirstRound = resolve; });
+    return Promise.resolve([CORRECT_PROFILE]);
+  });
+  const job = createOnboardingJob(buildDeps({ buildProposer: () => proposer }));
+
+  const first = job.propose({ app: "nname", repo: "ArielFalcon/nname-gateway", services: [] });
+  await new Promise((r) => setImmediate(r)); /* let the first propose reach a non-terminal state */
+
+  const second = job.propose({ app: "nname", repo: "ArielFalcon/nname-gateway", services: [] });
+  assert.ok(!(second instanceof Promise), "the mutex rejection is synchronous, not a promise");
+  assert.equal(second.ok, false);
+  if (!second.ok) assert.match(second.error, /an onboarding job is already running/);
+
+  resolveFirstRound([CORRECT_PROFILE]);
+  await first;
+
+  /* Mutex released: a THIRD propose after the first finished must be accepted (a Promise, not a
+     synchronous rejection — proves `busy` was cleared in run()'s finally).
+   */
+  const third = job.propose({ app: "nname", repo: "ArielFalcon/nname-gateway", services: [] });
+  assert.ok(third instanceof Promise, "the mutex must be released after the first run's finally");
+  const thirdResult = await third;
+  assert.equal(thirdResult.ok, true);
+  await job.settled();
+});
+
+/* ── Runner-busy fail-fast guard fires BEFORE resolvingMirrors ── */
+
+test("runner-busy guard fires before resolvingMirrors: job fails fast and ensureMirrorAtBranch is NEVER called", async () => {
+  let mirrorCalls = 0;
+  const deps = buildDeps({
+    isRunnerBusy: () => true,
+    ensureMirrorAtBranch: async (repo: string) => {
+      mirrorCalls += 1;
+      return `/mirrors/${repo}`;
+    },
+  });
+  const job = createOnboardingJob(deps);
+  await job.propose({ app: "nname", repo: "ArielFalcon/nname-gateway", services: [] });
+
+  assert.equal(mirrorCalls, 0, "ensureMirrorAtBranch must never be called when the runner is busy");
+  const status = job.status();
+  assert.equal(status.state, ONBOARD_STATE.failed);
+  assert.match(status.error ?? "", /runner busy, retry later/);
+});
+
+/* ── Env-guard short-circuit, both branches ──────────────────────────── */
+
+test("missing OPENCODE_API_KEY short-circuits to failed BEFORE resolvingMirrors starts", async () => {
+  let mirrorCalls = 0;
+  const deps = buildDeps({
+    hasOpencodeApiKey: () => false,
+    ensureMirrorAtBranch: async (repo: string) => {
+      mirrorCalls += 1;
+      return `/mirrors/${repo}`;
+    },
+  });
+  const job = createOnboardingJob(deps);
+  await job.propose({ app: "nname", repo: "ArielFalcon/nname-gateway", services: [] });
+
+  assert.equal(mirrorCalls, 0, "ensureMirrorAtBranch must never be called with no OPENCODE_API_KEY");
+  const status = job.status();
+  assert.equal(status.state, ONBOARD_STATE.failed);
+  assert.match(status.error ?? "", /OPENCODE_API_KEY/);
+});
+
+test("missing qa-proposer agent on the target server short-circuits to a distinct actionable failed", async () => {
+  const deps = buildDeps({ hasProposerAgent: async () => false });
+  const job = createOnboardingJob(deps);
+  await job.propose({ app: "nname", repo: "ArielFalcon/nname-gateway", services: [] });
+
+  const status = job.status();
+  assert.equal(status.state, ONBOARD_STATE.failed);
+  assert.match(status.error ?? "", /qa-proposer agent/);
+});
+
+/* ── Round-budget timeout + AbortSignal cancellation (no leaked session) ─ */
+
+test("a proposer that never resolves trips ONBOARD_JOB_TIMEOUT_MS -> failed, AND the AbortController's signal reached the proposer ctx", async () => {
+  let capturedSignal: AbortSignal | undefined;
+  const job = createOnboardingJob(buildDeps({
+    jobTimeoutMs: 20,
+    buildProposer: (ctx) => {
+      capturedSignal = ctx.signal;
+      return neverResolvingProposer();
+    },
+  }));
+  await job.propose({ app: "nname", repo: "ArielFalcon/nname-gateway", services: [] });
+
+  const status = job.status();
+  assert.equal(status.state, ONBOARD_STATE.failed);
+  assert.match(status.error ?? "", /onboarding timed out/);
+  assert.ok(capturedSignal, "buildProposer must receive a signal in ctx");
+  assert.equal(capturedSignal?.aborted, true, "the AbortController must have fired on timeout");
+});
+
+/* ── No-winner outcome ────────────────────────────────────────────────── */
+
+test("a budget-exhausted no-winner run lands done with outcome no-profile and resolvedProfile absent", async () => {
+  const job = createOnboardingJob(buildDeps({ buildProposer: () => noWinnerProposer() }));
+  await job.propose({ app: "nname", repo: "ArielFalcon/nname-gateway", services: [] });
+
+  const status = job.status();
+  assert.equal(status.state, ONBOARD_STATE.done);
+  assert.equal(status.outcome, "no-profile");
+  assert.equal(status.resolvedProfile, undefined);
+});
+
+/* ── Confirm against non-winner ──────────────────────────────────── */
+
+test("confirm against a non-winner (no-profile) job is rejected; no write attempted", async () => {
+  let writeCalls = 0;
+  const job = createOnboardingJob(buildDeps({
+    buildProposer: () => noWinnerProposer(),
+    writeConfig: () => { writeCalls += 1; },
+  }));
+  await job.propose({ app: "nname", repo: "ArielFalcon/nname-gateway", services: [] });
+
+  const result = job.confirm();
+  assert.equal(result.ok, false);
+  assert.equal(writeCalls, 0, "writeConfig must never be called against a non-winner");
+});
+
+test("confirm against a still-idle job (never proposed) is rejected; no write attempted", () => {
+  let writeCalls = 0;
+  const job = createOnboardingJob(buildDeps({ writeConfig: () => { writeCalls += 1; } }));
+
+  const result = job.confirm();
+  assert.equal(result.ok, false);
+  assert.equal(writeCalls, 0);
+});
+
+test("confirm against a failed job is rejected; no write attempted", async () => {
+  let writeCalls = 0;
+  const job = createOnboardingJob(buildDeps({
+    isRunnerBusy: () => true,
+    writeConfig: () => { writeCalls += 1; },
+  }));
+  await job.propose({ app: "nname", repo: "ArielFalcon/nname-gateway", services: [] });
+
+  const result = job.confirm();
+  assert.equal(result.ok, false);
+  assert.equal(writeCalls, 0);
+});
+
+test("confirm against a winner writes the config via the injected writeConfig with a spliced boundaries: block", async () => {
+  let written: { path: string; content: string } | undefined;
+  const job = createOnboardingJob(buildDeps({
+    readConfig: () => 'name: "nname"\nrepo: "org/nname"\n',
+    writeConfig: (path, content) => { written = { path, content }; },
+  }));
+  await job.propose({ app: "nname", repo: "ArielFalcon/nname-gateway", services: [] });
+
+  const result = job.confirm();
+  assert.equal(result.ok, true);
+  assert.ok(written, "writeConfig must be called on confirm against a winner");
+  assert.ok(written!.content.includes("boundaries:"));
+  assert.ok(written!.content.includes("name-{service}-api"));
+});
+
+/* ── Propose is read-only end-to-end ─────────────────────────── */
+
+test("propose() never calls writeConfig at any point in the propose->poll lifecycle", async () => {
+  let writeCalls = 0;
+  const job = createOnboardingJob(buildDeps({ writeConfig: () => { writeCalls += 1; } }));
+  await job.propose({ app: "nname", repo: "ArielFalcon/nname-gateway", services: [] });
+
+  assert.equal(writeCalls, 0, "propose must never write — only an explicit confirm() does");
+});
+
+/* ── Status DTO round-trip ───────────────────────────────────────────── */
+
+test("status() returns an OnboardingJobStatus-shaped object for every state, including outcome once terminal", async () => {
+  const job = createOnboardingJob(buildDeps());
+  const idleStatus: OnboardingJobStatus = job.status();
+  assert.equal(idleStatus.state, "idle");
+
+  await job.propose({ app: "nname", repo: "ArielFalcon/nname-gateway", services: [] });
+  const doneStatus: OnboardingJobStatus = job.status();
+  assert.equal(doneStatus.state, "done");
+  assert.equal(doneStatus.outcome, "winner");
+  assert.ok(doneStatus.startedAt);
+  assert.ok(doneStatus.finishedAt);
+});
+
+/* status()/confirm() must not leak another app's job. */
+
+test("status(otherApp) while a job for app-x is done+winner returns a SCOPED idle response naming otherApp, not app-x's data", async () => {
+  const job = createOnboardingJob(buildDeps());
+  await job.propose({ app: "app-x", repo: "ArielFalcon/app-x-gateway", services: [] });
+  assert.equal(job.status().state, ONBOARD_STATE.done);
+
+  const scoped = job.status("other-app");
+  assert.equal(scoped.state, ONBOARD_STATE.idle);
+  assert.equal(scoped.app, "other-app");
+  assert.equal(scoped.round, 0);
+  assert.equal(scoped.candidatesScored, 0);
+  assert.equal(scoped.resolvedProfile, undefined, "must never leak app-x's resolved profile onto other-app's status");
+  assert.equal(scoped.outcome, undefined);
+});
+
+test("confirm(otherApp) while a job for app-x is done+winner rejects with both app names and performs ZERO reads or writes", async () => {
+  let writeCalls = 0;
+  let readCalls = 0;
+  const job = createOnboardingJob(buildDeps({ writeConfig: () => { writeCalls += 1; }, readConfig: () => { readCalls += 1; return ""; } }));
+  await job.propose({ app: "app-x", repo: "ArielFalcon/app-x-gateway", services: [] });
+  assert.equal(job.status().state, ONBOARD_STATE.done);
+
+  const result = job.confirm("other-app");
+  assert.equal(result.ok, false);
+  if (!result.ok) {
+    assert.match(result.error, /other-app/);
+    assert.match(result.error, /app-x/);
+  }
+  assert.equal(readCalls, 0, "confirm on a mismatched app must return before ever reading the config");
+  assert.equal(writeCalls, 0, "confirm on a mismatched app must never write app-x's profile under another app's identity");
+});
+
+test("status(app-x) and confirm(app-x) — the SAME app as the current job — behave exactly as the zero-arg calls (regression guard)", async () => {
+  let written: { path: string; content: string } | undefined;
+  const job = createOnboardingJob(buildDeps({
+    readConfig: () => 'name: "app-x"\nrepo: "org/app-x"\n',
+    writeConfig: (path, content) => { written = { path, content }; },
+  }));
+  await job.propose({ app: "app-x", repo: "ArielFalcon/app-x-gateway", services: [] });
+
+  const scoped = job.status("app-x");
+  assert.deepEqual(scoped, job.status());
+
+  const result = job.confirm("app-x");
+  assert.equal(result.ok, true);
+  assert.ok(written, "confirm(app-x) matching the current job's app must still write");
+});
+
+test("zero-arg status() and confirm() keep working exactly as before (backwards-compat regression guard)", async () => {
+  let written: { path: string; content: string } | undefined;
+  const job = createOnboardingJob(buildDeps({
+    readConfig: () => 'name: "app-x"\nrepo: "org/app-x"\n',
+    writeConfig: (path, content) => { written = { path, content }; },
+  }));
+  await job.propose({ app: "app-x", repo: "ArielFalcon/app-x-gateway", services: [] });
+
+  const status = job.status();
+  assert.equal(status.state, ONBOARD_STATE.done);
+  assert.equal(status.outcome, "winner");
+
+  const result = job.confirm();
+  assert.equal(result.ok, true);
+  assert.ok(written, "zero-arg confirm() must still write against the current job");
+});
+
+/* confirm() keeps its SYNCHRONOUS validation+splice contract (boundaries are written before
+   indexing ever starts), then fire-and-forgets an indexing phase mirroring propose()'s own
+   contract. A job WITHOUT deps.indexRepo stays synchronous — every test above this comment omits
+   indexRepo and therefore never exercises the indexing phase.
+ */
+
+function buildIndexedDeps(overrides: Partial<OnboardingJobDeps> = {}) {
+  return buildDeps({
+    readConfig: () => 'name: "nname"\nrepo: "org/nname"\n',
+    writeConfig: () => {},
+    ...overrides,
+  });
+}
+
+test("successful confirm() writes boundaries THEN transitions indexing->done with indexProgress populated, one entry per repo in order", async () => {
+  const indexed: string[] = [];
+  const job = createOnboardingJob(buildIndexedDeps({
+    indexRepo: async (repo: string, _mirrorDir: string): Promise<RepoIndexOutcome> => {
+      indexed.push(repo);
+      return { repo, status: "ok", nodeCount: 10 };
+    },
+  }));
+  await job.propose({ app: "nname", repo: "ArielFalcon/nname-gateway", services: ["ArielFalcon/ms-name-orders"] });
+
+  const result = job.confirm();
+  assert.equal(result.ok, true, "confirm() must still return synchronously once boundaries are spliced");
+
+  await job.settled();
+
+  const status = job.status();
+  assert.equal(status.state, ONBOARD_STATE.done);
+  assert.equal(status.outcome, "winner", "outcome stays winner — indexing is a post-step, not a verdict (ADR-3)");
+  assert.deepEqual(indexed, ["ArielFalcon/nname-gateway", "ArielFalcon/ms-name-orders"], "front indexed before services, in order");
+  assert.deepEqual(status.indexProgress, [
+    { repo: "ArielFalcon/nname-gateway", status: "ok", nodeCount: 10 },
+    { repo: "ArielFalcon/ms-name-orders", status: "ok", nodeCount: 10 },
+  ]);
+});
+
+test("fail-open — indexRepo rejects for one repo, records failed, continues to the next, phase still ends done/winner, and the failure is logged once (redacted) instead of swallowed silently", async () => {
+  const originalWarn = console.warn;
+  const logged: string[] = [];
+  console.warn = (...args: unknown[]) => { logged.push(args.map(String).join(" ")); };
+  try {
+    const job = createOnboardingJob(buildIndexedDeps({
+      ensureMirrorAtBranch: async (repo: string) => `/mirrors/${repo.replaceAll("/", "__")}`,
+      indexRepo: async (repo: string): Promise<RepoIndexOutcome> => {
+        if (repo.endsWith("B")) throw new Error("boom");
+        return { repo, status: "ok", nodeCount: 5 };
+      },
+    }));
+    await job.propose({
+      app: "nname",
+      repo: "ArielFalcon/nname-gateway",
+      services: ["ArielFalcon/svc-B", "ArielFalcon/svc-C"],
+    });
+    job.confirm();
+    await job.settled();
+
+    const status = job.status();
+    assert.equal(status.state, ONBOARD_STATE.done);
+    assert.equal(status.outcome, "winner", "an advisory indexing failure must never fail the durable onboarding outcome");
+    const byRepo = new Map((status.indexProgress ?? []).map((o) => [o.repo, o]));
+    assert.equal(byRepo.get("ArielFalcon/svc-B")?.status, "failed");
+    assert.equal(byRepo.get("ArielFalcon/svc-C")?.status, "ok", "must continue to C after B fails");
+    assert.equal(byRepo.get("ArielFalcon/nname-gateway")?.status, "ok");
+    assert.equal(logged.length, 1, "the indexRepo failure must be logged exactly once, not swallowed silently");
+    assert.match(logged[0] ?? "", /indexRepo failed/i, "the log line must be identifiable as an indexRepo failure");
+    assert.match(logged[0] ?? "", /boom/, "the log line must carry the (redacted) error detail");
+  } finally {
+    console.warn = originalWarn;
+  }
+});
+
+test("a never-resolving indexRepo is bounded by indexTimeoutMs, degrades that repo to failed, and the phase continues", async () => {
+  const job = createOnboardingJob(buildIndexedDeps({
+    ensureMirrorAtBranch: async (repo: string) => `/mirrors/${repo.replaceAll("/", "__")}`,
+    indexTimeoutMs: 20,
+    indexRepo: async (repo: string): Promise<RepoIndexOutcome> => {
+      if (repo.endsWith("slow")) {
+        return new Promise(() => {
+          /* never resolves — the per-repo timeout must be what ends this, not this promise. */
+        });
+      }
+      return { repo, status: "ok", nodeCount: 3 };
+    },
+  }));
+  await job.propose({
+    app: "nname",
+    repo: "ArielFalcon/nname-gateway",
+    services: ["ArielFalcon/svc-slow", "ArielFalcon/svc-fast"],
+  });
+  job.confirm();
+  await job.settled();
+
+  const status = job.status();
+  assert.equal(status.state, ONBOARD_STATE.done);
+  const byRepo = new Map((status.indexProgress ?? []).map((o) => [o.repo, o]));
+  assert.equal(byRepo.get("ArielFalcon/svc-slow")?.status, "failed");
+  assert.equal(byRepo.get("ArielFalcon/svc-fast")?.status, "ok", "the phase continues past a timed-out repo");
+});
+
+test("a job with NO indexRepo dep behaves byte-identical to today — confirm() stays synchronous, no indexing phase, no indexProgress", async () => {
+  let written: { path: string; content: string } | undefined;
+  const job = createOnboardingJob(buildDeps({
+    readConfig: () => 'name: "nname"\nrepo: "org/nname"\n',
+    writeConfig: (path, content) => { written = { path, content }; },
+  }));
+  await job.propose({ app: "nname", repo: "ArielFalcon/nname-gateway", services: [] });
+
+  const result = job.confirm();
+  assert.equal(result.ok, true);
+  assert.ok(written, "the deferred (no indexRepo) path must still write synchronously on confirm");
+
+  const status = job.status();
+  assert.equal(status.state, ONBOARD_STATE.done, "must stay done — no indexing phase without the dep");
+  assert.equal(status.indexProgress, undefined);
+});
+
+test("isActive() (the mutex) is true DURING indexing and false only once indexing completes", async () => {
+  let resolveIndex!: (o: RepoIndexOutcome) => void;
+  const job = createOnboardingJob(buildIndexedDeps({
+    indexRepo: (repo: string) => new Promise<RepoIndexOutcome>((resolve) => { resolveIndex = resolve; void repo; }),
+  }));
+  await job.propose({ app: "nname", repo: "ArielFalcon/nname-gateway", services: [] });
+  assert.equal(job.isActive(), false, "mutex is released after propose()'s own run() completes, before confirm()");
+
+  const result = job.confirm();
+  assert.equal(result.ok, true);
+  await new Promise((r) => setImmediate(r)); /* let the fire-and-forget runIndexing() re-acquire the mutex */
+
+  assert.equal(job.isActive(), true, "the mutex must be re-held while indexing runs (torn-index rationale)");
+  resolveIndex({ repo: "ArielFalcon/nname-gateway", status: "ok", nodeCount: 1 });
+  await job.settled();
+  assert.equal(job.isActive(), false, "the mutex is released again once indexing's finally clears it");
+});
+
+/* additive dep on OnboardingJobDeps (mirrors indexRepo?'s precedent), populated in run()'s own
+   winner branch — BEFORE confirm() is ever called, unlike the post-confirm indexing phase above.
+ */
+
+test("a winning run with resolveLinks attaches the aggregated per-edge resolution summary to the status", async () => {
+  const resolveLinksResult: ResolveLinksResult = {
+    links: [
+      { from: { repo: "org/web", file: "a.api.ts", symbol: "getX" }, to: { repo: "org/svc-a", file: "x.ts", symbol: "opX" }, transport: "http", confidence: 1, source: "openapi" },
+      { from: { repo: "org/web", file: "b.api.ts", symbol: "getY" }, to: { repo: "org/svc-a", file: "y.ts", symbol: "opY" }, transport: "http", confidence: 1, source: "openapi" },
+    ],
+    drift: [],
+    external: [],
+    unresolved: [],
+  };
+  const job = createOnboardingJob(buildDeps({
+    resolveLinks: async () => resolveLinksResult,
+  }));
+
+  await job.propose({ app: "nname", repo: "ArielFalcon/nname-gateway", services: ["ArielFalcon/ms-name-orders"] });
+  await job.settled();
+
+  const status = job.status();
+  assert.equal(status.outcome, "winner");
+  assert.deepEqual(status.resolution?.edges, [
+    { fromRepo: "org/web", toRepo: "org/svc-a", transport: "http", calls: 2 },
+  ]);
+  assert.equal(status.resolution?.unresolved, 0);
+});
+
+test("a winning run WITHOUT a resolveLinks dep still finishes winner with resolution undefined (additive-safe, mirrors indexRepo?'s precedent)", async () => {
+  const job = createOnboardingJob(buildDeps());
+  await job.propose({ app: "nname", repo: "ArielFalcon/nname-gateway", services: [] });
+
+  const status = job.status();
+  assert.equal(status.outcome, "winner");
+  assert.equal(status.resolution, undefined);
+});
+
+test("a winning run whose resolveLinks throws still finishes winner; resolution is swallowed to undefined, and the failure is logged once (redacted) instead of swallowed silently (advisory-only, never flips the outcome; review #1+#6)", async () => {
+  const originalWarn = console.warn;
+  const logged: string[] = [];
+  console.warn = (...args: unknown[]) => { logged.push(args.map(String).join(" ")); };
+  try {
+    const job = createOnboardingJob(buildDeps({
+      resolveLinks: async () => { throw new Error("resolver exploded"); },
+    }));
+    await job.propose({ app: "nname", repo: "ArielFalcon/nname-gateway", services: [] });
+
+    const status = job.status();
+    assert.equal(status.state, ONBOARD_STATE.done);
+    assert.equal(status.outcome, "winner", "a resolveLinks failure must never flip the winner outcome");
+    assert.equal(status.resolution, undefined);
+    assert.equal(logged.length, 1, "the resolveLinks failure must be logged exactly once, not swallowed silently");
+    assert.match(logged[0] ?? "", /resolveLinks failed/i, "the log line must be identifiable as a resolveLinks failure");
+  } finally {
+    console.warn = originalWarn;
+  }
+});
+
+/* ── Post-confirm / no-profile architecture-map phase (context.json onboarding) ──
+   Spec 2026-09-13-onboarding-architecture-map-design.md. enqueueContextRun is additive-optional
+   (mirrors indexRepo). Mapping never holds busy (the context run would deadlock on isActive()).
+ */
+
+function buildMappedDeps(overrides: Partial<OnboardingJobDeps> = {}): OnboardingJobDeps {
+  return buildIndexedDeps({
+    indexRepo: async (repo: string): Promise<RepoIndexOutcome> => ({ repo, status: "ok", nodeCount: 10 }),
+    enqueueContextRun: () => "run_map_1",
+    getContextRun: () => ({ runId: "run_map_1", status: "done", step: "decide", verdict: "pass" }),
+    mappingPollMs: 1,
+    ...overrides,
+  });
+}
+
+test("confirm() indexes then maps then done — outcome stays winner, mappingProgress carries the run", async () => {
+  const job = createOnboardingJob(buildMappedDeps());
+  await job.propose({ app: "nname", repo: "ArielFalcon/nname-gateway", services: ["ArielFalcon/ms-name-orders"] });
+
+  const result = job.confirm();
+  assert.equal(result.ok, true);
+  await job.settled();
+
+  const status = job.status();
+  assert.equal(status.state, ONBOARD_STATE.done);
+  assert.equal(status.outcome, "winner");
+  assert.equal(status.mappingProgress?.runId, "run_map_1");
+  assert.equal(status.mappingProgress?.verdict, "pass");
+  assert.equal(status.indexProgress?.length, 2, "indexing still populated when mapping follows");
+});
+
+test("after indexing the next observed state is mapping, never a premature done", async () => {
+  let resolveIndex!: (o: RepoIndexOutcome) => void;
+  let resolveEnqueue!: (id: string) => void;
+  const job = createOnboardingJob(buildMappedDeps({
+    indexRepo: () => new Promise<RepoIndexOutcome>((resolve) => { resolveIndex = resolve; }),
+    enqueueContextRun: () => new Promise<string>((resolve) => { resolveEnqueue = resolve; }),
+    getContextRun: () => ({ runId: "run_map_1", status: "done", verdict: "pass" }),
+  }));
+  await job.propose({ app: "nname", repo: "ArielFalcon/nname-gateway", services: [] });
+  job.confirm();
+  await new Promise((r) => setImmediate(r));
+  assert.equal(job.status().state, ONBOARD_STATE.indexing);
+
+  resolveIndex({ repo: "ArielFalcon/nname-gateway", status: "ok", nodeCount: 1 });
+  for (let i = 0; i < 10 && job.status().state === ONBOARD_STATE.indexing; i++) {
+    await new Promise((r) => setImmediate(r));
+  }
+
+  assert.equal(job.status().state, ONBOARD_STATE.mapping, "coordinator must not set done between indexing and mapping");
+  assert.equal(job.isActive(), false, "busy is released so the context run is not parked");
+
+  resolveEnqueue("run_map_1");
+  await job.settled();
+});
+
+test("enqueueContextRun throws — fail-open done/winner with error, never failed, and the failure is logged once (redacted) instead of swallowed silently", async () => {
+  const originalWarn = console.warn;
+  const logged: string[] = [];
+  console.warn = (...args: unknown[]) => { logged.push(args.map(String).join(" ")); };
+  try {
+    const job = createOnboardingJob(buildMappedDeps({
+      enqueueContextRun: () => { throw new Error("queue exploded"); },
+    }));
+    await job.propose({ app: "nname", repo: "ArielFalcon/nname-gateway", services: [] });
+    job.confirm();
+    await job.settled();
+
+    const status = job.status();
+    assert.equal(status.state, ONBOARD_STATE.done);
+    assert.equal(status.outcome, "winner");
+    assert.match(status.error ?? "", /queue exploded/);
+    assert.equal(logged.length, 1, "the runMapping failure must be logged exactly once, not swallowed silently");
+    assert.match(logged[0] ?? "", /runMapping failed/i, "the log line must be identifiable as a runMapping failure");
+    assert.match(logged[0] ?? "", /queue exploded/, "the log line must carry the (redacted) error detail");
+  } finally {
+    console.warn = originalWarn;
+  }
+});
+
+test("propose() is rejected while mapping is in flight", async () => {
+  let resolveEnqueue!: (id: string) => void;
+  const job = createOnboardingJob(buildMappedDeps({
+    enqueueContextRun: () => new Promise<string>((resolve) => { resolveEnqueue = resolve; }),
+  }));
+  await job.propose({ app: "nname", repo: "ArielFalcon/nname-gateway", services: [] });
+  job.confirm();
+  for (let i = 0; i < 20 && job.status().state !== ONBOARD_STATE.mapping; i++) {
+    await new Promise((r) => setImmediate(r));
+  }
+  assert.equal(job.status().state, ONBOARD_STATE.mapping);
+
+  const blocked = job.propose({ app: "nname", repo: "ArielFalcon/nname-gateway", services: [] });
+  assert.equal(blocked instanceof Promise, false, "mutex rejection is synchronous");
+  assert.deepEqual(blocked, { ok: false, error: "an onboarding job is already running" });
+
+  resolveEnqueue("run_map_1");
+  await job.settled();
+});
+
+test("no-profile propose maps then done/no-profile — never a premature done", async () => {
+  let resolveEnqueue!: (id: string) => void;
+  const job = createOnboardingJob(buildMappedDeps({
+    buildProposer: () => noWinnerProposer(),
+    indexRepo: undefined,
+    enqueueContextRun: () => new Promise<string>((resolve) => { resolveEnqueue = resolve; }),
+  }));
+  const kickoff = job.propose({ app: "nname", repo: "ArielFalcon/nname-gateway", services: [] });
+  for (let i = 0; i < 20 && job.status().state !== ONBOARD_STATE.mapping; i++) {
+    await new Promise((r) => setImmediate(r));
+  }
+
+  const mid = job.status();
+  assert.equal(mid.state, ONBOARD_STATE.mapping);
+  assert.equal(mid.outcome, ONBOARD_OUTCOME.noProfile);
+
+  resolveEnqueue("run_map_1");
+  await kickoff;
+  await job.settled();
+
+  const status = job.status();
+  assert.equal(status.state, ONBOARD_STATE.done);
+  assert.equal(status.outcome, ONBOARD_OUTCOME.noProfile);
+  assert.equal(status.mappingProgress?.runId, "run_map_1");
+});
+
+test("a job with enqueueContextRun but no indexRepo still maps after confirm", async () => {
+  const job = createOnboardingJob(buildDeps({
+    readConfig: () => 'name: "nname"\nrepo: "org/nname"\n',
+    writeConfig: () => {},
+    enqueueContextRun: () => "run_map_1",
+    getContextRun: () => ({ runId: "run_map_1", status: "done", verdict: "pass" }),
+    mappingPollMs: 1,
+  }));
+  await job.propose({ app: "nname", repo: "ArielFalcon/nname-gateway", services: [] });
+  job.confirm();
+  await job.settled();
+
+  assert.equal(job.status().state, ONBOARD_STATE.done);
+  assert.equal(job.status().mappingProgress?.runId, "run_map_1");
+  assert.equal(job.status().indexProgress, undefined);
+});
+
+test("enqueue returns empty string (shutdown) — skip mapping, done/winner, no error", async () => {
+  const job = createOnboardingJob(buildMappedDeps({
+    enqueueContextRun: () => "",
+  }));
+  await job.propose({ app: "nname", repo: "ArielFalcon/nname-gateway", services: [] });
+  job.confirm();
+  await job.settled();
+
+  const status = job.status();
+  assert.equal(status.state, ONBOARD_STATE.done);
+  assert.equal(status.outcome, "winner");
+  assert.equal(status.error, undefined, "empty enqueue is a skip, not a fail-open warning");
+});
+
+test("getContextRun missing after enqueue — fail-open done/winner with error, never failed", async () => {
+  const job = createOnboardingJob(buildMappedDeps({
+    getContextRun: undefined,
+  }));
+  await job.propose({ app: "nname", repo: "ArielFalcon/nname-gateway", services: [] });
+  job.confirm();
+  await job.settled();
+
+  const status = job.status();
+  assert.equal(status.state, ONBOARD_STATE.done);
+  assert.equal(status.outcome, "winner");
+  assert.match(status.error ?? "", /architecture map status unavailable/);
+});
+
+test("poll exceeding mappingTimeoutMs — fail-open done/winner with error, run left running", async () => {
+  const job = createOnboardingJob(buildMappedDeps({
+    mappingPollMs: 5,
+    mappingTimeoutMs: 20,
+    getContextRun: () => ({ runId: "run_map_1", status: "running", step: "generate" }),
+  }));
+  await job.propose({ app: "nname", repo: "ArielFalcon/nname-gateway", services: [] });
+  job.confirm();
+  await job.settled();
+
+  const status = job.status();
+  assert.equal(status.state, ONBOARD_STATE.done);
+  assert.equal(status.outcome, "winner");
+  assert.match(status.error ?? "", /architecture map timed out/);
+  assert.equal(status.mappingProgress?.runId, "run_map_1");
+});
+
+test("map completing with verdict fail is still successful onboarding — verdict in mappingProgress, not error", async () => {
+  const job = createOnboardingJob(buildMappedDeps({
+    getContextRun: () => ({ runId: "run_map_1", status: "done", step: "decide", verdict: "fail" }),
+  }));
+  await job.propose({ app: "nname", repo: "ArielFalcon/nname-gateway", services: [] });
+  job.confirm();
+  await job.settled();
+
+  const status = job.status();
+  assert.equal(status.state, ONBOARD_STATE.done);
+  assert.equal(status.outcome, "winner");
+  assert.equal(status.mappingProgress?.verdict, "fail");
+  assert.equal(status.error, undefined, "a failed map verdict must not be copied into job error");
+});
+
+
+/* ── The login phase: after the map, a run that authors the app's login and proves it ── */
+
+function buildLoginDeps(overrides: Partial<OnboardingJobDeps> = {}): OnboardingJobDeps {
+  return buildMappedDeps({
+    enqueueLoginRun: () => "run_login_1",
+    getLoginRun: () => ({ runId: "run_login_1", status: "done", step: "decide", verdict: "pass" }),
+    loginPollMs: 1,
+    ...overrides,
+  });
+}
+
+async function onboardAndConfirm(job: ReturnType<typeof createOnboardingJob>): Promise<void> {
+  await job.propose({ app: "nname", repo: "ArielFalcon/nname-gateway", services: [] });
+  job.confirm();
+  await job.settled();
+}
+
+test("ONBOARD_STATE has a login phase and LOGIN_STATUS names its three endings", () => {
+  assert.equal(ONBOARD_STATE.login, "login");
+  assert.deepEqual(Object.values(LOGIN_STATUS).sort(), ["failed", "unauthored", "verified"]);
+});
+
+test("confirm() maps THEN logs in THEN done: the login starts only after the map ended, and an accepted login run is verified", async () => {
+  const order: string[] = [];
+  const job = createOnboardingJob(buildLoginDeps({
+    enqueueContextRun: () => { order.push("map"); return "run_map_1"; },
+    enqueueLoginRun: ({ app, mirrorDir }) => { order.push(`login:${app}:${mirrorDir}`); return "run_login_1"; },
+  }));
+  await onboardAndConfirm(job);
+
+  const status = job.status();
+  assert.deepEqual(order.map((o) => o.split(":")[0]), ["map", "login"]);
+  assert.equal(order[1]?.startsWith("login:nname:"), true, "the login run is for the onboarded app, at its front mirror");
+  assert.equal(status.state, ONBOARD_STATE.done);
+  assert.equal(status.outcome, "winner");
+  assert.deepEqual(status.loginProgress, { runId: "run_login_1", step: "decide", verdict: "pass", status: "verified" });
+  assert.equal(status.error, undefined);
+});
+
+test("the observed state after the map is login, never a premature done, and the login does not hold the onboarding mutex", async () => {
+  let resolveLogin!: (id: string) => void;
+  const job = createOnboardingJob(buildLoginDeps({ enqueueLoginRun: () => new Promise<string>((resolve) => { resolveLogin = resolve; }) }));
+  await job.propose({ app: "nname", repo: "ArielFalcon/nname-gateway", services: [] });
+  job.confirm();
+  for (let i = 0; i < 50 && job.status().state !== ONBOARD_STATE.login; i++) await new Promise((r) => setImmediate(r));
+
+  assert.equal(job.status().state, ONBOARD_STATE.login);
+  assert.equal(job.isActive(), false, "busy is released so the login run is not parked");
+  const rejected = job.propose({ app: "nname", repo: "ArielFalcon/nname-gateway", services: [] });
+  assert.deepEqual(rejected instanceof Promise ? undefined : rejected, { ok: false, error: "an onboarding job is already running" });
+
+  resolveLogin("run_login_1");
+  await job.settled();
+  assert.equal(job.status().state, ONBOARD_STATE.done);
+});
+
+test("a login run's verdict decides the login status: pass verified, infra-error failed, anything else unauthored", async () => {
+  const expected: Array<[string, string]> = [["pass", "verified"], ["infra-error", "failed"], ["fail", "unauthored"], ["invalid", "unauthored"], ["skipped", "unauthored"], ["flaky", "unauthored"]];
+  for (const [verdict, login] of expected) {
+    const job = createOnboardingJob(buildLoginDeps({ getLoginRun: () => ({ runId: "run_login_1", status: "done", verdict }) }));
+    await onboardAndConfirm(job);
+    assert.equal(job.status().loginProgress?.status, login, verdict);
+    assert.equal(job.status().state, ONBOARD_STATE.done, `${verdict}: a login that did not verify never fails onboarding`);
+  }
+});
+
+test("a login run that ends with no verdict is failed: it did not tell", async () => {
+  const job = createOnboardingJob(buildLoginDeps({ getLoginRun: () => ({ runId: "run_login_1", status: "done" }) }));
+  await onboardAndConfirm(job);
+  assert.equal(job.status().loginProgress?.status, "failed");
+});
+
+test("the login run is followed through the context run lookup when no login lookup is wired", async () => {
+  const job = createOnboardingJob(buildLoginDeps({
+    getLoginRun: undefined,
+    getContextRun: (id) => ({ runId: id, status: "done", step: "decide", verdict: id === "run_login_1" ? "pass" : "pass" }),
+  }));
+  await onboardAndConfirm(job);
+  assert.equal(job.status().loginProgress?.status, "verified");
+});
+
+test("a login run that never ends is failed once loginTimeoutMs passes, and onboarding is still done", async () => {
+  const job = createOnboardingJob(buildLoginDeps({
+    loginPollMs: 5,
+    loginTimeoutMs: 20,
+    getLoginRun: () => ({ runId: "run_login_1", status: "running", step: "generate" }),
+  }));
+  await onboardAndConfirm(job);
+  const status = job.status();
+  assert.equal(status.state, ONBOARD_STATE.done);
+  assert.deepEqual(status.loginProgress, { runId: "run_login_1", step: "generate", verdict: undefined, status: "failed" });
+});
+
+test("a login phase that throws is failed and logged once, redacted; onboarding is still done/winner", async () => {
+  const originalWarn = console.warn;
+  const logged: string[] = [];
+  console.warn = (...args: unknown[]) => { logged.push(args.map(String).join(" ")); };
+  try {
+    const job = createOnboardingJob(buildLoginDeps({ enqueueLoginRun: () => { throw new Error("queue exploded"); } }));
+    await onboardAndConfirm(job);
+    const status = job.status();
+    assert.equal(status.state, ONBOARD_STATE.done);
+    assert.equal(status.outcome, "winner");
+    assert.equal(status.loginProgress?.status, "failed");
+    assert.equal(status.error, undefined, "the login is advisory: it is reported on loginProgress, not as a job error");
+    assert.equal(logged.filter((line) => line.includes("onboarding runLogin failed")).length, 1);
+  } finally {
+    console.warn = originalWarn;
+  }
+});
+
+test("an empty run id (the service is shutting down) leaves no login progress and the job done", async () => {
+  const job = createOnboardingJob(buildLoginDeps({ enqueueLoginRun: () => "" }));
+  await onboardAndConfirm(job);
+  assert.equal(job.status().state, ONBOARD_STATE.done);
+  assert.equal(job.status().loginProgress, undefined);
+});
+
+test("an app without a form login and a job without enqueueLoginRun never start the login phase", async () => {
+  for (const [name, over] of [
+    ["no login", { hasLogin: () => false }],
+    ["hasLogin throws", { hasLogin: () => { throw new Error("config gone"); } }],
+    ["not wired", { enqueueLoginRun: undefined }],
+  ] as const) {
+    let enqueued = 0;
+    const job = createOnboardingJob(buildLoginDeps({ enqueueLoginRun: () => { enqueued += 1; return "run_login_1"; }, ...over }));
+    await onboardAndConfirm(job);
+    assert.equal(enqueued, 0, name);
+    assert.equal(job.status().loginProgress, undefined, name);
+    assert.equal(job.status().state, ONBOARD_STATE.done, name);
+  }
+});
+
+test("a map that timed out leaves the queue occupied, so no login run is enqueued behind it", async () => {
+  let enqueued = 0;
+  const job = createOnboardingJob(buildLoginDeps({
+    mappingPollMs: 5,
+    mappingTimeoutMs: 20,
+    getContextRun: () => ({ runId: "run_map_1", status: "running" }),
+    enqueueLoginRun: () => { enqueued += 1; return "run_login_1"; },
+  }));
+  await onboardAndConfirm(job);
+  assert.equal(enqueued, 0);
+  assert.match(job.status().error ?? "", /architecture map timed out/);
+  assert.equal(job.status().loginProgress, undefined);
+});
+
+test("a job with a login phase but no map still logs in after confirm", async () => {
+  const job = createOnboardingJob(buildLoginDeps({ enqueueContextRun: undefined, getContextRun: undefined }));
+  await onboardAndConfirm(job);
+  assert.equal(job.status().state, ONBOARD_STATE.done);
+  assert.equal(job.status().mappingProgress, undefined);
+  assert.equal(job.status().loginProgress?.status, "verified");
+});
+
+test("a no-profile round maps, logs in, then lands done/no-profile", async () => {
+  const states: string[] = [];
+  const job = createOnboardingJob(buildLoginDeps({
+    buildProposer: () => noWinnerProposer(),
+    indexRepo: undefined,
+    getLoginRun: () => { states.push(job.status().state); return { runId: "run_login_1", status: "done", verdict: "pass" }; },
+  }));
+  await job.propose({ app: "nname", repo: "ArielFalcon/nname-gateway", services: [] });
+  await job.settled();
+  const status = job.status();
+  assert.deepEqual(states, [ONBOARD_STATE.login]);
+  assert.equal(status.state, ONBOARD_STATE.done);
+  assert.equal(status.outcome, ONBOARD_OUTCOME.noProfile);
+  assert.equal(status.loginProgress?.status, "verified");
+});

@@ -167,7 +167,7 @@ test("every preset resolves against the real sources", () => {
 });
 
 test("every mutation-scope marker pair in the sources is named by a preset", () => {
-  const files = ["qa-engine/src", "src"].flatMap(sourcesUnder);
+  const files = ["qa-engine/src", "platform"].flatMap(sourcesUnder);
   assert.deepEqual(markerProblemsOf(PRESETS, files, readFromRepo), []);
 });
 
@@ -327,7 +327,7 @@ test("the repo-reads preset mutates the reader of a repository's files, the line
     "qa-engine/src/contexts/service-topology/infrastructure/http-backend-resolver.adapter.ts",
     "qa-engine/src/contexts/service-topology/infrastructure/openapi-http-resolver.adapter.ts",
     "qa-engine/src/contexts/service-topology/application/stage-service-context.ts",
-    "src/composition/service-context.ts",
+    "platform/composition/service-context.ts",
   ]);
   assert.ok(
     preset.mutate.filter((entry) => !entry.endsWith("repo-reader.ts") && !entry.endsWith("repo-walk.ts")).every((entry) => sourcePathOf(entry) !== entry),
@@ -394,17 +394,17 @@ test("the step-limit preset mutates the resolver, the lines that read, judge and
   const preset = PRESETS["step-limit"];
   assert.ok(preset, "the step-limit preset exists");
   assert.deepEqual([...new Set(preset.mutate.map(sourcePathOf))], [
-    "src/agent-runtime/step-limit.ts",
-    "src/agent-runtime/opencode-strategy.ts",
-    "src/agent-runtime/facades.ts",
-    "src/agent-runtime/opencode-client.ts",
-    "src/composition/run-engine-factory.ts",
+    "platform/agent-runtime/step-limit.ts",
+    "platform/agent-runtime/opencode-strategy.ts",
+    "platform/agent-runtime/facades.ts",
+    "platform/agent-runtime/opencode-client.ts",
+    "platform/composition/run-engine-factory.ts",
   ]);
   for (const module of ["step-limit", "opencode-strategy", "facades", "opencode-agents", "opencode-client", "run-engine-factory.step-limit"]) {
     assert.ok(preset.tests.some((t) => t.endsWith(`${module}.test.ts`)), `${module}'s tests run against every mutant`);
   }
   assert.ok(
-    !preset.tests.includes("src/composition/run-engine-factory.test.ts"),
+    !preset.tests.includes("platform/composition/run-engine-factory.test.ts"),
     "the memo's own tests stand apart from the factory's whole test file, which would run once per mutant",
   );
   assert.equal(preset.thresholds.break, null, "a new preset starts in signal mode");
@@ -588,10 +588,10 @@ test("the checker type-checks the mutated file without its anchor, with the opti
   assert.equal(engine.extends, "/repo/qa-engine/tsconfig.json");
 
   const shell = checkerTsconfigFor(
-    { description: "x", mutate: ["src/entrypoints/auth.ts@scope"], tests: ["t.ts"], thresholds: { high: 90, low: 80, break: null } },
+    { description: "x", mutate: ["platform/entrypoints/auth.ts@scope"], tests: ["t.ts"], thresholds: { high: 90, low: 80, break: null } },
     "/repo",
   ) as { extends: string; files: string[] };
-  assert.deepEqual(shell.files, ["/repo/src/entrypoints/auth.ts"]);
+  assert.deepEqual(shell.files, ["/repo/platform/entrypoints/auth.ts"]);
   assert.equal(shell.extends, "/repo/tsconfig.json");
 });
 

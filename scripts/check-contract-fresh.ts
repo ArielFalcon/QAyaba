@@ -1,7 +1,7 @@
 /*
  * Contract freshness gate (npm run contract:check): regenerates contract/openapi.json, the
  * SDK's generated types and the Go client's generated types into a temp directory and diffs them
- * against the committed files — catches a src/entrypoints/contract/*.ts (zod) edit that shipped without
+ * against the committed files — catches a platform/entrypoints/contract/*.ts (zod) edit that shipped without
  * rerunning `npm run contract:gen && npm run sdk:gen && make -C client gen`. This is a step of its own in
  * .github/workflows/ci.yml rather than folded into `npm test`: openapi.test.ts's "committed and
  * up to date" assertion already covers contract/openapi.json as part of the suite, but nothing
@@ -14,7 +14,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { buildOpenApiDocument } from "../src/entrypoints/contract/openapi.ts";
+import { buildOpenApiDocument } from "../platform/entrypoints/contract/openapi.ts";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const OPENAPI_JSON_PATH = join(ROOT, "contract", "openapi.json");

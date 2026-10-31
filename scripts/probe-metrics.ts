@@ -18,8 +18,8 @@ import { isContentReadTool } from "@contexts/generation/application/index.ts";
 import { PROMPT_HEADINGS } from "@contexts/generation/application/index.ts";
 import type { ToolSequenceEntry } from "@contexts/generation/application/index.ts";
 import type { TurnCallMetrics } from "@contexts/generation/application/index.ts";
-import type { AgentTurnRecord } from "../src/persistence/repositories/telemetry.repository.ts";
-import type { RunOutcome, RunRecord } from "../src/persistence/types.ts";
+import type { AgentTurnRecord } from "../platform/persistence/repositories/telemetry.repository.ts";
+import type { RunOutcome, RunRecord } from "../platform/persistence/types.ts";
 
 /* ── phases ────────────────────────────────────────────────────────────────────────── */
 

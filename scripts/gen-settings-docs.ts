@@ -1,5 +1,5 @@
 /*
- * Writes docs/settings.md from the settings registry (src/settings/registry.ts): one table per group with the
+ * Writes docs/settings.md from the settings registry (platform/settings/registry.ts): one table per group with the
  * environment variable, the field that carries it, its type, default, whether it is required or secret, and what
  * it does. A secret shows no default and no value.
  *
@@ -8,7 +8,7 @@
 import { writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { SETTING_GROUPS, SETTINGS_REGISTRY, type SettingDef } from "../src/settings/registry";
+import { SETTING_GROUPS, SETTINGS_REGISTRY, type SettingDef } from "../platform/settings/registry";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 export const SETTINGS_DOC_PATH = join(ROOT, "docs", "settings.md");
@@ -45,7 +45,7 @@ export function renderSettingsDocs(registry: readonly SettingDef[] = SETTINGS_RE
   const lines: string[] = [
     "# Settings",
     "",
-    "Generated from `src/settings/registry.ts` by `npm run settings:gen`; do not edit by hand. `npm run settings:check` fails when this file is stale.",
+    "Generated from `platform/settings/registry.ts` by `npm run settings:gen`; do not edit by hand. `npm run settings:check` fails when this file is stale.",
     "",
     "The orchestrator reads its environment once, in `loadSettings(env)`. An empty value counts as unset. A value that cannot be parsed stops the start with one error that lists every offending variable (never a secret's value). The field column is the path in the typed `Settings` object; `-` marks a variable that is read live from `Settings.environment` (a child's environment, a secret redacted by value) or only by a child process. A secret never appears in a dump of the settings: it shows as `[set]`. One field has no variable: `server.drainMs` is the fixed window a cancelled run gets to unwind on shutdown (see `DEFAULT_DRAIN_MS`).",
     "",

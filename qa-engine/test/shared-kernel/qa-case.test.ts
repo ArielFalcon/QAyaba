@@ -2,18 +2,18 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { QaCase } from "@kernel/qa-case.ts";
 
-/* src/persistence/types.ts's QaCase carries `runtimeErrors` (app-defect
+/* platform/persistence/types.ts's QaCase carries `runtimeErrors` (app-defect
    detection via browser console/page-error capture); the kernel QaCase did not, before this task.
    Any scenario exercising Rule 2.6 (runtime-error -> app_defect) could not
    reproduce through the port -- a false-green surface INSIDE the safety net. This test asserts the
-   kernel VO structurally accepts the same shape as src/persistence/types.ts's QaCase.runtimeErrors
+   kernel VO structurally accepts the same shape as platform/persistence/types.ts's QaCase.runtimeErrors
    (`{ type: string; text: string }[]`), including the absent-warned best-effort contract (optional,
    omittable). Type-level acceptance is the "test" here since QaCase is a plain data interface with
    no constructor/guard to unit-test — the compiler is the RED/GREEN oracle (tsc rejects the
    `runtimeErrors` field pre-widen, accepts it post-widen).
  */
 
-test("QaCase: accepts runtimeErrors as an optional array of { type, text } (mirrors src/persistence/types.ts QaCase.runtimeErrors)", () => {
+test("QaCase: accepts runtimeErrors as an optional array of { type, text } (mirrors platform/persistence/types.ts QaCase.runtimeErrors)", () => {
   const withRuntimeErrors: QaCase = {
     name: "checkout flow",
     status: "fail",

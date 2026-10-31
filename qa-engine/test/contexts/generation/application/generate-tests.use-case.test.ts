@@ -306,7 +306,7 @@ test("manifest.reconcile receives the run's spec root: the mirror, and the spec 
 
 /* ── manifest-enrichment fix: entries are built from specMetas, stamped with changeRef ─────────
    Live-run root cause: the engine assembled rawEntries from deliverable.specs alone
-   (objective:"", no targets/changeRef), which the real manifest schema (src/entrypoints/
+   (objective:"", no targets/changeRef), which the real manifest schema (platform/entrypoints/
    schemas.ts ManifestEntrySchema) always rejects — verdict=invalid on every real run that reached
    the static gate with a non-empty manifest. Entries
    come from specMetas (objective/flow/targets from the agent), changeRef stamped by the
@@ -554,7 +554,7 @@ test("follow-up #27: a malformed generator verdict triggers ONE bounded repair w
 
 /* ── manifest schema conformance: assembled entries satisfy the real static-gate schema ─────────
    Cross-checks the assembled entry shape against the ACTUAL ManifestEntrySchema the orchestrator's
-   static gate validates (src/entrypoints/schemas.ts) — replicated here (qa-engine does not import
+   static gate validates (platform/entrypoints/schemas.ts) — replicated here (qa-engine does not import
    from src/, per the src/-independence invariant) as the same field/type assertions the schema
    encodes: id/objective/flow non-empty strings, targets a non-empty array, changeRef.sha/type
    non-empty strings. This is the exact shape whose absence produced the live-run "invalid" verdict.
@@ -606,7 +606,7 @@ test("assembled manifest entries satisfy the real ManifestEntrySchema shape (obj
 
   const entry = reconcileArgs?.[0];
   assert.ok(entry, "an entry was produced");
-  /* Replicates ManifestEntrySchema's field checks (src/entrypoints/schemas.ts:137-148). */
+  /* Replicates ManifestEntrySchema's field checks (platform/entrypoints/schemas.ts:137-148). */
   assert.ok(typeof entry?.id === "string" && entry.id.length > 0, "id: non-empty string");
   assert.ok(typeof entry?.objective === "string" && entry.objective.length > 0, "objective: non-empty string");
   assert.ok(typeof entry?.flow === "string" && entry.flow.length > 0, "flow: non-empty string");

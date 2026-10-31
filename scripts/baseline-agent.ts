@@ -50,7 +50,7 @@ import { CallEfficiencyTracker } from "@contexts/generation/infrastructure/sse/c
 import { buildTurnStepBudget, type TurnCallMetrics } from "@contexts/generation/application/index.ts";
 import { finalStepText } from "@contexts/generation/application/index.ts";
 import { AUTH_MATERIAL_FILES } from "../qa-engine/src/shared-infrastructure/process-sandbox/auth-session-env.ts";
-import { EXPERIMENT_COPIES_DIR, WARM_SNAPSHOTS_DIR } from "../src/settings/paths.ts";
+import { EXPERIMENT_COPIES_DIR, WARM_SNAPSHOTS_DIR } from "../platform/settings/paths.ts";
 import {
   DEFAULT_SUITE_DIR, contentReadsOf, promptSections, renderMarkdown, scoreGroundTruth, totalsOf, turnFromCallMetrics, type GroundTruth, type PhaseDurations, type ProbeReport, type ProbeSpec, type ReadingContext,
 } from "./probe-metrics.ts";
@@ -918,15 +918,15 @@ const SUITE_DIR = DEFAULT_SUITE_DIR;
 /** The throwaway copy's real I/O, imported lazily so a test that injects its own never loads the engine. */
 export async function defaultDeps(env: Record<string, string | undefined> = process.env): Promise<BaselineDeps> {
   const { assertQueueIdle, defaultService } = await import("./efficiency-benchmark.ts");
-  const { loadAppConfig } = await import("../src/composition/config-loader.ts");
-  const { workdirRoot, realGit, getCommitMessage, getCommitDiff, listChangedSpecs, defaultMirrorDeps } = await import("../src/composition/repo-mirror.ts");
-  const { buildSetupAdapter, resolveCodeSandbox } = await import("../src/composition/run-engine-factory.ts");
-  const { buildScriptExec } = await import("../src/composition/exec-sandbox-factory.ts");
-  const { egressGateFor, scriptOriginsFor, scriptRegistryOrigins } = await import("../src/composition/egress-wiring.ts");
+  const { loadAppConfig } = await import("../platform/composition/config-loader.ts");
+  const { workdirRoot, realGit, getCommitMessage, getCommitDiff, listChangedSpecs, defaultMirrorDeps } = await import("../platform/composition/repo-mirror.ts");
+  const { buildSetupAdapter, resolveCodeSandbox } = await import("../platform/composition/run-engine-factory.ts");
+  const { buildScriptExec } = await import("../platform/composition/exec-sandbox-factory.ts");
+  const { egressGateFor, scriptOriginsFor, scriptRegistryOrigins } = await import("../platform/composition/egress-wiring.ts");
   const { readConfinedSpecFile, readConfinedSpecBytes } = await import("../qa-engine/src/shared-infrastructure/spec-path-confinement.ts");
   const { runE2E, createDefaultE2eExecuteDeps, e2eTimeoutMs } = await import("../qa-engine/src/contexts/test-execution/infrastructure/e2e-execution.runner.ts");
   const { ProcessKillAdapter } = await import("../qa-engine/src/shared-infrastructure/process-sandbox/process-kill.adapter.ts");
-  const { installHttpDispatcher } = await import("../src/agent-runtime/net.ts");
+  const { installHttpDispatcher } = await import("../platform/agent-runtime/net.ts");
   installHttpDispatcher();
 
   const script = buildScriptExec(env as NodeJS.ProcessEnv, resolveCodeSandbox(env as NodeJS.ProcessEnv), egressGateFor(env as NodeJS.ProcessEnv, resolveCodeSandbox(env as NodeJS.ProcessEnv)));
@@ -935,7 +935,7 @@ export async function defaultDeps(env: Record<string, string | undefined> = proc
   const git = defaultMirrorDeps;
   const slug = (repo: string): string => repo.replaceAll("/", "__");
   const serveUrl = env.OPENCODE_SERVE_URL ?? "http://agents:4096";
-  const { openCodeServerAuth } = await import("../src/agent-runtime/opencode-server-auth.ts");
+  const { openCodeServerAuth } = await import("../platform/agent-runtime/opencode-server-auth.ts");
   const serverAuth = openCodeServerAuth(env);
 
   /* The agent wrote these specs, so they are read only through the confined reader. */
@@ -1151,10 +1151,10 @@ export async function defaultDeps(env: Record<string, string | undefined> = proc
       return { verdict: result.verdict, passed: count("pass"), failed: count("fail"), flaky: count("flaky"), ms: Date.now() - started };
     },
     acceptSpecs: async ({ copyDir, authDir, app, namespace, specs, material, sha, review }) => {
-      const { buildAcceptanceHarness } = await import("../src/composition/run-engine-factory.ts");
+      const { buildAcceptanceHarness } = await import("../platform/composition/run-engine-factory.ts");
       const { AcceptDeliveredSpecsUseCase } = await import("@contexts/run-orchestration/application/index.ts");
       const { Sha } = await import("@kernel/sha.ts");
-      const { defaultAgentDeps } = await import("../src/agent-runtime/opencode-client.ts");
+      const { defaultAgentDeps } = await import("../platform/agent-runtime/opencode-client.ts");
       const full = loadAppConfig(app.name);
       /* The reviewer's sessions are the host's OpenCode sessions, opened only when a review is asked for. */
       const agentDeps = review ? await defaultAgentDeps() : undefined;

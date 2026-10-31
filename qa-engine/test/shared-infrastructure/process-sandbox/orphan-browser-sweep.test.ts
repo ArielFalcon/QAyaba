@@ -35,7 +35,7 @@ test("a browser that is not ours is left alone: another profile directory, no de
   const { deps, killed } = proc({
     "400": ["/usr/bin/chromium", "--remote-debugging-pipe", "--user-data-dir=/home/user/.config/chromium"],
     "401": ["/ms-playwright/chromium/chrome", `--user-data-dir=${ROOT}/run-1/browser-x/profile`],
-    "402": ["node", "tsx", "src/composition/index.ts"],
+    "402": ["node", "tsx", "platform/composition/index.ts"],
     "1": BROWSER,
   });
   assert.equal(sweepOrphanAgentBrowsers(ROOT, deps), 0);

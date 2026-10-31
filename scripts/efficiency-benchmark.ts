@@ -21,13 +21,13 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { RUN_MODES, type RunMode, type TestTarget } from "@kernel/run-mode.ts";
 import type { RunEventBody } from "@kernel/contract/events.ts";
 import { isCommitSha } from "@kernel/git-revision.ts";
-import { QueueStatusSchema } from "../src/entrypoints/contract/commands.ts";
+import { QueueStatusSchema } from "../platform/entrypoints/contract/commands.ts";
 import { classifyRunEfficiency, type CoarseRunEfficiency } from "@contexts/generation/application/index.ts";
 import { CALL_BUCKETS } from "@contexts/generation/application/index.ts";
-import { delegateRun } from "../src/entrypoints/run-delegate.ts";
-import { discoverApiToken } from "../src/settings/api-token.ts";
-import { type RunOutcome, type RunRecord } from "../src/persistence/types.ts";
-import type { AgentTurnRecord } from "../src/persistence/repositories/telemetry.repository.ts";
+import { delegateRun } from "../platform/entrypoints/run-delegate.ts";
+import { discoverApiToken } from "../platform/settings/api-token.ts";
+import { type RunOutcome, type RunRecord } from "../platform/persistence/types.ts";
+import type { AgentTurnRecord } from "../platform/persistence/repositories/telemetry.repository.ts";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -657,14 +657,14 @@ function serviceApiToken(env: Record<string, string | undefined>): string | unde
 }
 
 export async function defaultService(env: Record<string, string | undefined>): Promise<BenchmarkService> {
-  const { resolvePort } = await import("../src/settings/port.ts");
+  const { resolvePort } = await import("../platform/settings/port.ts");
   const token = serviceApiToken(env);
   return { fetch, baseUrl: `http://localhost:${resolvePort(env)}`, ...(token ? { token } : {}) };
 }
 
 /* The orchestrator's own history store, imported lazily so the commands that never read it do not open it. */
 async function historySource(): Promise<(runId: string) => RunDataSource> {
-  const { getHistory } = await import("../src/persistence/index.ts");
+  const { getHistory } = await import("../platform/persistence/index.ts");
   const { runs } = getHistory();
   const source: RunDataSource = {
     events: (runId) => runs.loadRunEvents(runId).map((e) => e.body as RunEventBody),

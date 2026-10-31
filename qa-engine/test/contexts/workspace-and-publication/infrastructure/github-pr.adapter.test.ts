@@ -1,5 +1,5 @@
 /* test/contexts/workspace-and-publication/infrastructure/github-pr.adapter.test.ts
-   HTTP calls itself — the fake here plays the role src/composition/github.ts's `github` object used
+   HTTP calls itself — the fake here plays the role platform/composition/github.ts's `github` object used
    to play, routed by URL so the adapter's own request-shape (endpoint/headers/clamped body) is pinned,
    not just the call sequence.
  */

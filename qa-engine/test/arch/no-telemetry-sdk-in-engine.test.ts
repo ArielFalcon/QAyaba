@@ -1,4 +1,4 @@
-/* The engine sees tracing only through the TelemetryPort in shared-kernel/telemetry. The OpenTelemetry SDK (and any Langfuse client) is imported only by the shell, in src/telemetry/. The cruiser rule `no-telemetry-sdk-in-engine` enforces that for qa-engine/src; this file proves the rule fires on a synthetic violation, using a throwaway tree under os.tmpdir() like no-src-import.test.ts. */
+/* The engine sees tracing only through the TelemetryPort in shared-kernel/telemetry. The OpenTelemetry SDK (and any Langfuse client) is imported only by the shell, in platform/telemetry/. The cruiser rule `no-telemetry-sdk-in-engine` enforces that for qa-engine/src; this file proves the rule fires on a synthetic violation, using a throwaway tree under os.tmpdir() like no-src-import.test.ts. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";

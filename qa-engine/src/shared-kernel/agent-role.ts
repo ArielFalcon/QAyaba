@@ -3,7 +3,7 @@
 export const AGENT_ROLES = ["lead", "reviewer", "chat", "author", "proposer"] as const;
 export type AgentRole = (typeof AGENT_ROLES)[number];
 
-/* The runtimes an agent can run on. Add a member here and a strategy in src/agent-runtime to add a runtime. */
+/* The runtimes an agent can run on. Add a member here and a strategy in platform/agent-runtime to add a runtime. */
 export type AgentProvider = "opencode";
 
 export interface RoleAssignment {

@@ -43,8 +43,8 @@ function treeWithSrcImportViolation(): string {
   const files: Record<string, string> = {
     "tsconfig.json": tsconfig,
     "qa-engine/tsconfig.json": tsconfig,
-    "src/persistence/types.ts": "export type TestTarget = string;\n",
-    "qa-engine/src/leaky-module.ts": 'import type { TestTarget } from "../../src/persistence/types.ts";\nexport type Probe = TestTarget;\n',
+    "platform/persistence/types.ts": "export type TestTarget = string;\n",
+    "qa-engine/src/leaky-module.ts": 'import type { TestTarget } from "../../platform/persistence/types.ts";\nexport type Probe = TestTarget;\n',
   };
   for (const [rel, content] of Object.entries(files)) {
     mkdirSync(dirname(join(treeRoot, rel)), { recursive: true });
@@ -90,7 +90,7 @@ test("the boundary rule still fires when depcruise is invoked from inside qa-eng
 test("a bare 'src' target from cwd=qa-engine/ scans the root src/ tree and misses the violation", () => {
   const treeRoot = treeWithSrcImportViolation();
   try {
-    const { ok } = runDepcruise(treeRoot, "src", join(treeRoot, "qa-engine"));
+    const { ok } = runDepcruise(treeRoot, "platform", join(treeRoot, "qa-engine"));
     assert.equal(ok, true, "a bare 'src' target from cwd=qa-engine/ scans the root src/ tree, which has no qa-engine/src module to flag");
   } finally {
     rmSync(treeRoot, { recursive: true, force: true });

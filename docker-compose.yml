@@ -72,7 +72,7 @@ services:
     # so it cannot read the root-owned API token, the auth material, another repo's mirror or the
     # provider keys, tamper with the orchestrator's files, or write the mirror it runs in — see
     # docs/execution-sandbox.md. The entrypoint proves the file side at every boot by trying, as that uid, what it must not do
-    # (src/entrypoints/file-boundary-check.ts); a boundary that does not hold refuses agent code (E-SANDBOX). no-new-privileges blocks the dropped child from re-acquiring root via
+    # (platform/entrypoints/file-boundary-check.ts); a boundary that does not hold refuses agent code (E-SANDBOX). no-new-privileges blocks the dropped child from re-acquiring root via
     # setuid. NET_ADMIN is for the egress filter (bin/egress-init.sh): an iptables chain that holds the
     # sandbox uid's network to the origins the app declares.
     security_opt:
@@ -82,7 +82,7 @@ services:
     # no capabilities) and cannot undo the chain.
     cap_add:
       - NET_ADMIN
-    # The graceful-shutdown drain (src/composition/index.ts) needs up to 25s to close the in-flight run;
+    # The graceful-shutdown drain (platform/composition/index.ts) needs up to 25s to close the in-flight run;
     # Docker's default 10s grace would SIGKILL it mid-drain on every `docker stop`/redeploy.
     stop_grace_period: 35s
     # Explicit public resolvers: Docker's embedded DNS (127.0.0.11) forwards to the host
@@ -114,7 +114,7 @@ services:
       LISTEN_HOST: 0.0.0.0
       OTEL_EXPORTER_OTLP_ENDPOINT: http://collector:4318
       OTEL_SERVICE_NAME: qayaba-orchestrator
-      # Telemetry health verifies the stores end to end over telemetry-internal (src/telemetry/backend-health.ts).
+      # Telemetry health verifies the stores end to end over telemetry-internal (platform/telemetry/backend-health.ts).
       QA_TELEMETRY_LOKI_URL: http://lgtm:3100
       QA_TELEMETRY_TEMPO_URL: http://lgtm:3200
       QA_TELEMETRY_COLLECTOR_METRICS_URLS: http://collector:8888/metrics

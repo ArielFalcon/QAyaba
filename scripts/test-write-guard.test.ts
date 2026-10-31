@@ -19,7 +19,7 @@ function removeIfPresent(path: string): void {
 
 test("a test cannot write a file under src/, qa-engine/src/ or config/", () => {
   const probes = [
-    join(repoRoot, "src", `.write-guard-probe-${process.pid}.ts`),
+    join(repoRoot, "platform", `.write-guard-probe-${process.pid}.ts`),
     join(repoRoot, "qa-engine", "src", `.write-guard-probe-${process.pid}.ts`),
     join(repoRoot, "config", `.write-guard-probe-${process.pid}.yaml`),
   ];
@@ -35,7 +35,7 @@ test("a test cannot write a file under src/, qa-engine/src/ or config/", () => {
 
 test("a test cannot create a directory or open a write stream inside the tracked tree", () => {
   const dir = join(repoRoot, "qa-engine", "src", `.write-guard-dir-${process.pid}`);
-  const streamTarget = join(repoRoot, "src", `.write-guard-stream-${process.pid}.log`);
+  const streamTarget = join(repoRoot, "platform", `.write-guard-stream-${process.pid}.log`);
   try {
     assert.throws(() => mkdirSync(dir, { recursive: true }), refusal);
     assert.throws(() => createWriteStream(streamTarget), refusal);
@@ -48,7 +48,7 @@ test("a test cannot create a directory or open a write stream inside the tracked
 });
 
 test("an async write into the tracked tree rejects instead of landing", async () => {
-  const probe = join(repoRoot, "src", `.write-guard-async-${process.pid}.ts`);
+  const probe = join(repoRoot, "platform", `.write-guard-async-${process.pid}.ts`);
   try {
     await assert.rejects(() => writeFile(probe, "export {};\n"), refusal);
     assert.equal(existsSync(probe), false);

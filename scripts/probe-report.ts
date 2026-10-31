@@ -20,8 +20,8 @@ import type { RunEventBody } from "@kernel/contract/events.ts";
 import { assertCommitSha } from "@kernel/git-revision.ts";
 import { STAGE_SPAN_PREFIX } from "@kernel/run-step.ts";
 import { readConfinedSpecFile } from "../qa-engine/src/shared-infrastructure/spec-path-confinement.ts";
-import type { AgentTurnRecord } from "../src/persistence/repositories/telemetry.repository.ts";
-import type { RunOutcome, RunRecord } from "../src/persistence/types.ts";
+import type { AgentTurnRecord } from "../platform/persistence/repositories/telemetry.repository.ts";
+import type { RunOutcome, RunRecord } from "../platform/persistence/types.ts";
 import { buildPipelineReport, parseGroundTruth, renderMarkdown, type GroundTruth, type PhaseSpan, type ProbeReport, type TimedRunEvent } from "./probe-metrics.ts";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -125,9 +125,9 @@ const countLines = (text: string): number => (text === "" ? 0 : text.endsWith("\
 
 /** The history, the app configs and the mirrors of the orchestrator container, imported lazily so a test that injects its own never opens them. */
 export async function defaultReportDeps(warn: (line: string) => void = (l) => console.error(l)): Promise<ReportDeps> {
-  const { getHistory } = await import("../src/persistence/index.ts");
-  const { loadAppConfig } = await import("../src/composition/config-loader.ts");
-  const { workdirRoot, realGit } = await import("../src/composition/repo-mirror.ts");
+  const { getHistory } = await import("../platform/persistence/index.ts");
+  const { loadAppConfig } = await import("../platform/composition/config-loader.ts");
+  const { workdirRoot, realGit } = await import("../platform/composition/repo-mirror.ts");
 
   const appOf = (record: RunRecord) => {
     try {

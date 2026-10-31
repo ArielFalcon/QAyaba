@@ -37,31 +37,31 @@
   },
   {
     "rule": "dual-mode",
-    "path": "src/agent-runtime/config.test.ts",
+    "path": "platform/agent-runtime/config.test.ts",
     "contains": "AGENT_RUNTIME_MODE",
     "reason": "Pins that the retired mode variable is not read."
   },
   {
     "rule": "dual-mode",
-    "path": "src/settings/settings.test.ts",
+    "path": "platform/settings/settings.test.ts",
     "contains": "AGENT_RUNTIME_MODE",
     "reason": "Pins that the retired variable is reported, not read."
   },
   {
     "rule": "dual-mode",
-    "path": "src/settings/retired.ts",
+    "path": "platform/settings/retired.ts",
     "contains": "AGENT_RUNTIME_MODE",
-    "reason": "Names the retired variable so a load that still finds it set reports it once (src/settings/retired.ts). Remove this entry with that warning."
+    "reason": "Names the retired variable so a load that still finds it set reports it once (platform/settings/retired.ts). Remove this entry with that warning."
   },
   {
     "rule": "dual-mode",
-    "path": "src/agent-runtime/agent-runtime.test.ts",
+    "path": "platform/agent-runtime/agent-runtime.test.ts",
     "contains": "AGENT_RUNTIME_MODE",
     "reason": "Pins that the retired mode variable is not written."
   },
   {
     "rule": "router-kind",
-    "path": "src/entrypoints/contract/coordination-event-kind.contract.test.ts",
+    "path": "platform/entrypoints/contract/coordination-event-kind.contract.test.ts",
     "contains": "\"router\"",
     "reason": "Pins that the retired event kind is not in the vocabulary."
   },
@@ -97,13 +97,13 @@
   },
   {
     "rule": "codex",
-    "path": "src/settings/compose-parity.test.ts",
+    "path": "platform/settings/compose-parity.test.ts",
     "contains": "CODEX_API_KEY",
     "reason": "Names .env.example still assigns although nothing reads them (a pending edit of a file outside this phase's edit surface; the replacement lines are recorded in the arch-p7 Log). Remove this entry with that edit."
   },
   {
     "rule": "dual-mode",
-    "path": "src/settings/compose-parity.test.ts",
+    "path": "platform/settings/compose-parity.test.ts",
     "contains": "AGENT_RUNTIME_MODE",
     "reason": "Names .env.example still assigns although nothing reads them (a pending edit of a file outside this phase's edit surface; the replacement lines are recorded in the arch-p7 Log). Remove this entry with that edit."
   },
@@ -121,7 +121,7 @@
   },
   {
     "rule": "self-maintainer-runtime",
-    "path": "src/settings/compose-parity.test.ts",
+    "path": "platform/settings/compose-parity.test.ts",
     "contains": "SELF_MAINTAINER_AUTOMERGE",
     "reason": "Names the variable .env.example still assigns although nothing reads it (a pending edit of the operator-owned file, ADR-0013 point 3). Remove this entry with that edit."
   },
@@ -133,57 +133,57 @@
   },
   {
     "rule": "self-maintainer-runtime",
-    "path": "src/settings/retired.ts",
+    "path": "platform/settings/retired.ts",
     "contains": "SELF_MAINTAINER_AUTOMERGE",
-    "reason": "Names the retired variable so a load that still finds it set reports it once (src/settings/retired.ts). Remove this entry with that warning."
+    "reason": "Names the retired variable so a load that still finds it set reports it once (platform/settings/retired.ts). Remove this entry with that warning."
   },
   {
     "rule": "self-maintainer-runtime",
-    "path": "src/settings/retired.ts",
+    "path": "platform/settings/retired.ts",
     "contains": "SELF_MAINTAINER_CI_CHECK",
-    "reason": "Names the retired variable so a load that still finds it set reports it once (src/settings/retired.ts). Remove this entry with that warning."
+    "reason": "Names the retired variable so a load that still finds it set reports it once (platform/settings/retired.ts). Remove this entry with that warning."
   },
   {
     "rule": "self-maintainer-runtime",
-    "path": "src/settings/retired.ts",
+    "path": "platform/settings/retired.ts",
     "contains": "QAYABA_REPO",
-    "reason": "Names the retired variable so a load that still finds it set reports it once (src/settings/retired.ts). Remove this entry with that warning."
+    "reason": "Names the retired variable so a load that still finds it set reports it once (platform/settings/retired.ts). Remove this entry with that warning."
   },
   {
     "rule": "reflector",
-    "path": "src/settings/retired.ts",
+    "path": "platform/settings/retired.ts",
     "contains": "QA_REFLECTOR_ENABLED",
-    "reason": "Names the retired variable so a load that still finds it set reports it once (src/settings/retired.ts). Remove this entry with that warning."
+    "reason": "Names the retired variable so a load that still finds it set reports it once (platform/settings/retired.ts). Remove this entry with that warning."
   },
   {
     "rule": "reflector",
-    "path": "src/settings/retired.ts",
+    "path": "platform/settings/retired.ts",
     "contains": "REFLECTOR_TIMEOUT_MS",
-    "reason": "Names the retired variable so a load that still finds it set reports it once (src/settings/retired.ts). Remove this entry with that warning."
+    "reason": "Names the retired variable so a load that still finds it set reports it once (platform/settings/retired.ts). Remove this entry with that warning."
   },
   {
     "rule": "self-maintainer-runtime",
-    "path": "src/settings/settings.test.ts",
+    "path": "platform/settings/settings.test.ts",
     "contains": "SELF_MAINTAINER_AUTOMERGE",
-    "reason": "Names the retired variable so a load that still finds it set reports it once (src/settings/retired.ts). Remove this entry with that warning."
+    "reason": "Names the retired variable so a load that still finds it set reports it once (platform/settings/retired.ts). Remove this entry with that warning."
   },
   {
     "rule": "reflector",
-    "path": "src/settings/settings.test.ts",
+    "path": "platform/settings/settings.test.ts",
     "contains": "QA_REFLECTOR_ENABLED",
-    "reason": "Names the retired variable so a load that still finds it set reports it once (src/settings/retired.ts). Remove this entry with that warning."
+    "reason": "Names the retired variable so a load that still finds it set reports it once (platform/settings/retired.ts). Remove this entry with that warning."
   },
   {
     "rule": "diff-tier",
-    "path": "src/settings/retired.ts",
+    "path": "platform/settings/retired.ts",
     "contains": "QA_DIFF_TIME_BUDGET_MS_",
-    "reason": "Names the retired variable so a load that still finds it set reports it once (src/settings/retired.ts). Remove this entry with that warning."
+    "reason": "Names the retired variable so a load that still finds it set reports it once (platform/settings/retired.ts). Remove this entry with that warning."
   },
   {
     "rule": "diff-tier",
-    "path": "src/settings/settings.test.ts",
+    "path": "platform/settings/settings.test.ts",
     "contains": "QA_DIFF_TIME_BUDGET_MS_",
-    "reason": "Names the retired variable so a load that still finds it set reports it once (src/settings/retired.ts). Remove this entry with that warning."
+    "reason": "Names the retired variable so a load that still finds it set reports it once (platform/settings/retired.ts). Remove this entry with that warning."
   },
   {
     "rule": "diff-tier",
@@ -193,7 +193,7 @@
   },
   {
     "rule": "diff-tier",
-    "path": "src/settings/compose-parity.test.ts",
+    "path": "platform/settings/compose-parity.test.ts",
     "contains": "QA_DIFF_TIME_BUDGET_MS_",
     "reason": "Pins that the override still passes the retired variables through. Remove this entry with the lines."
   }

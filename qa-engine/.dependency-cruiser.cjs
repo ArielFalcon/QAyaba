@@ -5,13 +5,13 @@
 // than the prior generation|agent-runtime allowlist — it covers any new context added in future plans
 // without requiring a whitelist update.
 //
-// No exemption: the composition root lives in the shell (src/composition/engine-root.ts), outside the
+// No exemption: the composition root lives in the shell (platform/composition/engine-root.ts), outside the
 // engine, so no engine module but workspace-and-publication reaches the seam.
 // Known limitation: dependency-cruiser may miss dynamic import() — flagged for manual audit.
 //
 // options.baseDir (judgment-day round-1): pinned to the repo root, NOT left to default to
 // process.cwd(). This fixes the `from`/`to` RULE-MATCHING regexes (anchored to
-// "qa-engine/src/"/"^src/") so they resolve against repo-root-relative module ids no matter which
+// "qa-engine/src/"/"^platform/") so they resolve against repo-root-relative module ids no matter which
 // directory the command is invoked from — see qa-engine/test/arch/no-src-import.test.ts's
 // cwd=qa-engine/ variant.
 //
@@ -76,7 +76,7 @@ module.exports = {
     {
       name: "no-telemetry-sdk-in-engine",
       severity: "error",
-      comment: "The engine sees tracing and metrics only through the TelemetryPort in shared-kernel/telemetry (no SDK types). The OpenTelemetry SDK, and any Langfuse client, is imported only by the shell, under src/telemetry/. Swapping or removing the backend must never touch the engine.",
+      comment: "The engine sees tracing and metrics only through the TelemetryPort in shared-kernel/telemetry (no SDK types). The OpenTelemetry SDK, and any Langfuse client, is imported only by the shell, under platform/telemetry/. Swapping or removing the backend must never touch the engine.",
       from: { path: "^qa-engine/src/" },
       to: { path: "(^|/)node_modules/(@opentelemetry/|langfuse)" },
     },
@@ -99,17 +99,17 @@ module.exports = {
       severity: "error",
       comment: "Every child process that runs code an agent influenced (a spec, a login script, the e2e project's tsc/eslint/--list and installs) starts through the execution launcher, which owns the sandbox uid, the profile's environment, the work directory and the egress lease. A module that imports child_process can start a child as the orchestrator, with its environment and its network, so the allowlist is the launcher, the generic runner for trusted binaries (git), the git hardening, and the privilege-drop module (chown), the iptables applier of the egress filter, and, in the shell, the mirror's git runner, the engine factory's hardened git calls and the boot probe that runs as the sandbox uid, and the frozen list of repository tooling scripts (each with its reason in qa-engine/.dependency-cruiser-tooling-spawners.json). Type-only imports (ChildProcess) are not a way to start anything, and the test files of the shell and of scripts/ are not production code.",
       from: {
-        path: "^(qa-engine/src|src|scripts)/",
+        path: "^(qa-engine/src|platform|scripts)/",
         pathNot: [
           "^qa-engine/src/shared-infrastructure/process-sandbox/exec-sandbox\\.ts$",
           "^qa-engine/src/shared-infrastructure/process-sandbox/sandboxed-binary-runner\\.adapter\\.ts$",
           "^qa-engine/src/shared-infrastructure/process-sandbox/git-hardening\\.ts$",
           "^qa-engine/src/shared-infrastructure/process-sandbox/sandbox\\.ts$",
           "^qa-engine/src/shared-infrastructure/egress/iptables-runner\\.ts$",
-          "^src/composition/repo-mirror\\.ts$",
-          "^src/composition/run-engine-factory\\.ts$",
-          "^src/entrypoints/file-boundary-check\\.ts$",
-          "^(src|scripts)/.*\\.test\\.ts$",
+          "^platform/composition/repo-mirror\\.ts$",
+          "^platform/composition/run-engine-factory\\.ts$",
+          "^platform/entrypoints/file-boundary-check\\.ts$",
+          "^(platform|scripts)/.*\\.test\\.ts$",
           ...TOOLING_SPAWNERS.map((f) => "^" + f.replace(/\./g, "\\.") + "$"),
         ],
       },
@@ -120,7 +120,7 @@ module.exports = {
       severity: "error",
       comment: "Work that would hold the event loop runs in a worker thread started for one call by the off-loop executor, which owns the heap limit, the typed outcomes and the end of the worker. A module that starts workers of its own would bypass them, so the allowlist is the executor and the worker-side module it serves.",
       from: {
-        path: "^(qa-engine/src|src)/",
+        path: "^(qa-engine/src|platform)/",
         pathNot: ["^qa-engine/src/shared-infrastructure/worker/(off-loop-executor|serve-bytes)\\.ts$"],
       },
       to: { path: "^(node:)?worker_threads$", dependencyTypes: ["core"], dependencyTypesNot: ["type-only"] },
@@ -142,10 +142,10 @@ module.exports = {
     {
       // The direction enforced here is ONE-WAY: qa-engine/src/ may never import src/ (below). The OPPOSITE
       // direction — src/ importing qa-engine/src/ — is open by design (the shell consumes the
-      // engine, not the reverse) and is NOT machine-enforced by this rule; src/composition/
+      // engine, not the reverse) and is NOT machine-enforced by this rule; platform/composition/
       // run-engine-factory.ts (the composition factory) is one such importer, but not the
-      // only one — src/composition/repo-mirror.ts (MirrorProvisionAdapter),
-      // src/telemetry/sanitizer.ts and src/entrypoints/contract/{commands,
+      // only one — platform/composition/repo-mirror.ts (MirrorProvisionAdapter),
+      // platform/telemetry/sanitizer.ts and platform/entrypoints/contract/{commands,
       // events}.ts all import qa-engine/src/ deliberately too. `*-parity.
       // test.ts` files under qa-engine/test/ are also outside this rule's
       // `from` scope (qa-engine/src/ only), so none of the above ever trips this gate.
@@ -153,7 +153,7 @@ module.exports = {
       severity: "error",
       comment: "No qa-engine production module may import src/ — qa-engine stays src-free by construction. The opposite direction (src/ importing qa-engine/src/) is open by design: the shell consumes the engine, never the reverse.",
       from: { path: "^qa-engine/src/" },
-      to: { path: "^src/" },
+      to: { path: "^platform/" },
     },
     {
       name: "domain-imports-nothing-outward",
@@ -193,42 +193,42 @@ module.exports = {
       name: "shell-public-surface",
       severity: "error",
       comment: "The shell (src/, scripts/) reaches a context only through its public surface, application/index.ts. The domain, the other application files and the infrastructure of a context are internal to it. The platform's composition root has a rule of its own below. The frozen SHELL_INFRASTRUCTURE_EXCEPTIONS list names the shell modules that still import an infrastructure file; it only shrinks.",
-      from: { path: "^(src|scripts)/", pathNot: ["^src/composition/", ...SHELL_INFRASTRUCTURE_EXCEPTIONS.map((f) => "^" + f.replace(/\./g, "\\.") + "$")] },
+      from: { path: "^(platform|scripts)/", pathNot: ["^platform/composition/", ...SHELL_INFRASTRUCTURE_EXCEPTIONS.map((f) => "^" + f.replace(/\./g, "\\.") + "$")] },
       to: { path: "^qa-engine/src/contexts/", pathNot: ["^qa-engine/src/contexts/[^/]+/application/index\\.ts$", "^qa-engine/src/contexts/[^/]+/composition/"] },
     },
     {
       name: "composition-builds-adapters-from-infrastructure",
       severity: "error",
-      comment: "The platform's composition root (src/composition/) builds every adapter, so it may import a context's infrastructure as well as its public surface; a context's domain and its other application files stay internal to it, as for the rest of the shell. A context's composition builders are held by composition-only-from-shell-root. The frozen SHELL_INFRASTRUCTURE_EXCEPTIONS list still names a composition module that reaches further (the mirror prune rule, ADR-0021's note); it only shrinks.",
-      from: { path: "^src/composition/", pathNot: SHELL_INFRASTRUCTURE_EXCEPTIONS.map((f) => "^" + f.replace(/\./g, "\\.") + "$") },
+      comment: "The platform's composition root (platform/composition/) builds every adapter, so it may import a context's infrastructure as well as its public surface; a context's domain and its other application files stay internal to it, as for the rest of the shell. A context's composition builders are held by composition-only-from-shell-root. The frozen SHELL_INFRASTRUCTURE_EXCEPTIONS list still names a composition module that reaches further (the mirror prune rule, ADR-0021's note); it only shrinks.",
+      from: { path: "^platform/composition/", pathNot: SHELL_INFRASTRUCTURE_EXCEPTIONS.map((f) => "^" + f.replace(/\./g, "\\.") + "$") },
       to: { path: "^qa-engine/src/contexts/", pathNot: ["^qa-engine/src/contexts/[^/]+/application/index\\.ts$", "^qa-engine/src/contexts/[^/]+/composition/", "^qa-engine/src/contexts/[^/]+/infrastructure/"] },
     },
     {
       name: "platform-composition-is-the-root",
       severity: "error",
       comment: "Inside the platform, dependencies point toward composition/: it assembles the other folders, and no module of entrypoints/, persistence/, telemetry/, agent-runtime/ or settings/ imports it. What such a module needs from the root (an app loader, an admin operation, the evaluation service) is a port it declares and the root hands in. Tests are not modules of the platform: a test may wire what it exercises.",
-      from: { path: "^src/(entrypoints|persistence|telemetry|agent-runtime|settings)/", pathNot: "\\.test\\.ts$" },
-      to: { path: "^src/composition/" },
+      from: { path: "^platform/(entrypoints|persistence|telemetry|agent-runtime|settings)/", pathNot: "\\.test\\.ts$" },
+      to: { path: "^platform/composition/" },
     },
     {
       name: "platform-settings-reads-no-other-folder",
       severity: "error",
       comment: "settings/ is the only reader of the environment and the one Settings object every folder receives: it imports no other platform folder. What a setting's value means to a folder (the telemetry backends, the sandbox, the tools endpoint) is read in settings/ and handed to that folder, never the reverse.",
-      from: { path: "^src/settings/", pathNot: "\\.test\\.ts$" },
-      to: { path: "^src/(composition|entrypoints|persistence|telemetry|agent-runtime|test-support)/" },
+      from: { path: "^platform/settings/", pathNot: "\\.test\\.ts$" },
+      to: { path: "^platform/(composition|entrypoints|persistence|telemetry|agent-runtime|test-support)/" },
     },
     {
       name: "platform-production-imports-no-test-support",
       severity: "error",
-      comment: "src/test-support/ holds what only tests use (the trace and console harnesses, the roster fixture, the console scan; RFC-0001 OD-16, ADR-0022 row 2). No production module of the platform or the engine imports it.",
-      from: { path: "^(src|qa-engine/src)/", pathNot: ["^src/test-support/", "\\.test\\.ts$"] },
-      to: { path: "^src/test-support/" },
+      comment: "platform/test-support/ holds what only tests use (the trace and console harnesses, the roster fixture, the console scan; RFC-0001 OD-16, ADR-0022 row 2). No production module of the platform or the engine imports it.",
+      from: { path: "^(platform|qa-engine/src)/", pathNot: ["^platform/test-support/", "\\.test\\.ts$"] },
+      to: { path: "^platform/test-support/" },
     },
     {
       name: "composition-only-from-shell-root",
       severity: "error",
-      comment: "A context's composition/ builders are imported by one module only, the engine root src/composition/engine-root.ts, which wires every context. Nothing else, shell or engine, builds a context.",
-      from: { path: "^(src|scripts|qa-engine/src)/", pathNot: ["^src/composition/engine-root\\.ts$", "^qa-engine/src/contexts/([^/]+)/composition/"] },
+      comment: "A context's composition/ builders are imported by one module only, the engine root platform/composition/engine-root.ts, which wires every context. Nothing else, shell or engine, builds a context.",
+      from: { path: "^(platform|scripts|qa-engine/src)/", pathNot: ["^platform/composition/engine-root\\.ts$", "^qa-engine/src/contexts/([^/]+)/composition/"] },
       to: { path: "^qa-engine/src/contexts/[^/]+/composition/" },
     },
     {

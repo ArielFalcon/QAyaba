@@ -1,0 +1,650 @@
+
+import type { OnboardingService, OnboardingRoundProgress } from "@contexts/service-topology/application/index.ts";
+import type { ProfileProposerPort, ResolveLinksResult } from "@contexts/service-topology/application/index.ts";
+import type { BoundaryProfile, RepoRef } from "@contexts/service-topology/application/index.ts";
+import { serializeBoundary, spliceBoundariesBlock } from "@contexts/service-topology/application/index";
+import { aggregateResolution, type ResolutionSummary } from "./resolution-summary";
+import { RedactionPortAdapter } from "../../telemetry/sanitizer";
+import { logJson } from "../../telemetry/logger";
+
+
+const redactionPort = new RedactionPortAdapter();
+
+/** Onboarding job states. */
+export const ONBOARD_STATE = {
+  idle: "idle",
+  resolvingMirrors: "resolvingMirrors",
+  proposing: "proposing",
+  scoring: "scoring",
+
+  indexing: "indexing",
+  /*
+   * Post-confirm (and no-profile) architecture-map phase. NOT terminal and does NOT hold `busy`
+   * (holding it would park the context run on isOnboardingActive). propose() still rejects.
+   */
+  mapping: "mapping",
+  /*
+   * Post-mapping login phase: a manual run that authors the app's login and proves it, kept in the suite store once accepted.
+   * Like mapping it is NOT terminal and does NOT hold `busy` (its run would park on isOnboardingActive).
+   */
+  login: "login",
+  done: "done",
+  failed: "failed",
+} as const;
+
+export type OnboardState = (typeof ONBOARD_STATE)[keyof typeof ONBOARD_STATE];
+
+/** Onboarding job states. */
+export const REPO_INDEX_STATUS = {
+  ok: "ok",
+  failed: "failed",
+} as const;
+
+export type RepoIndexStatus = (typeof REPO_INDEX_STATUS)[keyof typeof REPO_INDEX_STATUS];
+
+/** One per-repo advisory-index outcome. Field-for-field with RepoIndexOutcomeSchema. */
+export interface RepoIndexOutcome {
+  repo: string;
+  status: RepoIndexStatus;
+  nodeCount?: number;
+  error?: string;
+}
+
+export const ONBOARD_OUTCOME = {
+  winner: "winner",
+  noProfile: "no-profile",
+} as const;
+
+export type OnboardOutcome = (typeof ONBOARD_OUTCOME)[keyof typeof ONBOARD_OUTCOME];
+
+/** Polled status DTO. The zod schema in platform/entrypoints/contract/commands.ts mirrors it field-for-field. */
+export interface OnboardingJobStatus {
+  state: OnboardState;
+  app?: string;
+  round: number;
+  ceiling: number;
+  candidatesScored: number;
+  lastResolvedScore?: number;
+  resolvedProfile?: BoundaryProfile;
+  /** Winning run's front→service edge summary. Absent for noProfile runs and jobs without resolveLinks. */
+  resolution?: ResolutionSummary;
+  outcome?: OnboardOutcome;
+  error?: string;
+  startedAt?: string;
+  finishedAt?: string;
+  /** Per-repo advisory-index progress, populated once post-confirm indexing starts.
+   *  Absent when the job has no indexRepo dep, and absent before indexing starts. */
+  indexProgress?: RepoIndexOutcome[];
+  /** Architecture-map run progress, populated once the mapping phase starts. Absent when the job
+   *  has no enqueueContextRun dep. */
+  mappingProgress?: MappingProgress;
+  /** Login-phase progress, populated once the phase starts. Absent for an app with no form login to bootstrap
+   *  and for a job without enqueueLoginRun. */
+  loginProgress?: LoginProgress;
+}
+
+export interface MappingProgress {
+  runId?: string;
+  step?: string;
+  verdict?: string;
+}
+
+/** How the login phase ended: signed in and proven by an accepted run, not authored by its run, or the run could not tell. */
+export const LOGIN_STATUS = {
+  verified: "verified",
+  unauthored: "unauthored",
+  failed: "failed",
+} as const;
+
+export type LoginStatus = (typeof LOGIN_STATUS)[keyof typeof LOGIN_STATUS];
+
+/** The login phase's run, copied off its run record while it runs; `status` appears once it has ended. */
+export interface LoginProgress {
+  runId?: string;
+  step?: string;
+  verdict?: string;
+  status?: LoginStatus;
+}
+
+export interface LoginRunRequest {
+  app: string;
+  mirrorDir: string;
+}
+
+export interface ContextMapRunRequest {
+  app: string;
+  mirrorDir: string;
+}
+
+export interface ContextMapRunSnapshot {
+  runId: string;
+  status: "enqueued" | "running" | "done";
+  step?: string;
+  verdict?: string;
+}
+
+export interface ProposeBoundariesRequest {
+  app: string;
+  repo: string;
+  services: string[];
+  baseBranch?: string;
+}
+
+export type ProposeResult = { ok: true } | { ok: false; error: string };
+export type ConfirmResult = { ok: true } | { ok: false; error: string };
+
+/** Every side-effecting collaborator the job needs, injected so the state machine is unit-tested
+ *  with fakes (DI shape mirrors AppAdminDeps). */
+export interface OnboardingJobDeps {
+  /** True when the shared QA run queue is active — onboarding must never provision mirrors while the runner is busy. */
+  isRunnerBusy(): boolean;
+  /** Provisions (or refreshes) one repo's mirror at its base branch HEAD, returning the mirror dir.
+   *  Production: repo-mirror.ts's ensureMirrorAtBranch + MirrorRegistryAdapter composition. */
+  ensureMirrorAtBranch(repo: string, baseBranch: string): Promise<string>;
+  /** Env-guard part 1: OPENCODE_API_KEY presence. */
+  hasOpencodeApiKey(): boolean;
+  /** Env-guard part 2: the qa-proposer agent is configured on the target opencode server. */
+  hasProposerAgent(): Promise<boolean>;
+  /** Composes the LLM proposer adapter for this run; ctx.signal is the job AbortSignal. */
+  buildProposer(ctx: { app: string; signal: AbortSignal }): ProfileProposerPort;
+  /** Composes the REAL OnboardingService (qa-engine, imported, never reimplemented) wired with the
+   *  onRound observer that feeds this job's live status. */
+  buildOnboardingService(proposer: ProfileProposerPort, onRound: (p: OnboardingRoundProgress) => void): OnboardingService;
+  /** OPTIONAL: resolve a winning profile's cross-repo links for the status edge summary.
+   *  A job without it omits `resolution`. */
+  resolveLinks?(profile: BoundaryProfile, system: RepoRef[], front: RepoRef): Promise<ResolveLinksResult>;
+  readConfig(path: string): string;
+  writeConfig(path: string, content: string): void;
+  configPath?(app: string): string;
+  mirrorTimeoutMs?: number;
+  jobTimeoutMs?: number;
+  /** OPTIONAL: post-confirm advisory-index. Absent → skip indexing. Fail-open: every failure
+   *  (adapter err, unresolvable mirror, spawn timeout, thrown call) maps to a `failed` outcome.
+   *  Called with the same mirrorDir ensureMirrorAtBranch resolved this round.
+   */
+  /** Builds the repo's first code-graph store into the app's cache (`app` is the onboarded app's name). */
+  indexRepo?(repo: string, mirrorDir: string, app: string): Promise<RepoIndexOutcome>;
+  /** Per-repo bound on indexRepo. Default 5 min. A timeout degrades that repo to `failed` and the phase continues. */
+  indexTimeoutMs?: number;
+  /** OPTIONAL: enqueue a `mode: context` run so onboarding writes e2e/.qa/context.json.
+   *  Absent → skip mapping. Composition resolves HEAD in mirrorDir and calls enqueueTrackedRun under
+   *  the app's own qa.shadow (no override) — the SQLite context_maps store captures the validated
+   *  map regardless of shadow, so this run does not need a context.json PR to keep it. */
+  enqueueContextRun?(input: ContextMapRunRequest): string | Promise<string>;
+  /** OPTIONAL: poll the enqueued context run. Missing after a successful enqueue is fail-open. */
+  getContextRun?(runId: string): ContextMapRunSnapshot | undefined;
+  mappingPollMs?: number;
+  mappingTimeoutMs?: number;
+  /** OPTIONAL: enqueue the run that authors the app's login and proves it (purpose login-bootstrap), after mapping.
+   *  Absent → skip the login phase. Returns "" while the service is shutting down (a clean skip). */
+  enqueueLoginRun?(input: LoginRunRequest): string | Promise<string>;
+  /** OPTIONAL: poll the login run. Defaults to getContextRun (both read the same run records). Missing after a successful enqueue ⇒ the login is `failed`. */
+  getLoginRun?(runId: string): ContextMapRunSnapshot | undefined;
+  /** OPTIONAL: true for an app that declares a form login. Missing ⇒ the app is taken to have one (when enqueueLoginRun is wired). */
+  hasLogin?(app: string): boolean;
+  loginPollMs?: number;
+  loginTimeoutMs?: number;
+}
+
+const DEFAULT_MIRROR_TIMEOUT_MS = 5 * 60 * 1000;
+const DEFAULT_JOB_TIMEOUT_MS = 20 * 60 * 1000;
+const DEFAULT_INDEX_TIMEOUT_MS = 5 * 60 * 1000;
+const DEFAULT_RESOLVE_TIMEOUT_MS = 60 * 1000;
+const DEFAULT_MAPPING_POLL_MS = 1500;
+const DEFAULT_MAPPING_TIMEOUT_MS = 60 * 60 * 1000;
+const DEFAULT_LOGIN_POLL_MS = 1500;
+const DEFAULT_LOGIN_TIMEOUT_MS = 60 * 60 * 1000;
+
+function defaultConfigPath(app: string): string {
+  return `config/apps/${app}.yaml`;
+}
+
+/* Rejects with `message` once `ms` elapses (calling `onTimeout` first so the caller can abort). */
+function raceTimeout<T>(promise: Promise<T>, ms: number, onTimeout: () => void, message: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      onTimeout();
+      reject(new Error(message));
+    }, ms);
+    promise.then(
+      (v) => { clearTimeout(timer); resolve(v); },
+      (e) => { clearTimeout(timer); reject(e); },
+    );
+  });
+}
+
+export interface OnboardingJob {
+  /** With no argument (or an app matching the current/last job), returns the current job's status
+   *  as-is. With an app that DIFFERS from the current job's app, returns a scoped idle response
+   *  for the REQUESTED app instead — this process holds exactly one job at a time, and a caller
+   *  polling a different app's URL must never see another app's in-flight or completed job (the
+   *  per-app REST surface is a facade over one process-wide job; see platform/composition/wire-app.ts's composition
+   *  wiring for the app-identity thread-through this depends on). */
+  status(app?: string): OnboardingJobStatus;
+  /** Synchronous rejection ({ok:false}) when a job is already non-terminal (the mutex); otherwise a
+   *  Promise<ProposeResult> that settles once the round finishes. The HTTP handler must NOT
+   *  await this promise on the response path — that is what makes propose() fire-and-forget. */
+  propose(req: ProposeBoundariesRequest): ProposeResult | Promise<ProposeResult>;
+  /** With no argument (or an app matching the current job), behaves exactly as before. With an app
+   *  that DIFFERS from the current job's app, rejects WITHOUT performing any write — confirming
+   *  against the wrong app's URL must never splice another app's resolved profile into this app's
+   *  config. */
+  confirm(app?: string): ConfirmResult;
+  /** Test/ops seam: resolves once the current (or most recent) propose() round has fully settled. */
+  settled(): Promise<void>;
+  /** True while a job is non-terminal in flight (from propose() until run()'s finally clears the
+   *  mutex) — the mirror-race guard the QA runner polls (platform/entrypoints/runner.ts's
+   *  RunnerDeps.isOnboardingActive) to defer mirror provisioning while onboarding is running. A
+   *  direct read of the module-private `busy` flag; no new state. */
+  isActive(): boolean;
+}
+
+/** Builds a fresh in-memory OnboardingJob. One job instance = one mutex; platform/composition/wire-app.ts constructs one. */
+export function createOnboardingJob(deps: OnboardingJobDeps): OnboardingJob {
+  let status: OnboardingJobStatus = { state: ONBOARD_STATE.idle, round: 0, ceiling: 3, candidatesScored: 0 };
+  /*
+   * The mutex flag is tracked independently of `status.state`: the very first status write inside
+   * run() moves state OFF "idle" already, but tracking a dedicated boolean (rather than re-deriving
+   * "busy" from state) keeps the mutex correct even across the instant between propose() being
+   * called and run()'s first `await`.
+   */
+  let busy = false;
+  let inFlight: Promise<void> | null = null;
+  /*
+   * Front + every service RepoRef this round's mirror phase resolved — indexing MUST run at the
+   * same mirrorDir a later query resolves. Cleared on a fresh propose() so a stale round's mirrors
+   * cannot be indexed under a new round's profile.
+   */
+  let lastRepoRefs: RepoRef[] = [];
+  let pendingNoProfileTail = false;
+
+  function fail(error: string): void {
+    status = { ...status, state: ONBOARD_STATE.failed, error, finishedAt: new Date().toISOString() };
+  }
+
+  function shouldMap(): boolean {
+    return deps.enqueueContextRun !== undefined;
+  }
+
+  function shouldLogin(app: string): boolean {
+    if (!deps.enqueueLoginRun) return false;
+    if (!deps.hasLogin) return true;
+    try {
+      return deps.hasLogin(app);
+    } catch {
+      return false;
+    }
+  }
+
+  function finishDone(patch: Partial<OnboardingJobStatus> = {}): void {
+    status = { ...status, ...patch, state: ONBOARD_STATE.done, finishedAt: new Date().toISOString() };
+  }
+
+  /* Wraps one repo's indexRepo with a per-repo timeout. Rejection, throw, or timeout → `failed`. Never throws. */
+  async function indexOneRepo(repo: string, mirrorDir: string, indexTimeoutMs: number): Promise<RepoIndexOutcome> {
+    try {
+      return await raceTimeout(
+        deps.indexRepo!(repo, mirrorDir, status.app ?? ""),
+        indexTimeoutMs,
+        () => {},
+        `indexing ${repo} timed out`,
+      );
+    } catch (err) {
+      const error = redactionPort.redactError(err);
+      logJson("warn", "onboarding indexRepo failed (fail-open, advisory only)", { repo, error });
+      return { repo, status: REPO_INDEX_STATUS.failed, error };
+    }
+  }
+
+  /* Post-confirm advisory-index, sequential (front, then each service). Re-acquires `busy` for
+   *  its duration so a QA checkout mid-index cannot tear the index. Does not set done — the
+   *  post-confirm coordinator does. Never rethrows. */
+  async function runIndexing(repoRefs: RepoRef[], indexTimeoutMs: number): Promise<void> {
+    busy = true;
+    status = { ...status, state: ONBOARD_STATE.indexing, indexProgress: [] };
+    try {
+      const progress: RepoIndexOutcome[] = [];
+      for (const ref of repoRefs) {
+        const outcome = await indexOneRepo(ref.repo, ref.mirrorDir, indexTimeoutMs);
+        progress.push(outcome);
+        status = { ...status, indexProgress: [...progress] };
+      }
+      status = { ...status, indexProgress: progress };
+    } catch (err) {
+      /* Defensive-only: indexOneRepo never throws. Stay non-terminal so mapping can still run. */
+      const error = redactionPort.redactError(err);
+      logJson("warn", "onboarding runIndexing failed unexpectedly (fail-open, defensive-only)", { error });
+      status = { ...status, error };
+    } finally {
+      busy = false;
+    }
+  }
+
+  /*
+   * Runs the architecture-map phase and returns how the job should finish: the patch for finishDone, and whether the mapping
+   * ran to its end (a map still running when its bound passed leaves the queue occupied, so nothing more is enqueued behind it).
+   */
+  async function runMapping(app: string, mirrorDir: string): Promise<{ patch: Partial<OnboardingJobStatus>; completed: boolean }> {
+    status = { ...status, state: ONBOARD_STATE.mapping };
+    try {
+      const runId = await deps.enqueueContextRun!({ app, mirrorDir });
+      if (!runId) {
+        /* Spec skip: enqueue "" (shutdown) is not a fail-open warning. */
+        return { patch: {}, completed: false };
+      }
+      status = { ...status, mappingProgress: { runId } };
+      if (!deps.getContextRun) {
+        return { patch: { error: "architecture map status unavailable" }, completed: false };
+      }
+      const pollMs = deps.mappingPollMs ?? DEFAULT_MAPPING_POLL_MS;
+      const timeoutMs = deps.mappingTimeoutMs ?? DEFAULT_MAPPING_TIMEOUT_MS;
+      const started = Date.now();
+      for (;;) {
+        const snap = deps.getContextRun(runId);
+        if (snap) {
+          status = {
+            ...status,
+            mappingProgress: { runId, step: snap.step, verdict: snap.verdict },
+          };
+          if (snap.status === "done") break;
+        }
+        if (Date.now() - started > timeoutMs) {
+          return { patch: { error: "architecture map timed out" }, completed: false };
+        }
+        await new Promise((r) => setTimeout(r, pollMs));
+      }
+      return { patch: {}, completed: true };
+    } catch (err) {
+      const error = redactionPort.redactError(err);
+      logJson("warn", "onboarding runMapping failed (fail-open, advisory only)", { app, error });
+      return { patch: { error }, completed: false };
+    }
+  }
+
+  /* What a login run's verdict says about the login: only a pass is an accepted run, and an accepted run is what keeps the login. */
+  function loginStatusOf(verdict: string | undefined): LoginStatus {
+    if (verdict === "pass") return LOGIN_STATUS.verified;
+    if (verdict === "infra-error" || verdict === undefined) return LOGIN_STATUS.failed;
+    return LOGIN_STATUS.unauthored;
+  }
+
+  /*
+   * The login phase: enqueue the run that authors the app's login and proves it, and follow it. Advisory like mapping: whatever
+   * happens, onboarding stays done; the outcome is the login's own status. Never rethrows.
+   */
+  async function runLogin(app: string, mirrorDir: string): Promise<void> {
+    status = { ...status, state: ONBOARD_STATE.login, loginProgress: {} };
+    try {
+      const runId = await deps.enqueueLoginRun!({ app, mirrorDir });
+      if (!runId) {
+        /* Shutdown: nothing was enqueued, so there is no login to report on. */
+        const { loginProgress: _none, ...rest } = status;
+        status = rest;
+        return;
+      }
+      status = { ...status, loginProgress: { runId } };
+      const getRun = deps.getLoginRun ?? deps.getContextRun;
+      if (!getRun) {
+        status = { ...status, loginProgress: { runId, status: LOGIN_STATUS.failed } };
+        return;
+      }
+      const pollMs = deps.loginPollMs ?? DEFAULT_LOGIN_POLL_MS;
+      const timeoutMs = deps.loginTimeoutMs ?? DEFAULT_LOGIN_TIMEOUT_MS;
+      const started = Date.now();
+      for (;;) {
+        const snap = getRun(runId);
+        if (snap) {
+          status = { ...status, loginProgress: { runId, step: snap.step, verdict: snap.verdict } };
+          if (snap.status === "done") {
+            status = { ...status, loginProgress: { runId, step: snap.step, verdict: snap.verdict, status: loginStatusOf(snap.verdict) } };
+            return;
+          }
+        }
+        if (Date.now() - started > timeoutMs) {
+          status = { ...status, loginProgress: { runId, step: snap?.step, verdict: snap?.verdict, status: LOGIN_STATUS.failed } };
+          return;
+        }
+        await new Promise((r) => setTimeout(r, pollMs));
+      }
+    } catch (err) {
+      logJson("warn", "onboarding runLogin failed (fail-open, advisory only)", { app, error: redactionPort.redactError(err) });
+      status = { ...status, loginProgress: { ...status.loginProgress, status: LOGIN_STATUS.failed } };
+    }
+  }
+
+  /* What follows confirm (or a no-profile round): the map, then the login, then done. The login waits for a map that ran to its end. */
+  async function runTail(app: string, mirrorDir: string, withMap: boolean): Promise<void> {
+    let patch: Partial<OnboardingJobStatus> = {};
+    let mapSettled = true;
+    if (withMap) {
+      const mapped = await runMapping(app, mirrorDir);
+      patch = mapped.patch;
+      mapSettled = mapped.completed || Object.keys(mapped.patch).length === 0;
+    }
+    if (mapSettled && shouldLogin(app)) await runLogin(app, mirrorDir);
+    finishDone(patch);
+  }
+
+  async function runPostConfirm(repoRefs: RepoRef[]): Promise<void> {
+    try {
+      if (deps.indexRepo && repoRefs.length > 0) {
+        await runIndexing(repoRefs, deps.indexTimeoutMs ?? DEFAULT_INDEX_TIMEOUT_MS);
+      }
+      const app = status.app ?? "";
+      const front = repoRefs[0];
+      if (front && (shouldMap() || shouldLogin(app))) {
+        await runTail(app, front.mirrorDir, shouldMap());
+      } else {
+        finishDone();
+      }
+    } catch (err) {
+      /* Defensive-only: runIndexing/runMapping/runLogin never rethrow. Stay fail-open so a corrected app's
+       * boundaries (already written by confirm() before this ran) are never re-litigated. */
+      const error = redactionPort.redactError(err);
+      logJson("warn", "onboarding runPostConfirm failed unexpectedly (fail-open, defensive-only)", { error });
+      finishDone({ error });
+    }
+  }
+
+  async function run(req: ProposeBoundariesRequest): Promise<void> {
+    const mirrorTimeoutMs = deps.mirrorTimeoutMs ?? DEFAULT_MIRROR_TIMEOUT_MS;
+    const jobTimeoutMs = deps.jobTimeoutMs ?? DEFAULT_JOB_TIMEOUT_MS;
+    const startedAt = new Date().toISOString();
+    status = { state: ONBOARD_STATE.resolvingMirrors, app: req.app, round: 0, ceiling: 3, candidatesScored: 0, startedAt };
+    lastRepoRefs = [];  /* fresh round — never index a stale round's mirrors under this round's profile */
+    pendingNoProfileTail = false;
+
+    try {
+      /* Env-guard before the runner-busy guard and before resolvingMirrors — a missing key/agent must never burn a mirror cycle. */
+      if (!deps.hasOpencodeApiKey()) {
+        fail("OPENCODE_API_KEY is not set — the proposer cannot run");
+        return;
+      }
+      const hasAgent = await deps.hasProposerAgent();
+      if (!hasAgent) {
+        fail("the qa-proposer agent is not configured on the opencode server");
+        return;
+      }
+
+      /* Symmetric mirror-race guard — before resolvingMirrors. */
+      if (deps.isRunnerBusy()) {
+        fail("runner busy, retry later");
+        return;
+      }
+
+      /*
+       * resolvingMirrors — its OWN phase, its OWN timeout, BEFORE the round-budget clock starts.
+       * Each repo's mirror is provisioned exactly once; front/system RepoRefs are built from the
+       * SAME resolved mirror dirs (no duplicate ensureMirrorAtBranch calls).
+       */
+      const baseBranch = req.baseBranch ?? "main";
+      let mirrorTimedOut = false;
+      let mirrorDirs: string[];
+      try {
+        mirrorDirs = await raceTimeout(
+          Promise.all([req.repo, ...req.services].map((repo) => deps.ensureMirrorAtBranch(repo, baseBranch))),
+          mirrorTimeoutMs,
+          () => { mirrorTimedOut = true; },
+          "resolving mirrors timed out",
+        );
+      } catch (err) {
+        fail(mirrorTimedOut ? "resolving mirrors timed out" : redactionPort.redactError(err));
+        return;
+      }
+
+      const [frontMirrorDir, ...serviceMirrorDirs] = mirrorDirs;
+      const front: RepoRef = { repo: req.repo, mirrorDir: frontMirrorDir! };
+      const system: RepoRef[] = req.services.map((repo, i) => ({ repo, mirrorDir: serviceMirrorDirs[i]! }));
+      lastRepoRefs = [front, ...system];  /* available to confirm()'s indexing kickoff */
+
+
+      status = { ...status, state: ONBOARD_STATE.proposing };
+      const controller = new AbortController();
+      const proposer = deps.buildProposer({ app: req.app, signal: controller.signal });
+      const onRound = (p: OnboardingRoundProgress): void => {
+        status = {
+          ...status,
+          state: ONBOARD_STATE.scoring,
+          round: p.round,
+          candidatesScored: p.scored,
+          lastResolvedScore: p.bestResolvedScore,
+        };
+      };
+      const service = deps.buildOnboardingService(proposer, onRound);
+
+      let timedOut = false;
+      let result;
+      try {
+        result = await raceTimeout(
+          service.onboard(system, front),
+          jobTimeoutMs,
+          () => { timedOut = true; controller.abort(); },
+          "onboarding timed out",
+        );
+      } catch (err) {
+        fail(timedOut ? "onboarding timed out" : redactionPort.redactError(err));
+        return;
+      }
+
+      const finishedAt = new Date().toISOString();
+      if (result.profile !== null) {
+        let resolution: ResolutionSummary | undefined;
+        if (deps.resolveLinks) {
+          try {
+            const resolved = await raceTimeout(
+              deps.resolveLinks(result.profile, system, front),
+              DEFAULT_RESOLVE_TIMEOUT_MS,
+              () => {},
+              "resolving links timed out",
+            );
+            resolution = aggregateResolution(resolved);
+          } catch (err) {
+            resolution = undefined;  /* advisory only — never flips the winner outcome */
+            logJson("warn", "onboarding resolveLinks failed (advisory)", { error: redactionPort.redactError(err) });
+          }
+        }
+        status = { ...status, state: ONBOARD_STATE.done, outcome: ONBOARD_OUTCOME.winner, resolvedProfile: result.profile, resolution, finishedAt };
+      } else if ((shouldMap() || shouldLogin(req.app)) && lastRepoRefs.length > 0) {
+        /*
+         * Set the tail's first state (mapping, or login for an app that is not mapped) BEFORE run() returns so the TUI never
+         * observes a premature done/no-profile and stops polling. busy is released in finally; propose()'s continuation then
+         * runs the tail.
+         */
+        status = { ...status, state: shouldMap() ? ONBOARD_STATE.mapping : ONBOARD_STATE.login, outcome: ONBOARD_OUTCOME.noProfile };
+        pendingNoProfileTail = true;
+      } else {
+        status = { ...status, state: ONBOARD_STATE.done, outcome: ONBOARD_OUTCOME.noProfile, finishedAt };
+      }
+    } catch (err) {
+      fail(redactionPort.redactError(err));
+    } finally {
+      busy = false;
+    }
+  }
+
+  /*
+   * True when `app` is provided and differs from the current/last job's app — i.e. the caller is
+   * polling or confirming a URL for an app this process is NOT currently (or was never) running an
+   * onboarding job for. `status.app` is undefined only at the very first idle state (before any
+   * propose() call ever ran), in which case there is nothing to mismatch against.
+   */
+  function isOtherApp(app: string | undefined): boolean {
+    return app !== undefined && status.app !== undefined && app !== status.app;
+  }
+
+  return {
+    status(app?: string): OnboardingJobStatus {
+      if (isOtherApp(app)) {
+        /*
+         * Scoped idle response for the REQUESTED app — never the other app's job data. Same shape
+         * as the process's own initial idle state, just labeled with the caller's app.
+         */
+        return { state: ONBOARD_STATE.idle, app, round: 0, ceiling: 3, candidatesScored: 0 };
+      }
+      return status;
+    },
+
+    propose(req: ProposeBoundariesRequest): ProposeResult | Promise<ProposeResult> {
+      if (busy || status.state === ONBOARD_STATE.mapping || status.state === ONBOARD_STATE.login || status.state === ONBOARD_STATE.indexing) {
+        return { ok: false, error: "an onboarding job is already running" };
+      }
+      busy = true;
+      const promise = run(req).then(async (): Promise<ProposeResult> => {
+        if (pendingNoProfileTail) {
+          pendingNoProfileTail = false;
+          const front = lastRepoRefs[0];
+          const app = status.app ?? req.app;
+          if (front) await runTail(app, front.mirrorDir, shouldMap());
+        }
+        return { ok: true };
+      });
+      inFlight = promise.then(() => undefined);
+      return promise;
+    },
+
+    confirm(app?: string): ConfirmResult {
+      if (isOtherApp(app)) {
+        return { ok: false, error: `no confirmable job for app '${app}' (current job belongs to '${status.app}')` };
+      }
+      if (status.state !== ONBOARD_STATE.done || status.outcome !== ONBOARD_OUTCOME.winner || !status.resolvedProfile) {
+        return { ok: false, error: "no confirmable boundary profile for this app" };
+      }
+      const resolvedApp = status.app ?? "";
+      const path = (deps.configPath ?? defaultConfigPath)(resolvedApp);
+      const lines = serializeBoundary(status.resolvedProfile);
+      let existing: string;
+      try {
+        existing = deps.readConfig(path);
+      } catch (err) {
+        return { ok: false, error: redactionPort.redactError(err) };
+      }
+      try {
+        const spliced = spliceBoundariesBlock(existing, lines);
+        deps.writeConfig(path, spliced);
+      } catch (err) {
+        return { ok: false, error: redactionPort.redactError(err) };
+      }
+      /*
+       * Boundaries are WRITTEN at this point — onboarding has durably succeeded regardless of
+       * what indexing/mapping does next. Both tails are fire-and-forget: confirm() returns
+       * synchronously. Additive-optional — without indexRepo AND without enqueueContextRun the
+       * job stays done.
+       */
+      const wantsIndex = Boolean(deps.indexRepo && lastRepoRefs.length > 0);
+      const wantsMap = shouldMap() && lastRepoRefs.length > 0;
+      const wantsLogin = shouldLogin(resolvedApp) && lastRepoRefs.length > 0;
+      if (wantsIndex || wantsMap || wantsLogin) {
+        inFlight = runPostConfirm(lastRepoRefs);
+      }
+      return { ok: true };
+    },
+
+    async settled(): Promise<void> {
+      if (inFlight) await inFlight;
+    },
+
+    isActive(): boolean {
+      return busy;
+    },
+  };
+}

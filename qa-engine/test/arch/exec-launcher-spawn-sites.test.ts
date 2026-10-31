@@ -18,7 +18,7 @@ export const TOOLING_SPAWNERS_CEILING = 8;
 
 function runDepcruise(treeRoot: string): { ok: boolean; output: string } {
   try {
-    const output = execFileSync(DEPCRUISE, ["--config", join(treeRoot, CONFIG_REL), "qa-engine/src", "src", "scripts"], { cwd: treeRoot, encoding: "utf8" });
+    const output = execFileSync(DEPCRUISE, ["--config", join(treeRoot, CONFIG_REL), "qa-engine/src", "platform", "scripts"], { cwd: treeRoot, encoding: "utf8" });
     return { ok: true, output };
   } catch (e) {
     const err = e as { stdout?: string; stderr?: string; code?: string | number };
@@ -31,7 +31,7 @@ function inSyntheticTree(files: Record<string, string>): { ok: boolean; output: 
   const treeRoot = mkdtempSync(join(tmpdir(), "exec-launcher-sites-"));
   try {
     const tsconfig = JSON.stringify({ compilerOptions: { strict: true, noEmit: true, module: "ESNext", moduleResolution: "bundler", allowImportingTsExtensions: true, types: ["node"] } });
-    const all: Record<string, string> = { "tsconfig.json": tsconfig, "qa-engine/tsconfig.json": tsconfig, "qa-engine/src/empty.ts": "export {};\n", "src/empty.ts": "export {};\n", "scripts/empty.ts": "export {};\n", ...files };
+    const all: Record<string, string> = { "tsconfig.json": tsconfig, "qa-engine/tsconfig.json": tsconfig, "qa-engine/src/empty.ts": "export {};\n", "platform/empty.ts": "export {};\n", "scripts/empty.ts": "export {};\n", ...files };
     for (const [rel, content] of Object.entries(all)) {
       mkdirSync(dirname(join(treeRoot, rel)), { recursive: true });
       writeFileSync(join(treeRoot, rel), content);
@@ -85,19 +85,19 @@ test("the launcher itself may import spawn", () => {
 
 test("a module of the shell that imports a child-process function is caught by the rule", () => {
   const { ok, output } = inSyntheticTree({
-    "src/server/probe-spawn.ts": 'import { execSync } from "node:child_process";\nexport const go = (): unknown => execSync("npm test");\n',
+    "platform/server/probe-spawn.ts": 'import { execSync } from "node:child_process";\nexport const go = (): unknown => execSync("npm test");\n',
   });
   assert.equal(ok, false, "depcruise must report a violation for a shell module starting a child itself");
-  assert.match(output, /no-child-process-outside-launchers:\s*src\/server\/probe-spawn\.ts/, `expected the rule to name the offending module, got:\n${output}`);
+  assert.match(output, /no-child-process-outside-launchers:\s*platform\/server\/probe-spawn\.ts/, `expected the rule to name the offending module, got:\n${output}`);
 });
 
 test("the shell's three named sites and its test files may import child_process", () => {
   const spawning = 'import { execFileSync } from "node:child_process";\nexport const go = (): unknown => execFileSync("git", []);\n';
   const { ok, output } = inSyntheticTree({
-    "src/composition/repo-mirror.ts": spawning,
-    "src/composition/run-engine-factory.ts": spawning,
-    "src/entrypoints/file-boundary-check.ts": spawning,
-    "src/server/probe-spawn.test.ts": spawning,
+    "platform/composition/repo-mirror.ts": spawning,
+    "platform/composition/run-engine-factory.ts": spawning,
+    "platform/entrypoints/file-boundary-check.ts": spawning,
+    "platform/server/probe-spawn.test.ts": spawning,
   });
   assert.equal(ok, true, output);
 });

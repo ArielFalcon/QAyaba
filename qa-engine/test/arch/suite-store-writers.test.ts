@@ -10,7 +10,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, relative } from "node:path";
 
 const repoRoot = join(import.meta.dirname, "..", "..", "..");
-const SCANNED_ROOTS = ["src", "qa-engine/src", "scripts", "agents", "bin", "packages"];
+const SCANNED_ROOTS = ["platform", "qa-engine/src", "scripts", "agents", "bin", "packages"];
 const SOURCE_FILE = /\.(?:[cm]?ts|[cm]?js)$/;
 const TEST_FILE = /\.test\.(?:[cm]?ts|[cm]?js)$/;
 const STORE_DIR_HELPER = "appSuiteStoreDir";
@@ -18,10 +18,10 @@ const STORE_DIR_TEXT = /data[\\/]+suites\b/;
 const SUITES_SEGMENT = /(["'`])suites\1/;
 
 const STORE_DIR_CALLERS: readonly string[] = [
+  "platform/composition/login-bootstrap-wiring.ts",
+  "platform/composition/run-engine-factory.ts",
+  "platform/composition/wire-app.ts",
   "scripts/warm-suite.ts",
-  "src/composition/login-bootstrap-wiring.ts",
-  "src/composition/run-engine-factory.ts",
-  "src/composition/wire-app.ts",
 ];
 
 function sourceFiles(dir: string): string[] {
@@ -83,7 +83,7 @@ function plant(files: ReadonlyArray<readonly [string, string]>): string[] {
 }
 
 test("a module outside the list that derives the store's directory is caught", () => {
-  assert.deepEqual(plant([["src/server/new-writer.ts", `export const dir = ${STORE_DIR_HELPER}("/root", "app");\n`], ["src/server/unrelated.ts", "export const x = 1;\n"]]), ["src/server/new-writer.ts"]);
+  assert.deepEqual(plant([["platform/server/new-writer.ts", `export const dir = ${STORE_DIR_HELPER}("/root", "app");\n`], ["platform/server/unrelated.ts", "export const x = 1;\n"]]), ["platform/server/new-writer.ts"]);
 });
 
 test("the helper is caught under any name it is imported by", () => {
@@ -93,7 +93,7 @@ test("the helper is caught under any name it is imported by", () => {
     `const { ${STORE_DIR_HELPER}: dirOf } = await import("./run-engine-factory");\nexport const dir = dirOf("/root", "app");\n`,
     `export { ${STORE_DIR_HELPER} as suiteDirectory } from "./run-engine-factory";\n`,
   ]) {
-    assert.deepEqual(plant([["src/server/aliased.ts", text]]), ["src/server/aliased.ts"], text);
+    assert.deepEqual(plant([["platform/server/aliased.ts", text]]), ["platform/server/aliased.ts"], text);
   }
 });
 
@@ -106,5 +106,5 @@ test("the store's path segment is caught wherever it is joined, and an unrelated
   ]) {
     assert.deepEqual(plant([["scripts/new-reader.ts", text]]), ["scripts/new-reader.ts"], text);
   }
-  assert.deepEqual(plant([["src/report.ts", `export const isReport = (r: object) => "suites" in r || "stats" in r;\n`]]), []);
+  assert.deepEqual(plant([["platform/report.ts", `export const isReport = (r: object) => "suites" in r || "stats" in r;\n`]]), []);
 });

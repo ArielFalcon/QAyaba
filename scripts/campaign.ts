@@ -26,9 +26,9 @@ import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import type { RunVerdict } from "@kernel/run-verdict.ts";
 import { isCommitSha } from "@kernel/git-revision.ts";
-import type { GroundingInput } from "../src/entrypoints/contract/commands.ts";
-import { CAMPAIGN_ID_PATTERN, type CampaignIdentity } from "../src/entrypoints/contract/campaign.ts";
-import { EXPERIMENT_COPIES_DIR, WARM_SNAPSHOTS_DIR } from "../src/settings/paths.ts";
+import type { GroundingInput } from "../platform/entrypoints/contract/commands.ts";
+import { CAMPAIGN_ID_PATTERN, type CampaignIdentity } from "../platform/entrypoints/contract/campaign.ts";
+import { EXPERIMENT_COPIES_DIR, WARM_SNAPSHOTS_DIR } from "../platform/settings/paths.ts";
 import { DecideCoverageService } from "@contexts/objective-signal/application/index.ts";
 import { detectFakeSpec } from "./fake-pass-detector.ts";
 import {
@@ -481,18 +481,18 @@ const DISCOVER_RUN_MS = 2 * 60_000;
 /** The service, the history, the mirrors and the Playwright runner of the orchestrator container, imported lazily so a test that injects its own never opens them. */
 export async function defaultDeps(env: Record<string, string | undefined> = process.env): Promise<CampaignDeps> {
   const { assertQueueIdle, defaultService } = await import("./efficiency-benchmark.ts");
-  const { loadAppConfig } = await import("../src/composition/config-loader.ts");
-  const { workdirRoot, realGit } = await import("../src/composition/repo-mirror.ts");
-  const { buildSetupAdapter, resolveCodeSandbox } = await import("../src/composition/run-engine-factory.ts");
-  const { buildScriptExec } = await import("../src/composition/exec-sandbox-factory.ts");
-  const { egressGateFor, scriptOriginsFor, scriptRegistryOrigins } = await import("../src/composition/egress-wiring.ts");
+  const { loadAppConfig } = await import("../platform/composition/config-loader.ts");
+  const { workdirRoot, realGit } = await import("../platform/composition/repo-mirror.ts");
+  const { buildSetupAdapter, resolveCodeSandbox } = await import("../platform/composition/run-engine-factory.ts");
+  const { buildScriptExec } = await import("../platform/composition/exec-sandbox-factory.ts");
+  const { egressGateFor, scriptOriginsFor, scriptRegistryOrigins } = await import("../platform/composition/egress-wiring.ts");
   const { runE2E, createDefaultE2eExecuteDeps, e2eTimeoutMs } = await import("../qa-engine/src/contexts/test-execution/infrastructure/e2e-execution.runner.ts");
   const { ProcessKillAdapter } = await import("../qa-engine/src/shared-infrastructure/process-sandbox/process-kill.adapter.ts");
   const { writeOwnedSpecFile } = await import("../qa-engine/src/shared-infrastructure/spec-path-confinement.ts");
   const { collectReport, defaultReportDeps, defaultProbeResultsDir, readGroundTruthFile, writeJsonAtomically } = await import("./probe-report.ts");
   const { loadSnapshot, restoreSuite, seedSuiteStore, warmSnapshotDir } = await import("./warm-suite.ts");
   const { suiteDelta } = await import("./campaign-suite.ts");
-  const { getHistory } = await import("../src/persistence/index.ts");
+  const { getHistory } = await import("../platform/persistence/index.ts");
   const { prepareHarnessAuth } = await import("./harness-auth.ts");
   const baseline = await import("./baseline-agent.ts");
 

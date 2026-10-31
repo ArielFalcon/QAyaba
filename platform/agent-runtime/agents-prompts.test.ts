@@ -1,0 +1,694 @@
+/* Agent prompt guard. The static prompt layers under agents/ (AGENTS.md, agent/*.md, skill/**) are pinned to the
+   code that reads them: the verdict contract the generator's examples must satisfy, the rules each layer owns
+   against the assembled prompt, and the section contents other code relies on. Conditional rules live in the
+   assembled prompt; the static files hold unconditional craft rules only.
+   Section detection: sections are identified by their H2 header text (##).
+ */
+
+import { readFileSync, existsSync } from "node:fs";
+import { join } from "node:path";
+import { describe, it } from "node:test";
+import assert from "node:assert/strict";
+import { classifyGenerationEnd } from "@contexts/generation/application/index";
+import { PACK_HEADINGS, PROMPT_HEADINGS } from "@contexts/generation/application/index";
+import { ROUTE_LINK_FIELDS } from "@contexts/generation/application/index";
+import { detectStubbedState } from "@contexts/test-execution/application/index";
+import type { MilestoneOutcome } from "@contexts/generation/application/index";
+import { ASSEMBLED_ARTIFACT_NAMES, buildPrompt } from "@contexts/generation/infrastructure/prompt-builders/prompts";
+import { ANTI_WEAKENING_RULE, EFFORT_NO_OP_CLAUSE, OBJECTIVE_QUESTION, buildContextTask } from "@contexts/generation/infrastructure/prompt-builders/task-builders";
+import { MILESTONE_OUTCOME_PHRASES } from "@contexts/generation/infrastructure/prompt-builders/generator-renderers";
+import { GENERATION_END } from "@kernel/generation-end";
+import { checkGeneratorVerdict, parseVerdict } from "@contexts/generation/application/index";
+import { RUN_MODES } from "../persistence/types";
+
+/* The roster is an input here: window budgets resolve from the roster fixture, never the deployable agents/opencode.json. */
+
+/* Resolve repo root relative to this test file (platform/agent-runtime/ → two levels up) */
+const REPO_ROOT = join(import.meta.dirname ?? __dirname, "..", "..");
+
+/* The files of the playwright-authoring skill. */
+const PLAYWRIGHT_AUTHORING_FILES = [
+  "agents/skill/playwright-authoring/SKILL.md",
+  "agents/skill/playwright-authoring/locators-and-waiting.md",
+  "agents/skill/playwright-authoring/auth.md",
+  "agents/skill/playwright-authoring/browser-conditions.md",
+  "agents/skill/playwright-authoring/storage-and-uploads.md",
+];
+
+function readFile(rel: string): string {
+  const p = join(REPO_ROOT, rel);
+  assert.ok(existsSync(p), `Prompt file not found: ${rel} (resolved: ${p})`);
+  return readFileSync(p, "utf8");
+}
+
+/* The generator role prompt. */
+const GENERATOR_PROMPTS = ["agents/agent/qa-author.md"];
+
+/* Parse H2 sections out of a markdown document. Returns a map: header text → body. */
+function parseSections(md: string): Map<string, string> {
+  const sections = new Map<string, string>();
+  const headerRe = /^## (.+)$/m;
+  const parts = md.split(/^(?=## )/m);
+  for (const part of parts) {
+    const m = headerRe.exec(part);
+    if (!m || !m[1] || !m[0]) continue;
+    const header = m[1].trim();
+    const body = part.slice(m[0].length).trim();
+    sections.set(header, body);
+  }
+  return sections;
+}
+
+describe("agent prompt guard", () => {
+  it("agents/agent/qa-reviewer.md contains the {text,severity} structured corrections contract", () => {
+    const reviewer = readFile("agents/agent/qa-reviewer.md");
+    /* The structured contract requires both fields in the JSON example.
+       Plain-string corrections do NOT have a `severity` field.
+     */
+    assert.ok(
+      reviewer.includes('"severity"'),
+      'agents/agent/qa-reviewer.md is missing the structured corrections contract: ' +
+        'corrections entries must be objects with a "severity" field.',
+    );
+    assert.ok(
+      reviewer.includes('"blocking"') || reviewer.includes('"advisory"'),
+      'agents/agent/qa-reviewer.md must document "blocking" and "advisory" severity values.',
+    );
+  });
+
+
+  it("every layer that states the one allowed mock teaches the shape the stubbed-test detector accepts", () => {
+    for (const rel of ["agents/agent/qa-author.md", "agents/skill/playwright-authoring/SKILL.md"]) {
+      const content = readFile(rel);
+      assert.ok(content.includes("[stubbed: "), `${rel} must teach the "[stubbed: <response>]" title the PR names the test by.`);
+      assert.ok(content.includes('route.request().method() !== "GET"'), `${rel} must teach the GET check that guards a fulfil.`);
+    }
+    for (const rel of ["agents/agent/qa-reviewer.md", "agents/skill/test-value-review/SKILL.md"]) {
+      assert.ok(readFile(rel).includes("[stubbed: "), `${rel} must judge a test titled "[stubbed: <response>]" by what the frontend does with the response.`);
+    }
+    /* The shape the layers teach is the one the detector accepts without a violation, and reads as stubbed with its stated response. */
+    const taught = [
+      'import { test, expect } from "./fixtures";',
+      'test("lists", async ({ page }) => { await page.goto("/x"); await expect(page).toHaveURL("/x"); });',
+      'test("[stubbed: a response with no items] shows the empty state", async ({ page }) => {',
+      '  await page.route("**/items", async (route) => {',
+      '    if (route.request().method() !== "GET") return route.continue();',
+      "    await route.fulfill({ json: { items: [] } });",
+      "  });",
+      '  await expect(page).toHaveURL("/x");',
+      "});",
+    ].join("\n");
+    const report = detectStubbedState([{ file: "x.spec.ts", text: taught }]);
+    assert.deepEqual(report.violations, []);
+    assert.deepEqual(report.tests.map((t) => t.response), ["a response with no items"]);
+  });
+
+  it("agents/agent/qa-reviewer.md contains ARIA-role selector guidance", () => {
+    const reviewer = readFile("agents/agent/qa-reviewer.md");
+    /* ARIA / role selector guidance (getByRole is the canonical Playwright ARIA selector) */
+    assert.ok(
+      reviewer.includes("getByRole") || reviewer.includes("ARIA"),
+      'agents/agent/qa-reviewer.md must contain ARIA-role selector guidance.',
+    );
+  });
+
+
+  it("agents/agent/qa-author.md contains the anti-hang/no-op section", () => {
+    const generator = readFile("agents/agent/qa-author.md");
+    /* The anti-hang section prevents the generator from over-working past the verdict, which causes run timeouts. */
+    assert.ok(
+      generator.includes("DONE generating") ||
+        generator.includes("Stop when the spec is written") ||
+        generator.includes("verdict is your LAST action"),
+      "agents/agent/qa-author.md is missing the anti-hang/no-op section: " +
+        'the "Stop when the spec is written — then emit the verdict" section prevents the generator from ' +
+        "over-working past the closing verdict.",
+    );
+  });
+
+  it("the honest outcomes of a milestone use the words of the verdict contract the static layers define, so that a decision reaches the verdict and not silence", () => {
+    /* A milestone that offers a way to end without a spec (a first pass's no-op, a regeneration's reason that none applies) sends the agent to the one place the static contract has for it: the closing verdict and its no-op reason. */
+    for (const rel of GENERATOR_PROMPTS) {
+      const text = readFile(rel);
+      assert.match(text, /\bverdict\b/i, `${rel} names its closing block the verdict`);
+      assert.match(text, /`noop\.reason`/, `${rel} defines the no-op reason`);
+    }
+    assert.match(MILESTONE_OUTCOME_PHRASES["reason-none-applies"], /\bverdict\b/i);
+    assert.match(MILESTONE_OUTCOME_PHRASES["no-op"], /\bno-op\b/i);
+  });
+
+
+  it("the generator states the selector priority once, and it names the configured test-id attribute as the only test-id discriminator", () => {
+    for (const rel of GENERATOR_PROMPTS) {
+      const procedure = parseSections(readFile(rel)).get("Procedure") ?? "";
+      const rules = procedure.match(/Selector priority:[^\n]*/g) ?? [];
+      assert.equal(rules.length, 1, `${rel}: the selector priority is stated exactly once`);
+      assert.match(rules[0] ?? "", /STARTS WITH the configured testIdAttribute name/, `${rel}: an id=/name=/href hint must not read as a test-id`);
+    }
+  });
+
+  it("the generator's Procedure holds unconditional craft: no case split on what the prompt carries and no runtime-signals rule", () => {
+    for (const rel of GENERATOR_PROMPTS) {
+      const procedure = parseSections(readFile(rel)).get("Procedure") ?? "";
+      assert.ok(procedure.length > 0, `${rel}: has a Procedure section`);
+      assert.doesNotMatch(procedure, /\bCase [AB]\b/, `${rel}: the procedure does not branch on assembled grounding`);
+      assert.doesNotMatch(procedure, /browser_console_messages|browser_network_requests/, `${rel}: the runtime-signals rule is owned by the assembled prompt`);
+    }
+  });
+
+  /* The directory every watched repo keeps its suite in; the runner reports spec paths relative to it. */
+  const SUITE_DIR = "e2e";
+
+  it("qa-author.md asks for specs as suite-relative paths, the same ones specMetas names", () => {
+    for (const rel of GENERATOR_PROMPTS) {
+      const finalOutput = parseSections(readFile(rel)).get("Final output") ?? "";
+      const example = /```json\n([\s\S]*?)\n```/.exec(finalOutput)?.[1];
+      assert.ok(example, `${rel}: the Final output section carries a JSON example`);
+      const verdict = JSON.parse(example) as { specs: string[]; specMetas: Array<{ file: string }> };
+      assert.ok(verdict.specs.length > 0, `${rel}: the example reports at least one spec`);
+      for (const spec of verdict.specs) {
+        assert.match(spec, /^[^./][^\\]*\/[^/]+\.spec\.ts$/, `${rel}: "${spec}" must be a path under e2e/, not a bare name`);
+        assert.notEqual(spec.split("/")[0], SUITE_DIR, `${rel}: "${spec}" must be relative to ${SUITE_DIR}/, not to the repo root`);
+      }
+      assert.deepEqual(verdict.specMetas.map((m) => m.file), verdict.specs, `${rel}: specMetas[].file names the same paths`);
+    }
+  });
+
+  /* The JSON examples of a generator prompt's Final output section, in order. */
+  const finalOutputExamples = (rel: string): string[] => {
+    const finalOutput = parseSections(readFile(rel)).get("Final output") ?? "";
+    return [...finalOutput.matchAll(/```json\n([\s\S]*?)\n```/g)].map((m) => m[1] ?? "");
+  };
+  const endOfExample = (example: string) => {
+    const verdict = parseVerdict(example);
+    return classifyGenerationEnd({
+      specCount: verdict.specs.length,
+      parsed: verdict.parsed,
+      noopReason: verdict.noopReason,
+      exhausted: false,
+    });
+  };
+
+  it("in qa-author.md the first Final output example delivers specs and every other one declares a no-op, as the real parser and validator read them", () => {
+    for (const rel of GENERATOR_PROMPTS) {
+      const examples = finalOutputExamples(rel);
+      assert.ok(examples.length >= 2, `${rel}: the Final output section carries a delivery example and a no-op example`);
+      examples.forEach((example, index) => {
+        assert.equal(checkGeneratorVerdict(example).valid, true, `${rel}: example ${index + 1} passes the validator`);
+        assert.equal(
+          endOfExample(example),
+          index === 0 ? GENERATION_END.DELIVERED : GENERATION_END.DECLARED_NOOP,
+          `${rel}: example ${index + 1}`,
+        );
+      });
+    }
+  });
+
+  it("no example in qa-author.md reports an approval", () => {
+    for (const rel of GENERATOR_PROMPTS) {
+      for (const example of finalOutputExamples(rel)) {
+        assert.equal("approved" in (JSON.parse(example) as object), false, `${rel}: ${example}`);
+      }
+    }
+  });
+
+  it("the context-mode prompt's closing example delivers its map and reports no approval", () => {
+    const text = buildContextTask({
+      repo: "org/app",
+      sha: "abc1234",
+      e2eRelDir: "e2e",
+      mode: "context",
+    } as Parameters<typeof buildContextTask>[0]);
+    const example = text.trim().split("\n").at(-1) ?? "";
+    assert.equal("approved" in (JSON.parse(example) as object), false);
+    assert.equal(checkGeneratorVerdict(example).valid, true);
+    assert.equal(endOfExample(example), GENERATION_END.DELIVERED);
+  });
+
+
+  /* The no-direct-HTTP rule has two facets, each stated ONCE, in its own sentence, in AGENTS Global rules:
+     what the agent's session may do (no network call outside the Playwright MCP: the prompt-injection
+     defense) and what a spec may do (drive the app through the UI like a user, never call the backend
+     API directly). These are the ways the prompts have phrased them; a statement outside Global rules is
+     a restatement to delete. */
+  const SESSION_NETWORK_STATEMENTS: readonly RegExp[] = [/network calls outside the browser tools/i];
+  const SPEC_AUTHORING_STATEMENTS: readonly RegExp[] = [
+    /never call the (?:backend )?(?:API|service) directly/i,
+    /no curl/i,
+    /no direct HTTP/i,
+    /direct API\/HTTP\/curl/i,
+    /Drives? the (?:app|backend) through the (?:web )?UI/i,
+  ];
+  /* The sentences of a text (a line break inside a sentence is a space) that carry any of the patterns. */
+  const statementsOf = (text: string, patterns: readonly RegExp[]): string[] =>
+    text
+      .split(/\n\s*\n|\n(?=\s*[-*] )/)
+      .flatMap((block) => block.replace(/\s+/g, " ").trim().split(/(?<=[.!?])\s+/))
+      .filter((sentence) => patterns.some((pattern) => pattern.test(sentence)));
+  const RULE_FACETS: ReadonlyArray<readonly [string, readonly RegExp[]]> = [
+    ["the session may not make a network call outside the browser tools", SESSION_NETWORK_STATEMENTS],
+    ["a spec drives the app through the UI and never calls the backend API directly", SPEC_AUTHORING_STATEMENTS],
+  ];
+  const restatementsIn = (text: string): number =>
+    RULE_FACETS.reduce((total, [, patterns]) => total + statementsOf(text, patterns).length, 0);
+
+  it("AGENTS.md keeps a Global rules section that states each facet of the no-direct-HTTP rule once, in a sentence of its own, and no other section restates either", () => {
+    for (const rel of ["agents/AGENTS.md"]) {
+      const sections = parseSections(readFile(rel));
+      const globalRules = sections.get("Global rules");
+      assert.ok(globalRules, `${rel}: the Global rules section survives`);
+      const stated = RULE_FACETS.map(([facet, patterns]) => ({ facet, sentences: statementsOf(globalRules, patterns) }));
+      for (const { facet, sentences } of stated) assert.equal(sentences.length, 1, `${rel}: Global rules states once that ${facet}`);
+      const [session, authoring] = stated.map(({ sentences }) => sentences[0]);
+      assert.notEqual(session, authoring, `${rel}: the two facets are separate sentences`);
+      for (const [name, body] of sections) {
+        if (name === "Global rules") continue;
+        assert.equal(restatementsIn(body), 0, `${rel}: section "${name}" must not restate the no-direct-HTTP rule`);
+      }
+    }
+  });
+
+  it("no role prompt or skill restates the no-direct-HTTP rule", () => {
+    for (const rel of [
+      ...GENERATOR_PROMPTS,
+      "agents/skill/playwright-authoring/SKILL.md",
+      "agents/agent/qa-author.md",
+    ]) {
+      assert.equal(restatementsIn(readFile(rel)), 0, rel);
+    }
+  });
+
+  it("the assembled generator prompt does not restate the no-direct-HTTP rule, whatever it carries", () => {
+    const base = {
+      repo: "org/app",
+      sha: "abc1234",
+      diff: "diff --git a/a.ts b/a.ts\n+x\n",
+      mirrorDir: "/m",
+      e2eRelDir: "e2e",
+      namespace: "qa-bot-abc1234",
+      needsReview: false,
+      target: "e2e",
+      mode: "diff",
+      appName: "shop",
+      baseUrl: "http://localhost:3000",
+    } as Parameters<typeof buildPrompt>[0];
+    const withOpenapi = { ...base, openapi: "api-definition.yaml" };
+    const crossRepo = { ...base, service: { repo: "org/orders", mirrorDir: "/m/orders", openapi: "api.yaml" } };
+    for (const input of [base, withOpenapi, crossRepo]) assert.equal(restatementsIn(buildPrompt(input)), 0);
+  });
+
+  /* A phrase as the static layers may wrap it: any run of whitespace stands for the space between its words. */
+  const phrase = (words: string): string =>
+    words.trim().split(/\s+/).map((word) => word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("\\s+");
+  const phrasePattern = (...alternatives: string[]): RegExp => new RegExp(alternatives.map(phrase).join("|"), "gi");
+
+  /* A craft rule has one owner. The static layers (AGENTS.md and the generator role) hold what applies to every run; a rule that applies only to some shapes of run is stated by the assembled prompt for that shape, and only there. These are the phrasings each rule has had; a second copy in the other layer is a restatement to delete. */
+  interface OwnedRule {
+    rule: string;
+    pattern: RegExp;
+    /* The assembled prompt the rule is counted in: an e2e diff run whose page the prompt supplies a tree for, or a pack with a live DOM; an e2e diff run of an app that declares an OpenAPI contract and supplies no tree; an e2e diff run whose change is broad; a regeneration of an e2e diff run; a complete run's first pass, which analyzes and writes no tests, or its regeneration, which writes them; or a context run, which maps the architecture. */
+    shape: "tree" | "pack" | "openapi" | "broad" | "regen" | "context";
+    inStatic: number;
+    /* Exactly this many statements in the assembled prompt of its shape, or at least this many. */
+    inAssembled: { exactly: number } | { atLeast: number };
+    /* The same count in the prompt of that shape built with a step limit, when it differs from the one without: a rule that is about the limit or its milestone. Absent: the limit changes nothing about this rule. */
+    withLimit?: { exactly: number } | { atLeast: number };
+  }
+  const LAST_ACTION_RULE = phrasePattern("verdict is your LAST action");
+  const DECLARED_NO_OP_RULE = phrasePattern("you have declared a no-op");
+  /* The second reason of the no-op, in the words the generator role states it and the effort of a diff's first pass quotes. */
+  const UNOBSERVABLE_NOOP_REASON = phrasePattern("cannot be observed on DEV in its current state");
+  /* Supplied context is used at the confidence the prompt states for each part, and what the prompt marks as unverified or stale is looked up when a test depends on it. */
+  const CONFIDENCE_RULE = phrasePattern("at the confidence the prompt states", "at the confidence it states");
+  const UNVERIFIED_LOOKUP_RULE = phrasePattern("marks as unverified or stale");
+  /* A backend contract fact the prompt lacks is read from the matching operation of the repo's OpenAPI spec, and an operation's id, method and path do not supply that contract. The static layers own the rule; the assembled prompt of an app that declares a contract only says where the spec is. */
+  const CONTRACT_READ_RULE = /\bread\b[^.]*?\bmatching\s+operation\b/gi;
+  const CONTRACT_LACK_RULE = phrasePattern("the prompt lacks a contract fact");
+  const CONTRACT_FACTS_RULE = /\bfields\b[^.;)]*\benums\b[^.;)]*\berror responses\b/gi;
+  const CONTRACT_IDENTITY_RULE = phrasePattern("an operation's id, method and path are not enough");
+  /* How to write a spec is taught by the authoring skill, which the generator role says to consult; an assembled e2e prompt never says it again. */
+  const AUTHORING_SKILL_CONSULT = /Consult\s+the\s+`?playwright-authoring`?\s+skill/gi;
+  /* A diff run works only on the pages the change affects, and its scope budget says so in every cell, whatever grounding the prompt carries. The verb names no exploration, so the bound never reads as a directive to browse; the one-size line it replaced told every diff run to expect a handful of specs. */
+  const AFFECTED_PAGES_BOUND = phrasePattern("ONLY on the page(s) the change affects");
+  const EXPLORE_AFFECTED_PAGES = phrasePattern("Explore ONLY the page(s) the change affects");
+  const HANDFUL_OF_SPECS = phrasePattern("A handful of focused specs is the right output here");
+  /* Every diff first pass states that its effort is not a suite rewrite, one spec file per affected flow, a ceiling that admits doing nothing. */
+  const SUITE_REWRITE_BOUND = phrasePattern("not a suite rewrite");
+  const EFFORT_NO_OP = phrasePattern(EFFORT_NO_OP_CLAUSE);
+  const EFFORT_CEILING = /Expected effort: at most\b/g;
+  /* The listing of the existing suite carries paths, a flow and an objective, never a spec's content, so the one spec a run updates is read first. The shared layer's reuse protocol owns that read; no assembled prompt repeats it. */
+  const READ_BEFORE_UPDATE = phrasePattern("read it, and update it");
+  /* No role keeps a memory across runs: no layer names the memory server or one of its tools. */
+  const MEMORY_SERVER = /\bengram\b|\bmem_[a-z_]+\b|\btopic_key\b/gi;
+  /* The words the builder renders the statement of the limit and each outcome of a milestone with, so the pins read the production table and re-type no wording. */
+  const STEP_LIMIT_STATEMENT = new RegExp(`^## ${PROMPT_HEADINGS.stepLimit}$`, "gm");
+  const outcomePattern = (outcome: MilestoneOutcome): RegExp => phrasePattern(MILESTONE_OUTCOME_PHRASES[outcome]);
+  /* The shapes by what their turn does: a diff first pass writes tests, a regeneration writes them, and a context run writes none. */
+  const FIRST_PASS_SHAPES = ["tree", "pack", "openapi", "broad"] as const;
+  const REGENERATION_SHAPES = ["regen"] as const;
+  const WRITES_NONE_SHAPES = ["context"] as const;
+  /* One rule per shape: counted `counts.*` times in the prompt built with a limit, never in the one built without. */
+  const limitRules = (rule: string, pattern: RegExp, counts: { firstPass: number; regeneration: number; writesNone: number }): OwnedRule[] => [
+    ...FIRST_PASS_SHAPES.map((shape): OwnedRule => ({ rule, pattern, shape, inStatic: 0, inAssembled: { exactly: 0 }, withLimit: { exactly: counts.firstPass } })),
+    ...REGENERATION_SHAPES.map((shape): OwnedRule => ({ rule, pattern, shape, inStatic: 0, inAssembled: { exactly: 0 }, withLimit: { exactly: counts.regeneration } })),
+    ...WRITES_NONE_SHAPES.map((shape): OwnedRule => ({ rule, pattern, shape, inStatic: 0, inAssembled: { exactly: 0 }, withLimit: { exactly: counts.writesNone } })),
+  ];
+  /* A test is never weakened to make it pass: the assembled task states the rule on every turn that writes tests, and no layer else does. The question of the outcome the task asks beside it is the turn's, not the rule's: a first pass asks it, and so does a regeneration whose specs under correction have no objective their lead declared. The words are the builder's own constants, so the pins read production and re-type none. */
+  const ANTI_WEAKENING_STATEMENT = phrasePattern(ANTI_WEAKENING_RULE);
+  const OBJECTIVE_QUESTION_STATEMENT = phrasePattern(OBJECTIVE_QUESTION);
+  const WRITES_TESTS_SHAPES = [...FIRST_PASS_SHAPES, ...REGENERATION_SHAPES] as const;
+  const OWNED_RULES: readonly OwnedRule[] = [
+    ...WRITES_TESTS_SHAPES.map((shape): OwnedRule => ({ rule: "the rule against weakening a test (a turn that writes tests)", pattern: ANTI_WEAKENING_STATEMENT, shape, inStatic: 0, inAssembled: { exactly: 1 } })),
+    ...WRITES_NONE_SHAPES.map((shape): OwnedRule => ({ rule: "the rule against weakening a test (a turn that writes none)", pattern: ANTI_WEAKENING_STATEMENT, shape, inStatic: 0, inAssembled: { exactly: 0 } })),
+    ...[...FIRST_PASS_SHAPES, ...REGENERATION_SHAPES].map((shape): OwnedRule => ({
+      rule: "asking for the outcome the tests assert",
+      pattern: OBJECTIVE_QUESTION_STATEMENT,
+      shape,
+      inStatic: 0,
+      inAssembled: { exactly: 1 },
+    })),
+    ...WRITES_NONE_SHAPES.map((shape): OwnedRule => ({ rule: "asking for the outcome the tests assert (a turn that writes none)", pattern: OBJECTIVE_QUESTION_STATEMENT, shape, inStatic: 0, inAssembled: { exactly: 0 } })),
+    /* The conventions of the repo's tests are read once, on the first pass; the framework is detected on every pass. */
+    { rule: "the selector priority", pattern: /STARTS WITH the configured testIdAttribute name/gi, shape: "tree", inStatic: 1, inAssembled: { exactly: 0 } },
+    { rule: "the dynamic DOM caveat", pattern: /STATIC snapshot of initial load/gi, shape: "tree", inStatic: 1, inAssembled: { exactly: 0 } },
+    { rule: "not re-navigating a route the tree covers", pattern: /(?:do not|never)[^.\n]*(?:re-navigate|browser_navigate|browser_snapshot)/gi, shape: "tree", inStatic: 0, inAssembled: { atLeast: 1 } },
+    { rule: "a memory that outlives the run", pattern: MEMORY_SERVER, shape: "tree", inStatic: 0, inAssembled: { exactly: 0 } },
+    /* The verdict ends the turn: the static stop rule is the only owner, whether the specs are written or the no-op is decided. */
+    { rule: "the verdict being the last action (e2e)", pattern: LAST_ACTION_RULE, shape: "tree", inStatic: 1, inAssembled: { exactly: 0 } },
+    { rule: "the verdict following a declared no-op (e2e)", pattern: DECLARED_NO_OP_RULE, shape: "tree", inStatic: 1, inAssembled: { exactly: 0 } },
+    /* What the prompt carries comes first, and only what it lacks is looked up: orientation and memory follow that one rule. */
+    { rule: "using what the prompt supplies and looking up only what it lacks", pattern: phrasePattern("What the prompt supplies comes first"), shape: "tree", inStatic: 1, inAssembled: { exactly: 0 } },
+    /* The shared layer and the generator's first step each say so once; the assembled prompt carries the framing itself. */
+    { rule: "using each supplied part at the confidence the prompt states for it", pattern: CONFIDENCE_RULE, shape: "tree", inStatic: 2, inAssembled: { exactly: 0 } },
+    { rule: "looking up what the prompt marks as unverified or stale when a test depends on it", pattern: UNVERIFIED_LOOKUP_RULE, shape: "tree", inStatic: 2, inAssembled: { exactly: 0 } },
+    { rule: "orienting by the file tree and names before a look-up", pattern: phrasePattern("skim the file TREE and NAMES"), shape: "tree", inStatic: 1, inAssembled: { exactly: 0 } },
+    /* Code is read with the code tools only where the prompt does not provide it, and serena is no one's primary way to read. */
+    { rule: "reading code the prompt does not provide with the first code tool a role holds", pattern: phrasePattern("Reading code the prompt does not provide"), shape: "tree", inStatic: 1, inAssembled: { exactly: 0 } },
+    { rule: "serena being the primary way to read code, whatever the prompt carries", pattern: phrasePattern("PRIMARY way to read code"), shape: "tree", inStatic: 0, inAssembled: { exactly: 0 } },
+    /* The outcome contract: source code grounds no selector, a same-label stand-in is never asserted, and the no-op has its second reason. Each is stated by the generator role alone. */
+    { rule: "source code grounding no selector and no asserted value", pattern: phrasePattern("grounds no selector and no asserted value"), shape: "tree", inStatic: 1, inAssembled: { exactly: 0 } },
+    { rule: "never asserting a pre-existing element with the changed label", pattern: phrasePattern("Never assert a pre-existing element"), shape: "tree", inStatic: 1, inAssembled: { exactly: 0 } },
+    /* The generator role owns the sentence that names the second reason of the no-op; the one place an assembled prompt offers the no-op (the effort of a diff's first pass) quotes it, and no other turn does. */
+    ...(["tree", "pack", "openapi", "broad"] as const).map((shape): OwnedRule => ({ rule: `the no-op for a change DEV cannot show (a diff's first pass, ${shape})`, pattern: UNOBSERVABLE_NOOP_REASON, shape, inStatic: 1, inAssembled: { exactly: 1 } })),
+    ...(["regen", "context"] as const).map((shape): OwnedRule => ({ rule: `the no-op for a change DEV cannot show (${shape}, which offers no effort)`, pattern: UNOBSERVABLE_NOOP_REASON, shape, inStatic: 1, inAssembled: { exactly: 0 } })),
+    { rule: "the generator naming the kind of its no-op in the verdict", pattern: phrasePattern("`noop.kind` names the one that holds"), shape: "tree", inStatic: 1, inAssembled: { exactly: 0 } },
+    { rule: "an unobservable no-op naming the element and the evidence it relied on", pattern: phrasePattern("names the element and the evidence it relied on"), shape: "tree", inStatic: 1, inAssembled: { exactly: 0 } },
+    { rule: "reading the existing spec of a flow before updating it", pattern: READ_BEFORE_UPDATE, shape: "tree", inStatic: 1, inAssembled: { exactly: 0 } },
+    /* An OpenAPI contract is read for a contract fact the prompt lacks: the static layers hold the rule, and the assembled prompt of an app that declares a contract does not repeat it. */
+    { rule: "reading a contract fact from the matching operation of the repo's OpenAPI spec", pattern: CONTRACT_READ_RULE, shape: "openapi", inStatic: 1, inAssembled: { exactly: 0 } },
+    { rule: "reading the contract only for a contract fact the prompt lacks", pattern: CONTRACT_LACK_RULE, shape: "openapi", inStatic: 1, inAssembled: { exactly: 0 } },
+    { rule: "the contract facts the read supplies: fields, enums and error responses", pattern: CONTRACT_FACTS_RULE, shape: "openapi", inStatic: 1, inAssembled: { exactly: 0 } },
+    { rule: "an operation's id, method and path not supplying its contract", pattern: CONTRACT_IDENTITY_RULE, shape: "openapi", inStatic: 1, inAssembled: { exactly: 0 } },
+    /* The generator role owns consulting the authoring skill; the assembled working rules do not restate it. */
+    { rule: "consulting the authoring skill for the how of a spec", pattern: AUTHORING_SKILL_CONSULT, shape: "tree", inStatic: 1, inAssembled: { exactly: 0 } },
+    /* A diff run is bounded to the pages the change affects in every cell, with a tree, with a pack DOM, with neither and with a wide change; and its effort is not a suite rewrite. */
+    { rule: "bounding a diff run to the pages the change affects (a tree supplied)", pattern: AFFECTED_PAGES_BOUND, shape: "tree", inStatic: 0, inAssembled: { exactly: 1 } },
+    { rule: "bounding a diff run to the pages the change affects (a pack DOM supplied)", pattern: AFFECTED_PAGES_BOUND, shape: "pack", inStatic: 0, inAssembled: { exactly: 1 } },
+    { rule: "bounding a diff run to the pages the change affects (no tree)", pattern: AFFECTED_PAGES_BOUND, shape: "openapi", inStatic: 0, inAssembled: { exactly: 1 } },
+    { rule: "bounding a diff run to the pages the change affects (a wide change)", pattern: AFFECTED_PAGES_BOUND, shape: "broad", inStatic: 0, inAssembled: { exactly: 1 } },
+    { rule: "keeping the effort of a wide change from a suite rewrite", pattern: SUITE_REWRITE_BOUND, shape: "broad", inStatic: 0, inAssembled: { exactly: 1 } },
+    { rule: "keeping the effort of a one-file change from a suite rewrite", pattern: SUITE_REWRITE_BOUND, shape: "tree", inStatic: 0, inAssembled: { exactly: 1 } },
+    { rule: "an effort that admits doing nothing (a one-file change)", pattern: EFFORT_NO_OP, shape: "tree", inStatic: 0, inAssembled: { exactly: 1 } },
+    { rule: "an effort that admits doing nothing (a wide change)", pattern: EFFORT_NO_OP, shape: "broad", inStatic: 0, inAssembled: { exactly: 1 } },
+    { rule: "an effort stated as a ceiling (a one-file change)", pattern: EFFORT_CEILING, shape: "tree", inStatic: 0, inAssembled: { exactly: 1 } },
+    { rule: "an effort stated as a ceiling (a wide change)", pattern: EFFORT_CEILING, shape: "broad", inStatic: 0, inAssembled: { exactly: 1 } },
+    /* The generator cannot call the session-summary tool, so no layer it reads names it. */
+    /* The step limit the runtime enforces is stated once by every generator prompt built with one, whatever the turn, and by none built without; the milestone is a turn that writes tests' alone, a first pass offering the first test file or the reasoned no-op and a regeneration the first correction or the reason none applies. The static layers state neither: the limit is the runtime's and the milestone is the turn's. */
+    ...limitRules("stating the step limit the runtime enforces", STEP_LIMIT_STATEMENT, { firstPass: 1, regeneration: 1, writesNone: 1 }),
+    ...limitRules("asking a first pass for its first test file by the midpoint of the limit", outcomePattern("first-spec"), { firstPass: 1, regeneration: 0, writesNone: 0 }),
+    ...limitRules("offering a first pass the reasoned no-op by the midpoint of the limit, and a regeneration never", outcomePattern("no-op"), { firstPass: 1, regeneration: 0, writesNone: 0 }),
+    ...limitRules("asking a regeneration for its first correction by the midpoint of the limit", outcomePattern("first-correction"), { firstPass: 0, regeneration: 1, writesNone: 0 }),
+    ...limitRules("letting a regeneration give the reason none applies by the midpoint of the limit, which a first pass is never offered", outcomePattern("reason-none-applies"), { firstPass: 0, regeneration: 1, writesNone: 0 }),
+    /* The phrasings those rules replaced: orienting, searching and consulting memory whatever the prompt carries. */
+    {
+      rule: "orienting or searching before every look-up, whatever the prompt carries",
+      pattern: phrasePattern(
+        "Orient before you dive",
+        "Orient first, as AGENTS.md describes",
+        "Before any symbol-level navigation",
+        "Load the MINIMUM: the blast radius",
+        "search (with serena) for an existing one",
+      ),
+      shape: "tree",
+      inStatic: 0,
+      inAssembled: { exactly: 0 },
+    },
+    {
+      rule: "querying memory first and saving at the end of every run",
+      pattern: phrasePattern(
+        "Query it before exploring",
+        "at the end of every run",
+        "Query `engram` for the repo's memory",
+        "Save reusable OPERATIONAL lessons",
+        "Keep step 7 (engram) to a single quick",
+      ),
+      shape: "tree",
+      inStatic: 0,
+      inAssembled: { exactly: 0 },
+    },
+    {
+      rule: "taking what the prompt supplies as given, whatever confidence the prompt states for it",
+      pattern: phrasePattern("Use it as given", "about the change as given"),
+      shape: "tree",
+      inStatic: 0,
+      inAssembled: { exactly: 0 },
+    },
+    {
+      rule: "reading the matching operation of every backend endpoint the flow touches, whatever the prompt supplies",
+      pattern: phrasePattern(
+        "For any backend endpoint the affected flow touches",
+        "When the affected flow touches a backend endpoint, locate the repo's spec",
+      ),
+      shape: "openapi",
+      inStatic: 0,
+      inAssembled: { exactly: 0 },
+    },
+    /* The phrasings the scope budget replaced: a diff run told to explore its pages, and one size line for every diff. */
+    { rule: "telling a diff run to explore the pages the change affects", pattern: EXPLORE_AFFECTED_PAGES, shape: "tree", inStatic: 0, inAssembled: { exactly: 0 } },
+    { rule: "telling a diff run of any size to expect a handful of specs", pattern: HANDFUL_OF_SPECS, shape: "tree", inStatic: 0, inAssembled: { exactly: 0 } },
+  ];
+  const assembledInput = {
+    repo: "org/app",
+    sha: "abc1234",
+    diff: "diff --git a/a.ts b/a.ts\n+x\n",
+    mirrorDir: "/m",
+    e2eRelDir: "e2e",
+    namespace: "qa-bot-abc1234",
+    needsReview: false,
+    mode: "diff",
+    appName: "shop",
+  };
+  const FAILING_CASE = { name: "cart total", status: "fail", detail: "boom" };
+  /* A wide diff, so the cell is not the one-file change the other shapes carry. */
+  const BROAD_DIFF = Array.from({ length: 12 }, (_, i) => `diff --git a/f${i}.ts b/f${i}.ts\n+x\n`).join("");
+  const PACK_WITH_LIVE_DOM = `## ${PACK_HEADINGS.pack}\n\n### ${PACK_HEADINGS.liveDom} (x)\n  heading: Cart`;
+  /* The shapes a turn that writes tests takes (a diff first pass, or a regeneration) and the one that does not (a context run, which maps the architecture). */
+  const e2eInput = { ...assembledInput, target: "e2e", baseUrl: "http://localhost:3000" };
+  const SHAPE_INPUTS: Record<OwnedRule["shape"], object> = {
+    openapi: { ...e2eInput, openapi: "api-definition.yaml" },
+    pack: { ...e2eInput, contextPack: PACK_WITH_LIVE_DOM },
+    broad: { ...e2eInput, diff: BROAD_DIFF },
+    tree: { ...e2eInput, domSnapshot: "route /cart:\n  button: Apply coupon" },
+    regen: { ...e2eInput, fixCases: [FAILING_CASE] },
+    context: { ...e2eInput, mode: "context" },
+  };
+  /* The cap a runtime that enforces one hands the generator's prompt. A rule has one owner whether or not the runtime states a cap, so every shape is built both ways and each pin is counted in both. */
+  const STATED_STEP_LIMIT = 40;
+  const STEP_LIMIT_VARIANTS: ReadonlyArray<number | undefined> = [undefined, STATED_STEP_LIMIT];
+  const assembledInputFor = (shape: OwnedRule["shape"], stepLimit?: number): Parameters<typeof buildPrompt>[0] =>
+    ({ ...SHAPE_INPUTS[shape], ...(stepLimit !== undefined ? { stepLimit } : {}) }) as Parameters<typeof buildPrompt>[0];
+  const assembledFor = (shape: OwnedRule["shape"], stepLimit?: number): string => buildPrompt(assembledInputFor(shape, stepLimit));
+  const countOf = (text: string, pattern: RegExp): number => [...text.matchAll(pattern)].length;
+
+  it("each craft rule is stated in the layer that owns it and nowhere else", () => {
+    const staticLayers: Array<[string, string]> = [
+      ["OpenCode", ["agents/AGENTS.md", "agents/agent/qa-author.md"].map(readFile).join("\n")],
+    ];
+    for (const { rule, pattern, shape, inStatic, inAssembled, withLimit } of OWNED_RULES) {
+      for (const [runtime, text] of staticLayers) {
+        assert.equal(countOf(text, pattern), inStatic, `${runtime} static layer: ${rule} is stated ${inStatic} time(s)`);
+      }
+      for (const stepLimit of STEP_LIMIT_VARIANTS) {
+        const found = countOf(assembledFor(shape, stepLimit), pattern);
+        const build = stepLimit === undefined ? "without a step limit" : "with a step limit";
+        const expected = stepLimit !== undefined && withLimit ? withLimit : inAssembled;
+        if ("exactly" in expected) assert.equal(found, expected.exactly, `assembled ${shape} prompt ${build}: ${rule} is stated ${expected.exactly} time(s)`);
+        else assert.ok(found >= expected.atLeast, `assembled ${shape} prompt ${build}: ${rule} is stated at least ${expected.atLeast} time(s)`);
+      }
+    }
+  });
+
+  it("every shape the owned rules count in is also built with a step limit, and the limit is the only thing that tells the two builds apart", () => {
+    const shapes = Object.keys(SHAPE_INPUTS) as Array<OwnedRule["shape"]>;
+    assert.ok(shapes.length > 0, "setup: the shapes are known");
+    for (const shape of shapes) {
+      const plain = assembledInputFor(shape);
+      const { stepLimit, ...rest } = assembledInputFor(shape, STATED_STEP_LIMIT);
+      assert.equal(stepLimit, STATED_STEP_LIMIT, `${shape}: the build states the limit`);
+      assert.deepEqual(rest, plain, `${shape}: nothing else differs`);
+      assert.equal("stepLimit" in plain, false, `${shape}: the plain build has no limit key`);
+    }
+  });
+
+  /* Every mode a generator prompt is built for. */
+  const GENERATOR_SHAPES = RUN_MODES.map((mode) => ({ mode, target: "e2e" as const }));
+  const generatorPromptFor = ({ mode, target }: (typeof GENERATOR_SHAPES)[number], extra: Record<string, unknown> = {}): string =>
+    buildPrompt({
+      ...assembledInput,
+      mode,
+      target,
+      guidance: "cover the coupon form",
+      ...(target === "e2e" ? { baseUrl: "http://localhost:3000" } : {}),
+      ...extra,
+    } as Parameters<typeof buildPrompt>[0]);
+
+  it("no assembled generator prompt names a memory that outlives the run", () => {
+    assert.deepEqual([...new Set(GENERATOR_SHAPES.map(({ mode }) => mode))], [...RUN_MODES], "every run mode is built");
+    for (const shape of GENERATOR_SHAPES) {
+      assert.equal(countOf(generatorPromptFor(shape), MEMORY_SERVER), 0, `${shape.mode}/${shape.target}: names a memory`);
+    }
+  });
+
+  /* Every signal that turns a generation pass into a regeneration. */
+  const REGEN_SIGNALS: ReadonlyArray<[string, Record<string, unknown>]> = [
+    ["failing cases", { fixCases: [FAILING_CASE] }],
+    ["reviewer corrections", { reviewCorrections: ["[fragile-selector] cart.spec.ts: scope the coupon button to the cart form"] }],
+    ["a coverage gap", { coverageGap: "src/cart.ts: lines 10-14 were not executed" }],
+    ["selector contradictions", { selectorContradictions: ["button:Apply is NOT in the captured tree"] }],
+  ];
+
+  it("a diff first pass bounds the run to the pages the change affects whatever else the prompt supplies", () => {
+    const supplied: ReadonlyArray<[string, Record<string, unknown>]> = [
+      ["nothing", {}],
+      ["a listing of the existing suite", { existingSpecFiles: ["flows/cart.spec.ts"] }],
+      ["an architecture map", { contextMap: { builtAtSha: "abc1234", routes: [{ path: "/cart" }], api: [], feBe: [] } }],
+      ["a structural signal that names symbols", { staticSignal: "## Structural blast radius\n- CartService.total", staticSignalHasSymbols: true }],
+      ["a pack with a live DOM and a captured tree", { contextPack: PACK_WITH_LIVE_DOM, domSnapshot: "route /cart:\n  button: Apply coupon" }],
+      ["everything at once", { existingSpecFiles: ["flows/cart.spec.ts"], contextMap: { builtAtSha: "abc1234", routes: [{ path: "/cart" }], api: [], feBe: [] }, staticSignal: "## Structural blast radius\n- CartService.total", staticSignalHasSymbols: true, contextPack: PACK_WITH_LIVE_DOM }],
+    ];
+    for (const [label, extra] of supplied) {
+      assert.equal(countOf(generatorPromptFor({ mode: "diff", target: "e2e" }, extra), AFFECTED_PAGES_BOUND), 1, `with ${label}`);
+    }
+  });
+
+  it("no assembled generator prompt consults the authoring skill, on a first pass or on any regeneration: the generator role owns that rule", () => {
+    for (const shape of GENERATOR_SHAPES) {
+      for (const [label, extra] of [["first pass", {}], ...REGEN_SIGNALS] as ReadonlyArray<[string, Record<string, unknown>]>) {
+        assert.equal(countOf(generatorPromptFor(shape, extra), AUTHORING_SKILL_CONSULT), 0, `${shape.mode}/${shape.target} ${label}: consults the authoring skill`);
+      }
+    }
+  });
+
+  it("an app that declares an OpenAPI contract has its spec location given to the generator in every e2e mode, and no assembled prompt directs reading its operations", () => {
+    const hint = "api-definition.yaml";
+    for (const shape of GENERATOR_SHAPES) {
+      const where = `${shape.mode}/${shape.target}`;
+      const prompt = generatorPromptFor(shape, { openapi: hint });
+      assert.equal(countOf(prompt, CONTRACT_READ_RULE), 0, `${where}: directs reading the matching operation`);
+      /* The context run states its own hint while it builds the map. */
+      if (shape.target === "e2e" && shape.mode !== "context") assert.equal(prompt.split(hint).length - 1, 1, `${where}: gives the spec location once`);
+    }
+  });
+
+  /* The shared layer, the generator role, and the roles that point at the shared layer for how to orient. */
+  const STATIC_LAYERS = [
+    { shared: "agents/AGENTS.md", generator: "agents/agent/qa-author.md", pointers: ["agents/agent/qa-proposer.md"] },
+  ] as const;
+  const STOP_RULE_SECTION = "Stop when the spec is written or the no-op is declared — then emit the verdict";
+  const PROTOCOLS_SECTION = "Protocols (to keep quality from degrading over time)";
+  /* The text of the generator procedure's step 1, up to the heading of step 2. */
+  const stepOneOf = (procedure: string): string => /### 1\. Understand the change\n([\s\S]*?)\n### 2\./.exec(procedure)?.[1] ?? "";
+
+  it("the generator's stop rule's own section holds the last-action rule and the declared no-op clause", () => {
+    for (const { generator } of STATIC_LAYERS) {
+      const stopRule = parseSections(readFile(generator)).get(STOP_RULE_SECTION) ?? "";
+      assert.ok(stopRule.length > 0, `${generator}: has the section "${STOP_RULE_SECTION}"`);
+      assert.equal(countOf(stopRule, LAST_ACTION_RULE), 1, `${generator}: the stop rule section states that the verdict is the last action once`);
+      assert.equal(countOf(stopRule, DECLARED_NO_OP_RULE), 1, `${generator}: the stop rule section covers a declared no-op once`);
+    }
+  });
+
+  it("the sections that carry the consume-first rule state it, and name no assembled artifact, split no case and number no step", () => {
+    for (const { shared, generator } of STATIC_LAYERS) {
+      const sharedSections = parseSections(readFile(shared));
+      const carriers: Array<[string, string]> = [
+        [`${generator} Procedure step 1`, stepOneOf(parseSections(readFile(generator)).get("Procedure") ?? "")],
+        [`${shared} Execution context`, sharedSections.get("Execution context") ?? ""],
+        [`${shared} Protocols`, sharedSections.get(PROTOCOLS_SECTION) ?? ""],
+      ];
+      for (const [where, text] of carriers) {
+        assert.ok(text.length > 0, `${where}: the text is found`);
+        assert.ok(countOf(text, phrasePattern("what the prompt supplies")) >= 1, `${where}: states the consume-first rule`);
+        for (const name of ASSEMBLED_ARTIFACT_NAMES) assert.equal(text.includes(name), false, `${where}: names the assembled artifact "${name}"`);
+        assert.doesNotMatch(text, /\bCase [A-Z]\b/, `${where}: does not split by case`);
+        assert.doesNotMatch(text, /\bsteps? \d+\b/i, `${where}: does not number a step`);
+      }
+    }
+  });
+
+  it("the reuse protocol has the agent read the existing spec of a flow before it updates it", () => {
+    for (const { shared } of STATIC_LAYERS) {
+      const protocols = parseSections(readFile(shared)).get(PROTOCOLS_SECTION) ?? "";
+      const reuse = /\*\*Reuse > create\.\*\*([\s\S]*?)(?=\n\d+\. \*\*)/.exec(protocols)?.[1] ?? "";
+      assert.ok(reuse.length > 0, `${shared}: has the reuse protocol`);
+      assert.equal(countOf(reuse, READ_BEFORE_UPDATE), 1, `${shared}: the reuse protocol reads the existing spec before it updates it`);
+    }
+  });
+
+  it("the shared Execution context and the generator's first step use what the prompt supplies at the confidence the prompt states for each part, never as given", () => {
+    for (const { shared, generator } of STATIC_LAYERS) {
+      const carriers: Array<[string, string]> = [
+        [`${generator} Procedure step 1`, stepOneOf(parseSections(readFile(generator)).get("Procedure") ?? "")],
+        [`${shared} Execution context`, parseSections(readFile(shared)).get("Execution context") ?? ""],
+      ];
+      for (const [where, text] of carriers) {
+        assert.ok(text.length > 0, `${where}: the text is found`);
+        assert.equal(countOf(text, CONFIDENCE_RULE), 1, `${where}: states once that each supplied part is used at the confidence the prompt states`);
+        assert.equal(countOf(text, UNVERIFIED_LOOKUP_RULE), 1, `${where}: looks up what the prompt marks as unverified or stale when a test depends on it`);
+        assert.doesNotMatch(text, /\bas given\b/i, `${where}: does not take what the prompt supplies as given`);
+      }
+    }
+  });
+
+  it("every role that points at AGENTS.md for orientation finds the orientation rule there", () => {
+    for (const { shared, pointers } of STATIC_LAYERS) {
+      for (const role of pointers) {
+        assert.match(readFile(role), /\*\*Orient[^\n]*\(see AGENTS\.md\)/, `${role}: cites AGENTS.md for orientation`);
+      }
+      assert.equal(countOf(readFile(shared), phrasePattern("skim the file TREE and NAMES")), 1, `${shared}: states the orientation the roles cite`);
+    }
+  });
+
+});
+
+describe("agent-guidance-runtime-semantics drift guard", () => {
+  /* The context run records the map; the pack's route ranking reads three of its fields. The skill that teaches the map names the same fields the reader takes, so a run that follows it records links the ranking can use. What this change adds to it stays within a small budget. */
+  const MAP_FIELDS_ADDED_BY_RANKING = [ROUTE_LINK_FIELDS.implementationFiles, ROUTE_LINK_FIELDS.spec];
+  const MAP_FIELDS_ADDED_BUDGET_BYTES = 200;
+
+  it("architecture-mapping/SKILL.md documents every map field the route ranking reads, and the two it added stay within their budget", () => {
+    for (const rel of ["agents/skill/architecture-mapping/SKILL.md"]) {
+      const lines = readFile(rel).split("\n");
+      const documenting = (field: string): string[] => lines.filter((line) => line.includes(`\`${field}\``));
+      for (const field of Object.values(ROUTE_LINK_FIELDS)) {
+        assert.ok(documenting(field).length > 0, `${rel} documents \`${field}\``);
+      }
+      const addedBytes = MAP_FIELDS_ADDED_BY_RANKING.flatMap(documenting).reduce((sum, line) => sum + Buffer.byteLength(`${line}\n`, "utf8"), 0);
+      assert.ok(addedBytes <= MAP_FIELDS_ADDED_BUDGET_BYTES, `${rel}: the lines on ${MAP_FIELDS_ADDED_BY_RANKING.join(" and ")} take ${addedBytes} B, over ${MAP_FIELDS_ADDED_BUDGET_BYTES}`);
+    }
+  });
+
+  /* The authoring skill is loaded by more than one role (the generator and the sidekick), so it cannot lean on one role's prompt: it names no role prompt and no step of one. */
+  const ROLE_PROMPT_REFERENCE = /\b(?:generator|reviewer|worker|proposer|sidekick)\s+role\b|\brole prompt\b|\bProcedure \(step \d+\)/i;
+
+  it("no file of the playwright-authoring skill refers to a role's prompt or to a step of it", () => {
+    for (const rel of PLAYWRIGHT_AUTHORING_FILES) {
+      assert.doesNotMatch(readFile(rel), ROLE_PROMPT_REFERENCE, `${rel}: the skill is loaded by several roles and stays role-neutral`);
+    }
+  });
+
+
+  /* Inverse proofs — confirm the guard actually catches divergence.
+     (a) Skill-file parity: appending a comment to the in-memory content must trigger AssertionError.
+   */
+});

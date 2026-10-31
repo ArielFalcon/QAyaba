@@ -3,7 +3,7 @@
 # It bind-mounts the host source into the orchestrator so your edits are live without a rebuild. Every code mount is
 # READ-ONLY: the orchestrator never writes its own code at runtime, and the sandbox uid (which runs agent code) must not
 # either. Docker Desktop's file sharing does not enforce file permissions on a bind mount (any uid could write the host's
-# src/), while a read-only mount is refused by the kernel for every uid. The boot check (src/entrypoints/file-boundary-check.ts)
+# src/), while a read-only mount is refused by the kernel for every uid. The boot check (platform/entrypoints/file-boundary-check.ts)
 # refuses agent code if a mount under /app is writable by that uid, so a rw code mount added here makes runs end E-SANDBOX.
 #
 # For PRODUCTION (code from the baked image) run WITHOUT this file:
@@ -55,7 +55,7 @@ services:
       # diff budget names above do, so a value still set in Doppler or the host reaches the container and the retirement warning fires.
       QA_CAMPAIGN_FREEZE: ${QA_CAMPAIGN_FREEZE:-}
     volumes:
-      - ./src:/app/src:ro
+      - ./platform:/app/platform:ro
       # Live src imports qa-engine via tsconfig paths. The image copy goes stale
       # the moment src/ changes, and a recreate then fails to resolve @contexts/*.
       - ./qa-engine:/app/qa-engine:ro

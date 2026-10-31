@@ -1,4 +1,4 @@
-/* The engine's view of tracing and metrics. No SDK types cross this port: the OpenTelemetry SDK lives only in src/telemetry/ (rule `no-telemetry-sdk-in-engine`). Every method is total: an adapter fault is counted in its health and swallowed, never thrown into a run. */
+/* The engine's view of tracing and metrics. No SDK types cross this port: the OpenTelemetry SDK lives only in platform/telemetry/ (rule `no-telemetry-sdk-in-engine`). Every method is total: an adapter fault is counted in its health and swallowed, never thrown into a run. */
 
 import type { Attrs } from "./attribute-registry.ts";
 import type { CaptureMode } from "./capture-mode.ts";

@@ -29,7 +29,7 @@ import {
   type CellSpec,
   type MatrixCell,
 } from "./prompt-contract-matrix.ts";
-import { enforcedStepLimit } from "../src/agent-runtime/step-limit.ts";
+import { enforcedStepLimit } from "../platform/agent-runtime/step-limit.ts";
 import {
   buildPromptAssembled,
 } from "@contexts/generation/infrastructure/prompt-builders/prompts.ts";

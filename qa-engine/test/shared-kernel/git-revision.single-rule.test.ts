@@ -7,7 +7,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
 
 const repoRoot = join(import.meta.dirname, "..", "..", "..");
-const SOURCE_ROOTS = ["src", "qa-engine/src", "scripts"];
+const SOURCE_ROOTS = ["platform", "qa-engine/src", "scripts"];
 const KERNEL_RULE_FILES: ReadonlySet<string> = new Set(["qa-engine/src/shared-kernel/git-revision.ts"]);
 /* A hex class repeated 4 or 7 times at least, up to a full object name: an abbreviated or full commit id. */
 const COMMIT_ID_REGEX = /\[0-9a-f(?:A-F)?\]\{(?:4|7),(?:40|64)\}/;

@@ -12,7 +12,7 @@
     "web"
   ],
   "scripts": {
-    "qa": "tsx src/composition/cli.ts",
+    "qa": "tsx platform/composition/cli.ts",
     "onboard": "tsx scripts/onboard-app.ts",
     "contract:gen": "tsx scripts/gen-openapi.ts",
     "contract:check": "tsx scripts/check-contract-fresh.ts",
@@ -20,7 +20,7 @@
     "settings:check": "tsx scripts/check-settings-fresh.ts",
     "sdk:gen": "openapi-typescript contract/openapi.json -o packages/sdk/src/types.gen.ts",
     "sdk:typecheck": "tsc -p packages/sdk",
-    "start": "tsx src/composition/index.ts",
+    "start": "tsx platform/composition/index.ts",
     "test": "node scripts/run-tests.mjs",
     "test:isolated": "node scripts/run-tests.mjs --isolated",
     "typecheck": "tsc -b qa-engine/tsconfig.json && tsc --noEmit -p tsconfig.json && tsc --noEmit -p qa-engine/tsconfig.json && tsc --noEmit -p scripts/tsconfig.json && npm run embedded:typecheck",
@@ -39,7 +39,7 @@
     "campaign-report": "tsx scripts/campaign-compare.ts",
     "label": "tsx scripts/label-run.ts",
     "previous-forms:check": "tsx scripts/check-previous-forms.ts",
-    "arch:check": "depcruise --config qa-engine/.dependency-cruiser.cjs qa-engine/src src scripts",
+    "arch:check": "depcruise --config qa-engine/.dependency-cruiser.cjs qa-engine/src platform scripts",
     "seed:lint": "cd config/e2e && eslint ."
   },
   "dependencies": {

@@ -1,0 +1,521 @@
+/* Emits the versioned OpenAPI 3.0 artifact from the zod schemas — control-plane contract. */
+
+import { z } from "zod";
+import { writeFileSync, mkdirSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { RunEventSchema, RunEventBodySchema } from "@kernel/contract/events";
+import {
+  RunRecordSchema, QaCaseSchema, SpecRecordSchema, AgentActivitySchema,
+  AppViewSchema, AppServiceViewSchema, QueueStatusSchema, ChatEntrySchema, VersionInfoSchema,
+  LoginRequestSchema, LoginResponseSchema,
+  CreateRunInputSchema, CreateRunResultSchema, AskRequestSchema, AskResponseSchema,
+  ContinueRequestSchema, ContinueResultSchema,
+  CreateAppInputSchema, UpdateAppInputSchema, CreateAppResultSchema,
+  DeleteAppResultSchema, RepoInfoSchema, OnboardServiceInputSchema, AppAuthInputSchema,
+  RepoListItemSchema, RepoListResponseSchema,
+  OnboardingJobStatusSchema, ProposeBoundariesInputSchema, ConfirmBoundariesInputSchema, LoginBootstrapResultSchema,
+  PublicAgentConfigSchema, AgentConfigUpdateSchema, AgentConfigApplyResultSchema,
+  AgentModelsResponseSchema, AgentRestartRequestSchema, AgentRestartResponseSchema,
+  AgentProviderHealthSchema, AgentModelInfoSchema, RoleAssignmentSchema,
+  SignalsViewSchema,
+  CoordinationEventSchema, CoordinationEventsViewSchema,
+  TrendWindowSchema, CoverageTrendSchema, FlakyTrendSchema, ErrorClassCountSchema,
+  TrendsViewSchema, ReportInsightSchema, ReportViewSchema, RunReportViewSchema,
+  ArchitectureContextSchema, ContextMapViewSchema,
+  AgentTurnViewSchema, TelemetryHealthSchema,
+  ApiErrorSchema, ScoreSchema, RunEvaluationSchema, EvaluationCatalogSchema, RegradeRequestSchema, RegradeStartedSchema, RegradeJobSchema, RunDetailSchema, CampaignRunsSchema,
+} from "./commands";
+
+export const API_VERSION = "1.0.0";
+
+const NAMED_SCHEMAS = {
+  RunEvent: RunEventSchema,
+  RunEventBody: RunEventBodySchema,
+  RunRecord: RunRecordSchema,
+  QaCase: QaCaseSchema,
+  SpecRecord: SpecRecordSchema,
+  AgentActivity: AgentActivitySchema,
+  AppView: AppViewSchema,
+  AppService: AppServiceViewSchema,
+  QueueStatus: QueueStatusSchema,
+  ChatEntry: ChatEntrySchema,
+  VersionInfo: VersionInfoSchema,
+  LoginRequest: LoginRequestSchema,
+  LoginResponse: LoginResponseSchema,
+  CreateRunInput: CreateRunInputSchema,
+  CreateRunResult: CreateRunResultSchema,
+  AskRequest: AskRequestSchema,
+  AskResponse: AskResponseSchema,
+  ContinueRequest: ContinueRequestSchema,
+  ContinueResult: ContinueResultSchema,
+  OnboardServiceInput: OnboardServiceInputSchema,
+  AppAuthInput: AppAuthInputSchema,
+  RepoInfo: RepoInfoSchema,
+  CreateAppInput: CreateAppInputSchema,
+  UpdateAppInput: UpdateAppInputSchema,
+  CreateAppResult: CreateAppResultSchema,
+  DeleteAppResult: DeleteAppResultSchema,
+  RepoListItem: RepoListItemSchema,
+  RepoListResponse: RepoListResponseSchema,
+  OnboardingJobStatus: OnboardingJobStatusSchema,
+  ProposeBoundariesInput: ProposeBoundariesInputSchema,
+  ConfirmBoundariesInput: ConfirmBoundariesInputSchema,
+  LoginBootstrapResult: LoginBootstrapResultSchema,
+  PublicAgentConfig: PublicAgentConfigSchema,
+  AgentConfigUpdate: AgentConfigUpdateSchema,
+  AgentConfigApplyResult: AgentConfigApplyResultSchema,
+  AgentModelsResponse: AgentModelsResponseSchema,
+  AgentRestartRequest: AgentRestartRequestSchema,
+  AgentRestartResponse: AgentRestartResponseSchema,
+  AgentProviderHealth: AgentProviderHealthSchema,
+  AgentModelInfo: AgentModelInfoSchema,
+  RoleAssignment: RoleAssignmentSchema,
+  SignalsView: SignalsViewSchema,
+  CoordinationEvent: CoordinationEventSchema,
+  CoordinationEventsView: CoordinationEventsViewSchema,
+  TrendWindow: TrendWindowSchema,
+  CoverageTrend: CoverageTrendSchema,
+  FlakyTrend: FlakyTrendSchema,
+  ErrorClassCount: ErrorClassCountSchema,
+  TrendsView: TrendsViewSchema,
+  ReportInsight: ReportInsightSchema,
+  ReportView: ReportViewSchema,
+  RunReportView: RunReportViewSchema,
+  ArchitectureContext: ArchitectureContextSchema,
+  ContextMapView: ContextMapViewSchema,
+  AgentTurnView: AgentTurnViewSchema,
+  TelemetryHealth: TelemetryHealthSchema,
+  ApiError: ApiErrorSchema,
+  Score: ScoreSchema,
+  RunEvaluation: RunEvaluationSchema,
+  EvaluationCatalog: EvaluationCatalogSchema,
+  RegradeRequest: RegradeRequestSchema,
+  RegradeStarted: RegradeStartedSchema,
+  RegradeJob: RegradeJobSchema,
+  RunDetail: RunDetailSchema,
+  CampaignRuns: CampaignRunsSchema,
+} as const;
+
+function componentSchemas(): Record<string, unknown> {
+  const registry = z.registry<{ id: string }>();
+  for (const [id, schema] of Object.entries(NAMED_SCHEMAS)) registry.add(schema, { id });
+  const { schemas } = z.toJSONSchema(registry, {
+    target: "openapi-3.0",
+    uri: (id) => `#/components/schemas/${id}`,
+  });
+  const out: Record<string, unknown> = {};
+  for (const [id, schema] of Object.entries(schemas)) {
+    const { $id: _drop, ...rest } = schema as Record<string, unknown>;
+    out[id] = rest;
+  }
+  return out;
+}
+
+const ref = (id: string): { $ref: string } => ({ $ref: `#/components/schemas/${id}` });
+const jsonBody = (id: string): unknown => ({ "application/json": { schema: ref(id) } });
+const jsonArray = (id: string): unknown => ({ "application/json": { schema: { type: "array", items: ref(id) } } });
+const idParam = { name: "id", in: "path", required: true, schema: { type: "string" } };
+const nameParam = { name: "name", in: "path", required: true, schema: { type: "string" } };
+const windowParam = { name: "window", in: "query", schema: { type: "integer", minimum: 1, maximum: 50 } };
+const formatParam = { name: "format", in: "query", schema: { type: "string", enum: ["json", "csv"] } };
+
+function paths(): Record<string, unknown> {
+  return {
+    "/api/v1/version": {
+      get: {
+        operationId: "handshake",
+        summary: "Version + capability handshake (unauthenticated); ?client lets the server judge compatibility",
+        parameters: [{ name: "client", in: "query", schema: { type: "string" } }],
+        responses: { "200": { description: "server version, supported client floor and capabilities", content: jsonBody("VersionInfo") } },
+      },
+    },
+    "/api/v1/auth/login": {
+      post: {
+        operationId: "login",
+        summary: "Exchange a GitHub user token (from the OAuth device flow) for a server session (unauthenticated)",
+        requestBody: { required: true, content: jsonBody("LoginRequest") },
+        responses: {
+          "200": { description: "session minted", content: jsonBody("LoginResponse") },
+          "401": { description: "the GitHub token was rejected" },
+          "403": { description: "authenticated, but not a collaborator on any watched repo" },
+          "501": { description: "GitHub login is not configured on this server" },
+        },
+      },
+    },
+    "/api/v1/auth/local": {
+      get: {
+        operationId: "localLogin",
+        summary: "Mint a short-lived session for the same-origin web console. Unauthenticated; succeeds only on loopback or when QA_WEB_AUTO_LOGIN=true. Never returns the machine token.",
+        responses: {
+          "200": { description: "session minted", content: jsonBody("LoginResponse") },
+          "404": { description: "local console login is not offered for this request" },
+        },
+      },
+    },
+    "/api/v1/runs": {
+      post: {
+        operationId: "createRun", summary: "Enqueue a run",
+        requestBody: { required: true, content: jsonBody("CreateRunInput") },
+        responses: {
+          "202": { description: "enqueued", content: jsonBody("CreateRunResult") },
+          "400": { description: "invalid request", content: jsonBody("ApiError") },
+          "404": { description: "app not found", content: jsonBody("ApiError") },
+          "422": { description: "app config invalid: the app has a config file that cannot be loaded", content: jsonBody("ApiError") },
+        },
+      },
+      get: {
+        operationId: "listRuns", summary: "List recent runs for an app",
+        parameters: [
+          { name: "app", in: "query", required: true, schema: { type: "string" } },
+          { name: "limit", in: "query", schema: { type: "integer" } },
+        ],
+        responses: { "200": { description: "runs", content: jsonArray("RunRecord") } },
+      },
+    },
+    "/api/v1/runs/{id}": {
+      get: {
+        operationId: "getRun",
+        summary: "A run with its trace, phase timings, usage, spec counts, decision and budget outcome",
+        parameters: [idParam],
+        responses: {
+          "200": { description: "run", content: jsonBody("RunDetail") },
+          "404": { description: "no such run", content: jsonBody("ApiError") },
+        },
+      },
+      delete: { operationId: "cancelRun", summary: "Cancel a run", parameters: [idParam], responses: { "200": { description: "cancelled" } } },
+    },
+    "/api/v1/runs/{id}/evaluation": {
+      get: {
+        operationId: "getRunEvaluation",
+        summary: "The run's scores: the latest grader version per name by default, every stored version with ?versions=all",
+        parameters: [idParam, { name: "versions", in: "query", schema: { type: "string", enum: ["all"] } }],
+        responses: {
+          "200": { description: "the run's evaluation", content: jsonBody("RunEvaluation") },
+          "404": { description: "no such run", content: jsonBody("ApiError") },
+          "501": { description: "evaluation is not wired in this process", content: jsonBody("ApiError") },
+        },
+      },
+    },
+    "/api/v1/campaigns/{id}/runs": {
+      get: {
+        operationId: "getCampaignRuns",
+        summary: "The runs of a campaign with their variant labels, replicate, status and grading state; variant.<key>=<value> query parameters narrow them to the runs carrying every label named",
+        parameters: [idParam],
+        responses: {
+          "200": { description: "the campaign's runs; complete is true when every one of them is done and graded", content: jsonBody("CampaignRuns") },
+          "400": { description: "a query parameter that is not a variant filter", content: jsonBody("ApiError") },
+          "501": { description: "evaluation is not wired in this process", content: jsonBody("ApiError") },
+        },
+      },
+    },
+    "/api/v1/evaluations/catalog": {
+      get: {
+        operationId: "getEvaluationCatalog",
+        summary: "The canonical phase order and every score a grader can emit, with type, range, categories, polarity and suffix families",
+        responses: {
+          "200": { description: "the catalog", content: jsonBody("EvaluationCatalog") },
+          "501": { description: "evaluation is not wired in this process", content: jsonBody("ApiError") },
+        },
+      },
+    },
+    "/api/v1/evaluations/regrade": {
+      post: {
+        operationId: "regrade",
+        summary: "Re-grade finished runs with the current graders, as a background job",
+        requestBody: { required: true, content: jsonBody("RegradeRequest") },
+        responses: {
+          "202": { description: "job accepted", content: jsonBody("RegradeStarted") },
+          "400": { description: "invalid request", content: jsonBody("ApiError") },
+          "501": { description: "evaluation is not wired in this process", content: jsonBody("ApiError") },
+        },
+      },
+    },
+    "/api/v1/evaluations/regrade/{jobId}": {
+      get: {
+        operationId: "getRegradeJob",
+        summary: "Progress of a regrade job",
+        parameters: [{ name: "jobId", in: "path", required: true, schema: { type: "string" } }],
+        responses: {
+          "200": { description: "the job", content: jsonBody("RegradeJob") },
+          "404": { description: "no such job", content: jsonBody("ApiError") },
+          "501": { description: "evaluation is not wired in this process", content: jsonBody("ApiError") },
+        },
+      },
+    },
+    "/api/v1/runs/{id}/events": {
+      get: {
+        operationId: "streamRunEvents",
+        summary: "SSE stream of RunEvents; Last-Event-ID resumes from the given seq",
+        parameters: [idParam, { name: "Last-Event-ID", in: "header", schema: { type: "string" } }],
+        responses: {
+          "200": {
+            description: "SSE stream. Each event uses id=<RunEvent.seq>, event=<RunEvent.body.type>, data=<RunEvent JSON>.",
+            content: {
+              "text/event-stream": {
+                schema: {
+                  type: "string",
+                  description: "Line-oriented Server-Sent Events carrying JSON RunEvent payloads in each data field.",
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    "/api/v1/runs/{id}/turns": {
+      get: {
+        operationId: "getRunTurns",
+        summary: "The run's agent turns in chronological order, each with its efficiency measurements (read-only); a measurement is null when the runtime could not supply it",
+        parameters: [idParam],
+        responses: { "200": { description: "agent turns", content: jsonArray("AgentTurnView") } },
+      },
+    },
+    "/api/v1/runs/{id}/ask": {
+      post: { operationId: "askRun", parameters: [idParam], requestBody: { required: true, content: jsonBody("AskRequest") }, responses: { "200": { description: "answer", content: jsonBody("AskResponse") } } },
+    },
+    "/api/v1/runs/{id}/continue": {
+      post: { operationId: "continueRun", parameters: [idParam], requestBody: { required: true, content: jsonBody("ContinueRequest") }, responses: { "202": { description: "continuation", content: jsonBody("ContinueResult") } } },
+    },
+    "/api/v1/queue": { get: { operationId: "getQueue", responses: { "200": { description: "queue depth", content: jsonBody("QueueStatus") } } } },
+    "/api/v1/apps": {
+      get: { operationId: "listApps", responses: { "200": { description: "configured apps", content: jsonArray("AppView") } } },
+      post: {
+        operationId: "createApp",
+        summary: "Create or validate an app config",
+        requestBody: { required: true, content: jsonBody("CreateAppInput") },
+        responses: {
+          "200": { description: "validated or dry-run app config", content: jsonBody("CreateAppResult") },
+          "201": { description: "created app config", content: jsonBody("CreateAppResult") },
+          "422": { description: "invalid app config" },
+        },
+      },
+    },
+    "/api/v1/apps/{name}": {
+      get: {
+        operationId: "getApp",
+        parameters: [nameParam],
+        responses: {
+          "200": { description: "configured app", content: jsonBody("AppView") },
+          "404": { description: "app not found", content: jsonBody("ApiError") },
+          "422": { description: "app config invalid: the app has a config file that cannot be loaded", content: jsonBody("ApiError") },
+        },
+      },
+      put: {
+        operationId: "updateApp",
+        parameters: [nameParam],
+        requestBody: { required: true, content: jsonBody("UpdateAppInput") },
+        responses: {
+          "200": { description: "updated or dry-run app config", content: jsonBody("CreateAppResult") },
+          "422": { description: "invalid app config" },
+        },
+      },
+      delete: {
+        operationId: "deleteApp",
+        parameters: [nameParam, { name: "purge", in: "query", schema: { type: "boolean" } }],
+        responses: {
+          "200": { description: "deleted app config", content: jsonBody("DeleteAppResult") },
+          "404": { description: "app not found", content: jsonBody("ApiError") },
+          "422": { description: "app config invalid: the app has a config file that cannot be loaded", content: jsonBody("ApiError") },
+        },
+      },
+    },
+    "/api/v1/apps/{name}/boundaries/propose": {
+      post: {
+        operationId: "proposeBoundaries",
+        summary: "Start a boundary-profile onboarding job (read-only propose; mirrors provisioned server-side)",
+        parameters: [nameParam],
+        requestBody: { required: false, content: jsonBody("ProposeBoundariesInput") },
+        responses: {
+          "202": { description: "job kicked off (fire-and-forget)", content: jsonBody("OnboardingJobStatus") },
+          "409": { description: "an onboarding job is already running" },
+        },
+      },
+    },
+    "/api/v1/apps/{name}/boundaries/propose/status": {
+      get: {
+        operationId: "getBoundaryStatus",
+        summary: "Poll the current (or most recent) onboarding job status for this app",
+        parameters: [nameParam],
+        responses: { "200": { description: "onboarding job status", content: jsonBody("OnboardingJobStatus") } },
+      },
+    },
+    "/api/v1/apps/{name}/boundaries/confirm": {
+      post: {
+        operationId: "confirmBoundaries",
+        summary: "Confirm a winning boundary profile — the ONLY write step (splices config/apps/<name>.yaml)",
+        parameters: [nameParam],
+        requestBody: { required: true, content: jsonBody("ConfirmBoundariesInput") },
+        responses: {
+          "200": { description: "boundaries: block written", content: jsonBody("CreateAppResult") },
+          "409": { description: "no confirmable boundary profile for this app" },
+          "422": { description: "no confirmable boundary profile for this app" },
+        },
+      },
+    },
+    "/api/v1/apps/{name}/login-bootstrap": {
+      post: {
+        operationId: "bootstrapLogin",
+        summary: "Enqueue the run that establishes and proves the app's login (a manual run for the login purpose); the login is kept once the run is accepted",
+        parameters: [nameParam],
+        responses: {
+          "202": { description: "login-bootstrap run enqueued", content: jsonBody("LoginBootstrapResult") },
+          "404": { description: "app not found" },
+          "422": { description: "app config invalid: the app has a config file that cannot be loaded", content: jsonBody("ApiError") },
+          "409": { description: "the app has no form login to bootstrap, or an onboarding job is running" },
+          "503": { description: "service shutting down" },
+        },
+      },
+    },
+    "/api/v1/apps/{name}/context-map": {
+      get: {
+        operationId: "getAppContextMap",
+        summary: "The FE<->BE architecture map (e2e/.qa/context.json) persisted from the app's last successful mode:context run (read-only)",
+        parameters: [nameParam],
+        responses: {
+          "200": { description: "context map view", content: jsonBody("ContextMapView") },
+          "404": { description: "app not found, or no stored architecture map yet for this app" },
+          "422": { description: "app config invalid: the app has a config file that cannot be loaded", content: jsonBody("ApiError") },
+        },
+      },
+    },
+    "/api/v1/runs/{id}/report": {
+      get: {
+        operationId: "getRunReport",
+        summary: "Run-scoped report: the current-execution analysis plus the evolution-as-of-the-run (read-only)",
+        parameters: [idParam, windowParam, formatParam],
+        responses: {
+          "200": { description: "run report view (current + evolution)", content: jsonBody("RunReportView") },
+          "404": { description: "run not found" },
+        },
+      },
+    },
+    "/api/v1/apps/{name}/trends": {
+      get: {
+        operationId: "getAppTrends",
+        summary: "Period-over-period trends for an app: coverage, verdicts, error classes (read-only)",
+        parameters: [nameParam, windowParam, formatParam],
+        responses: {
+          "200": { description: "trends view", content: jsonBody("TrendsView") },
+          "404": { description: "app not found", content: jsonBody("ApiError") },
+          "422": { description: "app config invalid: the app has a config file that cannot be loaded", content: jsonBody("ApiError") },
+        },
+      },
+    },
+    "/api/v1/apps/{name}/report": {
+      get: {
+        operationId: "getAppReport",
+        summary: "Ad-hoc report: interestingness-ranked insights with a recommended chart per metric (read-only)",
+        parameters: [nameParam, windowParam, formatParam],
+        responses: {
+          "200": { description: "report view", content: jsonBody("ReportView") },
+          "404": { description: "app not found", content: jsonBody("ApiError") },
+          "422": { description: "app config invalid: the app has a config file that cannot be loaded", content: jsonBody("ApiError") },
+        },
+      },
+    },
+    "/api/v1/signals": {
+      get: {
+        operationId: "getSignals",
+        summary: "Fleet-wide integrity readout: reviewer pass-rate and measured change-coverage (read-only)",
+        responses: { "200": { description: "signals view", content: jsonBody("SignalsView") } },
+      },
+    },
+    "/api/v1/coordination-events": {
+      get: {
+        operationId: "getCoordinationEvents",
+        summary: "Multi-agent coordination audit: lead proposals, sidekick delegations, outcomes (read-only)",
+        parameters: [
+          { name: "runId", in: "query", required: false, schema: { type: "string" } },
+          { name: "limit", in: "query", required: false, schema: { type: "integer", default: 200, maximum: 1000 } },
+        ],
+        responses: { "200": { description: "coordination events ledger tail", content: jsonBody("CoordinationEventsView") } },
+      },
+    },
+    "/api/v1/repos": {
+      get: {
+        operationId: "listRepos",
+        parameters: [
+          { name: "owner", in: "query", required: true, schema: { type: "string" } },
+          { name: "page", in: "query", schema: { type: "integer" } },
+        ],
+        responses: { "200": { description: "repositories visible to the control plane", content: jsonBody("RepoListResponse") } },
+      },
+    },
+    "/api/v1/help": { post: { operationId: "help", requestBody: { required: true, content: jsonBody("AskRequest") }, responses: { "200": { description: "answer", content: jsonBody("AskResponse") } } } },
+    "/api/v1/agent/config": {
+      get: { operationId: "getAgentConfig", responses: { "200": { description: "agent runtime config", content: jsonBody("PublicAgentConfig") } } },
+      put: {
+        operationId: "updateAgentConfig",
+        requestBody: { required: true, content: jsonBody("AgentConfigUpdate") },
+        responses: {
+          "200": { description: "updated runtime config", content: jsonBody("AgentConfigApplyResult") },
+          "409": { description: "active run/session" },
+        },
+      },
+    },
+    "/api/v1/agent/models": {
+      get: {
+        operationId: "listAgentModels",
+        parameters: [{ name: "provider", in: "query", required: true, schema: { type: "string", enum: ["opencode"] } }],
+        responses: { "200": { description: "models for provider", content: jsonBody("AgentModelsResponse") } },
+      },
+    },
+    "/api/v1/telemetry/health": {
+      get: {
+        operationId: "telemetryHealth",
+        summary: "Telemetry stack health: mode, span ledger, OTLP export status and dropped-attribute count (Bearer-protected; counts and flags only)",
+        responses: {
+          "200": { description: "telemetry health", content: jsonBody("TelemetryHealth") },
+          "501": { description: "telemetry is not wired in this process" },
+        },
+      },
+    },
+    "/api/v1/agent/restart": {
+      post: {
+        operationId: "restartAgentProvider",
+        requestBody: { required: true, content: jsonBody("AgentRestartRequest") },
+        responses: {
+          "200": { description: "provider health after restart", content: jsonBody("AgentRestartResponse") },
+          "409": { description: "active run/session" },
+        },
+      },
+    },
+  };
+}
+
+/* Every error status a path declares answers an ApiError body, whether or not the path says so. */
+function withErrorBodies(table: Record<string, unknown>): Record<string, unknown> {
+  for (const item of Object.values(table) as Array<Record<string, { responses?: Record<string, Record<string, unknown>> }>>) {
+    for (const operation of Object.values(item)) {
+      for (const [status, response] of Object.entries(operation.responses ?? {})) {
+        if (Number(status) >= 400 && response.content === undefined) response.content = jsonBody("ApiError");
+      }
+    }
+  }
+  return table;
+}
+
+export function buildOpenApiDocument(): Record<string, unknown> {
+  return {
+    openapi: "3.0.3",
+    info: {
+      title: "Qayaba Control Plane",
+      version: API_VERSION,
+      description:
+        "The Channel Gateway contract: queued commands + the RunEvent SSE stream. " +
+        "Every non-2xx answer is an ApiError body; a request to a known path with a method it does not take answers 405 with an Allow header. " +
+        "Source of truth: platform/entrypoints/contract/*.ts (zod). GENERATED — do not edit by hand; run `npm run contract:gen`.",
+    },
+    paths: withErrorBodies(paths()),
+    components: { schemas: componentSchemas() },
+  };
+}
+
+export const ARTIFACT_PATH = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "contract", "openapi.json");
+
+export function writeOpenApiArtifact(path: string = ARTIFACT_PATH): string {
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, JSON.stringify(buildOpenApiDocument(), null, 2) + "\n", "utf8");
+  return path;
+}

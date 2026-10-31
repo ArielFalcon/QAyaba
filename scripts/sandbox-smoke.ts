@@ -57,12 +57,12 @@ async function main(): Promise<number> {
   const origin = env.QA_SMOKE_ORIGIN || "https://example.com";
   const undeclared = env.QA_SMOKE_UNDECLARED || "https://example.org";
 
-  const { resolveCodeSandbox, buildSetupAdapter } = await import("../src/composition/run-engine-factory.ts");
-  const { buildExecWiring } = await import("../src/composition/exec-sandbox-factory.ts");
-  const { egressGateFor, loadRegistryGroups } = await import("../src/composition/egress-wiring.ts");
+  const { resolveCodeSandbox, buildSetupAdapter } = await import("../platform/composition/run-engine-factory.ts");
+  const { buildExecWiring } = await import("../platform/composition/exec-sandbox-factory.ts");
+  const { egressGateFor, loadRegistryGroups } = await import("../platform/composition/egress-wiring.ts");
   const { resolveRunOrigins } = await import("@contexts/test-execution/application/index.ts");
-  const { qayabaRoot } = await import("../src/settings/paths.ts");
-  const { workdirRoot } = await import("../src/composition/repo-mirror.ts");
+  const { qayabaRoot } = await import("../platform/settings/paths.ts");
+  const { workdirRoot } = await import("../platform/composition/repo-mirror.ts");
   const { runE2E, createDefaultE2eExecuteDeps, e2eTimeoutMs } = await import("../qa-engine/src/contexts/test-execution/infrastructure/e2e-execution.runner.ts");
   const { ProcessKillAdapter } = await import("../qa-engine/src/shared-infrastructure/process-sandbox/process-kill.adapter.ts");
 

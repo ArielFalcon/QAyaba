@@ -58,7 +58,7 @@ function kernelOwnerViolations(files: Record<string, string>): string[] {
 }
 
 function realTree(): Record<string, string> {
-  const listed = execFileSync("git", ["ls-files", "-z", "--", "qa-engine/src", "src", "scripts"], { cwd: repoRoot, encoding: "utf8", maxBuffer: 1 << 26 })
+  const listed = execFileSync("git", ["ls-files", "-z", "--", "qa-engine/src", "platform", "scripts"], { cwd: repoRoot, encoding: "utf8", maxBuffer: 1 << 26 })
     .split("\0")
     .filter((f) => /\.m?ts$/.test(f) && !/\.test\.ts$/.test(f));
   return Object.fromEntries(listed.map((f) => [f, readFileSync(join(repoRoot, f), "utf8")]));
@@ -83,7 +83,7 @@ test("the checker accepts a module two parties reach, directly or through anothe
     [`${KERNEL}inner.ts`]: "export const b = 1;\n",
     [`${KERNEL}outer.ts`]: 'import { b } from "./inner.ts";\nexport const c = b;\n',
     "qa-engine/src/contexts/one/domain/a.ts": 'import { a } from "@kernel/direct.ts";\nimport { c } from "@kernel/outer.ts";\n',
-    "src/server/s.ts": 'import { a } from "../../qa-engine/src/shared-kernel/direct";\nimport { c } from "../../qa-engine/src/shared-kernel/outer";\n',
+    "platform/server/s.ts": 'import { a } from "../../qa-engine/src/shared-kernel/direct";\nimport { c } from "../../qa-engine/src/shared-kernel/outer";\n',
   });
   assert.deepEqual(violations, []);
 });

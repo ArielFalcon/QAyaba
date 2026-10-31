@@ -57,7 +57,7 @@ test("message content keys are classified as content so they drop below full cap
 });
 
 test("only the semconv module spells a gen_ai key in telemetry sources", () => {
-  const roots = [join(import.meta.dirname, "../../../src/shared-kernel/telemetry"), join(import.meta.dirname, "../../../../src/telemetry")];
+  const roots = [join(import.meta.dirname, "../../../src/shared-kernel/telemetry"), join(import.meta.dirname, "../../../../platform/telemetry")];
   for (const root of roots) {
     for (const file of readdirSync(root).filter((f) => f.endsWith(".ts") && !f.endsWith(".test.ts"))) {
       if (file === "genai-semconv.ts") continue;

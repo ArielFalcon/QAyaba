@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { main, parseArguments, replicateOf, type ReadinessDeps } from "./enforce-readiness.ts";
-import type { CampaignReplicateRow } from "../src/persistence/repositories/run.repository.ts";
+import type { CampaignReplicateRow } from "../platform/persistence/repositories/run.repository.ts";
 
 const SIGNALS = { static: true, coverageRatio: 0.8, bundleMutation: { applied: 1, killed: 1, survived: [] }, reviewerCorrections: [], flaky: false, retries: 0 } as CampaignReplicateRow["gateSignals"];
 

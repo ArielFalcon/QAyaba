@@ -77,7 +77,7 @@ test("a fault in the redactor yields a marker, never the raw message or attempte
   assert.equal(redactedText("raw", 200, { redact }), "[redacted]");
 });
 
-const ROOTS = [join(import.meta.dirname, "..", "..", "..", "..", "..", "src"), join(import.meta.dirname, "..", "..", "..", "..", "..", "..", "src")];
+const ROOTS = [join(import.meta.dirname, "..", "..", "..", "..", "..", "src"), join(import.meta.dirname, "..", "..", "..", "..", "..", "..", "platform")];
 
 /* Every source file under a directory, recursively. */
 function sourcesUnder(dir: string): string[] {
