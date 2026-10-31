@@ -685,7 +685,7 @@
   "src/entrypoints/web-console/fleet-model.test.ts": 74,
   "src/entrypoints/web-console/run-stream.test.ts": 761,
   "src/entrypoints/webhook-handler.test.ts": 29,
-  "src/entrypoints/webhook-routing.test.ts": 13,
+  "src/composition/webhook-routing.test.ts": 13,
   "src/entrypoints/webhook.test.ts": 1,
   "src/settings/active.test.ts": 1,
   "src/settings/compose-parity.test.ts": 4,

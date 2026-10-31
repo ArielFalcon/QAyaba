@@ -8,7 +8,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { loadAppConfig, listAppConfigs } from "../composition/config-loader";
+import { loadAppConfig, listAppConfigs } from "./config-loader";
 import { YamlAppConfigAdapter } from "../../qa-engine/src/contexts/app-catalog/infrastructure/yaml-app-config.adapter";
 import { resolveWebhookDispatch, type WebhookDispatch } from "@contexts/run-orchestration/application/index";
 
