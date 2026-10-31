@@ -27,8 +27,6 @@ import type { AgentBrowserRequest } from "@contexts/test-execution/application/i
 import type { RunSpecRefusalCode } from "@contexts/test-execution/application/index";
 
 export const QA_TOOLS_TOKEN_ENV = "QA_TOOLS_TOKEN";
-export const QA_TOOLS_PORT_ENV = "QA_TOOLS_PORT";
-export const DEFAULT_TOOLS_PORT = 459;
 export const RUN_SPEC_PATH = "/internal/run-spec";
 export const AUTHBROWSER_PATH = "/internal/authbrowser";
 export const GEOLOCATION_PATH = "/internal/geolocation";
@@ -383,14 +381,6 @@ export function resolveToolsListenHost(env: Record<string, string | undefined>, 
   if (listenHost !== "0.0.0.0" && listenHost !== "::") return listenHost;
   const addresses = Object.values(interfaces).flatMap((entries) => (entries ?? []).filter((entry) => !entry.internal && (entry.family === "IPv4" || entry.family === 4)).map((entry) => entry.address));
   return addresses.length === 1 ? addresses[0]! : listenHost;
-}
-
-export function resolveToolsPort(env: Record<string, string | undefined>): number {
-  const raw = env[QA_TOOLS_PORT_ENV]?.trim();
-  if (!raw) return DEFAULT_TOOLS_PORT;
-  const port = Number(raw);
-  if (!Number.isInteger(port) || port < 1 || port > 65_535) throw new Error(`${QA_TOOLS_PORT_ENV} must be a TCP port number (1-65535), got "${raw}"`);
-  return port;
 }
 
 function readBody(req: IncomingMessage, timeoutMs: number): Promise<string | undefined> {

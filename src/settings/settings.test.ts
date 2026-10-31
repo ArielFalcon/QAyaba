@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { inspect } from "node:util";
 import { DEFAULT_PORT, DEFAULT_LISTEN_HOST } from "./port";
-import { DEFAULT_TOOLS_PORT } from "../entrypoints/tools-endpoint";
+import { DEFAULT_TOOLS_PORT } from "./tools-port";
 import { DEFAULT_CAMPAIGN_RETENTION_DAYS, DEFAULT_SERVICE_NAME, DEFAULT_SPAN_RETENTION_DAYS } from "./telemetry-config";
 import { resolveRunTimeBudgets } from "@contexts/run-orchestration/application/index";
 import { renderSettingsDocs } from "../../scripts/gen-settings-docs";

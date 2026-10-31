@@ -2,7 +2,7 @@
 
 import { inspect } from "node:util";
 import { DEFAULT_PORT, resolveListenHost, resolvePort } from "./port";
-import { resolveToolsPort } from "../entrypoints/tools-endpoint";
+import { resolveToolsPort } from "./tools-port";
 import { resolveEgressMode, type EgressMode } from "./sandbox-status";
 import { parseCampaignRetentionDays, parseRetentionDays, resolveTelemetryConfig, type TelemetryConfig } from "./telemetry-config";
 import { resolveBackendHealthConfig, type BackendHealthConfig } from "./backend-health-config";

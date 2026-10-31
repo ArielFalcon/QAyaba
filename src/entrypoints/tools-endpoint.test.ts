@@ -9,7 +9,7 @@ import type { AgentBrowserRequest, AgentBrowserResponse } from "@contexts/test-e
 import { GeolocationRegistry } from "@contexts/agent-tools/infrastructure/geolocation-registry";
 import { RunGeolocation } from "@contexts/agent-tools/application/index";
 import net from "node:net";
-import { AUTHBROWSER_PATH, CODEGRAPH_PATH, DEFAULT_TOOLS_PORT, GEOLOCATION_PATH, MIN_TOOLS_TOKEN_CHARS, createToolsServer, createToolsRateLimiter, handleToolsRequest, resolveToolsListenHost, resolveToolsPort, resolveToolsToken, type ToolsRequest } from "./tools-endpoint";
+import { AUTHBROWSER_PATH, CODEGRAPH_PATH, GEOLOCATION_PATH, MIN_TOOLS_TOKEN_CHARS, createToolsServer, createToolsRateLimiter, handleToolsRequest, resolveToolsListenHost, resolveToolsToken, type ToolsRequest } from "./tools-endpoint";
 
 const TOKEN = "service-token-for-tests-0123456789abcdef";
 
@@ -116,13 +116,6 @@ test("the token is the configured one, or a random one for this boot that no cal
   assert.ok(first.token.length >= 32);
   assert.match(warnings[0]!, /QA_TOOLS_TOKEN/);
   assert.notEqual(resolveToolsToken({ QA_TOOLS_TOKEN: "  " }, { warn: () => {} }).token, first.token);
-});
-
-test("the port is QA_TOOLS_PORT, defaulting to a port the compose file does not publish", () => {
-  assert.equal(resolveToolsPort({}), DEFAULT_TOOLS_PORT);
-  assert.equal(resolveToolsPort({ QA_TOOLS_PORT: "4590" }), 4590);
-  assert.throws(() => resolveToolsPort({ QA_TOOLS_PORT: "abc" }), /QA_TOOLS_PORT/);
-  assert.throws(() => resolveToolsPort({ QA_TOOLS_PORT: "70000" }), /QA_TOOLS_PORT/);
 });
 
 const PAGE_OK: AgentBrowserResponse = { ok: true, page: { url: "https://dev/x", title: "t", snapshot: "- heading" }, blocked: [], requests: { listed: [], otherHosts: [], omitted: 0 }, notes: [], budget: { callsLeft: 3 } };
