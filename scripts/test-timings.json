@@ -405,6 +405,7 @@
   "qa-engine/test/contexts/workspace-and-publication/infrastructure/github-issue.adapter.test.ts": 1,
   "qa-engine/test/contexts/workspace-and-publication/infrastructure/github-pr.adapter.test.ts": 1,
   "qa-engine/test/contexts/workspace-and-publication/infrastructure/mirror-gc.adapter.test.ts": 1,
+  "qa-engine/test/contexts/workspace-and-publication/infrastructure/mirror-fs.adapter.test.ts": 20,
   "qa-engine/test/contexts/workspace-and-publication/infrastructure/mirror-provision.adapter.test.ts": 6,
   "qa-engine/test/contexts/workspace-and-publication/infrastructure/seed-network-evidence.test.ts": 5037,
   "qa-engine/test/contexts/workspace-and-publication/infrastructure/seed-source-maps.test.ts": 1,
