@@ -94,7 +94,7 @@ import { createApp, type App } from "./create-app";
 /* ── Mirror pruning: the real file system, config loader, run history and settings behind the rule ───────────── */
 
 /* queueCurrentRunId is the only piece this wiring cannot reach on its own: the JobQueue instance lives in wireApp. */
-function defaultMirrorPruneDeps(queueCurrentRunId: () => string | null): MirrorPruneDeps {
+export function defaultMirrorPruneDeps(queueCurrentRunId: () => string | null): MirrorPruneDeps {
   return {
     mirrorRoot: activeSettings().git.mirrorDir ?? join(process.cwd(), ".mirrors"),
     reservedDirNames: RESERVED_MIRROR_DIR_NAMES,
