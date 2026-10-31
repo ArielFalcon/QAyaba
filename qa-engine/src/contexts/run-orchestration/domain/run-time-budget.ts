@@ -3,11 +3,11 @@
  * environment override per row, and the note that says so when a run's time is spent. Pure: the run's
  * mode and the change's size in, a bound in milliseconds out; the caller hands in the environment.
  */
-import type { RunMode } from "@kernel/run-mode.ts";
+import { RUN_MODES, type RunMode } from "@kernel/run-mode.ts";
 
-/** The kinds of run that are bounded apart: each mode is its own kind. */
-export const RUN_TIME_BUDGET_KEYS = ["diff", "manual", "context"] as const;
-export type RunTimeBudgetKey = (typeof RUN_TIME_BUDGET_KEYS)[number];
+/** The kinds of run that are bounded apart: each mode is its own kind, so a mode added to the kernel cannot be left without a row. */
+export const RUN_TIME_BUDGET_KEYS = RUN_MODES;
+export type RunTimeBudgetKey = RunMode;
 
 /** The wall time a whole run may take, in milliseconds, counted from the end of classification. Generous on purpose and finite for every kind: it exists to end a run that is no longer converging, not to shape one that is, so it reads no property of the change. */
 export const RUN_TIME_BUDGET_MS: Readonly<Record<RunTimeBudgetKey, number>> = {
