@@ -72,7 +72,7 @@ export const CorrectionEntrySchema = z.object({
   text: z.string(),
   severity: z.enum(["blocking", "advisory"]),
   citation: z
-    .object({ kind: z.enum(["contract", "execution", "dom", "arm", "availability", "contradiction"]), ref: z.string() })
+    .object({ kind: z.enum(["contract", "execution", "dom", "arm", "availability", "contradiction", "ambient"]), ref: z.string() })
     .nullish(),
 });
 

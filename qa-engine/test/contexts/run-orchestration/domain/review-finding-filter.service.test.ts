@@ -257,3 +257,19 @@ test("a finding that cites a data contradiction the run recorded is a verified f
 test("a data contradiction citation with no contradiction recorded verifies nothing", () => {
   assert.deepEqual(filterReviewFindings([finding({ text: "no facts", citation: { kind: "contradiction", ref: "/browse#category" } })], scope).blocking, []);
 });
+
+test("an ambient citation that names a case the run recorded is kept as advisory whatever its severity, and one that names none is dropped", () => {
+  const pinned: ReviewScope = { ...scope, ambientPinRefs: new Set(["flows/checkout.spec.ts#cart › shows the empty cart"]) };
+  const out = filterReviewFindings(
+    [
+      finding({ text: "the case checks only the cart as DEV served it, empty", citation: { kind: "ambient", ref: "e2e/flows/checkout.spec.ts#cart › shows the empty cart" } }),
+      finding({ text: "a case the run never recorded", citation: { kind: "ambient", ref: "flows/checkout.spec.ts#cart › pays" } }),
+      finding({ text: "no case named", citation: { kind: "ambient", ref: "flows/checkout.spec.ts" } }),
+    ],
+    pinned,
+  );
+  assert.deepEqual(out.blocking, []);
+  assert.deepEqual(out.advisory, ["the case checks only the cart as DEV served it, empty"]);
+  assert.deepEqual(out.droppedBlocking, { "no-ambient-fact": 2 });
+  assert.deepEqual(filterReviewFindings([finding({ text: "no pins", citation: { kind: "ambient", ref: "flows/checkout.spec.ts#cart › shows the empty cart" } })], scope).droppedBlocking, { "no-ambient-fact": 1 });
+});

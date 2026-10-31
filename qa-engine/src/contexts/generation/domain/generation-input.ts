@@ -2,6 +2,7 @@ import type { RunMode } from "@kernel/run-mode.ts";
 import type { ReviewChangeView } from "./review-change-view.ts";
 import type { RouteAvailabilityFact } from "@kernel/route-availability.ts";
 import type { DataContradiction } from "@kernel/data-contradiction.ts";
+import type { AmbientDataPin } from "@kernel/page-data-read.ts";
 
 export type CommitType =
   | "feat" | "fix" | "perf" | "refactor" | "chore"
@@ -84,6 +85,8 @@ export interface ReviewInput {
   routeAvailability?: readonly RouteAvailabilityFact[];
   /* The fields the consumer's code expects of an answer that the captured pages' answers lacked: the facts a `contradiction` citation names. Absent when the run recorded none. */
   dataContradictions?: readonly DataContradiction[];
+  /* The passing cases that checked a page only as DEV served it confirmed empty: the facts an `ambient` citation names. Absent when the run recorded none. */
+  ambientDataPins?: readonly AmbientDataPin[];
   /* The step limit the runtime enforces for the reviewer's session. Absent = the runtime enforces none or could not be read, and no prompt states one. */
   stepLimit?: number;
   /* On a run with a plan whose flows under review own part of the change: the change by flow, given instead of the whole diff. Absent: the objective is the whole diff. */

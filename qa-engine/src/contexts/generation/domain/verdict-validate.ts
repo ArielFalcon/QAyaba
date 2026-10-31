@@ -158,7 +158,7 @@ export function repairInstruction(kind: "generator" | "reviewer", issues: string
     kind === "generator"
       ? `{"specs": string[], "specMetas"?: [{"file","flow","objective","targets": string[]}], "note"?: string, "noop"?: {"kind": "${NOOP_KIND.NOT_WORTH}" | "${NOOP_KIND.UNOBSERVABLE}", "reason": string}}` +
         `\nIf you wrote no specs, "specs" is [] and "noop" gives its kind and the reason.`
-      : `{"approved": boolean, "rationale": string, "corrections": [{"text": string, "severity": "blocking" | "advisory", "citation"?: {"kind": "contract" | "execution" | "dom" | "arm" | "availability" | "contradiction", "ref": string}}]}`;
+      : `{"approved": boolean, "rationale": string, "corrections": [{"text": string, "severity": "blocking" | "advisory", "citation"?: {"kind": "contract" | "execution" | "dom" | "arm" | "availability" | "contradiction" | "ambient", "ref": string}}]}`;
   const tail = opts?.priorResponseTail ? stripFrameMarkers(opts.priorResponseTail).trim() : "";
   const tailBlock = tail
     ? [

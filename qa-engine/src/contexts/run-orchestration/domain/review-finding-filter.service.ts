@@ -3,7 +3,8 @@
  * may block only when it cites evidence the orchestrator can check: a spec's contract clause, an
  * execution the run performed, or a DOM fact. Anything else is advisory telemetry — never sent to the
  * generator, never a gate. A finding that names an arm of the changed code no test ran is a missing case:
- * kept when the run's measurement lists that arm, recorded and shown, never a requirement or a gate.
+ * kept when the run's measurement lists that arm, recorded and shown, never a requirement or a gate. A finding that names a case the
+ * run recorded as checking a page only as DEV served it confirmed empty (`ambient`) is kept as advisory whatever its severity: a signal, never a gate.
  * A citation and the run's scope are compared in one canonical form (the suite-relative spec path), so the
  * way an agent spells a file never decides whether its finding counts. Every finding the run admits gets an id
  * (`identifyFindings`): routing, the lead's numbered answers and rebuttals name a finding by it, never by its text.
@@ -14,7 +15,7 @@ import { resolveCitedSpec, resolveSpecReference } from "@kernel/spec-path.ts";
 import { pathOnly } from "@kernel/route-availability.ts";
 import { normalizedContradictionRef } from "@kernel/data-contradiction.ts";
 
-export type ReviewCitationKind = "contract" | "execution" | "dom" | "arm" | "availability" | "contradiction";
+export type ReviewCitationKind = "contract" | "execution" | "dom" | "arm" | "availability" | "contradiction" | "ambient";
 
 /** What a finding claims to rest on. The ref names the spec (and, for a contract, its clause), or for an arm its `<file>:<line>`. */
 export interface ReviewCitation {
@@ -41,10 +42,12 @@ export interface ReviewScope {
   readonly availabilityRoutes?: ReadonlySet<string>;
   /** The data contradictions the run recorded, as a citation names them (`<path>#<key>`, the page by its address or by its template): what a `contradiction` citation names. */
   readonly contradictionRefs?: ReadonlySet<string>;
+  /** The passing cases the run recorded as checking a page only as DEV served it confirmed empty, as a citation names them (`<spec>#<title path>`, the spec suite-relative): what an `ambient` citation names. */
+  readonly ambientPinRefs?: ReadonlySet<string>;
 }
 
 /** Why a finding can never block: it cites nothing, an arm nobody checked, a reference that names no spec the suite can hold, a spec outside this run's scope, or an execution this run did not perform. */
-export type DropReason = "uncited" | "arm" | "unresolved" | "out-of-scope" | "not-executed" | "no-availability-fact" | "no-contradiction-fact";
+export type DropReason = "uncited" | "arm" | "unresolved" | "out-of-scope" | "not-executed" | "no-availability-fact" | "no-contradiction-fact" | "no-ambient-fact";
 
 /** A finding as the run admitted it: the same object, with the id that names it within its round. */
 export type IdentifiedFinding<T> = T & { readonly id: string };
@@ -71,6 +74,14 @@ export interface FilteredReviewFindings<T extends CitedFinding = CitedFinding> {
 /** The suite-relative spec a citation's reference names, or undefined when it names none the suite can hold. A contract ref is `<spec>#<clause>`; the spec may carry the spec directory. */
 export function citedSpec(ref: string, specRelDir: string): string | undefined {
   return resolveCitedSpec(ref, specRelDir);
+}
+
+/** An `ambient` citation's reference in the form the run records a pinned case (`<spec>#<title path>`, the spec suite-relative), or undefined when it names no spec or no case. */
+function ambientRefOf(ref: string, specRelDir: string): string | undefined {
+  const at = ref.indexOf("#");
+  const spec = at === -1 ? undefined : citedSpec(ref.slice(0, at).trim(), specRelDir);
+  const test = at === -1 ? "" : ref.slice(at + 1).trim();
+  return spec === undefined || test === "" ? undefined : `${spec}#${test}`;
 }
 
 /** A set of spec files in the canonical suite-relative form; what resolves to no spec is left out. */
@@ -134,6 +145,15 @@ export function filterReviewFindings<T extends CitedFinding>(
       }
       if (finding.severity === "blocking") blocking.push(finding);
       else advisory.push(finding.text);
+      continue;
+    }
+    if (citation.kind === "ambient") {
+      /* A case that checked a page only as DEV served it empty is a fact of the run's reads and the spec's syntax; it is a signal for the reader, never a reason to reject. */
+      if (!(scope.ambientPinRefs ?? new Set<string>()).has(ambientRefOf(citation.ref, scope.specRelDir) ?? "")) {
+        drop(finding, "no-ambient-fact");
+        continue;
+      }
+      advisory.push(finding.text);
       continue;
     }
     if (citation.kind === "dom") {

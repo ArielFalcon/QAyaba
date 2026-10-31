@@ -68,7 +68,7 @@ export interface ReviewFinding {
   id?: string;
   text: string;
   severity: "blocking" | "advisory";
-  citation?: { kind: "contract" | "execution" | "dom" | "arm" | "availability" | "contradiction"; ref: string };
+  citation?: { kind: "contract" | "execution" | "dom" | "arm" | "availability" | "contradiction" | "ambient"; ref: string };
 }
 
 /** The texts of a list of findings, where a list of strings is handed on (to the generator, to the record). */

@@ -95,6 +95,9 @@ Each correction MUST be a structured object with three fields:
   - `"contradiction"`: only when the prompt lists data contradictions of the run; `ref` is one listed
     ref (`<path>#<key>`), for a spec that passes by adapting to that state: an expected value read
     from the state it checks, or a check guarded by it (`if (offered.length > 0)`).
+  - `"ambient"`: only when the prompt lists cases that check a page only as DEV served it empty;
+    `ref` is one listed ref (`<spec path>#<title path>`), for a case whose pass tests DEV's data,
+    not the change. Give it `"advisory"`: it is recorded and shown and never changes `approved`.
   Cite only evidence you actually hold. A correction with no citation can never block: the
   orchestrator treats it as advisory at most, so an uncited blocking correction changes nothing.
   - **blocking**: the test is worthless or actively harmful (false-positive, wrong-objective,
