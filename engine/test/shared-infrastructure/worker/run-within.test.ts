@@ -52,3 +52,34 @@ test("the real worker says when it starts, so a real read is timed from its work
   assert.equal(outcome.kind, "done");
   assert.ok(typeof outcome.timing?.startMs === "number", JSON.stringify(outcome.timing));
 });
+
+test("no timer outlives the call, even when the worker reports its start after it has answered", async (t) => {
+  const pending = new Set<unknown>();
+  const realSetTimeout = globalThis.setTimeout;
+  const realClearTimeout = globalThis.clearTimeout;
+  t.mock.method(globalThis, "setTimeout", ((handler: () => void, ms?: number) => {
+    const timer = realSetTimeout(handler, ms);
+    pending.add(timer);
+    return timer;
+  }) as typeof setTimeout);
+  t.mock.method(globalThis, "clearTimeout", ((timer: Parameters<typeof clearTimeout>[0]) => {
+    pending.delete(timer);
+    realClearTimeout(timer);
+  }) as typeof clearTimeout);
+  let lateStart!: () => void;
+  const answersFirst: OffLoopExecutor = {
+    reportsStart: true,
+    run: async (_inputs, _signal, _context, hooks) => {
+      lateStart = () => hooks?.onStarted();
+      return DONE;
+    },
+  };
+
+  const outcome = await runWithin(answersFirst, [Buffer.from("a")], 60_000, undefined, 60_000);
+  lateStart();
+
+  assert.equal(outcome.kind, "done");
+  const left = pending.size;
+  for (const timer of pending) realClearTimeout(timer as NodeJS.Timeout);
+  assert.equal(left, 0, "a timer is left running after the call ended");
+});

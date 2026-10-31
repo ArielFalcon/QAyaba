@@ -56,6 +56,8 @@ export async function runWithin(executor: OffLoopExecutor, inputs: readonly Buff
   let startTimer: ReturnType<typeof setTimeout> | undefined;
   let workTimer: ReturnType<typeof setTimeout> | undefined;
   let timedOut: "start" | "work" | undefined;
+  /* Set once the call has an outcome: a start reported after it arms no timer. */
+  let ended = false;
   let timeUp!: (why: "start" | "work") => void;
   const timeIsUp = new Promise<"time-up">((resolve) => {
     timeUp = (why) => {
@@ -68,7 +70,7 @@ export async function runWithin(executor: OffLoopExecutor, inputs: readonly Buff
     workTimer = setTimeout(() => timeUp("work"), budgetMs);
   };
   const begun = (): void => {
-    if (begunAt !== null) return;
+    if (begunAt !== null || ended) return;
     begunAt = performance.now();
     clearTimeout(startTimer);
     armWork();
@@ -78,11 +80,12 @@ export async function runWithin(executor: OffLoopExecutor, inputs: readonly Buff
   const job = executor.run(inputs, stop.signal, context, { onStarted: begun }).catch((): OffLoopOutcome => ({ kind: "failed", reason: "unavailable" }));
   try {
     const raced = await Promise.race([job, timeIsUp]);
-    const ended = performance.now();
-    const timing: OffLoopTiming = { startMs: begunAt === null ? null : begunAt - called, workMs: begunAt === null ? 0 : ended - begunAt };
+    const endedAt = performance.now();
+    const timing: OffLoopTiming = { startMs: begunAt === null ? null : begunAt - called, workMs: begunAt === null ? 0 : endedAt - begunAt };
     if (raced === "time-up") return { kind: "failed", reason: timedOut === "start" ? "unavailable" : "aborted", timing };
     return { ...raced, timing };
   } finally {
+    ended = true;
     clearTimeout(startTimer);
     clearTimeout(workTimer);
   }
