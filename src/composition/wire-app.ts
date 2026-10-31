@@ -213,7 +213,7 @@ export function wireApp(settingsStore: SettingsStore): WiredApp {
    * TUI can discover it across restarts. Only generate a new one if neither exists. The file an earlier version kept in
    * config/ is removed either way, and a copy that cannot be removed stops the start.
    */
-  const apiToken: string = settings.auth.apiToken ?? loadOrCreateApiToken(ROOT);
+  const apiToken: string = settings.auth.apiToken ?? loadOrCreateApiToken(ROOT, { log: (line) => appLogger.info(line) });
 
   /*
    * Session signing secret for GitHub-user logins. Reuses QA_API_TOKEN by default (one secret

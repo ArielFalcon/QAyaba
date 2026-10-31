@@ -1,6 +1,5 @@
 /* The control-plane API token when QA_API_TOKEN does not pin one: generated once and kept in the data directory (the qayaba-data volume in the container), which is closed to the sandbox uid on every filesystem because it is a volume and not a host folder. */
 
-import { appLogger } from "../telemetry/redacting-logger";
 import { chmodSync, mkdirSync, readdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 import { join } from "node:path";
@@ -24,7 +23,8 @@ export function discoverApiToken(env: Record<string, string | undefined>, root: 
 }
 
 export interface ApiTokenDeps {
-  log?: (line: string) => void;
+  /* Where the line that announces a new token goes: the composition root's logger. */
+  log: (line: string) => void;
 }
 
 const STALE_TEMPORARY = /^\.api_token\.\d+\.tmp$/;
@@ -35,8 +35,8 @@ function sweepStaleTemporaries(dataDir: string): void {
 }
 
 /* The token the service authenticates with when QA_API_TOKEN is unset: the data directory's, else a new one. The file is owner-only. */
-export function loadOrCreateApiToken(root: string, deps: ApiTokenDeps = {}): string {
-  const log = deps.log ?? ((line: string): void => appLogger.info(line));
+export function loadOrCreateApiToken(root: string, deps: ApiTokenDeps): string {
+  const { log } = deps;
   const path = apiTokenPath(root);
   mkdirSync(join(root, "data"), { recursive: true, mode: 0o700 });
   chmodSync(join(root, "data"), 0o700);
