@@ -744,3 +744,21 @@ test("review() sends no repair turn once the run's deadline has no time left: th
   await assert.rejects(adapter.review("/mirrors/org/app/e2e", cases), (err: unknown) => err instanceof RunDeadlineExceededError);
   assert.equal(reviewer.prompts.length, 1, "the repair never reached the agent");
 });
+
+test("review() hands enrichment.ambientDataPins to the reviewer prompt, and omits them when the run recorded none", async () => {
+  const seen: Array<ReviewInput["ambientDataPins"]> = [];
+  const rendering: PromptRenderingPort = {
+    ...fakeRendering(),
+    renderReviewer: (input) => { seen.push((input as ReviewInput).ambientDataPins); return { text: "reviewer-prompt", sectionSizes: {} }; },
+  };
+  const verdicts = fakeVerdicts({ approved: true, findings: [], parsed: true, valid: true, issues: [] });
+  const adapter = new ReviewPortAdapter({ runtime: fakeRuntime("verdict-json"), rendering, verdicts }, {
+    diff: "", mirrorDir: "/mirrors/org/app", e2eRelDir: "e2e", appName: "app", mode: "diff",
+  });
+  const ambientDataPins = [{ file: "flows/listing.spec.ts", test: "renders the empty listing", pages: ["/listing"] }];
+
+  await adapter.review("/mirrors/org/app/e2e", cases, undefined, { ambientDataPins });
+  await adapter.review("/mirrors/org/app/e2e", cases, undefined, { ambientDataPins: [] });
+
+  assert.deepEqual(seen, [ambientDataPins, undefined]);
+});
