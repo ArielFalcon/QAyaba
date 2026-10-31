@@ -1,32 +1,35 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { jsonObjectsIn, lastJsonObjectWhere } from "@kernel/last-json-object.ts";
+import { closingJsonObject, jsonObjectsIn } from "@kernel/last-json-object.ts";
 
-const hasStatus = (o: Record<string, unknown>): boolean => typeof o.status === "string";
-
-test("the last object that satisfies the predicate wins, whatever objects came before it", () => {
+test("the object that closes the text is the answer, whatever objects came before it", () => {
   const text = 'first {"specs":["a.spec.ts"]} then {"status":"old"} and finally {"status":"completed","n":{"deep":1}}';
-  assert.deepEqual(lastJsonObjectWhere(text, hasStatus), { status: "completed", n: { deep: 1 } });
+  assert.deepEqual(closingJsonObject(text), { status: "completed", n: { deep: 1 } });
 });
 
-test("braces in the narration that are not JSON never hide the closing object", () => {
+test("braces in the narration that are not JSON never hide the closing object, nor does a closing fence", () => {
   const text = [
     "I read `{name, value, url}` from the capture and wrote `async ({ page }) => {` in the test.",
     "```json",
     '{"status":"completed","summary":"a } inside a string and a \\" quote"}',
     "```",
   ].join("\n");
-  assert.equal(lastJsonObjectWhere(text, hasStatus)?.summary, 'a } inside a string and a " quote');
+  assert.equal(closingJsonObject(text)?.summary, 'a } inside a string and a " quote');
 });
 
 test("an unbalanced opening brace before the object does not swallow it", () => {
-  assert.deepEqual(lastJsonObjectWhere('the callback opens { and never closes. {"status":"ok"}', hasStatus), { status: "ok" });
+  assert.deepEqual(closingJsonObject('the callback opens { and never closes. {"status":"ok"}'), { status: "ok" });
 });
 
-test("text with no object satisfying the predicate reads as nothing, never as a partial object", () => {
-  assert.equal(lastJsonObjectWhere("no json at all", hasStatus), undefined);
-  assert.equal(lastJsonObjectWhere('{"other":1} {"truncated":', hasStatus), undefined);
-  assert.equal(lastJsonObjectWhere('[{"status":"in an array"}]', (o) => o.status === "nope"), undefined);
+test("a closing block that does not read leaves no answer, never an earlier object", () => {
+  assert.equal(closingJsonObject("no json at all"), undefined);
+  assert.equal(closingJsonObject('{"status":"draft"} then {"status":"final",}'), undefined, "not JSON");
+  assert.equal(closingJsonObject('{"status":"draft"} then {"status":"fin'), undefined, "cut short");
+  assert.equal(closingJsonObject('{"status":"draft"} and my helper is `async ({ page }) => {`'), undefined, "a brace after the answer");
+});
+
+test("an object after the answer closes the text instead of it", () => {
+  assert.deepEqual(closingJsonObject('{"status":"completed"}\n{"note":"a quoted payload"}'), { note: "a quoted payload" });
 });
 
 test("every top-level object is listed in document order and arrays are not objects", () => {

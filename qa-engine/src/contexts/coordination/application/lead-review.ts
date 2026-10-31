@@ -17,7 +17,7 @@ import { LEAD_REVIEW_SECTIONS, UNREADABLE_ANSWER_SECTIONS, type CandidateGaps, t
 
 /* How the instruction that sends a spec back qualifies its last failure. */
 const FAILURE_INSTRUCTION_NOTE: Record<FailureBytes, string> = { current: "", earlier: ", seen on earlier bytes", "no-spec": ", while the flow held no spec" };
-import { lastJsonObjectWhere } from "@kernel/last-json-object.ts";
+import { closingJsonObject } from "@kernel/last-json-object.ts";
 import { describeUnreadable, entryRead, entryUnreadable, readEntries, readOneOf, type UnreadableEntry } from "./answer-reading.ts";
 import { sha256Hex } from "@kernel/content-hash.ts";
 
@@ -138,7 +138,8 @@ function verifyInstruction(redaction: RedactionPort, flow: FlowUnderReview): str
 
 export function admitLeadReview(redaction: RedactionPort, output: string, flows: readonly FlowUnderReview[], opts: { revisionsAllowed: boolean }): ReviewAdmission {
   const admission: ReviewAdmission = { readable: false, unreadable: [], orders: [], accepted: [], dropped: [], refused: [] };
-  const raw = lastJsonObjectWhere(output, (o) => Array.isArray(o.review)) as { review: unknown[] } | undefined;
+  const closing = closingJsonObject(output);
+  const raw = closing !== undefined && Array.isArray(closing.review) ? (closing as { review: unknown[] }) : undefined;
   if (!raw) {
     admission.unreadable.push({ where: "answer", reason: "it holds no JSON object with a `review` list" });
     return admission;

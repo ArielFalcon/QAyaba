@@ -61,6 +61,16 @@ test("a finding that cites one flow is never moved to another", () => {
   assert.ok(admitted.refused.some((r) => r.flowId === "login" && r.finding === 1));
 });
 
+test("a correction whose closing answer does not read is unreadable, never the earlier draft", () => {
+  const draft = JSON.stringify({ corrections: [{ flow: "login", action: "revise", findings: [1], instruction: "draft" }] });
+  const final = JSON.stringify({ corrections: [{ flow: "cart", action: "revise", findings: [2], instruction: "final" }] });
+  for (const closing of [`${final.slice(0, -1)},}`, final.slice(0, Math.floor(final.length / 2)), `${final}\n{"note":1}`]) {
+    const admitted = admitLeadCorrection(redaction, `Draft: ${draft}\nRevised: ${closing}`, flows, findings);
+    assert.equal(admitted.readable, false, closing);
+    assert.equal(admitted.orders.some((o) => o.instruction === "draft"), false, closing);
+  }
+});
+
 test("a rebutted finding is sent to nobody and comes back as the rebuttal the run checks; a rebuttal without its basis is not taken", () => {
   const answer = JSON.stringify({ rebuttals: [{ finding: 1, basis: "execution", ref: "cart › total", reason: "it passed" }, { finding: 2, basis: "opinion", ref: "x", reason: "y" }] });
   const admitted = admitLeadCorrection(redaction, answer, flows, findings);

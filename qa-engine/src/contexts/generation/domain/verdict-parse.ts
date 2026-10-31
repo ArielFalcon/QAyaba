@@ -1,6 +1,6 @@
 import type { SpecMeta } from "@kernel/qa-case.ts";
 import { readNoopKind, type NoopKind } from "@kernel/noop-kind.ts";
-import { jsonObjectsIn, lastJsonObjectWhere } from "@kernel/last-json-object.ts";
+import { closingJsonObject, jsonObjectsIn } from "@kernel/last-json-object.ts";
 
 export interface FinalVerdict {
   approved: boolean;
@@ -22,17 +22,18 @@ export interface FinalVerdict {
 }
 
 /*
- * Every top-level JSON object of free-form agent text, in document order; callers take the last
- * one matching their shape. The scanner is the kernel's (`@kernel/last-json-object`), the repo's
- * one reader of an agent's closing JSON: an unbalanced brace in narration never hides it.
+ * Every top-level JSON object of free-form agent text, in document order. The scanner is the
+ * kernel's (`@kernel/last-json-object`), the repo's one reader of an agent's closing JSON: an
+ * unbalanced brace in narration never hides it.
  */
 export function extractJsonObjects(text: string): unknown[] {
   return jsonObjectsIn(text);
 }
 
-/* Returns the LAST extracted JSON object for which `pred` holds, or undefined. */
-export function lastJsonMatching<T = Record<string, unknown>>(text: string, pred: (o: Record<string, unknown>) => boolean): T | undefined {
-  return lastJsonObjectWhere(text, pred) as T | undefined;
+/* The object that closes the text when `pred` holds for it, or undefined: an earlier object never stands in for a closing one that does not read or is of another shape. */
+export function closingJsonMatching<T = Record<string, unknown>>(text: string, pred: (o: Record<string, unknown>) => boolean): T | undefined {
+  const closing = closingJsonObject(text);
+  return closing !== undefined && pred(closing) ? (closing as T) : undefined;
 }
 
 /* Discriminator: the generator's closing JSON carries a `specs` array, a `noop` decision, a `testCorrect` claim, `rebuttals`, a `plan` or a boolean `approved`. */
@@ -86,13 +87,13 @@ function noopOf(raw: unknown): { noopReason?: string; noopKind?: NoopKind } {
 }
 
 /*
- * Last balanced object with `specs`, `noop`, `testCorrect` or `approved`. A missing `approved` is
+ * The closing object of the answer, when it carries `specs`, `noop`, `testCorrect` or `approved`. A missing `approved` is
  * not a rejection (the reviewer is the gate); no parseable block — or one listing a spec that is
  * not a path string — is fail-closed with parsed:false. Whether writing no specs was a decision is
  * read from `noop.reason` or a valid `testCorrect`, never from `approved`.
  */
 export function parseVerdict(text: string): FinalVerdict {
-  const o = lastJsonMatching(text, isClosingVerdict);
+  const o = closingJsonMatching(text, isClosingVerdict);
   const specs: unknown[] = Array.isArray(o?.specs) ? o.specs : [];
   if (specs.some((spec) => typeof spec !== "string")) {
     return { approved: false, specs: [], note: "the agent's verdict lists a spec that is not a path string", parsed: false };

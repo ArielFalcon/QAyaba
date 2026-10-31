@@ -6,7 +6,7 @@ import type { RedactionPort } from "@kernel/ports/redaction.port.ts";
 import type { ProfileProposerPort } from "../application/ports/profile-proposer.port.ts";
 import type { BoundaryProfile, RepoRef } from "../domain/index.ts";
 import type { ProposerFeedback } from "../domain/profile-score.ts";
-import { lastJsonObjectWhere } from "@kernel/last-json-object.ts";
+import { closingJsonObject } from "@kernel/last-json-object.ts";
 import { ProposerVerdictSchema, UNPARSEABLE_SENTINEL, type SchemaCandidate } from "../application/proposer-verdict.schema.ts";
 
 /* Default per-session timeout when the caller doesn't override it via ctx.timeoutMs. */
@@ -20,8 +20,8 @@ function isUnparseableSentinel(candidate: SchemaCandidate): boolean {
 }
 
 /* Extracts a JSON payload from an LLM's free-form text reply: the last fenced ```json block if
- *  parses, otherwise the last JSON object carrying `candidates` (the kernel scanner, so narration
- *  braces never hide it). Returns null when neither shape is found — the caller degrades that
+ *  parses, otherwise the object that closes the reply when it carries `candidates` (the kernel
+ *  scanner, so narration braces never hide it and an earlier draft never stands in for it). Returns null when neither shape is found — the caller degrades that
  *  to a fail-open empty verdict. */
 function extractJson(text: string): unknown {
   const lastFenced = [...text.matchAll(/```json\s*([\s\S]*?)```/g)].at(-1)?.[1];
@@ -32,7 +32,8 @@ function extractJson(text: string): unknown {
       /* a broken fence: the answer may still stand outside it */
     }
   }
-  return lastJsonObjectWhere(text, (o) => "candidates" in o) ?? null;
+  const closing = closingJsonObject(text);
+  return closing !== undefined && "candidates" in closing ? closing : null;
 }
 
 /* Assembles the doc block spelling out both transport shapes with exact field names, so the

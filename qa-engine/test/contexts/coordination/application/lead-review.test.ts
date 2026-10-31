@@ -60,6 +60,16 @@ test("a review is read from the last object that holds one, past narration brace
   assert.deepEqual(admitted.accepted, ["cart"]);
 });
 
+test("a review whose closing answer does not read is unreadable, never the earlier draft", () => {
+  const draft = JSON.stringify({ review: [{ flow: "cart", action: "accept" }] });
+  const final = JSON.stringify({ review: [{ flow: "cart", action: "drop", reason: "x" }] });
+  for (const closing of [`${final.slice(0, -1)},}`, final.slice(0, Math.floor(final.length / 2)), `${final}\n{"note":1}`]) {
+    const admitted = admitLeadReview(redaction, `Draft: ${draft}\nRevised: ${closing}`, [flow()], { revisionsAllowed: true });
+    assert.equal(admitted.readable, false, closing);
+    assert.deepEqual(admitted.accepted, [], closing);
+  }
+});
+
 test("on the last turn the lead is told it can only accept or drop", () => {
   assert.match(renderLeadReview(redaction, [flow()], { turn: 3, maxTurns: 3 }), /last review/i);
 });

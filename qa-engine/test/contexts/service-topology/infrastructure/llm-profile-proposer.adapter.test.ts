@@ -178,6 +178,15 @@ test("propose(): a fenced verdict wins over an earlier quoted object", async () 
   assert.equal(result.length, 2);
 });
 
+test("propose(): an unfenced closing verdict that does not read yields nothing, never the earlier draft", async () => {
+  const reply = `Draft: ${VALID_VERDICT_JSON}\nRevised: ${VALID_VERDICT_JSON.slice(0, Math.floor(VALID_VERDICT_JSON.length / 2))}`;
+  const adapter = new LlmProfileProposerAdapter(fakeRuntime({ promptResult: reply }), silentLogger, redaction, { app: "nname" });
+
+  const result = await adapter.propose(SYSTEM, FRONT);
+
+  assert.equal(result.length, 0);
+});
+
 test("propose(): mixed valid/malformed candidates returns only the valid ones (sentinel filtered out)", async () => {
   const runtime = fakeRuntime({ promptResult: fencedJson(MIXED_VERDICT_JSON) });
   const adapter = new LlmProfileProposerAdapter(runtime, silentLogger, redaction, { app: "nname" });

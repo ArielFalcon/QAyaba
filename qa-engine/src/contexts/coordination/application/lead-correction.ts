@@ -15,7 +15,7 @@ import { assembleDefs, type AssembledPrompt, type WindowFitOutcome } from "@kern
 import { LEAD_CORRECTION_SECTIONS, REFUSED_CORRECTION_SECTIONS, type CorrectionFinding, type FlowUnderCorrection } from "./coordination-sections/lead-turn-sections.ts";
 
 export type { CorrectionFinding, FlowUnderCorrection };
-import { lastJsonObjectWhere } from "@kernel/last-json-object.ts";
+import { closingJsonObject } from "@kernel/last-json-object.ts";
 import { entryRead, entryUnreadable, readEntries, readOneOf, type UnreadableEntry } from "./answer-reading.ts";
 import { endsWithSpecPath, sameSpecPath } from "@kernel/spec-path.ts";
 import type { RedactionPort } from "@kernel/ports/redaction.port.ts";
@@ -207,7 +207,8 @@ export function admitLeadCorrection(redaction: RedactionPort, output: string, fl
   /* The flow the lead gave a finding several flows hold: the first order that names it, which replaces the default owner. */
   const given = new Map<number, string>();
   const byId = new Map(flows.map((flow) => [flow.id, flow]));
-  const raw = lastJsonObjectWhere(output, (o) => Array.isArray(o.corrections) || Array.isArray(o.rebuttals)) as { corrections?: unknown; rebuttals?: unknown } | undefined;
+  const closing = closingJsonObject(output);
+  const raw = closing !== undefined && (Array.isArray(closing.corrections) || Array.isArray(closing.rebuttals)) ? (closing as { corrections?: unknown; rebuttals?: unknown }) : undefined;
   const readable = raw !== undefined;
   admission.readable = readable;
   const routed = new Map<string, { action: CorrectionOrder["action"]; instruction: string; extra: Set<number> }>();

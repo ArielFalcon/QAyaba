@@ -199,6 +199,10 @@ The signals that show the cause gone, on a run and on the code:
 
 The authority to fix N02 at all is D12, approved on 2026-10-28 (translated: "regarding the 13 recommendations I agree with everything"), for causes phase 3b confirms. The brief fixes the rule for the forks above: "If a fix needs a product or architecture decision, STOP and ask me — do not choose."
 
+## Amendment (2026-10-31): where the answer is found
+
+N01's fix, one scanner, still chose the answer: the last object a predicate accepted. That choice was the same class one hop earlier. A closing answer that did not read (off the contract, not JSON, cut short) let an earlier draft of the same output stand in for it, whatever the agent was. The T35 verifier reproduced it on the sidekick reader in three forms, and the same rule served the generator's verdict, the lead's plan, review and correction, the reviewer's verdict and the proposer's fallback. The scanner now reads the object that closes the output (`closingJsonObject`: its last top-level object, with nothing after it that opens a brace), and each reader checks it against its own contract. An answer whose closing object does not read is unreadable and takes that reader's existing path: one repair turn, then fail closed (the proposer's fail-open empty verdict is unchanged). Every role's contract already requires the JSON to end the answer (`qa-author.md:207`, `qa-reviewer.md:64`, `qa-lead.md:27`, `:44`, `:60`, `qa-proposer.md:100`). The two tests that read an answer followed by an unrelated object now expect a miss.
+
 ## Out of scope
 
 - **The designed rule.** An agent-made absence (no citation, a spec outside the run's scope, a DOM-only finding) stays advisory, and a rejection whose every blocking finding is dropped stays an approval (`review.steps.ts:318`; the agent is told so, `qa-reviewer.md:123-124`). Whether such a rejection should instead stop the run is a product question and a plausible neighbour, not proposed here.
@@ -206,5 +210,5 @@ The authority to fix N02 at all is D12, approved on 2026-10-28 (translated: "reg
 - **The grave-tag rule** (`verdict-validate.ts:19-23`): the engine raises an entry's severity from the agent's own tag. The baseline's round 1 recorded `rejected` over a raw `approved: true` with 5 advisory entries (hypothesis: this rule, the same shape as the cycle 3 run `run-ed28973-mvs49h5y-acdab309`, not confirmed). The record cannot say the rejection was the engine's. Not examined as a member of the class: not enough evidence.
 - **Findings that leave the list silently:** the cap of six and the removal of empty texts (`review-output.ts:82-84`, `:23`). Blocking entries sort first; no harm shown.
 - **`rationale`'s tolerance** (`schemas.ts:574`): a lost rationale is recorded text only and decides nothing.
-- **Other agents' answers.** The generator's, the lead's and the sidekicks' answers were not swept for the class; the sidekick reader is N01's, removed at the root.
+- **Other agents' answers.** The generator's, the lead's and the sidekicks' answers were not swept for what is inside them; where every answer is found is the amendment above.
 - **Whether the four overridden rejections were correct**, and the model-approved reviews at O4 to O7: not enough evidence.

@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { CorrectionEntrySchema, GeneratorVerdictSchema, ReviewerVerdictSchema, type CorrectionEntry } from "./verdict-schemas.ts";
-import { lastJsonMatching, isClosingVerdict } from "./verdict-parse.ts";
+import { closingJsonMatching, isClosingVerdict } from "./verdict-parse.ts";
 import { GRAVE_TAGS } from "@kernel/error-class.ts";
 import { NOOP_KIND } from "@kernel/noop-kind.ts";
 
@@ -35,13 +35,13 @@ export interface VerdictCheck {
 }
 
 /*
- * Validate the GENERATOR's closing JSON: { specs[], specMetas?, note? }. We locate the LAST
- * balanced object that looks like the verdict block (carries a `specs` array — the
- * deliverable — or a boolean `approved` from older/other modes) and validate it. A missing
+ * Validate the GENERATOR's closing JSON: { specs[], specMetas?, note? }. The object that closes
+ * the answer is validated when it looks like the verdict block (carries a `specs` array — the
+ * deliverable — or a boolean `approved` from older/other modes); an earlier block never stands in. A missing
  * block is invalid (the agent forgot its closing JSON); the repair loop can recover it.
  */
 export function checkGeneratorVerdict(text: string): VerdictCheck {
-  const candidate = lastJsonMatching(text, isClosingVerdict);
+  const candidate = closingJsonMatching(text, isClosingVerdict);
   if (!candidate) {
     return { valid: false, issues: ["no closing verdict JSON found (expected a block with a `specs` array)"] };
   }
@@ -62,7 +62,7 @@ export interface ReviewerVerdict {
 }
 
 export function parseReviewerVerdict(text: string): ReviewerVerdict {
-  const candidate = lastJsonMatching(text, (x) => "approved" in x);
+  const candidate = closingJsonMatching(text, (x) => "approved" in x);
   if (!candidate) {
     return {
       approved: false,

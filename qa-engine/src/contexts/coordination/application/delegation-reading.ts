@@ -1,6 +1,6 @@
 /* How a sidekick's answer is read: the last JSON object of its output shaped as a DelegationResult, checked against the brief it answers, scrubbed, and held to its writable roots. Its lists are read by the one reader of an answer (`answer-reading.ts`): an entry that cannot be read as the contract says is recorded in `unreadableEntries` and not acted on, never defaulted. An answer that cannot be read is a failed result marked `readMiss`, never an empty one and never mistaken for a failure the sidekick reported. Free-form fields are scrubbed on parse: they re-enter the lead's context. filesChanged paths are authority inputs (scope check, on-disk adoption) and stay raw; they are scrubbed only where echoed into a summary or concern. */
 import type { RedactionPort } from "@kernel/ports/redaction.port.ts";
-import { lastJsonObjectWhere } from "@kernel/last-json-object.ts";
+import { closingJsonObject } from "@kernel/last-json-object.ts";
 import { UNREADABLE_ANSWER } from "@kernel/unreadable-answer.ts";
 import type { DelegationBrief } from "./delegation-brief.ts";
 import { ANSWER_MISS, belongsToBrief, CANDIDATE_CLAIMS, type CandidateClaim, type CandidateClaimStatus, DELEGATION_STATUSES, type AnswerMiss, type DelegationResult, type DelegationStatus } from "./delegation-result.ts";
@@ -105,13 +105,15 @@ function failedResult(brief: DelegationBrief, summary: string, redaction: Redact
 const isResultShaped = (o: Record<string, unknown>): boolean => "status" in o && ("delegationId" in o || "runId" in o);
 
 /*
- * The answer is the last object of the output shaped as a delegation result, read as the contract says: an object of another shape
- * (a quoted payload, an earlier verdict) is not the answer. A closing result that does not read is the answer all the same: it is
- * reported unreadable, never replaced by an earlier result of the same output, which the sidekick may have revised.
+ * The answer is what closes the output: its last object, with nothing after it that opens another. The reader never guesses which of
+ * several objects is the answer, so a closing result that does not read (off the contract, not JSON, cut short) or an object of another
+ * shape after it is reported unreadable and earns its one repair turn; an earlier result, which the sidekick may have revised, never
+ * stands in for it.
  */
 function lastDelegationResult(output: string, brief: DelegationBrief, redaction: RedactionPort): { result?: DelegationResult; malformed: boolean } {
-  const closing = lastJsonObjectWhere(output, isResultShaped);
+  const closing = closingJsonObject(output);
   if (!closing) return { malformed: false };
+  if (!isResultShaped(closing)) return { malformed: true };
   const result = parseDelegationResult(closing, brief, redaction);
   return result ? { result, malformed: false } : { malformed: true };
 }

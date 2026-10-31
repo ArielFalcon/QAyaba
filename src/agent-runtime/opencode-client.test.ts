@@ -277,10 +277,11 @@ test("parseVerdict handles a verdict with a NESTED object (regression: old regex
   assert.deepEqual(v.specs, ["a.spec.ts"]);
 });
 
-test("parseVerdict ignores a brace inside a string and a non-verdict trailing object", () => {
-  const v = parseVerdict('{"approved": true, "note": "use the } char"}\nlater: {"unrelated": 1}');
+test("parseVerdict reads past a brace inside a string, and an object after the verdict leaves no verdict", () => {
+  const v = parseVerdict('{"approved": true, "note": "use the } char"}');
   assert.equal(v.approved, true);
   assert.equal(v.note, "use the } char");
+  assert.equal(parseVerdict('{"approved": true, "note": "use the } char"}\nlater: {"unrelated": 1}').parsed, false);
 });
 
 test("parseVerdict extracts specMetas with flow, objective, and targets", () => {

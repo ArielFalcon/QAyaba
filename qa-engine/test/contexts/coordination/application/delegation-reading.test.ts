@@ -45,10 +45,31 @@ test("an unreadable closing result is the answer: it is marked unreadable, never
   assert.notEqual(result.summary, "DRAFT: all criteria met");
 });
 
-test("an object after the closing result that is no result does not hide it", () => {
-  const result = readDelegationResult(`${closing({ summary: "the closing block" })}\n{"note":"a quoted payload"}`, brief, redaction);
+test("a closing result that is not JSON, or is cut mid-JSON, is the answer all the same: unreadable, never the earlier draft", () => {
+  const final = closing({ status: "failed", summary: "FINAL: the total row still fails" });
+  const variants = {
+    "trailing comma": `${final.slice(0, -1)},}`,
+    "cut mid-JSON": final.slice(0, Math.floor(final.length / 2)),
+  };
+  for (const [name, closingText] of Object.entries(variants)) {
+    const output = ["I will report like this when done:", closing({ summary: "DRAFT: all criteria met" }), "the spec still fails on the total row", closingText].join("\n");
+    const result = readDelegationResult(output, brief, redaction);
+    assert.equal(result.status, "failed", name);
+    assert.equal(result.readMiss, "unreadable", name);
+    assert.notEqual(result.summary, "DRAFT: all criteria met", name);
+  }
+});
+
+test("narration after the closing result that holds no brace leaves it the answer", () => {
+  const result = readDelegationResult(`${closing({ summary: "the closing block" })}\nThe spec passed through run_spec.\n\`\`\``, brief, redaction);
   assert.equal(result.status, "completed");
   assert.equal(result.summary, "the closing block");
+});
+
+test("an object after the result closes the answer instead of it: the answer is unreadable and earns its repair, never read as the earlier result", () => {
+  const result = readDelegationResult(`${closing({ summary: "the closing block" })}\n{"note":"a quoted payload"}`, brief, redaction);
+  assert.equal(result.status, "failed");
+  assert.equal(result.readMiss, "unreadable");
 });
 
 test("a result for another brief and a write outside writablePaths keep failing as before", () => {
