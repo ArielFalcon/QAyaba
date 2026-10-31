@@ -8,6 +8,7 @@ import type { RunQaConfig } from "../application/run-flow/run-types.ts";
 import type { CommitAncestryPort } from "@kernel/ports/commit-ancestry.port.ts";
 import type { ServedVersionReaderPort } from "@kernel/ports/served-version-reader.port.ts";
 import { DeployGatePortAdapter, NullDeployGateAdapter } from "../infrastructure/adapters/deploy-gate-port.adapter.ts";
+import { httpServedVersionReader } from "../infrastructure/adapters/served-version-http.adapter.ts";
 import { FileRunHistoryAdapter, InMemoryRunHistoryAdapter } from "../infrastructure/adapters/run-history-port.adapter.ts";
 import { RunPipelineAdapter, type RunPipelineAdapterDeps } from "../infrastructure/run-pipeline.adapter.ts";
 
@@ -46,14 +47,11 @@ export interface RunOrchestrationApi {
 }
 
 export function buildRunOrchestration(deps: RunOrchestrationDeps): RunOrchestrationApi {
-  const { versionUrl, reader } = deps.deployGate;
-  /* A declared source with nothing to read it is a wiring defect, never a silent `undeclared`. */
-  const readerFor = (url: string): ServedVersionReaderPort => {
-    if (!reader) throw new Error(`the version source ${url} is declared but no reader is wired to read it`);
-    return reader;
-  };
+  const { versionUrl } = deps.deployGate;
+  /* The one reader of a declared source today is the HTTP one; a host that reads it otherwise (a test) supplies its own. */
+  const reader = deps.deployGate.reader ?? httpServedVersionReader();
   const deployGate = versionUrl
-    ? new DeployGatePortAdapter(readerFor(versionUrl), deps.deployGate.ancestry, {
+    ? new DeployGatePortAdapter(reader, deps.deployGate.ancestry, {
         versionUrl,
         intervalMs: deps.deployGate.intervalMs ?? DEFAULT_DEPLOY_GATE_INTERVAL_MS,
         timeoutMs: deps.deployGate.timeoutMs ?? DEFAULT_DEPLOY_GATE_TIMEOUT_MS,
@@ -62,7 +60,7 @@ export function buildRunOrchestration(deps: RunOrchestrationDeps): RunOrchestrat
   const companionDeployGates = new Map<string, DeployGatePort>();
   for (const c of deps.deployGate.companions ?? []) {
     if (!c.versionUrl) continue;
-    companionDeployGates.set(c.repo, new DeployGatePortAdapter(readerFor(c.versionUrl), c.ancestry, {
+    companionDeployGates.set(c.repo, new DeployGatePortAdapter(reader, c.ancestry, {
       versionUrl: c.versionUrl,
       intervalMs: c.intervalMs ?? DEFAULT_DEPLOY_GATE_INTERVAL_MS,
       timeoutMs: c.timeoutMs ?? DEFAULT_DEPLOY_GATE_TIMEOUT_MS,

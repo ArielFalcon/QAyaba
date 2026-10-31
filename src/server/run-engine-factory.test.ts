@@ -2227,7 +2227,7 @@ test("cross-repo: gate uses the SERVICE's own versionUrl + service-level interva
   assert.equal(config.versionUrl, "https://orders-svc/version", "must gate on the SERVICE's own versionUrl, never the primary's");
   assert.equal(config.deployGateIntervalMs, 10_000, "service-level default interval (distinct from the primary's 2000)");
   assert.equal(config.deployGateTimeoutMs, 600_000, "service-level default timeout (distinct from the primary's 60000)");
-  assert.equal(typeof config.versionReader?.read, "function");
+  assert.equal(config.versionReader, undefined, "the run-orchestration composition supplies the HTTP reader");
   assert.equal(typeof config.versionAncestry?.relation, "function", "the service's own mirror relates what its source serves to the run's sha");
 });
 

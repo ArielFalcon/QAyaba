@@ -2,7 +2,7 @@
 
 import { engineLog } from "@kernel/ports/process-logger.ts";
 import { isOk } from "@kernel/result.ts";
-import { DeployNotServedError, type ServedVersionFact, type ServedVersionSignal } from "@kernel/served-version.ts";
+import { DeployNotServedError, sourceUnanswered, type ServedVersionFact, type ServedVersionSignal } from "@kernel/served-version.ts";
 import { ACTION_SEVERITY } from "@contexts/change-analysis/application/index.ts";
 import { changeTokens } from "@contexts/objective-signal/application/index.ts";
 import { runTimeBudgetKey } from "../../../domain/run-time-budget.ts";
@@ -44,13 +44,17 @@ async function verifyEntryDeploys(ctx: RunContext): Promise<{ failure?: string; 
       facts.push({ repo: entry.repo, state: "undeclared" });
       continue;
     }
-    const verified = await gate.verifyServed(entry === anchor ? ctx.input.sha : entry.headSha, { source: ctx.input.source });
+    /* One clock for the entry: the version wait and the health wait that follows it end at the same deadline. */
+    const startedAt = Date.now();
+    const verified = await gate.verifyServed(entry === anchor ? ctx.input.sha : entry.headSha, { source: ctx.input.source, startedAt });
     if (!isOk(verified)) {
       if (verified.error instanceof DeployNotServedError) facts.push({ repo: entry.repo, ...verified.error.fact });
       return { failure: messageOf(entry.repo, verified.error), facts };
     }
     facts.push({ repo: entry.repo, ...verified.value });
-    const healthy = await gate.waitUntilHealthy();
+    /* A source that gave nothing says nothing of health: the run goes on, and the check before Playwright judges it. */
+    if (sourceUnanswered(verified.value)) continue;
+    const healthy = await gate.waitUntilHealthy({ startedAt });
     if (!isOk(healthy)) return { failure: messageOf(entry.repo, healthy.error), facts };
   }
   return { facts };
@@ -88,16 +92,34 @@ function annotateServedVersion(ctx: RunContext, facts: readonly EntryFact[]): vo
   }
 }
 
-/* The mid-run DEV health pre-flight over the same gates: each entry's declared source must report DEV healthy. Returns the failure message, or undefined when all do. */
-export async function awaitEntryHealth(ctx: RunContext): Promise<string | undefined> {
+/*
+ * The mid-run DEV health pre-flight over the same gates: each entry's declared source must report DEV healthy. A deploy-triggered run
+ * whose entry was `equal` also holds DEV to that commit, so a newer deploy that landed since ends the run, as it always did; the
+ * re-read is then recorded on the entry's fact. Every other run and entry state is held to health only. Returns the failure
+ * message, or undefined when all pass.
+ */
+export async function awaitEntryHealth(state: Readonly<RunState>, ctx: RunContext): Promise<string | undefined> {
   const { entries, anchor } = ctx.input.changeSet;
   for (const entry of entries) {
     const gate = entry === anchor ? ctx.deps.deployGate : ctx.deps.companionDeployGates?.get(entry.repo);
     if (!gate) continue;
-    const result = await gate.waitUntilHealthy();
-    if (!isOk(result)) return entries.length > 1 ? `${entry.repo}: ${result.error.message}` : result.error.message;
+    const entered = entry === anchor ? state.run.servedVersion : state.run.servedVersion?.companions?.find((fact) => fact.repo === entry.repo);
+    const servedSha = ctx.input.source === "webhook" && entered?.state === "equal" ? (entry === anchor ? ctx.input.sha : entry.headSha) : undefined;
+    const result = await gate.waitUntilHealthy(servedSha !== undefined ? { servedSha } : {});
+    if (isOk(result)) continue;
+    if (result.error instanceof DeployNotServedError) recordAtExecution(state, entry.repo === anchor.repo, entry.repo, result.error.fact);
+    return entries.length > 1 ? `${entry.repo}: ${result.error.message}` : result.error.message;
   }
   return undefined;
+}
+
+/* What the check before Playwright read when DEV no longer served the run's commit, on the fact of the entry it concerns. */
+function recordAtExecution(state: Readonly<RunState>, isAnchor: boolean, repo: string, read: ServedVersionFact): void {
+  const signal = state.run.servedVersion;
+  if (signal === undefined) return;
+  const { atExecution: _earlier, ...atExecution } = read;
+  if (isAnchor) recordRunFact(state, "servedVersion", { ...signal, atExecution });
+  else recordRunFact(state, "servedVersion", { ...signal, companions: signal.companions?.map((fact) => (fact.repo === repo ? { ...fact, atExecution } : fact)) ?? [] });
 }
 
 /*

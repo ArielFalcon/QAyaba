@@ -266,7 +266,7 @@ export async function runFixLoop(state: Readonly<RunState>, ctx: WorkspaceRunCon
     maxRetries: cfg.maxRetries,
     ...(fixLoopRetired ? { regenerate: false } : {}),
     cycleBudget: ctx.cycleBudget,
-    devHealthy: async () => (await checkDevHealth(ctx)).healthy,
+    devHealthy: async () => (await checkDevHealth(state, ctx)).healthy,
     namespace: input.runId,
     coverageWillMeasure,
     ...(initialSpecSources?.length ? { initialSpecSources } : {}),

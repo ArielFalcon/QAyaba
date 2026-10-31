@@ -61,8 +61,8 @@ export const validateAccepted = (state: Readonly<RunState>, ctx: WorkspaceRunCon
   ctx.deps.validation.validate(specDir, deliveredNow(state));
 
 /* Mid-run DEV pre-flight, distinct from the entry gate: DEV must still report healthy. Absent DeployGatePort (static sites / code) defaults to always-healthy. The failure's message comes back with it. */
-export async function checkDevHealth(ctx: WorkspaceRunContext): Promise<{ healthy: true } | { healthy: false; reason: string }> {
-  const failure = await awaitEntryHealth(ctx);
+export async function checkDevHealth(state: Readonly<RunState>, ctx: WorkspaceRunContext): Promise<{ healthy: true } | { healthy: false; reason: string }> {
+  const failure = await awaitEntryHealth(state, ctx);
   return failure === undefined ? { healthy: true } : { healthy: false, reason: failure };
 }
 
@@ -183,7 +183,7 @@ async function withLinterFixes(validation: Awaited<ReturnType<WorkspaceRunContex
 export async function checkHealth(state: Readonly<RunState>, ctx: WorkspaceRunContext): Result {
   const { deps } = ctx;
   deps.observer?.onStep("health");
-  const health = await checkDevHealth(ctx);
+  const health = await checkDevHealth(state, ctx);
   if (!health.healthy) {
     const healthReason = health.reason;
     engineLog.error("[qa] health pre-flight failed before execute:", { healthReason });

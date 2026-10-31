@@ -24,6 +24,13 @@ export interface ServedVersionFact {
   reason?: UnreadableReason;
   served?: string;
   waitedMs?: number;
+  /* What the check before Playwright read when it no longer found DEV serving the run's commit; absent when it found nothing to add. */
+  atExecution?: Omit<ServedVersionFact, "atExecution">;
+}
+
+/* A declared source that gave no health either: the read itself failed or its body named no commit. A commit the mirror lacks, or a history that failed, were read from a source that answered. */
+export function sourceUnanswered(fact: ServedVersionFact): boolean {
+  return fact.state === "unreadable" && fact.reason !== "commit-not-in-history" && fact.reason !== "history-unavailable";
 }
 
 /* The run's record: the anchor repo's fact, and each other repo of a run over several repos. */

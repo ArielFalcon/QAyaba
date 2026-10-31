@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { httpServedVersionReader } from "./served-version-http.adapter";
+import { httpServedVersionReader } from "@contexts/run-orchestration/infrastructure/adapters/served-version-http.adapter.ts";
 
 const answering = (init: { status?: number; body?: string }): typeof fetch =>
   (async () => new Response(init.body ?? "", { status: init.status ?? 200 })) as typeof fetch;

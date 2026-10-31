@@ -115,19 +115,68 @@ test("a source that is read and reports DEV unhealthy still ends the run at the 
   assert.equal(telemetry.spans.find((s) => s.name === "qayaba.phase.gate")?.attrs["qayaba.served_version.state"], "equal");
 });
 
+test("the entry's version read and health wait are given one clock", async () => {
+  const clocks: Array<number | undefined> = [];
+  await runWith("webhook", () => ({
+    verifyServed: async (_sha, run) => { clocks.push(run.startedAt); return ok({ state: "equal" }); },
+    waitUntilHealthy: async (opts) => { clocks.push(opts?.startedAt); return ok(true); },
+  }));
+  assert.equal(typeof clocks[0], "number");
+  assert.equal(clocks[1], clocks[0]);
+});
+
+test("a source that cannot be read ends no run at the entry, which waits for no health from it; DEV health is still judged before Playwright", async () => {
+  let healthReads = 0;
+  const { observed } = await runWith("webhook", () => ({
+    verifyServed: async () => ok({ state: "unreadable", reason: "unreachable" }),
+    waitUntilHealthy: async () => { healthReads += 1; return err(new InfraError("DEV did not report healthy within 60000ms")); },
+  }));
+  assert.equal(healthReads, 1, "only the pre-execute check asked");
+  assert.equal(observed.result?.decision.verdict, "infra-error");
+  assert.equal(observed.result?.gateSignals.furthestPhase, "health");
+  assert.deepEqual(recorded(observed), { state: "unreadable", reason: "unreachable" });
+});
+
+test("a deploy-triggered run that entered equal has the pre-execute check hold DEV to its commit; a newer deploy ends it infra-error and the re-read is on the fact", async () => {
+  const asked: Array<string | undefined> = [];
+  const { observed } = await runWith("webhook", () => ({
+    verifyServed: async () => ok({ state: "equal", served: "abc1234" }),
+    waitUntilHealthy: async (opts) => {
+      asked.push(opts?.servedSha?.toString());
+      return opts?.servedSha === undefined ? ok(true) : err(new DeployNotServedError("DEV no longer serves sha abc1234 (it serves 9999999)", { state: "ahead", served: "9999999" }));
+    },
+  }));
+  assert.deepEqual(asked, [undefined, "abc1234", ], "the entry check holds no commit; the pre-execute check does");
+  assert.equal(observed.result?.decision.verdict, "infra-error");
+  assert.match(observed.result?.note ?? "", /no longer serves/);
+  assert.deepEqual(recorded(observed), { state: "equal", served: "abc1234", atExecution: { state: "ahead", served: "9999999" } });
+});
+
+test("a manual run, and a deploy-triggered run that entered in any other state, is held to health only before Playwright", async () => {
+  for (const [source, state] of [["manual", "equal"], ["webhook", "ahead"], ["webhook", "unrelated"]] as const) {
+    const asked: Array<string | undefined> = [];
+    const { observed } = await runWith(source, () => ({
+      verifyServed: async () => ok({ state, served: "9999999" }),
+      waitUntilHealthy: async (opts) => { asked.push(opts?.servedSha?.toString()); return ok(true); },
+    }));
+    assert.equal(observed.result?.decision.verdict, "pass", `${source} ${state}`);
+    assert.ok(asked.every((a) => a === undefined), `${source} ${state} holds no commit`);
+  }
+});
+
 test("a run over several repos records the anchor's state and each other repo's, an undeclared repo included", async () => {
   const rig = newRig();
   try {
     const FRONT = Sha.of("f111111");
     const BACK = Sha.of("b222222");
-    rig.input = { source: "webhook", sha: FRONT, changeSet: ChangeSet.of("demo", [{ repo: "org/back", role: "service", headSha: BACK }, { repo: "org/front", role: "primary", headSha: FRONT }]) };
+    rig.input = { source: "webhook", sha: FRONT, changeSet: ChangeSet.of("demo", [{ repo: "org/back", role: "service", headSha: BACK }, { repo: "org/static", role: "service", headSha: Sha.of("c333333") }, { repo: "org/front", role: "primary", headSha: FRONT }]) };
     const answering = (fact: ServedVersionFact): DeployGatePort => ({ verifyServed: async () => ok(fact), waitUntilHealthy: async () => ok(true) });
     rig.extra = {
       deployGate: answering({ state: "equal", served: "f111111" }),
       companionDeployGates: new Map([["org/back", answering({ state: "behind", served: "a000000" })]]),
     };
     const observed = await observe(rig, "served-version-two-repos");
-    assert.deepEqual(recorded(observed), { state: "equal", served: "f111111", companions: [{ repo: "org/back", state: "behind", served: "a000000" }] });
+    assert.deepEqual(recorded(observed), { state: "equal", served: "f111111", companions: [{ repo: "org/back", state: "behind", served: "a000000" }, { repo: "org/static", state: "undeclared" }] });
   } finally {
     dispose(rig);
   }

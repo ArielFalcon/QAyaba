@@ -394,6 +394,11 @@ export function enqueueLoginBootstrapRun(queue: JobQueue, app: string, sha: stri
  * Creates the tracked RunRecord and enqueues the pipeline on the shared queue.
  * Returns the record id immediately (the run executes asynchronously, one at a time).
  */
+/* The one door the control API and the deploy webhook enter through: a request is stamped with the source its trigger implies, so the engine can tell a deploy from a replay. */
+export function enqueueDoorRun(queue: JobQueue, trigger: "api" | "webhook", request: Omit<RunRequest, "source" | "trigger">, deps: RunnerDeps): string {
+  return enqueueTrackedRun(queue, { ...request, source: sourceOfTrigger(trigger), trigger }, deps);
+}
+
 export function enqueueTrackedRun(queue: JobQueue, req: RunRequest, deps: RunnerDeps = {}): string {
   /* The capture a run gets is decided here, for every door: what it asked for, never above the server's ceiling. */
   const runConfigEnv = deps.runConfig ?? UNKNOWN_RUN_CONFIG_ENV;

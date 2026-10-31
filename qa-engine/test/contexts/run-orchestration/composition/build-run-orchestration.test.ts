@@ -52,9 +52,11 @@ test("a gate whose source never reports healthy ends in an infra error at its ti
   assert.equal(result.ok, false);
 });
 
-test("a declared version url with nothing wired to read it is a wiring defect, never a silent undeclared", () => {
-  assert.throws(() => build({ deployGate: { versionUrl: "https://dev/version" } }), /no reader is wired/);
-  assert.throws(() => build({ deployGate: { companions: [{ repo: "org/back", versionUrl: "https://back/version" }] } }), /no reader is wired/);
+test("a declared version url with no reader supplied is read over HTTP, for the primary and for a companion repo", () => {
+  const api = build({ deployGate: { versionUrl: "https://dev/version", companions: [{ repo: "org/back", versionUrl: "https://back/version" }] } });
+
+  assert.equal(typeof api.deps.deployGate.verifyServed, "function");
+  assert.equal(api.deps.companionDeployGates?.has("org/back"), true);
 });
 
 test("the run history is the explicit store, else the file, else memory", () => {

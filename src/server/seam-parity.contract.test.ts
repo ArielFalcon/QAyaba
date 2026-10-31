@@ -71,7 +71,8 @@ describe("seam-parity: COMPOSITION (EngineRootDeps vs buildEngineRootDeps)", () 
     crossRepoImpact: "supplied ONLY under the SAME app.services?.length && app.boundaries?.length gate serviceTopology uses — legitimately absent for single-repo apps and apps with no declared boundary profile, or when the run's grounding.stitcher is false.",
     domPack: "IS supplied (defaulted true: run.grounding.domPack ?? app.qa.domPack ?? true) — asserted below as a present case.",
     versionUrl: "supplied ONLY when app.dev?.versionUrl is present — legitimately absent for a static site (no deploy gate).",
-    versionPoll: "supplied ONLY when app.dev?.versionUrl is present (paired with versionUrl above).",
+    versionReader: "DELIBERATELY absent — the run-orchestration composition defaults the reader of a declared source to the HTTP one; the host wires only what it overrides.",
+    versionAncestry: "supplied ONLY when the run's own source (the primary's, or the trigger service's) declares a versionUrl — the mirror that relates what it serves to the run's sha.",
     deployGateIntervalMs: "IS supplied (defaulted via ?? DEFAULT) — asserted below as a present case.",
     deployGateTimeoutMs: "IS supplied (defaulted via ?? DEFAULT) — asserted below as a present case.",
     historyFilePath: "supplied ONLY as an explicit escape hatch (deps.historyFilePath) — production default path uses `runHistory` (SqliteRunHistoryAdapter) instead, asserted below.",
@@ -159,7 +160,7 @@ describe("seam-parity: COMPOSITION (EngineRootDeps vs buildEngineRootDeps)", () 
     assert.notEqual(cfg.groundingCollaborators, undefined, `groundingCollaborators dropped at ${dyingLayer}`);
     assert.notEqual(cfg.reviewDomGroundingCollaborators, undefined, `reviewDomGroundingCollaborators dropped at ${dyingLayer}`);
     assert.equal(cfg.versionUrl, S("app.dev.versionUrl"), `versionUrl dropped at ${dyingLayer}`);
-    assert.notEqual(cfg.versionReader, undefined, `versionReader dropped at ${dyingLayer}`);
+    assert.notEqual(cfg.versionAncestry, undefined, `versionAncestry dropped at ${dyingLayer}`);
     assert.equal(cfg.deployGateIntervalMs, 2000, `deployGateIntervalMs dropped/mis-defaulted at ${dyingLayer}`);
     assert.equal(cfg.deployGateTimeoutMs, 60000, `deployGateTimeoutMs dropped/mis-defaulted at ${dyingLayer}`);
     assert.notEqual(cfg.runHistory, undefined, `runHistory (SqliteRunHistoryAdapter default) dropped at ${dyingLayer}`);
@@ -347,7 +348,7 @@ describe("seam-parity: COMPOSITION (EngineRootDeps vs buildEngineRootDeps)", () 
     assert.equal(cfg.guidance, undefined);
     assert.equal(cfg.testIdAttribute, undefined);
     assert.equal(cfg.versionUrl, undefined);
-    assert.equal(cfg.versionReader, undefined);
+    assert.equal(cfg.versionAncestry, undefined);
     assert.equal(cfg.observer, undefined);
   });
 

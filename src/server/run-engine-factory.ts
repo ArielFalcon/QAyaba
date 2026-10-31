@@ -114,7 +114,6 @@ import {
   specFileForFlow,
 } from "@contexts/generation/infrastructure/prompt-builders/prompts";
 import { parseVerdict } from "../integrations/verdict-parse";
-import { httpServedVersionReader } from "../integrations/served-version-http.adapter";
 import { parseReviewerVerdict, checkGeneratorVerdict, repairInstruction } from "../integrations/verdict-validate";
 import type { StepLimitFor, StepLimitRole } from "@contexts/generation/application/index.ts";
 import { MultiRepoCheckoutAdapter } from "@contexts/workspace-and-publication/infrastructure/adapters/multi-repo-checkout.adapter";
@@ -749,7 +748,6 @@ export function buildEngineRootDeps(
   });
   /* Cross-repo: the source is the SERVICE's, never the primary's; no source declared anywhere means no gate to wire. */
   const gateVersionUrl = triggerService ? triggerService.versionUrl : app.dev.versionUrl;
-  const declaresVersionSource = Boolean(gateVersionUrl) || companionServices.some(({ service }) => Boolean(service.versionUrl));
 
 
   const grounding = run.grounding;
@@ -1255,8 +1253,6 @@ export function buildEngineRootDeps(
      * Cross-repo: gate on the SERVICE versionUrl, never the primary's. No versionUrl → skip the gate.
      */
     versionUrl: gateVersionUrl,
-    /* The one reader of a declared source today: a GET answering { sha, healthy }. The engine decides what the commit it reports means for the run. */
-    ...(declaresVersionSource ? { versionReader: httpServedVersionReader() } : {}),
     ...(gateVersionUrl ? { versionAncestry: mirrorAncestry(triggerService?.repo ?? app.repo) } : {}),
     /* Service poll defaults (10s/10min) differ from the primary's (2s/60s). */
     deployGateIntervalMs: triggerService

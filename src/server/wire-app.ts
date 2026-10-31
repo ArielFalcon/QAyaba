@@ -29,7 +29,7 @@ import { createEvaluationService } from "./evaluation-service";
 import { ScoreMetricsSink } from "../telemetry/score-metrics-sink";
 import { hashStaticPrompts, type RunConfigEnvironment } from "./effective-config";
 import { buildRunViewExtras, defaultRunViewDeps } from "./run-view";
-import { enqueueTrackedRun, sourceOfTrigger, enqueueContextMapRun, enqueueLoginBootstrapRun, cancelTrackedRun, finalizeInterruptedRuns, type RunnerDeps } from "./runner";
+import { enqueueTrackedRun, enqueueDoorRun, enqueueContextMapRun, enqueueLoginBootstrapRun, cancelTrackedRun, finalizeInterruptedRuns, type RunnerDeps } from "./runner";
 import { codeGraphFor } from "./engine-root";
 import { appAuthDir, appSuiteStoreDir, createRunEngineFactory, resolveCodeSandbox } from "./run-engine-factory";
 import { longestRunTimeBudgetMs, type ContextHealRunRequest } from "@contexts/run-orchestration/application/index";
@@ -320,7 +320,7 @@ export function wireApp(settingsStore: SettingsStore): WiredApp {
       return "";
     }
 
-    return enqueueTrackedRun(queue, { ...request, source: sourceOfTrigger(trigger), trigger }, runnerDeps());
+    return enqueueDoorRun(queue, trigger, request, runnerDeps());
   }
 
   const enqueueApiRun: ApiDeps["enqueue"] = (request) => enqueueRunFrom("api", request);

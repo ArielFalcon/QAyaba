@@ -169,9 +169,9 @@ export const RUN_END_ROWS: readonly RunEndRow[] = [
     endReason: "pre-execute-infra",
     setup: (rig) => {
       let calls = 0;
-      rig.waitUntilHealthy = async () => { calls += 1; return calls === 1 ? { ok: true as const, value: true } : { ok: false as const, error: new Error("DEV went down mid-run") }; };
+      rig.waitUntilHealthy = async () => { calls += 1; return calls === 1 ? { ok: true as const, value: true } : { ok: false as const, error: new Error("DEV did not report healthy within 60000ms (versionUrl=https://dev/version)") }; };
     },
-    expect: { verdict: "infra-error", errorClass: "E-INFRA", furthestPhase: "health", persisted: true, published: "none", publishCalled: false, note: /DEV went down mid-run/ },
+    expect: { verdict: "infra-error", errorClass: "E-INFRA", furthestPhase: "health", persisted: true, published: "none", publishCalled: false, note: /DEV did not report healthy/ },
   },
   { id: "reviewer-unavailable", endReason: "reviewer-unavailable", setup: (rig) => { rig.review = reviewerDown; }, expect: { verdict: "infra-error", errorClass: "E-REVIEWER-UNAVAILABLE", furthestPhase: "review", persisted: true, published: "none", publishCalled: false } },
   { id: "review-disputed", endReason: "review-disputed", setup: (rig) => refusedFinding(rig), expect: { verdict: "infra-error", errorClass: "E-REVIEW-DISPUTED", furthestPhase: "review", persisted: true, published: "none", publishCalled: false, note: /could not settle/ } },

@@ -1,9 +1,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { Readable } from "node:stream";
 import { JobQueue } from "./queue";
+import { routeApi } from "./api";
 import {
   enqueueTrackedRun,
   sourceOfTrigger,
+  enqueueDoorRun,
   enqueueContextMapRun,
   enqueueLoginBootstrapRun,
   cancelTrackedRun,
@@ -2002,4 +2005,27 @@ test("without a registry a second push queues its own run, as before", async () 
 test("only a deploy's webhook starts a run the engine treats as deploy-triggered; a control-API run, a campaign replicate included, is manual", () => {
   assert.equal(sourceOfTrigger("webhook"), "webhook");
   assert.equal(sourceOfTrigger("api"), "manual");
+});
+
+/* The control API and the webhook enter through the one door the host wires (wire-app.ts); this drives it as the host does, the API from a real POST. */
+async function sourceReachingEngine(door: "api" | "webhook"): Promise<string | undefined> {
+  const queue = new JobQueue();
+  const { port, calls } = fakePort({ verdict: "pass" });
+  const runnerDeps = { loadApp: cfg, engineFactory: () => port };
+  const enqueue = (request: Parameters<typeof enqueueDoorRun>[2]): string => enqueueDoorRun(queue, door, request, runnerDeps);
+  if (door === "api") {
+    const res = { status: 0, body: "", headers: {} as Record<string, string>, writeHead(s: number) { this.status = s; return this; }, setHeader() {}, end(b?: string) { this.body = b ?? ""; } };
+    const req = Object.assign(Readable.from([JSON.stringify({ app: "demo", sha: "abc1234", mode: "diff", target: "e2e" })]), { method: "POST", url: "/api/v1/runs", headers: { host: "x", "content-type": "application/json" } });
+    await routeApi(req as never, res as never, { queue: { size: 0 }, enqueue, loadApp: cfg, listApps: () => [cfg("demo")], resolveRef: async () => "f".repeat(40), getRecord: () => undefined, listRecords: () => [], currentRun: () => undefined } as never);
+    assert.equal(res.status, 202);
+  } else {
+    enqueue({ app: "demo", sha: "abc1234", mode: "diff", target: "e2e" });
+  }
+  await queue.drain();
+  return calls[0]?.source;
+}
+
+test("a run posted to the control API reaches the engine as manual, and a deploy's webhook as webhook", async () => {
+  assert.equal(await sourceReachingEngine("api"), "manual");
+  assert.equal(await sourceReachingEngine("webhook"), "webhook");
 });

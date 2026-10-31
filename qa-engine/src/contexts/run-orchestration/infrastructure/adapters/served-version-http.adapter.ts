@@ -3,9 +3,9 @@
  * `{ sha, healthy }`. It reports only what the product serves; whether that is the run's commit is the engine's decision.
  */
 
-import { Sha } from "@kernel/sha";
-import type { ServedVersionReaderPort } from "@kernel/ports/served-version-reader.port";
-import type { ServedVersionRead } from "@kernel/served-version";
+import { Sha } from "@kernel/sha.ts";
+import type { ServedVersionReaderPort } from "@kernel/ports/served-version-reader.port.ts";
+import type { ServedVersionRead } from "@kernel/served-version.ts";
 
 export const SERVED_VERSION_READ_TIMEOUT_MS = 10_000;
 
