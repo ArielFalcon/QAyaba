@@ -11,9 +11,8 @@ import { DeployGatePortAdapter, NullDeployGateAdapter } from "../infrastructure/
 import { httpServedVersionReader } from "../infrastructure/adapters/served-version-http.adapter.ts";
 import { FileRunHistoryAdapter, InMemoryRunHistoryAdapter } from "../infrastructure/adapters/run-history-port.adapter.ts";
 import { RunPipelineAdapter, type RunPipelineAdapterDeps } from "../infrastructure/run-pipeline.adapter.ts";
+import { DEFAULT_DEPLOY_GATE_INTERVAL_MS, DEFAULT_DEPLOY_GATE_TIMEOUT_MS } from "../domain/deploy-gate-timing.ts";
 
-const DEFAULT_DEPLOY_GATE_INTERVAL_MS = 2000;
-const DEFAULT_DEPLOY_GATE_TIMEOUT_MS = 60000;
 
 /* The run's configuration as the flow reads it, plus the one live read the builder records once. */
 export type RunConfigDeps = Omit<RunQaConfig, "reviewerIndependence"> & {

@@ -25,7 +25,7 @@ import {
   stallMs,
 } from "../integrations/opencode-client";
 import type { RunPipelinePort, ObserverPort } from "@contexts/run-orchestration/application/index.ts";
-import { RequestContextHeal, type EnqueueContextRunPort } from "@contexts/run-orchestration/application/index";
+import { RequestContextHeal, agentBrowserEnabled, baseBranchOf, closedLoopEnabled, deployGateTiming, fixLoopMaxRetries, resolveDomPack, resolveIntentLock, serviceTopologyWired, type EnqueueContextRunPort } from "@contexts/run-orchestration/application/index";
 import { buildEngine, codeGraphFor, type EngineRootDeps } from "./engine-root";
 import type { PublishDeps } from "./engine-root";
 import { createDiscoverLogin } from "@contexts/app-catalog/infrastructure/login-discovery/login-discovery.runner";
@@ -146,7 +146,6 @@ import { stageServiceContext, serviceContextDir } from "./service-context";
 import { SqliteRunHistoryAdapter } from "./run-history-sqlite-adapter";
 import type { RunFreeze } from "./run-freeze";
 import { SqliteLessonStoreAdapter } from "./lesson-store-sqlite-adapter";
-import { agentBrowserEnabled, closedLoopEnabled, serviceTopologyWired } from "./run-config-gates";
 import { ProcessAuditPortAdapter } from "@contexts/cross-run-learning/infrastructure/process-audit-port.adapter";
 import { YamlBoundaryProfileAdapter } from "@contexts/service-topology/infrastructure/yaml-boundary-profile.adapter";
 import { expandEnv } from "../orchestrator/config-loader";
@@ -578,7 +577,7 @@ export function buildEngineRootDeps(
   observer?: ObserverPort,
 ): EngineRootDeps {
   /* The pre-generation context pack's live-DOM arm (an A/B lever): the resolved effective config already carries it, so this is always a boolean here. */
-  const domPack = run.grounding?.domPack ?? app.qa.domPack ?? true;
+  const domPack = resolveDomPack(run.grounding?.domPack, app.qa.domPack);
   if (domPack === false) {
     appLogger.warn(`[qa] grounding.domPack is OFF for ${app.name}: the pre-generation context pack carries no live DOM. The review, pre-exec and post-failure DOM seams are independent and unchanged; the authenticated-browser alternative is available only when the app and tools grant it.`);
   }
@@ -592,7 +591,7 @@ export function buildEngineRootDeps(
   const codeSandbox = resolveCodeSandbox(deps.env ?? activeEnvironment());
 
   const coveragePolicy = resolveCoveragePolicy(app.qa.changeCoverage);
-  const intentLock = { mode: app.qa.intentLock?.mode ?? "signal", opacityFlagRatio: app.qa.intentLock?.opacityFlagRatio ?? 0.5 } as const;
+  const intentLock = resolveIntentLock(app.qa.intentLock);
 
   const mirrorRoot = deps.mirrorRoot ?? workdirRoot();
   /*
@@ -749,6 +748,8 @@ export function buildEngineRootDeps(
   });
   /* Cross-repo: the source is the SERVICE's, never the primary's; no source declared anywhere means no gate to wire. */
   const gateVersionUrl = triggerService ? triggerService.versionUrl : app.dev.versionUrl;
+  /* The service's deploy is slower than the primary's, so its gate polls and waits on its own defaults. */
+  const deployGate = triggerService ? deployGateTiming(triggerService, "service") : deployGateTiming(app.dev, "app");
 
 
   const grounding = run.grounding;
@@ -857,7 +858,7 @@ export function buildEngineRootDeps(
   const multiRepoCheckout = new MultiRepoCheckoutAdapter(
     {
       primaryRepo: app.repo,
-      baseBranch: app.baseBranch ?? "main",
+      baseBranch: baseBranchOf(app),
       services: app.services ?? [],
       ...(triggerService ? { triggerService: { repo: triggerService.repo, ...(triggerService.openapi ? { openapi: triggerService.openapi } : {}) } } : {}),
       ...(companionServices.length > 0 ? { changedServices: companionServices.map((c) => ({ repo: c.service.repo, headSha: c.headSha })) } : {}),
@@ -884,7 +885,7 @@ export function buildEngineRootDeps(
     needsReview: app.qa.needsReview,
     shadow: app.qa.shadow ?? false,
     onFailure: app.report.onFailure,
-    maxRetries: app.qa.fixLoop?.maxRetries ?? 2,
+    maxRetries: fixLoopMaxRetries(app.qa.fixLoop),
     domPack,
     /* The route table at the run's base, for the availability classification: read through the confined mirror reader. */
     readFileAtRef: (ref: string, file: string) => vcs.fileAt(ref, file),
@@ -1223,7 +1224,7 @@ export function buildEngineRootDeps(
     baselineCases: [],
 
 
-    githubPr: new GitHubPrAdapter(githubHttpDeps(), app.baseBranch ?? "main"),
+    githubPr: new GitHubPrAdapter(githubHttpDeps(), baseBranchOf(app)),
     githubIssue: new GitHubIssueAdapter(githubHttpDeps()),
     /* Stage/commit/push generated tests before opening the PR. */
     publish: publishWiring(run.mode),
@@ -1245,21 +1246,15 @@ export function buildEngineRootDeps(
      */
     versionUrl: gateVersionUrl,
     ...(gateVersionUrl ? { versionAncestry: mirrorAncestry(triggerService?.repo ?? app.repo) } : {}),
-    /* Service poll defaults (10s/10min) differ from the primary's (2s/60s). */
-    deployGateIntervalMs: triggerService
-      ? (triggerService.pollIntervalMs ?? 10_000)
-      : (app.dev.pollIntervalMs ?? 2000),
-    deployGateTimeoutMs: triggerService
-      ? (triggerService.deployTimeoutMs ?? 600_000)
-      : (app.dev.deployTimeoutMs ?? 60000),
+    deployGateIntervalMs: deployGate.intervalMs,
+    deployGateTimeoutMs: deployGate.timeoutMs,
     ...(companionServices.length > 0
       ? {
           companionDeployGates: companionServices.map(({ service }) => ({
             repo: service.repo,
             ...(service.versionUrl ? { versionUrl: service.versionUrl } : {}),
             ancestry: mirrorAncestry(service.repo),
-            intervalMs: service.pollIntervalMs ?? 10_000,
-            timeoutMs: service.deployTimeoutMs ?? 600_000,
+            ...deployGateTiming(service, "service"),
           })),
         }
       : {}),

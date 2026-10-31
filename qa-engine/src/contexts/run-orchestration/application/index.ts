@@ -20,3 +20,8 @@ export { phaseSnapshotOf, recordPhaseSnapshot } from "../domain/run-phase-cursor
 export { RUN_TIME_BUDGET_ENV, RUN_TIME_BUDGET_FORMER_ENV, RUN_TIME_BUDGET_FORMER_LABELS, longestRunTimeBudgetMs, resolveRunTimeBudgets } from "../domain/run-time-budget.ts";
 export type { RunTimeBudgetKey } from "../domain/run-time-budget.ts";
 export { AcceptDeliveredSpecsUseCase } from "./accept-delivered-specs.use-case.ts";
+export { DEFAULT_BASE_BRANCH, DEFAULT_FIX_LOOP_MAX_RETRIES, DEFAULT_INTENT_LOCK, baseBranchOf, fixLoopMaxRetries, resolveDomPack, resolveIntentLock } from "../domain/run-policy.ts";
+export type { IntentLockPolicy } from "../domain/run-policy.ts";
+export { DEFAULT_DEPLOY_GATE_INTERVAL_MS, DEFAULT_DEPLOY_GATE_TIMEOUT_MS, DEFAULT_SERVICE_DEPLOY_GATE_INTERVAL_MS, DEFAULT_SERVICE_DEPLOY_GATE_TIMEOUT_MS, deployGateTiming } from "../domain/deploy-gate-timing.ts";
+export type { DeployGateDeclaration, DeployGateTiming } from "../domain/deploy-gate-timing.ts";
+export { agentBrowserEnabled, closedLoopEnabled, serviceTopologyWired } from "../domain/run-config-gates.ts";

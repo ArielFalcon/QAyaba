@@ -4,6 +4,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AppConfig } from "../orchestrator/config-loader";
+import { serviceTopologyWired } from "@contexts/run-orchestration/application/index";
 import { buildEffectiveConfig, hashStaticPrompts, parseStoredRunConfig, resolveRunConfig, type RunConfigEnvironment } from "./effective-config";
 
 const env: RunConfigEnvironment = { runtime: () => "opencode", staticPromptHash: () => "sha256:x", toolsGranted: true, maxCapture: "full" };
@@ -105,4 +106,19 @@ test("the static prompt hash covers AGENTS.md and every role file, in name order
 test("the applied grounding records no structural-signal or dossier lever: the code graph is wired for every app", () => {
   const recorded = resolveRunConfig(app(), {}, "metadata", env).grounding;
   assert.deepEqual(Object.keys(recorded).sort(), ["domPack", "lessons", "stitcher"]);
+});
+
+test("the run_spec loop and the authenticated browser are reported on for an app that says nothing and off for one that turns them off", () => {
+  const silent = resolveRunConfig(app(), {}, "metadata", env).levers;
+  assert.deepEqual([silent.closedLoop, silent.agentBrowser], [true, true]);
+  const optedOut = resolveRunConfig(app({}, { closedLoop: { enabled: false }, agentBrowser: { enabled: false } }), {}, "metadata", env).levers;
+  assert.deepEqual([optedOut.closedLoop, optedOut.agentBrowser], [false, false]);
+});
+
+test("effectiveConfig reports the service topology exactly when the engine wires it, for every combination", () => {
+  for (const boundaries of [true, false]) {
+    const a = app({ services: [{ repo: "o/s" }], ...(boundaries ? { boundaries: [{}] } : {}) });
+    const c = resolveRunConfig(a, { closedLoop: true, agentBrowser: true }, "metadata", env);
+    assert.equal(c.grounding.stitcher !== null, serviceTopologyWired(a));
+  }
 });

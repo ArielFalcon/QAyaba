@@ -15,6 +15,7 @@ import { EMPTY_TOKEN_SET, type ChangeTokenSet } from "@contexts/objective-signal
 import { diffContracts, type IntentViolation, type SpecIntent } from "@contexts/objective-signal/application/index.ts";
 import type { RunQaConfig, RunQaUseCaseDeps } from "./run-types.ts";
 import { carryOn } from "./failure-policy.ts";
+import { DEFAULT_INTENT_LOCK } from "../../domain/run-policy.ts";
 import type { WorkspaceHandle } from "@contexts/workspace-and-publication/application/index.ts";
 import type { FixLoopState } from "../../domain/fix-loop.aggregate.ts";
 
@@ -51,7 +52,7 @@ export function createRunServices(deps: RunQaUseCaseDeps, cfg: RunQaConfig, work
    * generic weakening is recorded as a would-be rejection. Baseline and tokens live
    * for this run only: a new primary pass is never bound by a previous run's contract.
    */
-  const intentLock = cfg.intentLock ?? { mode: "signal", opacityFlagRatio: 0.5 };
+  const intentLock = cfg.intentLock ?? DEFAULT_INTENT_LOCK;
   const intentState: {
     tokens: ChangeTokenSet;
     baselines: Map<string, readonly SpecIntent[]>;

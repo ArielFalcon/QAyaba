@@ -14,7 +14,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { isCaptureMode, type CaptureMode } from "@kernel/telemetry/capture-mode";
 import { resolveCoveragePolicy } from "@contexts/objective-signal/application/index";
-import { agentBrowserEnabled, closedLoopEnabled, serviceTopologyWired } from "./run-config-gates";
+import { agentBrowserEnabled, closedLoopEnabled, resolveDomPack, serviceTopologyWired } from "@contexts/run-orchestration/application/index";
 import { decideRunFreeze } from "./run-freeze";
 import type { AppConfig } from "../orchestrator/config-loader";
 import type { EffectiveConfig, GroundingInput } from "../contract/commands";
@@ -45,7 +45,7 @@ export interface RunConfigRequest {
 }
 
 export function resolveRunConfig(app: AppConfig, request: RunConfigRequest, captureMode: CaptureMode, env: RunConfigEnvironment): StoredRunConfig {
-  /* Same predicates as the engine factory's wiring (run-config-gates.ts). The tools also need the service token; otherwise the lever cannot take effect, whatever was asked. */
+  /* Same predicates as the engine factory's wiring (run-orchestration). The tools also need the service token; otherwise the lever cannot take effect, whatever was asked. */
   const closedLoopAsked = request.closedLoop ?? closedLoopEnabled(app);
   const agentBrowserAsked = request.agentBrowser ?? agentBrowserEnabled(app);
   const stitched = serviceTopologyWired(app);
@@ -64,7 +64,7 @@ export function resolveRunConfig(app: AppConfig, request: RunConfigRequest, capt
     grounding: {
       /* The service-topology collaborator is one of the two advisory structural signals: it exists only for an app with services and declared boundaries. */
       stitcher: stitched ? (requestedGrounding.stitcher === false ? "off" : "signal") : null,
-      domPack: requestedGrounding.domPack ?? app.qa.domPack ?? true,
+      domPack: resolveDomPack(requestedGrounding.domPack, app.qa.domPack),
       lessons: freeze.lessons,
     },
     coverage: { mode: coverage.mode, minRatio: coverage.minRatio },
