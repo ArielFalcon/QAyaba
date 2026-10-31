@@ -30,7 +30,7 @@ function useCase(saved: RunOutcome[], opts: { verdict?: "pass" | "fail"; note?: 
     workspace: fakeWorkspace(ws),
     specFiles: confinedSpecFiles,
     suiteStore: ws.suiteStore,
-    deployGate: { waitUntilServing: async () => ok(true) },
+    deployGate: { verifyServed: async () => ok({ state: "undeclared" as const }), waitUntilHealthy: async () => ok(true) },
     runHistory: { save: async (outcome) => { saved.push(outcome); } },
     setup: { setup: async () => {} },
     config: { needsReview: false },

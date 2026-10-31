@@ -83,7 +83,7 @@ function rig(result: () => Promise<CoordinateResult> | CoordinateResult = () => 
     workspace: fakeWorkspace(ws),
     specFiles: confinedSpecFiles,
     suiteStore: ws.suiteStore,
-    deployGate: { waitUntilServing: async () => ok(true) },
+    deployGate: { verifyServed: async () => ok({ state: "undeclared" as const }), waitUntilHealthy: async () => ok(true) },
     runHistory: { save: async (outcome) => void r.saved.push(outcome) },
     confinement: { enforce: async () => (calls.push("confine"), { strays: 0, dangerous: 0, reverted: [] }) },
     closedLoop: { open: async () => closedLoop },

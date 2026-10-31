@@ -5,6 +5,7 @@ import type { ContractDrift, CrossRepoImpact, ServiceLink } from "@kernel/servic
 import type { ArchitectureContext, GroundingOmission, HarnessFacts } from "@kernel/grounding.ts";
 import type { RouteAvailabilityFact } from "@kernel/route-availability.ts";
 import type { DataContradiction } from "@kernel/data-contradiction.ts";
+import type { ServedVersionSignal } from "@kernel/served-version.ts";
 import type { ChangeScope, UseCaseCandidate } from "@contexts/change-analysis/application/index.ts";
 import type { CommitIntent } from "@kernel/commit-intent.ts";
 import type { GenerationEnrichment, GenerationOutput } from "@contexts/generation/application/index.ts";
@@ -332,6 +333,8 @@ export interface RunFacts {
   reviewRequired: boolean | undefined;
   /** The kind of run the deadline bounded it as, once armed. */
   timeBudget: string | undefined;
+  /** What DEV served relative to the commit under test, once the gate read it; written only by the gate step. */
+  servedVersion: ServedVersionSignal | undefined;
 }
 
 export interface RunState {
@@ -429,7 +432,7 @@ export function initialRunState(): RunState {
     review: { session: undefined, reviewerApproved: true, reviewerApprovedForOutcome: undefined, finalReviewerCorrections: [], missingCases: [], reviewerSignal: undefined },
     decided: undefined,
     loops: initialLoopCounters(),
-    run: { generationEnd: undefined, limits: [], degradations: [], endReason: undefined, reviewRequired: undefined, timeBudget: undefined },
+    run: { generationEnd: undefined, limits: [], degradations: [], endReason: undefined, reviewRequired: undefined, timeBudget: undefined, servedVersion: undefined },
     coordination: undefined,
     proof: {},
   };

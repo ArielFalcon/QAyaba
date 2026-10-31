@@ -295,3 +295,47 @@ test("fileAt() answers undefined for a timed-out read and for a file larger than
   const huge = new GitMirrorReadAdapter("/repo", runnerReturning("x".repeat(MAX_FILE_AT_CHARS + 1)));
   assert.equal(await huge.fileAt("deadbee1", "api.yaml"), undefined);
 });
+
+test("REAL repo: relation() tells a served commit that is behind, ahead, the same, diverged or unknown against the run's sha", async () => {
+  const repo = mkdtempSync(join(tmpdir(), "qa-relation-"));
+  try {
+    const git = (...args: string[]): string =>
+      execFileSync("git", args, { cwd: repo, encoding: "utf8", env: { ...process.env, LC_ALL: "C", GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@t.com", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@t.com" } }).trim();
+    const commit = (file: string): string => {
+      writeFileSync(join(repo, file), `${file}\n`);
+      git("add", file);
+      git("commit", "-qm", `feat: ${file}`);
+      return git("rev-parse", "HEAD");
+    };
+    git("init", "-q", "-b", "main");
+    closeGitDir(repo);
+    const root = commit("root.txt");
+    const middle = commit("middle.txt");
+    const tip = commit("tip.txt");
+    git("checkout", "-q", "-b", "side", root);
+    const side = commit("side.txt");
+    const adapter = new GitMirrorReadAdapter(repo, realGitRunner);
+
+    assert.equal(await adapter.relation(root, Sha.of(tip)), "served-is-ancestor", "DEV serves an older commit: the deploy has not landed");
+    assert.equal(await adapter.relation(tip, Sha.of(middle)), "head-is-ancestor", "DEV serves a newer commit than the one under test");
+    assert.equal(await adapter.relation(middle.slice(0, 8), Sha.of(middle)), "same", "an abbreviation names the same commit");
+    assert.equal(await adapter.relation(side, Sha.of(tip)), "diverged");
+    assert.equal(await adapter.relation("deadbeefdeadbeef", Sha.of(tip)), "unknown-commit");
+    assert.equal(await adapter.relation("not-a-commit", Sha.of(tip)), "unknown-commit");
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+test("relation() throws when git fails to answer, never reading it as unrelated", async () => {
+  const failing = new GitMirrorReadAdapter("/repo", { run: async () => ({ exitCode: 128, stdout: "", stderr: "fatal: not a git repository", timedOut: false }) });
+  assert.equal(await failing.relation("abc1234", Sha.of("def5678")), "unknown-commit", "a commit git cannot resolve is unknown");
+
+  let resolved = 0;
+  const resolving: SandboxedBinaryRunner = {
+    run: async (req) => req.args.includes("rev-parse")
+      ? { exitCode: 0, stdout: (resolved++ === 0 ? "a" : "b").repeat(40) + "\n", stderr: "", timedOut: false }
+      : { exitCode: 128, stdout: "", stderr: "fatal: corrupt", timedOut: false },
+  };
+  await assert.rejects(() => new GitMirrorReadAdapter("/repo", resolving).relation("abc1234", Sha.of("def5678")), /merge-base --is-ancestor failed/);
+});

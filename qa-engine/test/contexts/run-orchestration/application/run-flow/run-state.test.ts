@@ -63,7 +63,7 @@ async function runChecked(input: RunQaInput, execute: RunQaUseCaseDeps["executio
     workspace: fakeWorkspace(ws),
     specFiles: confinedSpecFiles,
     suiteStore: ws.suiteStore,
-    deployGate: { waitUntilServing: async () => ok(true) },
+    deployGate: { verifyServed: async () => ok({ state: "undeclared" as const }), waitUntilHealthy: async () => ok(true) },
     runHistory: { save: async () => {} },
     setup: { setup: async () => {} },
     config: { needsReview: true },

@@ -1,4 +1,5 @@
 import { Sha } from "@kernel/sha.ts";
+import type { CommitRelation } from "@kernel/ports/commit-ancestry.port.ts";
 import { BlastRadius } from "@kernel/blast-radius.ts";
 import { DiffParserService } from "@kernel/diff-parser/diff-parser.service.ts";
 import type { SandboxedBinaryRunner } from "../../../shared-infrastructure/process-sandbox/sandboxed-binary-runner.ts";
@@ -36,6 +37,43 @@ export class GitMirrorReadAdapter implements VcsReadPort {
     const r = await this.runner.run({ command: "git", args: hardenGitArgs(["rev-parse", "--verify", "HEAD^{commit}"], this.repoDir), cwd: this.repoDir, env: scrubEnv() });
     const sha = r.stdout.trim().toLowerCase();
     return !r.timedOut && r.exitCode === 0 && /^[0-9a-f]{40,64}$/.test(sha) ? sha : null;
+  }
+
+  /*
+   * How the commit a product reports as served relates to `head` in this mirror's history. A commit the mirror cannot name (absent,
+   * or an abbreviation that is ambiguous) is `unknown-commit`. Throws when git itself fails (a timeout, an exit other than "is not
+   * an ancestor"), since an unanswered question must not read as "unrelated".
+   */
+  async relation(served: string, head: Sha): Promise<CommitRelation> {
+    if (!/^[0-9a-f]{4,40}$/i.test(served)) return "unknown-commit";
+    const resolved = await this.runGit(["rev-parse", "--verify", "--quiet", `${served.toLowerCase()}^{commit}`]);
+    if (resolved.exitCode !== 0) return "unknown-commit";
+    const servedFull = resolved.stdout.trim();
+    const headFull = (await this.mustRunGit(["rev-parse", "--verify", `${head.value}^{commit}`])).trim();
+    if (servedFull === headFull) return "same";
+    if (await this.isAncestor(servedFull, headFull)) return "served-is-ancestor";
+    if (await this.isAncestor(headFull, servedFull)) return "head-is-ancestor";
+    return "diverged";
+  }
+
+  /* `git merge-base --is-ancestor` answers with its exit code: 0 yes, 1 no, anything else is git failing. */
+  private async isAncestor(ancestor: string, descendant: string): Promise<boolean> {
+    const r = await this.runGit(["merge-base", "--is-ancestor", ancestor, descendant]);
+    if (r.exitCode === 0) return true;
+    if (r.exitCode === 1) return false;
+    throw new Error(`git merge-base --is-ancestor failed (exit ${r.exitCode}): ${r.stderr.trim()}`);
+  }
+
+  private async runGit(args: string[]): Promise<{ exitCode: number | null; stdout: string; stderr: string }> {
+    const r = await this.runner.run({ command: "git", args: hardenGitArgs(args, this.repoDir), cwd: this.repoDir, env: scrubEnv() });
+    if (r.timedOut) throw new Error(`git ${args[0]} timed out`);
+    return r;
+  }
+
+  private async mustRunGit(args: string[]): Promise<string> {
+    const r = await this.runGit(args);
+    if (r.exitCode !== 0) throw new Error(`git ${args[0]} failed (exit ${r.exitCode}): ${r.stderr.trim()}`);
+    return r.stdout;
   }
 
   async message(sha: Sha): Promise<string> {

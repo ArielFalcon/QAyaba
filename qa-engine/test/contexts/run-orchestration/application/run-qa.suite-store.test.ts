@@ -84,7 +84,7 @@ function rig(opts: { authRestored?: boolean; notRestored?: readonly string[]; re
     publication: { publish: async () => (events.push("publish"), { outcome: "pr" }) },
     workspace: { readRoots: rootsOf, prepare: async () => (events.push("prepare"), fakeHandle({ specDir: ws.specDir, mirrorDir: ws.mirrorDir })) },
     specFiles: confinedSpecFiles,
-    deployGate: { waitUntilServing: async () => ok(true) },
+    deployGate: { verifyServed: async () => ok({ state: "undeclared" as const }), waitUntilHealthy: async () => ok(true) },
     runHistory: { save: async () => {} },
     setup: { setup: async () => void events.push("setup") },
     suiteStore: store,

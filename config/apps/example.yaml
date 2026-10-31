@@ -82,8 +82,10 @@ baseBranch: "main"             # target branch for the QA pull requests
 dev:
   baseUrl: "https://dev.example.internal"
   # versionUrl is OPTIONAL: a `/version` endpoint returning { sha, healthy }. The
-  # pipeline waits for it (deploy gate) and uses it for health checks. OMIT it for
-  # already-deployed sites with no such endpoint (e.g. a static site) → gate skipped.
+  # pipeline records which commit DEV serves against the run's, waits for a deploy
+  # that has not landed (webhook runs only) and uses it for health checks. OMIT it
+  # for already-deployed sites with no such endpoint (e.g. a static site) → the run
+  # records the served version as `undeclared`.
   versionUrl: "https://dev.example.internal/version"
   pollIntervalMs: 10000        # how often the gate polls
   deployTimeoutMs: 600000      # 10 min for DEV to stabilize on the new SHA

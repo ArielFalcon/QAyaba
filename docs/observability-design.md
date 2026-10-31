@@ -249,7 +249,7 @@ The design uses a **phase cursor** instead, a small domain object owned by the u
 
 ```
 qayaba.run
-├─ qayaba.phase.gate              deploy verified | unverified | skipped-no-version-url
+├─ qayaba.phase.gate              qayaba.served_version.state: undeclared | unreadable | equal | behind | ahead | unrelated
 ├─ qayaba.phase.workspace         checkout, mirror, index sync
 ├─ qayaba.phase.classify          action, tier
 ├─ qayaba.phase.setup

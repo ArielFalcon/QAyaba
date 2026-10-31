@@ -97,7 +97,6 @@ function fakeConfig(overrides: Partial<EngineRootDeps> = {}): EngineRootDeps {
     checkout: async () => MIRROR,
     suiteStore: SUITE_STORE,
     versionUrl: undefined,
-    versionPoll: async () => ({ serving: true }),
     githubPr: { openWithAutoMerge: async () => ({ url: "https://github.com/org/app/pull/1", number: 1 }) },
     githubIssue: { open: async () => ({ url: "https://github.com/org/app/issues/1", number: 1 }) },
     /* PROD-BLOCKER fix: publish wiring is now REQUIRED for any run this suite drives to the "pr" outcome
@@ -359,7 +358,7 @@ test("buildEngine selects NullDeployGateAdapter when versionUrl is absent (stati
 test("buildEngine selects the real DeployGatePortAdapter when versionUrl is present", async () => {
   const cfg = fakeConfig({
     versionUrl: "https://dev.example.com/version",
-    versionPoll: async () => ({ serving: true }),
+    versionReader: { read: async () => ({ kind: "read", commit: "abc1234", healthy: true }) },
   });
   const port = buildEngine(cfg);
 
@@ -577,7 +576,7 @@ test("buildEngine runs without setupCollaborators (absent -> no-op, backward com
 test("buildEngine surfaces infra-error when the real deploy gate never serves", async () => {
   const cfg = fakeConfig({
     versionUrl: "https://dev.example.com/version",
-    versionPoll: async () => ({ serving: false }),
+    versionReader: { read: async () => ({ kind: "read", commit: "abc1234", healthy: false }) },
     /* Bounded low so this test proves the timeout PATH without waiting out a real poll window —
        deployGateTimeoutMs/deployGateIntervalMs are EngineRootDeps's own knobs (default 60s/2s in
        production), not hardcoded inside DeployGatePortAdapter.

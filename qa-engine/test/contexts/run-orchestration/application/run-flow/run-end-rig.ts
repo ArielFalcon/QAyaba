@@ -52,7 +52,8 @@ export interface Rig {
   blocks: ObjectiveSignalPort["blocks"];
   publish: PublicationPort["publish"];
   setup: SetupPort["setup"] | undefined;
-  waitUntilServing: () => ReturnType<NonNullable<RunQaUseCaseDeps["deployGate"]>["waitUntilServing"]>;
+  verifyServed: NonNullable<RunQaUseCaseDeps["deployGate"]>["verifyServed"];
+  waitUntilHealthy: () => ReturnType<NonNullable<RunQaUseCaseDeps["deployGate"]>["waitUntilHealthy"]>;
   prepare: WorkspacePort["prepare"];
   /** The suite store behind the run; a row wraps it to script what the final proof guard sees. */
   store: SuiteStorePort | undefined;
@@ -83,7 +84,8 @@ export function newRig(): Rig {
     blocks: () => false,
     publish: async () => ({ outcome: "pr" }),
     setup: async () => {},
-    waitUntilServing: async () => ok(true),
+    verifyServed: async () => ok({ state: "undeclared" as const }),
+    waitUntilHealthy: async () => ok(true),
     prepare: async () => fakeHandle({ specDir: ws.specDir, mirrorDir: ws.mirrorDir }),
     store: ws.suiteStore,
     extra: {},
@@ -123,7 +125,7 @@ export async function observe(rig: Rig, runId: string): Promise<Observed> {
     publication: { publish: async (input) => { publishCalls += 1; return await rig.publish(input); } },
     workspace: { prepare: rig.prepare, readRoots: rootsOf },
     specFiles: confinedSpecFiles,
-    deployGate: { waitUntilServing: async () => await rig.waitUntilServing() },
+    deployGate: { verifyServed: async (sha, run) => await rig.verifyServed(sha, run), waitUntilHealthy: async () => await rig.waitUntilHealthy() },
     runHistory: { save: async (outcome) => { saved.push(outcome); } },
     ...(rig.setup ? { setup: { setup: rig.setup } } : {}),
     ...(rig.store ? { suiteStore: rig.store } : {}),

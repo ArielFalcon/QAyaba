@@ -24,10 +24,11 @@ function twoRepoSet(): ChangeSet {
 
 function recordingGate(calls: string[], tag: string, failWith?: string): DeployGatePort {
   return {
-    waitUntilServing: async (sha) => {
+    verifyServed: async (sha) => {
       calls.push(`${tag}@${sha.toString()}`);
-      return failWith ? err(new InfraError(failWith)) : ok(true);
+      return failWith ? err(new InfraError(failWith)) : ok({ state: "undeclared" as const });
     },
+    waitUntilHealthy: async () => ok(true),
   };
 }
 
@@ -36,7 +37,7 @@ test("a two-entry run waits for each entry's deploy in entry order", async () =>
   try {
     const calls: string[] = [];
     rig.input = { changeSet: twoRepoSet(), sha: FRONT_SHA };
-    rig.waitUntilServing = async () => { calls.push("anchor"); return ok(true); };
+    rig.verifyServed = async () => { calls.push("anchor"); return ok({ state: "undeclared" as const }); };
     rig.extra = { companionDeployGates: new Map([[BACK, recordingGate(calls, "back")]]) };
     const observed = await observe(rig, "change-set-gates");
     assert.equal(observed.result?.decision.verdict, "pass");
@@ -51,7 +52,7 @@ test("a companion entry whose deploy never serves ends the run naming its repo",
   try {
     const calls: string[] = [];
     rig.input = { changeSet: twoRepoSet(), sha: FRONT_SHA };
-    rig.waitUntilServing = async () => { calls.push("anchor"); return ok(true); };
+    rig.verifyServed = async () => { calls.push("anchor"); return ok({ state: "undeclared" as const }); };
     rig.extra = { companionDeployGates: new Map([[BACK, recordingGate(calls, "back", "DEV did not serve sha b222222")]]) };
     const observed = await observe(rig, "change-set-gate-fails");
     assert.equal(observed.result?.decision.verdict, "infra-error");
@@ -66,7 +67,7 @@ test("a companion entry whose deploy never serves ends the run naming its repo",
 test("a single-entry run keeps the gate's message as its note", async () => {
   const rig = newRig();
   try {
-    rig.waitUntilServing = async () => err(new InfraError("DEV did not serve sha abc1234"));
+    rig.verifyServed = async () => err(new InfraError("DEV did not serve sha abc1234"));
     const observed = await observe(rig, "change-set-single-gate");
     assert.equal(observed.result?.note, "DEV did not serve sha abc1234");
   } finally {

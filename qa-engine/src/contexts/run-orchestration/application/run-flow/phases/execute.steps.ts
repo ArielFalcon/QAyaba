@@ -12,7 +12,7 @@ import { end, goto, type StepOutcome } from "../run-flow.ts";
 import type { WorkspaceRunContext } from "../run-context.ts";
 import type { RunState } from "../run-state.ts";
 import { addRetries, withRun } from "../reducers.ts";
-import { awaitEntryDeploys } from "./opening.steps.ts";
+import { awaitEntryHealth } from "./opening.steps.ts";
 import { closedLoopSignal, loopClosedNow, regenerate, staticGateFindings } from "./generation-services.ts";
 
 type Result = Promise<StepOutcome<RunState>>;
@@ -60,9 +60,9 @@ export const executeAccepted = (ctx: WorkspaceRunContext): ExecutionPort["execut
 export const validateAccepted = (state: Readonly<RunState>, ctx: WorkspaceRunContext): ValidationPort["validate"] => (specDir) =>
   ctx.deps.validation.validate(specDir, deliveredNow(state));
 
-/* Mid-run DEV pre-flight, distinct from the entry gate. Absent DeployGatePort (static sites / code) defaults to always-healthy. The failure's message comes back with it. */
+/* Mid-run DEV pre-flight, distinct from the entry gate: DEV must still report healthy. Absent DeployGatePort (static sites / code) defaults to always-healthy. The failure's message comes back with it. */
 export async function checkDevHealth(ctx: WorkspaceRunContext): Promise<{ healthy: true } | { healthy: false; reason: string }> {
-  const failure = await awaitEntryDeploys(ctx);
+  const failure = await awaitEntryHealth(ctx);
   return failure === undefined ? { healthy: true } : { healthy: false, reason: failure };
 }
 

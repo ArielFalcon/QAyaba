@@ -159,7 +159,7 @@ describe("seam-parity: COMPOSITION (EngineRootDeps vs buildEngineRootDeps)", () 
     assert.notEqual(cfg.groundingCollaborators, undefined, `groundingCollaborators dropped at ${dyingLayer}`);
     assert.notEqual(cfg.reviewDomGroundingCollaborators, undefined, `reviewDomGroundingCollaborators dropped at ${dyingLayer}`);
     assert.equal(cfg.versionUrl, S("app.dev.versionUrl"), `versionUrl dropped at ${dyingLayer}`);
-    assert.notEqual(cfg.versionPoll, undefined, `versionPoll dropped at ${dyingLayer}`);
+    assert.notEqual(cfg.versionReader, undefined, `versionReader dropped at ${dyingLayer}`);
     assert.equal(cfg.deployGateIntervalMs, 2000, `deployGateIntervalMs dropped/mis-defaulted at ${dyingLayer}`);
     assert.equal(cfg.deployGateTimeoutMs, 60000, `deployGateTimeoutMs dropped/mis-defaulted at ${dyingLayer}`);
     assert.notEqual(cfg.runHistory, undefined, `runHistory (SqliteRunHistoryAdapter default) dropped at ${dyingLayer}`);
@@ -347,7 +347,7 @@ describe("seam-parity: COMPOSITION (EngineRootDeps vs buildEngineRootDeps)", () 
     assert.equal(cfg.guidance, undefined);
     assert.equal(cfg.testIdAttribute, undefined);
     assert.equal(cfg.versionUrl, undefined);
-    assert.equal(cfg.versionPoll, undefined);
+    assert.equal(cfg.versionReader, undefined);
     assert.equal(cfg.observer, undefined);
   });
 

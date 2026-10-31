@@ -2,6 +2,7 @@
 
 import { engineLog } from "@kernel/ports/process-logger.ts";
 import { isOk } from "@kernel/result.ts";
+import { DeployNotServedError, type ServedVersionFact, type ServedVersionSignal } from "@kernel/served-version.ts";
 import { ACTION_SEVERITY } from "@contexts/change-analysis/application/index.ts";
 import { changeTokens } from "@contexts/objective-signal/application/index.ts";
 import { runTimeBudgetKey } from "../../../domain/run-time-budget.ts";
@@ -14,24 +15,86 @@ import type { CodeGraphIndexRecord } from "@kernel/code/index.ts";
 
 type Result = Promise<StepOutcome<RunState>>;
 
-export async function waitForDeploy(_state: Readonly<RunState>, ctx: RunContext): Result {
+export async function waitForDeploy(state: Readonly<RunState>, ctx: RunContext): Result {
   ctx.deps.observer?.onStep("gate");
-  const failure = await awaitEntryDeploys(ctx);
+  const { failure, facts } = await verifyEntryDeploys(ctx);
+  const signal = servedVersionSignalOf(ctx, facts);
+  if (signal !== undefined) recordRunFact(state, "servedVersion", signal);
+  annotateServedVersion(ctx, facts);
   /* Thread the deploy-gate InfraError message as the diagnostic note — never drop it. */
   if (failure !== undefined) return end("deploy-gate-failed", { note: failure });
 }
 
+/* What the gate read of each entry it reached, in the order it reached them; an entry with no gate declares no source. */
+type EntryFact = ServedVersionFact & { repo: string };
+
 /*
- * Waits for DEV to serve each entry of the run's change at its head, in entry order, and stops at the first that does not.
- * The anchor waits on the run's gate, every other entry on its own repo's gate; an entry with no gate is not awaited. The
- * message of a run over several repos names the repo that failed. Returns that message, or undefined when all serve.
+ * Reads what DEV serves for each entry of the run's change at its head, in entry order, then waits for DEV to report healthy, and
+ * stops at the first entry that does not pass. The anchor reads the run's gate, every other entry its own repo's gate; an entry
+ * with no gate declares no source and is recorded `undeclared`, never skipped silently. Returns the message of the failure, naming
+ * the repo in a run over several, and the facts read up to it.
  */
-export async function awaitEntryDeploys(ctx: RunContext): Promise<string | undefined> {
+async function verifyEntryDeploys(ctx: RunContext): Promise<{ failure?: string; facts: EntryFact[] }> {
+  const { entries, anchor } = ctx.input.changeSet;
+  const facts: EntryFact[] = [];
+  const messageOf = (repo: string, error: Error): string => (entries.length > 1 ? `${repo}: ${error.message}` : error.message);
+  for (const entry of entries) {
+    const gate = entry === anchor ? ctx.deps.deployGate : ctx.deps.companionDeployGates?.get(entry.repo);
+    if (!gate) {
+      facts.push({ repo: entry.repo, state: "undeclared" });
+      continue;
+    }
+    const verified = await gate.verifyServed(entry === anchor ? ctx.input.sha : entry.headSha, { source: ctx.input.source });
+    if (!isOk(verified)) {
+      if (verified.error instanceof DeployNotServedError) facts.push({ repo: entry.repo, ...verified.error.fact });
+      return { failure: messageOf(entry.repo, verified.error), facts };
+    }
+    facts.push({ repo: entry.repo, ...verified.value });
+    const healthy = await gate.waitUntilHealthy();
+    if (!isOk(healthy)) return { failure: messageOf(entry.repo, healthy.error), facts };
+  }
+  return { facts };
+}
+
+/* The run's record: the anchor's fact and the other entries' beside it. None when the gate ended the run before it read the anchor. */
+function servedVersionSignalOf(ctx: RunContext, facts: readonly EntryFact[]): ServedVersionSignal | undefined {
+  const { anchor } = ctx.input.changeSet;
+  const own = facts.find((fact) => fact.repo === anchor.repo);
+  if (own === undefined) return undefined;
+  const { repo: _anchor, ...fact } = own;
+  const companions = facts.filter((other) => other.repo !== anchor.repo);
+  return companions.length > 0 ? { ...fact, companions } : fact;
+}
+
+/* The gate phase's span says what DEV served; a repo the gate stopped at before the anchor is read is still named. */
+function annotateServedVersion(ctx: RunContext, facts: readonly EntryFact[]): void {
+  const { anchor } = ctx.input.changeSet;
+  const own = facts.find((fact) => fact.repo === anchor.repo);
+  const companions = facts.filter((fact) => fact.repo !== anchor.repo).map((fact) => `${fact.repo}:${fact.state}`);
+  try {
+    ctx.trail.spans.annotate({
+      ...(own !== undefined
+        ? {
+            "qayaba.served_version.state": own.state,
+            ...(own.reason !== undefined ? { "qayaba.served_version.reason": own.reason } : {}),
+            ...(own.served !== undefined ? { "qayaba.served_version.served": own.served } : {}),
+            ...(own.waitedMs !== undefined ? { "qayaba.served_version.waited_ms": own.waitedMs } : {}),
+          }
+        : {}),
+      ...(companions.length > 0 ? { "qayaba.served_version.companions": companions } : {}),
+    });
+  } catch (cause) {
+    engineLog.error(`[qa] the served-version fact could not be traced (the run goes on): ${cause instanceof Error ? cause.message : String(cause)}`);
+  }
+}
+
+/* The mid-run DEV health pre-flight over the same gates: each entry's declared source must report DEV healthy. Returns the failure message, or undefined when all do. */
+export async function awaitEntryHealth(ctx: RunContext): Promise<string | undefined> {
   const { entries, anchor } = ctx.input.changeSet;
   for (const entry of entries) {
     const gate = entry === anchor ? ctx.deps.deployGate : ctx.deps.companionDeployGates?.get(entry.repo);
     if (!gate) continue;
-    const result = await gate.waitUntilServing(entry === anchor ? ctx.input.sha : entry.headSha);
+    const result = await gate.waitUntilHealthy();
     if (!isOk(result)) return entries.length > 1 ? `${entry.repo}: ${result.error.message}` : result.error.message;
   }
   return undefined;

@@ -37,7 +37,7 @@ async function firstPass(b: Pick<Reported, "cases"> & Partial<Pick<Reported, "sk
     workspace: fakeWorkspace(ws),
     specFiles: confinedSpecFiles,
     suiteStore: ws.suiteStore,
-    deployGate: { waitUntilServing: async () => ok(true) },
+    deployGate: { verifyServed: async () => ok({ state: "undeclared" as const }), waitUntilHealthy: async () => ok(true) },
     runHistory: { save: async () => {} },
     confinement: { enforce: async () => ({ strays: 0, dangerous: 0, reverted: [] }) },
     config: { needsReview: true, shadow: false, onFailure: "github-issue", maxRetries: 2 },

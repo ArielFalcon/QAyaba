@@ -41,7 +41,7 @@ function stubPorts(overrides: Partial<{
   blocks: ObjectiveSignalPort["blocks"];
   publish: PublicationPort["publish"];
   prepare: WorkspacePort["prepare"];
-  waitUntilServing: DeployGatePort["waitUntilServing"];
+  waitUntilHealthy: DeployGatePort["waitUntilHealthy"];
   save: RunHistoryPort["save"];
 }> = {}) {
   const ws = runWorkspace("qa-adapter-");
@@ -75,7 +75,8 @@ function stubPorts(overrides: Partial<{
     prepare: overrides.prepare ?? (async () => fakeHandle({ specDir: ws.specDir, mirrorDir: ws.mirrorDir })),
   };
   const deployGate: DeployGatePort = {
-    waitUntilServing: overrides.waitUntilServing ?? (async () => ok(true)),
+    verifyServed: async () => ok({ state: "undeclared" as const }),
+    waitUntilHealthy: overrides.waitUntilHealthy ?? (async () => ok(true)),
   };
   const runHistory: RunHistoryPort = {
     save: overrides.save ?? (async (outcome) => { savedOutcomes.push(outcome); }),
@@ -124,7 +125,7 @@ interface GoldenScenarioCase {
     validate: ValidationPort["validate"];
     execute: ExecutionPort["execute"];
     measure: ObjectiveSignalPort["measure"];
-    waitUntilServing: DeployGatePort["waitUntilServing"];
+    waitUntilHealthy: DeployGatePort["waitUntilHealthy"];
   }>;
   config: { needsReview: boolean; shadow: boolean; onFailure: string; maxRetries: number };
   input: Partial<{ mode: "diff" | "manual" | "context"; target: "e2e" }>;
@@ -190,7 +191,7 @@ const goldenScenarios: GoldenScenarioCase[] = [
      */
     scenario: "infra-error",
     overrides: {
-      waitUntilServing: async () => ({ ok: false, error: new Error("DEV unhealthy") }),
+      waitUntilHealthy: async () => ({ ok: false, error: new Error("DEV unhealthy") }),
     },
     config: baseConfig,
     input: {},
@@ -279,7 +280,7 @@ test("RunPipelineAdapter — invalid: still returns a well-formed RunOutcome eve
 });
 
 test("RunPipelineAdapter — infra-error (entry gate): DeployGatePort failure surfaces as a RunOutcome, not a thrown error", async () => {
-  const { ports } = stubPorts({ waitUntilServing: async () => ({ ok: false, error: new Error("DEV unhealthy") }) });
+  const { ports } = stubPorts({ waitUntilHealthy: async () => ({ ok: false, error: new Error("DEV unhealthy") }) });
   const adapter = new RunPipelineAdapter({ ...ports, config: baseConfig });
 
   const outcome = await adapter.run({ ...baseInput, runId: "golden-infra-error-entry-gate" });
@@ -289,7 +290,7 @@ test("RunPipelineAdapter — infra-error (entry gate): DeployGatePort failure su
 });
 
 test("an outcome the use case never persisted still tells how far the run got", async () => {
-  const { ports } = stubPorts({ waitUntilServing: async () => ({ ok: false, error: new Error("DEV unhealthy") }) });
+  const { ports } = stubPorts({ waitUntilHealthy: async () => ({ ok: false, error: new Error("DEV unhealthy") }) });
   const adapter = new RunPipelineAdapter({ ...ports, config: baseConfig });
 
   const outcome = await adapter.run({ ...baseInput, runId: "phases-entry-gate" });
@@ -336,7 +337,7 @@ test("errorClass is forwarded into the returned RunOutcome, not hardcoded null",
  */
 
 test("RunQaResult.note is forwarded into the returned RunOutcome.note", async () => {
-  const { ports } = stubPorts({ waitUntilServing: async () => ({ ok: false, error: new Error("DEV did not serve sha abc1234 within 5000ms") }) });
+  const { ports } = stubPorts({ waitUntilHealthy: async () => ({ ok: false, error: new Error("DEV did not serve sha abc1234 within 5000ms") }) });
   const adapter = new RunPipelineAdapter({ ...ports, config: baseConfig });
 
   const outcome = await adapter.run({ ...baseInput, runId: "note-chain-adapter-mapping" });

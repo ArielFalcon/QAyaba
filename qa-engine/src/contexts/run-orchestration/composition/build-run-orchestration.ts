@@ -5,7 +5,9 @@ import type { DeployGatePort } from "@kernel/ports/deploy-gate.port.ts";
 import type { RunHistoryPort } from "../application/ports/run-history.port.ts";
 import type { RunPipelinePort } from "../application/ports/run-pipeline.port.ts";
 import type { RunQaConfig } from "../application/run-flow/run-types.ts";
-import { DeployGatePortAdapter, NullDeployGateAdapter, type VersionPollFn } from "../infrastructure/adapters/deploy-gate-port.adapter.ts";
+import type { CommitAncestryPort } from "@kernel/ports/commit-ancestry.port.ts";
+import type { ServedVersionReaderPort } from "@kernel/ports/served-version-reader.port.ts";
+import { DeployGatePortAdapter, NullDeployGateAdapter } from "../infrastructure/adapters/deploy-gate-port.adapter.ts";
 import { FileRunHistoryAdapter, InMemoryRunHistoryAdapter } from "../infrastructure/adapters/run-history-port.adapter.ts";
 import { RunPipelineAdapter, type RunPipelineAdapterDeps } from "../infrastructure/run-pipeline.adapter.ts";
 
@@ -22,14 +24,16 @@ export interface RunOrchestrationDeps {
   /* Every port the other contexts serve and the optional collaborators of the flow; the deploy gate, the history and the config are this context's own. */
   ports: Omit<RunPipelineAdapterDeps, "deployGate" | "companionDeployGates" | "runHistory" | "config">;
   config: RunConfigDeps;
-  /* Absent versionUrl selects the gate that is always ready (static sites); present selects the poll loop. */
+  /* Absent versionUrl declares no source: the gate that records `undeclared`; present selects the gate over the declared source, which needs the reader that turns what the product serves into its commit. */
   deployGate: {
     versionUrl?: string;
-    poll?: VersionPollFn;
+    reader?: ServedVersionReaderPort;
+    /* How the commit DEV serves relates to the run's sha: the mirror of the repo the source belongs to. */
+    ancestry?: CommitAncestryPort;
     intervalMs?: number;
     timeoutMs?: number;
-    /* The other repos of a run over several repos: one gate each, by repo. A repo without a versionUrl is not awaited. */
-    companions?: ReadonlyArray<{ repo: string; versionUrl?: string; poll?: VersionPollFn; intervalMs?: number; timeoutMs?: number }>;
+    /* The other repos of a run over several repos: one gate each, by repo. A repo without a versionUrl declares no source. */
+    companions?: ReadonlyArray<{ repo: string; versionUrl?: string; ancestry?: CommitAncestryPort; intervalMs?: number; timeoutMs?: number }>;
   };
   /* An explicit store wins over a file path; with neither, the history is held in memory. */
   history: { store?: RunHistoryPort; filePath?: string };
@@ -42,9 +46,14 @@ export interface RunOrchestrationApi {
 }
 
 export function buildRunOrchestration(deps: RunOrchestrationDeps): RunOrchestrationApi {
-  const { versionUrl } = deps.deployGate;
+  const { versionUrl, reader } = deps.deployGate;
+  /* A declared source with nothing to read it is a wiring defect, never a silent `undeclared`. */
+  const readerFor = (url: string): ServedVersionReaderPort => {
+    if (!reader) throw new Error(`the version source ${url} is declared but no reader is wired to read it`);
+    return reader;
+  };
   const deployGate = versionUrl
-    ? new DeployGatePortAdapter(deps.deployGate.poll ?? (async () => ({ serving: true })), {
+    ? new DeployGatePortAdapter(readerFor(versionUrl), deps.deployGate.ancestry, {
         versionUrl,
         intervalMs: deps.deployGate.intervalMs ?? DEFAULT_DEPLOY_GATE_INTERVAL_MS,
         timeoutMs: deps.deployGate.timeoutMs ?? DEFAULT_DEPLOY_GATE_TIMEOUT_MS,
@@ -53,7 +62,7 @@ export function buildRunOrchestration(deps: RunOrchestrationDeps): RunOrchestrat
   const companionDeployGates = new Map<string, DeployGatePort>();
   for (const c of deps.deployGate.companions ?? []) {
     if (!c.versionUrl) continue;
-    companionDeployGates.set(c.repo, new DeployGatePortAdapter(c.poll ?? (async () => ({ serving: true })), {
+    companionDeployGates.set(c.repo, new DeployGatePortAdapter(readerFor(c.versionUrl), c.ancestry, {
       versionUrl: c.versionUrl,
       intervalMs: c.intervalMs ?? DEFAULT_DEPLOY_GATE_INTERVAL_MS,
       timeoutMs: c.timeoutMs ?? DEFAULT_DEPLOY_GATE_TIMEOUT_MS,

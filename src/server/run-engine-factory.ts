@@ -38,7 +38,8 @@ import { SqlitePlanSnapshotAdapter } from "./plan-snapshot-sqlite.adapter";
 import { defaultContextPackDeps } from "@contexts/generation/infrastructure/context-pack";
 import { loadContextMapFromDisk } from "@contexts/generation/infrastructure/adapters/pre-generation-grounding-port.adapter";
 import { ContextMapCapturePortAdapter, type ContextMapSave, type ContextMapWrittenThisRun } from "@contexts/generation/infrastructure/adapters/context-map-capture-port.adapter";
-import { Sha, shaMatches } from "@kernel/sha";
+import { Sha } from "@kernel/sha";
+import type { CommitAncestryPort } from "@kernel/ports/commit-ancestry.port";
 import { DEFAULT_CLOSED_LOOP_LIMITS } from "@kernel/closed-loop";
 import { resolveCoordinationSettings } from "@kernel/coordination";
 import { DevLease } from "@contexts/test-execution/application/index";
@@ -113,6 +114,7 @@ import {
   specFileForFlow,
 } from "@contexts/generation/infrastructure/prompt-builders/prompts";
 import { parseVerdict } from "../integrations/verdict-parse";
+import { httpServedVersionReader } from "../integrations/served-version-http.adapter";
 import { parseReviewerVerdict, checkGeneratorVerdict, repairInstruction } from "../integrations/verdict-validate";
 import type { StepLimitFor, StepLimitRole } from "@contexts/generation/application/index.ts";
 import { MultiRepoCheckoutAdapter } from "@contexts/workspace-and-publication/infrastructure/adapters/multi-repo-checkout.adapter";
@@ -265,16 +267,6 @@ export function buildSetupAdapter(exec: ExecSandboxPort, sandbox: Sandbox | null
   });
 }
 
-
-async function fetchVersion(url: string): Promise<{ sha?: string; healthy?: boolean } | null> {
-  try {
-    const res = await fetch(url, { signal: AbortSignal.timeout(10_000) });
-    if (!res.ok) return null;
-    return (await res.json()) as { sha?: string; healthy?: boolean };
-  } catch {
-    return null;
-  }
-}
 
 /*
  * DEV is held through one lease for the whole process, whichever run an action belongs to: two uses of one test account never
@@ -751,6 +743,13 @@ export function buildEngineRootDeps(
   const vcsFor = companionServices.length > 0
     ? (repo: string): VcsReadPort => (repo === (triggerService?.repo ?? app.repo) ? vcs : new GitMirrorReadAdapter(join(mirrorRoot, repo.replaceAll("/", "__")), runner))
     : undefined;
+  /* How the commit a repo's version source reports relates to the run's sha: read in that repo's mirror, brought up to date first so a commit that landed after the last run is in it. */
+  const mirrorAncestry = (repo: string): CommitAncestryPort => ({
+    relation: async (served, head) => new GitMirrorReadAdapter(await mirror.ensureMirror(repo, head.value, defaultMirrorDeps), runner).relation(served, head),
+  });
+  /* Cross-repo: the source is the SERVICE's, never the primary's; no source declared anywhere means no gate to wire. */
+  const gateVersionUrl = triggerService ? triggerService.versionUrl : app.dev.versionUrl;
+  const declaresVersionSource = Boolean(gateVersionUrl) || companionServices.some(({ service }) => Boolean(service.versionUrl));
 
 
   const grounding = run.grounding;
@@ -1255,17 +1254,10 @@ export function buildEngineRootDeps(
     /*
      * Cross-repo: gate on the SERVICE versionUrl, never the primary's. No versionUrl → skip the gate.
      */
-    versionUrl: triggerService ? triggerService.versionUrl : app.dev.versionUrl,
-    /*
-     * Single-shot probe (see fetchVersion's own header) — DeployGatePortAdapter.waitUntilServing
-     * is the ONLY poll loop; this fn is called once per its interval, never loops itself.
-     */
-    versionPoll: (triggerService ? triggerService.versionUrl : app.dev.versionUrl)
-      ? async (versionUrl: string, sha) => {
-          const v = await fetchVersion(versionUrl);
-          return { serving: shaMatches(v?.sha, sha.value) && v?.healthy === true };
-        }
-      : undefined,
+    versionUrl: gateVersionUrl,
+    /* The one reader of a declared source today: a GET answering { sha, healthy }. The engine decides what the commit it reports means for the run. */
+    ...(declaresVersionSource ? { versionReader: httpServedVersionReader() } : {}),
+    ...(gateVersionUrl ? { versionAncestry: mirrorAncestry(triggerService?.repo ?? app.repo) } : {}),
     /* Service poll defaults (10s/10min) differ from the primary's (2s/60s). */
     deployGateIntervalMs: triggerService
       ? (triggerService.pollIntervalMs ?? 10_000)
@@ -1278,10 +1270,7 @@ export function buildEngineRootDeps(
           companionDeployGates: companionServices.map(({ service }) => ({
             repo: service.repo,
             ...(service.versionUrl ? { versionUrl: service.versionUrl } : {}),
-            poll: async (versionUrl: string, sha: Sha) => {
-              const v = await fetchVersion(versionUrl);
-              return { serving: shaMatches(v?.sha, sha.value) && v?.healthy === true };
-            },
+            ancestry: mirrorAncestry(service.repo),
             intervalMs: service.pollIntervalMs ?? 10_000,
             timeoutMs: service.deployTimeoutMs ?? 600_000,
           })),

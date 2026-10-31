@@ -2227,7 +2227,8 @@ test("cross-repo: gate uses the SERVICE's own versionUrl + service-level interva
   assert.equal(config.versionUrl, "https://orders-svc/version", "must gate on the SERVICE's own versionUrl, never the primary's");
   assert.equal(config.deployGateIntervalMs, 10_000, "service-level default interval (distinct from the primary's 2000)");
   assert.equal(config.deployGateTimeoutMs, 600_000, "service-level default timeout (distinct from the primary's 60000)");
-  assert.equal(typeof config.versionPoll, "function");
+  assert.equal(typeof config.versionReader?.read, "function");
+  assert.equal(typeof config.versionAncestry?.relation, "function", "the service's own mirror relates what its source serves to the run's sha");
 });
 
 test("cross-repo: gate honors explicit service pollIntervalMs/deployTimeoutMs overrides", () => {
@@ -2258,7 +2259,8 @@ test("cross-repo: a service WITHOUT versionUrl leaves cfg.versionUrl undefined e
     { mode: "diff", triggerRepo: "org/orders-svc" },
   );
   assert.equal(config.versionUrl, undefined, "must NEVER fall back to the primary's dev.versionUrl for a cross-repo run — trust the deploy event and skip the gate");
-  assert.equal(config.versionPoll, undefined);
+  assert.equal(config.versionReader, undefined);
+  assert.equal(config.versionAncestry, undefined);
 });
 
 /* 5. RED — declared-service defense in depth + triggerRepo === app.repo takes the same-repo path. */

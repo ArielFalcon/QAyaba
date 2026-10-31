@@ -125,6 +125,7 @@ export function toRunOutcome(
   const { input, deps } = ctx;
   const coordination = ctx.host.coordination();
   const sandbox = ctx.host.sandboxSignal();
+  const servedVersion = ctx.host.servedVersion();
   const gateCoverageRatio = coverageRatio;
   return {
     runId: input.runId,
@@ -164,6 +165,7 @@ export function toRunOutcome(
       /* What the sandbox did for this run; absent when no child was started or refused. */
       ...(sandbox ? { sandbox } : {}),
       ...(deps.config?.reviewerIndependence !== undefined ? { reviewerIndependence: deps.config.reviewerIndependence } : {}),
+      ...(servedVersion !== undefined ? { servedVersion } : {}),
       /*
        * Conditional-spread, not `?? 0`: "never ran" stays distinguishable from
        * "ran and found zero".

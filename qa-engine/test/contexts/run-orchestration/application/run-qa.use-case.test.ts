@@ -111,7 +111,7 @@ function stubPorts(overrides: Partial<{
   recheckSurvivors: NonNullable<ObjectiveSignalPort["recheckSurvivors"]>;
   publish: PublicationPort["publish"];
   prepare: WorkspacePort["prepare"];
-  waitUntilServing: DeployGatePort["waitUntilServing"];
+  waitUntilHealthy: DeployGatePort["waitUntilHealthy"];
   save: RunHistoryPort["save"];
   setup: SetupPort["setup"];
   cleanup: CleanupPort["cleanup"];
@@ -158,7 +158,8 @@ function stubPorts(overrides: Partial<{
     prepare: overrides.prepare ?? (async () => fakeHandle({ specDir: ws.specDir, mirrorDir: ws.mirrorDir })),
   };
   const deployGate: DeployGatePort = {
-    waitUntilServing: overrides.waitUntilServing ?? (async () => ok(true)),
+    verifyServed: async () => ok({ state: "undeclared" as const }),
+    waitUntilHealthy: overrides.waitUntilHealthy ?? (async () => ok(true)),
   };
   const runHistory: RunHistoryPort = {
     save: overrides.save ?? (async (outcome) => { savedOutcomes.push(outcome); }),
@@ -757,7 +758,7 @@ interface GoldenScenarioCase {
     validate: ValidationPort["validate"];
     execute: ExecutionPort["execute"];
     measure: ObjectiveSignalPort["measure"];
-    waitUntilServing: DeployGatePort["waitUntilServing"];
+    waitUntilHealthy: DeployGatePort["waitUntilHealthy"];
   }>;
   config: { needsReview: boolean; shadow: boolean; onFailure: string; maxRetries: number };
   input: Partial<{ mode: "diff" | "manual" | "context"; target: "e2e" }>;
@@ -831,7 +832,7 @@ const goldenScenarios: GoldenScenarioCase[] = [
      */
     scenario: "infra-error",
     overrides: {
-      waitUntilServing: async () => ({ ok: false, error: new Error("DEV unhealthy") }),
+      waitUntilHealthy: async () => ({ ok: false, error: new Error("DEV unhealthy") }),
     },
     config: baseConfig,
     input: {},
@@ -1107,7 +1108,7 @@ test("RunQaUseCase — an e2e-target validation failure with infra:true ALSO res
 
 test("RunQaUseCase — infra-error: execute() is NEVER called (DEV unhealthy before execution)", async () => {
   let executeCallCount = 0;
-  const { ports } = stubPorts({ waitUntilServing: async () => ({ ok: false, error: new Error("DEV unhealthy") }) });
+  const { ports } = stubPorts({ waitUntilHealthy: async () => ({ ok: false, error: new Error("DEV unhealthy") }) });
   ports.execution.execute = async (dir, opts) => { executeCallCount++; return { verdict: "pass", cases: passingCases(dir, opts), logs: "" }; };
   const useCase = new RunQaUseCase({ ...ports, config: baseConfig });
 
@@ -1125,7 +1126,7 @@ test("RunQaUseCase — infra-error: execute() is NEVER called (DEV unhealthy bef
 
 test("entry deploy-gate failure surfaces the InfraError message as the note", async () => {
   const { ports } = stubPorts({
-    waitUntilServing: async () => ({ ok: false, error: new Error("DEV did not serve sha abc1234 within 5000ms (versionUrl=https://example.com/version)") }),
+    waitUntilHealthy: async () => ({ ok: false, error: new Error("DEV did not serve sha abc1234 within 5000ms (versionUrl=https://example.com/version)") }),
   });
   const useCase = new RunQaUseCase({ ...ports, config: baseConfig });
 
@@ -1139,13 +1140,13 @@ test("entry deploy-gate failure surfaces the InfraError message as the note", as
 });
 
 test("mid-run health pre-flight failure surfaces a note (and is persisted)", async () => {
-  let waitUntilServingCall = 0;
+  let waitUntilHealthyCall = 0;
   let saved: import("@kernel/run-outcome.ts").RunOutcome | undefined;
   const { ports } = stubPorts({
-    waitUntilServing: async () => {
-      waitUntilServingCall++;
+    waitUntilHealthy: async () => {
+      waitUntilHealthyCall++;
       /* First call (entry gate) succeeds; second call (mid-run pre-flight, after validate) fails — */
-      return waitUntilServingCall === 1 ? ok(true) : { ok: false, error: new Error("DEV went down mid-run") };
+      return waitUntilHealthyCall === 1 ? ok(true) : { ok: false, error: new Error("DEV went down mid-run") };
     },
   });
   ports.runHistory.save = async (outcome) => { saved = outcome; };
@@ -2709,11 +2710,11 @@ test("errorClass is E-STATIC on an invalid verdict", async () => {
 
 test("errorClass is E-INFRA on an infra-error verdict", async () => {
   let saved: import("@kernel/run-outcome.ts").RunOutcome | undefined;
-  let waitUntilServingCall = 0;
+  let waitUntilHealthyCall = 0;
   const { ports } = stubPorts({
-    waitUntilServing: async () => {
-      waitUntilServingCall++;
-      return waitUntilServingCall === 1 ? ok(true) : { ok: false as const, error: new Error("DEV unhealthy") };
+    waitUntilHealthy: async () => {
+      waitUntilHealthyCall++;
+      return waitUntilHealthyCall === 1 ? ok(true) : { ok: false as const, error: new Error("DEV unhealthy") };
     },
   });
   ports.runHistory.save = async (outcome) => { saved = outcome; };
@@ -3138,15 +3139,15 @@ test("run() aborted mid-repair inside the static-fix loop stops before consuming
 test("infra-error calls runHistory.save()", async () => {
   let saveCallCount = 0;
   /* Both this use-case's entry gate AND its mid-run pre-flight derive from the SAME
-     DeployGatePort.waitUntilServing — so the first call must succeed (passes the entry gate) and
+     DeployGatePort.waitUntilHealthy — so the first call must succeed (passes the entry gate) and
      only the SECOND call (the mid-run pre-flight, after validate) must fail, to exercise the
      terminalResult("infra-error", ...) branch.
    */
-  let waitUntilServingCall = 0;
+  let waitUntilHealthyCall = 0;
   const { ports } = stubPorts({
-    waitUntilServing: async () => {
-      waitUntilServingCall++;
-      return waitUntilServingCall === 1 ? ok(true) : { ok: false as const, error: new Error("DEV unhealthy") };
+    waitUntilHealthy: async () => {
+      waitUntilHealthyCall++;
+      return waitUntilHealthyCall === 1 ? ok(true) : { ok: false as const, error: new Error("DEV unhealthy") };
     },
   });
   ports.runHistory.save = async () => { saveCallCount++; };
@@ -3442,7 +3443,7 @@ test("ObserverPort: a static-gate repair round emits its own 'retry' step with a
 
 test("ObserverPort: an infra-error entry-gate terminal emits gate -> done only (no classify/generate reached)", async () => {
   const { ports } = stubPorts({
-    waitUntilServing: async () => err(new Error("DEV did not serve sha within 60000ms")),
+    waitUntilHealthy: async () => err(new Error("DEV did not serve sha within 60000ms")),
   });
   const { observer, steps } = fakeObserver();
   const useCase = new RunQaUseCase({ ...ports, config: baseConfig, observer });
@@ -3826,7 +3827,7 @@ test("a shadow-mode invalid verdict dispatches publish() so the shadow-log line 
 test("an infra-error verdict resolves to sideEffect 'none' via decide() itself — publish() is NEVER called, and no special-casing is needed", async () => {
   let publishCallCount = 0;
   const { ports } = stubPorts({
-    waitUntilServing: async () => err(new Error("DEV did not respond")),
+    waitUntilHealthy: async () => err(new Error("DEV did not respond")),
   });
   ports.publication.publish = async () => { publishCallCount++; return { outcome: "issue: should never happen" }; };
   const useCase = new RunQaUseCase({ ...ports, config: baseConfig });
@@ -6114,11 +6115,11 @@ test("mirrorGc wiring: a static-gate invalid verdict (terminalResult exit) also 
 });
 
 test("mirrorGc wiring: a mid-run health-preflight infra-error verdict (terminalResult exit, sideEffect none) also triggers prune() once", async () => {
-  let waitUntilServingCall = 0;
+  let waitUntilHealthyCall = 0;
   const { ports, ws } = stubPorts({
-    waitUntilServing: async () => {
-      waitUntilServingCall++;
-      return waitUntilServingCall === 1 ? ok(true) : { ok: false as const, error: new Error("DEV went down mid-run") };
+    waitUntilHealthy: async () => {
+      waitUntilHealthyCall++;
+      return waitUntilHealthyCall === 1 ? ok(true) : { ok: false as const, error: new Error("DEV went down mid-run") };
     },
   });
   let pruneCallCount = 0;
@@ -7373,7 +7374,7 @@ test("a declared no-op and a generation with no readable verdict are not audited
 
 test("an infrastructure failure before execution is not audited, while a static-gate rejection is", async () => {
   const infra = { audited: 0 };
-  const { ports: infraPorts } = stubPorts({ waitUntilServing: async () => ({ ok: false, error: new Error("DEV unhealthy") }) });
+  const { ports: infraPorts } = stubPorts({ waitUntilHealthy: async () => ({ ok: false, error: new Error("DEV unhealthy") }) });
   await new RunQaUseCase({
     ...infraPorts,
     processAudit: makeFakeProcessAudit(() => { infra.audited++; }),
@@ -7501,7 +7502,7 @@ function recordingDeadline(trace: string[]): { port: RunDeadlinePort; armed: Arm
 test("the run arms its deadline once, after the deploy gate and the classification, with the change it classified", async () => {
   const trace: string[] = [];
   const { ports } = stubPorts({
-    waitUntilServing: async () => { trace.push("gate"); return ok(true); },
+    waitUntilHealthy: async () => { trace.push("gate"); return ok(true); },
     classify: async () => { trace.push("classify"); return { action: "generate", reason: "r", diff: "diff --git a/x b/x\n@@ -1 +1 @@\n-a\n+b\n", intent: { type: "feat", breaking: false, message: "m", changedFiles: ["x"] } }; },
     generate: async () => { trace.push("generate"); return scriptedGeneration({ specs: ["a.spec.ts"]}); },
   });

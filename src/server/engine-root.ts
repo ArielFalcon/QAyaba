@@ -30,7 +30,8 @@ import type { PathMirrorGcCollaborator } from "../../qa-engine/src/contexts/work
 import type { SetupPortCollaborators } from "../../qa-engine/src/contexts/workspace-and-publication/infrastructure/adapters/setup-port.adapter";
 import type { CleanupPortCollaborators } from "../../qa-engine/src/contexts/workspace-and-publication/infrastructure/adapters/cleanup-port.adapter";
 import type { CheckoutFn } from "../../qa-engine/src/contexts/workspace-and-publication/infrastructure/adapters/workspace-port.adapter";
-import type { VersionPollFn } from "../../qa-engine/src/contexts/run-orchestration/infrastructure/adapters/deploy-gate-port.adapter";
+import type { CommitAncestryPort } from "@kernel/ports/commit-ancestry.port";
+import type { ServedVersionReaderPort } from "@kernel/ports/served-version-reader.port";
 import { type PreGenerationGroundingCollaborators } from "../../qa-engine/src/contexts/generation/infrastructure/adapters/pre-generation-grounding-port.adapter";
 import { type ReviewDomGroundingCollaborators } from "../../qa-engine/src/contexts/generation/infrastructure/adapters/review-dom-grounding-port.adapter";
 import { type PreExecGroundingCollaborators } from "../../qa-engine/src/contexts/generation/infrastructure/adapters/pre-exec-grounding-port.adapter";
@@ -254,13 +255,15 @@ export interface EngineRootDeps {
   /* Resolves a Sha to its working-copy mirrorDir. Cross-repo routing stays opaque inside this fn. */
   checkout: CheckoutFn;
 
-  /* DeployGatePort collaborators — versionUrl absent selects NullDeployGateAdapter (static sites); present selects the real poll-loop gate. */
+  /* DeployGatePort collaborators — versionUrl absent declares no source and selects NullDeployGateAdapter (static sites); present selects the gate over the declared source, read by `versionReader`. */
   versionUrl?: string;
-  versionPoll?: VersionPollFn;
+  versionReader?: ServedVersionReaderPort;
+  /* How the commit the primary's (or the trigger service's) source reports relates to the run's sha. */
+  versionAncestry?: CommitAncestryPort;
   deployGateIntervalMs?: number;
   deployGateTimeoutMs?: number;
   /* The deploy gates of the other repos of a run over several repos (see RunOrchestrationDeps.deployGate.companions). */
-  companionDeployGates?: ReadonlyArray<{ repo: string; versionUrl?: string; poll?: VersionPollFn; intervalMs?: number; timeoutMs?: number }>;
+  companionDeployGates?: ReadonlyArray<{ repo: string; versionUrl?: string; ancestry?: CommitAncestryPort; intervalMs?: number; timeoutMs?: number }>;
 
   /* RunHistoryPort collaborator — a durable FileRunHistoryAdapter is used when a path is given (in-memory otherwise). */
   historyFilePath?: string;
@@ -519,7 +522,8 @@ function assemble(cfg: EngineRootDeps): RunOrchestrationApi {
     },
     deployGate: {
       ...(cfg.versionUrl ? { versionUrl: cfg.versionUrl } : {}),
-      ...(cfg.versionPoll ? { poll: cfg.versionPoll } : {}),
+      ...(cfg.versionReader ? { reader: cfg.versionReader } : {}),
+      ...(cfg.versionAncestry ? { ancestry: cfg.versionAncestry } : {}),
       ...(cfg.deployGateIntervalMs !== undefined ? { intervalMs: cfg.deployGateIntervalMs } : {}),
       ...(cfg.deployGateTimeoutMs !== undefined ? { timeoutMs: cfg.deployGateTimeoutMs } : {}),
       ...(cfg.companionDeployGates ? { companions: cfg.companionDeployGates } : {}),

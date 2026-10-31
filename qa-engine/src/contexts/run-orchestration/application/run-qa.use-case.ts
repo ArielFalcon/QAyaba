@@ -377,6 +377,7 @@ export class RunQaUseCase {
       announcePrecondition: (failure, action, phase) => this.announcePrecondition(failure, action, phase),
       preconditionNote: (failure) => this.preconditionNote(failure),
       coordination: () => state.coordination,
+      servedVersion: () => state.run.servedVersion,
       sandboxRefused: () => this.deps.execScope?.sandboxRefused() ?? false,
       sandboxSignal: () => this.deps.execScope?.sandboxSignal(),
     };

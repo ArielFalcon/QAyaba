@@ -65,6 +65,7 @@ function context(opts: { mode?: RunQaInput["mode"]; mirrorDir?: string | undefin
     host: {
       pruneMirror: async (workspace: WorkspaceHandle) => { calls.order.push("prune"); calls.pruned.push(rootsOf(workspace).mirrorDir); },
       coordination: () => undefined,
+      servedVersion: () => undefined,
       sandboxRefused: () => false,
       sandboxSignal: () => undefined,
     } as unknown as RunContext["host"],

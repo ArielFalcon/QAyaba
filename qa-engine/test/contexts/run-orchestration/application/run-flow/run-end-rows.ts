@@ -17,6 +17,7 @@ import { UntrustedGitTreeError } from "../../../../../src/shared-infrastructure/
 import type { EndReason } from "@contexts/run-orchestration/application/run-flow/run-end.ts";
 import { AUTHORING_REFUSAL } from "@kernel/coordination.ts";
 import { GENERATION_END } from "@kernel/generation-end.ts";
+import { DeployNotServedError } from "@kernel/served-version.ts";
 import { RunDeadlineExceededError } from "@kernel/run-deadline.ts";
 import type { SuiteStorePort } from "@kernel/ports/suite-store.port.ts";
 import type { ReviewPort } from "@contexts/generation/application/index.ts";
@@ -127,7 +128,7 @@ const failLoginAt = (rig: Rig, phase: "pre-generate" | "pre-execute", error: () 
 
 export const RUN_END_ROWS: readonly RunEndRow[] = [
   { id: "aborted-at-gate", endReason: "aborted", setup: (rig) => abortFrom(rig), expect: { verdict: "infra-error", errorClass: "E-INFRA", furthestPhase: null, persisted: false, published: "none", publishCalled: false } },
-  { id: "gate-never-serves-sha", endReason: "deploy-gate-failed", setup: (rig) => { rig.waitUntilServing = async () => ({ ok: false, error: new Error("DEV did not serve sha abc1234 within 5000ms") }); }, expect: { verdict: "infra-error", errorClass: "E-INFRA", furthestPhase: "gate", persisted: false, published: "none", publishCalled: false, note: /DEV did not serve sha/ } },
+  { id: "gate-never-serves-sha", endReason: "deploy-gate-failed", setup: (rig) => { rig.verifyServed = async () => ({ ok: false, error: new DeployNotServedError("DEV did not serve sha abc1234 within 5000ms", { state: "behind", served: "1111111" }) }); }, expect: { verdict: "infra-error", errorClass: "E-INFRA", furthestPhase: "gate", persisted: false, published: "none", publishCalled: false, note: /DEV did not serve sha/ } },
   { id: "classify-skip", endReason: "classify-skipped", setup: (rig) => { rig.classify = async () => ({ action: "skip", reason: "docs-only commit", diff: "" }); }, expect: { verdict: "skipped", errorClass: null, furthestPhase: "classify", persisted: false, published: "none", publishCalled: false } },
   { id: "aborted-after-workspace", endReason: "aborted", setup: (rig) => { rig.prepare = async () => { abortFrom(rig); return fakeHandle({ specDir: rig.ws.specDir, mirrorDir: rig.ws.mirrorDir }); }; }, expect: { verdict: "infra-error", errorClass: "E-INFRA", furthestPhase: "workspace", persisted: false, published: "none", publishCalled: false } },
   { id: "aborted-during-setup", endReason: "aborted", setup: (rig) => { rig.setup = async () => { abortFrom(rig); }; }, expect: { verdict: "infra-error", errorClass: "E-INFRA", furthestPhase: "setup", persisted: false, published: "none", publishCalled: false } },
@@ -168,7 +169,7 @@ export const RUN_END_ROWS: readonly RunEndRow[] = [
     endReason: "pre-execute-infra",
     setup: (rig) => {
       let calls = 0;
-      rig.waitUntilServing = async () => { calls += 1; return calls === 1 ? { ok: true as const, value: true } : { ok: false as const, error: new Error("DEV went down mid-run") }; };
+      rig.waitUntilHealthy = async () => { calls += 1; return calls === 1 ? { ok: true as const, value: true } : { ok: false as const, error: new Error("DEV went down mid-run") }; };
     },
     expect: { verdict: "infra-error", errorClass: "E-INFRA", furthestPhase: "health", persisted: true, published: "none", publishCalled: false, note: /DEV went down mid-run/ },
   },

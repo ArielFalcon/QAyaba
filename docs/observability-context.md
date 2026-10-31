@@ -76,8 +76,8 @@ The single engine is `RunQaUseCase` (`qa-engine/src/contexts/run-orchestration/a
    - From enqueue to dequeue. The queue is strictly sequential: one run at a time against DEV.
    - Campaigns (`scripts/campaign.ts`) wait for an idle queue and can **cancel** runs through the API. Cancellations must be distinguishable from failures.
 2. **`gate`**
-   - Waits until DEV serves the sha (`dev.versionUrl`). It is skipped **silently** when `versionUrl` is absent, which is the case for name-webapp, so the run never knows whether DEV runs the commit under test.
-   - Record a "deploy verified / unverified" attribute.
+   - Reads what DEV serves (`dev.versionUrl`) and relates it to the sha from the mirror's history; a run started by a deploy waits only while DEV is `behind`.
+   - Records the state on the span as `qayaba.served_version.state` (`undeclared`, `unreadable`, `equal`, `behind`, `ahead` or `unrelated`). An app with no `versionUrl`, which is the case for name-webapp, records `undeclared`: the run knows it does not know whether DEV runs the commit under test.
 3. **`classify`**
    - Checkout, diff, `classifyCommit` (Conventional Commits cross-checked against the diff).
    - Can end the run as `skipped` with no token spent.

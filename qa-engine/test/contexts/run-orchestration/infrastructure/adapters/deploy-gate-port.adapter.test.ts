@@ -1,41 +1,35 @@
 /* test/contexts/run-orchestration/infrastructure/adapters/deploy-gate-port.adapter.test.ts
-   sibling adapter exists to wrap; this adapter IS the real implementation). Injects the HTTP fetch
-   primitive (same DI pattern as every other adapter here) so the test needs no real network.
-   NullDeployGateAdapter always resolves ready immediately — for apps with no versionUrl.
+   The gate's health wait and its no-source twin, over an injected reader so the test needs no real network. The served-version decision has its own file (deploy-gate-served-version.test.ts).
+   NullDeployGateAdapter always resolves ready immediately, for apps that declare no version source.
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { DeployGatePortAdapter, NullDeployGateAdapter } from "@contexts/run-orchestration/infrastructure/adapters/deploy-gate-port.adapter.ts";
-import { Sha } from "@kernel/sha.ts";
+import type { ServedVersionRead } from "@kernel/served-version.ts";
 import { isOk } from "@kernel/result.ts";
 
-test("waitUntilServing() resolves ok(true) once the injected poll reports the sha is serving", async () => {
+test("waitUntilHealthy() resolves ok(true) once the reader reports DEV healthy", async () => {
   let calls = 0;
-  const poll = async (): Promise<{ serving: boolean }> => {
-    calls++;
-    return { serving: calls >= 2 }; /* not-yet on the first poll, serving on the second */
-  };
-  const adapter = new DeployGatePortAdapter(poll, { versionUrl: "https://dev.example.com/version", intervalMs: 0, timeoutMs: 5000 });
+  const reader = { read: async (): Promise<ServedVersionRead> => ({ kind: "read", commit: "abc1234", healthy: ++calls >= 2 }) }; /* not yet on the first read, healthy on the second */
+  const adapter = new DeployGatePortAdapter(reader, undefined, { versionUrl: "https://dev.example.com/version", intervalMs: 0, timeoutMs: 5000 });
 
-  const result = await adapter.waitUntilServing(Sha.of("abc1234"));
+  const result = await adapter.waitUntilHealthy();
 
   assert.ok(isOk(result));
-  assert.ok(calls >= 2, "must poll until serving, not just once");
+  assert.ok(calls >= 2, "must read until healthy, not just once");
 });
 
-test("waitUntilServing() resolves an InfraError when the timeout elapses before DEV serves the sha", async () => {
-  const poll = async (): Promise<{ serving: boolean }> => ({ serving: false });
-  const adapter = new DeployGatePortAdapter(poll, { versionUrl: "https://dev.example.com/version", intervalMs: 0, timeoutMs: 20 });
+test("waitUntilHealthy() resolves an InfraError when the timeout elapses before DEV reports healthy", async () => {
+  const reader = { read: async (): Promise<ServedVersionRead> => ({ kind: "read", commit: "abc1234", healthy: false }) };
+  const adapter = new DeployGatePortAdapter(reader, undefined, { versionUrl: "https://dev.example.com/version", intervalMs: 0, timeoutMs: 20 });
 
-  const result = await adapter.waitUntilServing(Sha.of("abc1234"));
+  const result = await adapter.waitUntilHealthy();
 
   assert.ok(!isOk(result));
 });
 
-test("NullDeployGateAdapter.waitUntilServing() resolves ok(true) IMMEDIATELY — no versionUrl", async () => {
-  const adapter = new NullDeployGateAdapter();
-
-  const result = await adapter.waitUntilServing(Sha.of("abc1234"));
+test("NullDeployGateAdapter.waitUntilHealthy() resolves ok(true) IMMEDIATELY — no source declared", async () => {
+  const result = await new NullDeployGateAdapter().waitUntilHealthy();
 
   assert.ok(isOk(result));
 });
