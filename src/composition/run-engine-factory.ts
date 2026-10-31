@@ -850,8 +850,8 @@ export function buildEngineRootDeps(
    */
   const mutation = bundleMutationEnabled(app.qa.changeCoverage)
     ? new BundleMutationOracleAdapter(
-        /* A mutant's re-run and the unmutated observation after the mutants measure, as the measurement execution they are judged against does: both sides of a kill run under one set of conditions (RFC-0015). */
-        ({ dir, baseUrl, namespace, mutant, specFiles, observe }) => runE2E(dir, { baseUrl, namespace, specFiles, retries: 0, coverage: true, ...(mutant !== undefined ? { mutant } : {}), ...(observe ? { observe: true } : {}) }, e2eExecuteDeps),
+        /* No runner of its own: each re-run of the pass is an execution of the run's suite, which the run hands the pass through its execution port (RFC-0015), so none skips the record or the session guard. */
+        undefined,
         countInjectedResponses,
         app.dev.baseUrl,
       )

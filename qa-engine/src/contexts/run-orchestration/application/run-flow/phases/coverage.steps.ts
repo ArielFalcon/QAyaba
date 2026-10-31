@@ -8,7 +8,7 @@ import { hasGreenBytes } from "@kernel/run-verdict.ts";
 import { isAllotmentSpentError } from "@kernel/run-deadline.ts";
 import type { DeadlinePurpose } from "@kernel/deadline-purpose.ts";
 import type { GenerationEnrichment } from "@contexts/generation/application/index.ts";
-import { changedCodeFiles, isReadTrouble, renderBranchGap, renderCoverageGap, renderSurvivedMutants, rerunEstimateMs, rerunFits, survivorClosureOf, survivorFindings, survivorRechecks, testOfCase, testSupportFiles, unreachableByDesign, type BundleMutationResult, type CoverageExclusions, type CoverageMeasurement, type CoverageSignal, type CoverageSource, type MeasuredPages, type RerunBudget, type SurvivedMutant, type SurvivorClosure } from "@contexts/objective-signal/application/index.ts";
+import { changedCodeFiles, isReadTrouble, renderBranchGap, renderCoverageGap, renderSurvivedMutants, rerunEstimateMs, rerunFits, survivorClosureOf, survivorFindings, survivorRechecks, testOfCase, testSupportFiles, unreachableByDesign, type BundleMutationResult, type CoverageExclusions, type CoverageMeasurement, type CoverageSignal, type CoverageSource, type MeasuredPages, type MutantRerun, type RerunBudget, type SurvivedMutant, type SurvivorClosure } from "@contexts/objective-signal/application/index.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 import type { StepOutcome } from "../run-flow.ts";
 import type { RunContext, WorkspaceRunContext } from "../run-context.ts";
@@ -301,13 +301,30 @@ export const mutationSkipReason = (state: Readonly<RunState>, ctx: WorkspaceRunC
  * allowance, each estimated from the cases of the execution it judges.
  */
 export async function measureMutation(state: Readonly<RunState>, ctx: WorkspaceRunContext): Result {
-  /* Each re-run is estimated from the measurement execution, which ran under the mutants' conditions. */
+  /* Each re-run is estimated from the measurement execution, which ran instrumented as the mutants run. */
   const measured = state.coverage.measuredBy;
   const estimateFrom = measured !== undefined && !("notRun" in measured) ? measured.cases : runOf(state).cases;
-  const signal = await ctx.deps.objectiveSignal.measureMutation!(state.coverage.mutationPass!, ctx.workspace.specDir, { rerunBudget: rerunBudgetOf(ctx, "coverage", estimateFrom) });
+  const signal = await ctx.deps.objectiveSignal.measureMutation!(state.coverage.mutationPass!, ctx.workspace.specDir, { rerunBudget: rerunBudgetOf(ctx, "coverage", estimateFrom), rerun: rerunsOfRun(ctx) });
   if (!signal.bundleMutation) return { update: { coverage: { ...state.coverage, mutationPass: undefined } } };
   return { update: { coverage: coverageMeasured(state, ctx, signal, state.coverage.exclusions) } };
 }
+
+/*
+ * A re-run of the mutation pass (a mutant's, or an unmutated observation of the survivors) is an execution of the run's suite: it goes
+ * through the run's execution port, which records it and guards the session of a mutant's, as it does every judging execution. It runs
+ * with coverage on and no retry, as the measurement execution a kill is judged against does; it adds the mutant's edit, and it is
+ * observed only when the pass asks, while the measurement is always observed and held to a global timeout of its own.
+ */
+export const rerunsOfRun = (ctx: WorkspaceRunContext): MutantRerun => (args) =>
+  ctx.deps.execution.execute(args.dir, {
+    ...(ctx.signal ? { signal: ctx.signal } : {}),
+    namespace: args.namespace,
+    specFiles: args.specFiles,
+    retries: 0,
+    coverage: true,
+    ...(args.mutant !== undefined ? { mutant: args.mutant } : {}),
+    ...(args.observe ? { observe: true } : {}),
+  });
 
 /* Whether the enforce-mode regeneration runs: a measurement that blocks publication, on a per-commit diff. */
 export const regeneratesForCoverage = (state: Readonly<RunState>, ctx: WorkspaceRunContext): boolean =>
@@ -484,9 +501,11 @@ export async function measureKept(state: Readonly<RunState>, ctx: WorkspaceRunCo
 
 /*
  * Whether an accepted regeneration answered the surviving mutants routed to it: each is applied again to the specs it changed among
- * those its finding was routed to, judged against the tests of those specs that passed in their measurement execution, so both sides
- * of a kill run under the same conditions. The proof of a regenerated test is that the fault it was asked about now fails it; until
- * then it is only text. Undefined when no survivor was routed or the regeneration was not accepted. A signal, never a gate.
+ * those its finding was routed to, judged against the tests of those specs that passed in their measurement execution. Both sides of a
+ * kill run instrumented alike (coverage on, no retry, through the run's execution port); they differ in the mutant's edit, and the
+ * measurement side is also observed and held to a global timeout of its own (`rerunsOfRun`). The proof of a regenerated test is that the
+ * fault it was asked about now fails it; until then it is only text. Undefined when no survivor was routed or the regeneration was not
+ * accepted. A signal, never a gate.
  */
 export async function closeSurvivors(state: Readonly<RunState>, ctx: WorkspaceRunContext, regen: GapRegeneration, measured: MeasurementOutcome | undefined): Promise<SurvivorClosure | undefined> {
   const { deps, input, workspace } = ctx;
@@ -500,7 +519,7 @@ export async function closeSurvivors(state: Readonly<RunState>, ctx: WorkspaceRu
   const rechecks = survivorRechecks(routed, survivorsOf(state), changed);
   /* The re-runs are the coverage purpose's, estimated from the measurement execution of the regenerated bytes they re-run. */
   const rerunBudget = rerunBudgetOf(ctx, "coverage", measuredCases);
-  const result = baselineCases.length > 0 && rechecks.length > 0 ? await recheckOrNone(() => deps.objectiveSignal.recheckSurvivors!(rechecks, workspace.specDir, `${input.runId}-closure`, baselineCases, { rerunBudget })) : null;
+  const result = baselineCases.length > 0 && rechecks.length > 0 ? await recheckOrNone(() => deps.objectiveSignal.recheckSurvivors!(rechecks, workspace.specDir, `${input.runId}-closure`, baselineCases, { rerunBudget, rerun: rerunsOfRun(ctx) })) : null;
   /* A measurement the time left could not hold leaves every re-check unstarted for the same reason. */
   const outOfTime = measured !== undefined && "notRun" in measured && measured.time === true && rechecks.length > 0;
   const closure = outOfTime ? { ...survivorClosureOf(routed.length, null), leftOut: { mutants: rechecks.length, observations: 0, reason: "time" as const } } : survivorClosureOf(routed.length, result);

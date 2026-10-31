@@ -26,7 +26,7 @@ export interface RunHost {
   redact(text: string): string;
   /** Untrusted text redacted (the run's secrets by value, then the outbound patterns) and then cut to `maxChars`: the order in which a secret that straddles the cut is still found (shared-kernel/redact-then-bound.ts). */
   boundText(text: string, maxChars: number, marker?: (original: number, kept: number) => string): string;
-  prepareAuth(specDir: string, phase: "pre-generate" | "pre-execute", signal?: AbortSignal): Promise<{ unauthored: boolean; setupSha256?: string } | { failed: string } | { precondition: PreconditionFailure }>;
+  prepareAuth(specDir: string, phase: "pre-generate" | "pre-execute", signal?: AbortSignal): Promise<{ unauthored: boolean; setupSha256?: string; holdsSession?: true } | { failed: string } | { precondition: PreconditionFailure }>;
   replaceRestoredLogin(workspace: WorkspaceHandle, signal?: AbortSignal): Promise<"replaced" | "unchanged" | "setup-failed">;
   announceSuite(text: string, level: "info" | "warn"): void;
   announcePrecondition(failure: PreconditionFailure, action: PreconditionTerminal["action"], phase: "pre-generate" | "pre-execute"): void;

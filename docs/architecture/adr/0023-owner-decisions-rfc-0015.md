@@ -24,7 +24,7 @@ Every recommended answer of RFC-0015 is taken as written:
 | 5 | A test that failed only under measurement | No coverage credit and no mutant baseline; listed and counted (`failedOnlyUnderMeasurement`). |
 | 6 | After an accepted regeneration | Only the kept files are re-measured, dumps keyed by bytes. |
 | 7 | The enforce re-measure | Split into a judging whole-suite execution and the measurement. |
-| 8 | Session | Every judging execution checks the login wall: one renewal, one re-run, then a typed `session-lost`. |
+| 8 | Session | Every judging execution checks the login wall: one renewal, one re-run, then a typed `session-lost`. Amended (L77): the login wall only triggers the run's own check of the session; a renewal and re-run follow only a session shown lost, and `session-lost` only a re-run whose fresh session is shown lost again. |
 | 9 | Scope, order and DEV writes between executions | Recorded in the contract; decided once a measurement shows an effect. |
 | 10 | `--list` environment | Given the contract's non-secret variables, never the session. |
 | 11 | `globalTimeout` | Unchanged for judging executions; the measurement execution gets a global timeout of its own, derived from its allowance. |

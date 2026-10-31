@@ -44,6 +44,7 @@ export class ExecutionPortAdapter implements ExecutionPort {
       ...(o.session ? { session: o.session } : {}),
       ...(o.coverage ? { coverage: true } : {}),
       ...(o.observe ? { observe: true } : {}),
+      ...(o.mutant !== undefined ? { mutant: o.mutant } : {}),
       ...(o.tests ? { tests: o.tests } : {}),
       ...(o.globalTimeoutMs !== undefined ? { globalTimeoutMs: o.globalTimeoutMs } : {}),
       ...(o.project !== undefined ? { project: o.project } : {}),

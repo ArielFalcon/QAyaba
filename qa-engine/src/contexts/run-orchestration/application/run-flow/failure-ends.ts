@@ -9,7 +9,7 @@ import { GENERATION_END } from "@kernel/generation-end.ts";
 import { ERROR_CLASS } from "@kernel/error-class.ts";
 import { renderAllotmentNote, renderRunDeadlineNote } from "../../domain/run-time-budget.ts";
 import type { AllotmentSpentError, RunDeadlineExceededError } from "../../../../shared-kernel/run-deadline.ts";
-import { NoAuthorError, SessionLostError, classifyFailure } from "./failure-policy.ts";
+import { LoginRenewalError, NoAuthorError, SessionLostError, classifyFailure } from "./failure-policy.ts";
 import type { EndReason } from "./end-reason.ts";
 import { runEnd, type RunEnd } from "./run-end.ts";
 import type { RunQaUseCaseDeps } from "./run-types.ts";
@@ -89,6 +89,14 @@ export function failureEnd(reason: EndReason, err: unknown, run: { deps: RunQaUs
       engineLog.error(`[qa] ${note}`);
       deps.observer?.onEvent({ type: "agent.error", detail: note });
       return runEnd("login-precondition", { generating: state.classification.generating, note, sessionLost: true });
+    }
+    case "pre-execute-infra": {
+      /* The run's login, asked to renew a session the check showed lost, could not sign in: the same end as a login before execute that fails, E-PRECONDITION on a positive piece of evidence. */
+      if (!(err instanceof LoginRenewalError)) throw err;
+      const note = messageOf(err);
+      engineLog.error(`[qa] ${note}`);
+      deps.observer?.onEvent({ type: "agent.error", detail: note });
+      return runEnd("pre-execute-infra", { generating: state.classification.generating, note, ...(err.preconditionFailed ? { preconditionFailed: true } : {}) });
     }
     default:
       throw new Error(`no end is built for a failure that ends the run as "${reason}"`);

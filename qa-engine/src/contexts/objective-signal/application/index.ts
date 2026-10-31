@@ -18,7 +18,7 @@ export type { CoverageCollectorPort } from "./ports/coverage-collector.port.ts";
 export type { CoverageSignal, ObjectiveSignalPort } from "./ports/objective-signal.port.ts";
 export type { MutationPass } from "../domain/mutation-pass.ts";
 export type { CoverageRead, CoverageReport, BranchHit, BranchKind, BranchArm, MutationSite, DumpSource, MutantRun, BundleMutationResult, MutantEdit, MutantProof, SurvivedMutant } from "../domain/coverage-collector.ts";
-export type { BundleMutationPort } from "./ports/bundle-mutation.port.ts";
+export type { BundleMutationPort, MutantRerun } from "./ports/bundle-mutation.port.ts";
 export { RERUN_LEFT_OUT_FOR_TIME, rerunEstimateMs, rerunFits, type RerunBudget, type RerunsLeftOut } from "../domain/rerun-budget.ts";
 export { NOT_GREEN_UNDER_MEASUREMENT, type MutantsNotJudged } from "../domain/coverage-collector.ts";
 export type { CoverageMeasurement, CoverageRecount, CoverageSource, UntakenArm, BundleMutationOutcome } from "../domain/objective-signal.ts";

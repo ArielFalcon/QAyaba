@@ -5,7 +5,7 @@ import type { CoverageMeasurement } from "../../domain/objective-signal.ts";
 import type { ObjectiveSignalPort } from "../../application/ports/objective-signal.port.ts";
 import type { CoverageRecount, CoverageSource, FileRanBy } from "../../domain/objective-signal.ts";
 import { isDumpOfSpecFile } from "../../domain/dump-names.ts";
-import type { BundleMutationPort } from "../../application/ports/bundle-mutation.port.ts";
+import type { BundleMutationPort, MutantRerun } from "../../application/ports/bundle-mutation.port.ts";
 import type { CoverageCollectorPort } from "../../application/ports/coverage-collector.port.ts";
 import type { BundleMutationResult, CoverageRead, CoverageReport, DumpSource, MutantProof, MutantRun } from "../../domain/coverage-collector.ts";
 import type { CoverageReadFault } from "../../domain/dump-outcome.ts";
@@ -211,11 +211,11 @@ export class ObjectiveSignalPortAdapter implements ObjectiveSignalPort {
     const due = mutants.length > 0 && pass.judgedAgainst.length > 0;
     /* By execution alone: what the passing tests ran, how the mutants were chosen (so a measurement no pass follows still says why none ran), and the pass still to run on it when one is due. */
     if (opts?.byExecution) return { ...this.resultOf({ cc: executed, executed: null, scripts: pass.scripts, changeDiff, trouble, ranBy, asked, willAssemble: true }), mutantSelection: selection, ...(due ? { mutationPass: pass } : {}) };
-    return this.mutate(pass, specDir, opts?.rerunBudget, opts?.onRead, noCodeOf);
+    return this.mutate(pass, specDir, opts?.rerunBudget, opts?.onRead, noCodeOf, opts?.rerun);
   }
 
-  async measureMutation(pass: MutationPass, specDir: string, opts?: { rerunBudget?: RerunBudget; onRead?: (read: CoverageRead) => void }): ReturnType<ObjectiveSignalPort["measure"]> {
-    return this.mutate(pass, specDir, opts?.rerunBudget, opts?.onRead);
+  async measureMutation(pass: MutationPass, specDir: string, opts?: { rerunBudget?: RerunBudget; onRead?: (read: CoverageRead) => void; rerun?: MutantRerun }): ReturnType<ObjectiveSignalPort["measure"]> {
+    return this.mutate(pass, specDir, opts?.rerunBudget, opts?.onRead, this.noCodeOf(), opts?.rerun);
   }
 
   /*
@@ -223,9 +223,9 @@ export class ObjectiveSignalPortAdapter implements ObjectiveSignalPort {
    * the dumps of each killed mutant's re-run added (its edit undone). Nothing the measurement by execution read is read again; only the
    * proofs' recount reads, and a recount whose dumps could not be read leaves the coverage by execution standing, saying what it lacks.
    */
-  private async mutate(pass: MutationPass, specDir: string, rerunBudget: RerunBudget | undefined, onRead: ((read: CoverageRead) => void) | undefined, noCodeOf: NoCodeLinesOf = this.noCodeOf()): ReturnType<ObjectiveSignalPort["measure"]> {
+  private async mutate(pass: MutationPass, specDir: string, rerunBudget: RerunBudget | undefined, onRead: ((read: CoverageRead) => void) | undefined, noCodeOf: NoCodeLinesOf = this.noCodeOf(), rerun?: MutantRerun): ReturnType<ObjectiveSignalPort["measure"]> {
     /* The first judgment of the survivors also tells what each moved (their pages against an unmutated re-run); the re-check of a regeneration's answer does not. */
-    const bundleMutation = pass.mutants.length > 0 ? await this.deps.mutation!.measure(pass.mutants, specDir, pass.namespace, pass.judgedAgainst, { observe: true, ...(rerunBudget ? { budget: rerunBudget } : {}), ...(pass.firstObservation ? { before: pass.firstObservation } : {}), ...(pass.notGreen ? { notGreen: pass.notGreen } : {}) }) : null;
+    const bundleMutation = pass.mutants.length > 0 ? await this.deps.mutation!.measure(pass.mutants, specDir, pass.namespace, pass.judgedAgainst, { observe: true, ...(rerunBudget ? { budget: rerunBudget } : {}), ...(pass.firstObservation ? { before: pass.firstObservation } : {}), ...(pass.notGreen ? { notGreen: pass.notGreen } : {}), ...(rerun ? { rerun } : {}) }) : null;
     const proofs = bundleMutation?.proofs ?? [];
     /* What a killed mutant made run, a test checked: the verified coverage adds it, the coverage by execution alone stays beside it. */
     const proved = proofs.length > 0 ? await this.withProofs(specDir, pass.sources, proofs, pass.changeDiff, pass.changedFiles, noCodeOf) : null;
@@ -313,10 +313,11 @@ export class ObjectiveSignalPortAdapter implements ObjectiveSignalPort {
     return noCodeLines(this.deps.readSource ?? workingCopySource(this.ctx.repoDir, "change-coverage"));
   }
 
-  async recheckSurvivors(survivors: readonly MutantRun[], specDir: string, namespace: string, baselineCases: readonly string[], opts?: { rerunBudget?: RerunBudget }): Promise<BundleMutationResult | null> {
+  async recheckSurvivors(survivors: readonly MutantRun[], specDir: string, namespace: string, baselineCases: readonly string[], opts?: { rerunBudget?: RerunBudget; rerun?: MutantRerun }): Promise<BundleMutationResult | null> {
     if (!this.deps.mutation || survivors.length === 0) return null;
-    if (!opts?.rerunBudget) return this.deps.mutation.measure([...survivors], specDir, namespace, [...baselineCases]);
-    return this.deps.mutation.measure([...survivors], specDir, namespace, [...baselineCases], { budget: opts.rerunBudget });
+    const asked = { ...(opts?.rerunBudget ? { budget: opts.rerunBudget } : {}), ...(opts?.rerun ? { rerun: opts.rerun } : {}) };
+    if (Object.keys(asked).length === 0) return this.deps.mutation.measure([...survivors], specDir, namespace, [...baselineCases]);
+    return this.deps.mutation.measure([...survivors], specDir, namespace, [...baselineCases], asked);
   }
 
   blocks(status: "pass" | "fail" | "unknown"): boolean {

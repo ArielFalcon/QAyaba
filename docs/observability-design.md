@@ -335,8 +335,11 @@ Rules, from the brief §2.1 and the OTel spec:
   `gateSignals.bundleMutation.notJudged { "baseline-not-green-under-measurement": n }` counts the mutants whose only reaching
   tests were such tests (never counted as survived). A measurement the allowance cannot hold is not started:
   `unmeasured: measurement-not-run` (coverage `unknown`, which under `enforce` holds the run). A judging execution of a run
-  that signed in, failing on the app's login page, is run once more after the run signs in again; a second wall ends the run
-  `E-PRECONDITION` with `adjudication.reason` `session-lost`. The session's age at each execution's start is on its span and in
+  holding a saved session, failing on what looks like the app's login page, asks the run's own check of the session (its browser
+  opens the pages the failing tests asked for with the session and applies the authenticated browser's "session invalidated" rule);
+  only a session shown lost is renewed and the execution re-run, the re-run being the judgment; a session shown gone again for the
+  re-run ends the run `E-PRECONDITION` with `adjudication.reason` `session-lost`. `gateSignals.executions.sessionChecks { lost, held,
+  unknown }` counts the checks. The session's age at each execution's start is on its span and in
   `gateSignals.executions`, the fact a later decision about the app's session length can use.
 - **Ambient data state** (T38). A passing case whose every assertion ran on a page as it loaded, before any step of its own, on a
   page the Context Pack read as a confirmed empty state is recorded at the decided end as

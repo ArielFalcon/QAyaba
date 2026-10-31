@@ -6,6 +6,7 @@ import type { CoverageExclusions } from "../../domain/coverage-exclusions.ts";
 import type { RerunBudget } from "../../domain/rerun-budget.ts";
 import type { MutationPass } from "../../domain/mutation-pass.ts";
 import type { MeasuredPages } from "../../domain/observed-page.ts";
+import type { MutantRerun } from "./bundle-mutation.port.ts";
 
 /** What a measurement decides and records. */
 export type CoverageSignal = { status: "pass" | "fail" | "unknown"; ratio: number | null; mutationPass?: MutationPass; uncovered?: { file: string; lines: number[] }[]; untakenArms?: UntakenArm[]; bundleMutation?: BundleMutationOutcome; mutantSelection?: MutantSelectionRecord; mutantProofs?: MutantProof[]; survivorRuns?: MutantRun[]; measurement?: CoverageMeasurement; ranBy?: FileRanBy[] };
@@ -42,17 +43,18 @@ export interface ObjectiveSignalPort {
    * `opts.exceptTests` names the tests (as the coverage fixture names a test's dumps) whose dumps are not read: a test that failed under
    * the measurement execution ran the code partway and checked nothing, so it credits no line and chooses no mutant, and the mutation pass
    * judges no mutant only they reached (`bundleMutation.notJudged`). `opts.firstObservation` is the measurement execution, observed: the
-   * mutation pass takes it as the mutants' first unmutated observation instead of re-running one.
+   * mutation pass takes it as the mutants' first unmutated observation instead of re-running one. `opts.rerun` runs the mutation pass's
+   * re-runs (a run gives its own execution port).
    */
-  measure(br: BlastRadius, specDir: string, diff?: string, baselineCases?: string[], opts?: { namespace?: string; caseFiles?: string[]; candidates?: readonly UseCaseCandidate[]; crossRepo?: boolean; exclusions?: CoverageExclusions; byExecution?: boolean; rerunBudget?: RerunBudget; exceptTests?: readonly string[]; firstObservation?: MeasuredPages; onRead?: (read: CoverageRead) => void }): Promise<CoverageSignal>;
+  measure(br: BlastRadius, specDir: string, diff?: string, baselineCases?: string[], opts?: { namespace?: string; caseFiles?: string[]; candidates?: readonly UseCaseCandidate[]; crossRepo?: boolean; exclusions?: CoverageExclusions; byExecution?: boolean; rerunBudget?: RerunBudget; exceptTests?: readonly string[]; firstObservation?: MeasuredPages; onRead?: (read: CoverageRead) => void; rerun?: MutantRerun }): Promise<CoverageSignal>;
   /**
    * The mutation pass a measurement by execution returned (`mutationPass`): its mutants re-run and judged (each re-run held to
    * `opts.rerunBudget`) and the coverage they verify, the measurement by execution with the dumps of each killed mutant's re-run added.
    * Reads none of the dumps the measurement by execution read; the proofs' recount is told to `opts.onRead`. Its `bundleMutation` is
    * absent when no mutant was judged, unreadable or left out: the measurement is then the one by execution, unchanged. Absent on a port
-   * with no mutation pass.
+   * with no mutation pass. `opts.rerun` runs each re-run: a run gives its own execution port, so every re-run is one of its executions.
    */
-  measureMutation?(pass: MutationPass, specDir: string, opts?: { rerunBudget?: RerunBudget; onRead?: (read: CoverageRead) => void }): Promise<CoverageSignal>;
+  measureMutation?(pass: MutationPass, specDir: string, opts?: { rerunBudget?: RerunBudget; onRead?: (read: CoverageRead) => void; rerun?: MutantRerun }): Promise<CoverageSignal>;
   /**
    * Single source of truth for whether a measured status blocks publish.
    * Only "enforce" + "fail" blocks; "unknown" never blocks regardless of mode.
@@ -72,6 +74,6 @@ export interface ObjectiveSignalPort {
    * `opts.rerunBudget` as the first pass's are (one it cannot hold is not started, and `leftOut` counts it). Null when none was judged,
    * unreadable or left out. Absent on a port with no mutation pass. A signal, never a gate.
    */
-  recheckSurvivors?(survivors: readonly MutantRun[], specDir: string, namespace: string, baselineCases: readonly string[], opts?: { rerunBudget?: RerunBudget }): Promise<BundleMutationResult | null>;
+  recheckSurvivors?(survivors: readonly MutantRun[], specDir: string, namespace: string, baselineCases: readonly string[], opts?: { rerunBudget?: RerunBudget; rerun?: MutantRerun }): Promise<BundleMutationResult | null>;
   recount?(br: BlastRadius, specDir: string, diff: string | undefined, sources: readonly CoverageSource[], opts?: { proofs?: readonly MutantProof[]; exclusions?: CoverageExclusions; caseFiles?: readonly string[]; onRead?: (read: CoverageRead) => void }): Promise<CoverageRecount | null>;
 }

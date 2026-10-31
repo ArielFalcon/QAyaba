@@ -168,6 +168,8 @@ The contract carries the session as a condition: **a judging execution starts wi
 - The run renews the session through the trusted renewal port (`run-spec.use-case.ts:309-312`) and re-runs that execution once.
 - A second login wall ends the run `infra-error` with a typed `session-lost`, never learned from and with no Issue.
 
+**Amended by T41's correction (L77):** the look of a failure page is the trigger of a check, never the fact. As implemented, a failure that looks like the login page asks the run's own check of the session (the orchestrator's browser opens the pages the failing tests asked for with the saved session and applies the authenticated browser's `detectInvalidation`); only a session shown lost is renewed (by the run's own login) and the execution re-run, the re-run being the judgment; a session not shown lost leaves the first result standing; a run that holds no saved session never checks; `session-lost` ends a run only when the re-run meets the login page again and the check shows the freshly signed-in session gone again.
+
 The record then shows the age at which the app's session ended, a fact a later RFC can use.
 
 ## Recommendation

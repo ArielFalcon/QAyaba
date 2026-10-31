@@ -38,6 +38,8 @@ export interface ExecutionOpts {
   coverage?: boolean;
   /** Have the fixtures record each test's page (PW_OBSERVE); the pages come back as `observations`. */
   observe?: boolean;
+  /** The seed's mutation fixture input (PW_MUTANT): a mutant's edit of one script, or a selection of the tests to run that edits none. */
+  mutant?: string;
   /** Run only these tests, by the name the coverage fixture gives a test's dumps. */
   tests?: readonly string[];
   /** A global timeout of the execution's own, for one held to an allowance. */

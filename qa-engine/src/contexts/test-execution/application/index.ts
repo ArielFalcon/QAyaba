@@ -11,6 +11,8 @@ export { RunDevWriteLedger } from "../domain/run-dev-write-ledger.ts";
 export type { AgentBrowserHostPort } from "./ports/agent-browser-host.port.ts";
 export type { ExecutionPort } from "./ports/execution.port.ts";
 export type { SessionRenewalPort } from "./ports/session-renewal.port.ts";
+export type { SessionCheck, SessionCheckPort } from "./ports/session-check.port.ts";
+export { BrowserSessionCheck, MAX_SESSION_CHECK_PATHS } from "./browser-session-check.ts";
 export type { SpecCleanupPort } from "./ports/spec-cleanup.port.ts";
 export type { SpecFixturesCheckPort } from "./ports/spec-fixtures-check.port.ts";
 export type { SpecExecutorPort } from "./ports/spec-executor.port.ts";

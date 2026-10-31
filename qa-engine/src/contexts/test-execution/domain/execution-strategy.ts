@@ -31,6 +31,8 @@ export interface ExecutionRequest {
   session?: { signedInAt: number };
   coverage?: boolean;
   observe?: boolean;
+  /** The seed's mutation fixture input (PW_MUTANT). */
+  mutant?: string;
   tests?: readonly string[];
   globalTimeoutMs?: number;
   signal?: AbortSignal;

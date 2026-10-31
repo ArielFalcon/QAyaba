@@ -16,7 +16,7 @@ const ENGINE_SIDE_GLOSS: Readonly<Record<string, string>> = {
  * worded apart from the engine-side classes and with no fault assigned.
  */
 const PRECONDITION_GLOSS: Readonly<Record<string, string>> = {
-  "E-PRECONDITION": "a precondition of the run was not met: the app's login could not be completed, the app ended the run's session under its executions (session lost: a judging execution ended on the login page again after the run signed in anew), or a second read confirmed the deployed app did not show what the failing tests target — not a fault in the code under test",
+  "E-PRECONDITION": "a precondition of the run was not met: the app's login could not be completed, the app ended the run's session under its executions (session lost: the run's own check showed the session of a judging execution gone, and gone again for its re-run on a session the run had just signed in), or a second read confirmed the deployed app did not show what the failing tests target — not a fault in the code under test",
 };
 /*
  * An unavailable reviewer is a collaborator the run could not reach: the tests passed but were never judged. It is neither the

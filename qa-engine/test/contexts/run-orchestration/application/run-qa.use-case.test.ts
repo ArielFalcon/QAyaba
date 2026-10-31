@@ -6,6 +6,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { QaCase } from "@kernel/qa-case.ts";
+import type { RunVerdict } from "@kernel/run-verdict.ts";
 import type { ObservedDifference } from "@kernel/observed-difference.ts";
 import { RunQaUseCase, type RunQaUseCaseDeps } from "@contexts/run-orchestration/application/run-qa.use-case.ts";
 import { renderBlastRadiusSignal } from "@contexts/change-analysis/infrastructure/adapters/blast-radius-signal.ts";
@@ -1580,6 +1581,8 @@ interface MutationRigOptions {
   clockAfter?: { namespace: string; now: number };
   /* Told each re-run of the mutation pass as it runs, by its kind and index (obs, mut0, …, obs2). */
   duringRerun?: (rerun: string) => void;
+  /* The first re-run of this mutant ends on the app's login page, as one the app ended the session of. */
+  loginWallOnce?: string;
 }
 
 function mutationRig(o: MutationRigOptions = {}) {
@@ -1609,23 +1612,35 @@ function mutationRig(o: MutationRigOptions = {}) {
     if (o.clock) o.clock.now += o.clock.rerunMs;
     o.duringRerun?.(reruns.at(-1)!);
     const pass = { name: PASS_CASE, status: "pass" as const, file: PASS_SPEC };
+    if (o.loginWallOnce !== undefined && args.namespace.endsWith(`-${o.loginWallOnce}`) && reruns.filter((r) => r === o.loginWallOnce).length === 1) {
+      return { verdict: "fail", cases: [{ ...pass, status: "fail" as const, finalUrl: "https://dev.example/login?next=%2Fpay", failureDom: 'heading: Sign in\ntextbox: "Password"' }], observations: [page] };
+    }
     if (args.namespace.endsWith("-mut0")) return { verdict: "fail", cases: [{ ...pass, status: "fail" as const }], observations: [page] };
     if (args.namespace.endsWith("-mut1")) return { verdict: "pass", cases: [pass], observations: [{ ...page, requests: [...page.requests, { method: "POST", url: "https://dev.example/api/pay", count: 1 }] }] };
     return { verdict: "pass", cases: [pass], observations: [page] };
   };
-  const oracle = new BundleMutationOracleAdapter(runMutant, (_dir, namespace) => (o.reachesNoPage || namespace.endsWith("-mut2") ? 0 : 1), "https://dev.example");
+  /* As in production, the oracle runs no re-run of its own: the run hands it its execution port. */
+  const oracle = new BundleMutationOracleAdapter(undefined, (_dir, namespace) => (o.reachesNoPage || namespace.endsWith("-mut2") ? 0 : 1), "https://dev.example");
   const port = new ObjectiveSignalPortAdapter(
     { collector, decide: new DecideCoverageService(), mutation: oracle, readSource: () => "if (x) pay();\nif (x) pay();\nif (x) pay();\nif (x) pay();\n" },
     { policy: { mode: o.mode ?? "signal", minRatio: o.minRatio ?? 0.7 }, repoDir: "/nonexistent", assembleChangeCoverage },
   );
   const telemetry = new SpanAttrsRecorder();
-  return { reads, reruns, telemetry, page, traced: new TracedObjectiveSignalPort(port, telemetry) };
+  return { reads, reruns, telemetry, page, runMutant, traced: new TracedObjectiveSignalPort(port, telemetry) };
 }
 
-async function runMutationRig(runId: string, o: MutationRigOptions = {}, deadline: RunDeadline = deadlineFiredByHand(3_600_000).deadline, generated?: () => void) {
+/* A re-run of the mutation pass, by its namespace: the run's execution port is where every one arrives. */
+const MUTATION_RERUN = /-(obs2?|mut\d)$/;
+
+async function runMutationRig(runId: string, o: MutationRigOptions = {}, deadline: RunDeadline = deadlineFiredByHand(3_600_000).deadline, generated?: () => void, extra: Partial<RunQaUseCaseDeps> = {}) {
   const rig = mutationRig(o);
   const real = o.realWorkspace ? realCoverageWorkspace() : undefined;
   const execute: ExecutionPort["execute"] = async (dir, opts) => {
+    const namespace = (opts as { namespace?: string } | undefined)?.namespace;
+    if (namespace !== undefined && MUTATION_RERUN.test(namespace)) {
+      const rerun = await rig.runMutant({ namespace });
+      return { ...rerun, verdict: rerun.verdict as RunVerdict, logs: "" };
+    }
     const r = await passPerSpec(dir, opts);
     if (o.clock && o.clockAfter && (opts as { namespace?: string } | undefined)?.namespace?.endsWith(o.clockAfter.namespace)) o.clock.now = o.clockAfter.now;
     /* The measurement execution observes the page its test ended on, the mutants' first unmutated observation. */
@@ -1645,12 +1660,13 @@ async function runMutationRig(runId: string, o: MutationRigOptions = {}, deadlin
   try {
     const out = await new RunQaUseCase({
       ...ports,
+      ...extra,
       runDeadline: deadline,
       telemetry: rig.telemetry,
       config: { ...baseConfig, needsReview: false, coveragePolicyMode: o.mode ?? "signal", ...(o.minRatio !== undefined ? { coverageMinRatio: o.minRatio } : {}) },
     }).run({ ...baseInput, runId });
     const g = savedOutcomes.at(-1)!.gateSignals;
-    return { out, rig, coverage: { coverageRatio: g.coverageRatio, branchCoverage: g.branchCoverage, changeCoverage: g.changeCoverage, bundleMutation: g.bundleMutation, survivorClosure: g.survivorClosure, integrity: g.integrity } };
+    return { out, rig, executions: g.executions, coverage: { coverageRatio: g.coverageRatio, branchCoverage: g.branchCoverage, changeCoverage: g.changeCoverage, bundleMutation: g.bundleMutation, survivorClosure: g.survivorClosure, integrity: g.integrity } };
   } finally {
     real?.cleanup();
   }
@@ -1684,6 +1700,22 @@ const rigVerifiedSpan = (status: "pass" | "fail") => ({
   "qayaba.coverage.mapped_files": 1,
   "qayaba.coverage.changed_branches": 2,
   "qayaba.coverage.taken_branches": 1,
+});
+
+test("a mutant's re-run is a judging execution of the run: one that met the login page with a session the check shows lost runs again on a renewed session and is judged on that re-run, never counted a kill", async () => {
+  const logins: string[] = [];
+  const checks: string[][] = [];
+  const { rig, coverage, executions } = await runMutationRig("mutation-session", { loginWallOnce: "mut1" }, undefined, undefined, {
+    authSession: { prepare: async (req) => { logins.push(req.phase); return { unauthored: false, storageStatePath: "/auth/user.json" }; } },
+    authContext: { baseUrl: "https://dev.example", auth: { kind: "form", usernameEnv: "QA_USER", passwordEnv: "QA_PASS" } },
+    sessionCheck: { check: async (paths) => { checks.push([...paths]); return { state: "lost", detail: "the page ended on the login path /login" }; } },
+  });
+
+  assert.deepEqual(rig.reruns, ["mut0", "mut1", "mut1", "mut2", "obs2"], "the mutant met the login page and ran once more");
+  assert.equal(checks.length, 1, "the session was checked once, for the mutant's re-run");
+  assert.equal(logins.filter((phase) => phase === "pre-execute").length, 2, "renewed through the run's own login");
+  assert.deepEqual(coverage.bundleMutation, RIG_BUNDLE_MUTATION, "judged on the re-run: one kill, one survivor, as on a session that held");
+  assert.equal(executions?.sessionChecks?.lost, 1);
 });
 
 test("the mutation pass reads none of the execution's dumps again, so a second read that would fault cannot take the verified coverage from a signal run", async () => {

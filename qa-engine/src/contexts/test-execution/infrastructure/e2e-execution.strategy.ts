@@ -23,6 +23,7 @@ type RunE2eFn = (
     session?: { signedInAt: number };
     coverage?: boolean;
     observe?: boolean;
+    mutant?: string;
     tests?: readonly string[];
     globalTimeoutMs?: number;
     signal?: AbortSignal;
@@ -51,6 +52,7 @@ export class E2eExecutionStrategy implements ExecutionStrategyPort {
       ...(req.session ? { session: req.session } : {}),
       ...(req.coverage ? { coverage: true } : {}),
       ...(req.observe ? { observe: true } : {}),
+      ...(req.mutant !== undefined ? { mutant: req.mutant } : {}),
       ...(req.tests ? { tests: req.tests } : {}),
       ...(req.globalTimeoutMs !== undefined ? { globalTimeoutMs: req.globalTimeoutMs } : {}),
       ...(req.signal ? { signal: req.signal } : {}),
