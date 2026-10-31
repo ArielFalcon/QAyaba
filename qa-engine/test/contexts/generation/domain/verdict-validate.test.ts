@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { checkGeneratorVerdict, parseReviewerVerdict, repairInstruction } from "./verdict-validate";
-import { parseVerdict } from "./verdict-parse";
+import { checkGeneratorVerdict, parseReviewerVerdict, repairInstruction } from "@contexts/generation/domain/verdict-validate.ts";
+import { parseVerdict } from "@contexts/generation/domain/verdict-parse.ts";
 import { ReviewPortAdapter } from "@contexts/generation/infrastructure/adapters/review-port.adapter";
 import { VerdictParserAdapter } from "@contexts/generation/infrastructure/verdict-parser.adapter";
 import type { PromptRenderingPort } from "@contexts/generation/application/ports/prompt-rendering.port";

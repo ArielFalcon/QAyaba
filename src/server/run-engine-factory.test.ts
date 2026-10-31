@@ -792,7 +792,7 @@ test("the composed RepairPort drives GenerateTestsUseCase's generator-contract-c
         promptCount++;
         if (promptCount === 1) {
           /* Malformed generator output: no closing verdict JSON with a `specs` array at all —
-             checkGeneratorVerdict (src/integrations/verdict-validate.ts) must reject this.
+             checkGeneratorVerdict (qa-engine/src/contexts/generation/domain/verdict-validate.ts) must reject this.
            */
           return "I wrote the tests but forgot to emit the closing JSON verdict.";
         }

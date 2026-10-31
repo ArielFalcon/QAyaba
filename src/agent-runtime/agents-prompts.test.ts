@@ -18,8 +18,7 @@ import { ASSEMBLED_ARTIFACT_NAMES, buildPrompt } from "@contexts/generation/infr
 import { ANTI_WEAKENING_RULE, EFFORT_NO_OP_CLAUSE, OBJECTIVE_QUESTION, buildContextTask } from "@contexts/generation/infrastructure/prompt-builders/task-builders";
 import { MILESTONE_OUTCOME_PHRASES } from "@contexts/generation/infrastructure/prompt-builders/generator-renderers";
 import { GENERATION_END } from "@kernel/generation-end";
-import { parseVerdict } from "../integrations/verdict-parse";
-import { checkGeneratorVerdict } from "../integrations/verdict-validate";
+import { checkGeneratorVerdict, parseVerdict } from "@contexts/generation/application/index";
 import { RUN_MODES } from "../types";
 
 /* The roster is an input here: window budgets resolve from the roster fixture, never the deployable agents/opencode.json. */

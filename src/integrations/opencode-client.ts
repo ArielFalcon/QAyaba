@@ -36,7 +36,7 @@ export { activityRouter, registerRunSession, unregisterRunSession, startActivity
 export type { LiveActivity };
 
 /* Re-export so control-plane importers keep resolving extractJsonObjects/parseVerdict here. */
-import { extractJsonObjects, parseVerdict } from "./verdict-parse";
+import { extractJsonObjects, parseVerdict } from "@contexts/generation/application/index";
 import { causeChain } from "../util/net";
 export { extractJsonObjects, parseVerdict };
 

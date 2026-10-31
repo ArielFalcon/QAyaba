@@ -24,11 +24,10 @@ import type { AgentRuntimePort } from "@kernel/ports/agent-runtime.port.ts";
 import { providerConfig } from "../src/agent-runtime/config.ts";
 import { AGENT_NAME_FOR_ROLE, type AgentRole } from "../src/agent-runtime/types.ts";
 import { askAssistant, type AgentDeps } from "../src/integrations/opencode-client.ts";
-import { repairInstruction } from "../src/integrations/verdict-validate.ts";
 import { buildRunChatContext, buildRunContext } from "../src/server/chat.ts";
 import { LlmProfileProposerAdapter } from "../src/server/onboarding/llm-profile-proposer.adapter.ts";
 import type { RunRecord } from "../src/types.ts";
-import { PROMPT_HEADINGS } from "@contexts/generation/application/index.ts";
+import { PROMPT_HEADINGS, repairInstruction } from "@contexts/generation/application/index.ts";
 import { DIMENSIONS, MATRIX_STEP_LIMIT, allValidSpecs, buildInput, cellName, type CellSpec } from "./prompt-contract-matrix.ts";
 import { PatternRedactionAdapter } from "../qa-engine/src/shared-infrastructure/redaction/pattern-redaction.adapter.ts";
 

@@ -1,4 +1,4 @@
-/* The engine adapter over this shell's verdict parsers: what the run flow receives is what the parsers read, bounded and redacted. */
+/* The engine adapter over the context's verdict parsers: what the run flow receives is what the parsers read, bounded and redacted. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -6,8 +6,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { VerdictParserAdapter } from "@contexts/generation/infrastructure/verdict-parser.adapter";
 import { GENERATION_NOTE_MAX_CHARS } from "@contexts/generation/application/index";
-import { parseVerdict } from "./verdict-parse";
-import { parseReviewerVerdict } from "./verdict-validate";
+import { parseVerdict } from "@contexts/generation/domain/verdict-parse.ts";
+import { parseReviewerVerdict } from "@contexts/generation/domain/verdict-validate.ts";
 
 function makeRealAdapter(): VerdictParserAdapter {
   return new VerdictParserAdapter({ parseVerdict, parseReviewerVerdict });

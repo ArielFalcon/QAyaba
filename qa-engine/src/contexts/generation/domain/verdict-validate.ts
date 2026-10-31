@@ -1,10 +1,8 @@
-
-
 import { z } from "zod";
-import { CorrectionEntrySchema, GeneratorVerdictSchema, ReviewerVerdictSchema, type CorrectionEntry } from "../orchestrator/schemas";
-import { lastJsonMatching, isClosingVerdict } from "./verdict-parse";
-import { GRAVE_TAGS } from "@kernel/error-class";
-import { NOOP_KIND } from "@kernel/noop-kind";
+import { CorrectionEntrySchema, GeneratorVerdictSchema, ReviewerVerdictSchema, type CorrectionEntry } from "./verdict-schemas.ts";
+import { lastJsonMatching, isClosingVerdict } from "./verdict-parse.ts";
+import { GRAVE_TAGS } from "@kernel/error-class.ts";
+import { NOOP_KIND } from "@kernel/noop-kind.ts";
 
 
 /*

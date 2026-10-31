@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { checkGeneratorVerdict, parseReviewerVerdict } from "./verdict-validate";
-import { parseVerdict } from "./verdict-parse";
+import { checkGeneratorVerdict, parseReviewerVerdict } from "@contexts/generation/domain/verdict-validate.ts";
+import { parseVerdict } from "@contexts/generation/domain/verdict-parse.ts";
 
 /* Narration holds braces that are not JSON; the closing block that follows must still be found by every verdict reader. */
 const NARRATION = "I will write `async ({ page }) => {` and then the helper {name, value} to check the form.\n";
