@@ -1,4 +1,5 @@
 import { test, type TestContext } from "node:test";
+import { countInjectedResponses } from "@contexts/objective-signal/infrastructure/fault-injection-counter-reader";
 import type { ContextHealRunRequest } from "@contexts/run-orchestration/application/index";
 import { buildAppCatalog, buildPublishWorkspace } from "./engine-root";
 import assert from "node:assert/strict";
@@ -1224,6 +1225,11 @@ test("the mutation pass runs under qa.changeCoverage.bundleMutation: on by defau
   assert.equal(mutationOf(withCoverage("factory-mutation-production", {}, false)), "BundleMutationOracleAdapter");
   assert.equal(mutationOf(withCoverage("factory-mutation-signal", { bundleMutation: "signal" }, true)), "BundleMutationOracleAdapter");
   assert.equal(mutationOf(withCoverage("factory-mutation-off", { bundleMutation: "off" }, false)), undefined);
+});
+
+test("the mutation pass counts the mutated responses with the fault-injection counter reader, so a mutant that reached a page is judged", () => {
+  const mutation = buildEngineRootDeps(cfg("factory-mutation-counter"), { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" }).objectiveSignal.mutation;
+  assert.equal((mutation as unknown as { countMutated: unknown }).countMutated, countInjectedResponses);
 });
 
 test("qa.valueOracle no longer switches the mutation pass", () => {

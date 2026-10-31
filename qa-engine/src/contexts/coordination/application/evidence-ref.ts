@@ -1,4 +1,4 @@
-/* Opaque handle to a pipeline fact. Lets CoordinationDecision.evidence exist without duplicating OpencodeRunInput. */
+/* Opaque handle to a pipeline fact: a reference to evidence the run holds, without duplicating OpencodeRunInput. */
 export type EvidenceKind =
   | "change-analysis"
   | "generation"

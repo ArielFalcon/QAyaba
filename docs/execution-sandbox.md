@@ -15,8 +15,8 @@ environment, or with open network. This document is how that is enforced and how
 | **Files** | Reading the API token, the auth material, the app configs, another repo's mirror; writing the orchestrator's code and config or the mirror it runs in | `bin/container-entrypoint.sh`, the boot check (`src/server/file-boundary-check.ts`, `process-sandbox/file-boundary.ts`), `mirror-access.ts`, `exec-workdir.ts` |
 | **Network** | Exfiltrating over the network, reaching the control-plane API or other containers | `qa-engine/src/shared-infrastructure/egress/`, `bin/egress-init.sh` |
 
-A new spawn site cannot bypass the first: `npm run arch:check` fails on any module of `qa-engine/src` or `src` that
-imports `child_process` outside the launcher, the modules that start only trusted binaries (git, chown, iptables) and
+A new spawn site cannot bypass the first: `npm run arch:check` fails on any module of `qa-engine/src`, `src` or `scripts/` that
+imports `child_process` outside the launcher (a script that spawns is repository tooling only when it is on the frozen list `qa-engine/.dependency-cruiser-tooling-spawners.json`, each with its reason, which may only shrink), the modules that start only trusted binaries (git, chown, iptables) and
 three named shell sites (the mirror's git runner, the engine factory's hardened git calls and the boot probe that runs
 as the sandbox uid).
 
