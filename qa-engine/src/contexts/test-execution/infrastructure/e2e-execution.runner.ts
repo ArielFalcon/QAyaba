@@ -27,6 +27,7 @@ import { harvestSpanObserver } from "./harvest-spans.ts";
 import type { OffLoopExecutor } from "../../../shared-infrastructure/worker/off-loop-executor.ts";
 import type { TelemetryPort } from "../../../shared-kernel/telemetry/telemetry.port.ts";
 import { purposeOfExecution, type ExecPurpose } from "../../../shared-kernel/exec-purpose.ts";
+import { conditionsAttributes, executionConditions, type ExecutionConditions } from "../../../shared-kernel/execution-conditions.ts";
 import { readObservations } from "./observation-reader.ts";
 import type { ObservedPage } from "@contexts/objective-signal/application/index.ts";
 import { activeExecScope } from "../../../shared-infrastructure/process-sandbox/exec-scope.ts";
@@ -104,6 +105,8 @@ export interface E2eExecuteOptions {
   countWrites?: boolean;
   /* What the execution is for, named in the trace. Absent, the shape of the request tells (a mutant, an observation, a counted run_spec, the cleanup pass), and anything else is the suite. */
   purpose?: ExecPurpose;
+  /* When the run signed in the session the child is given (wall-clock ms), so its age at the child's start is recorded. Absent: the run did not say. */
+  session?: { signedInAt: number };
   /* Run as the dedicated cleanup pass: the child is handed PW_CLEANUP=1, which the seed's cleanup.spec.ts needs to do anything (it skips otherwise), and `namespace` is then the BASE data prefix to clean. */
   cleanupPass?: boolean;
 }
@@ -150,6 +153,8 @@ export interface E2eRunOutput {
   /* How the child ended, when the runner knows: its exit status, or the signal that ended it (then there is no status). A runner that tells neither is not accused of anything. */
   exitCode?: number;
   signal?: string;
+  /* The conditions the spec child ran under (shared-kernel/execution-conditions.ts). Absent from a runner that does not build them. */
+  conditions?: ExecutionConditions;
 }
 
 /* The app's declared data state (dev.dataState): per route, the selector that shows its result count. The failure capture reads it at the failure point, with the route matching the Context Pack's capture uses. */
@@ -179,6 +184,8 @@ export interface E2eExecuteDeps {
     cleanupPass?: boolean;
     /** What the execution is for, named on the spans of its children. Absent: told by the shape of the request. */
     purpose?: ExecPurpose;
+    /** When the run signed in the session the child is given (wall-clock ms). Absent: the run did not say. */
+    session?: { signedInAt: number };
     signal?: AbortSignal;
     timeoutMs?: number;
     onEvent?: (ev: StreamEvent) => void;
@@ -221,6 +228,8 @@ export interface E2eRunResult {
   loadErrors?: SpecLoadError[];
   /* The page each case that ran ended on, when the run was asked to observe and every observation file could be read (never a part of them). */
   observations?: ObservedPage[];
+  /* The conditions the spec child ran under; absent when the runner did not say (a stopped run, a runner that builds none). */
+  conditions?: ExecutionConditions;
 }
 
 /* Why a report that says every test passed is not believed, or undefined when how the child ended gives no reason to doubt it. Both the status and the signal come from the process, never from the report or the logs, so they are safe to say. */
@@ -303,6 +312,7 @@ export async function runE2E(
     ...(opts.mutant !== undefined ? { mutant: opts.mutant } : {}),
     ...(opts.observe ? { observe: true } : {}),
     ...(opts.purpose ? { purpose: opts.purpose } : {}),
+    ...(opts.session ? { session: opts.session } : {}),
     /* No project unless one is configured: the repo owns its playwright.config.ts, so every project it defines runs. The seed keeps its login setup project out of a suite run itself (it is defined only under PW_AUTH_SETUP). */
     project: opts.project,
     testIdAttribute: opts.testIdAttribute,
@@ -343,8 +353,10 @@ export async function runE2E(
   const { report, logs, ran } = out;
   /* The ledger is read before any early return. How many tests it must cover is what the run says it ran: the report's executed tests for a run that reported, the tests that began for one that did not (stopped, crashed, no report); a ledger short of that has lost a test, so the count is unknown (a test that ended skipped may have left none, which the count allows for by number, not by name: the ledger carries no title) and the caller charges the whole cap (see readDevWrites). */
   const ledger = opts.countWrites ? readDevWrites(failureCaptureDir, failureCaptureRoot, controls) : undefined;
-  const counted = (result: E2eRunResult, tests: number, skipped = 0): E2eRunResult =>
-    ledger === undefined || ledger.files + skipped < tests ? result : { ...result, devWrites: ledger.writes, ...(ledger.unfinished > 0 ? { unfinishedTests: ledger.unfinished } : {}), ...(ledger.requests.length > 0 ? { devWriteRequests: ledger.requests } : {}), ...(ledger.exempt.length > 0 ? { controlRequests: ledger.exempt } : {}) };
+  const counted = (bare: E2eRunResult, tests: number, skipped = 0): E2eRunResult => {
+    const result = out.conditions ? { ...bare, conditions: out.conditions } : bare;
+    return ledger === undefined || ledger.files + skipped < tests ? result : { ...result, devWrites: ledger.writes, ...(ledger.unfinished > 0 ? { unfinishedTests: ledger.unfinished } : {}), ...(ledger.requests.length > 0 ? { devWriteRequests: ledger.requests } : {}), ...(ledger.exempt.length > 0 ? { controlRequests: ledger.exempt } : {}) };
+  };
 
   /* Single sanitizeText pass: a separate containsSecrets() pre-check is redundant with this SAME detection result — the warn fires under the exact same condition as before, just derived from one call instead of two. */
   const sanitized = sanitizeText(logs);
@@ -1009,7 +1021,7 @@ export function createDefaultE2eExecuteDeps(
       const dir = exec.allocDir("failures", ["dumps"]);
       return { dir: join(dir, "dumps"), root: exec.workDir(), dispose: () => { try { rmSync(dir, { recursive: true, force: true }); } catch { /* best-effort */ } } };
     },
-    runSuite: ({ dir, baseUrl, namespace, geolocation, dataState, testIdAttribute, mutant, observe, project, specFiles, retries, grep, countWrites, cleanupPass, purpose, signal, timeoutMs, onEvent, onChildClosed, failureCaptureDir, onControlRead }) =>
+    runSuite: ({ dir, baseUrl, namespace, geolocation, dataState, testIdAttribute, mutant, observe, project, specFiles, retries, grep, countWrites, cleanupPass, purpose, session, signal, timeoutMs, onEvent, onChildClosed, failureCaptureDir, onControlRead }) =>
       new Promise((resolve, reject) => {
         /* The specs to run, as a file the orchestrator writes (root-owned, read-only to the sandbox): the child is told which files by an exact list, never by a pattern. */
         const testListPath = specFiles !== undefined && specFiles.length > 0 ? exec.writeScript("spec-list.txt", specListContent(specFiles)) : undefined;
@@ -1081,12 +1093,28 @@ export function createDefaultE2eExecuteDeps(
           : undefined;
         if (onAbort) signal!.addEventListener("abort", onAbort, { once: true });
 
+        /* The conditions the spec child runs under, built once here from what it is handed, for its span and for the caller. */
+        let conditions: ExecutionConditions | undefined;
         const startSuite = (): void => {
+          const childPurpose = purposeOfExecution({ ...(purpose ? { purpose } : {}), ...(mutant !== undefined ? { mutant } : {}), ...(observe ? { observe } : {}), ...(countWrites ? { countWrites } : {}), ...(cleanupPass ? { cleanupPass } : {}) });
+          conditions = executionConditions({
+            purpose: childPurpose,
+            instrumentation: { coverage: !countWrites && !cleanupPass, observe: observe === true, route: mutant !== undefined && mutant !== "", writeCounter: countWrites === true },
+            ...(retries !== undefined ? { retries } : {}),
+            ...(specFiles !== undefined ? { specFiles } : {}),
+            ...(grep !== undefined ? { grep } : {}),
+            processTimeoutMs: ms,
+            ...(session ? { session } : {}),
+            ...(geolocation ? { geolocation } : {}),
+            namespace,
+            startedAt: Date.now(),
+          });
           const child = exec.spawn("npx", playwrightArgs(reporterPath, project, testListPath, join(work, "results"), { retries, grep }), {
             cwd: dir,
             profile: "suite",
             commandClass: "playwright-test",
-            purpose: purposeOfExecution({ ...(purpose ? { purpose } : {}), ...(mutant !== undefined ? { mutant } : {}), ...(observe ? { observe } : {}), ...(countWrites ? { countWrites } : {}), ...(cleanupPass ? { cleanupPass } : {}) }),
+            purpose: childPurpose,
+            attrs: conditionsAttributes(conditions),
             namespace,
             ...(geolocation ? { geolocation } : {}),
             extraEnv: { ...sharedEnv, PLAYWRIGHT_JSON_OUTPUT_NAME: jsonPath, ...(cleanupPass ? { PW_CLEANUP: "1" } : {}), ...(countWrites ? { PW_COUNT_DEV_WRITES: "1", PW_COVERAGE: "0" } : {}), ...(mutant ? { PW_MUTANT: mutant } : {}), ...(observe ? { PW_OBSERVE: "1" } : {}), ...(failureCaptureDir && dataState ? { PW_DATA_STATE: JSON.stringify(dataState) } : {}) },
@@ -1111,7 +1139,7 @@ export function createDefaultE2eExecuteDeps(
               exited();
               if (read === undefined) return;
               const refusal = !read.ran && "reason" in read ? `\n[qa] the Playwright report was not read (${read.reason}); this run has no result.` : "";
-              settle(() => resolve({ report: read.ran ? read.report : {}, logs: stderr.text() + refusal, ran: read.ran, exitCode: code ?? undefined, ...(signal ? { signal } : {}) }));
+              settle(() => resolve({ report: read.ran ? read.report : {}, logs: stderr.text() + refusal, ran: read.ran, exitCode: code ?? undefined, ...(signal ? { signal } : {}), ...(conditions ? { conditions } : {}) }));
             });
           });
         };

@@ -32,4 +32,6 @@ export interface ExecutionOpts {
   namespace?: string;
   /** What the execution is for, for the trace. Absent, the shape of the request tells (a counted run is a run_spec call) and anything else is the suite. */
   purpose?: ExecPurpose;
+  /** When the run signed in the session the execution is given (wall-clock ms): its age at the start is recorded with the execution's conditions. Absent: the run did not say. */
+  session?: { signedInAt: number };
 }

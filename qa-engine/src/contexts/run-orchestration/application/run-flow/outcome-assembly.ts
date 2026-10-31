@@ -126,6 +126,7 @@ export function toRunOutcome(
   const { input, deps } = ctx;
   const coordination = ctx.host.coordination();
   const sandbox = ctx.host.sandboxSignal();
+  const executions = ctx.host.executions();
   const servedVersion = ctx.host.servedVersion();
   const lessonsTally = ctx.host.lessons();
   const { lessonsDelivered: delivered = [], runSpecFailureReads: _reads, specPages = [], ...coordinationSignal } = coordination ?? { flows: 0, delivered: 0, incomplete: 0 };
@@ -192,6 +193,7 @@ export function toRunOutcome(
       ...(extra?.noop !== undefined ? { noop: extra.noop } : {}),
       ...(extra?.causal !== undefined ? { causal: extra.causal } : {}),
       ...(extra?.coverageByCandidate !== undefined ? { coverageByCandidate: extra.coverageByCandidate } : {}),
+      ...(executions ? { executions } : {}),
       ...(coordination ? { coordination: coordinationSignal } : {}),
     },
     ...(input.purpose !== undefined || extra?.note !== undefined ? { note: [input.purpose !== undefined ? `[${input.purpose}]` : undefined, extra?.note].filter((part) => part !== undefined).join(" ") } : {}),

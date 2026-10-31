@@ -2,6 +2,7 @@
  * How a run ends, through `finalizeRun` alone: each end becomes a result and does to the working copy, the run history, publication
  * and learning exactly what its reason calls for. The run-end table drives whole runs; this drives each end without one.
  */
+import { runExecutions } from "@contexts/run-orchestration/application/run-flow/run-executions.ts";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Sha } from "@kernel/sha.ts";
@@ -48,7 +49,7 @@ function context(opts: { mode?: RunQaInput["mode"]; mirrorDir?: string | undefin
   } as unknown as RunQaUseCaseDeps;
   const clock = { now: () => 0 };
   const spans = new PhaseSpans({ telemetry: new NoopTelemetry(), secrets: { redact: (text: string) => text } as never, app: "demo" });
-  const trail = { phases: new RunPhaseCursor(clock, spans), spans };
+  const trail = { phases: new RunPhaseCursor(clock, spans), spans, executions: runExecutions() };
   const state = initialRunState();
   const mirrorDir = "mirrorDir" in opts ? opts.mirrorDir : MIRROR;
   const cycleBudget = CycleBudget.derive({ maxRetries: cfg.maxRetries });
@@ -69,6 +70,7 @@ function context(opts: { mode?: RunQaInput["mode"]; mirrorDir?: string | undefin
       lessons: () => undefined,
       sandboxRefused: () => false,
       sandboxSignal: () => undefined,
+      executions: () => undefined,
     } as unknown as RunContext["host"],
   };
   return { ctx, calls, state };

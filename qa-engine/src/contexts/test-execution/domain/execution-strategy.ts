@@ -1,6 +1,7 @@
 import type { RunVerdict } from "@kernel/run-verdict.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 import type { ExecPurpose } from "@kernel/exec-purpose.ts";
+import type { ExecutionConditions } from "@kernel/execution-conditions.ts";
 import type { DevWriteRequest } from "./dev-write-request.ts";
 import type { SpecLoadError } from "./spec-load-error.ts";
 import type { SkippedTest } from "./skipped-test.ts";
@@ -26,6 +27,8 @@ export interface ExecutionRequest {
   countWrites?: boolean;
   /** What the execution is for, for the trace. */
   purpose?: ExecPurpose;
+  /** When the run signed in the session the execution is given (wall-clock ms). */
+  session?: { signedInAt: number };
   signal?: AbortSignal;
   timeoutMs?: number;
   testIdAttribute?: string;
@@ -52,4 +55,6 @@ export interface ExecutionResult {
   controlRequests?: DevWriteRequest[];
   /** What the report says stopped a spec from loading, relative to the spec directory. Present only on a run that executed no test. */
   loadErrors?: SpecLoadError[];
+  /** The conditions the execution ran under (shared-kernel/execution-conditions.ts). Absent: the runner did not say. */
+  conditions?: ExecutionConditions;
 }

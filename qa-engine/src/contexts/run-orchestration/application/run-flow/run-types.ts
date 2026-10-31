@@ -3,6 +3,7 @@
  * use case so the run flow's modules can name them without importing the use case that drives them.
  */
 
+import type { RunExecutions } from "./run-executions.ts";
 import type { Sha } from "@kernel/sha.ts";
 import type { ChangeSet } from "@kernel/change-set.ts";
 import type { RunOutcome } from "@kernel/run-outcome.ts";
@@ -373,4 +374,6 @@ export interface RunTrail {
   geolocation?: GeolocationHandle;
   /** The coordinated pass kept open for the reviewer's corrections: released by runInScope however the run ends. */
   coordinatedPass?: CoordinatedPass;
+  /** The executions of the run's suite and the session they are given. */
+  executions: RunExecutions;
 }

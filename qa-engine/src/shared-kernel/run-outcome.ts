@@ -12,6 +12,7 @@ import type { DataContradictionGateSignal } from "./data-contradiction.ts";
 import type { ServedVersionSignal } from "./served-version.ts";
 import type { LessonsSignal } from "./lessons-signal.ts";
 import type { ObservedDifference } from "./observed-difference.ts";
+import type { ExecutionsSignal } from "./execution-conditions.ts";
 
 export type ErrorClass = string | null;
 
@@ -140,6 +141,8 @@ export interface RunOutcome {
     ambientDataState?: { cases: number; pages: string[]; arms: number };
     /* How the run's regeneration acceptance spent its proof ledger: how many regenerations were accepted (and how many of those reused a closed-loop proof instead of executing), how many were rejected, and whether the per-run execution cap was hit. Persist-only; never read by decide/verdict/gate/publish. */
     integrity?: { acceptances: number; rejected: number; proofReused: number; capHit: boolean };
+    /* The executions of the run's suite that went through the run's execution port, in the order they ran, each with the purpose, kind, namespace, contract digest, the conditions it added to the contract, its retries and spec files, and the age of the session it was given (shared-kernel/execution-conditions.ts); the first MAX_RECORDED_EXECUTIONS, `omitted` the rest. Absent when none reported its conditions. Persist-only: it reads nothing back into a verdict. */
+    executions?: ExecutionsSignal;
   };
   /* Human-readable terminal reason. Absent means no diagnostic was captured — never a fabricated empty string. */
   note?: string;

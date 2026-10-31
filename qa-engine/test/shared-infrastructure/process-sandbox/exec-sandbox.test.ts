@@ -469,3 +469,24 @@ test("a scope with no deadline, or one not armed yet, bounds no child", () => {
     rmSync(h.root, { recursive: true, force: true });
   }
 });
+
+test("the attributes a caller gives a child are on the child's span beside the launcher's own", async () => {
+  const { NoopTelemetry } = await import("../../../src/shared-kernel/telemetry/noop-telemetry.ts");
+  const opened: Array<{ name: string; attrs: Record<string, unknown> }> = [];
+  class Recording extends NoopTelemetry {
+    override startSpan(name?: string, opts?: { attrs?: Record<string, unknown> }) {
+      opened.push({ name: name ?? "", attrs: { ...(opts?.attrs ?? {}) } });
+      return super.startSpan(name, opts as never);
+    }
+  }
+  const h = harness({ telemetry: new Recording() });
+  try {
+    h.port.spawn("npx", ["playwright", "test"], { cwd: "/m", profile: "suite", commandClass: "playwright-test", purpose: "suite", attrs: { "qayaba.exec.contract.digest": "abc", "qayaba.exec.contract.deviations": "none" }, scope: h.scope });
+    const span = opened.find((s) => s.name === "qayaba.exec");
+    assert.equal(span?.attrs["qayaba.exec.contract.digest"], "abc");
+    assert.equal(span?.attrs["qayaba.exec.contract.deviations"], "none");
+    assert.equal(span?.attrs["qayaba.exec.purpose"], "suite");
+  } finally {
+    rmSync(h.root, { recursive: true, force: true });
+  }
+});

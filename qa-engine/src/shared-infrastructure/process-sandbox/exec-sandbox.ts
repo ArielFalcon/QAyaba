@@ -14,6 +14,7 @@ import { ProcessKillAdapter } from "./process-kill.adapter.ts";
 import type { ProcessKillPort } from "../../shared-kernel/process-sandbox/process-kill.port.ts";
 import { allocWorkSubdir, stageAuthMaterial, writeWorkScript } from "./exec-workdir.ts";
 import type { ExecPurpose } from "../../shared-kernel/exec-purpose.ts";
+import type { Attrs } from "../../shared-kernel/telemetry/attribute-registry.ts";
 import { sandboxSpawnOptions, type Sandbox } from "./sandbox.ts";
 import { SandboxResidueError, liveSandboxChildren, trackSandboxChild, type SandboxReaper } from "./sandbox-reaper.ts";
 
@@ -89,6 +90,8 @@ export interface ExecSpawnOptions {
   /* What a Playwright child was run for (a whole suite, a run_spec call, a control load, a mutant's re-run...) and the data namespace it runs under, for its span: the command class cannot tell them apart. Absent: neither is recorded. */
   purpose?: ExecPurpose;
   namespace?: string;
+  /* More attributes of the child's span, from the caller (the conditions a Playwright child runs under). Absent: none. */
+  attrs?: Attrs;
   /* The browser position a suite or login child opens pages with. Absent: the seed's default. */
   geolocation?: GeoPoint;
   /* The account, honored by the login profile alone. */
@@ -346,6 +349,7 @@ function openExecSpan(telemetry: TelemetryPort, scope: RunScope, options: ExecSp
         ...(options.purpose ? { "qayaba.exec.purpose": options.purpose } : {}),
         ...(options.namespace ? { "qayaba.exec.namespace": options.namespace } : {}),
         ...(options.geolocation ? { "qayaba.geo.lat": options.geolocation.latitude, "qayaba.geo.lng": options.geolocation.longitude } : {}),
+        ...options.attrs,
       },
     });
     const opened = openDeniedWindow(scope);

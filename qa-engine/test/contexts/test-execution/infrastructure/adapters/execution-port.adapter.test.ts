@@ -18,7 +18,7 @@ import type { E2eExecuteOptions } from "@contexts/test-execution/infrastructure/
 const E2E_EXECUTE_OPTIONS_ALL_FIELDS = {
   baseUrl: true, namespace: true, onCase: true, onRunning: true, onDiscovered: true,
   signal: true, timeoutMs: true, project: true, testIdAttribute: true,
-  specFiles: true, retries: true, grep: true, countWrites: true, purpose: true, cleanupPass: true, mutant: true, observe: true,
+  specFiles: true, retries: true, grep: true, countWrites: true, purpose: true, session: true, cleanupPass: true, mutant: true, observe: true,
 } satisfies Record<keyof E2eExecuteOptions, true>;
 
 const E2E_EXECUTE_OPTIONS_ALLOWLIST: Record<string, string> = {
@@ -30,7 +30,7 @@ const E2E_EXECUTE_OPTIONS_ALLOWLIST: Record<string, string> = {
 };
 
 test("E2eExecuteOptions' own field list matches the allowlist + ExecutionPortAdapter's mapped set exactly (retired seam-parity block (c))", () => {
-  const mapped = ["onCase", "onRunning", "onDiscovered", "signal", "timeoutMs", "project", "testIdAttribute", "specFiles", "retries", "grep", "countWrites", "purpose"];
+  const mapped = ["onCase", "onRunning", "onDiscovered", "signal", "timeoutMs", "project", "testIdAttribute", "specFiles", "retries", "grep", "countWrites", "purpose", "session"];
   const allFieldNames = Object.keys(E2E_EXECUTE_OPTIONS_ALL_FIELDS).sort();
   const accountedFor = [...new Set([...mapped, ...Object.keys(E2E_EXECUTE_OPTIONS_ALLOWLIST)])].sort();
   assert.deepEqual(accountedFor, allFieldNames, "every E2eExecuteOptions field must be either mapped by ExecutionPortAdapter or allowlisted with a reason");

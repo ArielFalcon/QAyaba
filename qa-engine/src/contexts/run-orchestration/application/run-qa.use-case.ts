@@ -37,6 +37,7 @@ import type { WorkspaceHandle } from "@contexts/workspace-and-publication/applic
 import { initialRunState } from "./run-flow/run-state.ts";
 import { recordCoordination, recordProof, recordRunFact } from "./run-flow/reducers.ts";
 import { createRunServices } from "./run-flow/run-services.ts";
+import { runExecutions } from "./run-flow/run-executions.ts";
 import type { RunContext, RunHost, WorkspaceRunContext } from "./run-flow/run-context.ts";
 import { measuresCoverage } from "./run-flow/phases/coverage.steps.ts";
 import { remeasuresStaleCoverage } from "./run-flow/phases/review.steps.ts";
@@ -121,7 +122,7 @@ export class RunQaUseCase {
   private trailOf(input: RunQaInput, secrets: RedactionScope): RunTrail {
     const spans = new PhaseSpans({ telemetry: this.telemetry, secrets, app: input.app });
     const phases = new RunPhaseCursor(this.deps.phaseClock ?? SYSTEM_PHASE_CLOCK, spans);
-    return { phases, spans };
+    return { phases, spans, executions: runExecutions() };
   }
 
   /* The run's state as it begins: what the generation decides about the reviewer is known from the input and the configuration. */
@@ -385,7 +386,12 @@ export class RunQaUseCase {
       noteDeadlineArmed: () => this.noteDeadlineArmed(trail),
       redact: (text) => redactByValue(text),
       boundText: (text, maxChars, marker) => redactThenBound(text, maxChars, (seen) => this.deps.redact?.(redactByValue(seen)) ?? redactByValue(seen), marker ? { marker } : {}),
-      prepareAuth: (specDir, phase, abortSignal) => this.prepareAuth(specDir, phase, abortSignal),
+      prepareAuth: async (specDir, phase, abortSignal) => {
+        const prepared = await this.prepareAuth(specDir, phase, abortSignal);
+        /* A session the run itself signed in: every execution after it is told when, and records its age. */
+        if (this.deps.authSession && this.deps.authContext && !("failed" in prepared) && !("precondition" in prepared)) trail.executions.signedIn(Date.now());
+        return prepared;
+      },
       replaceRestoredLogin: (workspace, abortSignal) => this.replaceRestoredLogin(workspace, abortSignal),
       announceSuite: (text, level) => this.announceSuite(text, level),
       announcePrecondition: (failure, action, phase) => this.announcePrecondition(failure, action, phase),
@@ -395,8 +401,13 @@ export class RunQaUseCase {
       lessons: () => state.run.lessons,
       sandboxRefused: () => this.deps.execScope?.sandboxRefused() ?? false,
       sandboxSignal: () => this.deps.execScope?.sandboxSignal(),
+      executions: () => trail.executions.signal(),
     };
-    return { input, signal, trail, deps: this.deps, telemetry: this.telemetry, cfg, startedAt, cycleBudget, host };
+    /* Every execution of the run's suite goes through the run's own port, which records the conditions it ran under. */
+    const execution = trail.executions.port(this.deps.execution);
+    /* A view, not a copy: every other dependency is read from the use case's own as it stands when a step reads it. */
+    const deps = new Proxy(this.deps, { get: (target, key, receiver) => (key === "execution" ? execution : Reflect.get(target, key, receiver)) });
+    return { input, signal, trail, deps, telemetry: this.telemetry, cfg, startedAt, cycleBudget, host };
   }
 
   /* Walks the step tables and finalizes the end they reach. */

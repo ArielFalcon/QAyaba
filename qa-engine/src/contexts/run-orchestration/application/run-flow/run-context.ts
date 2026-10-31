@@ -9,6 +9,7 @@ import type { ServedVersionSignal } from "@kernel/served-version.ts";
 import type { LessonsSignal } from "@kernel/lessons-signal.ts";
 import type { WorkspaceHandle } from "@contexts/workspace-and-publication/application/index.ts";
 import type { RunServices } from "./run-services.ts";
+import type { ExecutionsSignal } from "@kernel/execution-conditions.ts";
 
 /* What the use case does for a run that is not an end: the notes it keeps on the trail, the login and suite helpers, and the ambient sandbox facts. Bound to the run. */
 export interface RunHost {
@@ -38,6 +39,8 @@ export interface RunHost {
   lessons(): LessonsSignal | undefined;
   /** Whether the launcher refused to start agent code in this run. */
   sandboxRefused(): boolean;
+  /** The executions of the run's suite and the conditions each ran under, for the persisted gate signals; absent when none reported them. */
+  executions(): ExecutionsSignal | undefined;
   /** What the run's sandbox did, for the persisted gate signals; absent when no child was started. */
   sandboxSignal(): { egress: "enforced" | "unenforced" | "not-applicable"; denied: string[] } | undefined;
 }

@@ -4,8 +4,9 @@ import type { ExecutionOpts } from "../../domain/execution.ts";
 import type { DevWriteRequest } from "../../domain/dev-write-request.ts";
 import type { SpecLoadError } from "../../domain/spec-load-error.ts";
 import type { SkippedTest } from "../../domain/skipped-test.ts";
+import type { ExecutionConditions } from "@kernel/execution-conditions.ts";
 
 export interface ExecutionPort {
   /** Bare AbortSignal or richer opts bag; absent is specDir only. */
-  execute(specDir: string, opts?: AbortSignal | ExecutionOpts): Promise<{ verdict: RunVerdict; cases: QaCase[]; skippedTests?: SkippedTest[]; logs: string; devWrites?: number; unfinishedTests?: number; devWriteRequests?: DevWriteRequest[]; controlRequests?: DevWriteRequest[]; loadErrors?: SpecLoadError[] }>;
+  execute(specDir: string, opts?: AbortSignal | ExecutionOpts): Promise<{ verdict: RunVerdict; cases: QaCase[]; skippedTests?: SkippedTest[]; logs: string; devWrites?: number; unfinishedTests?: number; devWriteRequests?: DevWriteRequest[]; controlRequests?: DevWriteRequest[]; loadErrors?: SpecLoadError[]; conditions?: ExecutionConditions }>;
 }
