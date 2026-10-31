@@ -54,7 +54,12 @@ const judges = (opts: ExecutionOpts): boolean => kindOfPurpose(purposeOfExecutio
 /* The failed cases that look like the login page: the question, never the answer. */
 const wallCases = (result: ExecutionResult): QaCase[] => (result.verdict === "pass" ? [] : result.cases.filter((c) => endedOnLoginWall([c])));
 
-export function runExecutions(): RunExecutions {
+/** What the run tells its executions' record: the DEV writes it has counted so far (its run_spec calls'), undefined when it counts none. */
+export interface RunExecutionsDeps {
+  devWrites?: () => number | undefined;
+}
+
+export function runExecutions(deps: RunExecutionsDeps = {}): RunExecutions {
   let signedInAt: number | undefined;
   const runs: ExecutionRecord[] = [];
   let omitted = 0;
@@ -67,9 +72,10 @@ export function runExecutions(): RunExecutions {
     port: (base, guard) => {
       const run = async (specDir: string, opts: AbortSignal | ExecutionOpts | undefined): Promise<ExecutionResult> => {
         const given = optsOf(opts);
+        const devWritesBefore = deps.devWrites?.();
         const result = await base.execute(specDir, signedInAt !== undefined && given.session === undefined ? { ...given, session: { signedInAt } } : opts);
         if (result.conditions) {
-          if (runs.length < MAX_RECORDED_EXECUTIONS) runs.push(recordOfExecution(result.conditions));
+          if (runs.length < MAX_RECORDED_EXECUTIONS) runs.push(recordOfExecution(result.conditions, devWritesBefore !== undefined ? { devWritesBefore } : {}));
           else omitted += 1;
         }
         return result;

@@ -124,7 +124,8 @@ export class RunQaUseCase {
   private trailOf(input: RunQaInput, secrets: RedactionScope): RunTrail {
     const spans = new PhaseSpans({ telemetry: this.telemetry, secrets, app: input.app });
     const phases = new RunPhaseCursor(this.deps.phaseClock ?? SYSTEM_PHASE_CLOCK, spans);
-    return { phases, spans, executions: runExecutions() };
+    const trail: RunTrail = { phases, spans, executions: runExecutions({ devWrites: () => trail.closedLoop?.signals().devWrites }) };
+    return trail;
   }
 
   /* The run's state as it begins: what the generation decides about the reviewer is known from the input and the configuration. */

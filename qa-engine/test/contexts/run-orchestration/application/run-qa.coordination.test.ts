@@ -29,6 +29,7 @@ import { fakeWorkspace } from "./run-flow/fake-workspace.ts";
 import { confinedSpecFiles } from "../../../../src/shared-infrastructure/spec-files.adapter.ts";
 import { primaryChangeSet } from "../../../support/change-set.ts";
 import { citingRejections } from "../../../support/cited-rejection.ts";
+import { executionConditions } from "@kernel/execution-conditions.ts";
 const INPUT: RunQaInput = { app: "demo", changeSet: primaryChangeSet("demo", Sha.of("abc1234")), sha: Sha.of("abc1234"), source: "manual", mode: "diff", target: "e2e", runId: "coord-run" };
 const PASS: QaCase[] = [{ name: "a", status: "pass", file: "flows/a.spec.ts" }, { name: "b", status: "pass", file: "flows/b.spec.ts" }];
 
@@ -867,4 +868,30 @@ test("the reviewer of a planned run is handed the change by flow under review, a
   await new RunQaUseCase(rig().deps({ changeScope, changeAnalysis, review })).run(INPUT);
   assert.equal(seen.length, 1);
   assert.equal(seen[0]?.changeView, undefined, "a run with no plan keeps the whole diff");
+});
+
+test("the run record keeps, with each execution, the DEV writes the run's run_spec calls had counted when it started", async () => {
+  const r = rig();
+  let devWrites = 0;
+  const closedLoop: ClosedLoopHandle = {
+    limits: { maxCalls: 8, perCallMs: 120_000, maxDevWrites: 20 },
+    openFlow: () => undefined,
+    sweepProbes: async () => {},
+    isClosed: async () => false,
+    signals: () => ({ calls: 2, devWrites }),
+    close: async () => {},
+  };
+  const conditions = executionConditions({ purpose: "suite", instrumentation: { coverage: false, observe: false, route: false, writeCounter: false }, processTimeoutMs: 1_000, namespace: "coord-run", startedAt: 0 });
+  const out = await new RunQaUseCase(r.deps({
+    closedLoop: { open: async () => closedLoop },
+    leadSidekicks: { coordinate: async () => {
+      devWrites = 3;
+      r.ws.write("flows/a.spec.ts");
+      return authored();
+    } },
+    execution: { execute: async () => ({ verdict: "pass", cases: PASS, logs: "", conditions }) },
+  })).run(INPUT);
+
+  assert.equal(out.decision.verdict, "pass");
+  assert.equal(r.saved.at(-1)?.gateSignals.executions?.runs[0]?.devWritesBefore, 3);
 });

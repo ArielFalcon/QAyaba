@@ -1023,12 +1023,24 @@ that catches nothing. The objective signal that breaks the circle is **change-co
 
 - **The execution contract** (RFC-0015, ADR-0023): every execution of a run's suite is **judging** (its outcome decides
   something: the verdict, a fix-loop round's adoption, a file's acceptance, a `run_spec` proof the run relies on, a mutant's kill,
-  a survivor's closure) or **measuring** (a signal only: coverage, observation). Judging executions run under one contract, one
-  value built in one place (`shared-kernel/execution-conditions.ts`) and recorded on every execution's `qayaba.exec` span
-  (`qayaba.exec.contract.digest|kind|deviations`, the session's age) and on the run record (`gateSignals.executions`). A condition
-  may differ between judging executions only when an RFC shows from the code that it cannot change a case's outcome, or when it is
-  recorded and the outcome is read only for what it does not touch (the namespace). **A judging execution never measures**
-  (`PW_COVERAGE=0`, set explicitly both ways): coverage is taken by one measurement execution (purpose `measurement`, step
+  a survivor's closure) or **measuring** (a signal only: coverage, observation). Every execution's conditions are one value built in
+  one place (`shared-kernel/execution-conditions.ts`) and recorded on its `qayaba.exec` span (`qayaba.exec.contract.digest|kind|
+  deviations`, the session's age). A condition may differ between judging executions only when an RFC shows from the code that it
+  cannot change a case's outcome, or when it is recorded and the outcome is read only for what it does not touch (the namespace).
+  **The verdict's, the fix loop's and an acceptance's executions never measure** (`PW_COVERAGE=0`, set explicitly both ways) and
+  share one digest; a mutant's re-run is judging and runs instrumented (coverage, observation and the mutant's route), like the
+  measurement execution it is judged against, since its dumps are the proof a killed mutant verifies, and a `run_spec` call adds the
+  write counter: each records what it adds as its deviations. `gateSignals.executions { runs[], omitted?, sessionChecks? }` lists, in
+  the order they ran (at most `MAX_RECORDED_EXECUTIONS`, the rest counted), every execution that goes through the run's execution
+  port: the verdict's, the fix loop's, the acceptances', the enforce re-measure's judging execution, the measurement executions, the
+  mutants' re-runs, the `-obs2` observation and the survivor closure's re-runs. Each names its purpose, kind, namespace, digest,
+  deviations, retries, the spec files it was handed (suite-relative, in the order handed to Playwright's test list, at most
+  `MAX_RECORDED_SPEC_FILES`, the rest counted in `specFilesOmitted`; `suite` for the whole suite), the session's age and the DEV
+  writes the run had counted when it started (`devWritesBefore`: the `run_spec` calls' ledger, since no other execution counts its
+  writes). A `run_spec` call is not on that list: it runs inside an author's turn through the tools endpoint, not the run's port, and
+  its executions (the spec, its control load, its cleanup pass) are on their `qayaba.exec` spans and its calls and writes on
+  `gateSignals.closedLoop`. The experiment harness's acceptance (`AcceptDeliveredSpecsUseCase`, `scripts/baseline-agent.ts`) is no
+  run: it signs no session in and keeps no record. Coverage is taken by one measurement execution (purpose `measurement`, step
   `execute-measurement`, `<runId>-measure`, coverage and observation on, retries 0) of the tests that passed, with the global time
   the coverage allowance holds; a test that passed in the verdict and failed under measurement is listed
   (`changeCoverage.measuredBy.failedOnlyUnderMeasurement`), credits nothing and is no mutant's baseline, and a measurement the

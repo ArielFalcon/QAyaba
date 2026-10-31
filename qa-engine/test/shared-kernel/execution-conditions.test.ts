@@ -1,7 +1,7 @@
 /* An execution's conditions as one value: two judging executions that differ only in what the contract records (namespace, spec set, retries, timeout) share a digest; one that adds instrumentation does not, and says what it adds. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { contractDigest, deviationsOf, executionConditions, kindOfPurpose, recordOfExecution, type ExecutionConditionsInput } from "@kernel/execution-conditions.ts";
+import { contractDigest, deviationsOf, executionConditions, kindOfPurpose, MAX_RECORDED_SPEC_FILES, recordOfExecution, type ExecutionConditionsInput } from "@kernel/execution-conditions.ts";
 
 const NONE = { coverage: false, observe: false, route: false, writeCounter: false };
 const GEO = { latitude: 40.4818, longitude: -3.3643 };
@@ -36,12 +36,13 @@ test("the session's age is counted from the run's sign-in to the start of the ch
   assert.equal(of({}).session, undefined);
 });
 
-test("a whole-suite run with the app's own retries is recorded as such; a narrowed one by its file count", () => {
+test("a whole-suite run with the app's own retries is recorded as such; a narrowed one by the spec files it was handed, in their order", () => {
   const whole = recordOfExecution(of({}));
-  const narrowed = recordOfExecution(of({ purpose: "fix-retry", specFiles: ["a.spec.ts", "b.spec.ts"], retries: 0, session: { signedInAt: 999_000 } }));
+  const narrowed = recordOfExecution(of({ purpose: "fix-retry", specFiles: ["flows/b.spec.ts", "a.spec.ts"], retries: 0, session: { signedInAt: 999_000 } }));
   assert.equal(whole.specFiles, "suite");
   assert.equal(whole.retries, "config");
-  assert.equal(narrowed.specFiles, 2);
+  assert.deepEqual(narrowed.specFiles, ["flows/b.spec.ts", "a.spec.ts"]);
+  assert.equal(narrowed.specFilesOmitted, undefined);
   assert.equal(narrowed.retries, 0);
   assert.equal(narrowed.sessionAgeMs, 1_000);
   assert.equal(narrowed.digest, whole.digest);
@@ -50,4 +51,16 @@ test("a whole-suite run with the app's own retries is recorded as such; a narrow
 test("a purpose whose outcome decides something judges; an observation only measures", () => {
   for (const purpose of ["suite", "acceptance", "fix-retry", "run-spec", "mutant"] as const) assert.equal(kindOfPurpose(purpose), "judging", purpose);
   assert.equal(kindOfPurpose("observation"), "measuring");
+});
+
+test("a spec set past the record's bound keeps its first files in order and counts the rest", () => {
+  const files = Array.from({ length: MAX_RECORDED_SPEC_FILES + 3 }, (_, i) => `flows/f${String(i).padStart(3, "0")}.spec.ts`);
+  const record = recordOfExecution(of({ specFiles: files }));
+  assert.deepEqual(record.specFiles, files.slice(0, MAX_RECORDED_SPEC_FILES));
+  assert.equal(record.specFilesOmitted, 3);
+});
+
+test("the run's DEV writes counted before an execution started are recorded with it, and absent when the run counted none", () => {
+  assert.equal(recordOfExecution(of({}), { devWritesBefore: 4 }).devWritesBefore, 4);
+  assert.equal(recordOfExecution(of({})).devWritesBefore, undefined);
 });

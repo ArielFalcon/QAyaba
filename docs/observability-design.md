@@ -327,7 +327,8 @@ Rules, from the brief §2.1 and the OTel spec:
   `.outcome` (`no-flaky-case`, `no-pass`, or the correction's `accepted`/`empty`/`rejected`/`capped`), and
   `gateSignals.flakyTriage { cases, dataInstability, timing, outcome, kept?, restored? }`. Its findings carry the `flaky`
   correction origin ("passed on retry"), counted in the lead's correction budget.
-- **Execution contract** (RFC-0015). Judging executions never measure: coverage comes from one measurement execution of the
+- **Execution contract** (RFC-0015). The verdict's, the fix loop's and an acceptance's executions never measure (a mutant's re-run
+  runs instrumented, like the measurement it is judged against): coverage comes from one measurement execution of the
   passing tests (`qayaba.exec measurement`, namespace `<runId>-measure`, coverage and observation on, retries 0, global
   timeout = what the coverage allowance holds), which is also the mutants' first unmutated observation (there is no `-obs`
   re-run; `-obs2` stays). `gateSignals.changeCoverage.measuredBy { namespace, tests, failedOnlyUnderMeasurement[] }` names it
@@ -600,12 +601,18 @@ through. It opens `qayaba.exec <profile>` (INTERNAL) at spawn and ends it on `cl
 - `qayaba.exec.command_class` (`tsc|eslint|playwright-list|playwright-test|npm-ci|login|dom-capture|browser|code-test`, a closed set taken from the call site)
 - `qayaba.exec.purpose` and `qayaba.exec.namespace` on a Playwright child: what the execution was for (`suite` the whole suite, `acceptance` a regeneration's changed spec files, `fix-retry` a fix-loop re-run, `run-spec`, `measurement` the one execution that measures coverage, `control`, `mutant`, `observation`, `cleanup`; `purposeOfExecution` in `shared-kernel/exec-purpose.ts` derives the last four from the request, the call sites name the others) and the data namespace its dumps are read under
 - on a Playwright spec child, the execution contract it ran under (RFC-0015, `shared-kernel/execution-conditions.ts`):
-  `qayaba.exec.contract.digest` (the digest of the contract's judging conditions, equal across every judging execution of a
-  run), `qayaba.exec.contract.kind` (`judging` or `measuring`), `qayaba.exec.contract.deviations` (what the execution adds to
-  the contract: `coverage`, `observe`, `route`, `write-counter`, or `none`), `qayaba.exec.retries`, `qayaba.exec.spec_files`,
-  `qayaba.exec.global_timeout_ms` and `qayaba.exec.session.age_ms` (how long before the child started the run signed the
-  session in, when it did). The run record lists the same per execution, in the order they ran, as `gateSignals.executions
-  { runs[], omitted? }`.
+  `qayaba.exec.contract.digest` (the digest of the contract's conditions: instrumentation, workers, profile, durable position;
+  equal across the verdict's, the fix loop's and the acceptances' executions, which add no instrumentation, and different for a
+  `run_spec` call, which adds the write counter, and a mutant's re-run, which adds coverage, the observation and its route),
+  `qayaba.exec.contract.kind` (`judging` or `measuring`), `qayaba.exec.contract.deviations` (what the execution adds to the
+  contract: `coverage`, `observation`, `route`, `write-counter`, or `none`), `qayaba.exec.retries`, `qayaba.exec.spec_files`
+  (how many spec files it was handed, or `suite`), `qayaba.exec.global_timeout_ms` and `qayaba.exec.session.age_ms` (how long
+  before the child started the run signed the session in, when it did). The run record lists every execution that goes through
+  the run's execution port, in the order they ran, as `gateSignals.executions { runs[], omitted?, sessionChecks? }`: each with
+  the spec files it was handed (suite-relative, in the order of Playwright's test list, at most `MAX_RECORDED_SPEC_FILES`, the
+  rest counted in `specFilesOmitted`) and the DEV writes the run had counted when it started (`devWritesBefore`, the `run_spec`
+  calls' ledger). A `run_spec` call runs through the tools endpoint, not the run's port: its executions are on their spans and
+  its calls and writes on `gateSignals.closedLoop`.
 - `process.exit.code`, `qayaba.exec.signal`, `qayaba.exec.timed_out`
 - `qayaba.reaper.killed`
 - `qayaba.egress.denied_cotemporal`: hosts denied **while this child was alive**, via a per-child

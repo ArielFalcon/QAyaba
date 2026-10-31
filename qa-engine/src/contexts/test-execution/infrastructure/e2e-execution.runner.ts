@@ -107,7 +107,7 @@ export interface E2eExecuteOptions {
   purpose?: ExecPurpose;
   /* When the run signed in the session the child is given (wall-clock ms), so its age at the child's start is recorded. Absent: the run did not say. */
   session?: { signedInAt: number };
-  /* Have the seed's coverage fixture measure (PW_COVERAGE=1). Every child is told explicitly, either way: a judging execution never measures, and a stored suite whose fixture predates this defaults to on. */
+  /* Have the seed's coverage fixture measure (PW_COVERAGE=1). Every child is told explicitly, either way: the verdict's, the fix loop's and an acceptance's executions never measure, and a stored suite whose fixture predates this defaults to on. */
   coverage?: boolean;
   /* Run only these tests (named as the coverage fixture names a dump), through the seed's mutation fixture's selection, which edits no script. Ignored with a `mutant`, which names its own. */
   tests?: readonly string[];
