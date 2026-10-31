@@ -25,7 +25,7 @@ function coverageFixture(): { body: string; options: string } {
 type Fixture = (args: { page: unknown }, use: () => Promise<void>, testInfo: unknown) => Promise<void>;
 
 /* The fixture, compiled with what it uses from its module, as one worker loads it; the source maps are attached by a stand-in that records which scripts it was asked for, and finds none when `maps` is false (a map fetch that failed). */
-function loadFixture(mapped: string[], maps = true): Fixture {
+function loadFixture(mapped: string[], maps = true, link: typeof linkSync = linkSync): Fixture {
   const js = ts.transpileModule(`const fixture = ${coverageFixture().body};`, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText;
   const attachSourceMaps = async (entries: Array<{ url?: string; map?: unknown }>) => {
     for (const entry of entries) {
@@ -33,7 +33,7 @@ function loadFixture(mapped: string[], maps = true): Fixture {
       if (maps) entry.map = { version: 3, sources: ["src/app.ts"], mappings: "AAAA" };
     }
   };
-  const deps = { createHash, linkSync, mkdirSync, renameSync, rmSync, writeFileSync, join, attachSourceMaps, coverageScriptsWritten: new Map<string, Set<string>>() };
+  const deps = { createHash, linkSync: link, mkdirSync, renameSync, rmSync, writeFileSync, join, attachSourceMaps, coverageScriptsWritten: new Map<string, Set<string>>() };
   return new Function(...Object.keys(deps), `${js}\nreturn fixture;`)(...Object.values(deps)) as Fixture;
 }
 
@@ -105,7 +105,7 @@ test("the coverage teardown has a time of its own", () => {
 });
 
 /* Two workers of one execution, each writing the scripts its pages ran: `first` writes, then `second`; each is mapped or not. */
-async function twoWorkers(first: "mapped" | "unmapped", second: "mapped" | "unmapped"): Promise<{ map: unknown; cleanup: () => void }> {
+async function twoWorkers(first: "mapped" | "unmapped", second: "mapped" | "unmapped", link: typeof linkSync = linkSync): Promise<{ map: unknown; cleanup: () => void }> {
   const cwd = mkdtempSync(join(tmpdir(), "seed-coverage-workers-"));
   const keys = ["PW_COVERAGE", "PW_NAMESPACE", "PW_CLEANUP"] as const;
   const saved = Object.fromEntries(keys.map((k) => [k, process.env[k]]));
@@ -116,7 +116,7 @@ async function twoWorkers(first: "mapped" | "unmapped", second: "mapped" | "unma
   process.chdir(cwd);
   try {
     for (const [index, kind] of [first, second].entries()) {
-      const fixture = loadFixture([], kind === "mapped");
+      const fixture = loadFixture([], kind === "mapped", link);
       const page = { coverage: { startJSCoverage: async () => {}, stopJSCoverage: async () => [structuredClone(APP)] }, request: {} };
       await fixture({ page }, async () => {}, { titlePath: ["map.spec.ts", `test ${index}`], workerIndex: index, repeatEachIndex: 0 });
     }
@@ -152,6 +152,29 @@ test("a script no worker could map is still written, once", async () => {
   const run = await twoWorkers("unmapped", "unmapped");
   try {
     assert.equal(run.map, undefined);
+  } finally {
+    run.cleanup();
+  }
+});
+
+/* A filesystem that has no hard links (a mount that refuses them): every link fails, never with "file exists". */
+const noHardLinks = ((): never => {
+  throw Object.assign(new Error("EPERM: operation not permitted, link"), { code: "EPERM" });
+}) as unknown as typeof linkSync;
+
+test("on a filesystem without hard links a script no worker could map is still written, once", async () => {
+  const run = await twoWorkers("unmapped", "unmapped", noHardLinks);
+  try {
+    assert.equal(run.map, undefined);
+  } finally {
+    run.cleanup();
+  }
+});
+
+test("on a filesystem without hard links an unmapped copy still never replaces another worker's mapped one", async () => {
+  const run = await twoWorkers("mapped", "unmapped", noHardLinks);
+  try {
+    assert.ok(run.map, "the mapped copy stands");
   } finally {
     run.cleanup();
   }

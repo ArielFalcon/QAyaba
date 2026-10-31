@@ -210,17 +210,26 @@ export const test = base.extend<QaFixtures>({
           await attachSourceMaps([...fresh.values()], page.request);
           // A script file is written whole under a temporary name and then put in place, so no reader sees half of one. Every
           // worker writes its own copy, and a copy without a map never replaces one: a mapped copy is renamed over whatever is
-          // there, an unmapped one is only linked into a free name, which fails, and is dropped, when another worker's is there.
+          // there, an unmapped one is only linked into a free name, and dropped when the link finds another worker's copy there.
+          // On a filesystem that refuses hard links, the unmapped copy is written into the free name directly instead (never over
+          // a copy that is there), so the script file still exists.
           for (const [sha256, entry] of fresh) {
             const temporary = join(dir, `${sha256}.script.${testInfo.workerIndex}.tmp`);
             const target = join(dir, `${sha256}.script.json`);
-            writeFileSync(temporary, JSON.stringify([{ url: entry.url, sha256, source: entry.source, ...(entry.map !== undefined ? { map: entry.map } : {}) }]));
+            const text = JSON.stringify([{ url: entry.url, sha256, source: entry.source, ...(entry.map !== undefined ? { map: entry.map } : {}) }]);
+            writeFileSync(temporary, text);
             if (entry.map !== undefined) renameSync(temporary, target);
             else {
               try {
                 linkSync(temporary, target);
-              } catch {
-                /* another worker's copy is in place */
+              } catch (err) {
+                if ((err as { code?: unknown }).code !== "EEXIST") {
+                  try {
+                    writeFileSync(target, text, { flag: "wx" });
+                  } catch {
+                    /* another worker's copy came in place meanwhile */
+                  }
+                }
               }
               rmSync(temporary, { force: true });
             }
