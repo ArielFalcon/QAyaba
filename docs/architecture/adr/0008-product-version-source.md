@@ -70,7 +70,7 @@ Not enforced yet. What will hold it, each named by the change that adds it:
 - A test through the engine's public seam (the run use case with a fake gate port): an app with no declared source ends with the served-version fact "unknown", never a silent ok. Added by the standalone served-version change that the investigation's audit places before the learning slice ([RFC-0001](../rfc/0001-dormant-features.md)).
 - A learning-gate test: a run without a known served version yields no lesson input, with the reason recorded (D14). Added by the learning slice ([ADR-0003](0003-learning-layer-rebuild.md)).
 
-Until those land, nothing holds this decision.
+The first test is held since `4d5bc33a`; the second waits for the learning slice. (Correction 2026-10-31: the sentence "Until those land, nothing holds this decision" holds for the learning half only.)
 
 ## Alternatives considered
 
@@ -80,3 +80,13 @@ Until those land, nothing holds this decision.
 | Keep the optional `{ sha, healthy }` endpoint as the only shape | One shape every product must build for qayaba. No configured app has built it (point 3), and the gate would still collapse "no source", "unreadable" and "another commit". As one port implementation among several it stays. |
 | Require a version and refuse runs without one | Every app would stop today, none declares one. The approved decision records "version unknown" until the product provides it. |
 | Leave the gate skipped silently | Keeps "every outcome, and any lesson, assumes DEV served the change" unrecorded. |
+
+## Implementation note
+
+Implemented in `4d5bc33a` (T19), preceded by `6fbc7a54`. What the code does, where it fills in the text above:
+
+- **States and carrier.** The closed set `undeclared`, `unreadable` (typed reason: `unreachable`, `http-status`, `malformed-body`, `no-commit`, plus the engine's own `history-unavailable`), `equal`, `behind`, `ahead`, `unrelated` is recorded on every run as `gateSignals.servedVersion` (the anchor's fact, the other repos of a run over several beside it) and on the gate phase span as `qayaba.served_version.*`. A run that ends at the gate saves no outcome, as before; its span still carries the fact.
+- **The decision lives in the engine.** The reader (`src/integrations/served-version-http.adapter.ts`, the one GET answering `{ sha, healthy }`) returns only the commit. `run-orchestration/domain/served-version.ts` names the state; `GitMirrorReadAdapter.relation` supplies the ancestry (`git merge-base --is-ancestor` in the repo's mirror, brought up to date first). A served commit the mirror does not hold is `unrelated`; a history that cannot answer is `unreadable` / `history-unavailable`, logged, and the run goes on.
+- **Waiting.** Only a run whose `source` is `webhook` waits, only while `behind`, up to the gate's existing timeout. The control API labelled its runs `webhook` as well; `6fbc7a54` makes them `manual`, so a campaign replicate or a replay never waits for a deploy.
+- **Health is a separate question.** `waitUntilHealthy` keeps the `healthy` half of the old poll: at the entry and before Playwright, a source that is read and does not report `healthy: true` is waited for until the timeout; a source that cannot be read is no evidence either way (so an unreadable source no longer ends the run at the gate, which is the point of the state). The mid-run pre-flight no longer compares the commit: a replay would otherwise pass the entry and fail there.
+- **Declaration.** `dev.versionUrl` and `services[].versionUrl` are unchanged ([ADR-0013](0013-owner-decisions-remaining-questions.md): extend, one reader first); no app configuration needs an edit. A declared source with no reader wired is a wiring error at build time.
