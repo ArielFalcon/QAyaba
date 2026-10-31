@@ -13,7 +13,7 @@ const DEPCRUISE = join(repoRoot, "node_modules", ".bin", "depcruise");
 const CONFIG_REL = join("engine", ".dependency-cruiser.cjs");
 const EXCEPTIONS_REL = join("engine", ".dependency-cruiser-shell-exceptions.json");
 
-/** Entries the frozen list holds today; a shrinking commit lowers it, raising it is a visible review event. */
+/** Entries the frozen list holds today; a shrinking commit lowers it, raising it is a visible review event. ADR-0024 records why the list is not emptied and the condition that removes each group. */
 export const SHELL_INFRASTRUCTURE_EXCEPTIONS_CEILING = 27;
 
 function treeWith(files: Record<string, string>, exceptions: string[] = []): string {

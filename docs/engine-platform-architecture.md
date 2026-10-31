@@ -166,7 +166,7 @@ Two mechanical commits, each alone: `src/` â†’ `platform/`, then `qa-engine/` â†
 
 ### Step 6: Tighten the gates
 
-- The shell exceptions list is empty: delete the file and its loading code.
+- The shell exceptions list is empty: delete the file and its loading code. [Correction 2026-10-31: not done, and not to be done by moves: [ADR-0024](architecture/adr/0024-shell-exceptions-list-stays-frozen.md) keeps the list frozen at 27 entries, which may only shrink, and records the condition that removes each group.]
 - Rename the dependency rules to the new vocabulary and add the platform's internal rule (subfolders meet only in
   `composition/`).
 - Add the retired roots and folder names to the banned terms of `npm run previous-forms:check`, so no document or comment
@@ -182,10 +182,18 @@ entries: the 11 `scripts/` entries, 13 tests of `agent-runtime/`, `persistence/`
 agent transport (`platform/agent-runtime/opencode-client.ts`), the tools endpoint's test and the composition root's mirror prune
 (`wire-app.ts`, ADR-0021's note). Not done: the rule between `entrypoints/`, `persistence/`, `telemetry/` and `agent-runtime/`
 (their imports of the loggers, the sanitizer, the stored run shapes and the history; ADR-0022 row 7 leaves open whether those
-stay shared leaves or become injected ports; deferred, see ADR-0022). Step 5 and the rest of step 6 are done: the roots are
+stay shared leaves or become injected ports; deferred, see ADR-0022). Step 5 and the rest of step 6 are done except the rule just named and the empty list (below): the roots are
 `platform/` and `engine/`, the dependency rules carry the new vocabulary (`engine-imports-nothing-from-platform`,
 `platform-public-surface`, `composition-only-from-engine-root`), and `npm run previous-forms:check` bans the retired roots
 (`retired-roots`; this document, which names them as the migration's subject, and the architecture records are exempt).
+
+The shell exceptions list is not emptied (ADR-0024, 2026-10-31). It stays frozen at 27 and only shrinks; each group leaves it
+when its own condition holds: the 11 `scripts/` entries when a context exports the operation the script performs (or the
+script moves into `platform/composition/` or is deleted); the 13 tests when the span, prompt or snapshot shape they pin is
+asserted in `engine/test/` through a recording port, or the test moves into the composition it wires; `opencode-client.ts`
+when generation exposes prompt assembly and the transport policy through its public index; the tools endpoint's test when it
+binds fakes of the lookups the endpoint declares; `wire-app.ts` when the mirror prune is built by the context's composition
+builder and handed to the root. A new module never joins the list.
 
 ## Rules for every migration commit
 
@@ -220,11 +228,20 @@ Consumers of a path to update with every move:
 ## Completion checklist
 
 - [x] `src/` and `qa-engine/` no longer exist; `platform/`, `engine/` and `agents/` are the code roots.
-- [ ] The shell exceptions list is gone and `npm run arch:check` passes with no exception.
+- [x] The shell exceptions list is frozen at its ceiling (27), only shrinks, and every entry belongs to a group with a removal
+      condition ([ADR-0024](architecture/adr/0024-shell-exceptions-list-stays-frozen.md)). The original item, "the list is
+      gone and `npm run arch:check` passes with no exception", is not met and is not planned (ADR-0024 row 1).
 - [ ] No module in `platform/` holds a decision about a run: every branch there parses, authorizes, wires, stores or
-      transports.
-- [ ] Every repository in `platform/persistence/` implements exactly one engine port.
-- [ ] No parity test remains: every type, taxonomy and sanitizer has one copy, in the engine.
+      transports. Open: T13 U8 moved the three run decisions its map found (the campaign freeze, the action row of the CLI
+      report, how a cancelled or interrupted run ends; feature document L80), but no rule or test pins the claim, so it is
+      read at each checkpoint instead of checked here.
+- [x] Every engine-port adapter in `platform/persistence/` implements exactly one engine port: `SqliteRunHistoryAdapter`,
+      `SqlitePlanSnapshotAdapter`, `SqliteSpecSnapshotAdapter`, `SqliteLessonStoreAdapter` and `HistoryEvidenceAdapter` (read
+      at 3ee3235d). The six classes of `persistence/repositories/` implement no port by design: they are the store behind
+      `getHistory()`, not adapters.
+- [x] No type, taxonomy or sanitizer has a second copy outside the engine (T36; `platform/one-copy-per-rule.test.ts` guards the
+      rules it names). `platform/composition/seam-parity.contract.test.ts` stays on purpose as a forwarding test of two seams
+      (the stored outcome, `AppConfig` to `EngineRootDeps`); it holds no copy of a type.
 - [x] `AGENTS.md` states the placement rule, and its repo map names the new roots.
 - [x] `npm run previous-forms:check` bans the old roots, and passes.
 
