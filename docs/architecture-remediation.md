@@ -222,7 +222,7 @@ One deterministic orchestrator drives a declared state machine. It computes the 
 | objective-signal | Change-coverage, causal label, change-targeted fault injection | change-analysis |
 | cross-run-learning | Error taxonomy, rule fold and governance, curriculum | Kernel |
 | workspace-and-publication | Working-copy handle, suite store, publish policy | Kernel |
-| app-catalog | App configuration, auth and login discovery | Kernel |
+| app-catalog | App configuration, auth and login discovery | Kernel; generation and test-execution for the grammar of the config values they interpret (route samples, route patterns, mutating entries) |
 | evaluation | Graders and judges over run records | Run records, read only |
 
 Rules, enforced by dependency-cruiser: `domain/` imports nothing outward; `application/` depends on ports, one file per port; a context imports another only through its `application/index.ts`; no cycles. The shell (`src/`) keeps one composition root, the control plane, the wire contract and persistence adapters, and imports the engine's canonical types instead of copying them.
