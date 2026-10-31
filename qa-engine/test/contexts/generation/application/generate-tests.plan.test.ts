@@ -104,9 +104,39 @@ test("a lead's next turn that runs out of its time is reported, not thrown", asy
   await result.lead!.dispose();
 });
 
-test("a turn that comes back without a plan closes its session at once", async () => {
+test("a turn that comes back with no readable plan keeps its session, so the lead can be asked once more for the plan in it", async () => {
+  const answers = ["I looked at the change and the pages, and what is observable on /rest", "the corrected plan"];
+  const { ports, seen } = build({ output: "" }, { specs: [], parsed: true });
+  let turn = 0;
+  ports.runtime = { openSession: async (role, cwd, opts) => {
+    seen.opened.push({ role, cwd, opts });
+    return { prompt: async (text, o) => { seen.prompts.push({ text, opts: o }); return { output: answers[turn++]! }; }, dispose: () => { seen.disposed += 1; } };
+  } };
+  ports.verdicts = { ...ports.verdicts, parseGenerator: (text) => (text === "the corrected plan" ? { specs: [], parsed: true, plan: FANOUT } : { specs: [], parsed: true }) };
+  const result = await new GenerateTestsUseCase(ports).plan(planInput());
+  assert.equal("plan" in result, false);
+  assert.equal(seen.disposed, 0, "the session outlives an answer with no plan");
+  assert.ok(result.lead, "the session comes back to its holder");
+  const again = await result.lead.askForPlan("RESTATE", { timeoutMs: 30_000 });
+  assert.deepEqual(again, { plan: FANOUT, parsed: true, timedOut: false });
+  assert.equal(seen.opened.length, 1, "the plan is asked for again in the same session");
+  assert.equal(seen.prompts[1]!.opts?.withoutWrites, true);
+  await result.lead.dispose();
+  assert.equal(seen.disposed, 1);
+});
+
+test("a turn that declares a no-op keeps its session for its holder, which closes it", async () => {
   const { ports, seen } = build({ output: "noop" }, { specs: [], parsed: true, noopReason: "nothing" });
   const result = await new GenerateTestsUseCase(ports).plan(planInput());
+  assert.equal(seen.disposed, 0);
+  await result.lead!.dispose();
+  assert.equal(seen.disposed, 1);
+});
+
+test("a turn that runs out of its time closes its session and hands none back", async () => {
+  const { ports, seen } = build({ throws: new AgentTimeoutError("timed out") }, { specs: [], parsed: true });
+  const result = await new GenerateTestsUseCase(ports).plan(planInput());
+  assert.equal(result.timedOut, true);
   assert.equal(result.lead, undefined);
   assert.equal(seen.disposed, 1);
 });

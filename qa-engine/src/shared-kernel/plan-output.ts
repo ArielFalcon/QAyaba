@@ -12,7 +12,7 @@ export interface PlanOutput {
   parsed: boolean;
   timedOut: boolean;
   turn?: AgentTurnStats;
-  /** The lead's planning session, held open when the turn came back with a plan, for the lead's review of the flows. The caller disposes it. */
+  /** The lead's planning session, held open whenever the turn answered: a refused or unreadable plan is asked about once in it, and the flows are reviewed there. The caller disposes it. */
   lead?: LeadSessionHandle;
 }
 /** The lead's planning session, held open for its next turn: asked read-only, a turn out of its time answers `timedOut`. */

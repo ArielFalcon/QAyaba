@@ -73,7 +73,7 @@ export interface PlanResult {
   timedOut: boolean;
   /** What the turn measured, when its runtime can measure a turn. */
   turn?: AgentTurnStats;
-  /** The lead's session, held open when the turn came back with a plan: the lead's next turn (its review of the flows) is asked in it, read-only like the plan. The holder disposes it. */
+  /** The lead's session, held open whenever the turn answered: the lead's next turn (a plan the run refused or could not read, asked once more; its review of the flows) is asked in it, read-only like the plan. The holder disposes it. */
   lead?: LeadSession;
 }
 
@@ -94,7 +94,8 @@ export class GenerateTestsUseCase {
    * The one turn a coordinated run asks its lead for a plan instead of specs. One prompt in one generator session, bounded by the
    * planning time, in which the agent may read and look things up but not write; no reviewer, no repair, no manifest. A turn that
    * runs out of its time is reported, not thrown (the coordinator then refuses the run: `plan-timed-out`); any other fault is thrown. A turn that
-   * came back with a plan keeps its session open (`lead`) for the lead's review of the flows; every other turn closes it.
+   * answered keeps its session open (`lead`), whatever the answer held: an answer with no readable plan is a slip the coordinator asks the lead
+   * about once, in this session, and a plan is reviewed there. A turn that timed out or faulted closes it.
    */
   async plan(input: OpencodeRunInput, opts?: GenerateOpts): Promise<PlanResult> {
     const planning = input.planning;
@@ -141,9 +142,6 @@ export class GenerateTestsUseCase {
       await dispose();
       throw err;
     }
-    /* Only a plan has a next turn to ask: anything else ends the session here. */
-    const continues = Boolean(deliverable.plan);
-    if (!continues) await dispose();
     const ask: LeadSession["ask"] = async (text, askOpts) => {
       try {
         const answer = await session.prompt(text, {
@@ -160,30 +158,28 @@ export class GenerateTestsUseCase {
         return { output: "", timedOut: true };
       }
     };
-    const lead: LeadSession | undefined = continues
-      ? {
-          ask,
-          askForPlan: async (text, askOpts) => {
-            const answer = await ask(text, askOpts);
-            if (answer.timedOut) return { parsed: false, timedOut: true };
-            const next = this.ports.verdicts.parseGenerator(answer.output, `${input.mirrorDir}/${input.e2eRelDir}`);
-            return {
-              ...(next.plan ? { plan: next.plan } : {}),
-              ...(next.noopReason ? { noopReason: next.noopReason } : {}),
-              parsed: next.parsed !== false,
-              timedOut: false,
-            };
-          },
-          dispose,
-        }
-      : undefined;
+    const lead: LeadSession = {
+      ask,
+      askForPlan: async (text, askOpts) => {
+        const answer = await ask(text, askOpts);
+        if (answer.timedOut) return { parsed: false, timedOut: true };
+        const next = this.ports.verdicts.parseGenerator(answer.output, `${input.mirrorDir}/${input.e2eRelDir}`);
+        return {
+          ...(next.plan ? { plan: next.plan } : {}),
+          ...(next.noopReason ? { noopReason: next.noopReason } : {}),
+          parsed: next.parsed !== false,
+          timedOut: false,
+        };
+      },
+      dispose,
+    };
     return {
       ...(deliverable.plan ? { plan: deliverable.plan } : {}),
       ...(deliverable.noopReason ? { noopReason: deliverable.noopReason } : {}),
       parsed: deliverable.parsed !== false,
       timedOut: false,
       ...(turn ? { turn } : {}),
-      ...(lead ? { lead } : {}),
+      lead,
     };
   }
 
