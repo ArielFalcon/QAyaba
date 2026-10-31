@@ -2,9 +2,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 const SCRIPT = join(import.meta.dirname, "..", "..", "..", "..", "bin", "container-entrypoint.sh");
 const mode = (path: string): number => statSync(path).mode & 0o777;
@@ -132,6 +132,29 @@ test("what the sandbox uid's TypeScript loader cached in the temporary directory
     assert.equal(existsSync(join(temp, "tsx-4242")), false);
     assert.equal(existsSync(join(temp, "tsx-0", "root-cache")), true, "only the sandbox uid's cache goes");
     assert.equal(existsSync(join(temp, "unrelated")), true);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("the boot runs the file-boundary check the repository holds, through tsx", () => {
+  const script = readFileSync(SCRIPT, "utf8");
+  const ran = /node_modules\/\.bin\/tsx"\s+(\S+\.ts)/.exec(script)?.[1];
+  assert.ok(ran, "the script names the check it runs");
+  const repoRoot = join(import.meta.dirname, "..", "..", "..", "..");
+  assert.ok(existsSync(join(repoRoot, ran)), `${ran} is where the repository holds the check`);
+  const root = mkdtempSync(join(tmpdir(), "entrypoint-"));
+  try {
+    mkdirSync(join(root, "data"));
+    mkdirSync(join(root, "config"));
+    mkdirSync(join(root, dirname(ran)), { recursive: true });
+    writeFileSync(join(root, ran), "");
+    mkdirSync(join(root, "node_modules", ".bin"), { recursive: true });
+    const record = join(root, "tsx-args");
+    writeFileSync(join(root, "node_modules", ".bin", "tsx"), `#!/bin/sh\necho "$@" > "${record}"\n`, { mode: 0o755 });
+    boot(root, ["true"], { QA_FILE_BOUNDARY_STATUS_FILE: join(root, "fb.status") });
+    assert.ok(existsSync(record), "the check ran");
+    assert.equal(readFileSync(record, "utf8").trim(), ran);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
