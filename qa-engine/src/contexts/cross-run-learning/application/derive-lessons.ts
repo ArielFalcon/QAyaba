@@ -1,4 +1,4 @@
-import { deriveLessons } from "../domain/lesson-registry.ts";
+import { deriveLessons, LESSON_KINDS } from "../domain/lesson-registry.ts";
 import type { Lesson } from "../domain/lesson-kinds.ts";
 import type { LessonStorePort } from "./ports/lesson-store.port.ts";
 import type { LessonsPort } from "./ports/lessons.port.ts";
@@ -9,6 +9,6 @@ export class DeriveLessons implements LessonsPort {
 
   async derive(query: Parameters<LessonsPort["derive"]>[0]): Promise<readonly Lesson[]> {
     if (query.scopes.length === 0) return [];
-    return deriveLessons(await this.store.listAdmitted(query));
+    return deriveLessons(await this.store.listAdmitted({ ...query, kinds: LESSON_KINDS.map((kind) => kind.id) }));
   }
 }

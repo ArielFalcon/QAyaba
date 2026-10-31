@@ -2524,7 +2524,7 @@ test("every run is given the lesson store, frozen or not: what a run reads of DE
   const config = buildEngineRootDeps(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff", freeze: FROZEN });
   const row = { id: "factory-lesson#data-volatility#0", app: app.name, runId: "factory-lesson", sha: "abc1234", repo: "org/demo", kind: "data-volatility" as const, scope: "/shops", servedState: "equal" as const, admitted: true, leftOutReason: null, fact: { resultCount: 1 }, at: "2026-10-30T10:00:00.000Z" };
   await config.lessonStore!.record([row]);
-  assert.deepEqual(await config.lessonStore!.listAdmitted({ app: app.name, scopes: ["/shops"], before: "2026-10-31T00:00:00.000Z" }), [row]);
+  assert.deepEqual(await config.lessonStore!.listAdmitted({ app: app.name, kinds: ["data-volatility"], scopes: ["/shops"], before: "2026-10-31T00:00:00.000Z" }), [row]);
   getHistory().purgeApp(app.name);
 });
 

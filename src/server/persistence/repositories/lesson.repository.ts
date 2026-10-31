@@ -28,12 +28,13 @@ export class LessonRepository {
     });
   }
 
-  /* The admitted rows of an app for the given scopes written strictly before `before`, in a fixed order (time, then id). */
-  listAdmitted(query: { app: string; scopes: readonly string[]; before: string }): LessonObservation[] {
-    if (query.scopes.length === 0) return [];
-    const marks = query.scopes.map(() => "?").join(", ");
-    const sql = `SELECT * FROM lesson_observations WHERE app = ? AND admitted = 1 AND at < ? AND scope IN (${marks}) ORDER BY at ASC, id ASC`;
-    return (this.db.read((raw) => raw.prepare(sql).all(query.app, query.before, ...query.scopes)) as Array<Record<string, unknown>>).map(rowToObservation);
+  /* The admitted rows of an app, of the given kinds, for the given scopes written strictly before `before`, in a fixed order (time, then id). The app, kind and scope are the index's columns. */
+  listAdmitted(query: { app: string; kinds: readonly LessonKindId[]; scopes: readonly string[]; before: string }): LessonObservation[] {
+    if (query.kinds.length === 0 || query.scopes.length === 0) return [];
+    const kindMarks = query.kinds.map(() => "?").join(", ");
+    const scopeMarks = query.scopes.map(() => "?").join(", ");
+    const sql = `SELECT * FROM lesson_observations WHERE app = ? AND kind IN (${kindMarks}) AND scope IN (${scopeMarks}) AND admitted = 1 AND at < ? ORDER BY at ASC, id ASC`;
+    return (this.db.read((raw) => raw.prepare(sql).all(query.app, ...query.kinds, ...query.scopes, query.before)) as Array<Record<string, unknown>>).map(rowToObservation);
   }
 
   /* How many rows an app holds, by whether they are inputs to a lesson. */

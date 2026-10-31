@@ -6,7 +6,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { openHistoryDatabase } from "../database";
 import { createHistory, getHistory } from "../index";
-import type { LessonObservation } from "@contexts/cross-run-learning/application/index";
+import type { LessonKindId, LessonObservation } from "@contexts/cross-run-learning/application/index";
 
 let seq = 0;
 function row(over: Partial<LessonObservation> = {}): LessonObservation {
@@ -29,7 +29,7 @@ test("rows are stored whole, left-out ones with their reason, and read back as t
   const admitted = row({ fact: { resultCount: 0, emptyConfirmed: true, ready: true } });
   const leftOut = row({ admitted: false, leftOutReason: "served-version:behind", servedState: "behind", scope: "/shops" });
   lessons.record([admitted, leftOut]);
-  const listed = lessons.listAdmitted({ app: "lessons-app", scopes: ["/shops"], before: "2026-10-31T00:00:00.000Z" });
+  const listed = lessons.listAdmitted({ app: "lessons-app", kinds: ["data-volatility"], scopes: ["/shops"], before: "2026-10-31T00:00:00.000Z" });
   assert.deepEqual(listed, [admitted], "only admitted rows are inputs");
   assert.deepEqual(lessons.countByApp("lessons-app"), { admitted: 1, leftOut: 1 });
 });
@@ -41,10 +41,21 @@ test("listing is by app, scope and strict time, and in a fixed order whatever th
   const elsewhere = row({ scope: "/other" });
   const otherApp = row({ app: "someone-else" });
   lessons.record([late, otherApp, elsewhere, early]);
-  const query = { app: "lessons-app", scopes: ["/shops"], before: "2026-10-30T10:00:00.000Z" };
+  const query = { app: "lessons-app", kinds: ["data-volatility" as LessonKindId], scopes: ["/shops"], before: "2026-10-30T10:00:00.000Z" };
   assert.deepEqual(lessons.listAdmitted(query).map((r) => r.id), [early.id], "the instant of the run's start is not before it");
   assert.deepEqual(lessons.listAdmitted({ ...query, before: "2026-10-31T00:00:00.000Z" }).map((r) => r.id), [early.id, late.id]);
   assert.deepEqual(lessons.listAdmitted({ ...query, scopes: [] }), []);
+});
+
+test("listing is by kind too: a row of another kind is no input to the kinds asked for, and no kind asked for lists nothing", (t) => {
+  const { lessons } = inMemoryHistory(t);
+  const mine = row();
+  const foreign = row({ kind: "another-kind" as LessonKindId });
+  lessons.record([foreign, mine]);
+  const query = { app: "lessons-app", scopes: ["/shops"], before: "2026-10-31T00:00:00.000Z" };
+  assert.deepEqual(lessons.listAdmitted({ ...query, kinds: ["data-volatility"] }).map((r) => r.id), [mine.id]);
+  assert.deepEqual(lessons.listAdmitted({ ...query, kinds: ["data-volatility", "another-kind" as LessonKindId] }).map((r) => r.id), [foreign.id, mine.id].sort());
+  assert.deepEqual(lessons.listAdmitted({ ...query, kinds: [] }), []);
 });
 
 test("the table is append-only: a row is never replaced, and writing the same row twice is refused", (t) => {
@@ -52,7 +63,7 @@ test("the table is append-only: a row is never replaced, and writing the same ro
   const first = row();
   lessons.record([first]);
   assert.throws(() => lessons.record([{ ...first, admitted: false, leftOutReason: "no-data-state" }]), /UNIQUE|constraint/i);
-  assert.deepEqual(lessons.listAdmitted({ app: "lessons-app", scopes: ["/shops"], before: "2027-01-01T00:00:00.000Z" }), [first]);
+  assert.deepEqual(lessons.listAdmitted({ app: "lessons-app", kinds: ["data-volatility"], scopes: ["/shops"], before: "2027-01-01T00:00:00.000Z" }), [first]);
   assert.equal("update" in lessons || "delete" in lessons, false);
 });
 

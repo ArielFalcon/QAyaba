@@ -2,6 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { PageDataRead } from "@kernel/page-data-read.ts";
+import { LESSON_KINDS } from "@contexts/cross-run-learning/domain/lesson-registry.ts";
 import { DeriveLessons, RecordLessonObservations, type LessonObservation, type LessonStorePort } from "@contexts/cross-run-learning/application/index.ts";
 
 function memoryStore(): LessonStorePort & { rows: LessonObservation[] } {
@@ -9,7 +10,7 @@ function memoryStore(): LessonStorePort & { rows: LessonObservation[] } {
   return {
     rows,
     record: async (batch) => { rows.push(...batch); },
-    listAdmitted: async ({ app, scopes, before }) => rows.filter((r) => r.app === app && r.admitted && scopes.includes(r.scope) && r.at < before),
+    listAdmitted: async ({ app, kinds, scopes, before }) => rows.filter((r) => r.app === app && r.admitted && kinds.includes(r.kind) && scopes.includes(r.scope) && r.at < before),
   };
 }
 
@@ -61,4 +62,11 @@ test("lessons are derived from the rows recorded strictly before the run's start
   assert.deepEqual(await derive.derive({ app: "demo", scopes: ["/shops", "/other"], before }), first);
   assert.deepEqual(await derive.derive({ app: "demo", scopes: ["/other"], before }), [], "only the scopes asked for");
   assert.deepEqual(await derive.derive({ app: "demo", scopes: [], before }), [], "no scope asked, no store read");
+});
+
+test("the store is asked only for the kinds the registry holds", async () => {
+  const asked: Array<readonly string[]> = [];
+  const store: LessonStorePort = { record: async () => {}, listAdmitted: async ({ kinds }) => { asked.push(kinds); return []; } };
+  await new DeriveLessons(store).derive({ app: "demo", scopes: ["/shops"], before: "2026-10-30T10:00:00.000Z" });
+  assert.deepEqual(asked, [LESSON_KINDS.map((kind) => kind.id)]);
 });
