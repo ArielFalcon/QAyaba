@@ -35,3 +35,8 @@ export { agentsOfTurns, configInEffect, recordRunConfig } from "./recorded-run-c
 export type { RecordedAgent, RecordedAgentTurn, RecordedRunConfig, RunConfigDeclaration, RunConfigEnvironment, RunConfigInEffect, RunConfigRequest, RunFreezeFact } from "./recorded-run-config.ts";
 export { PendingChangeSets, changeEntryOf, declaredReposOf, declaresRepo, isCoalescible } from "./pending-change-sets.ts";
 export type { DeclaredRepos, PushRequest } from "./pending-change-sets.ts";
+export { RunTrace, SYSTEM_CLOCK, markEnqueued } from "./run-trace.ts";
+export type { EnqueueMark } from "./run-trace.ts";
+export type { HostEventsPort } from "./ports/host-events.port.ts";
+export { RUN_TRIGGERS, runIdentityOf, runTriggerOf } from "../domain/run-trace.ts";
+export type { HostEventListener, RunCampaign, RunFacts, RunIdentity, RunIdentityRequest, RunTrigger } from "../domain/run-trace.ts";

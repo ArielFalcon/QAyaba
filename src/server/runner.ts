@@ -13,7 +13,7 @@ import { loadAppConfig, AppConfig } from "../orchestrator/config-loader";
 import { assertUniformCapture, CAMPAIGN_CAPTURE_MODE, requestedCaptureMode, specCountsOf } from "@contexts/evaluation/application/index";
 import { serializablePhases, type RunFactsPatch } from "./persistence/repositories/run.repository";
 import { mergeTurnLimits, primaryLimit, traceFactsOf } from "@kernel/run-trace-facts";
-import { PendingChangeSets, changeEntryOf, declaredReposOf, declaresRepo, isCoalescible, phaseSnapshotOf, type DeclaredRepos } from "@contexts/run-orchestration/application/index";
+import { PendingChangeSets, RunTrace, SYSTEM_CLOCK, changeEntryOf, declaredReposOf, declaresRepo, isCoalescible, markEnqueued, phaseSnapshotOf, runIdentityOf, type DeclaredRepos, type RunFacts, type RunTrigger } from "@contexts/run-orchestration/application/index";
 import { testDataNamespace } from "../qa/test-data";
 import { RunMode, TestTarget, TriggerSource, QaCase, QaRunResult, engineStatus, type RunChangeEntry } from "../types";
 import { RedactionPortAdapter } from "../orchestrator/sanitizer";
@@ -31,7 +31,7 @@ import { decideRunFreeze, type RunFreeze } from "./run-freeze";
 import { configInEffect, resolveRunConfig, type RunConfigEnvironment, type StoredRunConfig } from "./effective-config";
 import type { GroundingInput } from "../contract/commands";
 import { ENGINE_VERSION } from "./version";
-import { RunTrace, SYSTEM_CLOCK, markEnqueued, type RunFacts, type RunIdentity, type RunTrigger } from "./run-trace";
+import { hostListeners } from "../telemetry/host-listeners";
 import { guardTelemetry } from "@kernel/telemetry/guarded-telemetry";
 import { NoopTelemetry } from "@kernel/telemetry/noop-telemetry";
 import type { TelemetryClock, TelemetryPort } from "@kernel/telemetry/telemetry.port";
@@ -488,20 +488,7 @@ function trackRun(req: RunRequest, deps: RunnerDeps, captureMode: CaptureMode, w
   /* The trace of the run: a short span here, in the caller's context, and a root of its own when the queue hands the run its turn (run-trace.ts). */
   const telemetry = guardTelemetry(deps.telemetry ?? new NoopTelemetry());
   const clock = deps.clock ?? SYSTEM_CLOCK;
-  const identity: RunIdentity = {
-    runId: record.id,
-    app: req.app,
-    sha: req.sha,
-    mode: req.mode,
-    target: req.target,
-    /* A run that names its campaign is a campaign run, whichever door it came through. */
-    trigger: req.campaign ? "campaign" : (req.trigger ?? (req.source === "manual" ? "api" : "webhook")),
-    parentRunId: req.parentRunId,
-    triggerRepo: req.triggerRepo,
-    shadow: req.shadow,
-    campaign: req.campaign,
-    captureMode: requestedCaptureMode(req) === undefined ? undefined : captureMode,
-  };
+  const identity = runIdentityOf(req, { runId: record.id, engineVersion: ENGINE_VERSION, captureMode: requestedCaptureMode(req) === undefined ? undefined : captureMode });
   const enqueued = markEnqueued(telemetry, clock, identity, { root: insideRun });
 
   const job = async (signal: AbortSignal, trace: RunTrace): Promise<void> => {
@@ -732,7 +719,7 @@ function trackRun(req: RunRequest, deps: RunnerDeps, captureMode: CaptureMode, w
 
   const execute = async (signal: AbortSignal): Promise<void> => {
     /* Opened at dequeue, on a context of its own (see run-trace.ts), and ended on every path out of the job. */
-    const trace = new RunTrace(telemetry, clock, identity, enqueued);
+    const trace = new RunTrace(telemetry, clock, identity, enqueued, hostListeners);
     try {
       await trace.within(() => job(signal, trace));
     } finally {

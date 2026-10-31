@@ -10,48 +10,13 @@
  *
  * Observability never changes how a run ends: every call goes to a port made total (guardTelemetry).
  */
-
-import type { RunVerdict } from "@kernel/run-verdict";
-import type { RunDegradationFact, RunLimitFact } from "@kernel/run-trace-facts";
-import type { CampaignIdentity } from "../contract/campaign";
-import type { CaptureMode } from "@kernel/telemetry/capture-mode";
-import type { RunConfigInEffect } from "@contexts/run-orchestration/application/index";
-import { attrKey } from "@kernel/telemetry/attribute-registry";
-import { guardTelemetry } from "@kernel/telemetry/guarded-telemetry";
-import type { SpanHandle, TelemetryClock, TelemetryContext, TelemetryPort } from "@kernel/telemetry/telemetry.port";
-import { ENGINE_VERSION } from "./version";
-import { hostListeners as processHostListeners, type HostEventListener, type HostListeners } from "../telemetry/host-listeners";
-
-/* What started a run. `campaign` is a run that names the campaign it is a replicate of. */
-export const RUN_TRIGGERS = ["webhook", "api", "cli", "campaign", "continuation", "context", "login-bootstrap"] as const;
-export type RunTrigger = (typeof RUN_TRIGGERS)[number];
+import { guardTelemetry } from "@kernel/telemetry/guarded-telemetry.ts";
+import type { SpanHandle, TelemetryClock, TelemetryContext, TelemetryPort } from "@kernel/telemetry/telemetry.port.ts";
+import { RunEnding, factsAttrs, identityAttrs, runLevelLimits, type HostEventListener, type RunFacts, type RunIdentity } from "../domain/run-trace.ts";
+import type { HostEventsPort } from "./ports/host-events.port.ts";
+import type { RunConfigInEffect } from "./recorded-run-config.ts";
 
 export const SYSTEM_CLOCK: TelemetryClock = { now: () => Date.now() };
-
-export interface RunIdentity {
-  runId: string;
-  app: string;
-  sha: string;
-  mode: string;
-  target: string;
-  trigger: RunTrigger;
-  parentRunId?: string | undefined;
-  triggerRepo?: string | undefined;
-  shadow?: boolean | undefined;
-  /* The campaign replicate this run is: recorded on the trace as data, never read to decide anything. */
-  campaign?: CampaignIdentity | undefined;
-  /* The content capture the run asked for, already capped by the server's ceiling. Absent: the run takes the process default. */
-  captureMode?: CaptureMode | undefined;
-}
-
-/* The campaign's identity as root attributes: the id, the replicate and one attribute per variant label. */
-function campaignAttrs(campaign: CampaignIdentity | undefined): Record<string, string | number> {
-  if (!campaign) return {};
-  const out: Record<string, string | number> = { "qayaba.campaign.id": campaign.id, "qayaba.campaign.replicate": campaign.replicate };
-  /* A registry template key is one dot-free segment, and a label key may hold dots: the attribute spells them as underscores (the stored variant keeps the key as given; keys differing only by '.' versus '_' collapse onto one attribute). */
-  for (const [key, value] of Object.entries(campaign.variant)) out[attrKey.campaignVariant(key.replaceAll(".", "_"))] = value;
-  return out;
-}
 
 /* The enqueue span's position, kept with the job. */
 export interface EnqueueMark {
@@ -59,45 +24,7 @@ export interface EnqueueMark {
   at: number;
 }
 
-/* What the engine told about how a run ended. */
-export interface RunFacts {
-  verdict: RunVerdict;
-  errorClass: string | null;
-  furthestPhase?: string | undefined;
-  decision?: string | undefined;
-  shadowed?: boolean | undefined;
-  generationEnd?: string | undefined;
-  endReason?: string | undefined;
-  limitFired?: string | undefined;
-  limitRole?: string | undefined;
-  /* Every limit that fired and every fault the run went on past; absent when the engine recorded none of either list. */
-  limits?: readonly RunLimitFact[] | undefined;
-  degradations?: readonly RunDegradationFact[] | undefined;
-  reviewRequired?: boolean | undefined;
-  /* The kind of run the deadline bounded it as. */
-  timeBudget?: string | undefined;
-  coverage?: { status?: "pass" | "fail" | "unknown" | undefined; mode: string; minRatio?: number | undefined } | undefined;
-  /* Delivered specs and how many of them validated/passed; absent when the run recorded none. */
-  specs?: { generated: number; valid: number | null; passed?: number | undefined } | undefined;
-}
-
 const isDead = (context: TelemetryContext): boolean => /^0+$/.test(context.spanId);
-
-function identityAttrs(identity: RunIdentity) {
-  return {
-    "qayaba.engine.version": ENGINE_VERSION,
-    "qayaba.run.id": identity.runId,
-    "qayaba.app": identity.app,
-    "qayaba.commit.sha": identity.sha,
-    "qayaba.mode": identity.mode,
-    "qayaba.target": identity.target,
-    "qayaba.trigger": identity.trigger,
-    ...(identity.parentRunId ? { "qayaba.parent_run.id": identity.parentRunId } : {}),
-    ...(identity.triggerRepo ? { "qayaba.trigger_repo": identity.triggerRepo } : {}),
-    ...(identity.shadow !== undefined ? { "qayaba.shadow": identity.shadow } : {}),
-    ...campaignAttrs(identity.campaign),
-  };
-}
 
 /*
  * Opens and ends the enqueue span in the caller's context (it is a child of an active request span, when there is one). `root`
@@ -112,13 +39,11 @@ export function markEnqueued(telemetry: TelemetryPort, clock: TelemetryClock, id
   return { context: isDead(context) ? undefined : context, at };
 }
 
-type Ending = { kind: "facts"; facts: RunFacts } | { kind: "cancelled" } | { kind: "crashed"; error: unknown; facts: RunFacts };
-
 export class RunTrace {
   private readonly telemetry: TelemetryPort;
   private readonly span: SpanHandle;
   private readonly startedAt: number;
-  private ending: Ending | undefined;
+  private readonly ending = new RunEnding();
   private ended = false;
   private suspendedMs = 0;
   private eventLoopMaxMs: number | undefined;
@@ -129,7 +54,7 @@ export class RunTrace {
     private readonly clock: TelemetryClock,
     private readonly identity: RunIdentity,
     enqueued: EnqueueMark,
-    hostListeners: HostListeners = processHostListeners,
+    hostEvents: HostEventsPort,
   ) {
     this.telemetry = guardTelemetry(telemetry);
     this.startedAt = clock.now();
@@ -144,7 +69,7 @@ export class RunTrace {
         "qayaba.queue.wait_ms": Math.max(0, this.startedAt - enqueued.at),
       },
     });
-    this.unregisterHost = hostListeners.add(this.hostListener());
+    this.unregisterHost = hostEvents.add(this.hostListener());
   }
 
   /* What the host did to the process while this run was active (one run at a time: the sequential queue). Registered for the run's length only. */
@@ -202,48 +127,26 @@ export class RunTrace {
 
   /* The run reached a verdict. */
   finished(facts: RunFacts): void {
-    this.ending ??= { kind: "facts", facts };
+    this.ending.finished(facts);
   }
 
   /* An operator cancelled the run: not an error, and nothing the engine said afterwards counts. */
   cancelled(): void {
-    this.ending = { kind: "cancelled" };
+    this.ending.cancelled();
   }
 
-  /* An exception out of the engine or the runner's own recording of the run. It outranks a verdict set earlier (the record says infra-error then, and the trace must say the same), but never a cancel. The facts the caller knows by then are set exactly as the normal exit sets them. */
+  /* An exception out of the engine or the runner's own recording of the run. */
   crashed(error: unknown, errorClass: string, facts: Omit<RunFacts, "verdict" | "errorClass"> = {}): void {
-    if (this.ending?.kind === "cancelled") return;
-    this.ending = { kind: "crashed", error, facts: { ...facts, verdict: "infra-error", errorClass } };
+    this.ending.crashed(error, errorClass, facts);
   }
 
-  /* The root's final facts, whether the run returned a verdict or crashed: one place, so the two cannot disagree. */
+  /* The root's final facts, whether the run returned a verdict or crashed. */
   private applyFacts(f: RunFacts, error?: unknown): void {
-    this.span.setAttrs({
-      "qayaba.verdict": f.verdict,
-      ...(f.errorClass ? { "qayaba.error_class": f.errorClass } : {}),
-      ...(f.generationEnd ? { "qayaba.generation.end": f.generationEnd } : {}),
-      ...(f.endReason ? { "qayaba.run.end_reason": f.endReason } : {}),
-      ...(f.decision ? { "qayaba.decision": f.decision } : {}),
-      ...(f.shadowed !== undefined ? { "qayaba.decision.shadowed": f.shadowed } : {}),
-      ...(f.furthestPhase ? { "qayaba.furthest_phase": f.furthestPhase } : {}),
-      ...(f.limitFired ? { "qayaba.limit.fired": f.limitFired } : {}),
-      ...(f.limits?.find((limit) => limit.purpose !== undefined) ? { "qayaba.limit.purpose": f.limits.find((limit) => limit.purpose !== undefined)!.purpose! } : {}),
-      ...(f.limits ? { "qayaba.limits": f.limits.map((limit) => `${limit.fired}@${limit.role}`) } : {}),
-      ...(f.degradations ? { "qayaba.degradations": f.degradations.map((d) => d.reason) } : {}),
-      ...(f.specs
-        ? {
-            "qayaba.specs.generated": f.specs.generated,
-            ...(f.specs.valid !== null ? { "qayaba.specs.valid": f.specs.valid } : {}),
-            ...(f.specs.passed !== undefined ? { "qayaba.specs.passed": f.specs.passed } : {}),
-          }
-        : {}),
-    });
+    this.span.setAttrs(factsAttrs(f));
     if (f.verdict === "infra-error") {
       this.span.recordError(error ?? Object.assign(new Error(f.errorClass ?? "infra-error"), { name: f.errorClass ?? "infra-error" }));
     }
-    /* One count per limit the engine met at run level (the turns' own are on the turn spans); a record with no list leads with its one limit. */
-    const fired = f.limits?.filter((limit) => limit.scope === "run") ?? (f.limitFired ? [{ fired: f.limitFired, role: f.limitRole ?? "" }] : []);
-    for (const limit of fired) {
+    for (const limit of runLevelLimits(f)) {
       this.telemetry.counter("qayaba.budget.exhausted")(1, { "qayaba.limit.fired": limit.fired, ...(limit.role ? { "qayaba.agent.role": limit.role } : {}) });
     }
   }
@@ -259,7 +162,7 @@ export class RunTrace {
     let errorClass: string | undefined;
     let furthest: string | undefined;
     let infraFailure = false;
-    const ending = this.ending;
+    const ending = this.ending.current;
     if (ending?.kind === "facts" || ending?.kind === "crashed") {
       const facts = ending.facts;
       verdict = facts.verdict;
