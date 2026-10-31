@@ -49,7 +49,6 @@ export interface GenerationDeps {
   stepLimitFor?: StepLimitFor;
   /* The run's context budget: its windows per role and the working room a turn needs. The shell's prompt rendering already holds it; it is handed on so a unit that fits content to a window reads the same one. Absent: no window is known. */
   contextBudget?: ContextBudget;
-  deadline?: GenerationTurnsCollaborators["deadline"];
   review: { runtime: ReviewPortRuntime; timeoutMs?: number };
   grounding: {
     /* Where the map was effectively read from and how fresh it was. */
@@ -110,7 +109,7 @@ export function buildGeneration(deps: GenerationDeps): GenerationApi {
       ...(run.triggerService ? { service: run.triggerService } : {}),
       ...(run.services?.length ? { services: run.services } : {}),
     },
-    { readSpecSource: deps.readSpecSource ?? readConfinedSpecFile, stepLimitFor: deps.stepLimitFor, ...(deps.deadline ? { deadline: deps.deadline } : {}) },
+    { readSpecSource: deps.readSpecSource ?? readConfinedSpecFile, stepLimitFor: deps.stepLimitFor },
   );
 
   const review = new ReviewPortAdapter(

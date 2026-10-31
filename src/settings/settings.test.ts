@@ -175,10 +175,21 @@ test("a settings document that differs from the registry is stale and a missing 
 });
 
 test("each retired variable that is still set is reported once at load; an unset or empty one is not", () => {
-  const retired = ["SELF_MAINTAINER_AUTOMERGE", "SELF_MAINTAINER_CI_CHECK", "QAYABA_REPO", "QA_REFLECTOR_ENABLED", "REFLECTOR_TIMEOUT_MS", "QA_JUDGES_ENABLED", "QA_JUDGES_DAILY_TOKENS", "LANGFUSE_BASE_URL", "LANGFUSE_PUBLIC_KEY", "LANGFUSE_SECRET_KEY", "LANGFUSE_ALLOW_EXTERNAL", "COORDINATION_ESCALATED_MODEL", "QA_RUN_TIME_BUDGET_MS_COMPLETE", "QA_RUN_TIME_BUDGET_MS_EXHAUSTIVE", "AGENT_RUNTIME_MODE", "AGENT_SINGLE_PROVIDER", "AGENT_PRIMARY_PROVIDER", "AGENT_REVIEWER_PROVIDER", "AGENT_CHAT_PROVIDER"];
+  const retired = ["SELF_MAINTAINER_AUTOMERGE", "SELF_MAINTAINER_CI_CHECK", "QAYABA_REPO", "QA_REFLECTOR_ENABLED", "REFLECTOR_TIMEOUT_MS", "QA_JUDGES_ENABLED", "QA_JUDGES_DAILY_TOKENS", "LANGFUSE_BASE_URL", "LANGFUSE_PUBLIC_KEY", "LANGFUSE_SECRET_KEY", "LANGFUSE_ALLOW_EXTERNAL", "COORDINATION_ESCALATED_MODEL", "QA_DIFF_TIME_BUDGET_MS_TINY", "QA_DIFF_TIME_BUDGET_MS_FOCUSED", "QA_DIFF_TIME_BUDGET_MS_BROAD", "QA_RUN_TIME_BUDGET_MS_COMPLETE", "QA_RUN_TIME_BUDGET_MS_EXHAUSTIVE", "AGENT_RUNTIME_MODE", "AGENT_SINGLE_PROVIDER", "AGENT_PRIMARY_PROVIDER", "AGENT_REVIEWER_PROVIDER", "AGENT_CHAT_PROVIDER"];
   assert.deepEqual(loadSettings({}).warnings, []);
   assert.deepEqual(loadSettings(Object.fromEntries(retired.map((name) => [name, ""]))).warnings, []);
   const warnings = loadSettings(Object.fromEntries(retired.map((name) => [name, "true"]))).warnings;
   assert.equal(warnings.length, retired.length);
   for (const name of retired) assert.equal(warnings.filter((w) => w.startsWith(`${name} is set but no longer read`)).length, 1, name);
+});
+
+test("a first-pass time cap of a diff tier is reported as retired and neither fails the load nor changes a setting, whatever the value", () => {
+  const baseline = loadSettings({});
+  for (const name of ["QA_DIFF_TIME_BUDGET_MS_TINY", "QA_DIFF_TIME_BUDGET_MS_FOCUSED", "QA_DIFF_TIME_BUDGET_MS_BROAD"]) {
+    for (const value of ["1", "none", "soon"]) {
+      const loaded = loadSettings({ [name]: value });
+      assert.deepEqual(loaded.warnings.map((w) => w.split(" ")[0]), [name], `${name}=${value}`);
+      assert.deepEqual(loaded.run, baseline.run, `${name}=${value}: the run settings are those of an environment without it`);
+    }
+  }
 });

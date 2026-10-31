@@ -46,7 +46,6 @@ export { REPAIR_TURN_TIMEOUT_MS } from "../domain/repair-turn.ts";
 export { classifyRunEfficiency } from "../domain/coarse-run-efficiency.ts";
 export type { CoarseRunEfficiency } from "../domain/coarse-run-efficiency.ts";
 export { classifyGenerationEnd, renderGenerationNote } from "../domain/generation-end.ts";
-export { DIFF_TIME_BUDGET_ENV, resolveDiffTimeBudgets } from "../domain/generator-time-budget.ts";
 export type { HarnessFacts } from "../domain/harness-facts.ts";
 export { ARTIFACT_REFERENCES } from "../domain/prompt-artifact-references.ts";
 export { AGENT_BROWSER_SECTION_ID, CLOSED_LOOP_SECTION_ID, HARNESS_FACTS_SECTION_ID, LEAD_PLAN_SECTION_ID, STEP_LIMIT_SECTION_ID, claim, countDirectives, findingKey, hasTrustLanguage, lintCell } from "../domain/prompt-contract-lint.ts";

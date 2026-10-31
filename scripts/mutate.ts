@@ -184,12 +184,6 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
     ],
     thresholds: DEFAULT_THRESHOLDS,
   },
-  "generator-time-budget": {
-    description: "generator time budget: which diff runs the generator's first pass is bounded for, the time each effort tier allows and the ceiling the transport's own deadline puts on it",
-    mutate: [`${GEN}/domain/generator-time-budget.ts`],
-    tests: [`${GEN_TEST}/domain/generator-time-budget.test.ts`],
-    thresholds: DEFAULT_THRESHOLDS,
-  },
   "precondition-verdict": {
     description: "auth precondition: the typed error, the run terminal it maps to, the E-PRECONDITION class and where it is resolved, and the audit finding that keeps it out of learning",
     mutate: [

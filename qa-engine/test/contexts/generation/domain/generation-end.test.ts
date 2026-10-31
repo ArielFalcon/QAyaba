@@ -5,7 +5,6 @@ import {
   classifyGenerationEnd,
   renderGenerationNote,
 } from "@contexts/generation/domain/generation-end.ts";
-import { DIFF_TIME_BUDGET_MS } from "@kernel/diff-stat.ts";
 import { GENERATION_END, type GenerationEndKind } from "@kernel/generation-end.ts";
 
 interface ClassifyRow {
@@ -207,7 +206,7 @@ test("a step count against no configured limit shows the count alone", () => {
 });
 
 test("a time-budget note names the budget the turn was held to, in minutes when it is a whole number of them", () => {
-  const budgetMs = DIFF_TIME_BUDGET_MS.tiny as number;
+  const budgetMs = 6 * 60_000;
   assert.match(renderGenerationNote({ end: GENERATION_END.TIME_BUDGET, budgetMs }), new RegExp(`\\b${budgetMs / 60_000} min\\b`));
 });
 

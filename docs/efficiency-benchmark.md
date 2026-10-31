@@ -129,28 +129,11 @@ one of those turns shows a known `steps used` below its `max steps`: the cap was
 counted in earlier turns. Note such a run when you see one. Until the question is closed, read
 `step use` as a per-turn ratio, not as how close a session came to its cap.
 
-## Time budget per tier
-
-A diff run's generator first pass is bounded by its tier's wall time (`DIFF_TIME_BUDGET_MS`: tiny 6 min,
-focused 12 min, broad none). To measure how much time a tier really needs, set these on the
-orchestrator (`.env` or Doppler) and restart it; no rebuild is needed:
-
-| Variable | Tier | Accepts |
-|---|---|---|
-| `QA_DIFF_TIME_BUDGET_MS_TINY` | tiny | a positive whole number of milliseconds, or `none` |
-| `QA_DIFF_TIME_BUDGET_MS_FOCUSED` | focused | the same |
-| `QA_DIFF_TIME_BUDGET_MS_BROAD` | broad | the same (the default is no bound) |
-
-Unset or blank keeps the default, `none` removes the tier's bound, and anything else (`6min`, `0`, `1.5`)
-stops the composition with an error naming the variable. The value is still clamped by the transport's
-own prompt deadline (`agentPromptCapMs`): a budget at or above it is not a bound, the host's deadline
-fires first. A cut run's note states the time it was actually given.
-
 ## Run deadline: the whole run's wall-clock bound
 
-The per-tier budget above bounds only a diff run's generator first pass. A regeneration, a fix-loop round,
-a repair, the coverage regeneration, the reviewer and every non-diff mode were unbounded, so a broad run
-could spend half an hour in the fix loop. One run-level deadline now bounds all of them: it is armed after
+A regeneration, a fix-loop round, a repair, the coverage regeneration, the reviewer and every mode were
+unbounded by anything but their own limits, so a run could spend half an hour in the fix loop. One run-level
+deadline bounds all of them, the generator's first pass included (it has no time cap of its own): it is armed after
 classification, counts down on the orchestrator's clock, and every agent turn is given the smaller of its
 own limit and what its purpose is allotted (what is left less the measured time of the phases after it); a deterministic phase is cut at the deadline's instant. When it is spent, the run ends as a persisted `infra-error` `E-TIME-BUDGET`
 whose note names the budget (`diff-tiny`, `manual`, ...) and the turn that was stopped or not started; nothing is

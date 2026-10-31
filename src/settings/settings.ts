@@ -8,14 +8,12 @@ import { resolveEgressMode, type EgressMode } from "../server/egress-wiring";
 import { parseCampaignRetentionDays, parseRetentionDays, resolveTelemetryConfig, type TelemetryConfig } from "../telemetry/config";
 import { resolveBackendHealthConfig, type BackendHealthConfig } from "../telemetry/backend-health";
 import { resolveRunTimeBudgets } from "@contexts/run-orchestration/application/index";
-import { resolveDiffTimeBudgets } from "@contexts/generation/application/index";
 import { resolveExecSandboxMode, type ExecSandboxMode } from "../../qa-engine/src/shared-infrastructure/process-sandbox/exec-sandbox";
 import { DEFAULT_DRAIN_MS, DEFAULT_REVIEWER_TIMEOUT_MS, DEFAULT_SESSION_TTL_SECONDS, DEFAULT_STALL_MS } from "./defaults";
 import { SETTINGS_REGISTRY, settingDef } from "./registry";
 import { retiredSettingWarnings } from "./retired";
 
 type RunTimeBudgets = ReturnType<typeof resolveRunTimeBudgets>;
-type DiffTimeBudgets = ReturnType<typeof resolveDiffTimeBudgets>;
 
 export type EnvironmentMap = Readonly<Record<string, string | undefined>>;
 
@@ -93,7 +91,6 @@ export interface Settings {
     readonly pwActionTimeoutMs: string | undefined;
     readonly campaignFrozen: boolean;
     readonly runTimeBudgets: RunTimeBudgets;
-    readonly diffTimeBudgets: DiffTimeBudgets;
   };
   readonly telemetry: {
     readonly config: TelemetryConfig;
@@ -230,7 +227,6 @@ export function loadSettings(env: EnvironmentMap): Settings {
       pwActionTimeoutMs: r.str("PW_ACTION_TIMEOUT_MS"),
       campaignFrozen: r.run(["QA_CAMPAIGN_FREEZE"], () => resolveCampaignFreeze(env), false),
       runTimeBudgets: r.run(runBudgetNames(), () => resolveRunTimeBudgets(env), undefined as unknown as RunTimeBudgets),
-      diffTimeBudgets: r.run(diffBudgetNames(), () => resolveDiffTimeBudgets(env), undefined as unknown as DiffTimeBudgets),
     },
     telemetry: {
       config: telemetryConfig,
@@ -247,10 +243,6 @@ export function loadSettings(env: EnvironmentMap): Settings {
 
 function runBudgetNames(): readonly string[] {
   return SETTINGS_REGISTRY.filter((def) => def.env.startsWith("QA_RUN_TIME_BUDGET_MS_")).map((def) => def.env);
-}
-
-function diffBudgetNames(): readonly string[] {
-  return SETTINGS_REGISTRY.filter((def) => def.env.startsWith("QA_DIFF_TIME_BUDGET_MS_")).map((def) => def.env);
 }
 
 function dedupe(problems: readonly SettingProblem[]): SettingProblem[] {

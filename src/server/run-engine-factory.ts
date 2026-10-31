@@ -65,7 +65,6 @@ import type { RunMode } from "@kernel/run-mode";
 import { GitMirrorReadAdapter } from "@contexts/change-analysis/infrastructure/git-mirror-read.adapter";
 import type { ChangeSet, VcsReadPort } from "@contexts/change-analysis/application/index";
 import { GenerateTestsUseCase } from "@contexts/generation/application/index";
-import { resolveDiffTimeBudgets } from "@contexts/generation/application/index";
 import { AgentRuntimeAdapter } from "@contexts/generation/infrastructure/agent-runtime.adapter";
 import { RunDeadline } from "@contexts/run-orchestration/application/index";
 import type { ArchitectureContext } from "@contexts/generation/application/index.ts";
@@ -800,10 +799,6 @@ export function buildEngineRootDeps(
     verdicts,
     manifest: new ManifestRepositoryAdapter({ readManifest, reconcileManifest }),
     repair: contractRepair,
-    /* The transport's own deadline: the generator's time budget is never set above it. */
-    promptCapMs: agentPromptCapMs(),
-    /* QA_DIFF_TIME_BUDGET_MS_{TINY,FOCUSED,BROAD} override a tier's time; read here once because qa-engine reads no environment. A mistyped value throws. */
-    timeBudgets: resolveDiffTimeBudgets(deps.env ?? activeEnvironment()),
   });
 
 

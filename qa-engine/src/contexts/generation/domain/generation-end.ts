@@ -14,8 +14,8 @@ export interface GenerationEndFacts {
   noopReason: string | null | undefined;
   /** Whether any of the generation's turns ran out of steps. */
   exhausted: boolean;
-  /** Whether a turn was cut off by the wall-clock budget its change allowed. Only a completed turn's output is ever read, so a cut turn leaves nothing parsed behind. */
-  timedOut: boolean;
+  /** Whether a turn was cut off by a wall-clock budget of its own. No first pass has one any more (the run deadline's runtime ends a turn with its own error), so the use case reports none; the kind stays in the vocabulary because stored runs carry it. */
+  timedOut?: boolean;
 }
 
 /**

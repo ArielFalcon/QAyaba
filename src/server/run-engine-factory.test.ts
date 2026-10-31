@@ -27,12 +27,9 @@ import { SUBMITTED_MARKER } from "@contexts/app-catalog/infrastructure/login-dis
 import { activeExecScope } from "../../qa-engine/src/shared-infrastructure/process-sandbox/exec-scope";
 import { scriptedLoginEvidence } from "../../qa-engine/test/support/login-evidence";
 import { createAgentDeps } from "@contexts/generation/infrastructure/agent-transport-policy";
-import { DIFF_TIME_BUDGET_MS } from "@kernel/diff-stat";
-import { DIFF_TIME_BUDGET_ENV } from "@contexts/generation/application/index";
 import { RUN_TIME_BUDGET_ENV } from "@contexts/run-orchestration/application/index";
 import { isRunDeadlineError } from "@kernel/run-deadline";
-import { renderGenerationNote } from "@contexts/generation/application/index";
-import { GENERATION_END } from "@kernel/generation-end";
+import { isAgentTimeoutError } from "@kernel/domain-error";
 import { DEFAULT_COORDINATION_SETTINGS } from "@kernel/coordination";
 import { Sha } from "@kernel/sha";
 import { BlastRadius } from "@kernel/blast-radius";
@@ -365,13 +362,6 @@ test("the suite store starts a cold working copy from the engine's seed project 
     else process.env.QAYABA_ROOT = before;
     rmSync(root, { recursive: true, force: true });
   }
-});
-
-test("the diff time budgets are read from the environment the composition was given, not the process's: a mistyped value throws naming its variable", () => {
-  assert.throws(
-    () => buildEngineRootDeps(cfg("budget-env"), { getAgentDeps: stubAgentDeps, env: { QA_DIFF_TIME_BUDGET_MS_TINY: "soon" } }, "qa-bot-abc1234-run1", { mode: "diff" }),
-    /QA_DIFF_TIME_BUDGET_MS_TINY/,
-  );
 });
 
 test("under the campaign freeze the suite store is read-only: a capture writes nothing", async () => {
@@ -716,32 +706,6 @@ test("buildEngineRootDeps wires a non-undefined RepairPort into GenerateTestsUse
    */
   const ports = (config.generationUseCase as unknown as { ports: { repair?: unknown } }).ports;
   assert.ok(ports.repair, "AuthoringPorts.repair must be wired (was dormant/undefined before this fix)");
-});
-
-test("buildEngineRootDeps gives GenerateTestsUseCase the transport's own deadline as the ceiling of the generator's time budget", () => {
-  const config = buildEngineRootDeps(cfg("factory-time-cap"), { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
-  /* Same structural reach-in as the RepairPort wiring above: the ports are a private field with no accessor. */
-  const ports = (config.generationUseCase as unknown as { ports: { promptCapMs?: number } }).ports;
-  assert.equal(ports.promptCapMs, agentPromptCapMs());
-});
-
-test("buildEngineRootDeps gives GenerateTestsUseCase the tiers' time budgets, the defaults unless the environment overrides one", () => {
-  const budgetsOf = (): unknown => {
-    const config = buildEngineRootDeps(cfg("factory-time-budgets"), { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
-    return (config.generationUseCase as unknown as { ports: { timeBudgets?: unknown } }).ports.timeBudgets;
-  };
-  const saved = process.env[DIFF_TIME_BUDGET_ENV.tiny];
-  try {
-    delete process.env[DIFF_TIME_BUDGET_ENV.tiny];
-    assert.deepEqual(budgetsOf(), DIFF_TIME_BUDGET_MS);
-    process.env[DIFF_TIME_BUDGET_ENV.tiny] = "90000";
-    assert.deepEqual(budgetsOf(), { ...DIFF_TIME_BUDGET_MS, tiny: 90_000 });
-    process.env[DIFF_TIME_BUDGET_ENV.tiny] = "soon";
-    assert.throws(() => budgetsOf(), new RegExp(DIFF_TIME_BUDGET_ENV.tiny), "a mistyped override stops the composition instead of silently running on the default");
-  } finally {
-    if (saved === undefined) delete process.env[DIFF_TIME_BUDGET_ENV.tiny];
-    else process.env[DIFF_TIME_BUDGET_ENV.tiny] = saved;
-  }
 });
 
 test("buildEngineRootDeps reads the run-level time budgets from the environment it is given and a mistyped value stops the composition", () => {
@@ -1766,11 +1730,11 @@ test("a generation that ran out of steps ends exhausted and is never sent a repa
 });
 
 /*
- * The time budget end to end, on a virtual clock: a raw transport whose prompt never answers, behind
- * the real transport policy and the wrapper chain the factory composes. Advancing the clock by the
- * budget the change's tier allows is all it takes for the generator's turn to be stopped and classified.
+ * The first pass's time end to end, on a virtual clock: a raw transport whose prompt never answers, behind
+ * the real transport policy and the wrapper chain the factory composes. The pass states no time of its own, so
+ * advancing the clock by the host's prompt deadline is what stops the generator's turn.
  */
-async function generateOnAHungTransport(t: TestContext, diff: string, advanceMs: number): Promise<{ result: Awaited<ReturnType<ReturnType<typeof buildEngineRootDeps>["generationUseCase"]["author"]>>; persisted: import("@contexts/generation/infrastructure/agent-transport-policy").AgentTurnEvent[] }> {
+async function generateOnAHungTransport(t: TestContext, diff: string, advanceMs: number): Promise<{ error: unknown; persisted: import("@contexts/generation/infrastructure/agent-transport-policy").AgentTurnEvent[] }> {
   const persisted: import("@contexts/generation/infrastructure/agent-transport-policy").AgentTurnEvent[] = [];
   let prompting = false;
   const base = createAgentDeps(
@@ -1809,20 +1773,17 @@ async function generateOnAHungTransport(t: TestContext, diff: string, advanceMs:
     /* A turn that outlives the clock never answers: the failure says so instead of hanging. */
     await turnsOfTheEventLoop(() => false);
     if (outcome === undefined) throw new Error(`the generator's turn was still running after ${advanceMs}ms`);
-    if ("error" in outcome) throw outcome.error;
-    return { result: outcome.result, persisted };
+    if (!("error" in outcome)) throw new Error("the generator's turn on a transport that never answers came back with a result");
+    return { error: outcome.error, persisted };
   } finally {
     t.mock.timers.reset();
   }
 }
 
-test("a tiny diff's generator turn is stopped at the time its tier allows and ends time-budget, through the whole wrapper chain", async (t) => {
-  const budget = DIFF_TIME_BUDGET_MS.tiny as number;
-  const { result, persisted } = await generateOnAHungTransport(t, "d", budget);
-  assert.equal(result.end, GENERATION_END.TIME_BUDGET);
-  assert.deepEqual(result.specs, []);
-  assert.equal(result.note, renderGenerationNote({ end: GENERATION_END.TIME_BUDGET, budgetMs: budget }), "the note names the budget the turn was held to");
-  assert.equal(persisted.filter((t) => t.ended === "timeout").length, 1, "the cut-off turn is still recorded as a timeout");
+test("a tiny diff's generator turn on a transport that never answers is stopped at the host's prompt deadline and surfaces as the integration error, through the whole wrapper chain", async (t) => {
+  const { error, persisted } = await generateOnAHungTransport(t, "d", agentPromptCapMs());
+  assert.ok(isAgentTimeoutError(error), "a timeout of the host, not a time-budget end of the generation");
+  assert.equal(persisted.filter((t) => t.ended === "timeout").length, 1, "the cut-off turn is recorded as a timeout");
 });
 
 test("only the final step's text is read as the generator's verdict, through the whole wrapper chain", async () => {

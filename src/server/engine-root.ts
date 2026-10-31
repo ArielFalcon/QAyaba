@@ -393,7 +393,6 @@ function assemble(cfg: EngineRootDeps): RunOrchestrationApi {
     ...(cfg.readSpecSource ? { readSpecSource: cfg.readSpecSource } : {}),
     ...(cfg.stepLimitFor ? { stepLimitFor: cfg.stepLimitFor } : {}),
     ...(cfg.contextBudget ? { contextBudget: cfg.contextBudget } : {}),
-    ...(cfg.runDeadline ? { deadline: cfg.runDeadline } : {}),
     review: { runtime: cfg.reviewRuntime as ReviewPortRuntime, ...(cfg.reviewTimeoutMs !== undefined ? { timeoutMs: cfg.reviewTimeoutMs } : {}) },
     grounding: {
       ...(cfg.contextMapProvenance ? { contextMapProvenance: cfg.contextMapProvenance } : {}),

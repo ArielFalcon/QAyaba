@@ -1,6 +1,5 @@
 /* LeadPort and AuthorPort → GenerateTestsUseCase. Static per-run context is constructor config; specDir/objectives/signal/diff vary per call. Per-call `diff` is the live commit diff and takes precedence over ctx.diff. specSources come from optional readSpecSource — absent collaborator omits them (Lever-2 finds nothing). stepLimit comes from optional stepLimitFor — absent collaborator, or a role with no limit, omits the key. reexploreNavigations is omitted; FixLoop treats absent as 0. A regeneration turn carries the specs the run delivered so far (deliveredSpecs), the ones a selector contradiction points at (attributedSpecFiles) and the suite's own entries (existingSpecFiles), minus every file the confined reader no longer finds; a first pass carries no delivered or attributed spec, and the suite's entries exactly as the grounding folded them. AbortSignal is forwarded into openSession. */
 
-import type { DeadlinePurpose } from "@kernel/deadline-purpose.ts";
 import type { LeadPort } from "../../application/ports/lead.port.ts";
 import type { AuthorPort } from "../../application/ports/author.port.ts";
 import type { GenerationEnrichment } from "../../domain/generation-enrichment.ts";
@@ -44,8 +43,6 @@ export interface GenerationTurnsCollaborators {
   readSpecSource?: (root: SpecRoot, reported: string) => string;
   /* The step limit the runtime enforces for a role this run, asked for on every generation. Absent -> no input states a limit. */
   stepLimitFor?: StepLimitFor;
-  /** The run's deadline, handed to every first pass so it is never given more time than the run has left. Absent: nothing bounds the run. */
-  deadline?: { allowance?(purpose: DeadlinePurpose): number | null };
 }
 
 export class GenerationTurnsAdapter implements LeadPort, AuthorPort {
@@ -73,8 +70,7 @@ export class GenerationTurnsAdapter implements LeadPort, AuthorPort {
     const input = await this.buildInput(specDir, diff, enrichment, "author");
     const root: SpecRoot = { mirrorDir: this.ctx.mirrorDir, specDir };
 
-    const { deadline } = this.collaborators;
-    const generated = await this.useCase.author(input, { ...(signal ? { signal } : {}), ...(deadline ? { deadline } : {}) });
+    const generated = await this.useCase.author(input, { ...(signal ? { signal } : {}) });
 
     const result: GenerationOutput = {
       specs: generated.specs,

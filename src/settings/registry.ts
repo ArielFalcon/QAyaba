@@ -105,9 +105,6 @@ export const SETTINGS_REGISTRY: readonly SettingDef[] = [
   entry({ env: "QA_RUN_TIME_BUDGET_MS_DIFF_BROAD", key: "-", group: "run", type: "integer", default: String(RUN_TIME_BUDGET_MS["diff-broad"]), description: "Wall time of a broad diff run, in milliseconds." }),
   entry({ env: "QA_RUN_TIME_BUDGET_MS_MANUAL", key: "-", group: "run", type: "integer", default: String(RUN_TIME_BUDGET_MS.manual), description: "Wall time of a manual run, in milliseconds." }),
   entry({ env: "QA_RUN_TIME_BUDGET_MS_CONTEXT", key: "-", group: "run", type: "integer", default: String(RUN_TIME_BUDGET_MS.context), description: "Wall time of a context-map run, in milliseconds." }),
-  entry({ env: "QA_DIFF_TIME_BUDGET_MS_TINY", key: "-", group: "run", type: "integer", description: "Time of the first generation pass of a tiny diff, in milliseconds. Unset, the tier's built-in value applies." }),
-  entry({ env: "QA_DIFF_TIME_BUDGET_MS_FOCUSED", key: "-", group: "run", type: "integer", description: "Time of the first generation pass of a focused diff, in milliseconds. Unset, the tier's built-in value applies." }),
-  entry({ env: "QA_DIFF_TIME_BUDGET_MS_BROAD", key: "-", group: "run", type: "integer", description: "Time of the first generation pass of a broad diff, in milliseconds. Unset, the tier's built-in value applies." }),
 
   /* telemetry */
   entry({ env: "QA_TELEMETRY", key: "-", group: "telemetry", type: "enum", values: ["local", "off"], default: "local", description: "off turns telemetry export off." }),
