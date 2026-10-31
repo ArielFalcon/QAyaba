@@ -16,6 +16,7 @@ import { RunDeadlineRuntime } from "@contexts/run-orchestration/infrastructure/r
 import { SidekickExecutor } from "@contexts/coordination/application/sidekick-executor.ts";
 import { AgentTimeoutError } from "@kernel/domain-error.ts";
 import { ContextBudget } from "@kernel/context-budget.ts";
+import { assembleSidekickBrief } from "@contexts/coordination/application/sidekick-prompt.ts";
 import {
   LeadSidekicks,
   MIN_FLOW_MS,
@@ -1100,6 +1101,43 @@ test("a lesson reaches the brief of the flow whose pages it names and no other, 
   assert.equal(outcome.action, "fanout");
   assert.deepEqual(outcome.signal.lessonsDelivered?.map((d) => [d.kind, d.scope]), [["data-volatility", "/shops/:city"]]);
   assert.match(outcome.signal.lessonsDelivered![0]!.digest, /^[0-9a-f]{12}$/);
+});
+
+test("a lesson is delivered only when the brief the sidekick was opened on went out: a session that could not be opened delivered none", async () => {
+  const lessons = [{ kind: "data-volatility", scope: "/shops/:city", withResults: 2, emptyConfirmed: 1, latestReadAt: "2026-10-30T10:00:00.000Z" }];
+  const plan = { kind: "fanout", flows: [{ id: "shops", objective: "the shop list", routes: ["/shops/madrid"] }] };
+  const r = rig({ answers: { shops: [{ throws: new Error("the runtime refused the session") }] } });
+  const outcome = await r.coordinator.coordinate(input(r, { lessons, plan: async () => ({ plan, parsed: true, timedOut: false }) }));
+  assert.equal(r.executed.length, 1, "the open was attempted on a brief that states the lesson");
+  assert.deepEqual(r.executed[0]!.brief.knownFacts.map((f) => f.kind), ["lesson"]);
+  assert.equal(outcome.action, "fanout");
+  assert.equal(outcome.signal.lessonsDelivered, undefined);
+});
+
+test("a lesson the author's window gave way to a count was not delivered: delivery follows the line the sent brief holds, under every window", async () => {
+  const lessons = [{ kind: "data-volatility", scope: "/shops/:city", withResults: 2, emptyConfirmed: 1, latestReadAt: "2026-10-30T10:00:00.000Z" }];
+  const existingSpecs = Array.from({ length: 200 }, (_, i) => `flows/area-${i % 4}/flow-${i}.spec.ts — flow: f${i}, objective: ${"checks the page. ".repeat(20)}`);
+  const plan = { kind: "fanout", flows: [{ id: "shops", objective: "the shop list", routes: ["/shops/madrid"] }] };
+  const noRoom = { forRole: () => ({ growthTokensPerStep: 0, steps: 0, basis: "cold-start" as const, samples: 0 }) };
+  const run = async (windowTokens: number) => {
+    const r = rig();
+    r.coordinator = new LeadSidekicks({ ...r.deps, contextBudget: new ContextBudget({ windowTokens: () => windowTokens }, noRoom) });
+    const outcome = await r.coordinator.coordinate(input(r, { lessons, existingSpecs, plan: async () => ({ plan, parsed: true, timedOut: false }) }));
+    if (outcome.action === "fanout") await outcome.pass?.release();
+    const sent = r.executed[0];
+    const stated = sent ? assembleSidekickBrief(r.deps.redaction, sent.brief, sent.opts.fit).text.includes(sent.brief.knownFacts.find((f) => f.kind === "lesson")!.summary) : undefined;
+    return { stated, tokens: sent?.opts.contextFit?.promptTokens ?? 0, delivered: outcome.action === "fanout" ? outcome.signal.lessonsDelivered?.length : undefined };
+  };
+  const ample = await run(10_000_000);
+  assert.deepEqual([ample.stated, ample.delivered], [true, 1], "under an ample window the line is stated and delivered");
+  const whole = ample.tokens;
+  let degraded = 0;
+  for (let share = 0.06; share >= 0.02; share -= 0.001) {
+    const { stated, delivered } = await run(Math.floor(whole * share));
+    assert.equal(delivered, stated === true ? 1 : undefined, `window at ${share.toFixed(3)} of the whole brief`);
+    if (stated === false) degraded += 1;
+  }
+  assert.ok(degraded > 0, "some window sends the brief with the lesson given up to a count");
 });
 
 test("a run with no lessons builds the same briefs and records no delivery, as before", async () => {

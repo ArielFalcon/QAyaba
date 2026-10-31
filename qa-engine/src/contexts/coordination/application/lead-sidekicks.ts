@@ -656,7 +656,6 @@ export class LeadSidekicks {
   /* A fresh sidekick session on the brief, with the feedback when there is some; the session is kept on the flow. */
   private async openSession(entry: LiveFlow, context: FlowContext, brief: DelegationBrief, contextFit: ContextFit | undefined, fit: ((bytes: number) => WindowFitOutcome) | undefined, signal: AbortSignal, timeoutMs: number, feedback?: string): Promise<DelegationResult> {
     const seq = ++entry.opens;
-    noteLessonsDelivered(context, brief);
     const session = await this.deps.sidekick.open(brief, {
       cwd: entry.workspace.dir,
       kind: entry.flow.kind,
@@ -671,6 +670,7 @@ export class LeadSidekicks {
       ...(fit ? { fit } : {}),
       ...(feedback ? { feedback } : {}),
     });
+    noteLessonsDelivered(context, this.deps.redaction, assembleSidekickBrief(this.deps.redaction, brief, fit).text, brief);
     /* A session that opened after its pass released the flow, or after a newer one was begun for it, belongs to nobody: it is closed at once. */
     if (entry.released || entry.opens !== seq) {
       await session.dispose().catch((err: unknown) => engineLog.error(`[qa] closing flow ${entry.flow.id}'s late session failed: ${err instanceof Error ? err.message : String(err)}`));
@@ -1517,10 +1517,10 @@ function lessonFactsOf(redaction: RedactionPort, input: Pick<CoordinateInput, "l
   return evidenceFromLessons(redaction, named);
 }
 
-/* A lesson counts as delivered when a session was opened on a brief that states it. */
-function noteLessonsDelivered(context: FlowContext, brief: DelegationBrief): void {
+/* A lesson counts as delivered when the brief a session was opened on went out with its line: a lesson the window gave way to a count, or a session that could not be opened, delivered none. */
+function noteLessonsDelivered(context: FlowContext, redaction: RedactionPort, sent: string, brief: DelegationBrief): void {
   for (const fact of brief.knownFacts) {
-    if (fact.kind !== "lesson" || fact.dataRef === undefined) continue;
+    if (fact.kind !== "lesson" || fact.dataRef === undefined || !sent.includes(redaction.redact(fact.summary))) continue;
     const key = `${fact.source}\u0000${fact.dataRef}`;
     if (!context.lessonsDelivered.has(key)) context.lessonsDelivered.set(key, { kind: fact.source, scope: fact.dataRef, digest: createHash("sha256").update(fact.summary).digest("hex").slice(0, 12) });
   }
