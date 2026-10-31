@@ -1,6 +1,6 @@
 /* BundleMutationPort for the e2e target: each mutant of the changed code is one re-run, against DEV, of the tests that reached it (the mutant names them to the seed's mutation fixture, which skips every other test of the spec files; a mutant that names none re-runs every test of its spec files), with the seed's mutation fixture editing that one script as the page loads it. A mutant is judged only when it reached a page (the fixture counts the responses it mutated beside the response oracle's counters) and the re-run ran tests that passed before: a mutant that reached no page, a re-run that could not run, one whose counters could not be read (counted apart, `unreadable`, since whether it reached a page is not known) and one that ran none of the passing tests say nothing of the tests. A judged mutant is killed when a test that passed before fails; its proof names the dumps of the spec files whose tests failed, so the changed code the mutant made run is credited to the tests that checked it. When asked to observe, each mutant's re-run also records the pages of its tests, and the survivors are compared with two unmutated re-runs of the same tests, one before the first mutant's re-run and one after the last, whose own differences are run-to-run noise and drift over the pass: what the mutation moved in the requests and the accessible tree is recorded on each survivor, over all its tests (`moved`) and per spec file (`movedBySpec`), for the regeneration that answers it, and holds nothing of the mutant. Held to a budget, a re-run (the observation before, each mutant, the observation after) starts only when the allowance holds its estimate, the time its cases took in the run's final execution, scaled once a re-run of the pass has been timed by what that one took against its own cases' time: a mutant left out is neither applied nor judged, a re-run the run's deadline cut (it ended after the deadline fired, its process killed) is not judged and counts as left out, and none starts after it, an observation left out leaves the survivors unobserved, and how many mutants and how many observations were left out, and why, is on the result (`leftOut`). Signal-only: the result never gates publish. */
 import type { BundleMutationPort, MutantRerun } from "../application/ports/bundle-mutation.port.ts";
-import { NOT_GREEN_UNDER_MEASUREMENT, SESSION_LOST_IN_RERUN, type BundleMutationResult, type MutantProof, type MutantRun, type MutantsNotJudged } from "../domain/coverage-collector.ts";
+import { NOT_GREEN_UNDER_MEASUREMENT, type BundleMutationResult, type MutantProof, type MutantRun } from "../domain/coverage-collector.ts";
 import { diffObservations, movedBySpecFile } from "../domain/observed-difference.ts";
 import { RERUN_LEFT_OUT_FOR_TIME, rerunEstimateMs, rerunFits, scaledEstimateMs, type MeasuredRerun, type RerunBudget } from "../domain/rerun-budget.ts";
 import type { MeasuredPages, ObservedPage } from "../domain/observed-page.ts";
@@ -70,10 +70,7 @@ export class BundleMutationOracleAdapter implements BundleMutationPort {
     if (!runMutant) throw new InfraError("a mutation pass was asked for with no runner for its re-runs: in a run, each re-run is an execution of the run's suite and goes through the run's execution port");
     /* The tests that failed under the measurement the mutants are judged against: a mutant only they reached has no pass to lose under the same conditions. */
     const notGreen = new Set(opts.notGreen ?? []);
-    const notJudged: MutantsNotJudged = {};
-    const notJudgedFor = (reason: keyof MutantsNotJudged): void => {
-      notJudged[reason] = (notJudged[reason] ?? 0) + 1;
-    };
+    let notGreenOnly = 0;
     const passedBefore = new Set(baselineCases);
     let applied = 0;
     let killed = 0;
@@ -123,7 +120,7 @@ export class BundleMutationOracleAdapter implements BundleMutationPort {
     for (const [i, { site, specFiles, tests }] of mutants.entries()) {
       const mutantNamespace = `${namespace}-mut${i}`;
       if (tests !== undefined && tests.length > 0 && tests.every((t) => notGreen.has(t))) {
-        notJudgedFor(NOT_GREEN_UNDER_MEASUREMENT);
+        notGreenOnly++;
         engineLog.warn(`[qa] mutation: every test that reached the mutant at ${site.file}:${site.line} (${site.operator}) failed under the measurement it is judged against; it is not judged`);
         continue;
       }
@@ -132,12 +129,6 @@ export class BundleMutationOracleAdapter implements BundleMutationPort {
       const mutant = JSON.stringify({ url: site.script.url, sha256: site.script.sha256, ...site.edit, ...(tests ? { tests } : {}) });
       const run = await reruns.timed(scope, () => reruns.run({ dir: specDir, baseUrl: this.baseUrl, namespace: mutantNamespace, mutant, specFiles, ...(opts.observe ? { observe: true } : {}) }));
       if (reruns.cut(mutantNamespace, scope)) continue;
-      /* The run's port says the session this re-run ran with was gone and could not be brought back for it: its failures are the app's login page, not a test noticing the mutant. */
-      if (run.notJudged === SESSION_LOST_IN_RERUN) {
-        notJudgedFor(SESSION_LOST_IN_RERUN);
-        engineLog.warn(`[qa] mutation: the re-run of the mutant at ${site.file}:${site.line} (${site.operator}) met a session the app had ended; it is not judged`);
-        continue;
-      }
       if (run.verdict === "infra-error") {
         engineLog.warn(`[qa] mutation: the re-run of the mutant at ${site.file}:${site.line} (${site.operator}) could not run; it is not judged`);
         continue;
@@ -169,8 +160,7 @@ export class BundleMutationOracleAdapter implements BundleMutationPort {
     }
     if (before && survived.length > 0) await this.recordMoved(survived, survivorRuns, survivorPages, before, specDir, namespace, reruns);
     const anyLeftOut = leftOut.mutants + leftOut.observations > 0;
-    const anyNotJudged = Object.keys(notJudged).length > 0;
-    return applied > 0 || unreadable > 0 || anyLeftOut || anyNotJudged
+    return applied > 0 || unreadable > 0 || anyLeftOut || notGreenOnly > 0
       ? {
           applied,
           killed,
@@ -179,7 +169,7 @@ export class BundleMutationOracleAdapter implements BundleMutationPort {
           ...(survivorRuns.length > 0 ? { survivorRuns } : {}),
           ...(unreadable > 0 ? { unreadable } : {}),
           ...(anyLeftOut ? { leftOut: { ...leftOut, reason: RERUN_LEFT_OUT_FOR_TIME } } : {}),
-          ...(anyNotJudged ? { notJudged } : {}),
+          ...(notGreenOnly > 0 ? { notJudged: { [NOT_GREEN_UNDER_MEASUREMENT]: notGreenOnly } } : {}),
         }
       : null;
   }

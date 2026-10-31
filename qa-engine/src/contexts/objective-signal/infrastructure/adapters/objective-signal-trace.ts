@@ -37,7 +37,6 @@ function survivorAttrs(m: BundleMutationOutcome): Attrs {
     "qayaba.mutation.applied": m.applied,
     "qayaba.mutation.killed": m.killed,
     ...(m.unreadable ? { "qayaba.mutation.unreadable": m.unreadable } : {}),
-    ...(m.notJudged?.["session-lost"] ? { "qayaba.mutation.session_lost": m.notJudged["session-lost"] } : {}),
     ...(m.leftOut ? { "qayaba.mutation.mutants_left_out": m.leftOut.mutants, "qayaba.mutation.observations_left_out": m.leftOut.observations } : {}),
     "qayaba.mutation.survivors_routed": routed,
     "qayaba.mutation.survivors_without_spec": m.survived.length - routed,

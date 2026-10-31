@@ -317,8 +317,7 @@ export async function measureMutation(state: Readonly<RunState>, ctx: WorkspaceR
 
 /*
  * A re-run of the mutation pass (a mutant's, or an unmutated observation of the survivors) is an execution of the run's suite: it goes
- * through the run's execution port, which records it and guards the session of a mutant's, as it does every judging execution; one
- * whose session stays gone comes back not judged (`session-lost`) instead of ending the run, the same in every pass that applies it. It runs
+ * through the run's execution port, which records it and guards the session of a mutant's, as it does every judging execution. It runs
  * with coverage on and no retry, as the measurement execution a kill is judged against does; it adds the mutant's edit, and it is
  * observed only when the pass asks, while the measurement is always observed and held to a global timeout of its own.
  */
@@ -533,7 +532,6 @@ export async function closeSurvivors(state: Readonly<RunState>, ctx: WorkspaceRu
   engineLog.info(`[qa] survivor closure: ${closure.closed} of ${closure.routed} surviving mutant(s) now noticed by a test (${closure.judged} judged)`);
   if (closure.leftOut) engineLog.warn(`[qa] survivor closure: ${closure.leftOut.mutants} surviving mutant(s) were not re-applied because the time left could not hold their re-run`);
   if (closure.unreadable) engineLog.warn(`[qa] survivor closure: ${closure.unreadable} surviving mutant(s) were not judged because the counters of their re-run could not be read (not the same as a mutant that reached no page)`);
-  if (closure.notJudged?.["session-lost"]) engineLog.warn(`[qa] survivor closure: ${closure.notJudged["session-lost"]} surviving mutant(s) were not judged because their re-run met a session the app had ended`);
   return closure;
 }
 
