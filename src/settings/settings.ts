@@ -149,11 +149,17 @@ class Reader {
       return parse();
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      const named = names.filter((name) => message.includes(name));
+      const named = names.filter((name) => namesVariable(message, name));
       for (const env of named.length > 0 ? named : names) this.problems.push({ env, message });
       return fallback;
     }
   }
+}
+
+/* Whether a message names the variable itself: the name as a whole word, never as the start or end of a longer variable's name. */
+function namesVariable(message: string, name: string): boolean {
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(?<![A-Za-z0-9_])${escaped}(?![A-Za-z0-9_])`).test(message);
 }
 
 const SECRET_ENV_NAMES: readonly string[] = SETTINGS_REGISTRY.filter((def) => def.secret).map((def) => def.env);

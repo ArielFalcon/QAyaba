@@ -183,6 +183,20 @@ test("each retired variable that is still set is reported once at load; an unset
   for (const name of retired) assert.equal(warnings.filter((w) => w.startsWith(`${name} is set but no longer read`)).length, 1, name);
 });
 
+test("a parse error is recorded against the variable it names, never against another whose name is a prefix of it", () => {
+  const envOf = (input: Record<string, string>): string[] => {
+    try {
+      loadSettings(input);
+    } catch (error) {
+      if (error instanceof SettingsError) return error.problems.map((problem) => problem.env);
+    }
+    return [];
+  };
+  assert.deepEqual(envOf({ QA_RUN_TIME_BUDGET_MS_DIFF_FOCUSED: "soon" }), ["QA_RUN_TIME_BUDGET_MS_DIFF_FOCUSED"]);
+  assert.deepEqual(envOf({ QA_RUN_TIME_BUDGET_MS_DIFF: "soon" }), ["QA_RUN_TIME_BUDGET_MS_DIFF"]);
+  assert.deepEqual(envOf({ QA_TELEMETRY_MAX_CAPTURE: "everything" }), ["QA_TELEMETRY_MAX_CAPTURE"]);
+});
+
 test("the former per-size diff run budgets keep working for one release: the largest set value applies, each set name is reported once, and the new name wins over them", () => {
   const former = { QA_RUN_TIME_BUDGET_MS_DIFF_TINY: "600000", QA_RUN_TIME_BUDGET_MS_DIFF_BROAD: "1200000" };
   const loaded = loadSettings(former);
