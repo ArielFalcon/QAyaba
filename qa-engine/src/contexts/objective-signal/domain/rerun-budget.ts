@@ -5,7 +5,7 @@ import { testOfCase } from "./dump-names.ts";
 /** Why the mutation pass left a re-run out: the coverage purpose's time could not hold it. */
 export const RERUN_LEFT_OUT_FOR_TIME = "time";
 
-/** The re-runs of a mutation pass that were not started, and why: the mutants left out unjudged, and the unmutated observations (the one before and the one after the mutants) whose absence leaves the survivors unobserved. */
+/** The re-runs of a mutation pass that were not started, or that the run's deadline cut, and why: the mutants left out unjudged, and the unmutated observations (the one before and the one after the mutants) whose absence leaves the survivors unobserved. */
 export interface RerunsLeftOut {
   mutants: number;
   observations: number;
@@ -16,6 +16,8 @@ export interface RerunsLeftOut {
 export interface RerunBudget {
   allowance: () => number | null;
   cases: readonly QaCase[];
+  /** Whether the run's deadline has fired: no re-run starts after it, and one it ended during was cut (its process killed) and says nothing. Absent: never. */
+  fired?: () => boolean;
 }
 
 /** The measured time of the cases a re-run of `specFiles` executes, only those `tests` names when it names them; undefined when no case is known for it or one of them has no measured duration. */

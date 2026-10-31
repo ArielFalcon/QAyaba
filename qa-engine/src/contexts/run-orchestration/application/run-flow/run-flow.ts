@@ -31,7 +31,7 @@ export interface FlowStep<S, C, Id extends string = StepId> {
   id: Id;
   /** What the step is to the run (see failure-policy.ts); absent, it is `required`. */
   class?: StepClass;
-  /** A step that starts no process and spends no agent turn, so the deadline has nothing of it to cut: whatever it came to is its own, whenever the deadline fired. Absent, a step the deadline met is cut. */
+  /** A step whose result the deadline cannot make untrue, so whatever it came to is its own, whenever the deadline fired: one that starts no process and spends no agent turn (the deadline has nothing of it to cut), or one that holds only what finished before the deadline (the mutation pass: a re-run the deadline killed is not judged and none starts after it). Absent, a step the deadline met is cut. */
   survivesDeadline?: boolean;
   /** The phase the step opens on the cursor before it runs; absent, it runs inside the open phase. */
   phase?: RunPhase;

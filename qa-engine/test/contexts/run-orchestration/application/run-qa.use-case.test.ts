@@ -1474,7 +1474,7 @@ const measuringInTwoPasses = (duringMutants: (opts: Parameters<NonNullable<Objec
   },
 });
 
-test("the run deadline spent during the mutation re-runs keeps the coverage the execution measured on the saved outcome", async () => {
+test("the run deadline spent during the mutation pass keeps what the pass came to on the saved outcome: its proof does not depend on time", async () => {
   const { deadline, fire } = deadlineFiredByHand(3_600_000);
   const { ports, savedOutcomes } = stubPorts({ execute: passPerSpec, ...measuringInTwoPasses(() => fire()) });
 
@@ -1482,10 +1482,26 @@ test("the run deadline spent during the mutation re-runs keeps the coverage the 
 
   assert.equal(out.decision.verdict, "pass", "the green suite is kept past the deadline");
   const { coverageRatio, branchCoverage, changeCoverage, bundleMutation } = savedOutcomes.at(-1)!.gateSignals;
-  assert.equal(coverageRatio, measuredByExecution.ratio);
-  assert.deepEqual(branchCoverage, { changed: measuredByExecution.measurement.changedBranches, taken: measuredByExecution.measurement.takenBranches });
-  assert.equal(changeCoverage?.executableLines, measuredByExecution.measurement.changedLines);
-  assert.equal(bundleMutation, undefined, "nothing the cut mutation pass came to is kept");
+  assert.equal(coverageRatio, measuredWithMutants.ratio);
+  assert.deepEqual(branchCoverage, { changed: measuredWithMutants.measurement.changedBranches, taken: measuredWithMutants.measurement.takenBranches });
+  assert.equal(changeCoverage?.provenByMutation, measuredWithMutants.measurement.provenByMutation);
+  assert.deepEqual(bundleMutation, measuredWithMutants.bundleMutation);
+});
+
+test("the run deadline spent during the measurement by execution still cuts it: only the mutation pass outlives the deadline", async () => {
+  const { deadline, fire } = deadlineFiredByHand(3_600_000);
+  let passes = 0;
+  const { ports, savedOutcomes } = stubPorts({
+    execute: passPerSpec,
+    measure: async () => { fire(); return measuredByExecution; },
+    measureMutation: async () => { passes += 1; return measuredWithMutants; },
+  });
+
+  const out = await new RunQaUseCase({ ...ports, runDeadline: deadline, config: { ...baseConfig, needsReview: false } }).run({ ...baseInput, runId: "measure-cut-by-deadline" });
+
+  assert.equal(out.decision.verdict, "pass", "the green suite is kept past the deadline");
+  assert.equal(passes, 0, "no mutation pass after the cut");
+  assert.equal(savedOutcomes.at(-1)!.gateSignals.coverageRatio, null, "the cut measurement is not kept");
 });
 
 test("a run with time for the mutation pass records the measurement the mutants verified and the mutants it judged", async () => {
@@ -1558,6 +1574,8 @@ interface MutationRigOptions {
   clock?: { now: number; rerunMs: number };
   /* An execution whose namespace ends with `namespace` sets the clock to `now` once it has run. */
   clockAfter?: { namespace: string; now: number };
+  /* Told each re-run of the mutation pass as it runs, by its kind and index (obs, mut0, …, obs2). */
+  duringRerun?: (rerun: string) => void;
 }
 
 function mutationRig(o: MutationRigOptions = {}) {
@@ -1585,6 +1603,7 @@ function mutationRig(o: MutationRigOptions = {}) {
   const runMutant = async (args: { namespace: string }) => {
     reruns.push(args.namespace.replace(/^.*-(obs2?|mut\d)$/, "$1"));
     if (o.clock) o.clock.now += o.clock.rerunMs;
+    o.duringRerun?.(reruns.at(-1)!);
     const pass = { name: PASS_CASE, status: "pass" as const, file: PASS_SPEC };
     if (args.namespace.endsWith("-mut0")) return { verdict: "fail", cases: [{ ...pass, status: "fail" as const }], observations: [page] };
     if (args.namespace.endsWith("-mut1")) return { verdict: "pass", cases: [pass], observations: [{ ...page, requests: [...page.requests, { method: "POST", url: "https://dev.example/api/pay", count: 1 }] }] };
@@ -1749,6 +1768,35 @@ test("the final measurement of an enforce run starts no mutation re-run the time
 
   assert.deepEqual(rig.reruns, ["obs", "mut0", "mut1", "mut2", "obs2", "mut0"], "the first pass and the re-check ran; the final pass started nothing");
   assert.deepEqual(coverage.bundleMutation, { applied: 0, killed: 0, survived: [], leftOut: { mutants: 3, observations: 1, reason: "time" } });
+});
+
+test("the run deadline spent during a mutant's re-run keeps what the mutants judged before it, and judges nothing it cut or did not start", async () => {
+  const { deadline, fire } = deadlineFiredByHand(3_600_000);
+  const { out, rig, coverage } = await runMutationRig("mutation-pass-cut-keeps-proof", { duringRerun: (rerun) => { if (rerun === "mut1") fire(); } }, deadline);
+
+  assert.deepEqual(rig.reruns, ["obs", "mut0", "mut1"], "nothing starts once the deadline fired");
+  assert.equal(out.decision.verdict, "pass", "the green suite is kept past the deadline");
+  assert.deepEqual(coverage, {
+    coverageRatio: 0.75,
+    branchCoverage: { changed: 2, taken: 1 },
+    changeCoverage: { executableLines: 4, notExecutableLines: 0, coveredByExecution: 2, provenByMutation: 1, armsProvenByMutation: 0 },
+    bundleMutation: { applied: 1, killed: 1, survived: [], leftOut: { mutants: 2, observations: 0, reason: "time" } },
+    survivorClosure: undefined,
+    integrity: undefined,
+  }, "the mutant killed before the deadline is proof; the one the deadline cut and the one after it are left out (with no survivor, no observation after is due)");
+});
+
+test("after the run deadline was spent during the mutation pass, the coverage regeneration it would have driven is cut and the run keeps its proof", async () => {
+  const { deadline, fire } = deadlineFiredByHand(3_600_000);
+  let authored = 0;
+  const { out, rig } = await runMutationRig("mutation-pass-cut-then-regeneration", { mode: "enforce", minRatio: 0.9, realWorkspace: true, duringRerun: (rerun) => { if (rerun === "mut1") fire(); } }, deadline, () => { authored += 1; });
+
+  assert.deepEqual(rig.reruns, ["obs", "mut0", "mut1"], "no re-run of any later step starts");
+  assert.ok(authored <= 2, "the regeneration's one turn, which the deadline runtime refuses in production; nothing it wrote is accepted");
+  assert.match(out.note ?? "", /run deadline was spent during regenerate-for-coverage; the suite that ran green on its final bytes is kept/, "the step after the pass is cut, and the run degrades with its proof");
+  assert.equal(out.decision.verdict, "pass");
+  assert.equal(out.decision.sideEffect, "held", "the verified measurement still blocks under the 0.9 floor");
+  assert.equal(out.errorClass === ERROR_CLASS.TIME_BUDGET, false, "a green suite past its deadline keeps its proof");
 });
 
 test("a mutation pass that judged no mutant leaves the coverage by execution as it was", async () => {

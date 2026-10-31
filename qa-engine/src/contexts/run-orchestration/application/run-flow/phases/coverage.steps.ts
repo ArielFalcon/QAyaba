@@ -147,11 +147,12 @@ export async function measureCoverage(state: Readonly<RunState>, ctx: WorkspaceR
 
 /*
  * What every re-run of a mutant or an unmutated observation is held to: the time `purpose` may still spend, read without allotting it,
- * and the cases of the execution whose bytes it re-runs, whose measured durations estimate it.
+ * the cases of the execution whose bytes it re-runs, whose measured durations estimate it, and the run's deadline, after which none
+ * starts and one it cut is not judged.
  */
 export function rerunBudgetOf(ctx: WorkspaceRunContext, purpose: DeadlinePurpose, cases: RerunBudget["cases"]): RerunBudget {
   const deadline = ctx.services.runDeadlinePort;
-  return { allowance: () => deadline.peekAllowance?.(purpose) ?? null, cases };
+  return { allowance: () => deadline.peekAllowance?.(purpose) ?? null, cases, fired: () => deadline.fired?.() === true };
 }
 
 /* The mutation pass runs only on a measurement that found one due (mutants were chosen and there are passing cases to judge them against), on a port that can run it. */

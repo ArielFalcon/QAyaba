@@ -602,17 +602,22 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   `RunScope` and the execution launcher kills the child's process tree when it fires. A step the deadline met (it fired during the step, or before the step began) ends
   the run through the same `RunDeadlineExceededError` (stop `mid-phase`, with the purpose it cut), whatever the cut made it throw
   or return, except an end the run had already decided and the steps that survive the deadline (`survivesDeadline`: fingerprinting the
-  green suite, releasing the coordinated pass, the final proof guard and the decision start no process and spend no turn, so they have nothing for it to cut);
+  green suite, releasing the coordinated pass, the final proof guard and the decision start no process and spend no turn, so they have nothing for it to cut;
+  the mutation pass holds only what finished before it, since a re-run the deadline killed is not judged and none starts after it);
   `guarded` then ends `E-TIME-BUDGET` or keeps the proof (`deadline-after-proof`): every step that only runs on a green suite (the coverage
   announcement and measurement, the mutation pass, the regenerations, the review) is `proven`, and the measurement is the `coverage` phase in every mode.
   The coverage measurement keeps its cheap part apart from its costly one: `measure-coverage` reads the execution's dumps and records
   the coverage by execution alone, and `measure-mutation`, the next step, runs only when that measurement chose mutants to judge
   (`mutationPass`, which holds the mutants and what that one read of the dumps gave, so the pass reads none of them again): it
   runs the mutants and the verified recount (`ObjectiveSignalPort.measureMutation`, traced as a `qayaba.coverage.measure` span of
-  its own) and replaces the measurement only when it completes and a mutant was judged, unreadable or left out. A
-  deadline that cuts the mutation pass leaves the coverage by execution standing, as a run with mutation off has it, and that is the
-  measurement the degradation's undecided-gate check and the enforce gate read. Each re-run of the pass starts only while the
-  coverage allowance holds its estimate (Bundle mutation, below).
+  its own) and replaces the measurement only when it completes and a mutant was judged, unreadable or left out. The
+  deadline does not take the pass's result back: a mutant judged on a real re-run is proof whenever the deadline fires, the re-run
+  the deadline killed is not judged and none starts after it (each counted in `leftOut`), so the coverage its killed mutants verified
+  is what the degradation's undecided-gate check and the enforce gate read; a deadline that fires before any mutant was judged leaves
+  the coverage by execution, as a run with mutation off has it. The step after it meets the deadline and is cut (`deadline-after-proof`);
+  each later step is bounded by its own mechanism (an agent turn the deadline runtime refuses, a Playwright child the launcher's
+  signal kills, a mutant re-run the fired deadline refuses). Each re-run of the pass starts only while the coverage allowance holds
+  its estimate (Bundle mutation, below).
   The first generation pass is bounded by the generate allowance (its turn states no time of its own), and a fix-loop
   regeneration or an acceptance execution starts only while the fix allowance is positive (`regenerationAllowed`); with the fix
   share spent and the run still holding time the regeneration is skipped, recorded as the fix loop's `allotment` limit, and the run
@@ -1145,7 +1150,7 @@ that catches nothing. The objective signal that breaks the circle is **change-co
   `gateSignals.bundleMutation` holds `{ applied, killed, survived[] }`, plus `skippedSites { count, reasons }`
   (sites left out, by `no-source-line` or `not-in-source-line`), `rerunsBySpecFile` (mutants whose tests
   could not be told), `unreadable` (mutants not judged for unreadable counters) and `leftOut { mutants, observations, reason: "time" }`
-  (re-runs not started for time: the mutants left unjudged and the unmutated observations, counted apart; span
+  (re-runs not started for time, or cut by the run's deadline: the mutants left unjudged and the unmutated observations, counted apart; span
   `qayaba.mutation.mutants_left_out`, `observations_left_out`) when there are any; with only unreadable or left-out
   mutants the object is present with `applied: 0`.
   **What a survivor moved** (signal, never a gate): the survivor's finding says which observable the mutation changed, because an author

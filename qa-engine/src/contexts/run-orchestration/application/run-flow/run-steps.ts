@@ -67,7 +67,7 @@ export const IN_WORKSPACE: ReadonlyArray<FlowStep<RunState, WorkspaceRunContext>
   { id: "fingerprint-green-suite", writes: [], survivesDeadline: true, run: fingerprintGreenSuite },
   { id: "announce-coverage", writes: [], class: "proven", runs: announcesCoverage, run: announceCoverage },
   { id: "measure-coverage", writes: ["coverage"], class: "proven", phase: "coverage", runs: measuresCoverage, skipReason: coverageSkipReason, run: measureCoverage },
-  { id: "measure-mutation", writes: ["coverage"], class: "proven", runs: measuresMutation, skipReason: mutationSkipReason, run: measureMutation },
+  { id: "measure-mutation", writes: ["coverage"], class: "proven", survivesDeadline: true, runs: measuresMutation, skipReason: mutationSkipReason, run: measureMutation },
   { id: "regenerate-for-coverage", writes: ["coverage", "execution", "loops"], class: "proven", runs: regeneratesForCoverage, run: regenerateForCoverage },
   { id: "regenerate-for-branch-cases", writes: ["coverage", "execution", "loops"], class: "proven", runs: regeneratesForBranchCases, run: regenerateForBranchCases },
   { id: "triage-flaky-cases", writes: ["coverage", "execution", "loops"], class: "proven", runs: triagesFlaky, run: triageFlakyCases },
