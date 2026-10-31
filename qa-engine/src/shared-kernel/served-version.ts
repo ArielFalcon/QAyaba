@@ -28,11 +28,6 @@ export interface ServedVersionFact {
   atExecution?: Omit<ServedVersionFact, "atExecution">;
 }
 
-/* A declared source that gave no health either: the read itself failed or its body named no commit. A commit the mirror lacks, or a history that failed, were read from a source that answered. */
-export function sourceUnanswered(fact: ServedVersionFact): boolean {
-  return fact.state === "unreadable" && fact.reason !== "commit-not-in-history" && fact.reason !== "history-unavailable";
-}
-
 /* The run's record: the anchor repo's fact, and each other repo of a run over several repos. */
 export interface ServedVersionSignal extends ServedVersionFact {
   companions?: ReadonlyArray<ServedVersionFact & { repo: string }>;

@@ -125,16 +125,38 @@ test("the entry's version read and health wait are given one clock", async () =>
   assert.equal(clocks[1], clocks[0]);
 });
 
-test("a source that cannot be read ends no run at the entry, which waits for no health from it; DEV health is still judged before Playwright", async () => {
-  let healthReads = 0;
-  const { observed } = await runWith("webhook", () => ({
-    verifyServed: async () => ok({ state: "unreadable", reason: "unreachable" }),
-    waitUntilHealthy: async () => { healthReads += 1; return err(new InfraError("DEV did not report healthy within 60000ms")); },
-  }));
-  assert.equal(healthReads, 1, "only the pre-execute check asked");
-  assert.equal(observed.result?.decision.verdict, "infra-error");
-  assert.equal(observed.result?.gateSignals.furthestPhase, "health");
-  assert.deepEqual(recorded(observed), { state: "unreadable", reason: "unreachable" });
+test("a declared source that refuses connections is recorded unreadable, never waited for as a version, and ends the run at the entry's health wait before any generation", async () => {
+  for (const source of ["webhook", "manual"] as const) {
+    const rig = newRig();
+    try {
+      const telemetry = new SpanLog();
+      let versionReads = 0;
+      let healthReads = 0;
+      let generations = 0;
+      const author = rig.author;
+      rig.author = async (...args) => { generations += 1; return await author(...args); };
+      rig.input = { source };
+      rig.extra = {
+        telemetry,
+        deployGate: {
+          verifyServed: async () => { versionReads += 1; return ok({ state: "unreadable", reason: "unreachable" }); },
+          waitUntilHealthy: async () => { healthReads += 1; return err(new InfraError("DEV did not report healthy within 60000ms (versionUrl=https://dev/version)")); },
+        },
+      };
+      const observed = await observe(rig, `served-version-refused-${source}`);
+      assert.equal(observed.result?.decision.verdict, "infra-error", source);
+      assert.match(observed.result?.note ?? "", /did not report healthy/, source);
+      assert.equal(observed.saved.length, 0, `${source}: the gate end saves no outcome, as at the baseline`);
+      assert.equal(versionReads, 1, `${source}: the version is read once, never waited for`);
+      assert.equal(healthReads, 1, `${source}: the entry's health wait runs`);
+      assert.equal(generations, 0, `${source}: no generation is spent against a DEV whose source does not answer`);
+      const gate = telemetry.spans.find((s) => s.name === "qayaba.phase.gate");
+      assert.equal(gate?.attrs["qayaba.served_version.state"], "unreadable", source);
+      assert.equal(gate?.attrs["qayaba.served_version.reason"], "unreachable", source);
+    } finally {
+      dispose(rig);
+    }
+  }
 });
 
 test("a deploy-triggered run that entered equal has the pre-execute check hold DEV to its commit; a newer deploy ends it infra-error and the re-read is on the fact", async () => {

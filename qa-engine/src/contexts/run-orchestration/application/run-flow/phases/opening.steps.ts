@@ -2,7 +2,7 @@
 
 import { engineLog } from "@kernel/ports/process-logger.ts";
 import { isOk } from "@kernel/result.ts";
-import { DeployNotServedError, sourceUnanswered, type ServedVersionFact, type ServedVersionSignal } from "@kernel/served-version.ts";
+import { DeployNotServedError, type ServedVersionFact, type ServedVersionSignal } from "@kernel/served-version.ts";
 import { ACTION_SEVERITY } from "@contexts/change-analysis/application/index.ts";
 import { changeTokens } from "@contexts/objective-signal/application/index.ts";
 import { runTimeBudgetKey } from "../../../domain/run-time-budget.ts";
@@ -52,8 +52,7 @@ async function verifyEntryDeploys(ctx: RunContext): Promise<{ failure?: string; 
       return { failure: messageOf(entry.repo, verified.error), facts };
     }
     facts.push({ repo: entry.repo, ...verified.value });
-    /* A source that gave nothing says nothing of health: the run goes on, and the check before Playwright judges it. */
-    if (sourceUnanswered(verified.value)) continue;
+    /* An unreadable source is recorded and never waited for as a version, but it is not healthy either: no run spends a generation against a DEV whose declared source does not answer. */
     const healthy = await gate.waitUntilHealthy({ startedAt });
     if (!isOk(healthy)) return { failure: messageOf(entry.repo, healthy.error), facts };
   }
