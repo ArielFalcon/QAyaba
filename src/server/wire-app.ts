@@ -6,7 +6,7 @@ import type { IncomingMessage } from "node:http";
 import { join } from "node:path";
 import { qayabaDataDir, qayabaRoot } from "../paths";
 import { randomBytes } from "node:crypto";
-import { writeFileSync, readFileSync, rmSync, unlinkSync, existsSync } from "node:fs";
+import { writeFileSync, readFileSync, rmSync, unlinkSync, existsSync, readdirSync, statSync } from "node:fs";
 import { JobQueue } from "./queue";
 import { describeAppLoadFailure, loadAppConfig, listAppConfigs } from "../orchestrator/config-loader";
 
@@ -40,7 +40,10 @@ import { egressGateFor } from "./egress-wiring";
 import { SandboxedBinaryRunnerAdapter } from "../../qa-engine/src/shared-infrastructure/process-sandbox/sandboxed-binary-runner.adapter";
 import { ProcessKillAdapter } from "../../qa-engine/src/shared-infrastructure/process-sandbox/process-kill.adapter";
 import { deleteSuiteSnapshots, deleteSuiteStoreDir } from "@contexts/workspace-and-publication/infrastructure/suite-store.adapter";
-import { pruneMirrors, defaultMirrorPruneDeps, getDirectorySize } from "./mirror-prune";
+import { pruneMirrors, type MirrorPruneDeps } from "@contexts/workspace-and-publication/application/prune-mirrors";
+import type { MirrorEntry } from "@contexts/workspace-and-publication/application/ports/mirror-store.port";
+import { computeActiveRepoSlugs, repoSlug } from "@contexts/workspace-and-publication/domain/active-repo-slugs";
+import { RESERVED_MIRROR_DIR_NAMES } from "./mirror-prune";
 import { buildArtifactBytesMetrics, type ArtifactSizeCache } from "./metrics";
 import { installHttpDispatcher } from "../util/net";
 import { resolveRef, defaultMirrorDeps, ensureMirrorAtBranch, getHeadSha } from "../integrations/repo-mirror";
@@ -85,8 +88,78 @@ import { shouldLogApiRequest } from "./api-request-log";
 import { suiteHoldsVerifiedLoginFor } from "./login-bootstrap-wiring";
 import { contextMapNeedsRebuildFor } from "./context-map-wiring";
 import { getHistory } from "./persistence/index";
-import type { SettingsStore } from "../settings/store";
+import { activeSettings, type SettingsStore } from "../settings/store";
 import { createApp, type App } from "./create-app";
+
+/* ── Mirror pruning: the real file system, config loader, run history and settings behind the rule ───────────── */
+
+function getDirectorySize(dir: string): number {
+  let size = 0;
+  try {
+    const entries = readdirSync(dir, { withFileTypes: true });
+    for (const entry of entries) {
+      const fullPath = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        size += getDirectorySize(fullPath);
+      } else if (entry.isFile()) {
+        try {
+          size += statSync(fullPath).size;
+        } catch {
+          /* ignore unreadable files */
+        }
+      }
+    }
+  } catch {
+    /* ignore unreadable directories */
+  }
+  return size;
+}
+
+/* queueCurrentRunId is the only piece this wiring cannot reach on its own: the JobQueue instance lives in wireApp. */
+function defaultMirrorPruneDeps(queueCurrentRunId: () => string | null): MirrorPruneDeps {
+  return {
+    mirrorRoot: activeSettings().git.mirrorDir ?? join(process.cwd(), ".mirrors"),
+    reservedDirNames: RESERVED_MIRROR_DIR_NAMES,
+    listMirrorDirs: (root) => {
+      const out: MirrorEntry[] = [];
+      for (const name of readdirSync(root)) {
+        const path = join(root, name);
+        try {
+          const s = statSync(path);
+          if (s.isDirectory()) out.push({ name, path, mtimeMs: s.mtimeMs });
+        } catch {
+          /* entry vanished mid-scan — skip */
+        }
+      }
+      return out;
+    },
+    remove: (path) => rmSync(path, { recursive: true, force: true }),
+    directorySize: getDirectorySize,
+    configuredRepoSlugs: () => {
+      const slugs = new Set<string>();
+      for (const app of listAppConfigs()) {
+        slugs.add(repoSlug(app.repo));
+        for (const svc of app.services ?? []) slugs.add(repoSlug(svc.repo));
+      }
+      return slugs;
+    },
+    activeRepoSlugs: () =>
+      computeActiveRepoSlugs({
+        currentRun: () => getHistory().runs.currentRun(),
+        queueCurrentRunId,
+        getRecord: (id) => getHistory().runs.getRecord(id),
+        repoForApp: (app) => {
+          try {
+            return loadAppConfig(app).repo;
+          } catch {
+            return undefined;
+          }
+        },
+      }),
+    now: () => Date.now(),
+    log: logLine,
+  };
+}
 
 /*
  * The production wiring of the control plane: every real adapter is built here from the typed settings and handed to
