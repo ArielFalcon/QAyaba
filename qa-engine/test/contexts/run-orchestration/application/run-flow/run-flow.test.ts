@@ -229,6 +229,23 @@ test("a step that survives the deadline keeps what it came to whenever the deadl
   await assert.rejects(runFlow([during], { trace: [], n: 0 }, { skipB: false }, second.hooks), /its own fault/);
 });
 
+test("the step after one that outlived the deadline meets it even when it would not run, so the deadline is never left unrecorded", async () => {
+  const { clock, events, hooks } = deadlined();
+  const outlives: Step = { id: "a", survivesDeadline: true, run: async () => { clock.fired = true; return { update: { n: 1 } }; } };
+  const skipped: Step = { ...recording("b"), runs: () => false };
+  const out = await runFlow([outlives, skipped, recording("c")], { trace: [], n: 0 }, { skipB: false }, hooks);
+  assert.ok("end" in out && out.end.reason === "run-deadline");
+  assert.deepEqual(events.map((event) => event.id), ["a", "b"]);
+});
+
+test("a step that would not run is skipped as before while the deadline has not fired", async () => {
+  const { events, hooks } = deadlined();
+  const skipped: Step = { ...recording("b"), runs: () => false };
+  const out = await runFlow([recording("a"), skipped, recording("c")], { trace: [], n: 0 }, { skipB: false }, hooks);
+  assert.deepEqual(out, { state: { trace: ["a", "c"], n: 2 } });
+  assert.deepEqual(events.map((event) => [event.id, event.outcome]), [["a", "ran"], ["b", "skipped"], ["c", "ran"]]);
+});
+
 test("a step that decides the run's end while the deadline fires keeps its decision", async () => {
   const { clock, hooks } = deadlined();
   const deciding: Step = { id: "end", run: async () => { clock.fired = true; return end("decided"); } };

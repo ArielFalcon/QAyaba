@@ -1486,6 +1486,8 @@ test("the run deadline spent during the mutation pass keeps what the pass came t
   assert.deepEqual(branchCoverage, { changed: measuredWithMutants.measurement.changedBranches, taken: measuredWithMutants.measurement.takenBranches });
   assert.equal(changeCoverage?.provenByMutation, measuredWithMutants.measurement.provenByMutation);
   assert.deepEqual(bundleMutation, measuredWithMutants.bundleMutation);
+  assert.ok(limitsOf(out).some((limit) => limit.startsWith("run-deadline@")), `the deadline is recorded as the limit that fired, though no step after the pass had work: ${limitsOf(out).join(", ")}`);
+  assert.ok((traceFactsOf(out)?.degradations ?? []).some((d) => d.reason === "deadline-after-proof"));
 });
 
 test("the run deadline spent during the measurement by execution still cuts it: only the mutation pass outlives the deadline", async () => {

@@ -107,13 +107,16 @@ export async function runFlow<S extends object, C, Id extends string = StepId>(
       hooks.record({ id: step.id, outcome: "ended", reason: "aborted" });
       return { end: runEnd("aborted") };
     }
-    if (step.runs && !step.runs(state, ctx)) {
+    const wouldRun = !step.runs || step.runs(state, ctx);
+    /* A step reached after the deadline fired meets it whether or not it would run, unless it survives the deadline: a deadline that fired during a step that outlived it is cut, and so recorded, at the first step it reaches, never left unrecorded because the steps after it had nothing to do. */
+    const meetsDeadline = step.survivesDeadline !== true && hooks.deadlineFired?.() === true && hooks.deadlineCut !== undefined;
+    if (!wouldRun && !meetsDeadline) {
       const reason = step.skipReason?.(state, ctx);
       hooks.record({ id: step.id, outcome: "skipped", ...(reason !== undefined ? { reason } : {}) });
       index++;
       continue;
     }
-    if (step.phase) hooks.enter(step.phase);
+    if (wouldRun && step.phase) hooks.enter(step.phase);
     const degrade = hooks.degrade;
     /* A step the run's deadline met (it fired during the step, or before the step began) was cut by it, unless the step survives the deadline: its children were killed with it, so whatever it threw or came to says nothing but that. The policy then ends the run on its time budget, or keeps the proof the run already holds. */
     const cutDuring = (): boolean => step.survivesDeadline !== true && hooks.deadlineFired?.() === true && hooks.deadlineCut !== undefined;
@@ -121,6 +124,7 @@ export async function runFlow<S extends object, C, Id extends string = StepId>(
       { id: step.id, class: step.class ?? "required" },
       async () => {
         let result: StepOutcome<S, Id>;
+        if (!wouldRun) throw hooks.deadlineCut!(step.id);
         try {
           result = await step.run(state, ctx);
         } catch (err) {
