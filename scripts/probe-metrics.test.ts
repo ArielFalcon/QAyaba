@@ -2,12 +2,12 @@
    recorded events and turns, and how an unknown figure is kept apart from a zero. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { PRE_GENERATION_GROUNDING_STEP_DETAIL } from "@kernel/run-step.ts";
+import { PRE_GENERATION_GROUNDING_STEP_DETAIL, RUN_PHASES, RUN_STAGES } from "@kernel/run-step.ts";
 import type { ToolSequenceEntry } from "@contexts/generation/application/index.ts";
 import type { AgentTurnRecord } from "../src/persistence/repositories/telemetry.repository.ts";
 import type { RunOutcome, RunRecord } from "../src/persistence/types.ts";
 import {
-  DEFAULT_SUITE_DIR, PHASES, buildPipelineReport, contentReadsOf, coverageOf, gotoRoutes, normalizeRoute, parseGroundTruth, phaseDurations, phaseDurationsFromSpans, promptSections, renderMarkdown, renderRunRow,
+  DEFAULT_SUITE_DIR, PHASES, buildPipelineReport, contentReadsOf, coverageOf, gotoRoutes, normalizeRoute, parseGroundTruth, phaseDurations, phaseDurationsFromSpans, promptSections, renderMarkdown, renderRunRow, runTimeAccount, RUN_TABLE_HEADER,
   renderNoopLines, scoreGroundTruth, specSourcesOf, stitcherMetrics, summarizeTools, toProbeTurn, turnFromCallMetrics, type GroundTruth, type ReadingContext, type TimedRunEvent,
 } from "./probe-metrics.ts";
 
@@ -93,6 +93,105 @@ test("a run whose ledger holds no phase span has none, and the report falls back
   const report = buildPipelineReport({ runId: RUN_ID, record: runRecord(), outcome: undefined, events: baseEvents(), turns: [], changedFiles: null, specLines: new Map(), minRatio: 0.7, phaseSpans: [] });
   assert.equal(report.phaseSource, "events");
   assert.equal(report.phases.grounding, 60_000);
+});
+
+/* ── the whole run's time ── */
+
+const runSpan = (startMs: number, endMs: number | null) => ({ name: "qayaba.run", startNs: ms(startMs), endNs: endMs === null ? null : ms(endMs) });
+const stageSpan = (stage: string, startMs: number, endMs: number | null) => ({ name: `qayaba.stage.${stage}`, startNs: ms(startMs), endNs: endMs === null ? null : ms(endMs) });
+
+/* The run that showed the gap: 2.5 s on the root, 1.6 s in phases, and the first 0.9 s explained by nothing. */
+const skippedRun = [runSpan(0, 2_517), phaseSpan("gate", 918, 924), phaseSpan("workspace", 924, 2_478), phaseSpan("classify", 2_478, 2_513)];
+
+test("a run's time is the root span's, less what its phases hold, less what its stages hold: the rest is named unattributed", () => {
+  const account = runTimeAccount(skippedRun)!;
+  assert.equal(account.runMs, 2_517);
+  assert.equal(account.phasesMs, 1_595);
+  assert.equal(account.outsidePhasesMs, 922);
+  assert.deepEqual(account.stages, {});
+  assert.equal(account.unattributedMs, 922);
+
+  const explained = runTimeAccount([...skippedRun, stageSpan("config", 0, 120), stageSpan("engine_build", 120, 600), stageSpan("sandbox_open", 600, 900)])!;
+  assert.deepEqual(explained.stages, { config: 120, engine_build: 480, sandbox_open: 300 });
+  assert.equal(explained.stagesMs, 900);
+  assert.equal(explained.outsidePhasesMs, 922, "the figure outside the phases does not depend on the stages");
+  assert.equal(explained.unattributedMs, 22);
+});
+
+test("a stage entered twice is the sum of its spans, and a run span still open is cut at the latest moment the ledger saw", () => {
+  const account = runTimeAccount([runSpan(0, null), phaseSpan("gate", 100, 700), stageSpan("teardown", 700, 800), stageSpan("teardown", 800, 850)])!;
+  assert.equal(account.stages.teardown, 150);
+  assert.equal(account.runMs, 850);
+  assert.equal(account.unattributedMs, 100);
+});
+
+test("a ledger without the run span has no account: the total stays the step events' and nothing is claimed unattributed", () => {
+  assert.equal(runTimeAccount([phaseSpan("gate", 0, 2_000)]), undefined);
+  const report = buildPipelineReport({ runId: RUN_ID, record: runRecord(), outcome: undefined, events: baseEvents(), turns: [], changedFiles: null, specLines: new Map(), minRatio: 0.7, phaseSpans: [phaseSpan("gate", 0, 2_000)] });
+  assert.equal(report.totalSource, "events");
+  assert.equal(report.timeAccount, undefined);
+  assert.equal(report.stages, undefined);
+});
+
+test("a report whose ledger holds the run span takes its total from that span, keeps every field it had, and adds the account", () => {
+  const events = [started(0), step(10, "gate"), step(1_710, "done")];
+  const spans = [...skippedRun, stageSpan("sandbox_open", 0, 900)];
+  const report = buildPipelineReport({ runId: RUN_ID, record: runRecord(), outcome: undefined, events, turns: [], changedFiles: null, specLines: new Map(), minRatio: 0.7, phaseSpans: spans });
+  assert.equal(report.totalMs, 2_517, "the root span, not the 1.7 s between the first and the last event");
+  assert.equal(report.totalSource, "run-span");
+  assert.equal(report.phaseSource, "spans");
+  assert.equal(report.phases.gate, 6);
+  assert.equal(report.enginePhases?.workspace, 1_554, "the engine's own phase names are kept as they were");
+  assert.deepEqual(report.stages, { sandbox_open: 900 });
+  assert.equal(report.timeAccount?.unattributedMs, 22);
+});
+
+test("a run that ended before its first phase still accounts for its time by its stages", () => {
+  const report = buildPipelineReport({ runId: RUN_ID, record: runRecord(), outcome: undefined, events: [started(0)], turns: [], changedFiles: null, specLines: new Map(), minRatio: 0.7, phaseSpans: [runSpan(0, 800), stageSpan("config", 0, 300)] });
+  assert.equal(report.totalMs, 800);
+  assert.equal(report.phaseSource, "events", "there is no phase span to read the phases from");
+  assert.equal(report.timeAccount?.phasesMs, 0);
+  assert.equal(report.timeAccount?.unattributedMs, 500);
+});
+
+const accounted = (extra: ReturnType<typeof runSpan>[] = []) =>
+  buildPipelineReport({ runId: RUN_ID, record: runRecord(), outcome: undefined, events: baseEvents(), turns: [], changedFiles: null, specLines: new Map(), minRatio: 0.7, phaseSpans: [...skippedRun, stageSpan("config", 0, 120), ...extra] });
+
+const columnsOf = (markdown: string): string[] => markdown.split("\n").find((l) => l.startsWith("| arm"))!.split("|").map((c) => c.trim()).filter(Boolean);
+
+test("the runs table has a column for every engine phase the run recorded, in the engine's order, and one for the time no span explains", () => {
+  const every = RUN_PHASES.map((phase, i) => phaseSpan(phase, i * 10, i * 10 + 5));
+  const report = buildPipelineReport({ runId: RUN_ID, record: runRecord(), outcome: undefined, events: baseEvents(), turns: [], changedFiles: null, specLines: new Map(), minRatio: 0.7, phaseSpans: [runSpan(0, 1_000), ...every, stageSpan("config", 400, 500)] });
+  const header = columnsOf(renderMarkdown([report]));
+  for (const phase of RUN_PHASES) {
+    const shown = header.includes(phase) || header.includes({ ground: "grounding", generate: "generation", fix_loop: "retry" }[phase as string] ?? phase);
+    assert.ok(shown, `${phase} has a column`);
+  }
+  for (const phase of ["workspace", "review", "publish", "learn", "health", "fix_loop"]) assert.ok(header.includes(phase), `${phase}, which the table had no slot for, is a column`);
+  assert.ok(header.includes("stage:config"));
+  assert.ok(header.includes("unattributed"));
+  const order = RUN_PHASES.filter((p) => ["workspace", "health", "fix_loop", "review", "publish", "learn"].includes(p));
+  assert.deepEqual(header.filter((c) => order.includes(c as never)), order);
+});
+
+test("the unattributed time of the incident run reads off its row", () => {
+  const markdown = renderMarkdown([accounted()]);
+  const header = columnsOf(markdown);
+  const row = markdown.split("\n").find((l) => l.includes(RUN_ID) && l.startsWith("| pipeline"))!.split("|").map((c) => c.trim());
+  const cells = row.slice(1, row.length - 1);
+  assert.equal(cells[header.indexOf("total")], "2.5s");
+  assert.equal(cells[header.indexOf("workspace")], "1.6s");
+  assert.equal(cells[header.indexOf("stage:config")], "0.1s");
+  assert.equal(cells[header.indexOf("unattributed")], "0.8s");
+});
+
+test("a table of reports that recorded no engine phase, stage or run span is the table it always was", () => {
+  const base = buildPipelineReport({ runId: RUN_ID, record: runRecord(), outcome: undefined, events: baseEvents(), turns: [], changedFiles: null, specLines: new Map(), minRatio: 0.7 });
+  const lines = renderMarkdown([base]).split("\n");
+  assert.equal(lines[2], RUN_TABLE_HEADER.split("\n")[0]);
+  assert.equal(lines[4], renderRunRow(base));
+  assert.deepEqual(columnsOf(renderMarkdown([base])), ["arm", "id", "app", "mode", "verdict", "error", "total", ...PHASES.filter((p) => p !== "health" && p !== "retry"), "specs", "change-coverage", "reviewer", "cost", "note"]);
+  assert.ok(RUN_STAGES.length > 0);
 });
 
 test("the agent totals sum every recorded turn, a failed one included, and name the turns whose time was not recorded", () => {

@@ -8,7 +8,7 @@
  * every sum. Nothing here reads a file, the clock or the network.
  */
 import type { RunEventBody } from "@kernel/contract/events.ts";
-import { PRE_GENERATION_GROUNDING_STEP_DETAIL } from "@kernel/run-step.ts";
+import { PRE_GENERATION_GROUNDING_STEP_DETAIL, RUN_PHASES, RUN_STAGES, STAGE_SPAN_PREFIX } from "@kernel/run-step.ts";
 import type { ClosedLoopGateSignal } from "@kernel/closed-loop.ts";
 import type { AgentBrowserGateSignal } from "@kernel/agent-browser.ts";
 import type { CoordinationGateSignal } from "@kernel/coordination.ts";
@@ -89,7 +89,7 @@ const NS_PER_MS = 1_000_000n;
 export function phaseDurationsFromSpans(spans: readonly PhaseSpan[]): { phases: PhaseDurations; enginePhases: Record<string, number> } | undefined {
   const phaseSpans = spans.filter((s) => s.name.startsWith(PHASE_SPAN_PREFIX));
   if (phaseSpans.length === 0) return undefined;
-  const latest = spans.reduce((at, s) => (s.endNs !== null && s.endNs > at ? s.endNs : s.startNs > at ? s.startNs : at), 0n);
+  const latest = latestMoment(spans);
   const phases = emptyPhases();
   const enginePhases: Record<string, number> = {};
   for (const span of phaseSpans) {
@@ -101,6 +101,50 @@ export function phaseDurationsFromSpans(spans: readonly PhaseSpan[]): { phases: 
     if (probe) phases[probe] = (phases[probe] ?? 0) + lasted;
   }
   return { phases, enginePhases };
+}
+
+/** The name of a run's root span in the ledger; the enqueue span is `qayaba.run.enqueue` and is not the run. */
+const RUN_SPAN_NAME = "qayaba.run";
+
+/**
+ * Where a run's wall time went, from its ledger: the root span's duration, the phases' (the engine's cursor), the stages' (the work around
+ * the phases: RUN_STAGES) and what no span explains. `outsidePhasesMs` is the root less the phases; `unattributedMs` is that less the stages.
+ * Both are clamped at zero, since spans of one run that overlap cannot be told apart from clock skew here.
+ */
+export interface RunTimeAccount {
+  runMs: number;
+  phasesMs: number;
+  stagesMs: number;
+  outsidePhasesMs: number;
+  unattributedMs: number;
+}
+
+/** Each stage's time by its name, a stage entered twice as the sum of its spans; a span still open is cut at the latest moment the ledger saw. */
+function stageDurations(spans: readonly PhaseSpan[], latest: bigint): Record<string, number> {
+  const stages: Record<string, number> = {};
+  for (const span of spans) {
+    if (!span.name.startsWith(STAGE_SPAN_PREFIX)) continue;
+    const name = span.name.slice(STAGE_SPAN_PREFIX.length);
+    stages[name] = (stages[name] ?? 0) + Math.max(0, Number(((span.endNs ?? latest) - span.startNs) / NS_PER_MS));
+  }
+  return stages;
+}
+
+function latestMoment(spans: readonly PhaseSpan[]): bigint {
+  return spans.reduce((at, s) => (s.endNs !== null && s.endNs > at ? s.endNs : s.startNs > at ? s.startNs : at), 0n);
+}
+
+/** The run's time account and its stages. Undefined when the ledger does not hold the run's root span (telemetry was off, or the run is older than the ledger). */
+export function runTimeAccount(spans: readonly PhaseSpan[]): (RunTimeAccount & { stages: Record<string, number> }) | undefined {
+  const root = spans.find((s) => s.name === RUN_SPAN_NAME);
+  if (!root) return undefined;
+  const latest = latestMoment(spans);
+  const runMs = Math.max(0, Number(((root.endNs ?? latest) - root.startNs) / NS_PER_MS));
+  const phasesMs = Object.values(phaseDurationsFromSpans(spans)?.enginePhases ?? {}).reduce((a, b) => a + b, 0);
+  const stages = stageDurations(spans, latest);
+  const stagesMs = Object.values(stages).reduce((a, b) => a + b, 0);
+  const outsidePhasesMs = Math.max(0, runMs - phasesMs);
+  return { runMs, phasesMs, stagesMs, outsidePhasesMs, unattributedMs: Math.max(0, outsidePhasesMs - stagesMs), stages };
 }
 
 /* ── tools ─────────────────────────────────────────────────────────────────────────── */
@@ -356,6 +400,12 @@ export interface ProbeReport {
   phaseSource?: "spans" | "events";
   /** The same time by the engine's own phase names (every phase span, the ones the probe's names have no slot for included); present with `phaseSource: "spans"`. */
   enginePhases?: Record<string, number>;
+  /** Where `totalMs` came from: the run's root span (the whole of the run's wall time), or the first and last recorded event. */
+  totalSource?: "run-span" | "events";
+  /** The work around the phases by stage name (RUN_STAGES), in ms; present when the run's root span is in the ledger. */
+  stages?: Record<string, number>;
+  /** The run's time less its phases and stages: what no span explains. Present when the run's root span is in the ledger. */
+  timeAccount?: RunTimeAccount;
   /** Time inside the phases above that the run also records separately. */
   nested: { domCaptureMs: number | null; reviewMs: number | null };
   turns: ProbeTurn[];
@@ -452,6 +502,7 @@ export function buildPipelineReport(input: PipelineReportInput): ProbeReport {
   const { totalMs, finished, phases: fromEvents } = phaseDurations(events);
   const fromSpans = input.phaseSpans ? phaseDurationsFromSpans(input.phaseSpans) : undefined;
   const phases = fromSpans?.phases ?? fromEvents;
+  const account = input.phaseSpans ? runTimeAccount(input.phaseSpans) : undefined;
   const started = lastEvent(events, "run.started");
   const ctx: ReadingContext = { changedFiles: input.changedFiles, suiteDir: input.suiteDir ?? DEFAULT_SUITE_DIR };
   const turns = input.turns.map((t) => toProbeTurn(t, ctx));
@@ -480,10 +531,12 @@ export function buildPipelineReport(input: PipelineReportInput): ProbeReport {
     errorClass: outcome?.errorClass ?? null,
     note: record?.note ?? null,
     finished: finished || outcome !== undefined,
-    totalMs,
+    totalMs: account?.runMs ?? totalMs,
     phases,
     phaseSource: fromSpans ? "spans" : "events",
     ...(fromSpans ? { enginePhases: fromSpans.enginePhases } : {}),
+    totalSource: account ? "run-span" : "events",
+    ...(account ? { stages: account.stages, timeAccount: { runMs: account.runMs, phasesMs: account.phasesMs, stagesMs: account.stagesMs, outsidePhasesMs: account.outsidePhasesMs, unattributedMs: account.unattributedMs } } : {}),
     nested: { domCaptureMs, reviewMs },
     turns,
     totals: totalsOf(turns),
@@ -797,23 +850,66 @@ const kilo = (v: number | null): string => (v === null ? NA : v >= 10_000 ? `${(
 const clip = (text: string, max: number): string => (text.length <= max ? text : `${text.slice(0, max - 1)}…`);
 const cell = (text: string): string => text.replace(/\|/g, "\\|").replace(/\s+/g, " ").trim();
 
-const RUN_COLUMNS = ["arm", "id", "app", "mode", "verdict", "error", "total", ...PHASES.filter((p) => p !== "health" && p !== "retry"), "specs", "change-coverage", "reviewer", "cost", "note"] as const;
+/** The probe phases the runs table has always had a column for (its base columns), under the probe's names. */
+const BASE_PHASE_COLUMNS = PHASES.filter((p) => p !== "health" && p !== "retry");
 
-/** The header of the runs table. */
-export const RUN_TABLE_HEADER = `| ${RUN_COLUMNS.join(" | ")} |\n|${RUN_COLUMNS.map(() => "---").join("|")}|`;
+/** The engine phases the base columns already show (`ground` is `grounding`, `generate` is `generation`); the rest of RUN_PHASES gets a column of its own once a run recorded it. */
+const BASE_ENGINE_PHASES: ReadonlySet<string> = new Set(Object.entries(PROBE_PHASE_OF).filter(([, probe]) => (BASE_PHASE_COLUMNS as readonly string[]).includes(probe)).map(([engine]) => engine));
+
+/** One column of the runs table: its header and what it shows of a report. */
+export interface RunColumn {
+  header: string;
+  cell(r: ProbeReport): string;
+}
+
+/** `known` in its own order, then the names `recorded` holds that `known` does not, so a name added to the vocabulary later is shown without another edit here. */
+function ordered(known: readonly string[], recorded: ReadonlySet<string>): string[] {
+  return [...known.filter((name) => recorded.has(name)), ...[...recorded].filter((name) => !known.includes(name)).sort()];
+}
+
+/**
+ * The columns of the runs table for these reports. The base columns are always there. A run whose ledger recorded more adds, after the
+ * base phases, a column for each engine phase the table had no slot for (every entry of RUN_PHASES the reports recorded, in the engine's
+ * order), one for each stage (RUN_STAGES) and one for the time no span explains. Reports that recorded none of it give the base table.
+ */
+export function runColumns(reports: readonly ProbeReport[] = []): RunColumn[] {
+  const enginePhases = new Set(reports.flatMap((r) => Object.keys(r.enginePhases ?? {})).filter((name) => !BASE_ENGINE_PHASES.has(name)));
+  const stages = new Set(reports.flatMap((r) => Object.keys(r.stages ?? {})));
+  const accounted = reports.some((r) => r.timeAccount !== undefined);
+  const specs = (r: ProbeReport): string => (r.specs.length === 0 ? "0" : r.specs.map((s) => `${s.path} (${s.lines === null ? NA : `${s.lines} L`})`).join(", "));
+  const coverage = (r: ProbeReport): string => (r.coverage === null ? NA : `${r.coverage.status} ${r.coverage.ratio === null ? NA : r.coverage.ratio.toFixed(2)}`);
+  const reviewer = (r: ProbeReport): string => (r.reviewer === null || r.reviewer.approved === null ? NA : r.reviewer.approved ? "approved" : "rejected");
+  return [
+    { header: "arm", cell: (r) => r.arm },
+    { header: "id", cell: (r) => r.id },
+    { header: "app", cell: (r) => r.app ?? NA },
+    { header: "mode", cell: (r) => r.mode ?? NA },
+    { header: "verdict", cell: (r) => r.verdict ?? NA },
+    { header: "error", cell: (r) => r.errorClass ?? "none" },
+    { header: "total", cell: (r) => `${secs(r.totalMs)}${r.finished ? "" : " (running)"}` },
+    ...BASE_PHASE_COLUMNS.map((p): RunColumn => ({ header: p, cell: (r) => secs(r.phases[p]) })),
+    ...ordered(RUN_PHASES, enginePhases).map((p): RunColumn => ({ header: p, cell: (r) => secs(r.enginePhases?.[p] ?? null) })),
+    ...ordered(RUN_STAGES, stages).map((st): RunColumn => ({ header: `stage:${st}`, cell: (r) => secs(r.stages?.[st] ?? null) })),
+    ...(accounted ? [{ header: "unattributed", cell: (r: ProbeReport) => secs(r.timeAccount?.unattributedMs ?? null) }] : []),
+    { header: "specs", cell: specs },
+    { header: "change-coverage", cell: coverage },
+    { header: "reviewer", cell: reviewer },
+    { header: "cost", cell: (r) => `${usd(r.totals.costUsd)}${r.totals.turnsWithPartialUsage > 0 ? "*" : ""}` },
+    { header: "note", cell: (r) => clip(r.note ?? "", 80) },
+  ];
+}
+
+/** The header of the runs table of these reports (the base one without any). */
+export function runTableHeader(columns: readonly RunColumn[] = runColumns()): string {
+  return `| ${columns.map((c) => c.header).join(" | ")} |\n|${columns.map(() => "---").join("|")}|`;
+}
+
+/** The header of the runs table of reports that recorded no engine phase, stage or run span. */
+export const RUN_TABLE_HEADER = runTableHeader();
 
 /** One markdown table row summarising a run. */
-export function renderRunRow(r: ProbeReport): string {
-  const specs = r.specs.length === 0 ? "0" : r.specs.map((s) => `${s.path} (${s.lines === null ? NA : `${s.lines} L`})`).join(", ");
-  const coverage = r.coverage === null ? NA : `${r.coverage.status} ${r.coverage.ratio === null ? NA : r.coverage.ratio.toFixed(2)}`;
-  const reviewer = r.reviewer === null ? NA : r.reviewer.approved === null ? NA : r.reviewer.approved ? "approved" : "rejected";
-  const partial = r.totals.turnsWithPartialUsage > 0 ? "*" : "";
-  const cells = [
-    r.arm, r.id, r.app ?? NA, r.mode ?? NA, r.verdict ?? NA, r.errorClass ?? "none", `${secs(r.totalMs)}${r.finished ? "" : " (running)"}`,
-    ...PHASES.filter((p) => p !== "health" && p !== "retry").map((p) => secs(r.phases[p])),
-    specs, coverage, reviewer, `${usd(r.totals.costUsd)}${partial}`, clip(r.note ?? "", 80),
-  ];
-  return `| ${cells.map((c) => cell(String(c))).join(" | ")} |`;
+export function renderRunRow(r: ProbeReport, columns: readonly RunColumn[] = runColumns()): string {
+  return `| ${columns.map((c) => cell(String(c.cell(r)))).join(" | ")} |`;
 }
 
 const TURN_COLUMNS = ["id", "role", "ended", "wall", "steps", "calls", "before 1st write (calls / time)", "to 1st call", "denied", "tokens in/out/reason/cache", "cost", "prompt B", "redundant / same-file / prompt-provided reads", "files read (outside diff dirs)", "browser urls"] as const;
@@ -921,7 +1017,8 @@ export function renderNoopLines(reports: readonly ProbeReport[]): string[] {
 }
 
 export function renderMarkdown(reports: readonly ProbeReport[]): string {
-  const lines = ["### Runs", "", RUN_TABLE_HEADER, ...reports.map(renderRunRow), "", "### Agent turns", "", TURN_TABLE_HEADER, ...reports.flatMap(renderTurnRows)];
+  const columns = runColumns(reports);
+  const lines = ["### Runs", "", runTableHeader(columns), ...reports.map((r) => renderRunRow(r, columns)), "", "### Agent turns", "", TURN_TABLE_HEADER, ...reports.flatMap(renderTurnRows)];
   lines.push(...renderStitcherTables(reports));
   lines.push(...renderBrowserLines(reports));
   lines.push(...renderCoordinationLines(reports));

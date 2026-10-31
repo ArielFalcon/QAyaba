@@ -7,7 +7,7 @@ import { join } from "node:path";
 import type { AgentTurnRecord } from "../src/persistence/repositories/telemetry.repository.ts";
 import type { RunRecord } from "../src/persistence/types.ts";
 import type { ProbeReport, TimedRunEvent } from "./probe-metrics.ts";
-import { DEFAULT_COVERAGE_MIN_RATIO, collectReport, main, type ReportDeps } from "./probe-report.ts";
+import { DEFAULT_COVERAGE_MIN_RATIO, accountingSpans, collectReport, main, type ReportDeps } from "./probe-report.ts";
 
 const record = (id: string): RunRecord => ({ id, app: "demo", sha: "abc1234", target: "e2e", mode: "diff", status: "done", cases: [], logs: [], at: "2026-10-11T10:00:00.000Z", verdict: "pass", passed: 1, failed: 0 });
 
@@ -152,4 +152,35 @@ test("a run's phase times are read from its phase spans when the ledger holds th
   const report = await collectReport("run-1", fakeDeps(["run-1"], { phaseSpans: () => [{ name: "qayaba.phase.gate", startNs: ns(0), endNs: ns(7_000) }] }));
   assert.equal(report.phases.gate, 7_000, "the span, not the 2 s between the step events");
   assert.equal(report.phaseSource, "spans");
+});
+
+const nsOf = (ms: number): bigint => BigInt(ms) * 1_000_000n;
+const row = (name: string, parentSpanId: string | null, startMs: number, endMs: number) => ({ name, parentSpanId, startNs: nsOf(startMs), endNs: nsOf(endMs), traceId: "t", spanId: name, runId: "run-1", kind: "internal", status: "unset", statusMessage: null, attrs: "{}", events: "[]", links: "[]" });
+
+test("the spans a run's time is accounted with are its root, its phases and its stages, and nothing else of the ledger", () => {
+  const kept = accountingSpans([
+    row("qayaba.run", null, 0, 2_517), row("qayaba.run.enqueue", null, 0, 1), row("qayaba.phase.gate", "r", 918, 924), row("qayaba.stage.sandbox_open", "r", 0, 900),
+    row("qayaba.exec", "p", 930, 940), row("qayaba.agent.turn", "p", 930, 940), row("qayaba.run", "x", 0, 5),
+  ]);
+  assert.deepEqual(kept.map((s) => s.name), ["qayaba.run", "qayaba.phase.gate", "qayaba.stage.sandbox_open"]);
+  assert.deepEqual(Object.keys(kept[0]!).sort(), ["endNs", "name", "startNs"]);
+});
+
+test("the report of a run whose ledger holds the root and its stages accounts for the whole of its time", async () => {
+  const spans = [
+    { name: "qayaba.run", startNs: nsOf(0), endNs: nsOf(2_517) }, { name: "qayaba.stage.sandbox_open", startNs: nsOf(0), endNs: nsOf(900) },
+    { name: "qayaba.phase.gate", startNs: nsOf(918), endNs: nsOf(924) }, { name: "qayaba.phase.workspace", startNs: nsOf(924), endNs: nsOf(2_478) }, { name: "qayaba.phase.classify", startNs: nsOf(2_478), endNs: nsOf(2_513) },
+  ];
+  const report = await collectReport("run-1", fakeDeps(["run-1"], { phaseSpans: () => spans }));
+  assert.equal(report.totalMs, 2_517);
+  assert.equal(report.timeAccount?.unattributedMs, 22);
+  const lines: string[] = [];
+  const { dir, done } = scratch();
+  try {
+    await main(["run-1"], { deps: fakeDeps(["run-1"], { phaseSpans: () => spans }), out: (l) => lines.push(l), outDir: dir });
+  } finally {
+    done();
+  }
+  const header = lines.find((l) => l.startsWith("| arm"))!;
+  assert.ok(header.includes("| workspace |") && header.includes("| stage:sandbox_open |") && header.includes("| unattributed |"));
 });

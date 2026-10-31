@@ -18,6 +18,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import type { RunEventBody } from "@kernel/contract/events.ts";
 import { assertCommitSha } from "@kernel/git-revision.ts";
+import { STAGE_SPAN_PREFIX } from "@kernel/run-step.ts";
 import { readConfinedSpecFile } from "../qa-engine/src/shared-infrastructure/spec-path-confinement.ts";
 import type { AgentTurnRecord } from "../src/persistence/repositories/telemetry.repository.ts";
 import type { RunOutcome, RunRecord } from "../src/persistence/types.ts";
@@ -111,6 +112,13 @@ export async function collectReport(runId: string, deps: ReportDeps, groundTruth
   });
 }
 
+/** The spans a run's time is accounted with: its root, its phases and its stages. The rest of the ledger is read for the context ids elsewhere. */
+export function accountingSpans(rows: ReadonlyArray<{ name: string; parentSpanId: string | null; startNs: bigint; endNs: bigint | null }>): PhaseSpan[] {
+  return rows
+    .filter((span) => span.name.startsWith("qayaba.phase.") || span.name.startsWith(STAGE_SPAN_PREFIX) || (span.name === "qayaba.run" && span.parentSpanId === null))
+    .map(({ name, startNs, endNs }) => ({ name, startNs, endNs }));
+}
+
 /* ── the real collaborators ────────────────────────────────────────────────────────── */
 
 const countLines = (text: string): number => (text === "" ? 0 : text.endsWith("\n") ? text.split("\n").length - 1 : text.split("\n").length);
@@ -186,8 +194,7 @@ export async function defaultReportDeps(warn: (line: string) => void = (l) => co
         return [];
       }
     }),
-    /* The phase spans only: the rest of the ledger is read for the context ids below. */
-    phaseSpans: (runId) => getHistory().telemetry.listRunSpans(runId).filter((span) => span.name.startsWith("qayaba.phase.")).map(({ name, startNs, endNs }) => ({ name, startNs, endNs })),
+    phaseSpans: (runId) => accountingSpans(getHistory().telemetry.listRunSpans(runId)),
     minRatio: (record) => appOf(record)?.qa.changeCoverage?.minRatio ?? DEFAULT_COVERAGE_MIN_RATIO,
   };
 }
