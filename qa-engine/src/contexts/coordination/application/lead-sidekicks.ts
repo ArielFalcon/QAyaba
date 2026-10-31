@@ -640,9 +640,9 @@ export class LeadSidekicks {
    * its change named by reference is not sent: the flow ends over-window, recorded with the numbers it was judged by.
    */
   private async freshTurn(entry: LiveFlow, context: FlowContext, signal: AbortSignal, timeoutMs: number, feedback?: string): Promise<FlowReport> {
-    const { brief, contextFit, fit } = this.briefOf(entry, context);
+    const { brief, sent, contextFit, fit } = this.briefOf(entry, context);
     if (contextFit?.outcome === "over") return this.overWindow(entry, context.input, contextFit);
-    const result = await this.openSession(entry, context, brief, contextFit, fit, signal, timeoutMs, feedback);
+    const result = await this.openSession(entry, context, brief, sent, contextFit, fit, signal, timeoutMs, feedback);
     return this.assess(entry, context, result, signal);
   }
 
@@ -656,7 +656,7 @@ export class LeadSidekicks {
   }
 
   /* A fresh sidekick session on the brief, with the feedback when there is some; the session is kept on the flow. */
-  private async openSession(entry: LiveFlow, context: FlowContext, brief: DelegationBrief, contextFit: ContextFit | undefined, fit: ((bytes: number) => WindowFitOutcome) | undefined, signal: AbortSignal, timeoutMs: number, feedback?: string): Promise<DelegationResult> {
+  private async openSession(entry: LiveFlow, context: FlowContext, brief: DelegationBrief, sent: string, contextFit: ContextFit | undefined, fit: ((bytes: number) => WindowFitOutcome) | undefined, signal: AbortSignal, timeoutMs: number, feedback?: string): Promise<DelegationResult> {
     const seq = ++entry.opens;
     const session = await this.deps.sidekick.open(brief, {
       cwd: entry.workspace.dir,
@@ -672,7 +672,7 @@ export class LeadSidekicks {
       ...(fit ? { fit } : {}),
       ...(feedback ? { feedback } : {}),
     });
-    noteLessonsDelivered(context, this.deps.redaction, assembleSidekickBrief(this.deps.redaction, brief, fit).text, brief);
+    noteLessonsDelivered(context, this.deps.redaction, sent, brief);
     /* A session that opened after its pass released the flow, or after a newer one was begun for it, belongs to nobody: it is closed at once. */
     if (entry.released || entry.opens !== seq) {
       await session.dispose().catch((err: unknown) => engineLog.error(`[qa] closing flow ${entry.flow.id}'s late session failed: ${err instanceof Error ? err.message : String(err)}`));
@@ -692,7 +692,8 @@ export class LeadSidekicks {
    * hunks are preloaded while the whole brief fits the author's window; what does not fit is named
    * by file and range. The fit it was judged by rides on the turn's telemetry.
    */
-  private briefOf(entry: LiveFlow, context: FlowContext): { brief: DelegationBrief; contextFit?: ContextFit; fit?: (bytes: number) => WindowFitOutcome } {
+  /* `sent` is the text the brief renders to under the fit rule it is judged by: the one render its lessons' delivery is decided from. */
+  private briefOf(entry: LiveFlow, context: FlowContext): { brief: DelegationBrief; sent: string; contextFit?: ContextFit; fit?: (bytes: number) => WindowFitOutcome } {
     const { input, mode } = context;
     const { flow } = entry;
     const browser = mode === SIDEKICK_AUTHORING.AUTHENTICATED_BROWSER && input.agentBrowser !== undefined;
@@ -728,23 +729,29 @@ export class LeadSidekicks {
         ...(input.devBaseUrl ? { artifactRefs: [{ id: "dev-base-url", path: input.devBaseUrl }] } : {}),
       });
     const budget = this.deps.contextBudget;
-    if (!budget) return { brief: build(derived.change) };
+    if (!budget) {
+      const brief = build(derived.change);
+      return { brief, sent: assembleSidekickBrief(this.deps.redaction, brief).text };
+    }
     const fitOf = (bytes: number): ContextFit => budget.fit({ prompt: { bytes }, role: "author" });
     const fit = (bytes: number): WindowFitOutcome => fitOf(bytes).outcome;
     /* The owned hunks give way first, judged on the whole brief; once they are all references, the sections that can (the suite listing, then the flow's pages) give way to the window as the brief is rendered, and the fit it is sent with is the one it comes to then. */
     const measure = (change: BriefChange | undefined): ContextFit => fitOf(Buffer.byteLength(assembleSidekickBrief(this.deps.redaction, build(change)).text, "utf8"));
-    const rendered = (brief: DelegationBrief): ContextFit => fitOf(Buffer.byteLength(assembleSidekickBrief(this.deps.redaction, brief, fit).text, "utf8"));
+    const rendered = (brief: DelegationBrief): { sent: string; contextFit: ContextFit } => {
+      const { text } = assembleSidekickBrief(this.deps.redaction, brief, fit);
+      return { sent: text, contextFit: fitOf(Buffer.byteLength(text, "utf8")) };
+    };
     if (!derived.change) {
       const brief = build(undefined);
-      return { brief, contextFit: rendered(brief), fit };
+      return { brief, ...rendered(brief), fit };
     }
     const fitted = fitBriefChange(derived.change, measure);
     const brief = build(fitted.change);
-    const contextFit = rendered(brief);
+    const { sent, contextFit } = rendered(brief);
     if (fitted.referenced > 0 && contextFit.outcome !== "over") {
       engineLog.warn(`[qa] flow ${flow.id}'s brief fits the author's window with ${fitted.referenced} owned hunk(s) named by file and range instead of preloaded (${fitted.change.hunks.length} preloaded)`);
     }
-    return { brief, contextFit, fit };
+    return { brief, sent, contextFit, fit };
   }
 
   /* What one turn of a sidekick came to, from what the orchestrator sees: the workspace, the flow's run_spec ledger and the Context Pack's reads. */

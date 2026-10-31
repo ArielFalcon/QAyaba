@@ -1140,6 +1140,38 @@ test("a lesson the author's window gave way to a count was not delivered: delive
   assert.ok(degraded > 0, "some window sends the brief with the lesson given up to a count");
 });
 
+test("the delivery of a lesson is decided from the brief rendered for the send: a degraded section is said once per brief, not once more for the check", async () => {
+  const lessons = [{ kind: "data-volatility", scope: "/shops/:city", withResults: 2, emptyConfirmed: 1, latestReadAt: "2026-10-30T10:00:00.000Z" }];
+  const existingSpecs = Array.from({ length: 200 }, (_, i) => `flows/area-${i % 4}/flow-${i}.spec.ts — flow: f${i}, objective: ${"checks the page. ".repeat(20)}`);
+  const plan = { kind: "fanout", flows: [{ id: "shops", objective: "the shop list", routes: ["/shops/madrid"] }] };
+  const noRoom = { forRole: () => ({ growthTokensPerStep: 0, steps: 0, basis: "cold-start" as const, samples: 0 }) };
+  const run = async (windowTokens: number) => {
+    const r = rig();
+    r.coordinator = new LeadSidekicks({ ...r.deps, contextBudget: new ContextBudget({ windowTokens: () => windowTokens }, noRoom) });
+    const memory = memoryLogger();
+    installProcessLogger(memory);
+    try {
+      const outcome = await r.coordinator.coordinate(input(r, { lessons, existingSpecs, plan: async () => ({ plan, parsed: true, timedOut: false }) }));
+      if (outcome.action === "fanout") await outcome.pass?.release();
+      return { r, degraded: memory.entries.filter((e) => /section 'lessons' degraded/.test(e.message)).length };
+    } finally {
+      resetProcessLoggerForTests();
+    }
+  };
+  const whole = (await run(10_000_000)).r.executed[0]!.opts.contextFit!.promptTokens;
+  let seen = 0;
+  for (let share = 0.06; share >= 0.02; share -= 0.001) {
+    const { r, degraded } = await run(Math.floor(whole * share));
+    if (r.executed.length === 0) continue;
+    const stated = assembleSidekickBrief(r.deps.redaction, r.executed[0]!.brief, r.executed[0]!.opts.fit).text.includes(r.executed[0]!.brief.knownFacts[0]!.summary);
+    if (!stated) {
+      seen += 1;
+      assert.equal(degraded, 1, `window at ${share.toFixed(3)}`);
+    }
+  }
+  assert.ok(seen > 0, "some window gives the lesson up to a count");
+});
+
 test("the signal states the settled failure points the flows' run_spec calls met and the pages each flow was given, including a call a later correction makes", async () => {
   const plan = { kind: "fanout", flows: [{ id: "shops", objective: "the shop list", routes: ["/shops/madrid"] }, { id: "login", objective: "sign in works", routes: ["/login"] }] };
   const lead = leadWith([[{ flow: "shops", action: "accept" }, { flow: "login", action: "accept" }]], plan);
