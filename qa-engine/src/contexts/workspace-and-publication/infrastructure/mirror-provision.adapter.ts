@@ -1,6 +1,7 @@
 import { engineLog } from "@kernel/ports/process-logger.ts";
 import { basename, dirname, join, resolve } from "node:path";
 import { assertCommitSha, assertRefName } from "@kernel/git-revision.ts";
+import { assertRepoSlug } from "@kernel/repo-slug.ts";
 import { assertTrustedGitTree, UntrustedGitTreeError } from "../../../shared-infrastructure/process-sandbox/git-hardening.ts";
 
 export type Git = (args: string[], cwd?: string) => Promise<string>;
@@ -19,12 +20,15 @@ export interface MirrorProvisionDeps {
 export class MirrorProvisionAdapter {
   constructor(private readonly deps: MirrorProvisionDeps) {}
 
+  /* A repo becomes the mirror's directory name and the remote URL: every caller's value is judged here, whether it came from a loaded config or a request. */
   async ensureMirror(repo: string, sha: string): Promise<string> {
+    assertRepoSlug(repo);
     assertCommitSha(sha);
     return this.provision(repo, sha);
   }
 
   async ensureMirrorAtBranch(repo: string, branch: string): Promise<string> {
+    assertRepoSlug(repo);
     assertRefName(branch, "branch name");
     return this.provision(repo, `origin/${branch}`);
   }

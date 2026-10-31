@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { isRepoSlug } from "@contexts/app-catalog/domain/repo-slug.ts";
+import { isRepoSlug } from "@kernel/repo-slug.ts";
 
 test("a repository is parts joined by a slash, as GitHub names them, a part starting with . or _ included", () => {
   for (const repo of ["org/repo", "my.org/re_po-1", "a/b", "Org9/x.y", "store", "group/sub/repo", "org/.github", "org/_private", "org/...x"]) {

@@ -332,8 +332,18 @@ test("with no way to delete a directory wired, a refused mirror propagates as be
 test("a repo name that resolves to the mirrors root or above it is never deleted", async () => {
   for (const repo of ["..", "."]) {
     const d = refusingMirror({ refusals: 1 });
-    await assert.rejects(new MirrorProvisionAdapter(d).ensureMirror(repo, "abc1234"), UntrustedGitTreeError, repo);
+    await assert.rejects(new MirrorProvisionAdapter(d).ensureMirror(repo, "abc1234"), /invalid repo/, repo);
     assert.deepEqual(d.removedTrees, [], `${repo} would have deleted a directory that is not a mirror`);
   }
 });
 
+
+test("a repo that names no directory below the mirrors root is refused before git runs", async () => {
+  for (const repo of ["..", ".", "org/..", "../x", "-x", "org//x", ""]) {
+    const deps = recorder(false);
+    const adapter = new MirrorProvisionAdapter(deps);
+    await assert.rejects(() => adapter.ensureMirror(repo, "a".repeat(40)), /invalid repo/, JSON.stringify(repo));
+    await assert.rejects(() => adapter.ensureMirrorAtBranch(repo, "main"), /invalid repo/, JSON.stringify(repo));
+    assert.deepEqual(deps.calls, [], JSON.stringify(repo));
+  }
+});

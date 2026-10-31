@@ -1,10 +1,10 @@
 import { z } from "zod";
 import { MAX_PLACES, MAX_PLACE_NAME_CHARS, PLACE_NAME_PATTERN } from "@kernel/geolocation.ts";
 import { compileEgressPolicy, EgressPolicyError, originOf } from "@kernel/egress-policy.ts";
+import { isRepoSlug } from "@kernel/repo-slug.ts";
 import { mutatingEntryError, routePatternError } from "@contexts/test-execution/application/index.ts";
 import { isPageOfTemplate } from "@contexts/generation/application/index.ts";
 import { LoginPathSchema } from "../domain/login-path.ts";
-import { isRepoSlug } from "../domain/repo-slug.ts";
 
 /*
  * A list of origins the execution sandbox may reach (`scheme://host[:port]`, or `scheme://*.suffix[:port]`). Each is compiled

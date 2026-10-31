@@ -9,3 +9,7 @@ const REPO_PART = /^[A-Za-z0-9._-]+$/;
 export function isRepoSlug(value: unknown): value is string {
   return typeof value === "string" && value.split("/").every((part) => REPO_PART.test(part) && part !== "." && part !== ".." && !part.startsWith("-"));
 }
+
+export function assertRepoSlug(value: unknown): asserts value is string {
+  if (!isRepoSlug(value)) throw new Error(`invalid repo (parts joined by '/', none of them . or .. or starting with a dash): ${JSON.stringify(value)}`);
+}
