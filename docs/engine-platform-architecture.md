@@ -56,10 +56,10 @@ agents    ◄──HTTP────►  platform      no imports in either direc
 
 - **The engine never imports the platform.** The engine declares a port ("store a run", "emit a span", "send a prompt");
   the platform implements it with SQLite, OpenTelemetry or the agent server and injects it. This keeps every context
-  testable with fakes and lets a backend change without touching a rule. It is the rule `no-src-import-in-qa-engine`
+  testable with fakes and lets a backend change without touching a rule. It is the rule `engine-imports-nothing-from-platform`
   today and keeps its meaning under the new names.
 - **The platform reaches a context only through its public surface**, `application/index.ts`, and its composition
-  builders only from `platform/composition/`. These are `shell-public-surface` and `composition-only-from-shell-root`
+  builders only from `platform/composition/`. These are `platform-public-surface` and `composition-only-from-engine-root`
   today.
 - **The agents container shares no code with either.** It talks to the platform over HTTP: the agent server's API in
   one direction, the internal tools listener in the other.
@@ -174,7 +174,7 @@ Two mechanical commits, each alone: `src/` → `platform/`, then `qa-engine/` �
 - Update `AGENTS.md`'s repo map, boundary section and every doc that names a path.
 
 Where step 6 stands (T13 U8, 2026-10-31): three platform rules hold, with probe tests in
-`qa-engine/test/arch/shell-public-surface.test.ts`: no folder but `composition/` imports it
+`qa-engine/test/arch/platform-public-surface.test.ts`: no folder but `composition/` imports it
 (`platform-composition-is-the-root`), `settings/` imports no other platform folder (`platform-settings-reads-no-other-folder`)
 and no production module imports `src/test-support/` (`platform-production-imports-no-test-support`); the composition root may
 import a context's infrastructure (`composition-builds-adapters-from-infrastructure`). The shell exceptions list holds 27

@@ -50,13 +50,13 @@ const context = {
 test("a shell module importing a context's domain file fails the shell rule", () => {
   const r = cruise(treeWith({ ...context, "platform/server/x.ts": 'import { d } from "../../engine/src/contexts/a/domain/d.ts";\nexport const y = d;\n' }));
   assert.equal(r.ok, false);
-  assert.match(r.output, /shell-public-surface/);
+  assert.match(r.output, /platform-public-surface/);
 });
 
 test("a script importing a context's infrastructure file fails the shell rule", () => {
   const r = cruise(treeWith({ ...context, "scripts/x.ts": 'import { x } from "../engine/src/contexts/a/infrastructure/x.ts";\nexport const y = x;\n' }));
   assert.equal(r.ok, false);
-  assert.match(r.output, /shell-public-surface/);
+  assert.match(r.output, /platform-public-surface/);
 });
 
 test("a shell module importing a context's application/index.ts passes", () => {
@@ -69,7 +69,7 @@ test("a shell module on the frozen exception list may import an infrastructure f
   assert.equal(cruise(treeWith(files, ["platform/server/listed.ts"])).ok, true);
   const r = cruise(treeWith(files, []));
   assert.equal(r.ok, false);
-  assert.match(r.output, /shell-public-surface/);
+  assert.match(r.output, /platform-public-surface/);
 });
 
 test("only the engine root imports a composition builder", () => {
@@ -77,7 +77,7 @@ test("only the engine root imports a composition builder", () => {
   assert.equal(cruise(treeWith({ ...context, "platform/composition/engine-root.ts": build })).ok, true);
   const r = cruise(treeWith({ ...context, "platform/server/other.ts": build }));
   assert.equal(r.ok, false);
-  assert.match(r.output, /composition-only-from-shell-root/);
+  assert.match(r.output, /composition-only-from-engine-root/);
 });
 
 test("the composition root may import a context's infrastructure, never its domain", () => {

@@ -12,7 +12,7 @@
 // options.baseDir (judgment-day round-1): pinned to the repo root, NOT left to default to
 // process.cwd(). This fixes the `from`/`to` RULE-MATCHING regexes (anchored to
 // "engine/src/"/"^platform/") so they resolve against repo-root-relative module ids no matter which
-// directory the command is invoked from — see engine/test/arch/no-src-import.test.ts's
+// directory the command is invoked from — see engine/test/arch/engine-imports-nothing-from-platform.test.ts's
 // cwd=engine/ variant.
 //
 // CONTRACT (judgment-day round-2 — the round-1 fix did NOT make every invocation form safe, only
@@ -35,7 +35,7 @@ const path = require("node:path");
 
 /* Shell modules (src/, scripts/) that still import an infrastructure file of a context directly, because the symbol they need
    (an adapter the shell constructs, a registry it owns, a prompt builder a script renders) has no builder or application export yet.
-   The list is frozen: it may only shrink, engine/.dependency-cruiser-shell-exceptions.json holds it; engine/test/arch/shell-public-surface.test.ts fails on an entry that no longer imports
+   The list is frozen: it may only shrink, engine/.dependency-cruiser-shell-exceptions.json holds it; engine/test/arch/platform-public-surface.test.ts fails on an entry that no longer imports
    an infrastructure file and on any growth past its ceiling. A new shell module never joins it. */
 /* A tree that carries a copy of this config without the list (the arch tests build such trees) has no exception. */
 const EXCEPTIONS_FILE = path.join(__dirname, ".dependency-cruiser-shell-exceptions.json");
@@ -149,7 +149,7 @@ module.exports = {
       // events}.ts all import engine/src/ deliberately too. `*-parity.
       // test.ts` files under engine/test/ are also outside this rule's
       // `from` scope (engine/src/ only), so none of the above ever trips this gate.
-      name: "no-src-import-in-qa-engine",
+      name: "engine-imports-nothing-from-platform",
       severity: "error",
       comment: "No engine production module may import src/ — engine stays src-free by construction. The opposite direction (src/ importing engine/src/) is open by design: the shell consumes the engine, never the reverse.",
       from: { path: "^engine/src/" },
@@ -190,7 +190,7 @@ module.exports = {
       },
     },
     {
-      name: "shell-public-surface",
+      name: "platform-public-surface",
       severity: "error",
       comment: "The shell (src/, scripts/) reaches a context only through its public surface, application/index.ts. The domain, the other application files and the infrastructure of a context are internal to it. The platform's composition root has a rule of its own below. The frozen SHELL_INFRASTRUCTURE_EXCEPTIONS list names the shell modules that still import an infrastructure file; it only shrinks.",
       from: { path: "^(platform|scripts)/", pathNot: ["^platform/composition/", ...SHELL_INFRASTRUCTURE_EXCEPTIONS.map((f) => "^" + f.replace(/\./g, "\\.") + "$")] },
@@ -199,7 +199,7 @@ module.exports = {
     {
       name: "composition-builds-adapters-from-infrastructure",
       severity: "error",
-      comment: "The platform's composition root (platform/composition/) builds every adapter, so it may import a context's infrastructure as well as its public surface; a context's domain and its other application files stay internal to it, as for the rest of the shell. A context's composition builders are held by composition-only-from-shell-root. The frozen SHELL_INFRASTRUCTURE_EXCEPTIONS list still names a composition module that reaches further (the mirror prune rule, ADR-0021's note); it only shrinks.",
+      comment: "The platform's composition root (platform/composition/) builds every adapter, so it may import a context's infrastructure as well as its public surface; a context's domain and its other application files stay internal to it, as for the rest of the shell. A context's composition builders are held by composition-only-from-engine-root. The frozen SHELL_INFRASTRUCTURE_EXCEPTIONS list still names a composition module that reaches further (the mirror prune rule, ADR-0021's note); it only shrinks.",
       from: { path: "^platform/composition/", pathNot: SHELL_INFRASTRUCTURE_EXCEPTIONS.map((f) => "^" + f.replace(/\./g, "\\.") + "$") },
       to: { path: "^engine/src/contexts/", pathNot: ["^engine/src/contexts/[^/]+/application/index\\.ts$", "^engine/src/contexts/[^/]+/composition/", "^engine/src/contexts/[^/]+/infrastructure/"] },
     },
@@ -225,7 +225,7 @@ module.exports = {
       to: { path: "^platform/test-support/" },
     },
     {
-      name: "composition-only-from-shell-root",
+      name: "composition-only-from-engine-root",
       severity: "error",
       comment: "A context's composition/ builders are imported by one module only, the engine root platform/composition/engine-root.ts, which wires every context. Nothing else, shell or engine, builds a context.",
       from: { path: "^(platform|scripts|engine/src)/", pathNot: ["^platform/composition/engine-root\\.ts$", "^engine/src/contexts/([^/]+)/composition/"] },

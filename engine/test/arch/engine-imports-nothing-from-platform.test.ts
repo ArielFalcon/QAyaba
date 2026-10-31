@@ -38,7 +38,7 @@ function runDepcruise(treeRoot: string, target: string, cwd: string): { ok: bool
    engine/src/ production file importing it. tsconfig.json sits at both the root and engine/
    because depcruise resolves the config's tsConfig.fileName against the invoking cwd. */
 function treeWithSrcImportViolation(): string {
-  const treeRoot = mkdtempSync(join(tmpdir(), "no-src-import-"));
+  const treeRoot = mkdtempSync(join(tmpdir(), "engine-imports-nothing-from-platform-"));
   const tsconfig = JSON.stringify({ compilerOptions: { strict: true, noEmit: true, module: "ESNext", moduleResolution: "bundler", allowImportingTsExtensions: true } });
   const files: Record<string, string> = {
     "tsconfig.json": tsconfig,
@@ -64,7 +64,7 @@ test("a engine production file importing src/ is caught by the boundary rule", (
   try {
     const { ok, output } = runDepcruise(treeRoot, "engine/src", treeRoot);
     assert.equal(ok, false, "depcruise must report a violation for the src/ import");
-    assert.match(output, /no-src-import-in-qa-engine:\s*engine\/src\/leaky-module\.ts/, `expected the boundary rule to name the offending module, got:\n${output}`);
+    assert.match(output, /engine-imports-nothing-from-platform:\s*engine\/src\/leaky-module\.ts/, `expected the boundary rule to name the offending module, got:\n${output}`);
   } finally {
     rmSync(treeRoot, { recursive: true, force: true });
   }
@@ -78,7 +78,7 @@ test("the boundary rule still fires when depcruise is invoked from inside engine
   try {
     const { ok, output } = runDepcruise(treeRoot, "engine/src", join(treeRoot, "engine"));
     assert.equal(ok, false, "depcruise must report the violation even when invoked with cwd=engine/");
-    assert.match(output, /no-src-import-in-qa-engine/, `expected the boundary rule to fire, got:\n${output}`);
+    assert.match(output, /engine-imports-nothing-from-platform/, `expected the boundary rule to fire, got:\n${output}`);
   } finally {
     rmSync(treeRoot, { recursive: true, force: true });
   }

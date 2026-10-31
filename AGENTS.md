@@ -109,7 +109,7 @@ Keep the two rigorously separate.
 ### Boundary: qa-engine ↔ src
 
 `qa-engine/src` never imports from `src/` — enforced by `npm run arch:check`
-(dependency-cruiser `no-src-import-in-qa-engine`). `src/` holds four kinds of module today, each naming its row of the [decision table](#placement-rule):
+(dependency-cruiser `engine-imports-nothing-from-platform`). `src/` holds four kinds of module today, each naming its row of the [decision table](#placement-rule):
 - **Composition root** (row 8) — `src/composition/wire-app.ts` (settings, persistence, API, webhook, queue; `src/composition/index.ts` only
   starts it), `src/composition/engine-root.ts` (assembles the engine from each context's `composition/` builders) and
   `src/composition/run-engine-factory.ts`, which maps each app's `AppConfig` into the engine's `EngineRootDeps` and wires the host collaborators (agent runtime, GitHub, runners).
