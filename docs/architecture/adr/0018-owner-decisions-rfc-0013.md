@@ -26,10 +26,12 @@ Every recommended answer of RFC-0013 is accepted as written; RFC-0013's status i
 | 7 | Improvement: data-state failures lower and calls-to-green not higher over the covered flows, with mutants killed, change-covered lines on the final bytes and defects found not lower; never green |
 | 8 | A counted cycle without improvement deletes the kind's code (observations stay); an `unproven` cycle repeats; no counted cycle by the end of platform step 6 deletes it (OD-19) |
 | 9 | The learning arm is `grounding.lessons` on the run request; absent means on for a run without `campaign` and off for a campaign-tagged one; it lifts the lesson state only, and the replicate isolation and the process audit stay withheld on every campaign-tagged run |
-| 10 | `QA_CAMPAIGN_FREEZE` goes with the server-side freeze (unit U1) and joins the retired list; a frozen service-triggered run needs a `campaign` field on the webhook payload |
+| 10 | `QA_CAMPAIGN_FREEZE` goes with the server-side freeze (unit U1) and joins the retired list; a frozen service-triggered run needs a `campaign` field on the webhook payload (see the note below: superseded 2026-10-31) |
 | 11 | Lessons reach a flow's brief as `knownFacts` of a new `lesson` evidence kind, bounded by the window-fit rule; the header at `coordination-context.ts:1` is reworded |
 | 12 | `learning_rules`, `curriculum`, `scorecard` and the `run_outcomes` columns `rules_retrieved` and `reflection` are dropped in their own migration (U5), after a copy of the history file |
 | 13 | The process audit's second admission (`observesOperatingSignal`) and the context-heal disposition stay as they are |
+
+Note 2026-10-31 on row 10: the webhook payload does not get a `campaign` field. The decision recorded when T20 landed is that a campaign run comes only through the control API and a webhook run is never a campaign run, so a service-triggered run is never frozen. The row's text above is kept as it was decided; `docs/observability-design.md` states the rule as it stands.
 
 This settles ADR-0009's two points left to T20 (Q9 and Q10) and ADR-0003's "Not decided here" items on the lesson entity and storage, the stand-ins, the vehicle, "bounded size", the data-state failure, the replicates of "one cycle", "improvement" and the process audit's second admission.
 

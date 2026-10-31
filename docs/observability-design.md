@@ -998,7 +998,7 @@ The LLM judges and their calibration were removed (RFC-0001 OD-1): none ever pro
 
 - **Trigger.** `POST /api/v1/runs` accepts `campaign {id, variant: Record<string,string>, replicate}` and `captureMode`.
   - These are persisted on the run, which closes the "campaign identity is client-side only" gap.
-  - `scripts/campaign.ts` sends them for its pipeline arm's diff runs (the label is the id; the arm and the levers it was given are the variant). A cross-repo case is triggered through the webhook, which has no campaign field, so it carries none and the server does not freeze it (a frozen service-triggered run needs a `campaign` field on the webhook payload).
+  - `scripts/campaign.ts` sends them for its pipeline arm's diff runs (the label is the id; the arm and the levers it was given are the variant). A cross-repo case is triggered through the webhook, which has no campaign field, so it carries none and the server does not freeze it. A campaign run comes only through the control API (`POST /api/v1/runs` with `campaign`); a webhook run is never a campaign run, so the webhook payload gets no `campaign` field.
   - Stored on `runs` (`campaign_id`, `campaign_variant` as JSON, `campaign_replicate`, `capture_mode`, `effective_config`). A run with a campaign has trigger `campaign`, `langfuse.session.id` = the campaign id, and the variant values among its tags.
   - Retention (R4): a campaign run keeps its record, agent turns, spans and spec snapshots for `QA_TELEMETRY_CAMPAIGN_RETENTION_DAYS` (default 180); an ordinary run keeps them 30 days.
 - **Dataset.** `config/benchmarks/datasets/<name>@<version>.json`: `{name, version, description?, items: [{app, sha, description, guidance?, mode?}]}`.
