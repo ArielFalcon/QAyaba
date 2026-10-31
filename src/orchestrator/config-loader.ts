@@ -45,7 +45,7 @@ export function loadAppConfig(name: string, root = ROOT): ValidatedAppConfig {
   let document: unknown;
   let config: ValidatedAppConfig;
   try {
-    document = parse(expandEnv(readFileSync(path, "utf8")));
+    document = parse(expandEnv(readFileSync(path, "utf8"), activeEnvironment()));
     config = AppConfigSchema.parse(document);
   } catch (err) {
     throw new AppConfigInvalidError(name, err instanceof Error ? err.message : String(err), { cause: err });
@@ -133,7 +133,7 @@ export function listAppConfigs(root = ROOT): AppConfig[] {
   return out;
 }
 
-export function expandEnv(s: string, env: Record<string, string | undefined> = activeEnvironment()): string {
+export function expandEnv(s: string, env: Readonly<Record<string, string | undefined>>): string {
   /* Match any shell-style identifier (not uppercase-only) so a mis-cased ${myToken} fails as unset. */
   return s.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g, (_, key) => {
     const val = env[key];

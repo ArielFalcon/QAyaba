@@ -15,6 +15,47 @@ test("expandEnv throws on an unset var (never passes ${...} through literally)",
   assert.throws(() => expandEnv("k: ${missingVar}", {}), /unset env var \$\{missingVar\}/);
 });
 
+test("expandEnv expands every placeholder form the way the loader reads a config", () => {
+  const env = { A: "1", EMPTY: "", UNI: "ñandú-✓", _under: "u", n9: "nine" };
+  const cases: [string, string][] = [
+    ["", ""],
+    ["no placeholders", "no placeholders"],
+    ["${A}${A}", "11"],
+    ["x-${A}-y-${n9}-${_under}", "x-1-y-nine-u"],
+    ["[${EMPTY}]", "[]"],
+    ["${UNI}", "ñandú-✓"],
+    ["$A and $${A} and ${ A }", "$A and $1 and ${ A }"],
+    ["${A", "${A"],
+    ["${9bad}", "${9bad}"],
+    ["${A${n9}}", "${Anine}"],
+    ["${${A}}", "${1}"],
+    ["multi\nline: ${A}\n  - ${n9}", "multi\nline: 1\n  - nine"],
+  ];
+  for (const [input, expected] of cases) assert.equal(expandEnv(input, env), expected, JSON.stringify(input));
+});
+
+test("expandEnv names the first unset variable, and a variable set to undefined is unset", () => {
+  assert.throws(() => expandEnv("${A}${B}${C}", { A: "1" }), (err: Error) => err.message === "config references unset env var ${B}");
+  assert.throws(() => expandEnv("${A}", { A: undefined }), /unset env var \$\{A\}/);
+});
+
+test("loadAppConfig expands placeholders against the active environment", () => {
+  const root = makeRoot({ "shop.yaml": FRONT.replace("https://dev.shop.io", "${PIN_SHOP_URL}") });
+  process.env.PIN_SHOP_URL = "https://dev.pinned.io";
+  try {
+    assert.equal(loadAppConfig("shop", root).dev.baseUrl, "https://dev.pinned.io");
+  } finally {
+    delete process.env.PIN_SHOP_URL;
+    rmSync(root, { recursive: true, force: true });
+  }
+  const unset = makeRoot({ "shop.yaml": FRONT.replace("https://dev.shop.io", "${PIN_SHOP_URL}") });
+  try {
+    assert.throws(() => loadAppConfig("shop", unset), (err: Error) => err instanceof AppConfigInvalidError && /unset env var \$\{PIN_SHOP_URL\}/.test(err.message));
+  } finally {
+    rmSync(unset, { recursive: true, force: true });
+  }
+});
+
 function makeRoot(files: Record<string, string>): string {
   const root = mkdtempSync(join(tmpdir(), "cfg-"));
   mkdirSync(join(root, "config", "apps"), { recursive: true });

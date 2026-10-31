@@ -1054,7 +1054,7 @@ export function buildEngineRootDeps(
             mirrorRoot,  /* the SAME local already computed above (deps.mirrorRoot ?? workdirRoot()) */
             services: app.services.map((s) => ({ repo: s.repo })),
             boundaryProfiles: new YamlBoundaryProfileAdapter((name) =>
-              expandEnv(readFileSync(join(qayabaRoot(), "config", "apps", `${name}.yaml`), "utf8"))),
+              expandEnv(readFileSync(join(qayabaRoot(), "config", "apps", `${name}.yaml`), "utf8"), activeEnvironment())),
           },
         }
       : {}),
