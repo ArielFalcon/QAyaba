@@ -47,7 +47,6 @@ test("a run that fails identically on every execution is retried once and ends a
     devHealthy: async () => true,
     namespace: "fail-identically",
     integrity: UNPROVEN_INTEGRITY,
-    coverageWillMeasure: false, /* no change-coverage wiring in this scenario */
   });
 
   assert.equal(result.retries, 1, "must reproduce fail-issue.json's gateSignals.retries:1 exactly");
@@ -107,7 +106,6 @@ test("FixLoop's OWN retries counter reaches 2 under maxRetries=2 with a progress
     devHealthy: async () => true,
     namespace: "progress-preserved",
     integrity: UNPROVEN_INTEGRITY,
-    coverageWillMeasure: true, /* never-filter, keeps merge logic out of this test's scope */
   });
 
   assert.equal(result.retries, 2, "reaches the maxRetries=2 cap when progress signal B holds every round");
@@ -181,7 +179,6 @@ test("failureTrees are re-derived per-round from the CURRENT run's failing cases
     devHealthy: async () => true,
     namespace: "failure-trees",
     integrity: UNPROVEN_INTEGRITY,
-    coverageWillMeasure: true,
   });
 
   assert.equal(executeCallCount, 1, "round 1 regenerates+re-executes once; round 2's fail-closed gate (unchanging failing name) stops before a second regen");

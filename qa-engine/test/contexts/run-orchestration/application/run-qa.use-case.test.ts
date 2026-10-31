@@ -2026,67 +2026,6 @@ test("context mode NEVER calls execute() (context.json is not a Playwright spec)
   assert.equal(executeCallCount, 0, "context mode must never invoke ExecutionPort.execute — context.json is not a Playwright spec");
 });
 
-test("a diff-mode fail retry computes coverageWillMeasure and threads it into the FixLoop", async () => {
-  /* The use-case's ExecutionPort accepts an ExecutionOpts bag (see
-     test-execution's execution.port.ts) and the fixLoopExecution closure below DOES thread FixLoopExecuteInput.specFiles
-     through to it (see "filtered-retry threads specFiles" tests further down in this
-     file) — that gap is closed. This test's own scope stays coverageWillMeasure specifically: the
-     narrowest port-observable proof is instrumenting FixLoop.begin itself and asserting the use-case
-     `generating && mode === "diff" && covPolicy.mode !== "off"` (RunQaInput.triggerRepo exists now,
-     but this formula deliberately omits the !triggerRepo conjunct — over-firing true for cross-repo
-     only disables the FixLoop's filtered-retry optimization, a documented harmless trade-off; the
-     REAL coverage guard lives at the measure() call site, which starves the diff). We patch
-     FixLoop.prototype.begin for the duration of this test to capture the actual input the use-case
-     constructs, restoring it immediately after — this is the narrowest possible seam that proves
-     the WIRING, without inventing a new port.
-   */
-  const originalRun = FixLoop.prototype.begin;
-  let capturedCoverageWillMeasure: boolean | undefined;
-  FixLoop.prototype.begin = function (input: Parameters<typeof originalRun>[0]) {
-    capturedCoverageWillMeasure = input.coverageWillMeasure;
-    return originalRun.call(this, input);
-  };
-  try {
-    const { ports } = stubPorts({
-      execute: async () => ({ verdict: "fail" as const, cases: [{ name: "login", status: "fail" as const }], logs: "x" }),
-      generate: async () => (scriptedGeneration({ specs: ["a.spec.ts"]})),
-    });
-    const useCase = new RunQaUseCase({ ...ports, config: { ...baseConfig, needsReview: false, coveragePolicyMode: "signal" } });
-
-    await useCase.run({ ...baseInput, runId: "fix-d-coverage-will-measure", mode: "diff" });
-  } finally {
-    FixLoop.prototype.begin = originalRun;
-  }
-
-  assert.equal(
-    capturedCoverageWillMeasure,
-    true,
-    "diff mode + coveragePolicyMode!=='off' must thread coverageWillMeasure:true into the FixLoop",
-  );
-});
-
-test("coveragePolicyMode:\"off\" threads coverageWillMeasure:false into the FixLoop", async () => {
-  const originalRun = FixLoop.prototype.begin;
-  let capturedCoverageWillMeasure: boolean | undefined;
-  FixLoop.prototype.begin = function (input: Parameters<typeof originalRun>[0]) {
-    capturedCoverageWillMeasure = input.coverageWillMeasure;
-    return originalRun.call(this, input);
-  };
-  try {
-    const { ports } = stubPorts({
-      execute: async () => ({ verdict: "fail" as const, cases: [{ name: "login", status: "fail" as const }], logs: "x" }),
-      generate: async () => (scriptedGeneration({ specs: ["a.spec.ts"]})),
-    });
-    const useCase = new RunQaUseCase({ ...ports, config: { ...baseConfig, needsReview: false, coveragePolicyMode: "off" } });
-
-    await useCase.run({ ...baseInput, runId: "fix-d-coverage-off", mode: "diff" });
-  } finally {
-    FixLoop.prototype.begin = originalRun;
-  }
-
-  assert.equal(capturedCoverageWillMeasure, false, "coveragePolicyMode:'off' must never claim coverage will measure this run");
-});
-
 /* agent-no-op skip -> persistOutcome save YES
    classify-skip -> bare return, save NO (DISTINCT from agent-no-op)
    invalid -> persistOutcome save YES
@@ -4024,10 +3963,7 @@ test("a fix-loop round executes only its changed specs under the round's own nam
     },
     generate: async () => (scriptedGeneration({ specs: ["login.spec.ts"]})),
   });
-  /* coveragePolicyMode defaults to "signal" in baseConfig -> coverageWillMeasure:true in diff mode.
-     Acceptance still executes only the specs the round changed; the final coverage measurement, not
-     a widened retry, is what keeps the unchanged cases observable.
-   */
+  /* Acceptance executes only the specs the round changed; the measurement execution after the verdict, not a widened retry, measures every passing test. */
   const useCase = new RunQaUseCase({ ...ports, config: { ...baseConfig, needsReview: false } });
 
   const out = await useCase.run({ ...baseInput, runId: "fixloop-acceptance-scope", mode: "diff" });
@@ -6732,7 +6668,6 @@ test("parentRunId: an enforce-mode coverage-regen never fabricates its own paren
 test("FixLoop retry execute() forwards the per-attempt retryNs as ExecutionOpts.namespace", async () => {
   const capturedNamespaces: (string | undefined)[] = [];
   const capturedMeasureNamespaces: (string | undefined)[] = [];
-  const capturedMeasureReruns: unknown[] = [];
   const capturedSpecFiles: (string[] | undefined)[] = [];
   let executeCalls = 0;
   const { ports } = stubPorts({
@@ -6748,7 +6683,7 @@ test("FixLoop retry execute() forwards the per-attempt retryNs as ExecutionOpts.
     },
     measure: async (_br, _specDir, _diff, _baseline, opts) => {
       capturedMeasureNamespaces.push(opts?.namespace);
-      capturedMeasureReruns.push(opts?.reruns);
+
       return { status: "unknown" as const, ratio: null };
     },
   });
@@ -6762,7 +6697,7 @@ test("FixLoop retry execute() forwards the per-attempt retryNs as ExecutionOpts.
   assert.equal(retryNs, "retry-ns-p0-1-r1", "FixLoop retry must execute under ${runId}-r1 so test data does not collide with the first attempt");
   assert.deepEqual(capturedSpecFiles[capturedNamespaces.indexOf("retry-ns-p0-1-r1")], ["a.spec.ts"], "the round executed the spec it changed");
   assert.equal(capturedMeasureNamespaces[0], "retry-ns-p0-1-measure", "the green bytes the loop left are measured by their own measurement execution");
-  assert.equal(capturedMeasureReruns[0], undefined, "no dump of a judging execution is read");
+
 });
 
 /* Change coverage is measured on the bytes the loop left green: one measurement execution runs the passing tests of every spec file, those a round re-ran and those it did not. */
@@ -6791,7 +6726,7 @@ test("a fix-loop round that re-ran one of two spec files still measures the othe
         return { verdict: "pass" as const, cases: [{ name: "b works", status: "pass" as const, file: "b.spec.ts" }], logs: "" };
       },
       measure: async (_br, _specDir, _diff, _baseline, opts) => {
-        measured.push({ namespace: opts?.namespace, reruns: opts?.reruns });
+        measured.push({ namespace: opts?.namespace });
         return { status: "pass" as const, ratio: 0.5, uncovered: [], untakenArms: [] };
       },
     });
@@ -6801,7 +6736,7 @@ test("a fix-loop round that re-ran one of two spec files still measures the othe
 
     assert.deepEqual(executions[1], { namespace: "latest-dumps-r1", specFiles: ["b.spec.ts"] }, "the round re-ran only the spec file it changed");
     assert.deepEqual(executions.at(-1), { namespace: "latest-dumps-measure", specFiles: ["a.spec.ts", "b.spec.ts"] }, "the measurement execution runs the passing tests of both spec files");
-    assert.deepEqual(measured, [{ namespace: "latest-dumps-measure", reruns: undefined }], "both files are read from the measurement execution");
+    assert.deepEqual(measured, [{ namespace: "latest-dumps-measure" }], "both files are read from the measurement execution");
     assert.equal(out.decision.verdict, "pass");
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -9273,6 +9208,7 @@ test("signal mode: a green run with arms no test ran regenerates once with those
   const recounts: unknown[] = [];
   try {
     const { ports, savedOutcomes } = stubPorts({
+      classify: classifyWithDiff,
       prepare: real.prepare,
       generate: async (...args) => {
         turns.push(JSON.stringify(args));
@@ -9293,7 +9229,7 @@ test("signal mode: a green run with arms no test ran regenerates once with those
     assert.equal(turns.length, 2, "the first pass and one regeneration");
     assert.ok(turns[1]!.includes("src/a.ts:3 if: else") && turns[1]!.includes("src/a.ts:7 logical: right of || evaluated"), "the regeneration is given the arms");
     assert.ok(!turns[1]!.includes("all changed lines are covered"), "an arms-only gap says nothing of the lines");
-    assert.deepEqual(recounts, [[true, [{ namespace: acceptanceNamespace("branch-cases-signal", 0), specFiles: ["a.spec.ts"] }], { caseFiles: ["a.spec.ts"] }]], "told the passing spec files the recounted dumps belong to");
+    assert.deepEqual(recounts, [[true, [{ namespace: `${acceptanceNamespace("branch-cases-signal", 0)}-measure`, specFiles: ["a.spec.ts"] }], { caseFiles: ["a.spec.ts"] }]], "the kept file is read from its own measurement execution, told the passing spec files the recounted dumps belong to");
     assert.deepEqual(savedOutcomes.at(-1)!.gateSignals.branchCases, { outcome: "accepted", armsBefore: 2, armsAfter: 1, kept: 1, restored: 0 });
     assert.deepEqual(savedOutcomes.at(-1)!.gateSignals.branchCoverage, { changed: 6, taken: 5 }, "the recount is what the run records");
     assert.equal(savedOutcomes.at(-1)!.gateSignals.coverageRatio, 1);
@@ -9320,6 +9256,7 @@ function survivorRun(recheck: NonNullable<ObjectiveSignalPort["recheckSurvivors"
   const real = realCoverageWorkspace();
   const turns: string[] = [];
   const { ports, savedOutcomes } = stubPorts({
+    classify: classifyWithDiff,
     prepare: real.prepare,
     generate: async (...args) => {
       turns.push(JSON.stringify(args));
@@ -9422,9 +9359,11 @@ test("the killed mutants the coverage counted are handed to the recount, and the
   const proof = { namespace: "proofs-mut0", specFiles: ["b.spec.ts"], url: "https://dev/main.js", sha256: "h", edit: { start: 0, end: 1, replacement: "!" }, original: "x" };
   try {
     const { ports, savedOutcomes } = stubPorts({
+      classify: classifyWithDiff,
       prepare: real.prepare,
       generate: real.generate,
-      execute: async () => ({ verdict: "pass" as const, cases: [{ name: "a works", status: "pass" as const, file: "a.spec.ts" }], logs: "" }),
+      /* b.spec.ts, the spec the killed mutant's re-run failed, keeps the bytes the run's measurement ran: its proof holds in the recount. */
+      execute: async () => ({ verdict: "pass" as const, cases: [{ name: "a works", status: "pass" as const, file: "a.spec.ts" }, { name: "b works", status: "pass" as const, file: "b.spec.ts" }], logs: "" }),
       measure: async () => ({
         status: "pass" as const,
         ratio: 0.9,
@@ -9442,8 +9381,8 @@ test("the killed mutants the coverage counted are handed to the recount, and the
 
     await useCase.run({ ...baseInput, runId: "proofs" });
 
-    assert.deepEqual(recounts, [{ proofs: [proof], caseFiles: ["a.spec.ts"] }]);
-    assert.deepEqual(savedOutcomes.at(-1)!.gateSignals.changeCoverage, { executableLines: 10, notExecutableLines: 4, notLoadedFiles: ["src/lazy.ts"], coveredByExecution: 7, provenByMutation: 2, armsProvenByMutation: 1 });
+    assert.deepEqual(recounts, [{ proofs: [proof], caseFiles: ["b.spec.ts", "a.spec.ts"] }]);
+    assert.deepEqual(savedOutcomes.at(-1)!.gateSignals.changeCoverage, { executableLines: 10, notExecutableLines: 4, notLoadedFiles: ["src/lazy.ts"], coveredByExecution: 7, provenByMutation: 2, armsProvenByMutation: 1, measuredBy: { namespace: "proofs-measure", tests: 2, failedOnlyUnderMeasurement: [] } });
   } finally {
     real.cleanup();
   }
@@ -9508,6 +9447,7 @@ function perFileRun(acceptanceCases: QaCase[]) {
     { name: "b works", status: "pass", file: "b.spec.ts" },
   ];
   const { ports, savedOutcomes } = stubPorts({
+    classify: classifyWithDiff,
     prepare: ws.prepare,
     generate: async (...args) => {
       turns.push(JSON.stringify(args));
@@ -9554,7 +9494,7 @@ test("a branch regeneration whose acceptance fails in one spec file keeps the sp
     assert.equal(readFileSync(join(ws.specDir, "a.spec.ts"), "utf8"), "// a, generation 2\n", "the all-green file keeps its new bytes");
     assert.equal(readFileSync(join(ws.specDir, "b.spec.ts"), "utf8"), "// b, generation 1\n", "the failing file gets the bytes that last ran green");
     assert.throws(() => readFileSync(join(ws.specDir, "c.spec.ts")), "the failing file the turn created is removed");
-    assert.deepEqual(recounts, [[{ namespace: acceptanceNamespace("per-file", 0), specFiles: ["a.spec.ts"] }]], "the recount uses the kept file's dumps; the others are read from the dumps of the bytes they were given back");
+    assert.deepEqual(recounts, [[{ namespace: "per-file-measure", specFiles: ["b.spec.ts"] }, { namespace: `${acceptanceNamespace("per-file", 0)}-measure`, specFiles: ["a.spec.ts"] }]], "the kept file is read from its own measurement execution; the file given its prior bytes back from the measurement that ran those bytes");
     assert.deepEqual(savedOutcomes.at(-1)!.gateSignals.branchCases, { outcome: "accepted", armsBefore: 2, armsAfter: 1, kept: 1, restored: 2 });
     assert.deepEqual(rechecks, [[[["a.spec.ts"]], ["a works", "a else arm"]]], "the survivor is judged on the kept file and its passing cases only");
     assert.equal(out.decision.verdict, "pass", "the suite on disk is the kept file and the prior bytes, all green");
@@ -9575,7 +9515,7 @@ test("a branch regeneration whose acceptance is green in every spec file is acce
 
     assert.equal(readFileSync(join(ws.specDir, "b.spec.ts"), "utf8"), "// b, generation 2\n");
     assert.equal(readFileSync(join(ws.specDir, "c.spec.ts"), "utf8"), "// c, generation 2\n");
-    assert.deepEqual(recounts, [[{ namespace: acceptanceNamespace("per-file-green", 0), specFiles: ["b.spec.ts", "c.spec.ts", "a.spec.ts"] }]], "the recount reads every kept file from the acceptance's dumps");
+    assert.deepEqual(recounts, [[{ namespace: `${acceptanceNamespace("per-file-green", 0)}-measure`, specFiles: ["a.spec.ts", "b.spec.ts", "c.spec.ts"] }]], "the recount reads every kept file from their measurement execution");
     assert.deepEqual(savedOutcomes.at(-1)!.gateSignals.branchCases, { outcome: "accepted", armsBefore: 2, armsAfter: 1, kept: 3, restored: 0 });
     assert.equal(out.decision.sideEffect, "pr");
   } finally {

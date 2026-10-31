@@ -35,13 +35,13 @@ for (const fault of ["decode-heap-limit", "decode-crashed", "decode-unavailable"
   });
 }
 
-test("when the latest dumps of several executions are read and one of the reads ends badly, the reason is that read's, not the assembler's absence", async () => {
+test("when the dumps of a measurement are read without a failed test's and one of the reads ends badly, the reason is that read's, not the assembler's absence", async () => {
   const collector: CoverageCollectorPort = {
     collect: async () => ({ covered: [] }),
     recollect: async () => ({ covered: [{ file: "src/checkout.ts", lines: [1] }], incomplete: true, reads: [read("completed"), read("aborted", "run-acc0")], fault: "decode-aborted" }),
   };
 
-  const result = await adapter(collector).measure(br, "/r/e2e", DIFF, [], { reruns: [{ namespace: "run-acc0", specFiles: ["flows/pay.spec.ts"] }] });
+  const result = await adapter(collector).measure(br, "/r/e2e", DIFF, [], { exceptTests: ["flows-pay-spec-ts-totals"] });
 
   assert.equal(result.status, "unknown");
   assert.equal(result.measurement?.unmeasured, "decode-aborted");

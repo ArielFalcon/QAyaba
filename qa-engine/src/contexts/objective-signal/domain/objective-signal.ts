@@ -65,10 +65,15 @@ export interface MutantSelectionRecord {
   rerunsBySpecFile: number;
 }
 
-/** The dumps a re-run of some spec files wrote, under its own namespace. Only the dumps of `specFiles` are read from it: a spec the same execution ran whose bytes were then given back left dumps there that describe nothing on disk. */
-export interface CoverageRerun {
+/**
+ * The dumps one measurement execution wrote, under its own namespace, to read for `specFiles` alone: the spec files whose bytes on disk
+ * are the ones it ran. A spec the same execution ran whose bytes changed since left dumps there that describe nothing on disk.
+ * `exceptTests` (as the coverage fixture names a test's dumps) are tests that failed under that measurement: they credit nothing.
+ */
+export interface CoverageSource {
   namespace: string;
   specFiles: readonly string[];
+  exceptTests?: readonly string[];
 }
 
 /**

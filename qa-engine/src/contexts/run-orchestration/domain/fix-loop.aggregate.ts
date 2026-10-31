@@ -1,4 +1,4 @@
-/* FixLoop aggregate: triage → selector check → adjudicate → regen → accept (validate + execute the changed specs; a rejected or capped round restores its bytes), with absentKeys short-circuit and a fewest-failures regression guard that restores the best round's bytes too. Triage and the typed test-correct claim run on the evidence the caller grants in `integrity`. CycleBudget is forwarded unread into every regenerate() call — this aggregate neither ticks nor inspects them, and neither does the generation adapter: CycleBudget.ceiling is telemetry-only, and the run deadline is checked by the run flow before each regen round (run-flow/regeneration-allowed.ts), not by this aggregate or the generator. break-needs-human exits without setting realBugDetected; the caller labels the Issue. Filtered-retry scopes to failing specs only when change-coverage will not measure this run. */
+/* FixLoop aggregate: triage → selector check → adjudicate → regen → accept (validate + execute the changed specs; a rejected or capped round restores its bytes), with absentKeys short-circuit and a fewest-failures regression guard that restores the best round's bytes too. Triage and the typed test-correct claim run on the evidence the caller grants in `integrity`. CycleBudget is forwarded unread into every regenerate() call — this aggregate neither ticks nor inspects them, and neither does the generation adapter: CycleBudget.ceiling is telemetry-only, and the run deadline is checked by the run flow before each regen round (run-flow/regeneration-allowed.ts), not by this aggregate or the generator. break-needs-human exits without setting realBugDetected; the caller labels the Issue. Filtered-retry scopes to the failing specs: no measurement reads a judging execution. */
 
 import type { RunVerdict } from "@kernel/run-verdict.ts";
 import type { RunMode } from "@kernel/run-mode.ts";
@@ -102,19 +102,11 @@ export interface FixLoopAcceptancePort {
   restore(token: unknown): Promise<void>;
 }
 
-/** A later execution of some spec files, under its own namespace: their latest dumps are there, every other spec's are not. */
-export interface FixLoopRerun {
-  namespace: string;
-  specFiles: readonly string[];
-}
-
 export type FixLoopAcceptanceOutcome =
   | {
       kind: "accepted";
       /** The specs the turn actually changed (created, rewritten or deleted), suite-relative. */
       changedSpecFiles: readonly string[];
-      /** The changed specs the round's execution ran and kept; a changed spec the acceptance gave its prior bytes back is not here. Absent: every changed spec ran. */
-      executedSpecFiles?: readonly string[];
       /** The execution of the changed specs; absent only when the turn changed no spec file. */
       execution?: FixLoopRun;
       /** The bytes this round leaves on disk, for restoring it if it is the best run. */
@@ -151,8 +143,6 @@ export interface FixLoopInput {
   devHealthy: () => Promise<boolean>;
   namespace: string;
   initialSpecSources?: string[];
-  /* True only when this run will be measured for change-coverage — filtering a retry would then undercount passing specs. Defaults to false (never filter). */
-  coverageWillMeasure?: boolean;
   failureDomSnapshot?: string;
   /* The pages this run's Context Pack read with results (> 0) under the app's declared data state, by pathname. A failure that reads an empty data state on one of them contradicts the pack. */
   packConfirmedDataRoutes?: readonly { path: string; resultCount: number }[];
@@ -170,9 +160,6 @@ export interface FixLoopResult {
   absentSelectors: number;
   /* Last adjudicator verdict for Issue labeling by the caller. undefined when the loop never ran. */
   lastAdjudicatorVerdict: AdjudicatorVerdict | undefined;
-  /* The namespace of the last execution of the whole suite; `coverageReruns` are the executions of some spec files after it, in order, so the latest dumps of every spec file are known. */
-  coverageNamespace: string;
-  coverageReruns: FixLoopRerun[];
   /* Last regen round's specMetas at loop exit. undefined when the loop never regenerated — never fabricated. */
   lastSpecMetas: { flow?: string; objective?: string }[] | undefined;
   /* The loop ended on a conclusive dev_not_rendered: the run is an infra-error of the precondition class. */
@@ -316,10 +303,6 @@ export interface FixLoopState {
   hasBestToken: boolean;
   realBugDetected: boolean;
   adjVerdict: AdjudicatorVerdict | undefined;
-  coverageNs: string;
-  coverageReruns: FixLoopRerun[];
-  /** Where the best run's dumps are, put back with its bytes. */
-  bestCoverage: { ns: string; reruns: FixLoopRerun[] };
   absentSelectors: number;
   preconditionFailed: boolean;
   rejectedClaims: number;
@@ -365,9 +348,6 @@ export class FixLoop {
       hasBestToken: false,
       realBugDetected: false,
       adjVerdict: undefined,
-      coverageNs: input.namespace,
-      coverageReruns: [],
-      bestCoverage: { ns: input.namespace, reruns: [] },
       absentSelectors: 0,
       preconditionFailed: false,
       rejectedClaims: 0,
@@ -408,8 +388,6 @@ export class FixLoop {
       /* The best round's own bytes go back first: a failed restore must not leave the worse round's bytes under the best cases. */
       if (this.deps.acceptance && state.hasBestToken) await this.deps.acceptance.restore(state.bestToken);
       state.run = state.bestRunSoFar;
-      state.coverageNs = state.bestCoverage.ns;
-      state.coverageReruns = state.bestCoverage.reruns;
     }
   }
 
@@ -420,8 +398,6 @@ export class FixLoop {
       realBugDetected: state.realBugDetected,
       absentSelectors: state.absentSelectors,
       lastAdjudicatorVerdict: state.adjVerdict,
-      coverageNamespace: state.coverageNs,
-      coverageReruns: state.coverageReruns,
       lastSpecMetas: state.lastRegenResult?.specMetas,
       preconditionFailed: state.preconditionFailed,
       rejectedClaims: state.rejectedClaims,
@@ -731,11 +707,6 @@ export class FixLoop {
     if (outcome.kind === "cap") return fixLoopAction({ after: "acceptance", kind: "cap" }); /* the prior verdict and bytes stand (B-7) */
 
     state.run = mergeAcceptedRound(state.run, outcome);
-    /*
-     * The round executed only the specs it changed: theirs are the latest dumps, every other spec's stay where they were.
-     */
-    const ran = outcome.executedSpecFiles === undefined ? outcome.changedSpecFiles : outcome.changedSpecFiles.filter((file) => outcome.executedSpecFiles!.includes(file));
-    if (ran.length > 0) state.coverageReruns = [...state.coverageReruns, { namespace: round.roundNs, specFiles: ran }];
     state.roundAccepted = true;
     state.acceptedToken = outcome.accepted;
     this.recordBest(state);
@@ -758,7 +729,7 @@ export class FixLoop {
 
     const retryNs = round.roundNs;
 
-    /* Scope the re-run to failing spec files only when change-coverage will not measure this run. */
+    /* Scope the re-run to the failing spec files: a judging execution is never read for coverage (RFC-0015), so running the passing ones again proves nothing new. */
     const failedSpecFiles = [
       ...new Set(state.run.cases.filter((c) => c.status === "fail" && c.file).map((c) => c.file as string)),
     ];
@@ -775,8 +746,7 @@ export class FixLoop {
     const canFilter =
       allFailedHaveFile &&
       failedSpecFiles.length > 0 &&
-      regenStayedInFailedSet &&
-      !(input.coverageWillMeasure ?? false);
+      regenStayedInFailedSet;
 
     const retryRun = await this.deps.execution.execute({
       namespace: retryNs,
@@ -807,12 +777,8 @@ export class FixLoop {
             ? "flaky"
             : "pass";
       state.run = { verdict: mergedVerdict, cases: mergedCases };
-      state.coverageReruns = [...state.coverageReruns, { namespace: retryNs, specFiles: failedSpecFiles }];
     } else {
       state.run = retryRun;
-      /* The whole suite ran again: every spec's latest dumps are under this namespace. */
-      state.coverageNs = retryNs;
-      state.coverageReruns = [];
     }
     this.recordBest(state);
     return fixLoopAction({ after: "reexecution", failed: false, devHealthy: true });
@@ -826,7 +792,6 @@ export class FixLoop {
         { failingCount: failCount(state.run), run: state.run },
       ])!.run;
       state.bestRunSoFar = best;
-      if (best === state.run) state.bestCoverage = { ns: state.coverageNs, reruns: state.coverageReruns };
       /* Only an accepted round has bytes of its own; the initial run's are the first pre-turn snapshot. */
       if (state.roundAccepted && best === state.run) {
         state.bestToken = state.acceptedToken;

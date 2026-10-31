@@ -29,7 +29,7 @@ import { closedLoopSignal, correctionBudgetSpent, correctThroughLead, mayCorrect
 import { CORRECTION_ORIGIN, type CorrectionFinding } from "@contexts/coordination/application/index.ts";
 import { resolveTested } from "./fix-loop.steps.ts";
 import { reviewChangeViewOf } from "../review-change.ts";
-import { branchCoverageOf, changeCoverageOf, coverageNotMeasured, measuredByOptions, rerunBudgetOf, runMeasurement, traceAcceptedFiles, withMeasuredBy } from "./coverage.steps.ts";
+import { branchCoverageOf, changeCoverageOf, coverageNotMeasured, dumpsOf, measuredByOptions, rerunBudgetOf, runMeasurement, traceAcceptedFiles, withMeasuredBy } from "./coverage.steps.ts";
 import { addDroppedRejection, addReviewStats, annotateReviewPhase, greenSpecFiles, newReviewTally, readReviewedSpecs, rebuttalEvidence, recordReviewDecision } from "./review-services.ts";
 import { pathOnly } from "@kernel/route-availability.ts";
 import { dataContradictionRefs } from "@kernel/data-contradiction.ts";
@@ -655,6 +655,7 @@ export async function remeasureStaleCoverage(state: Readonly<RunState>, ctx: Wor
         coverage: {
           ...remeasured(state.coverage),
           measuredBy,
+          dumps: dumpsOf(measuredBy),
           coverageRatio: finalSignal.ratio,
           coverageStatus: finalSignal.status,
           perCandidate: finalSignal.measurement?.perCandidate,

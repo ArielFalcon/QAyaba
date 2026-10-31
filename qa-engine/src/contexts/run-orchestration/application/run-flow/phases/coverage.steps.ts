@@ -8,11 +8,13 @@ import { hasGreenBytes } from "@kernel/run-verdict.ts";
 import { isAllotmentSpentError } from "@kernel/run-deadline.ts";
 import type { DeadlinePurpose } from "@kernel/deadline-purpose.ts";
 import type { GenerationEnrichment } from "@contexts/generation/application/index.ts";
-import { changedCodeFiles, isReadTrouble, renderBranchGap, renderCoverageGap, renderSurvivedMutants, rerunEstimateMs, rerunFits, survivorClosureOf, survivorFindings, survivorRechecks, testOfCase, testSupportFiles, unreachableByDesign, type BundleMutationResult, type CoverageExclusions, type CoverageMeasurement, type CoverageRerun, type CoverageSignal, type MeasuredPages, type RerunBudget, type SurvivedMutant, type SurvivorClosure } from "@contexts/objective-signal/application/index.ts";
+import { changedCodeFiles, isReadTrouble, renderBranchGap, renderCoverageGap, renderSurvivedMutants, rerunEstimateMs, rerunFits, survivorClosureOf, survivorFindings, survivorRechecks, testOfCase, testSupportFiles, unreachableByDesign, type BundleMutationResult, type CoverageExclusions, type CoverageMeasurement, type CoverageSignal, type CoverageSource, type MeasuredPages, type RerunBudget, type SurvivedMutant, type SurvivorClosure } from "@contexts/objective-signal/application/index.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 import type { StepOutcome } from "../run-flow.ts";
 import type { RunContext, WorkspaceRunContext } from "../run-context.ts";
-import { runOf, type BranchCasesOutcome, type CoverageOutcome, type MeasurementOutcome, type RunState } from "../run-state.ts";
+import { runOf, type BranchCasesOutcome, type CoverageOutcome, type MeasuredDumps, type MeasurementOutcome, type RunState, type SpecBytes } from "../run-state.ts";
+import { sha256Hex } from "@kernel/content-hash.ts";
+import { MAX_SPEC_SOURCE_BYTES } from "@kernel/ports/spec-files.port.ts";
 import { acceptedRegeneration, recordLimit, remeasured, rollbackDelivered, withAcceptanceCalls, withRun } from "../reducers.ts";
 import { executeAccepted, validateAccepted } from "./execute.steps.ts";
 import { regenerate, type EvidenceFinding } from "./generation-services.ts";
@@ -97,16 +99,17 @@ export async function runMeasurement(ctx: WorkspaceRunContext, cases: readonly Q
   const passing = cases.filter(ranGreen);
   const specFiles = [...new Set(passing.flatMap((c) => (c.file ? [c.file] : [])))];
   const tests = [...new Set(passing.map((c) => testOfCase(c.name)))];
-  const notRun = (why: string): MeasurementOutcome => {
+  const notRun = (why: string, time?: true): MeasurementOutcome => {
     engineLog.warn(`[qa] change-coverage: the measurement execution ${namespace} measured nothing (${why}); the coverage is unknown and the verdict stands`);
-    return { notRun: true, tests: passing.length };
+    return { notRun: true, tests: passing.length, ...(time ? { time } : {}) };
   };
   if (passing.length === 0 || specFiles.length === 0) return notRun("no passing test to measure");
   const budget = rerunBudgetOf(ctx, purpose, cases);
-  if (budget.fired?.() === true) return notRun("the run's deadline has fired");
+  if (budget.fired?.() === true) return notRun("the run's deadline has fired", true);
   const allowance = budget.allowance();
   const estimate = rerunEstimateMs(cases, specFiles, tests);
-  if (!rerunFits(allowance, estimate)) return notRun(`it is estimated at ${estimate ?? "an unknown number of"} ms and the time left holds ${allowance} ms`);
+  if (!rerunFits(allowance, estimate)) return notRun(`it is estimated at ${estimate ?? "an unknown number of"} ms and the time left holds ${allowance} ms`, true);
+  const files = specFiles.map((file): SpecBytes => ({ file, sha: bytesOf(ctx, file) }));
   const result = await ctx.deps.execution.execute(ctx.workspace.specDir, {
     ...(ctx.signal ? { signal: ctx.signal } : {}),
     purpose: "measurement",
@@ -130,8 +133,23 @@ export async function runMeasurement(ctx: WorkspaceRunContext, cases: readonly Q
     failedOnlyUnderMeasurement: passing.filter((c) => !greenThere(c)).map((c) => c.name),
     cases: result.cases.map((c) => ({ name: c.name, status: c.status, ...(c.file !== undefined ? { file: c.file } : {}), ...(c.durationMs !== undefined ? { durationMs: c.durationMs } : {}), ...(c.expectedStatus !== undefined ? { expectedStatus: c.expectedStatus } : {}) })),
     ...(result.observations ? { observations: result.observations } : {}),
+    files,
   };
 }
+
+/* The fingerprint of a spec file's bytes, read strictly; undefined when they cannot be read, which matches only bytes that could not be read either. */
+function bytesOf(ctx: WorkspaceRunContext, file: string): string | undefined {
+  try {
+    const read = ctx.services.specFiles.readOwned(ctx.services.specRoot, file, MAX_SPEC_SOURCE_BYTES);
+    return "bytes" in read ? sha256Hex(read.bytes.toString("utf8")) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/* A measurement execution as a recount reads it; none when it measured nothing. */
+export const dumpsOf = (measured: MeasurementOutcome | undefined): MeasuredDumps[] =>
+  measured === undefined || "notRun" in measured ? [] : [{ namespace: measured.namespace, files: measured.files, exceptTests: measured.failedOnlyUnderMeasurement.map(testOfCase) }];
 
 /* A case whose bytes ran green in the verdict: a real pass, or a flaky case (it passed on a retry), whose bytes a flaky run still has green. */
 const ranGreen = (c: QaCase): boolean => isRealPass(c.status === "flaky" ? { ...c, status: "pass" } : c);
@@ -144,7 +162,7 @@ export const measuresByExecution = (state: Readonly<RunState>, ctx: WorkspaceRun
 export async function executeMeasurement(state: Readonly<RunState>, ctx: WorkspaceRunContext): Result {
   if (!measuresByExecution(state, ctx)) return;
   const measuredBy = await runMeasurement(ctx, runOf(state).cases, `${ctx.input.runId}-measure`, "coverage");
-  return { update: { coverage: { ...state.coverage, measuredBy } } };
+  return { update: { coverage: { ...state.coverage, measuredBy, dumps: dumpsOf(measuredBy) } } };
 }
 
 /* What a measurement asks of the measurement execution it reads: its namespace, its passing tests as the baseline and their spec files, the tests whose dumps credit nothing, and its pages as the mutants' first observation. Nothing when no measurement execution ran. */
@@ -310,16 +328,16 @@ export const regeneratesForBranchCases = (state: Readonly<RunState>, ctx: Worksp
   }) === "regenerate";
 
 /*
- * How a gap regeneration ended; `reruns` names the acceptance's own dumps of the specs it kept, so the coverage can be recounted from
- * them; `changedSpecFiles` are the specs an accepted one changed and kept, every one executed on its accepted bytes, whose cases in
- * `run` are that execution's; `files` counts the spec files the turn changed whose new bytes stand and those given their prior bytes back.
+ * How a gap regeneration ended; `namespace` is the acceptance's, which its measurement execution extends; `changedSpecFiles` are the
+ * specs an accepted one changed and kept, every one executed on its accepted bytes, whose cases in `run` are that execution's; `files`
+ * counts the spec files the turn changed whose new bytes stand and those given their prior bytes back.
  */
 export interface GapRegeneration {
   outcome: BranchCasesOutcome["outcome"];
   run: NonNullable<RunState["execution"]["run"]>;
   acceptanceCalls: number;
   leadCorrections: number;
-  reruns?: CoverageRerun[];
+  namespace?: string;
   changedSpecFiles?: string[];
   files?: { kept: number; restored: number };
 }
@@ -431,18 +449,14 @@ async function regenerateWithin(
   if (outcome.restored.length > 0) rollbackDelivered(state, deliveredBefore, outcome.restored);
   const files = { kept: kept.length, restored: outcome.restored.length };
   traceAcceptedFiles(ctx, origin, files);
-  /*
-   * The kept files executed in the acceptance: their cases replace the ones the run held for them and their dumps are under its
-   * namespace. A spec file given back is not named, so its dumps here are never read: it is counted from the dumps of the bytes it
-   * was given back.
-   */
+  /* The kept files executed in the acceptance: their cases replace the ones the run held for them. A spec file given back keeps its prior cases. */
   const keptSet = new Set(kept);
   run = {
     ...run,
     cases: [...run.cases.filter((c) => !keptSet.has(c.file ?? c.name)), ...(outcome.execution?.cases ?? [])],
     skippedTests: [...(run.skippedTests ?? []).filter((t) => !keptSet.has(t.file ?? t.name)), ...(outcome.execution?.skippedTests ?? [])],
   };
-  return { outcome: "accepted", run, acceptanceCalls, leadCorrections, changedSpecFiles: kept, files, reruns: [{ namespace, specFiles: kept }] };
+  return { outcome: "accepted", run, acceptanceCalls, leadCorrections, namespace, changedSpecFiles: kept, files };
 }
 
 const isSpecFile = (file: string): boolean => file.endsWith(".spec.ts");
@@ -458,23 +472,38 @@ async function recheckOrNone(recheck: () => Promise<BundleMutationResult | null>
 }
 
 /*
- * Whether an accepted regeneration answered the surviving mutants routed to it: each is applied again to the specs it changed among
- * those its finding was routed to, judged against the cases those specs' accepted bytes passed in the acceptance. The proof of a
- * regenerated test is that the fault it was asked about now fails it; until then it is only text. Undefined when no survivor was
- * routed or the regeneration was not accepted. A signal, never a gate.
+ * The measurement execution of the files an accepted gap regeneration kept: their passing tests in the acceptance, run once more
+ * measured, under `<acceptance namespace>-measure` (RFC-0015). The acceptance judged them and measured nothing. Undefined when there
+ * is nothing to measure: the regeneration was not accepted, kept no file, or the run took no measurement its dumps would add to.
  */
-export async function closeSurvivors(state: Readonly<RunState>, ctx: WorkspaceRunContext, regen: GapRegeneration): Promise<SurvivorClosure | undefined> {
+export async function measureKept(state: Readonly<RunState>, ctx: WorkspaceRunContext, regen: GapRegeneration): Promise<MeasurementOutcome | undefined> {
+  const kept = new Set(regen.changedSpecFiles ?? []);
+  if (regen.outcome !== "accepted" || kept.size === 0 || regen.namespace === undefined || state.coverage.dumps.length === 0) return undefined;
+  return runMeasurement(ctx, regen.run.cases.filter((c) => c.file !== undefined && kept.has(c.file)), `${regen.namespace}-measure`, "coverage");
+}
+
+/*
+ * Whether an accepted regeneration answered the surviving mutants routed to it: each is applied again to the specs it changed among
+ * those its finding was routed to, judged against the tests of those specs that passed in their measurement execution, so both sides
+ * of a kill run under the same conditions. The proof of a regenerated test is that the fault it was asked about now fails it; until
+ * then it is only text. Undefined when no survivor was routed or the regeneration was not accepted. A signal, never a gate.
+ */
+export async function closeSurvivors(state: Readonly<RunState>, ctx: WorkspaceRunContext, regen: GapRegeneration, measured: MeasurementOutcome | undefined): Promise<SurvivorClosure | undefined> {
   const { deps, input, workspace } = ctx;
   const routed = state.coverage.survivorRuns;
   const changed = regen.changedSpecFiles ?? [];
   if (regen.outcome !== "accepted" || routed.length === 0 || changed.length === 0 || !deps.objectiveSignal.recheckSurvivors) return undefined;
   const changedSet = new Set(changed);
-  const baselineCases = regen.run.cases.filter((c) => isRealPass(c) && changedSet.has(c.file ?? c.name)).map((c) => c.name);
+  const measuredCases = measured !== undefined && !("notRun" in measured) ? measured.cases : [];
+  const baseline = new Set(measured !== undefined && !("notRun" in measured) ? measured.baseline : []);
+  const baselineCases = measuredCases.filter((c) => baseline.has(c.name) && changedSet.has(c.file ?? c.name)).map((c) => c.name);
   const rechecks = survivorRechecks(routed, survivorsOf(state), changed);
-  /* The re-runs are the coverage purpose's, estimated from the acceptance that executed the regenerated bytes they re-run. */
-  const rerunBudget = rerunBudgetOf(ctx, "coverage", regen.run.cases);
+  /* The re-runs are the coverage purpose's, estimated from the measurement execution of the regenerated bytes they re-run. */
+  const rerunBudget = rerunBudgetOf(ctx, "coverage", measuredCases);
   const result = baselineCases.length > 0 && rechecks.length > 0 ? await recheckOrNone(() => deps.objectiveSignal.recheckSurvivors!(rechecks, workspace.specDir, `${input.runId}-closure`, baselineCases, { rerunBudget })) : null;
-  const closure = survivorClosureOf(routed.length, result);
+  /* A measurement the time left could not hold leaves every re-check unstarted for the same reason. */
+  const outOfTime = measured !== undefined && "notRun" in measured && measured.time === true && rechecks.length > 0;
+  const closure = outOfTime ? { ...survivorClosureOf(routed.length, null), leftOut: { mutants: rechecks.length, observations: 0, reason: "time" as const } } : survivorClosureOf(routed.length, result);
   engineLog.info(`[qa] survivor closure: ${closure.closed} of ${closure.routed} surviving mutant(s) now noticed by a test (${closure.judged} judged)`);
   if (closure.leftOut) engineLog.warn(`[qa] survivor closure: ${closure.leftOut.mutants} surviving mutant(s) were not re-applied because the time left could not hold their re-run`);
   if (closure.unreadable) engineLog.warn(`[qa] survivor closure: ${closure.unreadable} surviving mutant(s) were not judged because the counters of their re-run could not be read (not the same as a mutant that reached no page)`);
@@ -482,29 +511,52 @@ export async function closeSurvivors(state: Readonly<RunState>, ctx: WorkspaceRu
 }
 
 /*
- * The coverage after a gap regeneration, counted again from the dumps on disk when it was accepted: the arms and lines the reviewer
- * and the record describe are then the delivered bytes'. Under enforce only the final whole-suite re-measure decides, so the recount
- * informs and never touches the decision; under signal it is the measurement, and only the value score stays stale. Without a recount
- * the arms are not current.
+ * Where a recount reads each spec file: the last measurement execution that ran the bytes now on disk, by their fingerprint. Null
+ * when a spec file some measurement ran holds bytes none of them ran: counting it from another's dumps would describe bytes that are
+ * not under review. `chosen` maps each file to the namespace it is read from.
  */
-export async function recountAfter(state: Readonly<RunState>, ctx: WorkspaceRunContext, regen: GapRegeneration): Promise<CoverageOutcome> {
+function sourcesFor(ctx: WorkspaceRunContext, dumps: readonly MeasuredDumps[]): { sources: CoverageSource[]; chosen: Map<string, string> } | null {
+  const chosen = new Map<string, string>();
+  for (const file of new Set(dumps.flatMap((d) => d.files.map((f) => f.file)))) {
+    const now = bytesOf(ctx, file);
+    const ran = [...dumps].reverse().find((d) => d.files.some((f) => f.file === file && f.sha === now));
+    if (!ran) {
+      engineLog.warn(`[qa] change-coverage: ${file} holds bytes no measurement execution ran; the coverage is not recounted and the measurement before stands`);
+      return null;
+    }
+    chosen.set(file, ran.namespace);
+  }
+  const sources = dumps.flatMap((d): CoverageSource[] => {
+    const specFiles = [...chosen].filter(([, namespace]) => namespace === d.namespace).map(([file]) => file);
+    return specFiles.length === 0 ? [] : [{ namespace: d.namespace, specFiles, ...(d.exceptTests.length > 0 ? { exceptTests: d.exceptTests } : {}) }];
+  });
+  return { sources, chosen };
+}
+
+/*
+ * The coverage after a gap regeneration, counted again from the dumps of the measurement executions when it was accepted: the files
+ * it kept from `measured`, their own measurement execution, every other from the one that ran its bytes on disk. The arms and lines
+ * the reviewer and the record describe are then the delivered bytes'. Under enforce only the final whole-suite re-measure decides, so
+ * the recount informs and never touches the decision; under signal it is the measurement, and only the value score stays stale. A
+ * measurement of the kept files that did not run, or bytes no measurement ran, make no recount: the arms are then not current.
+ */
+export async function recountAfter(state: Readonly<RunState>, ctx: WorkspaceRunContext, regen: GapRegeneration, measured: MeasurementOutcome | undefined): Promise<CoverageOutcome> {
   const { deps, input, cfg, workspace } = ctx;
   const spent = withAcceptanceCalls(state.coverage, regen.acceptanceCalls);
   if (regen.outcome !== "accepted") return spent;
-  /* Every accepted regeneration's re-runs are carried, so a recount reads each rewritten spec from the dumps of the bytes now delivered, not only the current regeneration's. */
-  const reruns = [...state.coverage.reruns, ...(regen.reruns ?? [])];
-  const accepted = { ...acceptedRegeneration(spent), reruns };
-  /* The fix loop's re-runs come first: the measurement read them over the same namespace. */
-  const { coverageNamespace, coverageReruns } = state.fixLoop;
-  const recount =
-    regen.reruns && deps.objectiveSignal.recount
-      ? await deps.objectiveSignal.recount(BlastRadius.of(input.sha, state.classification.intent?.changedFiles ?? []), workspace.specDir, state.classification.diff, [...coverageReruns, ...reruns], {
-          ...(coverageNamespace ? { namespace: coverageNamespace } : {}),
-          ...(state.coverage.mutantProofs.length > 0 ? { proofs: state.coverage.mutantProofs } : {}),
-          ...(state.coverage.exclusions ? { exclusions: state.coverage.exclusions } : {}),
-          caseFiles: passingCaseFiles(regen.run.cases),
-        })
-      : null;
+  const dumps = [...state.coverage.dumps, ...dumpsOf(measured)];
+  const accepted = { ...acceptedRegeneration(spent), dumps };
+  const read = measured !== undefined && !("notRun" in measured) && deps.objectiveSignal.recount ? sourcesFor(ctx, dumps) : null;
+  /* A proof holds only for the spec bytes that killed its mutant: those the first measurement execution ran. */
+  const proven = state.coverage.dumps[0]?.namespace;
+  const proofs = read ? state.coverage.mutantProofs.map((p) => ({ ...p, specFiles: p.specFiles.filter((file) => read.chosen.get(file) === proven) })).filter((p) => p.specFiles.length > 0) : [];
+  const recount = read
+    ? await deps.objectiveSignal.recount!(BlastRadius.of(input.sha, state.classification.intent?.changedFiles ?? []), workspace.specDir, state.classification.diff, read.sources, {
+        ...(proofs.length > 0 ? { proofs } : {}),
+        ...(state.coverage.exclusions ? { exclusions: state.coverage.exclusions } : {}),
+        caseFiles: passingCaseFiles(regen.run.cases),
+      })
+    : null;
   if (!recount) return { ...accepted, untakenArmsCurrent: false };
   const arms: CoverageOutcome = { ...accepted, uncovered: recount.uncovered, untakenArms: recount.untakenArms, untakenArmsCurrent: true, ranBy: recount.ranBy, branchCoverage: branchCoverageOf(recount.measurement), changeCoverage: recount.measurement.unmeasured === undefined ? (changeCoverageOf(recount.measurement) ?? accepted.changeCoverage) : accepted.changeCoverage };
   if (cfg.coveragePolicyMode !== "signal") return arms;
@@ -622,8 +674,9 @@ export async function regenerateForCoverage(state: Readonly<RunState>, ctx: Work
   const gap = [renderCoverageGap(uncovered, state.grounding.candidates), renderBranchGap(untakenArms)].filter(Boolean).join("\n\n");
   const ambient = ambientGapOf(state, ctx);
   const regen = await regenerateAtCoverageGap(state, ctx, gap, gapUnits(uncovered, untakenArms, state.grounding.candidates, state.coverage.ranBy, ambient.arms), survived, ambient.findings);
-  const survivorClosure = await closeSurvivors(state, ctx, regen);
-  const coverage = await recountAfter(state, ctx, regen);
+  const measured = await measureKept(state, ctx, regen);
+  const survivorClosure = await closeSurvivors(state, ctx, regen, measured);
+  const coverage = await recountAfter(state, ctx, regen, measured);
   return { update: { execution: withRun(state.execution, regen.run), coverage: { ...coverage, ...(survivorClosure ? { survivorClosure } : {}) }, loops: { ...state.loops, coverageRegen: state.loops.coverageRegen + 1, leadCorrections: state.loops.leadCorrections + regen.leadCorrections } } };
 }
 
@@ -633,8 +686,9 @@ export async function regenerateForBranchCases(state: Readonly<RunState>, ctx: W
   const survived = survivorsOf(state);
   const ambient = ambientGapOf(state, ctx);
   const regen = await regenerateAtCoverageGap(state, ctx, renderBranchGap(state.coverage.untakenArms), gapUnits([], state.coverage.untakenArms, [], state.coverage.ranBy, ambient.arms), survived, ambient.findings);
-  const survivorClosure = await closeSurvivors(state, ctx, regen);
-  const coverage = await recountAfter(state, ctx, regen);
+  const measured = await measureKept(state, ctx, regen);
+  const survivorClosure = await closeSurvivors(state, ctx, regen, measured);
+  const coverage = await recountAfter(state, ctx, regen, measured);
   const armsAfter = regen.outcome !== "accepted" ? armsBefore : coverage.untakenArmsCurrent ? coverage.untakenArms.length : undefined;
   return {
     update: {

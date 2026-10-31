@@ -1,6 +1,6 @@
 import type { BlastRadius } from "@kernel/blast-radius.ts";
 import type { UseCaseCandidate } from "@kernel/use-case-candidate.ts";
-import type { BundleMutationOutcome, CoverageMeasurement, CoverageRecount, CoverageRerun, FileRanBy, MutantSelectionRecord, UntakenArm } from "../../domain/objective-signal.ts";
+import type { BundleMutationOutcome, CoverageMeasurement, CoverageRecount, CoverageSource, FileRanBy, MutantSelectionRecord, UntakenArm } from "../../domain/objective-signal.ts";
 import type { BundleMutationResult, CoverageRead, MutantProof, MutantRun } from "../../domain/coverage-collector.ts";
 import type { CoverageExclusions } from "../../domain/coverage-exclusions.ts";
 import type { RerunBudget } from "../../domain/rerun-budget.ts";
@@ -23,11 +23,7 @@ export interface ObjectiveSignalPort {
    * `opts.caseFiles` are the spec files of this run's passing cases: a bundle mutant re-runs the ones whose tests reached it.
    * `opts.exclusions` are the changed files that are not a gap of the suite (reached only through routes the change made unavailable,
    * or imported only by tests): they leave the diff before anything is collected, counted or mutated, and the measurement records them apart.
-   * `opts.namespace` overrides the dump namespace for the regen's second
-   * measure(); the first measurement is untouched.
-   * `opts.reruns` are later executions of some spec files, in the order they ran: the measurement then reads the latest dumps of
-   * every spec file (the namespace's without the re-run files, then each re-run's for the files it re-ran, as `recount` does), and
-   * its mutants are chosen from those dumps. A re-run whose dumps cannot be read with the rest measures nothing ("unknown").
+   * `opts.namespace` is the measurement execution whose dumps are read; absent, the composition-time namespace.
    * The coverage counts what the passing tests ran and what a mutant a test killed made run (the verified coverage);
    * `mutantProofs` names those mutants' re-runs, so a recount can count them again, and is absent when none added a line.
    * `survivorRuns` are the mutants no test noticed, in the order of `bundleMutation.survived`, as they were run, so a regeneration
@@ -48,7 +44,7 @@ export interface ObjectiveSignalPort {
    * judges no mutant only they reached (`bundleMutation.notJudged`). `opts.firstObservation` is the measurement execution, observed: the
    * mutation pass takes it as the mutants' first unmutated observation instead of re-running one.
    */
-  measure(br: BlastRadius, specDir: string, diff?: string, baselineCases?: string[], opts?: { namespace?: string; caseFiles?: string[]; candidates?: readonly UseCaseCandidate[]; crossRepo?: boolean; reruns?: readonly CoverageRerun[]; exclusions?: CoverageExclusions; byExecution?: boolean; rerunBudget?: RerunBudget; exceptTests?: readonly string[]; firstObservation?: MeasuredPages; onRead?: (read: CoverageRead) => void }): Promise<CoverageSignal>;
+  measure(br: BlastRadius, specDir: string, diff?: string, baselineCases?: string[], opts?: { namespace?: string; caseFiles?: string[]; candidates?: readonly UseCaseCandidate[]; crossRepo?: boolean; exclusions?: CoverageExclusions; byExecution?: boolean; rerunBudget?: RerunBudget; exceptTests?: readonly string[]; firstObservation?: MeasuredPages; onRead?: (read: CoverageRead) => void }): Promise<CoverageSignal>;
   /**
    * The mutation pass a measurement by execution returned (`mutationPass`): its mutants re-run and judged (each re-run held to
    * `opts.rerunBudget`) and the coverage they verify, the measurement by execution with the dumps of each killed mutant's re-run added.
@@ -63,10 +59,11 @@ export interface ObjectiveSignalPort {
    */
   blocks(status: "pass" | "fail" | "unknown"): boolean;
   /**
-   * The change-coverage counted again over dumps a run already holds, re-running nothing (no oracle, no mutant): the first
-   * measurement's namespace without the dumps of each re-run's spec files, plus every re-run's own dumps, plus the dumps of the
-   * `proofs` whose spec files were not re-run. Null when nothing can be counted that way (coverage off, no diff, a collector that
-   * reads reports a run writes whole, or a source whose dumps could not be read). Absent on a port that cannot recount. `opts.caseFiles`
+   * The change-coverage counted again over dumps a run already holds, re-running nothing (no oracle, no mutant): each source's dumps of
+   * its own spec files (the measurement execution that ran their bytes on disk, chosen by the caller), plus the dumps of the `proofs`,
+   * which the caller gives only for spec files whose bytes are still those the proofs' mutants ran against. Null when nothing can be
+   * counted that way (coverage off, no diff, no source, a collector that reads reports a run writes whole, or a source whose dumps could
+   * not be read). Absent on a port that cannot recount. `opts.caseFiles`
    * are the spec files of the passing cases the recounted dumps belong to: `ranBy` is told against them, as `measure` tells it.
    */
   /**
@@ -76,5 +73,5 @@ export interface ObjectiveSignalPort {
    * unreadable or left out. Absent on a port with no mutation pass. A signal, never a gate.
    */
   recheckSurvivors?(survivors: readonly MutantRun[], specDir: string, namespace: string, baselineCases: readonly string[], opts?: { rerunBudget?: RerunBudget }): Promise<BundleMutationResult | null>;
-  recount?(br: BlastRadius, specDir: string, diff: string | undefined, reruns: readonly CoverageRerun[], opts?: { namespace?: string; proofs?: readonly MutantProof[]; exclusions?: CoverageExclusions; caseFiles?: readonly string[]; onRead?: (read: CoverageRead) => void }): Promise<CoverageRecount | null>;
+  recount?(br: BlastRadius, specDir: string, diff: string | undefined, sources: readonly CoverageSource[], opts?: { proofs?: readonly MutantProof[]; exclusions?: CoverageExclusions; caseFiles?: readonly string[]; onRead?: (read: CoverageRead) => void }): Promise<CoverageRecount | null>;
 }

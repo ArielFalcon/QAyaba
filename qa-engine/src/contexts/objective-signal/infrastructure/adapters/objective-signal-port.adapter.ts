@@ -3,7 +3,7 @@
 import type { BlastRadius } from "@kernel/blast-radius.ts";
 import type { CoverageMeasurement } from "../../domain/objective-signal.ts";
 import type { ObjectiveSignalPort } from "../../application/ports/objective-signal.port.ts";
-import type { CoverageRecount, CoverageRerun, FileRanBy } from "../../domain/objective-signal.ts";
+import type { CoverageRecount, CoverageSource, FileRanBy } from "../../domain/objective-signal.ts";
 import { isDumpOfSpecFile } from "../../domain/dump-names.ts";
 import type { BundleMutationPort } from "../../application/ports/bundle-mutation.port.ts";
 import type { CoverageCollectorPort } from "../../application/ports/coverage-collector.port.ts";
@@ -150,20 +150,9 @@ function noCodeLines(readSource: (file: string) => string | undefined): NoCodeLi
   };
 }
 
-/*
- * The latest dumps of every spec file: the base namespace without the re-run spec files, then each re-run's namespace for the spec
- * files it re-ran. Reruns are in the order they ran: a spec re-run again is read from its latest rerun only, so an earlier rerun's
- * dumps of it never count; and a rerun's namespace is read for its own spec files only, never whole.
- */
-function latestDumpsOf(base: string, reruns: readonly CoverageRerun[]): { sources: DumpSource[]; rewritten: string[] } {
-  const rewritten = [...new Set(reruns.flatMap((r) => r.specFiles))];
-  const rerunSources = reruns.flatMap((r, i): DumpSource[] => {
-    const later = new Set(reruns.slice(i + 1).flatMap((x) => x.specFiles));
-    const current = r.specFiles.filter((file) => !later.has(file));
-    return current.length === 0 ? [] : [{ namespace: r.namespace, onlySpecFiles: current }];
-  });
-  return { sources: [{ namespace: base, exceptSpecFiles: rewritten }, ...rerunSources], rewritten };
-}
+/* What a recount reads: each source's dumps of its own spec files, without the tests that credit nothing. */
+const dumpSourcesOf = (sources: readonly CoverageSource[]): DumpSource[] =>
+  sources.map((source) => ({ namespace: source.namespace, onlySpecFiles: source.specFiles, ...(source.exceptTests && source.exceptTests.length > 0 ? { exceptTests: source.exceptTests } : {}) }));
 
 export class ObjectiveSignalPortAdapter implements ObjectiveSignalPort {
   constructor(
@@ -182,12 +171,10 @@ export class ObjectiveSignalPortAdapter implements ObjectiveSignalPort {
     /* Per-call changed files from the live diff. Composition-time collectors often hold a static empty list; absent diff → collector constructor value. */
     const changedFiles = changeDiff !== undefined ? [...parseDiffHunks(changeDiff).keys()] : undefined;
     const willAssemble = this.ctx.assembleChangeCoverage !== undefined && !!diff;
-    /* The latest dumps of every spec file: after re-runs of some of them, the namespace alone holds the others' only. */
     /* A test that failed under the measurement credits nothing: its dumps are not read. */
     const exceptTests = opts?.exceptTests ?? [];
-    const rerun = (opts?.reruns?.length ?? 0) > 0 || exceptTests.length > 0;
-    const sources = latestDumpsOf(namespace, opts?.reruns ?? []).sources.map((source) => (exceptTests.length > 0 ? { ...source, exceptTests } : source));
-    const collected = willAssemble ? await this.collectFrom(specDir, namespace, rerun ? sources : undefined, changedFiles) : undefined;
+    const sources: DumpSource[] | undefined = exceptTests.length > 0 ? [{ namespace, exceptTests }] : undefined;
+    const collected = willAssemble ? await this.collectFrom(specDir, namespace, sources, changedFiles) : undefined;
     const report = collected?.report ?? null;
     tellReads(collected?.reads, opts?.onRead);
     const noCodeOf = this.noCodeOf();
@@ -210,7 +197,7 @@ export class ObjectiveSignalPortAdapter implements ObjectiveSignalPort {
       selection,
       judgedAgainst: baselineCases ?? this.ctx.baselineCases ?? [],
       namespace,
-      sources: rerun ? sources : [{ namespace }],
+      sources: sources ?? [{ namespace }],
       changeDiff,
       changedFiles: changedFiles ?? [],
       executed,
@@ -336,16 +323,12 @@ export class ObjectiveSignalPortAdapter implements ObjectiveSignalPort {
     return this.deps.decide.blocks(status, this.ctx.policy);
   }
 
-  async recount(br: BlastRadius, specDir: string, diff: string | undefined, reruns: readonly CoverageRerun[], opts?: { namespace?: string; proofs?: readonly MutantProof[]; exclusions?: CoverageExclusions; caseFiles?: readonly string[]; onRead?: (read: CoverageRead) => void }): Promise<CoverageRecount | null> {
+  async recount(br: BlastRadius, specDir: string, diff: string | undefined, sources: readonly CoverageSource[], opts?: { proofs?: readonly MutantProof[]; exclusions?: CoverageExclusions; caseFiles?: readonly string[]; onRead?: (read: CoverageRead) => void }): Promise<CoverageRecount | null> {
     const { recollect } = this.deps.collector;
-    if (this.ctx.policy.mode === "off" || !diff || !this.ctx.assembleChangeCoverage || !recollect) return null;
+    if (this.ctx.policy.mode === "off" || !diff || !this.ctx.assembleChangeCoverage || !recollect || sources.length === 0) return null;
     const changeDiff = changeDiffOf(diff, opts?.exclusions)!;
-    const base = opts?.namespace ?? this.ctx.namespace ?? br.sha.toString();
-    const { sources, rewritten } = latestDumpsOf(base, reruns);
-    /* A proof holds only for the spec bytes that killed its mutant: the re-run spec files are not those any more. */
-    const proofs = (opts?.proofs ?? []).map((p) => ({ ...p, specFiles: p.specFiles.filter((file) => !rewritten.includes(file)) })).filter((p) => p.specFiles.length > 0);
-    const proofSources = proofs.map(({ namespace, specFiles, ...mutant }) => ({ namespace, onlySpecFiles: specFiles, mutant }));
-    const report = await recollect.call(this.deps.collector, specDir, [...sources, ...proofSources], [...parseDiffHunks(changeDiff).keys()]);
+    const proofSources = (opts?.proofs ?? []).filter((p) => p.specFiles.length > 0).map(({ namespace, specFiles, ...mutant }) => ({ namespace, onlySpecFiles: specFiles, mutant }));
+    const report = await recollect.call(this.deps.collector, specDir, [...dumpSourcesOf(sources), ...proofSources], [...parseDiffHunks(changeDiff).keys()]);
     tellReads(report.reads, opts?.onRead);
     /* A source that could not be read would count a part of the suite as the whole: the measurement before the recount stands, and the read that failed is told to the observer. */
     if (report.incomplete) return null;

@@ -801,11 +801,11 @@ test("the coverage a flaky run records is recounted from the corrected bytes the
     config: { needsReview: true, shadow: false, onFailure: "github-issue", maxRetries: 2, coveragePolicyMode: "signal" },
     objectiveSignal: {
       measure: async () => (order.push("measure"), { status: "pass" as const, ratio: 0.5, uncovered: [], untakenArms: [] }),
-      recount: async (_br, _dir, _diff, reruns) => (order.push(`recount:${reruns.map((x) => x.namespace).join(",")}`), { status: "pass" as const, ratio: 1, uncovered: [], untakenArms: [], measurement: { changedLines: 4, coveredChanged: 4, changedFiles: 1, mappedFiles: 1 } }),
+      recount: async (_br, _dir, _diff, sources) => (order.push(`recount:${sources.map((x) => x.namespace).join(",")}`), { status: "pass" as const, ratio: 1, uncovered: [], untakenArms: [], measurement: { changedLines: 4, coveredChanged: 4, changedFiles: 1, mappedFiles: 1 } }),
       blocks: () => false,
     },
   })).run(INPUT);
-  assert.deepEqual(order, ["measure", `recount:${acceptanceNamespace("coord-run", 0)}`], "the correction is measured after the first measurement, from its own dumps");
+  assert.deepEqual(order, ["measure", `recount:${acceptanceNamespace("coord-run", 0)}-measure`], "the correction is measured after the first measurement, from its own measurement execution");
   assert.equal(result.outcome?.gateSignals.coverageRatio, 1, "the record describes the bytes under review");
 });
 

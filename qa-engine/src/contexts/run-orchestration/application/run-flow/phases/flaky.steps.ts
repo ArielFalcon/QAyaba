@@ -7,7 +7,7 @@ import type { WorkspaceRunContext } from "../run-context.ts";
 import { runOf, type RunState } from "../run-state.ts";
 import { withRun } from "../reducers.ts";
 import { FLAKY_CLASS, triageFlaky } from "../../../domain/flaky-triage.ts";
-import { recountAfter, regenerateAtGap } from "./coverage.steps.ts";
+import { measureKept, recountAfter, regenerateAtGap } from "./coverage.steps.ts";
 import { flakyFindings } from "./generation-services.ts";
 
 type Result = Promise<StepOutcome<RunState>>;
@@ -55,7 +55,7 @@ export async function triageFlakyCases(state: Readonly<RunState>, ctx: Workspace
   }
   const regen = await regenerateAtGap(state, ctx, {}, CORRECTION_ORIGIN.FLAKY, flakyFindings(triage, ctx.host.boundText));
   annotate(ctx, { ...counts, "qayaba.flaky.outcome": regen.outcome });
-  const recounted = await recountAfter(state, ctx, regen);
+  const recounted = await recountAfter(state, ctx, regen, await measureKept(state, ctx, regen));
   return {
     update: {
       execution: withRun(state.execution, regen.run),

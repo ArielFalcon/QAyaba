@@ -25,7 +25,7 @@ import type { FixLoopStage } from "../../domain/fix-loop.aggregate.ts";
 import type { CoordinationGateSignal } from "@kernel/coordination.ts";
 import type { CorrectionFinding } from "@contexts/coordination/application/index.ts";
 import type { RunOutcome } from "@kernel/run-outcome.ts";
-import type { BundleMutationOutcome, CandidateCoverage, CausalLabel, CoverageExclusions, CoverageRecount, CoverageRerun, MutantProof, MutantRun, MutationPass, ObservedPage, SurvivorClosure, UntakenArm } from "@contexts/objective-signal/application/index.ts";
+import type { BundleMutationOutcome, CandidateCoverage, CausalLabel, CoverageExclusions, CoverageRecount, MutantProof, MutantRun, MutationPass, ObservedPage, SurvivorClosure, UntakenArm } from "@contexts/objective-signal/application/index.ts";
 import type { RunDecision } from "../../domain/run-decision.ts";
 import type { RunEvidence } from "../../domain/run-decision.service.ts";
 import type { EndReason } from "./end-reason.ts";
@@ -148,10 +148,6 @@ export interface FixLoopSession {
 export interface FixLoopOutcome {
   /** The loop in progress; undefined before it engages and after it settles. */
   session: FixLoopSession | undefined;
-  /** The namespace of the loop's last whole-suite execution; absent when the loop never ran. */
-  coverageNamespace: string | undefined;
-  /** The loop's executions of some spec files after it, in order: those files' latest dumps. Empty when there were none. */
-  coverageReruns: CoverageRerun[];
   /** The full adjudicator verdict for the Issue body; undefined when the loop never reached adjudication. */
   lastAdjudicatorVerdict: AdjudicatorVerdict | undefined;
   /** The loop's final specMetas; undefined when it never regenerated. */
@@ -221,8 +217,12 @@ export interface CoverageOutcome {
   changeCoverage: RunOutcome["gateSignals"]["changeCoverage"];
   /** Per changed file, the spec files whose tests ran a line of it, among the dumps the measurement that `uncovered` and `untakenArms` come from read: it settles the flow of a gap finding about a file several flows hold. Undefined when the collector cannot tell. In memory only: never a gate signal, never persisted. */
   ranBy?: CoverageRecount["ranBy"];
-  /** The re-runs of every regeneration accepted so far, in the order they ran: a recount reads these specs from them and the rest from the base namespace, so it describes the bytes under review however many regenerations came before. */
-  reruns: CoverageRerun[];
+  /**
+   * The measurement executions whose dumps describe the suite, in the order they ran: the run's own, then one per accepted regeneration
+   * (of the files it kept). Each names the bytes of every spec file it ran, so a recount reads a file from the one that ran its bytes on
+   * disk, a file given its prior bytes back from the one that ran those, and bytes none ran from none.
+   */
+  dumps: MeasuredDumps[];
   /** Acceptances spent so far; each names its namespace by it. */
   acceptanceCalls: number;
   /** An accepted regeneration rewrote specs after the last measurement: the coverage ratio is then stale. */
@@ -239,13 +239,27 @@ export interface CoverageOutcome {
  * The one execution that measures the verdict's green tests (passed, or flaky: passed on a retry): under its own namespace, with coverage on,
  * observed, retries 0, only those tests. `passed` are the tests that passed in it too, the only dumps that credit coverage; `baseline` is the
  * mutants' baseline, those of them the verdict saw pass at the first attempt; `failedOnlyUnderMeasurement` were green in the verdict and failed
- * here; `cases` and `observations` are what it ran and saw (the mutants' first unmutated observation, and the estimate of their re-runs).
- * `notRun`: the time left could not hold it, it could not run, or it was cut before every test it was given ran, so it measured nothing and
- * the coverage is unknown.
+ * here; `cases` and `observations` are what it ran and saw (the mutants' first unmutated observation, and the estimate of their re-runs);
+ * `files` are the spec files it ran with the bytes it ran, which key its dumps.
+ * `notRun`: the time left could not hold it (`time`), it could not run, or it was cut before every test it was given ran, so it measured
+ * nothing and the coverage is unknown.
  */
 export type MeasurementOutcome =
-  | { namespace: string; tests: number; passed: string[]; baseline: string[]; failedOnlyUnderMeasurement: string[]; cases: QaCase[]; observations?: ObservedPage[] }
-  | { notRun: true; tests: number };
+  | { namespace: string; tests: number; passed: string[]; baseline: string[]; failedOnlyUnderMeasurement: string[]; cases: QaCase[]; observations?: ObservedPage[]; files: SpecBytes[] }
+  | { notRun: true; tests: number; time?: true };
+
+/** A spec file and the fingerprint of its bytes (sha256 of their text); undefined when they could not be read. */
+export interface SpecBytes {
+  file: string;
+  sha: string | undefined;
+}
+
+/** One measurement execution as a recount reads it: its namespace, the spec files it ran with the bytes it ran, and the tests that failed in it (as the coverage fixture names a test's dumps), which credit nothing. */
+export interface MeasuredDumps {
+  namespace: string;
+  files: SpecBytes[];
+  exceptTests: string[];
+}
 
 /** What decided a review round: the reviewer's model, the deterministic DOM pre-check, or the unchanged specs since a rejection. */
 export type ReviewDecidedBy = "model" | "precheck" | "unchanged";
@@ -432,7 +446,7 @@ export function initialRunState(): RunState {
       authVerifiedSha256: undefined,
       run: undefined,
     },
-    fixLoop: { session: undefined, coverageNamespace: undefined, coverageReruns: [], lastAdjudicatorVerdict: undefined, fixLoopFinalSpecMetas: undefined, devNotRenderedConclusive: false },
+    fixLoop: { session: undefined, lastAdjudicatorVerdict: undefined, fixLoopFinalSpecMetas: undefined, devNotRenderedConclusive: false },
     coverage: {
       blocksPublish: false,
       coverageRatio: null,
@@ -451,7 +465,7 @@ export function initialRunState(): RunState {
       survivorRuns: [],
       survivorClosure: undefined,
       changeCoverage: undefined,
-      reruns: [],
+      dumps: [],
       acceptanceCalls: 0,
       acceptedRegenAfterMeasure: false,
       coverageStale: false,

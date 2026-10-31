@@ -163,7 +163,6 @@ function fixLoopFor(state: Readonly<RunState>, ctx: WorkspaceRunContext, pending
         return {
           kind: "accepted",
           changedSpecFiles,
-          executedSpecFiles: outcome.executedSpecs,
           ...(outcome.execution ? { execution: { verdict: outcome.execution.verdict, cases: [...outcome.execution.cases], ...(outcome.execution.skippedTests ? { skippedTests: [...outcome.execution.skippedTests] } : {}) } } : {}),
           accepted,
         };
@@ -232,12 +231,6 @@ export async function runFixLoop(state: Readonly<RunState>, ctx: WorkspaceRunCon
   const { acceptance, runDeadlinePort } = ctx.services;
   deps.observer?.onStep("retry", "fix-loop engaged after a failing execute()");
   /*
-   * coverageLikelyMeasured omits the cross-repo conjunct on purpose: a false
-   * positive only disables filtered-retry (widens the safety net). Threading true
-   * prevents filtered-retry from undercounting change-coverage's denominator.
-   */
-  const coverageWillMeasure = generating && input.mode === "diff" && cfg.coveragePolicyMode !== "off";
-  /*
    * The objective a failure is judged against: the change's own files on a diff run, the guidance
    * a manual run was asked to cover. Feeds the adjudicator's objective_gap rule; empty when the
    * run has neither (manual without guidance).
@@ -268,7 +261,6 @@ export async function runFixLoop(state: Readonly<RunState>, ctx: WorkspaceRunCon
     cycleBudget: ctx.cycleBudget,
     devHealthy: async () => (await checkDevHealth(state, ctx)).healthy,
     namespace: input.runId,
-    coverageWillMeasure,
     ...(initialSpecSources?.length ? { initialSpecSources } : {}),
     ...(failureDomSnapshot ? { failureDomSnapshot } : {}),
     ...(state.grounding.confirmedDataRoutes?.length ? { packConfirmedDataRoutes: state.grounding.confirmedDataRoutes } : {}),
@@ -381,8 +373,6 @@ export async function settleFixLoop(state: Readonly<RunState>, ctx: WorkspaceRun
       execution: addRetries(withRun(state.execution, run), fixLoopResult.retries),
       fixLoop: {
         session: undefined,
-        coverageNamespace: fixLoopResult.coverageNamespace,
-        coverageReruns: fixLoopResult.coverageReruns,
         /* Undefined when the loop never reached adjudicate() — never fabricated. */
         lastAdjudicatorVerdict: fixLoopResult.lastAdjudicatorVerdict,
         fixLoopFinalSpecMetas: fixLoopResult.lastSpecMetas,

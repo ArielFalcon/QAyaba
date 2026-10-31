@@ -21,7 +21,7 @@ export type { CoverageRead, CoverageReport, BranchHit, BranchKind, BranchArm, Mu
 export type { BundleMutationPort } from "./ports/bundle-mutation.port.ts";
 export { RERUN_LEFT_OUT_FOR_TIME, rerunEstimateMs, rerunFits, type RerunBudget, type RerunsLeftOut } from "../domain/rerun-budget.ts";
 export { NOT_GREEN_UNDER_MEASUREMENT, type MutantsNotJudged } from "../domain/coverage-collector.ts";
-export type { CoverageMeasurement, CoverageRecount, CoverageRerun, UntakenArm, BundleMutationOutcome } from "../domain/objective-signal.ts";
+export type { CoverageMeasurement, CoverageRecount, CoverageSource, UntakenArm, BundleMutationOutcome } from "../domain/objective-signal.ts";
 export { assembleChangeCoverage } from "../domain/assemble-change-coverage.ts";
 export type { CoverageStatus } from "../domain/decide-coverage.service.ts";
 export { MAX_FAULT_INJECTION_COUNTER_BYTES, MAX_FAULT_INJECTION_COUNTER_FILES, MAX_V8_DUMP_BYTES, MAX_V8_DUMP_FILES, MAX_V8_DUMPS_TOTAL_BYTES, sanitizeFaultCounter, sanitizeV8Dump } from "../domain/dump-sanitizers.ts";

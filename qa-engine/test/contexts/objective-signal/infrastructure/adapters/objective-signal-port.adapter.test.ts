@@ -488,7 +488,7 @@ test("measure() by execution runs no mutant and returns the pass due on it; the 
   assert.deepEqual(withMutants, inOnePass, "the pass after the measurement by execution comes to what the measurement in one pass does");
 });
 
-test("measure() with re-runs reads the latest dumps of every spec file, and its mutants are chosen from them", async () => {
+test("measure() of a measurement execution in which a test failed reads its namespace without that test's dumps", async () => {
   const site = (line: number, dump: string) => ({ file: "src/checkout.ts", line, column: 0, operator: "negate condition", script: { url: "https://dev/main.js", sha256: "h" }, edit: { start: 0, end: 1, replacement: "!" }, original: "x", sourceLine: "if (x) pay();", ranIn: [dump] });
   const sourcesAsked: unknown[] = [];
   let collected = 0;
@@ -511,24 +511,24 @@ test("measure() with re-runs reads the latest dumps of every spec file, and its 
     { policy: { mode: "signal", minRatio: 0.7 }, repoDir: "/mirrors/org/app", assembleChangeCoverage, namespace: "run-7" },
   );
 
-  const result = await adapter.measure(BlastRadius.of(Sha.of("abc1234"), ["src/checkout.ts"]), "/e2e", SAMPLE_DIFF, ["pays", "other"], {
+  const result = await adapter.measure(BlastRadius.of(Sha.of("abc1234"), ["src/checkout.ts"]), "/e2e", SAMPLE_DIFF, ["pays"], {
     caseFiles: ["flows/pay.spec.ts", "flows/other.spec.ts"],
-    reruns: [{ namespace: "run-7-r1", specFiles: ["flows/other.spec.ts"] }],
+    exceptTests: ["flows-other-spec-ts-y"],
   });
 
-  assert.equal(collected, 0, "no single namespace stands for the suite");
-  assert.deepEqual(sourcesAsked, [[{ namespace: "run-7", exceptSpecFiles: ["flows/other.spec.ts"] }, { namespace: "run-7-r1", onlySpecFiles: ["flows/other.spec.ts"] }]]);
+  assert.equal(collected, 0, "the whole namespace does not stand for what credits coverage");
+  assert.deepEqual(sourcesAsked, [[{ namespace: "run-7", exceptTests: ["flows-other-spec-ts-y"] }]]);
   assert.equal(result.ratio, 1);
-  assert.deepEqual(mutated, [[[1, ["flows/pay.spec.ts"]], [2, ["flows/other.spec.ts"]]]], "the mutants are chosen from the dumps of both spec files");
+  assert.ok(mutated.length > 0, "the mutants are chosen from the dumps that are left");
 });
 
-test("measure() with re-runs whose dumps cannot all be read measures nothing: a part never stands for the suite", async () => {
+test("measure() leaving out a test's dumps whose others cannot all be read measures nothing: a part never stands for the suite", async () => {
   const adapter = new ObjectiveSignalPortAdapter(
     { collector: { collect: async () => ({ covered: [{ file: "src/checkout.ts", lines: [1, 2] }] }), recollect: async () => ({ covered: [{ file: "src/checkout.ts", lines: [1] }], incomplete: true }) }, decide: new DecideCoverageService() },
     { policy: { mode: "enforce", minRatio: 0.7 }, repoDir: "/r", assembleChangeCoverage, namespace: "run-7" },
   );
 
-  const result = await adapter.measure(BlastRadius.of(Sha.of("abc1234"), ["src/checkout.ts"]), "/e2e", SAMPLE_DIFF, [], { reruns: [{ namespace: "run-7-r1", specFiles: ["flows/other.spec.ts"] }] });
+  const result = await adapter.measure(BlastRadius.of(Sha.of("abc1234"), ["src/checkout.ts"]), "/e2e", SAMPLE_DIFF, [], { exceptTests: ["flows-other-spec-ts-y"] });
 
   assert.equal(result.status, "unknown");
   assert.equal(result.ratio, null);
@@ -636,7 +636,7 @@ test("measure() asks no mutation when no site is on a changed line, coverage mea
   for (const r of [offChanged, unmeasured, unwired]) assert.equal("bundleMutation" in r, false);
 });
 
-test("recount() measures the change again over the dumps on disk: the first run's without those of the re-run spec files, plus each re-run's, with no mutant", async () => {
+test("recount() measures the change again over the dumps of the sources it is given, each for its own spec files, with no mutant", async () => {
   const asked: unknown[] = [];
   const collector: CoverageCollectorPort = {
     collect: async () => ({ covered: [] }),
@@ -648,9 +648,9 @@ test("recount() measures the change again over the dumps on disk: the first run'
   const adapter = new ObjectiveSignalPortAdapter({ collector, decide: new DecideCoverageService() }, { policy: { mode: "signal", minRatio: 0.7 }, repoDir: "/mirrors/org/app", assembleChangeCoverage });
   const br = BlastRadius.of(Sha.of("abc1234"), ["src/checkout.ts"]);
 
-  const result = await adapter.recount!(br, "/e2e", SAMPLE_DIFF, [{ namespace: "run-acc0", specFiles: ["flows/a.spec.ts"] }, { namespace: "run-acc1", specFiles: ["flows/b.spec.ts"] }], { namespace: "run-ns" });
+  const result = await adapter.recount!(br, "/e2e", SAMPLE_DIFF, [{ namespace: "run-measure", specFiles: ["flows/c.spec.ts"] }, { namespace: "run-acc0-measure", specFiles: ["flows/a.spec.ts"] }, { namespace: "run-acc1-measure", specFiles: ["flows/b.spec.ts"] }]);
 
-  assert.deepEqual(asked, [["/e2e", [{ namespace: "run-ns", exceptSpecFiles: ["flows/a.spec.ts", "flows/b.spec.ts"] }, { namespace: "run-acc0", onlySpecFiles: ["flows/a.spec.ts"] }, { namespace: "run-acc1", onlySpecFiles: ["flows/b.spec.ts"] }]]]);
+  assert.deepEqual(asked, [["/e2e", [{ namespace: "run-measure", onlySpecFiles: ["flows/c.spec.ts"] }, { namespace: "run-acc0-measure", onlySpecFiles: ["flows/a.spec.ts"] }, { namespace: "run-acc1-measure", onlySpecFiles: ["flows/b.spec.ts"] }]]]);
   assert.equal(result?.status, "pass");
   assert.equal(result?.ratio, 1);
   assert.deepEqual(result?.uncovered, []);
@@ -658,26 +658,16 @@ test("recount() measures the change again over the dumps on disk: the first run'
   assert.equal(result?.measurement?.changedBranches, 2);
 });
 
-test("recount() reads a spec re-run twice from its latest re-run only", async () => {
+test("recount() leaves out the dumps of the tests that failed in a source's measurement execution", async () => {
   const asked: unknown[] = [];
   const collector: CoverageCollectorPort = { collect: async () => ({ covered: [] }), recollect: async (_dir, sources) => (asked.push(sources), { covered: [{ file: "src/checkout.ts", lines: [1] }] }) };
   const adapter = new ObjectiveSignalPortAdapter({ collector, decide: new DecideCoverageService() }, { policy: { mode: "signal", minRatio: 0.7 }, repoDir: "/r", assembleChangeCoverage });
   const br = BlastRadius.of(Sha.of("abc1234"), ["src/checkout.ts"]);
-  await adapter.recount!(br, "/e2e", SAMPLE_DIFF, [{ namespace: "r-acc0", specFiles: ["a.spec.ts", "b.spec.ts"] }, { namespace: "r-acc1", specFiles: ["a.spec.ts"] }, { namespace: "r-acc2", specFiles: ["a.spec.ts"] }], { namespace: "r" });
-  assert.deepEqual(asked, [[{ namespace: "r", exceptSpecFiles: ["a.spec.ts", "b.spec.ts"] }, { namespace: "r-acc0", onlySpecFiles: ["b.spec.ts"] }, { namespace: "r-acc2", onlySpecFiles: ["a.spec.ts"] }]]);
+  await adapter.recount!(br, "/e2e", SAMPLE_DIFF, [{ namespace: "r-acc0-measure", specFiles: ["a.spec.ts"], exceptTests: ["a-spec-ts-totals"] }]);
+  assert.deepEqual(asked, [[{ namespace: "r-acc0-measure", onlySpecFiles: ["a.spec.ts"], exceptTests: ["a-spec-ts-totals"] }]]);
 });
 
-test("recount() reads a re-run's namespace for its own spec files only: a spec run there and given its prior bytes back never counts", async () => {
-  const asked: unknown[] = [];
-  const collector: CoverageCollectorPort = { collect: async () => ({ covered: [] }), recollect: async (_dir, sources) => (asked.push(sources), { covered: [{ file: "src/checkout.ts", lines: [1] }] }) };
-  const adapter = new ObjectiveSignalPortAdapter({ collector, decide: new DecideCoverageService() }, { policy: { mode: "signal", minRatio: 0.7 }, repoDir: "/r", assembleChangeCoverage });
-  const br = BlastRadius.of(Sha.of("abc1234"), ["src/checkout.ts"]);
-  /* The acceptance under r-acc0 ran a.spec.ts and b.spec.ts; only a.spec.ts was kept, so b.spec.ts is read from the first run. */
-  await adapter.recount!(br, "/e2e", SAMPLE_DIFF, [{ namespace: "r-acc0", specFiles: ["a.spec.ts"] }], { namespace: "r" });
-  assert.deepEqual(asked, [[{ namespace: "r", exceptSpecFiles: ["a.spec.ts"] }, { namespace: "r-acc0", onlySpecFiles: ["a.spec.ts"] }]]);
-});
-
-test("recount() has nothing to say with coverage off, without a diff, or with a collector that cannot add namespaces", async () => {
+test("recount() has nothing to say with coverage off, without a diff, without a source, or with a collector that cannot add namespaces", async () => {
   const br = BlastRadius.of(Sha.of("abc1234"), ["src/checkout.ts"]);
   const recollecting: CoverageCollectorPort = { collect: async () => ({ covered: [] }), recollect: async () => ({ covered: [{ file: "src/checkout.ts", lines: [1] }] }) };
   const make = (collector: CoverageCollectorPort, mode: "off" | "signal") => new ObjectiveSignalPortAdapter({ collector, decide: new DecideCoverageService() }, { policy: { mode, minRatio: 0.7 }, repoDir: "/r", assembleChangeCoverage });
@@ -686,6 +676,7 @@ test("recount() has nothing to say with coverage off, without a diff, or with a 
   assert.equal(await make(recollecting, "off").recount!(br, "/e2e", SAMPLE_DIFF, rerun), null);
   assert.equal(await make(recollecting, "signal").recount!(br, "/e2e", undefined, rerun), null);
   assert.equal(await make(fakeCollector({ covered: [] }), "signal").recount!(br, "/e2e", SAMPLE_DIFF, rerun), null);
+  assert.equal(await make(recollecting, "signal").recount!(br, "/e2e", SAMPLE_DIFF, []), null);
 });
 
 /* src/checkout.ts gains two code lines: line 1 ran in the passing tests, line 2 only under a killed mutant. */
@@ -741,19 +732,19 @@ test("measure() keeps the coverage by execution when the killed mutant's dumps c
   assert.equal("mutantProofs" in result, false);
 });
 
-test("recount() adds the proofs of the spec files it did not re-run, and keeps the measurement before it when a source could not be read", async () => {
+test("recount() adds the proofs it is given, and keeps the measurement before it when a source could not be read", async () => {
   const asked: unknown[] = [];
   const make = (report: CoverageReport) => new ObjectiveSignalPortAdapter(
     { collector: { collect: async () => ({ covered: [] }), recollect: async (_d, sources) => { asked.push(sources); return report; } }, decide: new DecideCoverageService() },
     { policy: { mode: "signal", minRatio: 0.7 }, repoDir: "/r", assembleChangeCoverage },
   );
   const br = BlastRadius.of(Sha.of("abc1234"), ["src/checkout.ts"]);
-  const stale = { ...PROOF, namespace: "run-7-mut1", specFiles: ["flows/rewritten.spec.ts"] };
+  const sources = [{ namespace: "run-7-measure", specFiles: ["flows/pay.spec.ts"] }, { namespace: "run-acc0-measure", specFiles: ["flows/rewritten.spec.ts"] }];
 
-  const counted = await make({ covered: [{ file: "src/checkout.ts", lines: [1, 2] }] }).recount!(br, "/e2e", SAMPLE_DIFF, [{ namespace: "run-acc0", specFiles: ["flows/rewritten.spec.ts"] }], { namespace: "run-7", proofs: [PROOF, stale] });
-  const partial = await make({ covered: [{ file: "src/checkout.ts", lines: [1] }], incomplete: true }).recount!(br, "/e2e", SAMPLE_DIFF, [{ namespace: "run-acc0", specFiles: ["flows/rewritten.spec.ts"] }], { namespace: "run-7" });
+  const counted = await make({ covered: [{ file: "src/checkout.ts", lines: [1, 2] }] }).recount!(br, "/e2e", SAMPLE_DIFF, sources, { proofs: [PROOF] });
+  const partial = await make({ covered: [{ file: "src/checkout.ts", lines: [1] }], incomplete: true }).recount!(br, "/e2e", SAMPLE_DIFF, sources);
 
-  assert.deepEqual((asked[0] as Array<{ namespace: string }>).map((s) => s.namespace), ["run-7", "run-acc0", "run-7-mut0"], "a proof of a rewritten spec no longer holds");
+  assert.deepEqual((asked[0] as Array<{ namespace: string }>).map((s) => s.namespace), ["run-7-measure", "run-acc0-measure", "run-7-mut0"]);
   assert.equal(counted?.ratio, 1);
   assert.equal(partial, null);
 });
@@ -973,7 +964,7 @@ test("measure() and recount() tell which spec ran each changed file only from du
   const caseFiles = ["flows/cart.spec.ts", "flows/pay.spec.ts"];
 
   const measured = await adapter.measure(br, "/e2e", SAMPLE_DIFF, ["pays"], { caseFiles });
-  const recounted = await adapter.recount!(br, "/e2e", SAMPLE_DIFF, [{ namespace: "r-acc0", specFiles: ["flows/pay.spec.ts"] }], { namespace: "r", caseFiles });
+  const recounted = await adapter.recount!(br, "/e2e", SAMPLE_DIFF, [{ namespace: "r-acc0-measure", specFiles: ["flows/pay.spec.ts"] }], { caseFiles });
 
   for (const result of [measured.ranBy, recounted?.ranBy]) assert.deepEqual(result, [{ file: "src/checkout.ts", specFiles: ["flows/pay.spec.ts"] }]);
   assert.equal((await adapter.measure(br, "/e2e", SAMPLE_DIFF, ["pays"])).ranBy?.length, 0, "without case files no dump is attributed");

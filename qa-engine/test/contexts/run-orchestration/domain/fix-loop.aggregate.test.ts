@@ -323,7 +323,7 @@ test("a check that finds nothing hands the regeneration neither contradictions n
   assert.equal("selectorContradictionOrigins" in input, false);
 });
 
-test("filtered-retry — canFilter true (coverageWillMeasure=false, regen stayed in failed set)", async () => {
+test("filtered-retry — canFilter true (regen stayed in failed set)", async () => {
   const receivedExecuteInputs: Array<{ namespace: string; specFiles?: string[] }> = [];
   const execution: FixLoopExecutionPort = {
     execute: async (i) => {
@@ -351,7 +351,6 @@ test("filtered-retry — canFilter true (coverageWillMeasure=false, regen stayed
     integrity: integrity({ hasGreenProof: async () => false }),
     devHealthy: async () => true,
     namespace: "qa-bot-abc",
-    coverageWillMeasure: false,
   });
 
   assert.equal(receivedExecuteInputs.length, 1);
@@ -383,7 +382,6 @@ async function retryScopeFor(failingFile: string, regenSpecs: string[]): Promise
     integrity: integrity({ hasGreenProof: async () => false }),
     devHealthy: async () => true,
     namespace: "qa-bot-abc",
-    coverageWillMeasure: false,
   });
   assert.equal(receivedExecuteInputs.length, 1);
   return receivedExecuteInputs[0]!.specFiles;
@@ -436,7 +434,6 @@ test("filtered-retry — regen specs are ALL outside the failing set -> full re-
     integrity: integrity({ hasGreenProof: async () => false }),
     devHealthy: async () => true,
     namespace: "qa-bot-abc",
-    coverageWillMeasure: false,
   });
 
   assert.equal(receivedExecuteInputs.length, 1);
@@ -447,7 +444,7 @@ test("filtered-retry — regen specs are ALL outside the failing set -> full re-
   );
 });
 
-test("filtered-retry — canFilter false when coverageWillMeasure=true (never filter, keystone guard)", async () => {
+test("filtered-retry — a run that is measured for change-coverage still re-runs only the failing files: no measurement reads a judging execution", async () => {
   const receivedExecuteInputs: Array<{ namespace: string; specFiles?: string[] }> = [];
   const execution: FixLoopExecutionPort = {
     execute: async (i) => {
@@ -475,11 +472,10 @@ test("filtered-retry — canFilter false when coverageWillMeasure=true (never fi
     integrity: integrity({ hasGreenProof: async () => false }),
     devHealthy: async () => true,
     namespace: "qa-bot-abc",
-    coverageWillMeasure: true,
   });
 
   assert.equal(receivedExecuteInputs.length, 1);
-  assert.equal(receivedExecuteInputs[0]!.specFiles, undefined, "coverageWillMeasure=true must NEVER filter");
+  assert.deepEqual(receivedExecuteInputs[0]!.specFiles, ["login.spec.ts"]);
 });
 
 test("bestRunSoFar regression guard — a worse terminal retry is discarded for an earlier better run", async () => {
@@ -531,7 +527,6 @@ test("bestRunSoFar regression guard — a worse terminal retry is discarded for 
     integrity: integrity({ hasGreenProof: async () => false }),
     devHealthy: async () => true,
     namespace: "qa-bot-abc",
-    coverageWillMeasure: true, /* never-filter, keeps the merge logic out of this test's scope */
   });
 
   /* Round 1 (1 failure) is strictly better than round 2 (2 failures, a regression) — the guard must
@@ -547,12 +542,16 @@ test("bestRunSoFar regression guard — a worse terminal retry is discarded for 
 
 test("bestRunSoFar guard is SKIPPED when realBugDetected fired (the current fail run must reach the Issue)", async () => {
   let executeCallCount = 0;
+  /* Each retry re-runs the failing files: login now passes, checkout fails on the app's value. */
   const execution: FixLoopExecutionPort = {
-    execute: async () => {
+    execute: async (i) => {
       executeCallCount++;
       return {
         verdict: "fail",
-        cases: [{ name: "checkout", status: "fail", file: "checkout.spec.ts", detail: "expect(locator).toHaveText(expected) failed\nExpected: 'Paid'\nReceived: 'Pending'" }],
+        cases: [
+          { name: "checkout", status: "fail", file: "checkout.spec.ts", detail: "expect(locator).toHaveText(expected) failed\nExpected: 'Paid'\nReceived: 'Pending'" },
+          ...(i.specFiles === undefined || i.specFiles.includes("login.spec.ts") ? [{ name: "login", status: "pass" as const, file: "login.spec.ts" }] : []),
+        ],
       };
     },
   };
@@ -582,7 +581,6 @@ test("bestRunSoFar guard is SKIPPED when realBugDetected fired (the current fail
     integrity: integrity({ hasGreenProof: async () => false }),
     devHealthy: async () => true,
     namespace: "qa-bot-abc",
-    coverageWillMeasure: true,
   });
 
   assert.equal(result.realBugDetected, true);
@@ -790,41 +788,6 @@ test("the best round's snapshot is restored when a later round regresses", async
   assert.deepEqual(acceptance.restored, ["round-a-v1"], "the best round's bytes go back, not the worse round's");
   assert.equal(result.run.cases.find((c) => c.name === "a")?.status, "pass", "the best round's cases are the run");
   assert.equal(result.run.cases.filter((c) => c.status === "fail").length, 1);
-  assert.equal(result.coverageNamespace, "qa-bot-abc", "no round ran the whole suite: every other spec's dumps stay under the first run");
-  assert.deepEqual(result.coverageReruns, [{ namespace: "qa-bot-abc-r1", specFiles: ["a.spec.ts"] }], "the best round's dumps go back with its bytes, not the worse round's");
-});
-
-test("an accepted round names as re-run only the changed spec files its execution ran, never one whose proof was reused", async () => {
-  const acceptance = fakeAcceptance(async () => ({
-    kind: "accepted",
-    changedSpecFiles: ["a.spec.ts", "c.spec.ts"],
-    executedSpecFiles: ["a.spec.ts"],
-    execution: { verdict: "pass", cases: [{ name: "a", status: "pass", file: "a.spec.ts" }] },
-    accepted: "round-a-v1",
-  }));
-  const execution: FixLoopExecutionPort = { execute: async () => { throw new Error("the accepted path must not execute directly"); } };
-  const regeneration: FixLoopRegenerationPort = { regenerate: async () => ({ specs: ["a.spec.ts", "c.spec.ts"], approved: true }) };
-  const { cycleBudget } = budgets();
-  const loop = new FixLoop({
-    execution,
-    regeneration,
-    selectorCheck: { check: () => ({ contradictions: [], absentKeys: new Set(), anyVerifiedPresent: false, anyNonExtractable: false, anyUnverifiable: false }) },
-    acceptance,
-  });
-
-  const result = await loop.run({
-    initialRun: twoFailures(),
-    generating: true,
-    mode: "diff",
-    objectiveSource: ["src/checkout.ts"],
-    maxRetries: 1,
-    cycleBudget,
-    integrity: integrity({ hasGreenProof: async () => false }),
-    devHealthy: async () => true,
-    namespace: "qa-bot-abc",
-  });
-
-  assert.deepEqual(result.coverageReruns, [{ namespace: "qa-bot-abc-r1", specFiles: ["a.spec.ts"] }], "c.spec.ts left no dumps in the round: its earlier ones are still read");
 });
 
 test("an accepted round keeps a case the run cannot attribute to a file", async () => {
@@ -1128,7 +1091,6 @@ test("reexploreNavigations thrash-stop — a heavy re-exploration round downgrad
     integrity: integrity({ hasGreenProof: async () => false }),
     devHealthy: async () => true,
     namespace: "qa-bot-f1",
-    coverageWillMeasure: true, /* never-filter, keeps merge logic out of this test's scope */
   });
 
   /* Round 1: prev===null -> always allowed -> regen (reexploreNavigations:5) -> execute (round 2's
@@ -1188,7 +1150,6 @@ test("mid-retry infra-error (DEV dies after a filtered retry-execute) discards c
       return devHealthyCallCount < 3;
     },
     namespace: "qa-bot-f2",
-    coverageWillMeasure: true,
   });
 
   assert.equal(executeCallCount, 1, "the retry-execute must have run before the mid-retry infra-error fires");
@@ -1363,7 +1324,6 @@ function loopInput(overrides: Partial<FixLoopInput> = {}): FixLoopInput {
     cycleBudget,
     devHealthy: async () => true,
     namespace: "qa-bot-run",
-    coverageWillMeasure: false,
     integrity: integrity({ hasGreenProof: async () => false }),
     ...overrides,
   };
@@ -1618,11 +1578,9 @@ test("filtered retry: a regen that rewrote a failing spec AND added a new one re
   assert.equal(await retryScopeFor("user/login.spec.ts", ["user/login.spec.ts", "user/new.spec.ts"]), undefined);
 });
 
-test("the filtered retry applies when the caller does not say whether coverage will be measured", async () => {
+test("the filtered retry applies on every run", async () => {
   const { loop, rec } = recordingLoop({ runs: [{ verdict: "pass", cases: [{ name: "checkout", status: "pass", file: "checkout.spec.ts" }] }] });
-  const input = loopInput();
-  delete input.coverageWillMeasure;
-  await loop.run(input);
+  await loop.run(loopInput());
   assert.deepEqual(rec.executes[0]?.specFiles, ["checkout.spec.ts"]);
 });
 
@@ -1644,7 +1602,6 @@ test("a retry that ends in infra-error is reported as infra-error even after an 
   const result = await loop.run(
     loopInput({
       maxRetries: 2,
-      coverageWillMeasure: true,
       initialRun: { verdict: "fail", cases: [makeCase({ name: "a", file: "a.spec.ts" }), makeCase({ name: "b", file: "b.spec.ts" })] },
       devHealthy: async () => ++calls < 6,
     }),
@@ -1663,7 +1620,6 @@ test("a real bug found after a better earlier round reports the run that proved 
   const result = await loop.run(
     loopInput({
       maxRetries: 3,
-      coverageWillMeasure: true,
       initialRun: {
         verdict: "fail",
         cases: [makeCase({ name: "a", file: "a.spec.ts", detail: LOCATOR_FAULT }), makeCase({ name: "b", file: "b.spec.ts", detail: LOCATOR_FAULT }), makeCase({ name: "c", file: "c.spec.ts", detail: LOCATOR_FAULT })],
@@ -1692,7 +1648,6 @@ test("a retry the runner reports as infra-error keeps that verdict, even with mo
   const result = await loop.run(
     loopInput({
       maxRetries: 2,
-      coverageWillMeasure: true,
       initialRun: { verdict: "fail", cases: [makeCase({ name: "a", file: "a.spec.ts" }), makeCase({ name: "b", file: "b.spec.ts" })] },
     }),
   );
