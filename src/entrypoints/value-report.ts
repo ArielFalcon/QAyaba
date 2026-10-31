@@ -2,6 +2,7 @@
 
 import type { RunVerdict } from "../persistence/types";
 import { infraErrorGloss } from "./infra-error-gloss";
+import { PublishDecisionService } from "@contexts/workspace-and-publication/application/index";
 
 /*
  * The deterministic gate signals a run produced — the raw material for both the compact
@@ -52,25 +53,26 @@ function verdictStyle(v: RunVerdict): { glyph: string; color: (s: string, on: bo
   }
 }
 
+const publishDecision = new PublishDecisionService();
 
-
-
-export function deriveAction(verdict: RunVerdict, reviewerApproved: boolean | null): string {
-  switch (verdict) {
-    case "pass":
-      return reviewerApproved === false
-        ? "file an Issue (the reviewer rejected the suite)"
-        : "open an auto-merge suite PR with the new tests";
-    case "fail":
-      return "file an Issue — a real bug was found (the run succeeded)";
-    case "invalid":
+/*
+ * The action the publication policy takes for this verdict and review, in the operator's words. The report has no coverage gate or
+ * changed-file fact to give the policy, so it asks as for a green run that changed the suite and is not held by coverage; shadow mode
+ * is said by the row itself ("would ...").
+ */
+function actionOf(verdict: RunVerdict, reviewerApproved: boolean | null): string {
+  const { outcome } = publishDecision.decide({ verdict, reviewerApproved: reviewerApproved !== false, coverageBlocks: false, shadow: false, e2eChanged: true });
+  switch (outcome) {
+    case "pr":
+      return "open an auto-merge suite PR with the new tests";
+    case "issue":
+      if (verdict === "pass") return "file an Issue (the reviewer rejected the suite)";
+      if (verdict === "fail") return "file an Issue — a real bug was found (the run succeeded)";
       return "file an Issue (the generated specs failed the static gate)";
-    case "flaky":
+    case "quarantine":
       return "quarantine the flaky case (no PR, no Issue)";
-    case "infra-error":
-      return "treat the run as inconclusive (infrastructure, not a code bug)";
-    case "skipped":
-      return "skip the commit (no test-worthy change)";
+    case "noop":
+      return verdict === "infra-error" ? "treat the run as inconclusive (infrastructure, not a code bug)" : "skip the commit (no test-worthy change)";
     default:
       return "do nothing";
   }
@@ -148,7 +150,7 @@ export function renderRunReport(i: RunReportInput, opts: ReportOptions = {}): st
   } else {
     row("produced", dim("no new specs", on));
   }
-  const action = deriveAction(i.verdict, i.signals.reviewerApproved);
+  const action = actionOf(i.verdict, i.signals.reviewerApproved);
   row("action", i.shadow ? `would ${action}` : action);
 
   /* Value signals section. */

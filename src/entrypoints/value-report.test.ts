@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { deriveAction, renderRunReport, type ValueSignals, type RunReportInput } from "./value-report";
+import { renderRunReport, type ValueSignals, type RunReportInput } from "./value-report";
 import { infraErrorGloss } from "./infra-error-gloss";
 
 const baseSignals: ValueSignals = {
@@ -9,26 +9,6 @@ const baseSignals: ValueSignals = {
   
   reviewerApproved: null,
 };
-
-test("deriveAction: a green reviewer-approved run opens an auto-merge PR", () => {
-  assert.match(deriveAction("pass", true), /auto-merge suite PR/);
-});
-
-test("deriveAction: green but reviewer-rejected files an Issue, not a PR", () => {
-  assert.match(deriveAction("pass", false), /file an Issue.*reviewer rejected/);
-});
-
-test("deriveAction: skipped and infra-error produce no side effect", () => {
-  assert.match(deriveAction("skipped", null), /no test-worthy change/);
-  assert.match(deriveAction("infra-error", null), /inconclusive/);
-});
-
-test("deriveAction: a fail is framed as a real bug found (engine succeeded → Issue), not a process failure", () => {
-  const a = deriveAction("fail", null);
-  assert.match(a, /Issue/);
-  assert.match(a, /real bug|defect/i);
-  assert.match(a, /succeed/i); /* the run SUCCEEDED — it found a real defect */
-});
 
 test("renderRunReport: a fail run reads as a real bug found, distinct from an engine error", () => {
   const out = renderRunReport({ ...baseReport, verdict: "fail", passed: 0, failed: 1, signals: baseSignals });
