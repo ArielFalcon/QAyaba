@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { RUN_PHASES } from "@kernel/run-step";
+import { DEADLINE_PURPOSES, PHASES_OF_PURPOSE } from "@kernel/deadline-purpose";
 import { RUN_TIME_BUDGET_FORMER_LABELS } from "@contexts/run-orchestration/application/index";
 import type { CaptureMode } from "@kernel/telemetry/capture-mode";
 import type { CampaignIdentity } from "../../../contract/campaign";
@@ -299,14 +300,20 @@ export class RunRepository {
   /*
    * The phases of an app's most recent runs of one kind that recorded any, newest first: how far each got, how long each phase it entered
    * took and the purposes its deadline cut. The kind is the row of the run time budget a run was bounded as, read under the labels it was
-   * stored with (a diff run stored as diff-tiny, diff-focused or diff-broad is a diff run; nothing stored is rewritten); a run stored
-   * before the kind was recorded is of the kind that is its mode.
+   * stored with (a diff run stored as diff-tiny, diff-focused or diff-broad is a diff run; nothing stored is rewritten). A run that stored
+   * no kind is of the kind that is its mode only when it entered a phase the reserves are measured over (PHASES_OF_PURPOSE): a run that
+   * ended before the deadline was armed (a classify-skip, a failed gate) is no sample of any phase, and counting it would fill the window
+   * the reserves are read from and push out the runs that were bounded.
    */
   recentPhaseRecords(app: string, budget: string, limit: number): Array<{ furthestPhase: string | null; phaseTimings: Record<string, number>; cutPurposes: string[] }> {
     const labels = [budget, ...(RUN_TIME_BUDGET_FORMER_LABELS[budget as keyof typeof RUN_TIME_BUDGET_FORMER_LABELS] ?? [])];
+    const measuredPhases = DEADLINE_PURPOSES.flatMap((purpose) => PHASES_OF_PURPOSE[purpose]);
+    const marks = (values: readonly unknown[]): string => values.map(() => "?").join(", ");
     const rows = this.db
-      .statement(`SELECT id, furthest_phase, phase_timings, limits FROM runs WHERE app = ? AND (time_budget IN (${labels.map(() => "?").join(", ")}) OR (time_budget IS NULL AND mode = ?)) AND phase_timings IS NOT NULL ORDER BY at DESC, rowid DESC LIMIT ?`)
-      .all(app, ...labels, budget, limit) as Array<{ id: string; furthest_phase: string | null; phase_timings: string; limits: string | null }>;
+      .statement(
+        `SELECT id, furthest_phase, phase_timings, limits FROM runs WHERE app = ? AND phase_timings IS NOT NULL AND (time_budget IN (${marks(labels)}) OR (time_budget IS NULL AND mode = ? AND EXISTS (SELECT 1 FROM json_each(runs.phase_timings) WHERE key IN (${marks(measuredPhases)})))) ORDER BY at DESC, rowid DESC LIMIT ?`,
+      )
+      .all(app, ...labels, budget, ...measuredPhases, limit) as Array<{ id: string; furthest_phase: string | null; phase_timings: string; limits: string | null }>;
     return rows.map((row) => {
       const limits = row.limits === null ? [] : parseJsonColumn<RunLimitFact[]>(row.limits, [], { table: "runs", column: "limits", id: row.id });
       return {

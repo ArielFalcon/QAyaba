@@ -367,22 +367,37 @@ test("recentPhaseRecords lists an app's newest runs of a kind that recorded phas
   assert.equal(runs.recentPhaseRecords(app, "diff", 1).length, 1, "the limit applies");
 });
 
-test("recentPhaseRecords reads only runs of the asked kind, and a run with no recorded kind is its mode's kind", () => {
+test("recentPhaseRecords reads only runs of the asked kind, and a manual or context run with no recorded kind is its mode's kind", () => {
   const runs = getHistory().runs;
   const app = "hist-kinds";
-  const make = (sha: string, mode: "diff" | "manual", budget: string | null) => {
+  const make = (sha: string, mode: "diff" | "manual", budget: string | null, timings: Record<string, number> = { review: 1 }) => {
     const run = runs.createRecord({ target: "e2e", app, sha, mode });
-    runs.recordRunPhases(run.id, { furthestPhase: "learn", phaseTimings: { review: 1 } });
+    runs.recordRunPhases(run.id, { furthestPhase: "learn", phaseTimings: timings });
     if (budget !== null) runs.updateRecord(run.id, { facts: { timeBudget: budget } });
   };
   make("bbbbbbb1", "diff", "diff");
-  make("bbbbbbb3", "diff", null);
+  make("bbbbbbb3", "diff", null, { gate: 1, classify: 1 });
   make("bbbbbbb4", "manual", null);
   make("bbbbbbb5", "manual", "manual");
-  assert.equal(runs.recentPhaseRecords(app, "diff", 10).length, 2, "a diff run stored before the kind was recorded is a diff run");
+  assert.equal(runs.recentPhaseRecords(app, "diff", 10).length, 1, "a run that recorded no kind and entered none of the phases the reserves are measured over (a skip, a failed gate) is no sample of any kind");
   assert.equal(runs.recentPhaseRecords(app, "manual", 10).length, 2, "a manual run stored before the kind was recorded is a manual run");
   assert.equal(runs.recentPhaseRecords(app, "context", 10).length, 0);
   assert.equal(runs.getRunFacts(runs.createRecord({ target: "e2e", app, sha: "bbbbbbb6", mode: "diff" }).id)?.timeBudget, null, "a run that recorded no kind reads it as unknown");
+});
+
+test("recentPhaseRecords for the diff kind is not crowded out by the many runs that ended before a deadline was armed", () => {
+  const runs = getHistory().runs;
+  const app = "hist-skips";
+  const finished = (sha: string, budget: string | null, generate: number) => {
+    const run = runs.createRecord({ target: "e2e", app, sha, mode: "diff" });
+    runs.recordRunPhases(run.id, { furthestPhase: budget === null ? "classify" : "learn", phaseTimings: { classify: 1, ...(budget === null ? {} : { generate }) } });
+    if (budget !== null) runs.updateRecord(run.id, { facts: { timeBudget: budget } });
+  };
+  for (let i = 0; i < 5; i++) finished(`dddddd${i}`, i % 2 === 0 ? "diff" : "diff-broad", 100 + i);
+  for (let i = 0; i < 25; i++) finished(`eeeeee${i}`, null, 0);
+  const read = runs.recentPhaseRecords(app, "diff", 20);
+  assert.equal(read.length, 5, "the five runs that were bounded, none of the skips");
+  assert.ok(read.every((record) => record.phaseTimings["generate"] !== undefined));
 });
 
 test("recentPhaseRecords for the diff kind also reads runs stored under the per-size labels, rewrites nothing, and leaves the other kinds alone", () => {
