@@ -1,5 +1,6 @@
 import { engineLog } from "@kernel/ports/process-logger.ts";
 import { basename, dirname, join, resolve } from "node:path";
+import { assertCommitSha, assertRefName } from "@kernel/git-revision.ts";
 import { assertTrustedGitTree, UntrustedGitTreeError } from "../../../shared-infrastructure/process-sandbox/git-hardening.ts";
 
 export type Git = (args: string[], cwd?: string) => Promise<string>;
@@ -14,28 +15,17 @@ export interface MirrorProvisionDeps {
   root: string;
 }
 
-const HEX_SHA = /^[0-9a-f]{7,40}$/i;
-function assertHexSha(sha: string): void {
-  if (!HEX_SHA.test(sha)) throw new Error(`invalid commit sha (must be 7–40 hex chars): ${JSON.stringify(sha)}`);
-}
-
-const BRANCH_RE = /^[A-Za-z0-9][A-Za-z0-9._/-]*$/;
-function assertBranchName(branch: string): void {
-  if (!BRANCH_RE.test(branch) || branch.includes("..")) {
-    throw new Error(`invalid branch name: ${JSON.stringify(branch)}`);
-  }
-}
 
 export class MirrorProvisionAdapter {
   constructor(private readonly deps: MirrorProvisionDeps) {}
 
   async ensureMirror(repo: string, sha: string): Promise<string> {
-    assertHexSha(sha);
+    assertCommitSha(sha);
     return this.provision(repo, sha);
   }
 
   async ensureMirrorAtBranch(repo: string, branch: string): Promise<string> {
-    assertBranchName(branch);
+    assertRefName(branch, "branch name");
     return this.provision(repo, `origin/${branch}`);
   }
 

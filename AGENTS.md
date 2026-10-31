@@ -801,6 +801,12 @@ test, and the verdict is its last action.
   `qa-engine/src/shared-infrastructure/spec-path-confinement.ts` (nothing outside the spec
   directory is reached through a link, only regular files are read, a named pipe is never waited
   on, reads are capped; its header lists what it covers), never a bare `fs` call.
+- **A revision that did not originate in the orchestrator's own code never reaches a git argument unjudged.** git reads a positional
+  argument that starts with a dash as an option (`--output=<path>` writes a file, `--upload-pack=<command>` runs one). A commit sha
+  (a context map's `builtAtSha`, a stored record, a webhook or API payload) passes `assertCommitSha`, and a branch, tag or ref (an
+  API `ref`, an app's `baseBranch`, a run's publication branch) passes `assertRefName`, both in `qa-engine/src/shared-kernel/git-revision.ts`,
+  before the argv is built; a value that passes can never be read as an option. A new git call with a revision from outside the
+  code uses them, and does not write a regex of its own. `contextMapFitsRun` refuses a map whose recorded commit is not a sha.
 - **Governance-sensitive changes ship alone** — security invariants, agent write
   authority, production activation switches: their own PR.
 - **Sequential queue** — one run at a time; runs never overlap against DEV. Within a run, every `run_spec` call and

@@ -9,6 +9,8 @@ import { existsSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { RedactionPortAdapter } from "../orchestrator/sanitizer";
 import { InfraError } from "@kernel/domain-error";
+/* A sha or ref handed to git as a positional argument is judged by @kernel/git-revision first: a value that passes can never be read as an option (`--output=...`). */
+import { assertCommitSha, assertRefName } from "@kernel/git-revision";
 import { MirrorProvisionAdapter, type MirrorProvisionDeps } from "../../qa-engine/src/contexts/workspace-and-publication/infrastructure/mirror-provision.adapter";
 import { hardenGitArgs } from "../../qa-engine/src/shared-infrastructure/process-sandbox/git-hardening";
 import { hardenDetachedGitArgs } from "../../qa-engine/src/shared-infrastructure/process-sandbox/detached-git-hardening";
@@ -49,16 +51,6 @@ export function workdirRoot(): string {
 function tokenlessUrl(repo: string): string {
   const base = activeSettings().git.remoteBase;
   return `${base}/${repo}.git`;
-}
-
-/*
- * A commit SHA passed to git as a positional arg MUST be a hex id. A hex 7–40 string
- * can never be parsed as a git option (e.g. `--output=...`), which closes the
- * git-argument-injection surface from an attacker-controlled webhook/API sha.
- */
-const HEX_SHA = /^[0-9a-f]{7,40}$/i;
-export function assertHexSha(sha: string): void {
-  if (!HEX_SHA.test(sha)) throw new Error(`invalid commit sha (must be 7–40 hex chars): ${JSON.stringify(sha)}`);
 }
 
 /*
@@ -107,7 +99,7 @@ export async function ensureMirrorAtBranch(repo: string, branch: string, deps: M
  * the net change the merge introduced is visible.
  */
 export async function getCommitDiff(dir: string, sha: string, deps: MirrorDeps, commits = 1): Promise<string> {
-  assertHexSha(sha);
+  assertCommitSha(sha);
   /*
    * Multi-commit window: the cumulative diff of the last `commits` commits ending at sha
    * (sha~N..sha) — analyze a short series as one blast radius instead of just the tip.
@@ -151,7 +143,7 @@ export async function listChangedSpecs(dir: string, e2eRelDir: string, deps: Mir
 
 /* Commit message (subject + body): provides the INTENT used to classify the change. */
 export async function getCommitMessage(dir: string, sha: string, deps: MirrorDeps): Promise<string> {
-  assertHexSha(sha);
+  assertCommitSha(sha);
   return deps.git(["show", "-s", "--format=%B", sha], dir);
 }
 
@@ -224,6 +216,8 @@ export const defaultMirrorDeps: MirrorDeps = {
  * the URL argument itself stays tokenless.
  */
 export async function resolveRef(repo: string, ref: string, deps: MirrorDeps): Promise<string> {
+  /* The ref follows the URL, where ls-remote still reads options: a ref from an API payload or an app's config is judged first. */
+  assertRefName(ref);
   const stdout = await deps.git([...authHeaderArgs(), "ls-remote", tokenlessUrl(repo), ref]);
   const sha = stdout.split(/\s/)[0];
   if (!sha || sha.length < 40) throw new Error(`no SHA resolved for ${ref}`);

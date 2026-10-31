@@ -659,3 +659,19 @@ test("a mirror directory replaced by a link is removed as the link, never throug
     f.restore();
   }
 });
+
+test("resolveRef refuses a ref that git would read as an option before it reaches git", async () => {
+  const d = gitStub(() => "a".repeat(40));
+  for (const ref of ["--upload-pack=touch /tmp/qayaba-probe", "-x", "", "a b", "main..other"]) {
+    await assert.rejects(() => resolveRef("org/app", ref, d), /invalid ref name/, JSON.stringify(ref));
+  }
+  assert.deepEqual(d.calls, []);
+});
+
+test("resolveRef still resolves a branch, a tag and a full ref name", async () => {
+  for (const ref of ["main", "release/1.2", "v1.2.3", "refs/heads/main", "HEAD"]) {
+    const d = gitStub(() => "a".repeat(40));
+    await resolveRef("org/app", ref, d);
+    assert.equal(d.calls[0]?.at(-1), ref);
+  }
+});

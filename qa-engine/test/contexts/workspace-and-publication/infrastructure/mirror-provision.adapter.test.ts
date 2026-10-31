@@ -87,6 +87,14 @@ test("rejects a non-hex sha before spawning git (injection defense)", async () =
   assert.equal(d.calls.length, 0); /* never reached git */
 });
 
+test("rejects a branch that git would read as an option before spawning git", async () => {
+  const d = recorder(true);
+  for (const branch of ["--upload-pack=x", "-x", "", "a..b", "a b"]) {
+    await assert.rejects(() => new MirrorProvisionAdapter(d).ensureMirrorAtBranch("org/app", branch), /invalid branch name/, JSON.stringify(branch));
+  }
+  assert.equal(d.calls.length, 0);
+});
+
 test("ensureMirror flattens a nested repo path (replaceAll, not just first slash)", async () => {
   const d = recorder(false);
   const dir = await new MirrorProvisionAdapter(d).ensureMirror("org/sub/app", "abc1234");

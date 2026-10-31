@@ -2558,14 +2558,14 @@ test("in a frozen run, a stale-flagged app requests no context rebuild", async (
  * otherwise this run grounds without it and a rebuild at the run's sha is requested. The provenance says exactly that.
  */
 const mapNamingFiles: ArchitectureContext = {
-  builtAtSha: "sha-built",
+  builtAtSha: "b17ac3d",
   routes: [{ path: "/shops", source: "src/shops.routes.ts", implementationFiles: ["src/shops/shops.page.ts"] }],
   api: [],
   feBe: [],
 };
 const storedMapApp = (label: string): AppConfig => {
   const app = cfg(`factory-map-validity-${label}-${Math.random().toString(36).slice(2)}`);
-  getHistory().contexts.saveContextMap(app.name, "sha-built", mapNamingFiles);
+  getHistory().contexts.saveContextMap(app.name, "b17ac3d", mapNamingFiles);
   return app;
 };
 
@@ -2580,9 +2580,9 @@ test("a stored map from another sha is reused when none of the files it names ch
   );
   const map = config.groundingCollaborators!.loadContextMap!("/nowhere");
   await flushMicrotasks();
-  assert.equal(map?.builtAtSha, "sha-built");
+  assert.equal(map?.builtAtSha, "b17ac3d");
   assert.equal(config.contextMapProvenance!()?.stale, false);
-  assert.equal(config.contextMapProvenance!()?.capturedSha, "sha-built");
+  assert.equal(config.contextMapProvenance!()?.capturedSha, "b17ac3d");
   assert.equal(config.contextMapProvenance!()?.recapture, "not-needed");
   assert.deepEqual(requested, []);
 });
@@ -2602,7 +2602,7 @@ test("a stored map from another sha is not used when a route declaration it name
   const provenance = config.contextMapProvenance!();
   assert.equal(provenance?.stale, true);
   assert.equal(provenance?.staleReason, "inputs-changed");
-  assert.equal(provenance?.capturedSha, "sha-built");
+  assert.equal(provenance?.capturedSha, "b17ac3d");
   assert.equal(provenance?.recapture, "requested");
   assert.deepEqual(requested, ["sha-run"]);
 });
@@ -2641,9 +2641,34 @@ test("a map that does not fit asks for its rebuild once per commit, however soon
   assert.deepEqual(requested, ["sha-one", "sha-two"]);
 });
 
+test("a stored map whose recorded commit is an option is not reused, and git never sees it", async () => {
+  const scratch = mkdtempSync(join(tmpdir(), "qayaba-hostile-built-at-"));
+  try {
+    const probe = join(scratch, "written-by-git");
+    const app = cfg(`factory-map-validity-hostile-${Math.random().toString(36).slice(2)}`);
+    /* The primary mirror is a real repository, as in production: the probe only writes where git runs. */
+    const mirror = join(scratch, app.repo.replaceAll("/", "__"));
+    execFileSync("git", ["init", "-q", mirror], { env: GIT_ENV });
+    writeFileSync(join(mirror, "a.txt"), "a\n");
+    execFileSync("git", ["-C", mirror, "add", "a.txt"], { env: GIT_ENV });
+    execFileSync("git", ["-C", mirror, "commit", "-qm", "first"], { env: GIT_ENV });
+    closeGitDir(mirror);
+    getHistory().contexts.saveContextMap(app.name, `--output=${probe}`, mapNamingFiles);
+    const config = buildEngineRootDeps(app, { getAgentDeps: stubAgentDeps, mirrorRoot: scratch }, "qa-bot-run1", { mode: "diff", sha: "0a1b2c3" });
+    const map = config.groundingCollaborators!.loadContextMap!("/nowhere");
+    await flushMicrotasks();
+    assert.equal(map, undefined, "a map recorded at something that is not a commit is never presented as current");
+    assert.equal(config.contextMapProvenance!()?.stale, true);
+    assert.equal(config.contextMapProvenance!()?.staleReason, "sha-mismatch");
+    assert.equal(existsSync(probe), false, "git wrote the file the recorded commit named");
+  } finally {
+    rmSync(scratch, { recursive: true, force: true });
+  }
+});
+
 test("a stored map is reused when a page's implementation files were only modified, without that page's front-to-back links", async () => {
   const app = cfg(`factory-map-validity-pages-${Math.random().toString(36).slice(2)}`);
-  getHistory().contexts.saveContextMap(app.name, "sha-built", {
+  getHistory().contexts.saveContextMap(app.name, "b17ac3d", {
     ...mapNamingFiles,
     routes: [...mapNamingFiles.routes, { path: "/cart", implementationFiles: ["src/cart/cart.page.ts"] }],
     feBe: [{ route: "/shops", operationId: "listShops" }, { route: "/cart", operationId: "getCart" }],
@@ -2676,9 +2701,9 @@ test("a stored map at the run's own sha is used without comparing commits", () =
     app,
     { getAgentDeps: stubAgentDeps, contextMapChanges: () => { throw new Error("no comparison for the same sha"); } },
     "qa-bot-run1",
-    { mode: "diff", sha: "sha-built" },
+    { mode: "diff", sha: "b17ac3d" },
   );
-  assert.equal(config.groundingCollaborators!.loadContextMap!("/nowhere")?.builtAtSha, "sha-built");
+  assert.equal(config.groundingCollaborators!.loadContextMap!("/nowhere")?.builtAtSha, "b17ac3d");
   assert.equal(config.contextMapProvenance!()?.stale, false);
 });
 

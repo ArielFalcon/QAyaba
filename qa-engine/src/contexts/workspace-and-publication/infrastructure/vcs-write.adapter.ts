@@ -1,5 +1,6 @@
 /* The arch-lint gate forbids generation/* and agent-runtime/* from importing this file or the port (agent-is-read-only). Delegates to the injected Git fn (same boundary as repo-mirror.realGit); argv lives here. SECURITY: the injected git fn MUST prepend authHeaderArgs() before any network git operation (clone, fetch, push) and the commit-identity `-c user.name/-c user.email` flags before commit. The adapter itself is auth- and identity-agnostic (token-free, testable) — the real-wiring obligation is on the injector, not this class. The adapter stays token-agnostic so the test needs no token. A deleted tracked Dockerfile or a tracked workflow file replaced by a symlink produced EMPTY `--diff-filter=M` output while being staged and committed — same for a rename INTO a denylisted destination (status `R`, invisible to `M`). Fixed by REMOVING the status reasoning entirely: every staged path is checked against the denylist regardless of its status (no `--diff-filter` at all). A rename is parsed as a UNIT (both the old and new side) so checking either side and reverting BOTH avoids orphaning the legitimate origin as a stray staged deletion — the exact bug class `WriteConfinementService.revertUnit` already exists to prevent. */
 import { engineLog } from "@kernel/ports/process-logger.ts";
+import { assertRefName } from "@kernel/git-revision.ts";
 import type { VcsWritePort } from "../application/ports/vcs-write.port.ts";
 import { WriteConfinementService } from "../domain/write-confinement.service.ts";
 
@@ -74,11 +75,13 @@ export class VcsWriteAdapter implements VcsWritePort {
   }
 
   async push(dir: string, branch: string): Promise<void> {
+    assertRefName(branch, "branch name");
     await this.git(["push", "--force-with-lease", "-u", "origin", branch], dir);
   }
 
   /* Quiet, because a switch that is not quiet reports the local changes it carries over, and that report walks into every submodule: the sandbox's own `.gitmodules` (`ignore = none`) overrides any diff.ignoreSubmodules on the command line, so only not producing the report keeps git out. */
   async checkoutBranch(dir: string, branch: string): Promise<void> {
+    assertRefName(branch, "branch name");
     await this.git(["checkout", "-q", "-B", branch], dir);
   }
 

@@ -55,6 +55,7 @@ import { defaultContextPackDeps } from "@contexts/generation/infrastructure/cont
 import { loadContextMapFromDisk } from "@contexts/generation/infrastructure/adapters/pre-generation-grounding-port.adapter";
 import { ContextMapCapturePortAdapter, type ContextMapSave, type ContextMapWrittenThisRun } from "@contexts/generation/infrastructure/adapters/context-map-capture-port.adapter";
 import { Sha } from "@kernel/sha";
+import { assertCommitSha } from "@kernel/git-revision";
 import type { CommitAncestryPort } from "@kernel/ports/commit-ancestry.port";
 import { closedLoopLimitsOf } from "@contexts/agent-tools/application/index";
 import { resolveCoordinationSettings } from "@kernel/coordination";
@@ -358,9 +359,12 @@ export interface RunEngineFactoryDeps {
   contextMapChanges?: (repoDir: string, fromSha: string, toSha: string) => ChangedFile[] | undefined;
 }
 
-/* `git diff` between two commits of the mirror; a failure (a commit the mirror does not hold) is "cannot compare", never a guess. */
+/* `git diff` between two commits of the mirror; a failure (a commit the mirror does not hold, a commit that is not a sha) is "cannot compare", never a guess. */
 export function gitChangedFiles(repoDir: string, fromSha: string, toSha: string): ChangedFile[] | undefined {
   try {
+    /* The commits come from stored records and agent-written files: a value that is not a sha could be read by git as an option. */
+    assertCommitSha(fromSha);
+    assertCommitSha(toSha);
     const out = execFileSync("git", hardenGitArgs(["diff", "--name-status", "--no-renames", "-z", fromSha, toSha, "--"], repoDir), {
       encoding: "utf8",
       stdio: ["ignore", "pipe", "pipe"],

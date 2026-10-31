@@ -50,3 +50,11 @@ test("a service-triggered run, or one with no sha, keeps the plain sha compariso
   assert.deepEqual(c.asked, []);
   assert.equal(contextMapFitsRun(MAP, RUN, { sha: RUN, triggeredByService: true }, c.changesBetween).fits, true, "the same commit fits whoever triggered the run");
 });
+
+test("a map whose recorded commit is not a sha is never compared: git does not see it and the map is not reused", () => {
+  for (const builtAtSha of ["--output=/tmp/qayaba-probe", "-x", "main", "", "abc", "abc1234; id"]) {
+    const c = compared([]);
+    assert.deepEqual(contextMapFitsRun(MAP, builtAtSha, run, c.changesBetween), { fits: false, map: undefined, reason: "sha-mismatch" }, builtAtSha);
+    assert.deepEqual(c.asked, [], builtAtSha);
+  }
+});

@@ -19,6 +19,24 @@ test("commit stages the files and commits with the message", async () => {
   assert.ok(calls[1]?.includes("test(e2e): qa"));
 });
 
+test("a branch that git would read as an option is never pushed or checked out", async () => {
+  const calls: string[][] = [];
+  const adapter = new VcsWriteAdapter(async (args) => { calls.push(args); return ""; });
+  for (const branch of ["--upload-pack=touch /tmp/qayaba-probe", "-x", "", "a b"]) {
+    await assert.rejects(() => adapter.push("/m", branch), /invalid branch name/, JSON.stringify(branch));
+    await assert.rejects(() => adapter.checkoutBranch("/m", branch), /invalid branch name/, JSON.stringify(branch));
+  }
+  assert.deepEqual(calls, []);
+});
+
+test("a run's own branch, with a prefix of any characters git accepts, is still pushed and checked out", async () => {
+  const calls: string[][] = [];
+  const adapter = new VcsWriteAdapter(async (args) => { calls.push(args); return ""; });
+  await adapter.checkoutBranch("/m", "ñame_test-abc1234-run1");
+  await adapter.push("/m", "ñame_test-abc1234-run1");
+  assert.deepEqual(calls.map((call) => call.at(-1)), ["ñame_test-abc1234-run1", "ñame_test-abc1234-run1"]);
+});
+
 test("push force-with-leases the branch to origin", async () => {
   const calls: string[][] = [];
   const adapter = new VcsWriteAdapter(async (args) => { calls.push(args); return ""; });

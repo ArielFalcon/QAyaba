@@ -3,8 +3,11 @@
  * same in both commits). A map that does not fit is not used: the run grounds without it and a rebuild is requested. A page whose
  * implementation files were only modified keeps its route, and the front-to-back links of that page are dropped from the map the run
  * receives, since what the page calls may have changed. A service-triggered run's sha belongs to the service repo, so the primary
- * repo's map cannot be compared with it: that case, and a run with no sha, keep the plain sha comparison.
+ * repo's map cannot be compared with it: that case, and a run with no sha, keep the plain sha comparison. A map's recorded commit is
+ * written by the agent, so one that is not a sha is never handed to git: the map is not reused.
  */
+import { engineLog } from "@kernel/ports/process-logger.ts";
+import { isCommitSha } from "@kernel/git-revision.ts";
 import { contextMapValidity, type ChangedFile } from "./context-map-validity.ts";
 
 /* The part of a map the rule reads, and the front-to-back links it may drop. */
@@ -28,6 +31,10 @@ export function contextMapFitsRun<M extends FittedContextMap>(
 ): ContextMapFit<M> {
   if (capturedSha === run.sha) return { fits: true, map, reason: "none" };
   if (run.triggeredByService || !run.sha) return { fits: false, map, reason: "sha-mismatch" };
+  if (!isCommitSha(capturedSha)) {
+    engineLog.warn(`[qa] WARNING: the context map records a commit that is not a sha (${JSON.stringify(String(capturedSha).slice(0, 40))}); it is not compared with the run's commit and the map is not reused.`);
+    return { fits: false, map: undefined, reason: "sha-mismatch" };
+  }
   const validity = contextMapValidity(map, capturedSha, run.sha, changesBetween(capturedSha, run.sha));
   if (!validity.valid) return { fits: false, map: undefined, reason: validity.reason === "inputs-changed" ? "inputs-changed" : "sha-mismatch" };
   if (validity.reason !== "pages-modified") return { fits: true, map, reason: "none" };
