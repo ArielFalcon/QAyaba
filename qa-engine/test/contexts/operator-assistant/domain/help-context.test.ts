@@ -1,7 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildHelpContext } from "./help";
-import { infraErrorGloss } from "../qa/learning/infra-error-gloss";
+import { buildHelpContext as buildHelp } from "@contexts/operator-assistant/application/index.ts";
+import { sanitizeText } from "../../../../src/shared-infrastructure/redaction/pattern-redaction.adapter.ts";
+
+const infraErrorGloss = (errorClass: string): string => `gloss(${errorClass})`;
+const buildHelpContext = (defaultHost = "localhost:458"): string => buildHelp({ sanitize: (text) => sanitizeText(text).text, infraErrorGloss, defaultHost });
 
 test("the help explains an infra-error by every cause it can have, the engine-side ones included", () => {
   const help = buildHelpContext();
@@ -19,4 +22,8 @@ test("the help never presents an infra-error as only a DEV problem", () => {
 test("the help says a skipped run is one where the agent declared a no-op", () => {
   const legend = buildHelpContext().split("\n").find((line) => line.startsWith("- **skipped**")) ?? "";
   assert.match(legend, /declared/i);
+});
+
+test("the help tells operators the default address the service listens on", () => {
+  assert.ok(buildHelpContext("orchestrator.example:9").includes("QA_HOST — orchestrator address (default: orchestrator.example:9)"));
 });

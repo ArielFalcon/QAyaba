@@ -12,7 +12,6 @@ import { join } from "node:path";
 import { DEFAULT_HOST, DEFAULT_PORT, describeListenAddress, listenErrorHint, resolveListenHost, resolvePort, serverErrorListener } from "./port";
 import { isLoopbackAddress } from "./auth";
 import { RedactionPortAdapter } from "../orchestrator/sanitizer";
-import { buildHelpContext } from "./help";
 
 test("the server listens on the default port unless PORT names another", () => {
   assert.equal(resolvePort({}), DEFAULT_PORT);
@@ -46,10 +45,6 @@ test("the qa shell client talks to the default host when QA_HOST is unset", () =
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
-});
-
-test("the help assistant tells operators the default address the service listens on", () => {
-  assert.ok(buildHelpContext().includes(DEFAULT_HOST));
 });
 
 test("the boot log names the interface and port the server is bound to", () => {

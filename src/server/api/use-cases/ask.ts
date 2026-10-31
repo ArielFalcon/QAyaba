@@ -1,21 +1,28 @@
 /* The assistant: POST /runs/:id/ask answers about one run, POST /help answers about the product. */
 
-import { redactThenBound } from "../../../../qa-engine/src/shared-kernel/redact-then-bound";
+import { HELP_INSTRUCTION, boundQuestion, buildHelpContext, buildRunChatContext, buildRunContext, helpHistoryLine, helpQuestionContext, recentOutcomesContext, runHistoryLine, runQuestionContext, type AssistantTextDeps } from "@contexts/operator-assistant/application/index";
 import { AskResponseSchema } from "../../../contract/commands";
 import { sanitizeText } from "../../../../qa-engine/src/shared-infrastructure/redaction/pattern-redaction.adapter";
 import { activityRouter } from "../../../integrations/opencode-client";
-import { buildRunContext, buildLearningContext, buildRunChatContext } from "../../chat";
-import { buildHelpContext } from "../../help";
+import { infraErrorGloss } from "../../../qa/learning/infra-error-gloss";
+import { DEFAULT_HOST } from "../../port";
+import { getHistory } from "../../persistence/index";
 import { ApiError } from "../api-error";
 import type { ApiDeps } from "../deps";
 import { reply, type ApiResult } from "../respond";
 import { redactionPort } from "../support";
 
-/* Truncate to prevent context window exhaustion. */
-const MAX_QUESTION_LENGTH = 4000;
+/* What the assistant's texts borrow from the shell: the pattern redaction every text passes through on its way in, and the infra-error wording. */
+const assistantText: AssistantTextDeps = { sanitize: (text) => sanitizeText(text).text, infraErrorGloss };
 
-/* The operator's words go to the assistant's prompt: a credential pasted into them is taken out before the question is cut (qa-engine shared-kernel/redact-then-bound.ts). */
-const boundedQuestion = (question: string): string => redactThenBound(question, MAX_QUESTION_LENGTH, (text) => redactionPort.redact(text), { marker: () => " [truncated]" });
+/* The app's recent run outcomes as the assistant's run context holds them; none when the read fails. */
+function recentOutcomesOf(app: string): string | null {
+  try {
+    return recentOutcomesContext(getHistory().learning.listRunOutcomes(app, 10));
+  } catch {
+    return null;
+  }
+}
 
 export async function askAboutRun(deps: ApiDeps, runId: string, readBody: () => Promise<Record<string, unknown>>): Promise<ApiResult> {
   const record = deps.getRecord(runId);
@@ -26,13 +33,13 @@ export async function askAboutRun(deps: ApiDeps, runId: string, readBody: () => 
   const body = await readBody();
   let question = typeof body.question === "string" ? body.question.trim() : "";
   if (!question) throw new ApiError(400, "'question' is required");
-  question = boundedQuestion(question);
+  question = boundQuestion(question, (text) => redactionPort.redact(text));
 
   const historyLines: string[] = [];
   if (Array.isArray(body.history)) {
     for (const entry of body.history) {
       if (typeof entry === "object" && entry !== null && "role" in entry && "text" in entry) {
-        historyLines.push(redactionPort.redact(`${entry.role === "q" ? "Operator" : "Assistant"}: ${String((entry as { text: unknown }).text)}`));
+        historyLines.push(redactionPort.redact(runHistoryLine(entry)));
       }
     }
   }
@@ -47,27 +54,15 @@ export async function askAboutRun(deps: ApiDeps, runId: string, readBody: () => 
 
     /* Context is bounded (cases + logs capped) and sanitized on ingress (secrets redacted). */
     const activityCtx = activityRouter.contextForRun(record.id);
-    const learningCtx = buildLearningContext(record.app);
-    const runCtx = buildRunContext(record, undefined, appInfo, activityCtx || undefined, learningCtx || undefined);
-    const productCtx = buildRunChatContext();
-    const historyCtx = historyLines.length > 0 ? `\n\nRecent conversation:\n${historyLines.slice(-6).join("\n")}` : "";
-    const answer = await ask({ context: `${productCtx}\n\n---\n\n${runCtx}${historyCtx}`, question });
+    const learningCtx = recentOutcomesOf(record.app);
+    const runCtx = buildRunContext(record, assistantText, { ...(appInfo ? { appInfo } : {}), activityContext: activityCtx || undefined, learningContext: learningCtx || undefined });
+    const answer = await ask({ context: runQuestionContext({ orientation: buildRunChatContext(assistantText), run: runCtx, history: historyLines }), question });
     /* Sanitize on egress (logs→chat is a new egress path). */
     return reply.contract(200, AskResponseSchema, { answer: sanitizeText(answer).text });
   } catch (err) {
     throw new ApiError(502, `assistant failed: ${redactionPort.redactError(err)}`);
   }
 }
-
-const HELP_INSTRUCTION =
-  "You are a helpful assistant answering questions about qayaba (the TUI for qayaba). " +
-  "Use ONLY the context below. " +
-  "TERMINAL-FRIENDLY FORMATTING (this renders in a TUI via Ink <Text>): " +
-  "allowed: blank lines, indentation, capitalized headers (RESUMEN, USO), " +
-  "plain text lists with '-', '───' separators between topics. " +
-  "forbidden: **bold**, `code`, # headings, code fences, emojis, HTML. " +
-  "Respond in the SAME language as the question. Be concise. " +
-  "If the context lacks the answer, say so and suggest what to ask instead.";
 
 export async function answerHelp(deps: ApiDeps, readBody: () => Promise<Record<string, unknown>>): Promise<ApiResult> {
   const ask = deps.ask;
@@ -81,15 +76,12 @@ export async function answerHelp(deps: ApiDeps, readBody: () => Promise<Record<s
   if (Array.isArray(body.history)) {
     for (const entry of body.history) {
       if (typeof entry === "object" && entry !== null && "role" in entry && "text" in entry) {
-        const role = String((entry as { role: unknown }).role);
-        const text = String((entry as { text: unknown }).text);
-        historyLines.push(redactionPort.redact(`${role}: ${text}`));
+        historyLines.push(redactionPort.redact(helpHistoryLine(entry)));
       }
     }
   }
 
-  let fullContext = buildHelpContext();
-  if (historyLines.length > 0) fullContext += `\n\n## Recent conversation\n${historyLines.slice(-10).join("\n")}`;
+  const fullContext = helpQuestionContext(buildHelpContext({ ...assistantText, defaultHost: DEFAULT_HOST }), historyLines);
 
   try {
     const answer = await ask({ context: fullContext, question, instruction: HELP_INSTRUCTION });

@@ -1,8 +1,16 @@
-import { sanitizeText } from "../../qa-engine/src/shared-infrastructure/redaction/pattern-redaction.adapter";
-import { infraErrorGloss } from "../qa/learning/infra-error-gloss";
-import { DEFAULT_HOST } from "./port";
+/*
+ * What the product-help assistant is told about qayaba (POST /help): the commands, the modes, the verdicts and the constraints it answers
+ * from, and how it must format its answer for a terminal. The text is sanitized on the way in; the answer is sanitized on the way out by
+ * the API handler.
+ */
+import type { AssistantTextDeps } from "./assistant-text.ts";
 
-const PRODUCT_CONTEXT = `
+/* What the help text states that the engine does not own: the address the service listens on by default. */
+export interface HelpContextDeps extends AssistantTextDeps {
+  readonly defaultHost: string;
+}
+
+const productContext = ({ infraErrorGloss, defaultHost }: Pick<HelpContextDeps, "infraErrorGloss" | "defaultHost">): string => `
 You are answering questions about qayaba — the TUI (Terminal UI) for the qayaba QA engine.
 Use ONLY the information below. If the answer is not here, say so plainly — do not invent.
 
@@ -152,7 +160,7 @@ It is bounded to runs still in the in-memory history (ephemeral).
 - OPENCODE_API_KEY — required for OpenCode runtime (format: opencode-go-...)
 - GITHUB_TOKEN — required for PR/Issue creation
 - WEBHOOK_SECRET — required for production webhook validation
-- QA_HOST — orchestrator address (default: ${DEFAULT_HOST})
+- QA_HOST — orchestrator address (default: ${defaultHost})
 - QA_API_TOKEN — if the service requires auth
 
 ## Architecture
@@ -181,6 +189,6 @@ Runs are sequential (one at a time against DEV). App-specific config lives in co
 - No agent keeps a memory between runs: what a run reuses comes from the orchestrator (suite store, Context Pack)
 `.trim();
 
-export function buildHelpContext(): string {
-  return sanitizeText(PRODUCT_CONTEXT).text;
+export function buildHelpContext(deps: HelpContextDeps): string {
+  return deps.sanitize(productContext(deps));
 }

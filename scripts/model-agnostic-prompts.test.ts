@@ -24,12 +24,13 @@ import type { AgentRuntimePort } from "@kernel/ports/agent-runtime.port.ts";
 import { providerConfig } from "../src/agent-runtime/config.ts";
 import { AGENT_NAME_FOR_ROLE, type AgentRole } from "../src/agent-runtime/types.ts";
 import { askAssistant, type AgentDeps } from "../src/integrations/opencode-client.ts";
-import { buildRunChatContext, buildRunContext } from "../src/server/chat.ts";
+import { buildRunChatContext, buildRunContext, type AssistantTextDeps } from "@contexts/operator-assistant/application/index";
+import { infraErrorGloss } from "../src/qa/learning/infra-error-gloss.ts";
 import { LlmProfileProposerAdapter } from "../src/server/onboarding/llm-profile-proposer.adapter.ts";
 import type { RunRecord } from "../src/types.ts";
 import { PROMPT_HEADINGS, repairInstruction } from "@contexts/generation/application/index.ts";
 import { DIMENSIONS, MATRIX_STEP_LIMIT, allValidSpecs, buildInput, cellName, type CellSpec } from "./prompt-contract-matrix.ts";
-import { PatternRedactionAdapter } from "../qa-engine/src/shared-infrastructure/redaction/pattern-redaction.adapter.ts";
+import { PatternRedactionAdapter, sanitizeText } from "../qa-engine/src/shared-infrastructure/redaction/pattern-redaction.adapter.ts";
 
 const redaction = new PatternRedactionAdapter();
 
@@ -546,7 +547,8 @@ async function assistantPrompts(subject: string): Promise<PromptText[]> {
     logs: ["generate: wrote 1 spec", "execute: 1 failed"],
     at: "2026-01-01T00:00:00.000Z",
   });
-  const context = [buildRunChatContext(), buildRunContext(record("e2e"), undefined, { repo: "org/app", baseUrl: "http://localhost:3000" }, "writing specs")].join("\n\n");
+  const text: AssistantTextDeps = { sanitize: (value) => sanitizeText(value).text, infraErrorGloss };
+  const context = [buildRunChatContext(text), buildRunContext(record("e2e"), text, { appInfo: { repo: "org/app", baseUrl: "http://localhost:3000" }, activityContext: "writing specs" })].join("\n\n");
   await askAssistant({ context, question: `why did the ${subject} spec fail?` }, recordingDeps(sent), "/m");
   return promptsSent("assistant", sent);
 }

@@ -224,6 +224,7 @@ One deterministic orchestrator drives a declared state machine. It computes the 
 | workspace-and-publication | Working-copy handle, suite store, publish policy | Kernel |
 | app-catalog | App configuration, auth and login discovery | Kernel; generation and test-execution for the grammar of the config values they interpret (route samples, route patterns, mutating entries) |
 | evaluation | Graders over run records, the evidence they read, the score-version rule, the campaign capture rule | Run records, read only; generation for the route-template match of a plan's candidate pages |
+| operator-assistant | What the read-only assistant is told: the run and product contexts, their caps, the question and conversation framing, the help instruction | Kernel |
 
 Rules, enforced by dependency-cruiser: `domain/` imports nothing outward; `application/` depends on ports, one file per port; a context imports another only through its `application/index.ts`; no cycles. The shell (`src/`) keeps one composition root, the control plane, the wire contract and persistence adapters, and imports the engine's canonical types instead of copying them.
 
