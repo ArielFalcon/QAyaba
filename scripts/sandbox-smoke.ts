@@ -20,6 +20,7 @@ import { cpSync, existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } fro
 import { join } from "node:path";
 import type { QaCase } from "../engine/src/shared-kernel/qa-case.ts";
 import { SMOKE_CHECKS } from "./sandbox-smoke-checks.ts";
+import { installRedactingProcessLogger } from "../platform/telemetry/redacting-logger.ts";
 
 export const SMOKE_SPEC_DIR = join(import.meta.dirname, "sandbox-smoke");
 
@@ -136,5 +137,6 @@ async function main(): Promise<number> {
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
+  installRedactingProcessLogger();
   main().then((code) => process.exit(code), (err) => { console.error(err); process.exit(1); });
 }

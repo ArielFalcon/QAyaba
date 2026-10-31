@@ -28,6 +28,7 @@ import { delegateRun } from "../platform/entrypoints/run-delegate.ts";
 import { discoverApiToken } from "../platform/settings/api-token.ts";
 import { type RunOutcome, type RunRecord } from "../platform/persistence/types.ts";
 import type { AgentTurnRecord } from "../platform/persistence/repositories/telemetry.repository.ts";
+import { installRedactingProcessLogger } from "../platform/telemetry/redacting-logger.ts";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -769,5 +770,6 @@ export async function main(argv: string[], opts: MainOptions = {}): Promise<numb
 
 /* Run as a script (not when imported by a test). */
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  installRedactingProcessLogger();
   main(process.argv.slice(2)).then((code) => process.exit(code));
 }

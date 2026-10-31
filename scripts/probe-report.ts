@@ -23,6 +23,7 @@ import { readConfinedSpecFile } from "../engine/src/shared-infrastructure/spec-p
 import type { AgentTurnRecord } from "../platform/persistence/repositories/telemetry.repository.ts";
 import type { RunOutcome, RunRecord } from "../platform/persistence/types.ts";
 import { buildPipelineReport, parseGroundTruth, renderMarkdown, type GroundTruth, type PhaseSpan, type ProbeReport, type TimedRunEvent } from "./probe-metrics.ts";
+import { installRedactingProcessLogger } from "../platform/telemetry/redacting-logger.ts";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -281,5 +282,6 @@ export async function main(argv: string[], opts: MainOptions = {}): Promise<numb
 
 /* Run as a script (not when imported by a test). */
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  installRedactingProcessLogger();
   main(process.argv.slice(2)).then((code) => process.exit(code));
 }

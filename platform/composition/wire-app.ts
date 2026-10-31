@@ -1,6 +1,5 @@
 
-import { appLogger, logLine } from "../telemetry/redacting-logger";
-import { installProcessLogger } from "@kernel/ports/process-logger";
+import { appLogger, installRedactingProcessLogger, logLine } from "../telemetry/redacting-logger";
 import type { IncomingMessage } from "node:http";
 import { join } from "node:path";
 import { qayabaDataDir, qayabaRoot } from "../settings/paths";
@@ -158,7 +157,7 @@ export function continuationRequestOf(input: { parent: RunRecord; fixCases: RunR
 
 export function wireApp(settingsStore: SettingsStore): WiredApp {
   /* The engine's lines go through the same redacting logger as the shell's. */
-  installProcessLogger(appLogger);
+  installRedactingProcessLogger();
   /* Every value below comes from the typed settings (docs/settings.md). The store reloads them after the onboarding surface applies variables to the live environment. */
   const settings = settingsStore.current();
   for (const warning of settings.warnings) appLogger.warn(warning);

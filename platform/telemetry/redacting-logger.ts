@@ -1,6 +1,7 @@
 import { logJson } from "./logger";
 import { RedactionPortAdapter } from "./sanitizer";
 import type { LogFields, LoggerPort, LogLevel } from "../../engine/src/shared-kernel/ports/logger.port";
+import { installProcessLogger } from "../../engine/src/shared-kernel/ports/process-logger";
 import type { RedactionPort } from "../../engine/src/shared-kernel/ports/redaction.port";
 
 /*
@@ -128,3 +129,8 @@ export const appLogger: LoggerPort = createRedactingLogger();
 
 /* The sink a dependency takes as `log: (level, message, meta) => void`: the process logger, level by level. */
 export const logLine = (level: LogLevel, message: string, meta?: Record<string, unknown>): void => appLogger[level](message, meta);
+
+/* Makes the engine's lines go through the redacting logger. Every process root (the service, the CLI, a script that runs engine code) calls this once at start: a process that does not writes the engine's lines to the console as they are. */
+export function installRedactingProcessLogger(): void {
+  installProcessLogger(appLogger);
+}

@@ -44,6 +44,7 @@ import { suiteSnapshotDir } from "../engine/src/contexts/workspace-and-publicati
 import { WARM_SNAPSHOTS_DIR, qayabaDataDir } from "../platform/settings/paths.ts";
 import { DEFAULT_SUITE_DIR } from "./probe-metrics.ts";
 import { assertFileName } from "./probe-report.ts";
+import { installRedactingProcessLogger } from "../platform/telemetry/redacting-logger.ts";
 
 /* ── what a snapshot is ────────────────────────────────────────────────────────────── */
 
@@ -534,6 +535,7 @@ export async function defaultDeps(env: Record<string, string | undefined> = proc
 
 /* Run as a script (not when imported by a test). */
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  installRedactingProcessLogger();
   defaultDeps()
     .then((deps) => main(process.argv.slice(2), deps))
     .then((code) => process.exit(code))

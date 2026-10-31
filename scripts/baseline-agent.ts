@@ -60,6 +60,7 @@ import { prepareHarnessAuth } from "./harness-auth.ts";
 import { loadSnapshot, restoreSuite, specsTouchedSinceSnapshot, warmSnapshotDir, warmStatus, type LoadedSnapshot } from "./warm-suite.ts";
 import { MAX_FILE_BYTES } from "../engine/src/shared-infrastructure/suite-tree.ts";
 import type { AcceptanceReport } from "@contexts/run-orchestration/application/index.ts";
+import { installRedactingProcessLogger } from "../platform/telemetry/redacting-logger.ts";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -1187,6 +1188,7 @@ export async function defaultDeps(env: Record<string, string | undefined> = proc
 
 /* Run as a script (not when imported by a test). */
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  installRedactingProcessLogger();
   defaultDeps()
     .then((deps) => main(process.argv.slice(2), deps))
     .then((code) => process.exit(code))

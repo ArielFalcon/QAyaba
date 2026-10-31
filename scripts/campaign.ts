@@ -39,6 +39,7 @@ import { renderMarkdown, renderRubricCsv, withIsolation, type ArmRunResult, type
 import { specsOf, type DeltaFile, type SuiteDelta } from "./campaign-suite.ts";
 import type { ProbeReport } from "./probe-metrics.ts";
 import { type LoadedSnapshot, warmStatus } from "./warm-suite.ts";
+import { installRedactingProcessLogger } from "../platform/telemetry/redacting-logger.ts";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -718,6 +719,7 @@ export async function defaultDeps(env: Record<string, string | undefined> = proc
 
 /* Run as a script (not when imported by a test). */
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  installRedactingProcessLogger();
   defaultDeps()
     .then((deps) => runCampaign(process.argv.slice(2), deps))
     .then((code) => process.exit(code))

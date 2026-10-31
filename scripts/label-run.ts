@@ -16,6 +16,7 @@ import { MAX_SCORE_COMMENT_CHARS, specOfScore, type ScoreDataType, type ScorePol
 import { sameSpecPathByTail } from "@kernel/spec-path.ts";
 import { referenceFor, type UseCaseReference } from "../engine/src/contexts/evaluation/application/index.ts";
 import { USE_CASES_DIR, loadReferences } from "../platform/persistence/use-case-reference-loader.ts";
+import { installRedactingProcessLogger } from "../platform/telemetry/redacting-logger.ts";
 
 export { USE_CASES_DIR, loadReferences };
 
@@ -196,6 +197,7 @@ export async function defaultDeps(): Promise<LabelRunDeps> {
 
 /* Run as a script (not when imported by a test). */
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  installRedactingProcessLogger();
   defaultDeps()
     .then((deps) => process.exit(main(process.argv.slice(2), deps)))
     .catch((err: unknown) => {

@@ -20,7 +20,7 @@ import { LlmProfileProposerAdapter } from "../engine/src/contexts/service-topolo
 import { AgentRuntimeAdapter } from "../engine/src/contexts/generation/infrastructure/agent-runtime.adapter.ts";
 import { defaultAgentDeps } from "../platform/agent-runtime/opencode-client";
 import { AGENT_NAME_FOR_ROLE } from "../platform/agent-runtime/types.ts";
-import { appLogger } from "../platform/telemetry/redacting-logger.ts";
+import { appLogger, installRedactingProcessLogger } from "../platform/telemetry/redacting-logger.ts";
 import { RedactionPortAdapter } from "../platform/telemetry/sanitizer.ts";
 
 const EXIT = {
@@ -201,6 +201,7 @@ async function main(): Promise<void> {
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  installRedactingProcessLogger();
   main().catch((err) => {
     console.error(err);
     process.exit(1);

@@ -4,7 +4,8 @@ import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createJsonLogger } from "./logger";
-import { createRedactingLogger } from "./redacting-logger";
+import { createRedactingLogger, installRedactingProcessLogger } from "./redacting-logger";
+import { engineLog, resetProcessLoggerForTests } from "../../engine/src/shared-kernel/ports/process-logger";
 import { REDACTED } from "../../engine/src/shared-kernel/ports/redaction.port";
 import { createRunSecretScope, withRunSecretScope } from "../../engine/src/shared-kernel/run-secret-redaction";
 
@@ -154,4 +155,18 @@ test("a Map field keeps its entries and a Set field its values, redacted", () =>
 
 test("a Buffer field is written as a placeholder with its size, never its bytes", () => {
   assert.equal(sinkFields({ body: Buffer.from("secret bytes") }).body, "[Buffer 12 bytes]");
+});
+
+test("an engine line that carries a secret reaches the console redacted once a process root has installed the redacting logger", () => {
+  const mirrored: string[] = [];
+  const spies = (["log", "warn", "error"] as const).map((name) => mock.method(console, name, (...args: unknown[]) => void mirrored.push(args.map(String).join(" "))));
+  try {
+    installRedactingProcessLogger();
+    engineLog.warn(`push refused for ${GITHUB_TOKEN}`);
+  } finally {
+    resetProcessLoggerForTests();
+    for (const spy of spies) spy.mock.restore();
+  }
+  assert.ok(mirrored.length > 0, "the line must reach the console");
+  assert.ok(!mirrored.join("\n").includes(GITHUB_TOKEN));
 });

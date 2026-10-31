@@ -27,6 +27,7 @@ import { selectSeeds, type StoreSymbol } from "../engine/src/shared-infrastructu
 import { DiffParserService } from "../engine/src/shared-kernel/diff-parser/diff-parser.service.ts";
 import { LanguageRegistry } from "../engine/src/shared-kernel/language-id.ts";
 import { CHANGE_SCOPE_LIMITS } from "../engine/src/contexts/change-analysis/application/index.ts";
+import { installRedactingProcessLogger } from "../platform/telemetry/redacting-logger.ts";
 
 const CALLABLE_KINDS = ["function", "method", "class", "component", "interface"];
 const VALUE_KINDS = ["constant", "variable"];
@@ -378,6 +379,7 @@ export function main(argv: readonly string[], out: (line: string) => void = (l) 
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  installRedactingProcessLogger();
   try {
     process.exit(main(process.argv.slice(2)));
   } catch (err) {

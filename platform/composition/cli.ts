@@ -17,6 +17,7 @@
 import { fileURLToPath } from "node:url";
 import { JobQueue } from "../entrypoints/queue";
 import { qayabaRoot } from "../settings/paths";
+import { installRedactingProcessLogger } from "../telemetry/redacting-logger";
 import { enqueueTrackedRun } from "../entrypoints/runner";
 import { processTelemetry, TELEMETRY_SHUTDOWN_TIMEOUT_MS } from "./process-telemetry";
 import { createDurableRunEventStore } from "./durable-run-events";
@@ -141,6 +142,8 @@ async function runViaService(args: CliArgs): Promise<void> {
 }
 
 async function main(): Promise<void> {
+  /* The engine's lines go through the same redacting logger as the service's. */
+  installRedactingProcessLogger();
   const args = parseArgs(process.argv.slice(2));
 
   if (await localServiceIsRunning()) {
