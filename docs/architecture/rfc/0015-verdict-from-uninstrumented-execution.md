@@ -1,6 +1,6 @@
 # RFC-0015: One execution contract; the verdict never comes from an instrumented execution
 
-- **Status:** Proposed, 2026-10-31. Decided in an ADR before T41 implements it (feature document T40, L73, L74).
+- **Status:** Accepted, 2026-10-31, by [ADR-0023](../adr/0023-owner-decisions-rfc-0015.md) (every recommended answer); implemented as T41 (feature document T40, L73-L75).
 - **Code references at 21ef1810** (the worktree head when the map was made; read a line with `git show 21ef1810:<path>`). The installed Playwright is 1.60.0 (`package.json:60`, `config/e2e/package.json:8`).
 - **Evidence:** T12-d `run-ed28973-mvwe1bcz-26750e38` (engine 6190f228, L65), the T40 investigation (L66) and the T40 A/B on DEV (L73).
 - **Related:** [ADR-0001](../adr/0001-design-pillars.md), [ADR-0011](../adr/0011-root-cause-fix-policy.md), [RFC-0003](./0003-coverage-dump-harvest.md) (O4, coverage on the observation re-runs), [RFC-0008](./0008-acceptance-records-what-it-ran.md), [RFC-0012](./0012-one-time-authority.md), [ADR-0005](../adr/0005-coverage-enforce-activation.md), [ADR-0006](../adr/0006-bundle-mutation-switch.md), T39 (the measurement split into `measure-coverage` and `measure-mutation`)
