@@ -82,9 +82,9 @@ Moving an app stays the owner's act on its configuration. This record sets the c
 Implemented 2026-10-31 (task T21). What holds each part:
 
 - **The key.** Done in 17bb77c1 (rule `coverage-policy-key`, the records exempt) and the documents corrected; T21 corrected the last stale statement of the old condition (`docs/architecture-remediation.md`). Original text: When the documents are corrected, the previous-forms gate (`scripts/check-previous-forms.ts:38-52`) gets `qa.coveragePolicy` as a banned term. The records under `docs/architecture` quote it on purpose, so that change keeps the new rule from applying to the folder ([RFC-0002](../rfc/0002-platform-steps-0-1.md) Q1, commit G1) or allow-lists the lines.
-- **The block.** Implemented in c70cd00a (decision, publication route, `gateSignals.heldPublication`; shadow-invariant). Original text: a test through the public seam of the decision and the publication port: a measured `fail` under `enforce` records the side effect `held` (reading A of open question 3), opens no Issue and opens no PR, and the report text is kept. A `fail` under `signal` and an `unknown` under `enforce` are unchanged.
-- **The condition.** The typed fact that evidence was left out is `unmeasured` (read troubles) and `evidenceLeftOut` (9b47d21e, adb5cd6a); `npm run enforce-readiness` answers per app (d859417a, `objective-signal/domain/enforce-readiness.ts`). No code refuses `enforce`; moving an app is the owner's act.
-- **The precondition.** B1, a flaky verdict replaced under `enforce`, fixed first in 47640061.
+- **The block.** Implemented in 81a3475d (decision, publication route, `gateSignals.heldPublication`; shadow-invariant). Original text: a test through the public seam of the decision and the publication port: a measured `fail` under `enforce` records the side effect `held` (reading A of open question 3), opens no Issue and opens no PR, and the report text is kept. A `fail` under `signal` and an `unknown` under `enforce` are unchanged.
+- **The condition.** The typed fact that evidence was left out is `unmeasured` (read troubles) and `evidenceLeftOut` (9b47d21e, adb5cd6a); `npm run enforce-readiness` answers per app (e4296fc6, `objective-signal/domain/enforce-readiness.ts`). No code refuses `enforce`; moving an app is the owner's act.
+- **The precondition.** B1, a flaky verdict replaced under `enforce`, fixed first in 1b7443d7.
 
 ## Alternatives considered
 
