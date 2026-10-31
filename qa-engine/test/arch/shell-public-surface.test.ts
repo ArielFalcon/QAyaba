@@ -14,7 +14,7 @@ const CONFIG_REL = join("qa-engine", ".dependency-cruiser.cjs");
 const EXCEPTIONS_REL = join("qa-engine", ".dependency-cruiser-shell-exceptions.json");
 
 /** Entries the frozen list holds today; a shrinking commit lowers it, raising it is a visible review event. */
-export const SHELL_INFRASTRUCTURE_EXCEPTIONS_CEILING = 35;
+export const SHELL_INFRASTRUCTURE_EXCEPTIONS_CEILING = 29;
 
 function treeWith(files: Record<string, string>, exceptions: string[] = []): string {
   const treeRoot = mkdtempSync(join(tmpdir(), "shell-surface-"));
@@ -78,6 +78,41 @@ test("only the engine root imports a composition builder", () => {
   const r = cruise(treeWith({ ...context, "src/server/other.ts": build }));
   assert.equal(r.ok, false);
   assert.match(r.output, /composition-only-from-shell-root/);
+});
+
+test("the composition root may import a context's infrastructure, never its domain", () => {
+  const infra = cruise(treeWith({ ...context, "src/composition/wiring.ts": 'import { x } from "../../qa-engine/src/contexts/a/infrastructure/x.ts";\nexport const y = x;\n' }));
+  assert.equal(infra.ok, true, infra.output);
+  const domain = cruise(treeWith({ ...context, "src/composition/wiring.ts": 'import { d } from "../../qa-engine/src/contexts/a/domain/d.ts";\nexport const y = d;\n' }));
+  assert.equal(domain.ok, false);
+  assert.match(domain.output, /composition-builds-adapters-from-infrastructure/);
+});
+
+test("no platform folder but composition imports the composition root; a test may", () => {
+  const root = { ...context, "src/composition/loader.ts": "export const load = () => 1;\n" };
+  for (const folder of ["entrypoints", "persistence", "telemetry", "agent-runtime", "settings"]) {
+    const r = cruise(treeWith({ ...root, [`src/${folder}/x.ts`]: 'import { load } from "../composition/loader.ts";\nexport const y = load;\n' }));
+    assert.equal(r.ok, false, folder);
+    assert.match(r.output, /platform-composition-is-the-root/);
+  }
+  const test = cruise(treeWith({ ...root, "src/entrypoints/x.test.ts": 'import { load } from "../composition/loader.ts";\nexport const y = load;\n' }));
+  assert.equal(test.ok, true, test.output);
+});
+
+test("settings imports no other platform folder, and every folder may read settings", () => {
+  const telemetry = { ...context, "src/telemetry/config.ts": "export const c = 1;\n", "src/settings/s.ts": "export const s = 1;\n" };
+  const r = cruise(treeWith({ ...telemetry, "src/settings/x.ts": 'import { c } from "../telemetry/config.ts";\nexport const y = c;\n' }));
+  assert.equal(r.ok, false);
+  assert.match(r.output, /platform-settings-reads-no-other-folder/);
+  assert.equal(cruise(treeWith({ ...telemetry, "src/telemetry/x.ts": 'import { s } from "../settings/s.ts";\nexport const y = s;\n' })).ok, true);
+});
+
+test("no production module imports the test-support root", () => {
+  const harness = { ...context, "src/test-support/harness.ts": "export const h = 1;\n" };
+  const r = cruise(treeWith({ ...harness, "src/entrypoints/x.ts": 'import { h } from "../test-support/harness.ts";\nexport const y = h;\n' }));
+  assert.equal(r.ok, false);
+  assert.match(r.output, /platform-production-imports-no-test-support/);
+  assert.equal(cruise(treeWith({ ...harness, "src/entrypoints/x.test.ts": 'import { h } from "../test-support/harness.ts";\nexport const y = h;\n' })).ok, true);
 });
 
 test("the frozen exception list is exactly as long as its ceiling and every entry still imports an infrastructure file", () => {

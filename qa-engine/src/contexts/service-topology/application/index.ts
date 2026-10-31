@@ -5,6 +5,7 @@ export type { BoundaryProfile, RepoRef } from "../domain/index.ts";
 export type { ServiceLinksPort } from "./ports/service-links.port.ts";
 export type { ProviderDocumentsPort } from "./ports/provider-documents.port.ts";
 export type { CrossRepoImpactPort } from "./ports/cross-repo-impact.port.ts";
+export { routeServesOperation } from "../domain/cross-repo-impact.ts";
 export type { BoundaryProfileProviderPort } from "./ports/boundary-profile-provider.port.ts";
 export type { ProfileProposerPort } from "./ports/profile-proposer.port.ts";
 export type { ProposerFeedback } from "../domain/profile-score.ts";

@@ -45,7 +45,7 @@ import { PatternRedactionAdapter } from "../../qa-engine/src/shared-infrastructu
 import { confinedSpecFiles } from "../../qa-engine/src/shared-infrastructure/spec-files.adapter";
 
 import { buildChangeAnalysis, codeGraphFor } from "../../qa-engine/src/contexts/change-analysis/composition/build-change-analysis";
-import { routeServesOperation } from "../../qa-engine/src/contexts/service-topology/domain/cross-repo-impact";
+import { routeServesOperation } from "@contexts/service-topology/application/index";
 import { buildServiceTopology } from "../../qa-engine/src/contexts/service-topology/composition/build-service-topology";
 import { buildObjectiveSignal } from "../../qa-engine/src/contexts/objective-signal/composition/build-objective-signal";
 import { buildPublishWorkspace, buildWorkspaceAndPublication, type PublishDeps } from "../../qa-engine/src/contexts/workspace-and-publication/composition/build-workspace-and-publication";
