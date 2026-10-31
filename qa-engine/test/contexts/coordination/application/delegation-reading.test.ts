@@ -37,6 +37,20 @@ test("an answer holding no DelegationResult is a failed result marked unreadable
   assert.equal(classifyDelegationFailure(reported.status, 0, 0, reported.readMiss), "failed");
 });
 
+test("an unreadable closing result is the answer: it is marked unreadable, never replaced by an earlier result of the same answer", () => {
+  const output = ["I will report like this when done:", closing({ summary: "DRAFT: all criteria met" }), "the spec still fails on the total row", closing({ status: "done", summary: "FINAL: the total row still fails" })].join("\n");
+  const result = readDelegationResult(output, brief, redaction);
+  assert.equal(result.status, "failed");
+  assert.equal(result.readMiss, "unreadable");
+  assert.notEqual(result.summary, "DRAFT: all criteria met");
+});
+
+test("an object after the closing result that is no result does not hide it", () => {
+  const result = readDelegationResult(`${closing({ summary: "the closing block" })}\n{"note":"a quoted payload"}`, brief, redaction);
+  assert.equal(result.status, "completed");
+  assert.equal(result.summary, "the closing block");
+});
+
 test("a result for another brief and a write outside writablePaths keep failing as before", () => {
   assert.equal(readDelegationResult(closing({ delegationId: "other" }), brief, redaction).status, "failed");
   const outside = readDelegationResult(closing({ filesChanged: [{ path: "e2e/other.spec.ts" }] }), brief, redaction);

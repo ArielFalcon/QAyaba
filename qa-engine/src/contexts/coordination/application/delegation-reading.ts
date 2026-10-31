@@ -1,6 +1,6 @@
-/* How a sidekick's answer is read: the last DelegationResult among the JSON objects of its output, checked against the brief it answers, scrubbed, and held to its writable roots. Its lists are read by the one reader of an answer (`answer-reading.ts`): an entry that cannot be read as the contract says is recorded in `unreadableEntries` and not acted on, never defaulted. An answer that cannot be read is a failed result marked `readMiss`, never an empty one and never mistaken for a failure the sidekick reported. Free-form fields are scrubbed on parse: they re-enter the lead's context. filesChanged paths are authority inputs (scope check, on-disk adoption) and stay raw; they are scrubbed only where echoed into a summary or concern. */
+/* How a sidekick's answer is read: the last JSON object of its output shaped as a DelegationResult, checked against the brief it answers, scrubbed, and held to its writable roots. Its lists are read by the one reader of an answer (`answer-reading.ts`): an entry that cannot be read as the contract says is recorded in `unreadableEntries` and not acted on, never defaulted. An answer that cannot be read is a failed result marked `readMiss`, never an empty one and never mistaken for a failure the sidekick reported. Free-form fields are scrubbed on parse: they re-enter the lead's context. filesChanged paths are authority inputs (scope check, on-disk adoption) and stay raw; they are scrubbed only where echoed into a summary or concern. */
 import type { RedactionPort } from "@kernel/ports/redaction.port.ts";
-import { jsonObjectsIn } from "@kernel/last-json-object.ts";
+import { lastJsonObjectWhere } from "@kernel/last-json-object.ts";
 import { UNREADABLE_ANSWER } from "@kernel/unreadable-answer.ts";
 import type { DelegationBrief } from "./delegation-brief.ts";
 import { ANSWER_MISS, belongsToBrief, CANDIDATE_CLAIMS, type CandidateClaim, type CandidateClaimStatus, DELEGATION_STATUSES, type AnswerMiss, type DelegationResult, type DelegationStatus } from "./delegation-result.ts";
@@ -101,20 +101,26 @@ function failedResult(brief: DelegationBrief, summary: string, redaction: Redact
   };
 }
 
-/* The last object of the output that is a DelegationResult of the contract: an earlier verdict or a quoted payload is not the answer. */
-function lastDelegationResult(output: string, brief: DelegationBrief, redaction: RedactionPort): DelegationResult | undefined {
-  const objects = jsonObjectsIn(output);
-  for (let i = objects.length - 1; i >= 0; i--) {
-    const parsed = parseDelegationResult(objects[i], brief, redaction);
-    if (parsed) return parsed;
-  }
-  return undefined;
+/* An object shaped as a delegation result (a status beside the brief's identity), whether or not its values are the contract's. */
+const isResultShaped = (o: Record<string, unknown>): boolean => "status" in o && ("delegationId" in o || "runId" in o);
+
+/*
+ * The answer is the last object of the output shaped as a delegation result, read as the contract says: an object of another shape
+ * (a quoted payload, an earlier verdict) is not the answer. A closing result that does not read is the answer all the same: it is
+ * reported unreadable, never replaced by an earlier result of the same output, which the sidekick may have revised.
+ */
+function lastDelegationResult(output: string, brief: DelegationBrief, redaction: RedactionPort): { result?: DelegationResult; malformed: boolean } {
+  const closing = lastJsonObjectWhere(output, isResultShaped);
+  if (!closing) return { malformed: false };
+  const result = parseDelegationResult(closing, brief, redaction);
+  return result ? { result, malformed: false } : { malformed: true };
 }
 
 /* The delegation result a sidekick's output came to. `ground` is what the orchestrator holds of the flow by its own means: with it, an unmet criterion the sidekick attributes to DEV's state is checked against it; without it, no such claim is backed. */
 export function readDelegationResult(output: string, brief: DelegationBrief, redaction: RedactionPort, ground?: DevStateGround): DelegationResult {
-  const parsed = lastDelegationResult(output, brief, redaction);
-  if (!parsed) return failedResult(brief, "sidekick output was not a valid DelegationResult", redaction, ANSWER_MISS.UNREADABLE);
+  const read = lastDelegationResult(output, brief, redaction);
+  const parsed = read.result;
+  if (!parsed) return failedResult(brief, read.malformed ? "sidekick's closing result is not of the DelegationResult contract" : "sidekick output was not a valid DelegationResult", redaction, ANSWER_MISS.UNREADABLE);
   if (!belongsToBrief(parsed, brief.delegationId, brief.runId)) {
     return failedResult(brief, "sidekick result did not belong to this brief", redaction, ANSWER_MISS.FOREIGN_BRIEF);
   }
