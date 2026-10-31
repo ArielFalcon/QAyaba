@@ -12,21 +12,51 @@ import { JobQueue } from "./queue";
 import { loadAppConfig, AppConfig } from "../orchestrator/config-loader";
 import { assertUniformCapture, CAMPAIGN_CAPTURE_MODE, requestedCaptureMode, specCountsOf } from "@contexts/evaluation/application/index";
 import { serializablePhases, type RunFactsPatch } from "./persistence/repositories/run.repository";
-import { mergeTurnLimits, primaryLimit, traceFactsOf } from "@kernel/run-trace-facts";
-import { PendingChangeSets, RunTrace, SYSTEM_CLOCK, changeEntryOf, declaredReposOf, declaresRepo, isCoalescible, markEnqueued, phaseSnapshotOf, runIdentityOf, type DeclaredRepos, type RunFacts, type RunTrigger } from "@contexts/run-orchestration/application/index";
+import {
+  ONBOARDING_POLL_MS,
+  ONBOARDING_WAIT_MAX_MS,
+  PendingChangeSets,
+  PreworkMemory,
+  RunTrace,
+  SYSTEM_CLOCK,
+  UNKNOWN_RUN_CONFIG_ENVIRONMENT,
+  changeEntryOf,
+  contextMapRebuildRequest,
+  contextMapRequest,
+  declaredReposOf,
+  declaresRepo,
+  isCoalescible,
+  liveAnnouncement,
+  loginBootstrapRequest,
+  markEnqueued,
+  mayBePreceded,
+  mayHaveLeftTestData,
+  needsLoginBootstrap,
+  onboardingWaitStep,
+  phaseSnapshotOf,
+  runCrashEnding,
+  runFactsOfCrash,
+  runFactsOfOutcome,
+  runIdentityOf,
+  sourceOfTrigger,
+  terminalCaseEvent,
+  withTurnLimits as withTurnLimitsOf,
+  type DeclaredRepos,
+  type LiveAnnouncedStatus,
+  type RunFacts,
+  type RunTrigger,
+} from "@contexts/run-orchestration/application/index";
 import { testDataNamespace } from "../qa/test-data";
 import { RunMode, TestTarget, TriggerSource, QaCase, QaRunResult, engineStatus, type RunChangeEntry } from "../types";
 import { RedactionPortAdapter } from "../orchestrator/sanitizer";
 import { sleep as sleepWithAbort } from "../util/sleep";
-import { isInfraError } from "@kernel/domain-error";
 import type { RunEventStore } from "./run-events";
 import type { RunEventBody } from "@kernel/contract/events";
 import { Sha } from "@kernel/sha";
 import { ChangeSet, anchorProjection, type ChangeEntry } from "@contexts/change-analysis/application/index";
-import { RUN_PURPOSE, type RunPurpose } from "@kernel/run-mode";
-import { isUntrustedGitTreeError } from "@kernel/domain-error";
+import type { RunPurpose } from "@kernel/run-mode";
 import type { CampaignIdentity } from "../contract/campaign";
-import { capCaptureMode, DEFAULT_CAPTURE_MODE, type CaptureMode } from "@kernel/telemetry/capture-mode";
+import { capCaptureMode, type CaptureMode } from "@kernel/telemetry/capture-mode";
 import { decideRunFreeze, type RunFreeze } from "./run-freeze";
 import { configInEffect, resolveRunConfig, type RunConfigEnvironment, type StoredRunConfig } from "./effective-config";
 import type { GroundingInput } from "../contract/commands";
@@ -44,26 +74,8 @@ type RunStep = RunStepEvent["step"];
 
 const redactionPort = new RedactionPortAdapter();
 
-/* What a run records of the process around it when the composition root gave none: nothing known, no tool grants. */
-const UNKNOWN_RUN_CONFIG_ENV: RunConfigEnvironment = { runtime: () => null, staticPromptHash: () => null, toolsGranted: false, maxCapture: DEFAULT_CAPTURE_MODE };
-
-
-const ONBOARDING_POLL_MS = 5_000;
-
-export const ONBOARDING_MIRROR_CEILING_MS = 5 * 60 * 1000;
-export const ONBOARDING_JOB_CEILING_MS = 20 * 60 * 1000;
-export const ONBOARDING_INDEXING_CEILING_MS = 10 * 60 * 1000;
-export const ONBOARDING_WAIT_MARGIN_MS = 5 * 60 * 1000;
-export const ONBOARDING_WAIT_MAX_MS =
-  ONBOARDING_MIRROR_CEILING_MS + ONBOARDING_JOB_CEILING_MS + ONBOARDING_INDEXING_CEILING_MS + ONBOARDING_WAIT_MARGIN_MS;
-
-/*
- * The source a run's engine input carries, for a door that tells the trigger: only a deploy's webhook is "webhook" (the engine's
- * deploy-triggered run); a control-API run, whoever sent it, is "manual", so a campaign replicate or a replay never waits for a deploy.
- */
-export function sourceOfTrigger(trigger: "api" | "webhook"): TriggerSource {
-  return trigger === "webhook" ? "webhook" : "manual";
-}
+/* The pre-run work this process has already done: the login bootstraps it queued and the context maps it rebuilt. */
+const prework = new PreworkMemory();
 
 export interface RunRequest {
   app: string;
@@ -131,8 +143,8 @@ export interface RunnerDeps {
    */
   contextMapNeedsRebuild?: (app: string, sha: string) => Promise<boolean>;
   /*
-   * Test/ops seam: override the poll granularity and defensive upper bound (module defaults
-   * ONBOARDING_POLL_MS / ONBOARDING_WAIT_MAX_MS above). Production never overrides these.
+   * Test/ops seam: override the poll granularity and defensive upper bound (the context's defaults
+   * ONBOARDING_POLL_MS / ONBOARDING_WAIT_MAX_MS). Production never overrides these.
    */
   onboardingPollMs?: number;
   onboardingWaitMaxMs?: number;
@@ -142,9 +154,6 @@ export interface RunnerDeps {
    */
   sleep?: (ms: number, opts?: { signal?: AbortSignal }) => Promise<void>;
 }
-
-
-type LiveAnnouncedStatus = "passed" | "failed" | "flaky";
 
 
 function buildRunObserver(runId: string, runEvents: RunEventStore | undefined, liveAnnounced?: Map<string, LiveAnnouncedStatus>): ObserverPort {
@@ -159,14 +168,8 @@ function buildRunObserver(runId: string, runEvents: RunEventStore | undefined, l
     },
     onEvent(body: RunEventBody): void {
       try {
-        if (
-          liveAnnounced &&
-          (body.type === "test.passed" || body.type === "test.failed" || body.type === "test.flaky") &&
-          typeof (body as { name?: unknown }).name === "string"
-        ) {
-          const status = body.type.slice("test.".length) as LiveAnnouncedStatus;
-          liveAnnounced.set((body as { name: string }).name, status);
-        }
+        const announced = liveAnnounced ? liveAnnouncement(body) : undefined;
+        if (liveAnnounced && announced) liveAnnounced.set(announced.name, announced.status);
         runEvents?.publish(runId, body);
       } catch (err) {
         appLogger.error("[qa] observer onEvent failed (non-fatal, run continues):", { error: err });
@@ -174,16 +177,6 @@ function buildRunObserver(runId: string, runEvents: RunEventStore | undefined, l
     },
   };
 }
-
-/*
- * Maps a final QaCase.status ("pass"|"fail"|"flaky") into the LiveAnnouncedStatus vocabulary
- * ("passed"|"failed"|"flaky") so recordCase can compare the store's own truth against what was last
- * announced live.
- */
-function finalStatusAsAnnounced(status: QaCase["status"]): LiveAnnouncedStatus {
-  return status === "pass" ? "passed" : status === "fail" ? "failed" : "flaky";
-}
-
 
 function assertTriggerRepoDeclared(appConfig: AppConfig, triggerRepo: string | undefined): void {
   if (!triggerRepo) return;
@@ -196,13 +189,8 @@ function assertTriggerRepoDeclared(appConfig: AppConfig, triggerRepo: string | u
 function recordCase(runId: string, c: QaCase, runEvents: RunEventStore | undefined, liveAnnounced?: Map<string, LiveAnnouncedStatus>): void {
   getHistory().runs.addCase(runId, c);
   getHistory().runs.appendActivity(runId, { kind: "todo", text: c.name, status: "completed" });
-  const lastAnnounced = liveAnnounced?.get(c.name);
-  if (lastAnnounced !== undefined && lastAnnounced === finalStatusAsAnnounced(c.status)) return;
-  runEvents?.publish(runId, c.status === "pass"
-    ? { type: "test.passed", name: c.name, durationMs: c.durationMs ?? 0 }
-    : c.status === "fail"
-      ? { type: "test.failed", name: c.name, detail: c.detail, ...(c.durationMs !== undefined ? { durationMs: c.durationMs } : {}) }
-      : { type: "test.flaky", name: c.name, attempts: 2 });
+  const event = terminalCaseEvent(c, liveAnnounced?.get(c.name));
+  if (event) runEvents?.publish(runId, event);
 }
 
 /* What the run delivered, for the root span: the same counts the run view and the graders read. Fail-open: observability never changes how a run ends. */
@@ -217,14 +205,10 @@ function specCountsForTrace(runId: string, furthestPhase: string | null): RunFac
   }
 }
 
-/* The run's facts with the limits its agent turns ended on added to the ones the engine met at run level; the record and the root span both take the result, so they list the same limits and lead with the same one (the first the engine met: a limit only turns met leads nothing). Fail-open like the other reads for the trace: a history that cannot answer leaves the engine's own. */
+/* The run's facts with the limits its agent turns ended on added (withTurnLimits of the engine); the record and the root span both take the result. Fail-open like the other reads for the trace: a history that cannot answer leaves the engine's own. */
 function withTurnLimits<F extends Pick<RunFacts, "limits" | "limitFired" | "limitRole">>(facts: F, runId: string): F {
   try {
-    /* A port that states only the limit it leads with is read as having met that one. */
-    const engineLimits = facts.limits ?? (facts.limitFired ? [{ fired: facts.limitFired, role: facts.limitRole ?? "", scope: "run" as const }] : []);
-    const limits = mergeTurnLimits(engineLimits, getHistory().telemetry.getTurnLimits(runId));
-    const first = primaryLimit(limits);
-    return { ...facts, limits, ...(first ? { limitFired: first.fired, limitRole: first.role } : {}) };
+    return withTurnLimitsOf(facts, getHistory().telemetry.getTurnLimits(runId));
   } catch (err) {
     appLogger.error(`[qa] the limits the turns of run ${runId} ended on could not be read (the engine's own are kept): ${err instanceof Error ? err.message : String(err)}`);
     return facts;
@@ -296,23 +280,7 @@ async function runViaEngine(
       reasons: outcome.gateSignals.reviewerCorrections,
     });
   }
-  const traceFacts = traceFactsOf(outcome);
-  const facts: RunFacts = {
-    verdict: outcome.verdict,
-    errorClass: outcome.errorClass,
-    furthestPhase: outcome.gateSignals.furthestPhase,
-    decision: traceFacts?.decision,
-    shadowed: traceFacts?.shadowed,
-    generationEnd: traceFacts?.generationEnd,
-    endReason: traceFacts?.endReason,
-    limitFired: traceFacts?.limitFired,
-    limitRole: traceFacts?.limitRole,
-    limits: traceFacts?.limits,
-    degradations: traceFacts?.degradations,
-    reviewRequired: traceFacts?.reviewRequired,
-    timeBudget: traceFacts?.timeBudget,
-    coverage: traceFacts?.coverage,
-  };
+  const facts = runFactsOfOutcome(outcome);
   return {
     facts: withTurnLimits(facts, runId),
     sha: outcome.sha,
@@ -332,30 +300,8 @@ async function runViaEngine(
  * context mode cannot be driven from a service repo.
  */
 export function enqueueContextMapRun(queue: JobQueue, app: string, sha: string, deps: RunnerDeps, parentRunId?: string): string {
-  return enqueueTrackedRun(queue, { app, sha, target: "e2e", mode: "context", source: "manual", trigger: "context", ...(parentRunId ? { parentRunId } : {}) }, deps);
+  return enqueueTrackedRun(queue, contextMapRequest(app, sha, parentRunId), deps);
 }
-
-/*
- * What a login-bootstrap run is told. App-agnostic: the app's login comes from its own declaration (the test account in the run's
- * environment), the page to prove it on from the app's own routes. The run is a manual generation, so the generator's login section
- * (the stock seed did not sign in) and every gate apply as for any run; the login is kept only because the run was accepted.
- */
-export const LOGIN_BOOTSTRAP_GUIDANCE = [
-  "Establish and prove the app's login.",
-  "Make e2e/auth.setup.ts sign in with the configured test account (DEV_TEST_USER and DEV_TEST_PASS) so that the session it saves reaches the app's signed-in area.",
-  "Then write one smoke spec that opens one route that needs that session and asserts something only a signed-in user sees.",
-  "Write no other spec, and do not change the app's code.",
-].join(" ");
-
-/*
- * The apps whose login bootstrap this process has queued, by anyone: an operator, onboarding, or the automatic one below. It is the
- * whole of "once": a bootstrap that is pending or running is in it, and so is one that finished or failed. A failed bootstrap
- * therefore never triggers another on the next run (that would repeat the same failure on every run, each time ahead of the
- * run that was asked for); it is retried by a restart or by asking for it (POST /api/apps/{name}/login-bootstrap), and a bootstrap
- * that worked leaves a login in the store, so the question is not asked again anyway. Memory only, on purpose: nothing persistent
- * can wedge an app off a warm start.
- */
-const loginBootstrapAsked = new Set<string>();
 
 /*
  * An app onboarded before the suite store has no verified login, so its first runs start cold and author the login while they
@@ -366,11 +312,11 @@ const loginBootstrapAsked = new Set<string>();
  */
 function enqueueLoginBootstrapFirst(queue: JobQueue, req: RunRequest, deps: RunnerDeps): void {
   const holds = deps.suiteHoldsVerifiedLogin;
-  if (!holds || decideRunFreeze(req).frozen || req.mode === "context" || req.purpose !== undefined || req.triggerRepo !== undefined || req.parentRunId !== undefined) return;
-  if (loginBootstrapAsked.has(req.app)) return;
+  if (!holds || !mayBePreceded(req, decideRunFreeze(req).frozen)) return;
+  if (prework.loginBootstrapWasAsked(req.app)) return;
   try {
     const app = (deps.loadApp ?? loadAppConfig)(req.app);
-    if (app.auth === undefined || holds(req.app)) return;
+    if (!needsLoginBootstrap(app.auth !== undefined, () => holds(req.app))) return;
     const id = enqueueLoginBootstrapRun(queue, req.app, req.sha, deps);
     appLogger.info(`[qa] login bootstrap: ${req.app} declares a login and its suite store holds no verified one; queued ${id} ahead of this ${req.mode} run at ${req.sha.slice(0, 7)} (once per process; ask POST /api/apps/${req.app}/login-bootstrap to repeat it)`);
   } catch (err) {
@@ -384,8 +330,8 @@ function enqueueLoginBootstrapFirst(queue: JobQueue, req: RunRequest, deps: Runn
  * verified step of onboarding. Under the app's own qa.shadow; never given a triggerRepo.
  */
 export function enqueueLoginBootstrapRun(queue: JobQueue, app: string, sha: string, deps: RunnerDeps): string {
-  loginBootstrapAsked.add(app);
-  return enqueueTrackedRun(queue, { app, sha, target: "e2e", mode: "manual", source: "manual", guidance: LOGIN_BOOTSTRAP_GUIDANCE, purpose: RUN_PURPOSE.LOGIN_BOOTSTRAP, trigger: "login-bootstrap" }, deps);
+  prework.askedLoginBootstrap(app);
+  return enqueueTrackedRun(queue, loginBootstrapRequest(app, sha), deps);
 }
 
 /*
@@ -399,7 +345,7 @@ export function enqueueDoorRun(queue: JobQueue, trigger: "api" | "webhook", requ
 
 export function enqueueTrackedRun(queue: JobQueue, req: RunRequest, deps: RunnerDeps = {}): string {
   /* The capture a run gets is decided here, for every door: what it asked for, never above the server's ceiling. */
-  const runConfigEnv = deps.runConfig ?? UNKNOWN_RUN_CONFIG_ENV;
+  const runConfigEnv = deps.runConfig ?? UNKNOWN_RUN_CONFIG_ENVIRONMENT;
   const captureMode = capCaptureMode(requestedCaptureMode(req), runConfigEnv.maxCapture);
   if (req.campaign && requestedCaptureMode(req) === CAMPAIGN_CAPTURE_MODE && captureMode !== CAMPAIGN_CAPTURE_MODE)
     appLogger.warn(`[qa] campaign '${req.campaign.id}' captures '${captureMode}', not '${CAMPAIGN_CAPTURE_MODE}': the server ceiling QA_TELEMETRY_MAX_CAPTURE is '${runConfigEnv.maxCapture}', so its prompts are not stored`);
@@ -456,7 +402,7 @@ function coalesceInto(req: RunRequest, declared: DeclaredRepos, deps: RunnerDeps
  */
 function trackRun(req: RunRequest, deps: RunnerDeps, captureMode: CaptureMode, where: string, insideRun = false): { id: string; execute: (signal: AbortSignal) => Promise<void> } {
   const loadApp = deps.loadApp ?? loadAppConfig;
-  const runConfigEnv = deps.runConfig ?? UNKNOWN_RUN_CONFIG_ENV;
+  const runConfigEnv = deps.runConfig ?? UNKNOWN_RUN_CONFIG_ENVIRONMENT;
 
   /*
    * Orphan-data cleanup runs through the SINGLE funnel so EVERY trigger (webhook, CLI,
@@ -467,8 +413,7 @@ function trackRun(req: RunRequest, deps: RunnerDeps, captureMode: CaptureMode, w
   if (previousNamespace === undefined) {
     try {
       const prev = getHistory().runs.listRecords(req.app, 1)[0];
-      const wasInterrupted = prev && (prev.status === "running" || prev.status === "enqueued" || prev.verdict === "infra-error");
-      if (wasInterrupted) {
+      if (prev && mayHaveLeftTestData(prev)) {
         previousNamespace = testDataNamespace(loadApp(req.app).qa.testDataPrefix, prev.sha, prev.id);
       }
     } catch {
@@ -536,8 +481,9 @@ function trackRun(req: RunRequest, deps: RunnerDeps, captureMode: CaptureMode, w
           parkLogged = true;
           appLogger.info(`[qa] run parked: onboarding job active — waiting before mirror work (${req.app}@${req.sha})`);
         }
-        if (signal.aborted) break;  /* an operator cancel during the wait — handled below */
-        if (Date.now() - waitStart > onboardingWaitMaxMs) {
+        const step = onboardingWaitStep(signal.aborted, Date.now() - waitStart, onboardingWaitMaxMs);
+        if (step === "cancelled") break;  /* an operator cancel during the wait — handled below */
+        if (step === "give-up") {
           appLogger.warn(
             `[qa] onboarding still active after ${onboardingWaitMaxMs}ms — proceeding anyway to avoid starving the QA pipeline (${req.app}@${req.sha})`,
           );
@@ -665,53 +611,19 @@ function trackRun(req: RunRequest, deps: RunnerDeps, captureMode: CaptureMode, w
        * "running" forever and `qa run --watch` hangs waiting for a verdict.
        */
       const msg = redactionPort.redactError(err);
-      /*
-       * Classify by TYPE, not by substring. Genuine INFRASTRUCTURE (an InfraError or one of its
-       * subclasses — deploy-gate timeout, agent unavailable or stalled — or an operator cancel) is
-       * a transient, non-code condition. Anything else thrown out of the engine (a rejected git
-       * push, a JSON.parse that threw, an open circuit breaker) is an UNEXPECTED INTERNAL ERROR —
-       * still inconclusive, but a defect to surface, NOT silently laundered into a benign
-       * "infrastructure, ignore".
-       */
-      const infra = isInfraError(err);
-      /*
-       * A working copy whose git dir is not the orchestrator's own is a SECURITY REFUSAL: nothing ran, so the
-       * verdict is inconclusive, but it is neither a transient infrastructure fault nor a code defect. It is loud
-       * and has its own note.
-       */
-      const refusal = isUntrustedGitTreeError(err);
-      /* One class for the run's record, its outcome, its trace root and the metric: a genuine infrastructure fault says E-INFRA, a refusal says so, anything else is the internal error it is. */
-      const errorClass = refusal ? "security-refusal" : infra ? "E-INFRA" : "internal-error";
+      /* One class for the run's record, its outcome, its trace root and the metric (see runCrashEnding). */
+      const { errorClass, note, label } = runCrashEnding(err, msg);
       /* The engine tells where the run stood and how generation ended when it threw, on the error itself; a failure from anywhere else has nothing to add. */
       const reached = phaseSnapshotOf(err);
-      const crashFacts = typeof err === "object" && err !== null ? traceFactsOf(err) : undefined;
       const specs = specCountsForTrace(record.id, reached?.furthestPhase ?? null);
-      const crashed = withTurnLimits({
-        ...(reached?.furthestPhase ? { furthestPhase: reached.furthestPhase } : {}),
-        ...(crashFacts?.decision ? { decision: crashFacts.decision } : {}),
-        ...(crashFacts?.shadowed !== undefined ? { shadowed: crashFacts.shadowed } : {}),
-        ...(crashFacts?.generationEnd ? { generationEnd: crashFacts.generationEnd } : {}),
-        ...(crashFacts?.limits ? { limits: crashFacts.limits } : {}),
-        ...(crashFacts?.limitFired ? { limitFired: crashFacts.limitFired } : {}),
-        ...(crashFacts?.limitRole ? { limitRole: crashFacts.limitRole } : {}),
-        ...(crashFacts?.degradations ? { degradations: crashFacts.degradations } : {}),
-        ...(crashFacts?.reviewRequired !== undefined ? { reviewRequired: crashFacts.reviewRequired } : {}),
-        ...(crashFacts?.timeBudget ? { timeBudget: crashFacts.timeBudget } : {}),
-        ...(crashFacts?.coverage ? { coverage: crashFacts.coverage } : {}),
-        ...(specs ? { specs } : {}),
-      }, record.id);
+      const crashed = withTurnLimits(runFactsOfCrash(err, reached, specs), record.id);
       trace.crashed(err, errorClass, crashed);
-      const note = refusal
-        ? `security refusal — the working copy's git dir is not the orchestrator's own, so no git ran: ${msg}`
-        : infra
-          ? msg
-          : `unexpected internal error (not infrastructure — investigate): ${msg}`;
       /* Where the run stood, stored with the final status, never apart from it. */
       const phases = reached?.furthestPhase ? serializablePhases({ furthestPhase: reached.furthestPhase, phaseTimings: reached.phaseTimings as Record<string, number> }) : undefined;
       getHistory().runs.updateRecord(record.id, { status: "done", step: "done", verdict: "infra-error", note, phases, facts: { traceId: trace.traceId(), ...recordedFacts(crashed) } });
       deps.runEvents?.publish(record.id, { type: "agent.error", detail: note });
       deps.runEvents?.publish(record.id, { type: "run.verdict", verdict: "infra-error", engineStatus: engineStatus("infra-error") });
-      appLogger.error(`[qa] run ${refusal ? "REFUSED (security refusal: untrusted git tree)" : infra ? "infra-error" : "CRASHED (internal error)"} ${req.app}@${req.sha}: ${msg}`);
+      appLogger.error(`[qa] run ${label} ${req.app}@${req.sha}: ${msg}`);
       /* The outcome row is what the graders and the value report read: it carries the same class the trace root and the metric just did. */
       getHistory().learning.saveCrashedRunOutcome(record, errorClass);
     }
@@ -730,9 +642,6 @@ function trackRun(req: RunRequest, deps: RunnerDeps, captureMode: CaptureMode, w
   return { id: record.id, execute };
 }
 
-/* The app commits whose context map this process has rebuilt (or tried to): a rebuild that failed is not repeated by every run at that commit. */
-const contextMapRebuilt = new Set<string>();
-
 /*
  * The context map a run grounds on must describe its commit. When the injected question says the app's map does not (missing,
  * marked stale, or a file it names changed since it was built), a context run at the run's sha executes first, in this run's queue
@@ -742,18 +651,16 @@ const contextMapRebuilt = new Set<string>();
  */
 async function rebuildContextMapFirst(req: RunRequest, runId: string, deps: RunnerDeps, signal: AbortSignal): Promise<void> {
   const needs = deps.contextMapNeedsRebuild;
-  if (!needs || decideRunFreeze(req).frozen || req.mode === "context" || req.purpose !== undefined || req.triggerRepo !== undefined || req.parentRunId !== undefined) return;
-  const key = `${req.app}@${req.sha}`;
-  if (contextMapRebuilt.has(key)) return;
+  if (!needs || !mayBePreceded(req, decideRunFreeze(req).frozen)) return;
+  if (prework.contextMapWasRebuilt(req.app, req.sha)) return;
   try {
     if (!(await needs(req.app, req.sha))) return;
   } catch (err) {
     appLogger.warn(`[qa] context map for ${req.app} not checked against ${req.sha.slice(0, 7)} (the run goes on with the stored map): ${err instanceof Error ? err.message : String(err)}`);
     return;
   }
-  contextMapRebuilt.add(key);
-  /* The run it serves holds the queue and has made no data yet: it is not an interrupted run to clean up after (previousNamespace ""). */
-  const rebuild = trackRun({ app: req.app, sha: req.sha, target: "e2e", mode: "context", source: "manual", trigger: "context", parentRunId: runId, previousNamespace: "" }, deps, capCaptureMode(req.captureMode, (deps.runConfig ?? UNKNOWN_RUN_CONFIG_ENV).maxCapture), `before ${runId}`, true);
+  prework.rebuiltContextMap(req.app, req.sha);
+  const rebuild = trackRun(contextMapRebuildRequest(req.app, req.sha, runId), deps, capCaptureMode(req.captureMode, (deps.runConfig ?? UNKNOWN_RUN_CONFIG_ENVIRONMENT).maxCapture), `before ${runId}`, true);
   appLogger.info(`[qa] context map for ${req.app} does not describe ${req.sha.slice(0, 7)}: rebuilding it in ${rebuild.id} before ${runId}`);
   await rebuild.execute(signal);
 }

@@ -8,7 +8,7 @@
  * A request's campaign labels are not an input here: they never decide any of this (section 14, "variant labels never change behaviour").
  * Whether the run is frozen is: the shell decides it from the request and hands it in, and the record says so.
  */
-import type { CaptureMode } from "@kernel/telemetry/capture-mode.ts";
+import { DEFAULT_CAPTURE_MODE, type CaptureMode } from "@kernel/telemetry/capture-mode.ts";
 import { resolveCoveragePolicy, type ChangeCoverageDeclaration } from "@contexts/objective-signal/application/index.ts";
 import { agentBrowserEnabled, closedLoopEnabled, serviceTopologyWired } from "../domain/run-config-gates.ts";
 import { resolveDomPack } from "../domain/run-policy.ts";
@@ -64,6 +64,9 @@ export interface RunConfigEnvironment {
   /* The server's ceiling on content capture (QA_TELEMETRY_MAX_CAPTURE): no run, whatever it asks, captures more. */
   maxCapture: CaptureMode;
 }
+
+/* What a run records of the process around it when the composition root gave none: nothing known, no tool grants. */
+export const UNKNOWN_RUN_CONFIG_ENVIRONMENT: RunConfigEnvironment = { runtime: () => null, staticPromptHash: () => null, toolsGranted: false, maxCapture: DEFAULT_CAPTURE_MODE };
 
 export function recordRunConfig(app: RunConfigDeclaration, request: RunConfigRequest, freeze: RunFreezeFact, captureMode: CaptureMode, env: RunConfigEnvironment): RecordedRunConfig {
   /* Same predicates as the composition's wiring (run-config-gates.ts). The tools also need the service token; otherwise the lever cannot take effect, whatever was asked. */
