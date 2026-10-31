@@ -70,14 +70,13 @@
     }
   },
   "staticLayers": {
-    "qa-author": 25780,
+    "qa-author": 26213,
     "qa-lead": 15279
   },
   "lastIncrease": {
-    "reason": "stubbed-response rule: the lead's needs-unavailable-state basis names the stubbed-test route",
+    "reason": "T38 (L63): the author is told a page its grounding reads as a confirmed empty state is DEV's data, never to be asserted as it loads",
     "budgets": [
-      "static:qa-author",
-      "static:qa-lead"
+      "static:qa-author"
     ]
   }
 }

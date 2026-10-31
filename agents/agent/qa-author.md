@@ -112,6 +112,11 @@ code decides on that flow: the outcome when it succeeds, and each other state th
 brought to through the UI against DEV. The diff shows those decisions. A state the change does not
 handle is not a case. One it handles but DEV cannot be brought to (the data or response it needs is
 not there and no UI step creates it) is covered only by a stubbed test, below.
+A data state your test did not produce is DEV's, not the change's: a page your grounding reads as a
+confirmed empty state has no data on DEV now. Never write a test whose assertions only read such a page
+as it loads; assert an empty state only as the result of a step the test takes (a filter it applies,
+data it removes), and reach the results the change handles at a declared place where the page has data,
+or with a stubbed test.
 When your task is a brief, each of its acceptance criteria is one behaviour the change decides: give it a
 test of its own in your spec, so a criterion that fails names its test.
 

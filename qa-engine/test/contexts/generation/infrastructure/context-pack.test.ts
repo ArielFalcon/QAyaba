@@ -2,7 +2,7 @@
 import { pageCandidate } from "../../../support/use-case-candidate.ts";
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildContextPack, deriveClaimsFromPackText, withoutPackSection, MAX_LISTED_UNCAPTURABLE, NODE_SAFETY_BOUND_REASON, PACK_HEADINGS, TEMPLATE_LEFT_OUT, packDeliveredItemIds, packProducedItemIds, type ContextPackAssembly, type ContextPackDeps } from "@contexts/generation/infrastructure/context-pack.ts";
+import { AMBIENT_EMPTY_STATE_NOTE, buildContextPack, deriveClaimsFromPackText, withoutPackSection, MAX_LISTED_UNCAPTURABLE, NODE_SAFETY_BOUND_REASON, PACK_HEADINGS, TEMPLATE_LEFT_OUT, packDeliveredItemIds, packProducedItemIds, type ContextPackAssembly, type ContextPackDeps } from "@contexts/generation/infrastructure/context-pack.ts";
 import { itemId } from "@kernel/context-item-ids.ts";
 import { countDirectives, hasTrustLanguage, type FactId, type PromptClaim } from "@contexts/generation/domain/prompt-contract-lint.ts";
 import { captureDomForRoutes, MAX_ROUTES, MAX_ROUTES_PER_CHANGE, REDIRECT_ADVISORY_INTRO, type CaptureDomDeps } from "@contexts/generation/infrastructure/dom-snapshot.ts";
@@ -830,6 +830,28 @@ test("a page whose empty state was confirmed says so, and is not called unconfir
   assert.ok(result.text?.includes("0 result(s)"));
   assert.ok(result.text?.includes("empty state confirmed"), "the confirmed empty state is stated");
   assert.ok(!result.text?.includes("data state not confirmed"));
+});
+
+test("a page whose empty state was confirmed is stated as DEV's data, not as an outcome to assert as it loads", async () => {
+  const deps: ContextPackDeps = {
+    captureDomForRoutes: async (_routes, input) => {
+      input.onPages?.([{ route: "/list", grounded: true, printed: true, links: [], dataState: true, resultExpected: true, resultCount: 0, emptyConfirmed: true, dataStateUnconfirmed: false, keptNodes: ["text: 0 resultados"], keptTestIds: [], testIdOfNode: new Map(), nodeCapOmitted: 0 }]);
+      return "route /list:\n  text: 0 resultados";
+    },
+    domDeps: stubDomDeps(undefined),
+    log: () => {},
+  };
+  const confirmed = await buildContextPack({ routes: ["/list"], baseUrl: "http://localhost:3000", e2eDir: "/fake/e2e" }, deps);
+  const line = confirmed.text?.split("\n").find((l) => l.startsWith("- /list:")) ?? "";
+  assert.ok(line.includes(AMBIENT_EMPTY_STATE_NOTE), "the confirmed empty page carries the note that it is DEV's data");
+  const withResults = await buildContextPack({ routes: ["/home"], baseUrl: "http://localhost:3000", e2eDir: "/fake/e2e" }, {
+    ...deps,
+    captureDomForRoutes: async (_routes, input) => {
+      input.onPages?.([{ route: "/home", grounded: true, printed: true, links: [], dataState: true, resultExpected: true, resultCount: 11, dataStateUnconfirmed: false, keptNodes: ["text: hi"], keptTestIds: [], testIdOfNode: new Map(), nodeCapOmitted: 0 }]);
+      return "route /home:\n  text: hi";
+    },
+  });
+  assert.equal(withResults.text?.includes(AMBIENT_EMPTY_STATE_NOTE), false, "a page with results carries no such note");
 });
 
 /* The pack is assembled elsewhere and reaches the prompt as a string, so its claims are derived from what it actually rendered. */
