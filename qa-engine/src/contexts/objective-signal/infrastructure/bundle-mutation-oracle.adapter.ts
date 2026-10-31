@@ -39,7 +39,7 @@ type RerunScope = { kind: "mutants" | "observations"; specFiles: readonly string
 /* The re-runs of one pass: whether the re-run `name` of `scope` may start (one that may not is counted as left out, by its kind), a re-run timed, so the next are estimated from it, and whether the run's deadline cut the re-run `name` that just ended (counted as left out: its result says nothing). */
 interface Reruns {
   fits(name: string, scope: RerunScope): boolean;
-  timed<T>(scope: RerunScope, run: () => Promise<T>): Promise<T>;
+  timed<T extends { verdict: string }>(scope: RerunScope, run: () => Promise<T>): Promise<T>;
   cut(name: string, scope: RerunScope): boolean;
 }
 
@@ -88,14 +88,13 @@ export class BundleMutationOracleAdapter implements BundleMutationPort {
         engineLog.warn(`[qa] mutation: the re-run ${name} is not started: it is estimated at ${estimate ?? "an unknown number of"} ms and the time left holds ${allowance} ms`);
         return false;
       },
+      /* Only a re-run that ran its tests says what a re-run costs: one that could not run, or threw, leaves the estimate as it was. */
       timed: async (scope, run) => {
         const started = this.now();
-        try {
-          return await run();
-        } finally {
-          const estimateMs = rawEstimate(scope);
-          if (estimateMs !== undefined && estimateMs > 0) measured = { wallMs: this.now() - started, estimateMs };
-        }
+        const result = await run();
+        const estimateMs = rawEstimate(scope);
+        if (result.verdict !== "infra-error" && estimateMs !== undefined && estimateMs > 0) measured = { wallMs: this.now() - started, estimateMs };
+        return result;
       },
       cut: (name, scope) => {
         if (budget?.fired?.() !== true) return false;

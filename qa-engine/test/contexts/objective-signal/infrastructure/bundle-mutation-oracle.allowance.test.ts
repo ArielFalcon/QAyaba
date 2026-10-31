@@ -97,3 +97,19 @@ test("once a re-run of the pass has run, the next ones are estimated from what i
   assert.deepEqual(namespaces, ["run-1-obs", "run-1-mut0"], "after the observation took 180 s, a 60 s test is estimated at 180 s, which the 140 s left cannot hold");
   assert.deepEqual(result?.leftOut, { mutants: 1, observations: 1, reason: RERUN_LEFT_OUT_FOR_TIME });
 });
+
+test("a re-run that could not run its tests says nothing of what a re-run costs: the next is estimated as before it", async () => {
+  /* The first mutant's re-run fails to start at once; the time left then drops below one test's time. */
+  const left = [100_000, 30_000];
+  const namespaces: string[] = [];
+  const run = async ({ namespace }: { namespace: string }) => {
+    namespaces.push(namespace);
+    return namespace.endsWith("-mut0") ? { verdict: "infra-error", cases: [] } : { verdict: "pass", cases: [{ name: TEST, status: "pass" as const, file: SPEC }] };
+  };
+  const oracle = new BundleMutationOracleAdapter(run, () => 1, "https://dev.example", () => 0);
+
+  const result = await oracle.measure([mutant(10), mutant(12)], "/e2e", "run-1", [TEST], { budget: { allowance: () => left.shift() ?? 0, cases: finalCases } });
+
+  assert.deepEqual(namespaces, ["run-1-mut0"], "the second mutant is still estimated at its test's 60 s, which 30 s cannot hold");
+  assert.deepEqual(result?.leftOut, { mutants: 1, observations: 0, reason: RERUN_LEFT_OUT_FOR_TIME });
+});
