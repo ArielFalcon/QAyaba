@@ -180,7 +180,7 @@ async function main(): Promise<void> {
       ...(args.closedLoop !== undefined ? { closedLoop: args.closedLoop } : {}),
       ...(args.agentBrowser !== undefined ? { agentBrowser: args.agentBrowser } : {}),
       ...groundingOf(args),
-    }, { runEvents, engineFactory: cliEngineFactory, telemetry: telemetry.telemetry, clock: telemetry.clock });
+    }, { loadApp: (name) => loadAppConfig(name), runEvents, engineFactory: cliEngineFactory, telemetry: telemetry.telemetry, clock: telemetry.clock });
     await queue.drain();
     record = getHistory().runs.getRecord(id);
     /*

@@ -9,7 +9,7 @@
 
 import { appLogger } from "../telemetry/redacting-logger";
 import { JobQueue } from "./queue";
-import { loadAppConfig, AppConfig } from "../composition/config-loader";
+import type { ValidatedAppConfig as AppConfig } from "@contexts/app-catalog/application/index";
 import { assertUniformCapture, CAMPAIGN_CAPTURE_MODE, requestedCaptureMode, specCountsOf } from "@contexts/evaluation/application/index";
 import { serializablePhases, type RunFactsPatch } from "../persistence/repositories/run.repository";
 import {
@@ -119,7 +119,8 @@ export interface RunnerDeps {
   afterRun?: (runId: string) => void | Promise<void>;
   /* The process-level facts a run's effectiveConfig records (agent runtime, static prompt hash, tool grants, switches). Absent: those are recorded as unknown. */
   runConfig?: RunConfigEnvironment;
-  loadApp?: (name: string) => AppConfig;  /* defaults to the real config loader */
+  /* The app's validated config by name; throws AppNotFoundError or AppConfigInvalidError (the composition root's config loader). */
+  loadApp: (name: string) => AppConfig;
   /* The change sets of queued runs: present, a webhook push of an app joins a run of that app still waiting in the queue (see pending-change-sets.ts). Absent: every push is a run of its own. */
   pendingChangeSets?: PendingChangeSets;
   runEvents?: RunEventStore;
@@ -320,7 +321,7 @@ function enqueueLoginBootstrapFirst(queue: JobQueue, req: RunRequest, deps: Runn
   if (!holds || !mayBePreceded(req, decideRunFreeze(req).frozen)) return;
   if (prework.loginBootstrapWasAsked(req.app)) return;
   try {
-    const app = (deps.loadApp ?? loadAppConfig)(req.app);
+    const app = deps.loadApp(req.app);
     if (!needsLoginBootstrap(app.auth !== undefined, () => holds(req.app))) return;
     const id = enqueueLoginBootstrapRun(queue, req.app, req.sha, deps);
     appLogger.info(`[qa] login bootstrap: ${req.app} declares a login and its suite store holds no verified one; queued ${id} ahead of this ${req.mode} run at ${req.sha.slice(0, 7)} (once per process; ask POST /api/apps/${req.app}/login-bootstrap to repeat it)`);
@@ -348,7 +349,7 @@ export function enqueueDoorRun(queue: JobQueue, trigger: "api" | "webhook", requ
   return enqueueTrackedRun(queue, { ...request, source: sourceOfTrigger(trigger), trigger }, deps);
 }
 
-export function enqueueTrackedRun(queue: JobQueue, req: RunRequest, deps: RunnerDeps = {}): string {
+export function enqueueTrackedRun(queue: JobQueue, req: RunRequest, deps: RunnerDeps): string {
   /* The capture a run gets is decided here, for every door: what it asked for, never above the server's ceiling. */
   const runConfigEnv = deps.runConfig ?? UNKNOWN_RUN_CONFIG_ENVIRONMENT;
   const captureMode = capCaptureMode(requestedCaptureMode(req), runConfigEnv.maxCapture);
@@ -372,7 +373,7 @@ export function enqueueTrackedRun(queue: JobQueue, req: RunRequest, deps: Runner
 function declaredRepos(req: RunRequest, deps: RunnerDeps): DeclaredRepos | undefined {
   if (!deps.pendingChangeSets || !isCoalescible(req)) return undefined;
   try {
-    const app = (deps.loadApp ?? loadAppConfig)(req.app);
+    const app = deps.loadApp(req.app);
     return declaredReposOf(req.app, app);
   } catch {
     return undefined;
@@ -406,7 +407,7 @@ function coalesceInto(req: RunRequest, declared: DeclaredRepos, deps: RunnerDeps
  * executes inside the turn of the run that needed it (rebuildContextMapFirst).
  */
 function trackRun(req: RunRequest, deps: RunnerDeps, captureMode: CaptureMode, where: string, insideRun = false): { id: string; execute: (signal: AbortSignal) => Promise<void> } {
-  const loadApp = deps.loadApp ?? loadAppConfig;
+  const loadApp = deps.loadApp;
   const runConfigEnv = deps.runConfig ?? UNKNOWN_RUN_CONFIG_ENVIRONMENT;
 
   /*

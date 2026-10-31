@@ -310,7 +310,7 @@ export function wireApp(settingsStore: SettingsStore): WiredApp {
   const pendingChangeSets = new PendingChangeSets();
 
   function runnerDeps(): RunnerDeps {
-    return { pendingChangeSets, runConfig: runConfigEnvironment, runEvents, engineFactory, telemetry: telemetry.telemetry, clock: telemetry.clock, afterRun, isOnboardingActive: () => onboardingJob.isActive(), suiteHoldsVerifiedLogin, contextMapNeedsRebuild };
+    return { loadApp: (name) => loadAppConfig(name), pendingChangeSets, runConfig: runConfigEnvironment, runEvents, engineFactory, telemetry: telemetry.telemetry, clock: telemetry.clock, afterRun, isOnboardingActive: () => onboardingJob.isActive(), suiteHoldsVerifiedLogin, contextMapNeedsRebuild };
   }
 
   /*
