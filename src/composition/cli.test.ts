@@ -1,6 +1,7 @@
 import { describe, it, mock } from "node:test";
 import assert from "node:assert/strict";
-import { parseArgs, delegateRunInput } from "./cli";
+import { parseArgs } from "./cli";
+import { delegateRunInput } from "../entrypoints/cli-args";
 const NOT_RUN_MODES = ["complete", "exhaustive", "nope", "DIFF"];
 
 describe("delegateRunInput", () => {

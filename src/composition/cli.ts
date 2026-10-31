@@ -21,14 +21,13 @@ import { enqueueTrackedRun } from "../entrypoints/runner";
 import { processTelemetry, TELEMETRY_SHUTDOWN_TIMEOUT_MS } from "./process-telemetry";
 import { createDurableRunEventStore } from "./durable-run-events";
 import { longestRunTimeBudgetMs } from "@contexts/run-orchestration/application/index";
-import { delegateRun, type DelegateRunInput, type DelegateRunResult } from "../entrypoints/run-delegate";
+import { delegateRun, type DelegateRunResult } from "../entrypoints/run-delegate";
 import { discoverApiToken } from "../settings/api-token";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { loadAppConfig } from "./config-loader";
-import { parseRunMode, RUN_MODES, type RunMode } from "../persistence/types";
 import { runSucceeded } from "../entrypoints/cli-exit";
-import type { GroundingInput } from "../entrypoints/contract/commands";
+import { delegateRunInput, groundingOf, parseCliArgs, type CliArgs } from "../entrypoints/cli-args";
 import { renderRunReport } from "../entrypoints/value-report";
 import { createAgentRuntimeManager } from "../agent-runtime/agent-runtime";
 import { defaultEnvStoreFs } from "../settings/env-store";
@@ -104,32 +103,7 @@ function cliApiToken(): string | undefined {
  * standalone CLI's contract (wait, report, exit with the verdict's code). The run executes IN the
  * server process, so the TUI streams it live and the single-queue invariant holds.
  */
-/** The run handed to the service. Carries --base-sha so the delegated run's diff spans the same range the standalone CLI and the webhook use. */
-export function delegateRunInput(
-  args: { app: string; sha: string; baseSha?: string; mode: RunMode; guidance?: string; closedLoop?: boolean; agentBrowser?: boolean; domPack?: boolean },
-): DelegateRunInput {
-  return {
-    app: args.app,
-    sha: args.sha,
-    ...(args.baseSha ? { baseSha: args.baseSha } : {}),
-    target: "e2e",
-    mode: args.mode,
-    guidance: args.guidance,
-    ...(args.closedLoop !== undefined ? { closedLoop: args.closedLoop } : {}),
-    ...(args.agentBrowser !== undefined ? { agentBrowser: args.agentBrowser } : {}),
-    ...groundingOf(args),
-  };
-}
-
-/** The run's own grounding choices (A/B arms), present only when one was given so the app's settings decide the rest. */
-function groundingOf(args: { domPack?: boolean }): { grounding?: GroundingInput } {
-  const grounding: GroundingInput = {
-    ...(args.domPack !== undefined ? { domPack: args.domPack } : {}),
-  };
-  return Object.keys(grounding).length > 0 ? { grounding } : {};
-}
-
-async function runViaService(args: { app: string; sha: string; baseSha?: string; mode: RunMode; guidance?: string; closedLoop?: boolean; agentBrowser?: boolean; domPack?: boolean }): Promise<void> {
+async function runViaService(args: CliArgs): Promise<void> {
   const port = cliSettings().server.port;
   const baseUrl = `http://localhost:${port}`;
   console.log("[qa] the service is running — delegating this run to it (one queue against DEV; watch it live in the TUI).");
@@ -259,51 +233,14 @@ function printRunReport(record: RunRecord, appCfg: ReturnType<typeof loadAppConf
   console.log("\n" + report + "\n");
 }
 
-/** Every flag the CLI reads; any other is refused rather than silently ignored. */
-const KNOWN_FLAGS: ReadonlySet<string> = new Set(["app", "sha", "base-sha", "mode", "guidance", "closed-loop", "agent-browser", "dom-pack"]);
-
-export function parseArgs(argv: string[]): { app: string; sha: string; baseSha?: string; mode: RunMode; guidance?: string; closedLoop?: boolean; agentBrowser?: boolean; domPack?: boolean } {
-  const out: Record<string, string> = {};
-  for (let i = 0; i < argv.length; i++) {
-    const key = argv[i]?.replace(/^--/, "");
-    if (key && !KNOWN_FLAGS.has(key)) {
-      console.error(`Unknown argument --${key}`);
-      process.exit(2);
-    }
-    if (key) out[key] = argv[i + 1] ?? "";
-    if (key) i++;  /* skip value */
-  }
-  if (!out.app || !out.sha) {
-    console.error(
-      `Usage: npm run qa -- --app <app> --sha <sha> [--base-sha <sha>] [--mode ${RUN_MODES.join("|")}] [--guidance "..."] [--closed-loop on|off] [--agent-browser on|off] [--dom-pack on|off]`,
-    );
+/* The command line as the process takes it: a refusal is printed with exit code 2, before anything is built. */
+export function parseArgs(argv: string[]): CliArgs {
+  const parsed = parseCliArgs(argv);
+  if (!parsed.ok) {
+    console.error(parsed.message);
     process.exit(2);
   }
-  const parsedMode = parseRunMode(out.mode);
-  if (!parsedMode.ok) {
-    console.error(`--mode ${parsedMode.error}`);
-    process.exit(2);
-  }
-  const mode = parsedMode.mode;
-  /* The run's own choice about the run_spec loop; absent unless given, so the app's setting decides. */
-  const closedLoop = out["closed-loop"] === "on" ? true : out["closed-loop"] === "off" ? false : undefined;
-  if (out["closed-loop"] !== undefined && closedLoop === undefined) {
-    console.error('--closed-loop takes "on" or "off"');
-    process.exit(2);
-  }
-  /* The run's own choice about the authenticated agent browser; absent unless given, so the app's setting decides. */
-  const agentBrowser = out["agent-browser"] === "on" ? true : out["agent-browser"] === "off" ? false : undefined;
-  if (out["agent-browser"] !== undefined && agentBrowser === undefined) {
-    console.error('--agent-browser takes "on" or "off"');
-    process.exit(2);
-  }
-  /* The run's own choice about the pre-generation context pack's live-DOM capture (an A/B arm); absent unless given, so the app's setting decides. */
-  const domPack = out["dom-pack"] === "on" ? true : out["dom-pack"] === "off" ? false : undefined;
-  if (out["dom-pack"] !== undefined && domPack === undefined) {
-    console.error('--dom-pack takes "on" or "off"');
-    process.exit(2);
-  }
-  return { app: out.app ?? "", sha: out.sha ?? "", baseSha: out["base-sha"] || undefined, mode, guidance: out.guidance, ...(closedLoop !== undefined ? { closedLoop } : {}), ...(agentBrowser !== undefined ? { agentBrowser } : {}), ...(domPack !== undefined ? { domPack } : {}) };
+  return parsed.args;
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
