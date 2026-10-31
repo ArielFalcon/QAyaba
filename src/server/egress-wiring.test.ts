@@ -27,6 +27,19 @@ test("the app's own origin is not repeated when it also declares it", () => {
   assert.deepEqual(origins.dev, ["https://dev.example.com"]);
 });
 
+test("a port in the app's URL stays in its origin, an unparsable or non-http base URL contributes none, and declared origins keep their order and are never repeated", () => {
+  assert.deepEqual(resolveRunOrigins({ dev: { baseUrl: "http://localhost:4200/x", allowedOrigins: ["https://a.example.com:8443", "https://b.example.com", "https://a.example.com:8443"] } }, REGISTRIES).dev, ["http://localhost:4200", "https://a.example.com:8443", "https://b.example.com"]);
+  assert.deepEqual(resolveRunOrigins({ dev: { baseUrl: "not a url", allowedOrigins: ["https://idp.example.com"] } }, REGISTRIES).dev, ["https://idp.example.com"]);
+  assert.deepEqual(resolveRunOrigins({ dev: { baseUrl: "ftp://files.example.com" } }, REGISTRIES).dev, []);
+});
+
+test("an install reaches the npm group only, the app's extra origins after it, and nothing twice; no npm group leaves only what the app declares", () => {
+  const both = resolveRunOrigins({ dev: { baseUrl: "https://dev.example.com" }, egress: { installOrigins: ["https://registry.npmjs.org", "https://mirror.example.com"] } }, REGISTRIES);
+  assert.deepEqual(both.install, ["https://registry.npmjs.org", "https://mirror.example.com"]);
+  assert.deepEqual(resolveRunOrigins({ dev: { baseUrl: "https://dev.example.com" } }, {}).install, []);
+  assert.deepEqual(resolveRunOrigins({ dev: { baseUrl: "https://dev.example.com" }, egress: { installOrigins: ["https://mirror.example.com"] } }, { maven: ["https://repo.maven.apache.org"] }).install, ["https://mirror.example.com"]);
+});
+
 test("registries are read from the groups file, and a malformed group is refused with its name", () => {
   const groups = loadRegistryGroups("/root", () => "npm:\n  - https://registry.npmjs.org\n");
   assert.deepEqual(groups, { npm: ["https://registry.npmjs.org"] });
