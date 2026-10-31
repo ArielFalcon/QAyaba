@@ -1,5 +1,5 @@
 /* Six-verdict policy in one pure function. Precedence is the safety property — reordering branches silently changes which side effect fires when more than one condition holds. Shadow never changes which branch wins, only whether that branch's issue/pr collapses to shadow-log.
-onFailure !== "github-issue" silences fail/invalid (no Issue, no PR). flaky → quarantine and infra-error → none are shadow-invariant. skipped is always silent. Pass-path: !generating → none; reviewer rejection or blocksPublish → issue (or shadow-log); shadow → shadow-log; else pr. */
+onFailure !== "github-issue" silences fail/invalid (no Issue, no PR). flaky → quarantine and infra-error → none are shadow-invariant. skipped is always silent. Pass-path: !generating → none; reviewer rejection → issue (or shadow-log); blocksPublish → held (shadow-invariant: it opens nothing); shadow → shadow-log; else pr. */
 
 import type { RunVerdict } from "@kernel/run-verdict.ts";
 import { RunDecision } from "./run-decision.ts";
@@ -43,7 +43,7 @@ export function decide(ev: RunEvidence): RunDecision {
     return reportDecision(ev.verdict, ev.onFailure, ev.shadow);
   }
 
-  /* Pass-path does not use the onFailure guard; reviewer-rejection and blocksPublish still fold shadow → shadow-log. */
+  /* Pass-path does not use the onFailure guard; a reviewer rejection still folds shadow → shadow-log. */
   if (!ev.generating) {
     return RunDecision.of("pass", "none");
   }
@@ -52,8 +52,9 @@ export function decide(ev: RunEvidence): RunDecision {
     return shadowed("pass", "issue", ev.shadow);
   }
 
+  /* The coverage gate holds the work in qayaba: nothing goes to the app's repository, so there is no PR or Issue for shadow to replace. */
   if (ev.blocksPublish) {
-    return shadowed("pass", "issue", ev.shadow);
+    return RunDecision.of("pass", "held");
   }
 
   return shadowed("pass", "pr", ev.shadow);

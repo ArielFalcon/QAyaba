@@ -24,7 +24,7 @@ import { scriptedGeneration } from "../../../../support/generation-output.ts";
 import { RIG_SPEC, scratchDir, type Rig } from "./run-end-rig.ts";
 import { fakeHandle, rootsOf } from "./fake-workspace.ts";
 
-export type Published = "none" | "pr" | "issue" | "quarantine" | "shadow-log";
+export type Published = "none" | "pr" | "issue" | "quarantine" | "held" | "shadow-log";
 
 export interface RunEndExpectation {
   verdict: string;
@@ -260,6 +260,6 @@ export const RUN_END_ROWS: readonly RunEndRow[] = [
   { id: "decided-pass-shadow", endReason: "decided", setup: (rig) => { rig.config = { ...rig.config, shadow: true }; }, expect: { verdict: "pass", errorClass: null, furthestPhase: "learn", persisted: true, published: "shadow-log", publishCalled: true } },
   { id: "decided-fail-issue", endReason: "decided", setup: (rig) => { rig.execute = async () => ({ verdict: "fail", cases: [{ name: "checkout", status: "fail" }], logs: "expect(received).toBe(expected)" }); }, expect: { verdict: "fail", errorClass: "E-EXEC-FAIL", furthestPhase: "learn", persisted: true, published: "issue", publishCalled: true } },
   { id: "decided-flaky-quarantine", endReason: "decided", setup: (rig) => { rig.execute = async () => ({ verdict: "flaky", cases: [{ name: "checkout", status: "flaky" }], logs: "" }); }, expect: { verdict: "flaky", errorClass: "E-FLAKY", furthestPhase: "learn", persisted: true, published: "quarantine", publishCalled: true } },
-  { id: "coverage-blocks-publish", endReason: "decided", setup: (rig) => { rig.config = { ...rig.config, coveragePolicyMode: "enforce" }; rig.measure = async () => ({ status: "fail", ratio: 0.2 }); rig.blocks = () => true; }, expect: { verdict: "pass", errorClass: "E-COVERAGE-GAP", furthestPhase: "learn", persisted: true, published: "issue", publishCalled: true } },
+  { id: "coverage-blocks-publish", endReason: "decided", setup: (rig) => { rig.config = { ...rig.config, coveragePolicyMode: "enforce" }; rig.measure = async () => ({ status: "fail", ratio: 0.2 }); rig.blocks = () => true; }, expect: { verdict: "pass", errorClass: "E-COVERAGE-GAP", furthestPhase: "learn", persisted: true, published: "held", publishCalled: true } },
   { id: "review-rejected", endReason: "decided", setup: (rig) => { rig.review = async () => ({ approved: false, findings: [{ text: "[blocking] asserts nothing", severity: "blocking" as const }], blockingCount: 1, parsed: true }); }, expect: { verdict: "pass", errorClass: "E-FALSE-POSITIVE", furthestPhase: "learn", persisted: true, published: "issue", publishCalled: true } },
 ];

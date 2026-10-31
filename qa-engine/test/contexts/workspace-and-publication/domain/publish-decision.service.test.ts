@@ -14,8 +14,14 @@ test("green + approved but no e2e changes → noop", () => {
 test("green but reviewer rejected → issue", () => {
   assert.equal(svc.decide({ ...base, verdict: "pass", reviewerApproved: false }).outcome, "issue");
 });
-test("green but coverage enforce-blocks → issue (PR held)", () => {
-  assert.equal(svc.decide({ ...base, verdict: "pass", coverageBlocks: true }).outcome, "issue");
+test("green but coverage enforce-blocks → held (nothing is opened in the app's repository)", () => {
+  assert.equal(svc.decide({ ...base, verdict: "pass", coverageBlocks: true }).outcome, "held");
+});
+test("a coverage block holds only an approved green run: a rejected one still opens its Issue, the other verdicts keep their outcome", () => {
+  assert.equal(svc.decide({ ...base, verdict: "pass", coverageBlocks: true, reviewerApproved: false }).outcome, "issue");
+  assert.equal(svc.decide({ ...base, verdict: "fail", coverageBlocks: true }).outcome, "issue");
+  assert.equal(svc.decide({ ...base, verdict: "flaky", coverageBlocks: true }).outcome, "quarantine");
+  assert.equal(svc.decide({ ...base, verdict: "infra-error", coverageBlocks: true }).outcome, "noop");
 });
 test("fail or invalid → issue", () => {
   assert.equal(svc.decide({ ...base, verdict: "fail" }).outcome, "issue");

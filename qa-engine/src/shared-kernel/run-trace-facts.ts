@@ -2,8 +2,8 @@
 
 import { isBindingLimit } from "@kernel/turn-limit.ts";
 
-/* What the run decided to do with its result: open a pull request, open an Issue, quarantine a flaky suite, or nothing. Whether shadow replaced the decision is the separate `shadowed` fact, never a value of this one. */
-export const RUN_DECISIONS = ["pr", "issue", "quarantine", "none"] as const;
+/* What the run decided to do with its result: open a pull request, open an Issue, quarantine a flaky suite, hold a green suite the change-coverage gate blocked (nothing is opened in the app's repository), or nothing. Whether shadow replaced the decision is the separate `shadowed` fact, never a value of this one. */
+export const RUN_DECISIONS = ["pr", "issue", "quarantine", "held", "none"] as const;
 export type RunDecisionOutcome = (typeof RUN_DECISIONS)[number];
 
 /* A limit that fired in the run. `scope` says who saw it: the engine at run level (the deadline that ended or degraded the run, the budget that ended generation) or the agent turns (a limit a turn ended on and the run went on past); `turns` counts them for the second. */

@@ -36,6 +36,13 @@ export interface PublicationPort {
      * genuine rejection (corrections already signal that).
      */
     reviewerNote?: string;
+    /** The change-coverage measurement behind a coverage block: the report a held run's PR text carries. Absent when the run measured none. */
+    coverageReport?: {
+      ratio: number | null;
+      minRatio?: number;
+      uncovered: ReadonlyArray<{ file: string; lines: readonly number[] }>;
+      untakenArms: ReadonlyArray<{ file: string; line: number; arm: string }>;
+    };
     /** The reviewer's missing cases (findings on arms of the changed code no test ran): shown in the PR or Issue, never a gate. */
     missingCases?: readonly string[];
     /** The routes the change made unavailable and the possible regressions: listed in the PR or Issue, never a gate. */
@@ -69,5 +76,10 @@ export interface PublicationPort {
      * gateSignals.confinement.dangerous — not every revert is a secret leak.
      */
     revertedDangerous?: string[];
+    /**
+     * The route of a run the coverage gate held: the title and the sanitized body the PR would have carried, with the coverage
+     * report. Nothing was opened in the repository; the run keeps this text. Absent on every other route.
+     */
+    held?: { title: string; body: string };
   }>;
 }

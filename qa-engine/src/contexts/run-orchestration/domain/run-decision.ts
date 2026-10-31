@@ -1,9 +1,9 @@
-/* RunVerdict paired with the SideEffect it triggers. "quarantine" names the flaky path even though it is silent at the deps-call level (no publish, no openIssue). Distinguishes flaky → quarantine from infra-error → none and no-op regression pass → none. "shadow-log" is what runs when shadow replaces a pull request or an Issue; the decision itself (`outcome`) is still the one it replaced, and `shadowed` says so apart from it. */
+/* RunVerdict paired with the SideEffect it triggers. "quarantine" names the flaky path even though it is silent at the deps-call level (no publish, no openIssue). "held" is a green, approved suite that the change-coverage gate blocked under enforce: no PR and no Issue are opened, the PR text with the coverage report is kept on the run, and the suite stays out of the store; like quarantine it opens nothing, so shadow has nothing to replace. Distinguishes flaky → quarantine from infra-error → none and no-op regression pass → none. "shadow-log" is what runs when shadow replaces a pull request or an Issue; the decision itself (`outcome`) is still the one it replaced, and `shadowed` says so apart from it. */
 
 import type { RunVerdict } from "@kernel/run-verdict.ts";
 import type { RunDecisionOutcome } from "@kernel/run-trace-facts.ts";
 
-export type SideEffect = "pr" | "issue" | "shadow-log" | "quarantine" | "none";
+export type SideEffect = "pr" | "issue" | "shadow-log" | "quarantine" | "held" | "none";
 
 export class RunDecision {
   private constructor(

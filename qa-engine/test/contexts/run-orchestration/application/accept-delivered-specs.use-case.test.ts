@@ -78,7 +78,7 @@ test("a coverage policy that blocks holds the specs back, as it holds a pull req
   const r = rig({ coverage: { status: "fail", ratio: 0.2 }, blocks: true });
   const report = await r.useCase.accept(INPUT);
   assert.equal(report.accepted, false);
-  assert.deepEqual(report.decision, { verdict: "pass", sideEffect: "issue" });
+  assert.deepEqual(report.decision, { verdict: "pass", sideEffect: "held" });
 });
 
 test("a coverage of unknown never blocks", async () => {

@@ -289,3 +289,25 @@ test("more data contradictions than the list holds are counted, not dropped sile
   assert.match(pr, /and \d+ more/);
   assert.equal(pr.includes('"k79"'), false);
 });
+
+test("renderPrBody: a held run carries the change-coverage report: the ratio against the threshold, the uncovered lines per file and the arms no test ran", () => {
+  const body = renderPrBody({ coverage: { ratio: 0.2, minRatio: 0.7, uncovered: [{ file: "src/cart.ts", lines: [10, 11, 12] }], untakenArms: [{ file: "src/cart.ts", line: 14, arm: "else" }] } });
+
+  assert.match(body, /Change coverage/);
+  assert.match(body, /0\.2/);
+  assert.match(body, /0\.7/);
+  assert.match(body, /`src\/cart\.ts`.*10/);
+  assert.match(body, /src\/cart\.ts:14/);
+  assert.match(body, /else/);
+});
+
+test("renderPrBody: without a coverage report the body has no coverage section", () => {
+  assert.doesNotMatch(renderPrBody({ sha: "abc1234" }), /Change coverage/);
+});
+
+test("renderPrBody: the coverage report is bounded: a long list of files and lines is cut and says how many it left out", () => {
+  const uncovered = Array.from({ length: 80 }, (_, i) => ({ file: `src/f${i}.ts`, lines: [1] }));
+  const body = renderPrBody({ coverage: { ratio: 0.1, uncovered, untakenArms: [] } });
+
+  assert.match(body, /30 more file\(s\) omitted/);
+});

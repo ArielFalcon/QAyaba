@@ -47,7 +47,7 @@ export interface RunPhasesPatch {
  */
 export interface RunFactsPatch {
   traceId?: string | null;
-  /* What the run decided (pr, issue, quarantine, none), never the shadow substitute; a row stored before the run recorded whether shadow replaced its decision reads as no decision with `shadowed` true. */
+  /* What the run decided (pr, issue, quarantine, held, none), never the shadow substitute; a row stored before the run recorded whether shadow replaced its decision reads as no decision with `shadowed` true. */
   decision?: string | null;
   /* Whether shadow replaced the decision; null for a run that did not record it (and was not stored as a shadow-log). */
   shadowed?: boolean | null;

@@ -28,8 +28,8 @@ test("RunDecision: accepts every RunVerdict value", () => {
   }
 });
 
-test("RunDecision: accepts every SideEffect value, including quarantine", () => {
-  const effects = ["pr", "issue", "shadow-log", "quarantine", "none"] as const;
+test("RunDecision: accepts every SideEffect value, including quarantine and held", () => {
+  const effects = ["pr", "issue", "shadow-log", "quarantine", "held", "none"] as const;
   for (const e of effects) {
     const decision = RunDecision.of("pass", e, "pr");
     assert.equal(decision.sideEffect, e);

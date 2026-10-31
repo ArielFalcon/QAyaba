@@ -1,4 +1,4 @@
-/* PublicationPort: injected decide collaborator owns the verdict → PR/Issue/shadow/quarantine/noop mapping; this adapter only dispatches. Duck-typed local interfaces — this file must not import workspace-and-publication (agent is read-only; only the orchestrator does git writes). */
+/* PublicationPort: injected decide collaborator owns the verdict → PR/Issue/shadow/quarantine/held/noop mapping; this adapter only dispatches. Duck-typed local interfaces — this file must not import workspace-and-publication (agent is read-only; only the orchestrator does git writes). */
 
 import { engineLog } from "@kernel/ports/process-logger.ts";
 import type { RouteAvailabilityFact } from "@kernel/route-availability.ts";
@@ -8,7 +8,7 @@ import type { QaCase } from "@kernel/qa-case.ts";
 import { SecretLeakError } from "@kernel/ports/redaction.port.ts";
 import type { PublicationPort } from "../../application/ports/publication.port.ts";
 import type { WorkspaceHandle } from "../../domain/workspace-handle.ts";
-import type { StubbedStateView } from "../../domain/render-publication.ts";
+import type { CoverageReportView, StubbedStateView } from "../../domain/render-publication.ts";
 import type { WorkspaceRegistry } from "./workspace-registry.ts";
 
 /* Local structural mirror of workspace-and-publication's PublishContext/PublishDecision (domain/publish-decision.service.ts) — duck-typed, NOT imported, per the security-boundary note. */
@@ -19,7 +19,7 @@ export interface PublishDecisionCollaborator {
     coverageBlocks: boolean;
     shadow: boolean;
     e2eChanged: boolean;
-  }): { outcome: "pr" | "issue" | "shadow" | "quarantine" | "noop"; reason: string };
+  }): { outcome: "pr" | "issue" | "shadow" | "quarantine" | "held" | "noop"; reason: string };
 }
 /* Local structural mirrors of GitHubPrPort / GitHubIssuePort / ShadowPublicationPort's own publish surface (workspace-and-publication/application/ports/) — duck-typed, NOT imported. */
 export interface GitHubPrCollaborator {
@@ -71,6 +71,7 @@ export interface PublicationRenderCollaborator {
     sha?: string;
     tested?: { flow?: string; objective?: string }[];
     parentRunId?: string;
+    coverage?: CoverageReportView;
     missingCases?: readonly string[];
     routeAvailability?: readonly RouteAvailabilityFact[];
     stubbedState?: StubbedStateView;
@@ -149,7 +150,8 @@ export class PublicationPortAdapter implements PublicationPort {
     routeAvailability?: readonly RouteAvailabilityFact[];
     stubbedState?: StubbedStateView;
     dataContradictions?: readonly DataContradiction[];
-  }): Promise<{ outcome: string; revertedDenylisted?: string[]; revertedDangerous?: string[] }> {
+    coverageReport?: CoverageReportView;
+  }): Promise<{ outcome: string; revertedDenylisted?: string[]; revertedDangerous?: string[]; held?: { title: string; body: string } }> {
     /* A handle this registry did not issue throws here, on every route, before anything is rendered or sent. */
     const workspace = decision.workspace ? this.registry.resolve(decision.workspace) : undefined;
     const publishDecision = this.deps.decide.decide({
@@ -179,12 +181,13 @@ export class PublicationPortAdapter implements PublicationPort {
           ...(decision.dataContradictions?.length ? { dataContradictions: decision.dataContradictions } : {}),
         }, sanitize),
       );
-    const prBodyText = (): string =>
+    const prBodyText = (coverage?: CoverageReportView): string =>
       sanitize(
         this.deps.render.prBody({
           ...(workspace ? { sha: workspace.sha } : {}),
           ...(decision.tested?.length ? { tested: decision.tested } : {}),
           ...(decision.parentRunId ? { parentRunId: decision.parentRunId } : {}),
+          ...(coverage ? { coverage } : {}),
           ...(decision.missingCases?.length ? { missingCases: decision.missingCases } : {}),
           ...(decision.routeAvailability?.length ? { routeAvailability: decision.routeAvailability } : {}),
           ...(decision.stubbedState ? { stubbedState: decision.stubbedState } : {}),
@@ -208,8 +211,8 @@ export class PublicationPortAdapter implements PublicationPort {
         } else if (underlying.outcome === "issue") {
           await this.deps.shadowLog.openIssue?.(issueRepo, title, issueBody());
         }
-        /* quarantine/noop suppressed side effects have nothing to preview — the reason says it all. */
-        return { outcome: `shadow: ${publishDecision.reason} (would: ${underlying.outcome})` };
+        /* quarantine/noop suppressed side effects have nothing to preview — the reason says it all. A held run opens nothing under shadow either, and keeps its text. */
+        return { outcome: `shadow: ${publishDecision.reason} (would: ${underlying.outcome})`, ...(underlying.outcome === "held" ? { held: { title, body: prBodyText(decision.coverageReport) } } : {}) };
       }
       case "pr": {
         /* Stage/commit/push generated tests to this.ctx.branch BEFORE opening the PR. Missing vcsWrite on this route throws — never open a PR against an unpushed branch. */
@@ -254,6 +257,9 @@ export class PublicationPortAdapter implements PublicationPort {
         const issue = await this.deps.issue.open(issueRepo, title, body);
         return { outcome: `issue: ${issue.url}` };
       }
+      case "held":
+        /* The gate holds the work in qayaba: no PR, no Issue, no git write. The text the PR would have carried, with the coverage report, goes back for the run to keep. */
+        return { outcome: `held: ${publishDecision.reason}`, held: { title, body: prBodyText(decision.coverageReport) } };
       case "quarantine":
         return { outcome: `quarantine: ${publishDecision.reason}` };
       case "noop":

@@ -1316,7 +1316,7 @@ test("coveragePolicyMode:\"signal\" (the default) NEVER blocks publish even when
    `${runId}-coverage-regen` namespace (Constraint 2's dump-attribution requirement).
  */
 
-test("enforce mode — first measure fails, regen fires, second measure ALSO fails — blocksPublish stays true (issue)", async () => {
+test("enforce mode — first measure fails, regen fires, second measure ALSO fails — blocksPublish stays true (held)", async () => {
   let measureCallCount = 0;
   const real = realCoverageWorkspace();
   try {
@@ -1335,7 +1335,7 @@ test("enforce mode — first measure fails, regen fires, second measure ALSO fai
     const out = await useCase.run({ ...baseInput, runId: "p2c-enforce-regen-still-fails" });
 
     assert.equal(out.decision.verdict, "pass");
-    assert.equal(out.decision.sideEffect, "issue", "enforce mode must hold the PR (route to issue) when the SECOND measure also fails");
+    assert.equal(out.decision.sideEffect, "held", "enforce mode must hold the PR (no PR, no Issue) when the SECOND measure also fails");
     assert.equal(measureCallCount, 2, "enforce+fail must regenerate exactly once, re-measuring exactly twice total (never a third)");
   } finally {
     real.cleanup();
@@ -1446,7 +1446,7 @@ test("enforce mode — the run deadline is spent during the coverage regeneratio
   const out = await useCase.run({ ...baseInput, runId: "enforce-regen-deadline" });
 
   assert.equal(out.decision.verdict, "pass", "the green run is not turned into a time-budget infra-error");
-  assert.equal(out.decision.sideEffect, "issue", "the first measurement's block holds");
+  assert.equal(out.decision.sideEffect, "held", "the first measurement's block holds");
   assert.equal(measureCallCount, 1);
 });
 
@@ -1470,7 +1470,7 @@ test("enforce mode — the regen produces ZERO specs — KEEPS the first measure
 
   const out = await useCase.run({ ...baseInput, runId: "p2c-enforce-regen-zero-specs" });
 
-  assert.equal(out.decision.sideEffect, "issue", "a regen with zero specs never re-measures — the first measurement's blocksPublish stands");
+  assert.equal(out.decision.sideEffect, "held", "a regen with zero specs never re-measures — the first measurement's blocksPublish stands");
   assert.equal(measureCallCount, 1, "zero regen specs must NOT trigger a second measure() call");
 });
 
@@ -8297,7 +8297,7 @@ test("intent lock in signal mode accepts a weakened regeneration and records the
     assert.equal(out.gateSignals.intent?.wouldReject, 1, "a weakened matcher in signal mode is recorded, not rejected");
     assert.equal(out.gateSignals.intent?.violations, 1);
     assert.deepEqual(saved?.gateSignals.intent, out.gateSignals.intent, "the persisted outcome records the same intent-lock signal the result carries");
-    assert.equal(out.decision.sideEffect, "issue", "the coverage policy still holds the PR; the intent lock did not decide it");
+    assert.equal(out.decision.sideEffect, "held", "the coverage policy still holds the PR; the intent lock did not decide it");
   } finally {
     real.cleanup();
   }

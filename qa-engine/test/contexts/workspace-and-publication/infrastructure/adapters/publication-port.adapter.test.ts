@@ -252,7 +252,7 @@ test("publish() prefers decision.coverageBlocks (dynamic) over ctx.coverageBlock
 
   const result = await adapter.publish({ verdict: "pass", cases: [], logs: "", coverageBlocks: true });
 
-  assert.match(result.outcome, /issue/, "a dynamic coverageBlocks:true must override the static ctx default and hold the PR");
+  assert.match(result.outcome, /^held/, "a dynamic coverageBlocks:true must override the static ctx default and hold the PR");
 });
 
 test("publish() prefers decision.e2eChanged (dynamic) over ctx.e2eChanged (static) when both are supplied", async () => {
@@ -953,4 +953,64 @@ test("publish() puts the data contradictions of the run's pages into the PR body
 
   assert.equal(bodies.length, 2);
   for (const body of bodies) assert.match(body, /Possible data contradictions[\s\S]*none carrying "category"/);
+});
+
+/* A coverage block under enforce holds the work in qayaba: nothing is written to the app's repository, and the text the PR would have carried, with the coverage report, is handed back for the run to keep. */
+
+function recordingAdapter(opts: { coverageBlocks: boolean; shadow?: boolean; sanitize?: (text: string) => string }) {
+  const calls: string[] = [];
+  const pr = { openWithAutoMerge: async () => { calls.push("pr"); return { url: "https://github.com/org/app/pull/1", number: 1 }; } };
+  const issue = { open: async () => { calls.push("issue"); return { url: "https://github.com/org/app/issues/5", number: 5 }; } };
+  const shadowLog = { openPr: async () => { calls.push("shadow-pr"); }, openIssue: async () => { calls.push("shadow-issue"); } };
+  const vcsWrite = { publish: async () => { calls.push("vcsWrite"); return { changed: true }; } };
+  const adapter = new PublicationPortAdapter(
+    { decide: new PublishDecisionService(), pr, issue, shadowLog, sanitize: opts.sanitize ?? identitySanitize, vcsWrite, render: realRender() },
+    { repo: "org/app", branch: "qa-bot/abc1234", reviewerApproved: true, coverageBlocks: opts.coverageBlocks, shadow: opts.shadow ?? false, e2eChanged: true },
+  );
+  return { adapter, calls };
+}
+
+const COVERAGE_REPORT = { ratio: 0.2, minRatio: 0.7, uncovered: [{ file: "src/cart.ts", lines: [10, 11, 12] }], untakenArms: [{ file: "src/cart.ts", line: 14, arm: "else" }] };
+
+test("publish() 'held' route: a coverage block opens no Issue and no PR, writes nothing to the repository, and returns the PR text with the coverage report", async () => {
+  const { adapter, calls } = recordingAdapter({ coverageBlocks: true });
+
+  const result = await adapter.publish({ verdict: "pass", cases: [], logs: "", workspace: handle(), coverageReport: COVERAGE_REPORT });
+
+  assert.match(result.outcome, /^held:/);
+  assert.deepEqual(calls, []);
+  assert.equal(result.held?.title, "qa-bot: pass run");
+  assert.match(result.held?.body ?? "", /src\/cart\.ts/);
+  assert.match(result.held?.body ?? "", /0\.2/);
+  assert.match(result.held?.body ?? "", /What this PR adds/);
+});
+
+test("publish() 'held' route: the kept text is sanitized like every body that leaves the system", async () => {
+  const { adapter } = recordingAdapter({ coverageBlocks: true, sanitize: (text) => text.replaceAll("src/cart.ts", "[redacted]") });
+
+  const result = await adapter.publish({ verdict: "pass", cases: [], logs: "", workspace: handle(), coverageReport: COVERAGE_REPORT });
+
+  assert.ok(result.held, "the held text is returned");
+  assert.doesNotMatch(result.held.body, /src\/cart\.ts/);
+  assert.match(result.held.body, /\[redacted\]/);
+});
+
+test("publish() without a coverage block is unchanged: pass opens its PR, fail its Issue, flaky is quarantined, and none of them keeps held text", async () => {
+  for (const [verdict, route] of [["pass", "pr"], ["fail", "issue"], ["flaky", undefined]] as const) {
+    const { adapter, calls } = recordingAdapter({ coverageBlocks: false });
+
+    const result = await adapter.publish({ verdict, cases: [], logs: "", workspace: handle(), coverageReport: COVERAGE_REPORT });
+
+    assert.equal(result.held, undefined, verdict);
+    assert.deepEqual(calls, route === "pr" ? ["vcsWrite", "pr"] : route === "issue" ? ["issue"] : [], verdict);
+  }
+});
+
+test("publish() under shadow with a coverage block opens nothing either and still hands the held text back", async () => {
+  const { adapter, calls } = recordingAdapter({ coverageBlocks: true, shadow: true });
+
+  const result = await adapter.publish({ verdict: "pass", cases: [], logs: "", workspace: handle(), coverageReport: COVERAGE_REPORT });
+
+  assert.deepEqual(calls, []);
+  assert.match(result.held?.body ?? "", /src\/cart\.ts/);
 });

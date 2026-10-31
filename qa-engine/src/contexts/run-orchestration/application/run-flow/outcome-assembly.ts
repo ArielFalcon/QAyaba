@@ -40,6 +40,7 @@ export interface OutcomeExtras {
   stubbedState?: RunOutcome["gateSignals"]["stubbedState"];
   dataContradictions?: RunOutcome["gateSignals"]["dataContradictions"];
   note?: string;
+  heldPublication?: RunOutcome["gateSignals"]["heldPublication"];
   preExecAmbiguityCatches?: number;
   deterministicSelectorBlocks?: number;
   catalogGateInWindow?: number;
@@ -147,6 +148,7 @@ export function toRunOutcome(
       ...(extra?.routeAvailability ? { routeAvailability: extra.routeAvailability } : {}),
       ...(extra?.stubbedState ? { stubbedState: extra.stubbedState } : {}),
       ...(extra?.dataContradictions ? { dataContradictions: extra.dataContradictions } : {}),
+      ...(extra?.heldPublication ? { heldPublication: extra.heldPublication } : {}),
       reviewerCorrections: extra?.reviewerCorrections ?? [],
       /* Conditional-spread: true undefined survives when no reviewer-unavailable rationale exists. */
       ...(extra?.reviewerRationale !== undefined ? { reviewerRationale: extra.reviewerRationale } : {}),

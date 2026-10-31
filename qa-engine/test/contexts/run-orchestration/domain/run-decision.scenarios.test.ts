@@ -11,7 +11,7 @@ interface ScenarioCase {
   evidence: RunEvidence;
   expectedVerdict: string;
   /* The harness's literal EXPECTED_SIDE_EFFECT/EXPECTED_SIDE_EFFECT_B2 value (deps-call-observable). */
-  expectedHarnessSideEffect: "pr" | "issue" | "shadow-log" | "none";
+  expectedHarnessSideEffect: "pr" | "issue" | "shadow-log" | "held" | "none";
 }
 
 /* ── Part 1: the 10 scenarios.ts goldens (GATE A) — mirrors EXPECTED_VERDICT/EXPECTED_SIDE_EFFECT
@@ -122,7 +122,7 @@ const goldenCasesB2: ScenarioCase[] = [
     scenario: "coverage-enforce-blocks",
     evidence: { verdict: "pass", generating: true, needsReview: true, reviewerApproved: true, blocksPublish: true, shadow: false, onFailure: "github-issue" },
     expectedVerdict: "pass",
-    expectedHarnessSideEffect: "issue",
+    expectedHarnessSideEffect: "held",
   },
   {
     /* covApp("enforce"); the second collectCoverage (after the improvement regen) reports full

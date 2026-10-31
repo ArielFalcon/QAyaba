@@ -126,7 +126,7 @@ export interface RunEvaluationEvidence {
   cancelled: boolean;
   verdict: string | null;
   errorClass: string | null;
-  /* What the run decided: "pr" | "issue" | "quarantine" | "none"; null when the run recorded none. Whether shadow replaced it is not part of it. */
+  /* What the run decided: "pr" | "issue" | "quarantine" | "held" | "none"; null when the run recorded none. Whether shadow replaced it is not part of it. */
   decision: string | null;
   /* The last pipeline phase the run entered (RUN_PHASES), null when it recorded none. */
   furthestPhase: string | null;

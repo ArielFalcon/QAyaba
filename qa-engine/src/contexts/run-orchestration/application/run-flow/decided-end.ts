@@ -100,15 +100,16 @@ export async function finalizeDecided(state: Readonly<RunState>, ctx: WorkspaceR
   const stubbed = stubbedStateOf(state, ctx);
   if (stubbed) recordStubbedState(ctx, stubbed);
 
-  let publishOutcome: string | undefined;
-  if (decidedOf(state).decision.sideEffect !== "none") publishOutcome = await publishDecision(state, ctx, stubbed);
+  let published: Published = {};
+  if (decidedOf(state).decision.sideEffect !== "none") published = await publishDecision(state, ctx, stubbed);
+  const publishOutcome = published.outcome;
 
   /* Once, after confinement and publish, so gc never races this run's git write. */
   await ctx.host.pruneMirror(ctx.workspace);
 
   /* What the run went on past is said on its record beside what publication came to. */
   const note = [...state.run.degradations.map((d) => d.note), ...(publishOutcome !== undefined ? [publishOutcome] : [])].join("; ") || undefined;
-  const persisted = await persistOutcome(state, ctx, note, stubbed);
+  const persisted = await persistOutcome(state, ctx, note, stubbed, published.held);
   if (persisted.mainlineOutcome) {
     ctx.trail.phases.enter("learn");
     await learnFromOutcome(state, ctx, persisted.mainlineOutcome);
@@ -196,7 +197,7 @@ async function keepAcceptedSuite(state: Readonly<RunState>, ctx: WorkspaceRunCon
  * blocksPublish ride along so a green-but-rejected run opens an Issue and an enforce coverage fail holds the PR. e2eChanged is
  * omitted (no computed source: do not fabricate). Cross-repo Issues file in triggerRepo; PRs still target the primary.
  */
-async function publishDecision(state: Readonly<RunState>, ctx: WorkspaceRunContext, stubbed: StubbedRecord | undefined): Promise<string | undefined> {
+async function publishDecision(state: Readonly<RunState>, ctx: WorkspaceRunContext, stubbed: StubbedRecord | undefined): Promise<Published> {
   const { deps, input, workspace, services } = ctx;
   const run = runOf(state);
   const { reviewerApproved } = state.review;
@@ -209,6 +210,8 @@ async function publishDecision(state: Readonly<RunState>, ctx: WorkspaceRunConte
       logs: run.logs,
       reviewerApproved,
       coverageBlocks: state.coverage.blocksPublish,
+      /* The measurement behind a coverage block, for the PR text a held run keeps. */
+      ...(state.coverage.blocksPublish ? { coverageReport: coverageReportOf(state, ctx.cfg.coverageMinRatio) } : {}),
       ...(input.triggerRepo ? { issueRepo: input.triggerRepo } : {}),
       /* Adjudication is absent when FixLoop never engaged: never fabricated. */
       ...(lastAdjudicatorVerdict ? { adjudication: lastAdjudicatorVerdict } : {}),
@@ -236,7 +239,7 @@ async function publishDecision(state: Readonly<RunState>, ctx: WorkspaceRunConte
     if (actionFor(failure, "publish").do !== "degrade") throw failure;
     engineLog.error(`[qa] ${failure.message}`);
     recordDegradation(state, { reason: "publication-failed", note: failure.message });
-    return undefined;
+    return {};
   }
   /*
    * Merge denylist reverts into gateSignals.confinement. Count only revertedDangerous toward dangerous: not every revert is a
@@ -249,7 +252,24 @@ async function publishDecision(state: Readonly<RunState>, ctx: WorkspaceRunConte
       reverted: [...published.revertedDenylisted],
     });
   }
-  return published.outcome;
+  return { outcome: published.outcome, ...(published.held ? { held: published.held } : {}) };
+}
+
+/* What publication came to: the outcome line the record carries and, for a run the coverage gate held, the text the PR would have carried. Empty when publication failed or was not asked. */
+interface Published {
+  outcome?: string;
+  held?: { title: string; body: string };
+}
+
+/* The change-coverage measurement the gate read, in the terms the PR text shows. */
+function coverageReportOf(state: Readonly<RunState>, minRatio: number | undefined) {
+  const { coverageRatio, uncovered, untakenArms } = state.coverage;
+  return {
+    ratio: coverageRatio,
+    ...(minRatio !== undefined ? { minRatio } : {}),
+    uncovered,
+    untakenArms: untakenArms.map((arm) => ({ file: arm.file, line: arm.line, arm: arm.arm })),
+  };
 }
 
 /* What persisting derived: the error class and closed-loop signal both the record and the result report, and the record itself (absent for a clean context pass). */
@@ -291,7 +311,7 @@ function sharedSignals(state: Readonly<RunState>, ctx: WorkspaceRunContext, loop
 }
 
 /* Derive the errorClass once for both the persisted outcome and the returned result. */
-async function persistOutcome(state: Readonly<RunState>, ctx: WorkspaceRunContext, publishOutcome: string | undefined, stubbed: StubbedRecord | undefined): Promise<Persisted> {
+async function persistOutcome(state: Readonly<RunState>, ctx: WorkspaceRunContext, publishOutcome: string | undefined, stubbed: StubbedRecord | undefined, held: Published["held"]): Promise<Persisted> {
   const { deps, services } = ctx;
   const { decision, isContextCleanPass } = decidedOf(state);
   const { retries, validation } = state.execution;
@@ -324,6 +344,8 @@ async function persistOutcome(state: Readonly<RunState>, ctx: WorkspaceRunContex
     ...(reviewerSignal !== undefined ? { reviewer: reviewerSignal } : {}),
     /* Publish outcome string, never fabricated when publish() was not called. */
     ...(publishOutcome !== undefined ? { note: publishOutcome } : {}),
+    /* The PR text with the coverage report of a run the gate held: nothing was opened, so the record is where it is kept. */
+    ...(held ? { heldPublication: held } : {}),
     /* Real pre-exec counters, not a hardcoded 0. */
     preExecAmbiguityCatches,
     deterministicSelectorBlocks: DETERMINISTIC_SELECTOR_BLOCKS,

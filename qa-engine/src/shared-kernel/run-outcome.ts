@@ -104,6 +104,8 @@ export interface RunOutcome {
     closedLoop?: ClosedLoopGateSignal;
     /* How the authoring agents used the authenticated browser this run: calls, requests the guard refused, sessions lost and renewed. Absent when the run did not grant it. Persist-only: it reads nothing back into a verdict. */
     agentBrowser?: AgentBrowserGateSignal;
+    /* The title and the sanitized body the PR would have carried, with the change-coverage report, of a run the coverage gate held (decision `held`): nothing was opened in the app's repository, so the record keeps the text. Absent for every other run. Persist-only: it reads nothing back into a verdict. */
+    heldPublication?: { title: string; body: string };
     /* How the run was coordinated: what became of the plan, how many flows were authored, delivered and left unfinished, and whether the lead took over. Absent for a run that did not coordinate (a code or context run). Persist-only: it reads nothing back into a verdict. */
     coordination?: CoordinationGateSignal;
     /* The reason a declared no-op named (`noop.kind` of its verdict, `unspecified` when it named none). Absent for a run that is not one. Persist-only: it reads nothing back into a verdict. */

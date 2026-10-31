@@ -686,7 +686,7 @@ export const RunDetailSchema = RunRecordSchema.extend({
    * run got past the validate phase; `passed` is null when valid is unknown or the cases cannot be tied to the specs.
    */
   specCounts: z.object({ generated: z.number().int().min(0), valid: z.number().int().min(0).nullable(), passed: z.number().int().min(0).nullable() }),
-  /* What the run decided: "pr" | "issue" | "quarantine" | "none". Null for a run that recorded none, and for a run stored before `shadowed` was a fact of its own whose decision shadow had replaced. */
+  /* What the run decided: "pr" | "issue" | "quarantine" | "held" | "none" ("held": the coverage gate blocked a green suite, nothing was opened). Null for a run that recorded none, and for a run stored before `shadowed` was a fact of its own whose decision shadow had replaced. */
   decision: z.string().nullable(),
   /* Whether shadow replaced the decision (nothing was opened); null for a run that did not record it. */
   shadowed: z.boolean().nullable(),

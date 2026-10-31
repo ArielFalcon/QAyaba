@@ -125,12 +125,28 @@ test("decide: pass + generating + needsReview + !reviewerApproved -> issue (revi
   assert.equal(decision.sideEffect, "issue");
 });
 
-test("decide: pass + generating + reviewer OK + blocksPublish -> issue (coverage gate holds the PR)", () => {
+test("decide: pass + generating + reviewer OK + blocksPublish -> held (the coverage gate holds the PR: no PR and no Issue)", () => {
   const decision = decide(
     baseEvidence({ verdict: "pass", generating: true, needsReview: true, reviewerApproved: true, blocksPublish: true }),
   );
   assert.equal(decision.verdict, "pass");
-  assert.equal(decision.sideEffect, "issue");
+  assert.equal(decision.sideEffect, "held");
+  assert.equal(decision.outcome, "held");
+  assert.equal(decision.shadowed, false);
+});
+
+test("decide: a coverage block holds only a pass that would have published: every other verdict keeps its own decision", () => {
+  for (const [ev, sideEffect] of [
+    [{ verdict: "fail" }, "issue"],
+    [{ verdict: "invalid" }, "issue"],
+    [{ verdict: "flaky" }, "quarantine"],
+    [{ verdict: "infra-error" }, "none"],
+    [{ verdict: "skipped" }, "none"],
+    [{ generating: false }, "none"],
+    [{ reviewerApproved: false }, "issue"],
+  ] as const) {
+    assert.equal(decide(baseEvidence({ ...ev, blocksPublish: true })).sideEffect, sideEffect, JSON.stringify(ev));
+  }
 });
 
 test("decide: pass + generating + reviewer OK + no coverage block + shadow -> shadow-log", () => {
@@ -186,11 +202,12 @@ test("decide: precedence — reviewer rejection wins over blocksPublish and shad
   assert.equal(decision.sideEffect, "shadow-log", "reviewer rejection (checked first in the else-if chain) must win over both blocksPublish and shadow's own branch — but the shadow flag still folds issue->shadow-log via issueOrShadow");
 });
 
-test("decide: precedence — blocksPublish wins over shadow's own branch (coverage gate is checked BEFORE the shadow branch) — shadow:true folds the outcome to shadow-log, not issue", () => {
+test("decide: precedence — blocksPublish wins over shadow's own branch (the coverage gate is checked BEFORE the shadow branch) — a held decision opens nothing, so shadow has nothing to replace", () => {
   const decision = decide(
     baseEvidence({ verdict: "pass", generating: true, needsReview: false, blocksPublish: true, shadow: true }),
   );
-  assert.equal(decision.sideEffect, "shadow-log", "blocksPublish (checked before the shadow branch in the else-if chain) must win over the shadow-log branch's OWN precedence slot — but the shadow flag still folds issue->shadow-log via issueOrShadow");
+  assert.equal(decision.sideEffect, "held");
+  assert.equal(decision.shadowed, false);
 });
 
 /* The decision in one vocabulary: what the run decided, and apart from it whether shadow replaced it. */
@@ -201,6 +218,7 @@ test("decide: a live decision is its own outcome and is not shadowed", () => {
     [{}, "pr"],
     [{ verdict: "flaky" }, "quarantine"],
     [{ verdict: "infra-error" }, "none"],
+    [{ blocksPublish: true }, "held"],
   ] as const) {
     const decision = decide(baseEvidence(ev));
     assert.equal(decision.outcome, outcome);
@@ -213,7 +231,6 @@ test("decide: shadow keeps what the run decided and says it replaced it", () => 
     [{ shadow: true }, "pr", "shadow-log"],
     [{ shadow: true, verdict: "fail" }, "issue", "shadow-log"],
     [{ shadow: true, reviewerApproved: false }, "issue", "shadow-log"],
-    [{ shadow: true, blocksPublish: true }, "issue", "shadow-log"],
   ];
   for (const [ev, outcome, sideEffect] of cases) {
     const decision = decide(baseEvidence(ev));
@@ -229,6 +246,7 @@ test("decide: shadow does not touch a decision that opens nothing", () => {
     [{ verdict: "infra-error" }, "none"],
     [{ verdict: "skipped" }, "none"],
     [{ generating: false }, "none"],
+    [{ blocksPublish: true }, "held"],
   ] as const) {
     const decision = decide(baseEvidence({ ...ev, shadow: true }));
     assert.equal(decision.outcome, outcome);

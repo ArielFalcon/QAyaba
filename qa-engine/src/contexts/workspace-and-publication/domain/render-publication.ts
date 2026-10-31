@@ -161,6 +161,37 @@ export interface RenderIssueInput {
   dataContradictions?: readonly DataContradiction[];
 }
 
+/* The change-coverage measurement of a run the gate held: the ratio against the threshold, the changed lines no test ran per file and the arms of the changed code no test took. */
+export interface CoverageReportView {
+  ratio: number | null;
+  minRatio?: number;
+  uncovered: ReadonlyArray<{ file: string; lines: readonly number[] }>;
+  untakenArms: ReadonlyArray<{ file: string; line: number; arm: string }>;
+}
+
+const MAX_COVERAGE_FILES = 50;
+const MAX_LINES_PER_FILE = 20;
+
+/* The coverage report as a section of its own: why the work was held and where the suite leaves the change unrun. Empty when there is no report. */
+function renderCoverageSection(report: CoverageReportView | undefined, bound: Bound): string {
+  if (!report) return "";
+  const ratio = report.ratio === null ? "not measured" : report.ratio.toFixed(2);
+  const against = report.minRatio !== undefined ? ` against the ${report.minRatio} the app enforces` : "";
+  const blocks: string[] = [`**Change coverage** — held, not published: the green suite executed ${ratio} of the change's code lines${against}. Nothing was opened in the repository.`];
+  const files = report.uncovered.slice(0, MAX_COVERAGE_FILES);
+  if (files.length > 0) {
+    const line = (f: CoverageReportView["uncovered"][number]): string => `- \`${bound(f.file, CAP_FLOW)}\`: ${f.lines.slice(0, MAX_LINES_PER_FILE).join(", ")}${f.lines.length > MAX_LINES_PER_FILE ? `, …(+${f.lines.length - MAX_LINES_PER_FILE})` : ""}`;
+    const cut = report.uncovered.length - files.length;
+    blocks.push(`Changed lines no test ran:\n${files.map(line).join("\n")}${cut > 0 ? `\n- …and ${cut} more file(s) omitted` : ""}`);
+  }
+  const arms = report.untakenArms.slice(0, MAX_ITEMS);
+  if (arms.length > 0) {
+    const cut = report.untakenArms.length - arms.length;
+    blocks.push(`Arms of the changed code no test took:\n${arms.map((a) => `- \`${bound(a.file, CAP_FLOW)}:${a.line}\` — ${bound(a.arm, CAP_NAME)}`).join("\n")}${cut > 0 ? `\n- …and ${cut} more arm(s) omitted` : ""}`);
+  }
+  return blocks.join("\n\n");
+}
+
 /* The reviewer's missing cases as a section of their own; empty when there are none. A record for the reader, never a gate. */
 function renderMissingCasesSection(missingCases: readonly string[] | undefined, bound: Bound): string {
   const shown = (missingCases ?? []).filter((text) => text.trim() !== "").slice(0, MAX_ITEMS);
@@ -258,6 +289,8 @@ export interface RenderPrBodyInput {
   sha?: string;
   tested?: TestedItem[];
   parentRunId?: string;
+  /* The change-coverage report of a run the gate held, shown first among the signals. Absent: no section. */
+  coverage?: CoverageReportView;
   /* The reviewer's missing cases: behaviours the change decides that no test runs. */
   missingCases?: readonly string[];
   /* The routes the change made unavailable and the possible regressions, from the run's availability classification. */
@@ -280,6 +313,8 @@ export function renderPrBody(input: RenderPrBodyInput, redact: (text: string) =>
 
   blocks.push("**Validation:** harness green (typecheck + lint + stable run against the live DEV) and approved by the independent reviewer.");
 
+  const coverage = renderCoverageSection(input.coverage, bound);
+  if (coverage) blocks.push(coverage);
   const missing = renderMissingCasesSection(input.missingCases, bound);
   if (missing) blocks.push(missing);
   const availability = renderAvailabilitySection(input.routeAvailability, bound);
