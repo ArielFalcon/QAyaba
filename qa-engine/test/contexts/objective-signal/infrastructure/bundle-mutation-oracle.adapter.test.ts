@@ -143,3 +143,19 @@ test("a mutant that names the tests that reached it hands them to the suite's mu
   assert.deepEqual(narrowed?.tests, ["flows-a-spec-ts-x"]);
   assert.equal(whole !== undefined && "tests" in whole, false);
 });
+
+test("a re-run the run's port says is not judged for a lost session is counted apart by that reason, never as a kill, and the pass goes on", async () => {
+  const answers = [
+    { verdict: "fail", cases: [fail("t")], notJudged: "session-lost" as const },
+    { verdict: "fail", cases: [fail("t")] },
+  ];
+  let i = 0;
+  const oracle = new BundleMutationOracleAdapter(undefined, () => 1, "https://dev.example");
+
+  const result = await oracle.measure([mutant(10), mutant(12)], "/e2e", "run-1", ["t"], { rerun: async () => answers[i++]! });
+
+  assert.equal(i, 2, "the next mutant still runs");
+  assert.equal(result?.applied, 1);
+  assert.equal(result?.killed, 1, "only the judged re-run kills");
+  assert.deepEqual(result?.notJudged, { "session-lost": 1 });
+});

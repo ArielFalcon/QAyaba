@@ -85,6 +85,7 @@ export const ATTRIBUTES = {
   "qayaba.mutation.mutants_left_out": int("Mutants of the mutation pass not re-run, so not judged, because the time left could not hold their estimate; absent when no re-run was left out."),
   "qayaba.mutation.observations_left_out": int("Unmutated observations of the mutation pass (the one before the mutants, the one after) not run because the time left could not hold their estimate, so the survivors are unobserved; absent when no re-run was left out."),
   "qayaba.mutation.unreadable": int("Mutants not judged because the counters of their re-run could not be read: unknown whether they reached a page; absent when none was."),
+  "qayaba.mutation.session_lost": int("Mutants not judged because their re-run met a session the app had ended and the run could not bring back for it; absent when none was."),
   "qayaba.mutation.survivors_routed": int("Surviving mutants a delivered spec's tests reached: each is sent, owned by that spec, in the run's one gap regeneration."),
   "qayaba.mutation.survivors_without_spec": int("Surviving mutants no spec was recorded as reaching: they are told to the lead without an owner."),
   "qayaba.mutation.survivors_moved": int("Surviving mutants whose mutation moved a request (method, origin, pathname) or a line of the accessible tree between the same tests run with and without it: the moved observable is in the finding the author gets. Absent when the survivors were not observed."),

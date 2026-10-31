@@ -13,14 +13,21 @@
  * the check showing the session it was just given gone again, is a lost session (`SessionLostError`): the app (or a spec that signs
  * out) ends every session within one execution, and neither execution judged the specs. A measuring execution is no judgment and is
  * never checked.
+ *
+ * Only an execution that judges the verdict (the verdict's, a fix-loop round or its triage, an acceptance, the enforce re-measure's
+ * judging run: purpose `suite`, `fix-retry` or `acceptance`) ends the run on a lost session. A signal execution that judges a spec
+ * for a signal only (a mutant's re-run, in the mutation pass, the enforce re-measure's pass or the survivor closure) is renewed and
+ * re-run the same way, but when its session is still gone, or could not be renewed, its result comes back `notJudged: session-lost`:
+ * the oracle counts it apart and judges nothing from it, and the run goes on (bundle mutation is a signal, never a gate). The next
+ * execution that judges the verdict meets the session as it is and decides.
  */
 
 import { kindOfPurpose, MAX_RECORDED_EXECUTIONS, recordOfExecution, type ExecutionRecord, type ExecutionsSignal } from "@kernel/execution-conditions.ts";
-import { purposeOfExecution } from "@kernel/exec-purpose.ts";
+import { purposeOfExecution, type ExecPurpose } from "@kernel/exec-purpose.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 import { engineLog } from "@kernel/ports/process-logger.ts";
 import { endedOnLoginWall, type ExecutionOpts, type ExecutionPort, type SessionCheck } from "@contexts/test-execution/application/index.ts";
-import { LoginRenewalError, SessionLostError } from "./failure-policy.ts";
+import { LoginRenewalError, SESSION_LOST, SessionLostError } from "./failure-policy.ts";
 
 type ExecutionResult = Awaited<ReturnType<ExecutionPort["execute"]>>;
 
@@ -50,6 +57,10 @@ const optsOf = (opts: AbortSignal | ExecutionOpts | undefined): ExecutionOpts =>
 
 /* An execution whose outcome is a judgment of the specs, by what it is for: the verdict's, the fix loop's, an acceptance, a mutant's re-run. */
 const judges = (opts: ExecutionOpts): boolean => kindOfPurpose(purposeOfExecution(opts)) === "judging";
+
+/* The purposes whose outcome is the verdict or decides what the verdict is made of: only they may end the run on a lost session. */
+const VERDICT_PURPOSES: ReadonlySet<ExecPurpose> = new Set(["suite", "fix-retry", "acceptance"]);
+const judgesVerdict = (opts: ExecutionOpts): boolean => VERDICT_PURPOSES.has(purposeOfExecution(opts));
 
 /* The failed cases that look like the login page: the question, never the answer. */
 const wallCases = (result: ExecutionResult): QaCase[] => (result.verdict === "pass" ? [] : result.cases.filter((c) => endedOnLoginWall([c])));
@@ -97,11 +108,21 @@ export function runExecutions(deps: RunExecutionsDeps = {}): RunExecutions {
           const guarded = guard !== undefined && signedInAt !== undefined && given.session === undefined && judges(given);
           const first = await run(specDir, opts);
           if (!guarded || !guard || (await lostIn(specDir, given, first))?.state !== "lost") return first;
+          /* A signal execution whose session stays gone is not judged; only one that judges the verdict ends the run. */
+          const notJudged = (result: ExecutionResult, why: string): ExecutionResult => {
+            engineLog.warn(`[qa] a ${purposeOfExecution(given)} execution is not judged: ${why}; the run goes on, and the next execution that judges the verdict meets the session as it is`);
+            return { ...result, notJudged: SESSION_LOST };
+          };
           const renewed = await guard.renew(specDir, given.signal);
-          if ("failed" in renewed) throw new LoginRenewalError(renewed.failed, renewed.preconditionFailed);
+          if ("failed" in renewed) {
+            if (judgesVerdict(given)) throw new LoginRenewalError(renewed.failed, renewed.preconditionFailed);
+            return notJudged(first, `the run's login could not renew the session it lost (${renewed.failed})`);
+          }
           const second = await run(specDir, opts);
           if ((await lostIn(specDir, given, second))?.state === "lost") {
-            throw new SessionLostError(`a ${purposeOfExecution(given)} execution met the login page twice, and the session the run had just signed in for the second was gone again`);
+            const why = `a ${purposeOfExecution(given)} execution met the login page twice, and the session the run had just signed in for the second was gone again`;
+            if (judgesVerdict(given)) throw new SessionLostError(why);
+            return notJudged(second, "the session the run had just signed in for its re-run was gone again");
           }
           return second;
         },

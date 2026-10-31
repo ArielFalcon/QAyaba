@@ -47,6 +47,7 @@ export interface SurvivedMutant { file: string; line: number; operator: string; 
 /* `survivorRuns` holds, in the order of `survived`, each survivor's mutant as it was run, so it can be applied again; it carries the served script's address and edit, and stays with the orchestrator. */
 /* `unreadable`: the mutants whose re-run left evidence that could not be read (so whether they reached a page is not known), not judged and counted apart from a mutant that reached no page; absent when none was. `leftOut`: the re-runs not started because the time left could not hold them; absent when none was. */
 export interface BundleMutationResult { applied: number; killed: number; survived: SurvivedMutant[]; proofs?: MutantProof[]; survivorRuns?: MutantRun[]; unreadable?: number; leftOut?: RerunsLeftOut; notJudged?: MutantsNotJudged; }
-/* The mutants not judged, by why: `baseline-not-green-under-measurement`, every test that reached it failed under the measurement it is judged against, so no pass under the same conditions can be lost (RFC-0015). */
+/* The mutants not judged, by why: `baseline-not-green-under-measurement`, every test that reached it failed under the measurement it is judged against, so no pass under the same conditions can be lost (RFC-0015); `session-lost`, its re-run met a session the app had ended and the run could not bring back for it, so its failures say nothing of the tests. */
 export const NOT_GREEN_UNDER_MEASUREMENT = "baseline-not-green-under-measurement";
-export type MutantsNotJudged = Partial<Record<typeof NOT_GREEN_UNDER_MEASUREMENT, number>>;
+export const SESSION_LOST_IN_RERUN = "session-lost";
+export type MutantsNotJudged = Partial<Record<typeof NOT_GREEN_UNDER_MEASUREMENT | typeof SESSION_LOST_IN_RERUN, number>>;

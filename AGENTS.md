@@ -1063,8 +1063,14 @@ that catches nothing. The objective signal that breaks the circle is **change-co
   `infra-error E-PRECONDITION` with the adjudication reason `session-lost` (recorded, never learned from, no Issue): the app, or a
   spec that signs out, ends every session within one execution. A run with no session check (no authenticated-browser wiring)
   judges every result as it ran. Every execution of the run goes through the run's execution port (the guard and the record), the
-  mutation pass's re-runs included: the oracle has no runner of its own (`MutantRerun`). `gateSignals.executions.sessionChecks
-  { lost, held, unknown }` counts the checks.
+  mutation pass's re-runs included: the oracle has no runner of its own (`MutantRerun`). Only an execution that judges the verdict
+  (purpose `suite`, `fix-retry` or `acceptance`: the verdict's, the fix loop's rounds and triage, the acceptances, the enforce
+  re-measure's judging run) ends the run on a lost session or a renewal that fails. A mutant's re-run (the mutation pass, the enforce
+  re-measure's pass and the survivor closure alike) is renewed and re-run the same way, but when its session stays gone, or cannot be
+  renewed, the port answers it `notJudged: session-lost`: the oracle judges nothing from it, counts it in
+  `bundleMutation.notJudged["session-lost"]` (`survivorClosure.notJudged` for the closure, span `qayaba.mutation.session_lost`) and
+  the run goes on, since bundle mutation is a signal, never a gate. `gateSignals.executions.sessionChecks { lost, held, unknown }`
+  counts the checks.
 - `qa.changeCoverage.mode`: `off` | `signal` (default, record only) | `enforce` (gate);
   `minRatio` default `0.7`.
 - `DecideCoverageService.blocks(status)` is the single source of truth for blocking.
