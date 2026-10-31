@@ -1,4 +1,4 @@
-/* The composition root's wiring of the egress filter: which origins a run's children may reach, and the one process-wide controller that enforces them. The origins are data (the app's config and config/egress/registries.yaml); the controller is built once per process, because the proxy listeners and the kernel rules it brings up belong to the process, not to a run. */
+/* The composition root's wiring of the egress filter: the registries file it reads, the hands-in of the origins a run's children may reach (the engine's test-execution context decides them) and the one process-wide controller that enforces them. The origins are data (the app's config and config/egress/registries.yaml); the controller is built once per process, because the proxy listeners and the kernel rules it brings up belong to the process, not to a run. */
 
 import { appLogger } from "../integrations/redacting-logger";
 import { readFileSync } from "node:fs";
@@ -6,12 +6,13 @@ import { join } from "node:path";
 import { parse } from "yaml";
 import { DnsFilter } from "../../qa-engine/src/shared-infrastructure/egress/dns-filter";
 import { EgressController } from "../../qa-engine/src/shared-infrastructure/egress/egress-controller";
-import { compileEgressPolicy, originOf } from "../../qa-engine/src/shared-kernel/egress-policy";
+import { compileEgressPolicy } from "../../qa-engine/src/shared-kernel/egress-policy";
+import { installOriginsOf, resolveRunOrigins, type RegistryGroups } from "@contexts/test-execution/application/index";
 import { createIptablesApplier } from "../../qa-engine/src/shared-infrastructure/egress/iptables-runner";
 import { TransparentProxy } from "../../qa-engine/src/shared-infrastructure/egress/transparent-proxy";
 import type { EgressGate } from "../../qa-engine/src/shared-infrastructure/process-sandbox/exec-sandbox";
 import type { Sandbox } from "../../qa-engine/src/shared-infrastructure/process-sandbox/sandbox";
-import { loadAppConfig, type AppConfig } from "../orchestrator/config-loader";
+import { loadAppConfig } from "../orchestrator/config-loader";
 import { qayabaRoot } from "../paths";
 import { forwardDnsQuery } from "./dns-forward";
 
@@ -24,8 +25,6 @@ export function resolveEgressMode(env: NodeJS.ProcessEnv): EgressMode {
   if (raw === "enforce" || raw === "warn") return raw;
   throw new Error(`QA_EGRESS_MODE must be "enforce" or "warn", got ${JSON.stringify(raw)}`);
 }
-
-export type RegistryGroups = Readonly<Record<string, readonly string[]>>;
 
 /* config/egress/registries.yaml: group name to origins. A group that is not a list of strings is a configuration error, said with its name. */
 let warnedNoRegistries = false;
@@ -52,33 +51,6 @@ export function loadRegistryGroups(root: string, read: (path: string) => string 
     groups[name] = origins;
   }
   return groups;
-}
-
-export interface RunEgressOrigins {
-  dev: string[];
-  install: string[];
-}
-
-const unique = (origins: readonly string[]): string[] => [...new Set(origins)];
-
-/* What a run's children may reach: a suite or a login reaches the app's own origin and the origins it declares; an install reaches the npm registries and the app's own extra ones. */
-export function resolveRunOrigins(app: Pick<AppConfig, "dev" | "egress">, registries: RegistryGroups): RunEgressOrigins {
-  const own = originOf(app.dev.baseUrl);
-  const dev = unique([...(own ? [own] : []), ...(app.dev.allowedOrigins ?? [])]);
-  return { dev, install: installOriginsOf(app.egress, registries) };
-}
-
-/* An install reaches the npm registries and the extra origins an app declares for it. */
-function installOriginsOf(egress: AppConfig["egress"], registries: RegistryGroups): string[] {
-  return unique([...(registries["npm"] ?? []), ...(egress?.installOrigins ?? [])]);
-}
-
-/* Whether a host is one the app leaves blocked on purpose (dev.blockedOrigins). Only the name is matched: the filter refuses by name, and a refusal carries no scheme or port. */
-export function blockedHostMatcher(app: Pick<AppConfig, "dev">): (host: string) => boolean {
-  const blocked = app.dev.blockedOrigins;
-  if (!blocked || blocked.length === 0) return () => false;
-  const policy = compileEgressPolicy(blocked);
-  return (host) => policy.allowsName(host);
 }
 
 let shared: { gate: EgressController | undefined; key: string } | undefined;

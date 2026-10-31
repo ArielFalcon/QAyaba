@@ -31,3 +31,7 @@ export { detectStubbedState } from "../domain/stubbed-state.ts";
 export type { SpecText, StubbedStateReport, StubbedTest, StubbedViolation, StubbedViolationKind } from "../domain/stubbed-state.ts";
 export { MAX_PLANNED_CASES, planReport } from "../domain/playwright-report-plan.ts";
 export type { BrowserLauncherPort, SessionMaterial } from "../domain/playwright-types.ts";
+export { blockedHostMatcher, installOriginsOf, resolveRunOrigins } from "../domain/run-egress-origins.ts";
+export type { RegistryGroups, RunEgressDeclaration, RunEgressOrigins } from "../domain/run-egress-origins.ts";
+export { suiteAccountFor } from "../domain/suite-account.ts";
+export type { SuiteAccountDeclaration } from "../domain/suite-account.ts";

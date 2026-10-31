@@ -59,7 +59,8 @@ async function main(): Promise<number> {
 
   const { resolveCodeSandbox, buildSetupAdapter } = await import("../src/server/run-engine-factory.ts");
   const { buildExecWiring } = await import("../src/server/exec-sandbox-factory.ts");
-  const { egressGateFor, loadRegistryGroups, resolveRunOrigins } = await import("../src/server/egress-wiring.ts");
+  const { egressGateFor, loadRegistryGroups } = await import("../src/server/egress-wiring.ts");
+  const { resolveRunOrigins } = await import("@contexts/test-execution/application/index.ts");
   const { qayabaRoot } = await import("../src/paths.ts");
   const { workdirRoot } = await import("../src/integrations/repo-mirror.ts");
   const { runE2E, createDefaultE2eExecuteDeps, e2eTimeoutMs } = await import("../qa-engine/src/contexts/test-execution/infrastructure/e2e-execution.runner.ts");

@@ -109,14 +109,3 @@ export function buildScriptExec(env: NodeJS.ProcessEnv, sandbox: Sandbox | null,
     },
   };
 }
-
-/* The account an opted-in app's specs may log in with: the one its auth declaration names, else the conventional DEV_TEST_USER / DEV_TEST_PASS. None when the app did not opt in, or the environment holds no such account. */
-export function suiteAccountFor(
-  app: { e2e?: { specCredentials?: "none" | "account" | undefined } | undefined; auth?: { usernameEnv?: string | undefined; passwordEnv?: string | undefined } | undefined },
-  env: NodeJS.ProcessEnv,
-): { user: string; pass: string } | undefined {
-  if (app.e2e?.specCredentials !== "account") return undefined;
-  const user = env[app.auth?.usernameEnv ?? "DEV_TEST_USER"];
-  const pass = env[app.auth?.passwordEnv ?? "DEV_TEST_PASS"];
-  return user && pass ? { user, pass } : undefined;
-}

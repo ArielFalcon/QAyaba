@@ -134,8 +134,9 @@ import {
 import { resolveSandbox, openInstallTree, sealInstallTree, type Sandbox } from "../../qa-engine/src/shared-infrastructure/process-sandbox/sandbox";
 import type { ExecSandboxPort } from "../../qa-engine/src/shared-infrastructure/process-sandbox/exec-sandbox";
 import { createExecBinaryRunner } from "../../qa-engine/src/shared-infrastructure/process-sandbox/exec-binary-runner";
-import { buildExecWiring, suiteAccountFor } from "./exec-sandbox-factory";
-import { blockedHostMatcher, egressGateFor, loadRegistryGroups, resolveRunOrigins } from "./egress-wiring";
+import { buildExecWiring } from "./exec-sandbox-factory";
+import { egressGateFor, loadRegistryGroups } from "./egress-wiring";
+import { blockedHostMatcher, resolveRunOrigins, suiteAccountFor } from "@contexts/test-execution/application/index";
 import { setSandboxGroup } from "../../qa-engine/src/shared-infrastructure/process-sandbox/git-hardening";
 import type { EffectiveConfig, GroundingInput } from "../contract/commands";
 import { requireEnv } from "../util/env";
