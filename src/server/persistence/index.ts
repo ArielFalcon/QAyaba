@@ -47,8 +47,13 @@ export function createHistory(db: HistoryDatabase): History {
  * The process's history database, opened and migrated on first use at HISTORY_DB_PATH (default `<data>/qayaba.db`). Opening never
  * prunes: retention is `pruneHistory`, run by the caller.
  */
+/* Where the process's history database lives. */
+export function historyDatabasePath(): string {
+  return activeSettings().paths.historyDbPath ?? join(qayabaDataDir(), "qayaba.db");
+}
+
 export function getHistoryDatabase(): HistoryDatabase {
-  shared ??= openHistoryDatabase(activeSettings().paths.historyDbPath ?? join(qayabaDataDir(), "qayaba.db"));
+  shared ??= openHistoryDatabase(historyDatabasePath());
   return shared;
 }
 

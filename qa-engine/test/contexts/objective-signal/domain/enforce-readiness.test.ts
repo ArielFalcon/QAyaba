@@ -90,3 +90,13 @@ test("untrusted replicates of an unknown commit never qualify: a run that record
   assert.equal(out[0]!.qualifies, false);
   assert.deepEqual(out[0]!.cases[0]!.last?.reasons, ["no-engine-version"]);
 });
+
+test("a case that qualified at an older qayaba commit does not qualify the app once a newer commit ran", () => {
+  const old = series(REQUIRED_CONSECUTIVE_REPLICATES, { caseKey: "camp-old", engineVersion: "v1" });
+  const stale = replicate({ caseKey: "camp-new", engineVersion: "v2", gateSignals: { ...TRUSTED, coverage: { stale: true } } });
+  const out = enforceReadiness([...old, stale]);
+
+  assert.equal(out[0]!.engineVersion, "v2");
+  assert.equal(out[0]!.qualifies, false);
+  assert.equal(out[0]!.cases.find((c) => c.caseKey === "camp-old")!.qualifies, true, "the case itself still says what it reached at its commit");
+});

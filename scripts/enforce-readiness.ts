@@ -8,6 +8,7 @@
  * and moves no app. A replicate that fails the trust test, or a new qayaba commit, restarts the count. Moving an app to `enforce`
  * stays the owner's act on its configuration; the engine refuses nothing.
  */
+import { existsSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import { REQUIRED_CONSECUTIVE_REPLICATES, enforceReadiness, type AppReadiness, type Replicate } from "../qa-engine/src/contexts/objective-signal/application/index.ts";
 import type { CampaignReplicateRow } from "../src/server/persistence/repositories/run.repository.ts";
@@ -51,7 +52,7 @@ export function replicateOf(row: CampaignReplicateRow): Replicate {
 }
 
 function linesOf(app: AppReadiness): string[] {
-  const lines = [`${app.app}  ${app.qualifies ? "QUALIFIES" : "does not qualify"}`];
+  const lines = [`${app.app}  ${app.qualifies ? "QUALIFIES" : "does not qualify"} at ${app.engineVersion ?? "an unknown commit"}`];
   for (const c of app.cases) {
     const why = c.last ? `; latest ${c.last.runId}: ${c.last.reasons.join(", ")}` : "";
     lines.push(`  ${c.caseKey}  ${c.consecutive} of ${REQUIRED_CONSECUTIVE_REPLICATES} consecutive at ${c.engineVersion ?? "an unknown commit"} (${c.replicates} replicate(s))${why}`);
@@ -78,7 +79,9 @@ export async function main(argv: readonly string[], deps: ReadinessDeps): Promis
 
 /** The run history of the orchestrator container, imported lazily so a test that injects its own never opens it. */
 export async function defaultDeps(): Promise<ReadinessDeps> {
-  const { getHistory } = await import("../src/server/persistence/index.ts");
+  const { getHistory, historyDatabasePath } = await import("../src/server/persistence/index.ts");
+  /* Opening a history creates and migrates one that is not there: a read-only check refuses a missing one instead. */
+  if (!existsSync(historyDatabasePath())) throw new Error(`no run history at ${historyDatabasePath()}`);
   return { replicates: (opts) => getHistory().runs.listCampaignReplicates(opts), out: (line) => console.log(line) };
 }
 

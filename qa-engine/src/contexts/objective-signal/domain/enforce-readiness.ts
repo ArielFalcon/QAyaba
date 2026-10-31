@@ -1,7 +1,8 @@
 /*
  * When an app can move to change-coverage `enforce` (ADR-0005): three consecutive replicates of one campaign case, at one qayaba
  * commit, each with a trustworthy measurement and bundle mutation on. A replicate that fails the trust test, or a replicate at
- * another commit, restarts the count. Pure: it reads only facts the run recorded (`gateSignals`), invents no reason, and moves no
+ * another commit, restarts the count, and a case counts only at the commit of the app's latest replicate (a new qayaba commit
+ * restarts every case). Pure: it reads only facts the run recorded (`gateSignals`), invents no reason, and moves no
  * app; moving an app stays the owner's act on its configuration.
  */
 
@@ -64,7 +65,9 @@ export interface CaseReadiness {
 
 export interface AppReadiness {
   app: string;
-  /* True when any one case qualifies. */
+  /* The commit of the app's latest replicate: a new qayaba commit restarts every count, so only a case at it can qualify. */
+  engineVersion: string | null;
+  /* True when a case at `engineVersion` qualifies. */
   qualifies: boolean;
   cases: CaseReadiness[];
 }
@@ -97,7 +100,9 @@ export function enforceReadiness(replicates: readonly Replicate[]): AppReadiness
     apps.set(each.app, cases);
   }
   return [...apps.keys()].sort().map((app) => {
-    const cases = [...apps.get(app)!].map(([caseKey, own]) => caseReadiness(caseKey, own));
-    return { app, qualifies: cases.some((c) => c.qualifies), cases };
+    const own = [...apps.get(app)!];
+    const cases = own.map(([caseKey, each]) => caseReadiness(caseKey, each));
+    const engineVersion = replicates.filter((each) => each.app === app).at(-1)!.engineVersion;
+    return { app, engineVersion, qualifies: cases.some((c) => c.qualifies && c.engineVersion === engineVersion), cases };
   });
 }

@@ -593,7 +593,10 @@ export async function remeasureStaleCoverage(state: Readonly<RunState>, ctx: Wor
     const finalNamespace = `${input.runId}-coverage-final`;
     const measuredRun = await deps.execution.execute(workspace.specDir, { ...liveExecutionOptions(ctx), namespace: finalNamespace });
     /* A flaky run was unstable in this run, and that verdict stands: a final execution changes neither its verdict nor its cases, so it stays quarantined. One that ran green, even first time, measures the bytes; one that ran red measures nothing and the measurement the run keeps is marked stale. The coverage block applies to the decision, never by replacing the verdict. */
-    if (run.verdict === "flaky" && !hasGreenBytes(measuredRun.verdict)) return { update: { coverage: { ...state.coverage, coverageStale: true } } };
+    if (run.verdict === "flaky" && !hasGreenBytes(measuredRun.verdict)) {
+      engineLog.warn(`[qa] coverage re-measure: the final execution of a flaky run ended ${measuredRun.verdict}; the flaky verdict stands and the kept measurement is marked stale.`);
+      return { update: { coverage: { ...state.coverage, coverageStale: true } } };
+    }
     const flakyStands = run.verdict === "flaky";
     const finalRun = flakyStands ? run : { verdict: measuredRun.verdict, cases: measuredRun.cases, logs: run.logs };
     if (measuredRun.verdict !== "pass" && !flakyStands) return { update: { execution: withRun(state.execution, finalRun) } };

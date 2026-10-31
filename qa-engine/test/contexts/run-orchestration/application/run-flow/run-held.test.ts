@@ -43,10 +43,11 @@ test("a held run keeps no suite: it is not accepted into the store", async () =>
   try {
     withCoverage(rig, "enforce", async () => FAILING, (status) => status === "fail", []);
     const store = rig.store!;
-    rig.store = { ...store, capture: async (...args: Parameters<typeof store.capture>) => { kept.push("capture"); return await store.capture(...args); } };
+    rig.store = Object.assign(Object.create(store) as typeof store, { capture: async (...args: Parameters<typeof store.capture>) => { kept.push("capture"); return await store.capture(...args); } });
 
-    await observe(rig, "held-2");
+    const observed = await observe(rig, "held-2");
 
+    assert.equal(observed.result?.decision.outcome, "held", "the run reached its decision");
     assert.deepEqual(kept, []);
   } finally {
     dispose(rig);

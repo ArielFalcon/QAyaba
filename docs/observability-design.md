@@ -279,7 +279,7 @@ qayaba.run
 │  ├─ qayaba.coverage.survivor_recheck  surviving mutants re-applied after the regeneration that answered them: rechecked, judged, closed
 │  └─ qayaba.coverage.recount     the same counts after an accepted regeneration, from the dumps on disk
 ├─ qayaba.phase.review            invoke_agent qa-reviewer per round, review-dom grounding
-├─ qayaba.phase.decide            verdict, decision pr|issue|quarantine|none (shadow is the separate `qayaba.decision.shadowed`)
+├─ qayaba.phase.decide            verdict, decision pr|issue|quarantine|held|none (shadow is the separate `qayaba.decision.shadowed`)
 ├─ qayaba.phase.publish           suite_store.capture, PR/Issue
 └─ qayaba.phase.learn             process audit
 ```
@@ -368,7 +368,7 @@ derived from them and is never the only carrier:
   `budget_exhaustion` grader (`also: ...` in its comment) read that record.
 - **Degradations.** `qayaba.degradations` lists every fault the run went on past, by reason: `publication-failed`,
   `deadline-after-proof`. `qayaba.run.end_reason` stays `decided` for such a run: it ended, it did not fail.
-- **Decision.** `qayaba.decision` is what the run decided (`pr | issue | quarantine | none`) and `qayaba.decision.shadowed` says
+- **Decision.** `qayaba.decision` is what the run decided (`pr | issue | quarantine | held | none`) and `qayaba.decision.shadowed` says
   apart from it that shadow replaced it, so a shadow run that would have opened an Issue says `issue` and `shadowed`. The record
   (`runs.decision`, `runs.shadowed`) and `GET /runs/:id` (`decision`, `shadowed`) use the same words. The engine's side effect
   (`shadow-log`) is what ran, not a decision, and is not recorded.
