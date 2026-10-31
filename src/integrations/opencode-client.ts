@@ -5,7 +5,7 @@
  */
 
 import { appLogger } from "./redacting-logger";
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import type { Agent as OpenCodeAgent } from "@opencode-ai/sdk/v2";
 
@@ -72,7 +72,6 @@ import {
   withStallWatchdog,
   withUsageSink,
   withSessionRegistration,
-  getOpenSessions as engineGetOpenSessions,
   getOpenSessionCount as engineGetOpenSessionCount,
   registerSessionWatchdogNotify,
   unregisterSessionWatchdogNotify,
@@ -413,10 +412,6 @@ export async function listModelWindows(directory: string, deps: AgentListDeps = 
   return windows;
 }
 
-
-export function getOpenSessions(): ReturnType<typeof engineGetOpenSessions> {
-  return engineGetOpenSessions();
-}
 
 export function getOpenSessionCount(): number {
   return engineGetOpenSessionCount();

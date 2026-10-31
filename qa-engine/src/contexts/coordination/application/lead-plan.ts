@@ -46,10 +46,6 @@ export function assembleRejectedPlanRequest(downgrade: string, detail?: string):
   return assembleDefs(REJECTED_PLAN_SECTIONS, { downgrade, fact: detail ? `${fact} (${detail})` : fact }, { separator: "\n\n" });
 }
 
-export function renderRejectedPlanRequest(downgrade: string, detail?: string): string {
-  return assembleRejectedPlanRequest(downgrade, detail).text;
-}
-
 export const MAX_FLOW_ID_CHARS = 48;
 export const MAX_OBJECTIVE_CHARS = 400;
 export const MAX_ACCEPTANCE_ITEMS = 12;

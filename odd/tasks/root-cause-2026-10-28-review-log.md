@@ -152,7 +152,7 @@ Verdicts: A T5 unit 1 PASS, T8 FAIL (A-B1, A-B2); B T6, T7, T10 PASS, T11 PASS w
 | D-m3 | minor | `src/settings/retired.ts` | `REFLECTOR_TIMEOUT_MS` missing | Add it | fixed 17bb77c1 |
 | D-m5, D-m6 | minor | feature doc, ADR-0014 :4 | Stale rows; untranslated quote | Records | fixed by the records unit (Tasks rows; ADR-0014 translated) |
 | D-m7 | advisory | `fixtures.ts:350`, `control-load.run.cjs:10` | Duplicated 300-char cut | Pin equal in a test | fixed b690fa8c |
-| D-m8 | advisory | dead exports listed by D | Dead since step 1 | T13 | list regenerated at f2f7203b (T13 U1, section "D-m8 regenerated" at the end of this log); deletions in T13 U2 |
+| D-m8 | advisory | dead exports listed by D | Dead since step 1 | T13 | list regenerated at f2f7203b (T13 U1, section "D-m8 regenerated" at the end of this log); deleted or kept per "T13 U2 decisions" in that section |
 
 ### Records unit (CP3 C rows, done in the records commit)
 
@@ -357,6 +357,13 @@ src/telemetry/instrument-table.ts:checkInstrumentTable  <- agent-turn-trace.test
 src/telemetry/process-telemetry.ts:resetProcessTelemetryForTests  <- process-telemetry.test.ts
 src/telemetry/trace-harness.ts:traceHarness  <- evaluation-service.test.ts, run-engine-factory.test.ts, runner.after-run.test.ts ...
 ```
+
+### T13 U2 decisions (classes A and B)
+
+- Deleted from class A (29 of 70, plus 3 that deleting them left with no reference): the unused type aliases and interfaces (`CoordinationPromptId`, `ReviewAction`, the generation `StepIntent` copy in `grader-catalog.ts`, `ContextPackResult`, `DomGrounding`, `PlanObjectiveView`, `CatalogSelectors`, `AgentBrowserSetting`, `IdKind`, `RunEventType`, `GenAiAttrKey`, `GenAiMetricName`, `RepoMatch`, `ServiceConfig`, `GeneratorRebuttal`, `Validated*` x3, `ProposerVerdict`) and the unused functions (`renderRefusedCorrection`, `renderRejectedPlanRequest`, `defaultWorkRoot`, `prepareSandboxWorkdir`, `withRunChildSpan`, `isLowRelevance`, `isStyleSheet`, `NO_PLAN_SNAPSHOTS`, `factsOfClass`, the shell's `getOpenSessions` wrapper). Left unreferenced by them and deleted in the same unit: the engine `getOpenSessions`, the shell `RepoRole` copy, `CoordinationBudget` (with its one tautological seam test).
+- Kept from class A (41): the type aliases of `src/contract/commands.ts`. They are the TypeScript names of the wire messages, declared beside every schema; the contract is consumed by the SDK and the Go client, and its move belongs to steps 3 and 4 (a contract change, Risk item 3), not to a dead-code pass.
+- Deleted from class B (17), each with the tests that pinned only it: the ten `evidenceFrom*` mappers of the retired coordination evidence seam (`evidenceFromEmptyRead` and `evidenceFromPackDataRoutes` stay, the lead reads them), `agentClaimInvalidatedBy`, `confidenceRank`, `preferredEvidence`, `CoordinationDecision`, `isCoordinationAction`, `CoordinationContext`, `openKindSession`. `coordination-evidence.contract.test.ts` and `kind-session.test.ts` go whole; `coordination-seam.contract.test.ts` keeps the action union and the wiring pin. Deleting `CoordinationBudget` left `cycle-budget.ts` and `derive-cycle-backstop.ts` with one party (run-orchestration), so the kernel-ownership test required them to move there (git mv, imports and the one-copy rule's path updated).
+- Kept from class B (41), not dead: test support whose only users are tests by design (`memoryLogger`, `ThrowingTelemetry`, `traceHarness`, the `console-harness` helpers, the `reset*ForTests` family, `setVerificationTimeout`, `setAgentsConfigPath`, `loadRoster`, `rosterFixturePath`, `consoleCallLines`, `checkInstrumentTable`, `isRegisteredSetting`); the unwindowed prompt renders the window-fit tests compare the assemblers against (`renderLeadCorrection`, `renderLeadReview`, `renderReplanRequest`); thin wrappers over a live function whose tests are the behaviour's seam (`validateDelegationAuthority`, `matchFailureDumps`, `captureDomByRoute`, `wireEngine`, `buildDnsQuery`, `authSessionEnv`, `REGISTERED_SIDEKICK_KINDS`); constants and lists the arch and tool-surface tests pin (`AGENT_BROWSER_TOOLS`, `CODE_GRAPH_TOOLS`, `GENAI_SEMCONV_REV`, `MIN_OPAQUE_TOKEN_CHARS`, `bytesOfTokens`, `map`); the embedded-source seam `isVisibleChallenge`; `AcceptDeliveredSpecsUseCase`, which `scripts/baseline-agent.ts` loads through a dynamic import (the script stays, ADR-0020; the scan listed it because it does not follow a destructured load through a barrel).
 
 ### Class C (no importer, used inside its own file), by file
 

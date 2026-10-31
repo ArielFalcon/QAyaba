@@ -2,7 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { traceFactsOf } from "@kernel/run-trace-facts.ts";
-import { MAX_STATIC_FIX_ROUNDS } from "@kernel/derive-cycle-backstop.ts";
+import { MAX_STATIC_FIX_ROUNDS } from "@contexts/run-orchestration/domain/derive-cycle-backstop.ts";
 import { scriptedGeneration } from "../../../../support/generation-output.ts";
 import { RIG_SPEC, dispose, newRig, observe } from "./run-end-rig.ts";
 import { passingCases } from "../../../../support/passing-cases.ts";

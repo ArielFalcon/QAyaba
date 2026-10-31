@@ -9,7 +9,7 @@ import { NoopTelemetry } from "@kernel/telemetry/noop-telemetry.ts";
 import type { RunOutcome } from "@kernel/run-outcome.ts";
 import { GENERATION_END } from "@kernel/generation-end.ts";
 import { ERROR_CLASS } from "@kernel/error-class.ts";
-import { CycleBudget } from "@kernel/cycle-budget.ts";
+import { CycleBudget } from "@contexts/run-orchestration/domain/cycle-budget.ts";
 import { RunPhaseCursor } from "@contexts/run-orchestration/domain/run-phase-cursor.ts";
 import { PhaseSpans } from "@contexts/run-orchestration/application/run-phase-spans.ts";
 import { finalizeRun, recordCrashEvidence } from "@contexts/run-orchestration/application/run-flow/finalize-run.ts";

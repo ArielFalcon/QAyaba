@@ -192,10 +192,6 @@ export function assembleRefusedCorrection(refused: CorrectionAdmission["refused"
   return assembleDefs(REFUSED_CORRECTION_SECTIONS, { refused, findingCount, omitted: omitted.map((i) => i + 1), rebuttable: rebuttable(origin) }, { separator: "\n" });
 }
 
-export function renderRefusedCorrection(refused: CorrectionAdmission["refused"], findingCount: number, omitted: readonly number[] = [], origin: CorrectionOrigin = CORRECTION_ORIGIN.REVIEW): string {
-  return assembleRefusedCorrection(refused, findingCount, omitted, origin).text;
-}
-
 function textOf(redaction: RedactionPort, value: unknown, max: number): string {
   return typeof value === "string" ? redaction.redact(value).trim().slice(0, max) : "";
 }

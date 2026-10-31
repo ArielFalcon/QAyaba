@@ -12,7 +12,7 @@ import { precheckSpecsAgainstDom } from "@contexts/generation/application/index.
 import { specRelDirOf } from "@kernel/spec-path.ts";
 import { citedSpec, filterReviewFindings, takeMissingCases, type DropReason } from "../../../domain/review-finding-filter.service.ts";
 import { verifyRebuttals, findingKey } from "../../../domain/review-rebuttals.service.ts";
-import { MAX_REVIEW_ROUNDS } from "../../../../../shared-kernel/derive-cycle-backstop.ts";
+import { MAX_REVIEW_ROUNDS } from "../../../domain/derive-cycle-backstop.ts";
 import { reviewAction } from "../../../domain/review-action.ts";
 import type { ReviewPort } from "@contexts/generation/application/index.ts";
 import { end, goto, type StepOutcome } from "../run-flow.ts";

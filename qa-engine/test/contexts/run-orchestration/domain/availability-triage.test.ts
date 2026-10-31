@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { FixLoop, type FixLoopExecuteInput, type FixLoopGenerateInput, type FixLoopInput } from "@contexts/run-orchestration/domain/fix-loop.aggregate.ts";
 import { routesOpenedBy } from "@contexts/run-orchestration/domain/availability-triage.ts";
 import type { RouteAvailabilityFact, AvailabilityBasis } from "@kernel/route-availability.ts";
-import { CycleBudget } from "@kernel/cycle-budget.ts";
+import { CycleBudget } from "@contexts/run-orchestration/domain/cycle-budget.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 import { UNPROVEN_INTEGRITY } from "../../../support/fix-loop-integrity.ts";
 

@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { FixLoop, type FixLoopExecutionPort, type FixLoopRegenerationPort } from "@contexts/run-orchestration/domain/fix-loop.aggregate.ts";
-import { CycleBudget } from "@kernel/cycle-budget.ts";
+import { CycleBudget } from "@contexts/run-orchestration/domain/cycle-budget.ts";
 import { UNPROVEN_INTEGRITY } from "../../../support/fix-loop-integrity.ts";
 
 /* The retry loop of the FixLoop aggregate: a run that fails the same way on every execution is retried once and ends

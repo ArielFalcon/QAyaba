@@ -44,9 +44,6 @@ export const GENAI = {
   },
 } as const;
 
-export type GenAiAttrKey = (typeof GENAI.attrs)[keyof typeof GENAI.attrs];
-export type GenAiMetricName = (typeof GENAI.metrics)[keyof typeof GENAI.metrics];
-
 /* Token counts as a runtime reports them for one inference, and as the conventions count them. */
 export interface RuntimeTokenUsage {
   input: number;

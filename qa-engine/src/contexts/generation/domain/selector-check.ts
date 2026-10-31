@@ -177,15 +177,6 @@ export function extractProposedSelectors(specSrc: string): ProposedSelector[] {
   return found.sort((a, b) => a.index - b.index).map((f) => f.sel);
 }
 
-/* Families the ARIA-path checker cannot see (test-ids live in attributes, not the a11y tree). Empty arrays when unused. idsNames unifies id and name locators. */
-export interface CatalogSelectors {
-  testIds: string[];
-  placeholders: string[];
-  altTexts: string[];
-  titles: string[];
-  idsNames: string[]; /* locator('#id') and locator('[name=x]') — simple groundable forms only */
-}
-
 /* Index of the first action that makes the initial-route catalog stale: first `.click()`/`.tap()` or the second `.goto()`. Selectors after this may live on a later page — must not fail-close. fill/type/press/hover/check/selectOption do not close the window. Closing on any second goto only narrows the window (safe direction). Infinity when nothing closes it. */
 export function confidentWindowEnd(specSrc: string): number {
   const joined = stripCommentsAndJoin(specSrc);

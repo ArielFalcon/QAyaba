@@ -46,7 +46,7 @@ test("a spec path is compared in one place, the kernel's spec-path module", () =
 });
 
 test("the review-round cap is defined once, in the kernel", () => {
-  assert.deepEqual(filesMatching(/\bMAX_REVIEW_ROUNDS\s*=\s*\d/), ["qa-engine/src/shared-kernel/derive-cycle-backstop.ts"]);
+  assert.deepEqual(filesMatching(/\bMAX_REVIEW_ROUNDS\s*=\s*\d/), ["qa-engine/src/contexts/run-orchestration/domain/derive-cycle-backstop.ts"]);
 });
 
 test("a page opened from a template is printed by one derivation, the kernel's printed-route module", () => {

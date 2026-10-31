@@ -2,7 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { RegenerationAcceptance } from "@contexts/run-orchestration/application/regeneration-acceptance.ts";
-import { MAX_ACCEPTANCE_EXECUTIONS } from "@kernel/derive-cycle-backstop.ts";
+import { MAX_ACCEPTANCE_EXECUTIONS } from "@contexts/run-orchestration/domain/derive-cycle-backstop.ts";
 import { isRunDeadlineError } from "@kernel/run-deadline.ts";
 import { acceptanceNamespace } from "@contexts/run-orchestration/domain/acceptance-namespace.ts";
 import type { SuiteRestorePoint } from "@contexts/run-orchestration/domain/suite-restore-point.ts";

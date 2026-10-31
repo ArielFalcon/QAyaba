@@ -6,99 +6,16 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { CycleBudget } from "@kernel/cycle-budget.ts";
-import {
-  COORDINATION_ACTIONS,
-  isCoordinationAction,
-  type CoordinationContext,
-  type CoordinationDecision,
-  type EvidenceRef,
-} from "@contexts/coordination/application/index.ts";
+import { COORDINATION_ACTIONS } from "@contexts/coordination/application/index.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const qaEngineRoot = join(here, "..", "..");
 
-function budgets() {
-  const cycle = CycleBudget.derive({ maxRetries: 2 });
-  return { cycle };
-}
-
-function sampleEvidence(): EvidenceRef {
-  return {
-    id: "ev-1",
-    kind: "change-analysis",
-    source: "ChangeAnalysisPort",
-    summary: "diff classified generate",
-    confidence: "deterministic",
-  };
-}
-
-function sampleContext(overrides: Partial<CoordinationContext> = {}): CoordinationContext {
-  return {
-    runId: "run-1",
-    objective: "cover the blast radius",
-    acceptanceCriteria: ["the changed flow is exercised"],
-    evidence: [sampleEvidence()],
-    budgets: budgets(),
-    ...overrides,
-  };
-}
-
-test("CoordinationDecision.action is the assignment union — not OrchestrationDecision verbs", () => {
+test("the coordination actions are the assignment union, not OrchestrationDecision verbs", () => {
   assert.deepEqual(
     [...COORDINATION_ACTIONS],
     ["direct", "delegate", "retry", "escalate", "abort"],
   );
-  for (const action of COORDINATION_ACTIONS) {
-    assert.equal(isCoordinationAction(action), true);
-  }
-  assert.equal(isCoordinationAction("accept"), false);
-  assert.equal(isCoordinationAction("continue-fix-loop"), false);
-  assert.equal(isCoordinationAction("retry-sidekick"), false);
-  assert.equal(isCoordinationAction("escalate-sidekick"), false);
-  assert.equal(isCoordinationAction("abort-human"), false);
-});
-
-test("CoordinationDecision JSON round-trip keeps action, reason, evidence, evidence", () => {
-  const decision: CoordinationDecision = {
-    action: "escalate",
-    reason: "same fingerprint after standard sidekick",
-    evidence: [sampleEvidence()],
-  };
-  const parsed = JSON.parse(JSON.stringify(decision)) as CoordinationDecision;
-  assert.deepEqual(parsed, decision);
-});
-
-test("CoordinationContext is a minimal projection — no OpencodeRunInput fields", () => {
-  const ctx = sampleContext();
-  assert.deepEqual(Object.keys(ctx).sort(), [
-    "acceptanceCriteria",
-    "budgets",
-    "evidence",
-    "objective",
-    "runId",
-  ]);
-  for (const leak of [
-    "diff",
-    "existingSpecs",
-    "domSnapshot",
-    "contextPack",
-    "staticSignal",
-    "serviceLinks",
-    "contractDrift",
-    "model",
-    "provider",
-  ]) {
-    assert.equal(Object.hasOwn(ctx, leak), false, `CoordinationContext must not carry ${leak}`);
-  }
-});
-
-test("CoordinationBudget holds the run CycleBudget intact — no duplicate ceiling, and no clock of its own", () => {
-  const cycle = CycleBudget.derive({ maxRetries: 3, iterationBudget: 9 });
-  const ctx = sampleContext({ budgets: { cycle } });
-  assert.equal(ctx.budgets.cycle, cycle);
-  assert.equal(ctx.budgets.cycle.ceiling, 9);
-  assert.deepEqual(Object.keys(ctx.budgets), ["cycle"]);
 });
 
 test("wires coordination only into RunQaUseCase — generation/FixLoop/AgentRuntime stay free of the seam", () => {

@@ -14,7 +14,7 @@ import {
   type FixLoopRun,
 } from "@contexts/run-orchestration/domain/fix-loop.aggregate.ts";
 import type { ContradictionOrigin, SpecSelectorFindings } from "@kernel/selector-findings.ts";
-import { CycleBudget } from "@kernel/cycle-budget.ts";
+import { CycleBudget } from "@contexts/run-orchestration/domain/cycle-budget.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 
 /* ExecutionPort/the regeneration port/SelectorCheck (this file); each loop decision tested in isolation.

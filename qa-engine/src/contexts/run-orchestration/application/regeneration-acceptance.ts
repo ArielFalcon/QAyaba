@@ -26,7 +26,7 @@ import type { QaCase, SkippedTest } from "@kernel/qa-case.ts";
 import { sameSpecPath } from "@kernel/spec-path.ts";
 import { hasProof, modeRefusals, type NamedTest, type ReportedTests } from "@kernel/case-proof.ts";
 import { AllotmentSpentError, RunDeadlineExceededError } from "@kernel/run-deadline.ts";
-import { MAX_ACCEPTANCE_EXECUTIONS } from "../../../shared-kernel/derive-cycle-backstop.ts";
+import { MAX_ACCEPTANCE_EXECUTIONS } from "../domain/derive-cycle-backstop.ts";
 import type { ExecutionPort, ValidationPort } from "@contexts/test-execution/application/index.ts";
 import type { RunDeadlinePort } from "./ports/run-deadline.port.ts";
 import type { SuiteRestorePoint } from "../domain/suite-restore-point.ts";

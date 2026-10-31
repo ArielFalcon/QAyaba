@@ -68,7 +68,6 @@ export const ProposerVerdictSchema = z
   })
   .catch({ candidates: [] });
 
-export type ProposerVerdict = z.infer<typeof ProposerVerdictSchema>;
 export type SchemaCandidate = z.infer<typeof CandidateSchema>;
 
 /*

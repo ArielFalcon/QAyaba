@@ -89,14 +89,6 @@ export function sandboxSpawnOptions(
   return { env, uid: sandbox.uid, gid: sandbox.gid };
 }
 
-/** Hand the run's working copy to the sandbox user so its install/test can write ONLY there. The chown runs on the SOURCE tree (before install/deps). `.git` is kept ROOT-owned: a sandbox-writable `.git/hooks` would run as root on the next `git commit`. Root retains full access regardless of ownership, so publish/mirror git ops are unaffected. No-op when the sandbox does not apply. `sandbox` is required (no default) — the engine-root shell injects an already-resolved identity. */
-export function prepareSandboxWorkdir(repoDir: string, sandbox: Sandbox | null): void {
-  if (!sandbox) return;
-  execFileSync("chown", ["-R", `${sandbox.uid}:${sandbox.gid}`, repoDir], { stdio: "ignore" });
-  const gitDir = join(repoDir, ".git");
-  if (existsSync(gitDir)) execFileSync("chown", ["-R", "0:0", gitDir], { stdio: "ignore" });
-}
-
 export type ChownRunner = (args: readonly string[]) => void;
 const defaultChown: ChownRunner = (args) => { execFileSync("chown", [...args], { stdio: "ignore" }); };
 

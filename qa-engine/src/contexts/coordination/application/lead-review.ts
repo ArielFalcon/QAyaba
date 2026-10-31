@@ -29,7 +29,6 @@ export const REVIEW_ACTION = {
   REPLACE: "replace",
   DROP: "drop",
 } as const;
-export type ReviewAction = (typeof REVIEW_ACTION)[keyof typeof REVIEW_ACTION];
 
 /* The most review turns a coordinated pass asks the lead for; revisions are ordered in every turn but the last. */
 export const MAX_REVIEW_TURNS = 3;

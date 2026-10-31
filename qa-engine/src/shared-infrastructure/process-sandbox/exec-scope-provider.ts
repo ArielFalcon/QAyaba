@@ -1,7 +1,6 @@
 /* Opens a run's sandbox scope: its work directory (made for the sandbox uid, removed when the run ends) and the policy its children run under. One provider per composition; one session per run. */
 
 import { engineLog } from "@kernel/ports/process-logger.ts";
-import { join } from "node:path";
 import { activeRunSecretScope } from "../../shared-kernel/run-secret-redaction.ts";
 import { ambientExecScope } from "./ambient-exec-scope.ts";
 import { newSandboxReport, withExecScope, type ExecScopePort, type RunScope } from "./exec-scope.ts";
@@ -101,8 +100,4 @@ function closeOwnMirrors(opened: ReadonlySet<string> | undefined, ops: MirrorFsO
       engineLog.warn(`[qa] WARNING: a mirror could not be closed (${err instanceof Error ? err.message : String(err)}); the next run's scope seals it.`);
     }
   }
-}
-
-export function defaultWorkRoot(tmp: string): string {
-  return join(tmp, "qa-exec");
 }

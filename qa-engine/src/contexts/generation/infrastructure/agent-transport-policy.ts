@@ -270,10 +270,6 @@ interface SessionEntry {
 
 const sessionRegistry = new Map<string, SessionEntry>();
 
-export function getOpenSessions(): SessionEntry[] {
-  return [...sessionRegistry.values()];
-}
-
 export function getOpenSessionCount(): number {
   return sessionRegistry.size;
 }

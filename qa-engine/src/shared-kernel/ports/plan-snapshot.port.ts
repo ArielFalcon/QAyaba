@@ -77,8 +77,6 @@ export interface PlanSnapshotPort {
   record(snapshot: PlanSnapshot): void;
 }
 
-export const NO_PLAN_SNAPSHOTS: PlanSnapshotPort = { record: () => {} };
-
 /** The port that sanitizes every text the lead wrote before `port` keeps it. */
 export function sanitizedPlanSnapshots(port: PlanSnapshotPort, sanitize: (text: string) => string): PlanSnapshotPort {
   return {

@@ -4,7 +4,6 @@ import assert from "node:assert/strict";
 import {
   applyPushback,
   createDelegationBrief,
-  evidenceFromValidation,
   CoordinationTelemetryRecorder,
 } from "@contexts/coordination/application/index.ts";
 import { PatternRedactionAdapter } from "../../src/shared-infrastructure/redaction/pattern-redaction.adapter.ts";

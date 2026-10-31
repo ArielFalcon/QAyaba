@@ -31,7 +31,6 @@ export const MAX_ITEM_IDS = 200; /* the registry's arrayCap for qayaba.context.i
 export const MAX_ITEM_ID_CHARS = 200;
 
 export const ID_KIND = ["route", "dom", "op", "link", "flow", "fact", "signal", "svc-link", "impact"] as const;
-export type IdKind = (typeof ID_KIND)[number];
 
 /* The first eight hex digits of the sha256 of the text with its whitespace collapsed and its case folded. */
 export function hash8(text: string): string {

@@ -31,24 +31,6 @@ export function startRunChildSpan(telemetry: TelemetryPort, name: string, attrs?
   return guardTelemetry(telemetry).startSpan(name, { kind: "internal", ...extra, ...runChildOptions(), ...(attrs ? { attrs } : {}) });
 }
 
-/* Runs `fn` between a child span's start and end; the span ends on return, on throw and on settlement of a promise, and the callback's own exception goes on unchanged. */
-export function withRunChildSpan<T>(telemetry: TelemetryPort, name: string, attrs: Attrs | undefined, fn: (span: SpanHandle) => T): T {
-  const guarded = guardTelemetry(telemetry);
-  const span = guarded.startSpan(name, { kind: "internal", ...runChildOptions(), ...(attrs ? { attrs } : {}) });
-  let result: T;
-  try {
-    result = fn(span);
-  } catch (err) {
-    span.end();
-    throw err;
-  }
-  if (result instanceof Promise) {
-    return result.finally(() => span.end()) as T;
-  }
-  span.end();
-  return result;
-}
-
 /* What a grounding source supplied. */
 export interface ContextRecord {
   source: ContextSource;

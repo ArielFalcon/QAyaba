@@ -117,13 +117,6 @@ function logConfigSkip(file: string, err: unknown): void {
   }
 }
 
-export type RepoRole = "primary" | "service";
-
-export interface RepoMatch {
-  app: AppConfig;
-  role: RepoRole;
-}
-
 
 export function listAppConfigs(root = ROOT): AppConfig[] {
   const dir = join(root, "config", "apps");

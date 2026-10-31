@@ -10,7 +10,7 @@ import type { ObservedDifference } from "@kernel/observed-difference.ts";
 import { RunQaUseCase, type RunQaUseCaseDeps } from "@contexts/run-orchestration/application/run-qa.use-case.ts";
 import { renderBlastRadiusSignal } from "@contexts/change-analysis/infrastructure/adapters/blast-radius-signal.ts";
 import { FixLoop } from "@contexts/run-orchestration/domain/fix-loop.aggregate.ts";
-import { MAX_STATIC_FIX_ROUNDS } from "@kernel/derive-cycle-backstop.ts";
+import { MAX_STATIC_FIX_ROUNDS } from "@contexts/run-orchestration/domain/derive-cycle-backstop.ts";
 import { acceptanceNamespace } from "@contexts/run-orchestration/domain/acceptance-namespace.ts";
 import { ERROR_CLASS } from "@kernel/error-class.ts";
 import { AuthPreconditionError, PRECONDITION_KIND } from "@contexts/app-catalog/domain/auth-precondition.ts";

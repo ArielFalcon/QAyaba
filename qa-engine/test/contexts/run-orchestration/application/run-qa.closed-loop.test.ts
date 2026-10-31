@@ -22,7 +22,7 @@ import { confinedSpecFiles } from "../../../../src/shared-infrastructure/spec-fi
 import { served } from "../../../support/coordinator-over-author.ts";
 import { primaryChangeSet } from "../../../support/change-set.ts";
 import { citingRejections } from "../../../support/cited-rejection.ts";
-import { MAX_ACCEPTANCE_EXECUTIONS, MAX_STATIC_FIX_ROUNDS } from "@kernel/derive-cycle-backstop.ts";
+import { MAX_ACCEPTANCE_EXECUTIONS, MAX_STATIC_FIX_ROUNDS } from "@contexts/run-orchestration/domain/derive-cycle-backstop.ts";
 import { acceptanceNamespace } from "@contexts/run-orchestration/domain/acceptance-namespace.ts";
 import { memoryLogger } from "@kernel/ports/logger.port.ts";
 import { installProcessLogger, resetProcessLoggerForTests } from "@kernel/ports/process-logger.ts";

@@ -395,7 +395,6 @@ export const AppConfigSchema = z
   );
 
 export type ValidatedAppConfig = z.infer<typeof AppConfigSchema>;
-export type ServiceConfig = NonNullable<ValidatedAppConfig["services"]>[number];
 
 export { ManifestEntrySchema, ManifestSchema } from "../../qa-engine/src/shared-kernel/manifest/manifest-entry";
 export type { ManifestEntry as ValidatedManifestEntry } from "../../qa-engine/src/shared-kernel/manifest/manifest-entry";
@@ -410,8 +409,6 @@ export const WebhookPayloadSchema = z.object({
   mode: RunModeSchema.optional(),
   guidance: z.string().optional(),
 });
-
-export type ValidatedWebhookPayload = z.infer<typeof WebhookPayloadSchema>;
 
 
 /* Per-spec metadata in the generator's closing JSON (and, post-reconciliation, the manifest). */
@@ -447,8 +444,6 @@ const RebuttalSchema = z.object({
 /* What a turn may answer instead of specs, or beside them: at least one rebuttal. */
 const RebuttalsSchema = z.array(RebuttalSchema).min(1);
 
-export type GeneratorRebuttal = z.infer<typeof RebuttalSchema>;
-
 /*
  * The GENERATOR's deliverable. It does not self-report `approved` — the independent
  * reviewer is the authoritative gate — so its closing JSON is the specs it wrote plus
@@ -481,8 +476,6 @@ export const GeneratorVerdictSchema = z
     });
   });
 
-export type ValidatedGeneratorVerdict = z.infer<typeof GeneratorVerdictSchema>;
-
 
 /** One reviewer finding as the agent wrote it; a `null` citation is the agent saying it cited nothing. An entry the schema cannot read makes a rejection unreadable; beside an approval it is set aside and recorded. Nothing here stands in for a field the agent did not send. */
 export const CorrectionEntrySchema = z.object({
@@ -500,5 +493,3 @@ export const ReviewerVerdictSchema = z.object({
   rationale: z.string().optional().catch(undefined),
   corrections: z.array(CorrectionEntrySchema),
 });
-
-export type ValidatedReviewerVerdict = z.infer<typeof ReviewerVerdictSchema>;

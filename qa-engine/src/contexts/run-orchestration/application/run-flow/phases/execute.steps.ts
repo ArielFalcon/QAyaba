@@ -5,7 +5,7 @@ import { CORRECTION_ORIGIN } from "@contexts/coordination/application/index.ts";
 import { stripAnsi } from "@kernel/ansi.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 import { refuseOutright, verdictAfterRefusal } from "@kernel/case-proof.ts";
-import { MAX_STATIC_FIX_ROUNDS } from "../../../../../shared-kernel/derive-cycle-backstop.ts";
+import { MAX_STATIC_FIX_ROUNDS } from "../../../domain/derive-cycle-backstop.ts";
 import { staticFixAction } from "../../../domain/static-fix.ts";
 import type { ExecutionPort, ValidationPort } from "@contexts/test-execution/application/index.ts";
 import { end, goto, type StepOutcome } from "../run-flow.ts";

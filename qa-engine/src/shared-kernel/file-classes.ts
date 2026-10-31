@@ -36,19 +36,9 @@ function matchesAny(patterns: readonly RegExp[], filePath: string): boolean {
 /* npm's lockfiles carry an extension the generic lockfile pattern above does not match. They are generated for a slice (never owned); the prompt-cap's relevance groups keep their original membership. */
 const NPM_LOCKFILES = /^(package-lock|npm-shrinkwrap)\.json$/;
 
-/* Whether the file is one whose diff is rarely worth reading: generated or low-relevance. */
-export function isLowRelevance(filePath: string): boolean {
-  return matchesAny(GENERATED_PATTERNS, filePath) || matchesAny(LOW_RELEVANCE_PATTERNS, filePath);
-}
-
 export function classifyPath(filePath: string): FileClass {
   if (matchesAny(GENERATED_PATTERNS, filePath) || matchesAny([NPM_LOCKFILES], filePath)) return "generated";
   if (matchesAny(LOW_RELEVANCE_PATTERNS, filePath)) return "low-relevance";
   if (STYLE_SHEET.test(filePath)) return "style";
   return LanguageRegistry.languageForFile(filePath) !== null ? "code" : "other";
-}
-
-/* Whether the file is a style sheet. */
-export function isStyleSheet(filePath: string): boolean {
-  return STYLE_SHEET.test(filePath);
 }

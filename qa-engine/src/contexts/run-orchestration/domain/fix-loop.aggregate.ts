@@ -3,7 +3,7 @@
 import type { RunVerdict } from "@kernel/run-verdict.ts";
 import type { RunMode } from "@kernel/run-mode.ts";
 import type { QaCase, SkippedTest } from "@kernel/qa-case.ts";
-import type { CycleBudget } from "../../../shared-kernel/cycle-budget.ts";
+import type { CycleBudget } from "./cycle-budget.ts";
 import { classifyRuntimeErrors } from "@kernel/runtime-error-class.ts";
 import { adjudicate, type AdjFailureClass, type AdjudicatorEvidence, type AdjudicatorVerdict, ADJ_CLASS, ADJ_ACTION, ADJ_CONFIDENCE } from "./adjudicate.service.ts";
 import { classifyFailure } from "@kernel/failure-detail-class.ts";

@@ -16,7 +16,6 @@ export const MAX_SCORE_COMMENT_CHARS = 500;
 export const GRADER_VERSION = "3";
 
 export const STEP_INTENTS = ["auth", "explore", "write_spec", "run_spec", "review", "other"] as const;
-export type StepIntent = (typeof STEP_INTENTS)[number];
 
 export const CONTEXT_SOURCES = ["route", "dom", "op", "file"] as const;
 export const CONTEXT_FOCUSED_SOURCES = ["route", "dom", "op"] as const;

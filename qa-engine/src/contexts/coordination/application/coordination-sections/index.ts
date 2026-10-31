@@ -23,5 +23,3 @@ export const COORDINATION_PROMPTS = {
   /* What the lead sends a sidekick after its brief: feedback and the contract reminder. */
   "lead-feedback": FEEDBACK_SECTIONS,
 } as const satisfies Record<string, readonly PromptSectionDef<never>[]>;
-
-export type CoordinationPromptId = keyof typeof COORDINATION_PROMPTS;

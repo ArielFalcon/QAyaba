@@ -6,7 +6,7 @@ import { mkdtempSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createDelegationBrief } from "@contexts/coordination/application/delegation-brief.ts";
-import { evidenceFromChangeAnalysis } from "@contexts/coordination/application/evidence-from.ts";
+import type { EvidenceRef } from "@contexts/coordination/application/evidence-ref.ts";
 import { FileCoordinationTelemetryAdapter } from "@contexts/coordination/infrastructure/adapters/coordination-telemetry-port.adapter.ts";
 import { SidekickExecutor } from "@contexts/coordination/application/sidekick-executor.ts";
 import type { AgentRuntimePort, AgentSession } from "@kernel/ports/agent-runtime.port.ts";
@@ -16,12 +16,15 @@ const redaction = new PatternRedactionAdapter();
 
 const SECRET = "token: ghs_supersecretvalue";
 
-test("change-analysis evidence, the brief, and the JSONL sink redact an injected secret", () => {
-  const evidence = evidenceFromChangeAnalysis(redaction, {
-    action: "generate",
-    reason: `type=feat; leak ${SECRET}`,
-    fileCount: 9,
-  });
+test("an evidence summary, the brief, and the JSONL sink redact an injected secret", () => {
+  const evidence: EvidenceRef = {
+    id: "change-analysis",
+    kind: "change-analysis",
+    source: "ChangeAnalysisPort",
+    summary: redaction.redact(`generate; files=9: type=feat; leak ${SECRET}`),
+    confidence: "deterministic",
+    dataRef: "ChangeAnalysisPort.classify",
+  };
   assert.doesNotMatch(evidence.summary, /ghs_supersecretvalue/);
   assert.match(evidence.summary, /\[REDACTED\]/);
 

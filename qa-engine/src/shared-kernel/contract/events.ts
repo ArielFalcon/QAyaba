@@ -54,4 +54,3 @@ export const RunEventSchema = z.object({
 
 export type RunEventBody = z.infer<typeof RunEventBodySchema>;
 export type RunEvent = z.infer<typeof RunEventSchema>;
-export type RunEventType = RunEventBody["type"];

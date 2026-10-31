@@ -6,13 +6,6 @@ export const AGENT_BROWSER_TOOLS = ["authbrowser_navigate", "authbrowser_snapsho
 /* Pages the run's browser holds at once, one per session that uses it: the lead and the sidekicks of a plan. A plan is never asked to run more flows at once than this. */
 export const MAX_SESSION_PAGES = 4;
 
-export interface AgentBrowserSetting {
-  /* Absolute paths (`*` within a segment, `**` across segments) the browser never reaches, whatever the method. */
-  denyRoutes: readonly string[];
-  /* `[METHOD ]/path` entries: the only requests that write which the browser lets through. */
-  allowMutating: readonly string[];
-}
-
 export interface AgentBrowserLimits {
   /* Tool calls in one run of the sessions bound to no share (the run's own author). A flow of a plan spends only its own share, so the run's total for its flows is the sum of their grants. */
   maxCalls: number;

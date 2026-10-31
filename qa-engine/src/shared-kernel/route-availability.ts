@@ -102,11 +102,6 @@ export function routeAvailabilitySignal(read: number, facts: readonly RouteAvail
   return { read, unavailable: facts.length, byClass, facts: listed, omitted: Math.max(0, facts.length - listed.length) };
 }
 
-/* The facts of one class, in the order given. */
-export function factsOfClass(facts: readonly RouteAvailabilityFact[], cls: AvailabilityClass): RouteAvailabilityFact[] {
-  return facts.filter((fact) => fact.basis.class === cls);
-}
-
 /* The fact of a route: by its address, else by its template. */
 export function factForRoute(facts: readonly RouteAvailabilityFact[], route: string): RouteAvailabilityFact | undefined {
   const path = pathOnly(route);

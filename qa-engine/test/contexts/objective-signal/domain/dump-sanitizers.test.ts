@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { MAX_FAULT_COUNTER_KEY_CHARS, MAX_FAULT_COUNTER_OPERATIONS, MAX_FAULT_COUNTER_TEST_CHARS, sanitizeFaultCounter, sanitizeV8Dump } from "@contexts/objective-signal/domain/dump-sanitizers.ts";
+import { sanitizeFaultCounter, sanitizeV8Dump } from "@contexts/objective-signal/domain/dump-sanitizers.ts";
 
 const bytes = (value: unknown): Buffer => Buffer.from(JSON.stringify(value));
 const parse = (buffer: Buffer): unknown => JSON.parse(buffer.toString("utf8"));
@@ -55,25 +55,9 @@ test("a fault-injection counter is a count and nothing but a count", () => {
   assert.deepEqual(parse(sanitizeFaultCounter(bytes({ corrupted: 0 }))), { corrupted: 0 });
 });
 
-test("a counter keeps its per-operation counts and its test, rebuilt and bounded, and drops every other key", () => {
-  const rebuilt = parse(sanitizeFaultCounter(bytes({ corrupted: 3, byOperation: { "GET ^/a$": 2, "POST ^/b$": 1 }, test: "flows/a.spec.ts::lists", secret: "x" })));
-  assert.deepEqual(rebuilt, { corrupted: 3, byOperation: { "GET ^/a$": 2, "POST ^/b$": 1 }, test: "flows/a.spec.ts::lists" });
-  assert.equal(String((parse(sanitizeFaultCounter(bytes({ corrupted: 1, test: "t".repeat(MAX_FAULT_COUNTER_TEST_CHARS + 50) }))) as { test: string }).test).length, MAX_FAULT_COUNTER_TEST_CHARS);
-});
-
-test("a counter with an oversized operation key, too many operations or a count that is not an integer is refused whole", () => {
-  const tooMany = Object.fromEntries(Array.from({ length: MAX_FAULT_COUNTER_OPERATIONS + 1 }, (_, i) => [`GET ^/${i}$`, 1]));
-  for (const bad of [
-    { corrupted: 1, byOperation: { ["G".repeat(MAX_FAULT_COUNTER_KEY_CHARS + 1)]: 1 } },
-    { corrupted: 1, byOperation: tooMany },
-    { corrupted: 1, byOperation: { "GET ^/a$": 1.5 } },
-    { corrupted: 1, byOperation: { "GET ^/a$": -1 } },
-    { corrupted: 1, byOperation: { "GET ^/a$": "2" } },
-    { corrupted: 1, byOperation: [] },
-    { corrupted: 1, test: 7 },
-  ]) {
-    assert.throws(() => sanitizeFaultCounter(bytes(bad)), RangeError, JSON.stringify(bad).slice(0, 80));
-  }
+test("a counter keeps its count only: operation counts, a test title and every other key are dropped, whatever shape they have", () => {
+  assert.deepEqual(parse(sanitizeFaultCounter(bytes({ corrupted: 3, byOperation: { "GET ^/a$": 2 }, test: "flows/a.spec.ts::lists", secret: "x" }))), { corrupted: 3 });
+  assert.deepEqual(parse(sanitizeFaultCounter(bytes({ corrupted: 1, byOperation: [], test: 7 }))), { corrupted: 1 });
 });
 
 test("a counter that is not a small non-negative integer is refused", () => {

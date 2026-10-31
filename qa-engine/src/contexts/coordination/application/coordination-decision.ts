@@ -1,5 +1,4 @@
 /* Who executes next. */
-import type { EvidenceRef } from "./evidence-ref.ts";
 
 export const COORDINATION_ACTIONS = [
   "direct",
@@ -9,13 +8,3 @@ export const COORDINATION_ACTIONS = [
   "abort",
 ] as const;
 export type CoordinationAction = (typeof COORDINATION_ACTIONS)[number];
-
-export function isCoordinationAction(value: string): value is CoordinationAction {
-  return (COORDINATION_ACTIONS as readonly string[]).includes(value);
-}
-
-export interface CoordinationDecision {
-  readonly action: CoordinationAction;
-  readonly reason: string;
-  readonly evidence: readonly EvidenceRef[];
-}

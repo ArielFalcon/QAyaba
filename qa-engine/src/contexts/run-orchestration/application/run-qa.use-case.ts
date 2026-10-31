@@ -47,7 +47,7 @@ import type { TelemetryPort } from "@kernel/telemetry/telemetry.port.ts";
 import type { RedactionScope } from "@kernel/telemetry/telemetry.port.ts";
 import { attachTraceFacts, primaryLimit, type RunLimitFact, type RunTraceFacts } from "@kernel/run-trace-facts.ts";
 import { AuthPreconditionError } from "@contexts/app-catalog/application/index.ts";
-import { CycleBudget } from "../../../shared-kernel/cycle-budget.ts";
+import { CycleBudget } from "../domain/cycle-budget.ts";
 import type { PreconditionFailure, RunQaConfig, RunQaUseCaseDeps, RunQaInput, RunQaResult, RunTrail } from "./run-flow/run-types.ts";
 
 export type { PreconditionFailure, RunQaConfig, RunQaUseCaseDeps, RunQaInput, RunQaResult, RunTrail } from "./run-flow/run-types.ts";
