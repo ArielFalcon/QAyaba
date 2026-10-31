@@ -26,6 +26,22 @@ export function rerunEstimateMs(cases: readonly QaCase[], specFiles: readonly st
   return executed.reduce((sum, c) => sum + c.durationMs!, 0);
 }
 
+/** What a re-run of this pass took against the time its cases took in the final execution. */
+export interface MeasuredRerun {
+  wallMs: number;
+  estimateMs: number;
+}
+
+/**
+ * A re-run's estimate once a re-run of the same pass has been measured: its cases' time scaled by that re-run's wall time over its own
+ * cases' time, so what a re-run costs beyond its tests (the process start, the instrumentation, the observation) is a fact of this run;
+ * the cases' time alone before any re-run was measured, and undefined with no estimate.
+ */
+export function scaledEstimateMs(estimateMs: number | undefined, measured: MeasuredRerun | undefined): number | undefined {
+  if (estimateMs === undefined || measured === undefined || measured.estimateMs <= 0) return estimateMs;
+  return Math.round(estimateMs * (measured.wallMs / measured.estimateMs));
+}
+
 /** Whether a re-run may start: nothing bounds the run, or the allowance is not spent and holds the estimate (a re-run with no estimate is held only to an allowance that is not spent). */
 export function rerunFits(allowanceMs: number | null, estimateMs: number | undefined): boolean {
   if (allowanceMs === null) return true;

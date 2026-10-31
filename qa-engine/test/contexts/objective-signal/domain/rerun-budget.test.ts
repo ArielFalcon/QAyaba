@@ -1,7 +1,7 @@
 /* A re-run of the mutation pass is estimated from the run's own final execution: the measured time of the cases it would execute, and it starts only when the coverage purpose's allowance holds that. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { rerunEstimateMs, rerunFits } from "@contexts/objective-signal/domain/rerun-budget.ts";
+import { rerunEstimateMs, rerunFits, scaledEstimateMs } from "@contexts/objective-signal/domain/rerun-budget.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 
 const cases: QaCase[] = [
@@ -30,4 +30,10 @@ test("a re-run starts when nothing bounds the run or the allowance holds its est
   assert.equal(rerunFits(89_999, 90_000), false);
   assert.equal(rerunFits(0, undefined), false);
   assert.equal(rerunFits(1, undefined), true);
+});
+
+test("once a re-run was timed, an estimate is scaled by what it took against its own cases' time; before, and with no estimate, it stands as it is", () => {
+  assert.equal(scaledEstimateMs(40_000, undefined), 40_000);
+  assert.equal(scaledEstimateMs(40_000, { wallMs: 150_000, estimateMs: 60_000 }), 100_000);
+  assert.equal(scaledEstimateMs(undefined, { wallMs: 150_000, estimateMs: 60_000 }), undefined);
 });

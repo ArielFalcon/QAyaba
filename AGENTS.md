@@ -1134,7 +1134,9 @@ that catches nothing. The objective signal that breaks the circle is **change-co
   starts only when the coverage allowance, read without allotting it (`RunDeadlinePort.peekAllowance("coverage")`: the coverage
   `allotment` event stays the one the coverage regeneration is allotted), holds its estimate, the measured duration (`QaCase.durationMs`) of
   the cases of the run's own final execution it would execute (its spec files, only its tests when it names them;
-  `objective-signal/domain/rerun-budget.ts`). A re-run with no estimate (no case known for it, or one with no measured
+  `objective-signal/domain/rerun-budget.ts`), scaled, once a re-run of the same pass has run, by what that re-run took against its
+  own cases' time (`scaledEstimateMs`: the process start, the instrumentation and the observation, measured in this run, not a
+  constant). A re-run with no estimate (no case known for it, or one with no measured
   duration) is held only to an allowance that is not spent; nothing bounds a run whose deadline is not armed. A mutant left out
   is neither applied nor judged, and an observation left out leaves the survivors `unobserved`; `MAX_MUTANTS` stays the ceiling.
   Every mutant re-run is held to the same rule (`rerunBudgetOf`): the survivor closure's re-check to the coverage purpose, estimated
