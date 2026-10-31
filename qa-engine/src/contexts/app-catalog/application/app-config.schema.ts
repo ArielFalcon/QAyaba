@@ -94,7 +94,7 @@ const GeoPointSchema = z.object({
 export const AppConfigSchema = z
   .object({
     name: z.string().min(1, { error: "app name is required" }),
-    repo: z.string().min(1, { error: "repo is required (e.g. 'org/repo')", abort: true }).refine(isRepoSlug, { error: "repo must be parts joined by '/', each starting with a letter or digit (e.g. 'org/repo')" }),
+    repo: z.string().min(1, { error: "repo is required (e.g. 'org/repo')", abort: true }).refine(isRepoSlug, { error: "repo must be parts joined by '/', none of them . or .. or starting with a dash (e.g. 'org/repo')" }),
     baseBranch: z.string().optional(),
     openapi: z.union([z.string(), z.array(z.string())]).optional(),
     /*
@@ -106,7 +106,7 @@ export const AppConfigSchema = z
     services: z
       .array(
         z.object({
-          repo: z.string().min(1, { error: "service repo is required (e.g. 'org/svc')", abort: true }).refine(isRepoSlug, { error: "service repo must be parts joined by '/', each starting with a letter or digit (e.g. 'org/svc')" }),
+          repo: z.string().min(1, { error: "service repo is required (e.g. 'org/svc')", abort: true }).refine(isRepoSlug, { error: "service repo must be parts joined by '/', none of them . or .. or starting with a dash (e.g. 'org/svc')" }),
           baseBranch: z.string().optional(),
           openapi: z.union([z.string(), z.array(z.string())]).optional(),
           versionUrl: z.url().optional(),

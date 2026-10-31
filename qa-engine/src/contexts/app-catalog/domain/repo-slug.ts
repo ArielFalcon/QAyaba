@@ -1,11 +1,11 @@
 /*
- * The one rule for a repository an app names: one or more parts joined by `/` (`<owner>/<name>` on GitHub), each starting with a
- * letter or digit and holding only letters, digits, `.`, `_` and `-`. The value becomes a remote URL, a mirror directory and a
- * staged directory, so a part that is `.` or `..`, an empty part or a leading dash would name another place or reach git as an
- * option.
+ * The one rule for a repository an app names: one or more parts joined by `/` (`<owner>/<name>` on GitHub), each of letters,
+ * digits, `.`, `_` and `-`, as GitHub names allow. The value becomes a remote URL, a mirror directory and a staged directory, so
+ * a part that is `.` or `..`, an empty part or a part starting with a dash, which would name another place or reach git as an
+ * option, is refused.
  */
-const REPO_SLUG = /^[A-Za-z0-9][A-Za-z0-9._-]*(?:\/[A-Za-z0-9][A-Za-z0-9._-]*)*$/;
+const REPO_PART = /^[A-Za-z0-9._-]+$/;
 
 export function isRepoSlug(value: unknown): value is string {
-  return typeof value === "string" && REPO_SLUG.test(value);
+  return typeof value === "string" && value.split("/").every((part) => REPO_PART.test(part) && part !== "." && part !== ".." && !part.startsWith("-"));
 }
