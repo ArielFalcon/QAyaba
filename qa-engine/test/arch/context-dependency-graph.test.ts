@@ -16,6 +16,7 @@ const CONFIG_REL = join("qa-engine", ".dependency-cruiser.cjs");
 /** Who each context may depend on. A context absent from the map depends on no other. */
 const ALLOWED: Record<string, readonly string[]> = {
   "agent-tools": ["app-catalog", "generation", "test-execution"],
+  "app-catalog": ["generation", "test-execution"],
   "change-analysis": ["agent-tools", "generation"],
   coordination: ["agent-tools", "generation", "test-execution"],
   generation: ["service-topology"],

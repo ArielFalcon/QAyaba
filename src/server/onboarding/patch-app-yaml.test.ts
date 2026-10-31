@@ -6,7 +6,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { parse } from "yaml";
-import { AppConfigSchema } from "../../orchestrator/schemas";
+import { AppConfigSchema } from "@contexts/app-catalog/application/index";
 import { expandEnv } from "../../orchestrator/config-loader";
 import { patchAppYaml } from "./patch-app-yaml";
 

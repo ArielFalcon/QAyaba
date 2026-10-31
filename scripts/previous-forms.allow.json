@@ -31,7 +31,7 @@
   },
   {
     "rule": "codex",
-    "path": "src/orchestrator/schemas.test.ts",
+    "path": "qa-engine/test/contexts/app-catalog/application/app-config.schema.test.ts",
     "contains": "codex",
     "reason": "Pins that the retired per-runtime budget key is stripped from an app config."
   },

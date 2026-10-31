@@ -4,13 +4,11 @@
  */
 
 import { parse } from "yaml";
-import { AppConfigSchema } from "../orchestrator/schemas";
+import { AppConfigSchema, APP_NAME_RULE, appCreationDefaults, isValidAppName } from "@contexts/app-catalog/application/index";
 import { AppConfigInvalidError, AppNotFoundError, expandEnv, type AppConfig } from "../orchestrator/config-loader";
 import { buildYaml, suggestName, type OnboardAuthInput, type OnboardInput, type OnboardServiceInput } from "./onboard";
 import { patchAppYaml } from "./onboarding/patch-app-yaml";
 import type { RepoInfo } from "../integrations/github";
-
-const NAME_RE = /^[a-z0-9][a-z0-9-]*$/;
 
 export interface AppAdminDeps {
   getRepoInfo(repo: string): Promise<RepoInfo>;
@@ -87,18 +85,12 @@ export async function createApp(input: CreateAppInput, deps: AppAdminDeps): Prom
   if (input.validateOnly) return { ok: true, repoInfo };
 
   const name = input.name ?? suggestName(input.repo);
-  if (!NAME_RE.test(name)) return { ok: false, errors: [`invalid app name '${name}' (expected [a-z0-9][a-z0-9-]*)`] };
+  if (!isValidAppName(name)) return { ok: false, errors: [`invalid app name '${name}' (expected ${APP_NAME_RULE})`] };
   if (!input.dryRun && deps.configExists(name)) return { ok: false, errors: [`app '${name}' already exists`] };
 
   const onboard: OnboardInput = {
     name,
-    repo: repoInfo.fullName,
-    baseBranch: repoInfo.defaultBranch,
-    baseUrl: input.baseUrl || `https://github.com/${repoInfo.fullName}`,
-    versionUrl: input.versionUrl || undefined,
-    needsReview: input.needsReview ?? true,
-    shadow: input.shadow ?? true,
-    testDataPrefix: input.testDataPrefix || "qa-bot",
+    ...appCreationDefaults(input, repoInfo),
     services: input.services,
     ...(input.auth ? { auth: input.auth } : {}),
   };
@@ -192,7 +184,7 @@ export async function updateApp(input: UpdateAppInput, deps: AppAdminDeps): Prom
 }
 
 export function deleteApp(name: string, purge: boolean, deps: AppAdminDeps): { removed: string[] } {
-  if (!NAME_RE.test(name)) throw new Error(`invalid app name: ${JSON.stringify(name)}`);
+  if (!isValidAppName(name)) throw new Error(`invalid app name: ${JSON.stringify(name)}`);
   const app = deps.loadApp(name);  /* throws AppNotFoundError when not onboarded, AppConfigInvalidError when its config cannot be loaded; the caller answers both */
   const removed: string[] = [];
   deps.deleteConfig(name);

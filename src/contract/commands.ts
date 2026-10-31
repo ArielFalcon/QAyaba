@@ -1,7 +1,7 @@
 
 import { z } from "zod";
 import { TURN_ENDS } from "../../qa-engine/src/shared-kernel/turn-end";
-import { LoginPathSchema } from "./login-path";
+import { LoginPathSchema } from "@contexts/app-catalog/application/index";
 import { TestTargetSchema, RunModeSchema, RunVerdictSchema, RunEngineStatusSchema } from "../../qa-engine/src/shared-kernel/contract/events";
 import { CAMPAIGN_ID_PATTERN, CAMPAIGN_LABEL_PATTERN, MAX_CAMPAIGN_REPLICATE, MAX_VARIANT_KEYS } from "./campaign";
 import { CAPTURE_MODES } from "../../qa-engine/src/shared-kernel/telemetry/capture-mode";
