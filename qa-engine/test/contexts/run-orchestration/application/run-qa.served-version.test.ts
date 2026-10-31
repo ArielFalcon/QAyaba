@@ -61,6 +61,12 @@ test("a run whose app declares no source ends with undeclared on its record, and
   assert.equal(gate?.attrs["qayaba.served_version.state"], "undeclared");
 });
 
+test("a served commit the mirror's history does not hold is recorded unreadable / commit-not-in-history, and the run goes on", async () => {
+  const { observed } = await runWith("webhook", gateAnswering({ state: "unreadable", reason: "commit-not-in-history", served: "9999999" }));
+  assert.equal(observed.result?.decision.verdict, "pass");
+  assert.deepEqual(recorded(observed), { state: "unreadable", reason: "commit-not-in-history", served: "9999999" });
+});
+
 test("a declared source that cannot be read is recorded unreadable with its reason, and the run goes on", async () => {
   const { observed, telemetry } = await runWith("webhook", gateAnswering({ state: "unreadable", reason: "malformed-body" }));
   assert.equal(observed.result?.decision.verdict, "pass");

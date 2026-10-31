@@ -89,6 +89,14 @@ test("a served version that is neither an ancestor nor a descendant is unrelated
   assert.equal(reader.calls, 1);
 });
 
+test("a served commit the mirror does not hold is unreadable with its own reason, never unrelated, and the run is not blocked", async () => {
+  const reader = reading(commit("9999999"));
+  const result = await gate(reader, history("unknown-commit")).verifyServed(SHA, { source: "webhook" });
+  assert.ok(isOk(result));
+  assert.deepEqual(result.value, { state: "unreadable", reason: "commit-not-in-history", served: "9999999" });
+  assert.equal(reader.calls, 1, "no wait");
+});
+
 test("a history that cannot be read leaves the fact unreadable with its reason, loudly, and the run is not blocked", async () => {
   const broken: CommitAncestryPort = { relation: async () => { throw new Error("git failed"); } };
   const result = await gate(reading(commit("1111111")), broken).verifyServed(SHA, { source: "webhook" });

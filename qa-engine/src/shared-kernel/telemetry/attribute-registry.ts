@@ -70,7 +70,7 @@ export const ATTRIBUTES = {
   "qayaba.coverage.taken_branches": int("Arms of the decisions on changed lines that ran in at least one test."),
   "qayaba.coverage.no_code_files": spec("string[]", "Unloaded changed files left out of the measurement because none of their changed lines is code (a re-export-only module, say), by the language's statement syntax.", "high", "none", 20),
   "qayaba.served_version.state": str("What DEV served relative to the commit under test, read at the deploy gate: undeclared (the app declares no version source), unreadable, equal, behind (the deploy has not landed), ahead (a replay against a newer DEV) or unrelated. Absent when the run ended at the gate before the anchor repo was read."),
-  "qayaba.served_version.reason": str("Why a declared version source gave no state to compare, when the state is unreadable: unreachable, http-status, malformed-body, no-commit or history-unavailable."),
+  "qayaba.served_version.reason": str("Why a declared version source gave no state to compare, when the state is unreadable: unreachable, http-status, malformed-body, no-commit, commit-not-in-history (the mirror does not hold the served commit) or history-unavailable (the history read failed)."),
   "qayaba.served_version.served": str("The commit the product reported DEV serves.", "high"),
   "qayaba.served_version.waited_ms": int("Milliseconds a deploy-triggered run waited for a deploy that had not landed; absent when it did not wait."),
   "qayaba.served_version.companions": spec("string[]", "The state read for each other repo of a run over several repos, as repo:state."),

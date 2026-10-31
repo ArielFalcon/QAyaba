@@ -12,17 +12,17 @@ export function needsHistory(served: string, head: Sha): boolean {
 
 /*
  * The state of a commit that was read. `relation` is what the history said and is required exactly when `needsHistory` is true.
- * A served commit the mirror does not hold is `unrelated`: it is in no history the run's sha shares.
+ * A served commit the mirror does not hold has no state here: ancestry was not established, and the gate records it unreadable.
  */
-export function servedState(served: string, head: Sha, relation: CommitRelation | undefined): Extract<ServedVersionState, "equal" | "behind" | "ahead" | "unrelated"> {
+export function servedState(served: string, head: Sha, relation: Exclude<CommitRelation, "unknown-commit"> | undefined): Extract<ServedVersionState, "equal" | "behind" | "ahead" | "unrelated"> {
   if (!needsHistory(served, head)) return "equal";
   if (relation === undefined) throw new Error(`the served commit ${served} differs from ${head.short}: its state needs the history's relation`);
   switch (relation) {
     case "same": return "equal";
     case "served-is-ancestor": return "behind";
     case "head-is-ancestor": return "ahead";
-    case "diverged":
-    case "unknown-commit": return "unrelated";
+    case "diverged": return "unrelated";
+    default: throw new Error(`the relation ${String(relation)} establishes no state for the served commit ${served}`);
   }
 }
 

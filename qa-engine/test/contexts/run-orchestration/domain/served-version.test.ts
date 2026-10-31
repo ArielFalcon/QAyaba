@@ -26,9 +26,12 @@ test("a run's sha that is an ancestor of the served commit is ahead: a replay ag
   assert.equal(servedState("1111111", HEAD, "head-is-ancestor"), "ahead");
 });
 
-test("neither an ancestor of the other, or a served commit the mirror does not hold, is unrelated", () => {
+test("neither an ancestor of the other is unrelated", () => {
   assert.equal(servedState("1111111", HEAD, "diverged"), "unrelated");
-  assert.equal(servedState("1111111", HEAD, "unknown-commit"), "unrelated");
+});
+
+test("a served commit the mirror does not hold has no state: ancestry was not established, so the caller must not ask for one", () => {
+  assert.throws(() => servedState("1111111", HEAD, "unknown-commit" as never), /relation/);
 });
 
 test("history that resolves the served commit to the run's own commit is equal", () => {

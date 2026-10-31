@@ -9,14 +9,14 @@ import { InfraError } from "./domain-error.ts";
 export const SERVED_VERSION_STATES = ["undeclared", "unreadable", "equal", "behind", "ahead", "unrelated"] as const;
 export type ServedVersionState = (typeof SERVED_VERSION_STATES)[number];
 
-/* Why a declared source gave no state to compare. The first four are the reader's; `history-unavailable` is the engine's: the commit was read but the mirror's history could not say how it relates to the run's sha. */
-export const UNREADABLE_REASONS = ["unreachable", "http-status", "malformed-body", "no-commit", "history-unavailable"] as const;
+/* Why a declared source gave no state to compare. The first four are the reader's; the last two are the engine's: `commit-not-in-history` (the commit was read but the mirror does not hold it, so ancestry was not established) and `history-unavailable` (the history read itself failed). */
+export const UNREADABLE_REASONS = ["unreachable", "http-status", "malformed-body", "no-commit", "commit-not-in-history", "history-unavailable"] as const;
 export type UnreadableReason = (typeof UNREADABLE_REASONS)[number];
 
 /* One read of a declared source: the commit it serves and whether it reports DEV healthy, or why it gave neither. */
 export type ServedVersionRead =
   | { kind: "read"; commit: string; healthy: boolean | undefined }
-  | { kind: "unreadable"; reason: Exclude<UnreadableReason, "history-unavailable"> };
+  | { kind: "unreadable"; reason: Exclude<UnreadableReason, "commit-not-in-history" | "history-unavailable"> };
 
 /* What the run records for one repo: the state, the typed reason when the state is `unreadable`, the commit DEV served when it was read, and the time spent waiting for a deploy that had not landed (absent when the run did not wait). */
 export interface ServedVersionFact {

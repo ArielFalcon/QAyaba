@@ -67,6 +67,7 @@ export class DeployGatePortAdapter implements DeployGatePort {
     if (!needsHistory(served, sha)) return { state: "equal", served };
     const relation = await this.relationOf(served, sha, known);
     if (relation === undefined) return { state: "unreadable", reason: "history-unavailable", served };
+    if (relation === "unknown-commit") return { state: "unreadable", reason: "commit-not-in-history", served };
     return { state: servedState(served, sha, relation), served };
   }
 
