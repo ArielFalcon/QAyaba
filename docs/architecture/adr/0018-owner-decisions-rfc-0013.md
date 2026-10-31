@@ -56,3 +56,5 @@ The RED tests of RFC-0013 "Work units", each added with the commit that lands it
 ## Alternatives considered
 
 Each question's alternative, as RFC-0013 states it (a stored `lessons` table, reuse of `learning_rules`, `equal`-only admission, frozen runs that write nothing, a freeze that stays a process switch), set aside by the standing instructions above.
+
+**Correction, 2026-10-31 (CP4 records review, C):** row 11 says the header at `coordination-context.ts:1` is reworded to say what it protects. That header no longer exists: `112d3d2a` (T13 U2) deleted the retired coordination evidence seam, and `coordination-context.ts` now starts with the `AcceptanceCriterion` type. The lesson evidence kind (`EvidenceKind` `lesson`, `lessonFactsOf` in `lead-sidekicks.ts`) is live. See the correction at the end of [RFC-0013](../rfc/0013-learning-slice.md).

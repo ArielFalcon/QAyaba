@@ -120,6 +120,8 @@ Decisions (ADR):
 | [ADR-0020](adr/0020-owner-decisions-platform-steps-2-6.md) | Decisions left open for platform steps 2-6 | Accepted | T13's mapping, under ADR-0015 point 2 |
 | [ADR-0021](adr/0021-owner-decisions-platform-step-3.md) | Decisions left open for platform step 3 | Accepted | T13 U5's mapping, under ADR-0015 point 2; amends ADR-0020 row 2 |
 | [ADR-0022](adr/0022-owner-decisions-platform-step-4.md) | Decisions left open for platform step 4 | Accepted | T13 U6's mapping, under ADR-0015 point 2; carries out ADR-0020 row 1 and OD-16 |
+| [ADR-0023](adr/0023-owner-decisions-rfc-0015.md) | RFC-0015's answers: one execution contract | Accepted | RFC-0015's questions, under ADR-0015 point 2 |
+| [ADR-0024](adr/0024-shell-exceptions-list-stays-frozen.md) | The shell exceptions list stays frozen at 27 | Accepted | Platform step 6's first bullet, under ADR-0015 point 2; amends the migration plan |
 
 Proposals (RFC):
 
@@ -139,6 +141,7 @@ Proposals (RFC):
 | [RFC-0012](rfc/0012-one-time-authority.md) | One time authority for a run | Accepted | ADR-0016 R2, ADR-0002 addition 7 (T33) |
 | [RFC-0013](rfc/0013-learning-slice.md) | The learning slice: one lesson kind, a server-side freeze, a kill criterion | Accepted | ADR-0003 D1-D4 and D14, ADR-0009 D10 (T20) |
 | [RFC-0014](rfc/0014-diff-tier-signal.md) | The signal that replaces the diff tiers | Accepted | ADR-0001 open question 3 (T22) |
+| [RFC-0015](rfc/0015-verdict-from-uninstrumented-execution.md) | One execution contract; the verdict never comes from an instrumented execution | Accepted (ADR-0023) | T40 (feature document L73-L75), implemented as T41 |
 
 Other:
 
@@ -146,7 +149,7 @@ Other:
 |---|---|---|
 | [Rejected explanations](rejected-explanations.md) | The refuted hypotheses and the run index | H03, H05, H10, H13, H14, H26, H27; later N03, N07, Q02, Q03, Q05, Q06, Q07 |
 
-These tables list every record through ADR-0017 and RFC-0012 (Correction 2026-10-30); a later record is added to its table by the change that adds it.
+These tables list every record through ADR-0024 and RFC-0015 (Correction 2026-10-31: this sentence said ADR-0017 and RFC-0012 while the tables already held ADR-0022 and RFC-0014; ADR-0023, ADR-0024 and RFC-0015 were missing); a later record is added to its table by the change that adds it.
 
 Documents outside this folder that the records build on:
 

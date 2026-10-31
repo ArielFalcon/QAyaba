@@ -71,7 +71,7 @@ node --import ./test-setup.mjs --import tsx --test path/to/file.test.ts [--test-
 npm run typecheck && npm run arch:check && npm run previous-forms:check && npm run seed:lint && npm run embedded:lint && npm run sdk:typecheck && npm run contract:check && npm run settings:check && npm test
 (cd client && go vet ./... && go test ./...)
 # arch:check has no baseline: the layering rules hold for every file, and the shell's deep imports of context internals are a frozen list
-# (engine/.dependency-cruiser-shell-exceptions.json) that may only shrink.
+# (engine/.dependency-cruiser-shell-exceptions.json, 27 entries, ADR-0024) that may only shrink.
 
 npm run seed:lint           # the e2e seed (config/e2e/) against its own ESLint config, as an app's static gate runs it
 npm run previous-forms:check # banned terms of retired forms and dead file references (scripts/check-previous-forms.ts)
@@ -194,7 +194,7 @@ The RFC that lands a row flips it to **in force** in the same commit.
 | Which level a log line has | Engine | At a seam that holds a typed outcome the level comes from it through `levelOfEffect`, never from the call site, and a catch that carries on takes it from `carryOn` (`engine/test/arch/carry-on-level.test.ts` pins that catch); every other line chooses its level by the meaning in Invariants, "Logging is redacted at the port" | [RFC-0004](docs/architecture/rfc/0004-log-level-from-outcome.md) | in force at those seams |
 | Which commit DEV serves | Engine, from the product | The product states its version; qayaba never infers it and records `undeclared` until the product declares a source | [ADR-0008](docs/architecture/adr/0008-product-version-source.md) | lands with ADR-0008 |
 | Whether a campaign run may learn | Engine | The server freezes a campaign-tagged run (`engine/src/contexts/run-orchestration/domain/run-freeze.ts`); its request may declare `grounding.lessons` to lift the lesson state only | [ADR-0009](docs/architecture/adr/0009-campaign-freeze-on-server.md), [ADR-0018](docs/architecture/adr/0018-owner-decisions-rfc-0013.md) | landed (RFC-0013 U1) |
-| What a run teaches the next run | Engine, no agent | Lessons are produced deterministically from typed facts, measured against a frozen arm and deleted if they do not help | [ADR-0003](docs/architecture/adr/0003-learning-layer-rebuild.md) | lands with ADR-0003 |
+| What a run teaches the next run | Engine, no agent | Lessons are produced deterministically from typed facts, measured against a frozen arm and deleted if they do not help | [ADR-0003](docs/architecture/adr/0003-learning-layer-rebuild.md), [ADR-0018](docs/architecture/adr/0018-owner-decisions-rfc-0013.md) | landed (RFC-0013 U1-U5); the kill-criterion cycle waits for U6, the live run |
 
 ### The run flow — start here
 
@@ -582,7 +582,7 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   **Allotment by purpose**: the deadline allots time by purpose (`shared-kernel/deadline-purpose.ts`: ground, generate,
   validate, execute, fix, coverage, review, decide, the run's phases in order), and `allowance(purpose)` is the time left less
   the reserve held for the purposes after it. A consumer asks with its purpose (an `allowance()` without one is the purpose of
-  the phase the run is in: the use case tells the deadline each phase it enters); none keeps a reserve or a margin of its own.
+  the phase the run is in: the use case tells the deadline each phase it enters); none keeps a reserve of its own. The one margin a consumer still adds is coordination's `MIN_FLOW_MS` (a flow's minimum time, 60 s): the plan, amendment and review gates ask the allowance for that much more than the plan's budget, and a lead turn is held to the room less that margin (`lead-sidekicks.ts`), a floor on what is left, never a share of the run.
   The reserve of a following purpose is the app's measured duration of its phases: the median over the app's last 20 finished
   runs of the same kind (the row of the run time budget table a run was bounded as: `diff`, `manual` or `context`, stored as
   `runs.time_budget`; a diff run's history also reads the rows stored as `diff-tiny`, `diff-focused` and `diff-broad`, none rewritten; a manual run's reserve is not set by diff runs) that entered the purpose's
@@ -1087,7 +1087,7 @@ that catches nothing. The objective signal that breaks the circle is **change-co
   from those dumps. A recount reads each spec file from the last measurement execution that ran its current bytes (the
   kept files of an accepted regeneration are measured in `<acceptance>-measure`); a file whose current bytes no measurement
   ran leaves the recount undone and the measurement as it was. Judging executions (the fix loop's rounds and retries, the
-  acceptances) leave no dumps and keep no dump bookkeeping; a fix-loop retry always runs only the failing files. Dumps that
+  acceptances) leave no dumps and keep no dump bookkeeping; a fix-loop retry runs only the failing spec files, and the whole suite when a regeneration wrote a spec outside the failing set or a failed case names no file (`fix-loop.aggregate.ts`, `canFilter`). Dumps that
   cannot all be read measure nothing (`unknown`).
 - The seed writes each script a worker's pages ran once per namespace, as `<sha256>.script.json` (its source and map), and a
   test's dump names the script by that sha256; the reader keeps a script only when its source hashes to its name, reads the

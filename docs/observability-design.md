@@ -258,7 +258,7 @@ qayaba.run
 ├─ qayaba.stage.sandbox_open      the run's sandbox scope opened: orphans of the sandbox uid reaped, the egress filter prepared, the mirrors sealed, the work dir made
 ├─ qayaba.phase.gate              qayaba.served_version.state: undeclared | unreadable | equal | behind | ahead | unrelated
 ├─ qayaba.phase.workspace         checkout, mirror, index sync
-├─ qayaba.phase.classify          action, tier
+├─ qayaba.phase.classify          action
 ├─ qayaba.phase.setup
 │  ├─ qayaba.suite_store.restore  restored, overlaid, tracked_wins, not_restored, auth_restored
 │  ├─ qayaba.setup.seed

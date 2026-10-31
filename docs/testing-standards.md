@@ -1248,7 +1248,7 @@ the code the presets cover, and what holds it, is only its tests (strict test fi
 reason before the change): the caps and budgets (the Playwright report 16 MiB, the V8
 dump 32 MiB and the dumps of a run 1 GiB, the failure dumps of a run 32 MiB, and
 a total of 256 MiB read of one repository by a `RepoReader`), the clock the decoding of the V8 dumps is asked
-about as it goes (`TimeSpent`, 4,096 segments between two looks; 10 s for each kind of dump of a run, coverage and fault-injection counters apart), the exit
+about as it goes (`TimeSpent`, 4,096 segments between two looks; 10 s for each kind of dump of a run, coverage and fault-injection counters apart) [Correction 2026-10-31: `TimeSpent` and its cooperative check no longer exist; RFC-0003 unit 2 decodes the V8 dumps in a worker that the read waits for at most `V8_DECODE_BUDGET_MS` (10 s) and ends at that deadline], the exit
 status of the Playwright child (a pass that the child did not exit 0 for is infrastructure), the report that is
 not read once the run is settled, `purgeRefusedDirectory` and its use on the coverage and fault-injection
 directories and the measured file in `.qa`, the package.json that is written last by the seed copy. The line ranges of the presets that cover the changed files were moved to the

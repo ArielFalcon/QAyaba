@@ -140,3 +140,10 @@ Before: 0 of 31 campaign-tagged runs frozen, the lesson state empty. After U1: e
 ## Out of scope
 
 Business-logic lessons; operation-level kinds; delivery to the lead and the reviewer; changing the replicate count; the authorization of OD-11's live run, which stays with the owner (ADR-0018).
+
+**Correction, 2026-10-31 (CP4 records review, C):** four statements above name things that do not exist at 3ee3235d or contradict the accepted answers.
+
+- "Measurement" says every campaign-tagged run records `campaignFreeze` true "unless it declares `grounding.lessons`". It does not: a campaign-tagged run is always frozen, and the declaration lifts the lesson state only (Q9, [ADR-0018](../adr/0018-owner-decisions-rfc-0013.md); `decideRunFreeze` returns `{ frozen: campaignTagged, lessons: request.grounding?.lessons ?? !campaignTagged }`; `recordRunConfig` records both facts, `recorded-run-config.ts:84`).
+- Section 7 and U3 cite the header at `coordination-context.ts:1`, `coordination-seam.contract.test.ts:74-98` and `coordination-evidence.contract.test.ts:25-51`. `112d3d2a` deleted the header (the file no longer has one) and `coordination-evidence.contract.test.ts`; `coordination-seam.contract.test.ts` stays, with lines that moved.
+- Section 7 names the port `LessonObservationPort`; the port is `LessonStorePort` (`cross-run-learning/application/ports/lesson-store.port.ts`), with the use cases `record-lesson-observations.ts` and `derive-lessons.ts`.
+- Section 7 gives the platform homes under `src/`. They are `engine/src/contexts/run-orchestration/domain/run-freeze.ts` (the freeze function, `decideRunFreeze`; no longer in the platform), `platform/entrypoints/contract/commands.ts` (`GroundingInputSchema`), `platform/entrypoints/api/use-cases/create-run.ts`, `platform/entrypoints/effective-config.ts`, `platform/settings/retired.ts` and `platform/persistence/repositories/lesson.repository.ts`.

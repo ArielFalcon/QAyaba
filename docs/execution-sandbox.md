@@ -27,7 +27,7 @@ detached, as the sandbox uid and gid (`CODE_SANDBOX_UID`, `1002` in the image), 
 
 | Profile | Used for | Environment (besides `PATH`, `LANG`, `HOME=<work dir>/home`, `TMPDIR=<work dir>/tmp`, `PLAYWRIGHT_BROWSERS_PATH`) | Network |
 |---|---|---|---|
-| `offline` | `tsc`, `eslint`, `playwright test --list` | nothing | none |
+| `offline` | `tsc`, `eslint`, `playwright test --list` | nothing for `tsc` and `eslint`; `playwright test --list` gets the execution contract's `PW_BASE_URL`, `PW_NAMESPACE`, `PW_TEST_ID_ATTRIBUTE` (when the app declares one) and the app's position (`PW_GEO_LAT`, `PW_GEO_LNG`), so a spec whose top-level code reads them enumerates the tests the executions run (`static-gate.checks.ts` `createValidateDeps`, `exec-env.ts`) | none |
 | `suite` | the specs, the cleanup spec, the DOM capture | `PW_*` the caller names, `PW_DEV_ORIGINS` (the DEV origins of the run's egress lease, as a JSON list, set by the launcher over any the caller names), `PW_STORAGE_STATE` (a per-spawn copy), the client certificate (a copy) and its passphrase, `DEV_ENV_USER/PASS` (the DEV HTTP-Basic gate) | the app's origins |
 | `login` | the auth setup, the login discovery | the `suite` set without a session, plus **`DEV_TEST_USER/PASS` (the test account)** | the app's origins |
 | `install` | the e2e project's `npm ci` | the package-manager variables (`npm_config_*`, `PNPM_*`, `YARN_*`, `COREPACK_*`) rebased under the run's home; no JVM, Go, Rust or Python toolchain variable is passed, because every spawn runs the e2e project, a Playwright TypeScript project whatever the app's own stack is | registries |
