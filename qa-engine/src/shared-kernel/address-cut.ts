@@ -7,6 +7,8 @@
  * it; an address with no `/` past its origin (a host) is cut at the bound. Pure.
  */
 
+import { partialSecretStartByValue } from "./run-secret-redaction.ts";
+
 /* The longest request address (origin + pathname) a sandboxed producer keeps as the identity of a request: the seed's ledgers and observations and the control load cut there, and the orchestrator reads them with `wholeSegmentsOfProducerCut` at the same bound. The seed repeats it (it imports nothing) and a test keeps the two equal. */
 export const PRODUCER_ADDRESS_CHARS = 300;
 
@@ -28,6 +30,21 @@ export function segmentsBefore(address: string, at: number): string {
   if (pathStart < 0) return address;
   const slash = address.lastIndexOf("/", at);
   return slash > pathStart ? address.slice(0, slash) : address.slice(0, pathStart + 1);
+}
+
+/*
+ * A cut address without the segments that begin a value of the run it stops short of. A run secret that holds a `/` and stands raw
+ * in the path is split by a whole-segment cut at its own slash, and the kept part before the slash is no longer found by value; so
+ * those segments are dropped, and only those (`segmentsBefore`): the origin and its root always stay. Outside a run nothing is dropped.
+ */
+export function withoutPartialValue(address: string): string {
+  let kept = address;
+  for (let start = partialSecretStartByValue(kept); start !== undefined; start = partialSecretStartByValue(kept)) {
+    const shorter = segmentsBefore(kept, start);
+    if (shorter.length >= kept.length) break;
+    kept = shorter;
+  }
+  return kept;
 }
 
 /*

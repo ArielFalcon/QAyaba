@@ -7,16 +7,9 @@
  * producer did not cut holds the secret whole, and is redacted by value where it leaves.
  */
 
-import { segmentsBefore, wholeSegmentsOfProducerCut } from "../../../shared-kernel/address-cut.ts";
-import { partialSecretStartByValue } from "../../../shared-kernel/run-secret-redaction.ts";
+import { withoutPartialValue, wholeSegmentsOfProducerCut } from "../../../shared-kernel/address-cut.ts";
 
 export function addressOfProducerCut(address: string, bound: number): string {
-  let kept = wholeSegmentsOfProducerCut(address, bound);
-  if (kept === address) return kept;
-  for (let start = partialSecretStartByValue(kept); start !== undefined; start = partialSecretStartByValue(kept)) {
-    const shorter = segmentsBefore(kept, start);
-    if (shorter.length >= kept.length) break;
-    kept = shorter;
-  }
-  return kept;
+  const kept = wholeSegmentsOfProducerCut(address, bound);
+  return kept === address ? kept : withoutPartialValue(kept);
 }

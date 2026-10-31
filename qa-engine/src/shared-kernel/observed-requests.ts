@@ -6,7 +6,7 @@
  * bounds protect the orchestrator; they are not a cap on what an agent is shown. Pure.
  */
 
-import { cutAddress } from "./address-cut.ts";
+import { cutAddress, withoutPartialValue } from "./address-cut.ts";
 import { redactByValue } from "./run-secret-redaction.ts";
 
 /* A request the page made, as method + origin + pathname (no query, fragment, body, headers, cookies or userinfo), with how many times. */
@@ -36,12 +36,12 @@ export const MAX_LOGGED_PATH_CHARS = 500;
 export const MAX_LOGGED_TOTAL_CHARS = 24_000;
 const CUT_MARK = "…[cut]";
 
-/* An address or host past the bound is redacted by value, so no run secret is split by the cut, and then cut and says so, an address at a path segment (`cutAddress`) and always short of its last one, even when the redacted text fits the bound (a producer's own cut, the DOM capture's, may have split a value there), so the answer, redacted later, never holds part of a pattern secret the cut split; cutting a cut one changes nothing (a parsed address never holds the mark's `…`, which a URL encodes). */
+/* An address or host past the bound is redacted by value, so no run secret is split by the cut, and then cut and says so, an address at a path segment (`cutAddress`) and always short of its last one, even when the redacted text fits the bound (a producer's own cut, the DOM capture's, may have split a value there) and without the segments that begin a value it stops short of (`withoutPartialValue`), so the answer, redacted later, never holds part of a pattern secret the cut split; cutting a cut one changes nothing (a parsed address never holds the mark's `…`, which a URL encodes). */
 export function boundedAddress(text: string): string {
   if (text.endsWith(CUT_MARK) && text.length <= MAX_LOGGED_PATH_CHARS + CUT_MARK.length) return text;
   if (text.length <= MAX_LOGGED_PATH_CHARS) return text;
   const redacted = redactByValue(text);
-  return `${cutAddress(redacted, Math.min(MAX_LOGGED_PATH_CHARS, redacted.length - 1))}${CUT_MARK}`;
+  return `${withoutPartialValue(cutAddress(redacted, Math.min(MAX_LOGGED_PATH_CHARS, redacted.length - 1)))}${CUT_MARK}`;
 }
 
 /* The address a request is kept by: its origin and pathname, or undefined when it is no URL. */

@@ -152,3 +152,22 @@ test("an address over the ledger's bound whose redaction fits it still loses its
   assert.ok(!kept.includes(value.slice(0, 40)), kept);
   assert.match(kept, /\/p\/\[REDACTED\]/);
 });
+
+test("an address over the ledger's bound that a producer cut inside a secret with a slash keeps no part of it", () => {
+  const value = "plain-session-value-".repeat(80);
+  const prefix = `${ORIGIN}/x/${value}/`;
+  const at = 2048 - 21;
+  let path = prefix + "item-a/".repeat(Math.floor((at - prefix.length - 2) / 7));
+  path += `${"c".repeat(at - path.length - 1)}/`;
+  const captured = `${path}${SECRET}/end`.slice(0, 2048);
+  const scope = createRunSecretScope();
+  scope.addAccountSecrets([SECRET]);
+  scope.addSessionValues([value]);
+  const answer = withRunSecretScope(scope, () => {
+    const ledger = new RequestLedger();
+    ledger.addListed("GET", captured, false, 1);
+    return sanitizeText(JSON.stringify(ledger.drain())).text;
+  });
+  assert.ok(!answer.includes(HEAD.slice(0, 8)), answer.slice(-120));
+  assert.match(answer, /\/x\//);
+});
