@@ -1016,3 +1016,41 @@ src/telemetry/prompt-body-logs.ts: MAX_BODY_CHARS, MAX_LINE_BYTES, chunkBody, sp
 src/telemetry/trace-harness.ts: FakeClock, T0
 src/util/net.ts: createAgentTransportFetch
 ```
+
+## Checkpoint 4 (3ee3235d: platform steps 5 and 6, T35 and the branch since CP3; four reviewers)
+
+Verdicts: A PASS (T35 included); B BLOCKED (B-B1, B-B2); C records BLOCKED (C-B1-C-B3); D PASS (the forwarding audit: no decorator drops a method today). Decisions on open points take the recommended option (owner, L26: "No te detengas más a preguntarme"). Corrections run as two units on disjoint surfaces: unit A (code) and unit B (records and one code move, `fix/root-cause-cp4b`).
+
+| ID | Severity | Where | Problem | Decision / correction | Status |
+|---|---|---|---|---|---|
+| B-B1 | blocker | the OpenCode client | The calls that are not prompts are unbounded | Unit A | unit A |
+| B-B2 | blocker | `scripts/sandbox-smoke` | The smoke checks the retired `/app/src` | Unit A | unit A |
+| C-B1 | blocker | `platform/composition/repo-mirror.ts` | ADR-0021 row 2 moved `getCommitDiff`, `listChangedSpecs` and `getCommitMessage` next to their only caller, but they were still exported by the mirror every run uses | Moved with their tests to `scripts/baseline-agent-git.ts`; the functions take a narrow git runner; behaviour unchanged | fixed be25ce00 |
+| C-B2 | blocker | `docs/engine-platform-architecture.md` step 6 and its checklist | The plan says the shell exceptions list ends empty; it holds 27 entries and none can leave by a move | ADR-0024: frozen at 27, each group with its reason and removal condition; the plan and checklist corrected | fixed 60874b82 |
+| C-B3 | blocker | the records listed below | Stale claims (the sweep) | Each verified at HEAD and corrected by a dated note, or rejected | fixed a8d73468 |
+
+### Records sweep (C-B3)
+
+| Claim | Verdict | Correction |
+|---|---|---|
+| `docs/architecture/README.md` index stops at ADR-0017 and RFC-0012 | Confirmed (it already held ADR-0022 and RFC-0014; RFC-0015 and ADR-0023 were missing) | Added RFC-0015, ADR-0023, ADR-0024; the sentence corrected |
+| AGENTS.md: "none keeps a reserve or a margin of its own" | Confirmed: `MIN_FLOW_MS` gates at `lead-sidekicks.ts:302,424,473` | Reworded: no reserve; the one margin is coordination's `MIN_FLOW_MS` |
+| AGENTS.md: a fix-loop retry "always runs only the failing files" | Confirmed: `canFilter` is false when a regeneration wrote outside the failing set or a failed case names no file | Reworded |
+| `docs/execution-sandbox.md`: `offline` gets "nothing" | Confirmed: `--list` gets `PW_BASE_URL`, `PW_NAMESPACE`, `PW_TEST_ID_ATTRIBUTE` (`static-gate.checks.ts`) and the position (`exec-env.ts`) | Row corrected |
+| ADR-0023: the `-obs` re-run is removed | Partly: the fallback at `bundle-mutation-oracle.adapter.ts:119` remains. The brief's reason ("`coverage.steps.ts:185` always sets the first observation") holds for the two callers after a measurement execution, not for a run with no measurement due (`:233`) | Dated note; stated as dead on the paths read, hypothesis for the rest; no code change |
+| ADR-0020 row 4 "T12 has not run"; row 5 members 1.3 and 1.13 "stay" | Confirmed: T12 was launched six times; `72d206a9` deleted the rule ledger and the quarantine CLI | Dated note |
+| ADR-0021 row 1 (three composition files) and the "allowlist unchanged" note | Confirmed: `f8570e70` lets every composition file import infrastructure; `362226f3` added the publish decision to the allowlist | Dated note |
+| ADR-0022 row 13 "ceiling unchanged"; rows 10 and 12 | Confirmed: the ceiling is 27 (`f8570e70`); `e3377a17` moved the four credential modules together | Dated note |
+| RFC-0013 :122; :77, :111 and ADR-0018:30; :88, :93 | Confirmed: the freeze is not lifted by `grounding.lessons`; `112d3d2a` deleted the header and `coordination-evidence.contract.test.ts`; the port is `LessonStorePort`; the paths moved | Dated note in RFC-0013 and ADR-0018 |
+| AGENTS.md:197 "lands with ADR-0003" | Confirmed: U1-U5 landed | Row says landed |
+| `docs/observability-design.md:261` "tier" | Confirmed: `DIFF_TIERS` is gone | Reworded (the gate bans the word) |
+| `sidekick-kinds.ts:77` "tier" | Confirmed, under `engine/src` | Listed, not edited |
+| `docs/testing-standards.md:1251` `TimeSpent` | Confirmed: the symbol no longer exists | Dated note |
+| AGENTS.md vs RFC-0003:137 on how workers load `.ts` | AGENTS.md is right: tested on Node v24.11.0, a worker fails identically with and without the tsx loader flags ("parameter property is not supported in strip-only mode") | Dated note in RFC-0003 |
+| `run-steps.ts:2` says 48 steps; AGENTS.md "50 named steps in 15 phases" | The table holds 49 steps in 15 phases; AGENTS.md already says 49 (rejected); the comment is wrong | Comment listed, not edited |
+| `.gitignore` | Nothing needed | None |
+| T27 / RFC-0001 OD-13 (added by the coordinator) | Owner decision under ADR-0015 point 2: context-heal kept, the criterion withdrawn (frozen runs withhold the heal) | T27 closed, RFC-0001 note |
+
+### Feature-document rows (CP4)
+
+S2's carrier added (T42), ADR-0019 Q4 added as pending (T43), T38, T35, T12 and T29 rows brought up to date, T27 closed, L82 written. The T35 verifier launched at L65 is recorded as superseded by reviewer A.
