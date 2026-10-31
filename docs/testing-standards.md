@@ -1205,7 +1205,7 @@ The re-run: 307 killed, no timeout, none survived, 100%.
 | keystone | objective-signal decide/assemble/render | 108 / 5 / 4 — 96.58% (92.31%) | 112 / 1 / 0 — 100% (99.12%) | 80 |
 | fix-loop | fix-loop.aggregate | 184 / 2 / 15 — 92.54% (91.54%) | 197 / 2 / 8 — 96.14% (95.17%) | — |
 | coordination | acceptance-report, pushback, delegation-failure-class (scores measured while the preset also held the since-removed routing role) | 199 / 20 / 11 — 95.22% (86.52%) | 252 / 1 / 3 — 98.83% (98.44%) | — |
-| coordination-events | src/server/coordination-events.ts | 156 / 13 / 16 — 91.35% (84.32%) | 132 / 8 / 1 — 99.29% (93.62%) | — |
+| coordination-events | qa-engine/src/contexts/coordination/infrastructure/adapters/coordination-ledger-reader.adapter.ts, src/server/coordination-events.ts (measured before the reader moved) | 156 / 13 / 16 — 91.35% (84.32%) | 132 / 8 / 1 — 99.29% (93.62%) | — |
 | local-login | src/server/auth.ts (local-login policy range) | 63 / 2 / 4 — 94.2% (91.3%) | 59 / 0 / 0 — 100% (100%) | — |
 | write-confinement | write-confinement.service | 149 / 14 / 20 — 89.07% (81.42%) | 147 / 17 / 19 — 89.62% (80.33%) | — |
 | spec-path-confinement | spec-path-confinement (the reader of an agent-reported path, the strict read, listing, directory, write and removal of the orchestrator's own files, the walk of the specs and its cap, the walk of a repository's files), manifest-fs (file hash, load, read, write), the read gate's manifest check and zero-assertion scan, the context map, setup's reads, copies and replacements in the project and its removal of a refused marker, the login's stock check, the verdict parser's listing of the suite | 36 / 0 / 1 — 97.3% (97.3%) | 332 / 3 / 5 — 98.53% (97.65%), before this slice: not re-run on its code | — |
@@ -1333,7 +1333,7 @@ Each is a genuine equivalent mutant: no test can observe it without asserting th
   (a text of exactly the bound is untouched, one over it is cut with its mark and the cut is recorded); the number is
   the design's.
 
-**coordination-events** (`src/server/coordination-events.ts`)
+**coordination-events** (`qa-engine/src/contexts/coordination/infrastructure/adapters/coordination-ledger-reader.adapter.ts`)
 - `parseCoordinationLedger` — the `catch` block emptied (BlockStatement): an unparsed line leaves
   `parsed` undefined, which the field checks drop anyway.
 
