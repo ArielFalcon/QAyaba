@@ -11,10 +11,13 @@ export const MAX_V8_DUMP_FILES = 2_048;
 export const MAX_FAULT_INJECTION_COUNTER_BYTES = 64 * 1024;
 export const MAX_FAULT_INJECTION_COUNTER_FILES = 2_048;
 
+/* The fingerprint a script is kept under: the sha256 of its source, in hex. */
+const SHA256_HEX = /^[0-9a-f]{64}$/;
+
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
 const isCount = (value: unknown): value is number => typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
 
-/* A dump as the orchestrator keeps it for the reader: only what the reduction to the lines of the changed files uses (a script's url and source, the ranges V8 says ran, and the source map's sources, root and mappings), rebuilt field by field. The dump is written by the suite's fixtures, which is agent-editable code in a process with the session in reach, and what reaches the mirror can be read by the agent; so nothing is copied that the reader does not use (a key it adds, a map's embedded sources, a name) and a dump of another shape is refused. The strings the reader does use remain strings the writer chose: a payload hidden in a script's source survives this, which is why a dump reaches the mirror only through this function and in bounded size. Throws RangeError on a dump that is not that shape. */
+/* A dump as the orchestrator keeps it for the reader: only what the reduction to the lines of the changed files uses (a script's url, source and fingerprint, the ranges V8 says ran, and the source map's sources, root and mappings), rebuilt field by field. A worker's file of the scripts it kept once (`<sha256>.script.json`) has the same shape: a list of scripts with their fingerprint, source and map and no ranges. The dump is written by the suite's fixtures, which is agent-editable code in a process with the session in reach, and what reaches the mirror can be read by the agent; so nothing is copied that the reader does not use (a key it adds, a map's embedded sources, a name) and a dump of another shape is refused. The strings the reader does use remain strings the writer chose: a payload hidden in a script's source survives this, which is why a dump reaches the mirror only through this function and in bounded size. Throws RangeError on a dump that is not that shape. */
 export function sanitizeV8Dump(bytes: Buffer): Buffer {
   let parsed: unknown;
   try {
@@ -32,6 +35,10 @@ function sanitizeV8Entry(raw: unknown): Record<string, unknown> {
   if (raw.url !== undefined) {
     if (typeof raw.url !== "string") throw new RangeError("url is not a string");
     entry.url = raw.url;
+  }
+  if (raw.sha256 !== undefined) {
+    if (typeof raw.sha256 !== "string" || !SHA256_HEX.test(raw.sha256)) throw new RangeError("sha256 is not a sha256 in hex");
+    entry.sha256 = raw.sha256;
   }
   if (raw.source !== undefined) {
     if (typeof raw.source !== "string") throw new RangeError("source is not a string");

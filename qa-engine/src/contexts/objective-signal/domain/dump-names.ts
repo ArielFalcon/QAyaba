@@ -23,3 +23,10 @@ const FIXTURE_DUMP = /^(.+)-\d+-\d+\.json$/;
 export function testOfDump(dump: string): string | undefined {
   return FIXTURE_DUMP.exec(dump)?.[1];
 }
+
+/* A worker's file of a script it kept once (`<sha256 of the source>.script.json`), which the dumps of its tests name by that fingerprint: no test wrote it, and every dump that names its script needs it. */
+const SCRIPT_FILE = /^[0-9a-f]{64}\.script\.json$/;
+
+export function isScriptFile(name: string): boolean {
+  return SCRIPT_FILE.test(name);
+}

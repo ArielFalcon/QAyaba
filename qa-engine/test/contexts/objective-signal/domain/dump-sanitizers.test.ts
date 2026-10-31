@@ -66,3 +66,15 @@ test("a counter that is not a small non-negative integer is refused", () => {
   }
   assert.throws(() => sanitizeFaultCounter(Buffer.from("nope")), RangeError);
 });
+
+/* A worker keeps each script it saw once (RFC-0015): its file holds the script with the fingerprint of its source, and a test's dump names the script by that fingerprint instead of carrying it again. */
+test("a script's fingerprint is kept beside its url, in a dump that names it and in the file that keeps it", () => {
+  const sha = "a".repeat(64);
+  assert.deepEqual(parse(sanitizeV8Dump(bytes([{ url: "https://dev.example/app.js", sha256: sha, functions: [{ ranges: [{ startOffset: 0, endOffset: 4, count: 1 }] }] }]))), [{ url: "https://dev.example/app.js", sha256: sha, functions: [{ ranges: [{ startOffset: 0, endOffset: 4, count: 1 }] }] }]);
+  assert.deepEqual(parse(sanitizeV8Dump(bytes([{ url: "https://dev.example/app.js", sha256: sha, source: "x\n", map: { sources: ["src/a.ts"], mappings: "AAAA" } }]))), [{ url: "https://dev.example/app.js", sha256: sha, source: "x\n", map: { sources: ["src/a.ts"], mappings: "AAAA" } }]);
+});
+
+test("a fingerprint that is not a sha256 in hex is refused", () => {
+  assert.throws(() => sanitizeV8Dump(bytes([{ url: "https://dev.example/app.js", sha256: "../../etc/passwd" }])), RangeError);
+  assert.throws(() => sanitizeV8Dump(bytes([{ url: "https://dev.example/app.js", sha256: 12 }])), RangeError);
+});

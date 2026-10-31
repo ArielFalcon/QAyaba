@@ -8,16 +8,21 @@
 // For the "how" of each capability, see the `playwright-authoring` skill.
 
 import { test as base, expect, type BrowserContext, type Page } from "@playwright/test";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { mkdirSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 // system-owned: do not edit. A V8 coverage entry plus its (best-effort) source map. The
 // orchestrator uses `map` to translate covered bundle bytes back to original source files.
 interface CoverageEntry {
   url?: string;
+  sha256?: string;
   source?: string;
   map?: unknown;
 }
+
+// The scripts this worker has already written to each coverage directory, by the sha256 of their source.
+const coverageScriptsWritten = new Map<string, Set<string>>();
 
 // >>> qa-source-maps (system-owned: do not edit) >>>
 // For each script, find its source map and attach it: the inline data-URI decoded, or the file the
@@ -169,7 +174,10 @@ export const test = base.extend<QaFixtures>({
   // system-owned: do not edit. Collects V8 JS coverage (Chromium) per test and dumps it to
   // .qa/coverage/, which the orchestrator intersects with the diff for change-coverage. Best
   // effort: a no-op on non-Chromium browsers or when coverage is disabled (PW_COVERAGE=0); never
-  // fails a test. Disabled automatically during the cleanup-only pass (PW_CLEANUP).
+  // fails a test. Disabled automatically during the cleanup-only pass (PW_CLEANUP). Each script's
+  // source and map are written once per worker, as `<sha256>.script.json`, and a test's dump names
+  // the script by that sha256, so a test pays only for the scripts its worker has not seen. The
+  // teardown has a time of its own, so it never spends the test's.
   _coverage: [
     async ({ page }, use, testInfo) => {
       const enabled = process.env.PW_COVERAGE !== "0" && !process.env.PW_CLEANUP && !!page.coverage;
@@ -183,23 +191,39 @@ export const test = base.extend<QaFixtures>({
       await use();
       if (enabled) {
         try {
-          const entries = await page.coverage.stopJSCoverage();
-          // Attach each script's SOURCE MAP so the orchestrator can map covered BUNDLE bytes back
-          // to original source files+lines. Without this, a hashed/bundled deploy (Angular/React
-          // prod) is permanently "unknown" — the served URL never matches a repo path. Best-effort:
-          // a missing map just falls back to URL-suffix resolution (unbundled/dev).
-          await attachSourceMaps(entries as unknown as CoverageEntry[], page.request);
+          const entries = (await page.coverage.stopJSCoverage()) as unknown as CoverageEntry[];
           // Per-namespace subdir (qa-bot-<sha>): the orchestrator reads only this run's dumps.
           const dir = join(process.cwd(), ".qa", "coverage", process.env.PW_NAMESPACE ?? "local");
           mkdirSync(dir, { recursive: true });
+          const written = coverageScriptsWritten.get(dir) ?? new Set<string>();
+          coverageScriptsWritten.set(dir, written);
+          const fresh = new Map<string, CoverageEntry>();
+          for (const entry of entries) {
+            if (typeof entry.source !== "string") continue;
+            entry.sha256 = createHash("sha256").update(entry.source, "utf8").digest("hex");
+            if (!written.has(entry.sha256) && !fresh.has(entry.sha256)) fresh.set(entry.sha256, entry);
+          }
+          // Attach each new script's SOURCE MAP so the orchestrator can map covered BUNDLE bytes back
+          // to original source files+lines. Without this, a hashed/bundled deploy (Angular/React
+          // prod) is permanently "unknown" — the served URL never matches a repo path. Best-effort:
+          // a missing map just falls back to URL-suffix resolution (unbundled/dev).
+          await attachSourceMaps([...fresh.values()], page.request);
+          // A script file is written whole under a temporary name and renamed, so no reader sees half of one.
+          for (const [sha256, entry] of fresh) {
+            const temporary = join(dir, `${sha256}.script.${testInfo.workerIndex}.tmp`);
+            writeFileSync(temporary, JSON.stringify([{ url: entry.url, sha256, source: entry.source, ...(entry.map !== undefined ? { map: entry.map } : {}) }]));
+            renameSync(temporary, join(dir, `${sha256}.script.json`));
+            written.add(sha256);
+          }
+          const dump = entries.map((entry) => (entry.sha256 !== undefined ? { ...entry, source: undefined, map: undefined } : entry));
           const safe = testInfo.titlePath.join("-").replace(/[^a-z0-9]+/gi, "-").slice(0, 60);
-          writeFileSync(join(dir, `${safe}-${testInfo.workerIndex}-${testInfo.repeatEachIndex}.json`), JSON.stringify(entries));
+          writeFileSync(join(dir, `${safe}-${testInfo.workerIndex}-${testInfo.repeatEachIndex}.json`), JSON.stringify(dump));
         } catch {
           /* best effort — coverage is a signal, never a blocker */
         }
       }
     },
-    { auto: true },
+    { auto: true, timeout: 120_000 },
   ],
 
   // >>> qa-capture-fixture (system-owned: do not edit) >>>

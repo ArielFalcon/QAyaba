@@ -16,6 +16,8 @@ export interface V8Range {
 
 export interface V8Entry {
   url?: string;
+  /* The sha256 of the script's source, in hex: a dump that carries no source names the script its worker kept once by it. */
+  sha256?: string;
   source?: string;
   functions?: Array<{ ranges?: V8Range[] }>;
   map?: RawSourceMap;

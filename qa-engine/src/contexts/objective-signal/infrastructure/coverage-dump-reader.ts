@@ -6,7 +6,8 @@ import { unusedOutcome, type DumpOutcome } from "../domain/dump-outcome.ts";
 import { MAX_V8_DUMP_BYTES, MAX_V8_DUMP_FILES, MAX_V8_DUMPS_TOTAL_BYTES } from "../domain/dump-sanitizers.ts";
 import type { CoveredLines } from "./v8-browser-coverage.adapter.ts";
 import type { BranchSink } from "./v8-branch-coverage.ts";
-import { mergeDecodedDump, type DecodeContext } from "./coverage-decode.ts";
+import { isScriptFile } from "../domain/dump-names.ts";
+import { keptScriptsRead, mergeDecodedDump, type DecodeContext } from "./coverage-decode.ts";
 import { scanRunOutputDir, UNUSABLE, wholeSetOf, workerFailureReason, type RunOutputLimits, type RunOutputScan } from "../../../shared-infrastructure/run-output-reader.ts";
 import { createWorkerExecutor, runWithin, type OffLoopExecutor } from "../../../shared-infrastructure/worker/off-loop-executor.ts";
 
@@ -41,13 +42,17 @@ export async function readV8Coverage(e2eDir: string, namespace: string, changedF
   };
   const rel = `.qa/coverage/${namespace}`;
   const root = { mirrorDir: e2eDir, specDir: e2eDir };
-  const scan = scanRunOutputDir<RawDump>(root, rel, (name) => name.endsWith(".json") && keep(name), (name, bytes) => ({ name, bytes }), limits, { readCut: false });
-  const files = "files" in scan ? scan.files : [];
+  /* A worker's file of the scripts it kept once is read whatever `keep` says of the tests: the dumps it keeps may name those scripts. */
+  const scan = scanRunOutputDir<RawDump>(root, rel, (name) => name.endsWith(".json") && (isScriptFile(name) || keep(name)), (name, bytes) => ({ name, bytes }), limits, { readCut: false });
+  const all = "files" in scan ? scan.files : [];
+  /* The scripts go first, so the decoder holds them before the dumps that name them. */
+  const kept = all.filter((file) => isScriptFile(file.name));
+  const files = [...kept, ...all.filter((file) => !isScriptFile(file.name))];
   const leftOut = "files" in scan ? [...scan.leftOut] : [];
   const named: Array<[string, CoveredLines]> = [];
   given = { dumps: files.length, bytes: files.reduce((sum, file) => sum + file.bytes.length, 0) };
   if (files.length > 0) {
-    const context: DecodeContext = { changedFiles, ...(mutant ? { mutant } : {}), executable: executable !== undefined, branches: branches?.open ?? false };
+    const context: DecodeContext = { changedFiles, ...(mutant ? { mutant } : {}), executable: executable !== undefined, branches: branches?.open ?? false, ...(kept.length > 0 ? { scriptFiles: kept.length } : {}) };
     const decode = await runWithin(executor, files.map((file) => file.bytes), budgetMs, context);
     timing = { startMs: decode.timing?.startMs ?? null, workMs: decode.timing?.workMs ?? 0 };
     if (decode.kind === "failed" && decode.reason === "aborted") {
@@ -61,6 +66,10 @@ export async function readV8Coverage(e2eDir: string, namespace: string, changedF
       leftOut.push(...files.map(() => workerFailureReason(decode.reason, "decodes")));
     } else {
       for (const [index, file] of files.entries()) {
+        if (index < kept.length) {
+          if (!keptScriptsRead(decode.outputs[index])) leftOut.push(UNUSABLE);
+          continue;
+        }
         const covered = mergeDecodedDump(file.name, decode.outputs[index], { scripts, branches, executable });
         if (covered) named.push([file.name, covered]);
         else leftOut.push(UNUSABLE);
