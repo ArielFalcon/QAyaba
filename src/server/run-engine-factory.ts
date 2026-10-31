@@ -1274,6 +1274,8 @@ export function buildEngineRootDeps(
 
     /* Every run records what it read of DEV, frozen or not: the rows are facts about DEV and writing them changes nothing the run does. */
     lessonStore: new SqliteLessonStoreAdapter(),
+    /* Only the run whose lessons lever is on is told what earlier observations teach (decideRunFreeze). */
+    readLessons: run.freeze?.lessons ?? true,
     ...(campaignFrozen ? {} : { processAudit: new ProcessAuditPortAdapter({
       app: app.name,
       readRecentOutcomes: (a, limit) => getHistory().learning.listRunOutcomes(a, limit),

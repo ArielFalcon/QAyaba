@@ -246,6 +246,8 @@ export interface EngineRootDeps {
 
   /* The append-only record of what runs read of DEV (lesson_observations). Optional, no stub: absent omits RunQaUseCaseDeps.lessonRecorder. The shell factory supplies the history-backed store for every run, frozen or not. */
   lessonStore?: LessonStorePort;
+  /* Whether the run is told the lessons earlier runs' observations teach (grounding.lessons, decided by decideRunFreeze). Absent: it is not, and RunQaUseCaseDeps.lessons is omitted. */
+  readLessons?: boolean;
 
   /* Write side of the FE<->BE architecture map (context_maps SQLite store). Optional, no stub:
      absent omits RunQaUseCaseDeps.contextMapCapture (no capture, same as today). The shell factory
@@ -434,6 +436,7 @@ function assemble(cfg: EngineRootDeps): RunOrchestrationApi {
   const learningApi = buildCrossRunLearning({
     ...(cfg.processAudit ? { processAudit: cfg.processAudit } : {}),
     ...(cfg.lessonStore ? { lessonStore: cfg.lessonStore } : {}),
+    ...(cfg.readLessons === true ? { readLessons: true } : {}),
   });
 
   const coordination = buildCoordination({
@@ -493,6 +496,8 @@ function assemble(cfg: EngineRootDeps): RunOrchestrationApi {
     ...(learningApi.processAudit ? { processAudit: learningApi.processAudit } : {}),
     /* Absent lessonStore is omitted entirely — nothing is recorded and no lessons signal is persisted. */
     ...(learningApi.lessonRecorder ? { lessonRecorder: learningApi.lessonRecorder } : {}),
+    /* Absent lessons is omitted entirely — a frozen run records observations and reads no lesson. */
+    ...(learningApi.lessons ? { lessons: learningApi.lessons } : {}),
     /* Absent runDeadline is omitted entirely — never a fabricated deadline that bounds nothing. */
     ...(cfg.runDeadline ? { runDeadline: cfg.runDeadline } : {}),
     redact: (text) => patternRedaction.redact(text),

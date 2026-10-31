@@ -272,6 +272,22 @@ test("buildEngine records the pages the pack read through cfg.lessonStore, and w
   assert.equal(bare.gateSignals.lessons, undefined);
 });
 
+test("buildEngine tells a run the lessons earlier observations teach only when cfg.readLessons is on, and a run that is not told ends as before", async () => {
+  const stored = { id: "earlier#data-volatility#0", app: "app", runId: "earlier", sha: "1111111", repo: "org/demo", kind: "data-volatility" as const, scope: "/shops", servedState: "equal" as const, admitted: true, leftOutReason: null, fact: { resultCount: 2 }, at: "2020-01-01T00:00:00.000Z" };
+  const empty = { ...stored, id: "earlier2#data-volatility#0", runId: "earlier2", fact: { resultCount: 0, emptyConfirmed: true } };
+  const page = { route: "/shops", grounded: true, dataState: true, resultExpected: true, resultCount: 2 };
+  const groundingCollaborators = {
+    buildContextPack: async () => ({ text: "## Context Pack", blastRadiusBytes: 0, domBytes: 0, contractBytes: 0, trace: { rankedRoutes: [], capturablePages: 1, pages: [page], pageDeliveries: [], changedTestIds: [], contractIds: [], omittedLines: 0 } as never }),
+  };
+  const asked: Array<{ scopes: readonly string[]; before: string }> = [];
+  const lessonStore = { record: async () => {}, listAdmitted: async (query: { scopes: readonly string[]; before: string }) => { asked.push(query); return [stored, empty]; } };
+  const run = (cfg: EngineRootDeps, runId: string) => buildEngine(cfg).run({ app: "app", sha: Sha.of("abc1234"), changeSet: primaryChangeSet("app", Sha.of("abc1234")), source: "manual", mode: "diff", target: "e2e", runId });
+  await run(fakeConfig({ baseUrl: "https://dev.example.com", groundingCollaborators, lessonStore }), "engine-root-lessons-off");
+  assert.equal(asked.length, 0, "a run that is not told lessons reads no row");
+  await run(fakeConfig({ baseUrl: "https://dev.example.com", groundingCollaborators, lessonStore, readLessons: true }), "engine-root-lessons-on");
+  assert.deepEqual(asked.map((q) => q.scopes), [["/shops"]]);
+});
+
 /* Root threads cfg.contextMapCapture through to RunQaUseCaseDeps.contextMapCapture — same
    black-box style as processAudit above. A clean context-mode pass (mode:"context",
    verdict "pass") is the ONLY case that reaches RunQaUseCase's isContextCleanPass capture call. ──

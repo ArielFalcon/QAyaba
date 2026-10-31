@@ -1,5 +1,6 @@
 /* The ground phase of a run: what the agent is handed before it writes anything. The blast radius, the service links and the cross-repo impact resolved; together they make the enrichment every generation starts from. */
 
+import type { Lesson } from "@contexts/cross-run-learning/application/index.ts";
 import { engineLog } from "@kernel/ports/process-logger.ts";
 import type { ServiceLink, ContractDrift, CrossRepoImpact, ImpactDirection, ImpactedLink, ImpactStop } from "@kernel/service-links.ts";
 import { PRE_GENERATION_GROUNDING_STEP_DETAIL } from "@kernel/run-step.ts";
@@ -75,6 +76,7 @@ export async function groundRepository(state: Readonly<RunState>, ctx: Workspace
     }
   }
   await recordPageReads(state, ctx, groundingPageReads);
+  const lessons = await deriveLessonsFor(ctx, groundingPageReads);
   return {
     update: {
       grounding: {
@@ -87,6 +89,7 @@ export async function groundRepository(state: Readonly<RunState>, ctx: Workspace
         harnessFacts: groundingHarnessFacts,
         moreNodes: groundingMoreNodes,
         confirmedDataRoutes: groundingConfirmedDataRoutes,
+        lessons,
         changedDecisions: groundingChangedDecisions,
         routeAvailability: groundingRouteAvailability,
         dataContradictions: groundingDataContradictions,
@@ -119,6 +122,21 @@ async function recordPageReads(state: Readonly<RunState>, ctx: WorkspaceRunConte
     recordRunFact(state, "lessons", tally);
   } catch (err) {
     engineLog.error("[qa] WARNING: the pages read of DEV could not be recorded as observations (non-fatal, the run goes on):", { error: err });
+  }
+}
+
+/*
+ * What earlier runs' observations teach about the pages this run read: only the observations written before this run started, and only when the
+ * run's lessons lever is on (the port is absent otherwise). Off-path: a fault is said and the run goes on without lessons.
+ */
+async function deriveLessonsFor(ctx: WorkspaceRunContext, reads: readonly PageDataRead[] | undefined): Promise<readonly Lesson[]> {
+  const port = ctx.deps.lessons;
+  if (!port || !reads?.length) return [];
+  try {
+    return await port.derive({ app: ctx.input.app, scopes: [...new Set(reads.map((read) => read.scope))], before: new Date(ctx.startedAt).toISOString() });
+  } catch (err) {
+    engineLog.error("[qa] WARNING: the lessons of the pages read could not be derived (non-fatal, the run goes on without them):", { error: err });
+    return [];
   }
 }
 

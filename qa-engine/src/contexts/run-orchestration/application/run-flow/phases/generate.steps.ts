@@ -60,6 +60,7 @@ async function coordinateFirstPass(state: Readonly<RunState>, ctx: WorkspaceRunC
       ...(geolocation ? { geolocation } : {}),
       ...(deps.sidekickDevBaseUrl ? { devBaseUrl: deps.sidekickDevBaseUrl } : {}),
       ...(state.grounding.confirmedDataRoutes?.length ? { confirmedDataRoutes: state.grounding.confirmedDataRoutes } : {}),
+      ...(state.grounding.lessons.length > 0 ? { lessons: state.grounding.lessons } : {}),
       ...(state.grounding.contextPack ? { contextPack: state.grounding.contextPack } : {}),
       ...(state.grounding.harnessFacts ? { harnessFacts: state.grounding.harnessFacts } : {}),
       ...(state.grounding.existingSpecFiles?.length ? { existingSpecs: state.grounding.existingSpecFiles } : {}),

@@ -1085,6 +1085,32 @@ test("each sidekick's brief carries the evidence for the candidate pages its flo
   assert.deepEqual(brief("shops").tools, ["read", "write", "run_spec", "authbrowser"]);
 });
 
+test("a lesson reaches the brief of the flow whose pages it names and no other, is recorded once as delivered, and never reaches the facts the lead and the reviewer are given", async () => {
+  const lessons = [
+    { kind: "data-volatility", scope: "/shops/:city", withResults: 2, emptyConfirmed: 1, latestReadAt: "2026-10-30T10:00:00.000Z" },
+    { kind: "data-volatility", scope: "/orders", withResults: 1, emptyConfirmed: 0, latestReadAt: "2026-10-30T11:00:00.000Z" },
+  ];
+  const plan = { kind: "fanout", flows: [{ id: "shops", objective: "the shop list", routes: ["/shops/madrid"] }, { id: "login", objective: "sign in works", routes: ["/login"] }] };
+  const r = rig();
+  const outcome = await r.coordinator.coordinate(input(r, { lessons, plan: async () => ({ plan, parsed: true, timedOut: false }) }));
+  const brief = (flow: string) => r.executed.find((e) => e.brief.delegationId === `run-1-flow-${flow}`)!.brief;
+  assert.deepEqual(brief("shops").knownFacts.map((f) => [f.kind, f.dataRef]), [["lesson", "/shops/:city"]]);
+  assert.match(brief("shops").knownFacts[0]!.summary, /read it with results 2 time\(s\) and as a confirmed empty state 1 time\(s\)/);
+  assert.deepEqual(brief("login").knownFacts, [], "another flow's page is not this flow's lesson");
+  assert.equal(outcome.action, "fanout");
+  assert.deepEqual(outcome.signal.lessonsDelivered?.map((d) => [d.kind, d.scope]), [["data-volatility", "/shops/:city"]]);
+  assert.match(outcome.signal.lessonsDelivered![0]!.digest, /^[0-9a-f]{12}$/);
+});
+
+test("a run with no lessons builds the same briefs and records no delivery, as before", async () => {
+  const plan = { kind: "fanout", flows: [{ id: "shops", objective: "the shop list", routes: ["/shops/madrid"] }] };
+  const r = rig();
+  const outcome = await r.coordinator.coordinate(input(r, { confirmedDataRoutes: [{ path: "/shops/madrid", resultCount: 3 }], plan: async () => ({ plan, parsed: true, timedOut: false }) }));
+  const facts = r.executed.find((e) => e.brief.delegationId === "run-1-flow-shops")!.brief.knownFacts;
+  assert.deepEqual(facts.map((f) => f.kind), ["grounding"]);
+  assert.equal(outcome.action === "fanout" && outcome.signal.lessonsDelivered, undefined);
+});
+
 test("a flow's brief preloads its changed code while it fits the author's window, names the rest by file and range, and hands the fit to the turn", async () => {
   const diff = (hunks: number): string => ["diff --git a/src/cart.ts b/src/cart.ts", "--- a/src/cart.ts", "+++ b/src/cart.ts", ...Array.from({ length: hunks }, (_, i) => [`@@ -${1 + i * 50},1 +${1 + i * 50},41 @@`, " keep", ...Array.from({ length: 40 }, (_, j) => `+  total${i} += item${j}.price * quantity;`)]).flat()].join("\n");
   const candidates = [pageCandidate("/cart", ["page /cart"], { seeds: [{ file: "src/cart.ts", symbol: "total", range: { start: 1, end: 1_000 } }] })];

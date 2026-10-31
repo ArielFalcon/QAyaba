@@ -9,7 +9,8 @@ export type EvidenceKind =
   | "mutation"
   | "review"
   | "grounding"
-  | "agent-observation";
+  | "agent-observation"
+  | "lesson";
 
 export type EvidenceConfidence = "deterministic" | "observed" | "reviewed" | "inferred";
 

@@ -80,6 +80,8 @@ function changeText(brief: DelegationBrief, scrub: (text: string) => string): st
 }
 
 /* A fact the run holds, with where it was read and how sure the run is of it. */
+const plainFacts = (brief: DelegationBrief): EvidenceRef[] => brief.knownFacts.filter((fact) => fact.kind !== "lesson");
+const lessonFacts = (brief: DelegationBrief): EvidenceRef[] => brief.knownFacts.filter((fact) => fact.kind === "lesson");
 const factLine = (scrub: (text: string) => string) => (fact: EvidenceRef): string => `- ${scrub(fact.summary)} (read by ${fact.source}, ${fact.confidence})`;
 
 const harnessLines = ({ brief, scrub }: BriefPromptContext): string[] => (brief.harnessFacts ? harnessFactLines(brief.harnessFacts, brief.specRelDir ?? "e2e", scrub) : []);
@@ -155,8 +157,18 @@ export const AUTHOR_BRIEF_SECTIONS: readonly PromptSectionDef<BriefPromptContext
   section({
     id: "facts",
     priority: 40, stability: "run", reason: "Facts the run already holds, with source and confidence, so the sidekick does not re-derive them (9adce82f)",
-    applies: ({ brief }) => brief.knownFacts.length > 0,
-    render: ({ brief, scrub }) => ({ content: ["## Known facts", ...brief.knownFacts.map(factLine(scrub))].join("\n") }),
+    applies: ({ brief }) => plainFacts(brief).length > 0,
+    render: ({ brief, scrub }) => ({ content: ["## Known facts", ...plainFacts(brief).map(factLine(scrub))].join("\n") }),
+  }),
+  section({
+    id: "lessons",
+    priority: 41, stability: "run", reason: "What earlier runs read of DEV's data on this flow's pages, stated apart from the facts of this run and given up to the window as a count (RFC-0013)",
+    applies: ({ brief }) => lessonFacts(brief).length > 0,
+    render: ({ brief, scrub }) => {
+      const lines = lessonFacts(brief).map(factLine(scrub));
+      const wrap = (body: string[]): string => ["## Lessons from earlier runs", ...body].join("\n");
+      return { content: wrap(lines), degrade: stepsDegrade([{ content: wrap([`- ${lines.length} lesson(s) from earlier runs on this flow's pages ${NOT_SHOWN}`]), items: lines.length }]) };
+    },
   }),
   section({
     id: "harness",

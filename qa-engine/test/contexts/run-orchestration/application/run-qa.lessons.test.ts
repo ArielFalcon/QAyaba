@@ -4,7 +4,9 @@ import assert from "node:assert/strict";
 import { ok } from "@kernel/result.ts";
 import type { PageDataRead } from "@kernel/page-data-read.ts";
 import type { ServedVersionState } from "@kernel/served-version.ts";
-import { RecordLessonObservations, type LessonObservation, type LessonStorePort } from "@contexts/cross-run-learning/application/index.ts";
+import type { CoordinateInput } from "@contexts/coordination/application/lead-sidekicks.ts";
+import type { LessonDelivery } from "@kernel/coordination.ts";
+import { RecordLessonObservations, type Lesson, type LessonObservation, type LessonsPort, type LessonStorePort } from "@contexts/cross-run-learning/application/index.ts";
 import { dispose, newRig, observe, type Rig } from "./run-flow/run-end-rig.ts";
 
 const READ: PageDataRead = { scope: "/shops/madrid", grounded: true, dataState: true, unconfirmed: false, resultCount: 0, emptyConfirmed: true, ready: true };
@@ -90,5 +92,74 @@ test("a store that fails costs the run nothing but the observation: the run goes
     assert.equal(observed.saved[0]!.gateSignals.lessons, undefined);
   } finally {
     dispose(rig);
+  }
+});
+
+/* Delivery: what earlier observations teach reaches the coordinator only for a run whose lessons lever is on. */
+const LESSON: Lesson = { kind: "data-volatility", scope: "/shops/madrid", withResults: 2, emptyConfirmed: 1, latestReadAt: "2026-10-30T10:00:00.000Z", evidence: ["r-1", "r-2", "r-3"] };
+
+function coordinating(seen: CoordinateInput[], delivered: LessonDelivery[]): Partial<Rig["extra"]> {
+  return {
+    leadSidekicks: {
+      coordinate: async (input) => {
+        seen.push(input);
+        return { action: "noop", reason: "nothing worth a test", signal: { plan: "noop", flows: 0, delivered: 0, incomplete: 0, ...(delivered.length > 0 ? { lessonsDelivered: delivered } : {}) } };
+      },
+    },
+  };
+}
+
+test("a run whose lessons lever is on derives the lessons of the pages it read from rows written before it started, hands them to the coordinator and records what its briefs delivered", async () => {
+  const rig = newRig();
+  try {
+    rig.verifyServed = async () => ok({ state: "equal" });
+    const queries: Array<Parameters<LessonsPort["derive"]>[0]> = [];
+    const seen: CoordinateInput[] = [];
+    const delivered = [{ kind: "data-volatility", scope: "/shops/madrid", digest: "abc123def456" }];
+    const { extra } = recorded();
+    rig.extra = { ...extra, ...coordinating(seen, delivered), lessons: { derive: async (query) => { queries.push(query); return [LESSON]; } } };
+    const observed = await observe(rig, "lessons-delivered");
+    assert.deepEqual([...queries[0]!.scopes].sort(), ["/home", "/shops/madrid"]);
+    assert.equal(queries[0]!.app, "demo");
+    assert.ok(Date.parse(queries[0]!.before) <= Date.now(), "rows of this run itself are not before its start");
+    assert.deepEqual(seen[0]!.lessons, [LESSON]);
+    const signals = observed.saved[0]!.gateSignals;
+    assert.deepEqual(signals.lessons, { observed: 2, leftOut: { "no-data-state": 1 }, delivered });
+    assert.equal(signals.coordination?.lessonsDelivered, undefined, "the delivery is on the lessons signal alone");
+  } finally {
+    dispose(rig);
+  }
+});
+
+test("a run whose lessons lever is off records its reads and is handed no lesson: the coordinator input carries none and no delivery is recorded", async () => {
+  const rig = newRig();
+  try {
+    rig.verifyServed = async () => ok({ state: "equal" });
+    const seen: CoordinateInput[] = [];
+    const { rows, extra } = recorded();
+    rig.extra = { ...extra, ...coordinating(seen, []) };
+    const observed = await observe(rig, "lessons-frozen");
+    assert.ok(rows.length > 0, "a frozen run still writes its observations");
+    assert.equal(seen[0]!.lessons, undefined);
+    assert.deepEqual(observed.saved[0]!.gateSignals.lessons, { observed: 2, leftOut: { "no-data-state": 1 } });
+  } finally {
+    dispose(rig);
+  }
+});
+
+test("a run with no lessons to derive, or whose derivation fails, is handed none and ends as it would have", async () => {
+  for (const derive of [async () => [] as Lesson[], async (): Promise<Lesson[]> => { throw new Error("read failed"); }]) {
+    const rig = newRig();
+    try {
+      rig.verifyServed = async () => ok({ state: "equal" });
+      const seen: CoordinateInput[] = [];
+      const { extra } = recorded();
+      rig.extra = { ...extra, ...coordinating(seen, []), lessons: { derive } };
+      const observed = await observe(rig, "lessons-none");
+      assert.equal(seen[0]!.lessons, undefined);
+      assert.deepEqual(observed.saved[0]!.gateSignals.lessons, { observed: 2, leftOut: { "no-data-state": 1 } });
+    } finally {
+      dispose(rig);
+    }
   }
 });

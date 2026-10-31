@@ -659,7 +659,7 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
 - **Cross-run learning** — `qa-engine/src/contexts/cross-run-learning/`: the learning gates and the
   process audit. The rule loop (the rule ledger and its fold, governance, retrieval and injection, the reflector and the
   quarantine and ledger commands) and the curriculum (the scenario archetypes, the exemplar templates and the diff keyword detector) are deleted ([ADR-0003](docs/architecture/adr/0003-learning-layer-rebuild.md)): a
-  run reads no lesson and writes none, and what replaces it is built separately against a frozen arm. What stays: the
+  run reads no rule and writes none. What replaces it is the lesson slice ([RFC-0013](docs/architecture/rfc/0013-learning-slice.md)): every run, frozen or not, records the pages it read of DEV as append-only observations (`lesson_observations`, admitted or left out under a typed reason, the verdict never an input); a lesson is derived from them at read and never stored; only a run whose lessons lever is on (`decideRunFreeze`) is told lessons, as `lesson` facts in the brief of the flow whose pages they name (`gateSignals.lessons`). What stays: the
   run outcomes (`run_outcomes`), which every run persists and the process audit reads; the learning gates
   (`learning-gates.ts`), which decide which outcomes reach the audit; the process audit
   (`process-audit.ts`), which observes a streak of one error class and marks the architecture map stale for the

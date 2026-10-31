@@ -42,7 +42,7 @@ import type { TelemetryPort } from "@kernel/telemetry/telemetry.port.ts";
 import type { PreconditionKind } from "@contexts/app-catalog/application/index.ts";
 import type { CoordinationTelemetryPort } from "@contexts/coordination/application/index.ts";
 import type { IntentContractPort } from "@contexts/objective-signal/application/index.ts";
-import type { LessonRecorderPort, ProcessAuditPort } from "@contexts/cross-run-learning/application/index.ts";
+import type { LessonRecorderPort, LessonsPort, ProcessAuditPort } from "@contexts/cross-run-learning/application/index.ts";
 
 /** A login the run could not complete: the kind, a note already scrubbed of credentials, and the attempt's duration. */
 export interface PreconditionFailure {
@@ -181,6 +181,11 @@ export interface RunQaUseCaseDeps {
    * Absent: nothing is recorded and the run persists no lessons signal.
    */
   lessonRecorder?: LessonRecorderPort;
+  /**
+   * The lessons earlier runs' observations teach, derived when asked (docs/architecture/rfc/0013-learning-slice.md). Absent for a run whose lessons
+   * lever is off: it reads none, and its briefs state none.
+   */
+  lessons?: LessonsPort;
   /**
    * The run-level wall-clock deadline, armed once after classification. Absent: no deadline is armed
    * and the run is bounded only by its per-turn limits.

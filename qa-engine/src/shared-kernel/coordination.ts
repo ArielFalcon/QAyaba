@@ -79,6 +79,13 @@ export const AUTHORING_REFUSAL = {
 } as const;
 
 /* What a run records about its coordination. Persist-only: no verdict, gate or retirement reads it back. */
+/* A lesson a flow's brief stated: its kind, the page, and a digest of the line (not the line). */
+export interface LessonDelivery {
+  kind: string;
+  scope: string;
+  digest: string;
+}
+
 export interface CoordinationGateSignal {
   /* What the lead's plan came to once admitted ("noop" or "fanout"); absent when the run asked for no plan. */
   plan?: string;
@@ -106,6 +113,8 @@ export interface CoordinationGateSignal {
   corrections?: { turns: number; routed: number; unrouted: number; revised: number; replaced: number; rebutted: number; maintained?: number; unreadable?: number; repairs?: number };
   /* Entries of an agent's answer the reader could not read after the one repair turn each answer gets, so they were not acted on: those of the plan and of the sidekicks' results (the review's and the corrections' are counted on `review` and `corrections`), and the repair turns asked of the sidekicks. Absent when there was none. */
   unreadable?: { plan: number; delegation: number; repairs: number };
+  /* The lessons the flows' briefs stated, each once. Absent when none was delivered. */
+  lessonsDelivered?: LessonDelivery[];
 }
 
 /* The settings an app declared, with every limit it left out taken from the defaults. */

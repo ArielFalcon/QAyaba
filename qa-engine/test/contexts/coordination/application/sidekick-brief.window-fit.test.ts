@@ -105,3 +105,27 @@ test("the data contradictions of the flow's pages reach the brief, and over the 
   assert.match(over.text, /\(\d+ more request\(s\) are not shown here, to fit the window\)/, "requests gave way");
   for (let i = 0; i < CONTRADICTION_FACTS.length; i++) assert.ok(over.text.includes(`none with "key${i}"`), `fact ${i} stayed`);
 });
+
+const LESSON_FACTS = Array.from({ length: 12 }, (_, i) => ({ id: `lesson:data-volatility:/page-${i}`, kind: "lesson" as const, source: "data-volatility", summary: `DEV's data on /page-${i} has not been stable: ${"earlier runs read it differently ".repeat(6)}`, confidence: "deterministic" as const, dataRef: `/page-${i}` }));
+
+test("the lessons of a flow's pages reach the brief whole while the window holds them, apart from the run's facts, and over it give way to a count that records the omission", () => {
+  const fact = { id: "pack-data:/cart", kind: "grounding" as const, source: "ContextPack", summary: "the Context Pack read 3 results on /cart", confidence: "deterministic" as const, dataRef: "/cart" };
+  const brief = createDelegationBrief({ ...base, knownFacts: [fact, ...LESSON_FACTS] });
+  const whole = assembleSidekickBrief(redaction, brief, roomy);
+  assert.match(whole.text, /## Known facts\n- the Context Pack read 3 results on \/cart[^\n]*\n\n## Lessons from earlier runs\n- DEV's data on \/page-0 /);
+  for (let i = 0; i < LESSON_FACTS.length; i++) assert.ok(whole.text.includes(`/page-${i} has not been stable`), `lesson ${i}`);
+  assert.equal(whole.text.split("## Known facts")[1]!.split("## ")[0]!.includes("page-0"), false, "a lesson is not listed among the run's facts");
+
+  const over = assembleSidekickBrief(redaction, brief, windowOf(bytesOf(whole.text) - whole.sectionSizes["lessons"]! / 2));
+  assert.match(over.text, /- 12 lesson\(s\) from earlier runs on this flow's pages not shown here, to fit the window/);
+  assert.equal(over.text.includes("/page-0 has not been stable"), false);
+  assert.ok(over.text.includes("the Context Pack read 3 results on /cart"), "the run's own facts stay whole");
+  assert.deepEqual(over.sectionItems["lessons"]?.omissions, [{ class: "truncation", reason: WINDOW_FIT_REASON, count: 12 }]);
+});
+
+test("a brief with no lesson has no lessons section and is byte-identical to a brief built without the field", () => {
+  const fact = { id: "pack-data:/cart", kind: "grounding" as const, source: "ContextPack", summary: "the Context Pack read 3 results on /cart", confidence: "deterministic" as const, dataRef: "/cart" };
+  const text = assembleSidekickBrief(redaction, createDelegationBrief({ ...base, knownFacts: [fact] }), roomy).text;
+  assert.equal(text.includes("Lessons from earlier runs"), false);
+  assert.match(text, /## Known facts\n- the Context Pack read 3 results on \/cart \(read by ContextPack, deterministic\)/);
+});

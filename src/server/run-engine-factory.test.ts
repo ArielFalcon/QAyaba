@@ -2528,6 +2528,16 @@ test("every run is given the lesson store, frozen or not: what a run reads of DE
   getHistory().purgeApp(app.name);
 });
 
+test("only a run whose lessons lever is on reads lessons: an ordinary run and a campaign run that lifts the lever do, a frozen campaign run does not", () => {
+  const app = cfg("factory-lesson-read");
+  const reads = (freeze?: { frozen: boolean; lessons: boolean }): boolean => buildEngineRootDeps(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff", ...(freeze ? { freeze } : {}) }).readLessons === true;
+  assert.equal(reads(), true, "a run with no freeze decision");
+  assert.equal(reads({ frozen: false, lessons: true }), true);
+  assert.equal(reads({ frozen: true, lessons: true }), true, "the lever lifts the lesson state of a frozen run");
+  assert.equal(reads(FROZEN), false);
+  assert.equal(reads({ frozen: false, lessons: false }), false);
+});
+
 test("in a frozen run, a stale-flagged app requests no context rebuild", async () => {
   const app = cfg(`factory-freeze-stale-${Math.random().toString(36).slice(2)}`);
   getHistory().contexts.markContextStale(app.name);

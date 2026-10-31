@@ -6,6 +6,7 @@ import type { ArchitectureContext, GroundingOmission, HarnessFacts } from "@kern
 import type { RouteAvailabilityFact } from "@kernel/route-availability.ts";
 import type { DataContradiction } from "@kernel/data-contradiction.ts";
 import type { ServedVersionSignal } from "@kernel/served-version.ts";
+import type { Lesson } from "@contexts/cross-run-learning/application/index.ts";
 import type { LessonsSignal } from "@kernel/lessons-signal.ts";
 import type { ChangeScope, UseCaseCandidate } from "@contexts/change-analysis/application/index.ts";
 import type { CommitIntent } from "@kernel/commit-intent.ts";
@@ -71,6 +72,8 @@ export interface Grounding {
   moreNodes: readonly string[];
   /** The pages the pack read with results under the declared data state: the witness a failure that reads them empty contradicts. */
   confirmedDataRoutes: readonly { path: string; resultCount: number }[] | undefined;
+  /** What earlier runs' observations teach about the pages this run read, derived at read. Empty when the run's lessons lever is off or nothing was observed before. */
+  lessons: readonly Lesson[];
   /** The decisions on the changed lines of the run's own diff, from the static listing of the working copy: they rank the hunks every prompt shows and name the cases a flow's brief must test. Empty when none was listed. */
   changedDecisions: readonly ChangedDecision[];
   /** Why each captured route the pack could not show at its own address was not, and how many routes the capture read: the plan check, the review citation, the fix loop's triage, the gate signal and the PR read it. Undefined when the pack did not classify. */
@@ -379,6 +382,7 @@ export function initialRunState(): RunState {
       harnessFacts: undefined,
       moreNodes: [],
       confirmedDataRoutes: undefined,
+      lessons: [],
       changedDecisions: [],
       blastRadiusSignal: "",
       blastRadiusSignalHasSymbols: false,

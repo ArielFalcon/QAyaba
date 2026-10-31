@@ -21,7 +21,7 @@ import type { AssembledPrompt } from "@kernel/prompt-sections.ts";
 import { posix } from "node:path";
 import { PROBE_REL_DIR } from "@contexts/test-execution/application/index.ts";
 import { GENERATION_END } from "@kernel/generation-end.ts";
-import { AUTHORING_REFUSAL, type CoordinationGateSignal, type CoordinationSettings, type PlanningLimits } from "@kernel/coordination.ts";
+import { AUTHORING_REFUSAL, type CoordinationGateSignal, type CoordinationSettings, type LessonDelivery, type PlanningLimits } from "@kernel/coordination.ts";
 import { formatGeoLocation, type GeoLocation } from "@kernel/geolocation.ts";
 import { isRunDeadlineError } from "../../../shared-kernel/run-deadline.ts";
 import type { AgentBrowserHandle, ClosedLoopHandle, FlowFailureFact, FlowGeolocationHandle, FlowLedgerEntry, FlowLoopHandle, GeolocationHandle } from "@contexts/agent-tools/application/index.ts";
@@ -47,7 +47,8 @@ import { PLAN_SNAPSHOT_KIND, type PlanSnapshotCandidate, type PlanSnapshotFlow, 
 import { authorTask } from "./author-task.ts";
 import { SIDEKICK_KIND, type SidekickKind } from "./sidekick-kinds.ts";
 import type { EvidenceRef } from "./evidence-ref.ts";
-import { evidenceFromEmptyRead, evidenceFromPackDataRoutes } from "./evidence-from.ts";
+import { evidenceFromEmptyRead, evidenceFromLessons, evidenceFromPackDataRoutes, type LessonFact } from "./evidence-from.ts";
+import { createHash } from "node:crypto";
 import type { DevStateGround } from "./dev-state-backing.ts";
 import { observationConflictIn } from "./evidence-precedence.ts";
 import { AUTHORING_FAILURE, authoringFailureFeedback, classifyAuthoringFailure, type AuthoringFailure } from "./authoring-failure.ts";
@@ -122,6 +123,8 @@ export interface CoordinateInput {
   devBaseUrl?: string;
   /* The pages the run's Context Pack read with results: every sidekick's brief states them, and a flow's empty read of one is checked against them. */
   confirmedDataRoutes?: readonly { path: string; resultCount: number }[];
+  /* What earlier runs' reads of DEV taught about pages: only a flow's brief states them, for the pages that flow visits; the lead and the reviewer are given none. */
+  lessons?: readonly LessonFact[];
   /* The run's Context Pack: each flow's brief carries the Live DOM of the pages that flow visits. */
   contextPack?: string;
   /* What the suite's harness declares and the specs the suite holds: each flow's brief states them so its author need not open the harness files. */
@@ -207,6 +210,8 @@ interface FlowContext {
   mode: SidekickAuthoringMode;
   /* What the reader could not read of the sidekicks' results over the whole pass (the first turns, the lead's revisions, the corrections), after their one repair turn each, and the repair turns asked. */
   unreadable: { delegation: number; repairs: number };
+  /* The lessons the briefs of the pass opened a session with, each once (kind, page, digest of the line stated). */
+  lessonsDelivered: Map<string, LessonDelivery>;
 }
 
 interface FlowReport {
@@ -496,7 +501,7 @@ export class LeadSidekicks {
 
   /* The flows of an admitted plan: each authored once, then reviewed by the lead, then added up. Every flow's resources end here, however the pass ends. */
   private async fanOut(input: CoordinateInput, flows: AdmittedFlow[], parallel: number, how: { mode: SidekickAuthoringMode; lead?: LeadSessionHandle }, base: CoordinationGateSignal, decided: PlanDecision): Promise<CoordinateResult> {
-    const context: FlowContext = { input, mode: how.mode, unreadable: { delegation: 0, repairs: 0 } };
+    const context: FlowContext = { input, mode: how.mode, unreadable: { delegation: 0, repairs: 0 }, lessonsDelivered: new Map() };
     const live = new Map<string, LiveFlow>();
     const reports = new Map<string, FlowReport>();
     let handed = false;
@@ -525,6 +530,7 @@ export class LeadSidekicks {
         ...(overWindow.length > 0 ? { overWindow } : {}),
         ...(tally.turns > 0 ? { review: tally } : {}),
         ...unreadableSignal(base.unreadable?.plan ?? 0, context.unreadable),
+        ...(context.lessonsDelivered.size > 0 ? { lessonsDelivered: [...context.lessonsDelivered.values()] } : {}),
       };
       for (const p of proposals) this.deps.log?.(`coordination: flow ${p.flowId} changed ${p.total} file(s) it was not given to write; they are proposals and were not applied`);
 
@@ -650,6 +656,7 @@ export class LeadSidekicks {
   /* A fresh sidekick session on the brief, with the feedback when there is some; the session is kept on the flow. */
   private async openSession(entry: LiveFlow, context: FlowContext, brief: DelegationBrief, contextFit: ContextFit | undefined, fit: ((bytes: number) => WindowFitOutcome) | undefined, signal: AbortSignal, timeoutMs: number, feedback?: string): Promise<DelegationResult> {
     const seq = ++entry.opens;
+    noteLessonsDelivered(context, brief);
     const session = await this.deps.sidekick.open(brief, {
       cwd: entry.workspace.dir,
       kind: entry.flow.kind,
@@ -709,7 +716,7 @@ export class LeadSidekicks {
         task: authorTask(flow, entry.loop, browser ? input.agentBrowser!.limits.perCallMs : undefined, entry.geolocation, entry.writesWithheld === true),
         acceptanceCriteria: flow.acceptance,
         scope: { readablePaths: ["."], writablePaths: flow.writablePaths, allowedCommands: [] },
-        knownFacts: knownFactsOf(this.deps.redaction, input, flow.routes),
+        knownFacts: [...knownFactsOf(this.deps.redaction, input, flow.routes), ...lessonFactsOf(this.deps.redaction, input, flow.routes)],
         tools,
         ...(pagesOf(input.contextPack, flow.routes) ?? {}),
         ...(input.harnessFacts ? { harnessFacts: input.harnessFacts, specRelDir: input.specRelDir } : {}),
@@ -1502,6 +1509,21 @@ function describePlan(plan: AdmittedPlan): string {
 function knownFactsOf(redaction: RedactionPort, input: Pick<CoordinateInput, "confirmedDataRoutes">, routes?: readonly string[]): EvidenceRef[] {
   const pages = (input.confirmedDataRoutes ?? []).filter((page) => routes === undefined || routes.some((route) => namesTemplatePage(route, page.path) || namesTemplatePage(page.path, route)));
   return pages.length > 0 ? evidenceFromPackDataRoutes(redaction, pages) : [];
+}
+
+/* The lessons that name one of the flow's pages, as facts of its brief; none for a run with no lessons. */
+function lessonFactsOf(redaction: RedactionPort, input: Pick<CoordinateInput, "lessons">, routes: readonly string[]): EvidenceRef[] {
+  const named = (input.lessons ?? []).filter((lesson) => routes.some((route) => namesTemplatePage(route, lesson.scope) || namesTemplatePage(lesson.scope, route)));
+  return evidenceFromLessons(redaction, named);
+}
+
+/* A lesson counts as delivered when a session was opened on a brief that states it. */
+function noteLessonsDelivered(context: FlowContext, brief: DelegationBrief): void {
+  for (const fact of brief.knownFacts) {
+    if (fact.kind !== "lesson" || fact.dataRef === undefined) continue;
+    const key = `${fact.source}\u0000${fact.dataRef}`;
+    if (!context.lessonsDelivered.has(key)) context.lessonsDelivered.set(key, { kind: fact.source, scope: fact.dataRef, digest: createHash("sha256").update(fact.summary).digest("hex").slice(0, 12) });
+  }
 }
 
 /* Whose writes to DEV are spent when the flow's next run_spec call would be refused for writes: its own share first, then the run's cap every flow shares; nothing while it can still run. */

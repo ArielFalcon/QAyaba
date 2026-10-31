@@ -126,7 +126,9 @@ export function toRunOutcome(
   const coordination = ctx.host.coordination();
   const sandbox = ctx.host.sandboxSignal();
   const servedVersion = ctx.host.servedVersion();
-  const lessons = ctx.host.lessons();
+  const lessonsTally = ctx.host.lessons();
+  const { lessonsDelivered: delivered = [], ...coordinationSignal } = coordination ?? { flows: 0, delivered: 0, incomplete: 0 };
+  const lessons = lessonsTally !== undefined || delivered.length > 0 ? { observed: 0, leftOut: {}, ...lessonsTally, ...(delivered.length > 0 ? { delivered } : {}) } : undefined;
   const gateCoverageRatio = coverageRatio;
   return {
     runId: input.runId,
@@ -186,7 +188,7 @@ export function toRunOutcome(
       ...(extra?.noop !== undefined ? { noop: extra.noop } : {}),
       ...(extra?.causal !== undefined ? { causal: extra.causal } : {}),
       ...(extra?.coverageByCandidate !== undefined ? { coverageByCandidate: extra.coverageByCandidate } : {}),
-      ...(coordination ? { coordination } : {}),
+      ...(coordination ? { coordination: coordinationSignal } : {}),
     },
     ...(input.purpose !== undefined || extra?.note !== undefined ? { note: [input.purpose !== undefined ? `[${input.purpose}]` : undefined, extra?.note].filter((part) => part !== undefined).join(" ") } : {}),
     at: new Date().toISOString(),
