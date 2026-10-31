@@ -4,6 +4,7 @@ import { compileEgressPolicy, EgressPolicyError, originOf } from "@kernel/egress
 import { mutatingEntryError, routePatternError } from "@contexts/test-execution/application/index.ts";
 import { isPageOfTemplate } from "@contexts/generation/application/index.ts";
 import { LoginPathSchema } from "../domain/login-path.ts";
+import { isRepoSlug } from "../domain/repo-slug.ts";
 
 /*
  * A list of origins the execution sandbox may reach (`scheme://host[:port]`, or `scheme://*.suffix[:port]`). Each is compiled
@@ -93,7 +94,7 @@ const GeoPointSchema = z.object({
 export const AppConfigSchema = z
   .object({
     name: z.string().min(1, { error: "app name is required" }),
-    repo: z.string().min(1, { error: "repo is required (e.g. 'org/repo')" }),
+    repo: z.string().min(1, { error: "repo is required (e.g. 'org/repo')", abort: true }).refine(isRepoSlug, { error: "repo must be parts joined by '/', each starting with a letter or digit (e.g. 'org/repo')" }),
     baseBranch: z.string().optional(),
     openapi: z.union([z.string(), z.array(z.string())]).optional(),
     /*
@@ -105,7 +106,7 @@ export const AppConfigSchema = z
     services: z
       .array(
         z.object({
-          repo: z.string().min(1, { error: "service repo is required (e.g. 'org/svc')" }),
+          repo: z.string().min(1, { error: "service repo is required (e.g. 'org/svc')", abort: true }).refine(isRepoSlug, { error: "service repo must be parts joined by '/', each starting with a letter or digit (e.g. 'org/svc')" }),
           baseBranch: z.string().optional(),
           openapi: z.union([z.string(), z.array(z.string())]).optional(),
           versionUrl: z.url().optional(),

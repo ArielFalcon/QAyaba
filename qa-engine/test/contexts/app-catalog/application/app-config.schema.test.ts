@@ -516,3 +516,14 @@ test("dev.dataState accepts per-route readiness/result/location selectors, and r
     /32|routes/,
   );
 });
+
+test("a repo, the app's own or a service's, is parts that each start with a letter or digit, never a path that leaves the mirrors", () => {
+  for (const repo of ["org/shop-api", "my.org/re_po-1", "Org9/x", "store", "group/sub/repo"]) {
+    assert.equal(AppConfigSchema.parse({ ...base, repo }).repo, repo);
+    assert.equal(AppConfigSchema.parse({ ...base, services: [{ repo }] }).services?.[0]?.repo, repo);
+  }
+  for (const repo of ["..", ".", "org/..", "../repo", "org/.", "./repo", "org/../repo", "org//repo", "/org/repo", "org/repo/", "-org/repo", "org/-repo", "org /repo", "org/re po", ""]) {
+    assert.throws(() => AppConfigSchema.parse({ ...base, repo }), JSON.stringify(repo));
+    assert.throws(() => AppConfigSchema.parse({ ...base, services: [{ repo }] }), `service ${JSON.stringify(repo)}`);
+  }
+});
