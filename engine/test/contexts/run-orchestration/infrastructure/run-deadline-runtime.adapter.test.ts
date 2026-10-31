@@ -202,3 +202,38 @@ test("a turn whose purpose has been allotted nothing is refused as the purpose's
   assert.equal((session as AllotmentSpentError).purpose, "generate");
   assert.equal(h.deadline.remainingMs(), 5 * 60_000);
 });
+
+const never = <T>(): Promise<T> => new Promise<T>(() => {});
+
+test("opening a session the runtime never answers ends with the run's deadline error once the run's time passes", async () => {
+  const clock = { t: 0 };
+  const deadline = new RunDeadline({ now: () => clock.t, budgets: { ...RUN_TIME_BUDGET_MS, manual: 150 } });
+  deadline.arm({ mode: "manual" });
+  deadline.enter("decide");
+  const runtime = new RunDeadlineRuntime({ openSession: () => never() }, deadline);
+  await assert.rejects(runtime.openSession("author", "/w"), (err: unknown) => {
+    assert.ok(isRunDeadlineError(err));
+    assert.equal((err as RunDeadlineExceededError).stop, "before-turn");
+    return true;
+  });
+});
+
+test("a dispose the runtime never answers ends within what the run has left, and does not throw", async () => {
+  const clock = { t: 0 };
+  const deadline = new RunDeadline({ now: () => clock.t, budgets: { ...RUN_TIME_BUDGET_MS, manual: 150 } });
+  deadline.arm({ mode: "manual" });
+  deadline.enter("decide");
+  const runtime = new RunDeadlineRuntime({ openSession: async () => ({ prompt: async () => ({ output: "ok" }), dispose: () => never<void>() }) }, deadline, { disposeGraceMs: 50 });
+  const session = await runtime.openSession("author", "/w");
+  const started = Date.now();
+  await session.dispose();
+  assert.ok(Date.now() - started < 1_500, "the dispose must end on the run's time left");
+});
+
+test("while no deadline is armed a dispose is passed straight to the runtime", async () => {
+  let disposed = 0;
+  const runtime = new RunDeadlineRuntime({ openSession: async () => ({ prompt: async () => ({ output: "ok" }), dispose: async () => { disposed += 1; } }) }, new RunDeadline({ now: () => 0, budgets: RUN_TIME_BUDGET_MS }));
+  const session = await runtime.openSession("author", "/w");
+  await session.dispose();
+  assert.equal(disposed, 1);
+});

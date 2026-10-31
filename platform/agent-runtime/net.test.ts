@@ -1,9 +1,9 @@
-/* The agent transport holds no deadline of its own: a prompt to `opencode serve` is one request held open until the
-   turn answers, and only the turn's own limit (or the run's deadline) ends it. */
+/* A prompt to `opencode serve` is one request held open until the turn answers, and only the turn's own limit (or the run's
+   deadline) ends it; every other call carries a bound of its own, so a server that never answers cannot hold a run. */
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { createAgentTransportFetch } from "./net";
+import { AgentRuntimeCallTimeoutError, createAgentTransportFetch } from "./net";
 
 test("the agent transport sends every request through a dispatcher with no headers or body deadline", async () => {
   const built: Array<Record<string, unknown>> = [];
@@ -87,4 +87,75 @@ test("a request that never reaches the agent runtime says where it went and why"
     assert.match(err.message, /ECONNREFUSED/);
     return true;
   });
+});
+
+/* A server that accepts the connection and never answers: the call must end on its bound, with an error naming it. */
+async function withSilentServer(fn: (base: string) => Promise<void>): Promise<void> {
+  const { createServer } = await import("node:net");
+  const sockets = new Set<import("node:net").Socket>();
+  const server = createServer((socket) => {
+    sockets.add(socket);
+    socket.on("data", () => {});
+    socket.on("error", () => {});
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const { port } = server.address() as { port: number };
+  try {
+    await fn(`http://127.0.0.1:${port}`);
+  } finally {
+    for (const socket of sockets) socket.destroy();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+}
+
+test("a call that is not a prompt ends on its bound, with an error naming the call, when the server never answers", async () => {
+  await withSilentServer(async (base) => {
+    const agentFetch = createAgentTransportFetch(undefined, { nonPromptTimeoutMs: 150 });
+    for (const [method, path] of [["POST", "/session"], ["DELETE", "/session/ses_1"], ["GET", "/agent"], ["GET", "/config/providers"]] as const) {
+      const started = Date.now();
+      await assert.rejects(agentFetch(new Request(`${base}${path}`, { method })), (err: Error) => {
+        assert.ok(err instanceof AgentRuntimeCallTimeoutError, `${method} ${path} must end with AgentRuntimeCallTimeoutError, got ${err.name}`);
+        assert.ok(err.message.includes(`${method} ${path}`));
+        assert.equal(err.boundMs, 150);
+        return true;
+      });
+      assert.ok(Date.now() - started < 3_000);
+    }
+  });
+});
+
+test("a prompt is not cut by the bound: it ends only when its caller aborts it", async () => {
+  await withSilentServer(async (base) => {
+    const agentFetch = createAgentTransportFetch(undefined, { nonPromptTimeoutMs: 100 });
+    const controller = new AbortController();
+    const prompt = agentFetch(new Request(`${base}/session/ses_1/message`, { method: "POST", body: "{}", signal: controller.signal }));
+    const outcome = await Promise.race([prompt.then(() => "answered", () => "ended"), new Promise<string>((resolve) => setTimeout(() => resolve("still waiting"), 400))]);
+    assert.equal(outcome, "still waiting");
+    controller.abort(new Error("turn ended"));
+    await assert.rejects(prompt, /turn ended/);
+  });
+});
+
+test("the event stream outlives the bound once it has answered, and ends with its caller's abort", async () => {
+  const { createServer } = await import("node:http");
+  const server = createServer((_req, res) => {
+    res.writeHead(200, { "content-type": "text/event-stream" });
+    res.write("data: first\n\n");
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const { port } = server.address() as { port: number };
+  const controller = new AbortController();
+  try {
+    const agentFetch = createAgentTransportFetch(undefined, { nonPromptTimeoutMs: 100 });
+    const response = await agentFetch(new Request(`http://127.0.0.1:${port}/event`, { signal: controller.signal }));
+    const reader = response.body!.getReader();
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    const chunk = await reader.read();
+    assert.match(new TextDecoder().decode(chunk.value), /first/);
+    controller.abort(new Error("done listening"));
+    await assert.rejects(reader.read(), /done listening/);
+  } finally {
+    server.closeAllConnections();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
 });

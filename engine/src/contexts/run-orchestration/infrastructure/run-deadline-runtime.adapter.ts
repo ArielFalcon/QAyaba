@@ -8,6 +8,7 @@
  */
 import type { AgentPromptOpts, AgentRuntimePort, AgentSession, OpenSessionOpts } from "@kernel/ports/agent-runtime.port.ts";
 import type { AgentRole } from "@kernel/agent-role.ts";
+import { engineLog } from "@kernel/ports/process-logger.ts";
 import { isAgentTimeoutError } from "@kernel/domain-error.ts";
 import type { DeadlinePurpose } from "@kernel/deadline-purpose.ts";
 import { AllotmentSpentError, RunDeadlineExceededError, type RunDeadlineStop, type RunDeadlineView } from "@kernel/run-deadline.ts";
@@ -15,7 +16,12 @@ import { AllotmentSpentError, RunDeadlineExceededError, type RunDeadlineStop, ty
 export interface RunDeadlineRuntimeOptions {
   /** The longest the host lets a prompt with no limit of its own run: when that is shorter than the time left, the host's deadline is what ends such a turn, not the run's. Absent: the host states none. */
   hostPromptCapMs?: number;
+  /** The least a session's delete may take once the run's time is spent; absent: DISPOSE_GRACE_MS. */
+  disposeGraceMs?: number;
 }
+
+/** The least a session's delete may take once the run's time is spent, so a run that ended at its deadline still cleans up after itself. */
+export const DISPOSE_GRACE_MS = 2_000;
 
 export class RunDeadlineRuntime implements AgentRuntimePort {
   constructor(
@@ -40,11 +46,37 @@ export class RunDeadlineRuntime implements AgentRuntimePort {
     const purpose = this.deadline.currentPurpose();
     const left = this.deadline.allowance(purpose);
     if (left !== null && left <= 0) throw this.refuse(role, purpose);
-    const session = await this.inner.openSession(role, cwd, opts);
+    const session = await this.withinRunTime(this.inner.openSession(role, cwd, opts), () => this.runSpent(role, "before-turn", purpose));
     return {
       prompt: (text, promptOpts) => this.prompt(role, session, opts?.timeoutMs, text, promptOpts),
-      dispose: () => session.dispose(),
+      dispose: () => this.dispose(role, session),
     };
+  }
+
+  /* A session that does not answer its delete would hold the run past its end: the delete gets what the run has left, or the grace once that is spent, and a hang is logged, never thrown, as a failed delete is. */
+  private async dispose(role: AgentRole, session: AgentSession): Promise<void> {
+    const remaining = this.deadline.remainingMs();
+    if (remaining === undefined) return session.dispose();
+    const bound = Math.max(remaining, this.options.disposeGraceMs ?? DISPOSE_GRACE_MS);
+    try {
+      await this.withinRunTime(Promise.resolve(session.dispose()), () => new Error(`the ${role} session was not deleted within ${bound}ms`), bound);
+    } catch (err) {
+      engineLog.warn(`[qa] ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  /* The call, or the error `late` makes when the run's time left passes without its answer. Nothing bounds it while no deadline is armed. */
+  private async withinRunTime<T>(call: Promise<T>, late: () => Error, boundMs: number | undefined = this.deadline.remainingMs()): Promise<T> {
+    if (boundMs === undefined) return call;
+    let timer: NodeJS.Timeout | undefined;
+    const expired = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(late()), Math.max(boundMs, 0));
+    });
+    try {
+      return await Promise.race([call, expired]);
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   private async prompt(role: AgentRole, session: AgentSession, sessionTimeoutMs: number | undefined, text: string, promptOpts?: AgentPromptOpts): Promise<{ output: string }> {
