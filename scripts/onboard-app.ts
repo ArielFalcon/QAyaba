@@ -14,11 +14,10 @@ import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 import { MirrorRegistryAdapter } from "../qa-engine/src/contexts/service-topology/infrastructure/mirror-registry.adapter.ts";
 import { buildServiceBoundaryResolver } from "../qa-engine/src/contexts/service-topology/infrastructure/resolver-factory.ts";
-import { OnboardingService, type OnboardingResult } from "../qa-engine/src/contexts/service-topology/application/index.ts";
+import { OnboardingService, serializeBoundary, spliceBoundariesBlock, type OnboardingResult } from "../qa-engine/src/contexts/service-topology/application/index.ts";
 import type { RepoRef } from "../qa-engine/src/contexts/service-topology/application/index.ts";
 import { LlmProfileProposerAdapter } from "../src/server/onboarding/llm-profile-proposer.adapter.ts";
 import { defaultAgentDeps } from "../src/integrations/opencode-client";
-import { serializeBoundary, spliceBoundariesBlock } from "../src/server/onboarding/write-boundaries.ts";
 
 const EXIT = {
   RESOLVED: 0,

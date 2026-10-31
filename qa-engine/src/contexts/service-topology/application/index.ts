@@ -16,3 +16,4 @@ export { operationUrlPattern, requestServesOperation } from "../domain/operation
 export { responseFieldNames } from "../domain/response-fields.ts";
 export { LinkGraph, LinkWalk } from "../domain/link-graph.ts";
 export type { FrontierRepo } from "../domain/link-graph.ts";
+export { serializeBoundary, spliceBoundariesBlock } from "./write-boundaries.ts";

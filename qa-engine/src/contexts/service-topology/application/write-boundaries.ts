@@ -1,5 +1,5 @@
 
-import type { BoundaryProfile } from "@contexts/service-topology/application/index.ts";
+import type { BoundaryProfile } from "../domain/index.ts";
 
 const INDENT = "  ";
 

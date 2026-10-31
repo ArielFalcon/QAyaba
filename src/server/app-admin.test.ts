@@ -4,7 +4,7 @@ import { parse } from "yaml";
 import { createApp, updateApp, deleteApp, type AppAdminDeps } from "./app-admin";
 import { AppConfigInvalidError, AppNotFoundError, type AppConfig } from "../orchestrator/config-loader";
 import { AppConfigSchema, buildYaml, expandEnv, type OnboardInput } from "@contexts/app-catalog/application/index";
-import { serializeBoundary, spliceBoundariesBlock } from "./onboarding/write-boundaries";
+import { serializeBoundary, spliceBoundariesBlock } from "@contexts/service-topology/application/index";
 import type { HttpBoundaryProfile, EventBoundaryProfile } from "@contexts/service-topology/application/index.ts";
 
 const HTTP_BOUNDARY: HttpBoundaryProfile = {

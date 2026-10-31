@@ -1,4 +1,4 @@
-/* src/server/onboarding/write-boundaries.test.ts
+/* test/contexts/service-topology/application/write-boundaries.test.ts
    serializeBoundary() is the exact hand-built inverse of the REAL read-side parser
    (yaml-boundary-profile.adapter.ts) — the round-trip tests below drive that REAL parser
    (via YamlBoundaryProfileAdapter, reader-injected) so a drift between the two never ships
@@ -14,7 +14,7 @@ import type {
   HttpBackendBoundaryProfile,
   BoundaryProfile,
 } from "@contexts/service-topology/application/index.ts";
-import { serializeBoundary, spliceBoundariesBlock } from "./write-boundaries";
+import { serializeBoundary, spliceBoundariesBlock } from "@contexts/service-topology/application/write-boundaries.ts";
 
 const HTTP_PROFILE: HttpBoundaryProfile = {
   transport: "http",

@@ -19,7 +19,6 @@
   "src/server/engine-root.test.ts",
   "src/server/engine-root.ts",
   "src/server/login-bootstrap-wiring.ts",
-  "src/server/onboarding/write-boundaries.test.ts",
   "src/server/run-engine-factory.test.ts",
   "src/server/run-engine-factory.ts",
   "src/server/spec-snapshot.test.ts",

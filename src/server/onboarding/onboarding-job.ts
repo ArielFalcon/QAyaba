@@ -2,7 +2,7 @@
 import type { OnboardingService, OnboardingRoundProgress } from "@contexts/service-topology/application/index.ts";
 import type { ProfileProposerPort, ResolveLinksResult } from "@contexts/service-topology/application/index.ts";
 import type { BoundaryProfile, RepoRef } from "@contexts/service-topology/application/index.ts";
-import { serializeBoundary, spliceBoundariesBlock } from "./write-boundaries";
+import { serializeBoundary, spliceBoundariesBlock } from "@contexts/service-topology/application/index";
 import { aggregateResolution, type ResolutionSummary } from "./resolution-summary";
 import { RedactionPortAdapter } from "../../orchestrator/sanitizer";
 import { logJson } from "../../integrations/logger";
