@@ -127,9 +127,14 @@ export function mergeDecodedDump(name: string, output: Buffer | null | undefined
         set = new Set<number>();
         sinks.executable.set(file, set);
       }
-      for (const line of lines) set.add(line);
-      /* The bound on the lines of a file holds across the dumps of the collection. */
-      if (set.size > MAX_V8_COVERED_LINES_PER_FILE) refused = true;
+      /* The bound on the lines of a file holds across the dumps of the collection, and a line past it is not kept. */
+      for (const line of lines) {
+        set.add(line);
+        if (set.size > MAX_V8_COVERED_LINES_PER_FILE) {
+          refused = true;
+          break;
+        }
+      }
     }
   }
   sinks.branches?.replay(decoded.branches);
