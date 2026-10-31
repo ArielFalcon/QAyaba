@@ -33,7 +33,7 @@
     "rule": "codex",
     "path": "qa-engine/test/contexts/app-catalog/application/app-config.schema.test.ts",
     "contains": "codex",
-    "reason": "Pins that the retired per-runtime budget key is stripped from an app config."
+    "reason": "Pins that the retired per-runtime budget key is refused in an app config."
   },
   {
     "rule": "dual-mode",
