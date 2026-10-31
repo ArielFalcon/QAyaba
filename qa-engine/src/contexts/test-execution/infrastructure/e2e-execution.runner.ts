@@ -27,7 +27,7 @@ import { harvestSpanObserver } from "./harvest-spans.ts";
 import type { OffLoopExecutor } from "../../../shared-infrastructure/worker/off-loop-executor.ts";
 import type { TelemetryPort } from "../../../shared-kernel/telemetry/telemetry.port.ts";
 import { purposeOfExecution, type ExecPurpose } from "../../../shared-kernel/exec-purpose.ts";
-import { conditionsAttributes, executionConditions, type ExecutionConditions } from "../../../shared-kernel/execution-conditions.ts";
+import { conditionsAttributes, executionConditions, testSelection, type ExecutionConditions } from "../../../shared-kernel/execution-conditions.ts";
 import { readObservations } from "./observation-reader.ts";
 import type { ObservedPage } from "@contexts/objective-signal/application/index.ts";
 import { activeExecScope } from "../../../shared-infrastructure/process-sandbox/exec-scope.ts";
@@ -101,12 +101,18 @@ export interface E2eExecuteOptions {
   retries?: number;
   /* A literal title filter, escaped for Playwright's --grep by the caller. */
   grep?: string;
-  /* Have the fixtures count the mutating requests the specs send to DEV, and run a control load (a Playwright child of its own, before the spec child) whose findings the fixtures' ledgers are charged against (PW_COUNT_DEV_WRITES), and report in `devWrites` the writes the control does not account for. Such a run is a spec the generator is trying, not the suite: it is not measured for change-coverage (PW_COVERAGE=0), which would only slow it. */
+  /* Have the fixtures count the mutating requests the specs send to DEV, and run a control load (a Playwright child of its own, before the spec child) whose findings the fixtures' ledgers are charged against (PW_COUNT_DEV_WRITES), and report in `devWrites` the writes the control does not account for. Such a run is a spec the generator is trying, not the suite: like every judging execution it is not measured for change-coverage. */
   countWrites?: boolean;
   /* What the execution is for, named in the trace. Absent, the shape of the request tells (a mutant, an observation, a counted run_spec, the cleanup pass), and anything else is the suite. */
   purpose?: ExecPurpose;
   /* When the run signed in the session the child is given (wall-clock ms), so its age at the child's start is recorded. Absent: the run did not say. */
   session?: { signedInAt: number };
+  /* Have the seed's coverage fixture measure (PW_COVERAGE=1). Every child is told explicitly, either way: a judging execution never measures, and a stored suite whose fixture predates this defaults to on. */
+  coverage?: boolean;
+  /* Run only these tests (named as the coverage fixture names a dump), through the seed's mutation fixture's selection, which edits no script. Ignored with a `mutant`, which names its own. */
+  tests?: readonly string[];
+  /* A global timeout of the child's own (Playwright's --global-timeout), for an execution held to an allowance: tests it stops never run. */
+  globalTimeoutMs?: number;
   /* Run as the dedicated cleanup pass: the child is handed PW_CLEANUP=1, which the seed's cleanup.spec.ts needs to do anything (it skips otherwise), and `namespace` is then the BASE data prefix to clean. */
   cleanupPass?: boolean;
 }
@@ -186,6 +192,12 @@ export interface E2eExecuteDeps {
     purpose?: ExecPurpose;
     /** When the run signed in the session the child is given (wall-clock ms). Absent: the run did not say. */
     session?: { signedInAt: number };
+    /** Whether the coverage fixture measures; the child is told either way. */
+    coverage?: boolean;
+    /** Run only these tests, by their dump names. */
+    tests?: readonly string[];
+    /** Playwright's own global timeout for the child. */
+    globalTimeoutMs?: number;
     signal?: AbortSignal;
     timeoutMs?: number;
     onEvent?: (ev: StreamEvent) => void;
@@ -313,6 +325,9 @@ export async function runE2E(
     ...(opts.observe ? { observe: true } : {}),
     ...(opts.purpose ? { purpose: opts.purpose } : {}),
     ...(opts.session ? { session: opts.session } : {}),
+    ...(opts.coverage ? { coverage: true } : {}),
+    ...(opts.tests ? { tests: opts.tests } : {}),
+    ...(opts.globalTimeoutMs !== undefined ? { globalTimeoutMs: opts.globalTimeoutMs } : {}),
     /* No project unless one is configured: the repo owns its playwright.config.ts, so every project it defines runs. The seed keeps its login setup project out of a suite run itself (it is defined only under PW_AUTH_SETUP). */
     project: opts.project,
     testIdAttribute: opts.testIdAttribute,
@@ -915,7 +930,7 @@ export function createDefaultE2eCleanupDeps(processKill: ProcessKillPort = new P
           commandClass: "playwright-test",
           purpose: "cleanup",
           namespace,
-          extraEnv: { PW_BASE_URL: baseUrl, PW_NAMESPACE: namespace, PW_CLEANUP: "1", ...(testIdAttribute ? { PW_TEST_ID_ATTRIBUTE: testIdAttribute } : {}) },
+          extraEnv: { PW_BASE_URL: baseUrl, PW_NAMESPACE: namespace, PW_CLEANUP: "1", PW_COVERAGE: "0", ...(testIdAttribute ? { PW_TEST_ID_ATTRIBUTE: testIdAttribute } : {}) },
           /* Nothing reads the cleanup's output. Piped and unread, it would block the child once the OS pipe buffer fills, and keep the pipes open to any descendant that outlives it. */
           stdio: "ignore",
         });
@@ -971,7 +986,7 @@ module.exports = QaStreamReporter;
 const MAX_RETRIES = 10;
 const MAX_GREP_CHARS = 200;
 
-export function playwrightArgs(reporterPath: string, project?: string, testListPath?: string, outputDir?: string, narrow: { retries?: number | undefined; grep?: string | undefined } = {}): string[] {
+export function playwrightArgs(reporterPath: string, project?: string, testListPath?: string, outputDir?: string, narrow: { retries?: number | undefined; grep?: string | undefined; globalTimeoutMs?: number | undefined } = {}): string[] {
   const args = ["playwright", "test", `--reporter=${reporterPath},json`];
   /* Where Playwright writes traces, screenshots and videos: the run's work dir, because the mirror is read-only to the sandbox uid. */
   if (outputDir !== undefined) args.push(`--output=${outputDir}`);
@@ -988,6 +1003,10 @@ export function playwrightArgs(reporterPath: string, project?: string, testListP
   if (narrow.grep !== undefined) {
     if (typeof narrow.grep !== "string" || narrow.grep === "" || narrow.grep.length > MAX_GREP_CHARS) throw new Error(`invalid grep: must be a non-empty string of at most ${MAX_GREP_CHARS} characters`);
     args.push(`--grep=${narrow.grep}`);
+  }
+  if (narrow.globalTimeoutMs !== undefined) {
+    if (!Number.isInteger(narrow.globalTimeoutMs) || narrow.globalTimeoutMs <= 0) throw new Error(`invalid global timeout ${JSON.stringify(narrow.globalTimeoutMs)}: must be a positive integer of milliseconds`);
+    args.push(`--global-timeout=${narrow.globalTimeoutMs}`);
   }
   if (testListPath !== undefined) {
     if (testListPath === "" || testListPath.startsWith("-")) throw new Error(`invalid test list path ${JSON.stringify(testListPath)}`);
@@ -1021,7 +1040,7 @@ export function createDefaultE2eExecuteDeps(
       const dir = exec.allocDir("failures", ["dumps"]);
       return { dir: join(dir, "dumps"), root: exec.workDir(), dispose: () => { try { rmSync(dir, { recursive: true, force: true }); } catch { /* best-effort */ } } };
     },
-    runSuite: ({ dir, baseUrl, namespace, geolocation, dataState, testIdAttribute, mutant, observe, project, specFiles, retries, grep, countWrites, cleanupPass, purpose, session, signal, timeoutMs, onEvent, onChildClosed, failureCaptureDir, onControlRead }) =>
+    runSuite: ({ dir, baseUrl, namespace, geolocation, dataState, testIdAttribute, mutant, observe, project, specFiles, retries, grep, countWrites, cleanupPass, purpose, session, coverage, tests, globalTimeoutMs, signal, timeoutMs, onEvent, onChildClosed, failureCaptureDir, onControlRead }) =>
       new Promise((resolve, reject) => {
         /* The specs to run, as a file the orchestrator writes (root-owned, read-only to the sandbox): the child is told which files by an exact list, never by a pattern. */
         const testListPath = specFiles !== undefined && specFiles.length > 0 ? exec.writeScript("spec-list.txt", specListContent(specFiles)) : undefined;
@@ -1095,21 +1114,24 @@ export function createDefaultE2eExecuteDeps(
 
         /* The conditions the spec child runs under, built once here from what it is handed, for its span and for the caller. */
         let conditions: ExecutionConditions | undefined;
+        /* The mutation fixture's input: a mutant's edit, or a selection of the tests to run that edits no script. */
+        const routed = mutant ?? (tests !== undefined && tests.length > 0 ? testSelection(tests) : undefined);
         const startSuite = (): void => {
-          const childPurpose = purposeOfExecution({ ...(purpose ? { purpose } : {}), ...(mutant !== undefined ? { mutant } : {}), ...(observe ? { observe } : {}), ...(countWrites ? { countWrites } : {}), ...(cleanupPass ? { cleanupPass } : {}) });
+          const childPurpose = purposeOfExecution({ ...(purpose ? { purpose } : {}), ...(routed !== undefined ? { mutant: routed } : {}), ...(observe ? { observe } : {}), ...(countWrites ? { countWrites } : {}), ...(cleanupPass ? { cleanupPass } : {}) });
           conditions = executionConditions({
             purpose: childPurpose,
-            instrumentation: { coverage: !countWrites && !cleanupPass, observe: observe === true, route: mutant !== undefined && mutant !== "", writeCounter: countWrites === true },
+            instrumentation: { coverage: coverage === true, observe: observe === true, route: routed !== undefined && routed !== "", writeCounter: countWrites === true },
             ...(retries !== undefined ? { retries } : {}),
             ...(specFiles !== undefined ? { specFiles } : {}),
             ...(grep !== undefined ? { grep } : {}),
             processTimeoutMs: ms,
+            ...(globalTimeoutMs !== undefined ? { globalTimeoutMs } : {}),
             ...(session ? { session } : {}),
             ...(geolocation ? { geolocation } : {}),
             namespace,
             startedAt: Date.now(),
           });
-          const child = exec.spawn("npx", playwrightArgs(reporterPath, project, testListPath, join(work, "results"), { retries, grep }), {
+          const child = exec.spawn("npx", playwrightArgs(reporterPath, project, testListPath, join(work, "results"), { retries, grep, globalTimeoutMs }), {
             cwd: dir,
             profile: "suite",
             commandClass: "playwright-test",
@@ -1117,7 +1139,7 @@ export function createDefaultE2eExecuteDeps(
             attrs: conditionsAttributes(conditions),
             namespace,
             ...(geolocation ? { geolocation } : {}),
-            extraEnv: { ...sharedEnv, PLAYWRIGHT_JSON_OUTPUT_NAME: jsonPath, ...(cleanupPass ? { PW_CLEANUP: "1" } : {}), ...(countWrites ? { PW_COUNT_DEV_WRITES: "1", PW_COVERAGE: "0" } : {}), ...(mutant ? { PW_MUTANT: mutant } : {}), ...(observe ? { PW_OBSERVE: "1" } : {}), ...(failureCaptureDir && dataState ? { PW_DATA_STATE: JSON.stringify(dataState) } : {}) },
+            extraEnv: { ...sharedEnv, PLAYWRIGHT_JSON_OUTPUT_NAME: jsonPath, ...(cleanupPass ? { PW_CLEANUP: "1" } : {}), PW_COVERAGE: coverage === true ? "1" : "0", ...(countWrites ? { PW_COUNT_DEV_WRITES: "1" } : {}), ...(routed ? { PW_MUTANT: routed } : {}), ...(observe ? { PW_OBSERVE: "1" } : {}), ...(failureCaptureDir && dataState ? { PW_DATA_STATE: JSON.stringify(dataState) } : {}) },
           });
           running = child;
           child.stdout!.setEncoding("utf8");

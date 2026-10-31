@@ -8,10 +8,11 @@ import { hasGreenBytes } from "@kernel/run-verdict.ts";
 import { isAllotmentSpentError } from "@kernel/run-deadline.ts";
 import type { DeadlinePurpose } from "@kernel/deadline-purpose.ts";
 import type { GenerationEnrichment } from "@contexts/generation/application/index.ts";
-import { changedCodeFiles, isReadTrouble, renderBranchGap, renderCoverageGap, renderSurvivedMutants, survivorClosureOf, survivorFindings, survivorRechecks, testSupportFiles, unreachableByDesign, type BundleMutationResult, type CoverageExclusions, type CoverageMeasurement, type CoverageRerun, type CoverageSignal, type RerunBudget, type SurvivedMutant, type SurvivorClosure } from "@contexts/objective-signal/application/index.ts";
+import { changedCodeFiles, isReadTrouble, renderBranchGap, renderCoverageGap, renderSurvivedMutants, rerunEstimateMs, rerunFits, survivorClosureOf, survivorFindings, survivorRechecks, testOfCase, testSupportFiles, unreachableByDesign, type BundleMutationResult, type CoverageExclusions, type CoverageMeasurement, type CoverageRerun, type CoverageSignal, type MeasuredPages, type RerunBudget, type SurvivedMutant, type SurvivorClosure } from "@contexts/objective-signal/application/index.ts";
+import type { QaCase } from "@kernel/qa-case.ts";
 import type { StepOutcome } from "../run-flow.ts";
 import type { RunContext, WorkspaceRunContext } from "../run-context.ts";
-import { runOf, type BranchCasesOutcome, type CoverageOutcome, type RunState } from "../run-state.ts";
+import { runOf, type BranchCasesOutcome, type CoverageOutcome, type MeasurementOutcome, type RunState } from "../run-state.ts";
 import { acceptedRegeneration, recordLimit, remeasured, rollbackDelivered, withAcceptanceCalls, withRun } from "../reducers.ts";
 import { executeAccepted, validateAccepted } from "./execute.steps.ts";
 import { regenerate, type EvidenceFinding } from "./generation-services.ts";
@@ -85,24 +86,130 @@ export async function coverageExclusionsOf(state: Readonly<RunState>, ctx: Works
   return { unreachableByDesign: byDesign, testSupportFiles: support };
 }
 
-/* The change-coverage of the green execution by execution alone, read from its dumps once: what the passing tests ran, and the mutation pass due on it, if any. */
+/*
+ * The one measurement execution (RFC-0015): the green tests of the bytes `cases` judged (passed, or passed on a retry), run once more with coverage on and observed,
+ * retries 0 and only those tests, under its own namespace. It judges nothing: the verdict stands whatever it does. It starts only when
+ * the time `purpose` may still spend holds the time those cases took and the run's deadline has not fired, and Playwright's own global
+ * timeout is the allowance, so it never runs past it. A measurement that did not start, could not run, or was cut before every test it
+ * was given ran measured nothing.
+ */
+export async function runMeasurement(ctx: WorkspaceRunContext, cases: readonly QaCase[], namespace: string, purpose: DeadlinePurpose): Promise<MeasurementOutcome> {
+  const passing = cases.filter(ranGreen);
+  const specFiles = [...new Set(passing.flatMap((c) => (c.file ? [c.file] : [])))];
+  const tests = [...new Set(passing.map((c) => testOfCase(c.name)))];
+  const notRun = (why: string): MeasurementOutcome => {
+    engineLog.warn(`[qa] change-coverage: the measurement execution ${namespace} measured nothing (${why}); the coverage is unknown and the verdict stands`);
+    return { notRun: true, tests: passing.length };
+  };
+  if (passing.length === 0 || specFiles.length === 0) return notRun("no passing test to measure");
+  const budget = rerunBudgetOf(ctx, purpose, cases);
+  if (budget.fired?.() === true) return notRun("the run's deadline has fired");
+  const allowance = budget.allowance();
+  const estimate = rerunEstimateMs(cases, specFiles, tests);
+  if (!rerunFits(allowance, estimate)) return notRun(`it is estimated at ${estimate ?? "an unknown number of"} ms and the time left holds ${allowance} ms`);
+  const result = await ctx.deps.execution.execute(ctx.workspace.specDir, {
+    ...(ctx.signal ? { signal: ctx.signal } : {}),
+    purpose: "measurement",
+    namespace,
+    coverage: true,
+    observe: true,
+    retries: 0,
+    specFiles,
+    tests,
+    ...(allowance !== null ? { globalTimeoutMs: Math.max(1, Math.floor(allowance)) } : {}),
+  });
+  if (result.verdict === "infra-error") return notRun("it could not run");
+  const byName = new Map(result.cases.map((c) => [c.name, c]));
+  if (passing.some((c) => !byName.has(c.name))) return notRun("it was cut before every test it was given ran");
+  const greenThere = (c: QaCase): boolean => isRealPass(byName.get(c.name)!);
+  return {
+    namespace,
+    tests: passing.length,
+    passed: passing.filter(greenThere).map((c) => c.name),
+    baseline: passing.filter((c) => isRealPass(c) && greenThere(c)).map((c) => c.name),
+    failedOnlyUnderMeasurement: passing.filter((c) => !greenThere(c)).map((c) => c.name),
+    cases: result.cases.map((c) => ({ name: c.name, status: c.status, ...(c.file !== undefined ? { file: c.file } : {}), ...(c.durationMs !== undefined ? { durationMs: c.durationMs } : {}), ...(c.expectedStatus !== undefined ? { expectedStatus: c.expectedStatus } : {}) })),
+    ...(result.observations ? { observations: result.observations } : {}),
+  };
+}
+
+/* A case whose bytes ran green in the verdict: a real pass, or a flaky case (it passed on a retry), whose bytes a flaky run still has green. */
+const ranGreen = (c: QaCase): boolean => isRealPass(c.status === "flaky" ? { ...c, status: "pass" } : c);
+
+/* The measurement execution runs where a measurement can read it: a green run whose coverage policy is not off, on one repo, with a diff to count. */
+export const measuresByExecution = (state: Readonly<RunState>, ctx: WorkspaceRunContext): boolean =>
+  measuresCoverage(state, ctx) && ctx.cfg.coveragePolicyMode !== "off" && !ctx.input.triggerRepo && !!state.classification.diff;
+
+/* The measurement execution of the verdict's passing tests, in the coverage purpose; the coverage phase opens here whether or not one is due. */
+export async function executeMeasurement(state: Readonly<RunState>, ctx: WorkspaceRunContext): Result {
+  if (!measuresByExecution(state, ctx)) return;
+  const measuredBy = await runMeasurement(ctx, runOf(state).cases, `${ctx.input.runId}-measure`, "coverage");
+  return { update: { coverage: { ...state.coverage, measuredBy } } };
+}
+
+/* What a measurement asks of the measurement execution it reads: its namespace, its passing tests as the baseline and their spec files, the tests whose dumps credit nothing, and its pages as the mutants' first observation. Nothing when no measurement execution ran. */
+export function measuredByOptions(measured: MeasurementOutcome | undefined): { baselineCases?: string[]; opts: { namespace?: string; caseFiles?: string[]; exceptTests?: string[]; firstObservation?: MeasuredPages } } {
+  if (measured === undefined || "notRun" in measured) return { opts: {} };
+  const passed = new Set(measured.passed);
+  const caseFiles = passingCaseFiles(measured.cases.filter((c) => passed.has(c.name)));
+  return {
+    baselineCases: measured.baseline,
+    opts: {
+      namespace: measured.namespace,
+      ...(caseFiles.length > 0 ? { caseFiles } : {}),
+      ...(measured.failedOnlyUnderMeasurement.length > 0 ? { exceptTests: measured.failedOnlyUnderMeasurement.map(testOfCase) } : {}),
+      firstObservation: { cases: measured.cases, ...(measured.observations ? { observations: measured.observations } : {}) },
+    },
+  };
+}
+
+/* Whether a measurement execution was due and measured nothing. */
+export const measurementNotRun = (state: Readonly<RunState>): boolean => state.coverage.measuredBy !== undefined && "notRun" in state.coverage.measuredBy;
+
+/* The record of the measurement execution beside the coverage it gave. */
+const measuredByRecord = (measured: MeasurementOutcome | undefined) =>
+  measured === undefined || "notRun" in measured ? undefined : { namespace: measured.namespace, tests: measured.tests, failedOnlyUnderMeasurement: [...measured.failedOnlyUnderMeasurement] };
+
+/* The coverage of a measurement execution that measured nothing: unknown and why; under enforce the run is held, since no measurement of the green bytes decided the gate. The verdict is untouched. */
+export function coverageNotMeasured(coverage: CoverageOutcome, mode: RunContext["cfg"]["coveragePolicyMode"], perCommit: boolean): CoverageOutcome {
+  return {
+    ...coverage,
+    coverageRatio: null,
+    coverageStatus: "unknown",
+    coverageMeasured: perCommit,
+    uncovered: [],
+    perCandidate: undefined,
+    branchCoverage: undefined,
+    untakenArms: [],
+    untakenArmsCurrent: false,
+    bundleMutation: undefined,
+    mutantProofs: [],
+    survivorRuns: [],
+    changeCoverage: { executableLines: 0, unmeasured: "measurement-not-run" },
+    ranBy: undefined,
+    mutationPass: undefined,
+    blocksPublish: mode === "enforce",
+  };
+}
+
+/* The change-coverage of the green execution by execution alone, read once from the dumps of the measurement execution: what its passing tests ran, and the mutation pass due on it, if any. */
 async function measureGreenRun(state: Readonly<RunState>, ctx: WorkspaceRunContext, exclusions: CoverageExclusions | undefined) {
   const { deps, input, workspace } = ctx;
-  const run = runOf(state);
   const { diff, intent } = state.classification;
   /* The same BlastRadius the ground phase queried the structural signal with. */
   const runBlastRadius = BlastRadius.of(input.sha, intent?.changedFiles ?? []);
-  /* This pass's own passing case names — the green baseline the mutation pass judges against. */
-  const baselineCases = run.cases.filter(isRealPass).map((c) => c.name);
-  /* The spec files of those cases: a mutant re-runs the ones whose tests reached it, and a dump tells which changed file a spec ran only among them. */
-  const caseFiles = passingCaseFiles(run.cases);
-  /* The loop's last whole-suite execution and the re-runs of some spec files after it: the measurement reads the latest dumps of every spec file. */
-  const { coverageNamespace, coverageReruns } = state.fixLoop;
+  /*
+   * The measurement execution's own passing tests are the green baseline the mutation pass judges against, and their spec files those a
+   * mutant re-runs. A run no measurement execution was due for (the policy off, cross-repo, no diff) has nothing the measurement could
+   * count; its verdict's passing tests stand for the baseline, as they did when the verdict's own execution was measured.
+   */
+  const fromExecution = measuredByOptions(state.coverage.measuredBy);
+  const verdictCases = runOf(state).cases;
+  const verdictFiles = passingCaseFiles(verdictCases);
+  const measured = state.coverage.measuredBy !== undefined ? fromExecution : { baselineCases: verdictCases.filter(isRealPass).map((c) => c.name), opts: verdictFiles.length > 0 ? { caseFiles: verdictFiles } : {} };
   /* Cross-repo: the diff is starved so coverage is "unknown" (never blocks). */
-  return deps.objectiveSignal.measure(runBlastRadius, workspace.specDir, input.triggerRepo ? undefined : diff, baselineCases, {
-    ...(coverageNamespace ? { namespace: coverageNamespace } : {}),
-    ...(coverageReruns.length > 0 ? { reruns: coverageReruns } : {}),
-    ...(caseFiles.length > 0 ? { caseFiles } : {}),
+  return deps.objectiveSignal.measure(runBlastRadius, workspace.specDir, input.triggerRepo ? undefined : diff, measured.baselineCases, {
+    ...measured.opts,
     ...(state.grounding.candidates.length > 0 ? { candidates: state.grounding.candidates } : {}),
     ...(input.triggerRepo ? { crossRepo: true } : {}),
     ...(exclusions ? { exclusions } : {}),
@@ -125,7 +232,7 @@ function coverageMeasured(state: Readonly<RunState>, ctx: WorkspaceRunContext, s
     bundleMutation: signal.bundleMutation,
     mutantProofs: signal.mutantProofs ?? [],
     survivorRuns: signal.survivorRuns ?? [],
-    changeCoverage: changeCoverageOf(signal.measurement),
+    changeCoverage: withMeasuredBy(changeCoverageOf(signal.measurement), state.coverage.measuredBy),
     ranBy: signal.ranBy,
     exclusions,
     mutationPass: signal.mutationPass,
@@ -140,9 +247,17 @@ export async function measureCoverage(state: Readonly<RunState>, ctx: WorkspaceR
     /* Log so a cross-repo "unknown" is diagnosable, never a silent null. */
     engineLog.info(`[qa] change-coverage: skipped — the changed lines live in ${ctx.input.triggerRepo}; browser coverage maps only the frontend (status=unknown).`);
   }
+  if (measurementNotRun(state)) return { update: { coverage: coverageNotMeasured(state.coverage, ctx.cfg.coveragePolicyMode, measuresPerCommit(ctx)) } };
   const exclusions = await coverageExclusionsOf(state, ctx);
   const signal = await measureGreenRun(state, ctx, exclusions);
   return { update: { coverage: coverageMeasured(state, ctx, signal, exclusions) } };
+}
+
+/* A measurement's record with the measurement execution it was read from. */
+export function withMeasuredBy(change: CoverageOutcome["changeCoverage"], measured: MeasurementOutcome | undefined): CoverageOutcome["changeCoverage"] {
+  const record = measuredByRecord(measured);
+  if (!record) return change;
+  return { ...(change ?? { executableLines: 0 }), measuredBy: record };
 }
 
 /*
@@ -168,14 +283,17 @@ export const mutationSkipReason = (state: Readonly<RunState>, ctx: WorkspaceRunC
  * allowance, each estimated from the cases of the execution it judges.
  */
 export async function measureMutation(state: Readonly<RunState>, ctx: WorkspaceRunContext): Result {
-  const signal = await ctx.deps.objectiveSignal.measureMutation!(state.coverage.mutationPass!, ctx.workspace.specDir, { rerunBudget: rerunBudgetOf(ctx, "coverage", runOf(state).cases) });
+  /* Each re-run is estimated from the measurement execution, which ran under the mutants' conditions. */
+  const measured = state.coverage.measuredBy;
+  const estimateFrom = measured !== undefined && !("notRun" in measured) ? measured.cases : runOf(state).cases;
+  const signal = await ctx.deps.objectiveSignal.measureMutation!(state.coverage.mutationPass!, ctx.workspace.specDir, { rerunBudget: rerunBudgetOf(ctx, "coverage", estimateFrom) });
   if (!signal.bundleMutation) return { update: { coverage: { ...state.coverage, mutationPass: undefined } } };
   return { update: { coverage: coverageMeasured(state, ctx, signal, state.coverage.exclusions) } };
 }
 
 /* Whether the enforce-mode regeneration runs: a measurement that blocks publication, on a per-commit diff. */
 export const regeneratesForCoverage = (state: Readonly<RunState>, ctx: WorkspaceRunContext): boolean =>
-  coverageRegenAction({ measured: measuresCoverage(state, ctx), blocks: state.coverage.blocksPublish, perCommit: measuresPerCommit(ctx), regenerated: state.loops.coverageRegen }) === "regenerate";
+  coverageRegenAction({ measured: measuresCoverage(state, ctx) && !measurementNotRun(state), blocks: state.coverage.blocksPublish, perCommit: measuresPerCommit(ctx), regenerated: state.loops.coverageRegen }) === "regenerate";
 
 /* The mutants of the changed code that ran under a delivered test and that no test noticed. */
 const survivorsOf = (state: Readonly<RunState>): readonly SurvivedMutant[] => state.coverage.bundleMutation?.survived ?? [];
@@ -398,7 +516,7 @@ export async function recountAfter(state: Readonly<RunState>, ctx: WorkspaceRunC
 }
 
 /* The spec files of the passing cases of an execution. */
-function passingCaseFiles(cases: ReturnType<typeof runOf>["cases"]): string[] {
+function passingCaseFiles(cases: readonly QaCase[]): string[] {
   return [...new Set(cases.flatMap((c) => (isRealPass(c) && c.file ? [c.file] : [])))];
 }
 

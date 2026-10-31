@@ -98,8 +98,8 @@ export function buildExecEnv(input: ExecEnvInput): Record<string, string> {
   Object.assign(raw, checkedExtra(input));
   if (input.profile === "graph") Object.assign(raw, GRAPH_ENV);
 
-  /* Playwright's config and the DOM-capture script read the app's position from these names. Only a profile that opens pages gets it. */
-  if (input.geolocation && (input.profile === "suite" || input.profile === "login")) {
+  /* Playwright's config and the DOM-capture script read the app's position from these names: a profile that opens pages, and `playwright test --list` (offline), which enumerates the tests under the execution contract's position. */
+  if (input.geolocation && (input.profile === "suite" || input.profile === "login" || input.profile === "offline")) {
     raw.PW_GEO_LAT = String(input.geolocation.latitude);
     raw.PW_GEO_LNG = String(input.geolocation.longitude);
   }

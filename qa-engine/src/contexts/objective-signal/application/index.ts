@@ -8,7 +8,8 @@ export type { BranchCasesMode, ChangeCoverageDeclaration, ResolvedCoveragePolicy
 export type { ChangeCoverage, CoveragePolicy } from "../domain/decide-coverage.service.ts";
 export { renderBranchGap, renderCoverageGap, renderSurvivedMutant, renderSurvivedMutants, survivorFindings } from "../domain/render-coverage-gap.ts";
 export { diffObservations, movedBySpecFile, type ObservedDifference, type SpecFileDifference, type UnmutatedPages } from "../domain/observed-difference.ts";
-export { MAX_OBSERVED_DOM_LINES, MAX_OBSERVED_LINE_CHARS, MAX_OBSERVED_REQUESTS, type ObservedPage, type ObservedRequest } from "../domain/observed-page.ts";
+export { MAX_OBSERVED_DOM_LINES, MAX_OBSERVED_LINE_CHARS, MAX_OBSERVED_REQUESTS, type MeasuredPages, type ObservedPage, type ObservedRequest } from "../domain/observed-page.ts";
+export { testOfCase } from "../domain/dump-names.ts";
 export { survivorClosureOf, survivorRechecks, type SurvivorClosure } from "../domain/survivor-closure.ts";
 export { diffContracts } from "../domain/test-intent-contract.ts";
 export type { IntentViolation, SpecContractExtraction, SpecIntent } from "../domain/test-intent-contract.ts";
@@ -18,7 +19,8 @@ export type { CoverageSignal, ObjectiveSignalPort } from "./ports/objective-sign
 export type { MutationPass } from "../domain/mutation-pass.ts";
 export type { CoverageRead, CoverageReport, BranchHit, BranchKind, BranchArm, MutationSite, DumpSource, MutantRun, BundleMutationResult, MutantEdit, MutantProof, SurvivedMutant } from "../domain/coverage-collector.ts";
 export type { BundleMutationPort } from "./ports/bundle-mutation.port.ts";
-export { RERUN_LEFT_OUT_FOR_TIME, type RerunBudget, type RerunsLeftOut } from "../domain/rerun-budget.ts";
+export { RERUN_LEFT_OUT_FOR_TIME, rerunEstimateMs, rerunFits, type RerunBudget, type RerunsLeftOut } from "../domain/rerun-budget.ts";
+export { NOT_GREEN_UNDER_MEASUREMENT, type MutantsNotJudged } from "../domain/coverage-collector.ts";
 export type { CoverageMeasurement, CoverageRecount, CoverageRerun, UntakenArm, BundleMutationOutcome } from "../domain/objective-signal.ts";
 export { assembleChangeCoverage } from "../domain/assemble-change-coverage.ts";
 export type { CoverageStatus } from "../domain/decide-coverage.service.ts";

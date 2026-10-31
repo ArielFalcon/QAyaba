@@ -109,11 +109,11 @@ export function runCheck(
   timeoutMs: number = DEFAULT_VALIDATE_CHECK_TIMEOUT_MS,
   exec: ExecSandboxPort,
   commandClass?: ExecCommandClass,
-  opts: { stdoutOnly?: boolean } = {},
+  opts: { stdoutOnly?: boolean; extraEnv?: Record<string, string>; geolocation?: { latitude: number; longitude: number } } = {},
 ): Promise<CheckResult> {
   return new Promise((resolve) => {
     /* The launcher starts the child detached, as the leader of its own process group, so killTree can reap grandchildren (npx forks the real tool as a child of the child). */
-    const child = exec.spawn(cmd, args, { cwd: e2eDir, profile: "offline", ...(commandClass ? { commandClass } : {}) });
+    const child = exec.spawn(cmd, args, { cwd: e2eDir, profile: "offline", ...(commandClass ? { commandClass } : {}), ...(opts.extraEnv ? { extraEnv: opts.extraEnv } : {}), ...(opts.geolocation ? { geolocation: opts.geolocation } : {}) });
     const out = new BoundedOutputTail(CHECK_OUTPUT_KEEP_CHARS);
     let settled = false;
     const settle = (res: CheckResult) => {
@@ -205,12 +205,21 @@ const checkManifestFile = async (e2eDir: string): Promise<CheckResult> => {
   }
 };
 
-/* The static gate's checks over a launcher: there is no default, because every one of them but the manifest check executes agent-influenced code. */
-export function createValidateDeps(exec: ExecSandboxPort, linter: readonly [string, readonly string[]] = ESLINT_COMMAND): ValidateDeps {
+/* The execution contract's non-secret variables (RFC-0015, ADR-0023 #10): where the app is, the run's namespace, the test-id attribute and the durable position. Never the session or the account. */
+export interface ListContract {
+  baseUrl: string;
+  namespace: string;
+  testIdAttribute?: string;
+  geolocation?: { latitude: number; longitude: number };
+}
+
+/* The static gate's checks over a launcher: there is no default, because every one of them but the manifest check executes agent-influenced code. `contract`, when given, is what `playwright test --list` enumerates under, so a spec whose top-level code reads it enumerates the tests the executions run. */
+export function createValidateDeps(exec: ExecSandboxPort, linter: readonly [string, readonly string[]] = ESLINT_COMMAND, contract?: ListContract): ValidateDeps {
+  const listEnv = contract ? { PW_BASE_URL: contract.baseUrl, PW_NAMESPACE: contract.namespace, ...(contract.testIdAttribute ? { PW_TEST_ID_ATTRIBUTE: contract.testIdAttribute } : {}) } : undefined;
   return {
     typecheck: (e2eDir) => runCheck("npx", ["tsc", "--noEmit"], e2eDir, undefined, exec, "tsc"),
     lint: (e2eDir) => runCheck(linter[0], [...linter[1], ...GATE_LINT_OPTIONS, "."], e2eDir, undefined, exec, "eslint"),
-    listTests: (e2eDir) => runCheck("npx", ["playwright", "test", "--list"], e2eDir, undefined, exec, "playwright-list"),
+    listTests: (e2eDir) => runCheck("npx", ["playwright", "test", "--list"], e2eDir, undefined, exec, "playwright-list", { ...(listEnv ? { extraEnv: listEnv } : {}), ...(contract?.geolocation ? { geolocation: contract.geolocation } : {}) }),
     checkManifest: checkManifestFile,
   };
 }

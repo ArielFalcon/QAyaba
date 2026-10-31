@@ -25,7 +25,7 @@ import type { FixLoopStage } from "../../domain/fix-loop.aggregate.ts";
 import type { CoordinationGateSignal } from "@kernel/coordination.ts";
 import type { CorrectionFinding } from "@contexts/coordination/application/index.ts";
 import type { RunOutcome } from "@kernel/run-outcome.ts";
-import type { BundleMutationOutcome, CandidateCoverage, CausalLabel, CoverageExclusions, CoverageRecount, CoverageRerun, MutantProof, MutantRun, MutationPass, SurvivorClosure, UntakenArm } from "@contexts/objective-signal/application/index.ts";
+import type { BundleMutationOutcome, CandidateCoverage, CausalLabel, CoverageExclusions, CoverageRecount, CoverageRerun, MutantProof, MutantRun, MutationPass, ObservedPage, SurvivorClosure, UntakenArm } from "@contexts/objective-signal/application/index.ts";
 import type { RunDecision } from "../../domain/run-decision.ts";
 import type { RunEvidence } from "../../domain/run-decision.service.ts";
 import type { EndReason } from "./end-reason.ts";
@@ -231,7 +231,21 @@ export interface CoverageOutcome {
   coverageStale: boolean;
   /** The changed files the run's facts say are no gap of the suite (reached only through routes the change made unavailable, imported only by tests), decided once at the first measurement and handed to every later one so they leave the same change out; undefined when none was decided. */
   exclusions: CoverageExclusions | undefined;
+  /** The measurement execution the coverage is read from (RFC-0015), or why none was run; undefined before the step that runs it, or when it does not run (coverage off, a cross-repo run, no diff). */
+  measuredBy: MeasurementOutcome | undefined;
 }
+
+/**
+ * The one execution that measures the verdict's green tests (passed, or flaky: passed on a retry): under its own namespace, with coverage on,
+ * observed, retries 0, only those tests. `passed` are the tests that passed in it too, the only dumps that credit coverage; `baseline` is the
+ * mutants' baseline, those of them the verdict saw pass at the first attempt; `failedOnlyUnderMeasurement` were green in the verdict and failed
+ * here; `cases` and `observations` are what it ran and saw (the mutants' first unmutated observation, and the estimate of their re-runs).
+ * `notRun`: the time left could not hold it, it could not run, or it was cut before every test it was given ran, so it measured nothing and
+ * the coverage is unknown.
+ */
+export type MeasurementOutcome =
+  | { namespace: string; tests: number; passed: string[]; baseline: string[]; failedOnlyUnderMeasurement: string[]; cases: QaCase[]; observations?: ObservedPage[] }
+  | { notRun: true; tests: number };
 
 /** What decided a review round: the reviewer's model, the deterministic DOM pre-check, or the unchanged specs since a rejection. */
 export type ReviewDecidedBy = "model" | "precheck" | "unchanged";
@@ -442,6 +456,7 @@ export function initialRunState(): RunState {
       acceptedRegenAfterMeasure: false,
       coverageStale: false,
       exclusions: undefined,
+      measuredBy: undefined,
     },
     review: { session: undefined, reviewerApproved: true, reviewerApprovedForOutcome: undefined, finalReviewerCorrections: [], missingCases: [], reviewerSignal: undefined },
     decided: undefined,

@@ -37,8 +37,8 @@ export interface DumpsThatRan { file: string; dumps: string[]; }
 export interface CoverageRead { namespace: string; startedAt: number; durationMs: number; dumps: number; bytes: number; outcome: DumpOutcome; startMs: number | null; workMs: number; }
 /* `reads` holds one record per source read, in the order read; `fault` is the first way a read failed to use its dumps, absent when none did. They are told by a collector that reads the dumps itself. */
 export interface CoverageReport { covered: CoveredLines[]; executable?: CoveredLines[]; scripts?: CoverageScripts; branches?: BranchHit[]; mutationSites?: MutationSite[]; ranBy?: DumpsThatRan[]; /* A source of a recollection yielded no dump: the report is a part of what it was asked for. */ incomplete?: true; reads?: CoverageRead[]; fault?: CoverageReadFault; }
-/* The dumps of one namespace a recollection adds: without those the tests of `exceptSpecFiles` wrote, and, when `onlySpecFiles` is given, only those its tests wrote; `mutant` is the edit the page's script carried when they were written, undone before they are read. */
-export interface DumpSource { namespace: string; exceptSpecFiles?: readonly string[]; onlySpecFiles?: readonly string[]; mutant?: MutantEdit; }
+/* The dumps of one namespace a recollection adds: without those the tests of `exceptSpecFiles` wrote and those of the tests `exceptTests` names (each as the coverage fixture names a test's dumps), and, when `onlySpecFiles` is given, only those its tests wrote; `mutant` is the edit the page's script carried when they were written, undone before they are read. */
+export interface DumpSource { namespace: string; exceptSpecFiles?: readonly string[]; exceptTests?: readonly string[]; onlySpecFiles?: readonly string[]; mutant?: MutantEdit; }
 /* A mutant of the served script to re-run, with the spec files whose tests reached it and, when the dumps that ran it name their tests, those tests (each as the coverage fixture names its dumps): only they are re-run. */
 export interface MutantRun { site: MutationSite; specFiles: string[]; tests?: string[]; }
 /* What the mutants did: how many reached a page and were judged, how many a test noticed, and where the others are. */
@@ -46,4 +46,7 @@ export interface MutantRun { site: MutationSite; specFiles: string[]; tests?: st
 export interface SurvivedMutant { file: string; line: number; operator: string; specFiles?: string[]; original?: string; replacement?: string; moved?: ObservedDifference; movedBySpec?: SpecFileDifference[]; }
 /* `survivorRuns` holds, in the order of `survived`, each survivor's mutant as it was run, so it can be applied again; it carries the served script's address and edit, and stays with the orchestrator. */
 /* `unreadable`: the mutants whose re-run left evidence that could not be read (so whether they reached a page is not known), not judged and counted apart from a mutant that reached no page; absent when none was. `leftOut`: the re-runs not started because the time left could not hold them; absent when none was. */
-export interface BundleMutationResult { applied: number; killed: number; survived: SurvivedMutant[]; proofs?: MutantProof[]; survivorRuns?: MutantRun[]; unreadable?: number; leftOut?: RerunsLeftOut; }
+export interface BundleMutationResult { applied: number; killed: number; survived: SurvivedMutant[]; proofs?: MutantProof[]; survivorRuns?: MutantRun[]; unreadable?: number; leftOut?: RerunsLeftOut; notJudged?: MutantsNotJudged; }
+/* The mutants not judged, by why: `baseline-not-green-under-measurement`, every test that reached it failed under the measurement it is judged against, so no pass under the same conditions can be lost (RFC-0015). */
+export const NOT_GREEN_UNDER_MEASUREMENT = "baseline-not-green-under-measurement";
+export type MutantsNotJudged = Partial<Record<typeof NOT_GREEN_UNDER_MEASUREMENT, number>>;

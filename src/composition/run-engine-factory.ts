@@ -535,7 +535,7 @@ export function buildAcceptanceHarness(input: AcceptanceHarnessInput): Acceptanc
   const baseUrl = app.dev.baseUrl;
   const env = activeEnvironment();
 
-  const validateDeps = createValidateDeps(exec);
+  const validateDeps = createValidateDeps(exec, undefined, { baseUrl, namespace: `${app.qa.testDataPrefix}-acceptance`, ...(app.e2e?.testIdAttribute !== undefined ? { testIdAttribute: app.e2e.testIdAttribute } : {}), ...(app.dev.geolocation ? { geolocation: { latitude: app.dev.geolocation.latitude, longitude: app.dev.geolocation.longitude } } : {}) });
   const staticGate = new StaticGateAdapter({
     typecheck: validateDeps.typecheck,
     lint: validateDeps.lint,
@@ -811,7 +811,8 @@ export function buildEngineRootDeps(
   });
 
 
-  const plainValidateDeps = createValidateDeps(exec);
+  /* `playwright test --list` enumerates under the execution contract's non-secret variables (RFC-0015): the specs' top-level code sees what the executions give it. */
+  const plainValidateDeps = createValidateDeps(exec, undefined, { baseUrl: app.dev.baseUrl, namespace, ...(app.e2e?.testIdAttribute !== undefined ? { testIdAttribute: app.e2e.testIdAttribute } : {}), ...(app.dev.geolocation ? { geolocation: { latitude: app.dev.geolocation.latitude, longitude: app.dev.geolocation.longitude } } : {}) });
   /* Each static check is a span of its own under the validate phase (telemetry off: the checks as they are). */
   const validateDeps = deps.telemetry ? traceValidateDeps(plainValidateDeps, deps.telemetry) : plainValidateDeps;
   const staticGate = new StaticGateAdapter({
@@ -849,7 +850,8 @@ export function buildEngineRootDeps(
    */
   const mutation = bundleMutationEnabled(app.qa.changeCoverage)
     ? new BundleMutationOracleAdapter(
-        ({ dir, baseUrl, namespace, mutant, specFiles, observe }) => runE2E(dir, { baseUrl, namespace, specFiles, retries: 0, ...(mutant !== undefined ? { mutant } : {}), ...(observe ? { observe: true } : {}) }, e2eExecuteDeps),
+        /* A mutant's re-run and the unmutated observation after the mutants measure, as the measurement execution they are judged against does: both sides of a kill run under one set of conditions (RFC-0015). */
+        ({ dir, baseUrl, namespace, mutant, specFiles, observe }) => runE2E(dir, { baseUrl, namespace, specFiles, retries: 0, coverage: true, ...(mutant !== undefined ? { mutant } : {}), ...(observe ? { observe: true } : {}) }, e2eExecuteDeps),
         countInjectedResponses,
         app.dev.baseUrl,
       )

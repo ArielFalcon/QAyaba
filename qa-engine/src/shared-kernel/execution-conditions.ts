@@ -15,13 +15,14 @@ import type { Attrs } from "./telemetry/attribute-registry.ts";
 
 export type ExecutionKind = "judging" | "measuring";
 
-/* What an execution of each purpose is: a purpose whose outcome decides something judges; an observation only measures, and the control load and the cleanup pass judge nothing. */
+/* What an execution of each purpose is: a purpose whose outcome decides something judges; an observation or a measurement only measures, and the control load and the cleanup pass judge nothing. */
 const KIND_OF: Record<ExecPurpose, ExecutionKind> = {
   suite: "judging",
   acceptance: "judging",
   "fix-retry": "judging",
   "run-spec": "judging",
   mutant: "judging",
+  measurement: "measuring",
   observation: "measuring",
   control: "measuring",
   cleanup: "measuring",
@@ -76,6 +77,9 @@ export interface ExecutionConditionsInput {
   /* The time the child starts, wall-clock ms: the session's age is counted to it. */
   startedAt: number;
 }
+
+/* What the seed's mutation fixture reads (PW_MUTANT) to run only `tests` and edit no script: an edit that names no script, so no response (none has an empty address or digest) is touched and every other test is skipped. */
+export const testSelection = (tests: readonly string[]): string => JSON.stringify({ url: "", sha256: "", start: 0, end: 0, replacement: "", tests });
 
 /* The one builder of an execution's conditions. */
 export function executionConditions(input: ExecutionConditionsInput): ExecutionConditions {

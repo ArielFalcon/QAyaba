@@ -29,7 +29,7 @@ import { closedLoopSignal, correctionBudgetSpent, correctThroughLead, mayCorrect
 import { CORRECTION_ORIGIN, type CorrectionFinding } from "@contexts/coordination/application/index.ts";
 import { resolveTested } from "./fix-loop.steps.ts";
 import { reviewChangeViewOf } from "../review-change.ts";
-import { branchCoverageOf, changeCoverageOf, rerunBudgetOf, traceAcceptedFiles } from "./coverage.steps.ts";
+import { branchCoverageOf, changeCoverageOf, coverageNotMeasured, measuredByOptions, rerunBudgetOf, runMeasurement, traceAcceptedFiles, withMeasuredBy } from "./coverage.steps.ts";
 import { addDroppedRejection, addReviewStats, annotateReviewPhase, greenSpecFiles, newReviewTally, readReviewedSpecs, rebuttalEvidence, recordReviewDecision } from "./review-services.ts";
 import { pathOnly } from "@kernel/route-availability.ts";
 import { dataContradictionRefs } from "@kernel/data-contradiction.ts";
@@ -609,40 +609,44 @@ export const remeasuresStaleCoverage = (state: Readonly<RunState>): boolean =>
   hasGreenBytes(runOf(state).verdict) && state.coverage.coverageMeasured && state.coverage.acceptedRegenAfterMeasure;
 
 /*
- * The coverage this run measured is stale when an accepted regeneration followed it. Under enforce, one whole-suite measured
- * execution before decide refreshes it (the coverage regeneration's own run counts when it is the last accepted one, so this
- * never runs twice); under signal the prior measurement is reused and marked stale. A measured execution that ends red is the
- * verdict of a passing run: a red suite is never published. A flaky run keeps its flaky verdict.
+ * The coverage this run measured is stale when an accepted regeneration followed it. Under enforce, one whole-suite execution before
+ * decide judges the final bytes under the execution contract (it measures nothing), and one measurement execution of its passing tests
+ * then measures them (the coverage regeneration's own run counts when it is the last accepted one, so this never runs twice); under
+ * signal the prior measurement is reused and marked stale. A judging execution that ends red is the verdict of a passing run: a red
+ * suite is never published. A flaky run keeps its flaky verdict. A measurement the time left cannot hold measures nothing: the coverage
+ * is unknown and the run is held.
  */
 export async function remeasureStaleCoverage(state: Readonly<RunState>, ctx: WorkspaceRunContext): Result {
   const { deps, input, cfg, telemetry, workspace } = ctx;
   const run = runOf(state);
   if (cfg.coveragePolicyMode === "enforce") {
     const finalNamespace = `${input.runId}-coverage-final`;
-    const measuredRun = await deps.execution.execute(workspace.specDir, { ...liveExecutionOptions(ctx), namespace: finalNamespace });
-    /* A flaky run was unstable in this run, and that verdict stands: a final execution changes neither its verdict nor its cases, so it stays quarantined. One that ran green, even first time, measures the bytes; one that ran red measures nothing and the measurement the run keeps is marked stale. The coverage block applies to the decision, never by replacing the verdict. */
-    if (run.verdict === "flaky" && !hasGreenBytes(measuredRun.verdict)) {
-      engineLog.warn(`[qa] coverage re-measure: the final execution of a flaky run ended ${measuredRun.verdict}; the flaky verdict stands and the kept measurement is marked stale.`);
+    const judgedRun = await deps.execution.execute(workspace.specDir, { ...liveExecutionOptions(ctx), namespace: finalNamespace });
+    /* A flaky run was unstable in this run, and that verdict stands: a final execution changes neither its verdict nor its cases, so it stays quarantined. One that ran green, even first time, is measured; one that ran red measures nothing and the measurement the run keeps is marked stale. The coverage block applies to the decision, never by replacing the verdict. */
+    if (run.verdict === "flaky" && !hasGreenBytes(judgedRun.verdict)) {
+      engineLog.warn(`[qa] coverage re-measure: the final execution of a flaky run ended ${judgedRun.verdict}; the flaky verdict stands and the kept measurement is marked stale.`);
       return { update: { coverage: { ...state.coverage, coverageStale: true } } };
     }
     const flakyStands = run.verdict === "flaky";
-    const finalRun = flakyStands ? run : { verdict: measuredRun.verdict, cases: measuredRun.cases, logs: run.logs };
-    if (measuredRun.verdict !== "pass" && !flakyStands) return { update: { execution: withRun(state.execution, finalRun) } };
-    const passed = measuredRun.cases.filter(isRealPass);
-    const baselineCases = passed.map((c) => c.name);
-    const caseFiles = [...new Set(passed.flatMap((c) => (c.file ? [c.file] : [])))];
+    const finalRun = flakyStands ? run : { verdict: judgedRun.verdict, cases: judgedRun.cases, logs: run.logs };
+    if (judgedRun.verdict !== "pass" && !flakyStands) return { update: { execution: withRun(state.execution, finalRun) } };
+    const purpose = ctx.services.runDeadlinePort.currentPurpose?.() ?? "review";
+    const measuredBy = await runMeasurement(ctx, judgedRun.cases, `${finalNamespace}-measure`, purpose);
+    if ("notRun" in measuredBy) {
+      return { update: { execution: withRun(state.execution, finalRun), coverage: { ...coverageNotMeasured(remeasured(state.coverage), cfg.coveragePolicyMode, state.coverage.coverageMeasured), measuredBy } } };
+    }
+    const measured = measuredByOptions(measuredBy);
     const finalSignal = await deps.objectiveSignal.measure(
       BlastRadius.of(input.sha, state.classification.intent?.changedFiles ?? []),
       workspace.specDir,
       state.classification.diff,
-      baselineCases,
+      measured.baselineCases,
       {
-        namespace: finalNamespace,
-        caseFiles,
+        ...measured.opts,
         ...(state.grounding.candidates.length > 0 ? { candidates: state.grounding.candidates } : {}),
         ...(state.coverage.exclusions ? { exclusions: state.coverage.exclusions } : {}),
-        /* Its mutation re-runs are the time of the purpose the run is in, estimated from this final execution. */
-        rerunBudget: rerunBudgetOf(ctx, ctx.services.runDeadlinePort.currentPurpose?.() ?? "review", measuredRun.cases),
+        /* Its mutation re-runs are the time of the purpose the run is in, estimated from the measurement, which ran under their conditions. */
+        rerunBudget: rerunBudgetOf(ctx, purpose, measuredBy.cases),
       },
     );
     return {
@@ -650,6 +654,7 @@ export async function remeasureStaleCoverage(state: Readonly<RunState>, ctx: Wor
         execution: withRun(state.execution, finalRun),
         coverage: {
           ...remeasured(state.coverage),
+          measuredBy,
           coverageRatio: finalSignal.ratio,
           coverageStatus: finalSignal.status,
           perCandidate: finalSignal.measurement?.perCandidate,
@@ -659,7 +664,7 @@ export async function remeasureStaleCoverage(state: Readonly<RunState>, ctx: Wor
           untakenArmsCurrent: true,
           bundleMutation: finalSignal.bundleMutation ?? state.coverage.bundleMutation,
           mutantProofs: finalSignal.mutantProofs ?? [],
-          changeCoverage: changeCoverageOf(finalSignal.measurement),
+          changeCoverage: withMeasuredBy(changeCoverageOf(finalSignal.measurement), measuredBy),
           blocksPublish: deps.objectiveSignal.blocks(finalSignal.status),
         },
       },

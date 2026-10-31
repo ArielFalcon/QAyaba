@@ -1644,7 +1644,7 @@ test("the default runner starts the child with the narrowing options and the wri
   assert.equal(spawned[0]!.extraEnv?.PW_COVERAGE, "0", "a spec the generator is trying is not measured for change-coverage");
   assert.equal(spawned[1]!.args.some((a) => a.startsWith("--retries") || a.startsWith("--grep")), false);
   assert.equal(spawned[1]!.extraEnv?.PW_COUNT_DEV_WRITES, undefined);
-  assert.equal(spawned[1]!.extraEnv?.PW_COVERAGE, undefined);
+  assert.equal(spawned[1]!.extraEnv?.PW_COVERAGE, "0", "an execution not asked to measure says so: the seed's own default is never what decides");
 });
 
 /* A launcher whose children are driven by hand: every spawn is recorded with its arguments and environment, and the test closes each child when it wants it gone. */

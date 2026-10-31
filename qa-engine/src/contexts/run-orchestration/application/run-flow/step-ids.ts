@@ -40,6 +40,7 @@ export const STEP_IDS = [
   "fingerprint-green-suite",
   "triage-flaky-cases",
   "announce-coverage",
+  "execute-measurement",
   "measure-coverage",
   "measure-mutation",
   "regenerate-for-coverage",

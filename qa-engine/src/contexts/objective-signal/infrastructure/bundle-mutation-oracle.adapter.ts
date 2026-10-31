@@ -1,13 +1,14 @@
 /* BundleMutationPort for the e2e target: each mutant of the changed code is one re-run, against DEV, of the tests that reached it (the mutant names them to the seed's mutation fixture, which skips every other test of the spec files; a mutant that names none re-runs every test of its spec files), with the seed's mutation fixture editing that one script as the page loads it. A mutant is judged only when it reached a page (the fixture counts the responses it mutated beside the response oracle's counters) and the re-run ran tests that passed before: a mutant that reached no page, a re-run that could not run, one whose counters could not be read (counted apart, `unreadable`, since whether it reached a page is not known) and one that ran none of the passing tests say nothing of the tests. A judged mutant is killed when a test that passed before fails; its proof names the dumps of the spec files whose tests failed, so the changed code the mutant made run is credited to the tests that checked it. When asked to observe, each mutant's re-run also records the pages of its tests, and the survivors are compared with two unmutated re-runs of the same tests, one before the first mutant's re-run and one after the last, whose own differences are run-to-run noise and drift over the pass: what the mutation moved in the requests and the accessible tree is recorded on each survivor, over all its tests (`moved`) and per spec file (`movedBySpec`), for the regeneration that answers it, and holds nothing of the mutant. Held to a budget, a re-run (the observation before, each mutant, the observation after) starts only when the allowance holds its estimate, the time its cases took in the run's final execution, scaled once a re-run of the pass has been timed by what that one took against its own cases' time: a mutant left out is neither applied nor judged, a re-run the run's deadline cut (it ended after the deadline fired, its process killed) is not judged and counts as left out, and none starts after it, an observation left out leaves the survivors unobserved, and how many mutants and how many observations were left out, and why, is on the result (`leftOut`). Signal-only: the result never gates publish. */
 import type { BundleMutationPort } from "../application/ports/bundle-mutation.port.ts";
-import type { BundleMutationResult, MutantProof, MutantRun } from "../domain/coverage-collector.ts";
+import { NOT_GREEN_UNDER_MEASUREMENT, type BundleMutationResult, type MutantProof, type MutantRun } from "../domain/coverage-collector.ts";
 import { diffObservations, movedBySpecFile } from "../domain/observed-difference.ts";
 import { RERUN_LEFT_OUT_FOR_TIME, rerunEstimateMs, rerunFits, scaledEstimateMs, type MeasuredRerun, type RerunBudget } from "../domain/rerun-budget.ts";
-import type { ObservedPage } from "../domain/observed-page.ts";
+import type { MeasuredPages, ObservedPage } from "../domain/observed-page.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 import { engineLog } from "@kernel/ports/process-logger.ts";
 import { redactAndBound } from "../../../shared-infrastructure/redaction/redact-and-bound.ts";
 import { isRealPass } from "@kernel/case-proof.ts";
+import { testSelection } from "@kernel/execution-conditions.ts";
 
 /* A re-run of `specFiles`: with `mutant` applied (or, for the unmutated re-runs a survivor is compared with, none, or one that edits no script and only names the tests to run); `observe` has the fixtures record the pages of its tests. */
 type RunMutant = (args: { dir: string; baseUrl: string; namespace: string; mutant?: string; specFiles: string[]; observe?: boolean }) => Promise<{ verdict: string; cases: QaCase[]; observations?: ObservedPage[] }>;
@@ -26,7 +27,7 @@ interface SurvivorPages {
   files: ReadonlyMap<string, string>;
 }
 
-const pagesOf = (run: { cases: readonly QaCase[]; observations?: ObservedPage[] }, passed: readonly QaCase[]): SurvivorPages => ({
+const pagesOf = (run: MeasuredPages, passed: readonly QaCase[]): SurvivorPages => ({
   pages: run.observations,
   passed: new Set(passed.filter(isRealPass).map((c) => c.name)),
   files: new Map(run.cases.flatMap((c) => (c.file ? [[c.name, c.file] as const] : []))),
@@ -50,8 +51,6 @@ function unmutatedScope(runs: readonly MutantRun[]): { specFiles: string[]; test
   return { specFiles, tests: [...new Set(runs.flatMap((r) => r.tests!))].sort() };
 }
 
-/* What the seed's mutation fixture reads for an unmutated re-run of `tests`: an edit that names no script (no response has an empty address or digest, so none is touched), so every other test is skipped as it was in the mutants' re-runs. */
-const unmutatedSelection = (tests: readonly string[]): string => JSON.stringify({ url: "", sha256: "", start: 0, end: 0, replacement: "", tests });
 
 export class BundleMutationOracleAdapter implements BundleMutationPort {
   constructor(
@@ -62,8 +61,11 @@ export class BundleMutationOracleAdapter implements BundleMutationPort {
     private readonly now: () => number = () => Date.now(),
   ) {}
 
-  async measure(mutants: MutantRun[], specDir: string, namespace: string, baselineCases: string[], opts: { observe?: boolean; budget?: RerunBudget } = {}): Promise<BundleMutationResult | null> {
+  async measure(mutants: MutantRun[], specDir: string, namespace: string, baselineCases: string[], opts: { observe?: boolean; budget?: RerunBudget; before?: MeasuredPages; notGreen?: readonly string[] } = {}): Promise<BundleMutationResult | null> {
     if (!this.baseUrl || mutants.length === 0 || baselineCases.length === 0) return null;
+    /* The tests that failed under the measurement the mutants are judged against: a mutant only they reached has no pass to lose under the same conditions. */
+    const notGreen = new Set(opts.notGreen ?? []);
+    let notGreenOnly = 0;
     const passedBefore = new Set(baselineCases);
     let applied = 0;
     let killed = 0;
@@ -107,10 +109,15 @@ export class BundleMutationOracleAdapter implements BundleMutationPort {
     const proofs: MutantProof[] = [];
     const survivorRuns: MutantRun[] = [];
     const survivorPages: SurvivorPages[] = [];
-    /* The first unmutated observation comes before any mutant runs: the survivors are not known yet, so it runs every mutant's tests. */
-    const before = opts.observe ? await this.unmutated(specDir, `${namespace}-obs`, mutants, reruns) : undefined;
+    /* The first unmutated observation comes before any mutant runs: the measurement execution the mutants are judged against, when it observed (it ran every passing test under the mutants' conditions), else a re-run of every mutant's tests, since the survivors are not known yet. */
+    const before = opts.observe ? (opts.before ? pagesOf(opts.before, opts.before.cases) : await this.unmutated(specDir, `${namespace}-obs`, mutants, reruns)) : undefined;
     for (const [i, { site, specFiles, tests }] of mutants.entries()) {
       const mutantNamespace = `${namespace}-mut${i}`;
+      if (tests !== undefined && tests.length > 0 && tests.every((t) => notGreen.has(t))) {
+        notGreenOnly++;
+        engineLog.warn(`[qa] mutation: every test that reached the mutant at ${site.file}:${site.line} (${site.operator}) failed under the measurement it is judged against; it is not judged`);
+        continue;
+      }
       const scope: RerunScope = { kind: "mutants", specFiles, ...(tests ? { tests } : {}) };
       if (!reruns.fits(mutantNamespace, scope)) continue;
       const mutant = JSON.stringify({ url: site.script.url, sha256: site.script.sha256, ...site.edit, ...(tests ? { tests } : {}) });
@@ -147,7 +154,7 @@ export class BundleMutationOracleAdapter implements BundleMutationPort {
     }
     if (before && survived.length > 0) await this.recordMoved(survived, survivorRuns, survivorPages, before, specDir, namespace, reruns);
     const anyLeftOut = leftOut.mutants + leftOut.observations > 0;
-    return applied > 0 || unreadable > 0 || anyLeftOut
+    return applied > 0 || unreadable > 0 || anyLeftOut || notGreenOnly > 0
       ? {
           applied,
           killed,
@@ -156,6 +163,7 @@ export class BundleMutationOracleAdapter implements BundleMutationPort {
           ...(survivorRuns.length > 0 ? { survivorRuns } : {}),
           ...(unreadable > 0 ? { unreadable } : {}),
           ...(anyLeftOut ? { leftOut: { ...leftOut, reason: RERUN_LEFT_OUT_FOR_TIME } } : {}),
+          ...(notGreenOnly > 0 ? { notJudged: { [NOT_GREEN_UNDER_MEASUREMENT]: notGreenOnly } } : {}),
         }
       : null;
   }
@@ -186,7 +194,7 @@ export class BundleMutationOracleAdapter implements BundleMutationPort {
     const rerun: RerunScope = { kind: "observations", ...scope };
     if (!reruns.fits(namespace, rerun)) return UNOBSERVED;
     try {
-      const run = await reruns.timed(rerun, () => this.runMutant({ dir: specDir, baseUrl: this.baseUrl, namespace, specFiles: scope.specFiles, observe: true, ...(scope.tests ? { mutant: unmutatedSelection(scope.tests) } : {}) }));
+      const run = await reruns.timed(rerun, () => this.runMutant({ dir: specDir, baseUrl: this.baseUrl, namespace, specFiles: scope.specFiles, observe: true, ...(scope.tests ? { mutant: testSelection(scope.tests) } : {}) }));
       if (reruns.cut(namespace, rerun)) return UNOBSERVED;
       if (run.verdict !== "infra-error") return pagesOf(run, run.cases);
       engineLog.warn(`[qa] mutation: the unmutated re-run ${namespace} the surviving mutants are compared with could not run; what they moved is not told`);

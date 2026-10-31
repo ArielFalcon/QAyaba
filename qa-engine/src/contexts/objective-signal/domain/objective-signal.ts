@@ -1,5 +1,5 @@
 import type { SkippedSites } from "./select-mutants.ts";
-import type { SurvivedMutant } from "./coverage-collector.ts";
+import type { MutantsNotJudged, SurvivedMutant } from "./coverage-collector.ts";
 import type { AggregateUnmeasured, CandidateCoverage } from "./per-candidate-coverage.ts";
 import type { TestSupportFile, UnreachableByDesign } from "./coverage-exclusions.ts";
 import type { CoverageReadFault } from "./dump-outcome.ts";
@@ -54,6 +54,8 @@ export interface BundleMutationOutcome {
   rerunsBySpecFile?: number;
   unreadable?: number;
   leftOut?: RerunsLeftOut;
+  /** The mutants not judged, by why; absent when every mutant left out was left out for another reason. */
+  notJudged?: MutantsNotJudged;
 }
 
 /** How the mutants of a measurement were chosen: the sites left out by why (absent when none was), and how many mutants re-run only the tests that reached them and how many every test of their spec files. */

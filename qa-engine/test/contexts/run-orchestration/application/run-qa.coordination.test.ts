@@ -4,6 +4,7 @@ import { pageCandidate } from "../../../support/use-case-candidate.ts";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Sha } from "@kernel/sha.ts";
+import type { ExecutionOpts } from "@contexts/test-execution/domain/execution.ts";
 import { ERROR_CLASS } from "@kernel/error-class.ts";
 import { loginToBeWritten } from "../../../support/coordinator-over-author.ts";
 import { ok } from "@kernel/result.ts";
@@ -713,11 +714,12 @@ const flakyCase = (over: Partial<QaCase> = {}): QaCase => ({ name: "lists the re
 
 /* An execution that ends flaky with these cases, and passes the specs an acceptance executes afterwards. */
 function flakyOnce(cases: QaCase[]) {
-  const calls: Array<{ retries?: number }> = [];
+  const calls: Array<{ retries?: number; purpose?: string }> = [];
   return {
     calls,
-    execution: { execute: async (_dir: string, opts?: { retries?: number }) => {
-      calls.push({ retries: opts?.retries });
+    execution: { execute: async (_dir: string, given?: AbortSignal | ExecutionOpts) => {
+      const opts = given instanceof AbortSignal ? undefined : given;
+      calls.push({ retries: opts?.retries, ...(opts?.purpose ? { purpose: opts.purpose } : {}) });
       return calls.length === 1
         ? { verdict: "flaky" as const, cases, logs: "" }
         : { verdict: "pass" as const, cases: cases.map((c) => ({ name: c.name, status: "pass" as const, file: c.file! })), logs: "" };
@@ -771,7 +773,7 @@ test("a flaky case whose first attempt read an empty data state reaches its flow
   assert.doesNotMatch(kept.seen.corrected[0]![0]!.text, /location/, "the remedy names no app concept");
   assert.deepEqual(result.outcome?.gateSignals.flakyTriage, { cases: 1, dataInstability: 1, timing: 0, outcome: "accepted", kept: 1, restored: 0 });
   assert.equal(r.calls.filter((c) => c === "generate").length, 0, "no cold author");
-  assert.deepEqual(flaky.calls.slice(1).map((c) => c.retries), [0], "the corrected spec stands only if it executes green without a retry");
+  assert.deepEqual(flaky.calls.slice(1).filter((c) => c.purpose !== "measurement").map((c) => c.retries), [0], "the corrected spec stands only if it executes green without a retry");
   assert.equal(result.decision.verdict, "flaky", "a spec that passed once after a flaky run does not make the run publishable");
   assert.equal(result.decision.sideEffect, "quarantine");
 });

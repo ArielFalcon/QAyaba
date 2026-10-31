@@ -183,8 +183,10 @@ export class ObjectiveSignalPortAdapter implements ObjectiveSignalPort {
     const changedFiles = changeDiff !== undefined ? [...parseDiffHunks(changeDiff).keys()] : undefined;
     const willAssemble = this.ctx.assembleChangeCoverage !== undefined && !!diff;
     /* The latest dumps of every spec file: after re-runs of some of them, the namespace alone holds the others' only. */
-    const rerun = (opts?.reruns?.length ?? 0) > 0;
-    const sources = latestDumpsOf(namespace, opts?.reruns ?? []).sources;
+    /* A test that failed under the measurement credits nothing: its dumps are not read. */
+    const exceptTests = opts?.exceptTests ?? [];
+    const rerun = (opts?.reruns?.length ?? 0) > 0 || exceptTests.length > 0;
+    const sources = latestDumpsOf(namespace, opts?.reruns ?? []).sources.map((source) => (exceptTests.length > 0 ? { ...source, exceptTests } : source));
     const collected = willAssemble ? await this.collectFrom(specDir, namespace, rerun ? sources : undefined, changedFiles) : undefined;
     const report = collected?.report ?? null;
     tellReads(collected?.reads, opts?.onRead);
@@ -216,6 +218,8 @@ export class ObjectiveSignalPortAdapter implements ObjectiveSignalPort {
       ...(trouble ? { trouble } : {}),
       ...(ranBy ? { ranBy } : {}),
       ...asked,
+      ...(opts?.firstObservation ? { firstObservation: opts.firstObservation } : {}),
+      ...(exceptTests.length > 0 ? { notGreen: [...exceptTests] } : {}),
     };
     const due = mutants.length > 0 && pass.judgedAgainst.length > 0;
     /* By execution alone: what the passing tests ran, how the mutants were chosen (so a measurement no pass follows still says why none ran), and the pass still to run on it when one is due. */
@@ -234,7 +238,7 @@ export class ObjectiveSignalPortAdapter implements ObjectiveSignalPort {
    */
   private async mutate(pass: MutationPass, specDir: string, rerunBudget: RerunBudget | undefined, onRead: ((read: CoverageRead) => void) | undefined, noCodeOf: NoCodeLinesOf = this.noCodeOf()): ReturnType<ObjectiveSignalPort["measure"]> {
     /* The first judgment of the survivors also tells what each moved (their pages against an unmutated re-run); the re-check of a regeneration's answer does not. */
-    const bundleMutation = pass.mutants.length > 0 ? await this.deps.mutation!.measure(pass.mutants, specDir, pass.namespace, pass.judgedAgainst, { observe: true, ...(rerunBudget ? { budget: rerunBudget } : {}) }) : null;
+    const bundleMutation = pass.mutants.length > 0 ? await this.deps.mutation!.measure(pass.mutants, specDir, pass.namespace, pass.judgedAgainst, { observe: true, ...(rerunBudget ? { budget: rerunBudget } : {}), ...(pass.firstObservation ? { before: pass.firstObservation } : {}), ...(pass.notGreen ? { notGreen: pass.notGreen } : {}) }) : null;
     const proofs = bundleMutation?.proofs ?? [];
     /* What a killed mutant made run, a test checked: the verified coverage adds it, the coverage by execution alone stays beside it. */
     const proved = proofs.length > 0 ? await this.withProofs(specDir, pass.sources, proofs, pass.changeDiff, pass.changedFiles, noCodeOf) : null;
@@ -256,6 +260,7 @@ export class ObjectiveSignalPortAdapter implements ObjectiveSignalPort {
               survived: bundleMutation.survived,
               ...(bundleMutation.unreadable ? { unreadable: bundleMutation.unreadable } : {}),
               ...(bundleMutation.leftOut ? { leftOut: bundleMutation.leftOut } : {}),
+              ...(bundleMutation.notJudged ? { notJudged: bundleMutation.notJudged } : {}),
               ...(pass.selection.skippedSites ? { skippedSites: pass.selection.skippedSites } : {}),
               ...(pass.selection.rerunsBySpecFile ? { rerunsBySpecFile: pass.selection.rerunsBySpecFile } : {}),
             },

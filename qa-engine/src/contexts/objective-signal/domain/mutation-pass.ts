@@ -10,6 +10,7 @@ import type { CoverageReport, DumpSource, MutantRun } from "./coverage-collector
 import type { CoverageExclusions } from "./coverage-exclusions.ts";
 import type { CoverageReadFault } from "./dump-outcome.ts";
 import type { FileRanBy, MutantSelectionRecord } from "./objective-signal.ts";
+import type { MeasuredPages } from "./observed-page.ts";
 
 export interface MutationPass {
   /** The mutants chosen and how; the passing cases they are judged against; the namespace their re-runs land under. */
@@ -32,4 +33,8 @@ export interface MutationPass {
   exclusions?: CoverageExclusions;
   candidates?: readonly UseCaseCandidate[];
   crossRepo?: boolean;
+  /** The measurement execution the mutants are judged against, observed: their first unmutated observation. Absent: the pass observes one of its own. */
+  firstObservation?: MeasuredPages;
+  /** The tests that failed under that measurement, as the coverage fixture names a test's dumps: a mutant only they reached is not judged. */
+  notGreen?: string[];
 }

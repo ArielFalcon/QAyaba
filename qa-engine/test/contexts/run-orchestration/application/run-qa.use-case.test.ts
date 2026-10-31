@@ -89,6 +89,8 @@ import { passingCases } from "../../../support/passing-cases.ts";
 
 /* A passing execution that shows a case for each spec file it ran, as a report does: the files it was asked for, else the suite's own on disk. */
 const passPerSpec: ExecutionPort["execute"] = async (dir, opts) => ({ verdict: "pass", cases: passingCases(dir, opts), logs: "" });
+/* A change with a diff to count, so a green run's coverage is measured by its own measurement execution. */
+const classifyWithDiff: ChangeAnalysisPort["classify"] = async () => ({ action: "generate", reason: "diff touches src/a.ts", diff: "diff --git a/src/a.ts b/src/a.ts\n+changed\n" });
 
 /*
  * An execution that, under an execution namespace (an acceptance's), shows a case of each spec file it was asked to run, as an acceptance
@@ -1617,7 +1619,7 @@ function mutationRig(o: MutationRigOptions = {}) {
     { policy: { mode: o.mode ?? "signal", minRatio: o.minRatio ?? 0.7 }, repoDir: "/nonexistent", assembleChangeCoverage },
   );
   const telemetry = new SpanAttrsRecorder();
-  return { reads, reruns, telemetry, traced: new TracedObjectiveSignalPort(port, telemetry) };
+  return { reads, reruns, telemetry, page, traced: new TracedObjectiveSignalPort(port, telemetry) };
 }
 
 async function runMutationRig(runId: string, o: MutationRigOptions = {}, deadline: RunDeadline = deadlineFiredByHand(3_600_000).deadline, generated?: () => void) {
@@ -1626,7 +1628,9 @@ async function runMutationRig(runId: string, o: MutationRigOptions = {}, deadlin
   const execute: ExecutionPort["execute"] = async (dir, opts) => {
     const r = await passPerSpec(dir, opts);
     if (o.clock && o.clockAfter && (opts as { namespace?: string } | undefined)?.namespace?.endsWith(o.clockAfter.namespace)) o.clock.now = o.clockAfter.now;
-    return { ...r, cases: r.cases.map((c) => ({ ...c, file: PASS_SPEC, name: PASS_CASE, durationMs: 1000 })) };
+    /* The measurement execution observes the page its test ended on, the mutants' first unmutated observation. */
+    const observed = (opts as { observe?: boolean } | undefined)?.observe === true ? { observations: [rig.page] } : {};
+    return { ...r, cases: r.cases.map((c) => ({ ...c, file: PASS_SPEC, name: PASS_CASE, durationMs: 1000 })), ...observed };
   };
   const { ports, savedOutcomes } = stubPorts({
     classify: async () => ({ action: "generate", reason: "diff touches src/checkout.ts", diff: PASS_DIFF }),
@@ -1657,6 +1661,9 @@ const POST_ADDED = { kind: "moved", requests: { added: ["POST https://dev.exampl
 /* The mutation pass of the rig, as a run with the pass inside the measurement recorded it: two judged, one killed (its dumps add line 3), one survivor. */
 const RIG_BUNDLE_MUTATION = { applied: 2, killed: 1, survived: [{ file: "src/checkout.ts", line: 1, operator: "negate condition", specFiles: [PASS_SPEC], original: "x", replacement: "!", moved: POST_ADDED, movedBySpec: [{ spec: PASS_SPEC, moved: POST_ADDED }] }] };
 const RIG_VERIFIED = { coverageRatio: 0.75, branchCoverage: { changed: 2, taken: 1 }, changeCoverage: { executableLines: 4, notExecutableLines: 0, coveredByExecution: 2, provenByMutation: 1, armsProvenByMutation: 0 }, bundleMutation: RIG_BUNDLE_MUTATION };
+/* The measurement execution a measurement was read from, as the record keeps it: the rig's one passing test, green there too. */
+const rigMeasuredBy = (namespace: string) => ({ namespace, tests: 1, failedOnlyUnderMeasurement: [] });
+const rigVerifiedBy = (namespace: string) => ({ ...RIG_VERIFIED, changeCoverage: { ...RIG_VERIFIED.changeCoverage, measuredBy: rigMeasuredBy(namespace) } });
 /* The span of the measurement the mutation pass verified, as a run with the pass inside the measurement traced it. */
 const rigVerifiedSpan = (status: "pass" | "fail") => ({
   "qayaba.coverage.status": status,
@@ -1682,19 +1689,19 @@ const rigVerifiedSpan = (status: "pass" | "fail") => ({
 test("the mutation pass reads none of the execution's dumps again, so a second read that would fault cannot take the verified coverage from a signal run", async () => {
   const { out, rig, coverage } = await runMutationRig("mutation-pass-one-read", { rereadFaults: true });
 
-  assert.deepEqual(rig.reads, ["abc1234"], "the execution's dumps are read once");
-  assert.deepEqual(rig.reruns, ["obs", "mut0", "mut1", "mut2", "obs2"]);
+  assert.deepEqual(rig.reads, ["mutation-pass-one-read-measure"], "the measurement execution's dumps are read once");
+  assert.deepEqual(rig.reruns, ["mut0", "mut1", "mut2", "obs2"], "the measurement execution is the first unmutated observation");
   assert.deepEqual({ ...out.decision }, { verdict: "pass", sideEffect: "pr", outcome: "pr", shadowed: false });
-  assert.deepEqual(coverage, { ...RIG_VERIFIED, survivorClosure: undefined, integrity: undefined });
+  assert.deepEqual(coverage, { ...rigVerifiedBy("mutation-pass-one-read-measure"), survivorClosure: undefined, integrity: undefined });
   assert.deepEqual(rig.telemetry.measureSpans().at(-1), rigVerifiedSpan("pass"));
 });
 
 test("the mutation pass reads none of the execution's dumps again, so a second read that would fault cannot unblock an enforce run", async () => {
   const { out, rig, coverage } = await runMutationRig("mutation-pass-one-read-enforce", { mode: "enforce", minRatio: 0.9, rereadFaults: true, realWorkspace: true });
 
-  assert.equal(rig.reads.filter((namespace) => namespace === "abc1234").length, 1, "the execution's dumps are read once");
+  assert.equal(rig.reads.filter((namespace) => namespace === "mutation-pass-one-read-enforce-measure").length, 1, "the measurement execution's dumps are read once");
   assert.deepEqual({ ...out.decision }, { verdict: "pass", sideEffect: "held", outcome: "held", shadowed: false }, "the verified 0.75 still blocks under a 0.9 floor");
-  assert.deepEqual(coverage, { ...RIG_VERIFIED, survivorClosure: { routed: 1, judged: 1, closed: 1, open: [] }, integrity: { acceptances: 1, rejected: 0, proofReused: 0, capHit: false } });
+  assert.deepEqual(coverage, { ...rigVerifiedBy("mutation-pass-one-read-enforce-coverage-final-measure"), survivorClosure: { routed: 1, judged: 1, closed: 1, open: [] }, integrity: { acceptances: 1, rejected: 0, proofReused: 0, capHit: false } });
   assert.deepEqual(rig.telemetry.measureSpans().at(-1), rigVerifiedSpan("fail"));
 });
 
@@ -1744,7 +1751,7 @@ test("the coverage allotment is reported when the coverage regeneration is allot
     if (calls === 2) atRegeneration.push(allotmentNow());
   });
 
-  assert.deepEqual(rig.reruns.slice(0, 5), ["obs", "mut0", "mut1", "mut2", "obs2"], "the mutation pass ran before the regeneration");
+  assert.deepEqual(rig.reruns.slice(0, 4), ["mut0", "mut1", "mut2", "obs2"], "the mutation pass ran before the regeneration");
   const coverage = rig.telemetry.events.filter((e) => e.name === "allotment" && e.attrs["qayaba.allotment.purpose"] === "coverage");
   assert.equal(coverage.length, 1, "once per purpose");
   assert.deepEqual(coverage.map((e) => e.attrs["qayaba.allotment.ms"]), atRegeneration, "the time the regeneration was allotted, after the mutation pass spent its share");
@@ -1758,30 +1765,34 @@ test("the re-check of the surviving mutants after the regeneration starts no mut
   const clock = { now: 0, rerunMs: 0 };
   const { rig, coverage } = await runMutationRig("closure-held-to-allowance", { mode: "enforce", minRatio: 0.9, realWorkspace: true, clock, clockAfter: { namespace: "-acc0", now: 3_600_000 - 30_000 } }, clockedDeadline(clock));
 
-  assert.deepEqual(rig.reruns.slice(0, 5), ["obs", "mut0", "mut1", "mut2", "obs2"], "the first pass had its time");
-  assert.equal(rig.reruns.length, 5, "neither the re-check nor the final pass started a re-run");
+  assert.deepEqual(rig.reruns.slice(0, 4), ["mut0", "mut1", "mut2", "obs2"], "the first pass had its time");
+  assert.equal(rig.reruns.length, 4, "neither the re-check nor the final pass started a re-run");
   assert.deepEqual(coverage.survivorClosure, { routed: 1, judged: 0, closed: 0, open: [], leftOut: { mutants: 1, observations: 0, reason: "time" } });
 });
 
-test("the final measurement of an enforce run starts no mutation re-run the time its purpose has left cannot hold, and records what it left out", async () => {
-  /* The final execution leaves the run half a second: less than the one second each re-run's case took. */
+test("the final measurement execution of an enforce run is not started when the time its purpose has left cannot hold it: coverage is unknown, says why, and holds the run", async () => {
+  /* The final judging execution leaves the run half a second: less than the one second its passing test took. */
   const clock = { now: 0, rerunMs: 0 };
-  const { rig, coverage } = await runMutationRig("final-pass-held-to-allowance", { mode: "enforce", minRatio: 0.9, realWorkspace: true, clock, clockAfter: { namespace: "-coverage-final", now: 3_600_000 - 500 } }, clockedDeadline(clock));
+  const { out, rig, coverage } = await runMutationRig("final-pass-held-to-allowance", { mode: "enforce", minRatio: 0.9, realWorkspace: true, clock, clockAfter: { namespace: "-coverage-final", now: 3_600_000 - 500 } }, clockedDeadline(clock));
 
-  assert.deepEqual(rig.reruns, ["obs", "mut0", "mut1", "mut2", "obs2", "mut0"], "the first pass and the re-check ran; the final pass started nothing");
-  assert.deepEqual(coverage.bundleMutation, { applied: 0, killed: 0, survived: [], leftOut: { mutants: 3, observations: 1, reason: "time" } });
+  assert.deepEqual(rig.reruns, ["mut0", "mut1", "mut2", "obs2", "mut0"], "the first pass and the re-check ran; the final measurement started nothing");
+  assert.equal(rig.reads.includes("final-pass-held-to-allowance-coverage-final-measure"), false, "no measurement execution ran, so none is read");
+  assert.equal(coverage.bundleMutation, undefined);
+  assert.deepEqual(coverage.changeCoverage, { executableLines: 0, unmeasured: "measurement-not-run" });
+  assert.equal(out.decision.verdict, "pass", "the verdict is the judging execution's");
+  assert.equal(out.decision.sideEffect, "held", "under enforce, a gate no measurement decided holds the run");
 });
 
 test("the run deadline spent during a mutant's re-run keeps what the mutants judged before it, and judges nothing it cut or did not start", async () => {
   const { deadline, fire } = deadlineFiredByHand(3_600_000);
   const { out, rig, coverage } = await runMutationRig("mutation-pass-cut-keeps-proof", { duringRerun: (rerun) => { if (rerun === "mut1") fire(); } }, deadline);
 
-  assert.deepEqual(rig.reruns, ["obs", "mut0", "mut1"], "nothing starts once the deadline fired");
+  assert.deepEqual(rig.reruns, ["mut0", "mut1"], "nothing starts once the deadline fired");
   assert.equal(out.decision.verdict, "pass", "the green suite is kept past the deadline");
   assert.deepEqual(coverage, {
     coverageRatio: 0.75,
     branchCoverage: { changed: 2, taken: 1 },
-    changeCoverage: { executableLines: 4, notExecutableLines: 0, coveredByExecution: 2, provenByMutation: 1, armsProvenByMutation: 0 },
+    changeCoverage: { executableLines: 4, notExecutableLines: 0, coveredByExecution: 2, provenByMutation: 1, armsProvenByMutation: 0, measuredBy: rigMeasuredBy("mutation-pass-cut-keeps-proof-measure") },
     bundleMutation: { applied: 1, killed: 1, survived: [], leftOut: { mutants: 2, observations: 0, reason: "time" } },
     survivorClosure: undefined,
     integrity: undefined,
@@ -1793,7 +1804,7 @@ test("after the run deadline was spent during the mutation pass, the coverage re
   let authored = 0;
   const { out, rig } = await runMutationRig("mutation-pass-cut-then-regeneration", { mode: "enforce", minRatio: 0.9, realWorkspace: true, duringRerun: (rerun) => { if (rerun === "mut1") fire(); } }, deadline, () => { authored += 1; });
 
-  assert.deepEqual(rig.reruns, ["obs", "mut0", "mut1"], "no re-run of any later step starts");
+  assert.deepEqual(rig.reruns, ["mut0", "mut1"], "no re-run of any later step starts");
   assert.ok(authored <= 2, "the regeneration's one turn, which the deadline runtime refuses in production; nothing it wrote is accepted");
   assert.match(out.note ?? "", /run deadline was spent during regenerate-for-coverage; the suite that ran green on its final bytes is kept/, "the step after the pass is cut, and the run degrades with its proof");
   assert.equal(out.decision.verdict, "pass");
@@ -1804,8 +1815,8 @@ test("after the run deadline was spent during the mutation pass, the coverage re
 test("a mutation pass that judged no mutant leaves the coverage by execution as it was", async () => {
   const { rig, coverage } = await runMutationRig("mutation-pass-none-judged", { reachesNoPage: true });
 
-  assert.deepEqual(rig.reads, ["abc1234"]);
-  assert.deepEqual(coverage, { coverageRatio: 0.5, branchCoverage: { changed: 2, taken: 1 }, changeCoverage: { executableLines: 4, notExecutableLines: 0 }, bundleMutation: undefined, survivorClosure: undefined, integrity: undefined });
+  assert.deepEqual(rig.reads, ["mutation-pass-none-judged-measure"]);
+  assert.deepEqual(coverage, { coverageRatio: 0.5, branchCoverage: { changed: 2, taken: 1 }, changeCoverage: { executableLines: 4, notExecutableLines: 0, measuredBy: rigMeasuredBy("mutation-pass-none-judged-measure") }, bundleMutation: undefined, survivorClosure: undefined, integrity: undefined });
 });
 
 test("enforce mode — the regen produces ZERO specs — KEEPS the first measurement's blocksPublish, only ONE measure() call", async () => {
@@ -1861,13 +1872,15 @@ test("a coverage regen's acceptance execution and the final re-measure each carr
   const real = realCoverageWorkspace();
   try {
     const { ports } = stubPorts({
+      classify: classifyWithDiff,
       prepare: real.prepare,
       generate: real.generate,
       blocks: (status) => status === "fail",
     });
     /* The measured run of an accepted regeneration happens once, after the review loop (nothing regenerates after it); every
-       measure reads the dumps its own execution wrote: the acceptance execution under `${runId}-acc<n>`, the final one under
-       `${runId}-coverage-final`. A measure reading the composition-time namespace would see the first run's stale dumps.
+       measure reads the dumps of the measurement execution that followed the judging one it measures: `${runId}-measure` after
+       the first execution, `${runId}-coverage-final-measure` after the final one. A measure reading the composition-time namespace
+       would see the first run's stale dumps.
      */
     ports.objectiveSignal.measure = async (_br, _specDir, _diff, _baselineCases, opts) => {
       measureCallCount++;
@@ -1891,9 +1904,8 @@ test("a coverage regen's acceptance execution and the final re-measure each carr
     const finalExecuteCalls = capturedExecuteNamespaces.filter((ns) => ns?.endsWith("-coverage-final"));
     assert.equal(finalExecuteCalls.length, 1, "the final re-measure runs once, under its own namespace");
 
-    /* First measure() call: no override (reads the composition-time namespace, unchanged). */
-    assert.equal(capturedMeasureNamespaces[0], undefined, "the FIRST measurement must NOT carry a namespace override — unchanged behavior");
-    assert.equal(capturedMeasureNamespaces[1], "p2c-regen-namespace-attribution-coverage-final", "the re-measure() must override the namespace to the measured run's, never the composition-time one");
+    assert.equal(capturedMeasureNamespaces[0], "p2c-regen-namespace-attribution-measure", "the first measurement reads its own measurement execution");
+    assert.equal(capturedMeasureNamespaces[1], "p2c-regen-namespace-attribution-coverage-final-measure", "the re-measure() reads the measurement execution of the final judging run, never the composition-time namespace");
   } finally {
     real.cleanup();
   }
@@ -1932,8 +1944,9 @@ test("coverage measures the reviewer-corrected revision: bytes that stop coverin
         ? { approved: false, findings: [{ text: "cover the total", severity: "blocking" as const }], blockingCount: 1, parsed: true }
         : { approved: true, findings: [], blockingCount: 0, parsed: true };
     },
-    execute: async () => {
-      executions++;
+    /* A measurement execution runs the tests of the judging execution before it; only judging executions are counted. */
+    execute: async (_dir, opts) => {
+      if ((opts as { purpose?: string } | undefined)?.purpose !== "measurement") executions++;
       return { verdict: "pass" as const, cases: [{ name: executions === 1 ? "round-0" : "corrected", status: "pass" as const, file: "a.spec.ts" }], logs: "" };
     },
     measure: async () => {
@@ -1947,8 +1960,8 @@ test("coverage measures the reviewer-corrected revision: bytes that stop coverin
   const useCase = new RunQaUseCase({ ...ports, config: { ...baseConfig, needsReview: true, coveragePolicyMode: "enforce" } });
   const out = await useCase.run({ ...baseInput, runId: "coverage-measures-corrected-revision" });
 
-  /* The initial run, the accepted correction, and the one whole-suite measured run enforce spends before decide (B-4a). */
-  assert.equal(executions, 3, "the correction was accepted and then measured once as a whole suite");
+  /* The initial run, the accepted correction, and the one whole-suite judging run enforce spends before decide (B-4a), each green one followed by its measurement execution. */
+  assert.equal(executions, 3, "the correction was accepted and then judged once as a whole suite");
   assert.equal(measures, 2, "coverage was re-measured on the corrected revision, not left on round-0");
   assert.deepEqual(out.cases.map((c) => c.name), ["corrected"], "the recorded cases are the corrected execution's");
   assert.equal(out.decision.sideEffect, "issue", "the corrected suite no longer covers the change, so it must not publish");
@@ -1976,8 +1989,9 @@ test("enforce mode — the coverage regen is re-admitted: the final cases come f
   let measureCallCount = 0;
   let executeCallCount = 0;
   const { ports } = stubPorts({
-    execute: async () => {
-      executeCallCount++;
+    /* A measurement execution runs the tests of the judging execution before it; only judging executions are counted. */
+    execute: async (_dir, opts) => {
+      if ((opts as { purpose?: string } | undefined)?.purpose !== "measurement") executeCallCount++;
       return executeCallCount === 1
         ? { verdict: "pass" as const, cases: [{ name: "round-0", status: "pass" as const, file: "a.spec.ts" }], logs: "" }
         : { verdict: "pass" as const, cases: [{ name: "regen", status: "pass" as const, file: "a.spec.ts" }], logs: "" };
@@ -1994,8 +2008,8 @@ test("enforce mode — the coverage regen is re-admitted: the final cases come f
   const out = await useCase.run({ ...baseInput, runId: "coverage-regen-final-revision" });
 
   assert.equal(out.decision.sideEffect, "pr", "the regen's second measure passes and unblocks");
-  /* The initial run, the coverage regen's acceptance (its changed spec), and the one whole-suite measured run (B-4a). */
-  assert.equal(executeCallCount, 3, "the regen was accepted and then measured once as a whole suite");
+  /* The initial run, the coverage regen's acceptance (its changed spec), and the one whole-suite judging run (B-4a), each followed by its measurement execution where it is green and measured. */
+  assert.equal(executeCallCount, 3, "the regen was accepted and then judged once as a whole suite");
   assert.deepEqual(out.cases.map((c) => c.name), ["regen"], "the recorded cases are the final revision's, not round-0's");
 });
 
@@ -2690,6 +2704,7 @@ test("enforce mode — a review regeneration after the measurement gets ONE fina
     const executeNamespaces: (string | undefined)[] = [];
     const measureNamespaces: (string | undefined)[] = [];
     const { ports } = stubPorts({
+      classify: classifyWithDiff,
       prepare: async () => fakeHandle({ specDir: fixtures.specDir, mirrorDir: fixtures.mirrorDir }),
       execute: async (_specDir, opts) => {
         executeNamespaces.push((opts as { namespace?: string } | undefined)?.namespace);
@@ -2723,7 +2738,7 @@ test("enforce mode — a review regeneration after the measurement gets ONE fina
     const out = await useCase.run({ ...baseInput, runId: "coverage-final-after-review", mode: "diff" });
 
     assert.equal(measureCalls, 2, "the first measurement plus exactly one final re-measure");
-    assert.deepEqual(measureNamespaces, [undefined, "coverage-final-after-review-coverage-final"]);
+    assert.deepEqual(measureNamespaces, ["coverage-final-after-review-measure", "coverage-final-after-review-coverage-final-measure"]);
     assert.equal(executeNamespaces.filter((ns) => ns?.endsWith("-coverage-final")).length, 1);
     assert.equal(out.decision.sideEffect, "pr", "the final measurement, not the superseded first one, decides");
     assert.equal(out.gateSignals.integrity?.acceptances, 2, "the coverage and the review regeneration each went through acceptance");
@@ -6721,6 +6736,7 @@ test("FixLoop retry execute() forwards the per-attempt retryNs as ExecutionOpts.
   const capturedSpecFiles: (string[] | undefined)[] = [];
   let executeCalls = 0;
   const { ports } = stubPorts({
+    classify: classifyWithDiff,
     execute: async (_specDir, opts) => {
       executeCalls++;
       capturedNamespaces.push(typeof opts === "object" && opts && !(opts instanceof AbortSignal) ? opts.namespace : undefined);
@@ -6745,11 +6761,11 @@ test("FixLoop retry execute() forwards the per-attempt retryNs as ExecutionOpts.
   const retryNs = capturedNamespaces.slice(1).find((ns) => typeof ns === "string" && ns.endsWith("-r1"));
   assert.equal(retryNs, "retry-ns-p0-1-r1", "FixLoop retry must execute under ${runId}-r1 so test data does not collide with the first attempt");
   assert.deepEqual(capturedSpecFiles[capturedNamespaces.indexOf("retry-ns-p0-1-r1")], ["a.spec.ts"], "the round executed the spec it changed");
-  assert.equal(capturedMeasureNamespaces[0], "retry-ns-p0-1", "a round that re-ran some spec files leaves the others' dumps under the first run");
-  assert.deepEqual(capturedMeasureReruns[0], [{ namespace: "retry-ns-p0-1-r1", specFiles: ["a.spec.ts"] }], "post-FixLoop measure reads the re-run spec's dumps from the retry namespace");
+  assert.equal(capturedMeasureNamespaces[0], "retry-ns-p0-1-measure", "the green bytes the loop left are measured by their own measurement execution");
+  assert.equal(capturedMeasureReruns[0], undefined, "no dump of a judging execution is read");
 });
 
-/* Change coverage is measured from the latest dumps of every spec file: a fix-loop round that re-ran some spec files leaves the others' dumps where the first execution wrote them. */
+/* Change coverage is measured on the bytes the loop left green: one measurement execution runs the passing tests of every spec file, those a round re-ran and those it did not. */
 test("a fix-loop round that re-ran one of two spec files still measures the other file's lines", async () => {
   const dir = mkdtempSync(join(tmpdir(), "qa-latest-dumps-"));
   const specDir = join(dir, "e2e");
@@ -6758,6 +6774,7 @@ test("a fix-loop round that re-ran one of two spec files still measures the othe
   const measured: unknown[] = [];
   try {
     const { ports } = stubPorts({
+      classify: classifyWithDiff,
       prepare: async () => fakeHandle({ specDir, mirrorDir: dir }),
       generate: async () => {
         generations += 1;
@@ -6770,6 +6787,7 @@ test("a fix-loop round that re-ran one of two spec files still measures the othe
         const o = opts as { namespace?: string; specFiles?: string[] } | undefined;
         executions.push({ ...(o?.namespace ? { namespace: o.namespace } : {}), ...(o?.specFiles ? { specFiles: o.specFiles } : {}) });
         if (executions.length === 1) return { verdict: "fail" as const, cases: [{ name: "a works", status: "pass" as const, file: "a.spec.ts" }, { name: "b works", status: "fail" as const, file: "b.spec.ts", detail: "expected 1 row" }], logs: "" };
+        if (o?.namespace?.endsWith("-measure")) return { verdict: "pass" as const, cases: [{ name: "a works", status: "pass" as const, file: "a.spec.ts" }, { name: "b works", status: "pass" as const, file: "b.spec.ts" }], logs: "" };
         return { verdict: "pass" as const, cases: [{ name: "b works", status: "pass" as const, file: "b.spec.ts" }], logs: "" };
       },
       measure: async (_br, _specDir, _diff, _baseline, opts) => {
@@ -6782,7 +6800,8 @@ test("a fix-loop round that re-ran one of two spec files still measures the othe
     const out = await useCase.run({ ...baseInput, runId: "latest-dumps" });
 
     assert.deepEqual(executions[1], { namespace: "latest-dumps-r1", specFiles: ["b.spec.ts"] }, "the round re-ran only the spec file it changed");
-    assert.deepEqual(measured, [{ namespace: "latest-dumps", reruns: [{ namespace: "latest-dumps-r1", specFiles: ["b.spec.ts"] }] }], "a.spec.ts is read from the first execution, b.spec.ts from the round that re-ran it");
+    assert.deepEqual(executions.at(-1), { namespace: "latest-dumps-measure", specFiles: ["a.spec.ts", "b.spec.ts"] }, "the measurement execution runs the passing tests of both spec files");
+    assert.deepEqual(measured, [{ namespace: "latest-dumps-measure", reruns: undefined }], "both files are read from the measurement execution");
     assert.equal(out.decision.verdict, "pass");
   } finally {
     rmSync(dir, { recursive: true, force: true });

@@ -56,22 +56,39 @@ test("delivered specs that validate, pass twice with no retry and are not held b
   assert.deepEqual(r.validated, [{ specDir: "/copy/e2e" }]);
 });
 
+const judging = (r: Rig) => r.executed.filter((c) => c.opts.purpose === "acceptance");
+
 test("each run executes the delivered specs alone, once, in a namespace of its own", async () => {
   const r = rig();
   await r.useCase.accept(INPUT);
-  assert.equal(r.executed.length, 2);
-  for (const call of r.executed) {
+  assert.equal(judging(r).length, 2);
+  for (const call of judging(r)) {
     assert.deepEqual(call.opts.specFiles, ["flows/a.spec.ts"]);
     assert.equal(call.opts.retries, 0, "a spec passes only when it passes the first time");
   }
-  assert.deepEqual(r.executed.map((c) => c.opts.namespace), ["qa-bot-abc1234-arm-acc1", "qa-bot-abc1234-arm-acc2"]);
+  assert.deepEqual(judging(r).map((c) => c.opts.namespace), ["qa-bot-abc1234-arm-acc1", "qa-bot-abc1234-arm-acc2"]);
+  for (const call of judging(r)) assert.notEqual(call.opts.coverage, true, "a judging run measures nothing");
 });
 
-test("coverage is measured on the first run's namespace and its passing cases", async () => {
+test("coverage is measured by one measurement execution of the first run's passing tests, after the runs that judge", async () => {
   const r = rig();
   const report = await r.useCase.accept(INPUT);
-  assert.deepEqual(r.measured, [{ namespace: "qa-bot-abc1234-arm-acc1", baselineCases: ["flows/a.spec.ts › loads"] }]);
+  const measurement = r.executed[2]!;
+  assert.equal(r.executed.length, 3);
+  assert.equal(measurement.opts.purpose, "measurement");
+  assert.equal(measurement.opts.coverage, true);
+  assert.equal(measurement.opts.retries, 0);
+  assert.deepEqual(measurement.opts.specFiles, ["flows/a.spec.ts"]);
+  assert.deepEqual(r.measured, [{ namespace: "qa-bot-abc1234-arm-measure", baselineCases: ["flows/a.spec.ts › loads"] }]);
   assert.deepEqual(report.coverage, { status: "pass", ratio: 0.9, blocks: false });
+});
+
+test("a measurement execution that could not run measures nothing and leaves the verdict to the runs that judged", async () => {
+  const r = rig({ runs: [{ verdict: "pass", cases: PASS }, { verdict: "pass", cases: PASS }, { verdict: "infra-error", cases: [] }] });
+  const report = await r.useCase.accept(INPUT);
+  assert.deepEqual(r.measured, []);
+  assert.deepEqual(report.coverage, { status: "unknown", ratio: null, blocks: false });
+  assert.equal(report.verdict, "pass");
 });
 
 test("a coverage policy that blocks holds the specs back, as it holds a pull request", async () => {

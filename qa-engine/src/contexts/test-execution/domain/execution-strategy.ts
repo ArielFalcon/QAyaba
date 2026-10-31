@@ -29,6 +29,10 @@ export interface ExecutionRequest {
   purpose?: ExecPurpose;
   /** When the run signed in the session the execution is given (wall-clock ms). */
   session?: { signedInAt: number };
+  coverage?: boolean;
+  observe?: boolean;
+  tests?: readonly string[];
+  globalTimeoutMs?: number;
   signal?: AbortSignal;
   timeoutMs?: number;
   testIdAttribute?: string;
@@ -39,7 +43,7 @@ export interface ExecutionRequest {
   changedFiles?: string[];
 }
 
-export interface ExecutionResult {
+export interface ExecutionResult<Observation = unknown> {
   verdict: RunVerdict;
   cases: QaCase[];
   /** The tests the report says were skipped: no case, but their spec file loaded. Absent: none was skipped. */
@@ -57,4 +61,6 @@ export interface ExecutionResult {
   loadErrors?: SpecLoadError[];
   /** The conditions the execution ran under (shared-kernel/execution-conditions.ts). Absent: the runner did not say. */
   conditions?: ExecutionConditions;
+  /** The page each case ended on, when the execution was asked to observe and every observation could be read; its shape is the objective signal's, named by the port. */
+  observations?: Observation[];
 }

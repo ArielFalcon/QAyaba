@@ -11,7 +11,7 @@ import { createDefaultE2eExecuteDeps, runE2E } from "@contexts/test-execution/in
 import type { Attrs } from "@kernel/telemetry/attribute-registry.ts";
 import { contractDigest, executionConditions } from "@kernel/execution-conditions.ts";
 
-interface Spawn { purpose?: string; attrs?: Attrs; env: Record<string, string> }
+interface Spawn { purpose?: string; attrs?: Attrs; env: Record<string, string>; args: readonly string[] }
 
 function rig() {
   const workRoot = mkdtempSync(join(tmpdir(), "qa-conditions-"));
@@ -29,8 +29,8 @@ function rig() {
       writeFileSync(path, content);
       return path;
     },
-    spawn: (_cmd: string, _args: readonly string[], options: { purpose?: string; attrs?: Attrs; extraEnv?: Record<string, string> }) => {
-      spawned.push({ ...(options.purpose ? { purpose: options.purpose } : {}), ...(options.attrs ? { attrs: options.attrs } : {}), env: options.extraEnv ?? {} });
+    spawn: (_cmd: string, args: readonly string[], options: { purpose?: string; attrs?: Attrs; extraEnv?: Record<string, string> }) => {
+      spawned.push({ ...(options.purpose ? { purpose: options.purpose } : {}), ...(options.attrs ? { attrs: options.attrs } : {}), env: options.extraEnv ?? {}, args });
       const child = new EventEmitter() as EventEmitter & { stdout: PassThrough; stderr: PassThrough };
       child.stdout = new PassThrough();
       child.stderr = new PassThrough();
@@ -49,10 +49,10 @@ test("the spec child's span carries the contract's digest, its kind and the cond
   try {
     await r.deps.runSuite({ dir: r.workRoot, baseUrl: "https://dev", namespace: "run-7-acc0", purpose: "acceptance", specFiles: ["flows/a.spec.ts"], retries: 0, geolocation: GEO });
     const attrs = r.spawned[0]!.attrs!;
-    const expected = executionConditions({ purpose: "acceptance", instrumentation: { coverage: true, observe: false, route: false, writeCounter: false }, retries: 0, specFiles: ["flows/a.spec.ts"], processTimeoutMs: 5_000, geolocation: GEO, namespace: "run-7-acc0", startedAt: 0 });
+    const expected = executionConditions({ purpose: "acceptance", instrumentation: { coverage: false, observe: false, route: false, writeCounter: false }, retries: 0, specFiles: ["flows/a.spec.ts"], processTimeoutMs: 5_000, geolocation: GEO, namespace: "run-7-acc0", startedAt: 0 });
     assert.equal(attrs["qayaba.exec.contract.digest"], contractDigest(expected));
     assert.equal(attrs["qayaba.exec.contract.kind"], "judging");
-    assert.equal(attrs["qayaba.exec.contract.deviations"], "coverage");
+    assert.equal(attrs["qayaba.exec.contract.deviations"], "none");
     assert.equal(attrs["qayaba.exec.retries"], "0");
     assert.equal(attrs["qayaba.exec.spec_files"], "1");
   } finally {
@@ -94,6 +94,36 @@ test("the caller of a run gets back the conditions it ran under", async () => {
     assert.equal(result.conditions?.purpose, "suite");
     assert.equal(result.conditions?.specs.files, "suite");
     assert.equal(result.conditions?.retries, "config");
+  } finally {
+    r.cleanup();
+  }
+});
+
+test("every spec child is told whether to measure coverage, and a judging one never measures", async () => {
+  const r = rig();
+  try {
+    await r.deps.runSuite({ dir: r.workRoot, baseUrl: "https://dev", namespace: "run-7" });
+    await r.deps.runSuite({ dir: r.workRoot, baseUrl: "https://dev", namespace: "run-7-acc0", purpose: "acceptance", specFiles: ["a.spec.ts"], retries: 0 });
+    await r.deps.runSuite({ dir: r.workRoot, baseUrl: "https://dev", namespace: "run-7-mut0", mutant: JSON.stringify({ url: "https://dev/main.js", sha256: "h", start: 0, end: 1, replacement: "!" }), coverage: true });
+    assert.deepEqual(r.spawned.map((s) => s.env.PW_COVERAGE), ["0", "0", "1"]);
+    assert.equal(r.spawned[2]!.attrs!["qayaba.exec.contract.deviations"], "coverage,route");
+  } finally {
+    r.cleanup();
+  }
+});
+
+test("a measurement runs only the tests it names, measured and observed, with a global timeout of its own", async () => {
+  const r = rig();
+  try {
+    const out = await r.deps.runSuite({ dir: r.workRoot, baseUrl: "https://dev", namespace: "run-7-measure", purpose: "measurement", specFiles: ["flows/a.spec.ts"], tests: ["flows-a-spec-ts-opens-the-map"], coverage: true, observe: true, retries: 0, globalTimeoutMs: 120_000 });
+    const [child] = r.spawned;
+    assert.equal(child!.purpose, "measurement");
+    assert.equal(child!.env.PW_COVERAGE, "1");
+    assert.equal(child!.env.PW_OBSERVE, "1");
+    assert.deepEqual(JSON.parse(child!.env.PW_MUTANT!).tests, ["flows-a-spec-ts-opens-the-map"]);
+    assert.ok(child!.args.includes("--global-timeout=120000"));
+    assert.equal(out.conditions?.kind, "measuring");
+    assert.equal(out.conditions?.timeouts.globalMs, 120_000);
   } finally {
     r.cleanup();
   }

@@ -5,6 +5,7 @@ import type { BundleMutationResult, CoverageRead, MutantProof, MutantRun } from 
 import type { CoverageExclusions } from "../../domain/coverage-exclusions.ts";
 import type { RerunBudget } from "../../domain/rerun-budget.ts";
 import type { MutationPass } from "../../domain/mutation-pass.ts";
+import type { MeasuredPages } from "../../domain/observed-page.ts";
 
 /** What a measurement decides and records. */
 export type CoverageSignal = { status: "pass" | "fail" | "unknown"; ratio: number | null; mutationPass?: MutationPass; uncovered?: { file: string; lines: number[] }[]; untakenArms?: UntakenArm[]; bundleMutation?: BundleMutationOutcome; mutantSelection?: MutantSelectionRecord; mutantProofs?: MutantProof[]; survivorRuns?: MutantRun[]; measurement?: CoverageMeasurement; ranBy?: FileRanBy[] };
@@ -42,8 +43,12 @@ export interface ObjectiveSignalPort {
    * `mutantSelection` says how the mutants were chosen, due or not.
    * `opts.rerunBudget` holds the mutation pass's re-runs to the time left (a re-run the allowance cannot hold is not started, and
    * `bundleMutation.leftOut` counts it); absent, every re-run starts.
+   * `opts.exceptTests` names the tests (as the coverage fixture names a test's dumps) whose dumps are not read: a test that failed under
+   * the measurement execution ran the code partway and checked nothing, so it credits no line and chooses no mutant, and the mutation pass
+   * judges no mutant only they reached (`bundleMutation.notJudged`). `opts.firstObservation` is the measurement execution, observed: the
+   * mutation pass takes it as the mutants' first unmutated observation instead of re-running one.
    */
-  measure(br: BlastRadius, specDir: string, diff?: string, baselineCases?: string[], opts?: { namespace?: string; caseFiles?: string[]; candidates?: readonly UseCaseCandidate[]; crossRepo?: boolean; reruns?: readonly CoverageRerun[]; exclusions?: CoverageExclusions; byExecution?: boolean; rerunBudget?: RerunBudget; onRead?: (read: CoverageRead) => void }): Promise<CoverageSignal>;
+  measure(br: BlastRadius, specDir: string, diff?: string, baselineCases?: string[], opts?: { namespace?: string; caseFiles?: string[]; candidates?: readonly UseCaseCandidate[]; crossRepo?: boolean; reruns?: readonly CoverageRerun[]; exclusions?: CoverageExclusions; byExecution?: boolean; rerunBudget?: RerunBudget; exceptTests?: readonly string[]; firstObservation?: MeasuredPages; onRead?: (read: CoverageRead) => void }): Promise<CoverageSignal>;
   /**
    * The mutation pass a measurement by execution returned (`mutationPass`): its mutants re-run and judged (each re-run held to
    * `opts.rerunBudget`) and the coverage they verify, the measurement by execution with the dumps of each killed mutant's re-run added.

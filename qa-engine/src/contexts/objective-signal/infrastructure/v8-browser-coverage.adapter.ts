@@ -3,7 +3,7 @@
 import type { CoverageCollectorPort } from "../application/ports/coverage-collector.port.ts";
 import type { CoverageRead, CoverageReport, CoverageScripts, DumpSource, MutantEdit } from "../domain/coverage-collector.ts";
 import { faultOfOutcome } from "../domain/dump-outcome.ts";
-import { isDumpOfSpecFile } from "../domain/dump-names.ts";
+import { isDumpOfSpecFile, testOfDump } from "../domain/dump-names.ts";
 import { BranchSink, type BranchAdder } from "./v8-branch-coverage.ts";
 import {
   MAX_V8_COVERED_LINES_PER_FILE,
@@ -47,11 +47,11 @@ export class V8BrowserCoverageAdapter implements CoverageCollectorPort {
     const dumps: CoveredLines[] = [];
     const reads: CoverageRead[] = [];
     let incomplete = false;
-    for (const { namespace, exceptSpecFiles = [], onlySpecFiles, mutant } of sources) {
+    for (const { namespace, exceptSpecFiles = [], exceptTests = [], onlySpecFiles, mutant } of sources) {
       const keep =
-        exceptSpecFiles.length === 0 && onlySpecFiles === undefined
+        exceptSpecFiles.length === 0 && exceptTests.length === 0 && onlySpecFiles === undefined
           ? undefined
-          : (name: string) => !exceptSpecFiles.some((file) => isDumpOfSpecFile(name, file)) && (onlySpecFiles === undefined || onlySpecFiles.some((file) => isDumpOfSpecFile(name, file)));
+          : (name: string) => !exceptSpecFiles.some((file) => isDumpOfSpecFile(name, file)) && !exceptTests.includes(testOfDump(name) ?? "") && (onlySpecFiles === undefined || onlySpecFiles.some((file) => isDumpOfSpecFile(name, file)));
       const readsBefore = reads.length;
       const read = await this.readCoverage(specDir, namespace, changedFiles ?? this.changedFiles, scripts, branches, keep, executable, mutant, ranBy, reads);
       /* A mutant's re-run proves what its dumps ran; one that wrote none proves nothing, and takes nothing from the rest. One whose dumps were not read to the end (a decode that was stopped, a cap) is a proof the report is without. */

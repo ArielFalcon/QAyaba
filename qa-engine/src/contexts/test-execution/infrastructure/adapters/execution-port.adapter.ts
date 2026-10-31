@@ -42,6 +42,10 @@ export class ExecutionPortAdapter implements ExecutionPort {
       ...(o.countWrites ? { countWrites: true } : {}),
       ...(o.purpose ? { purpose: o.purpose } : {}),
       ...(o.session ? { session: o.session } : {}),
+      ...(o.coverage ? { coverage: true } : {}),
+      ...(o.observe ? { observe: true } : {}),
+      ...(o.tests ? { tests: o.tests } : {}),
+      ...(o.globalTimeoutMs !== undefined ? { globalTimeoutMs: o.globalTimeoutMs } : {}),
       ...(o.project !== undefined ? { project: o.project } : {}),
       ...(o.timeoutMs !== undefined ? { timeoutMs: o.timeoutMs } : {}),
       /* Type-level widening: ExecutionRequest.onCase is structurally narrower than kernel QaCase; E2eExecutionStrategy passes the real QaCase at runtime. */

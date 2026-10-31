@@ -267,7 +267,7 @@ test("a pre-exec contradiction still pending reaches the first FixLoop regenerat
 });
 
 test("a coverage regeneration is handed the delivered specs", async () => {
-  const calls = await run({ generations: [lead(A1), lead(C1)], measure: COVERAGE_GAP, blocks: (status) => status === "fail" });
+  const calls = await run({ generations: [lead(A1), lead(C1)], execute: PASSING_A, measure: COVERAGE_GAP, blocks: (status) => status === "fail" });
   assert.equal(calls.length, 2);
   assert.ok(calls[1]!.coverageGap);
   assert.deepEqual(calls[1]!.deliveredSpecs, [A1]);

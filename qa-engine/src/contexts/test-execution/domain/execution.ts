@@ -34,4 +34,12 @@ export interface ExecutionOpts {
   purpose?: ExecPurpose;
   /** When the run signed in the session the execution is given (wall-clock ms): its age at the start is recorded with the execution's conditions. Absent: the run did not say. */
   session?: { signedInAt: number };
+  /** Have the execution measure coverage. Absent: it does not; only a measuring execution asks. */
+  coverage?: boolean;
+  /** Have the fixtures record each test's page (PW_OBSERVE); the pages come back as `observations`. */
+  observe?: boolean;
+  /** Run only these tests, by the name the coverage fixture gives a test's dumps. */
+  tests?: readonly string[];
+  /** A global timeout of the execution's own, for one held to an allowance. */
+  globalTimeoutMs?: number;
 }

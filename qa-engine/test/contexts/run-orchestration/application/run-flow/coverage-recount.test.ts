@@ -64,7 +64,7 @@ test("a recount is told the spec files of the regenerated run's passing cases, a
   assert.deepEqual(outcome.ranBy, ranBy, "the recount's reading replaces the measurement's");
 });
 
-test("the measurement is told the spec files of the passing cases, and the run keeps which spec ran each file from the dumps it read", async () => {
+test("the measurement is told the spec files of the cases that passed in the measurement execution, and the run keeps which spec ran each file from the dumps it read", async () => {
   const told: unknown[] = [];
   const ranBy = [{ file: "src/store.ts", specFiles: ["flows/login.spec.ts"] }];
   const ctx = {
@@ -75,7 +75,9 @@ test("the measurement is told the spec files of the passing cases, and the run k
     services: { specRoot: { mirrorDir: "/mirror" } },
   } as unknown as WorkspaceRunContext;
   const state = initialRunState() as RunState;
-  state.execution = { ...state.execution, run: { verdict: "pass", cases: [{ name: "a", status: "pass", file: "flows/login.spec.ts" }, { name: "b", status: "fail", file: "flows/cart.spec.ts" }], logs: "" } } as RunState["execution"];
+  state.execution = { ...state.execution, run: { verdict: "pass", cases: [{ name: "a", status: "pass", file: "flows/login.spec.ts" }, { name: "c", status: "pass", file: "flows/cart.spec.ts" }], logs: "" } } as RunState["execution"];
+  const measuredCases = [{ name: "a", status: "pass" as const, file: "flows/login.spec.ts" }, { name: "c", status: "fail" as const, file: "flows/cart.spec.ts" }];
+  state.coverage = { ...state.coverage, measuredBy: { namespace: "r-measure", tests: 2, passed: ["a"], baseline: ["a"], failedOnlyUnderMeasurement: ["c"], cases: measuredCases } };
   const out = await measureCoverage(state, ctx);
   assert.deepEqual(told, [["flows/login.spec.ts"]]);
   assert.deepEqual((out as { update: { coverage: RunState["coverage"] } }).update.coverage.ranBy, ranBy);
