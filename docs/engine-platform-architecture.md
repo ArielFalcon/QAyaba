@@ -100,7 +100,7 @@ Rules that matter during the migration:
 | Subfolder | Holds | Must not hold |
 |---|---|---|
 | `composition/` | The one root that builds every adapter, calls every `build<Context>`, and starts the process (`main`) | Any policy: a branch that changes a run's outcome |
-| `entrypoints/` | HTTP routes, the webhook, the queue, CLI commands, the wire contract and its generated OpenAPI | Any decision beyond parsing, authorizing the caller, calling one public use case and mapping its result |
+| `entrypoints/` | HTTP routes, the webhook, the queue, CLI commands (the CLI's parsing; until step 6 splits it, `cli.ts` is a second process root in `composition/`, ADR-0022 row 3), the wire contract and its generated OpenAPI | Any decision beyond parsing, authorizing the caller, calling one public use case and mapping its result |
 | `persistence/` | The one database: connection, schema, migrations, backup, retention, and the repositories that implement engine ports | Rules about what a record means |
 | `telemetry/` | The tracing and metrics SDK, its exporters, its bootstrap; the adapter of the engine's `TelemetryPort` | Engine-specific span names chosen here instead of in the engine |
 | `agent-runtime/` | The agent-server client and the provider-agnostic facade behind the engine's agent port | Prompt content, role behaviour |
