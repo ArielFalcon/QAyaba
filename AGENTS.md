@@ -806,7 +806,13 @@ test, and the verdict is its last action.
   (a context map's `builtAtSha`, a stored record, a webhook or API payload) passes `assertCommitSha`, and a branch, tag or ref (an
   API `ref`, an app's `baseBranch`, a run's publication branch) passes `assertRefName`, both in `qa-engine/src/shared-kernel/git-revision.ts`,
   before the argv is built; a value that passes can never be read as an option. A new git call with a revision from outside the
-  code uses them, and does not write a regex of its own. `contextMapFitsRun` refuses a map whose recorded commit is not a sha.
+  code uses them, and does not write a regex of its own (`qa-engine/test/shared-kernel/git-revision.single-rule.test.ts` fails on a new
+  one). The kernel defines "a commit" twice, on purpose: `isCommitSha` (7 to 40 hex characters) for the commit a run is asked to test, which
+  every entry point (webhook, API, campaign and benchmark cases) applies, and `isObjectName` (4 to 40) for a commit a product reports as served
+  (the `Sha` value object, `GitMirrorReadAdapter.relation`), which carries whatever abbreviation the product's build chose. A map's recorded
+  commit (`builtAtSha`) is written by the agent: a diff run that compares it with its own commit through git first requires `isCommitSha` of it
+  and, when it fails, logs a warning and does not reuse the map (`contextMapFitsRun`); a service-triggered or sha-less run never hands it to git
+  and treats the map as stale on the sha comparison alone, with no warning.
 - **A file name from the working copy is a name, never a pathspec.** git reads a pathspec that starts with `:` as magic and one with
   `*` or `?` as a glob, so a file the sandbox named `:(top)` or `*` would make `clean`, `restore` or `add` cover the whole working
   copy. Every name the agent can influence (a `git status` entry, a path it wrote) goes after `--` through `literalPathspecs`

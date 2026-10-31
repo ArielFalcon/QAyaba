@@ -3,6 +3,7 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { parseRunMode, RunMode } from "../types";
 import { boundGuidance } from "./guidance";
+import { isCommitSha } from "@kernel/git-revision";
 
 export interface WebhookPayload {
   repo: string;
@@ -21,8 +22,6 @@ export function verifySignature(secret: string, body: string, signature?: string
   return timingSafeEqual(a, b);
 }
 
-const HEX_SHA = /^[0-9a-f]{7,40}$/i;
-
 export function parseWebhook(body: unknown): WebhookPayload | null {
   if (!body || typeof body !== "object") return null;
   const b = body as Record<string, unknown>;
@@ -31,15 +30,15 @@ export function parseWebhook(body: unknown): WebhookPayload | null {
   const mode = parseRunMode(b.mode);
   if (!mode.ok) return null;
 
-  if (typeof b.repo === "string" && typeof b.sha === "string" && HEX_SHA.test(b.sha)) {
-    return { repo: b.repo, sha: b.sha, mode: mode.mode, guidance, baseSha: typeof b.baseSha === "string" && HEX_SHA.test(b.baseSha) ? b.baseSha : undefined };
+  if (typeof b.repo === "string" && typeof b.sha === "string" && isCommitSha(b.sha)) {
+    return { repo: b.repo, sha: b.sha, mode: mode.mode, guidance, baseSha: typeof b.baseSha === "string" && isCommitSha(b.baseSha) ? b.baseSha : undefined };
   }
 
   /* GitHub push: after is the SHA; before all-zeros means a new branch — drop it. */
   const repository = b.repository as { full_name?: unknown } | undefined;
-  if (typeof repository?.full_name === "string" && typeof b.after === "string" && HEX_SHA.test(b.after)) {
+  if (typeof repository?.full_name === "string" && typeof b.after === "string" && isCommitSha(b.after)) {
     const before =
-      typeof b.before === "string" && HEX_SHA.test(b.before) && !/^0+$/.test(b.before) ? b.before : undefined;
+      typeof b.before === "string" && isCommitSha(b.before) && !/^0+$/.test(b.before) ? b.before : undefined;
     return { repo: repository.full_name, sha: b.after, mode: mode.mode, baseSha: before };
   }
 

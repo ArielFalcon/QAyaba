@@ -46,6 +46,15 @@ test("a malformed cases file stops the campaign, naming the case and the field",
   assert.throws(() => parseCases("nope"), /object/);
 });
 
+test("a case's sha is read by the one commit-id rule", () => {
+  for (const sha of ["abc1234", "ABC1234", "a".repeat(40)]) {
+    assert.equal(parseCases({ ...validCases(), cases: [{ ...validCases().cases[1]!, sha }] }).cases[0]!.sha, sha, sha);
+  }
+  for (const sha of ["abc123", "a".repeat(41), "--output=/tmp/x", "abc1234\n", ""]) {
+    assert.throws(() => parseCases({ ...validCases(), cases: [{ ...validCases().cases[1]!, sha }] }), /sha must be 7-40 hex characters/, JSON.stringify(sha));
+  }
+});
+
 /* ── the command line ── */
 
 const argv = (...extra: string[]): string[] => ["--cases", "cases.json", "--replicas", "3", "--label", "camp-1", "--warm", "warm-1", ...extra];

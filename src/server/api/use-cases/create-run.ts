@@ -3,6 +3,7 @@
 import { CampaignInputSchema, CaptureModeSchema, CreateRunResultSchema, GroundingInputSchema, type GroundingInput } from "../../../contract/commands";
 import type { CampaignIdentity } from "../../../contract/campaign";
 import type { CaptureMode } from "@kernel/telemetry/capture-mode";
+import { isCommitSha } from "@kernel/git-revision";
 import { parseRunMode, type TestTarget } from "../../../types";
 import { CampaignCaptureMismatchError } from "@contexts/evaluation/application/index";
 import { ApiError } from "../api-error";
@@ -11,8 +12,6 @@ import { apiRunRequest } from "../run-request";
 import { reply, type ApiResult } from "../respond";
 import { loadApp, redactionPort } from "../support";
 import { boundGuidance } from "../../guidance";
-
-const SHA_PATTERN = /^[0-9a-f]{7,40}$/i;
 
 export async function createRun(deps: ApiDeps, body: Record<string, unknown>): Promise<ApiResult> {
   const appName = typeof body.app === "string" ? body.app : null;
@@ -33,7 +32,7 @@ export async function createRun(deps: ApiDeps, body: Record<string, unknown>): P
       : undefined;
 
   let sha: string;
-  if (typeof body.sha === "string" && SHA_PATTERN.test(body.sha)) {
+  if (isCommitSha(body.sha)) {
     sha = body.sha;
   } else if (typeof body.sha === "string" && body.sha.length > 0) {
     throw new ApiError(400, "'sha' must be 7–40 hex characters");
@@ -55,7 +54,7 @@ export async function createRun(deps: ApiDeps, body: Record<string, unknown>): P
   /* Range start for a diff run (the diff spans baseSha..sha), validated like the sha: it reaches git as an argument. */
   let baseSha: string | undefined;
   if (typeof body.baseSha === "string" && body.baseSha.length > 0) {
-    if (!SHA_PATTERN.test(body.baseSha)) throw new ApiError(400, "'baseSha' must be 7–40 hex characters");
+    if (!isCommitSha(body.baseSha)) throw new ApiError(400, "'baseSha' must be 7–40 hex characters");
     baseSha = body.baseSha;
   }
 

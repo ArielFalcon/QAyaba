@@ -1,13 +1,12 @@
-/* Git SHA value object: hex, validated at construction. Length is a git object name: 4 (minimum abbreviation) to 40 (full SHA-1). */
-
-const HEX_SHA = /^[0-9a-f]{4,40}$/;
+/* Git SHA value object: hex, validated at construction by the kernel's object-name rule (git-revision.ts): 4 (minimum abbreviation) to 40 (full SHA-1). It also carries the commit a product reports as served, which can be any abbreviation git makes, so it is wider than the 7 characters a requested commit needs (`isCommitSha`). */
+import { isObjectName } from "@kernel/git-revision.ts";
 
 export class Sha {
   private constructor(readonly value: string) {}
 
   static of(raw: string): Sha {
     const v = raw.trim().toLowerCase();
-    if (!HEX_SHA.test(v)) {
+    if (!isObjectName(v)) {
       throw new Error(`Sha: not a valid commit sha (expected 4-40 hex chars): ${JSON.stringify(raw)}`);
     }
     return new Sha(v);
@@ -15,7 +14,7 @@ export class Sha {
 
   static tryOf(raw: string): Sha | null {
     const v = raw.trim().toLowerCase();
-    return HEX_SHA.test(v) ? new Sha(v) : null;
+    return isObjectName(v) ? new Sha(v) : null;
   }
 
   get short(): string {

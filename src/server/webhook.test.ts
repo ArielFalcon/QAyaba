@@ -100,3 +100,23 @@ test("handleWebhook: with no secret configured the CORE does not require a signa
   const r = handleWebhook(`{"repo":"org/app","sha":"${SHA}"}`, undefined, {});
   assert.equal(r.status, 202);
 });
+
+/* The commit-id rule every entry point applies (qa-engine/src/shared-kernel/git-revision.ts): 7 to 40 hex characters, any case. */
+const ACCEPTED_SHAS = ["abc1234", "ABC1234", "a".repeat(40)];
+const REFUSED_SHAS = ["abc123", "a".repeat(41), "--output=/tmp/x", "abc 1234", "abc1234\n", "", "main"];
+
+test("parseWebhook reads a sha, a baseSha and a push's after/before by the one commit-id rule", () => {
+  for (const sha of ACCEPTED_SHAS) {
+    assert.equal(parseWebhook({ repo: "org/app", sha })?.sha, sha, sha);
+    assert.equal(parseWebhook({ repo: "org/app", sha: SHA, baseSha: sha })?.baseSha, sha, sha);
+    assert.equal(parseWebhook({ repository: { full_name: "org/app" }, after: sha })?.sha, sha, sha);
+    assert.equal(parseWebhook({ repository: { full_name: "org/app" }, after: SHA, before: sha })?.baseSha, sha, sha);
+  }
+  for (const sha of REFUSED_SHAS) {
+    assert.equal(parseWebhook({ repo: "org/app", sha }), null, JSON.stringify(sha));
+    assert.equal(parseWebhook({ repo: "org/app", sha: SHA, baseSha: sha })?.baseSha, undefined, JSON.stringify(sha));
+    assert.equal(parseWebhook({ repository: { full_name: "org/app" }, after: sha }), null, JSON.stringify(sha));
+    assert.equal(parseWebhook({ repository: { full_name: "org/app" }, after: SHA, before: sha })?.baseSha, undefined, JSON.stringify(sha));
+  }
+  assert.equal(parseWebhook({ repository: { full_name: "org/app" }, after: SHA, before: "0".repeat(40) })?.baseSha, undefined, "a new branch has no range start");
+});

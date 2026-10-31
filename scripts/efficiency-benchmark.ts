@@ -20,6 +20,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { RUN_MODES, type RunMode, type TestTarget } from "@kernel/run-mode.ts";
 import type { RunEventBody } from "@kernel/contract/events.ts";
+import { isCommitSha } from "@kernel/git-revision.ts";
 import { QueueStatusSchema } from "../src/contract/commands.ts";
 import { classifyRunEfficiency, type CoarseRunEfficiency } from "@contexts/generation/application/index.ts";
 import { CALL_BUCKETS } from "@contexts/generation/application/index.ts";
@@ -55,9 +56,6 @@ export interface EfficiencyBenchmarkCase {
 /* The size classes an operator may label a case with, smallest first. The engine has no such classes: a label only groups the report. */
 export const DIFF_TIER_NAMES = ["tiny", "focused", "broad"] as const;
 export type DiffTier = (typeof DIFF_TIER_NAMES)[number];
-
-/* The same commit-id rule the service applies to a run's sha and baseSha. */
-const HEX_COMMIT_ID = /^[0-9a-f]{7,40}$/i;
 
 const TEST_TARGETS: ReadonlySet<string> = new Set<TestTarget>(["e2e"]);
 const SIZE_CLASSES: ReadonlySet<string> = new Set<string>(DIFF_TIER_NAMES);
@@ -107,9 +105,9 @@ export function loadEfficiencyBenchmarkCases(
   for (const c of parsed) {
     if (seen.has(c.name)) throw new Error(`${path} has a duplicate case name '${c.name}' — results are keyed by case name`);
     seen.add(c.name);
-    if (!HEX_COMMIT_ID.test(c.sha)) throw new Error(`${path}: case '${c.name}' has an invalid sha ${JSON.stringify(c.sha)} — it must be 7–40 hex characters`);
+    if (!isCommitSha(c.sha)) throw new Error(`${path}: case '${c.name}' has an invalid sha ${JSON.stringify(c.sha)} — it must be 7–40 hex characters`);
     /* An empty baseSha is no range, as the service reads it. */
-    if (c.baseSha !== undefined && c.baseSha !== "" && !HEX_COMMIT_ID.test(c.baseSha)) {
+    if (c.baseSha !== undefined && c.baseSha !== "" && !isCommitSha(c.baseSha)) {
       throw new Error(`${path}: case '${c.name}' has an invalid baseSha ${JSON.stringify(c.baseSha)} — it must be 7–40 hex characters`);
     }
     /* A mistyped tier must stop the benchmark: read as undeclared it would silently drop the case from every tier-grouped comparison. */

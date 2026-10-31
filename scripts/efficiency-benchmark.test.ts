@@ -166,3 +166,21 @@ test("loadEfficiencyBenchmarkCases: a tier that is not even a string fails the f
     assert.throws(() => loadEfficiencyBenchmarkCases(path), /must be a JSON array of EfficiencyBenchmarkCase objects/, JSON.stringify(bad));
   }
 });
+
+test("loadEfficiencyBenchmarkCases: sha and baseSha are read by the one commit-id rule, an empty baseSha being no range", (t) => {
+  const dir = mkdtempSync(join(tmpdir(), "efficiency-benchmark-"));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const load = (sha: string, baseSha?: string): readonly unknown[] => {
+    const path = join(dir, "cases.json");
+    writeFileSync(path, JSON.stringify([{ name: "c", app: "demo", sha, ...(baseSha === undefined ? {} : { baseSha }) }]));
+    return loadEfficiencyBenchmarkCases(path);
+  };
+  for (const sha of ["abc1234", "ABC1234", "a".repeat(40)]) {
+    assert.equal(load(sha, sha).length, 1, sha);
+  }
+  assert.equal(load("abc1234", "").length, 1);
+  for (const sha of ["abc123", "a".repeat(41), "--output=/tmp/x", "abc1234\n"]) {
+    assert.throws(() => load(sha), /invalid sha .* must be 7–40 hex characters/, JSON.stringify(sha));
+    assert.throws(() => load("abc1234", sha), /invalid baseSha .* must be 7–40 hex characters/, JSON.stringify(sha));
+  }
+});

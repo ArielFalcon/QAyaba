@@ -1,4 +1,5 @@
 import { Sha } from "@kernel/sha.ts";
+import { isObjectName } from "@kernel/git-revision.ts";
 import type { CommitRelation } from "@kernel/ports/commit-ancestry.port.ts";
 import { BlastRadius } from "@kernel/blast-radius.ts";
 import { DiffParserService } from "@kernel/diff-parser/diff-parser.service.ts";
@@ -45,7 +46,7 @@ export class GitMirrorReadAdapter implements VcsReadPort {
    * an ancestor"), since an unanswered question must not read as "unrelated".
    */
   async relation(served: string, head: Sha): Promise<CommitRelation> {
-    if (!/^[0-9a-f]{4,40}$/i.test(served)) return "unknown-commit";
+    if (!isObjectName(served)) return "unknown-commit";
     const resolved = await this.runGit(["rev-parse", "--verify", "--quiet", `${served.toLowerCase()}^{commit}`]);
     if (resolved.exitCode !== 0) return "unknown-commit";
     const servedFull = resolved.stdout.trim();

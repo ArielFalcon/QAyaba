@@ -9,6 +9,7 @@
  */
 import type { RunVerdict } from "@kernel/run-verdict.ts";
 import { sameSpecPathByTail } from "@kernel/spec-path.ts";
+import { isCommitSha } from "@kernel/git-revision.ts";
 import type { GroundingInput } from "../src/contract/commands.ts";
 import type { FakeFlag } from "./fake-pass-detector.ts";
 import { assertFileName } from "./probe-report.ts";
@@ -67,7 +68,6 @@ export interface CampaignCases {
   cases: CampaignCase[];
 }
 
-const HEX_COMMIT_ID = /^[0-9a-f]{7,40}$/i;
 const REPO_SLUG = /^[A-Za-z0-9][A-Za-z0-9._-]*\/[A-Za-z0-9][A-Za-z0-9._-]*$/;
 const SPEC_PATH = /^[A-Za-z0-9._/-]+\.spec\.ts$/;
 const CASE_KEYS: ReadonlySet<string> = new Set(["id", "kind", "sha", "serviceRepo", "groundTruth", "expected", "cleanup"]);
@@ -85,7 +85,7 @@ function parseCase(raw: unknown, index: number): CampaignCase {
     throw new Error(`${name}: id: ${err instanceof Error ? err.message : String(err)}`);
   }
   if (raw.kind !== CASE_KIND.DIFF && raw.kind !== CASE_KIND.CROSS_REPO) throw new Error(`${name}: kind must be '${CASE_KIND.DIFF}' or '${CASE_KIND.CROSS_REPO}'`);
-  if (typeof raw.sha !== "string" || !HEX_COMMIT_ID.test(raw.sha)) throw new Error(`${name}: sha must be 7-40 hex characters`);
+  if (typeof raw.sha !== "string" || !isCommitSha(raw.sha)) throw new Error(`${name}: sha must be 7-40 hex characters`);
   if (raw.kind === CASE_KIND.CROSS_REPO) {
     if (typeof raw.serviceRepo !== "string" || !REPO_SLUG.test(raw.serviceRepo)) throw new Error(`${name}: serviceRepo must be <owner>/<repo> for a cross-repo case`);
   } else if (raw.serviceRepo !== undefined) {

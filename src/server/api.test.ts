@@ -1832,3 +1832,23 @@ test("the assistant keeps answering when the run's app cannot be loaded", async 
   );
   assert.equal(res.status, 200);
 });
+
+test("POST /api/v1/runs reads sha and baseSha by the one commit-id rule and answers each refusal with its own message", async () => {
+  const seen: Array<{ sha: string; baseSha?: string }> = [];
+  for (const sha of ["abc1234", "ABC1234", "a".repeat(40)]) {
+    const res = mkRes();
+    await routeApi(mkReq("POST", "/api/v1/runs", JSON.stringify({ app: "demo", sha, baseSha: sha, mode: "diff", target: "e2e" })), res, deps({ enqueue: (req) => { seen.push({ sha: req.sha, baseSha: req.baseSha }); return "run-ok"; } }));
+    assert.equal(res.status, 202, sha);
+  }
+  assert.deepEqual(seen.map((s) => s.sha), ["abc1234", "ABC1234", "a".repeat(40)]);
+  for (const sha of ["abc123", "a".repeat(41), "--output=/tmp/x", "abc1234\n"]) {
+    const bad = mkRes();
+    await routeApi(mkReq("POST", "/api/v1/runs", JSON.stringify({ app: "demo", sha, mode: "diff", target: "e2e" })), bad, deps());
+    assert.equal(bad.status, 400, JSON.stringify(sha));
+    assert.match(bad.body, /'sha' must be 7–40 hex characters/, JSON.stringify(sha));
+    const badBase = mkRes();
+    await routeApi(mkReq("POST", "/api/v1/runs", JSON.stringify({ app: "demo", sha: "abc1234", baseSha: sha, mode: "diff", target: "e2e" })), badBase, deps());
+    assert.equal(badBase.status, 400, JSON.stringify(sha));
+    assert.match(badBase.body, /'baseSha' must be 7–40 hex characters/, JSON.stringify(sha));
+  }
+});
