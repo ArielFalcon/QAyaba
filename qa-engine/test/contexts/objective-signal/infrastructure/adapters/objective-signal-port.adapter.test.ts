@@ -458,7 +458,7 @@ test("measure() hands the mutants on the changed lines to the mutation oracle, w
   assert.deepEqual(result.bundleMutation, { applied: 1, killed: 0, survived: [{ file: "src/checkout.ts", line: 1, operator: "negate condition" }] });
 });
 
-test("measure() by execution runs no mutant and says a mutation pass is due; the pass that runs it hands the oracle the re-runs' budget", async () => {
+test("measure() by execution runs no mutant and returns the pass due on it; the pass runs its mutants with the re-runs' budget and reads no dump again", async () => {
   const site = (line: number) => ({ file: "src/checkout.ts", line, column: 0, operator: "negate condition", script: { url: "https://dev/main.js", sha256: "h" }, edit: { start: 0, end: 1, replacement: "!" }, original: "x", sourceLine: "if (x) pay();", ranIn: ["flows-pay-spec-ts-x-0-0.json"] });
   const report: CoverageReport = { covered: [{ file: "src/checkout.ts", lines: [1, 2] }], mutationSites: [site(1)] };
   const budgets: unknown[] = [];
@@ -468,22 +468,24 @@ test("measure() by execution runs no mutant and says a mutation pass is due; the
       return { applied: 1, killed: 0, survived: [{ file: "src/checkout.ts", line: 1, operator: "negate condition" }] };
     },
   };
+  let collects = 0;
   const adapter = new ObjectiveSignalPortAdapter(
-    { collector: fakeCollector(report), decide: new DecideCoverageService(), mutation },
+    { collector: fakeCollector(report, () => { collects += 1; }), decide: new DecideCoverageService(), mutation },
     { policy: { mode: "signal", minRatio: 0.7 }, repoDir: "/mirrors/org/app", assembleChangeCoverage, namespace: "run-7" },
   );
   const br = BlastRadius.of(Sha.of("abc1234"), ["src/checkout.ts"]);
   const budget = { allowance: () => 60_000, cases: [] };
 
   const byExecution = await adapter.measure(br, "/e2e", SAMPLE_DIFF, ["pays"], { caseFiles: ["flows/pay.spec.ts"], byExecution: true });
-  const withMutants = await adapter.measure(br, "/e2e", SAMPLE_DIFF, ["pays"], { caseFiles: ["flows/pay.spec.ts"], rerunBudget: budget });
+  const withMutants = await adapter.measureMutation(byExecution.mutationPass!, "/e2e", { rerunBudget: budget });
+  const inOnePass = await adapter.measure(br, "/e2e", SAMPLE_DIFF, ["pays"], { caseFiles: ["flows/pay.spec.ts"], rerunBudget: budget });
 
-  assert.equal(byExecution.mutationDue, true);
+  assert.equal(collects, 2, "the pass reads none of the dumps the measurement by execution read; only the measurement in one pass reads again");
+  assert.equal(byExecution.mutationPass?.mutants.length, 1);
   assert.equal(byExecution.bundleMutation, undefined);
-  assert.equal(byExecution.ratio, withMutants.ratio, "with no mutant killed, both measure the same execution");
-  assert.deepEqual(budgets, [budget], "only the pass that runs mutants reaches the oracle, with the budget it was given");
-  assert.equal(withMutants.mutationDue, undefined);
-  assert.equal(withMutants.bundleMutation?.applied, 1);
+  assert.deepEqual(budgets, [budget, budget], "only a pass that runs mutants reaches the oracle, with the budget it was given");
+  assert.equal(withMutants.mutationPass, undefined);
+  assert.deepEqual(withMutants, inOnePass, "the pass after the measurement by execution comes to what the measurement in one pass does");
 });
 
 test("measure() with re-runs reads the latest dumps of every spec file, and its mutants are chosen from them", async () => {

@@ -37,7 +37,11 @@ import type { ChangeAnalysisPort } from "@contexts/change-analysis/application/i
 import type { StructuralSignalPort } from "@kernel/ports/structural-signal.port.ts";
 import type { AuthorPort, LeadPort, ReviewPort, PreExecGroundingPort, PreGenerationGroundingPort, ReviewDomGroundingPort, ContextMapCapturePort, GenerationEnrichment } from "@contexts/generation/application/index.ts";
 import type { ValidationPort, ExecutionPort } from "@contexts/test-execution/application/index.ts";
-import type { CoverageMeasurement, ObjectiveSignalPort } from "@contexts/objective-signal/application/index.ts";
+import type { CoverageMeasurement, MutationPass, ObjectiveSignalPort } from "@contexts/objective-signal/application/index.ts";
+import { ObjectiveSignalPortAdapter } from "@contexts/objective-signal/infrastructure/adapters/objective-signal-port.adapter.ts";
+import { BundleMutationOracleAdapter } from "@contexts/objective-signal/infrastructure/bundle-mutation-oracle.adapter.ts";
+import { TracedObjectiveSignalPort } from "@contexts/objective-signal/infrastructure/adapters/objective-signal-trace.ts";
+import { DecideCoverageService, assembleChangeCoverage } from "@contexts/objective-signal/application/index.ts";
 import type { PublicationPort } from "@contexts/workspace-and-publication/application/index.ts";
 import type { WorkspacePort } from "@contexts/workspace-and-publication/application/index.ts";
 import type { DeployGatePort } from "@kernel/ports/deploy-gate.port.ts";
@@ -110,6 +114,7 @@ function stubPorts(overrides: Partial<{
   blocks: ObjectiveSignalPort["blocks"];
   recount: NonNullable<ObjectiveSignalPort["recount"]>;
   recheckSurvivors: NonNullable<ObjectiveSignalPort["recheckSurvivors"]>;
+  measureMutation: NonNullable<ObjectiveSignalPort["measureMutation"]>;
   publish: PublicationPort["publish"];
   prepare: WorkspacePort["prepare"];
   waitUntilHealthy: DeployGatePort["waitUntilHealthy"];
@@ -150,6 +155,7 @@ function stubPorts(overrides: Partial<{
     blocks: overrides.blocks ?? (() => false),
     ...(overrides.recount ? { recount: overrides.recount } : {}),
     ...(overrides.recheckSurvivors ? { recheckSurvivors: overrides.recheckSurvivors } : {}),
+    ...(overrides.measureMutation ? { measureMutation: overrides.measureMutation } : {}),
   };
   const publication: PublicationPort = {
     publish: overrides.publish ?? (async () => ({ outcome: "pr" })),
@@ -1452,20 +1458,25 @@ test("enforce mode — the run deadline is spent during the coverage regeneratio
   assert.equal(measureCallCount, 1);
 });
 
+/* The mutation pass a measurement by execution found due: opaque to the run, handed back to the port as it was. */
+const duePass = { mutants: [], selection: { rerunsByTest: 1, rerunsBySpecFile: 0 }, judgedAgainst: ["a"], namespace: "ns", sources: [], changeDiff: "", changedFiles: [], executed: { measured: true, overall: { changedLines: 10, coveredChanged: 8, ratio: 0.8 }, perFile: [], uncovered: [] }, caseFiles: [] } as unknown as MutationPass;
 /* What the coverage measured by execution alone, and what the mutation pass made of it: the verified measurement, with the mutants it judged. */
-const measuredByExecution = { status: "pass" as const, ratio: 0.8, measurement: { changedLines: 10, coveredChanged: 8, changedFiles: 1, mappedFiles: 1, changedBranches: 4, takenBranches: 2 }, mutationDue: true };
+const measuredByExecution = { status: "pass" as const, ratio: 0.8, measurement: { changedLines: 10, coveredChanged: 8, changedFiles: 1, mappedFiles: 1, changedBranches: 4, takenBranches: 2 }, mutationPass: duePass };
 const measuredWithMutants = { status: "pass" as const, ratio: 0.9, measurement: { changedLines: 10, coveredChanged: 9, changedFiles: 1, mappedFiles: 1, changedBranches: 4, takenBranches: 3, coveredByExecution: 8, provenByMutation: 1 }, bundleMutation: { applied: 2, killed: 1, survived: [{ file: "src/a.ts", line: 3, operator: "negate condition" }] } };
 
-/* A measurement port that measures by execution when asked to, and otherwise also runs the mutation pass, during which `duringMutants` happens. */
-const measuringInTwoPasses = (duringMutants: (opts: Parameters<ObjectiveSignalPort["measure"]>[4]) => void = () => {}): ObjectiveSignalPort["measure"] => async (_br, _dir, _diff, _cases, opts) => {
-  if (opts?.byExecution) return measuredByExecution;
-  duringMutants(opts);
-  return measuredWithMutants;
-};
+/* A measurement port that measures by execution, and runs the mutation pass it found due, during which `duringMutants` happens. */
+const measuringInTwoPasses = (duringMutants: (opts: Parameters<NonNullable<ObjectiveSignalPort["measureMutation"]>>[2]) => void = () => {}): Pick<ObjectiveSignalPort, "measure"> & { measureMutation: NonNullable<ObjectiveSignalPort["measureMutation"]> } => ({
+  measure: async () => measuredByExecution,
+  measureMutation: async (pass, _dir, opts) => {
+    assert.equal(pass, duePass, "the pass the measurement by execution returned");
+    duringMutants(opts);
+    return measuredWithMutants;
+  },
+});
 
 test("the run deadline spent during the mutation re-runs keeps the coverage the execution measured on the saved outcome", async () => {
   const { deadline, fire } = deadlineFiredByHand(3_600_000);
-  const { ports, savedOutcomes } = stubPorts({ execute: passPerSpec, measure: measuringInTwoPasses(() => fire()) });
+  const { ports, savedOutcomes } = stubPorts({ execute: passPerSpec, ...measuringInTwoPasses(() => fire()) });
 
   const out = await new RunQaUseCase({ ...ports, runDeadline: deadline, config: { ...baseConfig, needsReview: false } }).run({ ...baseInput, runId: "mutation-cut-by-deadline" });
 
@@ -1478,7 +1489,7 @@ test("the run deadline spent during the mutation re-runs keeps the coverage the 
 });
 
 test("a run with time for the mutation pass records the measurement the mutants verified and the mutants it judged", async () => {
-  const { ports, savedOutcomes } = stubPorts({ execute: passPerSpec, measure: measuringInTwoPasses() });
+  const { ports, savedOutcomes } = stubPorts({ execute: passPerSpec, ...measuringInTwoPasses() });
 
   const out = await new RunQaUseCase({ ...ports, config: { ...baseConfig, needsReview: false } }).run({ ...baseInput, runId: "mutation-pass-completes" });
 
@@ -1492,20 +1503,178 @@ test("a run with time for the mutation pass records the measurement the mutants 
 
 test("the mutation pass is held to the coverage allowance and estimated from the run's final execution", async () => {
   const { deadline } = deadlineFiredByHand(3_600_000);
-  let handed: Parameters<ObjectiveSignalPort["measure"]>[4];
+  let handed: Parameters<NonNullable<ObjectiveSignalPort["measureMutation"]>>[2];
   let executed: QaCase[] = [];
   const execute: ExecutionPort["execute"] = async (dir, opts) => {
     const result = await passPerSpec(dir, opts);
     executed = result.cases;
     return result;
   };
-  const { ports } = stubPorts({ execute, measure: measuringInTwoPasses((opts) => { handed = opts; }) });
+  const { ports } = stubPorts({ execute, ...measuringInTwoPasses((opts) => { handed = opts; }) });
 
   await new RunQaUseCase({ ...ports, runDeadline: deadline, config: { ...baseConfig, needsReview: false } }).run({ ...baseInput, runId: "mutation-pass-budget" });
 
   assert.ok(executed.length > 0);
   assert.deepEqual(handed?.rerunBudget?.cases, executed, "the cases of the execution the coverage measured");
   assert.equal(handed?.rerunBudget?.allowance(), deadline.allowance("coverage"));
+});
+
+/*
+ * The coverage phase through the real measurement port, mutation oracle and trace: one changed file of four added lines, of which the
+ * passing test ran `covered`; three mutation sites on lines 1-3, a re-run of the first is noticed by the test (killed, its dumps add line
+ * 3), the second survives and adds a request to its page, the third reaches no page. `rereadFaults` makes every read of a namespace
+ * after its first end `decode-aborted`, as a second decode of a large set of dumps can.
+ */
+const PASS_SPEC = "a.spec.ts";
+const PASS_CASE = "a.spec.ts › runs";
+const PASS_DUMP = "a-spec-ts-runs-0-0.json";
+const PASS_DIFF = ["diff --git a/src/checkout.ts b/src/checkout.ts", "--- a/src/checkout.ts", "+++ b/src/checkout.ts", "@@ -0,0 +1,4 @@", "+if (x) pay();", "+if (x) pay();", "+if (x) pay();", "+if (x) pay();"].join("\n");
+
+/* Every span opened, with the attributes it was given. */
+class SpanAttrsRecorder extends NoopTelemetry {
+  readonly spans: Array<{ name: string; attrs: Record<string, unknown> }> = [];
+  override startSpan(name?: string, opts?: StartSpanOptions): SpanHandle {
+    const inner = super.startSpan(name, opts);
+    const rec = { name: String(name), attrs: { ...((opts as { attrs?: Record<string, unknown> } | undefined)?.attrs ?? {}) } };
+    this.spans.push(rec);
+    return { ...inner, setAttrs: (attrs) => { Object.assign(rec.attrs, attrs); inner.setAttrs(attrs); }, addEvent: (...a) => inner.addEvent(...a), recordError: (...a) => inner.recordError(...a), end: (...a) => inner.end(...a), context: () => inner.context() };
+  }
+  measureSpans(): Array<Record<string, unknown>> {
+    return this.spans.filter((s) => s.name === "qayaba.coverage.measure").map((s) => s.attrs);
+  }
+}
+
+interface MutationRigOptions {
+  mode?: "signal" | "enforce";
+  minRatio?: number;
+  covered?: number[];
+  sourceLine?: string;
+  rereadFaults?: boolean;
+  realWorkspace?: boolean;
+  /* No mutant's script is served as the coverage saw it: none reaches a page. */
+  reachesNoPage?: boolean;
+}
+
+function mutationRig(o: MutationRigOptions = {}) {
+  const reads: string[] = [];
+  const reruns: string[] = [];
+  const site = (line: number) => ({ file: "src/checkout.ts", line, column: 0, operator: "negate condition", script: { url: "https://dev.example/main.js", sha256: "h" }, edit: { start: line * 10, end: line * 10 + 1, replacement: "!" }, original: "x", expression: "x", sourceLine: o.sourceLine ?? "if (x) pay();", ranIn: [PASS_DUMP] });
+  const covered = o.covered ?? [1, 2];
+  const report = (lines: number[]) => ({
+    covered: [{ file: "src/checkout.ts", lines }],
+    executable: [{ file: "src/checkout.ts", lines: [1, 2, 3, 4] }],
+    scripts: { total: 1, withSourceMap: 1 },
+    branches: [{ file: "src/checkout.ts", line: 3, column: 0, kind: "if" as const, arms: [{ label: "then", taken: false }, { label: "else", taken: true }] }],
+    mutationSites: [site(1), site(2), site(3)],
+    ranBy: [{ file: "src/checkout.ts", dumps: [PASS_DUMP] }],
+  });
+  const collector = {
+    collect: async (_specDir: string, namespace: string) => {
+      const again = reads.includes(namespace);
+      reads.push(namespace);
+      return o.rereadFaults && again ? { covered: [], fault: "decode-aborted" as const, reads: [] } : report(covered);
+    },
+    recollect: async (_specDir: string, sources: readonly { namespace: string; mutant?: unknown }[]) => report(sources.some((source) => source.mutant !== undefined) ? [...new Set([...covered, 3])].sort() : covered),
+  };
+  const page = { name: PASS_CASE, requests: [{ method: "GET", url: "https://dev.example/api/x", count: 1 }], dom: ["heading: Pay"] };
+  const runMutant = async (args: { namespace: string }) => {
+    reruns.push(args.namespace.replace(/^.*-(obs2?|mut\d)$/, "$1"));
+    const pass = { name: PASS_CASE, status: "pass" as const, file: PASS_SPEC };
+    if (args.namespace.endsWith("-mut0")) return { verdict: "fail", cases: [{ ...pass, status: "fail" as const }], observations: [page] };
+    if (args.namespace.endsWith("-mut1")) return { verdict: "pass", cases: [pass], observations: [{ ...page, requests: [...page.requests, { method: "POST", url: "https://dev.example/api/pay", count: 1 }] }] };
+    return { verdict: "pass", cases: [pass], observations: [page] };
+  };
+  const oracle = new BundleMutationOracleAdapter(runMutant, (_dir, namespace) => (o.reachesNoPage || namespace.endsWith("-mut2") ? 0 : 1), "https://dev.example");
+  const port = new ObjectiveSignalPortAdapter(
+    { collector, decide: new DecideCoverageService(), mutation: oracle, readSource: () => "if (x) pay();\nif (x) pay();\nif (x) pay();\nif (x) pay();\n" },
+    { policy: { mode: o.mode ?? "signal", minRatio: o.minRatio ?? 0.7 }, repoDir: "/nonexistent", assembleChangeCoverage },
+  );
+  const telemetry = new SpanAttrsRecorder();
+  return { reads, reruns, telemetry, traced: new TracedObjectiveSignalPort(port, telemetry) };
+}
+
+async function runMutationRig(runId: string, o: MutationRigOptions = {}) {
+  const rig = mutationRig(o);
+  const real = o.realWorkspace ? realCoverageWorkspace() : undefined;
+  const execute: ExecutionPort["execute"] = async (dir, opts) => {
+    const r = await passPerSpec(dir, opts);
+    return { ...r, cases: r.cases.map((c) => ({ ...c, file: PASS_SPEC, name: PASS_CASE, durationMs: 1000 })) };
+  };
+  const { ports, savedOutcomes } = stubPorts({
+    classify: async () => ({ action: "generate", reason: "diff touches src/checkout.ts", diff: PASS_DIFF }),
+    execute,
+    measure: (...a) => rig.traced.measure(...a),
+    blocks: (status) => rig.traced.blocks(status),
+    recount: (...a) => rig.traced.recount!(...a),
+    recheckSurvivors: (...a) => rig.traced.recheckSurvivors!(...a),
+    ...(rig.traced.measureMutation ? { measureMutation: (...a: Parameters<NonNullable<ObjectiveSignalPort["measureMutation"]>>) => rig.traced.measureMutation!(...a) } : {}),
+    ...(real ? { prepare: real.prepare, generate: real.generate } : {}),
+  });
+  const { deadline } = deadlineFiredByHand(3_600_000);
+  try {
+    const out = await new RunQaUseCase({
+      ...ports,
+      runDeadline: deadline,
+      config: { ...baseConfig, needsReview: false, coveragePolicyMode: o.mode ?? "signal", ...(o.minRatio !== undefined ? { coverageMinRatio: o.minRatio } : {}) },
+    }).run({ ...baseInput, runId });
+    const g = savedOutcomes.at(-1)!.gateSignals;
+    return { out, rig, coverage: { coverageRatio: g.coverageRatio, branchCoverage: g.branchCoverage, changeCoverage: g.changeCoverage, bundleMutation: g.bundleMutation, survivorClosure: g.survivorClosure, integrity: g.integrity } };
+  } finally {
+    real?.cleanup();
+  }
+}
+
+/* What the surviving mutant moved: the request its page added, between the same test run with and without it. */
+const POST_ADDED = { kind: "moved", requests: { added: ["POST https://dev.example/api/pay"], removed: [] }, dom: { added: [], removed: [] }, tests: [PASS_CASE] };
+/* The mutation pass of the rig, as a run with the pass inside the measurement recorded it: two judged, one killed (its dumps add line 3), one survivor. */
+const RIG_BUNDLE_MUTATION = { applied: 2, killed: 1, survived: [{ file: "src/checkout.ts", line: 1, operator: "negate condition", specFiles: [PASS_SPEC], original: "x", replacement: "!", moved: POST_ADDED, movedBySpec: [{ spec: PASS_SPEC, moved: POST_ADDED }] }] };
+const RIG_VERIFIED = { coverageRatio: 0.75, branchCoverage: { changed: 2, taken: 1 }, changeCoverage: { executableLines: 4, notExecutableLines: 0, coveredByExecution: 2, provenByMutation: 1, armsProvenByMutation: 0 }, bundleMutation: RIG_BUNDLE_MUTATION };
+/* The span of the measurement the mutation pass verified, as a run with the pass inside the measurement traced it. */
+const rigVerifiedSpan = (status: "pass" | "fail") => ({
+  "qayaba.coverage.status": status,
+  "qayaba.mutation.applied": 2,
+  "qayaba.mutation.killed": 1,
+  "qayaba.mutation.survivors_routed": 1,
+  "qayaba.mutation.survivors_without_spec": 0,
+  "qayaba.mutation.survivors_moved": 1,
+  "qayaba.mutation.survivors_unmoved": 0,
+  "qayaba.mutation.survivors_unobserved": 0,
+  "qayaba.mutation.sites_skipped": 0,
+  "qayaba.mutation.reruns_by_test": 3,
+  "qayaba.mutation.reruns_by_spec_file": 0,
+  "qayaba.coverage.ratio": 0.75,
+  "qayaba.coverage.changed_lines": 4,
+  "qayaba.coverage.covered_lines": 3,
+  "qayaba.coverage.changed_files": 1,
+  "qayaba.coverage.mapped_files": 1,
+  "qayaba.coverage.changed_branches": 2,
+  "qayaba.coverage.taken_branches": 1,
+});
+
+test("the mutation pass reads none of the execution's dumps again, so a second read that would fault cannot take the verified coverage from a signal run", async () => {
+  const { out, rig, coverage } = await runMutationRig("mutation-pass-one-read", { rereadFaults: true });
+
+  assert.deepEqual(rig.reads, ["abc1234"], "the execution's dumps are read once");
+  assert.deepEqual(rig.reruns, ["obs", "mut0", "mut1", "mut2", "obs2"]);
+  assert.deepEqual({ ...out.decision }, { verdict: "pass", sideEffect: "pr", outcome: "pr", shadowed: false });
+  assert.deepEqual(coverage, { ...RIG_VERIFIED, survivorClosure: undefined, integrity: undefined });
+  assert.deepEqual(rig.telemetry.measureSpans().at(-1), rigVerifiedSpan("pass"));
+});
+
+test("the mutation pass reads none of the execution's dumps again, so a second read that would fault cannot unblock an enforce run", async () => {
+  const { out, rig, coverage } = await runMutationRig("mutation-pass-one-read-enforce", { mode: "enforce", minRatio: 0.9, rereadFaults: true, realWorkspace: true });
+
+  assert.equal(rig.reads.filter((namespace) => namespace === "abc1234").length, 1, "the execution's dumps are read once");
+  assert.deepEqual({ ...out.decision }, { verdict: "pass", sideEffect: "held", outcome: "held", shadowed: false }, "the verified 0.75 still blocks under a 0.9 floor");
+  assert.deepEqual(coverage, { ...RIG_VERIFIED, survivorClosure: { routed: 1, judged: 1, closed: 1, open: [] }, integrity: { acceptances: 1, rejected: 0, proofReused: 0, capHit: false } });
+  assert.deepEqual(rig.telemetry.measureSpans().at(-1), rigVerifiedSpan("fail"));
+});
+
+test("a mutation pass that judged no mutant leaves the coverage by execution as it was", async () => {
+  const { rig, coverage } = await runMutationRig("mutation-pass-none-judged", { reachesNoPage: true });
+
+  assert.deepEqual(rig.reads, ["abc1234"]);
+  assert.deepEqual(coverage, { coverageRatio: 0.5, branchCoverage: { changed: 2, taken: 1 }, changeCoverage: { executableLines: 4, notExecutableLines: 0 }, bundleMutation: undefined, survivorClosure: undefined, integrity: undefined });
 });
 
 test("enforce mode — the regen produces ZERO specs — KEEPS the first measurement's blocksPublish, only ONE measure() call", async () => {

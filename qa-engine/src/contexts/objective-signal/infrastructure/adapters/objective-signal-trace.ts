@@ -1,6 +1,7 @@
 /*
  * The change-coverage measurement as a span: `qayaba.coverage.measure`, a child of the phase that is open, with the decision, what it counted
- * and why a measurement that decides nothing did not; a recount over dumps already on disk is `qayaba.coverage.recount`, with what it counted;
+ * and why a measurement that decides nothing did not (the mutation pass that follows a measurement by execution is a measurement too, with the
+ * mutants it judged and the coverage they verified); a recount over dumps already on disk is `qayaba.coverage.recount`, with what it counted;
  * the surviving mutants applied again after a regeneration answered them are `qayaba.coverage.survivor_recheck`, with how many it judged and
  * how many a test now notices. A decorator: what the port returns, and what it throws, is returned and thrown as it was, and a port that
  * cannot recount or re-apply survivors stays one that cannot.
@@ -13,7 +14,7 @@ import type { Attrs } from "../../../../shared-kernel/telemetry/attribute-regist
 import type { CandidateCoverage } from "../../domain/per-candidate-coverage.ts";
 import type { CoverageRead } from "../../domain/coverage-collector.ts";
 import type { BundleMutationOutcome, CoverageMeasurement, MutantSelectionRecord } from "../../domain/objective-signal.ts";
-import type { ObjectiveSignalPort } from "../../application/ports/objective-signal.port.ts";
+import type { CoverageSignal, ObjectiveSignalPort } from "../../application/ports/objective-signal.port.ts";
 import { engineLog } from "@kernel/ports/process-logger.ts";
 
 /* How many candidates were measured and, per reason, how many were not: `reason: count`, once each. */
@@ -95,9 +96,21 @@ function countsOf(m: CoverageMeasurement | undefined): Attrs {
   };
 }
 
+/* What a measurement decided, judged and counted, as the attributes of its span. */
+function measureAttrs(result: CoverageSignal): Attrs {
+  return {
+    "qayaba.coverage.status": result.status,
+    ...(result.bundleMutation ? survivorAttrs(result.bundleMutation) : {}),
+    ...(result.mutantSelection ? selectionAttrs(result.mutantSelection) : {}),
+    ...(result.ratio !== null ? { "qayaba.coverage.ratio": result.ratio } : {}),
+    ...countsOf(result.measurement),
+  };
+}
+
 export class TracedObjectiveSignalPort implements ObjectiveSignalPort {
   readonly recount?: ObjectiveSignalPort["recount"];
   readonly recheckSurvivors?: ObjectiveSignalPort["recheckSurvivors"];
+  readonly measureMutation?: ObjectiveSignalPort["measureMutation"];
 
   constructor(
     private readonly inner: ObjectiveSignalPort,
@@ -140,6 +153,22 @@ export class TracedObjectiveSignalPort implements ObjectiveSignalPort {
         }
       };
     }
+    const measureMutation = inner.measureMutation;
+    if (measureMutation) {
+      this.measureMutation = async (pass, specDir, opts) => {
+        const span = startRunChildSpan(this.telemetry, "qayaba.coverage.measure");
+        try {
+          const result = await measureMutation.call(inner, pass, specDir, { ...opts, onRead: (read) => { recordRead(this.telemetry, span, read); opts?.onRead?.(read); } });
+          span.setAttrs(measureAttrs(result));
+          span.end();
+          return result;
+        } catch (err) {
+          span.recordError(err);
+          span.end();
+          throw err;
+        }
+      };
+    }
   }
 
   async measure(...args: Parameters<ObjectiveSignalPort["measure"]>): ReturnType<ObjectiveSignalPort["measure"]> {
@@ -147,13 +176,7 @@ export class TracedObjectiveSignalPort implements ObjectiveSignalPort {
     try {
       const [br, specDir, diff, baselineCases, opts] = args;
       const result = await this.inner.measure(br, specDir, diff, baselineCases, { ...opts, onRead: (read) => { recordRead(this.telemetry, span, read); opts?.onRead?.(read); } });
-      span.setAttrs({
-        "qayaba.coverage.status": result.status,
-        ...(result.bundleMutation ? survivorAttrs(result.bundleMutation) : {}),
-        ...(result.mutantSelection ? selectionAttrs(result.mutantSelection) : {}),
-        ...(result.ratio !== null ? { "qayaba.coverage.ratio": result.ratio } : {}),
-        ...countsOf(result.measurement),
-      });
+      span.setAttrs(measureAttrs(result));
       span.end();
       return result;
     } catch (err) {

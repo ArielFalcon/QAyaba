@@ -4,6 +4,10 @@ import type { BundleMutationOutcome, CoverageMeasurement, CoverageRecount, Cover
 import type { BundleMutationResult, CoverageRead, MutantProof, MutantRun } from "../../domain/coverage-collector.ts";
 import type { CoverageExclusions } from "../../domain/coverage-exclusions.ts";
 import type { RerunBudget } from "../../domain/rerun-budget.ts";
+import type { MutationPass } from "../../domain/mutation-pass.ts";
+
+/** What a measurement decides and records. */
+export type CoverageSignal = { status: "pass" | "fail" | "unknown"; ratio: number | null; mutationPass?: MutationPass; uncovered?: { file: string; lines: number[] }[]; untakenArms?: UntakenArm[]; bundleMutation?: BundleMutationOutcome; mutantSelection?: MutantSelectionRecord; mutantProofs?: MutantProof[]; survivorRuns?: MutantRun[]; measurement?: CoverageMeasurement; ranBy?: FileRanBy[] };
 
 export interface ObjectiveSignalPort {
   /**
@@ -32,13 +36,21 @@ export interface ObjectiveSignalPort {
    * `ranBy` names, per changed file, the spec files among `opts.caseFiles` whose tests' dumps (those the measurement read) ran a line of
    * it; a dump no case file wrote counts for none. Absent when the collector cannot tell which dump ran what. In memory only.
    * `opts.onRead` is told every read of dumps the measurement made, whatever it came to (the record of the read: dumps, bytes, time, outcome), for the trace.
-   * `opts.byExecution` measures what the passing tests ran and runs no mutant: `mutationDue` then says whether a mutation pass
-   * would run on this measurement (mutants were chosen and there are passing cases to judge them against), so the costly re-runs
-   * can be a step of their own whose measurement replaces this one only when it completes.
+   * `opts.byExecution` measures what the passing tests ran and runs no mutant: `mutationPass` then holds the pass that would run on
+   * this measurement (mutants were chosen and there are passing cases to judge them against), with what this one read of the dumps
+   * gave, so the costly re-runs can be a step of their own (`measureMutation`) that reads none of those dumps again.
    * `opts.rerunBudget` holds the mutation pass's re-runs to the time left (a re-run the allowance cannot hold is not started, and
    * `bundleMutation.leftOut` counts it); absent, every re-run starts.
    */
-  measure(br: BlastRadius, specDir: string, diff?: string, baselineCases?: string[], opts?: { namespace?: string; caseFiles?: string[]; candidates?: readonly UseCaseCandidate[]; crossRepo?: boolean; reruns?: readonly CoverageRerun[]; exclusions?: CoverageExclusions; byExecution?: boolean; rerunBudget?: RerunBudget; onRead?: (read: CoverageRead) => void }): Promise<{ status: "pass" | "fail" | "unknown"; ratio: number | null; mutationDue?: boolean; uncovered?: { file: string; lines: number[] }[]; untakenArms?: UntakenArm[]; bundleMutation?: BundleMutationOutcome; mutantSelection?: MutantSelectionRecord; mutantProofs?: MutantProof[]; survivorRuns?: MutantRun[]; measurement?: CoverageMeasurement; ranBy?: FileRanBy[] }>;
+  measure(br: BlastRadius, specDir: string, diff?: string, baselineCases?: string[], opts?: { namespace?: string; caseFiles?: string[]; candidates?: readonly UseCaseCandidate[]; crossRepo?: boolean; reruns?: readonly CoverageRerun[]; exclusions?: CoverageExclusions; byExecution?: boolean; rerunBudget?: RerunBudget; onRead?: (read: CoverageRead) => void }): Promise<CoverageSignal>;
+  /**
+   * The mutation pass a measurement by execution returned (`mutationPass`): its mutants re-run and judged (each re-run held to
+   * `opts.rerunBudget`) and the coverage they verify, the measurement by execution with the dumps of each killed mutant's re-run added.
+   * Reads none of the dumps the measurement by execution read; the proofs' recount is told to `opts.onRead`. Its `bundleMutation` is
+   * absent when no mutant was judged, unreadable or left out: the measurement is then the one by execution, unchanged. Absent on a port
+   * with no mutation pass.
+   */
+  measureMutation?(pass: MutationPass, specDir: string, opts?: { rerunBudget?: RerunBudget; onRead?: (read: CoverageRead) => void }): Promise<CoverageSignal>;
   /**
    * Single source of truth for whether a measured status blocks publish.
    * Only "enforce" + "fail" blocks; "unknown" never blocks regardless of mode.

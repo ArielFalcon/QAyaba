@@ -25,7 +25,7 @@ import type { FixLoopStage } from "../../domain/fix-loop.aggregate.ts";
 import type { CoordinationGateSignal } from "@kernel/coordination.ts";
 import type { CorrectionFinding } from "@contexts/coordination/application/index.ts";
 import type { RunOutcome } from "@kernel/run-outcome.ts";
-import type { BundleMutationOutcome, CandidateCoverage, CausalLabel, CoverageExclusions, CoverageRecount, CoverageRerun, MutantProof, MutantRun, SurvivorClosure, UntakenArm } from "@contexts/objective-signal/application/index.ts";
+import type { BundleMutationOutcome, CandidateCoverage, CausalLabel, CoverageExclusions, CoverageRecount, CoverageRerun, MutantProof, MutantRun, MutationPass, SurvivorClosure, UntakenArm } from "@contexts/objective-signal/application/index.ts";
 import type { RunDecision } from "../../domain/run-decision.ts";
 import type { RunEvidence } from "../../domain/run-decision.service.ts";
 import type { EndReason } from "./end-reason.ts";
@@ -209,8 +209,8 @@ export interface CoverageOutcome {
   flakyTriage: FlakyTriageOutcome | undefined;
   /** What the mutants of the changed code did; undefined when none was judged. A signal, never a gate. */
   bundleMutation: BundleMutationOutcome | undefined;
-  /** The measurement by execution chose mutants to judge: the mutation pass is still to run on it. */
-  mutationDue: boolean;
+  /** The mutation pass the measurement by execution found due (mutants chosen, passing cases to judge them against), with what that measurement read, so the pass reads none of its dumps again; undefined when none is due or once it ran. Names the served script and its edits, so it never reaches an agent or the record. */
+  mutationPass: MutationPass | undefined;
   /** The killed mutants whose re-runs the coverage counts, so a recount counts them again; empty when none added a line. */
   mutantProofs: MutantProof[];
   /** The mutants of `bundleMutation.survived`, in its order, as they were run, so a regeneration they drove can apply them again; they name the served script and its edit and never reach an agent or the record. */
@@ -432,7 +432,7 @@ export function initialRunState(): RunState {
       branchCases: undefined,
       flakyTriage: undefined,
       bundleMutation: undefined,
-      mutationDue: false,
+      mutationPass: undefined,
       mutantProofs: [],
       survivorRuns: [],
       survivorClosure: undefined,

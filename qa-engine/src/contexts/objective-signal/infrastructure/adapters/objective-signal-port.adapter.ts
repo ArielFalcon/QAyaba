@@ -14,6 +14,9 @@ import { parseDiffHunks, type NoCodeLinesOf } from "../../domain/assemble-change
 import { linesWithoutCode } from "../statement-code-lines.ts";
 import { selectMutants, type SourceLineOf } from "../../domain/select-mutants.ts";
 import type { MutantSelectionRecord } from "../../domain/objective-signal.ts";
+import type { MutationPass } from "../../domain/mutation-pass.ts";
+import type { RerunBudget } from "../../domain/rerun-budget.ts";
+import type { UseCaseCandidate } from "@kernel/use-case-candidate.ts";
 import { RepoReader } from "../../../../shared-infrastructure/repo-reader.ts";
 import { MAX_SPEC_SOURCE_BYTES } from "../../../../shared-infrastructure/spec-path-confinement.ts";
 import { diffWithoutTestFiles } from "../../domain/diff-without-test-files.ts";
@@ -187,52 +190,64 @@ export class ObjectiveSignalPortAdapter implements ObjectiveSignalPort {
     tellReads(collected?.reads, opts?.onRead);
     const noCodeOf = this.noCodeOf();
     const executed: ChangeCoverage | null = report ? this.ctx.assembleChangeCoverage!(changeDiff!, report, noCodeOf) : null;
+    const caseFiles = opts?.caseFiles ?? [];
+    const asked = { caseFiles, ...(opts?.exclusions ? { exclusions: opts.exclusions } : {}), ...(opts?.candidates ? { candidates: opts.candidates } : {}), ...(opts?.crossRepo ? { crossRepo: true } : {}) };
+    const trouble = readTroubleOf(report, collected?.fault);
+    const ranBy = ranByOf(report, caseFiles);
 
     /* Mutants only of a measured change, on its changed lines, where a test reached: first the decisions an arm of which no test ran. */
-    let bundleMutation: BundleMutationResult | null = null;
-    let mutantSelection: MutantSelectionRecord | undefined;
-    let mutationDue = false;
-    if (this.deps.mutation && report?.mutationSites && executed?.measured && changeDiff !== undefined) {
-      const { mutants, skipped } = selectMutants(report.mutationSites, parseDiffHunks(changeDiff), opts?.caseFiles ?? [], undefined, report.branches, sourceLines(this.deps.readSource ?? workingCopySource(this.ctx.repoDir, "mutation")));
-      const judgedAgainst = baselineCases ?? this.ctx.baselineCases ?? [];
-      if (opts?.byExecution) {
-        mutationDue = mutants.length > 0 && judgedAgainst.length > 0;
-      } else {
-        const bySpecFile = mutants.filter((m) => m.tests === undefined).length;
-        mutantSelection = { ...(skipped.count > 0 ? { skippedSites: skipped } : {}), rerunsByTest: mutants.length - bySpecFile, rerunsBySpecFile: bySpecFile };
-        /* The first judgment of the survivors also tells what each moved (their pages against an unmutated re-run); the re-check of a regeneration's answer does not. */
-        if (mutants.length > 0) bundleMutation = await this.deps.mutation.measure(mutants, specDir, namespace, judgedAgainst, { observe: true, ...(opts?.rerunBudget ? { budget: opts.rerunBudget } : {}) });
-      }
+    if (!(this.deps.mutation && report?.mutationSites && executed?.measured && changeDiff !== undefined)) {
+      const skipped = !diff ? "no-diff" : this.ctx.assembleChangeCoverage === undefined ? "not-assembled" : undefined;
+      return this.resultOf({ cc: executed, executed: null, skipped, scripts: report?.scripts, changeDiff, trouble, ranBy, asked, willAssemble });
     }
+    const { mutants, skipped } = selectMutants(report.mutationSites, parseDiffHunks(changeDiff), caseFiles, undefined, report.branches, sourceLines(this.deps.readSource ?? workingCopySource(this.ctx.repoDir, "mutation")));
+    const bySpecFile = mutants.filter((m) => m.tests === undefined).length;
+    const selection: MutantSelectionRecord = { ...(skipped.count > 0 ? { skippedSites: skipped } : {}), rerunsByTest: mutants.length - bySpecFile, rerunsBySpecFile: bySpecFile };
+    const pass: MutationPass = {
+      mutants,
+      selection,
+      judgedAgainst: baselineCases ?? this.ctx.baselineCases ?? [],
+      namespace,
+      sources: rerun ? sources : [{ namespace }],
+      changeDiff,
+      changedFiles: changedFiles ?? [],
+      executed,
+      ...(report.scripts ? { scripts: report.scripts } : {}),
+      ...(trouble ? { trouble } : {}),
+      ...(ranBy ? { ranBy } : {}),
+      ...asked,
+    };
+    const due = mutants.length > 0 && pass.judgedAgainst.length > 0;
+    /* By execution alone: what the passing tests ran, and the pass still to run on it when one is due. */
+    if (opts?.byExecution) return { ...this.resultOf({ cc: executed, executed: null, scripts: pass.scripts, changeDiff, trouble, ranBy, asked, willAssemble: true }), ...(due ? { mutationPass: pass } : {}) };
+    return this.mutate(pass, specDir, opts?.rerunBudget, opts?.onRead, noCodeOf);
+  }
+
+  async measureMutation(pass: MutationPass, specDir: string, opts?: { rerunBudget?: RerunBudget; onRead?: (read: CoverageRead) => void }): ReturnType<ObjectiveSignalPort["measure"]> {
+    return this.mutate(pass, specDir, opts?.rerunBudget, opts?.onRead);
+  }
+
+  /*
+   * The mutation pass over a measurement's chosen mutants, and the coverage it verifies: the measurement by execution held in `pass`, with
+   * the dumps of each killed mutant's re-run added (its edit undone). Nothing the measurement by execution read is read again; only the
+   * proofs' recount reads, and a recount whose dumps could not be read leaves the coverage by execution standing, saying what it lacks.
+   */
+  private async mutate(pass: MutationPass, specDir: string, rerunBudget: RerunBudget | undefined, onRead: ((read: CoverageRead) => void) | undefined, noCodeOf: NoCodeLinesOf = this.noCodeOf()): ReturnType<ObjectiveSignalPort["measure"]> {
+    /* The first judgment of the survivors also tells what each moved (their pages against an unmutated re-run); the re-check of a regeneration's answer does not. */
+    const bundleMutation = pass.mutants.length > 0 ? await this.deps.mutation!.measure(pass.mutants, specDir, pass.namespace, pass.judgedAgainst, { observe: true, ...(rerunBudget ? { budget: rerunBudget } : {}) }) : null;
     const proofs = bundleMutation?.proofs ?? [];
     /* What a killed mutant made run, a test checked: the verified coverage adds it, the coverage by execution alone stays beside it. */
-    const proved = proofs.length > 0 && executed ? await this.withProofs(specDir, rerun ? sources : [{ namespace }], proofs, changeDiff!, changedFiles, noCodeOf) : null;
-    tellReads(proved?.report.reads, opts?.onRead);
+    const proved = proofs.length > 0 ? await this.withProofs(specDir, pass.sources, proofs, pass.changeDiff, pass.changedFiles, noCodeOf) : null;
+    tellReads(proved?.report.reads, onRead);
     /* A part never stands for the whole: a proof pass whose dumps could not be read leaves the measurement by execution, and says what it stands without. */
-    const withProofs = proved?.cc ? { cc: proved.cc, report: proved.report } : null;
-    const leftOut = proved && !proved.cc && proved.report.fault ? [proved.report.fault] : undefined;
-    const verified = withProofs?.cc ?? null;
-    const cc = verified ?? executed;
+    const verified = proved?.cc ?? null;
+    const evidenceLeftOut = proved && !proved.cc && proved.report.fault ? [proved.report.fault] : undefined;
     /* Which spec ran each changed file, from the dumps the measurement that stands read. */
-    const ranBy = ranByOf(withProofs?.report ?? report, opts?.caseFiles ?? []);
-
-    const status = this.deps.decide.decide(cc, this.ctx.policy);
-    const ratio = cc?.measured ? cc.overall.ratio : null;
-    const trouble = readTroubleOf(report, collected?.fault);
-    const aggregate = measurementOf(cc, !diff ? "no-diff" : this.ctx.assembleChangeCoverage === undefined ? "not-assembled" : undefined, report?.scripts, changeDiff, verified ? executed! : undefined, trouble, leftOut);
-    /* Per use case: figures beside the aggregate, which stays the only one that decides. */
-    const candidates = opts?.candidates ?? [];
-    const measurement: CoverageMeasurement = candidates.length > 0
-      ? { ...aggregate, ...recordedExclusions(opts?.exclusions), perCandidate: perCandidateCoverage({ candidates, diff: changeDiff, coverage: cc, aggregate: aggregate.unmeasured, crossRepo: opts?.crossRepo === true }) }
-      : { ...aggregate, ...recordedExclusions(opts?.exclusions) };
-
-
+    const ranBy = verified ? ranByOf(proved!.report, pass.caseFiles) : pass.ranBy;
+    const asked = { caseFiles: pass.caseFiles, ...(pass.exclusions ? { exclusions: pass.exclusions } : {}), ...(pass.candidates ? { candidates: pass.candidates } : {}), ...(pass.crossRepo ? { crossRepo: true } : {}) };
+    const measured = this.resultOf({ cc: verified ?? pass.executed, executed: verified ? pass.executed : null, scripts: pass.scripts, changeDiff: pass.changeDiff, trouble: pass.trouble, ranBy, asked, willAssemble: true, ...(evidenceLeftOut ? { evidenceLeftOut } : {}) });
     return {
-      status,
-      ratio,
-      ...(mutationDue ? { mutationDue } : {}),
-      ...(willAssemble && cc?.uncovered ? { uncovered: cc.uncovered } : {}),
-      ...(cc?.untakenArms ? { untakenArms: cc.untakenArms } : {}),
+      ...measured,
       ...(bundleMutation
         ? {
             bundleMutation: {
@@ -241,16 +256,38 @@ export class ObjectiveSignalPortAdapter implements ObjectiveSignalPort {
               survived: bundleMutation.survived,
               ...(bundleMutation.unreadable ? { unreadable: bundleMutation.unreadable } : {}),
               ...(bundleMutation.leftOut ? { leftOut: bundleMutation.leftOut } : {}),
-              ...(mutantSelection?.skippedSites ? { skippedSites: mutantSelection.skippedSites } : {}),
-              ...(mutantSelection?.rerunsBySpecFile ? { rerunsBySpecFile: mutantSelection.rerunsBySpecFile } : {}),
+              ...(pass.selection.skippedSites ? { skippedSites: pass.selection.skippedSites } : {}),
+              ...(pass.selection.rerunsBySpecFile ? { rerunsBySpecFile: pass.selection.rerunsBySpecFile } : {}),
             },
           }
         : {}),
-      ...(mutantSelection ? { mutantSelection } : {}),
+      mutantSelection: pass.selection,
       ...(verified ? { mutantProofs: proofs } : {}),
       ...(bundleMutation?.survivorRuns ? { survivorRuns: bundleMutation.survivorRuns } : {}),
+    };
+  }
+
+  /*
+   * What a measurement decides and records from the coverage that stands (`cc`): its status, ratio, what it counted (with `executed`, the
+   * coverage by execution, beside a verified one), the lines and arms no test ran, and which spec ran each changed file.
+   */
+  private resultOf(m: { cc: ChangeCoverage | null; executed: ChangeCoverage | null; skipped?: CoverageMeasurement["unmeasured"]; scripts: CoverageReport["scripts"] | undefined; changeDiff: string | undefined; trouble: "no-dumps" | CoverageReadFault | undefined; ranBy: FileRanBy[] | undefined; asked: { caseFiles: string[]; exclusions?: CoverageExclusions; candidates?: readonly UseCaseCandidate[]; crossRepo?: boolean }; willAssemble: boolean; evidenceLeftOut?: readonly CoverageReadFault[] }): Awaited<ReturnType<ObjectiveSignalPort["measure"]>> {
+    const { cc, asked } = m;
+    const status = this.deps.decide.decide(cc, this.ctx.policy);
+    const ratio = cc?.measured ? cc.overall.ratio : null;
+    const aggregate = measurementOf(cc, m.skipped, m.scripts, m.changeDiff, m.executed ?? undefined, m.trouble, m.evidenceLeftOut);
+    /* Per use case: figures beside the aggregate, which stays the only one that decides. */
+    const candidates = asked.candidates ?? [];
+    const measurement: CoverageMeasurement = candidates.length > 0
+      ? { ...aggregate, ...recordedExclusions(asked.exclusions), perCandidate: perCandidateCoverage({ candidates, diff: m.changeDiff, coverage: cc, aggregate: aggregate.unmeasured, crossRepo: asked.crossRepo === true }) }
+      : { ...aggregate, ...recordedExclusions(asked.exclusions) };
+    return {
+      status,
+      ratio,
+      ...(m.willAssemble && cc?.uncovered ? { uncovered: cc.uncovered } : {}),
+      ...(cc?.untakenArms ? { untakenArms: cc.untakenArms } : {}),
       measurement,
-      ...(ranBy ? { ranBy } : {}),
+      ...(m.ranBy ? { ranBy: m.ranBy } : {}),
     };
   }
 

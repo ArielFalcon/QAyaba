@@ -607,7 +607,9 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   announcement and measurement, the mutation pass, the regenerations, the review) is `proven`, and the measurement is the `coverage` phase in every mode.
   The coverage measurement keeps its cheap part apart from its costly one: `measure-coverage` reads the execution's dumps and records
   the coverage by execution alone, and `measure-mutation`, the next step, runs only when that measurement chose mutants to judge
-  (`mutationDue`): it runs the mutation pass and the verified recount and replaces the measurement only when it completes. A
+  (`mutationPass`, which holds the mutants and what that one read of the dumps gave, so the pass reads none of them again): it
+  runs the mutants and the verified recount (`ObjectiveSignalPort.measureMutation`, traced as a `qayaba.coverage.measure` span of
+  its own) and replaces the measurement only when it completes and a mutant was judged, unreadable or left out. A
   deadline that cuts the mutation pass leaves the coverage by execution standing, as a run with mutation off has it, and that is the
   measurement the degradation's undecided-gate check and the enforce gate read. Each re-run of the pass starts only while the
   coverage allowance holds its estimate (Bundle mutation, below).

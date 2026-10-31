@@ -7,7 +7,7 @@ import { candidatesSeededBy } from "@kernel/change-map.ts";
 import { hasGreenBytes } from "@kernel/run-verdict.ts";
 import { isAllotmentSpentError } from "@kernel/run-deadline.ts";
 import type { GenerationEnrichment } from "@contexts/generation/application/index.ts";
-import { changedCodeFiles, isReadTrouble, renderBranchGap, renderCoverageGap, renderSurvivedMutants, survivorClosureOf, survivorFindings, survivorRechecks, testSupportFiles, unreachableByDesign, type BundleMutationResult, type CoverageExclusions, type CoverageMeasurement, type CoverageRerun, type RerunBudget, type SurvivedMutant, type SurvivorClosure } from "@contexts/objective-signal/application/index.ts";
+import { changedCodeFiles, isReadTrouble, renderBranchGap, renderCoverageGap, renderSurvivedMutants, survivorClosureOf, survivorFindings, survivorRechecks, testSupportFiles, unreachableByDesign, type BundleMutationResult, type CoverageExclusions, type CoverageMeasurement, type CoverageRerun, type CoverageSignal, type RerunBudget, type SurvivedMutant, type SurvivorClosure } from "@contexts/objective-signal/application/index.ts";
 import type { StepOutcome } from "../run-flow.ts";
 import type { RunContext, WorkspaceRunContext } from "../run-context.ts";
 import { runOf, type BranchCasesOutcome, type CoverageOutcome, type RunState } from "../run-state.ts";
@@ -84,12 +84,8 @@ export async function coverageExclusionsOf(state: Readonly<RunState>, ctx: Works
   return { unreachableByDesign: byDesign, testSupportFiles: support };
 }
 
-/*
- * The change-coverage of the green execution, read from its dumps: `byExecution` measures what the passing tests ran and runs no
- * mutant; otherwise the mutation pass runs too (its re-runs held to `rerunBudget`) and the coverage counts what a killed mutant
- * made run.
- */
-async function measureGreenRun(state: Readonly<RunState>, ctx: WorkspaceRunContext, exclusions: CoverageExclusions | undefined, pass: { byExecution: true } | { rerunBudget: RerunBudget }) {
+/* The change-coverage of the green execution by execution alone, read from its dumps once: what the passing tests ran, and the mutation pass due on it, if any. */
+async function measureGreenRun(state: Readonly<RunState>, ctx: WorkspaceRunContext, exclusions: CoverageExclusions | undefined) {
   const { deps, input, workspace } = ctx;
   const run = runOf(state);
   const { diff, intent } = state.classification;
@@ -109,12 +105,12 @@ async function measureGreenRun(state: Readonly<RunState>, ctx: WorkspaceRunConte
     ...(state.grounding.candidates.length > 0 ? { candidates: state.grounding.candidates } : {}),
     ...(input.triggerRepo ? { crossRepo: true } : {}),
     ...(exclusions ? { exclusions } : {}),
-    ...pass,
+    byExecution: true,
   });
 }
 
-/* The coverage a measurement of the green execution records; `mutationDue` says whether the mutation pass is still to run on it. */
-function coverageMeasured(state: Readonly<RunState>, ctx: WorkspaceRunContext, signal: Awaited<ReturnType<typeof measureGreenRun>>, exclusions: CoverageExclusions | undefined): CoverageOutcome {
+/* The coverage a measurement of the green execution records; `mutationPass` is the mutation pass still to run on it. */
+function coverageMeasured(state: Readonly<RunState>, ctx: WorkspaceRunContext, signal: CoverageSignal, exclusions: CoverageExclusions | undefined): CoverageOutcome {
   return {
     ...state.coverage,
     coverageRatio: signal.ratio,
@@ -131,7 +127,7 @@ function coverageMeasured(state: Readonly<RunState>, ctx: WorkspaceRunContext, s
     changeCoverage: changeCoverageOf(signal.measurement),
     ranBy: signal.ranBy,
     exclusions,
-    mutationDue: signal.mutationDue === true,
+    mutationPass: signal.mutationPass,
     /* Ask the port: only enforce+fail blocks. Unknown/pass never block. Do not re-implement the mode check here. */
     blocksPublish: ctx.deps.objectiveSignal.blocks(signal.status),
   };
@@ -144,21 +140,24 @@ export async function measureCoverage(state: Readonly<RunState>, ctx: WorkspaceR
     engineLog.info(`[qa] change-coverage: skipped — the changed lines live in ${ctx.input.triggerRepo}; browser coverage maps only the frontend (status=unknown).`);
   }
   const exclusions = await coverageExclusionsOf(state, ctx);
-  const signal = await measureGreenRun(state, ctx, exclusions, { byExecution: true });
+  const signal = await measureGreenRun(state, ctx, exclusions);
   return { update: { coverage: coverageMeasured(state, ctx, signal, exclusions) } };
 }
 
-/* The mutation pass runs only on a measurement that said one is due: mutants were chosen and there are passing cases to judge them against. */
-export const measuresMutation = (state: Readonly<RunState>): boolean => state.coverage.mutationDue;
+/* The mutation pass runs only on a measurement that found one due (mutants were chosen and there are passing cases to judge them against), on a port that can run it. */
+export const measuresMutation = (state: Readonly<RunState>, ctx: WorkspaceRunContext): boolean => state.coverage.mutationPass !== undefined && ctx.deps.objectiveSignal.measureMutation !== undefined;
 
 /*
- * The mutation pass over the green execution and the coverage it verifies, which replaces the measurement by execution only when it
- * completes. Its re-runs are held to the coverage purpose's allowance, each estimated from the cases of the execution it judges.
+ * The mutation pass the measurement by execution found due, and the coverage it verifies: the mutants are those that measurement chose
+ * and the dumps it read are not read again. It replaces the measurement by execution only when it completes and a mutant was judged,
+ * unreadable or left out; a pass that came to none of those leaves it as it was. Its re-runs are held to the coverage purpose's
+ * allowance, each estimated from the cases of the execution it judges.
  */
 export async function measureMutation(state: Readonly<RunState>, ctx: WorkspaceRunContext): Result {
   const deadline = ctx.services.runDeadlinePort;
   const rerunBudget: RerunBudget = { allowance: () => deadline.allowance?.("coverage") ?? null, cases: runOf(state).cases };
-  const signal = await measureGreenRun(state, ctx, state.coverage.exclusions, { rerunBudget });
+  const signal = await ctx.deps.objectiveSignal.measureMutation!(state.coverage.mutationPass!, ctx.workspace.specDir, { rerunBudget });
+  if (!signal.bundleMutation) return { update: { coverage: { ...state.coverage, mutationPass: undefined } } };
   return { update: { coverage: coverageMeasured(state, ctx, signal, state.coverage.exclusions) } };
 }
 
