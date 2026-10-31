@@ -16,7 +16,7 @@ import { throwIfAborted } from "../abort.ts";
 import { preExecAction } from "../../../domain/pre-exec-regen.ts";
 import type { WorkspaceRunContext } from "../run-context.ts";
 import type { RunState } from "../run-state.ts";
-import { mergeDelivered, recordRunFact } from "../reducers.ts";
+import { mergeDelivered, recordLimit, recordRunFact } from "../reducers.ts";
 import { afterGeneration, closedLoopSignal, geolocationEnrichment, loopClosedNow, regenerate } from "./generation-services.ts";
 import { NoAuthorError, carryOn } from "../failure-policy.ts";
 
@@ -204,6 +204,8 @@ export async function settleGenerationEnd(state: Readonly<RunState>, ctx: Worksp
         ...(agentBrowserSignal() ? { agentBrowser: agentBrowserSignal() } : {}),
       });
     } else if (terminal.persisted) {
+      /* The only generation that ends on time is one whose flows ran out of their own: the run-level ends (the deadline, an allotment) record theirs where they are met. */
+      if (generated.end === GENERATION_END.TIME_BUDGET) recordLimit(state, { fired: "flow-budget", role: "qa-author" });
       const endNote = generated.note ?? `generation ended without specs (${generated.end})`;
       engineLog.error(`[qa] generation ended without specs (${generated.end}): ${endNote}`);
       deps.observer?.onEvent({ type: "agent.error", detail: endNote });

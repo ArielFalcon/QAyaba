@@ -242,12 +242,20 @@ test("a run ended by its deadline says which limit fired and in which role", asy
   assert.equal(traceFactsOf(result!)?.limitRole, "primary");
 });
 
-test("a generation cut off by its tier budget reports the tier budget as the limit", async () => {
+test("flows that timed out with none delivered report the flow's own time as the limit that fired, and no tier budget", async () => {
   const h = traceHarness();
   const useCase = useCaseWith(h.telemetry, h.clock, { generate: async () => scriptedGeneration({ specs: [], end: "time-budget" }) });
   const { result } = await runUnderRoot(h, useCase);
   assert.equal(traceFactsOf(result!)?.generationEnd, "time-budget");
-  assert.equal(traceFactsOf(result!)?.limitFired, "tier-budget");
+  assert.equal(traceFactsOf(result!)?.limitFired, "flow-budget");
+  assert.deepEqual(traceFactsOf(result!)?.limits?.map((l) => l.fired), ["flow-budget"]);
+});
+
+test("a run ended by the deadline lists the deadline as the one limit that fired", async () => {
+  const h = traceHarness();
+  const { result } = await runUnderRoot(h, useCaseWith(h.telemetry, h.clock, { generate: async () => { throw new RunDeadlineExceededError(600_000, "diff", "primary", "mid-turn"); } }));
+  assert.deepEqual(traceFactsOf(result!)?.limits?.map((l) => l.fired), ["run-deadline"]);
+  assert.equal(traceFactsOf(result!)?.generationEnd, "time-budget");
 });
 
 test("a generation that ran out of steps reports the step cap as the limit", async () => {

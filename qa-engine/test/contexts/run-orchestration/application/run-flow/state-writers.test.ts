@@ -32,7 +32,7 @@ const WRITERS: Record<string, Record<string, readonly string[]>> = {
   proof: { recordProof: ["run-qa.use-case.ts"] },
   run: {
     recordRunFact: ["run-flow/failure-ends.ts", "run-flow/phases/generate.steps.ts", "run-flow/phases/opening.steps.ts", "run-qa.use-case.ts"],
-    recordLimit: ["run-flow/degrade.ts", "run-flow/failure-ends.ts", "run-flow/phases/coverage.steps.ts", "run-flow/regeneration-allowed.ts"],
+    recordLimit: ["run-flow/degrade.ts", "run-flow/failure-ends.ts", "run-flow/phases/coverage.steps.ts", "run-flow/phases/generate.steps.ts", "run-flow/regeneration-allowed.ts"],
     recordDegradation: ["run-flow/decided-end.ts", "run-flow/degrade.ts"],
   },
   coordination: { recordCoordination: ["run-qa.use-case.ts"] },

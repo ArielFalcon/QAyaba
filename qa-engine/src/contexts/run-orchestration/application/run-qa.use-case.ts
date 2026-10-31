@@ -156,7 +156,7 @@ export class RunQaUseCase {
   /* How the run ended, for its trace and its record: the decision and whether shadow replaced it, the end of generation, every limit that fired (the engine's own, then the one the generation end names) and every fault the run went on past. A run that threw before a result was built has no decision. */
   private traceFactsOf(result: RunQaResult | undefined, state: Readonly<RunState>): RunTraceFacts {
     const end = state.run.generationEnd;
-    const fromEnd: { fired: TurnLimit; role: string } | undefined = end === GENERATION_END.EXHAUSTED ? { fired: "step-cap", role: "qa-author" } : end === GENERATION_END.TIME_BUDGET ? { fired: "tier-budget", role: "qa-author" } : undefined;
+    const fromEnd: { fired: TurnLimit; role: string } | undefined = end === GENERATION_END.EXHAUSTED ? { fired: "step-cap", role: "qa-author" } : undefined;
     const limits: RunLimitFact[] = [...state.run.limits];
     if (fromEnd && !limits.some((known) => known.fired === fromEnd.fired && known.role === fromEnd.role)) limits.push({ ...fromEnd, scope: "run" });
     const first = primaryLimit(limits);

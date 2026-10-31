@@ -217,7 +217,7 @@ test("every limit that fired and every fault the run went on past is on the root
     decision: "pr",
     shadowed: false,
     endReason: "decided",
-    limits: [{ fired: "run-deadline", role: "reviewer", scope: "run", purpose: "review" }, { fired: "tier-budget", role: "qa-author", scope: "run" }],
+    limits: [{ fired: "run-deadline", role: "reviewer", scope: "run", purpose: "review" }, { fired: "flow-budget", role: "qa-author", scope: "run" }],
     limitFired: "run-deadline",
     limitRole: "reviewer",
     degradations: [{ reason: "deadline-after-proof", note: "the run deadline was spent during review-round; the suite that ran green on its final bytes is kept" }],
@@ -228,7 +228,7 @@ test("every limit that fired and every fault the run went on past is on the root
   const root = h.only("qayaba.run");
   assert.equal(attr(root, "qayaba.run.end_reason"), "decided");
   assert.equal(attr(root, "qayaba.limit.fired"), "run-deadline");
-  assert.deepEqual(attr(root, "qayaba.limits"), ["run-deadline@reviewer", "tier-budget@qa-author"]);
+  assert.deepEqual(attr(root, "qayaba.limits"), ["run-deadline@reviewer", "flow-budget@qa-author"]);
   assert.equal(attr(root, "qayaba.limit.purpose"), "review", "the root span names the purpose the deadline cut");
   assert.deepEqual(attr(root, "qayaba.degradations"), ["deadline-after-proof"]);
   const stored = getHistory().runs.getRunFacts(id);
@@ -238,7 +238,7 @@ test("every limit that fired and every fault the run went on past is on the root
   const view = getHistory().runs.getRunFacts(id);
   assert.ok(view);
   const budget = h.measurements.filter((m) => m.name === "qayaba.budget.exhausted");
-  assert.deepEqual(budget.map((m) => m.attrs["qayaba.limit.fired"]).sort(), ["run-deadline", "tier-budget"]);
+  assert.deepEqual(budget.map((m) => m.attrs["qayaba.limit.fired"]).sort(), ["flow-budget", "run-deadline"]);
 });
 
 test("a limit a turn ended on is on the record even when the engine never met it at run level, but leads nothing; a cancel, a fault or no limit is none", async () => {
