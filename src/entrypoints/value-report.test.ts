@@ -110,3 +110,25 @@ test("run report: a skipped run carries no specs and no side effect", () => {
   assert.match(out, /action\s+would skip the commit \(no test-worthy change\)/);
   assert.match(out, /• SKIPPED/);
 });
+
+/* The action row of every verdict, as the operator reads it, word for word: what the run did, or would do in shadow mode. */
+const ACTION_ROWS: ReadonlyArray<[RunReportInput["verdict"], boolean | null, string]> = [
+  ["pass", true, "open an auto-merge suite PR with the new tests"],
+  ["pass", null, "open an auto-merge suite PR with the new tests"],
+  ["pass", false, "file an Issue (the reviewer rejected the suite)"],
+  ["fail", null, "file an Issue — a real bug was found (the run succeeded)"],
+  ["fail", false, "file an Issue — a real bug was found (the run succeeded)"],
+  ["invalid", null, "file an Issue (the generated specs failed the static gate)"],
+  ["flaky", true, "quarantine the flaky case (no PR, no Issue)"],
+  ["infra-error", null, "treat the run as inconclusive (infrastructure, not a code bug)"],
+  ["skipped", null, "skip the commit (no test-worthy change)"],
+];
+
+for (const [verdict, reviewerApproved, action] of ACTION_ROWS) {
+  test(`the action row of a ${verdict} run (reviewer ${String(reviewerApproved)}) says what the run did, and in shadow mode what it would do`, () => {
+    const actionRow = (shadow: boolean): string | undefined =>
+      renderRunReport({ ...baseReport, verdict, shadow, signals: { ...baseSignals, reviewerApproved } }).split("\n").find((line) => line.trimStart().startsWith("action"));
+    assert.equal(actionRow(false), `  ${"action".padEnd(12)}${action}`);
+    assert.equal(actionRow(true), `  ${"action".padEnd(12)}would ${action}`);
+  });
+}
