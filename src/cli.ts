@@ -15,21 +15,21 @@
  */
 
 import { fileURLToPath } from "node:url";
-import { JobQueue } from "./server/queue";
+import { JobQueue } from "./entrypoints/queue";
 import { qayabaRoot } from "./settings/paths";
-import { enqueueTrackedRun } from "./server/runner";
+import { enqueueTrackedRun } from "./entrypoints/runner";
 import { processTelemetry, TELEMETRY_SHUTDOWN_TIMEOUT_MS } from "./telemetry/process-telemetry";
 import { createDurableRunEventStore } from "./server/durable-run-events";
 import { longestRunTimeBudgetMs } from "@contexts/run-orchestration/application/index";
-import { delegateRun, type DelegateRunInput, type DelegateRunResult } from "./server/run-delegate";
+import { delegateRun, type DelegateRunInput, type DelegateRunResult } from "./entrypoints/run-delegate";
 import { discoverApiToken } from "./settings/api-token";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { loadAppConfig } from "./orchestrator/config-loader";
 import { parseRunMode, RUN_MODES, type RunMode } from "./persistence/types";
-import { runSucceeded } from "./cli-exit";
+import { runSucceeded } from "./entrypoints/cli-exit";
 import type { GroundingInput } from "./entrypoints/contract/commands";
-import { renderRunReport } from "./qa/value-report";
+import { renderRunReport } from "./entrypoints/value-report";
 import { createAgentRuntimeManager } from "./agent-runtime/agent-runtime";
 import { defaultEnvStoreFs } from "./settings/env-store";
 import type { Settings } from "./settings/settings";

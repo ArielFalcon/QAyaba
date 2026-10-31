@@ -1,6 +1,6 @@
 /*
  * Typed classification of a delegation's contract outcome. Exists so telemetry consumers (e.g.
- * toCoordinationSignals in src/server/coordination-events.ts) can identify a contract failure from
+ * toCoordinationSignals in src/entrypoints/coordination-events.ts) can identify a contract failure from
  * a STRUCTURED field instead of regexing the `reason` prose string — which only ever reads
  * "sidekick status=<DelegationStatus>" and can never distinguish a pushback-blocked delegation from
  * a completed one that claimed files never verified on disk.

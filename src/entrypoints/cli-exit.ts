@@ -1,5 +1,5 @@
 import { RunVerdictSchema } from "@kernel/contract/events";
-import { engineStatus, RUN_ENGINE_STATUSES } from "./persistence/types";
+import { engineStatus, RUN_ENGINE_STATUSES } from "../persistence/types";
 
 /*
  * CLI exit-code: 0 when the engine produced a trustworthy result — including a real bug found

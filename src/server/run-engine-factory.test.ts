@@ -13,8 +13,8 @@ import { AppConfig } from "../orchestrator/config-loader";
 import { ChangeSet } from "@contexts/change-analysis/application/index";
 import { CodeGraphToolRegistry } from "@contexts/agent-tools/infrastructure/code-graph-tool-registry";
 import { createRunSecretScope, withRunSecretScope } from "../../qa-engine/src/shared-kernel/run-secret-redaction";
-import { JobQueue } from "./queue";
-import { enqueueTrackedRun } from "./runner";
+import { JobQueue } from "../entrypoints/queue";
+import { enqueueTrackedRun } from "../entrypoints/runner";
 import type { ArchitectureContext } from "@contexts/generation/application/index.ts";
 import type { AgentDeps } from "../agent-runtime/opencode-client";
 import { assertTrustedGitTree, defaultMirrorDeps, hardenGitArgs, UntrustedGitTreeError, type MirrorDeps } from "../integrations/repo-mirror";
@@ -47,7 +47,7 @@ import { rosterFixturePath } from "../test-support/fixtures/opencode-roster";
 import { setAgentsConfigPath } from "../agent-runtime/opencode-client";
 import type { RunMode } from "@kernel/run-mode";
 import { getHistory } from "../persistence/index";
-import type { RunFreeze } from "./run-freeze";
+import type { RunFreeze } from "../entrypoints/run-freeze";
 
 const FROZEN: RunFreeze = { frozen: true, lessons: false };
 

@@ -390,7 +390,7 @@ window.QayabaConsole = (function () {
     const allRuns = [];
     Object.keys(raw.runsByApp).forEach((a) => (raw.runsByApp[a] || []).forEach((r) => allRuns.push(r)));
     const weekRuns = allRuns.filter((r) => (Date.parse(r.at) || 0) >= Date.now() - 7 * 86400000);
-    /* Same rule as the control API's signals view (src/server/signals-view.ts): the rate is taken
+    /* Same rule as the control API's signals view (src/entrypoints/signals-view.ts): the rate is taken
        over runs that produced a QUALITY verdict (pass/fail/flaky/invalid). skipped (a clean no-op)
        and infra-error (the environment, not the code) are left out. */
     const qualityRuns = weekRuns.filter((r) => QUALITY_VERDICTS.indexOf(r.verdict) >= 0);

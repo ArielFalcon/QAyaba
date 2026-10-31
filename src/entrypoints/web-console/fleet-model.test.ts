@@ -6,7 +6,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { appView, controlApi, loadConsole, runRecord } from "../../test-support/console-harness";
-import { toSignalsView } from "../../server/signals-view";
+import { toSignalsView } from "../signals-view";
 import type { RunRecord } from "../../persistence/types";
 
 async function fleetModel(verdicts: string[]) {

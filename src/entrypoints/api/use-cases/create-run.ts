@@ -11,7 +11,7 @@ import type { ApiDeps } from "../deps";
 import { apiRunRequest } from "../run-request";
 import { reply, type ApiResult } from "../respond";
 import { loadApp, redactionPort } from "../support";
-import { boundGuidance } from "../../../server/guidance";
+import { boundGuidance } from "../../guidance";
 
 export async function createRun(deps: ApiDeps, body: Record<string, unknown>): Promise<ApiResult> {
   const appName = typeof body.app === "string" ? body.app : null;

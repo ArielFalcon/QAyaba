@@ -7,11 +7,11 @@
  */
 
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { ApiError, respondError } from "../entrypoints/api/api-error";
-import type { ApiDeps } from "../entrypoints/api/deps";
-import { normalizeApiPath, matchRoute } from "../entrypoints/api/route-table";
-import { sendResult } from "../entrypoints/api/respond";
-import { redactionPort } from "../entrypoints/api/support";
+import { ApiError, respondError } from "./api/api-error";
+import type { ApiDeps } from "./api/deps";
+import { normalizeApiPath, matchRoute } from "./api/route-table";
+import { sendResult } from "./api/respond";
+import { redactionPort } from "./api/support";
 import { logJson } from "../telemetry/logger";
 
 /*

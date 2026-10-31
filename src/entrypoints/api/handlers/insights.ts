@@ -8,7 +8,7 @@ import {
   SignalsViewSchema,
   TrendsViewSchema,
 } from "../../contract/commands";
-import { reportToCsv, trendsToCsv } from "../../../server/report-view";
+import { reportToCsv, trendsToCsv } from "../../report-view";
 import { ApiError } from "../api-error";
 import { param, type ApiContext } from "../context";
 import { reply, type ApiResult } from "../respond";

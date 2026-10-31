@@ -332,7 +332,7 @@ test("errorClass is forwarded into the returned RunOutcome, not hardcoded null",
 /* ── AGENTS.md invariant note-chain (a live infra-error once surfaced with NO note/log/cases —
    undiagnosable without instrumenting a live container): RunQaResult.note must reach RunOutcome.note
    through this adapter's toOutcome() mapping — previously dropped entirely, silently breaking the
-   note chain between RunQaUseCase and src/server/runner.ts's runViaEngine (which reads
+   note chain between RunQaUseCase and src/entrypoints/runner.ts's runViaEngine (which reads
    outcome.note off exactly the RunOutcome this adapter returns). ──────────────────────────────────
  */
 

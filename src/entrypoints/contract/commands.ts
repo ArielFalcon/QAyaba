@@ -144,7 +144,7 @@ export const CaptureModeSchema = z.enum(CAPTURE_MODES);
 /*
  * The campaign a run belongs to: stored and echoed as data. The variant labels never change what a run does (section 14):
  * only the explicit levers and the deployment's configuration do. The presence of a campaign does: the server freezes the run
- * (src/server/run-freeze.ts, docs/architecture/adr/0009-campaign-freeze-on-server.md).
+ * (src/entrypoints/run-freeze.ts, docs/architecture/adr/0009-campaign-freeze-on-server.md).
  */
 export const CampaignInputSchema = z.object({
   id: z.string().regex(CAMPAIGN_ID_PATTERN, { error: "campaign.id must be 1-100 characters of A-Z a-z 0-9 _ . : -" }),

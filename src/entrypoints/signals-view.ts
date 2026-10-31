@@ -1,4 +1,4 @@
-import type { CoordinationSignals } from "../entrypoints/contract/commands";
+import type { CoordinationSignals } from "./contract/commands";
 import type { RunRecord, RunOutcome } from "../persistence/types";
 
 /*

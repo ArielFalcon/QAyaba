@@ -5,7 +5,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { finalizeInterruptedRuns } from "./runner";
-import { createDurableRunEventStore } from "./durable-run-events";
+import { createDurableRunEventStore } from "../server/durable-run-events";
 import { getHistory } from "../persistence/index";
 import { installLogShipper, type ShippedLine } from "../telemetry/redacting-logger";
 

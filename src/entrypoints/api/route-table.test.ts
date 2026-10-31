@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { Readable } from "node:stream";
 import { buildOpenApiDocument } from "../contract/openapi";
 import { ApiErrorSchema } from "../contract/commands";
-import { routeApi } from "../../server/api";
+import { routeApi } from "../api";
 import type { ApiDeps } from "./deps";
 import { isPublicRoute, matchRoute, normalizeApiPath, routes } from "./route-table";
 

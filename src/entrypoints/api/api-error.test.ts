@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Readable } from "node:stream";
 import { ApiErrorSchema } from "../contract/commands";
-import { routeApi } from "../../server/api";
+import { routeApi } from "../api";
 import type { ApiDeps } from "./deps";
 import { routes } from "./route-table";
 

@@ -1,7 +1,7 @@
 /* The failure a route throws: a status, a message and, for a few bodies, fields that travel beside the message. `respondError` is the only writer of an error response. */
 
 import type { ServerResponse } from "node:http";
-import { json } from "../../server/helpers";
+import { json } from "../helpers";
 
 export interface ApiErrorOptions {
   /* Fields that join the message in the body (`issues` of a rejected request, `errors` of an invalid app config). */

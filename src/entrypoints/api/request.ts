@@ -2,7 +2,7 @@
 
 import type { IncomingMessage } from "node:http";
 import { z } from "zod";
-import { readBody } from "../../server/helpers";
+import { readBody } from "../helpers";
 import { ApiError } from "./api-error";
 
 export interface ParseBodyOptions {

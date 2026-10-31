@@ -5,8 +5,8 @@ import { QueueStatusSchema, TelemetryHealthSchema, VersionInfoSchema, type Telem
 import type { TelemetryBackendsHealth } from "../../../telemetry/telemetry-health";
 import { getOpenSessionCount } from "../../../agent-runtime/opencode-client";
 import { activeEnvironment } from "../../../settings/active";
-import { describeSandboxHealth } from "../../../server/sandbox-health";
-import { handshake } from "../../../server/version";
+import { describeSandboxHealth } from "../../sandbox-health";
+import { handshake } from "../../version";
 import { ApiError } from "../api-error";
 import type { ApiContext } from "../context";
 import { reply, type ApiResult } from "../respond";

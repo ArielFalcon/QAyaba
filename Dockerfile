@@ -81,7 +81,7 @@ RUN npm install
 
 COPY . .
 
-# The commit of the code, for the engine version every run records (src/server/version.ts): the image holds no git history,
+# The commit of the code, for the engine version every run records (src/entrypoints/version.ts): the image holds no git history,
 # so the build is told it (compose passes QAYABA_REVISION). Empty when the build was not told: the version then says `unknown`.
 ARG QAYABA_REVISION=
 RUN printf '%s\n' "$QAYABA_REVISION" > /app/REVISION

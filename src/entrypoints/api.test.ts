@@ -2,9 +2,9 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Readable } from "node:stream";
 import { routeApi } from "./api";
-import type { ApiDeps } from "../entrypoints/api/deps";
+import type { ApiDeps } from "./api/deps";
 import { AppConfigInvalidError, AppNotFoundError } from "../orchestrator/config-loader";
-import { createLocalConsoleLogin, LOCAL_CONSOLE_PRINCIPAL, validateSession } from "../entrypoints/auth";
+import { createLocalConsoleLogin, LOCAL_CONSOLE_PRINCIPAL, validateSession } from "./auth";
 import { toTrendsView } from "./trends-view";
 import { toReportView } from "./report-view";
 import { RunRecord, RunOutcome } from "../persistence/types";
@@ -21,7 +21,7 @@ import {
   RepoListResponseSchema,
   RunRecordSchema,
   TelemetryHealthSchema,
-} from "../entrypoints/contract/commands";
+} from "./contract/commands";
 import type { TelemetryHealth } from "../telemetry/telemetry-health";
 import { RunEventSchema, RunEvent } from "@kernel/contract/events";
 import { createRunEventStore, RunEventStore } from "./run-events";
@@ -761,7 +761,7 @@ test("GET /api/health surfaces a degraded backend as a flag without its reason, 
 });
 
 test("the telemetry health route is not a public control-plane route", async () => {
-  const { isPublicRoute } = await import("../entrypoints/api/route-table");
+  const { isPublicRoute } = await import("./api/route-table");
   assert.equal(isPublicRoute("GET", "/api/telemetry/health"), false);
 });
 

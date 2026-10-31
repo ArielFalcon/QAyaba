@@ -1,6 +1,6 @@
 /* The run request a caller outside the engine may make: an API client or a webhook delivery. */
 
-import type { RunRequest } from "../../server/runner";
+import type { RunRequest } from "../runner";
 
 /* The fields a caller may set; how the run was started (`source`, `trigger`) and what only a continuation or cleanup carries are the server's to add. */
 export type ApiRunRequest = Omit<RunRequest, "source" | "trigger" | "fixCases" | "parentRunId" | "previousNamespace" | "purpose">;

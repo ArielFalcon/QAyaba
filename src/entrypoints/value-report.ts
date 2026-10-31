@@ -1,7 +1,7 @@
 
 
 import type { RunVerdict } from "../persistence/types";
-import { infraErrorGloss } from "./learning/infra-error-gloss";
+import { infraErrorGloss } from "./infra-error-gloss";
 
 /*
  * The deterministic gate signals a run produced — the raw material for both the compact

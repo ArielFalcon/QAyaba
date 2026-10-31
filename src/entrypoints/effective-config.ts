@@ -13,7 +13,7 @@ import { isCaptureMode, type CaptureMode } from "@kernel/telemetry/capture-mode"
 import { agentsOfTurns, recordRunConfig, type RunConfigEnvironment, type RunConfigRequest as EngineRunConfigRequest } from "@contexts/run-orchestration/application/index";
 import { decideRunFreeze } from "./run-freeze";
 import type { AppConfig } from "../orchestrator/config-loader";
-import type { EffectiveConfig, GroundingInput } from "../entrypoints/contract/commands";
+import type { EffectiveConfig, GroundingInput } from "./contract/commands";
 import type { AgentRoleFacts } from "../persistence/repositories/telemetry.repository";
 
 /* The part of the configuration fixed when the run starts. `agents` is not in it: it comes from the turns the run recorded. */

@@ -1,5 +1,5 @@
 import { afterEach, describe, test } from "node:test";
-import type { ApiRunRequest } from "../entrypoints/api/run-request";
+import type { ApiRunRequest } from "./api/run-request";
 import assert from "node:assert/strict";
 import { createHmac } from "node:crypto";
 import { createServer, type Server } from "node:http";

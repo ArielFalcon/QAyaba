@@ -24,7 +24,7 @@ import { isCommitSha } from "@kernel/git-revision.ts";
 import { QueueStatusSchema } from "../src/entrypoints/contract/commands.ts";
 import { classifyRunEfficiency, type CoarseRunEfficiency } from "@contexts/generation/application/index.ts";
 import { CALL_BUCKETS } from "@contexts/generation/application/index.ts";
-import { delegateRun } from "../src/server/run-delegate.ts";
+import { delegateRun } from "../src/entrypoints/run-delegate.ts";
 import { discoverApiToken } from "../src/settings/api-token.ts";
 import { type RunOutcome, type RunRecord } from "../src/persistence/types.ts";
 import type { AgentTurnRecord } from "../src/persistence/repositories/telemetry.repository.ts";

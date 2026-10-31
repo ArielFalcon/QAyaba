@@ -380,7 +380,7 @@ derived from them and is never the only carrier:
 - **Engine version.** Every run records the version of the engine that ran it, as `qayaba.engine.version` on its root and enqueue spans, `runs.engine_version`
   (schema 4, nullable, nothing rewritten) and `engineVersion` in `GET /runs/:id`: the package version and the first 12 characters of the commit of the
   code (`0.1.0+0123456789ab`), read from the `REVISION` file an image build writes beside the code, else from the HEAD of the checkout the process
-  runs from (`src/server/version.ts`). Uncommitted edits are not part of it. A process that can tell no commit records the package version alone, which
+  runs from (`src/entrypoints/version.ts`). Uncommitted edits are not part of it. A process that can tell no commit records the package version alone, which
   does not move between commits; a run stored before reads null. It is what lets runs be read as a timeline of code changes.
 
 ### 4.4 Context spans and stable item ids (brief §3)
@@ -1093,7 +1093,7 @@ ingest times.
   What makes an arm behave differently is **only** the explicit request levers (`closedLoop`,
   `agentBrowser`, `captureMode`, `grounding`) and the deployment's config.
 - **The presence of a campaign freezes the run.** The server decides it per request, for every door
-  (`src/server/run-freeze.ts`): a run that carries a `campaign` starts from a fixed state (the suite store is
+  (`src/entrypoints/run-freeze.ts`): a run that carries a `campaign` starts from a fixed state (the suite store is
   read-only, no context-map rebuild, no automatic login bootstrap, no process audit) and records
   `effectiveConfig.campaignFreeze: true`. The one lever that lifts anything is `grounding.lessons: true`, which
   lifts the lesson state only (docs/architecture/rfc/0013-learning-slice.md); a run without a campaign is not

@@ -178,7 +178,7 @@ file`, `llm runtime selected`, ... 22.9k lines against 18 errors). The orchestra
 | Layer | Rule |
 |---|---|
 | `collector-agents` (`filter/drop_opencode_info_logs`) | Drops OpenCode log records with a severity above 0 and below WARN. WARN, ERROR, FATAL and records with no severity are kept. |
-| Orchestrator container log | A successful GET/HEAD control-plane request (`/api/health`, run polling) is not logged (`src/server/api-request-log.ts`); POSTs and every status >= 400 are. The `scrubEnv dropped N env var(s)` warning prints once per distinct dropped set instead of on every spawn. |
+| Orchestrator container log | A successful GET/HEAD control-plane request (`/api/health`, run polling) is not logged (`src/entrypoints/api-request-log.ts`); POSTs and every status >= 400 are. The `scrubEnv dropped N env var(s)` warning prints once per distinct dropped set instead of on every spawn. |
 | Docker `json-file` | `orchestrator` and `agents`: `max-size: 10m`, `max-file: 3` (was 50m x 5), so at most 30 MB each. |
 
 The debug dumps stay 100 MB x 3 per collector as a ceiling; they were 14.6 MB in practice. Errors, warnings, run

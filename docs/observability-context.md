@@ -68,7 +68,7 @@ Two Docker services share a `mirrors` volume, which holds the working copies of 
 
 ## 3. The run lifecycle and the spans it should produce
 
-The single engine is `RunQaUseCase` (`qa-engine/src/contexts/run-orchestration/application/run-qa.use-case.ts`). The webhook, the CLI and the API all enter through `enqueueTrackedRun` (`src/server/runner.ts`). Run id format: `run-<sha7>-<base36>-<hex>`.
+The single engine is `RunQaUseCase` (`qa-engine/src/contexts/run-orchestration/application/run-qa.use-case.ts`). The webhook, the CLI and the API all enter through `enqueueTrackedRun` (`src/entrypoints/runner.ts`). Run id format: `run-<sha7>-<base36>-<hex>`.
 
 **One trace per run is the natural unit.** Suggested phase spans (names are illustrative; follow your instructions for naming):
 

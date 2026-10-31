@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { toReportView, reportToCsv, trendsToCsv } from "./report-view";
-import type { TrendsView } from "../entrypoints/contract/commands";
+import type { TrendsView } from "./contract/commands";
 
 function trends(over: Partial<TrendsView> = {}): TrendsView {
   return {

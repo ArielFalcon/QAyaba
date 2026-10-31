@@ -1,7 +1,7 @@
 /* The guidance of a run request, a continuation and a webhook is redacted before it is bounded. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { ContinueBodySchema } from "../entrypoints/api/use-cases/continue-run";
+import { ContinueBodySchema } from "./api/use-cases/continue-run";
 import { MAX_GUIDANCE_LENGTH, boundGuidance } from "./guidance";
 import { parseWebhook } from "./webhook";
 

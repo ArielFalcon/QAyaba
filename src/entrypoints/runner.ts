@@ -46,20 +46,20 @@ import {
   type RunFacts,
   type RunTrigger,
 } from "@contexts/run-orchestration/application/index";
-import { testDataNamespace } from "../qa/test-data";
+import { testDataNamespace } from "./test-data";
 import { RunMode, TestTarget, TriggerSource, QaCase, QaRunResult, engineStatus, type RunChangeEntry } from "../persistence/types";
 import { RedactionPortAdapter } from "../telemetry/sanitizer";
-import { sleep as sleepWithAbort } from "../util/sleep";
+import { sleep as sleepWithAbort } from "./sleep";
 import type { RunEventStore } from "./run-events";
 import type { RunEventBody } from "@kernel/contract/events";
 import { Sha } from "@kernel/sha";
 import { ChangeSet, anchorProjection, type ChangeEntry } from "@contexts/change-analysis/application/index";
 import type { RunPurpose } from "@kernel/run-mode";
-import type { CampaignIdentity } from "../entrypoints/contract/campaign";
+import type { CampaignIdentity } from "./contract/campaign";
 import { capCaptureMode, type CaptureMode } from "@kernel/telemetry/capture-mode";
 import { decideRunFreeze, type RunFreeze } from "./run-freeze";
 import { configInEffect, resolveRunConfig, type RunConfigEnvironment, type StoredRunConfig } from "./effective-config";
-import type { GroundingInput } from "../entrypoints/contract/commands";
+import type { GroundingInput } from "./contract/commands";
 import { ENGINE_VERSION } from "./version";
 import { hostListeners } from "../telemetry/host-listeners";
 import { guardTelemetry } from "@kernel/telemetry/guarded-telemetry";

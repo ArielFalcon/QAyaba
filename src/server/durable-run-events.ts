@@ -1,5 +1,5 @@
 import type { RunEvent } from "@kernel/contract/events";
-import { createRunEventStore, type RunEventStore } from "./run-events";
+import { createRunEventStore, type RunEventStore } from "../entrypoints/run-events";
 import { getHistory } from "../persistence/index";
 
 export interface DurableRunEventDeps {

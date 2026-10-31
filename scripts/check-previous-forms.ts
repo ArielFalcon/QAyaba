@@ -208,7 +208,7 @@ export const BANNED_RULES: BannedRule[] = [
   {
     id: "app-telemetry-route",
     patterns: [/\b(?:AppTelemetryView|AppTelemetryViewSchema|getAppTelemetry|computeTelemetryAnalysis|TelemetryAnalysis|TelemetryRoleStat|TelemetryEfficiency)\b/, /\/apps\/(?::name|\{name\}|[\w-]+)\/telemetry\b/],
-    exemptPrefixes: [RECORDS_PREFIX, "src/server/api.test.ts", "src/entrypoints/contract/openapi.test.ts"],
+    exemptPrefixes: [RECORDS_PREFIX, "src/entrypoints/api.test.ts", "src/entrypoints/contract/openapi.test.ts"],
   },
   {
     id: "escalation-signal",

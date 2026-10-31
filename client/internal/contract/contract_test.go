@@ -6,7 +6,7 @@ import (
 )
 
 /* Decoding the orchestrator's real GET /api/v1/runs/:id payload (see
-   src/server/api.ts → RunRecordSchema) into the codegen'd struct proves the
+   src/entrypoints/api.ts → RunRecordSchema) into the codegen'd struct proves the
    published contract artifact (contract/openapi.json) and the Go types agree —
    the no-drift guarantee, enforced on the Go side. */
 func TestRunRecordDecodesFromServerJSON(t *testing.T) {
@@ -268,7 +268,7 @@ func TestOnboardingJobStatusDecodesResolutionSummaryFromServerJSON(t *testing.T)
 	}
 }
 
-/* SignalsView.Coordination is optional (src/server/coordination-events.ts buildCoordinationSignals):
+/* SignalsView.Coordination is optional (src/entrypoints/coordination-events.ts buildCoordinationSignals):
    present once a fleet has adopted multi-agent coordination, absent (nil) for one that hasn't.
    Decoding a real GET /api/v1/signals payload with it present ties the generated pointer-to-anonymous-
    struct shape to the contract — the same no-drift guarantee as the other decode tests in this file. */
@@ -301,7 +301,7 @@ func TestSignalsViewDecodesCoordinationFromServerJSON(t *testing.T) {
 }
 
 /* A fleet that hasn't adopted coordination yet gets no "coordination" key at all
-   (src/server/coordination-events.ts only adds it when outcomes exist) — Coordination must decode
+   (src/entrypoints/coordination-events.ts only adds it when outcomes exist) — Coordination must decode
    as nil, not a zero-valued struct, so the console can tell "unmeasured" from "no coordination". */
 func TestSignalsViewCoordinationAbsentWhenNotYetAdopted(t *testing.T) {
 	const payload = `{

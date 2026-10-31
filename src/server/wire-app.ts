@@ -6,32 +6,32 @@ import { join } from "node:path";
 import { qayabaDataDir, qayabaRoot } from "../settings/paths";
 import { randomBytes } from "node:crypto";
 import { writeFileSync, readFileSync, rmSync, unlinkSync, existsSync } from "node:fs";
-import { JobQueue } from "./queue";
+import { JobQueue } from "../entrypoints/queue";
 import { describeAppLoadFailure, loadAppConfig, listAppConfigs } from "../orchestrator/config-loader";
 
 import { YamlAppConfigAdapter } from "../../qa-engine/src/contexts/app-catalog/infrastructure/yaml-app-config.adapter";
-import { routeApi } from "./api";
+import { routeApi } from "../entrypoints/api";
 import type { ApiDeps } from "../entrypoints/api/deps";
 import type { ApiRunRequest } from "../entrypoints/api/run-request";
 import { authorizeBearer, createLocalConsoleLogin, issueSession } from "../entrypoints/auth";
 import { verifyGithubIdentity, authorizeUser } from "../entrypoints/github-auth";
-import { createFixedWindowLimiter } from "./rate-limit";
-import { toSignalsView } from "./signals-view";
+import { createFixedWindowLimiter } from "../entrypoints/rate-limit";
+import { toSignalsView } from "../entrypoints/signals-view";
 import { readCoordinationLedger } from "@contexts/coordination/infrastructure/adapters/coordination-ledger-reader.adapter";
-import { toCoordinationSignals } from "./coordination-events";
-import { toTrendsView } from "./trends-view";
-import { toReportView } from "./report-view";
-import { toRunReportView } from "./run-report-view";
+import { toCoordinationSignals } from "../entrypoints/coordination-events";
+import { toTrendsView } from "../entrypoints/trends-view";
+import { toReportView } from "../entrypoints/report-view";
+import { toRunReportView } from "../entrypoints/run-report-view";
 import { createDurableRunEventStore } from "./durable-run-events";
-import { serveDashboard, resolveDashboardDir } from "./static";
+import { serveDashboard, resolveDashboardDir } from "../entrypoints/static";
 import { MAX_CONTINUATION_DEPTH } from "../persistence/repositories/run.repository";
 import { createEvaluationService } from "./evaluation-service";
 import { ScoreMetricsSink } from "../telemetry/score-metrics-sink";
-import { parseStoredRunConfig, type RunConfigEnvironment } from "./effective-config";
+import { parseStoredRunConfig, type RunConfigEnvironment } from "../entrypoints/effective-config";
 import { hashStaticPrompts } from "../../qa-engine/src/contexts/run-orchestration/infrastructure/static-prompt-hash";
 import type { CampaignIdentity } from "../entrypoints/contract/campaign";
-import { buildRunViewExtras, defaultRunViewDeps } from "./run-view";
-import { enqueueTrackedRun, enqueueDoorRun, type RunRequest, enqueueContextMapRun, enqueueLoginBootstrapRun, cancelTrackedRun, finalizeInterruptedRuns, type RunnerDeps } from "./runner";
+import { buildRunViewExtras, defaultRunViewDeps } from "../entrypoints/run-view";
+import { enqueueTrackedRun, enqueueDoorRun, type RunRequest, enqueueContextMapRun, enqueueLoginBootstrapRun, cancelTrackedRun, finalizeInterruptedRuns, type RunnerDeps } from "../entrypoints/runner";
 import { codeGraphFor } from "./engine-root";
 import { appAuthDir, appSuiteStoreDir, createRunEngineFactory, resolveCodeSandbox, resolveCoordinationTelemetryPath } from "./run-engine-factory";
 import { PendingChangeSets, longestRunTimeBudgetMs, type ContextHealRunRequest } from "@contexts/run-orchestration/application/index";
@@ -56,8 +56,8 @@ import { getHistoryDatabase } from "../persistence/index";
 import { pruneHistory, retentionPolicyFrom } from "../persistence/retention";
 import { backupDatabase } from "../persistence/backup";
 import { type RunMode, type RunRecord, type TestTarget } from "../persistence/types";
-import { installShutdown, installUnhandledRejectionLogger } from "./shutdown";
-import { startHealthPoller } from "./health-poller";
+import { installShutdown, installUnhandledRejectionLogger } from "../entrypoints/shutdown";
+import { startHealthPoller } from "../entrypoints/health-poller";
 import { github } from "../integrations/github";
 import { createApp as adminCreateApp, updateApp as adminUpdateApp, deleteApp as adminDeleteApp, type AppAdminDeps } from "./app-admin";
 import { writeConfig, configExists } from "./onboard";
@@ -83,12 +83,12 @@ import { workdirRoot } from "../integrations/repo-mirror";
 import { sweepOrphanAgentBrowsers } from "../../qa-engine/src/shared-infrastructure/process-sandbox/orphan-browser-sweep";
 import { buildScriptExec, execWorkRoot } from "../composition/exec-sandbox-factory";
 import { loadOrCreateApiToken } from "../settings/api-token";
-import { shouldLogApiRequest } from "./api-request-log";
+import { shouldLogApiRequest } from "../entrypoints/api-request-log";
 import { suiteHoldsVerifiedLoginFor } from "./login-bootstrap-wiring";
 import { contextMapNeedsRebuildFor } from "./context-map-wiring";
 import { getHistory } from "../persistence/index";
 import { activeSettings, type SettingsStore } from "../settings/store";
-import { createApp, type App } from "./create-app";
+import { createApp, type App } from "../entrypoints/create-app";
 
 /* ── Mirror pruning: the real file system, config loader, run history and settings behind the rule ───────────── */
 
@@ -257,7 +257,7 @@ export function wireApp(settingsStore: SettingsStore): WiredApp {
 
 
   const eventStreamController = new AbortController();
-  /* The one SIGTERM/SIGINT pair: cancels the in-flight run, drains, flushes telemetry and exits (src/server/shutdown.ts). */
+  /* The one SIGTERM/SIGINT pair: cancels the in-flight run, drains, flushes telemetry and exits (src/entrypoints/shutdown.ts). */
   const lifecycle = installShutdown({
     queue,
     telemetry: { flush: () => telemetry.telemetry.flush(), shutdown: (timeoutMs) => telemetry.shutdown(timeoutMs) },
@@ -763,7 +763,7 @@ export function wireApp(settingsStore: SettingsStore): WiredApp {
 
   const toolsHost = resolveToolsListenHost(settings.environment, listenHost);
 
-  /* The control plane as a value (src/server/create-app.ts): nothing listens until the caller asks. */
+  /* The control plane as a value (src/entrypoints/create-app.ts): nothing listens until the caller asks. */
   const app = createApp({
     control: {
       authorize: authorized,

@@ -20,10 +20,10 @@ import type {
   RunReportViewSchema,
   TelemetryHealthView,
 } from "../contract/commands";
-import type { RunEventStore } from "../../server/run-events";
+import type { RunEventStore } from "../run-events";
 import type { AgentTurnRecord } from "../../persistence/repositories/telemetry.repository";
 import type { EvaluationService } from "../../server/evaluation-service";
-import type { RunViewExtras } from "../../server/run-view";
+import type { RunViewExtras } from "../run-view";
 import type { ApiRunRequest } from "./run-request";
 
 /*

@@ -8,7 +8,7 @@ import { ApiError } from "../api-error";
 import type { ApiDeps } from "../deps";
 import { reply, type ApiResult } from "../respond";
 import { fieldsOf } from "../request";
-import { boundGuidance } from "../../../server/guidance";
+import { boundGuidance } from "../../guidance";
 
 /* A body field of the wrong type is ignored, as if it were absent; a body of `null` is not a body. */
 export const ContinueBodySchema = z.unknown().transform((raw, ctx) => {

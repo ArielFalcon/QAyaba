@@ -82,7 +82,7 @@ describe("createApp", () => {
 
   test("importing create-app starts nothing: a process that imports it has no handle left to keep it alive", async () => {
     const started = Date.now();
-    await promisify(execFile)(process.execPath, ["--import", "tsx", "--input-type=module", "-e", "await import('./src/server/create-app.ts')"], { cwd: ROOT, timeout: 30_000 });
+    await promisify(execFile)(process.execPath, ["--import", "tsx", "--input-type=module", "-e", "await import('./src/entrypoints/create-app.ts')"], { cwd: ROOT, timeout: 30_000 });
     assert.ok(Date.now() - started < 30_000);
   });
 

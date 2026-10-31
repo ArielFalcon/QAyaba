@@ -1,4 +1,4 @@
-/* Webhook core: signature, payload, enqueue decision. HTTP wrapper lives in src/server/webhook-handler.ts. */
+/* Webhook core: signature, payload, enqueue decision. HTTP wrapper lives in src/entrypoints/webhook-handler.ts. */
 
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { parseRunMode, RunMode } from "../persistence/types";

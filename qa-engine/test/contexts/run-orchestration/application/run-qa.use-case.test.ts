@@ -1000,7 +1000,7 @@ test("a generate-typed commit (unchanged) still calls generate() normally — re
 });
 
 /* ChangeAnalysisPort.classify(entry) — the use-case's own half of the seam (the runner's
-   half is pinned in src/server/runner.test.ts).
+   half is pinned in src/entrypoints/runner.test.ts).
  */
 
 test("classify() receives the change set's anchor entry, base and commit count included", async () => {
@@ -3070,7 +3070,7 @@ test("run() honors an already-aborted signal — no execution, no generation, no
   assert.equal(generated, false, "generation must never run once the signal is already aborted");
   assert.equal(executed, false, "execution must never run once the signal is already aborted");
   assert.equal(saved, false, "an aborted run must not persist a RunOutcome (it is a cancellation, not a real result)");
-  assert.equal(out.decision.verdict, "infra-error", "matches cancelTrackedRun's own aborted-terminal mapping (src/server/runner.ts)");
+  assert.equal(out.decision.verdict, "infra-error", "matches cancelTrackedRun's own aborted-terminal mapping (src/entrypoints/runner.ts)");
   assert.equal(out.decision.sideEffect, "none");
 });
 
@@ -6276,7 +6276,7 @@ test("mirrorGc wiring: an empty/unparseable generation infra-error exit triggers
   assert.equal(prunedMirrorDir, ws.mirrorDir);
 });
 
-/* ONLY from the /continue API flow's RunRequest.parentRunId (src/server/runner.ts's own
+/* ONLY from the /continue API flow's RunRequest.parentRunId (src/entrypoints/runner.ts's own
    runViaEngine -> RunInput construction), threads straight through into the mainline exit's
    publish() call (run-qa.use-case.ts's own "Phase: publish" block). Absent for every ordinary
    webhook/manual/CLI run — never fabricated. An enforce-mode coverage-regen reuses the SAME `input`

@@ -3,7 +3,7 @@
 import { appLogger } from "../../telemetry/redacting-logger";
 import type { ServerResponse } from "node:http";
 import type { z } from "zod";
-import { json } from "../../server/helpers";
+import { json } from "../helpers";
 import { ApiError, respondError } from "./api-error";
 
 export type ApiResult =

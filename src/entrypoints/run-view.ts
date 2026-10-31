@@ -4,7 +4,7 @@
  */
 
 import { RUN_PHASES } from "@kernel/run-step";
-import type { RunDetail, RunRecord } from "../entrypoints/contract/commands";
+import type { RunDetail, RunRecord } from "./contract/commands";
 import { HistoryEvidenceAdapter } from "../persistence/evaluation-evidence";
 import type { AgentRoleFacts, AgentTurnRecord } from "../persistence/repositories/telemetry.repository";
 import { buildEffectiveConfig, parseStoredRunConfig } from "./effective-config";
