@@ -1032,8 +1032,11 @@ that catches nothing. The objective signal that breaks the circle is **change-co
   `execute-measurement`, `<runId>-measure`, coverage and observation on, retries 0) of the tests that passed, with the global time
   the coverage allowance holds; a test that passed in the verdict and failed under measurement is listed
   (`changeCoverage.measuredBy.failedOnlyUnderMeasurement`), credits nothing and is no mutant's baseline, and a measurement the
-  allowance cannot hold is not started (`unmeasured: measurement-not-run`: unknown, which under `enforce` holds the run). A run with
-  the coverage policy `off`, a cross-repo run or a run with no diff runs none.
+  allowance cannot hold, or that could not run or was cut, measured nothing (`unmeasured: measurement-not-run`: unknown, which never
+  blocks, under `enforce` too: ADR-0005, `DecideCoverageService.blocks` the one source). A run with the coverage policy `off`, a
+  cross-repo run, a run with no diff or a change with no changed code line (`ObjectiveSignalPort.holdsChangedCode`: every changed
+  file is of a declared language and its statement syntax says no added line is code; a file of another kind may be held by the
+  page's scripts, a component template, so it counts as code) runs none, and records no `changeCoverage`.
   The session is a condition of a judging execution, and whether the app still accepts it is the orchestrator's own fact, never the
   look of a failure page: a failure that ends on what looks like the login page (`endedOnLoginWall`) only asks the question. Only a
   run whose login left a saved session asks it (an app with no login, or one signed in by a client certificate, has none to lose).

@@ -950,6 +950,29 @@ test("measure() of a change whose every added line is no code has no changed lin
   assert.deepEqual(result.measurement?.noCodeFiles, ["src/shared/index.ts"]);
 });
 
+test("a change whose every changed file is of a declared language with no added code line holds no changed code, and measure() reads no dump for it", async () => {
+  const sources = { ...UNLOADED_SOURCES };
+  let collected = 0;
+  const report: CoverageReport = { covered: [], executable: [] };
+  const adapter = new ObjectiveSignalPortAdapter(
+    { collector: { collect: async () => (collected++, report) }, decide: new DecideCoverageService(), readSource: (file) => sources[file] },
+    { policy: { mode: "enforce", minRatio: 0.7 }, repoDir: "/r", assembleChangeCoverage },
+  );
+  const onlyReexport = UNLOADED_DIFF.slice(UNLOADED_DIFF.indexOf("diff --git a/src/shared/index.ts"), UNLOADED_DIFF.indexOf("diff --git a/src/lazy.ts"));
+  const template = "diff --git a/src/app/card.html b/src/app/card.html\n--- a/src/app/card.html\n+++ b/src/app/card.html\n@@ -1,0 +2,1 @@\n+<p>{{ total }}</p>\n";
+
+  assert.equal(adapter.holdsChangedCode(onlyReexport), false);
+  assert.equal(adapter.holdsChangedCode(UNLOADED_DIFF), true, "a file with a code line");
+  assert.equal(adapter.holdsChangedCode(template), true, "a kind no declared language owns may be held by the page's scripts");
+  assert.equal(adapter.holdsChangedCode(onlyReexport + template), true);
+
+  const result = await adapter.measure(BlastRadius.of(Sha.of("abc1234"), []), "/e2e", onlyReexport, []);
+  assert.equal(collected, 0, "no dump read");
+  assert.equal(result.status, "unknown");
+  assert.equal(result.measurement?.unmeasured, "no-changed-lines");
+  assert.deepEqual(result.measurement?.noCodeFiles, ["src/shared/index.ts"]);
+});
+
 test("measure() and recount() tell which spec ran each changed file only from dumps a case file's test wrote: a dump none wrote counts for none, never for every case file", async () => {
   const ranBy = [
     { file: "src/checkout.ts", dumps: ["flows-pay-spec-ts-pays-0-0.json", "stray-0-0.json"] },

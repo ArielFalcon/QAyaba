@@ -111,11 +111,14 @@ export class TracedObjectiveSignalPort implements ObjectiveSignalPort {
   readonly recount?: ObjectiveSignalPort["recount"];
   readonly recheckSurvivors?: ObjectiveSignalPort["recheckSurvivors"];
   readonly measureMutation?: ObjectiveSignalPort["measureMutation"];
+  readonly holdsChangedCode?: ObjectiveSignalPort["holdsChangedCode"];
 
   constructor(
     private readonly inner: ObjectiveSignalPort,
     private readonly telemetry: TelemetryPort,
   ) {
+    const holdsChangedCode = inner.holdsChangedCode;
+    if (holdsChangedCode) this.holdsChangedCode = (diff) => holdsChangedCode.call(inner, diff);
     const recount = inner.recount;
     if (recount) {
       this.recount = async (...args) => {

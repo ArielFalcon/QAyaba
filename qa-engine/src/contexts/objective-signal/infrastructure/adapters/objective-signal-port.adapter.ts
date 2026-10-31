@@ -17,6 +17,7 @@ import type { MutantSelectionRecord } from "../../domain/objective-signal.ts";
 import type { MutationPass } from "../../domain/mutation-pass.ts";
 import type { RerunBudget } from "../../domain/rerun-budget.ts";
 import type { UseCaseCandidate } from "@kernel/use-case-candidate.ts";
+import { LanguageRegistry } from "@kernel/language-id.ts";
 import { RepoReader } from "../../../../shared-infrastructure/repo-reader.ts";
 import { MAX_SPEC_SOURCE_BYTES } from "../../../../shared-infrastructure/spec-path-confinement.ts";
 import { diffWithoutTestFiles } from "../../domain/diff-without-test-files.ts";
@@ -171,16 +172,19 @@ export class ObjectiveSignalPortAdapter implements ObjectiveSignalPort {
     /* Per-call changed files from the live diff. Composition-time collectors often hold a static empty list; absent diff → collector constructor value. */
     const changedFiles = changeDiff !== undefined ? [...parseDiffHunks(changeDiff).keys()] : undefined;
     const willAssemble = this.ctx.assembleChangeCoverage !== undefined && !!diff;
+    const noCodeOf = this.noCodeOf();
+    const caseFiles = opts?.caseFiles ?? [];
+    const asked = { caseFiles, ...(opts?.exclusions ? { exclusions: opts.exclusions } : {}), ...(opts?.candidates ? { candidates: opts.candidates } : {}), ...(opts?.crossRepo ? { crossRepo: true } : {}) };
+    /* A change with no changed code line is counted as it stands, with no dump read: nothing the page ran can change that. */
+    const codeless = willAssemble ? this.codelessCoverage(changeDiff!, noCodeOf) : null;
+    if (codeless) return this.resultOf({ cc: codeless, executed: null, scripts: undefined, changeDiff, trouble: undefined, ranBy: undefined, asked, willAssemble });
     /* A test that failed under the measurement credits nothing: its dumps are not read. */
     const exceptTests = opts?.exceptTests ?? [];
     const sources: DumpSource[] | undefined = exceptTests.length > 0 ? [{ namespace, exceptTests }] : undefined;
     const collected = willAssemble ? await this.collectFrom(specDir, namespace, sources, changedFiles) : undefined;
     const report = collected?.report ?? null;
     tellReads(collected?.reads, opts?.onRead);
-    const noCodeOf = this.noCodeOf();
     const executed: ChangeCoverage | null = report ? this.ctx.assembleChangeCoverage!(changeDiff!, report, noCodeOf) : null;
-    const caseFiles = opts?.caseFiles ?? [];
-    const asked = { caseFiles, ...(opts?.exclusions ? { exclusions: opts.exclusions } : {}), ...(opts?.candidates ? { candidates: opts.candidates } : {}), ...(opts?.crossRepo ? { crossRepo: true } : {}) };
     const trouble = readTroubleOf(report, collected?.fault);
     const ranBy = ranByOf(report, caseFiles);
 
@@ -306,6 +310,25 @@ export class ObjectiveSignalPortAdapter implements ObjectiveSignalPort {
     const proofSources = proofs.map(({ namespace, specFiles, ...mutant }) => ({ namespace, onlySpecFiles: specFiles, mutant }));
     const report = await recollect.call(this.deps.collector, specDir, [...sources, ...proofSources], changedFiles);
     return { cc: report.incomplete ? null : this.ctx.assembleChangeCoverage(changeDiff, report, noCodeOf), report };
+  }
+
+  holdsChangedCode(diff: string): boolean {
+    if (this.ctx.policy.mode === "off" || this.ctx.assembleChangeCoverage === undefined) return true;
+    return this.codelessCoverage(changeDiffOf(diff, undefined)!, this.noCodeOf()) === null;
+  }
+
+  /*
+   * The change-coverage of a change with no changed code line, counted with no script loaded: every changed file is of a declared
+   * language and its statement syntax says none of its added lines is code. Null when a file may hold code: one of another kind (only
+   * the page's scripts' maps can say whether they hold it), one of a language that declares no syntax or that cannot be read, or one
+   * with no added line (a deletion, which the measurement tells apart).
+   */
+  private codelessCoverage(changeDiff: string, noCodeOf: NoCodeLinesOf): ChangeCoverage | null {
+    const files = diffChangedFiles(changeDiff);
+    if (files.some((file) => LanguageRegistry.languageForFile(file) === null)) return null;
+    const cc = this.ctx.assembleChangeCoverage!(changeDiff, { covered: [], executable: [] }, noCodeOf);
+    const noCode = new Set(cc.noCode ?? []);
+    return cc.overall.changedLines === 0 && files.every((file) => noCode.has(file)) ? cc : null;
   }
 
   /* An unloaded changed file's statements, read from the working copy once per measurement. */

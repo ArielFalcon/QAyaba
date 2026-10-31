@@ -154,9 +154,15 @@ export const dumpsOf = (measured: MeasurementOutcome | undefined): MeasuredDumps
 /* A case whose bytes ran green in the verdict: a real pass, or a flaky case (it passed on a retry), whose bytes a flaky run still has green. */
 const ranGreen = (c: QaCase): boolean => isRealPass(c.status === "flaky" ? { ...c, status: "pass" } : c);
 
-/* The measurement execution runs where a measurement can read it: a green run whose coverage policy is not off, on one repo, with a diff to count. */
+/* The run's change holds no changed code line, as the objective signal tells it before anything runs; a port that cannot tell says nothing (ADR-0005: such a change is unknown, measured or not). */
+export const changesNoCode = (state: Readonly<RunState>, ctx: WorkspaceRunContext): boolean => {
+  const diff = state.classification.diff;
+  return !!diff && ctx.deps.objectiveSignal.holdsChangedCode?.(diff) === false;
+};
+
+/* The measurement execution runs where a measurement can read it: a green run whose coverage policy is not off, on one repo, with a diff that may hold a code line to count. */
 export const measuresByExecution = (state: Readonly<RunState>, ctx: WorkspaceRunContext): boolean =>
-  measuresCoverage(state, ctx) && ctx.cfg.coveragePolicyMode !== "off" && !ctx.input.triggerRepo && !!state.classification.diff;
+  measuresCoverage(state, ctx) && ctx.cfg.coveragePolicyMode !== "off" && !ctx.input.triggerRepo && !!state.classification.diff && !changesNoCode(state, ctx);
 
 /* The measurement execution of the verdict's passing tests, in the coverage purpose; the coverage phase opens here whether or not one is due. */
 export async function executeMeasurement(state: Readonly<RunState>, ctx: WorkspaceRunContext): Result {
@@ -188,8 +194,8 @@ export const measurementNotRun = (state: Readonly<RunState>): boolean => state.c
 const measuredByRecord = (measured: MeasurementOutcome | undefined) =>
   measured === undefined || "notRun" in measured ? undefined : { namespace: measured.namespace, tests: measured.tests, failedOnlyUnderMeasurement: [...measured.failedOnlyUnderMeasurement] };
 
-/* The coverage of a measurement execution that measured nothing: unknown and why; under enforce the run is held, since no measurement of the green bytes decided the gate. The verdict is untouched. */
-export function coverageNotMeasured(coverage: CoverageOutcome, mode: RunContext["cfg"]["coveragePolicyMode"], perCommit: boolean): CoverageOutcome {
+/* The coverage of a measurement execution that measured nothing: unknown and why. Whether that blocks is the objective signal's to say (ADR-0005: unknown never blocks, under enforce too). The verdict is untouched. */
+export function coverageNotMeasured(coverage: CoverageOutcome, blocks: (status: "unknown") => boolean, perCommit: boolean): CoverageOutcome {
   return {
     ...coverage,
     coverageRatio: null,
@@ -206,7 +212,7 @@ export function coverageNotMeasured(coverage: CoverageOutcome, mode: RunContext[
     changeCoverage: { executableLines: 0, unmeasured: "measurement-not-run" },
     ranBy: undefined,
     mutationPass: undefined,
-    blocksPublish: mode === "enforce",
+    blocksPublish: blocks("unknown"),
   };
 }
 
@@ -265,17 +271,17 @@ export async function measureCoverage(state: Readonly<RunState>, ctx: WorkspaceR
     /* Log so a cross-repo "unknown" is diagnosable, never a silent null. */
     engineLog.info(`[qa] change-coverage: skipped — the changed lines live in ${ctx.input.triggerRepo}; browser coverage maps only the frontend (status=unknown).`);
   }
-  if (measurementNotRun(state)) return { update: { coverage: coverageNotMeasured(state.coverage, ctx.cfg.coveragePolicyMode, measuresPerCommit(ctx)) } };
+  if (measurementNotRun(state)) return { update: { coverage: coverageNotMeasured(state.coverage, (status) => ctx.deps.objectiveSignal.blocks(status), measuresPerCommit(ctx)) } };
   const exclusions = await coverageExclusionsOf(state, ctx);
   const signal = await measureGreenRun(state, ctx, exclusions);
   return { update: { coverage: coverageMeasured(state, ctx, signal, exclusions) } };
 }
 
-/* A measurement's record with the measurement execution it was read from. */
+/* A measurement's record with the measurement execution it was read from; a measurement that records nothing (no changed code line) gets no record of its own, and the execution stays on the run's executions. */
 export function withMeasuredBy(change: CoverageOutcome["changeCoverage"], measured: MeasurementOutcome | undefined): CoverageOutcome["changeCoverage"] {
   const record = measuredByRecord(measured);
-  if (!record) return change;
-  return { ...(change ?? { executableLines: 0 }), measuredBy: record };
+  if (!record || !change) return change;
+  return { ...change, measuredBy: record };
 }
 
 /*

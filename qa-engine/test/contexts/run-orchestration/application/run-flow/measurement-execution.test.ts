@@ -26,7 +26,7 @@ interface Rig {
   measured: Array<{ baseline: string[] | undefined; opts: Record<string, unknown> }>;
 }
 
-function rig(opts: { mode?: "off" | "signal" | "enforce"; allowance?: number | null; measurementCases?: QaCase[]; finalVerdict?: "pass" | "fail" } = {}): Rig {
+function rig(opts: { mode?: "off" | "signal" | "enforce"; allowance?: number | null; measurementCases?: QaCase[]; finalVerdict?: "pass" | "fail"; holdsChangedCode?: boolean } = {}): Rig {
   const asked: Rig["asked"] = [];
   const measured: Rig["measured"] = [];
   const ctx = {
@@ -41,6 +41,7 @@ function rig(opts: { mode?: "off" | "signal" | "enforce"; allowance?: number | n
       objectiveSignal: {
         measure: async (_br: unknown, _dir: string, _diff: string, baseline: string[] | undefined, o: Record<string, unknown>) => (measured.push({ baseline, opts: o }), { status: "pass", ratio: 0.9, measurement: { changedLines: 10, coveredChanged: 9, changedFiles: 1, mappedFiles: 1 } }),
         blocks: (status: string) => opts.mode === "enforce" && status === "fail",
+        ...(opts.holdsChangedCode !== undefined ? { holdsChangedCode: () => opts.holdsChangedCode } : {}),
       },
     },
     input: { app: "app", sha: Sha.of("abc1234"), mode: "diff", runId: "run-1" },
@@ -107,7 +108,7 @@ test("a measurement the coverage allowance cannot hold is not run: coverage is u
   assert.equal(state.execution.run?.verdict, "pass", "the verdict is untouched");
 });
 
-test("under enforce a measurement that was not run holds the run", async () => {
+test("under enforce a measurement that was not run is unknown, and unknown never blocks", async () => {
   const { ctx } = rig({ mode: "enforce", allowance: 0 });
   const state = greenState();
   Object.assign(state, update(await executeMeasurement(state, ctx)));
@@ -115,7 +116,8 @@ test("under enforce a measurement that was not run holds the run", async () => {
   const out = update(await measureCoverage(state, ctx));
 
   assert.equal(out.coverage?.coverageStatus, "unknown");
-  assert.equal(out.coverage?.blocksPublish, true);
+  assert.equal(out.coverage?.changeCoverage?.unmeasured, "measurement-not-run");
+  assert.equal(out.coverage?.blocksPublish, false);
 });
 
 test("a measurement cut before every test it was given ran is not a measurement", async () => {
@@ -162,4 +164,19 @@ test("a red judging re-execution replaces a passing verdict and nothing is measu
   assert.equal(asked.length, 1);
   assert.deepEqual(measured, []);
   assert.equal(out.execution?.run?.verdict, "fail");
+});
+
+test("a change with no changed code line is judged on its final bytes and runs no measurement execution, first or final", async () => {
+  const { ctx, asked, measured } = rig({ mode: "enforce", holdsChangedCode: false });
+  const state = staleState();
+  state.coverage = { ...state.coverage, coverageRatio: null, coverageStatus: "unknown" };
+
+  assert.equal(measuresByExecution(state, ctx), false);
+  const out = update(await remeasureStaleCoverage(state, ctx));
+
+  assert.deepEqual(asked.map((a) => a.opts.purpose), [undefined], "only the judging execution ran");
+  assert.deepEqual(measured, []);
+  assert.equal(out.coverage?.coverageStatus, "unknown");
+  assert.equal(out.coverage?.changeCoverage, undefined);
+  assert.equal(out.coverage?.acceptedRegenAfterMeasure, false);
 });

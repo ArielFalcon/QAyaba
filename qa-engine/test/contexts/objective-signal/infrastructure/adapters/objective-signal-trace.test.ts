@@ -132,3 +132,13 @@ test("the coverage span counts the mutation sites left out per reason and how ea
   assert.equal(attrs["qayaba.mutation.reruns_by_test"], 0);
   assert.equal(attrs["qayaba.mutation.reruns_by_spec_file"], 0);
 });
+
+test("the traced port tells whether a change holds code as the port it wraps does, and stays one that cannot tell when that one cannot", () => {
+  const base: ObjectiveSignalPort = { measure: async () => ({ status: "unknown", ratio: null }), blocks: () => false };
+  const asked: string[] = [];
+  const telling = new TracedObjectiveSignalPort({ ...base, holdsChangedCode: (diff) => (asked.push(diff), false) }, new NoopTelemetry());
+
+  assert.equal(telling.holdsChangedCode?.("diff"), false);
+  assert.deepEqual(asked, ["diff"]);
+  assert.equal(new TracedObjectiveSignalPort(base, new NoopTelemetry()).holdsChangedCode, undefined);
+});

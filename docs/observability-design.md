@@ -334,7 +334,9 @@ Rules, from the brief §2.1 and the OTel spec:
   and the tests that passed in the verdict and failed under it (they credit no coverage and are no mutant's baseline);
   `gateSignals.bundleMutation.notJudged { "baseline-not-green-under-measurement": n }` counts the mutants whose only reaching
   tests were such tests (never counted as survived). A measurement the allowance cannot hold is not started:
-  `unmeasured: measurement-not-run` (coverage `unknown`, which under `enforce` holds the run). A judging execution of a run
+  `unmeasured: measurement-not-run` (coverage `unknown`, which never blocks, under `enforce` too: ADR-0005). A change with no changed
+  code line (`holdsChangedCode`: every changed file of a declared language whose added lines are no code) runs no measurement and
+  records no `changeCoverage`. A judging execution of a run
   holding a saved session, failing on what looks like the app's login page, asks the run's own check of the session (its browser
   opens the pages the failing tests asked for with the session and applies the authenticated browser's "session invalidated" rule);
   only a session shown lost is renewed and the execution re-run, the re-run being the judgment; a session shown gone again for the

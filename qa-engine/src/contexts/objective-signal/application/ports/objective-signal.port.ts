@@ -56,6 +56,14 @@ export interface ObjectiveSignalPort {
    */
   measureMutation?(pass: MutationPass, specDir: string, opts?: { rerunBudget?: RerunBudget; onRead?: (read: CoverageRead) => void; rerun?: MutantRerun }): Promise<CoverageSignal>;
   /**
+   * Whether the change's own lines (its test files left out) may hold a code line a measurement counts. False only when every changed
+   * file is of a declared language whose statement syntax says none of its added lines is code (an import, a type-only declaration, a
+   * comment, a blank line): such a change has no changed code line whatever the page ran, so no measurement execution is due for it and
+   * `measure` reads no dumps for it. A file of a kind no declared language owns may be held by the page's scripts (a component
+   * template), which only the scripts' maps can tell, so it may hold code. Absent on a port that cannot tell.
+   */
+  holdsChangedCode?(diff: string): boolean;
+  /**
    * Single source of truth for whether a measured status blocks publish.
    * Only "enforce" + "fail" blocks; "unknown" never blocks regardless of mode.
    */

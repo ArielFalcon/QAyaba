@@ -29,7 +29,7 @@ import { closedLoopSignal, correctionBudgetSpent, correctThroughLead, mayCorrect
 import { CORRECTION_ORIGIN, type CorrectionFinding } from "@contexts/coordination/application/index.ts";
 import { resolveTested } from "./fix-loop.steps.ts";
 import { reviewChangeViewOf } from "../review-change.ts";
-import { branchCoverageOf, changeCoverageOf, coverageNotMeasured, dumpsOf, measuredByOptions, rerunBudgetOf, rerunsOfRun, runMeasurement, traceAcceptedFiles, withMeasuredBy } from "./coverage.steps.ts";
+import { branchCoverageOf, changeCoverageOf, coverageNotMeasured, changesNoCode, dumpsOf, measuredByOptions, rerunBudgetOf, rerunsOfRun, runMeasurement, traceAcceptedFiles, withMeasuredBy } from "./coverage.steps.ts";
 import { addDroppedRejection, addReviewStats, annotateReviewPhase, greenSpecFiles, newReviewTally, readReviewedSpecs, rebuttalEvidence, recordReviewDecision } from "./review-services.ts";
 import { pathOnly } from "@kernel/route-availability.ts";
 import { dataContradictionRefs } from "@kernel/data-contradiction.ts";
@@ -614,7 +614,7 @@ export const remeasuresStaleCoverage = (state: Readonly<RunState>): boolean =>
  * then measures them (the coverage regeneration's own run counts when it is the last accepted one, so this never runs twice); under
  * signal the prior measurement is reused and marked stale. A judging execution that ends red is the verdict of a passing run: a red
  * suite is never published. A flaky run keeps its flaky verdict. A measurement the time left cannot hold measures nothing: the coverage
- * is unknown and the run is held.
+ * is unknown, which never blocks (ADR-0005). A change with no changed code line runs no measurement execution: its coverage stays unknown.
  */
 export async function remeasureStaleCoverage(state: Readonly<RunState>, ctx: WorkspaceRunContext): Result {
   const { deps, input, cfg, telemetry, workspace } = ctx;
@@ -630,10 +630,11 @@ export async function remeasureStaleCoverage(state: Readonly<RunState>, ctx: Wor
     const flakyStands = run.verdict === "flaky";
     const finalRun = flakyStands ? run : { verdict: judgedRun.verdict, cases: judgedRun.cases, logs: run.logs };
     if (judgedRun.verdict !== "pass" && !flakyStands) return { update: { execution: withRun(state.execution, finalRun) } };
+    if (changesNoCode(state, ctx)) return { update: { execution: withRun(state.execution, finalRun), coverage: remeasured(state.coverage) } };
     const purpose = ctx.services.runDeadlinePort.currentPurpose?.() ?? "review";
     const measuredBy = await runMeasurement(ctx, judgedRun.cases, `${finalNamespace}-measure`, purpose);
     if ("notRun" in measuredBy) {
-      return { update: { execution: withRun(state.execution, finalRun), coverage: { ...coverageNotMeasured(remeasured(state.coverage), cfg.coveragePolicyMode, state.coverage.coverageMeasured), measuredBy } } };
+      return { update: { execution: withRun(state.execution, finalRun), coverage: { ...coverageNotMeasured(remeasured(state.coverage), (status) => deps.objectiveSignal.blocks(status), state.coverage.coverageMeasured), measuredBy } } };
     }
     const measured = measuredByOptions(measuredBy);
     const finalSignal = await deps.objectiveSignal.measure(

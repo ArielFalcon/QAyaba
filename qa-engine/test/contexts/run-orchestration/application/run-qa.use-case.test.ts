@@ -1802,7 +1802,7 @@ test("the re-check of the surviving mutants after the regeneration starts no mut
   assert.deepEqual(coverage.survivorClosure, { routed: 1, judged: 0, closed: 0, open: [], leftOut: { mutants: 1, observations: 0, reason: "time" } });
 });
 
-test("the final measurement execution of an enforce run is not started when the time its purpose has left cannot hold it: coverage is unknown, says why, and holds the run", async () => {
+test("the final measurement execution of an enforce run is not started when the time its purpose has left cannot hold it: coverage is unknown, says why, and never blocks", async () => {
   /* The final judging execution leaves the run half a second: less than the one second its passing test took. */
   const clock = { now: 0, rerunMs: 0 };
   const { out, rig, coverage } = await runMutationRig("final-pass-held-to-allowance", { mode: "enforce", minRatio: 0.9, realWorkspace: true, clock, clockAfter: { namespace: "-coverage-final", now: 3_600_000 - 500 } }, clockedDeadline(clock));
@@ -1812,7 +1812,7 @@ test("the final measurement execution of an enforce run is not started when the 
   assert.equal(coverage.bundleMutation, undefined);
   assert.deepEqual(coverage.changeCoverage, { executableLines: 0, unmeasured: "measurement-not-run" });
   assert.equal(out.decision.verdict, "pass", "the verdict is the judging execution's");
-  assert.equal(out.decision.sideEffect, "held", "under enforce, a gate no measurement decided holds the run");
+  assert.equal(out.decision.sideEffect, "pr", "under enforce too, a coverage no measurement decided is unknown, and unknown never blocks (ADR-0005)");
 });
 
 test("the run deadline spent during a mutant's re-run keeps what the mutants judged before it, and judges nothing it cut or did not start", async () => {
