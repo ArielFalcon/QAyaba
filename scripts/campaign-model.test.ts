@@ -56,23 +56,23 @@ test("arguments default to both arms and a 30 minute cap, and the safety overrid
   assert.deepEqual(parsed.args.arms, ["A", "B"]);
   assert.equal(parsed.args.wallCapMin, 30);
   assert.equal(parsed.args.allowNonShadow, false);
-  assert.equal(parsed.args.skipEnvChecks, false);
   assert.equal(parsed.args.dryRun, false);
   assert.equal(parsed.args.replicas, 3);
 });
 
 test("the arms, the cap and the overrides are read from the command line", () => {
-  const parsed = parseArguments(argv("--arms", "B", "--wall-cap-min", "12.5", "--allow-non-shadow", "--skip-env-checks", "--dry-run"));
+  const parsed = parseArguments(argv("--arms", "B", "--wall-cap-min", "12.5", "--allow-non-shadow", "--dry-run"));
   assert.ok(parsed.ok);
   assert.deepEqual(parsed.args.arms, ["B"]);
   assert.equal(parsed.args.wallCapMin, 12.5);
-  assert.ok(parsed.args.allowNonShadow && parsed.args.skipEnvChecks && parsed.args.dryRun);
+  assert.ok(parsed.args.allowNonShadow && parsed.args.dryRun);
 });
 
 test("--grounding takes the stitcher lever and refuses any other key", () => {
   const parsed = parseArguments(argv("--grounding", "stitcher=off"));
   assert.ok(parsed.ok);
   assert.deepEqual(parsed.args.grounding, { stitcher: false });
+  assert.deepEqual(parseArguments(argv("--grounding", "lessons=on,stitcher=off")).ok && (parseArguments(argv("--grounding", "lessons=on,stitcher=off")) as { args: { grounding: unknown } }).args.grounding, { lessons: true, stitcher: false });
   for (const key of ["structuralSignal", "dossier", "curriculum"]) assert.equal(parseArguments(argv("--grounding", `${key}=off`)).ok, false);
 });
 

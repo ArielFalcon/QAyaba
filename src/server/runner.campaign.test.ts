@@ -12,6 +12,7 @@ import { traceHarness } from "../telemetry/trace-harness";
 import { CampaignCaptureMismatchError } from "./campaign-capture";
 import type { RunConfigEnvironment } from "./effective-config";
 import { getHistory } from "./persistence/index";
+import { parseStoredRunConfig } from "./effective-config";
 
 const cfg = (name: string, qa: Record<string, unknown> = {}): AppConfig =>
   ({
@@ -37,7 +38,6 @@ const env: RunConfigEnvironment = {
   runtime: () => "opencode",
   staticPromptHash: () => "sha256:feed",
   toolsGranted: true,
-  campaignFrozen: true,
   maxCapture: "metadata",
 };
 
@@ -172,11 +172,11 @@ test("effectiveConfig records the levers, switches and grounding the run started
   const detail = buildRunViewExtras(id, defaultRunViewDeps(() => true, {}))!.effectiveConfig;
   assert.deepEqual(detail, {
     levers: { closedLoop: true, agentBrowser: false, captureMode: "metadata" },
-    campaignFreeze: true,
+    campaignFreeze: false,
     runtime: "opencode",
     agents: {},
     prompt: { staticHash: "sha256:feed" },
-    grounding: { stitcher: null, domPack: true },
+    grounding: { stitcher: null, domPack: true, lessons: true },
     coverage: { mode: "enforce", minRatio: 0.8 },
   });
   const root = h.only("qayaba.run");
@@ -184,7 +184,7 @@ test("effectiveConfig records the levers, switches and grounding the run started
   assert.equal(root.attributes["qayaba.runtime"], "opencode");
   assert.equal(root.attributes["qayaba.prompt.static_hash"], "sha256:feed");
   assert.equal(root.attributes["qayaba.coverage.policy"], "enforce");
-  assert.equal(root.attributes["qayaba.campaign.freeze"], true);
+  assert.equal(root.attributes["qayaba.campaign.freeze"], false);
   assert.equal(root.attributes["qayaba.capture_mode"], "metadata");
 });
 
@@ -258,4 +258,68 @@ test("a refused campaign run has no side effects: no login bootstrap is queued a
   enqueueTrackedRun(queue, request(app), live());
   assert.equal(queue.size, sizeBefore + 2, "the bootstrap and the run");
   await queue.drain();
+});
+
+/* The freeze is the server's decision, per request (docs/architecture/adr/0009-campaign-freeze-on-server.md). */
+function freezeSeen(h: ReturnType<typeof traceHarness>, queue: JobQueue, req: RunRequest, over: Partial<RunnerDeps> = {}): { id: string; told: Array<unknown> } {
+  const told: unknown[] = [];
+  const id = enqueueTrackedRun(queue, req, deps(h, { run: async (i) => outcomeOf(i) }, {
+    engineFactory: (_app, _ns, run) => { told.push((run as { freeze?: unknown }).freeze); return { run: async (i) => outcomeOf(i) }; },
+    ...over,
+  }));
+  return { id, told };
+}
+
+test("a campaign-tagged request is frozen by the server whatever the process says: it is recorded, traced and handed to the engine", async () => {
+  const h = traceHarness();
+  const queue = new JobQueue();
+  const { id, told } = freezeSeen(h, queue, request(uniqueApp(), { campaign: campaign({ arm: "treatment" }) }));
+  await queue.drain();
+  const stored = parseStoredRunConfig(getHistory().runs.getStoredEffectiveConfig(id)?.json);
+  assert.equal(stored?.campaignFreeze, true);
+  assert.equal(stored?.grounding.lessons, false);
+  assert.deepEqual(told, [{ frozen: true, lessons: false }]);
+  assert.equal(h.only("qayaba.run").attributes["qayaba.campaign.freeze"], true);
+});
+
+test("the lessons lever lifts the lesson state only: the run stays frozen and says so", async () => {
+  const h = traceHarness();
+  const queue = new JobQueue();
+  const { id, told } = freezeSeen(h, queue, request(uniqueApp(), { campaign: campaign({ arm: "learning" }), grounding: { lessons: true } }));
+  await queue.drain();
+  const stored = parseStoredRunConfig(getHistory().runs.getStoredEffectiveConfig(id)?.json);
+  assert.deepEqual([stored?.campaignFreeze, stored?.grounding.lessons], [true, true]);
+  assert.deepEqual(told, [{ frozen: true, lessons: true }]);
+});
+
+test("a request without a campaign is not frozen and reads lessons", async () => {
+  const h = traceHarness();
+  const queue = new JobQueue();
+  const { id, told } = freezeSeen(h, queue, request(uniqueApp()));
+  await queue.drain();
+  const stored = parseStoredRunConfig(getHistory().runs.getStoredEffectiveConfig(id)?.json);
+  assert.deepEqual([stored?.campaignFreeze, stored?.grounding.lessons], [false, true]);
+  assert.deepEqual(told, [{ frozen: false, lessons: true }]);
+});
+
+test("a frozen request queues no login bootstrap and rebuilds no context map ahead of it; an ordinary request still gets both", async () => {
+  const h = traceHarness();
+  const queue = new JobQueue();
+  const modes: string[] = [];
+  const app = uniqueApp();
+  const withLogin = (): AppConfig => ({ ...cfg(app), auth: { kind: "form", usernameEnv: "U", passwordEnv: "P" } }) as AppConfig;
+  const live = (): RunnerDeps => deps(h, { run: async (i) => outcomeOf(i) }, {
+    suiteHoldsVerifiedLogin: () => false,
+    contextMapNeedsRebuild: async () => true,
+    engineFactory: (_app, _ns, run) => { modes.push(run.mode); return { run: async (i) => outcomeOf(i) }; },
+  }, withLogin);
+  enqueueTrackedRun(queue, request(app, { campaign: campaign({ arm: "control" }) }), live());
+  assert.equal(queue.size, 1, "the queue holds only the campaign's run");
+  await queue.drain();
+  assert.deepEqual(modes, ["diff"], "no context run executed ahead of it");
+  modes.length = 0;
+  enqueueTrackedRun(queue, request(app), live());
+  assert.equal(queue.size, 2, "the bootstrap and the run");
+  await queue.drain();
+  assert.ok(modes.includes("context"), "the ordinary request rebuilt the map first");
 });

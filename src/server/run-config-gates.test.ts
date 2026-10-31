@@ -6,7 +6,7 @@ import { resolveRunConfig, type RunConfigEnvironment } from "./effective-config"
 
 const app = (over: Record<string, unknown> = {}, qa: Record<string, unknown> = {}): AppConfig =>
   ({ name: "a", repo: "o/a", dev: { baseUrl: "https://dev" }, qa: { needsReview: true, testDataPrefix: "qa", ...qa }, report: { onFailure: "x" }, ...over }) as AppConfig;
-const env: RunConfigEnvironment = { runtime: () => null, staticPromptHash: () => null, toolsGranted: true, campaignFrozen: false, maxCapture: "metadata" };
+const env: RunConfigEnvironment = { runtime: () => null, staticPromptHash: () => null, toolsGranted: true, maxCapture: "metadata" };
 
 test("the run_spec loop and the authenticated browser are on for every app unless the app turns them off", () => {
   assert.equal(closedLoopEnabled(app()), true);

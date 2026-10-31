@@ -147,8 +147,6 @@ export interface CampaignArguments {
   warm: string;
   /** Run the pipeline arm on an app whose config is not shadow (a cross-repo case cannot be forced to shadow). */
   allowNonShadow: boolean;
-  /** Skip the check that this process sees QA_CAMPAIGN_FREEZE on (for a server started with it by other means). */
-  skipEnvChecks: boolean;
   /** Check everything and print the plan; start nothing and spend nothing. */
   dryRun: boolean;
   /** The pipeline arm's own choice about the run_spec loop (an A/B), overriding the app's setting. Absent: the app's setting decides. */
@@ -165,7 +163,7 @@ export function parseArguments(argv: readonly string[]): ParsedArguments {
   const values: Record<string, string> = {};
   const flags = new Set<string>();
   const valued = new Set(["--cases", "--replicas", "--label", "--arms", "--wall-cap-min", "--warm", "--closed-loop", "--agent-browser", "--grounding"]);
-  const boolean = new Set(["--allow-non-shadow", "--skip-env-checks", "--dry-run"]);
+  const boolean = new Set(["--allow-non-shadow", "--dry-run"]);
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]!;
     if (valued.has(a)) {
@@ -188,8 +186,8 @@ export function parseArguments(argv: readonly string[]): ParsedArguments {
   if (values["--grounding"] !== undefined) {
     for (const pair of values["--grounding"].split(",")) {
       const [key, value] = pair.split("=");
-      if (key !== "stitcher" || (value !== "on" && value !== "off")) {
-        return { ok: false, problem: "error: --grounding takes comma-separated stitcher=on|off" };
+      if ((key !== "stitcher" && key !== "lessons") || (value !== "on" && value !== "off")) {
+        return { ok: false, problem: "error: --grounding takes comma-separated stitcher=on|off and lessons=on|off" };
       }
       grounding[key as keyof GroundingInput] = value === "on";
     }
@@ -204,7 +202,7 @@ export function parseArguments(argv: readonly string[]): ParsedArguments {
     ok: true,
     args: {
       casesPath: values["--cases"]!, replicas, label: values["--label"]!, arms: arms as Arm[], wallCapMin, warm: values["--warm"]!,
-      allowNonShadow: flags.has("--allow-non-shadow"), skipEnvChecks: flags.has("--skip-env-checks"), dryRun: flags.has("--dry-run"),
+      allowNonShadow: flags.has("--allow-non-shadow"), dryRun: flags.has("--dry-run"),
       ...(values["--closed-loop"] !== undefined ? { closedLoop: values["--closed-loop"] === "on" } : {}),
       ...(values["--agent-browser"] !== undefined ? { agentBrowser: values["--agent-browser"] === "on" } : {}),
       ...(Object.keys(grounding).length > 0 ? { grounding } : {}),

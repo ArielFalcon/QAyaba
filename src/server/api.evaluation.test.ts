@@ -58,7 +58,7 @@ const extras: RunViewExtras = {
     runtime: "opencode",
     agents: { "qa-author": { provider: "opencode-go", model: "m1", reasoningEffort: null, stepLimit: 50 } },
     prompt: { staticHash: "sha256:abc" },
-    grounding: { stitcher: "signal", domPack: true },
+    grounding: { stitcher: "signal", domPack: true, lessons: false },
     coverage: { mode: "signal", minRatio: 0.7 },
   },
 };

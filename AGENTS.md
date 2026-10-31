@@ -179,7 +179,7 @@ The RFC that lands a row flips it to **in force** in the same commit.
 | How much time and effort a change gets | Engine, from a fact | The run's bound is one `diff` row that reads nothing of the change; the effort is one spec file per affected flow, the flows being the use cases the change makes testable that the plan covers | [RFC-0014](docs/architecture/rfc/0014-diff-tier-signal.md), [ADR-0019](docs/architecture/adr/0019-owner-decisions-rfc-0014.md) | in force |
 | Which level a log line has | Engine | At a seam that holds a typed outcome the level comes from it through `levelOfEffect`, never from the call site, and a catch that carries on takes it from `carryOn` (`qa-engine/test/arch/carry-on-level.test.ts` pins that catch); every other line chooses its level by the meaning in Invariants, "Logging is redacted at the port" | [RFC-0004](docs/architecture/rfc/0004-log-level-from-outcome.md) | in force at those seams |
 | Which commit DEV serves | Engine, from the product | The product states its version; qayaba never infers it and records `undeclared` until the product declares a source | [ADR-0008](docs/architecture/adr/0008-product-version-source.md) | lands with ADR-0008 |
-| Whether a campaign run may learn | Engine | The server freezes a campaign-tagged run unless its request declares a learning arm | [ADR-0009](docs/architecture/adr/0009-campaign-freeze-on-server.md) | lands with ADR-0009 |
+| Whether a campaign run may learn | Engine | The server freezes a campaign-tagged run (`src/server/run-freeze.ts`); its request may declare `grounding.lessons` to lift the lesson state only | [ADR-0009](docs/architecture/adr/0009-campaign-freeze-on-server.md), [ADR-0018](docs/architecture/adr/0018-owner-decisions-rfc-0013.md) | landed (RFC-0013 U1) |
 | What a run teaches the next run | Engine, no agent | Lessons are produced deterministically from typed facts, measured against a frozen arm and deleted if they do not help | [ADR-0003](docs/architecture/adr/0003-learning-layer-rebuild.md) | lands with ADR-0003 |
 
 ### The run flow — start here
@@ -717,8 +717,8 @@ test, and the verdict is its last action.
   replicate 1 invalid, and one with no digest "isolation unknown". A restored
   login that fails to sign in is demoted and the stock seed takes its place. Store faults are off-path
   (logged, never a verdict). Context-map, session state, credentials and `.qa-probe/` never enter it.
-  `deleteApp` with purge removes it (`suite:<name>`) and the app's snapshots (`data/suite-snapshots/<app>`, which can hold a stored login); a plain delete keeps both, like the mirror. Under
-  `QA_CAMPAIGN_FREEZE` it is read-only; `warm-suite seed-store` loads an experiment snapshot into it
+  `deleteApp` with purge removes it (`suite:<name>`) and the app's snapshots (`data/suite-snapshots/<app>`, which can hold a stored login); a plain delete keeps both, like the mirror. In a
+  frozen run (a request that carries a `campaign`) it is read-only; `warm-suite seed-store` loads an experiment snapshot into it
   (`docs/efficiency-benchmark.md`). The adapter is the only writer of the store's files (`manifest.json` and
   `blobs/`): `warm-suite store-export` and `store-restore` return the store to a recorded state through
   `exportSnapshot` and `restoreSnapshot`, which check the snapshot whole (the store's limits, and that it was taken from this app, repository and suite directory) before touching the store and read the

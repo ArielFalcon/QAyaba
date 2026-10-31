@@ -514,7 +514,7 @@ test("a cancel is its own verdict label on the run counter, and still not an err
 });
 
 test("with the real bootstrap in local mode, the ledger holds the run's spans under its run id", async () => {
-  const handle = createTelemetry({ env: {}, campaignFreeze: false });
+  const handle = createTelemetry({ env: {} });
   const queue = new JobQueue();
   const port: RunPipelinePort = {
     run: async (input) => {

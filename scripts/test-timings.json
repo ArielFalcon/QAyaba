@@ -590,7 +590,7 @@
   "src/server/app-admin.test.ts": 113,
   "src/server/auth.test.ts": 3,
   "src/server/bind-addr.test.ts": 17,
-  "src/server/campaign-freeze.test.ts": 0,
+  "src/server/run-freeze.test.ts": 0,
   "src/server/chat-learning.test.ts": 26,
   "src/server/chat.test.ts": 1,
   "src/server/compose-init.test.ts": 0,

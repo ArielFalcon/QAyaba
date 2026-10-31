@@ -143,7 +143,8 @@ export const CaptureModeSchema = z.enum(CAPTURE_MODES);
 
 /*
  * The campaign a run belongs to: stored and echoed as data. The variant labels never change what a run does (section 14):
- * only the explicit levers and the deployment's configuration do.
+ * only the explicit levers and the deployment's configuration do. The presence of a campaign does: the server freezes the run
+ * (src/server/run-freeze.ts, docs/architecture/adr/0009-campaign-freeze-on-server.md).
  */
 export const CampaignInputSchema = z.object({
   id: z.string().regex(CAMPAIGN_ID_PATTERN, { error: "campaign.id must be 1-100 characters of A-Z a-z 0-9 _ . : -" }),
@@ -154,10 +155,15 @@ export const CampaignInputSchema = z.object({
   replicate: z.number().int().min(1).max(MAX_CAMPAIGN_REPLICATE),
 });
 
-/* The run's own choice of grounding sources (an A/B arm); every key absent means the app's setting. */
+/*
+ * The run's own choice of grounding sources (an A/B arm); every key absent means the app's setting. `lessons` is the learning arm: absent, a run
+ * reads the lessons derived from earlier runs' observations unless it is campaign-tagged; true lifts the lesson state of a campaign-tagged run
+ * (its replicate isolation and process audit stay withheld), false withholds it from any run.
+ */
 export const GroundingInputSchema = z.object({
   stitcher: z.boolean().optional(),
   domPack: z.boolean().optional(),
+  lessons: z.boolean().optional(),
 }).strict();
 export type GroundingInput = z.infer<typeof GroundingInputSchema>;
 
@@ -503,7 +509,6 @@ const BackendHealthSchema = z.object({
 export const TelemetryHealthSchema = z.object({
   schemaVersion: z.literal(1),
   mode: z.enum(["off", "local"]),
-  campaignFreeze: z.boolean(),
   otlp: z.object({
     configured: z.boolean(),
     lastExportAt: z.string().optional(),
@@ -641,6 +646,8 @@ export const EffectiveConfigSchema = z.object({
   grounding: z.object({
     stitcher: z.string().nullable(),
     domPack: z.boolean().nullable(),
+    /* Whether the run read lessons (the learning arm); null for a run recorded before the field. */
+    lessons: z.boolean().nullable(),
   }),
   coverage: z.object({ mode: z.string().nullable(), minRatio: z.number().nullable() }),
 });

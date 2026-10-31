@@ -2,7 +2,7 @@
  * The campaign runner of the pipeline-vs-plain-agent experiment. EXPERIMENT ONLY: nothing in the service calls this.
  *
  *   npm run campaign -- --cases <cases.json> --replicas <n> --label <l> --warm <snapshot-label>
- *                       [--arms A,B] [--wall-cap-min <m>] [--allow-non-shadow] [--skip-env-checks]
+ *                       [--arms A,B] [--wall-cap-min <m>] [--allow-non-shadow]
  *                       [--dry-run]
  *
  * Arm A is the plain agent (scripts/baseline-agent.ts), arm B the pipeline (the service's API, or its webhook for a
@@ -176,8 +176,6 @@ export interface CampaignDeps {
   loadApp(name: string): AppFacts;
   /** The warm snapshot, whole and checked; throws when there is none. */
   loadWarmSnapshot(app: string, label: string): LoadedSnapshot;
-  /** What this process sees of the switches the pipeline arm depends on. */
-  envFlags(): { campaignFreeze: boolean };
   campaignDir(label: string): string;
   campaignExists(label: string): boolean;
   /** A problem text when the plain agent could not read the case's commits from the mirrors, null when it can. */
@@ -205,7 +203,7 @@ export interface CampaignDeps {
 
 const USAGE = [
   "usage: npm run campaign -- --cases <cases.json> --replicas <n> --label <l> --warm <snapshot-label> [--arms A,B] [--wall-cap-min <m>] [--closed-loop on|off] [--agent-browser on|off]",
-  "                           [--allow-non-shadow] [--skip-env-checks] [--dry-run]",
+  "                           [--allow-non-shadow] [--dry-run]",
   "  EXPERIMENT ONLY. Runs every case --replicas times per arm (A: the plain agent, B: the pipeline), one run at a time against DEV, the arms",
   "  alternating order by replicate. Before each arm-run: idle queue, the case's cleanup, the warm snapshot seeded into the suite store. Delivered files are saved and",
   "  re-run twice without retry; fake-looking specs are never valid. Writes config/benchmarks/campaigns/<label>/{campaign.json,campaign.md,rubric.csv}.",
@@ -213,9 +211,8 @@ const USAGE = [
   "  --wall-cap-min       wall cap per arm-run, equal for every arm (default 30)",
   "  --closed-loop        the pipeline arm's own choice about the run_spec loop, for an A/B of the loop (a diff case only: a cross-repo case enters through the webhook, which cannot carry it)",
   "  --agent-browser      the pipeline arm's own choice about the authenticated agent browser, for an A/B of the tools (a diff case only, like --closed-loop)",
-  "  --grounding          comma-separated stitcher=on|off, for an A/B of grounding sources (reuse the campaign label across invocations to compare variants)",
+  "  --grounding          comma-separated stitcher=on|off and lessons=on|off, for an A/B of grounding sources (reuse the campaign label across invocations to compare variants). The server freezes every campaign run; lessons=on lifts the lesson state only (the learning arm)",
   "  --allow-non-shadow   run the pipeline on an app whose config is not shadow (a webhook cannot ask for shadow)",
-  "  --skip-env-checks    do not require QA_CAMPAIGN_FREEZE in this process (the server was started with it another way)",
   "  --dry-run            check everything and print the plan; run nothing",
   "run inside the orchestrator container.",
 ].join("\n");
@@ -261,10 +258,6 @@ async function preflight(args: CampaignArguments, plan: Omit<Plan, "args" | "dir
     const msg = `app '${app.name}' is not in shadow mode (qa.shadow): a pipeline run would open PRs and Issues. A diff case is asked for shadow in its request; a cross-repo case cannot be.`;
     if (!args.allowNonShadow) problems.push(`${msg} Put the app in shadow mode, or pass --allow-non-shadow.`);
   }
-  if (args.arms.includes(ARM.PIPELINE) && !args.skipEnvChecks) {
-    const flags = deps.envFlags();
-    if (!flags.campaignFreeze) problems.push("QA_CAMPAIGN_FREEZE is not on in this process: the pipeline would learn from each replicate. Set it on the orchestrator and restart it (or pass --skip-env-checks if the server has it by another route).");
-  }
   const status = warmStatus(snapshot);
   if (!status.warm) problems.push(`warm snapshot '${snapshot.label}' is not warm: ${status.note}`);
   for (const c of cases) {
@@ -308,6 +301,8 @@ export async function runCampaign(argv: string[], deps: CampaignDeps): Promise<n
     out(`[campaign] ${args.label}: app ${app.name}, ${cases.cases.length} case(s) x ${args.replicas} replicate(s) x arm(s) ${args.arms.join(",")}, wall cap ${args.wallCapMin} min, warm snapshot ${snapshot.label}`);
     for (const c of cases.cases) out(`[campaign] case ${c.id}: ${c.kind} ${c.sha.slice(0, 7)}${c.serviceRepo ? ` of ${c.serviceRepo}` : ""}, expects ${c.expected.outcome}${c.cleanup ? `, cleanup ${c.cleanup.spec}` : ""}`);
     for (let rep = 1; rep <= args.replicas; rep++) out(`[campaign] replicate ${rep}: ${armOrder(rep, args.arms).join(" -> ")}`);
+    /* The server freezes a run that carries a campaign; a cross-repo case enters through the webhook, whose payload carries none. */
+    if (args.arms.includes(ARM.PIPELINE)) for (const c of cases.cases) if (c.kind === CASE_KIND.CROSS_REPO) out(`[campaign] warning: case ${c.id} is cross-repo and enters through the webhook, which carries no campaign: the server does not freeze that run`);
     if (args.dryRun) {
       out("[campaign] dry run: nothing was started");
       return 0;
@@ -317,7 +312,6 @@ export async function runCampaign(argv: string[], deps: CampaignDeps): Promise<n
       schema: 1, label: args.label, app: app.name, startedAt: deps.nowIso(), finishedAt: null, complete: false,
       args: { replicas: args.replicas, arms: args.arms, wallCapMin: args.wallCapMin, warm: args.warm, casesPath: args.casesPath, ...(args.closedLoop !== undefined ? { closedLoop: args.closedLoop } : {}), ...(args.agentBrowser !== undefined ? { agentBrowser: args.agentBrowser } : {}) },
       environment: {
-        campaignFreeze: deps.envFlags().campaignFreeze,
         appShadow: app.shadow, forcedShadow: args.arms.includes(ARM.PIPELINE),
       },
       snapshot: { label: snapshot.label, createdAt: snapshot.manifest.createdAt, warm: true },
@@ -373,9 +367,10 @@ export function campaignOf(args: Pick<CampaignArguments, "label" | "closedLoop" 
   if (!CAMPAIGN_ID_PATTERN.test(args.label)) return undefined;
   const lever = (value: boolean | undefined): string => (value === undefined ? "default" : value ? "on" : "off");
   const grounding = lever(args.grounding?.stitcher);
+  const lessons = lever(args.grounding?.lessons);
   return {
     id: args.label,
-    variant: { arm: armToken(arm), closedLoop: lever(args.closedLoop), agentBrowser: lever(args.agentBrowser), grounding },
+    variant: { arm: armToken(arm), closedLoop: lever(args.closedLoop), agentBrowser: lever(args.agentBrowser), grounding, lessons },
     replicate,
   };
 }
@@ -487,7 +482,6 @@ export async function defaultDeps(env: Record<string, string | undefined> = proc
   const { assertQueueIdle, defaultService } = await import("./efficiency-benchmark.ts");
   const { loadAppConfig } = await import("../src/orchestrator/config-loader.ts");
   const { workdirRoot, realGit } = await import("../src/integrations/repo-mirror.ts");
-  const { resolveCampaignFreeze } = await import("../src/server/campaign-freeze.ts");
   const { buildSetupAdapter, resolveCodeSandbox } = await import("../src/server/run-engine-factory.ts");
   const { buildScriptExec } = await import("../src/server/exec-sandbox-factory.ts");
   const { egressGateFor, scriptOriginsFor, scriptRegistryOrigins } = await import("../src/server/egress-wiring.ts");
@@ -577,7 +571,6 @@ export async function defaultDeps(env: Record<string, string | undefined> = proc
       };
     },
     loadWarmSnapshot: (appName, label) => loadSnapshot(warmSnapshotDir(join(mirrorsRoot, WARM_SNAPSHOTS_DIR), appName, label), label),
-    envFlags: () => ({ campaignFreeze: resolveCampaignFreeze(env) }),
     campaignDir: (label) => join(defaultCampaignsDir(), label),
     campaignExists: (label) => existsSync(join(defaultCampaignsDir(), label)),
     commitsAvailable: async (app, c) => {

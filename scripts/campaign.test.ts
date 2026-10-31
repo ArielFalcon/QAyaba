@@ -66,7 +66,6 @@ function harness(over: Partial<CampaignDeps> = {}, opts: { cases?: unknown; app?
     readCases: () => opts.cases ?? casesFile(),
     loadApp: (name) => ({ name, repo: "org/demo", baseUrl: "https://dev.example.test", testDataPrefix: "qa-bot", shadow: true, services: ["org/users-service"], ...opts.app }),
     loadWarmSnapshot: () => snapshot(),
-    envFlags: () => ({ campaignFreeze: true }),
     campaignDir: (label) => `/campaigns/${label}`,
     campaignExists: () => false,
     commitsAvailable: async () => null,
@@ -110,17 +109,20 @@ test("an app that is not in shadow mode stops the campaign before any arm runs, 
   assert.equal(await runCampaign(argv("--allow-non-shadow"), allowed.deps), 0);
 });
 
-test("the pipeline arm is refused when learning is not frozen, unless the operator vouches for the server", async () => {
-  const h = harness({ envFlags: () => ({ campaignFreeze: false }) });
-  assert.equal(await runCampaign(argv(), h.deps), 1);
-  assert.deepEqual(h.calls, []);
-  assert.ok(h.lines.some((l) => l.includes("QA_CAMPAIGN_FREEZE")));
-  const vouched = harness({ envFlags: () => ({ campaignFreeze: false }) });
-  assert.equal(await runCampaign(argv("--skip-env-checks"), vouched.deps), 0);
+test("the launcher no longer guards the freeze: the server freezes a campaign run, so the pipeline arm needs no process switch and the retired flag is refused", async () => {
+  const h = harness();
+  assert.equal(await runCampaign(argv(), h.deps), 0);
+  assert.equal(await runCampaign(argv("--skip-env-checks"), harness().deps), 2, "an unknown argument");
 });
 
-test("the plain agent alone does not need the pipeline's switches", async () => {
-  const h = harness({ envFlags: () => ({ campaignFreeze: false }) });
+test("a cross-repo case of the pipeline arm is announced as not frozen: the webhook carries no campaign", async () => {
+  const h = harness({}, { cases: casesFile({ id: "x", kind: "cross-repo", serviceRepo: "org/users-service" }) });
+  assert.equal(await runCampaign(argv("--dry-run"), h.deps), 0);
+  assert.ok(h.lines.some((l) => l.includes("case x is cross-repo") && l.includes("does not freeze")));
+});
+
+test("the plain agent alone runs no pipeline request", async () => {
+  const h = harness();
   assert.equal(await runCampaign(argv("--arms", "A"), h.deps), 0);
   assert.deepEqual(h.pipelineRequests, []);
 });
@@ -246,8 +248,8 @@ test("the pipeline arm is sent as a replicate of the campaign: the label is the 
   const h = harness();
   assert.equal(await runCampaign(argv("--arms", "A,B", "--replicas", "2", "--closed-loop", "on"), h.deps), 0);
   assert.deepEqual(h.pipelineRequests.map((r) => r.campaign), [
-    { id: "camp", variant: { arm: "B", closedLoop: "on", agentBrowser: "default", grounding: "default" }, replicate: 1 },
-    { id: "camp", variant: { arm: "B", closedLoop: "on", agentBrowser: "default", grounding: "default" }, replicate: 2 },
+    { id: "camp", variant: { arm: "B", closedLoop: "on", agentBrowser: "default", grounding: "default", lessons: "default" }, replicate: 1 },
+    { id: "camp", variant: { arm: "B", closedLoop: "on", agentBrowser: "default", grounding: "default", lessons: "default" }, replicate: 2 },
   ]);
 });
 

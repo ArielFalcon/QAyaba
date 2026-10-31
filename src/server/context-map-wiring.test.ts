@@ -26,7 +26,7 @@ function rig(over: Partial<ContextMapQuestionDeps> & { changes?: ChangedFile[] |
     syncMirror: over.syncMirror ?? (async (repo, sha) => { synced.push(`${repo}@${sha}`); return "/mirrors/org__demo"; }),
     changesBetween: over.changesBetween ?? (() => ("changes" in over ? over.changes : [])),
   };
-  return { ask: contextMapNeedsRebuildFor({}, deps)!, synced };
+  return { ask: contextMapNeedsRebuildFor(deps), synced };
 }
 
 test("a map built at the run's commit, or whose named files did not change, needs no rebuild", async () => {
@@ -46,6 +46,4 @@ test("a missing map, a map marked stale, a changed route declaration or commits 
   assert.deepEqual(unsafe.synced, []);
 });
 
-test("the campaign freeze wires no question", async () => {
-  assert.equal(contextMapNeedsRebuildFor({ QA_CAMPAIGN_FREEZE: "true" }), undefined);
-});
+

@@ -29,6 +29,7 @@ import { RUN_PURPOSE, type RunPurpose } from "@kernel/run-mode";
 import { isUntrustedGitTreeError } from "@kernel/domain-error";
 import type { CampaignIdentity } from "../contract/campaign";
 import { capCaptureMode, DEFAULT_CAPTURE_MODE, type CaptureMode } from "@kernel/telemetry/capture-mode";
+import { decideRunFreeze, type RunFreeze } from "./run-freeze";
 import { configInEffect, resolveRunConfig, type RunConfigEnvironment, type StoredRunConfig } from "./effective-config";
 import type { GroundingInput } from "../contract/commands";
 import { ENGINE_VERSION } from "./version";
@@ -46,7 +47,7 @@ type RunStep = RunStepEvent["step"];
 const redactionPort = new RedactionPortAdapter();
 
 /* What a run records of the process around it when the composition root gave none: nothing known, no tool grants. */
-const UNKNOWN_RUN_CONFIG_ENV: RunConfigEnvironment = { runtime: () => null, staticPromptHash: () => null, toolsGranted: false, campaignFrozen: false, maxCapture: DEFAULT_CAPTURE_MODE };
+const UNKNOWN_RUN_CONFIG_ENV: RunConfigEnvironment = { runtime: () => null, staticPromptHash: () => null, toolsGranted: false, maxCapture: DEFAULT_CAPTURE_MODE };
 
 
 const ONBOARDING_POLL_MS = 5_000;
@@ -85,7 +86,7 @@ export interface RunRequest {
   closedLoop?: boolean;  /* the run's own choice about the run_spec loop (an A/B arm), overriding the app's setting */
   agentBrowser?: boolean;  /* the run's own choice about the authenticated agent browser (an A/B arm), overriding the app's setting */
   grounding?: GroundingInput;  /* the run's own choice of grounding sources (an A/B arm), overriding the app's settings */
-  /* The campaign replicate this run is. Stored and traced as data; never passed to the engine, so it cannot change what the run does. */
+  /* The campaign replicate this run is. Stored and traced as data; its labels are never passed to the engine. Its presence freezes the run (run-freeze.ts). */
   campaign?: CampaignIdentity;
   /* The content capture the run's trace was granted: the request's choice already capped by the server's ceiling. Absent: the process default. */
   captureMode?: CaptureMode;
@@ -111,7 +112,7 @@ export interface RunnerDeps {
   engineFactory?: (
     appConfig: AppConfig,
     namespace: string,
-    run: { mode: RunMode; guidance?: string; triggerRepo?: string; changeSet?: ChangeSet; sha?: string; runId?: string; grounding?: GroundingInput | StoredRunConfig["grounding"] },
+    run: { mode: RunMode; guidance?: string; triggerRepo?: string; changeSet?: ChangeSet; sha?: string; runId?: string; grounding?: GroundingInput | StoredRunConfig["grounding"]; freeze?: RunFreeze },
     observer?: ObserverPort,
     previousNamespace?: string,
   ) => RunPipelinePort;
@@ -120,15 +121,15 @@ export interface RunnerDeps {
   isOnboardingActive?: () => boolean;
   /*
    * Whether the app's suite store holds a login a run proved. Present: a run for an e2e app that declares a login and whose store
-   * holds none is preceded by that app's login bootstrap (once per app and process, see enqueueTrackedRun). Absent: no run queues
-   * one on its own, which is how a campaign (QA_CAMPAIGN_FREEZE) keeps control of the suite's warmth. May throw: the question then
-   * costs the requested run nothing but the bootstrap.
+   * holds none is preceded by that app's login bootstrap (once per app and process, see enqueueTrackedRun), unless the request is
+   * frozen (a campaign keeps control of the suite's warmth, run-freeze.ts). May throw: the question then costs the requested run
+   * nothing but the bootstrap.
    */
   suiteHoldsVerifiedLogin?: (app: string) => boolean;
   /*
    * Whether the app's context map fails to describe the commit a run is at. Present: such a run executes a context run at its sha
-   * first, in its own queue turn (once per app and commit, see rebuildContextMapFirst). Absent: no run rebuilds the map on its own,
-   * which is how a campaign (QA_CAMPAIGN_FREEZE) keeps its map fixed. May reject: the run then goes on with the stored map.
+   * first, in its own queue turn (once per app and commit, see rebuildContextMapFirst), unless the request is frozen (a campaign keeps
+   * its map fixed, run-freeze.ts). May reject: the run then goes on with the stored map.
    */
   contextMapNeedsRebuild?: (app: string, sha: string) => Promise<boolean>;
   /*
@@ -368,7 +369,7 @@ const loginBootstrapAsked = new Set<string>();
  */
 function enqueueLoginBootstrapFirst(queue: JobQueue, req: RunRequest, deps: RunnerDeps): void {
   const holds = deps.suiteHoldsVerifiedLogin;
-  if (!holds || req.mode === "context" || req.purpose !== undefined || req.triggerRepo !== undefined || req.parentRunId !== undefined) return;
+  if (!holds || decideRunFreeze(req).frozen || req.mode === "context" || req.purpose !== undefined || req.triggerRepo !== undefined || req.parentRunId !== undefined) return;
   if (loginBootstrapAsked.has(req.app)) return;
   try {
     const app = (deps.loadApp ?? loadAppConfig)(req.app);
@@ -613,7 +614,8 @@ function trackRun(req: RunRequest, deps: RunnerDeps, captureMode: CaptureMode, w
             sha: joined ? anchorProjection(joined).sha.toString() : req.sha,
             ...(req.guidance ? { guidance: req.guidance } : {}),
             ...(joined ? { changeSet: joined, ...(anchorProjection(joined).triggerRepo ? { triggerRepo: anchorProjection(joined).triggerRepo } : {}) } : req.triggerRepo ? { triggerRepo: req.triggerRepo } : {}),
-            ...(resolvedRunConfig ? { grounding: resolvedRunConfig.grounding } : {}) },
+            ...(resolvedRunConfig ? { grounding: resolvedRunConfig.grounding } : {}),
+            freeze: decideRunFreeze(req) },
           observer,
           previousNamespace,
         ),
@@ -756,7 +758,7 @@ const contextMapRebuilt = new Set<string>();
  */
 async function rebuildContextMapFirst(req: RunRequest, runId: string, deps: RunnerDeps, signal: AbortSignal): Promise<void> {
   const needs = deps.contextMapNeedsRebuild;
-  if (!needs || req.mode === "context" || req.purpose !== undefined || req.triggerRepo !== undefined || req.parentRunId !== undefined) return;
+  if (!needs || decideRunFreeze(req).frozen || req.mode === "context" || req.purpose !== undefined || req.triggerRepo !== undefined || req.parentRunId !== undefined) return;
   const key = `${req.app}@${req.sha}`;
   if (contextMapRebuilt.has(key)) return;
   try {

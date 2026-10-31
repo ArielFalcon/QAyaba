@@ -3,7 +3,6 @@
 import { inspect } from "node:util";
 import { DEFAULT_PORT, resolveListenHost, resolvePort } from "../server/port";
 import { resolveToolsPort } from "../server/tools-endpoint";
-import { resolveCampaignFreeze } from "../server/campaign-freeze";
 import { resolveEgressMode, type EgressMode } from "../server/egress-wiring";
 import { parseCampaignRetentionDays, parseRetentionDays, resolveTelemetryConfig, type TelemetryConfig } from "../telemetry/config";
 import { resolveBackendHealthConfig, type BackendHealthConfig } from "../telemetry/backend-health";
@@ -89,7 +88,6 @@ export interface Settings {
   };
   readonly run: {
     readonly pwActionTimeoutMs: string | undefined;
-    readonly campaignFrozen: boolean;
     readonly runTimeBudgets: RunTimeBudgets;
   };
   readonly telemetry: {
@@ -231,7 +229,6 @@ export function loadSettings(env: EnvironmentMap): Settings {
     },
     run: {
       pwActionTimeoutMs: r.str("PW_ACTION_TIMEOUT_MS"),
-      campaignFrozen: r.run(["QA_CAMPAIGN_FREEZE"], () => resolveCampaignFreeze(env), false),
       runTimeBudgets: r.run(runBudgetNames(), () => resolveRunTimeBudgets(env), undefined as unknown as RunTimeBudgets),
     },
     telemetry: {

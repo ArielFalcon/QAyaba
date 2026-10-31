@@ -234,11 +234,11 @@ export function wireApp(settingsStore: SettingsStore): WiredApp {
   /* Assigned once the tools token is known, below; read when a run starts. */
   let runConfigEnvironment: RunConfigEnvironment;
 
-  /* The question behind the automatic login bootstrap; absent under QA_CAMPAIGN_FREEZE (a mistyped value throws here, at boot, like the engine's own read of it). */
-  const suiteHoldsVerifiedLogin = suiteHoldsVerifiedLoginFor(settings.environment, ROOT);
+  /* The question behind the automatic login bootstrap; the runner never asks it of a frozen request. */
+  const suiteHoldsVerifiedLogin = suiteHoldsVerifiedLoginFor(ROOT);
 
-  /* The question behind the context-map rebuild before a run; absent under QA_CAMPAIGN_FREEZE. */
-  const contextMapNeedsRebuild = contextMapNeedsRebuildFor(settings.environment);
+  /* The question behind the context-map rebuild before a run; the runner never asks it of a frozen request. */
+  const contextMapNeedsRebuild = contextMapNeedsRebuildFor();
 
   /*
    * The runner deps every enqueue path shares — the event store, the engine factory and the
@@ -249,7 +249,7 @@ export function wireApp(settingsStore: SettingsStore): WiredApp {
   const pendingChangeSets = new PendingChangeSets();
 
   function runnerDeps(): RunnerDeps {
-    return { pendingChangeSets, runConfig: runConfigEnvironment, runEvents, engineFactory, telemetry: telemetry.telemetry, clock: telemetry.clock, afterRun, isOnboardingActive: () => onboardingJob.isActive(), ...(suiteHoldsVerifiedLogin ? { suiteHoldsVerifiedLogin } : {}), ...(contextMapNeedsRebuild ? { contextMapNeedsRebuild } : {}) };
+    return { pendingChangeSets, runConfig: runConfigEnvironment, runEvents, engineFactory, telemetry: telemetry.telemetry, clock: telemetry.clock, afterRun, isOnboardingActive: () => onboardingJob.isActive(), suiteHoldsVerifiedLogin, contextMapNeedsRebuild };
   }
 
   /*
@@ -296,7 +296,6 @@ export function wireApp(settingsStore: SettingsStore): WiredApp {
     runtime: () => agentRuntime.current().assignments.primary.provider,
     staticPromptHash: () => (staticPromptHash === undefined ? (staticPromptHash = hashStaticPrompts(ROOT)) : staticPromptHash),
     toolsGranted: !toolsToken.generated,
-    campaignFrozen: settings.run.campaignFrozen,
     maxCapture: settings.telemetry.config.maxCapture,
   };
   const toolsServer = createToolsServer({ token: toolsToken.token, registry: closedLoopRegistry, browsers: agentBrowserRegistry, geolocations: geolocationRegistry, codeGraphs: codeGraphRegistry });

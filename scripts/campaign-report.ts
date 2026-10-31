@@ -58,8 +58,6 @@ export interface CampaignCaseRecord {
 }
 
 export interface CampaignEnvironment {
-  /** QA_CAMPAIGN_FREEZE as this process saw it. */
-  campaignFreeze: boolean;
   appShadow: boolean;
   /** The pipeline arm was asked for shadow in its run request. */
   forcedShadow: boolean;
@@ -189,7 +187,6 @@ export function renderMarkdown(record: CampaignRecord): string {
   if (!record.complete) lines.push("", "**This campaign did not finish: it stopped before its last arm-run. Read the rows below as partial.**");
   lines.push("", "## Conditions", "");
   const e = record.environment;
-  lines.push(`- learning frozen (\`QA_CAMPAIGN_FREEZE\`): ${yesNo(e.campaignFreeze)}`);
   lines.push(`- warm start: the snapshot is seeded into the suite store before each arm-run (the pipeline restores it after its checkout; the plain agent applies it to its throwaway copy)`);
   lines.push(`- app in shadow mode: ${yesNo(e.appShadow)}; pipeline arm asked for shadow in its request: ${yesNo(e.forcedShadow)}`);
 

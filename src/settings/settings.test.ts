@@ -26,7 +26,6 @@ test("a minimal environment yields the defaults each parser yields on its own", 
   assert.equal(settings.agent.stallMs, DEFAULT_STALL_MS);
   assert.equal(settings.agent.timeoutMs, undefined);
   assert.equal(settings.sandbox.egressMode, "enforce");
-  assert.equal(settings.run.campaignFrozen, false);
   assert.equal(settings.run.runTimeBudgets.diff, resolveRunTimeBudgets({}).diff);
   assert.equal(settings.telemetry.config.serviceName, DEFAULT_SERVICE_NAME);
   assert.equal(settings.retention.spanDays, DEFAULT_SPAN_RETENTION_DAYS);
@@ -78,7 +77,6 @@ test("an invalid PORT and an invalid retention window in one environment fail wi
 
 test("a mistyped switch stops the load and names the variable", () => {
   assert.throws(() => loadSettings({ QA_EGRESS_MODE: "sometimes" }), /QA_EGRESS_MODE/);
-  assert.throws(() => loadSettings({ QA_CAMPAIGN_FREEZE: "maybe" }), /QA_CAMPAIGN_FREEZE/);
   assert.throws(() => loadSettings({ AUTH_SESSION_TTL_SECONDS: "0" }), /AUTH_SESSION_TTL_SECONDS/);
 });
 

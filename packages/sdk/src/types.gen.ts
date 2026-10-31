@@ -803,6 +803,7 @@ export interface components {
             grounding?: {
                 stitcher?: boolean;
                 domPack?: boolean;
+                lessons?: boolean;
             };
         };
         CreateRunResult: {
@@ -1287,7 +1288,6 @@ export interface components {
             schemaVersion: 1;
             /** @enum {string} */
             mode: "off" | "local";
-            campaignFreeze: boolean;
             otlp: {
                 configured: boolean;
                 lastExportAt?: string;
@@ -1522,6 +1522,7 @@ export interface components {
                 grounding: {
                     stitcher: string | null;
                     domPack: boolean | null;
+                    lessons: boolean | null;
                 };
                 coverage: {
                     mode: string | null;

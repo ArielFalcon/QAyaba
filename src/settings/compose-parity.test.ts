@@ -30,10 +30,10 @@ function exampleAssignmentNames(): string[] {
   return names;
 }
 
-test("the compose override still passes through every retired and deprecated diff budget name, so a value set in the host environment reaches the container and its warning fires", () => {
+test("the compose override still passes through every retired and deprecated name (the diff budgets, the campaign freeze), so a value set in the host environment reaches the container and its warning fires", () => {
   const override = parse(readFileSync(join(ROOT, "docker-compose.override.yml"), "utf8")) as { services?: { orchestrator?: { environment?: Record<string, unknown> } } };
   const passed = Object.keys(override.services?.orchestrator?.environment ?? {});
-  const names = ["QA_DIFF_TIME_BUDGET_MS_TINY", "QA_DIFF_TIME_BUDGET_MS_FOCUSED", "QA_DIFF_TIME_BUDGET_MS_BROAD", ...RUN_TIME_BUDGET_FORMER_ENV];
+  const names = ["QA_DIFF_TIME_BUDGET_MS_TINY", "QA_DIFF_TIME_BUDGET_MS_FOCUSED", "QA_DIFF_TIME_BUDGET_MS_BROAD", "QA_CAMPAIGN_FREEZE", ...RUN_TIME_BUDGET_FORMER_ENV];
   for (const name of names) {
     assert.ok(passed.includes(name), `${name} is read or reported by the settings load, so the override passes it through`);
     assert.ok(retiredSettingWarnings({ [name]: "1" }).length + deprecatedSettingWarnings({ [name]: "1" }).length > 0, `${name} warns when set`);

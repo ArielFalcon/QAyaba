@@ -1,9 +1,8 @@
-/* Composition root's side of the context-map rebuild before a run (runner.ts, RunnerDeps.contextMapNeedsRebuild): the question it asks of an app's stored map, and the switch that turns it off. */
+/* Composition root's side of the context-map rebuild before a run (runner.ts, RunnerDeps.contextMapNeedsRebuild): the question it asks of an app's stored map. A frozen request is never asked (run-freeze.ts). */
 
 import { contextMapValidity, type ChangedFile } from "@contexts/run-orchestration/application/index";
 import { loadAppConfig, type AppConfig } from "../orchestrator/config-loader";
 import { ensureMirror, defaultMirrorDeps } from "../integrations/repo-mirror";
-import { resolveCampaignFreeze } from "./campaign-freeze";
 import { getHistory } from "./persistence/index";
 import type { StoredContextMap } from "./persistence/repositories/context.repository";
 import { gitChangedFiles } from "./run-engine-factory";
@@ -29,10 +28,9 @@ const defaultDeps: ContextMapQuestionDeps = {
 
 /*
  * Whether an app's stored context map fails to describe a commit: there is none, the process audit marked it stale, or the files it
- * names changed in a way context-map-validity.ts does not keep (a commit pair that cannot be compared included). Undefined under QA_CAMPAIGN_FREEZE: a campaign keeps the map it started with.
+ * names changed in a way context-map-validity.ts does not keep (a commit pair that cannot be compared included).
  */
-export function contextMapNeedsRebuildFor(env: Record<string, string | undefined>, deps: ContextMapQuestionDeps = defaultDeps): ((app: string, sha: string) => Promise<boolean>) | undefined {
-  if (resolveCampaignFreeze(env)) return undefined;
+export function contextMapNeedsRebuildFor(deps: ContextMapQuestionDeps = defaultDeps): (app: string, sha: string) => Promise<boolean> {
   return async (appName, sha) => {
     const app = deps.loadApp(appName);
     const stored = deps.loadStoredMap(appName);

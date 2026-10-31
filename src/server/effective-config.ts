@@ -6,6 +6,7 @@
  * (provider, model, step limit) are read from the run's own recorded agent turns, which carry what the runtime reported live.
  *
  * A request's campaign labels are not an input here: they never decide any of this (section 14, "variant labels never change behaviour").
+ * The presence of its campaign is: the run is frozen (run-freeze.ts), and the record says so.
  */
 
 import { createHash } from "node:crypto";
@@ -13,6 +14,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { isCaptureMode, type CaptureMode } from "@kernel/telemetry/capture-mode";
 import { agentBrowserEnabled, closedLoopEnabled, serviceTopologyWired } from "./run-config-gates";
+import { decideRunFreeze } from "./run-freeze";
 import type { AppConfig } from "../orchestrator/config-loader";
 import type { EffectiveConfig, GroundingInput } from "../contract/commands";
 import type { AgentRoleFacts } from "./persistence/repositories/telemetry.repository";
@@ -29,12 +31,13 @@ export interface RunConfigEnvironment {
   staticPromptHash(): string | null;
   /* The run_spec and authenticated browser tools can be granted to a run (the service token is configured). */
   toolsGranted: boolean;
-  campaignFrozen: boolean;
   /* The server's ceiling on content capture (QA_TELEMETRY_MAX_CAPTURE): no run, whatever it asks, captures more. */
   maxCapture: CaptureMode;
 }
 
 export interface RunConfigRequest {
+  /* Only its presence is read (run-freeze.ts). */
+  campaign?: unknown;
   closedLoop?: boolean | undefined;
   agentBrowser?: boolean | undefined;
   grounding?: GroundingInput | undefined;
@@ -50,19 +53,21 @@ export function resolveRunConfig(app: AppConfig, request: RunConfigRequest, capt
   const agentBrowserAsked = request.agentBrowser ?? agentBrowserEnabled(app);
   const stitched = serviceTopologyWired(app);
   const requestedGrounding = request.grounding ?? {};
+  const freeze = decideRunFreeze(request);
   return {
     levers: {
       closedLoop: env.toolsGranted && closedLoopAsked,
       agentBrowser: env.toolsGranted && agentBrowserAsked,
       captureMode,
     },
-    campaignFreeze: env.campaignFrozen,
+    campaignFreeze: freeze.frozen,
     runtime: env.runtime(),
     prompt: { staticHash: env.staticPromptHash() },
     grounding: {
       /* The service-topology collaborator is one of the two advisory structural signals: it exists only for an app with services and declared boundaries. */
       stitcher: stitched ? (requestedGrounding.stitcher === false ? "off" : "signal") : null,
       domPack: requestedGrounding.domPack ?? app.qa.domPack ?? true,
+      lessons: freeze.lessons,
     },
     coverage: { mode: app.qa.changeCoverage?.mode ?? DEFAULT_COVERAGE_MODE, minRatio: app.qa.changeCoverage?.minRatio ?? DEFAULT_COVERAGE_MIN_RATIO },
   };
@@ -86,7 +91,7 @@ const NOT_RECORDED: StoredRunConfig = {
   campaignFreeze: null,
   runtime: null,
   prompt: { staticHash: null },
-  grounding: { stitcher: null, domPack: null },
+  grounding: { stitcher: null, domPack: null, lessons: null },
   coverage: { mode: null, minRatio: null },
 };
 
@@ -103,6 +108,7 @@ export function parseStoredRunConfig(json: string | null | undefined): StoredRun
       grounding: {
         stitcher: parsed.grounding?.stitcher ?? null,
         domPack: parsed.grounding?.domPack ?? null,
+        lessons: parsed.grounding?.lessons ?? null,
       },
       coverage: { ...NOT_RECORDED.coverage, ...(parsed.coverage ?? {}) },
     };

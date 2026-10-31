@@ -21,6 +21,7 @@ const RETIRED_SETTINGS: ReadonlyArray<{ readonly name: string; readonly gone: st
   { name: "QA_DIFF_TIME_BUDGET_MS_TINY", gone: "the first-pass time cap of a diff tier was removed: the pass runs under what the run deadline allots it, so a shorter cap you set no longer applies" },
   { name: "QA_DIFF_TIME_BUDGET_MS_FOCUSED", gone: "the first-pass time cap of a diff tier was removed: the pass runs under what the run deadline allots it, so a shorter cap you set no longer applies" },
   { name: "QA_DIFF_TIME_BUDGET_MS_BROAD", gone: "the first-pass time cap of a diff tier was removed: the pass runs under what the run deadline allots it, so a shorter cap you set no longer applies" },
+  { name: "QA_CAMPAIGN_FREEZE", gone: "the server freezes every run that carries a campaign by itself (grounding.lessons: true lifts the lesson state only); the process environment no longer decides it" },
   { name: "COORDINATION_ESCALATED_MODEL", gone: "a replaced flow starts a fresh sidekick on the same model as the first" },
   { name: "AGENT_RUNTIME_MODE", gone: "every role runs on the one agent runtime" },
   { name: "AGENT_SINGLE_PROVIDER", gone: "every role runs on the one agent runtime" },

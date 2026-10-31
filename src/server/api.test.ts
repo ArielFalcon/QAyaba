@@ -661,7 +661,6 @@ test("GET /api/health → 200", async () => {
 
 const telemetryHealth: TelemetryHealth = {
   mode: "local",
-  campaignFreeze: false,
   otlp: { configured: true, lastExportAt: "2026-10-17T10:00:00.000Z", dropped: 3 },
   ledger: { ok: true, spans: 120, writeErrors: 0 },
   droppedAttributes: 2,

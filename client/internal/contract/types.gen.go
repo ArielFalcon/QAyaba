@@ -2017,6 +2017,7 @@ type CreateRunInput struct {
 	Commits     *int                       `json:"commits,omitempty"`
 	Grounding   *struct {
 		DomPack  *bool `json:"domPack,omitempty"`
+		Lessons  *bool `json:"lessons,omitempty"`
 		Stitcher *bool `json:"stitcher,omitempty"`
 	} `json:"grounding,omitempty"`
 	Guidance *string              `json:"guidance,omitempty"`
@@ -2473,6 +2474,7 @@ type RunDetail struct {
 		} `json:"coverage"`
 		Grounding struct {
 			DomPack  *bool   `json:"domPack"`
+			Lessons  *bool   `json:"lessons"`
 			Stitcher *string `json:"stitcher"`
 		} `json:"grounding"`
 		Levers struct {
@@ -2720,8 +2722,7 @@ type TelemetryHealth struct {
 			Status        TelemetryHealthBackendsTempoStatus `json:"status"`
 		} `json:"tempo"`
 	} `json:"backends,omitempty"`
-	CampaignFreeze    bool `json:"campaignFreeze"`
-	DroppedAttributes int  `json:"droppedAttributes"`
+	DroppedAttributes int `json:"droppedAttributes"`
 	Host              *struct {
 		BlockedLoops   int      `json:"blockedLoops"`
 		EventLoopP99Ms *float32 `json:"eventLoopP99Ms,omitempty"`

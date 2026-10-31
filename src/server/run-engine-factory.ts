@@ -144,7 +144,7 @@ import { RedactionPortAdapter, redactSourceForModel } from "../orchestrator/sani
 import { ensureMirror, ensureMirrorAtBranch, defaultMirrorDeps, workdirRoot, realGit, authHeaderArgs, hardenGitArgs, assertTrustedGitTree } from "../integrations/repo-mirror";
 import { stageServiceContext, serviceContextDir } from "./service-context";
 import { SqliteRunHistoryAdapter } from "./run-history-sqlite-adapter";
-import { resolveCampaignFreeze } from "./campaign-freeze";
+import type { RunFreeze } from "./run-freeze";
 import { agentBrowserEnabled, closedLoopEnabled, serviceTopologyWired } from "./run-config-gates";
 import { ProcessAuditPortAdapter } from "@contexts/cross-run-learning/infrastructure/process-audit-port.adapter";
 import { YamlBoundaryProfileAdapter } from "@contexts/service-topology/infrastructure/yaml-boundary-profile.adapter";
@@ -571,7 +571,7 @@ export function buildEngineRootDeps(
   app: AppConfig,
   deps: RunEngineFactoryDeps,
   namespace: string,
-  run: { mode: RunMode; guidance?: string; triggerRepo?: string; changeSet?: ChangeSet; sha?: string; runId?: string; grounding?: GroundingInput | EffectiveConfig["grounding"] },
+  run: { mode: RunMode; guidance?: string; triggerRepo?: string; changeSet?: ChangeSet; sha?: string; runId?: string; grounding?: GroundingInput | EffectiveConfig["grounding"]; freeze?: RunFreeze },
 
   observer?: ObserverPort,
 ): EngineRootDeps {
@@ -637,11 +637,11 @@ export function buildEngineRootDeps(
 
 
   /*
-   * QA_CAMPAIGN_FREEZE (operator switch, off by default; read here once because qa-engine reads no environment):
-   * the run starts from a fixed state (the suite store read-only, the context map and the login not rebuilt, no process audit). The collaborators below are left out, which the
-   * composition root reads as "not wired" (a provable no-op), never as a stub that pretends to learn.
+   * The server froze the run (run-freeze.ts: a campaign-tagged request; qa-engine reads no environment and no request): the run starts
+   * from a fixed state (the suite store read-only, the context map and the login not rebuilt, no process audit). The collaborators below
+   * are left out, which the composition root reads as "not wired" (a provable no-op), never as a stub that pretends to learn.
    */
-  const campaignFrozen = resolveCampaignFreeze(deps.env ?? activeEnvironment());
+  const campaignFrozen = run.freeze?.frozen ?? false;
 
   const triggerService =
     run.triggerRepo && run.triggerRepo !== app.repo
@@ -1297,7 +1297,7 @@ export function buildEngineRootDeps(
      * The accepted e2e suite of this app, in the qayaba-data volume (never mounted into the agents container). A checkout wipes every
      * untracked file of the mirror, and shadow mode never publishes: without the store every run would start cold, re-seed the
      * stock login and ask the agent to author it again.
-     * Under QA_CAMPAIGN_FREEZE the store is read-only: the suite is cross-run state like the learning the freeze already withholds,
+     * Under the freeze the store is read-only: the suite is cross-run state like the learning the freeze already withholds,
      * and a campaign seeds the store itself (scripts/warm-suite.ts seed-store) before each arm-run.
      */
     suiteStore: new SuiteStoreAdapter({ storeDir: appSuiteStoreDir(root, app.name), app: app.name, repo: app.repo, specRelDir: e2eRelDir, seedDir: join(qayabaRoot(), "config", "e2e"), listTracked: gitListTracked(runner), now: () => new Date(), readOnly: campaignFrozen }),

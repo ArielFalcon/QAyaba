@@ -17,7 +17,6 @@ import { JobQueue } from "./queue";
 import { enqueueTrackedRun } from "./runner";
 import type { ArchitectureContext } from "@contexts/generation/application/index.ts";
 import type { AgentDeps } from "../integrations/opencode-client";
-import { CAMPAIGN_FREEZE_ENV } from "./campaign-freeze";
 import { assertTrustedGitTree, defaultMirrorDeps, hardenGitArgs, UntrustedGitTreeError, type MirrorDeps } from "../integrations/repo-mirror";
 import { closeGitDir, GIT_ENV, makeGitlinkRepo, plantNestedRepo, ranPlantedCommand, writeMarkerCommand } from "../../qa-engine/test/shared-infrastructure/process-sandbox/git-fixtures";
 import { SqliteRunHistoryAdapter } from "./run-history-sqlite-adapter";
@@ -48,6 +47,9 @@ import { rosterFixturePath } from "../integrations/fixtures/opencode-roster";
 import { setAgentsConfigPath } from "../integrations/opencode-client";
 import type { RunMode } from "@kernel/run-mode";
 import { getHistory } from "./persistence/index";
+import type { RunFreeze } from "./run-freeze";
+
+const FROZEN: RunFreeze = { frozen: true, lessons: false };
 
 /* The publish step of a run as the engine wires it: the context's policy over the shell's git wiring. */
 function publishStep(mode: RunMode, git?: (args: string[], cwd?: string) => Promise<string>, writeExcludesFn?: (dir: string, patterns: readonly string[]) => void) {
@@ -365,12 +367,12 @@ test("the suite store starts a cold working copy from the engine's seed project 
   }
 });
 
-test("under the campaign freeze the suite store is read-only: a capture writes nothing", async () => {
+test("in a frozen run the suite store is read-only: a capture writes nothing", async () => {
   const root = mkdtempSync(join(tmpdir(), "factory-suite-freeze-"));
   const before = process.env.QAYABA_ROOT;
   process.env.QAYABA_ROOT = root;
   try {
-    const config = buildEngineRootDeps(cfg("suite-store-frozen"), { getAgentDeps: stubAgentDeps, env: { QA_CAMPAIGN_FREEZE: "1" } }, "qa-bot-abc1234-run1", { mode: "diff" });
+    const config = buildEngineRootDeps(cfg("suite-store-frozen"), { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff", freeze: FROZEN });
     const result = await config.suiteStore!.capture({ mirrorDir: root, specDir: join(root, "e2e"), runId: "r", sha: "s", executedGreen: new Map([["flows/a.spec.ts", "0".repeat(64)]]) });
     assert.deepEqual({ admitted: result.admitted, dropped: result.dropped }, { admitted: 0, dropped: 0 });
     assert.equal(existsSync(join(root, "data", "suites")), false);
@@ -2497,30 +2499,31 @@ test("service staging: declared services are mirrored CONCURRENTLY (Promise.all)
 });
 
 /*
- * QA_CAMPAIGN_FREEZE: the operator switch that stops a run from reading or writing cross-run state, so
- * the replicates of an A/B campaign start from the same ground.
+ * The freeze the server decides per request (run-freeze.ts): a frozen run neither reads nor writes cross-run state, so
+ * the replicates of an A/B campaign start from the same ground. The process environment decides nothing.
  */
-test("without the campaign freeze, the process-audit collaborator is wired", () => {
-  const config = buildEngineRootDeps(cfg("factory-freeze-off"), { getAgentDeps: stubAgentDeps, env: {} }, "qa-bot-abc1234-run1", { mode: "diff" });
+test("without the freeze, the process-audit collaborator is wired, and a process variable does not freeze the run", () => {
+  const config = buildEngineRootDeps(cfg("factory-freeze-off"), { getAgentDeps: stubAgentDeps, env: { QA_CAMPAIGN_FREEZE: "1" } }, "qa-bot-abc1234-run1", { mode: "diff" });
   assert.ok(config.processAudit, "the process audit is wired");
 });
 
-test("with the campaign freeze on, a run does not audit", () => {
-  const env = { [CAMPAIGN_FREEZE_ENV]: "1" };
-  const config = buildEngineRootDeps(cfg("factory-freeze-on"), { getAgentDeps: stubAgentDeps, env }, "qa-bot-abc1234-run1", { mode: "diff" });
-  assert.equal(config.processAudit, undefined, "no context is marked stale");
-  assert.ok(config.contextMapCapture, "a context-mode run still stores the map it builds");
+test("a frozen run does not audit, whatever lessons it reads", () => {
+  for (const lessons of [false, true]) {
+    const config = buildEngineRootDeps(cfg("factory-freeze-on"), { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff", freeze: { frozen: true, lessons } });
+    assert.equal(config.processAudit, undefined, "no context is marked stale");
+    assert.ok(config.contextMapCapture, "a context-mode run still stores the map it builds");
+  }
 });
 
-test("with the campaign freeze on, a stale-flagged app requests no context rebuild", async () => {
+test("in a frozen run, a stale-flagged app requests no context rebuild", async () => {
   const app = cfg(`factory-freeze-stale-${Math.random().toString(36).slice(2)}`);
   getHistory().contexts.markContextStale(app.name);
   const requested: string[] = [];
   buildEngineRootDeps(
     app,
-    { getAgentDeps: stubAgentDeps, env: { [CAMPAIGN_FREEZE_ENV]: "1" }, enqueueContextRun: async (request) => { requested.push(request.sha); return "run-heal"; } },
+    { getAgentDeps: stubAgentDeps, enqueueContextRun: async (request) => { requested.push(request.sha); return "run-heal"; } },
     "qa-bot-abc1234-run1",
-    { mode: "diff", sha: "abc1234" },
+    { mode: "diff", sha: "abc1234", freeze: FROZEN },
   );
   await flushMicrotasks();
   assert.deepEqual(requested, [], "a frozen campaign never adds a run to the queue");
@@ -2656,13 +2659,13 @@ test("a stored map at the run's own sha is used without comparing commits", () =
   assert.equal(config.contextMapProvenance!()?.stale, false);
 });
 
-test("under the campaign freeze a map that does not fit the run says its recapture was skipped, not that none was needed", () => {
+test("in a frozen run a map that does not fit the run says its recapture was skipped, not that none was needed", () => {
   const app = storedMapApp("frozen");
   const config = buildEngineRootDeps(
     app,
-    { getAgentDeps: stubAgentDeps, env: { [CAMPAIGN_FREEZE_ENV]: "1" }, contextMapChanges: () => [{ status: "M", path: "src/shops.routes.ts" }] },
+    { getAgentDeps: stubAgentDeps, contextMapChanges: () => [{ status: "M", path: "src/shops.routes.ts" }] },
     "qa-bot-run1",
-    { mode: "diff", sha: "sha-run" },
+    { mode: "diff", sha: "sha-run", freeze: FROZEN },
   );
   config.groundingCollaborators!.loadContextMap!("/nowhere");
   assert.equal(config.contextMapProvenance!()?.recapture, "skipped");

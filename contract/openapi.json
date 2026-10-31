@@ -2629,6 +2629,9 @@
               },
               "domPack": {
                 "type": "boolean"
+              },
+              "lessons": {
+                "type": "boolean"
               }
             },
             "additionalProperties": false
@@ -4739,9 +4742,6 @@
               "local"
             ]
           },
-          "campaignFreeze": {
-            "type": "boolean"
-          },
           "otlp": {
             "type": "object",
             "properties": {
@@ -4946,7 +4946,6 @@
         "required": [
           "schemaVersion",
           "mode",
-          "campaignFreeze",
           "otlp",
           "ledger",
           "droppedAttributes"
@@ -5759,11 +5758,16 @@
                   "domPack": {
                     "nullable": true,
                     "type": "boolean"
+                  },
+                  "lessons": {
+                    "nullable": true,
+                    "type": "boolean"
                   }
                 },
                 "required": [
                   "stitcher",
-                  "domPack"
+                  "domPack",
+                  "lessons"
                 ],
                 "additionalProperties": false
               },

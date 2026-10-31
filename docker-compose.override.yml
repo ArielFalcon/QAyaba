@@ -51,9 +51,8 @@ services:
       QA_DIFF_TIME_BUDGET_MS_BROAD: ${QA_DIFF_TIME_BUDGET_MS_BROAD:-}
       QA_RUN_TIME_BUDGET_MS_MANUAL: ${QA_RUN_TIME_BUDGET_MS_MANUAL:-}
       QA_RUN_TIME_BUDGET_MS_CONTEXT: ${QA_RUN_TIME_BUDGET_MS_CONTEXT:-}
-      # Stops a run from reading or writing cross-run state (the process audit
-      # with its context-stale flag), so the replicates of an A/B
-      # campaign start from the same ground. Empty is off (docs/efficiency-benchmark.md, "Campaigns").
+      # Retired: the server freezes every run that carries a campaign by itself and nothing reads this. It stays for one release, as the
+      # diff budget names above do, so a value still set in Doppler or the host reaches the container and the retirement warning fires.
       QA_CAMPAIGN_FREEZE: ${QA_CAMPAIGN_FREEZE:-}
     volumes:
       - ./src:/app/src:ro

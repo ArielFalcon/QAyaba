@@ -16,7 +16,6 @@ function deps(env: Record<string, string | undefined>, extra: Partial<BootstrapD
     env,
     clock: { now: () => T0 },
     store: { commit: (rows) => { commits.push([...rows]); } },
-    campaignFreeze: false,
     ...extra,
   };
   return { base, commits };
@@ -198,16 +197,9 @@ test("shutdown flushes buffered ledger rows even when the exporter hangs", async
   assert.equal(commits.flat().length, 1);
 });
 
-test("health reports the campaign freeze it was given", () => {
-  const handle = createTelemetry(deps({}, { campaignFreeze: true }).base);
-  assert.equal(handle.health().campaignFreeze, true);
-});
-
-test("the campaign freeze comes from QA_CAMPAIGN_FREEZE when not injected", () => {
-  const { base } = deps({ QA_CAMPAIGN_FREEZE: "1" });
-  const { campaignFreeze: _drop, ...rest } = base;
-  assert.equal(createTelemetry(rest).health().campaignFreeze, true);
-  assert.throws(() => createTelemetry({ ...rest, env: { QA_CAMPAIGN_FREEZE: "maybe" } }), /QA_CAMPAIGN_FREEZE/);
+test("health carries no campaign freeze: the freeze is a property of a run, not of the process", () => {
+  const handle = createTelemetry(deps({ QA_CAMPAIGN_FREEZE: "1" }).base);
+  assert.equal("campaignFreeze" in handle.health(), false);
 });
 
 test("health counts attributes the registry dropped", () => {

@@ -205,7 +205,7 @@ Every piece of agent-influenced code runs through the exec launcher (`qa-engine/
 | `gateSignals` on the run outcome (`qa-engine/src/shared-kernel/run-outcome.ts`) | sandbox (egress mode, denied), closedLoop, agentBrowser, coordination, noop kind, coverage… | On an unhandled error before an outcome existed, only a minimal sandbox-only outcome is now persisted |
 | `npm run probe-report -- <runId>` (`scripts/probe-report.ts`) | A per-run table of phases, turns, tools, tokens, cost, stitcher signals; JSON under `config/benchmarks/probe-results/` | A batch tool run after the fact |
 | `npm run efficiency-benchmark` | Step and call telemetry across runs | Never a gate |
-| Campaign runner (`scripts/campaign.ts`) | A/B arms; a no-retry validity re-run ×2 of what each arm delivered; a fake-pass detector; `campaign.json` / `.md` / `rubric.csv` | `QA_CAMPAIGN_FREEZE` must be on; engram is not isolated between replicates |
+| Campaign runner (`scripts/campaign.ts`) | A/B arms; a no-retry validity re-run ×2 of what each arm delivered; a fake-pass detector; `campaign.json` / `.md` / `rubric.csv` | the server freezes every run that carries a campaign; engram is not isolated between replicates |
 | OpenCode log (agents container) | Session create/cancel, per-step stream start, provider stream errors with class, retries, the title agent | Not correlated to run ids except through the session id |
 | Container stdout logs | `[qa] …` lines, JSON API request logs | Unstructured, no trace or span ids |
 

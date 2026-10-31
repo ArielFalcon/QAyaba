@@ -27,7 +27,6 @@ export interface TelemetryBackendsHealth {
 
 export interface TelemetryHealth {
   readonly mode: TelemetryModeName;
-  readonly campaignFreeze: boolean;
   readonly otlp: {
     readonly configured: boolean;
     /* ISO-8601 time of the last successful export. */

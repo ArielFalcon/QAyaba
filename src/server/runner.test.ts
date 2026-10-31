@@ -253,8 +253,13 @@ test("no bootstrap is queued for a public app, an app that already holds a verif
   await warm.queue.drain();
   assert.equal(none(warm), 0, "the store already holds a verified login");
 
-  const frozen = bootstrapRig({ withoutQuestion: true });
-  frozen.run("runner-boot-frozen");
+  const unwired = bootstrapRig({ withoutQuestion: true });
+  unwired.run("runner-boot-unwired");
+  await unwired.queue.drain();
+  assert.equal(none(unwired), 0, "no question wired, no bootstrap");
+
+  const frozen = bootstrapRig();
+  frozen.run("runner-boot-frozen", { campaign: { id: "c-1", variant: {}, replicate: 1 } });
   await frozen.queue.drain();
   assert.equal(none(frozen), 0, "a campaign controls warmth itself");
 

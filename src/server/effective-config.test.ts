@@ -6,7 +6,7 @@ import { join } from "node:path";
 import type { AppConfig } from "../orchestrator/config-loader";
 import { buildEffectiveConfig, hashStaticPrompts, parseStoredRunConfig, resolveRunConfig, type RunConfigEnvironment } from "./effective-config";
 
-const env: RunConfigEnvironment = { runtime: () => "opencode", staticPromptHash: () => "sha256:x", toolsGranted: true, campaignFrozen: false, maxCapture: "full" };
+const env: RunConfigEnvironment = { runtime: () => "opencode", staticPromptHash: () => "sha256:x", toolsGranted: true, maxCapture: "full" };
 const app = (over: Record<string, unknown> = {}, qa: Record<string, unknown> = {}): AppConfig =>
   ({ name: "a", repo: "o/a", dev: { baseUrl: "https://dev" }, qa: { needsReview: true, testDataPrefix: "qa", ...qa }, report: { onFailure: "x" }, ...over }) as AppConfig;
 
@@ -23,10 +23,10 @@ test("a lever that cannot take effect is not reported as applied", () => {
 
 test("grounding and policy are what the run's app declares, with the engine's defaults where it declares nothing", () => {
   const plain = resolveRunConfig(app(), {}, "metadata", env);
-  assert.deepEqual(plain.grounding, { stitcher: null, domPack: true });
+  assert.deepEqual(plain.grounding, { stitcher: null, domPack: true, lessons: true });
   assert.deepEqual(plain.coverage, { mode: "signal", minRatio: 0.7 });
   const stitched = resolveRunConfig(app({ services: [{ repo: "o/s" }], boundaries: [{}] }, { changeCoverage: { mode: "enforce", minRatio: 0.9 } }), {}, "metadata", env);
-  assert.deepEqual(stitched.grounding, { stitcher: "signal", domPack: true });
+  assert.deepEqual(stitched.grounding, { stitcher: "signal", domPack: true, lessons: true });
   assert.deepEqual(stitched.coverage, { mode: "enforce", minRatio: 0.9 });
   const withBoundaries = resolveRunConfig(app({ services: [{ repo: "o/s" }], boundaries: [{}] }), {}, "metadata", env);
   assert.equal(withBoundaries.grounding.stitcher, "signal");
@@ -35,11 +35,16 @@ test("grounding and policy are what the run's app declares, with the engine's de
 test("a run's grounding lever wins over the app's setting", () => {
   const withServices = app({ services: [{ repo: "o/s" }], boundaries: [{}] });
   const asked = resolveRunConfig(withServices, { grounding: { stitcher: false } }, "metadata", env);
-  assert.deepEqual(asked.grounding, { stitcher: "off", domPack: true });
+  assert.deepEqual(asked.grounding, { stitcher: "off", domPack: true, lessons: true });
 });
 
-test("a campaign freeze is recorded on the run", () => {
-  assert.equal(resolveRunConfig(app(), {}, "metadata", { ...env, campaignFrozen: true }).campaignFreeze, true);
+test("the freeze and the lessons arm are recorded from the request: a campaign freezes the run, the lever lifts the lesson state only", () => {
+  const campaign = { id: "c", variant: {}, replicate: 1 };
+  const record = (request: Parameters<typeof resolveRunConfig>[1]) => { const c = resolveRunConfig(app(), request, "metadata", env); return [c.campaignFreeze, c.grounding.lessons]; };
+  assert.deepEqual(record({}), [false, true]);
+  assert.deepEqual(record({ campaign }), [true, false]);
+  assert.deepEqual(record({ campaign, grounding: { lessons: true } }), [true, true]);
+  assert.deepEqual(record({ grounding: { lessons: false } }), [false, false]);
 });
 
 test("domPack: the request wins over the app, the app applies when the request says nothing, and absent on both defaults to true", () => {
@@ -60,7 +65,7 @@ test("parseStoredRunConfig of an old record reads a missing domPack as null and 
     reflector: true,
   });
   assert.equal(parseStoredRunConfig(old)?.grounding.domPack, null);
-  assert.deepEqual(parseStoredRunConfig(old)?.grounding, { stitcher: null, domPack: null });
+  assert.deepEqual(parseStoredRunConfig(old)?.grounding, { stitcher: null, domPack: null, lessons: null });
   assert.equal("reflector" in (parseStoredRunConfig(old) ?? {}), false);
 });
 
@@ -99,5 +104,5 @@ test("the static prompt hash covers AGENTS.md and every role file, in name order
 
 test("the applied grounding records no structural-signal or dossier lever: the code graph is wired for every app", () => {
   const recorded = resolveRunConfig(app(), {}, "metadata", env).grounding;
-  assert.deepEqual(Object.keys(recorded).sort(), ["domPack", "stitcher"]);
+  assert.deepEqual(Object.keys(recorded).sort(), ["domPack", "lessons", "stitcher"]);
 });

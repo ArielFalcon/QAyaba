@@ -343,7 +343,7 @@ Grouped. The full list lives in the registry (§9.3).
 | Group | Attributes |
 |---|---|
 | Identity | `qayaba.run.id`, `qayaba.app`, `qayaba.commit.sha`, `qayaba.trigger`, `qayaba.mode`, `qayaba.target`, `qayaba.parent_run.id`, `qayaba.trigger_repo`, `qayaba.shadow`, `qayaba.engine.version` |
-| Config in effect | `qayaba.runtime` (the runtime that served the turn), `qayaba.closed_loop.enabled`, `qayaba.agent_browser.enabled`, `qayaba.coverage.policy`, `qayaba.campaign.freeze`, `qayaba.prompt.static_hash` (hash of `agents/AGENTS.md` plus role files), `qayaba.capture_mode` |
+| Config in effect | `qayaba.runtime` (the runtime that served the turn), `qayaba.closed_loop.enabled`, `qayaba.agent_browser.enabled`, `qayaba.coverage.policy`, `qayaba.campaign.freeze` (the run was frozen by the server, `run-freeze.ts`), `qayaba.prompt.static_hash` (hash of `agents/AGENTS.md` plus role files), `qayaba.capture_mode` |
 | Campaign | `qayaba.campaign.id`, `qayaba.campaign.variant.<key>`, `qayaba.campaign.replicate` |
 | Budgets | `qayaba.deadline.label`, `qayaba.deadline.budget_ms`, `qayaba.allotment.purpose`, `qayaba.allotment.ms`, `qayaba.allotment.reserve_ms`, `qayaba.allotment.reserve_source`, `qayaba.allotment.unmeasured` (the `allotment` event: once per purpose, the time it may spend and where the reserve held for the purposes after it came from: `none`, `measured` from the app's recent runs, or `fallback`) |
 | Outcome | `qayaba.verdict`, `qayaba.error_class`, `qayaba.generation.end`, `qayaba.decision`, `qayaba.furthest_phase`, `qayaba.specs.generated/valid/passed`, `qayaba.reviewer.turn_happened`, `qayaba.limit.fired`, `qayaba.limits`, `qayaba.degradations`, `qayaba.decision.shadowed` |
@@ -995,7 +995,7 @@ The LLM judges and their calibration were removed (RFC-0001 OD-1): none ever pro
 
 - **Trigger.** `POST /api/v1/runs` accepts `campaign {id, variant: Record<string,string>, replicate}` and `captureMode`.
   - These are persisted on the run, which closes the "campaign identity is client-side only" gap.
-  - `scripts/campaign.ts` sends them for its pipeline arm's diff runs (the label is the id; the arm and the levers it was given are the variant). A cross-repo case is triggered through the webhook, which has no campaign field, so it carries none. `QA_CAMPAIGN_FREEZE` is still required.
+  - `scripts/campaign.ts` sends them for its pipeline arm's diff runs (the label is the id; the arm and the levers it was given are the variant). A cross-repo case is triggered through the webhook, which has no campaign field, so it carries none and the server does not freeze it (a frozen service-triggered run needs a `campaign` field on the webhook payload).
   - Stored on `runs` (`campaign_id`, `campaign_variant` as JSON, `campaign_replicate`, `capture_mode`, `effective_config`). A run with a campaign has trigger `campaign`, `langfuse.session.id` = the campaign id, and the variant values among its tags.
   - Retention (R4): a campaign run keeps its record, agent turns, spans and spec snapshots for `QA_TELEMETRY_CAMPAIGN_RETENTION_DAYS` (default 180); an ordinary run keeps them 30 days.
 - **Dataset.** `config/benchmarks/datasets/<name>@<version>.json`: `{name, version, description?, items: [{app, sha, description, guidance?, mode?}]}`.
@@ -1069,7 +1069,7 @@ ingest times.
 | 5 | `POST /evaluations/regrade` | Body `{runIds?\|campaignId?\|since?, graders?: string[]}`. Returns 202 `{schemaVersion, jobId, runs: n}` |
 | 5b | `GET /evaluations/regrade/:jobId` | `{schemaVersion, jobId, status: "pending"\|"running"\|"complete"\|"failed", runs: n, graded: n, failed: [{runId, error}], startedAt, finishedAt?}` |
 | 6 | `GET /evaluations/catalog` | `{schemaVersion, phases: string[]` (canonical `RUN_PHASES` order)`, scores: [{name, dataType, polarity, range?, categories?, suffixes?, graderVersion, status?}]}`. The machine-readable source of phase order and score polarity |
-| 7 | `GET /telemetry/health` | `{schemaVersion, mode: off\|local, campaignFreeze: bool, otlp: {configured, lastExportAt?, lastError?, dropped}, ledger: {ok, spans}, backends?: {ok, loki, tempo, collector: {status: ok\|degraded\|down\|unconfigured, reason?, checkedAt, diskUsedRatio?, lastDataAt?}}}`. `backends` is the stores verified end to end (a Loki write probe, Tempo search, collector exporter metrics; see telemetry-local.md). Also summarized under `/api/health.telemetry` (`backendsOk`) |
+| 7 | `GET /telemetry/health` | `{schemaVersion, mode: off\|local, otlp: {configured, lastExportAt?, lastError?, dropped}, ledger: {ok, spans}, backends?: {ok, loki, tempo, collector: {status: ok\|degraded\|down\|unconfigured, reason?, checkedAt, diskUsedRatio?, lastDataAt?}}}`. `backends` is the stores verified end to end (a Loki write probe, Tempo search, collector exporter metrics; see telemetry-local.md). Also summarized under `/api/health.telemetry` (`backendsOk`) |
 
 **Facts the graders read.** A grader only reads what the run recorded. Facts the engine decides at run time are stored on the run and never recomputed from the app's current configuration: `review_required`, `coverage_status` (pass|fail|unknown as the objective-signal service decided), `coverage_mode`, `coverage_min_ratio`, `decision`, `shadowed`, `limit_fired`/`limit_role`, `limits`, `degradations`, `trace_id`, `cancelled`, and each case's spec `file`. Where a fact is missing the score is omitted (`change_coverage` is `unknown` only when the engine recorded `unknown`; `infra_error` exists only for `infra-error` runs, `unclassified` when no class was recorded, and `cancelled` for cancels):
 - `specCounts.valid` is **null** until the run got past the `validate` phase (validation gates the whole suite); an `invalid` run has `valid = 0`. `specCounts.passed` is null when `valid` is unknown or a delivered spec cannot be tied to its cases by exact spec path (a run-level `pass` implies all passed).
@@ -1088,9 +1088,15 @@ ingest times.
 - **Variant labels never change behaviour.** `campaign.variant` is stored and echoed as data. The
   engine never reads it, because a label that silently switched behaviour would be hidden coupling.
   What makes an arm behave differently is **only** the explicit request levers (`closedLoop`,
-  `agentBrowser`, `captureMode`) and the deployment's config.
+  `agentBrowser`, `captureMode`, `grounding`) and the deployment's config.
+- **The presence of a campaign freezes the run.** The server decides it per request, for every door
+  (`src/server/run-freeze.ts`): a run that carries a `campaign` starts from a fixed state (the suite store is
+  read-only, no context-map rebuild, no automatic login bootstrap, no process audit) and records
+  `effectiveConfig.campaignFreeze: true`. The one lever that lifts anything is `grounding.lessons: true`, which
+  lifts the lesson state only (docs/architecture/rfc/0013-learning-slice.md); a run without a campaign is not
+  frozen. No process variable decides it.
   - Every run returns `effectiveConfig`: the levers actually applied, the agent models per role,
-    `prompt.static_hash`, the stitcher setting, and
+    `prompt.static_hash`, the stitcher setting, whether the run read lessons and
     `campaignFreeze`.
   - A consumer verifies that its arms really differed by comparing `effectiveConfig`, not labels.
   - Exact shape. Every key is always present; a setting that does not apply is `null`:
@@ -1104,7 +1110,7 @@ ingest times.
         "qa-reviewer":  { "provider": "opencode-go", "model": "<the model the runtime resolved>", "reasoningEffort": null, "stepLimit": 25 }
       },
       "prompt": { "staticHash": "sha256:…" },
-      "grounding": { "stitcher": "signal", "domPack": true },
+      "grounding": { "stitcher": "signal", "domPack": true, "lessons": true },
       "coverage": { "mode": "signal", "minRatio": 0.7 }
     }
     ```
@@ -1113,7 +1119,7 @@ ingest times.
   - Model and prompt-version variants are config changes, made between arms. They are not request fields.
   - How each key is filled. It is resolved once, when the run starts, and stored on the run (`runs.effective_config`); a read never recomputes it from the current configuration. A run that predates the field answers every leaf as `null`.
     - `levers.closedLoop` / `agentBrowser`: the request's choice, else the app's setting, and `false` when the tools cannot be granted (no `QA_TOOLS_TOKEN`); `null` for an app with no DEV address. These are the settings in force at the start: a reduction the engine makes during the run (a sidekick excluded, a plan refused) is recorded in `gateSignals.coordination`, not here. `captureMode` is the applied value, after the ceiling.
-    - `campaignFreeze`: `QA_CAMPAIGN_FREEZE`. `runtime`: the provider of the primary (authoring) role assignment at the start.
+    - `campaignFreeze`: whether the request carried a campaign (the server froze the run). `grounding.lessons`: the request's `grounding.lessons`, else on for a run without a campaign and off for one with. `runtime`: the provider of the primary (authoring) role assignment at the start.
     - `agents`: from the run's own recorded agent turns. `provider` and `model` (the model that answered, else the one asked for) are what the runtime reported on the last turn that said; `stepLimit` is the largest step cap a prompt of that role stated (the live read). `reasoningEffort` is always `null`: OpenCode's live agent list (`GET /agent`) does not carry it, and the repo copy of the config is not a substitute.
     - `prompt.staticHash`: sha256 over `agents/AGENTS.md` and each `agents/agent/*.md`, in name order, read from the orchestrator's own copy of the repository. The agents container mounts the same folder read-only, so it is what it serves unless the two checkouts differ; `null` when the files cannot be read.
     - `stitcher`: `signal` for an app with services and declared boundaries (the service-topology collaborator), `off` when the run's `grounding.stitcher` is `false`, else `null`. The code graph, and with it the structural block and the change dossier, is part of every run's grounding and has no key here.

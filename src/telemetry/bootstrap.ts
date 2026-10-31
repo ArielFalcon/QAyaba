@@ -17,7 +17,6 @@ import { BatchLogRecordProcessor, LoggerProvider, type LogRecordExporter } from 
 import { NoopTelemetry } from "@kernel/telemetry/noop-telemetry";
 import type { TelemetryHealth } from "./telemetry-health";
 import type { TelemetryClock, TelemetryPort } from "@kernel/telemetry/telemetry.port";
-import { resolveCampaignFreeze } from "../server/campaign-freeze";
 import { getHistory, getHistoryDatabase } from "../server/persistence/index";
 import { pruneRunPlans, pruneRunSpans, pruneSpecSnapshots } from "../server/persistence/retention";
 import { sanitizeText } from "../../qa-engine/src/shared-infrastructure/redaction/pattern-redaction.adapter";
@@ -40,8 +39,6 @@ export interface BootstrapDeps {
   readonly clock?: TelemetryClock;
   /* Where the ledger writes. Default: the history database. */
   readonly store?: RunSpanStore;
-  /* Default: read from QA_CAMPAIGN_FREEZE. */
-  readonly campaignFreeze?: boolean;
   readonly captureMode?: CaptureMode;
   /* Builds the OTLP trace exporter for a url. Default: OTLP/proto over HTTP. */
   readonly traceExporterFactory?: (url: string) => SpanExporter;
@@ -115,10 +112,9 @@ class ObservedExporter implements SpanExporter {
   }
 }
 
-function offHandle(freeze: boolean, clock: TelemetryClock): TelemetryHandle {
+function offHandle(clock: TelemetryClock): TelemetryHandle {
   const health: TelemetryHealth = {
     mode: "off",
-    campaignFreeze: freeze,
     otlp: { configured: false, dropped: 0 },
     ledger: { ok: true, spans: 0, writeErrors: 0 },
     droppedAttributes: 0,
@@ -152,9 +148,8 @@ export function retentionPrune(config: Pick<TelemetryConfig, "retentionDays" | "
 
 export function createTelemetry(deps: BootstrapDeps): TelemetryHandle {
   const config = resolveTelemetryConfig(deps.env);
-  const freeze = deps.campaignFreeze ?? resolveCampaignFreeze(deps.env);
   const clock = deps.clock ?? { now: () => Date.now() };
-  if (config.mode === "off") return offHandle(freeze, clock);
+  if (config.mode === "off") return offHandle(clock);
 
   const resource = resourceFromAttributes({ ...config.resourceAttributes, "service.name": config.serviceName });
   const ledger = new LedgerSpanProcessor(deps.store ?? { commit: (rows) => getHistory().telemetry.commitRunSpans(rows), prune: retentionPrune(config) });
@@ -229,7 +224,6 @@ export function createTelemetry(deps: BootstrapDeps): TelemetryHandle {
     const ledgerStats = ledger.stats();
     return {
       mode: "local",
-      campaignFreeze: freeze,
       otlp: {
         configured: config.otlp !== undefined,
         ...(exporterStatus.lastExportAt ? { lastExportAt: exporterStatus.lastExportAt } : {}),

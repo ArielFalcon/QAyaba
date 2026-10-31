@@ -267,7 +267,7 @@ plain agent's copy: it replaces the app's store with the snapshot (every file of
 docker compose exec orchestrator npm run warm-suite -- seed-store --app <app> --label <l>
 ```
 
-Under `QA_CAMPAIGN_FREEZE=1` the store is read-only (a run restores from it and captures nothing), so a campaign's
+In a frozen run (every run that carries a campaign) the store is read-only (a run restores from it and captures nothing), so a campaign's
 runs leave no suite behind; the campaign seeds the store before every arm-run itself. Git stays the source of truth:
 a path the checked-out commit tracks with other content than the stored one belongs to git (the stored file is left
 out), and an unpublished change over an unchanged tracked file is put back over it. A service repo's mirror has no store.
@@ -377,13 +377,13 @@ Three things make a single run of each arm a poor comparison, and the campaign r
 - **"Green" means different things.** The plain agent calls any spec that passed its own two runs a pass (a spec holding
   `expect(true).toBe(true)` scores), and the pipeline executes once, with retries, and after a reviewer rejection accepts
   regenerated specs that never ran. The campaign judges both arms the same way, outside both ([Validity](#validity)).
-- **The pipeline learns from every run**, so replicate 2 starts from what replicate 1 taught it ([Freeze switch](#freeze-switch-qa_campaign_freeze)).
+- **The pipeline learns from every run**, so replicate 2 starts from what replicate 1 taught it ([Freeze](#freeze-the-server-decides-per-run)).
 - **State leaks between runs**: the suite a run leaves in the mirror, the data a case creates on DEV.
 
 ### Workflow
 
 ```bash
-# once: the warm snapshot (see Warm start), with QA_CAMPAIGN_FREEZE=1 on the orchestrator
+# once: the warm snapshot (see Warm start)
 cp config/benchmarks/campaign-cases.example.json config/benchmarks/campaign-cases.json   # gitignored: it names real commits
 docker compose exec orchestrator npm run campaign -- --cases config/benchmarks/campaign-cases.json --replicas 3 --label camp-1 --warm <snapshot-label> --dry-run
 docker compose exec orchestrator npm run campaign -- --cases config/benchmarks/campaign-cases.json --replicas 3 --label camp-1 --warm <snapshot-label> [--arms A,B] [--wall-cap-min 30] [--closed-loop on|off] [--agent-browser on|off]
@@ -416,14 +416,14 @@ login before every arm-run of the case, because a case that writes data (an addr
 | Arm A | `baseline-agent` in-process, with `--warm`, `--timeout-min` = the wall cap and `--keep-specs <campaign>/<case>/A-<n>/files` (it copies every file it added or changed in `e2e/` since the snapshot before its throwaway copy is removed; it needs `--warm`) |
 | Arm A' | the same agent as A, started with `--accept` (and `--accept-review` when the app has `qa.needsReview`): its own two runs are replaced by the pipeline's acceptance ([Arm A'](#arm-a-the-plain-agent-judged-by-the-pipelines-acceptance)). Its label and directory use `Ap` for `A'` (`<case>/Ap-<n>/`) |
 | Wall cap | `--wall-cap-min` (default 30) for each arm-run. B is cancelled with `DELETE /api/v1/runs/<id>` when it outlives the cap (the replicate is flagged invalid); A's cap is the agent session, as `--timeout-min` is (its setup and its own suite runs are outside it, B's cap covers the whole run, so A may exceed it by those) |
-| Refusals before anything runs | app not in shadow mode (unless `--allow-non-shadow`); for arm B, `QA_CAMPAIGN_FREEZE` not on in this process (unless `--skip-env-checks`, for a server started with it by another route); snapshot not warm; a cleanup spec the snapshot lacks; a service the app does not declare; for arm A, a commit missing from the mirrors (the plain agent never fetches: run the pipeline arm once on the case first, `--arms B --replicas 1`); a campaign label that exists |
+| Refusals before anything runs | app not in shadow mode (unless `--allow-non-shadow`); snapshot not warm; a cleanup spec the snapshot lacks; a service the app does not declare; for arm A, a commit missing from the mirrors (the plain agent never fetches: run the pipeline arm once on the case first, `--arms B --replicas 1`); a campaign label that exists |
 | Dry run | `--dry-run` runs all of those checks and prints the plan; it starts no run |
 
 Output, in `config/benchmarks/campaigns/<label>/` (gitignored), rewritten after every arm-run so a stopped campaign keeps what finished:
 
 | File | Holds |
 |---|---|
-| `campaign.json` | the record: conditions (freeze, shadow), the snapshot, and one entry per case x arm x replicate |
+| `campaign.json` | the record: conditions (shadow), the snapshot, and one entry per case x arm x replicate |
 | `campaign.md` | the per arm-run table (verdict, whether the outcome was the expected one, valid, valid / delivered specs, fake-pass flags, USD, wall, wall without the change-coverage phase (where the mutation pass runs), steps, cold/warm, whether the replicate is invalid and why) and a per case x arm summary with medians over comparable replicates and the figures that were measured |
 | `rubric.csv` | one row per **valid, comparable** arm-run, with what the case says the spec must verify and where the files are, and an empty `score_0_3` column for the owner |
 | `<case>/<arm>-<n>/files/` | every file the arm delivered (specs and helpers). For B, only when its run was accepted; a rejected run's files are in `rejected/` |
@@ -506,23 +506,30 @@ After each arm-run the harness takes the files the arm delivered and judges them
    `retries: 0` (a pass on retry is not a pass here). A spec is valid when both runs pass all of its tests. An arm-run is **valid** when it
    delivered at least one spec and every delivered spec is valid; then it is listed in `rubric.csv` for the owner to score.
 
-### Freeze switch: `QA_CAMPAIGN_FREEZE`
+### Freeze: the server decides per run
 
-Set `QA_CAMPAIGN_FREEZE=1` on the orchestrator (`.env` or Doppler; it is passed through `docker-compose.override.yml`)
-and restart it. It is read once, in the composition root (`src/server/campaign-freeze.ts`), and for every run it:
+A run that carries a `campaign` is frozen by the server, whichever door it came through (`src/server/run-freeze.ts`, ADR-0009):
+nothing is set on the orchestrator. For that run it:
 
 | Skips | Because |
 |---|---|
 | the process audit (the context map is not marked stale) | an audit finding from a campaign run must not change the system under test |
 | the suite store's writes (it stays readable: the campaign seeds it before every arm-run) | the suite a replicate was accepted with would start the next one; a read-only store restores and captures nothing |
-| the context-map rebuild a stale flag requests | it would put a run that is not part of the campaign on the queue. A flag armed before the campaign is still read (the stored map is not used), the same for every replicate: clear it first by running `mode: context` once |
+| the context-map rebuild a stale flag requests, and the context run the runner queues ahead of a run whose map does not describe its commit | it would put a run that is not part of the campaign on the queue. A flag armed before the campaign is still read (the stored map is not used), the same for every replicate: clear it first by running `mode: context` once |
+| the automatic login bootstrap | a campaign seeds the store itself before each arm-run |
 
-Unset, blank, `0` and `false` keep today's behavior; any other value stops the composition with an error naming the
-variable. Run history, the run's own outcome and the agent turns are recorded as always, and a context-mode run still
-stores the map it builds.
+The run records `effectiveConfig.campaignFreeze: true`. Run history, the run's own outcome and the agent turns are recorded as always, and a
+context-mode run still stores the map it builds. A run without a campaign is not frozen.
+
+The one lever that lifts anything is the learning arm, `grounding.lessons: true` on the run request (`--grounding lessons=on` in the
+launcher): it lifts the lesson state only, so a frozen run reads the lessons derived from earlier runs' observations
+(docs/architecture/rfc/0013-learning-slice.md). The replicate isolation and the process audit stay withheld. Absent, a campaign run reads no lessons and a run without a campaign reads them.
+
+`QA_CAMPAIGN_FREEZE` is retired: a value still set warns once at start and decides nothing. A cross-repo case enters through the webhook, whose payload
+carries no campaign, so the server does not freeze it (the launcher says so when it plans one).
 
 No agent keeps a memory of its own across runs, so nothing an agent wrote in one replicate reaches the next: what a run
-reuses comes from the orchestrator, which this switch freezes.
+reuses comes from the orchestrator, which the freeze controls.
 
 ## Success criteria and guardrails
 
