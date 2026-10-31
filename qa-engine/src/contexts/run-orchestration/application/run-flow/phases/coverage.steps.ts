@@ -147,6 +147,9 @@ export async function measureCoverage(state: Readonly<RunState>, ctx: WorkspaceR
 /* The mutation pass runs only on a measurement that found one due (mutants were chosen and there are passing cases to judge them against), on a port that can run it. */
 export const measuresMutation = (state: Readonly<RunState>, ctx: WorkspaceRunContext): boolean => state.coverage.mutationPass !== undefined && ctx.deps.objectiveSignal.measureMutation !== undefined;
 
+/* Why the mutation pass is passed over: there was nothing to measure, or the measurement found no pass due (no mutant on the changed lines a test reached, no passing case to judge one against, or no mutation pass configured). */
+export const mutationSkipReason = (state: Readonly<RunState>, ctx: WorkspaceRunContext): string => (measuresCoverage(state, ctx) ? "no-mutation-due" : coverageSkipReason(state, ctx));
+
 /*
  * The mutation pass the measurement by execution found due, and the coverage it verifies: the mutants are those that measurement chose
  * and the dumps it read are not read again. It replaces the measurement by execution only when it completes and a mutant was judged,

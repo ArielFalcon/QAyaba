@@ -218,8 +218,8 @@ export class ObjectiveSignalPortAdapter implements ObjectiveSignalPort {
       ...asked,
     };
     const due = mutants.length > 0 && pass.judgedAgainst.length > 0;
-    /* By execution alone: what the passing tests ran, and the pass still to run on it when one is due. */
-    if (opts?.byExecution) return { ...this.resultOf({ cc: executed, executed: null, scripts: pass.scripts, changeDiff, trouble, ranBy, asked, willAssemble: true }), ...(due ? { mutationPass: pass } : {}) };
+    /* By execution alone: what the passing tests ran, how the mutants were chosen (so a measurement no pass follows still says why none ran), and the pass still to run on it when one is due. */
+    if (opts?.byExecution) return { ...this.resultOf({ cc: executed, executed: null, scripts: pass.scripts, changeDiff, trouble, ranBy, asked, willAssemble: true }), mutantSelection: selection, ...(due ? { mutationPass: pass } : {}) };
     return this.mutate(pass, specDir, opts?.rerunBudget, opts?.onRead, noCodeOf);
   }
 

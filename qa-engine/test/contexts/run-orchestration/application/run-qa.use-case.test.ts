@@ -1670,6 +1670,38 @@ test("the mutation pass reads none of the execution's dumps again, so a second r
   assert.deepEqual(rig.telemetry.measureSpans().at(-1), rigVerifiedSpan("fail"));
 });
 
+test("a measurement whose changed lines hold no mutant says on its span how the mutation sites were left out, as a measurement with the pass inside it did", async () => {
+  const { rig, coverage } = await runMutationRig("mutation-pass-no-mutant", { sourceLine: "pay();" });
+
+  assert.deepEqual(rig.reruns, [], "no mutant, no re-run");
+  assert.equal(coverage.bundleMutation, undefined);
+  assert.deepEqual(rig.telemetry.measureSpans(), [{
+    "qayaba.coverage.status": "fail",
+    "qayaba.mutation.sites_skipped": 3,
+    "qayaba.mutation.sites_skipped_reasons": ["not-in-source-line: 3"],
+    "qayaba.mutation.reruns_by_test": 0,
+    "qayaba.mutation.reruns_by_spec_file": 0,
+    "qayaba.coverage.ratio": 0.5,
+    "qayaba.coverage.changed_lines": 4,
+    "qayaba.coverage.covered_lines": 2,
+    "qayaba.coverage.changed_files": 1,
+    "qayaba.coverage.mapped_files": 1,
+    "qayaba.coverage.changed_branches": 2,
+    "qayaba.coverage.taken_branches": 1,
+  }]);
+});
+
+test("the measurement by execution carries how its mutants were chosen on its span, before the mutation pass runs them", async () => {
+  const { rig } = await runMutationRig("mutation-pass-selection-first");
+
+  const [byExecution] = rig.telemetry.measureSpans();
+  assert.deepEqual(
+    Object.fromEntries(Object.entries(byExecution!).filter(([key]) => key.startsWith("qayaba.mutation."))),
+    { "qayaba.mutation.sites_skipped": 0, "qayaba.mutation.reruns_by_test": 3, "qayaba.mutation.reruns_by_spec_file": 0 },
+    "the selection, and nothing of a pass that has not run",
+  );
+});
+
 test("a mutation pass that judged no mutant leaves the coverage by execution as it was", async () => {
   const { rig, coverage } = await runMutationRig("mutation-pass-none-judged", { reachesNoPage: true });
 

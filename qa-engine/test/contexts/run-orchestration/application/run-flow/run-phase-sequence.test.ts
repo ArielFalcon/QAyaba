@@ -109,6 +109,14 @@ test("a green manual run reports the same steps except the ones only a per-commi
   assert.deepEqual(await idsOf(input, "skipped"), ["classify-change", "run-fix-loop", "fix-triage", "fix-adjudicate", "fix-regenerate", "fix-accept", "fix-reexecute", "settle-fix-loop", "announce-coverage", "measure-mutation", "regenerate-for-coverage", "regenerate-for-branch-cases", "triage-flaky-cases", "remeasure-stale-coverage"]);
 });
 
+test("the mutation pass is passed over with its reason: the measurement found none due, or there was nothing to measure", async () => {
+  const green = await runOf({ ...base, mode: "diff", runId: "sequence-mutation-skip-reason" });
+  assert.deepEqual(green.steps.find((step) => step.id === "measure-mutation"), { id: "measure-mutation", outcome: "skipped", phase: green.steps.find((step) => step.id === "measure-mutation")!.phase, reason: "no-mutation-due" });
+
+  const failing = await runOf({ ...base, mode: "diff", runId: "sequence-mutation-skip-red" }, async () => ({ verdict: "fail", cases: [{ name: "a", status: "fail", file: "a.spec.ts", detail: "boom" }], logs: "" }), "fail");
+  assert.equal(failing.steps.find((step) => step.id === "measure-mutation")?.reason, "no-green-bytes");
+});
+
 test("the coverage measurement of a run that has no green bytes is passed over with its reason, and one of a run that has them is not", async () => {
   const failing = await runOf({ ...base, mode: "diff", runId: "sequence-skip-reason" }, async () => ({ verdict: "fail", cases: [{ name: "a", status: "fail", file: "a.spec.ts", detail: "boom" }], logs: "" }), "fail");
   assert.deepEqual(failing.steps.find((step) => step.id === "measure-coverage"), { id: "measure-coverage", outcome: "skipped", phase: failing.steps.find((step) => step.id === "measure-coverage")!.phase, reason: "no-green-bytes" });

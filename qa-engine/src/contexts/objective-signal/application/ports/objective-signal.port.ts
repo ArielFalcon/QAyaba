@@ -38,7 +38,8 @@ export interface ObjectiveSignalPort {
    * `opts.onRead` is told every read of dumps the measurement made, whatever it came to (the record of the read: dumps, bytes, time, outcome), for the trace.
    * `opts.byExecution` measures what the passing tests ran and runs no mutant: `mutationPass` then holds the pass that would run on
    * this measurement (mutants were chosen and there are passing cases to judge them against), with what this one read of the dumps
-   * gave, so the costly re-runs can be a step of their own (`measureMutation`) that reads none of those dumps again.
+   * gave, so the costly re-runs can be a step of their own (`measureMutation`) that reads none of those dumps again; its
+   * `mutantSelection` says how the mutants were chosen, due or not.
    * `opts.rerunBudget` holds the mutation pass's re-runs to the time left (a re-run the allowance cannot hold is not started, and
    * `bundleMutation.leftOut` counts it); absent, every re-run starts.
    */
