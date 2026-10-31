@@ -1,5 +1,7 @@
 /* Public surface of this context: other contexts import only from this file. It declares nothing. */
 export { WriteConfinementService } from "../domain/write-confinement.service.ts";
+export { PublishDecisionService } from "../domain/publish-decision.service.ts";
+export type { PublishContext, PublishDecision, PublishOutcome } from "../domain/publish-decision.service.ts";
 export type { CleanupPort } from "./ports/cleanup.port.ts";
 export type { ConfinementPort } from "./ports/confinement.port.ts";
 export type { MirrorGcPort } from "./ports/workspace-mirror-gc.port.ts";
