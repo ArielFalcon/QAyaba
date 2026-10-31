@@ -6,10 +6,10 @@
  */
 
 import { RUN_MODES, type RunMode } from "@kernel/run-mode.ts";
+import { isCommitSha } from "@kernel/git-revision.ts";
 
 export const DATASET_NAME_PATTERN = /^[a-z0-9][a-z0-9._-]{0,63}$/;
 export const DATASET_VERSION_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,31}$/;
-const SHA_PATTERN = /^[0-9a-f]{7,40}$/i;
 export const MAX_GUIDANCE_CHARS = 2000;
 export const MAX_DATASET_ITEMS = 500;
 
@@ -46,7 +46,7 @@ function parseItem(raw: unknown, index: number): DatasetItem {
   for (const key of Object.keys(raw)) if (!known.has(key)) throw new DatasetError(`${where} has an unknown field '${key}'`);
   const app = text(raw.app, `${where}.app`, 100);
   const sha = text(raw.sha, `${where}.sha`, 40);
-  if (!SHA_PATTERN.test(sha)) throw new DatasetError(`${where}.sha must be 7-40 hex characters`);
+  if (!isCommitSha(sha)) throw new DatasetError(`${where}.sha must be 7-40 hex characters`);
   const description = text(raw.description, `${where}.description`);
   const guidance = raw.guidance === undefined ? undefined : text(raw.guidance, `${where}.guidance`, MAX_GUIDANCE_CHARS);
   let mode: RunMode;

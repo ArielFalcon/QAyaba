@@ -14,8 +14,6 @@ const COMMIT_ID_REGEX = /\[0-9a-f(?:A-F)?\]\{(?:4|7),(?:40|64)\}/;
 
 const FROZEN: Readonly<Record<string, string>> = {
   "qa-engine/src/contexts/change-analysis/infrastructure/git-mirror-read.adapter.ts": "fileAt's grammar: a commit id of either object format with a ~n or ^ suffix, not a commit id on its own",
-  "scripts/baseline-agent.ts": "an experiment-only script with its own copy of the run service's rule",
-  "qa-engine/src/contexts/evaluation/domain/benchmark-dataset.ts": "the evaluation context's dataset loader, outside the git-revision writer's surface",
   "qa-engine/src/contexts/evaluation/domain/use-case-reference.ts": "the evaluation context's reference loader, lower-case only",
   "qa-engine/src/shared-infrastructure/code-graph/codegraph-workspace.ts": "the code-graph export, which accepts the SHA-256 object format up to 64 characters",
 };

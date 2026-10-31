@@ -44,6 +44,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import type { RunVerdict } from "@kernel/run-verdict.ts";
+import { isCommitSha } from "@kernel/git-revision.ts";
 import { sanitizeText } from "../qa-engine/src/shared-infrastructure/redaction/pattern-redaction.adapter.ts";
 import { CallEfficiencyTracker } from "@contexts/generation/infrastructure/sse/call-efficiency-tracker.ts";
 import { buildTurnStepBudget, type TurnCallMetrics } from "@contexts/generation/application/index.ts";
@@ -500,7 +501,6 @@ export interface BaselineArguments {
   acceptReview: boolean;
 }
 
-const HEX_COMMIT_ID = /^[0-9a-f]{7,40}$/i;
 const REPO_SLUG = /^[A-Za-z0-9][A-Za-z0-9._-]*\/[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
 export function parseArguments(argv: readonly string[]): { ok: true; args: BaselineArguments } | { ok: false; problem: string } {
@@ -526,7 +526,7 @@ export function parseArguments(argv: readonly string[]): { ok: true; args: Basel
     values["--sha"] = serviceSha!;
   }
   for (const required of ["--app", "--sha", "--label"]) if (!values[required]) return { ok: false, problem: `error: ${required} is required` };
-  if (!HEX_COMMIT_ID.test(values["--sha"]!)) return { ok: false, problem: `error: ${serviceRepo !== undefined ? "--service-sha" : "--sha"} must be 7-40 hex characters` };
+  if (!isCommitSha(values["--sha"])) return { ok: false, problem: `error: ${serviceRepo !== undefined ? "--service-sha" : "--sha"} must be 7-40 hex characters` };
   let timeoutMin: number | null = null;
   if (values["--timeout-min"] !== undefined) {
     timeoutMin = Number(values["--timeout-min"]);
