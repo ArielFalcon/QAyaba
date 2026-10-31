@@ -29,6 +29,7 @@ import type { RunOutcome } from "@kernel/run-outcome.ts";
 import { AgentTimeoutError, UntrustedGitTreeError } from "@kernel/domain-error";
 import { traceHarness } from "../test-support/trace-harness";
 import { getHistory } from "../persistence/index";
+import { engineStatus } from "../persistence/types";
 import { testDataNamespace } from "./test-data";
 
 const cfg = (name: string): AppConfig => ({
@@ -1214,6 +1215,33 @@ test("cancelling an already-finished run publishes nothing", () => {
   cancelTrackedRun(new JobQueue(), rec.id, { runEvents });
   assert.deepEqual(runEvents.replay(rec.id), []);
 });
+
+/* How a run that never reaches its own verdict ends, whichever way it was left: the record's verdict, note and cancelled fact, and the stream's last event. */
+for (const [branch, note, cancelled] of [
+  ["live", "cancelled by operator", true],
+  ["enqueued", "cancelled by operator", true],
+  ["stale running", "cancelled by operator (run was no longer active)", true],
+] as const) {
+  test(`a cancelled ${branch} run ends as infra-error with the note "${note}" and the cancelled fact`, async () => {
+    const queue = new JobQueue();
+    const runEvents = createRunEventStore();
+    const rec = getHistory().runs.createRecord({ app: `cancel-end-${branch.replace(" ", "-")}`, sha: "abc1234", target: "e2e", mode: "diff" });
+    if (branch !== "enqueued") getHistory().runs.updateRecord(rec.id, { status: "running" });
+    if (branch === "live") {
+      queue.enqueue(async (signal) => {
+        await new Promise<void>((resolve) => signal.addEventListener("abort", () => resolve(), { once: true }));
+      }, rec.id);
+      await new Promise((r) => setImmediate(r));
+    }
+    assert.equal(cancelTrackedRun(queue, rec.id, { runEvents }), branch === "live");
+    await queue.drain();
+    const record = getHistory().runs.getRecord(rec.id)!;
+    assert.deepEqual({ status: record.status, step: record.step, verdict: record.verdict, note: record.note }, { status: "done", step: "done", verdict: "infra-error", note });
+    assert.equal(getHistory().runs.getRunFacts(rec.id)?.cancelled, cancelled);
+    const last = runEvents.replay(rec.id).map((e) => e.body).filter((b) => b.type === "run.verdict");
+    assert.deepEqual(last, [{ type: "run.verdict", verdict: "infra-error", engineStatus: engineStatus("infra-error"), outcome: note }]);
+  });
+}
 
 test("cancelTrackedRun returns false for an unknown run id", () => {
   assert.equal(cancelTrackedRun(new JobQueue(), "does-not-exist"), false);

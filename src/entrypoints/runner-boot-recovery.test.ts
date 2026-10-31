@@ -7,6 +7,7 @@ import assert from "node:assert/strict";
 import { finalizeInterruptedRuns } from "./runner";
 import { createDurableRunEventStore } from "../composition/durable-run-events";
 import { getHistory } from "../persistence/index";
+import { engineStatus } from "../persistence/types";
 import { installLogShipper, type ShippedLine } from "../telemetry/redacting-logger";
 
 test("a run interrupted by a restart is finalized and its event stream ends with a verdict a resuming client sees", () => {
@@ -56,4 +57,17 @@ test("the recovery line of an interrupted run ships to the log store, since no s
     installLogShipper(undefined);
   }
   assert.ok(shipped.some((l) => l.message.includes(`finalized ${rec.id}`) && l.message.includes("step generate")), `shipped: ${JSON.stringify(shipped.map((l) => l.message))}`);
+});
+
+test("a run interrupted by a restart ends as infra-error with the restart note and no cancelled fact", () => {
+  const rec = getHistory().runs.createRecord({ app: "boot-zombie-end", sha: "abc5678", target: "e2e", mode: "diff" });
+  getHistory().runs.updateRecord(rec.id, { status: "running", step: "execute" });
+  const runEvents = createDurableRunEventStore();
+  finalizeInterruptedRuns({ runEvents });
+  const record = getHistory().runs.getRecord(rec.id)!;
+  const note = "process restarted — run was interrupted";
+  assert.deepEqual({ status: record.status, step: record.step, verdict: record.verdict, note: record.note }, { status: "done", step: "done", verdict: "infra-error", note });
+  assert.equal(getHistory().runs.getRunFacts(rec.id)?.cancelled, null);
+  const last = runEvents.replay(rec.id).map((e) => e.body).filter((b) => b.type === "run.verdict");
+  assert.deepEqual(last, [{ type: "run.verdict", verdict: "infra-error", engineStatus: engineStatus("infra-error"), outcome: note }]);
 });
