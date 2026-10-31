@@ -1,7 +1,7 @@
 # RFC-0015: One execution contract; the verdict never comes from an instrumented execution
 
 - **Status:** Accepted, 2026-10-31, by [ADR-0023](../adr/0023-owner-decisions-rfc-0015.md) (every recommended answer); implemented as T41 (feature document T40, L73-L75).
-- **Implementation (T41):** U1 `94e17675` (the contract recorded on every execution), U2 `5055cc3c` (judging uninstrumented, one measurement execution, E8 and E13 split), U3 `921c8d42` (dumps keyed by the bytes they ran; the judging executions' dump bookkeeping removed), U4 `14c781ef` (scripts written once per worker as `<sha256>.script.json`, keyed by the source's sha256 alone since the dump entry keeps its URL; `_coverage` has its own fixture time), U5 `614702de` (login wall on every judging execution, one renewal, `session-lost`), U6 the AGENTS.md and observability documents.
+- **Implementation (T41):** U1 `94e17675` (the contract recorded on every execution), U2 `5055cc3c` (judging uninstrumented, one measurement execution, E8 and E13 split), U3 `921c8d42` (dumps keyed by the bytes they ran; the judging executions' dump bookkeeping removed), U4 `14c781ef` (scripts written once per worker as `<sha256>.script.json`, keyed by the source's sha256 alone since the dump entry keeps its URL; `_coverage` has its own fixture time), U5 `614702de` (login wall on every judging execution, one renewal, `session-lost`; removed by L78, only the record of the session's age is kept), U6 the AGENTS.md and observability documents.
 - **Code references at 21ef1810** (the worktree head when the map was made; read a line with `git show 21ef1810:<path>`). The installed Playwright is 1.60.0 (`package.json:60`, `config/e2e/package.json:8`).
 - **Evidence:** T12-d `run-ed28973-mvwe1bcz-26750e38` (engine 6190f228, L65), the T40 investigation (L66) and the T40 A/B on DEV (L73).
 - **Related:** [ADR-0001](../adr/0001-design-pillars.md), [ADR-0011](../adr/0011-root-cause-fix-policy.md), [RFC-0003](./0003-coverage-dump-harvest.md) (O4, coverage on the observation re-runs), [RFC-0008](./0008-acceptance-records-what-it-ran.md), [RFC-0012](./0012-one-time-authority.md), [ADR-0005](../adr/0005-coverage-enforce-activation.md), [ADR-0006](../adr/0006-bundle-mutation-switch.md), T39 (the measurement split into `measure-coverage` and `measure-mutation`)
@@ -170,7 +170,9 @@ The contract carries the session as a condition: **a judging execution starts wi
 
 **Amended by T41's correction (L77):** the look of a failure page is the trigger of a check, never the fact. As implemented, a failure that looks like the login page asks the run's own check of the session (the orchestrator's browser opens the pages the failing tests asked for with the saved session and applies the authenticated browser's `detectInvalidation`); only a session shown lost is renewed (by the run's own login) and the execution re-run, the re-run being the judgment; a session not shown lost leaves the first result standing; a run that holds no saved session never checks; `session-lost` ends a run only when the re-run meets the login page again and the check shows the freshly signed-in session gone again.
 
-The record then shows the age at which the app's session ended, a fact a later RFC can use.
+**Amended again (L78), superseding the two passages above (ADR-0023 row 8):** the session's age is recorded, never acted on, until a run shows an execution outliving its session. No execution checks, renews or re-runs for the session, and there is no `session-lost` end: a failure on what looks like the login page is judged as it ran. Rank 2 already says no execution of a default run can outlive the session (about 75 min of age at most against a lifetime of about 90 min); the loss was seen only in the off-queue T40 harness, 3 h after login; ADR-0001 P7 asks for a failure family before structure is added; and the guard alone produced five defects (L77 B1-B3, L78 N1-N2).
+
+The record then shows each execution's session age at its start, a fact a later RFC can use if a run ever shows an execution outliving its session.
 
 ## Recommendation
 
@@ -182,7 +184,7 @@ The record then shows the age at which the app's session ended, a fact a later R
 | U2 | `measurement` purpose; `PW_COVERAGE` explicit; E1-E8 uninstrumented; the measurement-and-observation execution step; kills judged against its passes; E8 split | items 3 and 6 |
 | U3 | Dumps keyed by bytes; the fix loop's and the acceptance's dump bookkeeping deleted; the fix loop filters to the failing files | item 6 |
 | U4 | Seed fixture: own timeout, de-duplicated dumps, reader accepts both forms | items 3 and 5 |
-| U5 | Session condition: login wall checked on every judging execution, renewal, typed `session-lost` | item 2 (session handling) |
+| U5 | Session condition: login wall checked on every judging execution, renewal, typed `session-lost` (removed by L78: only the session's age is recorded) | item 2 (session handling) |
 | U6 | Records: AGENTS.md, observability docs, ADR | none |
 
 ### Open questions (each with a recommended answer)
@@ -203,10 +205,10 @@ The record then shows the age at which the app's session ended, a fact a later R
 
 - **P1:** the same bytes get the same judgment whichever execution judges them. Today a pass depends on which execution ran (rank 1, confirmed). The rigid base is the contract; the flexible edge is what a measurement adds and records.
 - **P2:** the engine decides every condition; no agent chooses one. The written rule is "The rule" above, to be added to AGENTS.md in U6.
-- **P3:** no size or count is compared with a constant. The session is checked by a fact (the login wall), not by an age threshold. The measurement starts when the allowance holds its estimate (T39's rule).
-- **P4:** nothing app-specific. The coverage mechanism is Chromium's, the session check is the app-agnostic login-wall rule already used by `run_spec`, and the contract reads only the app's own config.
+- **P3:** no size or count is compared with a constant. The session is checked by a fact (the login wall), not by an age threshold (since L78 it is not checked at all: its age is recorded, never acted on). The measurement starts when the allowance holds its estimate (T39's rule).
+- **P4:** nothing app-specific. The coverage mechanism is Chromium's, the session check was the app-agnostic login-wall rule already used by `run_spec` (removed by L78), and the contract reads only the app's own config.
 - **P5:** the confirmed break is shown on one app's pages. The mechanism, a profiler with block counts and a debugger attached, slowing a script-heavy page's main thread, is a property of V8, not of that app. The fix removes the condition rather than tuning it to `/map`. Option B would need a per-app proof, which is why it is not recommended.
-- **P6:** a test no longer fails because it was measured, so a sound test is not regenerated against a phantom, and a kill is no longer counted from the measurement's cost. Mutation stays judged under one set of conditions. Coverage can be lost to time (unknown never blocks; enforce holds).
+- **P6:** a test no longer fails because it was measured, so a sound test is not regenerated against a phantom, and a kill is no longer counted from the measurement's cost. Mutation stays judged under one set of conditions. Coverage can be lost to time: a measurement cut or not run is `unknown`, which never blocks, under `enforce` too (ADR-0005; ADR-0023 Consequences, amended by L77).
 - **P7:** removes `coverageNs`, `coverageReruns`, `bestCoverage`, the acceptance's `reruns`, the `coverageWillMeasure` filter, the `-obs` re-run and the instrumented re-measure's double role. It adds one execution purpose, one contract value and one measurement step. A smaller change considered: B alone; it does not remove the cause.
 
 ## Measurement

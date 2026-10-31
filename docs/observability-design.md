@@ -337,13 +337,9 @@ Rules, from the brief §2.1 and the OTel spec:
   tests were such tests (never counted as survived). A measurement the allowance cannot hold is not started:
   `unmeasured: measurement-not-run` (coverage `unknown`, which never blocks, under `enforce` too: ADR-0005). A change with no changed
   code line (`holdsChangedCode`: every changed file of a declared language whose added lines are no code) runs no measurement and
-  records no `changeCoverage`. A judging execution of a run
-  holding a saved session, failing on what looks like the app's login page, asks the run's own check of the session (its browser
-  opens the pages the failing tests asked for with the session and applies the authenticated browser's "session invalidated" rule);
-  only a session shown lost is renewed and the execution re-run, the re-run being the judgment; a session shown gone again for the
-  re-run ends the run `E-PRECONDITION` with `adjudication.reason` `session-lost`. `gateSignals.executions.sessionChecks { lost, held,
-  unknown }` counts the checks. The session's age at each execution's start is on its span and in
-  `gateSignals.executions`, the fact a later decision about the app's session length can use.
+  records no `changeCoverage`. The session's age at each execution's start is on its span and in `gateSignals.executions`, the fact
+  a later decision about the app's session length can use; nothing acts on it (ADR-0023 row 8, amended): no execution checks,
+  renews or re-runs for the session, and a failure on what looks like the login page is judged as it ran.
 - **Ambient data state** (T38). A passing case whose every assertion ran on a page as it loaded, before any step of its own, on a
   page the Context Pack read as a confirmed empty state is recorded at the decided end as
   `gateSignals.ambientDataState { cases, pages, arms }` (`arms`: the untaken arms of the changed code on those pages, while the
@@ -608,7 +604,7 @@ through. It opens `qayaba.exec <profile>` (INTERNAL) at spawn and ends it on `cl
   contract: `coverage`, `observation`, `route`, `write-counter`, or `none`), `qayaba.exec.retries`, `qayaba.exec.spec_files`
   (how many spec files it was handed, or `suite`), `qayaba.exec.global_timeout_ms` and `qayaba.exec.session.age_ms` (how long
   before the child started the run signed the session in, when it did). The run record lists every execution that goes through
-  the run's execution port, in the order they ran, as `gateSignals.executions { runs[], omitted?, sessionChecks? }`: each with
+  the run's execution port, in the order they ran, as `gateSignals.executions { runs[], omitted? }`: each with
   the spec files it was handed (suite-relative, in the order of Playwright's test list, at most `MAX_RECORDED_SPEC_FILES`, the
   rest counted in `specFilesOmitted`) and the DEV writes the run had counted when it started (`devWritesBefore`, the `run_spec`
   calls' ledger). A `run_spec` call runs through the tools endpoint, not the run's port: its executions are on their spans and

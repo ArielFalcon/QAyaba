@@ -38,8 +38,6 @@ import { initialRunState } from "./run-flow/run-state.ts";
 import { recordCoordination, recordProof, recordRunFact } from "./run-flow/reducers.ts";
 import { createRunServices } from "./run-flow/run-services.ts";
 import { runExecutions } from "./run-flow/run-executions.ts";
-import { sessionCheckPaths } from "../domain/session-check-paths.ts";
-import type { QaCase } from "@kernel/qa-case.ts";
 import type { RunContext, RunHost, WorkspaceRunContext } from "./run-flow/run-context.ts";
 import { measuresCoverage } from "./run-flow/phases/coverage.steps.ts";
 import { remeasuresStaleCoverage } from "./run-flow/phases/review.steps.ts";
@@ -391,7 +389,7 @@ export class RunQaUseCase {
       boundText: (text, maxChars, marker) => redactThenBound(text, maxChars, (seen) => this.deps.redact?.(redactByValue(seen)) ?? redactByValue(seen), marker ? { marker } : {}),
       prepareAuth: async (specDir, phase, abortSignal) => {
         const prepared = await this.prepareAuth(specDir, phase, abortSignal);
-        /* A saved session the run itself signed in, one the app can end: every execution after it is told when, records its age and is guarded. An app with no login, or one signed in by a certificate, holds none. */
+        /* A saved session the run itself signed in: every execution after it is told when and records its age. An app with no login, or one signed in by a certificate, holds none. */
         if ("holdsSession" in prepared && prepared.holdsSession) trail.executions.signedIn(Date.now());
         return prepared;
       },
@@ -406,26 +404,8 @@ export class RunQaUseCase {
       sandboxSignal: () => this.deps.execScope?.sandboxSignal(),
       executions: () => trail.executions.signal(),
     };
-    /* Every execution of the run's suite goes through the run's own port, which records the conditions it ran under and guards the session of a judging one. */
-    const sessionCheck = this.deps.sessionCheck;
-    const execution = trail.executions.port(
-      this.deps.execution,
-      sessionCheck
-        ? {
-            check: (specDir, cases, abortSignal) => sessionCheck.check(this.sessionCheckPathsOf(specDir, cases), abortSignal),
-            renew: async (specDir, abortSignal) => {
-              /* The run's own login, as before its first execution: it never runs while an agent authors, and a completed one tells every later execution when. */
-              const renewed = await host.prepareAuth(specDir, "pre-execute", abortSignal);
-              if ("failed" in renewed) return { failed: renewed.failed, preconditionFailed: false };
-              if ("precondition" in renewed) {
-                host.announcePrecondition(renewed.precondition, "end", "pre-execute");
-                return { failed: host.preconditionNote(renewed.precondition), preconditionFailed: true };
-              }
-              return { renewed: true };
-            },
-          }
-        : undefined,
-    );
+    /* Every execution of the run's suite goes through the run's own port, which records the conditions it ran under. */
+    const execution = trail.executions.port(this.deps.execution);
     /* A view, not a copy: every other dependency is read from the use case's own as it stands when a step reads it. */
     const deps = new Proxy(this.deps, { get: (target, key, receiver) => (key === "execution" ? execution : Reflect.get(target, key, receiver)) });
     return { input, signal, trail, deps, telemetry: this.telemetry, cfg, startedAt, cycleBudget, host };
@@ -488,18 +468,6 @@ export class RunQaUseCase {
    * No-op when the port is unwired. unauthored is a setup note, not a failure. A failed prepare is
    * logged and returned as the infra-error note for the caller's terminal.
    */
-  /* The pages the failing `cases` asked for, read from their spec files through the confined reader: what a check of the session opens. */
-  private sessionCheckPathsOf(specDir: string, cases: readonly QaCase[]): string[] {
-    const sources = [...new Set(cases.flatMap((c) => (c.file !== undefined ? [c.file] : [])))].flatMap((file) => {
-      try {
-        return [this.deps.specFiles.read({ mirrorDir: specDir, specDir }, file)];
-      } catch {
-        return [];
-      }
-    });
-    return sessionCheckPaths(sources);
-  }
-
   private async prepareAuth(specDir: string, phase: "pre-generate" | "pre-execute", signal?: AbortSignal): Promise<{ unauthored: boolean; setupSha256?: string; holdsSession?: true } | { failed: string } | { precondition: PreconditionFailure }> {
     const sessionPort = this.deps.authSession;
     const ctx = this.deps.authContext;

@@ -6,7 +6,7 @@ import type { QaCase } from "@kernel/qa-case.ts";
 /**
  * One re-run of the mutation pass: `specFiles` with `mutant` applied (a mutant's edit, or, for an unmutated observation, nothing or a
  * selection of the tests to run that edits no script); `observe` has the fixtures record the pages of its tests. In a run it is an
- * execution of the run's suite and goes through the run's execution port, which records it and guards the session of a mutant's.
+ * execution of the run's suite and goes through the run's execution port, which records it with every other execution of the run.
  */
 export type MutantRerun = (args: { dir: string; baseUrl: string; namespace: string; mutant?: string; specFiles: string[]; observe?: boolean }) => Promise<{ verdict: string; cases: QaCase[]; observations?: ObservedPage[] }>;
 

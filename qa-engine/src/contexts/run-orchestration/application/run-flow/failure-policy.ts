@@ -40,26 +40,7 @@ export class NoAuthorError extends Error {
   }
 }
 
-/** The reason a run whose session the app ended records on its E-PRECONDITION: recorded, never learned from, no Issue. */
-export const SESSION_LOST = "session-lost";
-
-/** The app ended the session of a judging execution, and again the one the run had just signed in for its re-run: the check showed it gone both times, so neither execution judged the specs. */
-export class SessionLostError extends Error {
-  constructor(reason: string) {
-    super(reason);
-    this.name = "SessionLostError";
-  }
-}
-
-/** The run's login, asked to renew a session the check showed lost, could not sign in: the end the login before execute has (`preconditionFailed` when it failed on a positive piece of evidence). */
-export class LoginRenewalError extends Error {
-  constructor(reason: string, readonly preconditionFailed: boolean) {
-    super(reason);
-    this.name = "LoginRenewalError";
-  }
-}
-
-export const FAILURE_KINDS = ["aborted", "run-deadline", "allotment", "no-author", "sandbox-unavailable", "probe-sweep", "session-lost", "login-renewal", "untrusted-tree", "publication", "integration", "unknown"] as const;
+export const FAILURE_KINDS = ["aborted", "run-deadline", "allotment", "no-author", "sandbox-unavailable", "probe-sweep", "untrusted-tree", "publication", "integration", "unknown"] as const;
 export type FailureKind = (typeof FAILURE_KINDS)[number];
 
 /*
@@ -108,10 +89,6 @@ export const POLICY: Readonly<Record<FailureKind, Readonly<Record<StepClass, Fai
   "no-author": endFor("no-author"),
   "sandbox-unavailable": endFor("sandbox-unavailable"),
   "probe-sweep": endFor("probe-sweep-failed"),
-  /* The app ended the session the executions ran with: what they said is no judgment of the specs, so nothing they gave is kept. */
-  "session-lost": endFor("login-precondition"),
-  /* The login that renews a lost session failed: the run ends as its login before execute would have. */
-  "login-renewal": endFor("pre-execute-infra"),
   "untrusted-tree": always(RETHROW),
   /* The verdict was decided before the port failed: the run keeps it, says the publication failed, and records the run. */
   publication: { required: RETHROW, proven: RETHROW, "off-path": RETHROW, publish: { do: "degrade", reason: "publication-failed" } },
@@ -129,8 +106,6 @@ export function classifyFailure(err: unknown): FailureKind {
   if (err instanceof Error && err.name === "SandboxUnavailableError" && (err as { reason?: unknown }).reason !== "scope") return "sandbox-unavailable";
   if (err instanceof NoAuthorError) return "no-author";
   if (err instanceof ProbeSweepError) return "probe-sweep";
-  if (err instanceof SessionLostError) return "session-lost";
-  if (err instanceof LoginRenewalError) return "login-renewal";
   if (isUntrustedGitTreeError(err)) return "untrusted-tree";
   if (err instanceof PublicationFailedError) return "publication";
   if (isInfraError(err)) return "integration";

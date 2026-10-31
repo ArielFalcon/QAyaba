@@ -9,8 +9,6 @@ import { readAgentBrowserSession } from "../infrastructure/adapters/agent-browse
 import { ClosedLoopPortAdapter, type ClosedLoopPortAdapterDeps } from "../infrastructure/adapters/closed-loop-port.adapter.ts";
 import { CodeGraphToolsPortAdapter, type CodeGraphToolsPortAdapterDeps } from "../infrastructure/adapters/code-graph-tools-port.adapter.ts";
 import { GeolocationPortAdapter, type GeolocationPortAdapterDeps } from "../infrastructure/adapters/geolocation-port.adapter.ts";
-import { SessionCheckAdapter } from "../infrastructure/adapters/session-check.adapter.ts";
-import type { SessionCheckPort } from "@contexts/test-execution/application/index.ts";
 import type { ToolTraceWiring } from "../infrastructure/adapters/tool-call-trace.ts";
 
 /* What the shell hands the builder to let a run grant its generator the run_spec tool. */
@@ -57,8 +55,6 @@ export interface AgentToolsApi {
   agentBrowser?: AgentBrowserPort;
   codeGraphTools?: CodeGraphToolsPort;
   geolocation?: GeolocationPort;
-  /* The orchestrator's check of the run's saved session, on the authenticated browser's machinery; built wherever that machinery is wired, whether or not the app grants the browser to its agents. */
-  sessionCheck?: SessionCheckPort;
 }
 
 export function buildAgentTools(deps: AgentToolsDeps): AgentToolsApi {
@@ -93,21 +89,6 @@ export function buildAgentTools(deps: AgentToolsDeps): AgentToolsApi {
         })
       : undefined;
 
-  /* The run's judging executions ask it whether the session they were given is still one the app accepts (RFC-0015, ADR-0023 row 8). */
-  const sessionCheck =
-    deps.agentBrowser && baseUrl
-      ? new SessionCheckAdapter({
-          baseUrl,
-          launcher: deps.agentBrowser.launcher,
-          createHost: deps.agentBrowser.createHost,
-          material: () => readAgentBrowserSession(baseUrl),
-          denyRoutes: deps.agentBrowser.setting.denyRoutes,
-          account: deps.agentBrowser.account,
-          lock: deps.agentBrowser.lock,
-          ...(deps.agentBrowser.loginPath !== undefined ? { loginPath: deps.agentBrowser.loginPath } : {}),
-        })
-      : undefined;
-
   /* The lead explores the index the index phase built for the run's repo; it names terms, never the repo, the workspace or the engine's options. */
   const codeGraphTools =
     deps.codeGraphTools && deps.codeExplore
@@ -122,6 +103,5 @@ export function buildAgentTools(deps: AgentToolsDeps): AgentToolsApi {
     ...(agentBrowser ? { agentBrowser } : {}),
     ...(codeGraphTools ? { codeGraphTools } : {}),
     ...(geolocation ? { geolocation } : {}),
-    ...(sessionCheck ? { sessionCheck } : {}),
   };
 }

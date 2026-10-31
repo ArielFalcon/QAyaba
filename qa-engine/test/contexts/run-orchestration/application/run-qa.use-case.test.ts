@@ -1702,20 +1702,17 @@ const rigVerifiedSpan = (status: "pass" | "fail") => ({
   "qayaba.coverage.taken_branches": 1,
 });
 
-test("a mutant's re-run is a judging execution of the run: one that met the login page with a session the check shows lost runs again on a renewed session and is judged on that re-run, never counted a kill", async () => {
+test("a mutant's re-run that ends on the app's login page is judged as it ran, as every execution is: nothing checks or renews the session, and the record keeps its age", async () => {
   const logins: string[] = [];
-  const checks: string[][] = [];
   const { rig, coverage, executions } = await runMutationRig("mutation-session", { loginWallOnce: "mut1" }, undefined, undefined, {
     authSession: { prepare: async (req) => { logins.push(req.phase); return { unauthored: false, storageStatePath: "/auth/user.json" }; } },
     authContext: { baseUrl: "https://dev.example", auth: { kind: "form", usernameEnv: "QA_USER", passwordEnv: "QA_PASS" } },
-    sessionCheck: { check: async (paths) => { checks.push([...paths]); return { state: "lost", detail: "the page ended on the login path /login" }; } },
   });
 
-  assert.deepEqual(rig.reruns, ["mut0", "mut1", "mut1", "mut2", "obs2"], "the mutant met the login page and ran once more");
-  assert.equal(checks.length, 1, "the session was checked once, for the mutant's re-run");
-  assert.equal(logins.filter((phase) => phase === "pre-execute").length, 2, "renewed through the run's own login");
-  assert.deepEqual(coverage.bundleMutation, RIG_BUNDLE_MUTATION, "judged on the re-run: one kill, one survivor, as on a session that held");
-  assert.equal(executions?.sessionChecks?.lost, 1);
+  assert.deepEqual(rig.reruns, ["mut0", "mut1", "mut2"], "each mutant ran once");
+  assert.equal(logins.filter((phase) => phase === "pre-execute").length, 1, "the run signed in once, before its first execution");
+  assert.deepEqual({ applied: coverage.bundleMutation?.applied, killed: coverage.bundleMutation?.killed, survived: coverage.bundleMutation?.survived.length }, { applied: 2, killed: 2, survived: 0 }, "the login page failed a test that passed before: a kill, as at the baseline");
+  assert.equal(executions?.sessionChecks, undefined);
 });
 
 test("the mutation pass reads none of the execution's dumps again, so a second read that would fault cannot take the verified coverage from a signal run", async () => {

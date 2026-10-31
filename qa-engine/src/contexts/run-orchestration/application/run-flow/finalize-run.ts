@@ -23,8 +23,6 @@ import { CRASH_EVIDENCE_EFFECTS, END_EFFECTS, type EndEffects, type EndEvidence,
 import type { WorkspaceHandle } from "@contexts/workspace-and-publication/application/index.ts";
 import type { RunState } from "./run-state.ts";
 import { finalizeDecided } from "./decided-end.ts";
-import { ADJ_CLASS } from "../../domain/adjudicate.service.ts";
-import { SESSION_LOST } from "./failure-policy.ts";
 
 const NO_GROUNDING_SIGNALS: GroundingSignals = { preExecAmbiguityCatches: 0, deterministicSelectorBlocks: 0, catalogGateInWindow: 0, catalogGateAdvisory: 0, catalogGateFailClosed: 0 };
 
@@ -42,8 +40,6 @@ interface TerminalShape extends EndEvidence {
   reviewDisputed?: boolean | undefined;
   /** What the reviewer's runtime reported when it was unavailable, persisted on the run record. */
   reviewerRationale?: string | undefined;
-  /** Why the run's E-PRECONDITION was not a failed login of its own, persisted on the run record. */
-  adjudication?: NonNullable<RunOutcome["adjudication"]> | undefined;
 }
 
 /* What an end is, once it is told apart by the shape of the result it returns. */
@@ -124,7 +120,7 @@ function shapeOf(end: Exclude<RunEnd, { reason: "decided" | "context-pass" }>, c
     case "generation-noop":
       return { kind: "skip", note: end.note, noop: end.noop, confinement: end.confinement, closedLoop: end.closedLoop, agentBrowser: end.agentBrowser };
     case "login-precondition":
-      return { kind: "terminal", terminal: { verdict: "infra-error", generating: end.generating, static: false, preconditionFailed: true, note: end.note, ...(end.sessionLost ? { adjudication: { class: ADJ_CLASS.DEV_INFRA, reason: SESSION_LOST } } : {}) } };
+      return { kind: "terminal", terminal: { verdict: "infra-error", generating: end.generating, static: false, preconditionFailed: true, note: end.note } };
     case "generation-ended-without-specs": {
       const { reason: _reason, ...facts } = end;
       return { kind: "terminal", terminal: { verdict: "infra-error", generating: true, static: false, ...facts } };
@@ -229,7 +225,6 @@ function outcomeOf(shape: Shape, decision: RunDecision, note: string | undefined
     staticOk: terminal.static,
     note,
     ...(terminal.reviewerRationale !== undefined ? { reviewerRationale: terminal.reviewerRationale } : {}),
-    ...(terminal.adjudication !== undefined ? { adjudication: terminal.adjudication } : {}),
     ...(terminal.groundingSignals ?? NO_GROUNDING_SIGNALS),
     ...(terminal.confinement !== undefined ? { confinement: terminal.confinement } : {}),
     ...(terminal.closedLoop ? { closedLoop: terminal.closedLoop } : {}),

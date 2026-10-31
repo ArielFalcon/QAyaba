@@ -19,7 +19,7 @@ import type { CodeGraphPort } from "@kernel/ports/code-graph.port.ts";
 import type { ChangeAnalysisPort, ChangeScopePort } from "@contexts/change-analysis/application/index.ts";
 import type { StructuralSignalPort } from "@kernel/ports/structural-signal.port.ts";
 import type { AuthorPort, LeadPort, ReviewPort, PreExecGroundingPort, PreGenerationGroundingPort, ReviewDomGroundingPort, ContextMapCapturePort } from "@contexts/generation/application/index.ts";
-import type { ValidationPort, ExecutionPort, SessionCheckPort } from "@contexts/test-execution/application/index.ts";
+import type { ValidationPort, ExecutionPort } from "@contexts/test-execution/application/index.ts";
 import type { ObjectiveSignalPort } from "@contexts/objective-signal/application/index.ts";
 import type { PublicationPort } from "@contexts/workspace-and-publication/application/index.ts";
 import type { WorkspacePort } from "@contexts/workspace-and-publication/application/index.ts";
@@ -125,11 +125,6 @@ export interface RunQaUseCaseDeps {
   authSession?: AuthSessionPort;
   /** baseUrl plus the YAML auth declaration. Required when authSession is set. */
   authContext?: AuthSessionContext;
-  /**
-   * Whether the saved session the run's executions are given is still one the app accepts, by the orchestrator's own browser.
-   * Absent: a failure that looks like a login page can never be shown to be a lost session, and every result is judged as it ran.
-   */
-  sessionCheck?: SessionCheckPort;
   /**
    * Absent: cleanup is skipped. Runs only when previousNamespace is set.
    * A cleanup failure is logged and MUST NEVER alter this run's verdict.

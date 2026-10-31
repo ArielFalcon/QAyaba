@@ -850,7 +850,7 @@ export function buildEngineRootDeps(
    */
   const mutation = bundleMutationEnabled(app.qa.changeCoverage)
     ? new BundleMutationOracleAdapter(
-        /* No runner of its own: each re-run of the pass is an execution of the run's suite, which the run hands the pass through its execution port (RFC-0015), so none skips the record or the session guard. */
+        /* No runner of its own: each re-run of the pass is an execution of the run's suite, which the run hands the pass through its execution port (RFC-0015), so none is missing from the run's record of its executions. */
         undefined,
         countInjectedResponses,
         app.dev.baseUrl,

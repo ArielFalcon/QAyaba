@@ -42,7 +42,7 @@ function useCase(saved: RunOutcome[], asked: ExecutionOpts[], opts: { auth?: boo
     deployGate: { verifyServed: async () => ok({ state: "undeclared" as const }), waitUntilHealthy: async () => ok(true) },
     runHistory: { save: async (outcome) => { saved.push(outcome); } },
     setup: { setup: async () => {} },
-    /* A login that signs in leaves a saved session, the one thing an app's executions can lose. */
+    /* A login that signs in leaves a saved session, whose age at each execution the record keeps. */
     ...(opts.auth ? { authSession: { prepare: async () => ({ unauthored: false, storageStatePath: "/auth/user.json" }) }, authContext: { baseUrl: "https://dev" } } : {}),
     config: { needsReview: false },
   } as ConstructorParameters<typeof RunQaUseCase>[0]);

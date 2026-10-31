@@ -1030,7 +1030,7 @@ that catches nothing. The objective signal that breaks the circle is **change-co
   **The verdict's, the fix loop's and an acceptance's executions never measure** (`PW_COVERAGE=0`, set explicitly both ways) and
   share one digest; a mutant's re-run is judging and runs instrumented (coverage, observation and the mutant's route), like the
   measurement execution it is judged against, since its dumps are the proof a killed mutant verifies, and a `run_spec` call adds the
-  write counter: each records what it adds as its deviations. `gateSignals.executions { runs[], omitted?, sessionChecks? }` lists, in
+  write counter: each records what it adds as its deviations. `gateSignals.executions { runs[], omitted? }` lists, in
   the order they ran (at most `MAX_RECORDED_EXECUTIONS`, the rest counted), every execution that goes through the run's execution
   port: the verdict's, the fix loop's, the acceptances', the enforce re-measure's judging execution, the measurement executions, the
   mutants' re-runs, the `-obs2` observation and the survivor closure's re-runs. Each names its purpose, kind, namespace, digest,
@@ -1049,22 +1049,12 @@ that catches nothing. The objective signal that breaks the circle is **change-co
   cross-repo run, a run with no diff or a change with no changed code line (`ObjectiveSignalPort.holdsChangedCode`: every changed
   file is of a declared language and its statement syntax says no added line is code; a file of another kind may be held by the
   page's scripts, a component template, so it counts as code) runs none, and records no `changeCoverage`.
-  The session is a condition of a judging execution, and whether the app still accepts it is the orchestrator's own fact, never the
-  look of a failure page: a failure that ends on what looks like the login page (`endedOnLoginWall`) only asks the question. Only a
-  run whose login left a saved session asks it (an app with no login, or one signed in by a client certificate, has none to lose).
-  The check (`SessionCheckPort`, `test-execution/application/browser-session-check.ts`) opens the pages the failing tests asked for
-  (their `goto` paths, at most `MAX_SESSION_CHECK_PATHS`, else the app root) with the saved session in the orchestrator's own
-  browser (the authenticated browser's host, launcher and route guard, no write admitted, under the account's lease) and judges where
-  the app sent each by the authenticated browser's own "session invalidated" rule (`detectInvalidation`). Shown lost: the run signs
-  in again through its own login and runs that execution once more, and the re-run is that execution's judgment (both are recorded).
-  Not shown lost (held, or not checkable): the first result stands and is judged as it ran (a `fail` goes to the fix loop and its
-  Issue). A renewal whose login fails ends the run as the login before execute does (`E-PRECONDITION` on a positive piece of
-  evidence). A re-run that meets the login page again with the check showing the just-signed-in session gone again ends the run
-  `infra-error E-PRECONDITION` with the adjudication reason `session-lost` (recorded, never learned from, no Issue): the app, or a
-  spec that signs out, ends every session within one execution. A run with no session check (no authenticated-browser wiring)
-  judges every result as it ran. Every execution of the run goes through the run's execution port (the guard and the record), the
-  mutation pass's re-runs included: the oracle has no runner of its own (`MutantRerun`). `gateSignals.executions.sessionChecks
-  { lost, held, unknown }` counts the checks.
+  The session's age is recorded, never acted on (ADR-0023 row 8, amended): after a login that left a saved session, every execution
+  is told when it happened and records the session's age at its start (`qayaba.exec.session.age_ms`, `gateSignals.executions`); an
+  app with no login, or one signed in by a client certificate, holds none. No execution checks, renews or re-runs for the session: a
+  failure on what looks like the login page is judged as it ran, like any other, until a run shows an execution outliving its
+  session. Every execution of the run goes through the run's execution port (the record), the mutation pass's re-runs included: the
+  oracle has no runner of its own (`MutantRerun`), so the mutants', `-obs2`'s and the closure's executions are on the record too.
 - `qa.changeCoverage.mode`: `off` | `signal` (default, record only) | `enforce` (gate);
   `minRatio` default `0.7`.
 - `DecideCoverageService.blocks(status)` is the single source of truth for blocking.

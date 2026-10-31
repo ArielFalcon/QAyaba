@@ -317,7 +317,7 @@ export async function measureMutation(state: Readonly<RunState>, ctx: WorkspaceR
 
 /*
  * A re-run of the mutation pass (a mutant's, or an unmutated observation of the survivors) is an execution of the run's suite: it goes
- * through the run's execution port, which records it and guards the session of a mutant's, as it does every judging execution. It runs
+ * through the run's execution port, which records it as it does every execution of the run. It runs
  * with coverage on and no retry, as the measurement execution a kill is judged against does; it adds the mutant's edit, and it is
  * observed only when the pass asks, while the measurement is always observed and held to a global timeout of its own.
  */
