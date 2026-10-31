@@ -35,6 +35,7 @@ export interface QaCase {
   flow?: string;
   objective?: string;
   reason?: string;
+  /* The time the run that decided the case took: its last attempt, as the report or the stream states it; absent when neither does. */
   durationMs?: number;
   failureDom?: string;
   file?: string;

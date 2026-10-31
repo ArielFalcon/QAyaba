@@ -336,3 +336,25 @@ test("real report: a report whose directory is not one of the run's keeps the fi
   const parsed = parsePlaywrightReport(fixture("testdir-flows"), { specRoots: ["/somewhere/else"] });
   assert.deepEqual([...new Set(parsed.cases.map((c) => c.file))].sort(), ["only-fail.spec.ts", "plain.spec.ts"]);
 });
+
+test("a case carries the time its last attempt took, the one run that decided it, and none when the report states no time", () => {
+  const report = {
+    suites: [
+      {
+        title: "list.spec.ts",
+        specs: [
+          { title: "steady", tests: [{ status: "expected", results: [{ status: "passed", duration: 2100 }] }] },
+          {
+            title: "rescued by a retry",
+            tests: [{ status: "flaky", results: [{ status: "timedOut", duration: 30000 }, { status: "passed", duration: 4200 }] }],
+          },
+          { title: "timeless", tests: [{ status: "expected", results: [{ status: "passed" }] }] },
+        ],
+      },
+    ],
+  };
+  const byTitle = new Map(parsePlaywrightReport(report).cases.map((c) => [c.name.split(" › ").at(-1), c]));
+  assert.equal(byTitle.get("steady")?.durationMs, 2100);
+  assert.equal(byTitle.get("rescued by a retry")?.durationMs, 4200);
+  assert.equal(byTitle.get("timeless")?.durationMs, undefined);
+});

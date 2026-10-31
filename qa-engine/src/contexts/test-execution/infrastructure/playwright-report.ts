@@ -12,6 +12,8 @@ export interface PwCase {
   expectedStatus?: ExpectedStatus;
   detail?: string;
   file?: string;
+  /* The time the last attempt of the case's tests took (see QaCase.durationMs); absent when the report states none. */
+  durationMs?: number;
 }
 
 export interface ParsedReport {
@@ -27,6 +29,7 @@ export interface ParsedReport {
 
 interface PwResult {
   status?: string;
+  duration?: number;
   error?: { message?: string };
 }
 interface PwTest {
@@ -138,6 +141,8 @@ export function parsePlaywrightReport(json: unknown, opts: ReportOptions = {}): 
                 : firstError(ranSpec),
           ...(file ? { file } : {}),
         };
+        const durationMs = lastAttemptMs(ranSpec);
+        if (durationMs !== undefined) c.durationMs = durationMs;
         cases.push(c);
       }
       walk(suite.suites, title, file);
@@ -191,6 +196,17 @@ function specOutcome(spec: PwSpec): SpecOutcome {
   if (spec.ok === undefined && resultStatuses.length === 0) return "skipped";
   const ok = spec.ok ?? results.every((r) => OK_STATUSES.has(r.status ?? ""));
   return ok ? "pass" : "fail";
+}
+
+/* The time the last attempt of each of a spec's tests took, the one run that decided it (a retry that passed, not the attempts it rescued), added up; none when a test states no time. */
+function lastAttemptMs(spec: PwSpec): number | undefined {
+  let total = 0;
+  for (const t of spec.tests ?? []) {
+    const d = t.results?.at(-1)?.duration;
+    if (typeof d !== "number" || !Number.isFinite(d) || d < 0) return undefined;
+    total += d;
+  }
+  return (spec.tests ?? []).length > 0 ? total : undefined;
 }
 
 /* The status a test declared before it ran: failed when any of its tests is marked to fail, passed when the report says so, none when it states nothing. */
