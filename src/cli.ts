@@ -22,7 +22,7 @@ import { processTelemetry, TELEMETRY_SHUTDOWN_TIMEOUT_MS } from "./telemetry/pro
 import { createDurableRunEventStore } from "./server/durable-run-events";
 import { longestRunTimeBudgetMs } from "@contexts/run-orchestration/application/index";
 import { delegateRun, type DelegateRunInput, type DelegateRunResult } from "./server/run-delegate";
-import { discoverApiToken } from "./server/api-token";
+import { discoverApiToken } from "./settings/api-token";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { loadAppConfig } from "./orchestrator/config-loader";

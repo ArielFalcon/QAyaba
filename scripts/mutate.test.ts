@@ -588,10 +588,10 @@ test("the checker type-checks the mutated file without its anchor, with the opti
   assert.equal(engine.extends, "/repo/qa-engine/tsconfig.json");
 
   const shell = checkerTsconfigFor(
-    { description: "x", mutate: ["src/server/auth.ts@scope"], tests: ["t.ts"], thresholds: { high: 90, low: 80, break: null } },
+    { description: "x", mutate: ["src/entrypoints/auth.ts@scope"], tests: ["t.ts"], thresholds: { high: 90, low: 80, break: null } },
     "/repo",
   ) as { extends: string; files: string[] };
-  assert.deepEqual(shell.files, ["/repo/src/server/auth.ts"]);
+  assert.deepEqual(shell.files, ["/repo/src/entrypoints/auth.ts"]);
   assert.equal(shell.extends, "/repo/tsconfig.json");
 });
 

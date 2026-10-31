@@ -4,7 +4,7 @@ import { Readable } from "node:stream";
 import { routeApi } from "./api";
 import type { ApiDeps } from "./api/deps";
 import { AppConfigInvalidError, AppNotFoundError } from "../orchestrator/config-loader";
-import { createLocalConsoleLogin, LOCAL_CONSOLE_PRINCIPAL, validateSession } from "./auth";
+import { createLocalConsoleLogin, LOCAL_CONSOLE_PRINCIPAL, validateSession } from "../entrypoints/auth";
 import { toTrendsView } from "./trends-view";
 import { toReportView } from "./report-view";
 import { RunRecord, RunOutcome } from "../persistence/types";

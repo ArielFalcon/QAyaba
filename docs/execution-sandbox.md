@@ -98,7 +98,7 @@ in `/proc/self/mountinfo`) grants every uid what it asks: there the sandbox uid 
 app config (and so widen `dev.allowedOrigins` for the next run) or rewrite the orchestrator's code through a code mount. So:
 
 - **The API token lives in `data/`**, a named volume, never in a host folder. The service reads it from `QA_API_TOKEN` or
-  generates it into `data/.api_token` (`src/server/api-token.ts`); clients read the same two places. A token an earlier version
+  generates it into `data/.api_token` (`src/settings/api-token.ts`); clients read the same two places. A token an earlier version
   kept in the host's config folder may have been readable by the sandbox uid and is no longer read or removed by anything:
   delete the `.api_token` file beside the app configs by hand, and rotate `QA_API_TOKEN` if it was copied from there.
 - **The host's config folder is mounted at `/app/.host/config`** and `/app/config` is a link to it (Dockerfile, compose). The lookup

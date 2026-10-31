@@ -423,8 +423,8 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
   },
   "local-login": {
     description: "web console local-login policy: loopback peer/flag AND loopback-or-allowlisted Host header",
-    mutate: ["src/server/auth.ts@loopback-and-console-principal"],
-    tests: ["src/server/auth.test.ts", "src/server/api.test.ts"],
+    mutate: ["src/entrypoints/auth.ts@loopback-and-console-principal"],
+    tests: ["src/entrypoints/auth.test.ts", "src/server/api.test.ts"],
     thresholds: DEFAULT_THRESHOLDS,
   },
   "write-confinement": {

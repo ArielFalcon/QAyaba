@@ -375,7 +375,7 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   (a captured, settled route) feed the one-shot corrective regeneration.
 - **Closed loop (`run_spec`)** — on unless `qa.closedLoop.enabled: false` (or a run asks: `--closed-loop on|off`, `closedLoop` on
   `POST /api/v1/runs`). The author of each flow of a plan gets one custom tool, `agents/tool/run_spec.ts`, that POSTs its session id and
-  agent name to the orchestrator's internal listener (`src/server/tools-endpoint.ts`, `QA_TOOLS_PORT`, not published, behind
+  agent name to the orchestrator's internal listener (`src/entrypoints/tools-endpoint.ts`, `QA_TOOLS_PORT`, not published, behind
   `QA_TOOLS_TOKEN`); the orchestrator runs the spec once (sandbox profile `suite`, retries 0, a fresh session copy, namespace
   `<runId>-rs<n>`, a cleanup pass after every call, per-account lock) and answers with a bounded, redacted report, never raw
   output (a call where no test began and the Playwright report's top-level `errors` name why the spec did not load answers with those errors,

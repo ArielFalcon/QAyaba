@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { parseFileBoundaryStatus, type FileBoundaryLayout } from "../../qa-engine/src/shared-infrastructure/process-sandbox/file-boundary";
 import type { FileBoundaryGate } from "../../qa-engine/src/shared-infrastructure/process-sandbox/exec-sandbox";
-import { apiTokenPath } from "./api-token";
+import { apiTokenPath } from "../settings/api-token";
 
 export function fileBoundaryStatusFile(env: NodeJS.ProcessEnv): string {
   return env.QA_FILE_BOUNDARY_STATUS_FILE && env.QA_FILE_BOUNDARY_STATUS_FILE !== "" ? env.QA_FILE_BOUNDARY_STATUS_FILE : "/run/qa-file-boundary.status";

@@ -79,7 +79,7 @@ func LoadLastHost() string {
 }
 
 /* DiscoverToken finds the orchestrator's API token WITHOUT the operator typing it, mirroring
-   how the server resolves it (src/server/api-token.ts): the QA_API_TOKEN env var first; else the
+   how the server resolves it (src/settings/api-token.ts): the QA_API_TOKEN env var first; else the
    data/.api_token file the server auto-generates on first boot, located by walking UP from
    the working directory to the qayaba repo (so the console works when launched from a
    subdirectory). Returns the token plus a short source label ("$QA_API_TOKEN" or "data/.api_token"), or ("","") when nothing is found. A server in a container keeps the

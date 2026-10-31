@@ -13,8 +13,8 @@ import { YamlAppConfigAdapter } from "../../qa-engine/src/contexts/app-catalog/i
 import { routeApi } from "./api";
 import type { ApiDeps } from "./api/deps";
 import type { ApiRunRequest } from "./api/run-request";
-import { authorizeBearer, createLocalConsoleLogin, issueSession } from "./auth";
-import { verifyGithubIdentity, authorizeUser } from "./github-auth";
+import { authorizeBearer, createLocalConsoleLogin, issueSession } from "../entrypoints/auth";
+import { verifyGithubIdentity, authorizeUser } from "../entrypoints/github-auth";
 import { createFixedWindowLimiter } from "./rate-limit";
 import { toSignalsView } from "./signals-view";
 import { readCoordinationLedger } from "@contexts/coordination/infrastructure/adapters/coordination-ledger-reader.adapter";
@@ -72,7 +72,7 @@ import { processTelemetry, TELEMETRY_SHUTDOWN_TIMEOUT_MS } from "../telemetry/pr
 import { HostHealth } from "../telemetry/host-health";
 import { BackendHealthMonitor, systemBackendFetch } from "../telemetry/backend-health";
 import { resolveSandbox } from "../../qa-engine/src/shared-infrastructure/process-sandbox/sandbox";
-import { createToolsServer, resolveToolsListenHost, resolveToolsToken } from "./tools-endpoint";
+import { createToolsServer, resolveToolsListenHost, resolveToolsToken } from "../entrypoints/tools-endpoint";
 import { ClosedLoopRegistry } from "@contexts/agent-tools/infrastructure/closed-loop-registry";
 import { AgentBrowserRegistry } from "@contexts/agent-tools/infrastructure/agent-browser-registry";
 import { GeolocationRegistry } from "@contexts/agent-tools/infrastructure/geolocation-registry";
@@ -82,7 +82,7 @@ import { DELEGATIONS_DIR } from "../settings/paths";
 import { workdirRoot } from "../integrations/repo-mirror";
 import { sweepOrphanAgentBrowsers } from "../../qa-engine/src/shared-infrastructure/process-sandbox/orphan-browser-sweep";
 import { buildScriptExec, execWorkRoot } from "./exec-sandbox-factory";
-import { loadOrCreateApiToken } from "./api-token";
+import { loadOrCreateApiToken } from "../settings/api-token";
 import { shouldLogApiRequest } from "./api-request-log";
 import { suiteHoldsVerifiedLoginFor } from "./login-bootstrap-wiring";
 import { contextMapNeedsRebuildFor } from "./context-map-wiring";
@@ -209,7 +209,7 @@ export function wireApp(settingsStore: SettingsStore): WiredApp {
   const secret = settings.webhook.secret;
 
   /*
-   * API token: env var wins. If absent, reuse the persisted file (data/.api_token, src/server/api-token.ts) so the
+   * API token: env var wins. If absent, reuse the persisted file (data/.api_token, src/settings/api-token.ts) so the
    * TUI can discover it across restarts. Only generate a new one if neither exists. The file an earlier version kept in
    * config/ is removed either way, and a copy that cannot be removed stops the start.
    */
