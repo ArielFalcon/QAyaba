@@ -1,4 +1,6 @@
 /* Public surface of this context: other contexts import only from this file. It declares nothing. */
+export { closedLoopLimitsOf } from "../domain/closed-loop-limits.ts";
+export type { ClosedLoopDeclaration } from "../domain/closed-loop-limits.ts";
 export { isExploreTerm } from "../domain/code-graph-query.ts";
 export { shapeExploreAnswer } from "../domain/explore-answer.ts";
 export type { AgentBrowserPort } from "./ports/agent-browser.port.ts";

@@ -40,7 +40,7 @@ import { loadContextMapFromDisk } from "@contexts/generation/infrastructure/adap
 import { ContextMapCapturePortAdapter, type ContextMapSave, type ContextMapWrittenThisRun } from "@contexts/generation/infrastructure/adapters/context-map-capture-port.adapter";
 import { Sha } from "@kernel/sha";
 import type { CommitAncestryPort } from "@kernel/ports/commit-ancestry.port";
-import { DEFAULT_CLOSED_LOOP_LIMITS } from "@kernel/closed-loop";
+import { closedLoopLimitsOf } from "@contexts/agent-tools/application/index";
 import { resolveCoordinationSettings } from "@kernel/coordination";
 import { DevLease } from "@contexts/test-execution/application/index";
 import { ClosedLoopRegistry } from "@contexts/agent-tools/infrastructure/closed-loop-registry";
@@ -1083,13 +1083,7 @@ export function buildEngineRootDeps(
             registry: deps.closedLoopRegistry,
             setting: {
               enabled: closedLoopEnabled(app),
-              limits: {
-                maxCalls: app.qa.closedLoop?.maxCalls ?? DEFAULT_CLOSED_LOOP_LIMITS.maxCalls,
-                perCallMs: app.qa.closedLoop?.perCallMs ?? DEFAULT_CLOSED_LOOP_LIMITS.perCallMs,
-                maxDevWrites: app.qa.closedLoop?.maxDevWrites ?? DEFAULT_CLOSED_LOOP_LIMITS.maxDevWrites,
-                /* The app's maxCalls is a ceiling on its flows' calls together; absent, each flow is granted what its time can run. */
-                ...(app.qa.closedLoop?.maxCalls !== undefined ? { callsCeiling: app.qa.closedLoop.maxCalls } : {}),
-              },
+              limits: closedLoopLimitsOf(app.qa.closedLoop),
             },
             generatorRuntimeCanCall: () => (deps.getAgentFacade ? assignmentForRole(deps.getAgentFacade().config, "author").provider === "opencode" : false),
             account: `${app.name}/${app.auth?.usernameEnv ?? "public"}`,
