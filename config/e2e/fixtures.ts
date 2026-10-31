@@ -9,7 +9,7 @@
 
 import { test as base, expect, type BrowserContext, type Page } from "@playwright/test";
 import { createHash } from "node:crypto";
-import { mkdirSync, renameSync, writeFileSync } from "node:fs";
+import { linkSync, mkdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 // system-owned: do not edit. A V8 coverage entry plus its (best-effort) source map. The
@@ -208,11 +208,22 @@ export const test = base.extend<QaFixtures>({
           // prod) is permanently "unknown" — the served URL never matches a repo path. Best-effort:
           // a missing map just falls back to URL-suffix resolution (unbundled/dev).
           await attachSourceMaps([...fresh.values()], page.request);
-          // A script file is written whole under a temporary name and renamed, so no reader sees half of one.
+          // A script file is written whole under a temporary name and then put in place, so no reader sees half of one. Every
+          // worker writes its own copy, and a copy without a map never replaces one: a mapped copy is renamed over whatever is
+          // there, an unmapped one is only linked into a free name, which fails, and is dropped, when another worker's is there.
           for (const [sha256, entry] of fresh) {
             const temporary = join(dir, `${sha256}.script.${testInfo.workerIndex}.tmp`);
+            const target = join(dir, `${sha256}.script.json`);
             writeFileSync(temporary, JSON.stringify([{ url: entry.url, sha256, source: entry.source, ...(entry.map !== undefined ? { map: entry.map } : {}) }]));
-            renameSync(temporary, join(dir, `${sha256}.script.json`));
+            if (entry.map !== undefined) renameSync(temporary, target);
+            else {
+              try {
+                linkSync(temporary, target);
+              } catch {
+                /* another worker's copy is in place */
+              }
+              rmSync(temporary, { force: true });
+            }
             written.add(sha256);
           }
           const dump = entries.map((entry) => (entry.sha256 !== undefined ? { ...entry, source: undefined, map: undefined } : entry));

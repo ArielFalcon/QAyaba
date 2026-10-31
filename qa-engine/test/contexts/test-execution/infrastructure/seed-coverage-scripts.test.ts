@@ -2,7 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { linkSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import ts from "typescript";
@@ -24,16 +24,16 @@ function coverageFixture(): { body: string; options: string } {
 
 type Fixture = (args: { page: unknown }, use: () => Promise<void>, testInfo: unknown) => Promise<void>;
 
-/* The fixture, compiled with what it uses from its module; the source maps are attached by a stand-in that records which scripts it was asked for. */
-function loadFixture(mapped: string[]): Fixture {
+/* The fixture, compiled with what it uses from its module, as one worker loads it; the source maps are attached by a stand-in that records which scripts it was asked for, and finds none when `maps` is false (a map fetch that failed). */
+function loadFixture(mapped: string[], maps = true): Fixture {
   const js = ts.transpileModule(`const fixture = ${coverageFixture().body};`, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText;
   const attachSourceMaps = async (entries: Array<{ url?: string; map?: unknown }>) => {
     for (const entry of entries) {
       mapped.push(entry.url ?? "");
-      entry.map = { version: 3, sources: ["src/app.ts"], mappings: "AAAA" };
+      if (maps) entry.map = { version: 3, sources: ["src/app.ts"], mappings: "AAAA" };
     }
   };
-  const deps = { createHash, mkdirSync, renameSync, writeFileSync, join, attachSourceMaps, coverageScriptsWritten: new Map<string, Set<string>>() };
+  const deps = { createHash, linkSync, mkdirSync, renameSync, rmSync, writeFileSync, join, attachSourceMaps, coverageScriptsWritten: new Map<string, Set<string>>() };
   return new Function(...Object.keys(deps), `${js}\nreturn fixture;`)(...Object.values(deps)) as Fixture;
 }
 
@@ -102,4 +102,57 @@ test("a script the worker already wrote is not mapped again", async () => {
 
 test("the coverage teardown has a time of its own", () => {
   assert.match(coverageFixture().options, /timeout:\s*\d/);
+});
+
+/* Two workers of one execution, each writing the scripts its pages ran: `first` writes, then `second`; each is mapped or not. */
+async function twoWorkers(first: "mapped" | "unmapped", second: "mapped" | "unmapped"): Promise<{ map: unknown; cleanup: () => void }> {
+  const cwd = mkdtempSync(join(tmpdir(), "seed-coverage-workers-"));
+  const keys = ["PW_COVERAGE", "PW_NAMESPACE", "PW_CLEANUP"] as const;
+  const saved = Object.fromEntries(keys.map((k) => [k, process.env[k]]));
+  const savedCwd = process.cwd();
+  process.env.PW_COVERAGE = "1";
+  process.env.PW_NAMESPACE = "run-1-measure";
+  delete process.env.PW_CLEANUP;
+  process.chdir(cwd);
+  try {
+    for (const [index, kind] of [first, second].entries()) {
+      const fixture = loadFixture([], kind === "mapped");
+      const page = { coverage: { startJSCoverage: async () => {}, stopJSCoverage: async () => [structuredClone(APP)] }, request: {} };
+      await fixture({ page }, async () => {}, { titlePath: ["map.spec.ts", `test ${index}`], workerIndex: index, repeatEachIndex: 0 });
+    }
+  } finally {
+    process.chdir(savedCwd);
+    for (const k of keys) if (saved[k] === undefined) delete process.env[k]; else process.env[k] = saved[k];
+  }
+  const dir = join(cwd, ".qa", "coverage", "run-1-measure");
+  const [script] = JSON.parse(readFileSync(join(dir, `${sha(APP.source)}.script.json`), "utf8")) as Array<{ map?: unknown }>;
+  assert.equal(readdirSync(dir).filter((f) => f.endsWith(".tmp")).length, 0, "no temporary file is left");
+  return { map: script!.map, cleanup: () => rmSync(cwd, { recursive: true, force: true }) };
+}
+
+test("a worker whose map fetch failed never replaces the script another worker wrote with its map", async () => {
+  const run = await twoWorkers("mapped", "unmapped");
+  try {
+    assert.ok(run.map, "the mapped copy stands");
+  } finally {
+    run.cleanup();
+  }
+});
+
+test("a mapped copy replaces an unmapped one another worker wrote first", async () => {
+  const run = await twoWorkers("unmapped", "mapped");
+  try {
+    assert.ok(run.map);
+  } finally {
+    run.cleanup();
+  }
+});
+
+test("a script no worker could map is still written, once", async () => {
+  const run = await twoWorkers("unmapped", "unmapped");
+  try {
+    assert.equal(run.map, undefined);
+  } finally {
+    run.cleanup();
+  }
 });
