@@ -19,12 +19,12 @@
 // baseDir-relative ones): because baseDir is pinned to the repo root, dependency-cruiser ALSO
 // resolves the CLI's own TARGET ARGUMENT against that same baseDir, not against the invoking cwd —
 // so the target must itself be baseDir-relative ("engine/src"), regardless of cwd. A bare
-// relative target like `src`, run from inside engine/ (e.g. `cd engine && npx depcruise
-// --config .dependency-cruiser.cjs src`), resolves as `<repo-root>/src` — the shell's root src/
+// relative target like `platform`, run from inside engine/ (e.g. `cd engine && npx depcruise
+// --config .dependency-cruiser.cjs platform`), resolves as `<repo-root>/platform` — the platform's root
 // tree, a completely different, still-existing directory — not engine/src. This does not error;
 // it silently scans the wrong tree and reports a false "clean" even with a real engine/src/
 // violation present, because none of that tree's module ids match the `^engine/src/` `from`
-// pattern. Reproduced: 392 modules cruised (root src/) vs. 172 modules (engine/src) on
+// pattern. Reproduced: 392 modules cruised (root platform/) vs. 172 modules (engine/src) on
 // otherwise-identical HEAD. The canonical invocation is `npm run arch:check` FROM THE REPO ROOT
 // (root package.json); from a subtree with its own package.json (engine/, web/, packages/*)
 // npm resolves the nearest manifest and fails LOUDLY with "Missing script" — an error, never a
@@ -33,7 +33,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 
-/* Shell modules (src/, scripts/) that still import an infrastructure file of a context directly, because the symbol they need
+/* Shell modules (platform/, scripts/) that still import an infrastructure file of a context directly, because the symbol they need
    (an adapter the shell constructs, a registry it owns, a prompt builder a script renders) has no builder or application export yet.
    The list is frozen: it may only shrink, engine/.dependency-cruiser-shell-exceptions.json holds it; engine/test/arch/platform-public-surface.test.ts fails on an entry that no longer imports
    an infrastructure file and on any growth past its ceiling. A new shell module never joins it. */
@@ -140,8 +140,8 @@ module.exports = {
       to: { path: "(^|/)playwright-core($|/)" },
     },
     {
-      // The direction enforced here is ONE-WAY: engine/src/ may never import src/ (below). The OPPOSITE
-      // direction — src/ importing engine/src/ — is open by design (the shell consumes the
+      // The direction enforced here is ONE-WAY: engine/src/ may never import platform/ (below). The OPPOSITE
+      // direction — platform/ importing engine/src/ — is open by design (the shell consumes the
       // engine, not the reverse) and is NOT machine-enforced by this rule; platform/composition/
       // run-engine-factory.ts (the composition factory) is one such importer, but not the
       // only one — platform/composition/repo-mirror.ts (MirrorProvisionAdapter),
@@ -151,7 +151,7 @@ module.exports = {
       // `from` scope (engine/src/ only), so none of the above ever trips this gate.
       name: "engine-imports-nothing-from-platform",
       severity: "error",
-      comment: "No engine production module may import src/ — engine stays src-free by construction. The opposite direction (src/ importing engine/src/) is open by design: the shell consumes the engine, never the reverse.",
+      comment: "No engine production module may import platform/ — engine stays platform-free by construction. The opposite direction (platform/ importing engine/src/) is open by design: the shell consumes the engine, never the reverse.",
       from: { path: "^engine/src/" },
       to: { path: "^platform/" },
     },
@@ -192,7 +192,7 @@ module.exports = {
     {
       name: "platform-public-surface",
       severity: "error",
-      comment: "The shell (src/, scripts/) reaches a context only through its public surface, application/index.ts. The domain, the other application files and the infrastructure of a context are internal to it. The platform's composition root has a rule of its own below. The frozen SHELL_INFRASTRUCTURE_EXCEPTIONS list names the shell modules that still import an infrastructure file; it only shrinks.",
+      comment: "The shell (platform/, scripts/) reaches a context only through its public surface, application/index.ts. The domain, the other application files and the infrastructure of a context are internal to it. The platform's composition root has a rule of its own below. The frozen SHELL_INFRASTRUCTURE_EXCEPTIONS list names the shell modules that still import an infrastructure file; it only shrinks.",
       from: { path: "^(platform|scripts)/", pathNot: ["^platform/composition/", ...SHELL_INFRASTRUCTURE_EXCEPTIONS.map((f) => "^" + f.replace(/\./g, "\\.") + "$")] },
       to: { path: "^engine/src/contexts/", pathNot: ["^engine/src/contexts/[^/]+/application/index\\.ts$", "^engine/src/contexts/[^/]+/composition/"] },
     },

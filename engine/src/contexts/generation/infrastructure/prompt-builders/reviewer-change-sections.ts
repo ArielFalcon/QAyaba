@@ -2,7 +2,7 @@
  * The sections that give a planned run's reviewer the change by flow under review, instead of the whole diff: each flow's slice,
  * every changed file, and in full what no flow under review holds. Nothing is cut: when the prompt does not fit the reviewer's
  * window, whole hunks become references (`path:start-end`) in a fixed order (degradationOrder) and the review is never split.
- * Never import src/.
+ * Never import platform/.
  */
 import { changeFileLine, type ChangeMapFile } from "@kernel/change-map.ts";
 import { hunkLineCounts } from "@kernel/diff-hunks.ts";

@@ -237,6 +237,12 @@ export const BANNED_RULES: BannedRule[] = [
   { id: "stored-outcome-copy", patterns: [/\b(?:toStoredRunOutcome|StructuredReflection)\b/], exemptPrefixes: [RECORDS_PREFIX] },
   { id: "shell-dead-run-types", patterns: [/\bAgentResult\b/], exemptPrefixes: [RECORDS_PREFIX] },
   { id: "shell-events-reexport", patterns: [/\bplatform\/entrypoints\/contract\/events(?:\.ts)?(?![\w.-])/], exemptPrefixes: [RECORDS_PREFIX] },
+  /* The roots are `platform/` and `engine/` (docs/engine-platform-architecture.md): `src/` held the platform's modules and `qa-engine/` the engine. A `src/<folder>` path is the retired root only when it starts at the repository root or climbs to it (`packages/sdk/src/...` and a fixture app's `src/app/...` are other trees). The plan of the rename names both roots on purpose, and the shipped seed revisions are kept as they shipped. */
+  {
+    id: "retired-roots",
+    patterns: [/(?<![\w@./-])(?:\.{1,2}\/)*src\/(?:agent-runtime|composition|entrypoints|persistence|settings|telemetry|test-support|server|orchestrator|integrations)\b/, /(?<![\w@])qa-engine(?!\w)/],
+    exemptPrefixes: [RECORDS_PREFIX, SHIPPED_SEED_REVISIONS_PREFIX, "docs/engine-platform-architecture.md"],
+  },
   {
     id: "narration",
     patterns: [/migration-tier/i, /\bSlice \d/i, /\bcutover\b/i, /deleted twin/i, /frozen oracle/i, /the (old|earlier|former) (engine|pipeline|loader|path|build)/i, /\bcharacterization\b/i, /\bported (from|to)\b/i],

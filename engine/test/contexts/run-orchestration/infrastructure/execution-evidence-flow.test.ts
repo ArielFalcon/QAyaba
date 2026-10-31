@@ -5,7 +5,7 @@
    e2e-execution.strategy.test.ts).
    2. ExecutionPortAdapter.execute() — the ExecutionPort adapter in front of the strategy (the
    layer the FixLoop actually depends on).
-   Imports ONLY engine modules via @contexts/... aliases — no src/ import.
+   Imports ONLY engine modules via @contexts/... aliases — no platform/ import.
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";

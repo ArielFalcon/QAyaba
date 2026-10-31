@@ -1,4 +1,4 @@
-/* The shell (src/, scripts/) reaches a context only through its application/index.ts, and only platform/composition/engine-root.ts imports a
+/* The shell (platform/, scripts/) reaches a context only through its application/index.ts, and only platform/composition/engine-root.ts imports a
    composition builder. The rule cases build a throwaway tree under os.tmpdir() that carries a copy of the real config, so a probe is never
    planted in the real tree. The exception list is frozen: every entry still imports an infrastructure file and the list never grows. */
 import { test } from "node:test";

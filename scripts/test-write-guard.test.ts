@@ -1,5 +1,5 @@
 /* The suite's preload (test-setup.mjs) forbids writes into the repository's tracked tree: node --test
-   runs test files in parallel, so a file planted under src/ or engine/src/ — even one removed in a
+   runs test files in parallel, so a file planted under platform/ or engine/src/ — even one removed in a
    finally — is visible to every concurrent test that scans the tree, and a crashed run leaves it
    behind to be committed. These tests run under that same preload. */
 import { test } from "node:test";
@@ -17,7 +17,7 @@ function removeIfPresent(path: string): void {
   if (existsSync(path)) rmSync(path, { recursive: true, force: true });
 }
 
-test("a test cannot write a file under src/, engine/src/ or config/", () => {
+test("a test cannot write a file under platform/, engine/src/ or config/", () => {
   const probes = [
     join(repoRoot, "platform", `.write-guard-probe-${process.pid}.ts`),
     join(repoRoot, "engine", "src", `.write-guard-probe-${process.pid}.ts`),

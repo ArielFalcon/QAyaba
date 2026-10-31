@@ -14,7 +14,7 @@ Read this table first. Each row is defended later in the section it names.
 | # | Decision | Section |
 |---|---|---|
 | D1 | One trace per run. The run root starts at **dequeue**, on `ROOT_CONTEXT`, and has a **span link** to the enqueue request. | §4.1 |
-| D2 | The engine sees a `TelemetryPort` with **no SDK types**. The OpenTelemetry SDK is imported only in `src/telemetry/`. A cruiser rule enforces this. | §3 |
+| D2 | The engine sees a `TelemetryPort` with **no SDK types**. The OpenTelemetry SDK is imported only in `platform/telemetry/`. A cruiser rule enforces this. | §3 |
 | D3 | **The run store stays the system of record.** Spans are also written, metadata-only, to a local SQLite span ledger (`run_spans`). OTLP export is optional. Graders and the public API read the ledger, never Langfuse. | §3.3 |
 | D4 | Phases are tracked by a **phase cursor** in `RunQaUseCase`: `phase.enter(x)` closes the previous phase. There are no closures around the 1500-line `execute()`. `furthest_phase` and `phaseTimings` are persisted on `run_outcomes`. | §4.2 |
 | D5 | Agent turns: the orchestrator **synthesizes** `invoke_agent` / `chat` / `execute_tool` spans at the **`AgentDeps` facade** (covering the agent runtime). Each limit records itself in the layer that fires it. | §5 |
@@ -68,7 +68,7 @@ Reuse this before adding anything.
 | `SandboxReport` / exec scope (ALS) | `process-sandbox/exec-scope.ts` | Denied hosts per run, `openDeniedWindow` per login attempt, refusal reason | Denials keep the host but drop the port. Not per child |
 | `RunDeadlineExceededError` | `shared-kernel/run-deadline.ts:20` | `budgetMs`, `label`, `role`, `stop` | Only on the deadline path. Other limits are implicit |
 | Run-secret redaction (ALS) | `shared-infrastructure/redaction/run-secret-redaction.ts` | `redactByValue` inside the run scope | **No-op outside the run's async context** |
-| `/api/metrics` | `src/telemetry/metrics.ts`, `src/composition/wire-app.ts` | Prometheus text: queue depth, sessions, verdict counts | Not OTel. Raw path only |
+| `/api/metrics` | `platform/telemetry/metrics.ts`, `platform/composition/wire-app.ts` | Prometheus text: queue depth, sessions, verdict counts | Not OTel. Raw path only |
 | `probe-report`, `efficiency-benchmark`, campaign runner | `scripts/` | The acceptance baselines | Campaign identity exists only client-side; the server cannot tag a run |
 
 There is **no** `@opentelemetry/*` dependency, no logger abstraction (~270 raw `console.*` sites
@@ -81,9 +81,9 @@ with a `[qa]` prefix), and nothing measures event-loop lag or host suspend.
 ### 3.1 Layers
 
 ```
-qa-engine/src (engine, no SDK)                      src/ (shell)
+engine/src (engine, no SDK)                      platform/ (shell)
 ┌───────────────────────────────────────────┐      ┌──────────────────────────────────────────┐
-│ shared-kernel/telemetry/                  │      │ src/telemetry/   ← ONLY place that        │
+│ shared-kernel/telemetry/                  │      │ platform/telemetry/   ← ONLY place that        │
 │   telemetry.port.ts   (TelemetryPort)     │◄─────┤   otel-telemetry.adapter.ts  imports      │
 │   attribute-registry.ts (typed keys)      │      │   sqlite-span-exporter.ts    @opentelemetry│
 │   genai-semconv.ts    (gen_ai.* mapping)  │      │   bootstrap.ts (providers, flush)        │
@@ -91,7 +91,7 @@ qa-engine/src (engine, no SDK)                      src/ (shell)
 │ contexts/*/infrastructure/telemetry/      │      │   metrics.ts (instruments)               │
 │   *-port.traced.ts  (decorators)          │      └──────────────────────────────────────────┘
 │ contexts/evaluation/  (graders, pure)     │           wired in run-engine-factory.ts,
-└───────────────────────────────────────────┘           src/composition/wire-app.ts, src/composition/cli.ts
+└───────────────────────────────────────────┘           platform/composition/wire-app.ts, platform/composition/cli.ts
 ```
 
 - **`TelemetryPort`** is a minimal tracing facade:
@@ -123,15 +123,15 @@ qa-engine/src (engine, no SDK)                      src/ (shell)
 
 | Rule | Enforcement |
 |---|---|
-| `qa-engine/src` never imports `@opentelemetry/*` or `langfuse*` | New dependency-cruiser rule `no-telemetry-sdk-in-engine` |
-| In `src/`, the SDK appears only under `src/telemetry/` | A small grep test (cruiser does not scan `src/`) |
+| `engine/src` never imports `@opentelemetry/*` or `langfuse*` | New dependency-cruiser rule `no-telemetry-sdk-in-engine` |
+| In `platform/`, the SDK appears only under `platform/telemetry/` | A small grep test (cruiser does not scan `platform/`) |
 | Every emitted attribute key is in the registry | Typed keys plus an in-memory-exporter test (§15) |
 | Metric attributes come only from a closed set | A cardinality test over instrument definitions (§8.3) |
 
 ### 3.3 Where spans go (D3)
 
 ```
-TelemetryPort ──► OTel TracerProvider (src/telemetry)
+TelemetryPort ──► OTel TracerProvider (platform/telemetry)
                     ├─ SimpleSpanProcessor → SqliteSpanExporter   (always, when mode ≠ off)
                     └─ BatchSpanProcessor  → OTLP/HTTP → collector (only when OTEL_EXPORTER_OTLP_ENDPOINT is set)
 ```
@@ -382,7 +382,7 @@ wrapper, so a run that throws still carries it.
 the values `run-deadline | allotment | plan-budget | flow-budget | tool-call | repair-cap | session-timeout | prompt-budget | host-cap | stall | step-cap | cancel | fault | none` (`tier-budget` only on runs stored before the diff tiers were removed); `fault` is a turn a fault of the transport or the provider ended, no limit having fired (its `error.type` names the class).
 
 **How a run ended is typed facts, never a sentence.** The engine records each fact where it happens and the shell writes the same
-facts on the root span and on the run record (`RunTraceFacts`, `qa-engine/src/shared-kernel/run-trace-facts.ts`); the run's note is
+facts on the root span and on the run record (`RunTraceFacts`, `engine/src/shared-kernel/run-trace-facts.ts`); the run's note is
 derived from them and is never the only carrier:
 - **Limits.** `qayaba.limits` lists every limit that fired as `limit@role`: first the engine's own, whether the limit ended the run or
   the run went on past it (the deadline that ended the run, or degraded it with `deadline-after-proof`; the budget generation
@@ -405,7 +405,7 @@ derived from them and is never the only carrier:
 - **Engine version.** Every run records the version of the engine that ran it, as `qayaba.engine.version` on its root and enqueue spans, `runs.engine_version`
   (schema 4, nullable, nothing rewritten) and `engineVersion` in `GET /runs/:id`: the package version and the first 12 characters of the commit of the
   code (`0.1.0+0123456789ab`), read from the `REVISION` file an image build writes beside the code, else from the HEAD of the checkout the process
-  runs from (`src/entrypoints/version.ts`). Uncommitted edits are not part of it. A process that can tell no commit records the package version alone, which
+  runs from (`platform/entrypoints/version.ts`). Uncommitted edits are not part of it. A process that can tell no commit records the package version alone, which
   does not move between commits; a run stored before reads null. It is what lets runs be read as a timeline of code changes.
 
 ### 4.4 Context spans and stable item ids (brief §3)
@@ -676,7 +676,7 @@ for an id nobody can export would be noise. This deviates from brief §4.2, deli
 
 ## 7. Host health (D9, F2, F11, F12)
 
-A process-wide `HostHealth` in `src/telemetry/host-health.ts` runs even with no run active.
+A process-wide `HostHealth` in `platform/telemetry/host-health.ts` runs even with no run active.
 
 | Signal | How | Output |
 |---|---|---|
@@ -777,14 +777,14 @@ Tempo holds **what happened**, as structured spans, events and attributes. Loki 
 explains a span and has no structured home. It never repeats a fact a span already records, and it carries no noise.
 
 The orchestrator's lines reach Loki from the logging port itself (`createRedactingLogger`), not from a console tap. A
-line is redacted once by the port, then the shipper (`src/telemetry/log-shipper.ts`) redacts it again through the run's
+line is redacted once by the port, then the shipper (`platform/telemetry/log-shipper.ts`) redacts it again through the run's
 scope, caps it by capture mode (`off` ships nothing, `metadata` 1 KB, `full` 4 KB) and places it: in the ambient span, else
 in the one open run root (a phase span is never ambient, so a phase's own lines would otherwise be unplaced), else with
 no trace (a process line). A failed redaction drops the record and never exports the raw line. docker and the rotating
 file still receive every line.
 
 A line's level answers one question: what did the fact do to the run? The module that owns an outcome maps it to an effect and
-the line is written at the level the effect gives (`LOG_EFFECT` and `levelOfEffect`, `qa-engine/src/shared-kernel/ports/logger.port.ts`):
+the line is written at the level the effect gives (`LOG_EFFECT` and `levelOfEffect`, `engine/src/shared-kernel/ports/logger.port.ts`):
 
 | Effect | Level | Meaning |
 |---|---|---|
@@ -824,7 +824,7 @@ body reaches a span in any mode). No new setting: the gate is the one that alrea
 `QA_TELEMETRY_MAX_CAPTURE`. `off` and `metadata` export nothing, so a default run stores no body in Loki. Prompts carry
 repository source and diffs, which is why this stays the deliberate `full` act and is not turned on for every run.
 
-Records (`src/telemetry/prompt-body-logs.ts`, attribute `qayaba.body.kind`), one JSON line each, at most 64 KB serialized:
+Records (`platform/telemetry/prompt-body-logs.ts`, attribute `qayaba.body.kind`), one JSON line each, at most 64 KB serialized:
 
 | Kind | Body |
 |---|---|
@@ -855,7 +855,7 @@ Loki's chunk compression already absorbs. A run in `full` stores about 200-300 K
     runs in the HTTP server's context, and the exporter runs in neither.
   - So each span handle carries the run's `RunSecretScope`, given at creation (root, phases,
     server spans). `setAttrs` and `addEvent` redact through **that** scope, not through `activeRunSecretScope()`.
-- **Policy:** the outbound one (`src/telemetry/sanitizer.ts`, `"issue"` mode, which includes
+- **Policy:** the outbound one (`platform/telemetry/sanitizer.ts`, `"issue"` mode, which includes
   by-value redaction). AGENTS.md requires it for data leaving the system. It is applied **only to keys
   whose registry class is `redacted-text` or `content`**. Ids, hosts and enums are not run through
   PII and private-IP patterns, which would corrupt them.
@@ -940,7 +940,7 @@ services:
 ### 11.1 Model
 
 ```
-qa-engine/src/contexts/evaluation/
+engine/src/contexts/evaluation/
   domain/       run-evidence.ts (read model), graders/*.ts (pure), score.ts, context-refs.ts (extraction)
   application/  grade-run.use-case.ts, regrade.use-case.ts, ports (EvidencePort, ScoreStorePort, ScoreSinkPort)
   infrastructure/ evidence.sqlite.adapter (run_outcomes + agent_turns + run_spans + specs),
@@ -1040,7 +1040,7 @@ The LLM judges and their calibration were removed (RFC-0001 OD-1): none ever pro
   - Stored on `runs` (`campaign_id`, `campaign_variant` as JSON, `campaign_replicate`, `capture_mode`, `effective_config`). A run with a campaign has trigger `campaign`, `langfuse.session.id` = the campaign id, and the variant values among its tags.
   - Retention (R4): a campaign run keeps its record, agent turns, spans and spec snapshots for `QA_TELEMETRY_CAMPAIGN_RETENTION_DAYS` (default 180); an ordinary run keeps them 30 days.
 - **Dataset.** `config/benchmarks/datasets/<name>@<version>.json`: `{name, version, description?, items: [{app, sha, description, guidance?, mode?}]}`.
-  - `description` is metadata and never reaches a run. An item with `guidance` runs in `manual` mode (the default when guidance is given); without it, `diff`. Validation: `qa-engine/src/contexts/evaluation/domain/benchmark-dataset.ts`; loader: `scripts/benchmark-datasets.ts`. `config/benchmarks/datasets/example@1.json` is the template.
+  - `description` is metadata and never reaches a run. An item with `guidance` runs in `manual` mode (the default when guidance is given); without it, `diff`. Validation: `engine/src/contexts/evaluation/domain/benchmark-dataset.ts`; loader: `scripts/benchmark-datasets.ts`. `config/benchmarks/datasets/example@1.json` is the template.
   - Seeded from real failures: the F-catalog runs and `reference-cases.json`.
   - Versioned by file name: a new version is a new file.
 - **Replicates.** N ≥ 3 per item and variant. Comparison reports mean ± a bootstrap 95% CI per
@@ -1095,7 +1095,7 @@ ingest times.
 - **Base URL:** `http://<host>:458/api/v1`, with `PORT` default 458.
 - **Auth:** `Authorization: Bearer <QA_API_TOKEN or session JWT>`.
 - **Versioning:** each response carries `schemaVersion: 1`. A breaking change means version 2.
-- **Source of truth:** the zod schemas in `qa-engine/src/shared-kernel/contract/`. Regenerate
+- **Source of truth:** the zod schemas in `engine/src/shared-kernel/contract/`. Regenerate
   `contract/openapi.json` and the SDK, which `contract:check` enforces.
 
 **Every JSON response of the endpoints below carries `schemaVersion: 1`**: 2xx bodies and their
@@ -1131,7 +1131,7 @@ ingest times.
   What makes an arm behave differently is **only** the explicit request levers (`closedLoop`,
   `agentBrowser`, `captureMode`, `grounding`) and the deployment's config.
 - **The presence of a campaign freezes the run.** The server decides it per request, for every door
-  (`qa-engine/src/contexts/run-orchestration/domain/run-freeze.ts`): a run that carries a `campaign` starts from a fixed state (the suite store is
+  (`engine/src/contexts/run-orchestration/domain/run-freeze.ts`): a run that carries a `campaign` starts from a fixed state (the suite store is
   read-only, no context-map rebuild, no automatic login bootstrap, no process audit) and records
   `effectiveConfig.campaignFreeze: true`. The one lever that lifts anything is `grounding.lessons: true`, which
   lifts the lesson state only (docs/architecture/rfc/0013-learning-slice.md); a run without a campaign is not
@@ -1167,10 +1167,10 @@ ingest times.
     - `coverage`: the policy the engine reported when the run ended (`runs.coverage_mode`, `coverage_min_ratio`), else the one the run started with (`qa.changeCoverage`).
   - A run that is enqueued and has not started yet has no recorded configuration: its `effectiveConfig` answers every leaf as `null` (and `agents` as `{}`). It fills in when the run starts.
   - `prompt.staticHash` is computed once per process, on the first run that needs it, and kept. After editing `agents/AGENTS.md` or a role file, restart the orchestrator to see the new hash on later runs.
-  - `gateSignals`-level reductions aside, a run's `effectiveConfig` reports the same predicates the engine factory wires with (`qa-engine/src/contexts/run-orchestration/domain/run-config-gates.ts`: closed loop and agent browser enabled, service topology wired), so the two cannot drift.
+  - `gateSignals`-level reductions aside, a run's `effectiveConfig` reports the same predicates the engine factory wires with (`engine/src/contexts/run-orchestration/domain/run-config-gates.ts`: closed loop and agent browser enabled, service topology wired), so the two cannot drift.
   - On the trace root, `qayaba.campaign.variant.<key>` spells a dot in a label key as an underscore (a registry template key is one dot-free segment); the stored and echoed variant keeps the key as given. Two keys that differ only by `.` versus `_` (`a.b`, `a_b`) collapse onto the same attribute on the trace, so keep a campaign's variant keys free of that ambiguity; the API response is exact. Label values and keys are limited to `[A-Za-z0-9_.:-]`, up to 64 characters, 16 keys, and `__proto__` is refused.
 - **`captureMode`** is capped by the server's `QA_TELEMETRY_MAX_CAPTURE` (§9.2): `off`, `metadata` (the default) or `full`; a mistyped value stops the boot. A campaign run that
-  names no mode asks for `full` (`requestedCaptureMode`, `qa-engine/src/contexts/evaluation/domain/campaign-capture.ts`): campaigns are read prompt by prompt.
+  names no mode asks for `full` (`requestedCaptureMode`, `engine/src/contexts/evaluation/domain/campaign-capture.ts`): campaigns are read prompt by prompt.
   Under a lower ceiling it is capped like any request and a warning names the ceiling. The applied value is in `effectiveConfig`.
   - Uniform within a campaign (enforced): a run that names a campaign must apply the same capture mode as the campaign's existing runs, after the ceiling. Otherwise the request is refused with `409 {schemaVersion, error}`, the error naming the expected mode, and no run is created. The first run of a campaign sets the mode; a request for `full` that the ceiling caps to the campaign's `metadata` is accepted, because the applied modes agree.
   - Mechanism: the run funnel applies the cap for every door and stores the result; the run's root span asks the adapter for that mode (`StartSpanOptions.captureMode`) and every span under it inherits it through the OpenTelemetry context, like the redaction scope, so concurrent runs and the process default never interfere. The adapter clamps again at the same ceiling (`maxCaptureMode`), so no caller can exceed it. A run that asks for nothing takes the process default (`metadata`, or the ceiling if lower).
@@ -1314,7 +1314,7 @@ findings, 16 warnings and 11 suggestions. The load-bearing claims were re-verifi
 | W1 queue inherits the enqueue context | Root on `ROOT_CONTEXT` | §4.1 |
 | W2 phase closures, crash-lost funnel, hung runs invisible | Phase cursor, persisted on `run_outcomes`, ledger rows on start | §4.2, §3.3 |
 | W3 synchronous ledger cost | Buffered transactions, `synchronous=NORMAL` | §3.3 |
-| W4 duplicate stores, retention | Agent-turn fields: **columns on `agent_turns` are the record**; spans mirror them. The prune at `pruneHistory` (`src/persistence/retention.ts`) becomes campaign-aware per R4 | §5.4, §17 |
+| W4 duplicate stores, retention | Agent-turn fields: **columns on `agent_turns` are the record**; spans mirror them. The prune at `pruneHistory` (`platform/persistence/retention.ts`) becomes campaign-aware per R4 | §5.4, §17 |
 | W5 abandoned fan-out flows | The flow span ends on `TIMED_OUT`; added to the ended-span matrix | §15 |
 | W6 egress attribution | Renamed co-temporal | §6.1 |
 | W7 context utilization validity | Extractable vs n/a per source; recall over change-relevant items; no self-report | §11.1 |

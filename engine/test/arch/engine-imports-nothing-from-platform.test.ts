@@ -1,5 +1,5 @@
-/* engine production code must not import src/. Parity tests under engine/test/ are the
-   sanctioned exception (they import src/ by design). depcruise may miss dynamic import() and
+/* engine production code must not import platform/. Parity tests under engine/test/ are the
+   sanctioned exception (they import platform/ by design). depcruise may miss dynamic import() and
    barrel re-exports — audit those by hand.
 
    The real tree is only ever scanned read-only. The synthetic-violation cases build a throwaway tree
@@ -34,7 +34,7 @@ function runDepcruise(treeRoot: string, target: string, cwd: string): { ok: bool
   }
 }
 
-/* A minimal repo-shaped tree: the real depcruise config at engine/, a src/ module, and a
+/* A minimal repo-shaped tree: the real depcruise config at engine/, a platform/ module, and a
    engine/src/ production file importing it. tsconfig.json sits at both the root and engine/
    because depcruise resolves the config's tsConfig.fileName against the invoking cwd. */
 function treeWithSrcImportViolation(): string {
@@ -54,16 +54,16 @@ function treeWithSrcImportViolation(): string {
   return treeRoot;
 }
 
-test("no engine production file imports src/ today", () => {
+test("no engine production file imports platform/ today", () => {
   const { ok, output } = runDepcruise(repoRoot, "engine/src", repoRoot);
-  assert.equal(ok, true, `dependency-cruiser reported a src/ boundary violation:\n${output}`);
+  assert.equal(ok, true, `dependency-cruiser reported a platform/ boundary violation:\n${output}`);
 });
 
-test("a engine production file importing src/ is caught by the boundary rule", () => {
+test("an engine production file importing platform/ is caught by the boundary rule", () => {
   const treeRoot = treeWithSrcImportViolation();
   try {
     const { ok, output } = runDepcruise(treeRoot, "engine/src", treeRoot);
-    assert.equal(ok, false, "depcruise must report a violation for the src/ import");
+    assert.equal(ok, false, "depcruise must report a violation for the platform/ import");
     assert.match(output, /engine-imports-nothing-from-platform:\s*engine\/src\/leaky-module\.ts/, `expected the boundary rule to name the offending module, got:\n${output}`);
   } finally {
     rmSync(treeRoot, { recursive: true, force: true });
@@ -71,7 +71,7 @@ test("a engine production file importing src/ is caught by the boundary rule", (
 });
 
 /* The config pins options.baseDir to the repo root; without it the rule's "^engine/src/" and
-   "^src/" patterns never match the cwd-relative module ids generated from inside engine/ and the
+   "^platform/" patterns never match the cwd-relative module ids generated from inside engine/ and the
    rule silently never fires. */
 test("the boundary rule still fires when depcruise is invoked from inside engine/", () => {
   const treeRoot = treeWithSrcImportViolation();
@@ -84,14 +84,14 @@ test("the boundary rule still fires when depcruise is invoked from inside engine
   }
 });
 
-/* Known pitfall, out of the gate: with baseDir pinned to the root, a bare `src` target resolves to the
-   ROOT src/ tree even from cwd=engine/, so it silently scans the wrong tree and reports clean. The
+/* Known pitfall, out of the gate: with baseDir pinned to the root, a bare `platform` target resolves to the
+   ROOT platform/ tree even from cwd=engine/, so it silently scans the wrong tree and reports clean. The
    gate therefore always passes the baseDir-relative target ("engine/src"). */
-test("a bare 'src' target from cwd=engine/ scans the root src/ tree and misses the violation", () => {
+test("a bare 'platform' target from cwd=engine/ scans the root platform/ tree and misses the violation", () => {
   const treeRoot = treeWithSrcImportViolation();
   try {
     const { ok } = runDepcruise(treeRoot, "platform", join(treeRoot, "engine"));
-    assert.equal(ok, true, "a bare 'src' target from cwd=engine/ scans the root src/ tree, which has no engine/src module to flag");
+    assert.equal(ok, true, "a bare 'platform' target from cwd=engine/ scans the root platform/ tree, which has no engine/src module to flag");
   } finally {
     rmSync(treeRoot, { recursive: true, force: true });
   }

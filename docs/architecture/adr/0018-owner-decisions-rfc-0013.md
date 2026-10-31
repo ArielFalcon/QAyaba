@@ -37,6 +37,8 @@ Note 2026-10-31 on rows 7 and 8: the cycle's verdict is read pair by pair. Each 
 
 This settles ADR-0009's two points left to T20 (Q9 and Q10) and ADR-0003's "Not decided here" items on the lesson entity and storage, the stand-ins, the vehicle, "bounded size", the data-state failure, the replicates of "one cycle", "improvement" and the process audit's second admission.
 
+**Note, 2026-10-31 (T13 U7, roots renamed):** the deletion of the lesson kind (row 8) is deferred to after the final run, under the owner's standing instruction to take the recommended option and record it (ADR-0015, point 2). It changes the grader catalog the API serves and `GRADER_VERSION` (a contract others consume), and the next counted cycle starts with that run, so the kind stays until that cycle has its answer.
+
 ## What this does not grant
 
 [RFC-0001](../rfc/0001-dormant-features.md) OD-11's live service-triggered run (RFC-0013 unit U6) needs the owner's authorization of the repository, the sha and the credential. [ADR-0013](0013-owner-decisions-remaining-questions.md) (Correction 2026-10-30) records the owner's words "tienes permiso para hacerlo cuando necesites" ("you have permission to do it when you need to") for ms-name-restaurants at 3d8f63de, after D10 lands. It names no credential. This record neither renews nor widens that permission and authorizes no credential; U6 does not launch until the credential is authorized and U1 has landed. The cycle's replicates are launched on the owner's go, as T12 is (feature document, S3).

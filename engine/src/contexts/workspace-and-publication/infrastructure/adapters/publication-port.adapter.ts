@@ -254,7 +254,7 @@ export class PublicationPortAdapter implements PublicationPort {
       }
       case "issue": {
         const body = issueBody();
-        /* After sanitize: if a secret is still detectable, refuse to open the Issue. This file cannot import src/; the check is injected. */
+        /* After sanitize: if a secret is still detectable, refuse to open the Issue. This file cannot import platform/; the check is injected. */
         if (this.deps.containsSecret?.(body)) {
           engineLog.error("[publication] logs→Issue: a secret survived redaction — refusing to open the Issue");
           throw new SecretLeakError("logs→Issue: a secret survived redaction — refusing to open the Issue");

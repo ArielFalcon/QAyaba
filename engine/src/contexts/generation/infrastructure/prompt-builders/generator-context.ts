@@ -1,4 +1,4 @@
-/* The facts a generator prompt is derived from, computed once per turn. The sections of generator-sections.ts read them and compute nothing the context already holds. Never import src/. */
+/* The facts a generator prompt is derived from, computed once per turn. The sections of generator-sections.ts read them and compute nothing the context already holds. Never import platform/. */
 
 import { sanitizeText } from "../../../../shared-infrastructure/redaction/pattern-redaction.adapter.ts";
 import { deriveClaimsFromPackText, withoutPackSection } from "../context-pack.ts";

@@ -849,7 +849,7 @@ export function testCommandFor(preset: MutationPreset): string {
 
 /* The checker type-checks the mutated files (and what they import) with the options of the project
    they belong to; `references` are not inherited through `extends`, so this runs in single-project
-   mode. allowImportingTsExtensions lets src/ files pull in engine sources, which import with `.ts`.
+   mode. allowImportingTsExtensions lets platform/ files pull in engine sources, which import with `.ts`.
    The file lives under os.tmpdir(), so typeRoots points back at the repo's @types. */
 export function checkerTsconfigFor(preset: MutationPreset, root: string): object {
   const sources = preset.mutate.map(sourcePathOf);

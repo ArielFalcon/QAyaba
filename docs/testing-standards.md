@@ -105,7 +105,7 @@ pipe for reading waits for a writer, and a thread waiting inside a system call c
 the test it runs on (the timer that would do it runs on that thread), so a run against code that does
 open the pipe, such as a test written first and run against the code it replaces, or a regression, would
 never end and its process would stay behind. Run the call under
-`withoutWaitingOnNamedPipe(path, run)` (`qa-engine/test/support/named-pipe-watch.ts`): a second thread
+`withoutWaitingOnNamedPipe(path, run)` (`engine/test/support/named-pipe-watch.ts`): a second thread
 opens the pipe for writing, without waiting, as soon as anything has it open for reading, which releases
 the reader and records that it was there, so the test fails on its assertion within a fraction of a
 second. It releases a writer too: code that appends to a file an agent replaced with a pipe (a setup
@@ -120,7 +120,7 @@ so that the file processes `node --test` starts die with it.
 
 ## The web console harness
 
-`src/test-support/console-harness.ts` loads `web/public/js` into a `node:vm` context with a
+`platform/test-support/console-harness.ts` loads `web/public/js` into a `node:vm` context with a
 scripted `fetch`, a virtual clock (`advance(ms)`), `sessionStorage` and a string-backed DOM. Tests
 talk to the console only through its public seams — `api`, the rendered text of `#app`, `click`,
 the login screen — and route requests with `controlApi` / `sseEvent`. Never reach into console
@@ -1205,8 +1205,8 @@ The re-run: 307 killed, no timeout, none survived, 100%.
 | keystone | objective-signal decide/assemble/render | 108 / 5 / 4 — 96.58% (92.31%) | 112 / 1 / 0 — 100% (99.12%) | 80 |
 | fix-loop | fix-loop.aggregate | 184 / 2 / 15 — 92.54% (91.54%) | 197 / 2 / 8 — 96.14% (95.17%) | — |
 | coordination | acceptance-report, pushback, delegation-failure-class (scores measured while the preset also held the since-removed routing role) | 199 / 20 / 11 — 95.22% (86.52%) | 252 / 1 / 3 — 98.83% (98.44%) | — |
-| coordination-events | qa-engine/src/contexts/coordination/infrastructure/adapters/coordination-ledger-reader.adapter.ts, src/entrypoints/coordination-events.ts (measured before the reader moved) | 156 / 13 / 16 — 91.35% (84.32%) | 132 / 8 / 1 — 99.29% (93.62%) | — |
-| local-login | src/entrypoints/auth.ts (local-login policy range) | 63 / 2 / 4 — 94.2% (91.3%) | 59 / 0 / 0 — 100% (100%) | — |
+| coordination-events | engine/src/contexts/coordination/infrastructure/adapters/coordination-ledger-reader.adapter.ts, platform/entrypoints/coordination-events.ts (measured before the reader moved) | 156 / 13 / 16 — 91.35% (84.32%) | 132 / 8 / 1 — 99.29% (93.62%) | — |
+| local-login | platform/entrypoints/auth.ts (local-login policy range) | 63 / 2 / 4 — 94.2% (91.3%) | 59 / 0 / 0 — 100% (100%) | — |
 | write-confinement | write-confinement.service | 149 / 14 / 20 — 89.07% (81.42%) | 147 / 17 / 19 — 89.62% (80.33%) | — |
 | spec-path-confinement | spec-path-confinement (the reader of an agent-reported path, the strict read, listing, directory, write and removal of the orchestrator's own files, the walk of the specs and its cap, the walk of a repository's files), manifest-fs (file hash, load, read, write), the read gate's manifest check and zero-assertion scan, the context map, setup's reads, copies and replacements in the project and its removal of a refused marker, the login's stock check, the verdict parser's listing of the suite | 36 / 0 / 1 — 97.3% (97.3%) | 332 / 3 / 5 — 98.53% (97.65%), before this slice: not re-run on its code | — |
 | run-output-readers | run-output-reader (the strict, capped read of a directory of output and of a report, used whole or not at all, or scanned part by part), coverage-dump-reader (V8 dumps reduced as they are read), target-coverage-collector, fault-injection-counter-reader | 55 / 0 / 26 — 67.9% (67.9%) | 71 / 0 / 0 — 100% (100%), before this slice: not re-run on its code | — |
@@ -1272,7 +1272,7 @@ unattributed GET, which the list's own guard made unobservable; it was restructu
 
 Each is a genuine equivalent mutant: no test can observe it without asserting the mutated literal.
 
-**patch-app-yaml** (`qa-engine/src/contexts/app-catalog/application/patch-app-yaml.ts`)
+**patch-app-yaml** (`engine/src/contexts/app-catalog/application/patch-app-yaml.ts`)
 - `alreadyReads` — the `catch` block emptied (BlockStatement): a placeholder whose variable is unset
   reads as no value, and a callback that returns nothing is read the same by `some`.
 
@@ -1319,7 +1319,7 @@ Each is a genuine equivalent mutant: no test can observe it without asserting th
 - `formatRedirectAdvisory` — the `", "` between the routes a block says were asked for (StringLiteral):
   every route is still named; the separator is wording, not data.
 
-**step-limit** (`src/composition/run-engine-factory.ts`, the per-run memo)
+**step-limit** (`platform/composition/run-engine-factory.ts`, the per-run memo)
 - `readStepLimits` — the label of the deadline's message, `"step limit read"` → `""` (StringLiteral): the
   warning still names the directory, the deadline and the cause; the label is log text.
 
@@ -1333,7 +1333,7 @@ Each is a genuine equivalent mutant: no test can observe it without asserting th
   (a text of exactly the bound is untouched, one over it is cut with its mark and the cut is recorded); the number is
   the design's.
 
-**coordination-events** (`qa-engine/src/contexts/coordination/infrastructure/adapters/coordination-ledger-reader.adapter.ts`)
+**coordination-events** (`engine/src/contexts/coordination/infrastructure/adapters/coordination-ledger-reader.adapter.ts`)
 - `parseCoordinationLedger` — the `catch` block emptied (BlockStatement): an unparsed line leaves
   `parsed` undefined, which the field checks drop anyway.
 

@@ -356,7 +356,7 @@ export const AppConfigSchema = configObject({
      * Per-app Playwright configuration. testIdAttribute overrides the default "data-testid"
      * for apps that use a different test-id convention (e.g. "data-cy" for JHipster apps).
      * Flows into PW_TEST_ID_ATTRIBUTE env, threading through capture and execute spawns.
-     * No app-specific names are hardcoded in src/ — the value comes from config only.
+     * No app-specific names are hardcoded in platform/ — the value comes from config only.
      */
     e2e: configObject({
         testIdAttribute: z.string().min(1).optional(),

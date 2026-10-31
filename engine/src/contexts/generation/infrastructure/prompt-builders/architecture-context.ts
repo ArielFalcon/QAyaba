@@ -1,4 +1,4 @@
-/* The FE-BE architecture map as a prompt section: whole (the prompt fits it to the role's window), held to a safety bound per list, and every field sanitized because the map is read from the watched repo. Never import src/. */
+/* The FE-BE architecture map as a prompt section: whole (the prompt fits it to the role's window), held to a safety bound per list, and every field sanitized because the map is read from the watched repo. Never import platform/. */
 
 import { sanitizeText } from "../../../../shared-infrastructure/redaction/pattern-redaction.adapter.ts";
 import { itemId } from "@kernel/context-item-ids.ts";

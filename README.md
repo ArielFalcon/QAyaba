@@ -220,7 +220,7 @@ OPENCODE_API_KEY=opencode-go-your-key-here
 > [!IMPORTANT]
 > For production, you also need `GITHUB_TOKEN` and `WEBHOOK_SECRET`.
 
-Every environment variable the service reads, with its type and default, is listed in [docs/settings.md](docs/settings.md) (generated from `src/settings/registry.ts`).
+Every environment variable the service reads, with its type and default, is listed in [docs/settings.md](docs/settings.md) (generated from `platform/settings/registry.ts`).
 
 ### AI model configuration
 
@@ -232,7 +232,7 @@ The project uses provider-neutral role assignments. The roster, each role's mode
 | `reviewer` | `qa-reviewer` | Read-only quality judge; rejects tests with trivial assertions or fragile patterns |
 | `chat` | `qa-assistant` | Read-only operator assistant |
 
-Each run reads the context window the agent runtime reports for the models its roles are assigned (`src/agent-runtime/run-context-budget.ts`); the engine keeps no table of models, and a window the runtime does not report cuts nothing.
+Each run reads the context window the agent runtime reports for the models its roles are assigned (`platform/agent-runtime/run-context-budget.ts`); the engine keeps no table of models, and a window the runtime does not report cuts nothing.
 
 > [!TIP]
 > `qayaba agent` prints the current runtime config; `qayaba agent models [provider]` lists a provider's models.

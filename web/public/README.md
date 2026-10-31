@@ -6,7 +6,7 @@ and reports.
 
 This is a **self-contained, framework-agnostic console** — plain `index.html` + CSS + vanilla JS,
 no bundler, no build step, no runtime framework. The orchestrator serves this directory as-is,
-same-origin, at **`/app`** (`src/entrypoints/static.ts`), where it talks to the `/api/v1/*` API for real
+same-origin, at **`/app`** (`platform/entrypoints/static.ts`), where it talks to the `/api/v1/*` API for real
 data. It can also run standalone on mock data.
 
 ```
@@ -52,7 +52,7 @@ from `js/data.mock.js` — no server needed.
 
 ## How the orchestrator serves it
 
-`src/entrypoints/static.ts` serves `web/public/` at `/app` (with the `/app/*` → `index.html` fallback for
+`platform/entrypoints/static.ts` serves `web/public/` at `/app` (with the `/app/*` → `index.html` fallback for
 client routes). There is nothing to build: edit a file and reload. `docker-compose.override.yml`
 bind-mounts `web/` into the orchestrator for local work; without it the image's copy is served.
 

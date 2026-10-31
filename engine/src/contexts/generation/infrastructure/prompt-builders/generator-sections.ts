@@ -1,4 +1,4 @@
-/* The sections of a generator prompt, in prompt order. Each declares when it applies and how it renders from the turn's PromptContext; buildPromptAssembled filters and renders them. Never import src/. */
+/* The sections of a generator prompt, in prompt order. Each declares when it applies and how it renders from the turn's PromptContext; buildPromptAssembled filters and renders them. Never import platform/. */
 
 import { linkIdentity, type ImpactReach, type ServiceLink } from "@kernel/service-links.ts";
 import { sanitizeText } from "../../../../shared-infrastructure/redaction/pattern-redaction.adapter.ts";

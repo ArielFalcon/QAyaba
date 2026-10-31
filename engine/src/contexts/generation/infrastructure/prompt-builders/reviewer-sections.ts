@@ -1,4 +1,4 @@
-/* The sections of a reviewer prompt, in prompt order, and the context they render from. The reviewer is independent of the generator: it sees the diff, the specs and the orchestrator's evidence, never the generator's reasoning. Never import src/. */
+/* The sections of a reviewer prompt, in prompt order, and the context they render from. The reviewer is independent of the generator: it sees the diff, the specs and the orchestrator's evidence, never the generator's reasoning. Never import platform/. */
 
 import { sanitizeText } from "../../../../shared-infrastructure/redaction/pattern-redaction.adapter.ts";
 import { claim, SPEC_CONTENTS_INLINE_FACT, type PromptClaim } from "@contexts/generation/domain/prompt-contract-lint.ts";

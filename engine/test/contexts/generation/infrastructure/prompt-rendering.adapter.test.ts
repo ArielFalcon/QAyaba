@@ -30,7 +30,7 @@ test("renderReviewer delegates to buildReviewerPromptAssembled and returns assem
 });
 
 test("specFileForFlow delegates to the injected builder — delegation captured and path forwarded", () => {
-  /* The real specFileForFlow (src/integrations/prompts.ts:specFileForFlow) returns "flows/<safe>.spec.ts",
+  /* The real specFileForFlow returns "flows/<safe>.spec.ts",
      NOT "e2e/". A gutted impl that hardcodes "e2e/checkout.spec.ts" FAILS both assertions below:
      (1) the seen flag is false if the builder was never called, and
      (2) the output must match what the injected builder returns, not an invented path.

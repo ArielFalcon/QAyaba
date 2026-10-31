@@ -65,7 +65,7 @@ RUN ARCH="$(dpkg --print-architecture)" \
 # launcher, engine/src/shared-infrastructure/process-sandbox/exec-sandbox.ts), so untrusted code
 # cannot read the root-owned API token (data/.api_token), the auth material under /app/data, the app
 # configs, or another watched repo under /app/.mirrors (bin/container-entrypoint.sh closes them at every
-# boot and then proves it as this uid), tamper with the orchestrator's files (/app/src, node_modules),
+# boot and then proves it as this uid), tamper with the orchestrator's files (/app/platform, node_modules),
 # or write the mirror it runs in.
 # The user owns a writable home for package-manager caches (~/.cache). NOBLE drift: Ubuntu 24.04 ships a default `ubuntu` user at uid 1000,
 # which pushed the Playwright image's `pwuser` to uid 1001 (it was 1000 on jammy). So `sandbox` uses

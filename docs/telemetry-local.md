@@ -25,7 +25,7 @@ For production drop `docker-compose.override.yml` (`docker compose -f docker-com
 `otlp.lastExportAt` only proves the trusted collector accepted a batch. The collector -> Loki/Tempo leg fails on its
 own (Loki's WAL disk guard once rejected every push for ~50 minutes while the export looked healthy), so
 `GET /api/v1/telemetry/health` also carries `backends`, probed from the orchestrator container over
-`telemetry-internal` (`src/telemetry/backend-health.ts`):
+`telemetry-internal` (`platform/telemetry/backend-health.ts`):
 
 | Backend | Checked | Not healthy when |
 |---|---|---|
@@ -83,7 +83,7 @@ declared but off; add it to a pipeline in the collector's config to print spans 
 ## Evaluations (scores) in Grafana
 
 Every grading, and every regrade, mirrors the run's scores to Prometheus through the evaluation context's sink
-(`src/telemetry/score-metrics-sink.ts`). The scores themselves stay stored in `run_scores` first; `GET
+(`platform/telemetry/score-metrics-sink.ts`). The scores themselves stay stored in `run_scores` first; `GET
 /api/v1/runs/:id/evaluation` is unchanged. The sink is fail-open: a lookup or
 measurement fault is logged and never changes a grade.
 
@@ -178,7 +178,7 @@ file`, `llm runtime selected`, ... 22.9k lines against 18 errors). The orchestra
 | Layer | Rule |
 |---|---|
 | `collector-agents` (`filter/drop_opencode_info_logs`) | Drops OpenCode log records with a severity above 0 and below WARN. WARN, ERROR, FATAL and records with no severity are kept. |
-| Orchestrator container log | A successful GET/HEAD control-plane request (`/api/health`, run polling) is not logged (`src/entrypoints/api-request-log.ts`); POSTs and every status >= 400 are. The `scrubEnv dropped N env var(s)` warning prints once per distinct dropped set instead of on every spawn. |
+| Orchestrator container log | A successful GET/HEAD control-plane request (`/api/health`, run polling) is not logged (`platform/entrypoints/api-request-log.ts`); POSTs and every status >= 400 are. The `scrubEnv dropped N env var(s)` warning prints once per distinct dropped set instead of on every spawn. |
 | Docker `json-file` | `orchestrator` and `agents`: `max-size: 10m`, `max-file: 3` (was 50m x 5), so at most 30 MB each. |
 
 The debug dumps stay 100 MB x 3 per collector as a ceiling; they were 14.6 MB in practice. Errors, warnings, run

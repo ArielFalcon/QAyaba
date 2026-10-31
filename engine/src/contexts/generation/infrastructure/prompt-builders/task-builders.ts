@@ -1,4 +1,4 @@
-/* The task block of a generator prompt: what this turn is asked to do, per mode, target and turn kind. The "how" lives in agents/agent/*.md. Never import src/. */
+/* The task block of a generator prompt: what this turn is asked to do, per mode, target and turn kind. The "how" lives in agents/agent/*.md. Never import platform/. */
 
 import { sanitizeText } from "../../../../shared-infrastructure/redaction/pattern-redaction.adapter.ts";
 import { diffStat, type DiffStat } from "@contexts/generation/domain/diff-stat.ts";

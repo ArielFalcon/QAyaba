@@ -555,7 +555,7 @@ test("follow-up #27: a malformed generator verdict triggers ONE bounded repair w
 /* ── manifest schema conformance: assembled entries satisfy the real static-gate schema ─────────
    Cross-checks the assembled entry shape against the ACTUAL ManifestEntrySchema the orchestrator's
    static gate validates (platform/entrypoints/schemas.ts) — replicated here (engine does not import
-   from src/, per the src/-independence invariant) as the same field/type assertions the schema
+   from platform/, per the src/-independence invariant) as the same field/type assertions the schema
    encodes: id/objective/flow non-empty strings, targets a non-empty array, changeRef.sha/type
    non-empty strings. This is the exact shape whose absence produced the live-run "invalid" verdict.
  */

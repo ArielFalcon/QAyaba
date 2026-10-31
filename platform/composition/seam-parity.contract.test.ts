@@ -1,5 +1,5 @@
 /* Permanent seam: the engine's RunOutcome reaching the history store, and AppConfig ↔ EngineRootDeps.
-   engine cannot import src/, so this shell test is the drift gate. The stored outcome is derived from the
+   engine cannot import platform/, so this shell test is the drift gate. The stored outcome is derived from the
    engine's type, so only the forwarding is pinned here. */
 import { test, describe, mock } from "node:test";
 import assert from "node:assert/strict";

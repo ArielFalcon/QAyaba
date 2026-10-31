@@ -139,3 +139,31 @@ test("a name of the deleted diff tiers fails outside docs/architecture and passe
 test("the operator's own size label of a benchmark case is not a deleted tier name", () => {
   assert.deepEqual(check([file("scripts/efficiency-benchmark.ts", "export const DIFF_TIER_NAMES = [\"tiny\"] as const;\ntype DiffTier = string;\n")]).violations, []);
 });
+
+test("the retired roots fail outside the records, in every path form, and their legitimate look-alikes pass", () => {
+  for (const text of [
+    "the factory lives in src/composition/engine-root.ts",
+    "import x from '../../src/settings/registry'",
+    "see ./src/entrypoints/api.ts",
+    "the root qa-engine/src/contexts",
+    "@qayaba/qa-engine",
+    "qa-engine",
+  ]) {
+    assert.deepEqual(check([file("docs/guide.md", text)]).violations.map((v) => v.rule), ["retired-roots"], text);
+    assert.deepEqual(check([file("docs/architecture/adr/0001-x.md", text)]).violations, [], text);
+  }
+  for (const text of [
+    "platform/composition/engine-root.ts and engine/src/contexts",
+    "a fixture app's src/app/cart.ts and its <img src=\"/a.png\">",
+    "packages/sdk/src/composition/x.ts and web/src/settings/y.ts",
+    "const src = readFileSync(file)",
+  ]) {
+    assert.deepEqual(check([file("docs/guide.md", text)]).violations, [], text);
+  }
+});
+
+test("the roots' migration plan and the shipped seed revisions may name the retired roots", () => {
+  const text = "src/ → platform/ and qa-engine/ → engine/";
+  assert.deepEqual(check([file("docs/engine-platform-architecture.md", text)]).violations, []);
+  assert.deepEqual(check([file("engine/test/contexts/workspace-and-publication/infrastructure/__fixtures__/seed-revisions/failure-capture.rev9.txt", "qa-engine/src/x.ts")]).violations, []);
+});

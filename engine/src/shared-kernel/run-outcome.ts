@@ -1,4 +1,4 @@
-/* Immutable record of a finished run — consumed by run-orchestration and cross-run-learning (neither depends on the other). errorClass/usage/adjudication stay wide so the kernel does not import those types from src/ or downstream contexts. */
+/* Immutable record of a finished run — consumed by run-orchestration and cross-run-learning (neither depends on the other). errorClass/usage/adjudication stay wide so the kernel does not import those types from platform/ or downstream contexts. */
 
 import type { RunMode, TestTarget } from "./run-mode.ts";
 import type { RunVerdict } from "./run-verdict.ts";

@@ -4,7 +4,7 @@
  * ranked pieces of the diff in one ```diff fence (the judges read the fence back), then every other piece named by its location,
  * size, kind and why. The map and the references are never cut; how many pieces are shown is fitted to the lead's window by the
  * builder, which reads the section's size for any count from `bytes` without rendering it. Every text is redacted before it is
- * measured. Never import src/.
+ * measured. Never import platform/.
  */
 import { sanitizeText } from "../../../../shared-infrastructure/redaction/pattern-redaction.adapter.ts";
 import { changeFileLine } from "@kernel/change-map.ts";

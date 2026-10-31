@@ -4,7 +4,7 @@ import type { AppConfigSnapshot, RepoRole } from "../domain/app-repository.ts";
 import { App } from "../domain/app.aggregate.ts";
 import { RepoResolutionService } from "../domain/repo-resolution.service.ts";
 
-/* Local shape of the injected loader result so this adapter never imports src/. A service may declare one openapi glob or several. */
+/* Local shape of the injected loader result so this adapter never imports platform/. A service may declare one openapi glob or several. */
 interface LoadedAppConfig {
   name: string; repo: string; baseBranch?: string;
   qa?: { shadow?: boolean }; services?: { repo: string; openapi?: string | string[]; versionUrl?: string }[];
@@ -15,7 +15,7 @@ export interface ConfigLoaders {
   list(): LoadedAppConfig[];
 }
 
-/** Skip-and-log one bad config so it cannot fail the whole catalog. Injected so this adapter never imports src/. */
+/** Skip-and-log one bad config so it cannot fail the whole catalog. Injected so this adapter never imports platform/. */
 export type ConfigSkipLogger = (name: string, err: unknown) => void;
 
 const defaultConfigSkipLogger: ConfigSkipLogger = (name, err) => {

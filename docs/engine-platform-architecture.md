@@ -37,7 +37,7 @@ orchestrator container                                        agents container
 └───────────────────────────────────────────────────────────┘
 ```
 
-| Folder | One sentence | Today |
+| Folder | One sentence | Came from |
 |---|---|---|
 | `engine/` | Every rule, policy and decision of a QA run, each in the bounded context that owns it. | `qa-engine/` plus the business logic that leaked into `src/` |
 | `platform/` | The resources one process owns once (database, tracing SDK, HTTP server, agent-server connection, settings) and the code that builds and starts the engine. | The rest of `src/` |
@@ -148,7 +148,7 @@ The step that matters most and the only one that changes code rather than paths.
   and after the move.
 - Move the policy into the owning context's domain or application, declare the port it needs, and leave the platform
   with the adapter and the call.
-- Each move shrinks `qa-engine/.dependency-cruiser-shell-exceptions.json` or leaves it as it was; it never grows.
+- Each move shrinks `engine/.dependency-cruiser-shell-exceptions.json` or leaves it as it was; it never grows.
 
 ### Step 3: Move context-owned adapters into the engine (rows 4 and 5)
 
@@ -174,16 +174,18 @@ Two mechanical commits, each alone: `src/` → `platform/`, then `qa-engine/` �
 - Update `AGENTS.md`'s repo map, boundary section and every doc that names a path.
 
 Where step 6 stands (T13 U8, 2026-10-31): three platform rules hold, with probe tests in
-`qa-engine/test/arch/platform-public-surface.test.ts`: no folder but `composition/` imports it
+`engine/test/arch/platform-public-surface.test.ts`: no folder but `composition/` imports it
 (`platform-composition-is-the-root`), `settings/` imports no other platform folder (`platform-settings-reads-no-other-folder`)
-and no production module imports `src/test-support/` (`platform-production-imports-no-test-support`); the composition root may
+and no production module imports `platform/test-support/` (`platform-production-imports-no-test-support`); the composition root may
 import a context's infrastructure (`composition-builds-adapters-from-infrastructure`). The shell exceptions list holds 27
 entries: the 11 `scripts/` entries, 13 tests of `agent-runtime/`, `persistence/` and `telemetry/` that drive engine adapters, the
-agent transport (`src/agent-runtime/opencode-client.ts`), the tools endpoint's test and the composition root's mirror prune
+agent transport (`platform/agent-runtime/opencode-client.ts`), the tools endpoint's test and the composition root's mirror prune
 (`wire-app.ts`, ADR-0021's note). Not done: the rule between `entrypoints/`, `persistence/`, `telemetry/` and `agent-runtime/`
 (their imports of the loggers, the sanitizer, the stored run shapes and the history; ADR-0022 row 7 leaves open whether those
-stay shared leaves or become injected ports), the rule renames and the banned old roots (they follow the root renames of
-step 5).
+stay shared leaves or become injected ports; deferred, see ADR-0022). Step 5 and the rest of step 6 are done: the roots are
+`platform/` and `engine/`, the dependency rules carry the new vocabulary (`engine-imports-nothing-from-platform`,
+`platform-public-surface`, `composition-only-from-engine-root`), and `npm run previous-forms:check` bans the retired roots
+(`retired-roots`; this document, which names them as the migration's subject, and the architecture records are exempt).
 
 ## Rules for every migration commit
 
@@ -199,7 +201,7 @@ step 5).
 Consumers of a path to update with every move:
 
 - TypeScript project files and their path aliases.
-- `qa-engine/.dependency-cruiser.cjs` rule regexes and the shell exceptions list.
+- `engine/.dependency-cruiser.cjs` rule regexes and the shell exceptions list.
 - Mutation presets (`scripts/mutate.ts`) and their file anchors.
 - `scripts/previous-forms.allow.json`.
 - The Dockerfiles and `docker-compose.yml` (copies, entrypoint, commands).
@@ -217,14 +219,14 @@ Consumers of a path to update with every move:
 
 ## Completion checklist
 
-- [ ] `src/` and `qa-engine/` no longer exist; `platform/`, `engine/` and `agents/` are the code roots.
+- [x] `src/` and `qa-engine/` no longer exist; `platform/`, `engine/` and `agents/` are the code roots.
 - [ ] The shell exceptions list is gone and `npm run arch:check` passes with no exception.
 - [ ] No module in `platform/` holds a decision about a run: every branch there parses, authorizes, wires, stores or
       transports.
 - [ ] Every repository in `platform/persistence/` implements exactly one engine port.
 - [ ] No parity test remains: every type, taxonomy and sanitizer has one copy, in the engine.
-- [ ] `AGENTS.md` states the placement rule, and its repo map names the new roots.
-- [ ] `npm run previous-forms:check` bans the old roots, and passes.
+- [x] `AGENTS.md` states the placement rule, and its repo map names the new roots.
+- [x] `npm run previous-forms:check` bans the old roots, and passes.
 
 ## Related
 

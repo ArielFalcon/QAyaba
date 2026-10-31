@@ -1,4 +1,4 @@
-/* E2E Playwright runner against live DEV. Timeouts are injected — this module never reads process.env and never imports src/. */
+/* E2E Playwright runner against live DEV. Timeouts are injected — this module never reads process.env and never imports platform/. */
 
 import { engineLog } from "@kernel/ports/process-logger.ts";
 import { createHash } from "node:crypto";

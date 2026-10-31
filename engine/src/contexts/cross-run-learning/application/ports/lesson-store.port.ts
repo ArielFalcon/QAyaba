@@ -1,6 +1,6 @@
 import type { LessonKindId, LessonObservation } from "../../domain/lesson-kinds.ts";
 
-/** The append-only record of what runs read of DEV. This context never imports src/: the shell supplies the store. */
+/** The append-only record of what runs read of DEV. This context never imports platform/: the shell supplies the store. */
 export interface LessonStorePort {
   /** Appends the rows of one run. Rows are never updated or removed by a run. */
   record(rows: readonly LessonObservation[]): Promise<void>;

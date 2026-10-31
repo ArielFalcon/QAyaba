@@ -287,7 +287,7 @@ test("e2e target (negative): e2e/Dockerfile, e2e/.github/workflows/x.yml and e2e
 
 /* The publish kind follows the run's mode. A context-mode run reaching "pr" must not fall through to
    the e2e pathspec ("e2e"), staging the WHOLE e2e/ tree — seed fixtures, specs, everything —
-   instead of just the FE<->BE architecture map. See src/integrations/publish.ts's
+   instead of just the FE<->BE architecture map. See the publish adapter's
    publishContext, whose CONTEXT_ADD = ["e2e/.qa/context.json"] stages ONLY that one file.
  */
 

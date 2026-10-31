@@ -3,7 +3,7 @@
 # it makes GitHub itself refuse to merge a change whose CI is red. The job id `ci` is the
 # required-check name.
 #
-# arch:check (the engine/src src/ boundary + VCS-write-seam
+# arch:check (the engine/src platform/ boundary + VCS-write-seam
 # dependency-cruiser gates) was previously enforced ONLY by engine/test/arch/*.test.ts's own
 # node:test assertions inside `npm test` — real, but not itself run standalone in CI, so a change
 # that broke `npm run arch:check` specifically (as opposed to the node:test wrapper around it)

@@ -1,5 +1,5 @@
 /* Boundary-guard tests for clampTitle/clampBody (duplicated, not shared — see github-http.ts's
-   own header) so GitHubPrAdapter/GitHubIssueAdapter can clamp without importing src/.
+   own header) so GitHubPrAdapter/GitHubIssueAdapter can clamp without importing platform/.
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";

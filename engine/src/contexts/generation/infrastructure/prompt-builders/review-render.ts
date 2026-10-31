@@ -1,4 +1,4 @@
-/* What the independent reviewer is shown besides the rules: the objective of the review, the specs under review read through the confined reader, and the orchestrator's execution evidence. Never import src/. */
+/* What the independent reviewer is shown besides the rules: the objective of the review, the specs under review read through the confined reader, and the orchestrator's execution evidence. Never import platform/. */
 
 import { engineLog } from "@kernel/ports/process-logger.ts";
 import { join } from "node:path";

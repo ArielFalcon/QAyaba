@@ -4,7 +4,7 @@
 
 qayaba is built to test **any** project. The current declared scope is **Java and
 JavaScript/TypeScript**, and it is designed to be extended to other languages through
-the language registry (`qa-engine/src/shared-kernel/language-id.ts`)
+the language registry (`engine/src/shared-kernel/language-id.ts`)
 and `config/`, never through special cases.
 
 - **Never fix a problem only for the project where it showed up.** The apps under
@@ -12,8 +12,8 @@ and `config/`, never through special cases.
   find the root cause, and fix it transversally so it cannot happen on any project.
   If a fix only makes sense for one app's stack, layout or naming, it is the wrong fix.
 - **Never tune code or prompts to a specific AI model.** Role → provider/model assignments
-  are configuration (`agents/opencode.json`, the runtime role config). Nothing in `src/`,
-  `qa-engine/`, prompts or docs may assume or name the model currently in use.
+  are configuration (`agents/opencode.json`, the runtime role config). Nothing in `platform/`,
+  `engine/`, prompts or docs may assume or name the model currently in use.
 - The only legitimate project-shaped constraint is **declared scope** (e.g. which
   languages the structural signal covers), and it lives in `config/` or the language
   registry, never as an app-specific branch in code.
@@ -36,15 +36,15 @@ auto-merge**. Failures open an Issue. The suite lives in git and improves run af
 
 | Path | What |
 |---|---|
-| `qa-engine/src/` | The engine: bounded contexts (`change-analysis`, `generation`, `coordination`, `agent-tools`, `test-execution`, `objective-signal`, `cross-run-learning`, `run-orchestration`, …), hexagonal. New engine logic goes here. |
-| `src/` | The shell the migration empties: its modules sit in the platform's subfolders below, which become `platform/` at step 5 of `docs/engine-platform-architecture.md` (see [Boundary](#boundary-qa-engine--src)). |
-| `src/composition/` | The process roots (`index.ts`, `cli.ts`, `wire-app.ts`), the engine root and the factory, and the wiring that builds adapters (sandbox, egress, file boundary, config loader, GitHub, repo mirror). The only folder that imports the others, and the only shell folder that may import a context's infrastructure. |
-| `src/entrypoints/` | The HTTP API (`api/`, with the ports it declares for the app admin and the evaluation service), the wire contract (`contract/`), the CLI's argument parsing (`cli-args.ts`), the webhook, the queue, the runner, the views, the tools listener, the boot check of the file boundary, onboarding and the operator reports. |
-| `src/persistence/` | The one database: connection, schema, migrations, repositories, and the adapters of engine ports over it. |
-| `src/telemetry/` | The tracing and metrics SDK, its exporters and bootstrap, the process loggers and the sanitizer. |
-| `src/agent-runtime/` | The agent-server client, the provider-agnostic facade and the runtime manager. |
-| `src/settings/` | The typed Settings: one registry of every environment variable, `loadSettings(env)`, the store, the paths, the control-plane port and API token, and the values other folders read from the environment (telemetry and backend-health config, the sandbox switches and status files, the tools port); `docs/settings.md` is generated from it. It imports no other platform folder. |
-| `src/test-support/` | Test-only modules (the trace harness, the console harness, the roster fixture, the console scan); no production module imports them. |
+| `engine/src/` | The engine: bounded contexts (`change-analysis`, `generation`, `coordination`, `agent-tools`, `test-execution`, `objective-signal`, `cross-run-learning`, `run-orchestration`, …), hexagonal. New engine logic goes here. |
+| `platform/` | The platform: the resources one process owns once (database, tracing SDK, HTTP server, agent-server connection, settings) and the code that builds and starts the engine, in the subfolders below (see [Boundary](#boundary-engine--platform)). |
+| `platform/composition/` | The process roots (`index.ts`, `cli.ts`, `wire-app.ts`), the engine root and the factory, and the wiring that builds adapters (sandbox, egress, file boundary, config loader, GitHub, repo mirror). The only folder that imports the others, and the only shell folder that may import a context's infrastructure. |
+| `platform/entrypoints/` | The HTTP API (`api/`, with the ports it declares for the app admin and the evaluation service), the wire contract (`contract/`), the CLI's argument parsing (`cli-args.ts`), the webhook, the queue, the runner, the views, the tools listener, the boot check of the file boundary, onboarding and the operator reports. |
+| `platform/persistence/` | The one database: connection, schema, migrations, repositories, and the adapters of engine ports over it. |
+| `platform/telemetry/` | The tracing and metrics SDK, its exporters and bootstrap, the process loggers and the sanitizer. |
+| `platform/agent-runtime/` | The agent-server client, the provider-agnostic facade and the runtime manager. |
+| `platform/settings/` | The typed Settings: one registry of every environment variable, `loadSettings(env)`, the store, the paths, the control-plane port and API token, and the values other folders read from the environment (telemetry and backend-health config, the sandbox switches and status files, the tools port); `docs/settings.md` is generated from it. It imports no other platform folder. |
+| `platform/test-support/` | Test-only modules (the trace harness, the console harness, the roster fixture, the console scan); no production module imports them. |
 | `agents/` | `agents` container: OpenCode config (`opencode.json`), prompts (`AGENTS.md`, `agent/*.md`, `skill/`), MCPs (Serena, Playwright). |
 | `config/apps/` | Watched-app YAMLs (gitignored user data; template: `example.yaml`). `config/e2e/` is the seed copied into a repo's `e2e/`. |
 | `client/` | Go TUI. `web/` web console. `packages/sdk` + `contract/openapi.json` the API contract. |
@@ -58,7 +58,7 @@ No build step — TypeScript runs via `tsx`.
 ```bash
 npm ci
 npm test                    # node:test via tsx in shared-process workers (scripts/run-tests.mjs); network/agent runtimes/Playwright stubbed
-npm test -- path/to/file.test.ts "src/entrypoints/**/*.test.ts" [--test-name-pattern="..."] [--workers=N]
+npm test -- path/to/file.test.ts "platform/entrypoints/**/*.test.ts" [--test-name-pattern="..."] [--workers=N]
 npm run test:isolated       # the same suite, one process per test file (plain node --test): the fallback when sharing is in doubt
 npm run typecheck
 node --import ./test-setup.mjs --import tsx --test path/to/file.test.ts [--test-name-pattern="..."]
@@ -71,12 +71,12 @@ node --import ./test-setup.mjs --import tsx --test path/to/file.test.ts [--test-
 npm run typecheck && npm run arch:check && npm run previous-forms:check && npm run seed:lint && npm run embedded:lint && npm run sdk:typecheck && npm run contract:check && npm run settings:check && npm test
 (cd client && go vet ./... && go test ./...)
 # arch:check has no baseline: the layering rules hold for every file, and the shell's deep imports of context internals are a frozen list
-# (qa-engine/.dependency-cruiser-shell-exceptions.json) that may only shrink.
+# (engine/.dependency-cruiser-shell-exceptions.json) that may only shrink.
 
 npm run seed:lint           # the e2e seed (config/e2e/) against its own ESLint config, as an app's static gate runs it
 npm run previous-forms:check # banned terms of retired forms and dead file references (scripts/check-previous-forms.ts)
-npm run embedded:lint       # the scripts that run as text in another process (qa-engine/src/**/embedded), typechecked by npm run typecheck (embedded:typecheck)
-npm run settings:gen        # writes docs/settings.md from src/settings/registry.ts
+npm run embedded:lint       # the scripts that run as text in another process (engine/src/**/embedded), typechecked by npm run typecheck (embedded:typecheck)
+npm run settings:gen        # writes docs/settings.md from platform/settings/registry.ts
 npm run settings:check      # fails when docs/settings.md is stale
 npm run mutate -- <preset>  # mutation testing per preset (scripts/mutate.ts)
 npm run sandbox:smoke       # IN the running orchestrator container: proves the execution sandbox holds (docs/execution-sandbox.md)
@@ -93,7 +93,7 @@ npm run start               # webhook + queue service
 
 Stack: `QAYABA_REVISION=$(git rev-parse HEAD) doppler run -- docker compose up --build` (or `.env` from `.env.example`;
 `QAYABA_REVISION` gives the image the commit every run records as its engine version, `unknown` without it). The
-orchestrator listens on `PORT` (default **458**, `src/settings/port.ts`); trigger with
+orchestrator listens on `PORT` (default **458**, `platform/settings/port.ts`); trigger with
 `curl -X POST localhost:458 -H 'content-type: application/json' -d '{"repo":"<owner>/<repo>","sha":"<sha>"}'`.
 
 ## Architecture
@@ -106,31 +106,31 @@ Two services (`docker-compose.yml`) sharing the `mirrors` volume (repo working c
 
 Keep the two rigorously separate.
 
-### Boundary: qa-engine ↔ src
+### Boundary: engine ↔ platform
 
-`qa-engine/src` never imports from `src/` — enforced by `npm run arch:check`
-(dependency-cruiser `engine-imports-nothing-from-platform`). `src/` holds four kinds of module today, each naming its row of the [decision table](#placement-rule):
-- **Composition root** (row 8) — `src/composition/wire-app.ts` (settings, persistence, API, webhook, queue; `src/composition/index.ts` only
-  starts it), `src/composition/engine-root.ts` (assembles the engine from each context's `composition/` builders) and
-  `src/composition/run-engine-factory.ts`, which maps each app's `AppConfig` into the engine's `EngineRootDeps` and wires the host collaborators (agent runtime, GitHub, runners).
-- **Control plane** (row 7) — `src/entrypoints/*` (webhook, queue, API, TUI surface) and `client/`. The control API is a route table
-  (`src/entrypoints/api/route-table.ts`): each route declares its method, path and `auth`; handlers throw `ApiError` and every
+`engine/src` never imports from `platform/` — enforced by `npm run arch:check`
+(dependency-cruiser `engine-imports-nothing-from-platform`). `platform/` holds four kinds of module, each naming its row of the [decision table](#placement-rule):
+- **Composition root** (row 8) — `platform/composition/wire-app.ts` (settings, persistence, API, webhook, queue; `platform/composition/index.ts` only
+  starts it), `platform/composition/engine-root.ts` (assembles the engine from each context's `composition/` builders) and
+  `platform/composition/run-engine-factory.ts`, which maps each app's `AppConfig` into the engine's `EngineRootDeps` and wires the host collaborators (agent runtime, GitHub, runners).
+- **Control plane** (row 7) — `platform/entrypoints/*` (webhook, queue, API, TUI surface) and `client/`. The control API is a route table
+  (`platform/entrypoints/api/route-table.ts`): each route declares its method, path and `auth`; handlers throw `ApiError` and every
   error answers `{ schemaVersion: 1, error }`; a known path with an unsupported method answers 405.
-- **Provider I/O edges** (rows 6 and 4) — `src/agent-runtime/opencode-client.ts` (raw SDK primitives
-  only) and `src/agent-runtime/*` (provider-agnostic facade + the OpenCode strategy).
-- **Persistence** (rows 6 and 4) — `src/persistence/` (schema, migrations, repositories) behind `getHistory()`, and
-  `src/persistence/run-history-sqlite-adapter.ts`.
+- **Provider I/O edges** (rows 6 and 4) — `platform/agent-runtime/opencode-client.ts` (raw SDK primitives
+  only) and `platform/agent-runtime/*` (provider-agnostic facade + the OpenCode strategy).
+- **Persistence** (rows 6 and 4) — `platform/persistence/` (schema, migrations, repositories) behind `getHistory()`, and
+  `platform/persistence/run-history-sqlite-adapter.ts`.
 
 Inside the platform, dependencies point toward `composition/` (step 6 of `docs/engine-platform-architecture.md`), held by
 `npm run arch:check`: no folder but `composition/` imports it (`platform-composition-is-the-root`; what a folder needs from the
 root is a port it declares, such as the API's `app-admin.port.ts`, or a value the root hands in, such as the runner's
 `loadApp`), `settings/` imports no other platform folder (`platform-settings-reads-no-other-folder`), and no production module
-imports `src/test-support/` (`platform-production-imports-no-test-support`). The composition root may import a context's
+imports `platform/test-support/` (`platform-production-imports-no-test-support`). The composition root may import a context's
 infrastructure, never its domain (`composition-builds-adapters-from-infrastructure`). The imports between `entrypoints/`,
 `persistence/`, `telemetry/` and `agent-runtime/` (the loggers, the sanitizer, the stored run shapes, the history) are not ruled
 yet: whether those shared leaves stay leaves or become injected ports is open (ADR-0022 row 7).
 
-Seams are pinned by `src/composition/seam-parity.contract.test.ts`.
+Seams are pinned by `platform/composition/seam-parity.contract.test.ts`.
 
 The design pillars every design answers to are in [ADR-0001](docs/architecture/adr/0001-design-pillars.md).
 
@@ -148,10 +148,9 @@ and however close to HTTP or SQL it sits today.
 database connection with one schema, one tracing SDK started before anything else, one HTTP server, one connection to
 the agent server, one Settings object.
 
-Until step 5 renames the roots, the plan's target names map to today's folders: the engine is `qa-engine/src`; the
-platform is the composition root, control plane, provider edges and persistence of `src/`
-(`docs/engine-platform-architecture.md` holds the plan and the migration order). A change places each part it touches by
-the table first.
+The engine is `engine/src`; the platform is the composition root, control plane, provider edges and persistence of
+`platform/` (`docs/engine-platform-architecture.md` holds the plan and the migration order). A change places each part it
+touches by the table first.
 
 | # | Question | Yes → | Example of the kind |
 |---|---|---|---|
@@ -192,15 +191,15 @@ The RFC that lands a row flips it to **in force** in the same commit.
 | Whether change coverage blocks a publication | Engine, from a signal | The measurement on the final bytes; `unknown` never blocks; only `enforce` blocks | [ADR-0005](docs/architecture/adr/0005-coverage-enforce-activation.md) | in force |
 | When `enforce` may be switched on | Engine, from a signal | Only after three consecutive replicates with a trustworthy measurement and bundle mutation on | [ADR-0005](docs/architecture/adr/0005-coverage-enforce-activation.md) | lands with ADR-0005 |
 | How much time and effort a change gets | Engine, from a fact | The run's bound is one `diff` row that reads nothing of the change; the effort is one spec file per affected flow, the flows being the use cases the change makes testable that the plan covers | [RFC-0014](docs/architecture/rfc/0014-diff-tier-signal.md), [ADR-0019](docs/architecture/adr/0019-owner-decisions-rfc-0014.md) | in force |
-| Which level a log line has | Engine | At a seam that holds a typed outcome the level comes from it through `levelOfEffect`, never from the call site, and a catch that carries on takes it from `carryOn` (`qa-engine/test/arch/carry-on-level.test.ts` pins that catch); every other line chooses its level by the meaning in Invariants, "Logging is redacted at the port" | [RFC-0004](docs/architecture/rfc/0004-log-level-from-outcome.md) | in force at those seams |
+| Which level a log line has | Engine | At a seam that holds a typed outcome the level comes from it through `levelOfEffect`, never from the call site, and a catch that carries on takes it from `carryOn` (`engine/test/arch/carry-on-level.test.ts` pins that catch); every other line chooses its level by the meaning in Invariants, "Logging is redacted at the port" | [RFC-0004](docs/architecture/rfc/0004-log-level-from-outcome.md) | in force at those seams |
 | Which commit DEV serves | Engine, from the product | The product states its version; qayaba never infers it and records `undeclared` until the product declares a source | [ADR-0008](docs/architecture/adr/0008-product-version-source.md) | lands with ADR-0008 |
-| Whether a campaign run may learn | Engine | The server freezes a campaign-tagged run (`qa-engine/src/contexts/run-orchestration/domain/run-freeze.ts`); its request may declare `grounding.lessons` to lift the lesson state only | [ADR-0009](docs/architecture/adr/0009-campaign-freeze-on-server.md), [ADR-0018](docs/architecture/adr/0018-owner-decisions-rfc-0013.md) | landed (RFC-0013 U1) |
+| Whether a campaign run may learn | Engine | The server freezes a campaign-tagged run (`engine/src/contexts/run-orchestration/domain/run-freeze.ts`); its request may declare `grounding.lessons` to lift the lesson state only | [ADR-0009](docs/architecture/adr/0009-campaign-freeze-on-server.md), [ADR-0018](docs/architecture/adr/0018-owner-decisions-rfc-0013.md) | landed (RFC-0013 U1) |
 | What a run teaches the next run | Engine, no agent | Lessons are produced deterministically from typed facts, measured against a frozen arm and deleted if they do not help | [ADR-0003](docs/architecture/adr/0003-learning-layer-rebuild.md) | lands with ADR-0003 |
 
 ### The run flow — start here
 
-`RunQaUseCase` (`qa-engine/src/contexts/run-orchestration/application/run-qa.use-case.ts`)
-is the only engine; webhook (`src/entrypoints/webhook-handler.ts`, wired by `src/composition/wire-app.ts`) and CLI (`src/composition/cli.ts`) both enter through
+`RunQaUseCase` (`engine/src/contexts/run-orchestration/application/run-qa.use-case.ts`)
+is the only engine; webhook (`platform/entrypoints/webhook-handler.ts`, wired by `platform/composition/wire-app.ts`) and CLI (`platform/composition/cli.ts`) both enter through
 `enqueueTrackedRun`. It walks a table of 49 named steps in 15 phases (`application/run-flow/run-steps.ts`, ids in `step-ids.ts`); a step returns one closed outcome (go on, go to a step, or end the run for a reason), every end goes through `finalizeRun` (`run-flow/finalize-run.ts`), the only place a run is saved, published, audited and pruned, and every fault a step lets escape is classified by `failure-policy.ts` into rethrow, end, carry on or degrade. A step passed over says why on its trace event (`qayaba.run_step.reason`: the step's `skipReason`, e.g. the coverage measurement of a context run or of a run with no green bytes, or the mutation pass of a measurement that found none due, `no-mutation-due`), and every Playwright child names what it ran for (`qayaba.exec.purpose`: suite, acceptance, fix-retry, run-spec, control, mutant, observation, cleanup) and its namespace; a `run_spec` call that did not pass carries `qayaba.tool.failure_kind` (the closed kinds of `runSpecFailureKind`). `diff` mode:
 
 1. **Gate** — read what DEV serves (`dev.versionUrl`, `services[].versionUrl`: a GET answering `{ sha, healthy }`, the one reader today) and record one state on every run (`gateSignals.servedVersion`, the gate phase span's `qayaba.served_version.*`): `undeclared` (no source declared, never reported as verified), `unreadable` (with a typed reason: `unreachable`, `http-status`, `malformed-body`, `no-commit`, `commit-not-in-history`, `history-unavailable`), `equal`, `behind`, `ahead` or `unrelated`. The reader returns only the served commit; the engine relates it to the run's sha from the repo mirror's history (`run-orchestration/domain/served-version.ts`, `DeployGatePortAdapter`). Only a run started by a deploy's webhook (`source: "webhook"`; the control API and the CLI are `manual`) waits, and only while the state is `behind`, up to `deployTimeoutMs`, after which the run ends `infra-error` (`deploy-gate-failed`, as before); every other state is recorded without waiting and never blocks. Once waiting on `behind`, a read that gives nothing is one more poll (the wait ends on `equal`, `ahead`, `unrelated` or `commit-not-in-history`, or at the timeout). Health is a separate question (`waitUntilHealthy`): at the entry (sharing the version wait's deadline, so an unreadable source is recorded and never waited for as a version, yet ends the run `deploy-gate-failed` at the entry's health wait, before any generation) and before Playwright and in the fix loop, DEV must report `healthy: true`, and an unreadable source is not healthy, so DEV going down still ends the run `infra-error`. A deploy-triggered run that entered `equal` is also held to its commit before Playwright; a newer deploy ends it `infra-error`, with the re-read on `servedVersion.atExecution`.
@@ -275,7 +274,7 @@ is the only engine; webhook (`src/entrypoints/webhook-handler.ts`, wired by `src
    ignored) first captures its suite into the suite store, before publication.
 
 Verdicts: `pass | fail | flaky | invalid | infra-error | skipped`
-(`qa-engine/src/shared-kernel/run-verdict.ts`). `E-PRECONDITION` = login could not be
+(`engine/src/shared-kernel/run-verdict.ts`). `E-PRECONDITION` = login could not be
 completed, or the fix loop's triage re-read confirmed DEV did not render the target: recorded,
 never learned from, no Issue. The triage re-reads a failure once, with
 no regeneration, when the evidence does not blame the test: its target is absent while the same
@@ -289,7 +288,7 @@ Every read of a data-state selector waits at least `MIN_DATA_STATE_READ_MS`.
 
 **Modes** (`--mode`): `diff` (default, the only one that classifies), `manual` (focused by `--guidance`)
 and `context` (build or refresh the architecture map). Prompts
-are assembled in `qa-engine/src/contexts/generation/infrastructure/prompt-builders/prompts.ts` from section registries (`generator-sections.ts`, `reviewer-sections.ts`): each section declares when it applies and how it renders from one derived context. Every other role prompt is built the same way: the primitives (`PromptSectionDef`, `assembleDefs`) are in `shared-kernel/prompt-sections.ts` and the coordination prompts (the flow author's brief, the lead's review, correction and re-plan turns) are registries in `coordination/application/coordination-sections/`. A module outside a registry that writes a prompt heading fails `prompt-registry-rule.test.ts` (its frozen list only shrinks). Every section declares its `stability` (`static`: the same bytes for every run of the app and turn shape; `run`: carries a fact of the run) and the `reason` it exists for (the observed failure or contract, with the commit or run that showed it); the registry test fails on a section with no reason, and removing one is measured by a campaign. The assembler orders the static sections first (the stable prefix, which a provider's prompt cache can reuse across runs: nothing per run, no run id, sha, timestamp or unordered serialization), then the run's facts, then the `critical-recap` tier (the contract or closing instruction that ends the turn), keeping tier and priority order within each; `stablePrefixBytes` measures the prefix and the turn span carries it (`qayaba.prompt.stable_prefix.bytes`) beside its cache-read tokens. No fixed byte, line or node count cuts a section or the grounding it carries: a section is whole while the prompt fits its role's window with the working room its turn needs (the run's `ContextBudget`); over it, the assembler degrades the sections that declare smaller renders (`Section.degrade`), volatile run facts first and the lowest priority first, each to references that name what they leave out (the Context Pack and the reviewer's live DOM page by page, the lowest-ranked page first; the architecture map to its file; the structural block's symbol lists to the files they name with counts, the last list first; the reviewer's missing cases to `file:line` refs, then counts; a flow author's brief: its suite listing by file, then by directory, and its pages one at a time; the lead's review and correction turns: the specs, the last flow's first, to a reference to their file; the commit diff to the change map with hunks as `path:start-end` references, the lowest-ranked first (`diffWindowDegrade`); the route availability facts to routes with their class, then counts; the specs under review, last, to their names; the cross-service links the change does not reach, then all links, then the drift, to counts; the contract violations to their rule and clause, then a count; the failing cases without their evidence lines, then with the first line of their error, then by name; the execution result without its details, then its urls; the Context Pack's availability facts, then the requests its pages made, then its API contracts, the last-listed first, to counts; a flow author's brief: the requests of its pages after the pages), records each as a `window-fit` omission and logs it; an unknown window degrades nothing (`shared-kernel/prompt-sections.ts`, `generation/domain/window-fit-references.ts`). The assembler keeps no byte budget of its own: no share of a window sheds or truncates a section, a section without a smaller render is never given up for the window, and a prompt still over its window with every step taken is sent as it is, which its fit records. What remains are safety bounds on input the orchestrator does not control, recorded when they bite: `EVIDENCE_TEXT_SAFETY_BOUND` and `EVIDENCE_ITEMS_SAFETY_BOUND` (one text, or one list, of runtime evidence: an error, a console or network message, a contract clause; cut in the text and recorded as `evidence-safety-bound`), `MAX_NODES_PER_PAGE` (5,000 nodes per captured page, `node-safety-bound`) and `MAP_ITEMS_SAFETY_BOUND` (5,000 entries per list of `context.json`, `map-safety-bound`). A delegation brief states its objective, return shape, boundary and tools once each and only what its turn grants (lint rules R17 and R18); `scripts/prompt-contract-matrix.ts` lints those prompts too (`--record-coordination` writes `scripts/prompt-contract-coordination-baseline.json`).
+are assembled in `engine/src/contexts/generation/infrastructure/prompt-builders/prompts.ts` from section registries (`generator-sections.ts`, `reviewer-sections.ts`): each section declares when it applies and how it renders from one derived context. Every other role prompt is built the same way: the primitives (`PromptSectionDef`, `assembleDefs`) are in `shared-kernel/prompt-sections.ts` and the coordination prompts (the flow author's brief, the lead's review, correction and re-plan turns) are registries in `coordination/application/coordination-sections/`. A module outside a registry that writes a prompt heading fails `prompt-registry-rule.test.ts` (its frozen list only shrinks). Every section declares its `stability` (`static`: the same bytes for every run of the app and turn shape; `run`: carries a fact of the run) and the `reason` it exists for (the observed failure or contract, with the commit or run that showed it); the registry test fails on a section with no reason, and removing one is measured by a campaign. The assembler orders the static sections first (the stable prefix, which a provider's prompt cache can reuse across runs: nothing per run, no run id, sha, timestamp or unordered serialization), then the run's facts, then the `critical-recap` tier (the contract or closing instruction that ends the turn), keeping tier and priority order within each; `stablePrefixBytes` measures the prefix and the turn span carries it (`qayaba.prompt.stable_prefix.bytes`) beside its cache-read tokens. No fixed byte, line or node count cuts a section or the grounding it carries: a section is whole while the prompt fits its role's window with the working room its turn needs (the run's `ContextBudget`); over it, the assembler degrades the sections that declare smaller renders (`Section.degrade`), volatile run facts first and the lowest priority first, each to references that name what they leave out (the Context Pack and the reviewer's live DOM page by page, the lowest-ranked page first; the architecture map to its file; the structural block's symbol lists to the files they name with counts, the last list first; the reviewer's missing cases to `file:line` refs, then counts; a flow author's brief: its suite listing by file, then by directory, and its pages one at a time; the lead's review and correction turns: the specs, the last flow's first, to a reference to their file; the commit diff to the change map with hunks as `path:start-end` references, the lowest-ranked first (`diffWindowDegrade`); the route availability facts to routes with their class, then counts; the specs under review, last, to their names; the cross-service links the change does not reach, then all links, then the drift, to counts; the contract violations to their rule and clause, then a count; the failing cases without their evidence lines, then with the first line of their error, then by name; the execution result without its details, then its urls; the Context Pack's availability facts, then the requests its pages made, then its API contracts, the last-listed first, to counts; a flow author's brief: the requests of its pages after the pages), records each as a `window-fit` omission and logs it; an unknown window degrades nothing (`shared-kernel/prompt-sections.ts`, `generation/domain/window-fit-references.ts`). The assembler keeps no byte budget of its own: no share of a window sheds or truncates a section, a section without a smaller render is never given up for the window, and a prompt still over its window with every step taken is sent as it is, which its fit records. What remains are safety bounds on input the orchestrator does not control, recorded when they bite: `EVIDENCE_TEXT_SAFETY_BOUND` and `EVIDENCE_ITEMS_SAFETY_BOUND` (one text, or one list, of runtime evidence: an error, a console or network message, a contract clause; cut in the text and recorded as `evidence-safety-bound`), `MAX_NODES_PER_PAGE` (5,000 nodes per captured page, `node-safety-bound`) and `MAP_ITEMS_SAFETY_BOUND` (5,000 entries per list of `context.json`, `map-safety-bound`). A delegation brief states its objective, return shape, boundary and tools once each and only what its turn grants (lint rules R17 and R18); `scripts/prompt-contract-matrix.ts` lints those prompts too (`--record-coordination` writes `scripts/prompt-contract-coordination-baseline.json`).
 
 **Target**: `e2e` is the only one; the `target` field of the wire carries that single value.
 
@@ -323,7 +322,7 @@ is also set when the run's change is the app alone: runs before RFC-0011 count f
 The harness pre-computes context so the agent does not have to rediscover it. Any change
 to the agent's behaviour must make it **consume** this context, not re-derive it:
 - **Pre-generation grounding** —
-  `qa-engine/src/contexts/generation/infrastructure/adapters/pre-generation-grounding-port.adapter.ts`
+  `engine/src/contexts/generation/infrastructure/adapters/pre-generation-grounding-port.adapter.ts`
   (fail-open): the stored context map, reused at another sha only when the files it names are unchanged between the two
   commits (`run-orchestration/domain/context-map-validity.ts`; otherwise the run grounds without it and a rebuild at
   the run's sha is requested, recorded as `recapture` requested/skipped, see `docs/observability-design.md`),
@@ -395,7 +394,7 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   (a captured, settled route) feed the one-shot corrective regeneration.
 - **Closed loop (`run_spec`)** — on unless `qa.closedLoop.enabled: false` (or a run asks: `--closed-loop on|off`, `closedLoop` on
   `POST /api/v1/runs`). The author of each flow of a plan gets one custom tool, `agents/tool/run_spec.ts`, that POSTs its session id and
-  agent name to the orchestrator's internal listener (`src/entrypoints/tools-endpoint.ts`, `QA_TOOLS_PORT`, not published, behind
+  agent name to the orchestrator's internal listener (`platform/entrypoints/tools-endpoint.ts`, `QA_TOOLS_PORT`, not published, behind
   `QA_TOOLS_TOKEN`); the orchestrator runs the spec once (sandbox profile `suite`, retries 0, a fresh session copy, namespace
   `<runId>-rs<n>`, a cleanup pass after every call, per-account lock) and answers with a bounded, redacted report, never raw
   output (a call where no test began and the Playwright report's top-level `errors` name why the spec did not load answers with those errors,
@@ -550,7 +549,7 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
 - **Step limit and milestone** — the author, lead and reviewer prompts state the cap
   their runtime enforces (facts-only `step-limit` section): one live read per run of the
   OpenCode server's resolved agents (`steps`, the deprecated `maxSteps` mapped into it; `stepLimits`
-  in `src/agent-runtime/`), never the orchestrator's own copy of `agents/opencode.json`. A turn whose prompt
+  in `platform/agent-runtime/`), never the orchestrator's own copy of `agents/opencode.json`. A turn whose prompt
   stated none (a sidekick's) is classified against the cap the server last listed for its agent
   (`turnStepLimit`); the file, baked into the orchestrator's image, only for an agent never listed. A role with no resolved limit
   (failed read or uncapped agent) states none. The
@@ -708,7 +707,7 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   settles a failure that ended where its route sends the client by the fact's class, with no re-read (a correction, an
   `E-PRECONDITION`, or `BREAK_NEEDS_HUMAN` for a possible regression); the PR or Issue lists every `change-introduced`
   route and every possible regression; `gateSignals.routeAvailability` records the counts. A signal, never a gate.
-- **Cross-run learning** — `qa-engine/src/contexts/cross-run-learning/`: the learning gates and the
+- **Cross-run learning** — `engine/src/contexts/cross-run-learning/`: the learning gates and the
   process audit. The rule loop (the rule ledger and its fold, governance, retrieval and injection, the reflector and the
   quarantine and ledger commands) and the curriculum (the scenario archetypes, the exemplar templates and the diff keyword detector) are deleted ([ADR-0003](docs/architecture/adr/0003-learning-layer-rebuild.md)): a
   run reads no rule and writes none. What replaces it is the lesson slice ([RFC-0013](docs/architecture/rfc/0013-learning-slice.md)): every run, frozen or not, records the pages it read of DEV as append-only observations (`lesson_observations`, admitted or left out under a typed reason, the verdict never an input); a lesson is derived from them at read and never stored; only a run whose lessons lever is on (`decideRunFreeze`) is told lessons, as `lesson` facts in the brief of the flow whose pages they name (`gateSignals.lessons`). What stays: the
@@ -724,17 +723,17 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
 
 ### The agent and its prompts
 
-Provider-agnostic runtime (`src/agent-runtime/`): each role is assigned a provider + model;
+Provider-agnostic runtime (`platform/agent-runtime/`): each role is assigned a provider + model;
 OpenCode is the one strategy today and another runtime is added as a strategy behind the same
 facade. The agents are the lead (`qa-lead`, plans and reviews, read-only), the author
 (`qa-author`, the one agent that writes tests, for a flow or for the run's own task) and the reviewer
 (`qa-reviewer`), beside the assistant and proposer. `agents/opencode.json`
 is the source of truth for the roster, models and per-role step limits (`maxSteps`). A role's model resolves in one place (`modelForRole`,
-`src/agent-runtime/types.ts`), for the session it opens, for the context window its prompts are fitted to and for the reviewer-independence
+`platform/agent-runtime/types.ts`), for the session it opens, for the context window its prompts are fitted to and for the reviewer-independence
 record: the operator's `AGENT_<TIER>_MODEL` (or the model saved from the Agent
 Runtime view) for the tier the role rides (`primary`, `reviewer`, `chat`) > the model the role's own agent declares in `agents/opencode.json`, as the OpenCode server last listed it (the orchestrator's baked copy only for an agent the server has not listed, like the step limits) >
 the tier's default, which is the model the tier's namesake agent declares there (`qa-author`, `qa-reviewer`, `qa-assistant`); no model id is
-named in code (`src/no-model-literals.test.ts`). A tier no operator chose is `defaulted` in the runtime config and yields to each agent's declared model; only the
+named in code (`platform/no-model-literals.test.ts`). A tier no operator chose is `defaulted` in the runtime config and yields to each agent's declared model; only the
 tiers an operator chose are written to the env store. Prompt layers:
 `agents/AGENTS.md` (shared rules) → `agents/agent/*.md` (per-role procedure + JSON contract) →
 `agents/skill/` (on-demand craft). Static layers are linted against assembled prompts
@@ -750,8 +749,8 @@ test, and the verdict is its last action.
 - The suite's source of truth is **git** (app repo `e2e/`). Run history
   (`qayaba-data` volume) is the only non-regenerable data; Serena index and mirrors are caches.
 - The history database carries a schema version (`PRAGMA user_version`). Opening never prunes; retention (`pruneHistory`) runs at boot and every 24 h. A file that does not match schema 1 is refused at start with `history database at <path> predates schema 1 and cannot be adopted; remove or move it aside`; nothing deletes it. A file a newer build migrated is refused by an older one (`history database at <path> has schema version <n>, newer than this build's <m>`), so the history file is copied before the first boot of a build that adds a migration.
-- Onboarding an app = `config/apps/<app>.yaml` + `.env`. `${VARS}` expand from the env. The schema is strict at every level (`qa-engine/src/contexts/app-catalog/application/app-config.schema.ts`): an unknown key, a retired key and a retired value (each with the advice to use instead) are validation errors, never dropped, so a typo cannot fall back to a default. A file that fails validation is skipped, the other apps still load: the loader logs an `error` line naming the file, the key path and the reason (once per reason per process, never a value), and `GET /api/health` lists the app under `apps.notLoaded` with its file and reason (`scanAppConfigs`, `src/composition/config-loader.ts`). A caller that names a skipped app gets `AppConfigInvalidError` (a 422 on the API); the list-based callers (webhook dispatch, mirror prune, metrics) do not see it.
-- **Suite store** (`qa-engine/src/contexts/workspace-and-publication/infrastructure/suite-store.adapter.ts`,
+- Onboarding an app = `config/apps/<app>.yaml` + `.env`. `${VARS}` expand from the env. The schema is strict at every level (`engine/src/contexts/app-catalog/application/app-config.schema.ts`): an unknown key, a retired key and a retired value (each with the advice to use instead) are validation errors, never dropped, so a typo cannot fall back to a default. A file that fails validation is skipped, the other apps still load: the loader logs an `error` line naming the file, the key path and the reason (once per reason per process, never a value), and `GET /api/health` lists the app under `apps.notLoaded` with its file and reason (`scanAppConfigs`, `platform/composition/config-loader.ts`). A caller that names a skipped app gets `AppConfigInvalidError` (a 422 on the API); the list-based callers (webhook dispatch, mirror prune, metrics) do not see it.
+- **Suite store** (`engine/src/contexts/workspace-and-publication/infrastructure/suite-store.adapter.ts`,
   `data/suites/<app>/` in the qayaba-data volume, never mounted into the agents container): the accepted
   suite of an app that git does not hold yet. Shadow mode never publishes and a PR may not be merged
   yet, while every run's checkout wipes the untracked `e2e/`; without the store each run starts cold,
@@ -774,12 +773,12 @@ test, and the verdict is its last action.
   (`docs/efficiency-benchmark.md`). The adapter is the only writer of the store's files (`manifest.json` and
   `blobs/`): `warm-suite store-export` and `store-restore` return the store to a recorded state through
   `exportSnapshot` and `restoreSnapshot`, which check the snapshot whole (the store's limits, and that it was taken from this app, repository and suite directory) before touching the store and read the
-  store back afterwards; nothing copies the manifest alone. `qa-engine/test/arch/suite-store-writers.test.ts`
+  store back afterwards; nothing copies the manifest alone. `engine/test/arch/suite-store-writers.test.ts`
   freezes the modules that derive the store's directory.
 
 ## Invariants — do not break these
 
-- **The golden rule above.** Nothing app-specific in `src/` or `qa-engine/`; app
+- **The golden rule above.** Nothing app-specific in `platform/` or `engine/`; app
   specifics only in `config/`; agents/models only in `agents/`.
 - **Security boundary:** the agent is **read-only** on watched repos. Only the
   deterministic orchestrator writes to git (push/PR). Never give the agent, or any
@@ -792,7 +791,7 @@ test, and the verdict is its last action.
   map gives it, so it carries no `read` block. `agent-tool-surface.test.ts` derives each role's resolved rules from `agents/opencode.json`.
 - **`opencode serve` is never open.** The supervisor always starts it with `OPENCODE_SERVER_PASSWORD` (the value
   compose gives the `agents` and `orchestrator` services, or a random one when unset, with a loud warning), and the
-  orchestrator's clients (`src/agent-runtime/opencode-server-auth.ts`) send it as Basic auth, refuse to be built
+  orchestrator's clients (`platform/agent-runtime/opencode-server-auth.ts`) send it as Basic auth, refuse to be built
   without it and throw on a 401. The value is never logged, is scrubbed from untrusted spawns and from supervisor
   responses, and must be identical on both services.
 - **The agents container never holds the test account.** `DEV_TEST_USER`/`DEV_TEST_PASS` are not in its compose
@@ -822,15 +821,15 @@ test, and the verdict is its last action.
   the agent names, let a term start with `-`, add a free graph query or an action that indexes, deletes or writes, mount the graph store
   into the agents container, or widen the tool beyond `qa-lead`.
 - **Agent-influenced code runs only through the execution launcher**
-  (`qa-engine/src/shared-infrastructure/process-sandbox/exec-sandbox.ts`, profiles `offline | suite | login | install`).
+  (`engine/src/shared-infrastructure/process-sandbox/exec-sandbox.ts`, profiles `offline | suite | login | install`).
   Specs, the e2e project's `tsc`/`eslint`/`playwright --list`/`npm ci`, the login scripts and the DOM capture all start there: the sandbox uid, an environment built from an explicit
   allowlist per profile (never `scrubEnv(process.env)`), a per-run work dir (`/tmp/qa-exec/<runId>`) for Playwright's
   output, report and dumps, read back through the strict readers. **Only the `login` profile carries the test account**
   (a suite gets it only for an app that sets `e2e.specCredentials: account`); a suite gets a per-spawn copy of the saved
-  session and never the auth dir. A new module of `src/`, `qa-engine/src` or `scripts/` that
+  session and never the auth dir. A new module of `platform/`, `engine/src` or `scripts/` that
   imports `child_process` is a build failure (`npm run arch:check`, rule `no-child-process-outside-launchers`); add a
   spawn site by adding a profile call, not an exception. The repository tooling scripts that spawn today (CI gates, the test
-  runner, the mutation run) are a frozen list with a reason each (`qa-engine/.dependency-cruiser-tooling-spawners.json`) that may only shrink. `QA_EXEC_SANDBOX=required` (compose) refuses to run agent code
+  runner, the mutation run) are a frozen list with a reason each (`engine/.dependency-cruiser-tooling-spawners.json`) that may only shrink. `QA_EXEC_SANDBOX=required` (compose) refuses to run agent code
   without the sandbox uid, or with a file boundary the boot check did not prove (`infra-error E-SANDBOX`, never learned from, no Issue).
 - **The sandbox uid's network is closed by default.** An iptables chain matched on that uid redirects its DNS and TCP to a
   DNS filter and a transparent proxy that allow only the origins declared in config (`dev.allowedOrigins`, the app's own
@@ -842,7 +841,7 @@ test, and the verdict is its last action.
   folder; `/app/config` is a link to `.host/config`) and the mirrors at every boot; the sandbox uid reads one mirror at a time
   (the run opens it to its group and seals it again) and writes none of it. A host bind mount may not enforce permissions
   (Docker Desktop's `fakeowner`), so secrets never live in one the sandbox uid can reach and code is mounted read-only. Then
-  `src/entrypoints/file-boundary-check.ts` tries, as the sandbox uid, to read the token and `/proc/1/environ`, list the closed
+  `platform/entrypoints/file-boundary-check.ts` tries, as the sandbox uid, to read the token and `/proc/1/environ`, list the closed
   directories and write the app root, every mount under it (from `/proc/self/mountinfo`) and the orchestrator's code and config;
   any success, or no result, is a breach: `/api/health` reports the sandbox degraded and `QA_EXEC_SANDBOX=required` refuses agent
   code (`infra-error E-SANDBOX`). Do not give the sandbox uid, or a path it can write, a way to the API token, `/app/data`, the
@@ -850,15 +849,15 @@ test, and the verdict is its last action.
 - **What the agent writes or reports is untrusted input.** Orchestrator code that reads, lists
   or writes a path the agent can influence (a reported spec path, the manifest, the context
   map, files setup replaces, what a test run leaves) goes through the confined reader,
-  `qa-engine/src/shared-infrastructure/spec-path-confinement.ts` (nothing outside the spec
+  `engine/src/shared-infrastructure/spec-path-confinement.ts` (nothing outside the spec
   directory is reached through a link, only regular files are read, a named pipe is never waited
   on, reads are capped; its header lists what it covers), never a bare `fs` call.
 - **A revision that did not originate in the orchestrator's own code never reaches a git argument unjudged.** git reads a positional
   argument that starts with a dash as an option (`--output=<path>` writes a file, `--upload-pack=<command>` runs one). A commit sha
   (a context map's `builtAtSha`, a stored record, a webhook or API payload) passes `assertCommitSha`, and a branch, tag or ref (an
-  API `ref`, an app's `baseBranch`, a run's publication branch) passes `assertRefName`, both in `qa-engine/src/shared-kernel/git-revision.ts`,
+  API `ref`, an app's `baseBranch`, a run's publication branch) passes `assertRefName`, both in `engine/src/shared-kernel/git-revision.ts`,
   before the argv is built; a value that passes can never be read as an option. A new git call with a revision from outside the
-  code uses them, and does not write a regex of its own (`qa-engine/test/shared-kernel/git-revision.single-rule.test.ts` fails on a new
+  code uses them, and does not write a regex of its own (`engine/test/shared-kernel/git-revision.single-rule.test.ts` fails on a new
   one). The kernel defines "a commit" twice, on purpose: `isCommitSha` (7 to 40 hex characters) for the commit a run is asked to test, which
   every entry point (webhook, API, campaign and benchmark cases) applies, and `isObjectName` (4 to 40) for a commit a product reports as served
   (the `Sha` value object, `GitMirrorReadAdapter.relation`), which carries whatever abbreviation the product's build chose. A map's recorded
@@ -868,7 +867,7 @@ test, and the verdict is its last action.
 - **A file name from the working copy is a name, never a pathspec.** git reads a pathspec that starts with `:` as magic and one with
   `*` or `?` as a glob, so a file the sandbox named `:(top)` or `*` would make `clean`, `restore` or `add` cover the whole working
   copy. Every name the agent can influence (a `git status` entry, a path it wrote) goes after `--` through `literalPathspecs`
-  (`qa-engine/src/shared-infrastructure/process-sandbox/git-hardening.ts`), per pathspec: a global `--literal-pathspecs` would also turn
+  (`engine/src/shared-infrastructure/process-sandbox/git-hardening.ts`), per pathspec: a global `--literal-pathspecs` would also turn
   the `:(exclude)` pathspecs `hardenGitArgs` appends to `add` into file names.
 - **Governance-sensitive changes ship alone** — security invariants, agent write
   authority, production activation switches: their own PR.
@@ -886,24 +885,24 @@ test, and the verdict is its last action.
 - **Every way an agent prompt ends is a recorded turn.** `createAgentDeps` records the turn once, where the prompt ends: answered, `timeout`, `aborted`, or `failed` (a fault of the transport or the provider; `limit.fired` is `fault` and `error.type` names the class, read through the fault's `cause` chain), with the calls and usage the tracker saw and its `chat`/`execute_tool` children. A turn the tracker flushed cannot leak its calls into the session's next turn.
 - **Surface integration errors loudly** — never swallow agent-runtime, runner or git
   errors into an empty result. Throw and log.
-- **Redact before you bound.** Untrusted text (an agent's words, a page, a process's output, a network error, a commit, an operator's guidance) is redacted first and cut after, through `redactThenBound` (`qa-engine/src/shared-kernel/redact-then-bound.ts`; `redactAndBound` in `shared-infrastructure/redaction/` binds it to the engine's pattern policy): the redactor sees a window past the bound (`REDACTION_LOOKAHEAD_CHARS`), so a secret that straddles the cut is taken out whole, and the marker says what was kept of the original length. Only the stable part of that view is kept (the part the redaction of the view without its far lookahead reproduces), so redaction that shrank the view never brings the unmatched edge into the kept text, and a text a caller already cut says so (`rawIsWindow`). A cut never lands inside a `[REDACTED]`. A cut before the exit's redaction leaves the first characters of a secret that no pattern or run value matches: a process that cannot redact (the browser capture, the seed's fixtures) keeps a memory bound (`PRODUCER_MEMORY_BOUND_CHARS`, which the seed repeats and a test pins), never the bound a prompt or a record shows, and the orchestrator redacts and then cuts (`boundProducerText`). A text that is later parsed or matched (a URL's host, a path) is redacted by value only where it is parsed and by pattern where it leaves. A request address is cut only at a path segment (`cutAddress`, `shared-kernel/address-cut.ts`), since a segment is where a token or a secret sits and redaction by value finds one only whole; an address a producer cut at its identity bound (the seed's DEV-write ledger and observed requests, `PRODUCER_ADDRESS_CHARS`) is read with its trailing segment dropped (`wholeSegmentsOfProducerCut`), the same for a ledger and its control, so their keys stay equal, and then with every trailing segment that begins a run secret the cut stopped short of (`addressOfProducerCut`; a secret that holds a `/` is split by a segment cut at its own slash, so the part kept before it is dropped; a short prefix may drop a benign segment of a cut address, never of an uncut one). An address the orchestrator holds whole is redacted by value before the ledger cuts it (`boundedAddress`). Pure domain code receives the redactor as an argument (`render-publication.ts`, `playwright-report-plan.ts`, `RunHost.boundText`); the exits keep redacting.
-- **Sanitize data leaving the system** — logs → Issue via `src/telemetry/sanitizer.ts`
+- **Redact before you bound.** Untrusted text (an agent's words, a page, a process's output, a network error, a commit, an operator's guidance) is redacted first and cut after, through `redactThenBound` (`engine/src/shared-kernel/redact-then-bound.ts`; `redactAndBound` in `shared-infrastructure/redaction/` binds it to the engine's pattern policy): the redactor sees a window past the bound (`REDACTION_LOOKAHEAD_CHARS`), so a secret that straddles the cut is taken out whole, and the marker says what was kept of the original length. Only the stable part of that view is kept (the part the redaction of the view without its far lookahead reproduces), so redaction that shrank the view never brings the unmatched edge into the kept text, and a text a caller already cut says so (`rawIsWindow`). A cut never lands inside a `[REDACTED]`. A cut before the exit's redaction leaves the first characters of a secret that no pattern or run value matches: a process that cannot redact (the browser capture, the seed's fixtures) keeps a memory bound (`PRODUCER_MEMORY_BOUND_CHARS`, which the seed repeats and a test pins), never the bound a prompt or a record shows, and the orchestrator redacts and then cuts (`boundProducerText`). A text that is later parsed or matched (a URL's host, a path) is redacted by value only where it is parsed and by pattern where it leaves. A request address is cut only at a path segment (`cutAddress`, `shared-kernel/address-cut.ts`), since a segment is where a token or a secret sits and redaction by value finds one only whole; an address a producer cut at its identity bound (the seed's DEV-write ledger and observed requests, `PRODUCER_ADDRESS_CHARS`) is read with its trailing segment dropped (`wholeSegmentsOfProducerCut`), the same for a ledger and its control, so their keys stay equal, and then with every trailing segment that begins a run secret the cut stopped short of (`addressOfProducerCut`; a secret that holds a `/` is split by a segment cut at its own slash, so the part kept before it is dropped; a short prefix may drop a benign segment of a cut address, never of an uncut one). An address the orchestrator holds whole is redacted by value before the ledger cuts it (`boundedAddress`). Pure domain code receives the redactor as an argument (`render-publication.ts`, `playwright-report-plan.ts`, `RunHost.boundText`); the exits keep redacting.
+- **Sanitize data leaving the system** — logs → Issue via `platform/telemetry/sanitizer.ts`
   (`RedactionPortAdapter`: the engine's pattern policy plus the orchestrator's own environment secrets); diff/commit text → prompts via
-  `sanitizeText` in `qa-engine/src/shared-infrastructure/redaction/pattern-redaction.adapter.ts`. The run's own account
+  `sanitizeText` in `engine/src/shared-infrastructure/redaction/pattern-redaction.adapter.ts`. The run's own account
   secrets (login, DEV gate, certificate passphrase, session cookie and storage values) are
   also redacted **by value** (`shared-kernel/run-secret-redaction.ts`: one scope per run,
   applied in both redaction paths and at the agent transport before the patterns look).
-- **Logging is redacted at the port.** Production code logs through `LoggerPort` (`appLogger` in the shell, `engineLog` in the engine); the redacting adapter redacts the message and every field before `logJson` writes. A raw `console` call is a test failure (`src/test-support/no-console.test.ts`). A line's level is what its fact did to the run (`LOG_EFFECT`, `levelOfEffect` in `qa-engine/src/shared-kernel/ports/logger.port.ts`): `error` ended the run or the process, `warn` the run went on past it, `info` nothing left the expected path; a seam that holds a typed outcome takes the level from the module that owns it, and a catch that carries on past a fault takes it from `carryOn`.
-- **Tempo holds what happened, Loki how it happened.** Logs ship from the port (`src/telemetry/log-shipper.ts`), never by tapping the console: `warn`/`error` ship, `info` ships only with `{ ship: true }` for a fact no span records, and a per-item line becomes one line. Agent turn bodies (prompt, sections, output) go to Loki only in `full` capture, redacted first, never as span attributes; a failed redaction drops the body (`src/telemetry/prompt-body-logs.ts`). Coordination events carry structured `qayaba.coordination.*` attributes, not facts held in reason strings.
+- **Logging is redacted at the port.** Production code logs through `LoggerPort` (`appLogger` in the shell, `engineLog` in the engine); the redacting adapter redacts the message and every field before `logJson` writes. A raw `console` call is a test failure (`platform/test-support/no-console.test.ts`). A line's level is what its fact did to the run (`LOG_EFFECT`, `levelOfEffect` in `engine/src/shared-kernel/ports/logger.port.ts`): `error` ended the run or the process, `warn` the run went on past it, `info` nothing left the expected path; a seam that holds a typed outcome takes the level from the module that owns it, and a catch that carries on past a fault takes it from `carryOn`.
+- **Tempo holds what happened, Loki how it happened.** Logs ship from the port (`platform/telemetry/log-shipper.ts`), never by tapping the console: `warn`/`error` ship, `info` ships only with `{ ship: true }` for a fact no span records, and a per-item line becomes one line. Agent turn bodies (prompt, sections, output) go to Loki only in `full` capture, redacted first, never as span attributes; a failed redaction drops the body (`platform/telemetry/prompt-body-logs.ts`). Coordination events carry structured `qayaba.coordination.*` attributes, not facts held in reason strings.
 - **A run's wall time is explained by spans.** The root `qayaba.run` is the sum of its `qayaba.phase.*` spans (the engine's cursor), its `qayaba.stage.*` spans (`RUN_STAGES` in `shared-kernel/run-step.ts`: the shell's preparation, the sandbox scope opened and closed around the phases, the teardown) and a remainder that must stay near zero; `probe-report` prints that remainder as `unattributed`. New work that runs before the first phase or after the last goes in a stage (`RunTrace.stage` in the shell, `traceStage` in the engine), never in the gap.
 - **Agent output is read through one scanner.** `@kernel/last-json-object` (`closingJsonObject`) takes the object that closes the output: its last top-level object, with nothing after it that opens another brace; the reader checks it against its contract. Nothing takes the first `{`, and no reader takes an earlier object when the closing one does not read (off the contract, not JSON, cut short, or followed by another object): that answer is unreadable and goes through the reader's own repair or fail-closed path. An unreadable sidekick answer is recorded `unreadable`, distinct from `failed`, and fails closed. **An agent's answer crosses whole** (RFC-0006): the coordination's answers (the lead's plan, review, correction and amendment, the sidekick's result) are walked by one reader, `coordination/application/answer-reading.ts`; an entry it cannot read as the contract says (an action outside the contract, a flow or finding that is not one of the turn's, a field of the wrong type) is never read as a default and never skipped in silence: it is recorded (`qayaba.coordination.unreadable_entries`, `gateSignals.coordination.review|corrections|unreadable`), the answer is asked about once in the same session (the lead's session; the sidekick's with its tools off), and what stays unreadable is not acted on.
-- **One settings object.** The shell reads its environment in `loadSettings`; a new variable is a registry entry (`src/settings/registry.ts`) with a type, default and description, and `npm run settings:gen` regenerates `docs/settings.md`. A secret is marked `secret: true`: it never has a documented default and a dump of the settings shows it as `[set]`.
+- **One settings object.** The shell reads its environment in `loadSettings`; a new variable is a registry entry (`platform/settings/registry.ts`) with a type, default and description, and `npm run settings:gen` regenerates `docs/settings.md`. A secret is marked `secret: true`: it never has a documented default and a dump of the settings shows it as `[set]`.
 - **Everything in English**; comments follow the code implementation standard below (the default is none).
 
 ## Conventions & gotchas
 
 - **Dependency injection is the testing strategy.** `RunQaUseCase` runs on ports
-  (one per file, `<kebab-name>.port.ts`, in each context's `application/ports/`) wired by the contexts' `composition/` builders and `src/composition/engine-root.ts`;
+  (one per file, `<kebab-name>.port.ts`, in each context's `application/ports/`) wired by the contexts' `composition/` builders and `platform/composition/engine-root.ts`;
   orchestration is unit-tested with fakes. Real integrations (agent runtime, Playwright,
   git) are the deliberately uncovered boundaries; each exports `*Deps` + `default*Deps`.
   Follow that pattern for new side-effecting code.
@@ -925,7 +924,7 @@ test, and the verdict is its last action.
   (fields, enums, error responses) and exercises the backend **through the UI**, never the API
   directly.
 - **Long agent turns:** every request to `opencode serve` goes through the agent transport's own dispatcher
-  (`src/agent-runtime/net.ts`), which has no headers or body deadline: a turn ends only by its own limit or the run's
+  (`platform/agent-runtime/net.ts`), which has no headers or body deadline: a turn ends only by its own limit or the run's
   deadline (the prompt is aborted on the server), never by a transport timeout under a limit nobody set.
   The dispatcher is the installed `undici`'s, so the request goes through that undici's own `fetch`: Node's global fetch
   bundles another undici, and a dispatcher of a different version fails every request before it leaves. A request that
@@ -1028,7 +1027,7 @@ Read [`docs/testing-standards.md`](docs/testing-standards.md) before writing or 
 The quality loop is circular: one LLM generates, another reviews, and the harness checks
 that a test *runs*, not that it is *meaningful* — left alone it drifts into a large suite
 that catches nothing. The objective signal that breaks the circle is **change-coverage**
-(`qa-engine/src/contexts/objective-signal/domain/`):
+(`engine/src/contexts/objective-signal/domain/`):
 
 - **The execution contract** (RFC-0015, ADR-0023): every execution of a run's suite is **judging** (its outcome decides
   something: the verdict, a fix-loop round's adoption, a file's acceptance, a `run_spec` proof the run relies on, a mutant's kill,
@@ -1267,7 +1266,7 @@ disk are still the last that ran green, file by file, and the suite store captur
 - **Missing cases**: the reviewer gets the arms still untaken and may cite one (`arm`, `[missing-case]`).
   A cited arm the run listed is recorded (`gateSignals.missingCases`) and shown in the PR or Issue; it
   never blocks or rejects.
-- **Graders** (`qa-engine/src/contexts/evaluation`, `GRADER_VERSION`): no two graders score the same fact, none scores an empty
+- **Graders** (`engine/src/contexts/evaluation`, `GRADER_VERSION`): no two graders score the same fact, none scores an empty
   denominator, and a boolean that saturates becomes a ratio. Whether the suite has value is answered by `mutation_kill_rate`,
   `change_coverage_ratio`, `branch_coverage_ratio`, `defect_found`, `survivors_routed` and `review_verdict`. The lesson slice is measured by `data_state_failures`, `calls_to_green` and `lessons_delivered` (`gateSignals.lessons`), read by `campaign-compare`'s lesson cycle section, never by green.
 

@@ -5,7 +5,7 @@ import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
 /*
- * One settings object: production code under src/ reads the process environment only where the reason below holds. Every
+ * One settings object: production code under platform/ reads the process environment only where the reason below holds. Every
  * other value arrives through `Settings`, so a new variable is declared in the registry and documented by `settings:check`.
  */
 const SRC = join(dirname(fileURLToPath(import.meta.url)), "..");

@@ -1328,7 +1328,7 @@ test("buildEngineRootDeps falls back to 'main' when app.baseBranch is absent", (
    implementation, was never instantiated anywhere in engine-root.ts — grep-confirmed zero
    references outside its own test). the publish step is the REAL git-write collaborator wired into
    EngineRootDeps.vcsWrite (see the test above). Verified with an injected fake `git` fn (same
-   convention as src/integrations/publish.test.ts's own deps() helper for this exact class of git-
+   convention as the publish adapter's own deps() helper for this exact class of git-
    mechanics test) — no real subprocess/filesystem needed to pin the sequence/dispatch.
  */
 

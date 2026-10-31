@@ -1,4 +1,4 @@
-/* Kernel session-management seam. Generation depends on AgentRuntimePort from the kernel, decoupled from the agent-runtime context. Shapes are declared locally so the port never imports src/. */
+/* Kernel session-management seam. Generation depends on AgentRuntimePort from the kernel, decoupled from the agent-runtime context. Shapes are declared locally so the port never imports platform/. */
 
 import type { AgentRole } from "@kernel/agent-role.ts";
 import type { TimeLimitSource } from "@kernel/turn-limit.ts";

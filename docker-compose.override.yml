@@ -3,7 +3,7 @@
 # It bind-mounts the host source into the orchestrator so your edits are live without a rebuild. Every code mount is
 # READ-ONLY: the orchestrator never writes its own code at runtime, and the sandbox uid (which runs agent code) must not
 # either. Docker Desktop's file sharing does not enforce file permissions on a bind mount (any uid could write the host's
-# src/), while a read-only mount is refused by the kernel for every uid. The boot check (platform/entrypoints/file-boundary-check.ts)
+# platform/), while a read-only mount is refused by the kernel for every uid. The boot check (platform/entrypoints/file-boundary-check.ts)
 # refuses agent code if a mount under /app is writable by that uid, so a rw code mount added here makes runs end E-SANDBOX.
 #
 # For PRODUCTION (code from the baked image) run WITHOUT this file:
@@ -56,8 +56,8 @@ services:
       QA_CAMPAIGN_FREEZE: ${QA_CAMPAIGN_FREEZE:-}
     volumes:
       - ./platform:/app/platform:ro
-      # Live src imports engine via tsconfig paths. The image copy goes stale
-      # the moment src/ changes, and a recreate then fails to resolve @contexts/*.
+      # Live platform imports engine via tsconfig paths. The image copy goes stale
+      # the moment platform/ changes, and a recreate then fails to resolve @contexts/*.
       - ./engine:/app/engine:ro
       # The operator scripts (efficiency-benchmark, probe-report, baseline-agent) run inside this
       # container against its run history; the image copy goes stale like the others.
@@ -84,7 +84,7 @@ services:
       - "host.docker.internal:host-gateway"
     # Live-mount the supervisor so edits to agents/agent-supervisor.mjs take effect on a plain
     # `docker compose restart agents` — WITHOUT a rebuild — the same live-code trade the orchestrator
-    # already gets for src/. The Dockerfile COPYs this file to /usr/local/bin at build time, so the
+    # already gets for platform/. The Dockerfile COPYs this file to /usr/local/bin at build time, so the
     # baked image can otherwise go stale relative to the source (a fix in the source never reaches the
     # running container until `docker compose build agents`). It is a single self-contained file (only
     # node builtins), so mounting just it is sufficient.

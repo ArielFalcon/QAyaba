@@ -11,7 +11,7 @@ name: qayaba
 # Doppler injects the secrets (`doppler run -- docker compose up`); the env_file
 # .env is only for running locally without Doppler.
 #
-# This base file is the PRODUCTION definition: the orchestrator runs the src/ baked into the
+# This base file is the PRODUCTION definition: the orchestrator runs the platform/ baked into the
 # image (COPY in the Dockerfile). docker-compose.override.yml — auto-loaded by plain
 # `docker compose up` for local dev — bind-mounts the host source READ-ONLY for live editing.
 # For production run WITHOUT the override:
@@ -146,7 +146,7 @@ services:
       # enter (/app/config is a link to it, see the Dockerfile): the host folder's own permissions may not be enforced (Docker
       # Desktop's file sharing), the parent's always are, so the sandbox uid cannot reach the configs on any host.
       - ./config:/app/.host/config
-      # NOTE: src/ and package files are NOT bind-mounted here on purpose: they ship baked in the image. The dev
+      # NOTE: platform/ and package files are NOT bind-mounted here on purpose: they ship baked in the image. The dev
       # override re-adds them, read-only, for live editing. The E2E suite is NOT in a volume: it lives in git.
       - mirrors:/app/.mirrors # local working copies (shared with the agents container); the harness runs over <repo>/e2e here
       - qayaba-data:/app/data # run history — persists across restarts

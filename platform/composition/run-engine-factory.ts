@@ -1289,7 +1289,7 @@ export function buildEngineRootDeps(
     }) }),
     /*
      * ContextMapCapturePort — write side of the FE<->BE architecture map. Constructed here for the
-     * same reason processAudit is: its store is the history repositories (src-only; engine may never import
+     * same reason processAudit is: its store is the history repositories (platform-only; engine may never import
      * it). Wired unconditionally: a clean context-mode pass is the only run that ever invokes it.
      * Storing a fresh map disarms the process audit's stale flag, whoever started the context run
      * (a heal, a manual or onboarding run, the server or the CLI). Only a map the run wrote is

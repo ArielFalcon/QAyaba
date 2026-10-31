@@ -2,7 +2,7 @@
  * The smaller renders a prompt section gives way to when its prompt is over its role's window (the window fit rule of the run's
  * ContextBudget, applied by the assembler). Each names what it leaves out, as references a reader can follow (a page, a file and its
  * lines, a count), and records it as a `window-fit` omission. No fixed byte, line or node count decides any of them: they are used
- * only when the window does not hold the whole section. Never import src/.
+ * only when the window does not hold the whole section. Never import platform/.
  */
 import { WINDOW_FIT_REASON, type SectionDegradation } from "@kernel/prompt-sections.ts";
 import type { Omission } from "@kernel/telemetry/section-meta.ts";

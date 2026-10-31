@@ -1,4 +1,4 @@
-/* `@opentelemetry/*` is imported only under platform/telemetry/, apart from the test-support root, whose trace harness reads spans with the SDK's in-memory exporter and which no production module imports. The cruiser does not scan src/, so this is the machine check for the shell side of the boundary (docs/observability-design.md §3.2); engine/src is covered by the cruiser rule `no-telemetry-sdk-in-engine`. */
+/* `@opentelemetry/*` is imported only under platform/telemetry/, apart from the test-support root, whose trace harness reads spans with the SDK's in-memory exporter and which no production module imports. The cruiser does not scan platform/, so this is the machine check for the shell side of the boundary (docs/observability-design.md §3.2); engine/src is covered by the cruiser rule `no-telemetry-sdk-in-engine`. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readdirSync, readFileSync, statSync } from "node:fs";
@@ -17,7 +17,7 @@ function sourceFiles(dir: string): string[] {
   return out;
 }
 
-test("@opentelemetry imports under src/ exist only in platform/telemetry/ and the test-support root", () => {
+test("@opentelemetry imports under platform/ exist only in platform/telemetry/ and the test-support root", () => {
   const offenders = sourceFiles(SRC)
     .filter((file) => !relative(SRC, file).startsWith(`telemetry${sep}`) && !relative(SRC, file).startsWith(`test-support${sep}`))
     .filter((file) => SDK_IMPORT.test(readFileSync(file, "utf8")))

@@ -50,10 +50,10 @@ Two Docker services share a `mirrors` volume, which holds the working copies of 
 ```
 
 **Boundaries you must respect.** They are enforced by `npm run arch:check` and described in the repo's `AGENTS.md`:
-- `qa-engine/src` (the hexagonal engine) never imports from `src/` (the shell: composition root, API, provider I/O, persistence). Telemetry inside the engine must be a **port** with a no-op default, wired in `src/composition/run-engine-factory.ts`.
+- `engine/src` (the hexagonal engine) never imports from `platform/` (the shell: composition root, API, provider I/O, persistence). Telemetry inside the engine must be a **port** with a no-op default, wired in `platform/composition/run-engine-factory.ts`.
 - A new `child_process` import outside the launchers fails the build.
 - The engine is model- and app-agnostic ("golden rule"). Telemetry attributes may *carry* the model id and app name as data. Code must never branch on them.
-- Data that leaves the system must be sanitized. Use `src/telemetry/sanitizer.ts`, the by-value run-secret redaction in `qa-engine/src/shared-kernel/run-secret-redaction.ts`, and `PatternRedactionAdapter` (`redaction/pattern-redaction.adapter.ts`, behind the kernel `RedactionPort`) for prompt text. **Prompt and completion content must not be exported unredacted.** DEV credentials, session cookies and storage values pass through prompts and logs.
+- Data that leaves the system must be sanitized. Use `platform/telemetry/sanitizer.ts`, the by-value run-secret redaction in `engine/src/shared-kernel/run-secret-redaction.ts`, and `PatternRedactionAdapter` (`redaction/pattern-redaction.adapter.ts`, behind the kernel `RedactionPort`) for prompt text. **Prompt and completion content must not be exported unredacted.** DEV credentials, session cookies and storage values pass through prompts and logs.
 
 ### Agent roles (OpenCode agents, `agents/opencode.json`)
 
@@ -68,7 +68,7 @@ Two Docker services share a `mirrors` volume, which holds the working copies of 
 
 ## 3. The run lifecycle and the spans it should produce
 
-The single engine is `RunQaUseCase` (`qa-engine/src/contexts/run-orchestration/application/run-qa.use-case.ts`). The webhook, the CLI and the API all enter through `enqueueTrackedRun` (`src/entrypoints/runner.ts`). Run id format: `run-<sha7>-<base36>-<hex>`.
+The single engine is `RunQaUseCase` (`engine/src/contexts/run-orchestration/application/run-qa.use-case.ts`). The webhook, the CLI and the API all enter through `enqueueTrackedRun` (`platform/entrypoints/runner.ts`). Run id format: `run-<sha7>-<base36>-<hex>`.
 
 **One trace per run is the natural unit.** Suggested phase spans (names are illustrative; follow your instructions for naming):
 
@@ -112,7 +112,7 @@ The single engine is `RunQaUseCase` (`qa-engine/src/contexts/run-orchestration/a
 10. **`review`**: a reviewer agent span. Unreachable → `infra-error E-REVIEWER-UNAVAILABLE`.
 11. **`decide`**: PR / Issue / shadow log line. When accepted, a suite-store capture.
 
-**Verdicts:** `pass | fail | flaky | invalid | infra-error | skipped` (`qa-engine/src/shared-kernel/run-verdict.ts`).
+**Verdicts:** `pass | fail | flaky | invalid | infra-error | skipped` (`engine/src/shared-kernel/run-verdict.ts`).
 
 **Error codes** to carry as attributes:
 
@@ -137,13 +137,13 @@ A "turn" is one `session.prompt` on an OpenCode session. Inside it, OpenCode run
 
 ```
 engine port  →  RunDeadlineRuntime (run-orchestration/infrastructure/run-deadline-runtime.adapter.ts)
-             →  OpenCode strategy (src/agent-runtime/opencode-strategy.ts)
-             →  agent-transport-policy (qa-engine/src/contexts/generation/infrastructure/agent-transport-policy.ts)
+             →  OpenCode strategy (platform/agent-runtime/opencode-strategy.ts)
+             →  agent-transport-policy (engine/src/contexts/generation/infrastructure/agent-transport-policy.ts)
                   · withTimeout(prompt, timeoutMs)            ← the real deadline of the turn
                   · primary attempt, then FALLBACK MODEL retry  ← a hidden second attempt on a different model
                   · per-role circuit breaker                    ← recordCircuitFailure
                   · on timeout: abortRun() + recordUnansweredTurn("timeout"|"aborted")
-             →  src/agent-runtime/opencode-client.ts  (HTTP POST /session/:id/message, Basic auth;
+             →  platform/agent-runtime/opencode-client.ts  (HTTP POST /session/:id/message, Basic auth;
                   per-prompt `tools` map hides tools; SSE /event stream for live activity)
              →  opencode serve  →  provider (with its OWN retries: "AI_RetryError: Failed after 3 attempts")
 ```
@@ -167,7 +167,7 @@ These map naturally onto the GenAI conventions: `invoke_agent` / `chat` / `execu
 - **Time:** time to first step response, **time to first tool call** (`timeToFirstCallMs`, already computed), time to first write, total duration, per-step durations.
 - **Work:** steps used against the stated cap; tool calls by family (read/grep/glob, serena, codegraph, playwright, write/edit, run_spec, authbrowser, task, todowrite); denied calls; duplicate and redundant reads (the same window of a file again); same-file re-reads (a file read again in any window, with no write to it in between); reads of files the prompt already provided.
 - **Ending:** completed / timeout / aborted / exhausted / no-verdict, and the parsed verdict shape (specs count, no-op kind `not-worth|unobservable|unspecified`).
-- **Context composition:** prompt bytes **per section** (the run prompt is assembled from about 25 conditional sections in `qa-engine/src/contexts/generation/infrastructure/prompt-builders/prompts.ts`), static-layer bytes, and **bytes of tool schemas offered**.
+- **Context composition:** prompt bytes **per section** (the run prompt is assembled from about 25 conditional sections in `engine/src/contexts/generation/infrastructure/prompt-builders/prompts.ts`), static-layer bytes, and **bytes of tool schemas offered**.
   - The tool schemas are about **60% of the initial context**. The generator is offered 66 tools, ~60 KB. **Serena: 0 symbol calls in 56 runs.**
   - Denied tools cost nothing; only offered ones count.
 - **Provider errors:** class (quota exceeded, socket closed, 5xx, unknown), retries performed by OpenCode, whether the fallback model was used, whether the circuit opened.
@@ -176,7 +176,7 @@ These map naturally onto the GenAI conventions: `invoke_agent` / `chat` / `execu
 
 ### Tool calls
 
-OpenCode emits tool activity on its SSE stream. The orchestrator turns it into `toolSequence` (`qa-engine/src/contexts/generation/infrastructure/sse/call-efficiency-tracker.ts`). Every tool call can become an `execute_tool` span: tool name, target (path, URL, pattern), duration and status. Pay particular attention to:
+OpenCode emits tool activity on its SSE stream. The orchestrator turns it into `toolSequence` (`engine/src/contexts/generation/infrastructure/sse/call-efficiency-tracker.ts`). Every tool call can become an `execute_tool` span: tool name, target (path, URL, pattern), duration and status. Pay particular attention to:
 - **`run_spec`** and **`authbrowser_*`**. These are **cross-container callbacks**: agent → orchestrator `:459` → sandboxed Playwright or Chromium → DEV. They should show up as children of the agent turn that called them, which needs context propagation through the tool's HTTP call. They also hold the per-account **DEV lease** (`AccountLock` / `DevLease`). Lease wait time and `DEV busy` refusals matter for the parallel sidekick mode.
 - **Playwright MCP navigations from the generator.** On name-webapp **9 of 11 navigations were wasted**, because the MCP browser is launched without the DEV HTTP-Basic gate credentials. The agent "learned" this three times and saved it to engram three times.
 
@@ -184,12 +184,12 @@ OpenCode emits tool activity on its SSE stream. The orchestrator turns it into `
 
 ## 5. Sandbox, egress and environment: the seams that broke
 
-Every piece of agent-influenced code runs through the exec launcher (`qa-engine/src/shared-infrastructure/process-sandbox/exec-sandbox.ts`), in profiles `offline | suite | login | install`, as uid 1002. Per child, record: profile, command class, exit code, duration, whether the reaper killed leftovers (`sandbox-reaper.ts`), and denied hosts.
+Every piece of agent-influenced code runs through the exec launcher (`engine/src/shared-infrastructure/process-sandbox/exec-sandbox.ts`), in profiles `offline | suite | login | install`, as uid 1002. Per child, record: profile, command class, exit code, duration, whether the reaper killed leftovers (`sandbox-reaper.ts`), and denied hosts.
 
-- **Egress** (`qa-engine/src/shared-infrastructure/egress/`): each child holds a lease on its profile's origins. The DNS filter and SNI proxy refuse undeclared names (NXDOMAIN or reset, fast). Denied hosts are collected per run (`gateSignals.sandbox.denied`, max 64) and **per login attempt** (`openDeniedWindow`).
+- **Egress** (`engine/src/shared-infrastructure/egress/`): each child holds a lease on its profile's origins. The DNS filter and SNI proxy refuse undeclared names (NXDOMAIN or reset, fast). Denied hosts are collected per run (`gateSignals.sandbox.denied`, max 64) and **per login attempt** (`openDeniedWindow`).
   - **A denied host can break a page silently.** Keycloak's form never rendered because its CSS imports Google Fonts.
   - Hosts the app leaves blocked on purpose are declared in `dev.blockedOrigins`, e.g. telemetry such as Sentry.
-- **File boundary.** At boot the entrypoint proves, as the sandbox uid, that it cannot read secrets or write code and config (`src/entrypoints/file-boundary-check.ts`, status in `/run/qa-file-boundary.status`). The egress filter's status is in `/run/qa-egress.status`.
+- **File boundary.** At boot the entrypoint proves, as the sandbox uid, that it cannot read secrets or write code and config (`platform/entrypoints/file-boundary-check.ts`, status in `/run/qa-file-boundary.status`). The egress filter's status is in `/run/qa-egress.status`.
   - `/api/health` exposes `sandbox: {degraded, isolation, egress, files}`.
   - Docker Desktop bind mounts (`fakeowner`) do not enforce permissions; that is why this proof exists.
 - **Host suspension.** On a laptop, Docker Desktop's VM stops while the Mac sleeps. Wall-clock time jumps and monotonic timers inside the VM do not advance; we observed no logs at all for 32 minutes. **Telemetry must make a suspend visible**, e.g. via event-loop lag, a wall-versus-monotonic gap or heartbeat gaps. Otherwise every long campaign on a laptop produces phantom "hangs".
@@ -201,8 +201,8 @@ Every piece of agent-influenced code runs through the exec launcher (`qa-engine/
 
 | Store | What | Gaps |
 |---|---|---|
-| SQLite `/app/data/qayaba.db` (`src/persistence/`) | `runs`, `run_outcomes`, `run_events`, `agent_turns` (toolSequence, callBuckets, tokens, timeToFirstCall, steps, writes, redundant and same-file reads, each read's window in toolSequence, promptBytes), `lesson_observations`, `context_maps`, … | No reviewer or sidekick per-call data in recent runs. No OpenCode retries, title calls, provider error classes or event-loop health |
-| `gateSignals` on the run outcome (`qa-engine/src/shared-kernel/run-outcome.ts`) | sandbox (egress mode, denied), closedLoop, agentBrowser, coordination, noop kind, coverage… | On an unhandled error before an outcome existed, only a minimal sandbox-only outcome is now persisted |
+| SQLite `/app/data/qayaba.db` (`platform/persistence/`) | `runs`, `run_outcomes`, `run_events`, `agent_turns` (toolSequence, callBuckets, tokens, timeToFirstCall, steps, writes, redundant and same-file reads, each read's window in toolSequence, promptBytes), `lesson_observations`, `context_maps`, … | No reviewer or sidekick per-call data in recent runs. No OpenCode retries, title calls, provider error classes or event-loop health |
+| `gateSignals` on the run outcome (`engine/src/shared-kernel/run-outcome.ts`) | sandbox (egress mode, denied), closedLoop, agentBrowser, coordination, noop kind, coverage… | On an unhandled error before an outcome existed, only a minimal sandbox-only outcome is now persisted |
 | `npm run probe-report -- <runId>` (`scripts/probe-report.ts`) | A per-run table of phases, turns, tools, tokens, cost, stitcher signals; JSON under `config/benchmarks/probe-results/` | A batch tool run after the fact |
 | `npm run efficiency-benchmark` | Step and call telemetry across runs | Never a gate |
 | Campaign runner (`scripts/campaign.ts`) | A/B arms; a no-retry validity re-run ×2 of what each arm delivered; a fake-pass detector; `campaign.json` / `.md` / `rubric.csv` | the server freezes every run that carries a campaign; engram is not isolated between replicates |

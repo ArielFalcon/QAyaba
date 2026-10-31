@@ -235,13 +235,13 @@ export interface EngineRootDeps {
   containsSecret?: (text: string) => boolean;
 
 
-  /* Write confinement. Optional, no stub: absent omits RunQaUseCaseDeps.confinement. The shell factory constructs WriteConfinementAdapter (needs src-only git/fs); this root must not import that adapter, and binds it to the run's handle. */
+  /* Write confinement. Optional, no stub: absent omits RunQaUseCaseDeps.confinement. The shell factory constructs WriteConfinementAdapter (needs platform-only git/fs); this root must not import that adapter, and binds it to the run's handle. */
   confinement?: PathConfinementCollaborator;
 
-  /* Mirror GC. Optional, no stub: absent omits RunQaUseCaseDeps.mirrorGc. The shell factory constructs MirrorGcAdapter (needs src-only git). */
+  /* Mirror GC. Optional, no stub: absent omits RunQaUseCaseDeps.mirrorGc. The shell factory constructs MirrorGcAdapter (needs platform-only git). */
   mirrorGc?: PathMirrorGcCollaborator;
 
-  /* Process audit. Optional, no stub: absent omits RunQaUseCaseDeps.processAudit. The shell factory constructs ProcessAuditPortAdapter (src-only sinks). */
+  /* Process audit. Optional, no stub: absent omits RunQaUseCaseDeps.processAudit. The shell factory constructs ProcessAuditPortAdapter (platform-only sinks). */
   processAudit?: ProcessAuditPort;
 
   /* The append-only record of what runs read of DEV (lesson_observations). Optional, no stub: absent omits RunQaUseCaseDeps.lessonRecorder. The shell factory supplies the history-backed store for every run, frozen or not. */

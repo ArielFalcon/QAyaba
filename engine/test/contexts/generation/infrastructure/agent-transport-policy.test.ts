@@ -1,5 +1,5 @@
 /* engine/test/contexts/generation/infrastructure/agent-transport-policy.test.ts
-   Moved from src/integrations/{stall-watchdog-wrapper,session-registration-wrapper,opencode-client}
+   Pins the agent transport's
    POLICY (circuit-breaker gating, fallback retry, stall-watchdog decoration, session registration,
    turn/usage telemetry) that now lives in agent-transport-policy.ts, decoupled from the SDK.
  */

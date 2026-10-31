@@ -1,4 +1,4 @@
-/* Canonical secret-redaction seam. Everything leaving the system (diff → model, execution logs → Issue, delegation briefs → provider) passes through an adapter of this port. engine must not import src/; the shell adapter in platform/telemetry/sanitizer.ts adds the orchestrator environment secrets and re-exports SecretLeakError from here. */
+/* Canonical secret-redaction seam. Everything leaving the system (diff → model, execution logs → Issue, delegation briefs → provider) passes through an adapter of this port. engine must not import platform/; the shell adapter in platform/telemetry/sanitizer.ts adds the orchestrator environment secrets and re-exports SecretLeakError from here. */
 
 export const REDACTED = "[REDACTED]";
 
@@ -23,7 +23,7 @@ export interface RedactionPort {
   containsSecret(text: string, mode?: RedactionMode): boolean;
 }
 
-/** Thrown by the post-redaction fail-loud egress guard. Lives in the kernel because engine must not import src/. */
+/** Thrown by the post-redaction fail-loud egress guard. Lives in the kernel because engine must not import platform/. */
 export class SecretLeakError extends Error {
   constructor(message: string) {
     super(message);

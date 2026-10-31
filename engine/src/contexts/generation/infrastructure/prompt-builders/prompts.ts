@@ -1,4 +1,4 @@
-/* Assembles the per-run TASK + CONTEXT the agent receives, and the independent reviewer's prompt. The "how" lives in agents/agent/*.md. A prompt is a registry of sections (generator-sections.ts, reviewer-sections.ts) filtered and rendered from one derived context. Diffs are capped then secret-scrubbed; never import src/. */
+/* Assembles the per-run TASK + CONTEXT the agent receives, and the independent reviewer's prompt. The "how" lives in agents/agent/*.md. A prompt is a registry of sections (generator-sections.ts, reviewer-sections.ts) filtered and rendered from one derived context. Diffs are capped then secret-scrubbed; never import platform/. */
 
 import { suiteListingHead } from "@contexts/generation/domain/suite-listing-render.ts";
 import { AGENT_BROWSER_SECTION_ID, CLOSED_LOOP_SECTION_ID, GEOLOCATION_SECTION_ID, HARNESS_FACTS_SECTION_ID, LEAD_PLAN_SECTION_ID } from "@contexts/generation/domain/prompt-contract-lint.ts";

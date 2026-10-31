@@ -17,7 +17,7 @@ import { hardenDetachedGitArgs } from "../../engine/src/shared-infrastructure/pr
 import { activeEnvironment } from "../settings/active";
 import { activeSettings } from "../settings/store";
 
-/* The orchestrator's git hardening has one definition, in the engine (which cannot import src/); every git caller on a working copy goes through it. */
+/* The orchestrator's git hardening has one definition, in the engine (which cannot import platform/); every git caller on a working copy goes through it. */
 export { hardenGitArgs, assertTrustedGitTree, UntrustedGitTreeError } from "../../engine/src/shared-infrastructure/process-sandbox/git-hardening";
 /* The one variant with no working copy to verify (a clone, an ls-remote): the shell owns such calls, the engine may not import it. */
 export { hardenDetachedGitArgs } from "../../engine/src/shared-infrastructure/process-sandbox/detached-git-hardening";

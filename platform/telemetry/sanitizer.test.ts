@@ -4,7 +4,7 @@ import { sanitizeText, containsSecrets } from "../../engine/src/shared-infrastru
 import { RedactionPortAdapter } from "./sanitizer";
 
 /* RedactionPortAdapter must detect a secret VALUE present verbatim in text, driven by env VAR
-   NAME heuristics (parity with src/util/redact.ts's secretValues/redactSecrets), even when no
+   NAME heuristics (the env-derived secret values the redaction adapter reads), even when no
    NAMED_SECRET_PATTERNS entry recognizes the value's shape. Fixtures below are values pattern-based
    sanitizeText alone genuinely misses (verified live: "oc-LIVE-key-998877" matches no
    NAMED_SECRET_PATTERNS entry at all; "superSecretToken42" is a 19-char bare token, one short of the

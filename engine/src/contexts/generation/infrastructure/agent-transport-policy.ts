@@ -1,4 +1,4 @@
-/* Session-transport policy: circuit-breaker gating, fallback-model retry on transient fault, turn/usage telemetry, sanitize-before-emit. Consumes injected primitives. Does not read process.env or cwd-relative config — the engine-root shell injects resolved timeouts and getFallbackModel. engine never imports src/. */
+/* Session-transport policy: circuit-breaker gating, fallback-model retry on transient fault, turn/usage telemetry, sanitize-before-emit. Consumes injected primitives. Does not read process.env or cwd-relative config — the engine-root shell injects resolved timeouts and getFallbackModel. engine never imports platform/. */
 import { engineLog } from "@kernel/ports/process-logger.ts";
 import { checkCircuit, recordCircuitFailure, recordCircuitSuccess } from "./resilience/circuit-breaker.ts";
 import { createStallWatchdog, type StallWatchdog } from "./resilience/stall-watchdog.ts";
@@ -16,7 +16,7 @@ import { finalStepText } from "../domain/step-exhaustion.ts";
 import type { TurnEnd } from "@kernel/turn-end.ts";
 import { isSessionGoneError } from "@kernel/turn-end.ts";
 
-/* Types declared locally — engine never imports src/. */
+/* Types declared locally — engine never imports platform/. */
 
 export interface UsageSnapshot {
   input: number;

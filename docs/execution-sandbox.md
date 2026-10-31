@@ -11,12 +11,12 @@ environment, or with open network. This document is how that is enforced and how
 
 | Boundary | What it stops | Where it lives |
 |---|---|---|
-| **Identity and environment** | Agent code running as root, or seeing the orchestrator's secrets | the launcher: `qa-engine/src/shared-infrastructure/process-sandbox/exec-sandbox.ts`, `exec-env.ts` |
-| **Files** | Reading the API token, the auth material, the app configs, another repo's mirror; writing the orchestrator's code and config or the mirror it runs in | `bin/container-entrypoint.sh`, the boot check (`src/entrypoints/file-boundary-check.ts`, `process-sandbox/file-boundary.ts`), `mirror-access.ts`, `exec-workdir.ts` |
-| **Network** | Exfiltrating over the network, reaching the control-plane API or other containers | `qa-engine/src/shared-infrastructure/egress/`, `bin/egress-init.sh` |
+| **Identity and environment** | Agent code running as root, or seeing the orchestrator's secrets | the launcher: `engine/src/shared-infrastructure/process-sandbox/exec-sandbox.ts`, `exec-env.ts` |
+| **Files** | Reading the API token, the auth material, the app configs, another repo's mirror; writing the orchestrator's code and config or the mirror it runs in | `bin/container-entrypoint.sh`, the boot check (`platform/entrypoints/file-boundary-check.ts`, `process-sandbox/file-boundary.ts`), `mirror-access.ts`, `exec-workdir.ts` |
+| **Network** | Exfiltrating over the network, reaching the control-plane API or other containers | `engine/src/shared-infrastructure/egress/`, `bin/egress-init.sh` |
 
-A new spawn site cannot bypass the first: `npm run arch:check` fails on any module of `qa-engine/src`, `src` or `scripts/` that
-imports `child_process` outside the launcher (a script that spawns is repository tooling only when it is on the frozen list `qa-engine/.dependency-cruiser-tooling-spawners.json`, each with its reason, which may only shrink), the modules that start only trusted binaries (git, chown, iptables) and
+A new spawn site cannot bypass the first: `npm run arch:check` fails on any module of `engine/src`, `platform` or `scripts/` that
+imports `child_process` outside the launcher (a script that spawns is repository tooling only when it is on the frozen list `engine/.dependency-cruiser-tooling-spawners.json`, each with its reason, which may only shrink), the modules that start only trusted binaries (git, chown, iptables) and
 three named shell sites (the mirror's git runner, the engine factory's hardened git calls and the boot probe that runs
 as the sandbox uid).
 
@@ -98,7 +98,7 @@ in `/proc/self/mountinfo`) grants every uid what it asks: there the sandbox uid 
 app config (and so widen `dev.allowedOrigins` for the next run) or rewrite the orchestrator's code through a code mount. So:
 
 - **The API token lives in `data/`**, a named volume, never in a host folder. The service reads it from `QA_API_TOKEN` or
-  generates it into `data/.api_token` (`src/settings/api-token.ts`); clients read the same two places. A token an earlier version
+  generates it into `data/.api_token` (`platform/settings/api-token.ts`); clients read the same two places. A token an earlier version
   kept in the host's config folder may have been readable by the sandbox uid and is no longer read or removed by anything:
   delete the `.api_token` file beside the app configs by hand, and rotate `QA_API_TOKEN` if it was copied from there.
 - **The host's config folder is mounted at `/app/.host/config`** and `/app/config` is a link to it (Dockerfile, compose). The lookup
@@ -106,16 +106,16 @@ app config (and so widen `dev.allowedOrigins` for the next run) or rewrite the o
   filesystem: the sandbox uid cannot reach the configs whatever the host folder's filesystem does, and the orchestrator (root)
   reads and writes them as before. Nothing the sandbox runs reads `config/`: the `config/e2e` seed is copied into the mirror by
   the orchestrator.
-- **Code is mounted read-only** in the dev override (`src`, `qa-engine`, `scripts`, `web`, `tsconfig.json`, the package files): a
+- **Code is mounted read-only** in the dev override (`platform`, `engine`, `scripts`, `web`, `tsconfig.json`, the package files): a
   read-only mount is refused by the kernel for every uid. The orchestrator writes none of them at runtime.
-- **The boundary is proven at every boot.** After setting the modes the entrypoint runs `src/entrypoints/file-boundary-check.ts`, which
+- **The boundary is proven at every boot.** After setting the modes the entrypoint runs `platform/entrypoints/file-boundary-check.ts`, which
   makes, in a child started as the sandbox uid the way the launcher starts agent code, every attempt that uid must see refused:
   read `/proc/1/environ` and the API token (new and old place), list `data/`, `data/auth`, `config/`, `config/apps`
   and the mirrors volume, and write the app root, **every mount under it found in `/proc/self/mountinfo`** (so a bind added later is
   checked without anyone listing it), the orchestrator's code and config, the status files the service trusts and the directory they sit in (`/run`: a status file is
   absent when the probe runs, so who may create it is who may write there). A write is tried
   by creating a file in a directory (removed again) or by opening a file for writing (no byte changes). The child is the plain
-  script `src/entrypoints/file-boundary-probe.mjs`, run with the plain node binary, no loader and an environment of `PATH` alone: a
+  script `platform/entrypoints/file-boundary-probe.mjs`, run with the plain node binary, no loader and an environment of `PATH` alone: a
   TypeScript loader's disk cache (`<tmp>/tsx-<uid>`) is writable by the sandbox uid, survives restarts and is loaded unvalidated,
   so a probe that ran through it could be forged to report everything refused (the entrypoint also removes that cache at every
   boot). The child reports only each call's error code; the orchestrator judges the report and leaves `ok` or `breach: <what>` in `QA_FILE_BOUNDARY_STATUS_FILE` (default

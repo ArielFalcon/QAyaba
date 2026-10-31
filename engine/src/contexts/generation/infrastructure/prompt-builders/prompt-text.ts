@@ -1,4 +1,4 @@
-/* Text helpers every prompt builder shares: model-bound redaction, the capped diff, the commit message and the step-limit fact. Never import src/. */
+/* Text helpers every prompt builder shares: model-bound redaction, the capped diff, the commit message and the step-limit fact. Never import platform/. */
 
 import { sanitizeText, assertNoSecretLeak, type RedactionMode } from "../../../../shared-infrastructure/redaction/pattern-redaction.adapter.ts";
 import { COMMIT_BODY_SAFETY_BOUND, boundedEvidenceText, extractDiffFilePath } from "../prompt-cap.ts";

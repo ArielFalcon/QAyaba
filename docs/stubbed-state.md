@@ -30,7 +30,7 @@ gap.
 
 ## Detection
 
-`qa-engine/src/contexts/test-execution/domain/stubbed-state.ts` reads each delivered spec's syntax tree
+`engine/src/contexts/test-execution/domain/stubbed-state.ts` reads each delivered spec's syntax tree
 (through the confined reader), so a comment or a string that mentions `page.route` is nothing.
 
 A test is stubbed when its body, a `beforeEach`/`beforeAll` hook above it, a function of the same file it

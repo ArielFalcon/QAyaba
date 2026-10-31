@@ -1,4 +1,4 @@
-/* Renderers of the facts and evidence sections of a generator prompt. Each returns the section text; the registry in generator-sections.ts decides when one applies. Never import src/. */
+/* Renderers of the facts and evidence sections of a generator prompt. Each returns the section text; the registry in generator-sections.ts decides when one applies. Never import platform/. */
 
 import { sanitizeText } from "../../../../shared-infrastructure/redaction/pattern-redaction.adapter.ts";
 import { boundedEvidenceText, EVIDENCE_ITEMS_SAFETY_BOUND, evidenceItemsCutLine } from "../prompt-cap.ts";

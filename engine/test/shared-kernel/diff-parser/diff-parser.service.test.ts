@@ -114,7 +114,7 @@ test("changedElementsFromGuidance: empty string → []", () => {
   assert.deepEqual(svc.changedElementsFromGuidance(""), []);
 });
 
-/* Parity tests that import from src/ live in diff-parser-parity.test.ts, which is
+/* Parity tests that import from platform/ live in diff-parser-parity.test.ts, which is
    excluded from engine typecheck.
  */
 

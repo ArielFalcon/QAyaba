@@ -451,7 +451,7 @@ from the files of an `e2e/` snapshot; otherwise the digest comparison above is w
 ### Arm A': the plain agent, judged by the pipeline's acceptance
 
 Arm A calls any spec that passed its own two runs a pass, while the pipeline keeps a suite only when it was validated, executed, measured and reviewed. A' asks the plain
-agent's delivery the same questions (`qa-engine/.../application/accept-delivered-specs.use-case.ts`, composed over the pipeline's own parts by `buildAcceptanceHarness`):
+agent's delivery the same questions (`engine/.../application/accept-delivered-specs.use-case.ts`, composed over the pipeline's own parts by `buildAcceptanceHarness`):
 
 1. the static gate (`tsc`, ESLint, `playwright --list`), failing → `invalid` (`E-STATIC`), nothing executed;
 2. the delivered specs executed **twice with `retries: 0`** through the sandbox (`pass` only when both pass, one of each is `flaky`, a run that could not execute is `infra-error`);
@@ -510,7 +510,7 @@ After each arm-run the harness takes the files the arm delivered and judges them
 
 ### Freeze: the server decides per run
 
-A run that carries a `campaign` is frozen by the server, whichever door it came through (`qa-engine/src/contexts/run-orchestration/domain/run-freeze.ts`, ADR-0009):
+A run that carries a `campaign` is frozen by the server, whichever door it came through (`engine/src/contexts/run-orchestration/domain/run-freeze.ts`, ADR-0009):
 nothing is set on the orchestrator. For that run it:
 
 | Skips | Because |
@@ -579,4 +579,4 @@ not decide which direction is worse, you do. The deliberate no-op case must stil
 
 Source: `scripts/efficiency-benchmark.ts`, with the tracked example at
 `config/benchmarks/efficiency-cases.example.json`; the live limit read is `stepLimits` in
-`src/agent-runtime/`.
+`platform/agent-runtime/`.
