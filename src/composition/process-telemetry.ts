@@ -1,6 +1,6 @@
-/* The process-wide telemetry handle, built once at start by src/server/wire-app.ts and src/cli.ts (the composition roots). The engine factory takes `processTelemetry().telemetry` as a dep; nothing else reads the environment for telemetry. */
+/* The process-wide telemetry handle, built once at start by src/composition/wire-app.ts and src/composition/cli.ts (the composition roots). The engine factory takes `processTelemetry().telemetry` as a dep; nothing else reads the environment for telemetry. */
 
-import { createTelemetry, type TelemetryHandle } from "./bootstrap";
+import { createTelemetry, type TelemetryHandle } from "../telemetry/bootstrap";
 
 /* Bounds the final flush and stop of the exporters on exit. */
 export const TELEMETRY_SHUTDOWN_TIMEOUT_MS = 5000;

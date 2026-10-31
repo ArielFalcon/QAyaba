@@ -45,7 +45,7 @@ test("wires coordination only into RunQaUseCase — generation/FixLoop/AgentRunt
   assert.equal(useCase.includes("LeadSidekicks"), true);
   assert.equal(useCase.includes("advisoryOnly"), false, "advisory downgrade was removed with the modes");
   const composition = readFileSync(
-    join(qaEngineRoot, "..", "src/server/engine-root.ts"),
+    join(qaEngineRoot, "..", "src/composition/engine-root.ts"),
     "utf8",
   );
   assert.equal(

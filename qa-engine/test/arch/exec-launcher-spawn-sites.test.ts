@@ -94,8 +94,8 @@ test("a module of the shell that imports a child-process function is caught by t
 test("the shell's three named sites and its test files may import child_process", () => {
   const spawning = 'import { execFileSync } from "node:child_process";\nexport const go = (): unknown => execFileSync("git", []);\n';
   const { ok, output } = inSyntheticTree({
-    "src/integrations/repo-mirror.ts": spawning,
-    "src/server/run-engine-factory.ts": spawning,
+    "src/composition/repo-mirror.ts": spawning,
+    "src/composition/run-engine-factory.ts": spawning,
     "src/entrypoints/file-boundary-check.ts": spawning,
     "src/server/probe-spawn.test.ts": spawning,
   });

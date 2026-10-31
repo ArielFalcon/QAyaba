@@ -1,4 +1,4 @@
-/* Git hardening for every git call the engine makes on an untrusted, sandbox-touched working copy. The single definition: src/integrations/repo-mirror.ts re-exports it for the shell's own git calls. */
+/* Git hardening for every git call the engine makes on an untrusted, sandbox-touched working copy. The single definition: src/composition/repo-mirror.ts re-exports it for the shell's own git calls. */
 
 import { execFileSync } from "node:child_process";
 import { lstatSync, realpathSync, statSync, type Stats } from "node:fs";

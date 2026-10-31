@@ -10,7 +10,7 @@ import {
   AUTH_SETUP_FILE, MANIFEST_FILE, STOCK_SEED_MARKER, createSnapshot, loadSnapshot,
   main, parseArguments, restoreSuite, specsTouchedSinceSnapshot, storeSnapshotDir, warmSnapshotDir, warmStatus, type WarmDeps,
 } from "./warm-suite.ts";
-import { workdirRoot } from "../src/integrations/repo-mirror.ts";
+import { workdirRoot } from "../src/composition/repo-mirror.ts";
 import { qayabaDataDir } from "../src/settings/paths.ts";
 import { MAX_FILE_BYTES } from "../qa-engine/src/shared-infrastructure/suite-tree.ts";
 

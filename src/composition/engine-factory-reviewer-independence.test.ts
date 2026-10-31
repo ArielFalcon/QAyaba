@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { buildEngineRootDeps, type RunEngineFactoryDeps } from "./run-engine-factory";
 import type { AgentDeps } from "../agent-runtime/opencode-client";
 import type { AgentFacade, RoleAssignment } from "../agent-runtime/types";
-import type { AppConfig } from "../orchestrator/config-loader";
+import type { AppConfig } from "./config-loader";
 
 const APP: AppConfig = {
   name: "independence-app",

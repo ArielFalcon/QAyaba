@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { JobQueue } from "./queue";
 import { enqueueTrackedRun, type RunnerDeps, type RunRequest } from "./runner";
 import { buildRunViewExtras, defaultRunViewDeps } from "./run-view";
-import type { AppConfig } from "../orchestrator/config-loader";
+import type { AppConfig } from "../composition/config-loader";
 import type { RunPipelinePort, RunInput } from "@contexts/run-orchestration/application/index.ts";
 import type { RunOutcome } from "@kernel/run-outcome";
 import type { CampaignIdentity } from "./contract/campaign";
@@ -13,7 +13,7 @@ import { CampaignCaptureMismatchError } from "@contexts/evaluation/application/i
 import type { RunConfigEnvironment } from "./effective-config";
 import { getHistory } from "../persistence/index";
 import { parseStoredRunConfig } from "./effective-config";
-import { continuationRequestOf } from "../server/wire-app";
+import { continuationRequestOf } from "../composition/wire-app";
 
 const cfg = (name: string, qa: Record<string, unknown> = {}): AppConfig =>
   ({

@@ -8,8 +8,8 @@ import {
   AppConfigSchema, APP_NAME_RULE, appCreationDefaults, buildYaml, expandEnv, isValidAppName, patchAppYaml, suggestName,
   type OnboardAuthInput, type OnboardInput, type OnboardServiceInput,
 } from "@contexts/app-catalog/application/index";
-import { AppConfigInvalidError, AppNotFoundError, type AppConfig } from "../orchestrator/config-loader";
-import type { RepoInfo } from "../integrations/github";
+import { AppConfigInvalidError, AppNotFoundError, type AppConfig } from "./config-loader";
+import type { RepoInfo } from "./github";
 
 export interface AppAdminDeps {
   getRepoInfo(repo: string): Promise<RepoInfo>;

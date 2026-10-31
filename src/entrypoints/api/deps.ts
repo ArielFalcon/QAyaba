@@ -3,8 +3,8 @@
 import type { z } from "zod";
 import type { TelemetryBackendsHealth, TelemetryHealth } from "../../telemetry/telemetry-health";
 import type { RunRecord } from "../../persistence/types";
-import type { AppConfig } from "../../orchestrator/config-loader";
-import type { CreateAppInput as AdminCreateAppInput, CreateAppResult, UpdateAppInput as AdminUpdateAppInput } from "../../server/app-admin";
+import type { AppConfig } from "../../composition/config-loader";
+import type { CreateAppInput as AdminCreateAppInput, CreateAppResult, UpdateAppInput as AdminUpdateAppInput } from "../../composition/app-admin";
 import type {
   AgentModelInfo,
   AgentProvider,
@@ -22,7 +22,7 @@ import type {
 } from "../contract/commands";
 import type { RunEventStore } from "../run-events";
 import type { AgentTurnRecord } from "../../persistence/repositories/telemetry.repository";
-import type { EvaluationService } from "../../server/evaluation-service";
+import type { EvaluationService } from "../../composition/evaluation-service";
 import type { RunViewExtras } from "../run-view";
 import type { ApiRunRequest } from "./run-request";
 

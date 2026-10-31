@@ -14,7 +14,7 @@ import { ConfinedPathError } from "../../qa-engine/src/shared-infrastructure/spe
 
 import { type RunHistorySqliteAdapterDeps, SqliteRunHistoryAdapter } from "../persistence/run-history-sqlite-adapter";
 import { buildEngineRootDeps, type RunEngineFactoryDeps } from "./run-engine-factory";
-import type { AppConfig } from "../orchestrator/config-loader";
+import type { AppConfig } from "./config-loader";
 import type { AgentDeps } from "../agent-runtime/opencode-client";
 import { AgentRuntimeFacade } from "../agent-runtime/facades";
 import type { AgentFacade, AgentProvider, AgentRuntimeStrategy, StepLimits } from "../agent-runtime/types";
@@ -138,7 +138,7 @@ describe("seam-parity: COMPOSITION (EngineRootDeps vs buildEngineRootDeps)", () 
       { mode: "diff", guidance: S("run.guidance") },
     );
 
-    const dyingLayer = "buildEngineRootDeps() -> EngineRootDeps (src/server/run-engine-factory.ts)";
+    const dyingLayer = "buildEngineRootDeps() -> EngineRootDeps (src/composition/run-engine-factory.ts)";
 
     /* Non-optional fields — every one MUST be present (undefined fails these asserts loudly). */
     const nonOptional: Array<keyof typeof cfg> = [
@@ -282,7 +282,7 @@ describe("seam-parity: COMPOSITION (EngineRootDeps vs buildEngineRootDeps)", () 
   test("the step limit of each role crosses the composition root: the generator's reaches the generation input and the reviewer's the review input", async () => {
     const { cfg, generation, review } = await inputsBuiltThrough({ ...fakeFactoryDeps(), getAgentFacade: () => facadeReporting({ author: 41, reviewer: 17 }) });
 
-    const dyingLayer = "buildEngineRootDeps() -> wireEngine() (src/server/run-engine-factory.ts -> engine-root.ts)";
+    const dyingLayer = "buildEngineRootDeps() -> wireEngine() (src/composition/run-engine-factory.ts -> engine-root.ts)";
     assert.notEqual(cfg.stepLimitFor, undefined, `stepLimitFor dropped at ${dyingLayer}`);
     assert.equal(generation.stepLimit, 41, `the generator's limit dropped at ${dyingLayer}`);
     assert.equal(review.stepLimit, 17, `the reviewer's limit dropped at ${dyingLayer}`);

@@ -329,7 +329,7 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
   "patch-app-yaml": {
     description: "app config patch: the managed fields of an app's YAML are edited in place, and placeholders, comments and unmanaged keys come out as they went in",
     mutate: ["qa-engine/src/contexts/app-catalog/application/patch-app-yaml.ts"],
-    tests: ["qa-engine/test/contexts/app-catalog/application/patch-app-yaml.test.ts", "src/server/app-admin.test.ts"],
+    tests: ["qa-engine/test/contexts/app-catalog/application/patch-app-yaml.test.ts", "src/composition/app-admin.test.ts"],
     thresholds: DEFAULT_THRESHOLDS,
   },
   "prompt-contract": {
@@ -392,7 +392,7 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
       "src/agent-runtime/opencode-client.ts#AgentOnTheWire",
       "src/agent-runtime/opencode-client.ts@list-agent-caps",
       /* The factory's per-run memo: the deadline, the role mapping, the one read and its warning. */
-      "src/server/run-engine-factory.ts@context-map-compare-fallback",
+      "src/composition/run-engine-factory.ts@context-map-compare-fallback",
     ],
     tests: [
       "src/agent-runtime/step-limit.test.ts",
@@ -401,7 +401,7 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
       "src/agent-runtime/opencode-agents.test.ts",
       "src/agent-runtime/opencode-client.test.ts",
       /* Apart from run-engine-factory.test.ts, whose many tests would all run once per mutant. */
-      "src/server/run-engine-factory.step-limit.test.ts",
+      "src/composition/run-engine-factory.step-limit.test.ts",
     ],
     thresholds: DEFAULT_THRESHOLDS,
   },
@@ -562,7 +562,7 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
       `${TOPO_APP}/stage-service-context.ts@list-candidate-contracts`,
       `${TOPO_APP}/stage-service-context.ts@patch-read`,
       `${TOPO_APP}/stage-service-context.ts@manifest-write`,
-      "src/server/service-context.ts@sweep-skip-dirs",
+      "src/composition/service-context.ts@sweep-skip-dirs",
     ],
     tests: [
       "qa-engine/test/shared-infrastructure/repo-reader.test.ts",
@@ -571,8 +571,8 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
       `${TOPO_TEST}/http-backend-resolver.adapter.test.ts`,
       `${TOPO_TEST}/openapi-http-resolver.adapter.test.ts`,
       `${TOPO_APP_TEST}/stage-service-context.test.ts`,
-      "src/server/service-context.confinement.test.ts",
-      "src/server/service-context.sweep.test.ts",
+      "src/composition/service-context.confinement.test.ts",
+      "src/composition/service-context.sweep.test.ts",
     ],
     thresholds: DEFAULT_THRESHOLDS,
   },

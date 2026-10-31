@@ -19,9 +19,9 @@ const SUITES_SEGMENT = /(["'`])suites\1/;
 
 const STORE_DIR_CALLERS: readonly string[] = [
   "scripts/warm-suite.ts",
-  "src/server/login-bootstrap-wiring.ts",
-  "src/server/run-engine-factory.ts",
-  "src/server/wire-app.ts",
+  "src/composition/login-bootstrap-wiring.ts",
+  "src/composition/run-engine-factory.ts",
+  "src/composition/wire-app.ts",
 ];
 
 function sourceFiles(dir: string): string[] {

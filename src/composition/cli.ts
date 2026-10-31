@@ -15,30 +15,30 @@
  */
 
 import { fileURLToPath } from "node:url";
-import { JobQueue } from "./entrypoints/queue";
-import { qayabaRoot } from "./settings/paths";
-import { enqueueTrackedRun } from "./entrypoints/runner";
-import { processTelemetry, TELEMETRY_SHUTDOWN_TIMEOUT_MS } from "./telemetry/process-telemetry";
-import { createDurableRunEventStore } from "./server/durable-run-events";
+import { JobQueue } from "../entrypoints/queue";
+import { qayabaRoot } from "../settings/paths";
+import { enqueueTrackedRun } from "../entrypoints/runner";
+import { processTelemetry, TELEMETRY_SHUTDOWN_TIMEOUT_MS } from "./process-telemetry";
+import { createDurableRunEventStore } from "./durable-run-events";
 import { longestRunTimeBudgetMs } from "@contexts/run-orchestration/application/index";
-import { delegateRun, type DelegateRunInput, type DelegateRunResult } from "./entrypoints/run-delegate";
-import { discoverApiToken } from "./settings/api-token";
+import { delegateRun, type DelegateRunInput, type DelegateRunResult } from "../entrypoints/run-delegate";
+import { discoverApiToken } from "../settings/api-token";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { loadAppConfig } from "./orchestrator/config-loader";
-import { parseRunMode, RUN_MODES, type RunMode } from "./persistence/types";
-import { runSucceeded } from "./entrypoints/cli-exit";
-import type { GroundingInput } from "./entrypoints/contract/commands";
-import { renderRunReport } from "./entrypoints/value-report";
-import { createAgentRuntimeManager } from "./agent-runtime/agent-runtime";
-import { defaultEnvStoreFs } from "./settings/env-store";
-import type { Settings } from "./settings/settings";
-import { createSettingsStore, installSettingsStore, type SettingsStore } from "./settings/store";
-import { OpenCodeRuntimeStrategy } from "./agent-runtime";
-import { getOpenSessionCount } from "./agent-runtime/opencode-client";
-import { createRunEngineFactory } from "./server/run-engine-factory";
-import { getHistory } from "./persistence/index";
-import type { RunRecord } from "./persistence/types";
+import { loadAppConfig } from "./config-loader";
+import { parseRunMode, RUN_MODES, type RunMode } from "../persistence/types";
+import { runSucceeded } from "../entrypoints/cli-exit";
+import type { GroundingInput } from "../entrypoints/contract/commands";
+import { renderRunReport } from "../entrypoints/value-report";
+import { createAgentRuntimeManager } from "../agent-runtime/agent-runtime";
+import { defaultEnvStoreFs } from "../settings/env-store";
+import type { Settings } from "../settings/settings";
+import { createSettingsStore, installSettingsStore, type SettingsStore } from "../settings/store";
+import { OpenCodeRuntimeStrategy } from "../agent-runtime";
+import { getOpenSessionCount } from "../agent-runtime/opencode-client";
+import { createRunEngineFactory } from "./run-engine-factory";
+import { getHistory } from "../persistence/index";
+import type { RunRecord } from "../persistence/types";
 
 
 /* The CLI is a composition root: the settings load once, on first use, from the process environment. */

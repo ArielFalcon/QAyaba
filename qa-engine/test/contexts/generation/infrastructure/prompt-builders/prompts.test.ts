@@ -958,7 +958,7 @@ test("over the window the coverage gap is never given up: the section that has a
 
 /* ── Cross-repo prompt wording honesty (service-context staging fix) ──────────────────────────
    input.service.mirrorDir / input.services[].mirrorDir now carry a STAGED, bounded snapshot
-   (src/server/service-context.ts), never the service's full working copy — the wording must say
+   (src/composition/service-context.ts), never the service's full working copy — the wording must say
    so, and any OpenAPI hint must be rendered under the contracts/ prefix the staging actually uses.
  */
 

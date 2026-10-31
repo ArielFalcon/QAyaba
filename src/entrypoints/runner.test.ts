@@ -22,7 +22,7 @@ import {
   recordPhaseSnapshot,
   sourceOfTrigger,
 } from "@contexts/run-orchestration/application/index";
-import { AppConfig } from "../orchestrator/config-loader";
+import { AppConfig } from "../composition/config-loader";
 import { createRunEventStore } from "./run-events";
 import type { RunPipelinePort, RunInput } from "@contexts/run-orchestration/application/index.ts";
 import type { RunOutcome } from "@kernel/run-outcome.ts";
@@ -574,8 +574,8 @@ test("RunInput.triggerRepo is absent (not fabricated) when req.triggerRepo is om
   assert.equal(calls[0]!.triggerRepo, undefined, "an ordinary (non-cross-repo) run must never fabricate a triggerRepo");
 });
 
-/* req.baseSha was ALREADY parsed correctly at both entry points (src/index.ts's webhook handler,
-   src/cli.ts's --base-sha flag) and threaded into RunRequest — but runViaEngine's own
+/* req.baseSha was ALREADY parsed correctly at both entry points (src/composition/index.ts's webhook handler,
+   src/composition/cli.ts's --base-sha flag) and threaded into RunRequest — but runViaEngine's own
    RunInput construction (this file) dropped it before it ever reached the engine. These tests pin
    the exact seam that fix closes: the ONE place a RunRequest becomes a RunInput.
  */
@@ -608,7 +608,7 @@ test("RunInput.baseSha is absent (not fabricated) when req.baseSha is omitted", 
   assert.equal(calls[0]!.baseSha, undefined, "a single-commit run must never fabricate a baseSha — backward compatible with today's behavior");
 });
 
-/* req.parentRunId was ALREADY set correctly by src/index.ts's continueRun (the ONLY real producer,
+/* req.parentRunId was ALREADY set correctly by src/composition/index.ts's continueRun (the ONLY real producer,
    the /continue API flow) — but runViaEngine's own RunInput construction (this file)
    above. These tests pin the exact seam that fix closes.
  */
@@ -840,7 +840,7 @@ test("ObserverPort.onStep('retry', detail) sets record.stepDetail and record.ret
    ObserverPort and abort an otherwise-healthy run. Before this fix, a throwing onStep call would
    have escaped RunQaUseCase's `this.deps.observer?.onStep(...)` call site and converted a genuine
    "pass" into an unrelated crash — the SAME class of bug AGENTS.md's own "a bad event must never
-   break..." pattern (src/index.ts) already guards against elsewhere in this codebase.
+   break..." pattern (src/composition/index.ts) already guards against elsewhere in this codebase.
    Scoped precisely to buildRunObserver's own onStep/onEvent (not every runEvents.publish
    call site in the runner, several of which are outside this fix's scope): the throwing stub only
    fails on "step.changed" events, which are published EXCLUSIVELY from inside

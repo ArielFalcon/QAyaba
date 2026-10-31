@@ -1,7 +1,7 @@
 /* Prometheus gauges for the control plane. */
 
 import { join } from "node:path";
-import { type AppConfig } from "../orchestrator/config-loader";
+import { type AppConfig } from "../composition/config-loader";
 
 export interface ArtifactBytesDeps {
   /** Return configured app list. */

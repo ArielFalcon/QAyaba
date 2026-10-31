@@ -10,7 +10,7 @@ import assert from "node:assert/strict";
 import { buildEngineRootDeps, STEP_LIMIT_READ_TIMEOUT_MS, type RunEngineFactoryDeps } from "./run-engine-factory";
 import { maxStepsFromConfig, type AgentDeps } from "../agent-runtime/opencode-client";
 import { AGENT_NAME_FOR_ROLE, type AgentFacade, type StepLimits } from "../agent-runtime/types";
-import type { AppConfig } from "../orchestrator/config-loader";
+import type { AppConfig } from "./config-loader";
 import type { EngineRootDeps } from "./engine-root";
 import type { StepLimitRole } from "@contexts/generation/application/index.ts";
 import { rosterFixturePath } from "../test-support/fixtures/opencode-roster";

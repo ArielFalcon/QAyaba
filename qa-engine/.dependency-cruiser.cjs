@@ -5,7 +5,7 @@
 // than the prior generation|agent-runtime allowlist — it covers any new context added in future plans
 // without requiring a whitelist update.
 //
-// No exemption: the composition root lives in the shell (src/server/engine-root.ts), outside the
+// No exemption: the composition root lives in the shell (src/composition/engine-root.ts), outside the
 // engine, so no engine module but workspace-and-publication reaches the seam.
 // Known limitation: dependency-cruiser may miss dynamic import() — flagged for manual audit.
 //
@@ -106,8 +106,8 @@ module.exports = {
           "^qa-engine/src/shared-infrastructure/process-sandbox/git-hardening\\.ts$",
           "^qa-engine/src/shared-infrastructure/process-sandbox/sandbox\\.ts$",
           "^qa-engine/src/shared-infrastructure/egress/iptables-runner\\.ts$",
-          "^src/integrations/repo-mirror\\.ts$",
-          "^src/server/run-engine-factory\\.ts$",
+          "^src/composition/repo-mirror\\.ts$",
+          "^src/composition/run-engine-factory\\.ts$",
           "^src/entrypoints/file-boundary-check\\.ts$",
           "^(src|scripts)/.*\\.test\\.ts$",
           ...TOOLING_SPAWNERS.map((f) => "^" + f.replace(/\./g, "\\.") + "$"),
@@ -144,7 +144,7 @@ module.exports = {
       // direction — src/ importing qa-engine/src/ — is open by design (the shell consumes the
       // engine, not the reverse) and is NOT machine-enforced by this rule; src/server/
       // run-engine-factory.ts (the composition factory) is one such importer, but not the
-      // only one — src/integrations/repo-mirror.ts (MirrorProvisionAdapter),
+      // only one — src/composition/repo-mirror.ts (MirrorProvisionAdapter),
       // src/telemetry/sanitizer.ts and src/entrypoints/contract/{commands,
       // events}.ts all import qa-engine/src/ deliberately too. `*-parity.
       // test.ts` files under qa-engine/test/ are also outside this rule's
@@ -199,8 +199,8 @@ module.exports = {
     {
       name: "composition-only-from-shell-root",
       severity: "error",
-      comment: "A context's composition/ builders are imported by one module only, the engine root src/server/engine-root.ts, which wires every context. Nothing else, shell or engine, builds a context.",
-      from: { path: "^(src|scripts|qa-engine/src)/", pathNot: ["^src/server/engine-root\\.ts$", "^qa-engine/src/contexts/([^/]+)/composition/"] },
+      comment: "A context's composition/ builders are imported by one module only, the engine root src/composition/engine-root.ts, which wires every context. Nothing else, shell or engine, builds a context.",
+      from: { path: "^(src|scripts|qa-engine/src)/", pathNot: ["^src/composition/engine-root\\.ts$", "^qa-engine/src/contexts/([^/]+)/composition/"] },
       to: { path: "^qa-engine/src/contexts/[^/]+/composition/" },
     },
     {

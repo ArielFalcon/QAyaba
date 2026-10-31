@@ -9,7 +9,7 @@ import { join } from "node:path";
 import { DELEGATIONS_DIR, qayabaDataDir, qayabaRoot } from "../settings/paths";
 import { readFileSync, mkdirSync, writeFileSync, realpathSync, lstatSync, rmSync } from "node:fs";
 import { execFileSync } from "node:child_process";
-import type { AppConfig } from "../orchestrator/config-loader";
+import type { AppConfig } from "./config-loader";
 import type { AgentDeps } from "../agent-runtime/opencode-client";
 import { reviewerTimeoutMs, agentPromptCapMs, agentConfigFacts, maxStepsFromConfig, setSessionToolDeny, withTimeout } from "../agent-runtime/opencode-client";
 import { AGENT_NAME_FOR_ROLE, assignmentForRole, type AgentFacade, type AgentRuntimeConfig, type ModelWindows, type StepLimits } from "../agent-runtime/types";
@@ -148,14 +148,14 @@ import {
 import { resolveSandbox, openInstallTree, sealInstallTree, type Sandbox } from "../../qa-engine/src/shared-infrastructure/process-sandbox/sandbox";
 import type { ExecSandboxPort } from "../../qa-engine/src/shared-infrastructure/process-sandbox/exec-sandbox";
 import { createExecBinaryRunner } from "../../qa-engine/src/shared-infrastructure/process-sandbox/exec-binary-runner";
-import { buildExecWiring } from "../composition/exec-sandbox-factory";
-import { egressGateFor, loadRegistryGroups } from "../composition/egress-wiring";
+import { buildExecWiring } from "./exec-sandbox-factory";
+import { egressGateFor, loadRegistryGroups } from "./egress-wiring";
 import { blockedHostMatcher, resolveRunOrigins, suiteAccountFor } from "@contexts/test-execution/application/index";
 import { setSandboxGroup } from "../../qa-engine/src/shared-infrastructure/process-sandbox/git-hardening";
 import type { EffectiveConfig, GroundingInput } from "../entrypoints/contract/commands";
 import { requireEnv } from "../settings/env";
 import { RedactionPortAdapter, redactSourceForModel } from "../telemetry/sanitizer";
-import { ensureMirror, ensureMirrorAtBranch, defaultMirrorDeps, workdirRoot, realGit, authHeaderArgs, hardenGitArgs, assertTrustedGitTree } from "../integrations/repo-mirror";
+import { ensureMirror, ensureMirrorAtBranch, defaultMirrorDeps, workdirRoot, realGit, authHeaderArgs, hardenGitArgs, assertTrustedGitTree } from "./repo-mirror";
 import { stageServiceContext, serviceContextDir, type StageServiceContextInput, type StagedServiceContext } from "@contexts/service-topology/application/index";
 import { defaultStageDeps } from "./service-context";
 import { SqliteRunHistoryAdapter } from "../persistence/run-history-sqlite-adapter";
@@ -294,7 +294,7 @@ const AGENT_BROWSER_LIFETIME_SECONDS = 3 * 60 * 60;
 /* The host's already-built real collaborators this factory reuses instead of re-assembling. */
 export interface RunEngineFactoryDeps {
   /*
-   * Reads the SAME AgentDeps facade the host's currentAgentDeps() resolves (src/server/wire-app.ts) — the
+   * Reads the SAME AgentDeps facade the host's currentAgentDeps() resolves (src/composition/wire-app.ts) — the
    * real :4097 supervisor, not a second AgentRuntimeManager instance.
    */
   /* The host's agent sessions. A run passes the context that classifies its agents' steps for the trace; a host that traces nothing ignores it. */
@@ -311,7 +311,7 @@ export interface RunEngineFactoryDeps {
   /* Test seam: the clock the run-level deadline counts down on. Absent: the system clock. */
   now?: () => number;
   /*
-   * The process's telemetry port (src/telemetry/process-telemetry.ts) and the wall clock it was built on. Absent: nothing is
+   * The process's telemetry port (src/composition/process-telemetry.ts) and the wall clock it was built on. Absent: nothing is
    * traced. The clock times the run's phases and starts and ends their spans, so the phase record and the trace cannot disagree.
    */
   telemetry?: TelemetryPort;

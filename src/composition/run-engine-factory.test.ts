@@ -9,7 +9,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, sy
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { appSuiteStoreDir, createRunEngineFactory, engineAgentDeps, buildEngineRootDeps, resolveCodeSandbox, publishWiring } from "./run-engine-factory";
-import { AppConfig } from "../orchestrator/config-loader";
+import { AppConfig } from "./config-loader";
 import { ChangeSet } from "@contexts/change-analysis/application/index";
 import { CodeGraphToolRegistry } from "@contexts/agent-tools/infrastructure/code-graph-tool-registry";
 import { createRunSecretScope, withRunSecretScope } from "../../qa-engine/src/shared-kernel/run-secret-redaction";
@@ -17,7 +17,7 @@ import { JobQueue } from "../entrypoints/queue";
 import { enqueueTrackedRun } from "../entrypoints/runner";
 import type { ArchitectureContext } from "@contexts/generation/application/index.ts";
 import type { AgentDeps } from "../agent-runtime/opencode-client";
-import { assertTrustedGitTree, defaultMirrorDeps, hardenGitArgs, UntrustedGitTreeError, type MirrorDeps } from "../integrations/repo-mirror";
+import { assertTrustedGitTree, defaultMirrorDeps, hardenGitArgs, UntrustedGitTreeError, type MirrorDeps } from "./repo-mirror";
 import { closeGitDir, GIT_ENV, makeGitlinkRepo, plantNestedRepo, ranPlantedCommand, writeMarkerCommand } from "../../qa-engine/test/shared-infrastructure/process-sandbox/git-fixtures";
 import { SqliteRunHistoryAdapter } from "../persistence/run-history-sqlite-adapter";
 import { defaultCaptureDomDeps } from "@contexts/generation/infrastructure/dom-snapshot";
@@ -1418,7 +1418,7 @@ test("the publish step (context mode): the tracked-file denylist guard is ALSO w
   assert.deepEqual(calls[2], ["add", "--", "e2e/.qa/context.json"], "context mode stages ONLY the context artifact's exact pathspec");
 });
 
-/* Auth-on-push + commit identity: realGit (src/integrations/repo-mirror.ts) is a BARE execFile
+/* Auth-on-push + commit identity: realGit (src/composition/repo-mirror.ts) is a BARE execFile
    wrapper: it applies hardenGitArgs (hooks/safe.directory) + GIT_TERMINAL_PROMPT=0 but NEVER
    prepends authHeaderArgs() — auth is per CALL SITE (ensureMirror/ensureMirrorAtBranch, resolveRef,
    publish's `[...authHeaderArgs(), "push", ...]`). Fresh mirrors have NO git identity, so commit

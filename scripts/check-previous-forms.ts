@@ -198,12 +198,12 @@ export const BANNED_RULES: BannedRule[] = [
   {
     id: "review-loop-switch",
     patterns: [/\breviewLoopIntegrity\b/, /\bintegrity\??\.reviewLoop\b/],
-    exemptPrefixes: [RECORDS_PREFIX, "src/orchestrator/config-loader.test.ts"],
+    exemptPrefixes: [RECORDS_PREFIX, "src/composition/config-loader.test.ts"],
   },
   {
     id: "intent-lock-enforce",
     patterns: [/\b(?:contractFeedback|ContractFeedback|contract-feedback|MAX_CONTRACT_RETRIES|renderContractViolations|ContractViolationShape)\b/, /\bintentLock\b[^\n]*\benforce\b/, /\bintent lock\b[^\n]*\b(?:refused|enforce)\b/i],
-    exemptPrefixes: [RECORDS_PREFIX, "src/orchestrator/config-loader.test.ts", "src/orchestrator/config-loader.ts"],
+    exemptPrefixes: [RECORDS_PREFIX, "src/composition/config-loader.test.ts", "src/composition/config-loader.ts"],
   },
   {
     id: "app-telemetry-route",

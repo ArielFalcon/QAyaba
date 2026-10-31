@@ -918,9 +918,9 @@ const SUITE_DIR = DEFAULT_SUITE_DIR;
 /** The throwaway copy's real I/O, imported lazily so a test that injects its own never loads the engine. */
 export async function defaultDeps(env: Record<string, string | undefined> = process.env): Promise<BaselineDeps> {
   const { assertQueueIdle, defaultService } = await import("./efficiency-benchmark.ts");
-  const { loadAppConfig } = await import("../src/orchestrator/config-loader.ts");
-  const { workdirRoot, realGit, getCommitMessage, getCommitDiff, listChangedSpecs, defaultMirrorDeps } = await import("../src/integrations/repo-mirror.ts");
-  const { buildSetupAdapter, resolveCodeSandbox } = await import("../src/server/run-engine-factory.ts");
+  const { loadAppConfig } = await import("../src/composition/config-loader.ts");
+  const { workdirRoot, realGit, getCommitMessage, getCommitDiff, listChangedSpecs, defaultMirrorDeps } = await import("../src/composition/repo-mirror.ts");
+  const { buildSetupAdapter, resolveCodeSandbox } = await import("../src/composition/run-engine-factory.ts");
   const { buildScriptExec } = await import("../src/composition/exec-sandbox-factory.ts");
   const { egressGateFor, scriptOriginsFor, scriptRegistryOrigins } = await import("../src/composition/egress-wiring.ts");
   const { readConfinedSpecFile, readConfinedSpecBytes } = await import("../qa-engine/src/shared-infrastructure/spec-path-confinement.ts");
@@ -1151,7 +1151,7 @@ export async function defaultDeps(env: Record<string, string | undefined> = proc
       return { verdict: result.verdict, passed: count("pass"), failed: count("fail"), flaky: count("flaky"), ms: Date.now() - started };
     },
     acceptSpecs: async ({ copyDir, authDir, app, namespace, specs, material, sha, review }) => {
-      const { buildAcceptanceHarness } = await import("../src/server/run-engine-factory.ts");
+      const { buildAcceptanceHarness } = await import("../src/composition/run-engine-factory.ts");
       const { AcceptDeliveredSpecsUseCase } = await import("@contexts/run-orchestration/application/index.ts");
       const { Sha } = await import("@kernel/sha.ts");
       const { defaultAgentDeps } = await import("../src/agent-runtime/opencode-client.ts");

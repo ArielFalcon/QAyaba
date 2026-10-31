@@ -8,7 +8,7 @@
 
 import { dirname, relative, sep } from "node:path";
 import { lstatSync, rmSync, unlinkSync } from "node:fs";
-import { realGit } from "../integrations/repo-mirror";
+import { realGit } from "./repo-mirror";
 import type { ServiceContextStagingPort } from "@contexts/service-topology/application/index";
 import { ensureOwnedSpecDir, readOwnedSpecFile, writeOwnedSpecFile, type SpecRoot } from "../../qa-engine/src/shared-infrastructure/spec-path-confinement";
 import { RepoReader } from "../../qa-engine/src/shared-infrastructure/repo-reader";

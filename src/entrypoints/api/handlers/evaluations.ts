@@ -17,7 +17,7 @@ import { parseJsonBody } from "../request";
 import { reply, type ApiResult } from "../respond";
 import { redactionPort } from "../support";
 import type { ApiDeps } from "../deps";
-import type { EvaluationService } from "../../../server/evaluation-service";
+import type { EvaluationService } from "../../../composition/evaluation-service";
 
 function evaluationOf(deps: ApiDeps): EvaluationService {
   if (!deps.evaluation) throw new ApiError(501, "evaluation is not configured");

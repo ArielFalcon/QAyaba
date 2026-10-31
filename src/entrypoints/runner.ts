@@ -9,7 +9,7 @@
 
 import { appLogger } from "../telemetry/redacting-logger";
 import { JobQueue } from "./queue";
-import { loadAppConfig, AppConfig } from "../orchestrator/config-loader";
+import { loadAppConfig, AppConfig } from "../composition/config-loader";
 import { assertUniformCapture, CAMPAIGN_CAPTURE_MODE, requestedCaptureMode, specCountsOf } from "@contexts/evaluation/application/index";
 import { serializablePhases, type RunFactsPatch } from "../persistence/repositories/run.repository";
 import {
@@ -521,7 +521,7 @@ function trackRun(req: RunRequest, deps: RunnerDeps, captureMode: CaptureMode, w
       if (!deps.engineFactory) {
         throw new Error(
           "enqueueTrackedRun: RunnerDeps.engineFactory is required. " +
-            "Wire src/server/run-engine-factory.ts's createRunEngineFactory(...) at the caller.",
+            "Wire src/composition/run-engine-factory.ts's createRunEngineFactory(...) at the caller.",
         );
       }
 

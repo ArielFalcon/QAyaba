@@ -11,8 +11,8 @@ import {
   RepoListResponseSchema,
   UpdateAppInputSchema,
 } from "../../contract/commands";
-import { AppConfigInvalidError, AppNotFoundError } from "../../../orchestrator/config-loader";
-import type { CreateAppInput as AdminCreateAppInput, UpdateAppInput as AdminUpdateAppInput } from "../../../server/app-admin";
+import { AppConfigInvalidError, AppNotFoundError } from "../../../composition/config-loader";
+import type { CreateAppInput as AdminCreateAppInput, UpdateAppInput as AdminUpdateAppInput } from "../../../composition/app-admin";
 import { ApiError } from "../api-error";
 import { param, type ApiContext } from "../context";
 import { parseJsonBody, withIssues } from "../request";

@@ -477,9 +477,9 @@ export async function main(argv: string[], deps: WarmDeps): Promise<number> {
 /** The adapter over an app's suite store, the one writer of its files. */
 async function appSuiteStore(app: string) {
   const { SuiteStoreAdapter } = await import("../qa-engine/src/contexts/workspace-and-publication/infrastructure/suite-store.adapter.ts");
-  const { appSuiteStoreDir } = await import("../src/server/run-engine-factory.ts");
+  const { appSuiteStoreDir } = await import("../src/composition/run-engine-factory.ts");
   const { qayabaRoot } = await import("../src/settings/paths.ts");
-  const { loadAppConfig } = await import("../src/orchestrator/config-loader.ts");
+  const { loadAppConfig } = await import("../src/composition/config-loader.ts");
   return new SuiteStoreAdapter({
     storeDir: appSuiteStoreDir(qayabaRoot(), app),
     app,
@@ -513,8 +513,8 @@ export async function restoreSuiteStore(app: string, label: string): Promise<{ e
 /** The queue, the app configs and the mirrors of the orchestrator container, imported lazily so a test that injects its own never opens them. */
 export async function defaultDeps(env: Record<string, string | undefined> = process.env): Promise<WarmDeps> {
   const { assertQueueIdle, defaultService } = await import("./efficiency-benchmark.ts");
-  const { loadAppConfig } = await import("../src/orchestrator/config-loader.ts");
-  const { workdirRoot } = await import("../src/integrations/repo-mirror.ts");
+  const { loadAppConfig } = await import("../src/composition/config-loader.ts");
+  const { workdirRoot } = await import("../src/composition/repo-mirror.ts");
   const service = await defaultService(env);
   return {
     assertQueueIdle: () => assertQueueIdle(service),

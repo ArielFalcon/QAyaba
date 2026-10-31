@@ -327,7 +327,7 @@ test("the repo-reads preset mutates the reader of a repository's files, the line
     "qa-engine/src/contexts/service-topology/infrastructure/http-backend-resolver.adapter.ts",
     "qa-engine/src/contexts/service-topology/infrastructure/openapi-http-resolver.adapter.ts",
     "qa-engine/src/contexts/service-topology/application/stage-service-context.ts",
-    "src/server/service-context.ts",
+    "src/composition/service-context.ts",
   ]);
   assert.ok(
     preset.mutate.filter((entry) => !entry.endsWith("repo-reader.ts") && !entry.endsWith("repo-walk.ts")).every((entry) => sourcePathOf(entry) !== entry),
@@ -340,8 +340,8 @@ test("the repo-reads preset mutates the reader of a repository's files, the line
     "infrastructure/http-backend-resolver.adapter.test.ts",
     "infrastructure/openapi-http-resolver.adapter.test.ts",
     "application/stage-service-context.test.ts",
-    "server/service-context.confinement.test.ts",
-    "server/service-context.sweep.test.ts",
+    "composition/service-context.confinement.test.ts",
+    "composition/service-context.sweep.test.ts",
   ]) {
     assert.ok(preset.tests.some((t) => t.endsWith(tests)), `${tests} runs against every mutant`);
   }
@@ -398,13 +398,13 @@ test("the step-limit preset mutates the resolver, the lines that read, judge and
     "src/agent-runtime/opencode-strategy.ts",
     "src/agent-runtime/facades.ts",
     "src/agent-runtime/opencode-client.ts",
-    "src/server/run-engine-factory.ts",
+    "src/composition/run-engine-factory.ts",
   ]);
   for (const module of ["step-limit", "opencode-strategy", "facades", "opencode-agents", "opencode-client", "run-engine-factory.step-limit"]) {
     assert.ok(preset.tests.some((t) => t.endsWith(`${module}.test.ts`)), `${module}'s tests run against every mutant`);
   }
   assert.ok(
-    !preset.tests.includes("src/server/run-engine-factory.test.ts"),
+    !preset.tests.includes("src/composition/run-engine-factory.test.ts"),
     "the memo's own tests stand apart from the factory's whole test file, which would run once per mutant",
   );
   assert.equal(preset.thresholds.break, null, "a new preset starts in signal mode");

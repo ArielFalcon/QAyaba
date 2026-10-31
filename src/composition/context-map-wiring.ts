@@ -1,8 +1,8 @@
 /* Composition root's side of the context-map rebuild before a run (runner.ts, RunnerDeps.contextMapNeedsRebuild): the ports the engine's question reads an app's stored map through. A frozen request is never asked (run-freeze.ts). */
 
 import { contextMapNeedsRebuild, type ContextMapRebuildPorts } from "@contexts/run-orchestration/application/index";
-import { loadAppConfig } from "../orchestrator/config-loader";
-import { ensureMirror, defaultMirrorDeps } from "../integrations/repo-mirror";
+import { loadAppConfig } from "./config-loader";
+import { ensureMirror, defaultMirrorDeps } from "./repo-mirror";
 import { getHistory } from "../persistence/index";
 import { gitChangedFiles } from "./run-engine-factory";
 

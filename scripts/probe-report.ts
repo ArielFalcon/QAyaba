@@ -118,8 +118,8 @@ const countLines = (text: string): number => (text === "" ? 0 : text.endsWith("\
 /** The history, the app configs and the mirrors of the orchestrator container, imported lazily so a test that injects its own never opens them. */
 export async function defaultReportDeps(warn: (line: string) => void = (l) => console.error(l)): Promise<ReportDeps> {
   const { getHistory } = await import("../src/persistence/index.ts");
-  const { loadAppConfig } = await import("../src/orchestrator/config-loader.ts");
-  const { workdirRoot, realGit } = await import("../src/integrations/repo-mirror.ts");
+  const { loadAppConfig } = await import("../src/composition/config-loader.ts");
+  const { workdirRoot, realGit } = await import("../src/composition/repo-mirror.ts");
 
   const appOf = (record: RunRecord) => {
     try {

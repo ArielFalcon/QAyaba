@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { AgentRuntimeAdapter } from "@contexts/generation/infrastructure/agent-runtime.adapter";
 import type { AgentRole } from "@kernel/agent-role";
 import type { AgentDeps } from "./opencode-client";
-import { roleToAgentName } from "../server/run-engine-factory";
+import { roleToAgentName } from "../composition/run-engine-factory";
 import { AgentRuntimeFacade } from "./facades";
 import { OpenCodeRuntimeStrategy } from "./opencode-strategy";
 import { AGENT_NAME_FOR_ROLE, type AgentFacade, type AgentRuntimeConfig } from "./types";

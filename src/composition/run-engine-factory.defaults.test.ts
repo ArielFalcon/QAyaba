@@ -2,7 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { buildEngineRootDeps } from "./run-engine-factory";
-import type { AppConfig } from "../orchestrator/config-loader";
+import type { AppConfig } from "./config-loader";
 import type { AgentDeps } from "../agent-runtime/opencode-client";
 
 const stubAgentDeps = (): AgentDeps => ({

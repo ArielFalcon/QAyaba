@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { Readable } from "node:stream";
 import { routeApi } from "./api";
 import type { ApiDeps } from "./api/deps";
-import { AppConfigInvalidError, AppNotFoundError } from "../orchestrator/config-loader";
+import { AppConfigInvalidError, AppNotFoundError } from "../composition/config-loader";
 import { createLocalConsoleLogin, LOCAL_CONSOLE_PRINCIPAL, validateSession } from "./auth";
 import { toTrendsView } from "./trends-view";
 import { toReportView } from "./report-view";
@@ -1605,7 +1605,7 @@ test("phase-0b: GET /api/runs/:id/turns returns an empty array when no turns exi
 });
 
 /* These tests prove the HANDLER LAYER (api.ts) forwards the route's :name param into
-   deps.boundaries.status()/confirm() — the seam the composition wiring in src/index.ts was
+   deps.boundaries.status()/confirm() — the seam the composition wiring in src/composition/index.ts was
    truncating to a zero-arg lambda, silently discarding app identity across a status poll or a
    confirm write. A capturing fake on deps.boundaries records exactly what name each call received.
  */

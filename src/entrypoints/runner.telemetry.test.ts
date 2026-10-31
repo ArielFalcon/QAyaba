@@ -6,7 +6,7 @@ import { enqueueTrackedRun, enqueueContextMapRun, enqueueLoginBootstrapRun, canc
 import { HistoryEvidenceAdapter, defaultEvidenceDeps } from "../persistence/evaluation-evidence";
 import { gradeEvidence } from "@contexts/evaluation/application/index";
 import { recordPhaseSnapshot } from "@contexts/run-orchestration/application/index";
-import type { AppConfig } from "../orchestrator/config-loader";
+import type { AppConfig } from "../composition/config-loader";
 import type { RunPipelinePort, RunInput } from "@contexts/run-orchestration/application/index.ts";
 import type { RunOutcome } from "@kernel/run-outcome";
 import { attachTraceFacts, type RunTraceFacts } from "@kernel/run-trace-facts";

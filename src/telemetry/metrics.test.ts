@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { collectArtifactBytes, buildArtifactBytesMetrics, type ArtifactBytesDeps, type ArtifactSizeCache } from "./metrics";
-import type { AppConfig } from "../orchestrator/config-loader";
+import type { AppConfig } from "../composition/config-loader";
 
 function makeApp(name: string, repo: string): AppConfig {
   return { name, repo } as unknown as AppConfig;

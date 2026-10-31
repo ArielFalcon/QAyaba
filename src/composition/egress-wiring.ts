@@ -12,7 +12,7 @@ import { createIptablesApplier } from "../../qa-engine/src/shared-infrastructure
 import { TransparentProxy } from "../../qa-engine/src/shared-infrastructure/egress/transparent-proxy";
 import type { EgressGate } from "../../qa-engine/src/shared-infrastructure/process-sandbox/exec-sandbox";
 import type { Sandbox } from "../../qa-engine/src/shared-infrastructure/process-sandbox/sandbox";
-import { loadAppConfig } from "../orchestrator/config-loader";
+import { loadAppConfig } from "./config-loader";
 import { qayabaRoot } from "../settings/paths";
 import { forwardDnsQuery } from "../../qa-engine/src/shared-infrastructure/egress/dns-forward";
 

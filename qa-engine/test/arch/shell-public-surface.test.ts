@@ -1,4 +1,4 @@
-/* The shell (src/, scripts/) reaches a context only through its application/index.ts, and only src/server/engine-root.ts imports a
+/* The shell (src/, scripts/) reaches a context only through its application/index.ts, and only src/composition/engine-root.ts imports a
    composition builder. The rule cases build a throwaway tree under os.tmpdir() that carries a copy of the real config, so a probe is never
    planted in the real tree. The exception list is frozen: every entry still imports an infrastructure file and the list never grows. */
 import { test } from "node:test";
@@ -74,7 +74,7 @@ test("a shell module on the frozen exception list may import an infrastructure f
 
 test("only the engine root imports a composition builder", () => {
   const build = 'import { buildA } from "../../qa-engine/src/contexts/a/composition/build-a.ts";\nexport const y = buildA();\n';
-  assert.equal(cruise(treeWith({ ...context, "src/server/engine-root.ts": build })).ok, true);
+  assert.equal(cruise(treeWith({ ...context, "src/composition/engine-root.ts": build })).ok, true);
   const r = cruise(treeWith({ ...context, "src/server/other.ts": build }));
   assert.equal(r.ok, false);
   assert.match(r.output, /composition-only-from-shell-root/);

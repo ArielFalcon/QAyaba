@@ -3,7 +3,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { JobQueue } from "./queue";
 import { enqueueTrackedRun, cancelTrackedRun, finalizeInterruptedRuns, type RunnerDeps } from "./runner";
-import type { AppConfig } from "../orchestrator/config-loader";
+import type { AppConfig } from "../composition/config-loader";
 import type { RunPipelinePort, RunInput } from "@contexts/run-orchestration/application/index.ts";
 import type { RunOutcome } from "@kernel/run-outcome";
 import { attachTraceFacts } from "@kernel/run-trace-facts";

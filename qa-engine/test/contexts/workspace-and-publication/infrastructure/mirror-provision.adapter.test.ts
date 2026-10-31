@@ -1,7 +1,7 @@
 /* test/contexts/workspace-and-publication/infrastructure/mirror-provision.adapter.test.ts
    repo-mirror.test.ts's ensureMirror/ensureMirrorAtBranch tests. Credential/auth-header decoration
    (authHeaderArgs' -c insteadOf rewrite) is NOT exercised here — that decoration now lives in the
-   injector (src/integrations/repo-mirror.ts's thin wrapper, pinned by its OWN unchanged tests); this
+   injector (src/composition/repo-mirror.ts's thin wrapper, pinned by its OWN unchanged tests); this
    adapter's own argv is bare by construction, so these fakes never see a credential.
  */
 import { test } from "node:test";

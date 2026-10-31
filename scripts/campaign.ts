@@ -481,9 +481,9 @@ const DISCOVER_RUN_MS = 2 * 60_000;
 /** The service, the history, the mirrors and the Playwright runner of the orchestrator container, imported lazily so a test that injects its own never opens them. */
 export async function defaultDeps(env: Record<string, string | undefined> = process.env): Promise<CampaignDeps> {
   const { assertQueueIdle, defaultService } = await import("./efficiency-benchmark.ts");
-  const { loadAppConfig } = await import("../src/orchestrator/config-loader.ts");
-  const { workdirRoot, realGit } = await import("../src/integrations/repo-mirror.ts");
-  const { buildSetupAdapter, resolveCodeSandbox } = await import("../src/server/run-engine-factory.ts");
+  const { loadAppConfig } = await import("../src/composition/config-loader.ts");
+  const { workdirRoot, realGit } = await import("../src/composition/repo-mirror.ts");
+  const { buildSetupAdapter, resolveCodeSandbox } = await import("../src/composition/run-engine-factory.ts");
   const { buildScriptExec } = await import("../src/composition/exec-sandbox-factory.ts");
   const { egressGateFor, scriptOriginsFor, scriptRegistryOrigins } = await import("../src/composition/egress-wiring.ts");
   const { runE2E, createDefaultE2eExecuteDeps, e2eTimeoutMs } = await import("../qa-engine/src/contexts/test-execution/infrastructure/e2e-execution.runner.ts");

@@ -4,13 +4,13 @@ import { Readable } from "node:stream";
 import { routeApi } from "./api";
 import type { ApiDeps } from "./api/deps";
 import type { ApiRunRequest } from "./api/run-request";
-import { AppNotFoundError } from "../orchestrator/config-loader";
+import { AppNotFoundError } from "../composition/config-loader";
 import { RegradeRequestError } from "@contexts/evaluation/application/index";
 import { GRADER_CATALOG } from "@contexts/evaluation/application/index";
 import { RUN_PHASES } from "@kernel/run-step";
 import { CampaignRunsSchema, CreateRunResultSchema, EvaluationCatalogSchema, RegradeJobSchema, RunDetailSchema, RunEvaluationSchema } from "./contract/commands";
 import type { RunRecord } from "../persistence/types";
-import { catalogView, type EvaluationService } from "../server/evaluation-service";
+import { catalogView, type EvaluationService } from "../composition/evaluation-service";
 import type { RunViewExtras } from "./run-view";
 
 function mkReq(method: string, url: string, body?: string): any {

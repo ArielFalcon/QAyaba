@@ -16,7 +16,7 @@ import { existsSync, mkdtempSync, mkdirSync, readdirSync, rmSync, writeFileSync,
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildConfinement, publishWiring } from "./run-engine-factory";
-import { realGit } from "../integrations/repo-mirror";
+import { realGit } from "./repo-mirror";
 import { closeGitDir, indexedGitlinks, makeEmbeddedRepo } from "../../qa-engine/test/shared-infrastructure/process-sandbox/git-fixtures";
 import { defaultSpecWriteDeps, writeOwnedSpecFile } from "../../qa-engine/src/shared-infrastructure/spec-path-confinement";
 import type { RunMode } from "@kernel/run-mode";

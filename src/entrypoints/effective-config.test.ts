@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import type { AppConfig } from "../orchestrator/config-loader";
+import type { AppConfig } from "../composition/config-loader";
 import { buildEffectiveConfig, parseStoredRunConfig, resolveRunConfig, type RunConfigEnvironment } from "./effective-config";
 
 const env: RunConfigEnvironment = { runtime: () => "opencode", staticPromptHash: () => "sha256:x", toolsGranted: true, maxCapture: "full" };

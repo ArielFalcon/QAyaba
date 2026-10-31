@@ -7,7 +7,7 @@ import { qayabaDataDir, qayabaRoot } from "../settings/paths";
 import { randomBytes } from "node:crypto";
 import { writeFileSync, readFileSync, rmSync, unlinkSync, existsSync } from "node:fs";
 import { JobQueue } from "../entrypoints/queue";
-import { describeAppLoadFailure, loadAppConfig, listAppConfigs } from "../orchestrator/config-loader";
+import { describeAppLoadFailure, loadAppConfig, listAppConfigs } from "./config-loader";
 
 import { YamlAppConfigAdapter } from "../../qa-engine/src/contexts/app-catalog/infrastructure/yaml-app-config.adapter";
 import { routeApi } from "../entrypoints/api";
@@ -35,7 +35,7 @@ import { enqueueTrackedRun, enqueueDoorRun, type RunRequest, enqueueContextMapRu
 import { codeGraphFor } from "./engine-root";
 import { appAuthDir, appSuiteStoreDir, createRunEngineFactory, resolveCodeSandbox, resolveCoordinationTelemetryPath } from "./run-engine-factory";
 import { PendingChangeSets, longestRunTimeBudgetMs, type ContextHealRunRequest } from "@contexts/run-orchestration/application/index";
-import { egressGateFor } from "../composition/egress-wiring";
+import { egressGateFor } from "./egress-wiring";
 import { SandboxedBinaryRunnerAdapter } from "../../qa-engine/src/shared-infrastructure/process-sandbox/sandboxed-binary-runner.adapter";
 import { ProcessKillAdapter } from "../../qa-engine/src/shared-infrastructure/process-sandbox/process-kill.adapter";
 import { deleteSuiteSnapshots, deleteSuiteStoreDir } from "@contexts/workspace-and-publication/infrastructure/suite-store.adapter";
@@ -45,7 +45,7 @@ import { computeActiveRepoSlugs, repoSlug } from "@contexts/workspace-and-public
 import { RESERVED_MIRROR_DIR_NAMES } from "./mirror-prune";
 import { buildArtifactBytesMetrics, type ArtifactSizeCache } from "../telemetry/metrics";
 import { installHttpDispatcher } from "../agent-runtime/net";
-import { resolveRef, defaultMirrorDeps, ensureMirrorAtBranch, getHeadSha } from "../integrations/repo-mirror";
+import { resolveRef, defaultMirrorDeps, ensureMirrorAtBranch, getHeadSha } from "./repo-mirror";
 import { askAssistant, AgentDeps, getOpenSessionCount, defaultAgentDeps, setAgentBrowserGrantLookup, setCodeGraphGrantLookup, setGeolocationGrantLookup } from "../agent-runtime/opencode-client";
 import { createAgentRuntimeManager, logAgentConfigWarnings } from "../agent-runtime/agent-runtime";
 import { keyPresence, validateAgentRuntimeConfig } from "../agent-runtime/config";
@@ -58,7 +58,7 @@ import { backupDatabase } from "../persistence/backup";
 import { type RunMode, type RunRecord, type TestTarget } from "../persistence/types";
 import { installShutdown, installUnhandledRejectionLogger } from "../entrypoints/shutdown";
 import { startHealthPoller } from "../entrypoints/health-poller";
-import { github } from "../integrations/github";
+import { github } from "./github";
 import { createApp as adminCreateApp, updateApp as adminUpdateApp, deleteApp as adminDeleteApp, type AppAdminDeps } from "./app-admin";
 import { writeConfig, configExists } from "./onboard";
 import { applyEnvVars, defaultEnvStoreFs } from "../settings/env-store";
@@ -68,7 +68,7 @@ import { OnboardingService } from "@contexts/service-topology/application/index"
 import { buildServiceBoundaryResolver } from "@contexts/service-topology/infrastructure/resolver-factory";
 
 import { RedactionPortAdapter } from "../telemetry/sanitizer";
-import { processTelemetry, TELEMETRY_SHUTDOWN_TIMEOUT_MS } from "../telemetry/process-telemetry";
+import { processTelemetry, TELEMETRY_SHUTDOWN_TIMEOUT_MS } from "./process-telemetry";
 import { HostHealth } from "../telemetry/host-health";
 import { BackendHealthMonitor, systemBackendFetch } from "../telemetry/backend-health";
 import { resolveSandbox } from "../../qa-engine/src/shared-infrastructure/process-sandbox/sandbox";
@@ -79,9 +79,9 @@ import { GeolocationRegistry } from "@contexts/agent-tools/infrastructure/geoloc
 import { CodeGraphToolRegistry } from "@contexts/agent-tools/infrastructure/code-graph-tool-registry";
 import { FsDelegationWorkspaceAdapter } from "@contexts/coordination/infrastructure/adapters/delegation-workspace.adapter";
 import { DELEGATIONS_DIR } from "../settings/paths";
-import { workdirRoot } from "../integrations/repo-mirror";
+import { workdirRoot } from "./repo-mirror";
 import { sweepOrphanAgentBrowsers } from "../../qa-engine/src/shared-infrastructure/process-sandbox/orphan-browser-sweep";
-import { buildScriptExec, execWorkRoot } from "../composition/exec-sandbox-factory";
+import { buildScriptExec, execWorkRoot } from "./exec-sandbox-factory";
 import { loadOrCreateApiToken } from "../settings/api-token";
 import { shouldLogApiRequest } from "../entrypoints/api-request-log";
 import { suiteHoldsVerifiedLoginFor } from "./login-bootstrap-wiring";
@@ -126,7 +126,7 @@ export function defaultMirrorPruneDeps(queueCurrentRunId: () => string | null): 
 
 /*
  * The production wiring of the control plane: every real adapter is built here from the typed settings and handed to
- * createApp, so the process entry (src/index.ts) is only `main()`. Nothing runs until wireApp is called. The engine
+ * createApp, so the process entry (src/composition/index.ts) is only `main()`. Nothing runs until wireApp is called. The engine
  * factory this wiring hands runs to is replaced by per-context builders in the hexagonal re-cut (odd/tasks/arch-p3-hexagonal-recut.md).
  */
 

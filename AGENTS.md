@@ -104,9 +104,9 @@ Keep the two rigorously separate.
 
 `qa-engine/src` never imports from `src/` — enforced by `npm run arch:check`
 (dependency-cruiser `no-src-import-in-qa-engine`). `src/` holds four kinds of module today, each naming its row of the [decision table](#placement-rule):
-- **Composition root** (row 8) — `src/server/wire-app.ts` (settings, persistence, API, webhook, queue; `src/index.ts` only
-  starts it), `src/server/engine-root.ts` (assembles the engine from each context's `composition/` builders) and
-  `src/server/run-engine-factory.ts`, which maps each app's `AppConfig` into the engine's `EngineRootDeps` and wires the host collaborators (agent runtime, GitHub, runners).
+- **Composition root** (row 8) — `src/composition/wire-app.ts` (settings, persistence, API, webhook, queue; `src/composition/index.ts` only
+  starts it), `src/composition/engine-root.ts` (assembles the engine from each context's `composition/` builders) and
+  `src/composition/run-engine-factory.ts`, which maps each app's `AppConfig` into the engine's `EngineRootDeps` and wires the host collaborators (agent runtime, GitHub, runners).
 - **Control plane** (row 7) — `src/server/*` (webhook, queue, API, TUI surface) and `client/`. The control API is a route table
   (`src/entrypoints/api/route-table.ts`): each route declares its method, path and `auth`; handlers throw `ApiError` and every
   error answers `{ schemaVersion: 1, error }`; a known path with an unsupported method answers 405.
@@ -115,7 +115,7 @@ Keep the two rigorously separate.
 - **Persistence** (rows 6 and 4) — `src/persistence/` (schema, migrations, repositories) behind `getHistory()`, and
   `src/persistence/run-history-sqlite-adapter.ts`.
 
-Seams are pinned by `src/server/seam-parity.contract.test.ts`.
+Seams are pinned by `src/composition/seam-parity.contract.test.ts`.
 
 The design pillars every design answers to are in [ADR-0001](docs/architecture/adr/0001-design-pillars.md).
 
@@ -185,7 +185,7 @@ The RFC that lands a row flips it to **in force** in the same commit.
 ### The run flow — start here
 
 `RunQaUseCase` (`qa-engine/src/contexts/run-orchestration/application/run-qa.use-case.ts`)
-is the only engine; webhook (`src/entrypoints/webhook-handler.ts`, wired by `src/server/wire-app.ts`) and CLI (`src/cli.ts`) both enter through
+is the only engine; webhook (`src/entrypoints/webhook-handler.ts`, wired by `src/composition/wire-app.ts`) and CLI (`src/composition/cli.ts`) both enter through
 `enqueueTrackedRun`. It walks a table of 47 named steps in 15 phases (`application/run-flow/run-steps.ts`, ids in `step-ids.ts`); a step returns one closed outcome (go on, go to a step, or end the run for a reason), every end goes through `finalizeRun` (`run-flow/finalize-run.ts`), the only place a run is saved, published, audited and pruned, and every fault a step lets escape is classified by `failure-policy.ts` into rethrow, end, carry on or degrade. A step passed over says why on its trace event (`qayaba.run_step.reason`: the step's `skipReason`, e.g. the coverage measurement of a context run or of a run with no green bytes), and every Playwright child names what it ran for (`qayaba.exec.purpose`: suite, acceptance, fix-retry, run-spec, control, mutant, observation, cleanup) and its namespace; a `run_spec` call that did not pass carries `qayaba.tool.failure_kind` (the closed kinds of `runSpecFailureKind`). `diff` mode:
 
 1. **Gate** — read what DEV serves (`dev.versionUrl`, `services[].versionUrl`: a GET answering `{ sha, healthy }`, the one reader today) and record one state on every run (`gateSignals.servedVersion`, the gate phase span's `qayaba.served_version.*`): `undeclared` (no source declared, never reported as verified), `unreadable` (with a typed reason: `unreachable`, `http-status`, `malformed-body`, `no-commit`, `commit-not-in-history`, `history-unavailable`), `equal`, `behind`, `ahead` or `unrelated`. The reader returns only the served commit; the engine relates it to the run's sha from the repo mirror's history (`run-orchestration/domain/served-version.ts`, `DeployGatePortAdapter`). Only a run started by a deploy's webhook (`source: "webhook"`; the control API and the CLI are `manual`) waits, and only while the state is `behind`, up to `deployTimeoutMs`, after which the run ends `infra-error` (`deploy-gate-failed`, as before); every other state is recorded without waiting and never blocks. Once waiting on `behind`, a read that gives nothing is one more poll (the wait ends on `equal`, `ahead`, `unrelated` or `commit-not-in-history`, or at the timeout). Health is a separate question (`waitUntilHealthy`): at the entry (sharing the version wait's deadline, so an unreadable source is recorded and never waited for as a version, yet ends the run `deploy-gate-failed` at the entry's health wait, before any generation) and before Playwright and in the fix loop, DEV must report `healthy: true`, and an unreadable source is not healthy, so DEV going down still ends the run `infra-error`. A deploy-triggered run that entered `equal` is also held to its commit before Playwright; a newer deploy ends it `infra-error`, with the re-read on `servedVersion.atExecution`.
@@ -698,7 +698,7 @@ test, and the verdict is its last action.
 - The suite's source of truth is **git** (app repo `e2e/`). Run history
   (`qayaba-data` volume) is the only non-regenerable data; Serena index and mirrors are caches.
 - The history database carries a schema version (`PRAGMA user_version`). Opening never prunes; retention (`pruneHistory`) runs at boot and every 24 h. A file that does not match schema 1 is refused at start with `history database at <path> predates schema 1 and cannot be adopted; remove or move it aside`; nothing deletes it.
-- Onboarding an app = `config/apps/<app>.yaml` + `.env`. `${VARS}` expand from the env. The schema is not strict: a key it does not declare is dropped and the default applies, and the loader logs one warning per process for each such key, naming the app and the key path and never the value (`src/orchestrator/config-loader.ts`), so a typo of a threshold key is visible.
+- Onboarding an app = `config/apps/<app>.yaml` + `.env`. `${VARS}` expand from the env. The schema is not strict: a key it does not declare is dropped and the default applies, and the loader logs one warning per process for each such key, naming the app and the key path and never the value (`src/composition/config-loader.ts`), so a typo of a threshold key is visible.
 - **Suite store** (`qa-engine/src/contexts/workspace-and-publication/infrastructure/suite-store.adapter.ts`,
   `data/suites/<app>/` in the qayaba-data volume, never mounted into the agents container): the accepted
   suite of an app that git does not hold yet. Shadow mode never publishes and a PR may not be merged
@@ -850,7 +850,7 @@ test, and the verdict is its last action.
 ## Conventions & gotchas
 
 - **Dependency injection is the testing strategy.** `RunQaUseCase` runs on ports
-  (one per file, `<kebab-name>.port.ts`, in each context's `application/ports/`) wired by the contexts' `composition/` builders and `src/server/engine-root.ts`;
+  (one per file, `<kebab-name>.port.ts`, in each context's `application/ports/`) wired by the contexts' `composition/` builders and `src/composition/engine-root.ts`;
   orchestration is unit-tested with fakes. Real integrations (agent runtime, Playwright,
   git) are the deliberately uncovered boundaries; each exports `*Deps` + `default*Deps`.
   Follow that pattern for new side-effecting code.
