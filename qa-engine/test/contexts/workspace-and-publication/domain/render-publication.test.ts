@@ -311,3 +311,23 @@ test("renderPrBody: the coverage report is bounded: a long list of files and lin
 
   assert.match(body, /30 more file\(s\) omitted/);
 });
+
+/* ── Scenario: cases that check a page only as DEV served it empty are named with their pages and the arms there ── */
+
+const AMBIENT = {
+  pins: [{ file: "flows/listing.spec.ts", test: "listing › renders the empty listing", pages: ["/listing"] }],
+  arms: [{ file: "src/listing.ts", line: 12, arm: "if: then", pages: ["/listing"] }],
+};
+
+test("the PR and the Issue name each case that checks a page only as DEV served it empty, its pages, and the change's untaken arms on those pages", () => {
+  for (const body of [renderPrBody({ ambientDataState: AMBIENT }), renderIssue({ verdict: "fail", cases: [failCase()], ambientDataState: AMBIENT })]) {
+    assert.ok(body.includes("flows/listing.spec.ts") && body.includes("listing › renders the empty listing"), "the case");
+    assert.ok(body.includes("/listing"), "its page");
+    assert.ok(body.includes("src/listing.ts:12") && body.includes("if: then"), "the untaken arm on that page");
+  }
+});
+
+test("with no pinned case neither the PR nor the Issue says anything of it", () => {
+  assert.equal(renderPrBody({ }), renderPrBody({ ambientDataState: { pins: [], arms: [] } }));
+  assert.equal(renderIssue({ verdict: "fail", cases: [failCase()] }), renderIssue({ verdict: "fail", cases: [failCase()], ambientDataState: { pins: [], arms: [] } }));
+});

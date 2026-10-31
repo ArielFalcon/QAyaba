@@ -5,6 +5,7 @@ import { outcomeText, type RouteAvailabilityFact } from "@kernel/route-availabil
 import { dataContradictionStatement, type DataContradiction } from "@kernel/data-contradiction.ts";
 import { redactThenBound } from "@kernel/redact-then-bound.ts";
 import { printedRoute } from "@kernel/printed-route.ts";
+import type { AmbientDataPin } from "@kernel/page-data-read.ts";
 
 export interface TestedItem {
   flow?: string;
@@ -159,6 +160,8 @@ export interface RenderIssueInput {
   stubbedState?: StubbedStateView;
   /* The fields the consumer's code expects of an answer that the run's captured pages' answers lack, from the response shapes the capture read. */
   dataContradictions?: readonly DataContradiction[];
+  /* The passing cases that checked a page only as DEV served it confirmed empty, and the untaken arms on those pages. */
+  ambientDataState?: AmbientDataStateView;
 }
 
 /* The change-coverage measurement of a run the gate held: the ratio against the threshold, the changed lines no test ran per file and the arms of the changed code no test took. */
@@ -237,6 +240,23 @@ function renderDataContradictionsSection(facts: readonly DataContradiction[] | u
   return `**Possible data contradictions** (a field the consumer's own code expects of an answer, that its declared type holds and its code reads and never writes, is absent from every response the page received; it may be a defect of the app's data or of the provider's contract, not of the tests; a signal, not a gate):\n${lines.join("\n")}${omitted}`;
 }
 
+/* The passing cases that checked a page only as DEV served it confirmed empty, and the arms of the changed code on those pages that no test took, as the run recorded them. */
+export interface AmbientDataStateView {
+  pins: readonly AmbientDataPin[];
+  arms: ReadonlyArray<{ file: string; line: number; arm: string; pages: readonly string[] }>;
+}
+
+/* The pinned cases and the untaken arms on their pages as a section of their own: a pass that cannot tell DEV's lack of data from the change, and the change's code DEV's data never took there. Empty when no case is pinned. A record for the reader, never a gate. */
+function renderAmbientDataStateSection(view: AmbientDataStateView | undefined, bound: Bound): string {
+  const pins = (view?.pins ?? []).slice(0, MAX_ITEMS);
+  if (pins.length === 0) return "";
+  const pages = (list: readonly string[]): string => list.map((page) => `\`${bound(page, CAP_FLOW)}\``).join(", ");
+  const blocks = [`**Checked only as DEV served it, empty** (every assertion of these cases ran on the page as it loaded, before any step of their own, and the run read that page as a confirmed empty state: the pass cannot tell DEV's lack of data from the change; a signal, not a gate):\n${pins.map((pin) => `- \`${bound(pin.file, CAP_FLOW)}\` › ${bound(pin.test, CAP_NAME)} — ${pages(pin.pages)}`).join("\n")}`];
+  const arms = (view?.arms ?? []).slice(0, MAX_ITEMS);
+  if (arms.length > 0) blocks.push(`Arms of the changed code on those pages no test took (DEV may lack the data that takes them):\n${arms.map((a) => `- \`${bound(a.file, CAP_FLOW)}:${a.line}\` — ${bound(a.arm, CAP_NAME)} (${pages(a.pages)})`).join("\n")}`);
+  return blocks.join("\n\n");
+}
+
 export function renderIssue(input: RenderIssueInput, redact: (text: string) => string): string {
   const bound = boundWith(redact);
   const failed = input.cases.filter((c) => c.status === "fail");
@@ -279,6 +299,8 @@ export function renderIssue(input: RenderIssueInput, redact: (text: string) => s
   if (stubbed) blocks.push(stubbed);
   const contradictions = renderDataContradictionsSection(input.dataContradictions, input.stubbedState, bound);
   if (contradictions) blocks.push(contradictions);
+  const ambient = renderAmbientDataStateSection(input.ambientDataState, bound);
+  if (ambient) blocks.push(ambient);
 
   const head = blocks.join("\n\n");
   const footer = "\n\n_Full trace + logs in the run artifacts (trace on-first-retry)._";
@@ -299,6 +321,8 @@ export interface RenderPrBodyInput {
   stubbedState?: StubbedStateView;
   /* The fields the consumer's code expects of an answer that the run's captured pages' answers lack, from the response shapes the capture read. */
   dataContradictions?: readonly DataContradiction[];
+  /* The passing cases that checked a page only as DEV served it confirmed empty, and the untaken arms on those pages. */
+  ambientDataState?: AmbientDataStateView;
 }
 
 export function renderPrBody(input: RenderPrBodyInput, redact: (text: string) => string): string {
@@ -323,6 +347,8 @@ export function renderPrBody(input: RenderPrBodyInput, redact: (text: string) =>
   if (stubbed) blocks.push(stubbed);
   const contradictions = renderDataContradictionsSection(input.dataContradictions, input.stubbedState, bound);
   if (contradictions) blocks.push(contradictions);
+  const ambient = renderAmbientDataStateSection(input.ambientDataState, bound);
+  if (ambient) blocks.push(ambient);
 
   if (input.parentRunId) blocks.push(`> ⛓️ Continuation of ${input.parentRunId}`);
 
