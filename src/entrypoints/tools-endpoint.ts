@@ -15,15 +15,11 @@ import { appLogger } from "../telemetry/redacting-logger";
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import os from "node:os";
-import type { ClosedLoopRegistry } from "@contexts/agent-tools/infrastructure/closed-loop-registry";
-import type { AgentBrowserRegistry } from "@contexts/agent-tools/infrastructure/agent-browser-registry";
-import type { GeolocationRegistry } from "@contexts/agent-tools/infrastructure/geolocation-registry";
-import type { CodeGraphToolRegistry } from "@contexts/agent-tools/infrastructure/code-graph-tool-registry";
-import { admitCodeGraphQuery, type CodeGraphRefusalCode, type CodeGraphToolRequest } from "@contexts/agent-tools/application/index";
+import { admitCodeGraphQuery, type CodeGraphRefusalCode, type CodeGraphToolRequest, type CodeGraphToolResponse, type RunGeolocation } from "@contexts/agent-tools/application/index";
 import type { GeolocationRefusalCode } from "@contexts/agent-tools/application/index";
 import { MAX_PLACE_NAME_CHARS, type GeolocationInput } from "@kernel/geolocation";
 import type { AgentBrowserRefusalCode } from "@contexts/test-execution/application/index";
-import type { AgentBrowserRequest } from "@contexts/test-execution/application/index";
+import type { AgentBrowserRequest, AgentBrowserResponse, RunSpecRequest, RunSpecResponse } from "@contexts/test-execution/application/index";
 import type { RunSpecRefusalCode } from "@contexts/test-execution/application/index";
 
 export const QA_TOOLS_TOKEN_ENV = "QA_TOOLS_TOKEN";
@@ -106,17 +102,42 @@ export interface ToolsResponse {
   body: unknown;
 }
 
+/*
+ * What the endpoint asks of a tool's registry: the live grant one agent session is bound to, or nothing. The registries of
+ * agent-tools (ClosedLoopRegistry, AgentBrowserRegistry, GeolocationRegistry, CodeGraphToolRegistry) answer it; the composition
+ * root hands them in. A session no run bound finds nothing.
+ */
+export interface SessionGrants<Grant> {
+  find(sessionId: string): Grant | undefined;
+}
+export interface RunSpecGrant {
+  call(request: RunSpecRequest): Promise<RunSpecResponse>;
+}
+export interface AgentBrowserGrant {
+  call(request: AgentBrowserRequest): Promise<AgentBrowserResponse>;
+}
+export interface CodeGraphGrant {
+  call(request: CodeGraphToolRequest): Promise<CodeGraphToolResponse>;
+}
+export interface GeolocationGrant {
+  live: Pick<RunGeolocation, "set">;
+  /* The role the session was opened for. */
+  agent: string;
+  /* The flow of a plan the session was opened for; absent is the run's own lead. */
+  delegationId?: string;
+}
+
 export interface ToolsHandlerDeps {
   token: string;
-  registry: ClosedLoopRegistry;
+  registry: SessionGrants<RunSpecGrant>;
   /* Absent: no limit on the rate of calls (a test); the listener always has one. */
   limiter?: ToolsRateLimiter;
   /* Absent: no run is granted the authenticated browser and its endpoint answers like any session no run owns. */
-  browsers?: AgentBrowserRegistry;
+  browsers?: SessionGrants<AgentBrowserGrant>;
   /* Absent: no run carries an authoring location and its endpoint answers like any session no run owns. */
-  geolocations?: GeolocationRegistry;
+  geolocations?: SessionGrants<GeolocationGrant>;
   /* Absent: no run grants the lead the code graph and its endpoint answers like any session no run owns. */
-  codeGraphs?: CodeGraphToolRegistry;
+  codeGraphs?: SessionGrants<CodeGraphGrant>;
 }
 
 const REFUSAL_STATUS: Readonly<Record<RunSpecRefusalCode, number>> = {

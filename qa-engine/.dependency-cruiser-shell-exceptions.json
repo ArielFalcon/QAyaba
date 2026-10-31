@@ -16,7 +16,6 @@
   "src/agent-runtime/role-session-routing.test.ts",
   "src/composition/wire-app.ts",
   "src/entrypoints/tools-endpoint.test.ts",
-  "src/entrypoints/tools-endpoint.ts",
   "src/persistence/agent-efficiency-contract.test.ts",
   "src/persistence/spec-snapshot.test.ts",
   "src/telemetry/agent-turn-trace.test.ts",
