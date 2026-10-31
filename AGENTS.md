@@ -527,8 +527,10 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   (`test-execution/domain/ambient-data-state.ts`: a window opens at `page.goto(<path from the root>)` on the test's own `page`
   fixture and stays open while every statement only reads, an assertion, a locator, a read or a wait; any other statement is a
   step of the test's own and closes it, so an empty state the test produced stays legitimate; a computed title or address, a
-  helper navigation, a fixture other than the read-only ones, a `beforeAll` or `test.use`, a test in a loop or a condition yields
-  nothing). The fact (an ambient pin) names its pages; the change's untaken arms whose file seeds a use case on those pages are
+  helper navigation, a fixture other than the read-only ones, or any statement of a test's scopes other than a test, a describe, a
+  `beforeEach`/`afterEach`/`afterAll` hook, an import, a declaration that runs nothing or a `describe.configure` that keeps tests
+  independent (a `beforeAll`, a `test.use`, a serial mode, a `test` the spec extends with fixtures of its own, code that runs while the
+  file loads) yields nothing). The fact (an ambient pin) names its pages; the change's untaken arms whose file seeds a use case on those pages are
   attributed to the data DEV lacks there (`armsOnPinnedPages`); the reviewer may cite a pin (`{"kind":"ambient","ref":"<spec>#<title path>"}`),
   verified against the run's pins and advisory whatever its severity (drop reason `no-ambient-fact`); each pin joins the run's one
   gap regeneration (coverage or branch cases) as a finding on its spec, naming the places the app declares

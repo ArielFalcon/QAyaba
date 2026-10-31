@@ -157,3 +157,67 @@ test("opens the listing", async ({ page }) => {
 `, [passed("opens the listing")]);
   assert.deepEqual(pins, []);
 });
+
+test("a spec whose own code can arrange state outside the test body yields no pin", async (t) => {
+  const BODY = `test("renders the empty listing", async ({ page }) => {
+  await page.goto("${EMPTY_PAGE}");
+  await expect(page.getByText("Nothing here yet")).toBeVisible();
+});`;
+  const arranging: Record<string, string> = {
+    "an auto fixture the spec declares": `import { test as base, expect } from "../fixtures";
+const test = base.extend<{ clear: void }>({
+  clear: [async ({ page }, use) => {
+    await page.goto("/admin");
+    await page.getByRole("button", { name: "Delete all" }).click();
+    await use();
+  }, { auto: true }],
+});
+${BODY}`,
+    "a page fixture the spec overrides": `import { test as base, expect } from "../fixtures";
+const test = base.extend({
+  page: async ({ page }, use) => {
+    await page.goto("${EMPTY_PAGE}");
+    await page.getByRole("button", { name: "Clear" }).click();
+    await use(page);
+  },
+});
+${BODY}`,
+    "a test renamed from another binding": `import { test as base, expect } from "../fixtures";
+const test = base;
+${BODY}`,
+    "a serial mode the scope configures": `${IMPORTS}test.describe.configure({ mode: "serial" });
+${BODY}`,
+    "a serial describe": `${IMPORTS}test.describe.serial("listing", () => {
+${BODY}
+});`,
+    "code that runs when the file loads": `${IMPORTS}await fetch("https://dev.example/api/items", { method: "DELETE" });
+${BODY}`,
+    "a describe that runs code while its tests are collected": `${IMPORTS}test.describe("listing", () => {
+  const seeded = seedItems();
+${BODY}
+});`,
+  };
+  for (const [why, text] of Object.entries(arranging)) {
+    await t.test(why, () => {
+      const cases = [passed("renders the empty listing"), passed("listing › renders the empty listing")];
+      assert.deepEqual(pinsOf(`${text}\n`, cases), []);
+    });
+  }
+});
+
+test("declarations that run nothing when the file loads keep a spec readable", () => {
+  const text = `${IMPORTS}import type { Page } from "@playwright/test";
+type Row = { name: string };
+interface Shape { rows: Row[] }
+const LISTING = "${EMPTY_PAGE}";
+const LABELS = { empty: "Nothing here yet" } as const;
+const open = async (page: Page) => page.goto(LISTING);
+function heading(page: Page) { return page.getByRole("heading"); }
+test.describe.configure({ mode: "parallel" });
+test("renders the empty listing", async ({ page }) => {
+  await page.goto("${EMPTY_PAGE}");
+  await expect(page.getByText("Nothing here yet")).toBeVisible();
+});
+`;
+  assert.deepEqual(pinsOf(text, [passed("renders the empty listing")]), [{ file: FILE, test: "renders the empty listing", pages: [EMPTY_PAGE] }]);
+});

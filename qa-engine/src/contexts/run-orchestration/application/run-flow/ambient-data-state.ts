@@ -74,7 +74,7 @@ export function armsOnPinnedPages<A extends { file: string }>(arms: readonly A[]
 /* What the flow is told to do so the case tests the change and not DEV's data: move to a declared place that has data, or state the data in a stubbed test. */
 function remedyOf(places: readonly string[]): string {
   return places.length > 0
-    ? `Give the page data: with set_geolocation, try the places the app declares (${places.join(", ")}) until the authenticated browser shows the page with results, pin that place in the spec with setLocation(context, latitude, longitude), and assert what the change does with the results.`
+    ? `Give the page data: with set_geolocation, try the places the app declares (${places.join(", ")}) until the page shows results where you read it, pin that place in the spec with setLocation(context, latitude, longitude), and assert what the change does with the results.`
     : `Cover the state the change handles with a stubbed test ("[stubbed: <the response it states>]", fulfilling only the GET responses the page needs, beside the live test of the page) and assert what the change does with that data.`;
 }
 

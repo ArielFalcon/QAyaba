@@ -1,5 +1,5 @@
 /* Which passing cases checked a page only as DEV served it, on a page DEV served confirmed empty, decided from the spec's syntax tree and the run's own reads. The detector reads each test's statements in the order they run (the `beforeEach` hooks of the scopes above it, outermost first, then its body; a `test.step` body in place) and keeps the windows in which the page is as it loaded: a window opens at `page.goto(<path>)` on the test's own `page` fixture and stays open while every statement only reads the page (an `expect` assertion, a locator, a read or a wait). Any other statement is a step of the test's own and ends the windows for the rest of the test, so an empty state the test produced (a filter it applied, data it removed) is never one DEV served.
-   A case is an ambient pin when its test asserted at least once, every assertion ran inside an as-loaded window and at least one ran on a page the run read as a confirmed empty state. What the detector cannot read soundly yields no pin, never a guess: a computed title or address, a navigation through a helper, a fixture other than the read-only ones (it may arrange state), a `beforeAll` or `test.use` in the test's scopes, anything but a locator before the first navigation, a title path two tests share, a file that does not parse. A pin is a fact for the reader, never a verdict. */
+   A case is an ambient pin when its test asserted at least once, every assertion ran inside an as-loaded window and at least one ran on a page the run read as a confirmed empty state. What the detector cannot read soundly yields no pin, never a guess: a computed title or address, a navigation through a helper, a fixture other than the read-only ones (it may arrange state), any statement of the test's scopes the syntax cannot vouch for (a `beforeAll`, a `test.use`, a serial mode, a `test` the spec declares with fixtures of its own, code that runs while the file loads or its tests are collected), anything but a locator before the first navigation, a title path two tests share, a file that does not parse. A pin is a fact for the reader, never a verdict. */
 
 import ts from "typescript";
 import type { QaCase } from "@kernel/qa-case.ts";
@@ -202,30 +202,61 @@ function statementCall(statement: ts.Statement): ts.CallExpression | undefined {
 /* The statements a describe's callback runs, or undefined when its body is not a block. */
 const bodyStatements = (fn: Fn): readonly ts.Statement[] | undefined => (fn.body !== undefined && ts.isBlock(fn.body) ? fn.body.statements : undefined);
 
+/* Whether an initialiser runs nothing when it is evaluated: a function (its body runs only when called) or a value built with no call, `new`, `await` or tagged template. */
+function runsNothing(node: ts.Expression): boolean {
+  if (ts.isArrowFunction(node) || ts.isFunctionExpression(node)) return true;
+  let runs = false;
+  const visit = (current: ts.Node): void => {
+    if (runs) return;
+    if (ts.isArrowFunction(current) || ts.isFunctionExpression(current)) return;
+    if (ts.isCallExpression(current) || ts.isNewExpression(current) || ts.isAwaitExpression(current) || ts.isTaggedTemplateExpression(current)) runs = true;
+    else ts.forEachChild(current, visit);
+  };
+  visit(node);
+  return !runs;
+}
+
+/* Whether a name binds `test` or `it`: a spec that declares its own (a `test.extend` with fixtures of its own, a rename) runs code the syntax of its tests does not show. */
+const bindsTestRoot = (name: ts.BindingName | ts.Identifier | undefined): boolean =>
+  name !== undefined && (ts.isIdentifier(name) ? TEST_ROOTS.has(name.text) : name.elements.some((e) => !ts.isOmittedExpression(e) && bindsTestRoot(e.name)));
+
+/* A declaration that runs nothing when the file loads and binds no `test`: a type, an interface, a function, or a `const` whose value runs nothing. */
+function inertDeclaration(statement: ts.Statement): boolean {
+  if (ts.isTypeAliasDeclaration(statement) || ts.isInterfaceDeclaration(statement)) return true;
+  if (ts.isFunctionDeclaration(statement)) return !bindsTestRoot(statement.name);
+  if (!ts.isVariableStatement(statement) || (statement.declarationList.flags & ts.NodeFlags.Const) === 0) return false;
+  return statement.declarationList.declarations.every((d) => !bindsTestRoot(d.name) && d.initializer !== undefined && runsNothing(d.initializer));
+}
+
+/* A `describe.configure` that keeps each test independent: an explicit `parallel` or `default` mode and nothing else. */
+function independentConfigure(call: ts.CallExpression): boolean {
+  const options = call.arguments[0] === undefined ? undefined : unwrap(call.arguments[0]);
+  if (call.arguments.length !== 1 || options === undefined || !ts.isObjectLiteralExpression(options) || options.properties.length !== 1) return false;
+  const mode = options.properties[0]!;
+  if (!ts.isPropertyAssignment(mode) || !ts.isIdentifier(mode.name) || mode.name.text !== "mode") return false;
+  const value = literalText(mode.initializer);
+  return value === "parallel" || value === "default";
+}
+
 /*
- * Whether a scope arranges every test under it beyond what its own `beforeEach` statements say: a `test.use` or a `beforeAll` anywhere in
- * it outside its tests and describes, or a hook that is not a statement of the scope itself (one inside a condition or a loop runs or not
- * by what the syntax cannot say).
+ * Whether a scope may arrange the tests under it beyond what its own `beforeEach` statements say. A scope is read only when each of its
+ * statements is one the syntax can vouch for: a test, a describe or a `beforeEach`/`afterEach`/`afterAll` hook as a statement of its own, an
+ * import, an inert declaration, or a `describe.configure` that keeps tests independent. Anything else (a `test.use`, a `beforeAll`, a serial
+ * mode, a fixture the spec declares on a `test` of its own, code that runs while the file loads or its tests are collected) may arrange
+ * state, so its tests yield no pin.
  */
 function arrangesScope(statements: readonly ts.Statement[]): boolean {
-  let arranges = false;
-  const visit = (node: ts.Node, direct: boolean): void => {
-    if (arranges) return;
-    if (ts.isCallExpression(node)) {
-      const structural = structuralCall(node);
-      if (structural?.kind === "test" || structural?.kind === "describe") return;
-      const chain = chainOf(node.expression);
-      const name = chain !== undefined && TEST_ROOTS.has(chain.root) ? chain.names.join(".") : undefined;
-      if (name === "use" || name === "beforeAll" || (structural?.kind === "hook" && !direct)) arranges = true;
-    }
-    ts.forEachChild(node, (child) => visit(child, false));
-  };
-  for (const statement of statements) {
+  return !statements.every((statement) => {
+    if (ts.isImportDeclaration(statement) || inertDeclaration(statement)) return true;
     const call = statementCall(statement);
-    if (call !== undefined) visit(call, true);
-    else visit(statement, false);
-  }
-  return arranges;
+    if (call === undefined) return false;
+    const structural = structuralCall(call);
+    if (structural?.kind === "test") return true;
+    if (structural?.kind === "describe") return !chainOf(call.expression)!.names.includes("serial");
+    if (structural?.kind === "hook") return chainOf(call.expression)!.names[0] !== "beforeAll";
+    const chain = chainOf(call.expression);
+    return chain !== undefined && chain.root === "test" && chain.names.join(".") === "describe.configure" && independentConfigure(call);
+  });
 }
 
 /* The `beforeEach` hooks a scope declares as statements of its own. */
