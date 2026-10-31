@@ -60,7 +60,7 @@ import { createApp as adminCreateApp, updateApp as adminUpdateApp, deleteApp as 
 import { writeConfig, configExists } from "./onboard";
 import { applyEnvVars, defaultEnvStoreFs } from "./env-store";
 import { createOnboardingJob, type RepoIndexOutcome } from "./onboarding/onboarding-job";
-import { LlmProfileProposerAdapter } from "./onboarding/llm-profile-proposer.adapter";
+import { LlmProfileProposerAdapter } from "@contexts/service-topology/infrastructure/llm-profile-proposer.adapter";
 import { OnboardingService } from "@contexts/service-topology/application/index";
 import { buildServiceBoundaryResolver } from "@contexts/service-topology/infrastructure/resolver-factory";
 

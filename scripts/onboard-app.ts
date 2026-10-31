@@ -16,7 +16,7 @@ import { MirrorRegistryAdapter } from "../qa-engine/src/contexts/service-topolog
 import { buildServiceBoundaryResolver } from "../qa-engine/src/contexts/service-topology/infrastructure/resolver-factory.ts";
 import { OnboardingService, serializeBoundary, spliceBoundariesBlock, type OnboardingResult } from "../qa-engine/src/contexts/service-topology/application/index.ts";
 import type { RepoRef } from "../qa-engine/src/contexts/service-topology/application/index.ts";
-import { LlmProfileProposerAdapter } from "../src/server/onboarding/llm-profile-proposer.adapter.ts";
+import { LlmProfileProposerAdapter } from "../qa-engine/src/contexts/service-topology/infrastructure/llm-profile-proposer.adapter.ts";
 import { AgentRuntimeAdapter } from "../qa-engine/src/contexts/generation/infrastructure/agent-runtime.adapter.ts";
 import { defaultAgentDeps } from "../src/integrations/opencode-client";
 import { AGENT_NAME_FOR_ROLE } from "../src/agent-runtime/types.ts";

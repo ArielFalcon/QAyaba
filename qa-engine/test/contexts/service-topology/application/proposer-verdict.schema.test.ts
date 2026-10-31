@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { ProposerVerdictSchema, UNPARSEABLE_SENTINEL } from "./proposer-verdict.schema";
+import { ProposerVerdictSchema, UNPARSEABLE_SENTINEL } from "@contexts/service-topology/application/proposer-verdict.schema.ts";
 
 test("ProposerVerdictSchema: parses a valid http candidate into a well-formed profile", () => {
   const input = {

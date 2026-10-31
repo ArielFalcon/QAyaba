@@ -1,9 +1,8 @@
 import { z } from "zod";
-import type { BoundaryProfile } from "@contexts/service-topology/application/index.ts";
+import type { BoundaryProfile } from "../domain/index.ts";
 
 /*
- * LLM-text Zod parser for the proposer flow. Lives in the control plane (src/server/onboarding/).
- * Field names match qa-engine's BoundaryProfile union; every string uses `.min(1)` — empty globs
+ * LLM-text Zod parser for the proposer flow. Field names match the context's BoundaryProfile union; every string uses `.min(1)` — empty globs
  * and paths are never usable candidates, so reject them at this untrusted parse boundary.
  */
 const HttpProfileSchema = z.object({

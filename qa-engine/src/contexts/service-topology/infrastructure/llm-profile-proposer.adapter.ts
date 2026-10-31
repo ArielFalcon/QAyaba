@@ -1,12 +1,13 @@
 
 import { dirname, sep } from "node:path";
-import type { AgentRuntimePort } from "@kernel/ports/agent-runtime.port";
-import type { LoggerPort } from "@kernel/ports/logger.port";
-import type { RedactionPort } from "@kernel/ports/redaction.port";
-import type { BoundaryProfile, RepoRef } from "@contexts/service-topology/application/index.ts";
-import type { ProfileProposerPort, ProposerFeedback } from "@contexts/service-topology/application/index.ts";
-import { lastJsonObjectWhere } from "@kernel/last-json-object";
-import { ProposerVerdictSchema, UNPARSEABLE_SENTINEL, type SchemaCandidate } from "./proposer-verdict.schema";
+import type { AgentRuntimePort } from "@kernel/ports/agent-runtime.port.ts";
+import type { LoggerPort } from "@kernel/ports/logger.port.ts";
+import type { RedactionPort } from "@kernel/ports/redaction.port.ts";
+import type { ProfileProposerPort } from "../application/ports/profile-proposer.port.ts";
+import type { BoundaryProfile, RepoRef } from "../domain/index.ts";
+import type { ProposerFeedback } from "../domain/profile-score.ts";
+import { lastJsonObjectWhere } from "@kernel/last-json-object.ts";
+import { ProposerVerdictSchema, UNPARSEABLE_SENTINEL, type SchemaCandidate } from "../application/proposer-verdict.schema.ts";
 
 /* Default per-session timeout when the caller doesn't override it via ctx.timeoutMs. */
 const DEFAULT_PROPOSER_TIMEOUT_MS = 5 * 60 * 1000;

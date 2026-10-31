@@ -27,7 +27,7 @@ import { AGENT_NAME_FOR_ROLE, type AgentRole } from "../src/agent-runtime/types.
 import { askAssistant, type AgentDeps } from "../src/integrations/opencode-client.ts";
 import { buildRunChatContext, buildRunContext, type AssistantTextDeps } from "@contexts/operator-assistant/application/index";
 import { infraErrorGloss } from "../src/qa/learning/infra-error-gloss.ts";
-import { LlmProfileProposerAdapter } from "../src/server/onboarding/llm-profile-proposer.adapter.ts";
+import { LlmProfileProposerAdapter } from "@contexts/service-topology/infrastructure/llm-profile-proposer.adapter.ts";
 import type { RunRecord } from "../src/types.ts";
 import { PROMPT_HEADINGS, repairInstruction } from "@contexts/generation/application/index.ts";
 import { DIMENSIONS, MATRIX_STEP_LIMIT, allValidSpecs, buildInput, cellName, type CellSpec } from "./prompt-contract-matrix.ts";

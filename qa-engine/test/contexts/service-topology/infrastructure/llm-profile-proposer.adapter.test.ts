@@ -1,11 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import type { AgentRuntimePort } from "@kernel/ports/agent-runtime.port";
-import { memoryLogger, silentLogger } from "@kernel/ports/logger.port";
-import { PatternRedactionAdapter } from "../../../qa-engine/src/shared-infrastructure/redaction/pattern-redaction.adapter";
+import type { AgentRuntimePort } from "@kernel/ports/agent-runtime.port.ts";
+import { memoryLogger, silentLogger } from "@kernel/ports/logger.port.ts";
+import { PatternRedactionAdapter } from "../../../../src/shared-infrastructure/redaction/pattern-redaction.adapter.ts";
 import type { RepoRef } from "@contexts/service-topology/application/index.ts";
 import type { ProposerFeedback } from "@contexts/service-topology/application/index.ts";
-import { LlmProfileProposerAdapter, commonSessionRoot } from "./llm-profile-proposer.adapter";
+import { LlmProfileProposerAdapter, commonSessionRoot } from "@contexts/service-topology/infrastructure/llm-profile-proposer.adapter.ts";
 
 const redaction = new PatternRedactionAdapter();
 
