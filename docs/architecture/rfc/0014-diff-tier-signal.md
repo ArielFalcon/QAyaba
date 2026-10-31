@@ -80,7 +80,7 @@ One replicate per measurement (S3): a direction, not proof. Baseline: `run-ed289
 
 - `timeBudget` is `diff`; wall time and `phaseTimings` per phase; whether the run ended `E-TIME-BUDGET`, and `limits[].fired` (no `tier-budget` after U2).
 - `gateSignals.coordination`: flows planned against the direct candidates (`plan`, `flows`, `dropped`), and specs generated per flow after U1.
-- `qayaba.allotment.reserve_source` (`measured` after U3 means C4 held; `fallback` means the legacy labels were not read).
+- `qayaba.allotment.reserve_source` (`measured` after U3 means C4 held; `fallback` means the stored tier labels were not read).
 - `deadline-after-proof` degradations and whether a `review_verdict` was recorded (the T17 finding).
 - Cost and `flow_delivery_rate` against the baseline (feature document L20).
 
@@ -92,7 +92,7 @@ A regression to look for: a small change that now plans more flows than it has d
 2. The first-pass cap of the run-level author? **Recommended: delete it**; the turn runs under its allotment, the stall watchdog and the step cap (Proposal 2). Alternative: one constant cap.
 3. The effort rule? **Recommended: one sentence, "one spec file per affected flow, not a suite rewrite"**, the affected flows being the candidates the plan covers (Proposal 3). Alternative: state the direct candidate count in the sentence (adds a fact to every prompt; consider if the measurement shows over-planning).
 4. Operator settings? **Recommended: the three run-budget names keep working for one release with a warning and the largest set value; the three first-pass names retire with a warning** (Proposal 7). Alternative: retire all six at once.
-5. History continuity? **Recommended: read the legacy labels for `diff`; rewrite nothing** (Proposal 4). Alternative: a migration that relabels stored rows (item 1 of the high-risk list; not needed).
+5. History continuity? **Recommended: read the stored tier labels for `diff`; rewrite nothing** (Proposal 4). Alternative: a migration that relabels stored rows (item 1 of the high-risk list; not needed).
 6. The `tier-budget` value in the closed limit vocabulary? **Recommended: keep it, marked no longer produced**, and remove it with the epoch that prunes the old data. Alternative: remove it now (old stored values would no longer parse).
 7. The benchmark's declared tier? **Recommended: keep the operator's label; the type moves into the script** (Proposal 5). Alternative: drop the label and group by measured size.
 8. Does flow capacity get a signal of its own? **Recommended: no; it stays a ceiling** (Proposal 6), revisited only if the measurement shows planned flows beyond the candidates and their drops.
@@ -105,4 +105,4 @@ A regression to look for: a small change that now plans more flows than it has d
 - **P4:** nothing app-specific; the candidates come from the language registry and the code graph.
 - **P5:** the mechanism is shown by the code (`diff-stat.ts:40`, `:46-53`) and by what each consumer is for, not by one app's run; the history runs of the evidence are pre-window and not re-checked, and no record shows a misjudged run. The case does not rest on them.
 - **P6:** nothing makes a test greener. "The effort is a ceiling on the work and never a floor" stays (`task-builders.ts:203`); the review is required as before. A risk: a small change runs up to 60 min instead of 25 when it stops converging (hypothesis, Measurement).
-- **P7:** removes `DIFF_TIERS`, `DiffTier`, `diffTier`, `EFFORT_BY_TIER`, `generator-time-budget.ts`, six settings (replaced by one) and one history label set; adds one read of three legacy labels. A smaller change considered: keep the tiers and only exclude generated files from the count; it leaves the threshold (Alternatives).
+- **P7:** removes `DIFF_TIERS`, `DiffTier`, `diffTier`, `EFFORT_BY_TIER`, `generator-time-budget.ts`, six settings (replaced by one) and one history label set; adds one read of three stored labels. A smaller change considered: keep the tiers and only exclude generated files from the count; it leaves the threshold (Alternatives).
