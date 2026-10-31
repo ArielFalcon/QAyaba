@@ -531,7 +531,7 @@ export class LeadSidekicks {
         ...(tally.turns > 0 ? { review: tally } : {}),
         ...unreadableSignal(base.unreadable?.plan ?? 0, context.unreadable),
         ...(context.lessonsDelivered.size > 0 ? { lessonsDelivered: [...context.lessonsDelivered.values()] } : {}),
-        specPages: flows.map((flow) => ({ spec: flow.specFile, routes: [...flow.routes] })),
+        specPages: flows.map((flow) => ({ spec: flow.specFile, routes: [...new Set(flow.routes.map(pagePathname))] })),
         ...runSpecFailureReadsOf(live),
       };
       for (const p of proposals) this.deps.log?.(`coordination: flow ${p.flowId} changed ${p.total} file(s) it was not given to write; they are proposals and were not applied`);
@@ -1532,9 +1532,15 @@ function runSpecFailureReadsOf(live: ReadonlyMap<string, LiveFlow>): Pick<Coordi
   return reads.length > 0 ? { runSpecFailureReads: reads } : {};
 }
 
+/* A page named by its pathname: a query or fragment of a plan route may carry a secret or a value of the moment, and no lesson is about either. */
+function pagePathname(route: string): string {
+  return route.split(/[?#]/, 1)[0] ?? route;
+}
+
 /* The lessons that name one of the flow's pages, as facts of its brief; none for a run with no lessons. */
 function lessonFactsOf(redaction: RedactionPort, input: Pick<CoordinateInput, "lessons">, routes: readonly string[]): EvidenceRef[] {
-  const named = (input.lessons ?? []).filter((lesson) => routes.some((route) => namesTemplatePage(route, lesson.scope) || namesTemplatePage(lesson.scope, route)));
+  const pages = routes.map(pagePathname);
+  const named = (input.lessons ?? []).filter((lesson) => pages.some((page) => namesTemplatePage(page, lesson.scope) || namesTemplatePage(lesson.scope, page)));
   return evidenceFromLessons(redaction, named);
 }
 

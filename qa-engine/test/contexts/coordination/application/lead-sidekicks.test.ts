@@ -1172,6 +1172,18 @@ test("the delivery of a lesson is decided from the brief rendered for the send: 
   assert.ok(seen > 0, "some window gives the lesson up to a count");
 });
 
+test("a flow's pages are named by pathname wherever the lessons compare or record them: a query or fragment of a plan route reaches no lesson match and no record", async () => {
+  const lessons = [{ kind: "data-volatility", scope: "/search", withResults: 2, emptyConfirmed: 1, latestReadAt: "2026-10-30T10:00:00.000Z" }];
+  const plan = { kind: "fanout", flows: [{ id: "search", objective: "the search", routes: ["/search?q=madrid&token=abc123secret#top", "/shops/madrid?session=abc123secret"] }] };
+  const r = rig({ hasFile: new Set(["search"]) });
+  const outcome = await r.coordinator.coordinate(input(r, { lessons, plan: async () => ({ plan, parsed: true, timedOut: false }) }));
+  assert.equal(outcome.action, "fanout");
+  if (outcome.action !== "fanout") return;
+  assert.deepEqual(r.executed[0]!.brief.knownFacts.map((f) => [f.kind, f.dataRef]), [["lesson", "/search"]], "a lesson on /search reaches the flow whose route carries a query");
+  assert.deepEqual(outcome.signal.specPages, [{ spec: "flows/search.spec.ts", routes: ["/search", "/shops/madrid"] }]);
+  assert.doesNotMatch(JSON.stringify(outcome.signal), /abc123secret|madrid&|#top/);
+});
+
 test("the signal states the settled failure points the flows' run_spec calls met and the pages each flow was given, including a call a later correction makes", async () => {
   const plan = { kind: "fanout", flows: [{ id: "shops", objective: "the shop list", routes: ["/shops/madrid"] }, { id: "login", objective: "sign in works", routes: ["/login"] }] };
   const lead = leadWith([[{ flow: "shops", action: "accept" }, { flow: "login", action: "accept" }]], plan);
