@@ -182,6 +182,4 @@ export const MAX_RECORDED_EXECUTIONS = 64;
 export interface ExecutionsSignal {
   runs: ExecutionRecord[];
   omitted?: number;
-  /* How the run's checks of its session came out, each asked by a judging execution whose failures looked like the login page; absent when none was asked. */
-  sessionChecks?: { lost: number; held: number; unknown: number };
 }

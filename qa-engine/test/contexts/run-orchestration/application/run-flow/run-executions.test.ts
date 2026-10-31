@@ -78,5 +78,5 @@ test("the session's age is a record, never acted on: a failure on the app's logi
 
   assert.equal(calls.n, 1);
   assert.equal(result.verdict, "fail");
-  assert.equal(executions.signal()?.sessionChecks, undefined);
+  assert.equal(executions.signal()?.runs.length, 1, "one execution, recorded once");
 });
