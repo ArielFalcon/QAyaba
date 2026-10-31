@@ -1,7 +1,7 @@
 /*
  * How long a whole run may take on the agents' time, by the kind of run. One named table, one
  * environment override per row, and the note that says so when a run's time is spent. Pure: the run's
- * mode and the change's size in, a bound in milliseconds out; the caller hands in the environment.
+ * mode in, a bound in milliseconds out; the caller hands in the environment.
  */
 import { RUN_MODES, type RunMode } from "@kernel/run-mode.ts";
 

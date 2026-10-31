@@ -584,7 +584,7 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   folds or changes a rule.
 - **Contract repair** — the re-prompt that only restates a verdict (author or reviewer) runs with tools
   disabled (`AgentPromptOpts.withoutTools`; OpenCode sends a per-prompt `tools` deny map) and under its own short timeout (`REPAIR_TURN_TIMEOUT_MS`,
-  2 min). A repair that outlasts its cap leaves the first answer standing:
+  2 min, further cut to the time left). A repair that outlasts its cap leaves the first answer standing:
   the generation then ends `no-verdict` (loudly noted) and an unreadable review fails closed. The reviewer's
   repair names the issues the parser found. A timeout
   of the first pass or a regeneration is still the integration error it was, unless it is the run deadline.

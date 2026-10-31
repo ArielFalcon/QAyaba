@@ -1,6 +1,6 @@
 /*
- * The deadline of one run, and the only clock that bounds it. Not armed until the run knows what kind of run it is (a diff run's
- * budget follows the size of its change, known only after classification); from then it counts down on the clock it was given.
+ * The deadline of one run, and the only clock that bounds it. Not armed until the run has been classified (a classify-skip spends
+ * none of it); from then it counts down on the clock it was given.
  *
  * It allots time by purpose (kernel `DEADLINE_PURPOSES`): a purpose may spend what is left of the run less the reserve held for
  * the purposes that follow it. That reserve is the app's measured duration of those phases in its recent runs (`measure`); a

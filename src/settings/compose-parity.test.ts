@@ -4,7 +4,9 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse } from "yaml";
+import { RUN_TIME_BUDGET_FORMER_ENV } from "@contexts/run-orchestration/application/index";
 import { isRegisteredSetting } from "./registry";
+import { deprecatedSettingWarnings, retiredSettingWarnings } from "./retired";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 
@@ -27,6 +29,16 @@ function exampleAssignmentNames(): string[] {
   }
   return names;
 }
+
+test("the compose override still passes through every retired and deprecated diff budget name, so a value set in the host environment reaches the container and its warning fires", () => {
+  const override = parse(readFileSync(join(ROOT, "docker-compose.override.yml"), "utf8")) as { services?: { orchestrator?: { environment?: Record<string, unknown> } } };
+  const passed = Object.keys(override.services?.orchestrator?.environment ?? {});
+  const names = ["QA_DIFF_TIME_BUDGET_MS_TINY", "QA_DIFF_TIME_BUDGET_MS_FOCUSED", "QA_DIFF_TIME_BUDGET_MS_BROAD", ...RUN_TIME_BUDGET_FORMER_ENV];
+  for (const name of names) {
+    assert.ok(passed.includes(name), `${name} is read or reported by the settings load, so the override passes it through`);
+    assert.ok(retiredSettingWarnings({ [name]: "1" }).length + deprecatedSettingWarnings({ [name]: "1" }).length > 0, `${name} warns when set`);
+  }
+});
 
 test("every variable compose gives the orchestrator service is in the settings registry", () => {
   const names = orchestratorEnvironmentNames();
