@@ -11,9 +11,7 @@ import type { QaCase } from "@kernel/qa-case.ts";
 import { resolveErrorClass } from "@kernel/error-class.ts";
 import type { RunDecision } from "../../domain/run-decision.ts";
 import type { RunContext } from "./run-context.ts";
-
-/* Same minRatio the coverage policy uses for the E-COVERAGE-GAP band. */
-const DEFAULT_MIN_COVERAGE_RATIO = 0.7;
+import { DEFAULT_COVERAGE_MIN_RATIO } from "@contexts/objective-signal/application/index.ts";
 
 /*
  * What a persisted outcome may carry beyond the decision. reviewerApproved is optional: early exits
@@ -104,7 +102,7 @@ export function deriveErrorClass(
   return resolveErrorClass({
     verdict,
     coverageRatio,
-    minCoverageRatio: DEFAULT_MIN_COVERAGE_RATIO,
+    minCoverageRatio: DEFAULT_COVERAGE_MIN_RATIO,
     reviewerCorrections,
     ...(ends.generationEnd ? { generationEnd: ends.generationEnd } : {}),
     ...(ends.preconditionFailed ? { preconditionFailed: true } : {}),

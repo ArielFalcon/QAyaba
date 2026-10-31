@@ -3,6 +3,8 @@ export { parseDiffHunks } from "../domain/assemble-change-coverage.ts";
 export { EMPTY_TOKEN_SET, changeTokens } from "../domain/change-tokens.ts";
 export type { ChangeTokenSet } from "../domain/change-tokens.ts";
 export { DecideCoverageService } from "../domain/decide-coverage.service.ts";
+export { DEFAULT_COVERAGE_BRANCH_CASES, DEFAULT_COVERAGE_MIN_RATIO, DEFAULT_COVERAGE_MODE, bundleMutationEnabled, resolveCoveragePolicy } from "../domain/coverage-policy.ts";
+export type { BranchCasesMode, ChangeCoverageDeclaration, ResolvedCoveragePolicy } from "../domain/coverage-policy.ts";
 export type { ChangeCoverage, CoveragePolicy } from "../domain/decide-coverage.service.ts";
 export { renderBranchGap, renderCoverageGap, renderSurvivedMutant, renderSurvivedMutants, survivorFindings } from "../domain/render-coverage-gap.ts";
 export { diffObservations, movedBySpecFile, type ObservedDifference, type SpecFileDifference, type UnmutatedPages } from "../domain/observed-difference.ts";

@@ -48,6 +48,7 @@ import type { RedactionScope } from "@kernel/telemetry/telemetry.port.ts";
 import { attachTraceFacts, primaryLimit, type RunLimitFact, type RunTraceFacts } from "@kernel/run-trace-facts.ts";
 import { AuthPreconditionError } from "@contexts/app-catalog/application/index.ts";
 import { CycleBudget } from "../domain/cycle-budget.ts";
+import { DEFAULT_COVERAGE_MODE } from "@contexts/objective-signal/application/index.ts";
 import type { PreconditionFailure, RunQaConfig, RunQaUseCaseDeps, RunQaInput, RunQaResult, RunTrail } from "./run-flow/run-types.ts";
 
 export type { PreconditionFailure, RunQaConfig, RunQaUseCaseDeps, RunQaInput, RunQaResult, RunTrail } from "./run-flow/run-types.ts";
@@ -60,7 +61,7 @@ const DEFAULT_CONFIG: RunQaConfig = {
   shadow: false,
   onFailure: "github-issue",
   maxRetries: 2,
-  coveragePolicyMode: "signal",
+  coveragePolicyMode: DEFAULT_COVERAGE_MODE,
   intentLock: { mode: "signal", opacityFlagRatio: 0.5 },
 };
 

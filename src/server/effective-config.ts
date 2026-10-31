@@ -13,6 +13,7 @@ import { createHash } from "node:crypto";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { isCaptureMode, type CaptureMode } from "@kernel/telemetry/capture-mode";
+import { resolveCoveragePolicy } from "@contexts/objective-signal/application/index";
 import { agentBrowserEnabled, closedLoopEnabled, serviceTopologyWired } from "./run-config-gates";
 import { decideRunFreeze } from "./run-freeze";
 import type { AppConfig } from "../orchestrator/config-loader";
@@ -43,10 +44,6 @@ export interface RunConfigRequest {
   grounding?: GroundingInput | undefined;
 }
 
-/* The engine's defaults for the change-coverage policy, restated by the composition root's own `??` chain. */
-const DEFAULT_COVERAGE_MODE = "signal";
-const DEFAULT_COVERAGE_MIN_RATIO = 0.7;
-
 export function resolveRunConfig(app: AppConfig, request: RunConfigRequest, captureMode: CaptureMode, env: RunConfigEnvironment): StoredRunConfig {
   /* Same predicates as the engine factory's wiring (run-config-gates.ts). The tools also need the service token; otherwise the lever cannot take effect, whatever was asked. */
   const closedLoopAsked = request.closedLoop ?? closedLoopEnabled(app);
@@ -54,6 +51,7 @@ export function resolveRunConfig(app: AppConfig, request: RunConfigRequest, capt
   const stitched = serviceTopologyWired(app);
   const requestedGrounding = request.grounding ?? {};
   const freeze = decideRunFreeze(request);
+  const coverage = resolveCoveragePolicy(app.qa.changeCoverage);
   return {
     levers: {
       closedLoop: env.toolsGranted && closedLoopAsked,
@@ -69,7 +67,7 @@ export function resolveRunConfig(app: AppConfig, request: RunConfigRequest, capt
       domPack: requestedGrounding.domPack ?? app.qa.domPack ?? true,
       lessons: freeze.lessons,
     },
-    coverage: { mode: app.qa.changeCoverage?.mode ?? DEFAULT_COVERAGE_MODE, minRatio: app.qa.changeCoverage?.minRatio ?? DEFAULT_COVERAGE_MIN_RATIO },
+    coverage: { mode: coverage.mode, minRatio: coverage.minRatio },
   };
 }
 

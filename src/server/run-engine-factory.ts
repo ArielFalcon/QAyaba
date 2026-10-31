@@ -55,7 +55,7 @@ import { ValidationPortAdapter } from "@contexts/test-execution/infrastructure/a
 import { ExecutionPortAdapter } from "@contexts/test-execution/infrastructure/adapters/execution-port.adapter";
 import { ObjectiveSignalPortAdapter } from "@contexts/objective-signal/infrastructure/adapters/objective-signal-port.adapter";
 import { ReviewPortAdapter } from "@contexts/generation/infrastructure/adapters/review-port.adapter";
-import { DecideCoverageService } from "@contexts/objective-signal/application/index";
+import { DecideCoverageService, bundleMutationEnabled, resolveCoveragePolicy } from "@contexts/objective-signal/application/index";
 import type { ReviewPort } from "@contexts/generation/application/index.ts";
 import type { ExecutionPort, ValidationPort } from "@contexts/test-execution/application/index.ts";
 import type { ObjectiveSignalPort } from "@contexts/objective-signal/application/index.ts";
@@ -539,7 +539,8 @@ export function buildAcceptanceHarness(input: AcceptanceHarnessInput): Acceptanc
     { namespace: `${app.qa.testDataPrefix}-acceptance`, baseUrl, ...(app.e2e?.testIdAttribute !== undefined ? { testIdAttribute: app.e2e.testIdAttribute } : {}) },
   );
 
-  const policy = { mode: app.qa.changeCoverage?.mode ?? "signal", minRatio: app.qa.changeCoverage?.minRatio ?? 0.7 } as const;
+  const { mode, minRatio } = resolveCoveragePolicy(app.qa.changeCoverage);
+  const policy = { mode, minRatio };
   const objectiveSignal = new ObjectiveSignalPortAdapter(
     {
       collector: makeTargetCoverageCollector([]),
@@ -590,7 +591,7 @@ export function buildEngineRootDeps(
 
   const codeSandbox = resolveCodeSandbox(deps.env ?? activeEnvironment());
 
-  const coveragePolicy = { mode: app.qa.changeCoverage?.mode ?? "signal", minRatio: app.qa.changeCoverage?.minRatio ?? 0.7, branchCases: app.qa.changeCoverage?.branchCases ?? "regenerate" } as const;
+  const coveragePolicy = resolveCoveragePolicy(app.qa.changeCoverage);
   const intentLock = { mode: app.qa.intentLock?.mode ?? "signal", opacityFlagRatio: app.qa.intentLock?.opacityFlagRatio ?? 0.5 } as const;
 
   const mirrorRoot = deps.mirrorRoot ?? workdirRoot();
@@ -839,13 +840,13 @@ export function buildEngineRootDeps(
    * The mutation pass: unless `qa.changeCoverage.bundleMutation` is off, an app re-runs, for each of a few mutants of the changed code in the served
    * script, the spec files that reached it, once (no retry: a mutant that fails a test once was noticed).
    */
-  const mutation = app.qa.changeCoverage?.bundleMutation === "off"
-    ? undefined
-    : new BundleMutationOracleAdapter(
+  const mutation = bundleMutationEnabled(app.qa.changeCoverage)
+    ? new BundleMutationOracleAdapter(
         ({ dir, baseUrl, namespace, mutant, specFiles, observe }) => runE2E(dir, { baseUrl, namespace, specFiles, retries: 0, ...(mutant !== undefined ? { mutant } : {}), ...(observe ? { observe: true } : {}) }, e2eExecuteDeps),
         countInjectedResponses,
         app.dev.baseUrl,
-      );
+      )
+    : undefined;
 
   /*
    * checkout(sha) resolves the real per-run mirrorDir and stages every declared sibling service's
