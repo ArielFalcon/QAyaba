@@ -187,7 +187,6 @@ describe("agent prompt guard", () => {
       parsed: verdict.parsed,
       noopReason: verdict.noopReason,
       exhausted: false,
-      timedOut: false,
     });
   };
 
