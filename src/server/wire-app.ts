@@ -46,6 +46,8 @@ import { resolveRef, defaultMirrorDeps, ensureMirrorAtBranch, getHeadSha } from 
 import { askAssistant, AgentDeps, getOpenSessionCount, defaultAgentDeps, setAgentBrowserGrantLookup, setCodeGraphGrantLookup, setGeolocationGrantLookup } from "../integrations/opencode-client";
 import { createAgentRuntimeManager, logAgentConfigWarnings } from "./agent-runtime";
 import { keyPresence, validateAgentRuntimeConfig } from "../agent-runtime/config";
+import { AGENT_NAME_FOR_ROLE } from "../agent-runtime/types";
+import { AgentRuntimeAdapter } from "@contexts/generation/infrastructure/agent-runtime.adapter";
 import { OpenCodeRuntimeStrategy } from "../agent-runtime";
 import { getHistoryDatabase } from "./persistence/index";
 import { pruneHistory, retentionPolicyFrom } from "./persistence/retention";
@@ -539,6 +541,8 @@ export function wireApp(settingsStore: SettingsStore): WiredApp {
     }
   }
 
+  /* The proposer role opens its session through the process-wide agent transport, built when the round starts. */
+  const proposerRuntime = new AgentRuntimeAdapter({ open: async (agent, cwd, opts) => (await defaultAgentDeps()).open(agent, cwd, { ...(opts?.signal ? { signal: opts.signal } : {}), ...(opts?.timeoutMs !== undefined ? { timeoutMs: opts.timeoutMs } : {}) }) }, (role) => AGENT_NAME_FOR_ROLE[role]);
   const onboardingJob = createOnboardingJob({
     isRunnerBusy: () => {
       const running = getHistory().runs.currentRun();
@@ -548,7 +552,7 @@ export function wireApp(settingsStore: SettingsStore): WiredApp {
       ensureMirrorAtBranch(repo, baseBranch, defaultMirrorDeps),
     hasOpencodeApiKey: () => Boolean(settings.environment.OPENCODE_API_KEY),
     hasProposerAgent: () => hasProposerAgentConfigured(),
-    buildProposer: (ctx) => new LlmProfileProposerAdapter(defaultAgentDeps, ctx),
+    buildProposer: (ctx) => new LlmProfileProposerAdapter(proposerRuntime, appLogger, redactionPort, ctx),
     buildOnboardingService: (proposer, onRound) => new OnboardingService(proposer, buildServiceBoundaryResolver, 3, onRound),
     resolveLinks: (profile, system, front) => buildServiceBoundaryResolver([profile]).resolveLinks(system, front),
     readConfig: (path) => readFileSync(path, "utf8"),

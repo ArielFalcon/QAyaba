@@ -17,7 +17,11 @@ import { buildServiceBoundaryResolver } from "../qa-engine/src/contexts/service-
 import { OnboardingService, serializeBoundary, spliceBoundariesBlock, type OnboardingResult } from "../qa-engine/src/contexts/service-topology/application/index.ts";
 import type { RepoRef } from "../qa-engine/src/contexts/service-topology/application/index.ts";
 import { LlmProfileProposerAdapter } from "../src/server/onboarding/llm-profile-proposer.adapter.ts";
+import { AgentRuntimeAdapter } from "../qa-engine/src/contexts/generation/infrastructure/agent-runtime.adapter.ts";
 import { defaultAgentDeps } from "../src/integrations/opencode-client";
+import { AGENT_NAME_FOR_ROLE } from "../src/agent-runtime/types.ts";
+import { appLogger } from "../src/integrations/redacting-logger.ts";
+import { RedactionPortAdapter } from "../src/orchestrator/sanitizer.ts";
 
 const EXIT = {
   RESOLVED: 0,
@@ -164,7 +168,8 @@ export async function runOnboarding(argv: string[], deps: OnboardingCliDeps): Pr
 
 function realDeps(app: string, mirrorRoot: string): OnboardingCliDeps {
   const registry = new MirrorRegistryAdapter(mirrorRoot);
-  const proposer = new LlmProfileProposerAdapter(defaultAgentDeps, { app });
+  const runtime = new AgentRuntimeAdapter({ open: async (agent, cwd, opts) => (await defaultAgentDeps()).open(agent, cwd, { ...(opts?.signal ? { signal: opts.signal } : {}), ...(opts?.timeoutMs !== undefined ? { timeoutMs: opts.timeoutMs } : {}) }) }, (role) => AGENT_NAME_FOR_ROLE[role]);
+  const proposer = new LlmProfileProposerAdapter(runtime, appLogger, new RedactionPortAdapter(), { app });
   const service = new OnboardingService(proposer, buildServiceBoundaryResolver, 3);
   return {
     mirrorDir: (repo) => registry.mirrorDir(repo),

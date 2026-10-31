@@ -1,9 +1,8 @@
 
 import { dirname, sep } from "node:path";
-import type { AgentDeps } from "../../integrations/opencode-client";
-import { defaultAgentDeps } from "../../integrations/opencode-client";
-import { RedactionPortAdapter } from "../../orchestrator/sanitizer";
-import { logJson } from "../../integrations/logger";
+import type { AgentRuntimePort } from "@kernel/ports/agent-runtime.port";
+import type { LoggerPort } from "@kernel/ports/logger.port";
+import type { RedactionPort } from "@kernel/ports/redaction.port";
 import type { BoundaryProfile, RepoRef } from "@contexts/service-topology/application/index.ts";
 import type { ProfileProposerPort, ProposerFeedback } from "@contexts/service-topology/application/index.ts";
 import { lastJsonObjectWhere } from "@kernel/last-json-object";
@@ -11,9 +10,6 @@ import { ProposerVerdictSchema, UNPARSEABLE_SENTINEL, type SchemaCandidate } fro
 
 /* Default per-session timeout when the caller doesn't override it via ctx.timeoutMs. */
 const DEFAULT_PROPOSER_TIMEOUT_MS = 5 * 60 * 1000;
-
-
-const redactionPort = new RedactionPortAdapter();
 
 /* A candidate degrades to this sentinel on a per-entry schema parse failure (see
  *  ProposerVerdictSchema); filter it before returning so a malformed sibling never poisons an
@@ -129,41 +125,41 @@ export function commonSessionRoot(front: RepoRef, system: RepoRef[]): string {
   return system.reduce((lca, s) => pairwiseCommonAncestor(lca, s.mirrorDir), front.mirrorDir);
 }
 
-/** LLM-backed ProfileProposerPort implementation. Ctor DI keeps the agent-runtime dependency
- *  swappable (a fake depsFactory drives the unit tests). The session runs on the model
- *  agents/opencode.json declares for qa-proposer. */
+/** LLM-backed ProfileProposerPort implementation. Ctor DI keeps the agent runtime, the logger and the
+ *  redaction swappable (fakes drive the unit tests). The session runs the proposer role, on the model
+ *  agents/opencode.json declares for it. */
 export class LlmProfileProposerAdapter implements ProfileProposerPort {
   constructor(
-    private readonly depsFactory: () => Promise<AgentDeps> = defaultAgentDeps,
+    private readonly runtime: Pick<AgentRuntimePort, "openSession">,
+    private readonly logger: LoggerPort,
+    private readonly redaction: Pick<RedactionPort, "redactError">,
     private readonly ctx: { app: string; timeoutMs?: number; signal?: AbortSignal },
   ) {}
 
   async propose(system: RepoRef[], front: RepoRef, feedback?: ProposerFeedback): Promise<BoundaryProfile[]> {
     try {
-      const deps = await this.depsFactory();
-      const session = await deps.open("qa-proposer", commonSessionRoot(front, system), {
+      const session = await this.runtime.openSession("proposer", commonSessionRoot(front, system), {
         timeoutMs: this.ctx.timeoutMs ?? DEFAULT_PROPOSER_TIMEOUT_MS,
-        signal: this.ctx.signal,
+        ...(this.ctx.signal ? { signal: this.ctx.signal } : {}),
       });
       try {
-        const text = await session.prompt(assemblePrompt(system, front, this.ctx.app, feedback));
+        const { output: text } = await session.prompt(assemblePrompt(system, front, this.ctx.app, feedback));
         const parsed = ProposerVerdictSchema.parse(extractJson(text));
         return parsed.candidates.filter((c) => !isUnparseableSentinel(c));
       } finally {
-        await session.dispose().catch(() => {});
+        await Promise.resolve(session.dispose()).catch(() => {});
       }
     } catch (err) {
       /*
        * Fail-open by contract (ProfileProposerPort doc): any throw — open() failure, prompt()
        * rejection/timeout, unparseable text — degrades to an empty round, never propagates.
        * Instrumented (do NOT silently swallow): emit exactly one structured warn with the redacted
-       * real error + the context needed to identify the actual throw. redactionPort.redactError reads only err.message and scrubs
-       * it via the canonical adapter (env+pattern) — it never serializes structured SDK bodies or
-       * the stack (no new leak surface).
+       * real error + the context needed to identify the actual throw. The redaction port's redactError reads only
+       * err.message and scrubs it — it never serializes structured SDK bodies or the stack (no new leak surface).
        */
-      logJson("warn", "onboarding proposer round failed (fail-open, returning no candidates)", {
+      this.logger.warn("onboarding proposer round failed (fail-open, returning no candidates)", {
         app: this.ctx.app,
-        error: redactionPort.redactError(err),
+        error: this.redaction.redactError(err),
       });
       return [];
     }

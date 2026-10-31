@@ -1,9 +1,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import type { AgentDeps, AgentSession } from "../../integrations/opencode-client";
+import type { AgentRuntimePort } from "@kernel/ports/agent-runtime.port";
+import { memoryLogger, silentLogger } from "@kernel/ports/logger.port";
+import { PatternRedactionAdapter } from "../../../qa-engine/src/shared-infrastructure/redaction/pattern-redaction.adapter";
 import type { RepoRef } from "@contexts/service-topology/application/index.ts";
 import type { ProposerFeedback } from "@contexts/service-topology/application/index.ts";
 import { LlmProfileProposerAdapter, commonSessionRoot } from "./llm-profile-proposer.adapter";
+
+const redaction = new PatternRedactionAdapter();
 
 const FRONT: RepoRef = { repo: "ArielFalcon/nname-gateway", mirrorDir: "/mirrors/nname-gateway" };
 const SYSTEM: RepoRef[] = [{ repo: "ArielFalcon/ms-name-orders", mirrorDir: "/mirrors/ms-name-orders" }];
@@ -86,37 +90,37 @@ function fencedJson(payload: string): string {
   return `Some reasoning text before the answer.\n\n\`\`\`json\n${payload}\n\`\`\`\n`;
 }
 
-interface FakeDepsOpts {
+interface FakeRuntimeOpts {
   promptResult?: string | Error;
-  onOpen?: (agent: string, cwd: string, opts?: { model?: string; timeoutMs?: number }) => void;
+  onOpen?: (role: string, cwd: string, opts?: { model?: string; timeoutMs?: number; signal?: AbortSignal }) => void;
+  onPrompt?: (text: string) => void;
   openThrows?: boolean;
   disposed?: { count: number };
 }
 
-function fakeDepsFactory(opts: FakeDepsOpts): () => Promise<AgentDeps> {
-  return async () => ({
-    open: async (agent: string, cwd: string, openOpts?: { model?: string; timeoutMs?: number }) => {
-      opts.onOpen?.(agent, cwd, openOpts);
+function fakeRuntime(opts: FakeRuntimeOpts): Pick<AgentRuntimePort, "openSession"> {
+  return {
+    openSession: async (role, cwd, openOpts) => {
+      opts.onOpen?.(role, cwd, openOpts);
       if (opts.openThrows) throw new Error("boom: open failed");
-      const session: AgentSession = {
-        id: "fake-session",
-        prompt: async () => {
+      return {
+        prompt: async (text) => {
+          opts.onPrompt?.(text);
           if (opts.promptResult instanceof Error) throw opts.promptResult;
-          return opts.promptResult ?? "";
+          return { output: opts.promptResult ?? "" };
         },
         dispose: async () => {
           if (opts.disposed) opts.disposed.count += 1;
         },
       };
-      return session;
     },
-  });
+  };
 }
 
 test("propose(): a well-formed verdict (1 http + 1 event) returns the correctly discriminated BoundaryProfile[]", async () => {
   const disposed = { count: 0 };
-  const depsFactory = fakeDepsFactory({ promptResult: fencedJson(VALID_VERDICT_JSON), disposed });
-  const adapter = new LlmProfileProposerAdapter(depsFactory, { app: "nname" });
+  const runtime = fakeRuntime({ promptResult: fencedJson(VALID_VERDICT_JSON), disposed });
+  const adapter = new LlmProfileProposerAdapter(runtime, silentLogger, redaction, { app: "nname" });
 
   const result = await adapter.propose(SYSTEM, FRONT);
 
@@ -129,9 +133,9 @@ test("propose(): a well-formed verdict (1 http + 1 event) returns the correctly 
   assert.equal(disposed.count, 1, "session must be disposed exactly once");
 });
 
-test("propose(): fail-open — deps.open() throwing returns [] without propagating", async () => {
-  const depsFactory = fakeDepsFactory({ openThrows: true });
-  const adapter = new LlmProfileProposerAdapter(depsFactory, { app: "nname" });
+test("propose(): fail-open — openSession() throwing returns [] without propagating", async () => {
+  const runtime = fakeRuntime({ openThrows: true });
+  const adapter = new LlmProfileProposerAdapter(runtime, silentLogger, redaction, { app: "nname" });
 
   const result = await adapter.propose(SYSTEM, FRONT);
 
@@ -139,8 +143,8 @@ test("propose(): fail-open — deps.open() throwing returns [] without propagati
 });
 
 test("propose(): fail-open — session.prompt() rejecting (timeout/transport error) returns []", async () => {
-  const depsFactory = fakeDepsFactory({ promptResult: new Error("timed out") });
-  const adapter = new LlmProfileProposerAdapter(depsFactory, { app: "nname" });
+  const runtime = fakeRuntime({ promptResult: new Error("timed out") });
+  const adapter = new LlmProfileProposerAdapter(runtime, silentLogger, redaction, { app: "nname" });
 
   const result = await adapter.propose(SYSTEM, FRONT);
 
@@ -148,8 +152,8 @@ test("propose(): fail-open — session.prompt() rejecting (timeout/transport err
 });
 
 test("propose(): fail-open — garbage/unparseable text from prompt() returns []", async () => {
-  const depsFactory = fakeDepsFactory({ promptResult: "this is not json at all, sorry." });
-  const adapter = new LlmProfileProposerAdapter(depsFactory, { app: "nname" });
+  const runtime = fakeRuntime({ promptResult: "this is not json at all, sorry." });
+  const adapter = new LlmProfileProposerAdapter(runtime, silentLogger, redaction, { app: "nname" });
 
   const result = await adapter.propose(SYSTEM, FRONT);
 
@@ -158,7 +162,7 @@ test("propose(): fail-open — garbage/unparseable text from prompt() returns []
 
 test("propose(): an unfenced verdict with nested objects after brace narration still parses", async () => {
   const reply = `I will scan \`async ({ page }) => {\` call sites first.\n${VALID_VERDICT_JSON}`;
-  const adapter = new LlmProfileProposerAdapter(fakeDepsFactory({ promptResult: reply }), { app: "nname" });
+  const adapter = new LlmProfileProposerAdapter(fakeRuntime({ promptResult: reply }), silentLogger, redaction, { app: "nname" });
 
   const result = await adapter.propose(SYSTEM, FRONT);
 
@@ -167,7 +171,7 @@ test("propose(): an unfenced verdict with nested objects after brace narration s
 
 test("propose(): a fenced verdict wins over an earlier quoted object", async () => {
   const reply = `Earlier draft: {"candidates":[]}\n${fencedJson(VALID_VERDICT_JSON)}`;
-  const adapter = new LlmProfileProposerAdapter(fakeDepsFactory({ promptResult: reply }), { app: "nname" });
+  const adapter = new LlmProfileProposerAdapter(fakeRuntime({ promptResult: reply }), silentLogger, redaction, { app: "nname" });
 
   const result = await adapter.propose(SYSTEM, FRONT);
 
@@ -175,8 +179,8 @@ test("propose(): a fenced verdict wins over an earlier quoted object", async () 
 });
 
 test("propose(): mixed valid/malformed candidates returns only the valid ones (sentinel filtered out)", async () => {
-  const depsFactory = fakeDepsFactory({ promptResult: fencedJson(MIXED_VERDICT_JSON) });
-  const adapter = new LlmProfileProposerAdapter(depsFactory, { app: "nname" });
+  const runtime = fakeRuntime({ promptResult: fencedJson(MIXED_VERDICT_JSON) });
+  const adapter = new LlmProfileProposerAdapter(runtime, silentLogger, redaction, { app: "nname" });
 
   const result = await adapter.propose(SYSTEM, FRONT);
 
@@ -186,18 +190,18 @@ test("propose(): mixed valid/malformed candidates returns only the valid ones (s
   if (result[1]?.transport === "http") assert.equal(result[1].servicePrefixTemplate, "other-{service}-api");
 });
 
-test("propose(): calls depsFactory() DIRECTLY and opens the session on the model qa-proposer declares (no pin on open() opts)", async () => {
-  const opens: Array<{ agent: string; cwd: string; model?: string; timeoutMs?: number }> = [];
-  const depsFactory = fakeDepsFactory({
+test("propose(): opens a proposer-role session, on the model its agent declares (no pin on openSession() opts)", async () => {
+  const opens: Array<{ role: string; cwd: string; model?: string; timeoutMs?: number }> = [];
+  const runtime = fakeRuntime({
     promptResult: fencedJson(VALID_VERDICT_JSON),
-    onOpen: (agent, cwd, opts) => opens.push({ agent, cwd, model: opts?.model, timeoutMs: opts?.timeoutMs }),
+    onOpen: (role, cwd, opts) => opens.push({ role, cwd, model: opts?.model, timeoutMs: opts?.timeoutMs }),
   });
-  const adapter = new LlmProfileProposerAdapter(depsFactory, { app: "nname", timeoutMs: 12345 });
+  const adapter = new LlmProfileProposerAdapter(runtime, silentLogger, redaction, { app: "nname", timeoutMs: 12345 });
 
   await adapter.propose(SYSTEM, FRONT);
 
   assert.equal(opens.length, 1);
-  assert.equal(opens[0]?.agent, "qa-proposer");
+  assert.equal(opens[0]?.role, "proposer");
   assert.equal(opens[0]?.cwd, "/mirrors", "session must root at the front+services' common ancestor, not front.mirrorDir alone");
   assert.equal(opens[0]?.model, undefined, "the model is the one agents/opencode.json declares for qa-proposer, not one named here");
   assert.equal(opens[0]?.timeoutMs, 12345);
@@ -212,50 +216,50 @@ test("propose(): calls depsFactory() DIRECTLY and opens the session on the model
  */
 
 test("propose(): multi-repo — session opens at the common ancestor of front + all service mirrors", async () => {
-  const opens: Array<{ agent: string; cwd: string }> = [];
+  const opens: Array<{ role: string; cwd: string }> = [];
   const front: RepoRef = { repo: "ArielFalcon/nname-gateway", mirrorDir: "/x/mirrors/nname-gateway" };
   const system: RepoRef[] = [
     { repo: "ArielFalcon/ms-name-orders", mirrorDir: "/x/mirrors/ms-name-orders" },
     { repo: "ArielFalcon/ms-name-billing", mirrorDir: "/x/mirrors/ms-name-billing" },
   ];
-  const depsFactory = fakeDepsFactory({
+  const runtime = fakeRuntime({
     promptResult: fencedJson(VALID_VERDICT_JSON),
-    onOpen: (agent, cwd) => opens.push({ agent, cwd }),
+    onOpen: (role, cwd) => opens.push({ role, cwd }),
   });
-  const adapter = new LlmProfileProposerAdapter(depsFactory, { app: "nname" });
+  const adapter = new LlmProfileProposerAdapter(runtime, silentLogger, redaction, { app: "nname" });
 
   await adapter.propose(system, front);
 
   assert.equal(opens.length, 1);
-  assert.equal(opens[0]?.agent, "qa-proposer");
+  assert.equal(opens[0]?.role, "proposer");
   assert.equal(opens[0]?.cwd, "/x/mirrors");
 });
 
 test("propose(): single-repo (system: []) — session opens at front.mirrorDir, unchanged", async () => {
-  const opens: Array<{ agent: string; cwd: string }> = [];
+  const opens: Array<{ role: string; cwd: string }> = [];
   const front: RepoRef = { repo: "ArielFalcon/nname-gateway", mirrorDir: "/x/mirrors/nname-gateway" };
-  const depsFactory = fakeDepsFactory({
+  const runtime = fakeRuntime({
     promptResult: fencedJson(VALID_VERDICT_JSON),
-    onOpen: (agent, cwd) => opens.push({ agent, cwd }),
+    onOpen: (role, cwd) => opens.push({ role, cwd }),
   });
-  const adapter = new LlmProfileProposerAdapter(depsFactory, { app: "nname" });
+  const adapter = new LlmProfileProposerAdapter(runtime, silentLogger, redaction, { app: "nname" });
 
   await adapter.propose([], front);
 
   assert.equal(opens.length, 1);
-  assert.equal(opens[0]?.agent, "qa-proposer");
+  assert.equal(opens[0]?.role, "proposer");
   assert.equal(opens[0]?.cwd, front.mirrorDir);
 });
 
 test("propose(): LCA edge case — divergent sibling-looking dirs resolve to the true segment-wise ancestor", async () => {
-  const opens: Array<{ agent: string; cwd: string }> = [];
+  const opens: Array<{ role: string; cwd: string }> = [];
   const front: RepoRef = { repo: "ArielFalcon/front", mirrorDir: "/x/mirrors/a" };
   const system: RepoRef[] = [{ repo: "ArielFalcon/svc", mirrorDir: "/x/mirrors-other/b" }];
-  const depsFactory = fakeDepsFactory({
+  const runtime = fakeRuntime({
     promptResult: fencedJson(VALID_VERDICT_JSON),
-    onOpen: (agent, cwd) => opens.push({ agent, cwd }),
+    onOpen: (role, cwd) => opens.push({ role, cwd }),
   });
-  const adapter = new LlmProfileProposerAdapter(depsFactory, { app: "nname" });
+  const adapter = new LlmProfileProposerAdapter(runtime, silentLogger, redaction, { app: "nname" });
 
   await adapter.propose(system, front);
 
@@ -293,43 +297,25 @@ test("commonSessionRoot(): LCA edge case — segment-wise ancestor, not naive st
 /* The server-side onboarding job wraps onboard() in a round-budget Promise.race and owns an
    AbortController whose signal must reach the underlying agent session so a job timeout actually
    CANCELS the in-flight proposer session, not merely resolves the race. This proves the pass-through
-   end to end: ctx.signal -> deps.open's opts.signal.
+   end to end: ctx.signal -> openSession's opts.signal.
  */
 
-test("propose(): ctx.signal is threaded straight through to deps.open's opts.signal (job-timeout cancellation)", async () => {
+test("propose(): ctx.signal is threaded straight through to openSession's opts.signal (job-timeout cancellation)", async () => {
   const opens: Array<{ signal?: AbortSignal }> = [];
-  const depsFactory: () => Promise<AgentDeps> = async () => ({
-    open: async (_agent: string, _cwd: string, opts?: { signal?: AbortSignal }) => {
-      opens.push({ signal: opts?.signal });
-      return {
-        id: "fake-session",
-        prompt: async () => fencedJson(VALID_VERDICT_JSON),
-        dispose: async () => {},
-      };
-    },
-  });
+  const runtime = fakeRuntime({ promptResult: fencedJson(VALID_VERDICT_JSON), onOpen: (_role, _cwd, opts) => opens.push({ signal: opts?.signal }) });
   const controller = new AbortController();
-  const adapter = new LlmProfileProposerAdapter(depsFactory, { app: "nname", signal: controller.signal });
+  const adapter = new LlmProfileProposerAdapter(runtime, silentLogger, redaction, { app: "nname", signal: controller.signal });
 
   await adapter.propose(SYSTEM, FRONT);
 
   assert.equal(opens.length, 1);
-  assert.equal(opens[0]?.signal, controller.signal, "ctx.signal must be forwarded verbatim to deps.open's opts.signal");
+  assert.equal(opens[0]?.signal, controller.signal, "ctx.signal must be forwarded verbatim to openSession's opts.signal");
 });
 
-test("propose(): omitting ctx.signal leaves deps.open's opts.signal undefined (no signal fabricated)", async () => {
+test("propose(): omitting ctx.signal leaves openSession's opts.signal undefined (no signal fabricated)", async () => {
   const opens: Array<{ signal?: AbortSignal }> = [];
-  const depsFactory: () => Promise<AgentDeps> = async () => ({
-    open: async (_agent: string, _cwd: string, opts?: { signal?: AbortSignal }) => {
-      opens.push({ signal: opts?.signal });
-      return {
-        id: "fake-session",
-        prompt: async () => fencedJson(VALID_VERDICT_JSON),
-        dispose: async () => {},
-      };
-    },
-  });
-  const adapter = new LlmProfileProposerAdapter(depsFactory, { app: "nname" });
+  const runtime = fakeRuntime({ promptResult: fencedJson(VALID_VERDICT_JSON), onOpen: (_role, _cwd, opts) => opens.push({ signal: opts?.signal }) });
+  const adapter = new LlmProfileProposerAdapter(runtime, silentLogger, redaction, { app: "nname" });
 
   await adapter.propose(SYSTEM, FRONT);
 
@@ -338,17 +324,8 @@ test("propose(): omitting ctx.signal leaves deps.open's opts.signal undefined (n
 
 test("propose(): prompt documents the http-backend transport shape and callPattern kinds", async () => {
   let capturedPrompt = "";
-  const depsFactory: () => Promise<AgentDeps> = async () => ({
-    open: async () => ({
-      id: "fake-session",
-      prompt: async (text: string) => {
-        capturedPrompt = text;
-        return fencedJson(VALID_VERDICT_JSON);
-      },
-      dispose: async () => {},
-    }),
-  });
-  const adapter = new LlmProfileProposerAdapter(depsFactory, { app: "nname" });
+  const runtime = fakeRuntime({ promptResult: fencedJson(VALID_VERDICT_JSON), onPrompt: (text) => { capturedPrompt = text; } });
+  const adapter = new LlmProfileProposerAdapter(runtime, silentLogger, redaction, { app: "nname" });
   await adapter.propose(SYSTEM, FRONT);
 
   assert.ok(capturedPrompt.includes("http-backend"), "prompt must document the http-backend transport");
@@ -372,8 +349,8 @@ test("propose(): a well-formed http-backend candidate is returned as an HttpBack
       },
     ],
   });
-  const depsFactory = fakeDepsFactory({ promptResult: fencedJson(verdict) });
-  const adapter = new LlmProfileProposerAdapter(depsFactory, { app: "nname" });
+  const runtime = fakeRuntime({ promptResult: fencedJson(verdict) });
+  const adapter = new LlmProfileProposerAdapter(runtime, silentLogger, redaction, { app: "nname" });
 
   const result = await adapter.propose(SYSTEM, FRONT);
 
@@ -387,17 +364,8 @@ test("propose(): a well-formed http-backend candidate is returned as an HttpBack
 
 test("propose(): http-backend prior-round feedback is summarized without throwing", async () => {
   let capturedPrompt = "";
-  const depsFactory: () => Promise<AgentDeps> = async () => ({
-    open: async () => ({
-      id: "fake-session",
-      prompt: async (text: string) => {
-        capturedPrompt = text;
-        return fencedJson(VALID_VERDICT_JSON);
-      },
-      dispose: async () => {},
-    }),
-  });
-  const adapter = new LlmProfileProposerAdapter(depsFactory, { app: "nname" });
+  const runtime = fakeRuntime({ promptResult: fencedJson(VALID_VERDICT_JSON), onPrompt: (text) => { capturedPrompt = text; } });
+  const adapter = new LlmProfileProposerAdapter(runtime, silentLogger, redaction, { app: "nname" });
   const feedback: ProposerFeedback = {
     priorCandidates: [
       {
@@ -425,17 +393,8 @@ test("propose(): http-backend prior-round feedback is summarized without throwin
 
 test("propose(): when feedback.priorCandidates is non-empty, the prompt text references the prior round", async () => {
   let capturedPrompt = "";
-  const depsFactory: () => Promise<AgentDeps> = async () => ({
-    open: async () => ({
-      id: "fake-session",
-      prompt: async (text: string) => {
-        capturedPrompt = text;
-        return fencedJson(VALID_VERDICT_JSON);
-      },
-      dispose: async () => {},
-    }),
-  });
-  const adapter = new LlmProfileProposerAdapter(depsFactory, { app: "nname" });
+  const runtime = fakeRuntime({ promptResult: fencedJson(VALID_VERDICT_JSON), onPrompt: (text) => { capturedPrompt = text; } });
+  const adapter = new LlmProfileProposerAdapter(runtime, silentLogger, redaction, { app: "nname" });
 
   const feedback: ProposerFeedback = {
     priorCandidates: [
@@ -463,8 +422,8 @@ test("propose(): when feedback.priorCandidates is non-empty, the prompt text ref
 });
 
 test("propose(): fail-open holds even when feedback is supplied and the session throws", async () => {
-  const depsFactory = fakeDepsFactory({ openThrows: true });
-  const adapter = new LlmProfileProposerAdapter(depsFactory, { app: "nname" });
+  const runtime = fakeRuntime({ openThrows: true });
+  const adapter = new LlmProfileProposerAdapter(runtime, silentLogger, redaction, { app: "nname" });
 
   const feedback: ProposerFeedback = {
     priorCandidates: [
@@ -499,45 +458,31 @@ test("propose(): fail-open holds even when feedback is supplied and the session 
  */
 
 test("propose(): session.prompt() rejecting logs exactly one redacted warn with {app, error} and still returns []", async () => {
-  const originalWarn = console.warn;
-  const logged: string[] = [];
-  console.warn = (...args: unknown[]) => { logged.push(args.map(String).join(" ")); };
-  try {
-    const depsFactory = fakeDepsFactory({ promptResult: new Error("connect ECONNREFUSED 127.0.0.1:4096") });
-    const adapter = new LlmProfileProposerAdapter(depsFactory, { app: "nname" });
+  const logger = memoryLogger();
+  const runtime = fakeRuntime({ promptResult: new Error("connect ECONNREFUSED 127.0.0.1:4096") });
+  const adapter = new LlmProfileProposerAdapter(runtime, logger, redaction, { app: "nname" });
 
-    const result = await adapter.propose(SYSTEM, FRONT);
+  const result = await adapter.propose(SYSTEM, FRONT);
 
-    assert.deepEqual(result, []);
-    assert.equal(logged.length, 1, "exactly one warn log must be emitted for the failed round");
-    const entry = JSON.parse(logged[0] ?? "{}");
-    assert.equal(entry.l, "warn");
-    assert.equal(entry.app, "nname");
-    assert.equal("singleProvider" in entry, false, "the retired runtime selector is no longer logged");
-    assert.equal(entry.error, "connect ECONNREFUSED 127.0.0.1:4096");
-  } finally {
-    console.warn = originalWarn;
-  }
+  assert.deepEqual(result, []);
+  assert.equal(logger.entries.length, 1, "exactly one warn log must be emitted for the failed round");
+  const entry = logger.entries[0];
+  assert.equal(entry?.level, "warn");
+  assert.equal(entry?.fields.app, "nname");
+  assert.equal("singleProvider" in (entry?.fields ?? {}), false, "the retired runtime selector is no longer logged");
+  assert.equal(entry?.fields.error, "connect ECONNREFUSED 127.0.0.1:4096");
 });
 
-test("propose(): deps.open() throwing before a session exists logs exactly one warn and still returns []", async () => {
-  const originalWarn = console.warn;
-  const logged: string[] = [];
-  console.warn = (...args: unknown[]) => { logged.push(args.map(String).join(" ")); };
-  try {
-    const depsFactory = fakeDepsFactory({ openThrows: true });
-    const adapter = new LlmProfileProposerAdapter(depsFactory, { app: "nname" });
+test("propose(): openSession() throwing before a session exists logs exactly one warn and still returns []", async () => {
+  const logger = memoryLogger();
+  const adapter = new LlmProfileProposerAdapter(fakeRuntime({ openThrows: true }), logger, redaction, { app: "nname" });
 
-    const result = await adapter.propose(SYSTEM, FRONT);
+  const result = await adapter.propose(SYSTEM, FRONT);
 
-    assert.deepEqual(result, []);
-    assert.equal(logged.length, 1, "exactly one warn log must be emitted when open() throws");
-    const entry = JSON.parse(logged[0] ?? "{}");
-    assert.equal(entry.app, "nname");
-    assert.match(entry.error, /boom: open failed/);
-  } finally {
-    console.warn = originalWarn;
-  }
+  assert.deepEqual(result, []);
+  assert.equal(logger.entries.length, 1, "exactly one warn log must be emitted when open() throws");
+  assert.equal(logger.entries[0]?.fields.app, "nname");
+  assert.match(String(logger.entries[0]?.fields.error), /boom: open failed/);
 });
 
 /* NOTE (verified against the schema module's own doc + a runtime probe): ProposerVerdictSchema
@@ -548,73 +493,65 @@ test("propose(): deps.open() throwing before a session exists logs exactly one w
    a throw — per the "No Logging on Successful Propose" requirement it must NOT log.
  */
 test("propose(): an unparseable reply degrades to an empty verdict inside the try block (no throw) — no failure log, still returns []", async () => {
-  const originalWarn = console.warn;
-  const logged: string[] = [];
-  console.warn = (...args: unknown[]) => { logged.push(args.map(String).join(" ")); };
-  try {
-    const depsFactory = fakeDepsFactory({ promptResult: "this is not json at all, sorry." });
-    const adapter = new LlmProfileProposerAdapter(depsFactory, { app: "nname" });
+  const logger = memoryLogger();
+  const runtime = fakeRuntime({ promptResult: "this is not json at all, sorry." });
+  const adapter = new LlmProfileProposerAdapter(runtime, logger, redaction, { app: "nname" });
 
-    const result = await adapter.propose(SYSTEM, FRONT);
+  const result = await adapter.propose(SYSTEM, FRONT);
 
-    assert.deepEqual(result, []);
-    assert.equal(logged.length, 0, "the schema's own fail-open .catch degrades this to a successful empty round, not a throw");
-  } finally {
-    console.warn = originalWarn;
-  }
+  assert.deepEqual(result, []);
+  assert.equal(logger.entries.length, 0, "the schema's own fail-open .catch degrades this to a successful empty round, not a throw");
 });
 
 test("propose(): a secret embedded in the thrown error's message never reaches the log (redacted)", async () => {
-  const originalWarn = console.warn;
-  const logged: string[] = [];
-  console.warn = (...args: unknown[]) => { logged.push(args.map(String).join(" ")); };
-  try {
-    const depsFactory = fakeDepsFactory({
-      promptResult: new Error("401: Authorization: Bearer sk-supersecrettoken12345"),
-    });
-    const adapter = new LlmProfileProposerAdapter(depsFactory, { app: "nname" });
+  const logger = memoryLogger();
+  const runtime = fakeRuntime({ promptResult: new Error("401: Authorization: Bearer sk-supersecrettoken12345") });
+  const adapter = new LlmProfileProposerAdapter(runtime, logger, redaction, { app: "nname" });
 
-    await adapter.propose(SYSTEM, FRONT);
+  await adapter.propose(SYSTEM, FRONT);
 
-    assert.equal(logged.length, 1);
-    const entry = JSON.parse(logged[0] ?? "{}");
-    assert.ok(!/sk-supersecrettoken12345/.test(entry.error), "the raw token must never reach the log");
-    assert.match(entry.error, /REDACTED/);
-  } finally {
-    console.warn = originalWarn;
-  }
+  assert.equal(logger.entries.length, 1);
+  const error = String(logger.entries[0]?.fields.error);
+  assert.ok(!/sk-supersecrettoken12345/.test(error), "the raw token must never reach the log");
+  assert.match(error, /REDACTED/);
 });
 
 test("propose(): a successful round with candidates emits no failure log", async () => {
-  const originalWarn = console.warn;
-  const logged: string[] = [];
-  console.warn = (...args: unknown[]) => { logged.push(args.map(String).join(" ")); };
-  try {
-    const depsFactory = fakeDepsFactory({ promptResult: fencedJson(VALID_VERDICT_JSON) });
-    const adapter = new LlmProfileProposerAdapter(depsFactory, { app: "nname" });
+  const logger = memoryLogger();
+  const runtime = fakeRuntime({ promptResult: fencedJson(VALID_VERDICT_JSON) });
+  const adapter = new LlmProfileProposerAdapter(runtime, logger, redaction, { app: "nname" });
 
-    const result = await adapter.propose(SYSTEM, FRONT);
+  const result = await adapter.propose(SYSTEM, FRONT);
 
-    assert.equal(result.length, 2);
-    assert.equal(logged.length, 0, "no warn log must be emitted on a successful round");
-  } finally {
-    console.warn = originalWarn;
-  }
+  assert.equal(result.length, 2);
+  assert.equal(logger.entries.length, 0, "no warn log must be emitted on a successful round");
 });
 
 test("propose(): a successful round filtered to zero (sentinel-only) candidates emits no failure log", async () => {
-  const originalWarn = console.warn;
-  const logged: string[] = [];
-  console.warn = (...args: unknown[]) => { logged.push(args.map(String).join(" ")); };
-  try {
-    const depsFactory = fakeDepsFactory({ promptResult: fencedJson(SENTINEL_ONLY_VERDICT_JSON) });
-    const adapter = new LlmProfileProposerAdapter(depsFactory, { app: "nname" });
+  const logger = memoryLogger();
+  const runtime = fakeRuntime({ promptResult: fencedJson(SENTINEL_ONLY_VERDICT_JSON) });
+  const adapter = new LlmProfileProposerAdapter(runtime, logger, redaction, { app: "nname" });
 
-    const result = await adapter.propose(SYSTEM, FRONT);
+  const result = await adapter.propose(SYSTEM, FRONT);
 
-    assert.deepEqual(result, [], "the sentinel-only candidate must be filtered out, not treated as a throw");
-    assert.equal(logged.length, 0, "no warn log must be emitted — this is a filter, not a throw");
-  } finally {
-    console.warn = originalWarn;
-  }
+  assert.deepEqual(result, [], "the sentinel-only candidate must be filtered out, not treated as a throw");
+  assert.equal(logger.entries.length, 0, "no warn log must be emitted — this is a filter, not a throw");
+});
+
+test("propose(): the first-round prompt names the app, the front repo and every service repo with its mirror, then the transport shapes", async () => {
+  let prompt = "";
+  const runtime = fakeRuntime({ promptResult: fencedJson(VALID_VERDICT_JSON), onPrompt: (text) => { prompt = text; } });
+  const adapter = new LlmProfileProposerAdapter(runtime, silentLogger, redaction, { app: "nname" });
+
+  await adapter.propose(SYSTEM, FRONT);
+
+  const lines = prompt.split("\n");
+  assert.deepEqual(lines.slice(0, 4), [
+    "App: nname",
+    "Frontend repo: ArielFalcon/nname-gateway (mirror: /mirrors/nname-gateway)",
+    "Backend service repos:",
+    "  - ArielFalcon/ms-name-orders (mirror: /mirrors/ms-name-orders)",
+  ]);
+  assert.ok(prompt.indexOf("Boundary profile shapes you may propose") > prompt.indexOf("ms-name-orders"));
+  assert.ok(!prompt.includes("Prior round(s)"), "a first round carries no feedback section");
 });

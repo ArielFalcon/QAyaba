@@ -21,6 +21,7 @@ import { createDelegationBrief } from "@contexts/coordination/application/index.
 import { SidekickExecutor } from "@contexts/coordination/application/index.ts";
 import { renderLeadCorrection } from "@contexts/coordination/application/lead-correction.ts";
 import type { AgentRuntimePort } from "@kernel/ports/agent-runtime.port.ts";
+import { silentLogger } from "@kernel/ports/logger.port.ts";
 import { providerConfig } from "../src/agent-runtime/config.ts";
 import { AGENT_NAME_FOR_ROLE, type AgentRole } from "../src/agent-runtime/types.ts";
 import { askAssistant, type AgentDeps } from "../src/integrations/opencode-client.ts";
@@ -556,7 +557,7 @@ async function assistantPrompts(subject: string): Promise<PromptText[]> {
 /* The onboarding proposer's prompt, on the first round and after a round that scored low. */
 async function proposerPrompts(subject: string): Promise<PromptText[]> {
   const sent: string[] = [];
-  const adapter = new LlmProfileProposerAdapter(async () => recordingDeps(sent), { app: subject });
+  const adapter = new LlmProfileProposerAdapter(recordingRuntime(sent), silentLogger, redaction, { app: subject });
   const front = { repo: "org/web", mirrorDir: "/m/web" };
   const system = [{ repo: "org/orders", mirrorDir: "/m/orders" }];
   const profile = {
