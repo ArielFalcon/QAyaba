@@ -1,10 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import type { AppConfig } from "../orchestrator/config-loader";
-import { buildEffectiveConfig, hashStaticPrompts, parseStoredRunConfig, resolveRunConfig, type RunConfigEnvironment } from "./effective-config";
+import { buildEffectiveConfig, parseStoredRunConfig, resolveRunConfig, type RunConfigEnvironment } from "./effective-config";
 
 const env: RunConfigEnvironment = { runtime: () => "opencode", staticPromptHash: () => "sha256:x", toolsGranted: true, maxCapture: "full" };
 const app = (over: Record<string, unknown> = {}, qa: Record<string, unknown> = {}): AppConfig =>
@@ -47,24 +44,6 @@ test("the coverage the engine reported at the end wins over the one the run star
   assert.deepEqual(buildEffectiveConfig(stored, [], { coverageMode: null, coverageMinRatio: null, captureMode: null }).coverage, stored.coverage);
   assert.equal(buildEffectiveConfig(undefined, [], { coverageMode: null, coverageMinRatio: null, captureMode: "off" }).levers.captureMode, "off");
   assert.equal(buildEffectiveConfig(undefined, [], undefined).levers.captureMode, null);
-});
-
-test("the static prompt hash covers AGENTS.md and every role file, in name order, and changes with any of them", () => {
-  const root = mkdtempSync(join(tmpdir(), "qa-prompt-hash-"));
-  try {
-    mkdirSync(join(root, "agents", "agent"), { recursive: true });
-    writeFileSync(join(root, "agents", "AGENTS.md"), "shared");
-    writeFileSync(join(root, "agents", "agent", "b.md"), "role b");
-    writeFileSync(join(root, "agents", "agent", "a.md"), "role a");
-    const first = hashStaticPrompts(root);
-    assert.match(first ?? "", /^sha256:[0-9a-f]{64}$/);
-    assert.equal(hashStaticPrompts(root), first);
-    writeFileSync(join(root, "agents", "agent", "a.md"), "role a changed");
-    assert.notEqual(hashStaticPrompts(root), first);
-    assert.equal(hashStaticPrompts(join(root, "missing")), null);
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
 });
 
 test("the recorded configuration follows the request's levers over the app's settings and the environment's tools", () => {

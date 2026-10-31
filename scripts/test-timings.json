@@ -705,5 +705,6 @@
   "src/telemetry/tool-trace.test.ts": 216,
   "src/telemetry/validate-trace.test.ts": 2,
   "src/types.test.ts": 1,
-  "src/util/sleep.test.ts": 52
+  "src/util/sleep.test.ts": 52,
+  "qa-engine/test/contexts/run-orchestration/infrastructure/static-prompt-hash.test.ts": 3
 }

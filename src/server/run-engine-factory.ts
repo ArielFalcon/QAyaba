@@ -87,7 +87,7 @@ import type { ArchitectureContext } from "@contexts/generation/application/index
 import type { TelemetryClock, TelemetryPort } from "@kernel/telemetry/telemetry.port";
 import { CONTEXT_MAP_MAX_AGE_MS, contextMapResultCount, type ContextProvenance } from "@kernel/telemetry/context-provenance";
 import { withPromptBodies } from "../telemetry/with-prompt-bodies";
-import { hashStaticPrompts } from "./effective-config";
+import { hashStaticPrompts } from "../../qa-engine/src/contexts/run-orchestration/infrastructure/static-prompt-hash";
 import { withTurnTelemetry } from "@contexts/generation/infrastructure/telemetry/with-turn-telemetry";
 import { agentTurnTraces } from "@contexts/generation/infrastructure/telemetry/turn-trace-registry";
 import type { StepIntentContext } from "@contexts/generation/application/index";

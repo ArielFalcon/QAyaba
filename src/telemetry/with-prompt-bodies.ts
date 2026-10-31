@@ -21,7 +21,7 @@ export function registerPromptBodyHost(next: PromptBodyHost | undefined): void {
 }
 
 export interface PromptBodyDecoratorDeps {
-  /* Digest of the static prompt layers (src/server/effective-config.ts hashStaticPrompts). */
+  /* Digest of the static prompt layers (`hashStaticPrompts`, qa-engine/src/contexts/run-orchestration/infrastructure/static-prompt-hash.ts). */
   readonly staticHash: () => string | null;
   /* The turn span of the session's turn in flight (the registry the turn-span decorator fills). */
   readonly traces: { turnContext(sessionId: string): TelemetryContext | undefined };
