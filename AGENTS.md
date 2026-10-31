@@ -1138,8 +1138,9 @@ that catches nothing. The objective signal that breaks the circle is **change-co
   is neither applied nor judged, and an observation left out leaves the survivors `unobserved`; `MAX_MUTANTS` stays the ceiling.
   `gateSignals.bundleMutation` holds `{ applied, killed, survived[] }`, plus `skippedSites { count, reasons }`
   (sites left out, by `no-source-line` or `not-in-source-line`), `rerunsBySpecFile` (mutants whose tests
-  could not be told), `unreadable` (mutants not judged for unreadable counters) and `leftOut { reruns, reason: "time" }`
-  (re-runs not started for time; span `qayaba.mutation.reruns_left_out`) when there are any; with only unreadable or left-out
+  could not be told), `unreadable` (mutants not judged for unreadable counters) and `leftOut { mutants, observations, reason: "time" }`
+  (re-runs not started for time: the mutants left unjudged and the unmutated observations, counted apart; span
+  `qayaba.mutation.mutants_left_out`, `observations_left_out`) when there are any; with only unreadable or left-out
   mutants the object is present with `applied: 0`.
   **What a survivor moved** (signal, never a gate): the survivor's finding says which observable the mutation changed, because an author
   that knows only the line cannot write the assertion that kills it. Each mutant's re-run is observed (`PW_OBSERVE=1`: the capture block of the seed's

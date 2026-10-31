@@ -5,9 +5,10 @@ import { testOfCase } from "./dump-names.ts";
 /** Why the mutation pass left a re-run out: the coverage purpose's time could not hold it. */
 export const RERUN_LEFT_OUT_FOR_TIME = "time";
 
-/** The re-runs of a mutation pass that were not started (the observations and the mutants), and why. */
+/** The re-runs of a mutation pass that were not started, and why: the mutants left out unjudged, and the unmutated observations (the one before and the one after the mutants) whose absence leaves the survivors unobserved. */
 export interface RerunsLeftOut {
-  reruns: number;
+  mutants: number;
+  observations: number;
   reason: typeof RERUN_LEFT_OUT_FOR_TIME;
 }
 

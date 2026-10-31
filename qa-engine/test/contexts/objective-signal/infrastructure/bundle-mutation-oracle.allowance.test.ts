@@ -49,7 +49,7 @@ test("with time for only part of the pass, the oracle starts no re-run the cover
   const result = await oracle.measure([mutant(10), mutant(12)], "/e2e", "run-1", [TEST], { observe: true, budget: { allowance: timed.allowance, cases: finalCases } });
 
   assert.deepEqual(timed.namespaces, ["run-1-obs", "run-1-mut0"], "the second mutant and the observation after it would not fit what was left");
-  assert.deepEqual(result?.leftOut, { reruns: 2, reason: RERUN_LEFT_OUT_FOR_TIME });
+  assert.deepEqual(result?.leftOut, { mutants: 1, observations: 1, reason: RERUN_LEFT_OUT_FOR_TIME }, "the mutants left out unjudged are counted apart from the observations");
   assert.equal(result?.applied, 1, "a mutant left out is neither applied nor judged");
   assert.equal(result?.survived.length, 1);
   assert.equal(result?.survived[0]?.moved?.kind, "unobserved", "without the observation after, the survivor's moves are not told");
@@ -63,7 +63,7 @@ test("with no time for any re-run, no mutant is applied and the result still say
 
   assert.deepEqual(timed.namespaces, []);
   assert.equal(result?.applied, 0);
-  assert.deepEqual(result?.leftOut, { reruns: 2, reason: RERUN_LEFT_OUT_FOR_TIME }, "the observation before and the mutant; with no observation before, none is made after");
+  assert.deepEqual(result?.leftOut, { mutants: 1, observations: 1, reason: RERUN_LEFT_OUT_FOR_TIME }, "the observation before and the mutant; with no observation before, none is made after");
 });
 
 test("with ample time the pass measures and judges every mutant exactly as it does with no allowance to hold it to", async () => {
