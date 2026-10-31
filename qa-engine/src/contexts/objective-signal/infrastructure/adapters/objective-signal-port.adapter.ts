@@ -321,9 +321,10 @@ export class ObjectiveSignalPortAdapter implements ObjectiveSignalPort {
     return noCodeLines(this.deps.readSource ?? workingCopySource(this.ctx.repoDir, "change-coverage"));
   }
 
-  async recheckSurvivors(survivors: readonly MutantRun[], specDir: string, namespace: string, baselineCases: readonly string[]): Promise<BundleMutationResult | null> {
+  async recheckSurvivors(survivors: readonly MutantRun[], specDir: string, namespace: string, baselineCases: readonly string[], opts?: { rerunBudget?: RerunBudget }): Promise<BundleMutationResult | null> {
     if (!this.deps.mutation || survivors.length === 0) return null;
-    return this.deps.mutation.measure([...survivors], specDir, namespace, [...baselineCases]);
+    if (!opts?.rerunBudget) return this.deps.mutation.measure([...survivors], specDir, namespace, [...baselineCases]);
+    return this.deps.mutation.measure([...survivors], specDir, namespace, [...baselineCases], { budget: opts.rerunBudget });
   }
 
   blocks(status: "pass" | "fail" | "unknown"): boolean {

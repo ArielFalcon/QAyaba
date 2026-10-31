@@ -66,9 +66,10 @@ export interface ObjectiveSignalPort {
    */
   /**
    * The surviving mutants applied again, each re-running its `specFiles`, and judged against `baselineCases` (the passing cases of
-   * those specs) as the first pass judged them: killed when one of those cases fails. Re-runs land under `namespace`. Null when none
-   * was judged. Absent on a port with no mutation pass. A signal, never a gate.
+   * those specs) as the first pass judged them: killed when one of those cases fails. Re-runs land under `namespace`, each held to
+   * `opts.rerunBudget` as the first pass's are (one it cannot hold is not started, and `leftOut` counts it). Null when none was judged,
+   * unreadable or left out. Absent on a port with no mutation pass. A signal, never a gate.
    */
-  recheckSurvivors?(survivors: readonly MutantRun[], specDir: string, namespace: string, baselineCases: readonly string[]): Promise<BundleMutationResult | null>;
+  recheckSurvivors?(survivors: readonly MutantRun[], specDir: string, namespace: string, baselineCases: readonly string[], opts?: { rerunBudget?: RerunBudget }): Promise<BundleMutationResult | null>;
   recount?(br: BlastRadius, specDir: string, diff: string | undefined, reruns: readonly CoverageRerun[], opts?: { namespace?: string; proofs?: readonly MutantProof[]; exclusions?: CoverageExclusions; caseFiles?: readonly string[]; onRead?: (read: CoverageRead) => void }): Promise<CoverageRecount | null>;
 }

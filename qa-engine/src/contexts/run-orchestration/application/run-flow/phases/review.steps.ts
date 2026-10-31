@@ -29,7 +29,7 @@ import { closedLoopSignal, correctionBudgetSpent, correctThroughLead, mayCorrect
 import { CORRECTION_ORIGIN, type CorrectionFinding } from "@contexts/coordination/application/index.ts";
 import { resolveTested } from "./fix-loop.steps.ts";
 import { reviewChangeViewOf } from "../review-change.ts";
-import { branchCoverageOf, changeCoverageOf, traceAcceptedFiles } from "./coverage.steps.ts";
+import { branchCoverageOf, changeCoverageOf, rerunBudgetOf, traceAcceptedFiles } from "./coverage.steps.ts";
 import { addDroppedRejection, addReviewStats, annotateReviewPhase, greenSpecFiles, newReviewTally, readReviewedSpecs, rebuttalEvidence, recordReviewDecision } from "./review-services.ts";
 import { pathOnly } from "@kernel/route-availability.ts";
 import { dataContradictionRefs } from "@kernel/data-contradiction.ts";
@@ -641,6 +641,8 @@ export async function remeasureStaleCoverage(state: Readonly<RunState>, ctx: Wor
         caseFiles,
         ...(state.grounding.candidates.length > 0 ? { candidates: state.grounding.candidates } : {}),
         ...(state.coverage.exclusions ? { exclusions: state.coverage.exclusions } : {}),
+        /* Its mutation re-runs are the time of the purpose the run is in, estimated from this final execution. */
+        rerunBudget: rerunBudgetOf(ctx, ctx.services.runDeadlinePort.currentPurpose?.() ?? "review", measuredRun.cases),
       },
     );
     return {

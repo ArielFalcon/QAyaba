@@ -24,7 +24,7 @@ function rig(mode: "signal" | "enforce", finalVerdict: RunVerdict) {
     cfg: { coveragePolicyMode: mode },
     telemetry: { counter: (name: string) => (value: number, attrs: Record<string, string>) => void counted.push({ name, value, attrs }) },
     workspace: { specDir: "/e2e" },
-    services: { specRoot: { mirrorDir: "/mirror" } },
+    services: { specRoot: { mirrorDir: "/mirror" }, runDeadlinePort: {} },
   } as unknown as WorkspaceRunContext;
   return { ctx, measured, counted };
 }

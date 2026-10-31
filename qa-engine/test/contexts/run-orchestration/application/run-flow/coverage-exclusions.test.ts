@@ -82,7 +82,7 @@ function ctxOf(codeGraph?: Partial<CodeGraphPort>, extra: { triggerRepo?: string
     input: { sha: Sha.of("abc1234"), mode: "diff", ...extra },
     cfg: { coveragePolicyMode: "signal" },
     workspace: { specDir: "/e2e" },
-    services: { specRoot: { mirrorDir: "/mirror" } },
+    services: { specRoot: { mirrorDir: "/mirror" }, runDeadlinePort: {} },
   } as unknown as WorkspaceRunContext;
   return { ctx, measured, recounted, asked };
 }

@@ -1556,6 +1556,8 @@ interface MutationRigOptions {
   reachesNoPage?: boolean;
   /* The run's clock, which each re-run of the mutation pass moves on by `rerunMs`; absent, time stands still. */
   clock?: { now: number; rerunMs: number };
+  /* An execution whose namespace ends with `namespace` sets the clock to `now` once it has run. */
+  clockAfter?: { namespace: string; now: number };
 }
 
 function mutationRig(o: MutationRigOptions = {}) {
@@ -1602,6 +1604,7 @@ async function runMutationRig(runId: string, o: MutationRigOptions = {}, deadlin
   const real = o.realWorkspace ? realCoverageWorkspace() : undefined;
   const execute: ExecutionPort["execute"] = async (dir, opts) => {
     const r = await passPerSpec(dir, opts);
+    if (o.clock && o.clockAfter && (opts as { namespace?: string } | undefined)?.namespace?.endsWith(o.clockAfter.namespace)) o.clock.now = o.clockAfter.now;
     return { ...r, cases: r.cases.map((c) => ({ ...c, file: PASS_SPEC, name: PASS_CASE, durationMs: 1000 })) };
   };
   const { ports, savedOutcomes } = stubPorts({
@@ -1724,6 +1727,28 @@ test("the coverage allotment is reported when the coverage regeneration is allot
   const coverage = rig.telemetry.events.filter((e) => e.name === "allotment" && e.attrs["qayaba.allotment.purpose"] === "coverage");
   assert.equal(coverage.length, 1, "once per purpose");
   assert.deepEqual(coverage.map((e) => e.attrs["qayaba.allotment.ms"]), atRegeneration, "the time the regeneration was allotted, after the mutation pass spent its share");
+});
+
+/* A real deadline of an hour on a clock the test moves. */
+const clockedDeadline = (clock: { now: number }) => new RunDeadline({ now: () => clock.now, budgets: { ...RUN_TIME_BUDGET_MS, diff: 3_600_000 }, schedule: () => () => {} });
+
+test("the re-check of the surviving mutants after the regeneration starts no mutant the coverage allowance cannot hold, and the closure says how many it left out", async () => {
+  /* The acceptance of the regeneration leaves the run 30 s: less than the coverage purpose owes the purposes after it. */
+  const clock = { now: 0, rerunMs: 0 };
+  const { rig, coverage } = await runMutationRig("closure-held-to-allowance", { mode: "enforce", minRatio: 0.9, realWorkspace: true, clock, clockAfter: { namespace: "-acc0", now: 3_600_000 - 30_000 } }, clockedDeadline(clock));
+
+  assert.deepEqual(rig.reruns.slice(0, 5), ["obs", "mut0", "mut1", "mut2", "obs2"], "the first pass had its time");
+  assert.equal(rig.reruns.length, 5, "neither the re-check nor the final pass started a re-run");
+  assert.deepEqual(coverage.survivorClosure, { routed: 1, judged: 0, closed: 0, open: [], leftOut: { mutants: 1, observations: 0, reason: "time" } });
+});
+
+test("the final measurement of an enforce run starts no mutation re-run the time its purpose has left cannot hold, and records what it left out", async () => {
+  /* The final execution leaves the run half a second: less than the one second each re-run's case took. */
+  const clock = { now: 0, rerunMs: 0 };
+  const { rig, coverage } = await runMutationRig("final-pass-held-to-allowance", { mode: "enforce", minRatio: 0.9, realWorkspace: true, clock, clockAfter: { namespace: "-coverage-final", now: 3_600_000 - 500 } }, clockedDeadline(clock));
+
+  assert.deepEqual(rig.reruns, ["obs", "mut0", "mut1", "mut2", "obs2", "mut0"], "the first pass and the re-check ran; the final pass started nothing");
+  assert.deepEqual(coverage.bundleMutation, { applied: 0, killed: 0, survived: [], leftOut: { mutants: 3, observations: 1, reason: "time" } });
 });
 
 test("a mutation pass that judged no mutant leaves the coverage by execution as it was", async () => {

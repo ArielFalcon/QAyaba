@@ -1,9 +1,10 @@
 /* Whether a regeneration a surviving mutant drove made a test notice it. Pure; no I/O. A survivor routed to an author is a fault the
    suite reached and checked nothing of; the regeneration that answers it stands only as text until that same mutant is applied to the
    specs it changed and a test that passed on the unmutated script fails. A survivor re-run that reached no page, or whose counters could not be read, is not judged: it is
-   neither closed nor open (the unreadable ones are counted apart). A signal, never a gate. */
+   neither closed nor open (the unreadable ones are counted apart, and so are those the time left could not re-run). A signal, never a gate. */
 import { normalizeSpecPath } from "@kernel/spec-path.ts";
 import type { BundleMutationResult, MutantRun, SurvivedMutant } from "./coverage-collector.ts";
+import type { RerunsLeftOut } from "./rerun-budget.ts";
 import { survivorRoutes } from "./render-coverage-gap.ts";
 
 export interface SurvivorClosure {
@@ -17,6 +18,8 @@ export interface SurvivorClosure {
   open: { file: string; line: number; operator: string }[];
   /** Re-applied but not judged because the counters of the re-run could not be read: neither closed nor open, and apart from one that reached no page. Absent when none was. */
   unreadable?: number;
+  /** Not re-applied because the time left could not hold the re-run: neither judged, closed nor open. Absent when none was. */
+  leftOut?: RerunsLeftOut;
 }
 
 /*
@@ -36,5 +39,5 @@ export function survivorRechecks(routed: readonly MutantRun[], survived: readonl
 
 export function survivorClosureOf(routed: number, result: BundleMutationResult | null): SurvivorClosure {
   if (!result) return { routed, judged: 0, closed: 0, open: [] };
-  return { routed, judged: result.applied, closed: result.killed, open: result.survived.map(({ file, line, operator }) => ({ file, line, operator })), ...(result.unreadable ? { unreadable: result.unreadable } : {}) };
+  return { routed, judged: result.applied, closed: result.killed, open: result.survived.map(({ file, line, operator }) => ({ file, line, operator })), ...(result.unreadable ? { unreadable: result.unreadable } : {}), ...(result.leftOut ? { leftOut: result.leftOut } : {}) };
 }
