@@ -119,6 +119,7 @@ Decisions (ADR):
 | [ADR-0019](adr/0019-owner-decisions-rfc-0014.md) | RFC-0014's answers: the signal that replaces the diff tiers | Accepted | RFC-0014's questions, under ADR-0015 point 2 |
 | [ADR-0020](adr/0020-owner-decisions-platform-steps-2-6.md) | Decisions left open for platform steps 2-6 | Accepted | T13's mapping, under ADR-0015 point 2 |
 | [ADR-0021](adr/0021-owner-decisions-platform-step-3.md) | Decisions left open for platform step 3 | Accepted | T13 U5's mapping, under ADR-0015 point 2; amends ADR-0020 row 2 |
+| [ADR-0022](adr/0022-owner-decisions-platform-step-4.md) | Decisions left open for platform step 4 | Accepted | T13 U6's mapping, under ADR-0015 point 2; carries out ADR-0020 row 1 and OD-16 |
 
 Proposals (RFC):
 

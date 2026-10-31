@@ -458,3 +458,230 @@ Target: connection, schema, migrations, backup, retention and repositories behin
 | `src/util/sleep.ts` | 1 | none (delete; export one helper from the engine) | `sleep` :3-16 is line for line the engine's `sleepWithAbort`, `qa-engine/src/contexts/generation/infrastructure/sse/event-stream.ts:141-153` (the signature differs: `opts.signal` against a bare signal); a third plain `sleep` at `run-orchestration/infrastructure/adapters/deploy-gate-port.adapter.ts:17`. No parity test. Only importer `server/runner.ts:22` | Step 1; delete `sleep.test.ts` with it after `runner.ts` switches |
 
 
+
+# Step 4 placement map: shaping what remains of src/ into the platform's subfolders (T13 U6, code at 2c3bd9a1)
+
+Written by the U6 writer before the first move, from the tree at 2c3bd9a1 (platform step 3 and U4f integrated). It places every module still under `src/` in one of the platform's target subfolders (`docs/engine-platform-architecture.md`, step 4) or in the test-support root (RFC-0001 OD-16). At this step the folders are subfolders of `src/`; `src/` becomes `platform/` at step 5, so a row reading `platform/persistence` in the parts above is `src/persistence/` here. The rows below supersede the owner column of the three step-0 parts above wherever they differ (steps 1 to 3 and U4f moved or deleted many of the modules those parts place). Every answer the records left open is a row of [ADR-0022](../../docs/architecture/adr/0022-owner-decisions-platform-step-4.md).
+
+## Result
+
+| Target | Modules moved in | Tests moved with them | Modules already there (stay) | Tests already there (stay) |
+|---|---|---|---|---|
+| `src/composition/` | 20 | 26 | 0 | 0 |
+| `src/entrypoints/` | 66 | 60 | 0 | 0 |
+| `src/persistence/` | 28 | 20 | 0 | 0 |
+| `src/telemetry/` | 4 | 4 | 13 | 25 |
+| `src/agent-runtime/` | 5 | 10 | 8 | 11 |
+| `src/settings/` | 5 | 5 | 6 | 4 |
+| `src/test-support/` | 6 | 3 | 0 | 0 |
+| `src/` root | 0 | 0 | 0 | 2 |
+| Total | 134 | 128 | 27 | 42 |
+
+`src/server/`, `src/integrations/`, `src/orchestrator/`, `src/contract/`, `src/qa/` and `src/util/` hold nothing after step 4. The two repository-wide guard tests with no module (`src/no-model-literals.test.ts`, `src/one-copy-per-rule.test.ts`) stay at the `src/` root (ADR-0022 row 15); nothing else is left in place except the modules that were already in a target folder.
+
+Counts include the migrations, the probe script and the roster fixture. Each test moves with the module it pins; a test with no module goes to the folder of what it exercises (ADR-0022 row 14).
+
+## src/composition/ (20 modules moved in)
+
+| Old path | New path | Why |
+|---|---|---|
+| `src/server/app-admin.ts` | `src/composition/app-admin.ts` | ADR-0021 row 6 group (composition with I/O). |
+| `src/cli.ts` | `src/composition/cli.ts` | A second process root (`npm run qa`): it builds its own queue, runtime and telemetry, so it stays whole beside `wire-app.ts`; splitting it is a code change (ADR-0022 row 3). |
+| `src/orchestrator/config-loader.ts` | `src/composition/config-loader.ts` | ADR-0021 row 6 group (composition with I/O, 19 importers). |
+| `src/server/context-map-wiring.ts` | `src/composition/context-map-wiring.ts` | Row 8: the ports of the context-map rebuild question. |
+| `src/server/durable-run-events.ts` | `src/composition/durable-run-events.ts` | Row 8: wires the run-event store to the history repository. |
+| `src/server/egress-wiring.ts` | `src/composition/egress-wiring.ts` | Row 8: the egress controller singleton and registries file; governance-sensitive (own commit). |
+| `src/server/engine-root.ts` | `src/composition/engine-root.ts` | Row 8: calls every context's `build<Context>`. |
+| `src/server/evaluation-service.ts` | `src/composition/evaluation-service.ts` | Its header: the shell's composition of the evaluation context (ADR-0022 row 8). |
+| `src/server/exec-sandbox-factory.ts` | `src/composition/exec-sandbox-factory.ts` | Row 8: the environment into the engine's launcher; governance-sensitive (own commit). |
+| `src/server/file-boundary.ts` | `src/composition/file-boundary.ts` | Row 8: the file-boundary gate and layout; governance-sensitive (own commit). |
+| `src/integrations/github.ts` | `src/composition/github.ts` | ADR-0021 row 6 group (reads `GITHUB_TOKEN`). |
+| `src/index.ts` | `src/composition/index.ts` | The process root: `main`, started by `npm start` and the image's command. |
+| `src/server/login-bootstrap-wiring.ts` | `src/composition/login-bootstrap-wiring.ts` | Row 8: the suite-store question of the login bootstrap. |
+| `src/server/mirror-prune.ts` | `src/composition/mirror-prune.ts` | Row 8: the reserved mirror directory names handed to the prune rule. |
+| `src/server/onboard.ts` | `src/composition/onboard.ts` | ADR-0021 row 6 group (the file half of onboarding). |
+| `src/telemetry/process-telemetry.ts` | `src/composition/process-telemetry.ts` | Row 8: the process-wide handle built once by the two roots. |
+| `src/integrations/repo-mirror.ts` | `src/composition/repo-mirror.ts` | Stays in the shell (ADR-0021 row 2): it imports `detached-git-hardening`, which the engine may not, and spawns git under a path-bound launcher entry. |
+| `src/server/run-engine-factory.ts` | `src/composition/run-engine-factory.ts` | Row 8: maps an `AppConfig` into the engine's `EngineRootDeps`. |
+| `src/server/service-context.ts` | `src/composition/service-context.ts` | Row 8: the real file and git calls of the service staging. |
+| `src/server/wire-app.ts` | `src/composition/wire-app.ts` | Row 8: builds every adapter and starts the servers. |
+
+## src/entrypoints/ (66 modules moved in)
+
+| Old path | New path | Why |
+|---|---|---|
+| `src/server/api-request-log.ts` | `src/entrypoints/api-request-log.ts` | Row 7: parses, authorizes, delegates or maps a response. |
+| `src/server/api.ts` | `src/entrypoints/api.ts` | Row 7: parses, authorizes, delegates or maps a response. |
+| `src/server/api/api-error.ts` | `src/entrypoints/api/api-error.ts` | Row 7: the control-plane API. |
+| `src/server/api/context.ts` | `src/entrypoints/api/context.ts` | Row 7: the control-plane API. |
+| `src/server/api/deps.ts` | `src/entrypoints/api/deps.ts` | Row 7: the control-plane API. |
+| `src/server/api/handlers/agent.ts` | `src/entrypoints/api/handlers/agent.ts` | Row 7: the control-plane API. |
+| `src/server/api/handlers/apps.ts` | `src/entrypoints/api/handlers/apps.ts` | Row 7: the control-plane API. |
+| `src/server/api/handlers/auth.ts` | `src/entrypoints/api/handlers/auth.ts` | Row 7: the control-plane API. |
+| `src/server/api/handlers/evaluations.ts` | `src/entrypoints/api/handlers/evaluations.ts` | Row 7: the control-plane API. |
+| `src/server/api/handlers/help.ts` | `src/entrypoints/api/handlers/help.ts` | Row 7: the control-plane API. |
+| `src/server/api/handlers/insights.ts` | `src/entrypoints/api/handlers/insights.ts` | Row 7: the control-plane API. |
+| `src/server/api/handlers/runs.ts` | `src/entrypoints/api/handlers/runs.ts` | Row 7: the control-plane API. |
+| `src/server/api/handlers/system.ts` | `src/entrypoints/api/handlers/system.ts` | Row 7: the control-plane API. |
+| `src/server/api/request.ts` | `src/entrypoints/api/request.ts` | Row 7: the control-plane API. |
+| `src/server/api/respond.ts` | `src/entrypoints/api/respond.ts` | Row 7: the control-plane API. |
+| `src/server/api/route-table.ts` | `src/entrypoints/api/route-table.ts` | Row 7: the control-plane API. |
+| `src/server/api/run-request.ts` | `src/entrypoints/api/run-request.ts` | Row 7: the control-plane API. |
+| `src/server/api/support.ts` | `src/entrypoints/api/support.ts` | Row 7: the control-plane API. |
+| `src/server/api/use-cases/ask.ts` | `src/entrypoints/api/use-cases/ask.ts` | Row 7: the control-plane API. |
+| `src/server/api/use-cases/boundaries.ts` | `src/entrypoints/api/use-cases/boundaries.ts` | Row 7: the control-plane API. |
+| `src/server/api/use-cases/continue-run.ts` | `src/entrypoints/api/use-cases/continue-run.ts` | Row 7: the control-plane API. |
+| `src/server/api/use-cases/create-run.ts` | `src/entrypoints/api/use-cases/create-run.ts` | Row 7: the control-plane API. |
+| `src/server/api/use-cases/login-bootstrap.ts` | `src/entrypoints/api/use-cases/login-bootstrap.ts` | Row 7: the control-plane API. |
+| `src/server/auth.ts` | `src/entrypoints/auth.ts` | Row 7: authenticates the caller; governance-sensitive (own commit). |
+| `src/cli-exit.ts` | `src/entrypoints/cli-exit.ts` | Row 7: the CLI's exit-code mapping. |
+| `src/contract/campaign.ts` | `src/entrypoints/contract/campaign.ts` | Row 7: the wire contract. |
+| `src/contract/commands.ts` | `src/entrypoints/contract/commands.ts` | Row 7: the wire contract. |
+| `src/contract/openapi.ts` | `src/entrypoints/contract/openapi.ts` | Row 7: the wire contract. |
+| `src/server/control-plane-router.ts` | `src/entrypoints/control-plane-router.ts` | Row 7: parses, authorizes, delegates or maps a response. |
+| `src/server/coordination-events.ts` | `src/entrypoints/coordination-events.ts` | Row 7: parses, authorizes, delegates or maps a response. |
+| `src/server/create-app.ts` | `src/entrypoints/create-app.ts` | Row 7: parses, authorizes, delegates or maps a response. |
+| `src/server/effective-config.ts` | `src/entrypoints/effective-config.ts` | Row 7: the stored effective configuration and its reader. |
+| `src/server/event-bus.ts` | `src/entrypoints/event-bus.ts` | Row 7: parses, authorizes, delegates or maps a response. |
+| `src/server/file-boundary-check.ts` | `src/entrypoints/file-boundary-check.ts` | Row 7: the boot command `bin/container-entrypoint.sh` runs as root; governance-sensitive (own commit). |
+| `src/server/file-boundary-probe.d.mts` | `src/entrypoints/file-boundary-probe.d.mts` | Moves with the probe. |
+| `src/server/file-boundary-probe.mjs` | `src/entrypoints/file-boundary-probe.mjs` | Moves with the boot check; governance-sensitive. |
+| `src/server/github-auth.ts` | `src/entrypoints/github-auth.ts` | Row 7: GitHub as the control plane's identity; governance-sensitive. |
+| `src/server/guarded-handler.ts` | `src/entrypoints/guarded-handler.ts` | Row 7: parses, authorizes, delegates or maps a response. |
+| `src/server/guidance.ts` | `src/entrypoints/guidance.ts` | Row 7: parses, authorizes, delegates or maps a response. |
+| `src/server/health-poller.ts` | `src/entrypoints/health-poller.ts` | Row 7: parses, authorizes, delegates or maps a response. |
+| `src/server/helpers.ts` | `src/entrypoints/helpers.ts` | Row 7: parses, authorizes, delegates or maps a response. |
+| `src/qa/learning/infra-error-gloss.ts` | `src/entrypoints/infra-error-gloss.ts` | Row 7: parses, authorizes, delegates or maps a response. |
+| `src/server/onboarding/onboarding-job.ts` | `src/entrypoints/onboarding/onboarding-job.ts` | Row 7: the single in-process onboarding job and its view. |
+| `src/server/onboarding/resolution-summary.ts` | `src/entrypoints/onboarding/resolution-summary.ts` | Row 7: the single in-process onboarding job and its view. |
+| `src/server/queue.ts` | `src/entrypoints/queue.ts` | Row 7: parses, authorizes, delegates or maps a response. |
+| `src/server/rate-limit.ts` | `src/entrypoints/rate-limit.ts` | Row 7: parses, authorizes, delegates or maps a response. |
+| `src/server/report-view.ts` | `src/entrypoints/report-view.ts` | Row 7: parses, authorizes, delegates or maps a response. |
+| `src/server/run-delegate.ts` | `src/entrypoints/run-delegate.ts` | Row 7: parses, authorizes, delegates or maps a response. |
+| `src/server/run-events.ts` | `src/entrypoints/run-events.ts` | Row 7: parses, authorizes, delegates or maps a response. |
+| `src/server/run-freeze.ts` | `src/entrypoints/run-freeze.ts` | Row 7: the per-request freeze decision read by the runner and the factory. |
+| `src/server/run-report-view.ts` | `src/entrypoints/run-report-view.ts` | Row 7: parses, authorizes, delegates or maps a response. |
+| `src/server/run-view.ts` | `src/entrypoints/run-view.ts` | Row 7: parses, authorizes, delegates or maps a response. |
+| `src/server/runner.ts` | `src/entrypoints/runner.ts` | Row 7: the single funnel every trigger goes through. |
+| `src/server/sandbox-health.ts` | `src/entrypoints/sandbox-health.ts` | Row 7: parses, authorizes, delegates or maps a response. |
+| `src/orchestrator/schemas.ts` | `src/entrypoints/schemas.ts` | Row 7: parses, authorizes, delegates or maps a response. |
+| `src/server/shutdown.ts` | `src/entrypoints/shutdown.ts` | Process lifecycle the HTTP servers call; the roots import it (ADR-0022 row 9). |
+| `src/server/signals-view.ts` | `src/entrypoints/signals-view.ts` | Row 7: parses, authorizes, delegates or maps a response. |
+| `src/util/sleep.ts` | `src/entrypoints/sleep.ts` | Row 7: parses, authorizes, delegates or maps a response. |
+| `src/server/static.ts` | `src/entrypoints/static.ts` | Row 7: parses, authorizes, delegates or maps a response. |
+| `src/qa/test-data.ts` | `src/entrypoints/test-data.ts` | Row 7: parses, authorizes, delegates or maps a response. |
+| `src/server/tools-endpoint.ts` | `src/entrypoints/tools-endpoint.ts` | Row 7: the internal listener for the agents' tools; governance-sensitive. |
+| `src/server/trends-view.ts` | `src/entrypoints/trends-view.ts` | Row 7: parses, authorizes, delegates or maps a response. |
+| `src/qa/value-report.ts` | `src/entrypoints/value-report.ts` | Row 7: parses, authorizes, delegates or maps a response. |
+| `src/server/version.ts` | `src/entrypoints/version.ts` | Row 7: parses, authorizes, delegates or maps a response. |
+| `src/server/webhook-handler.ts` | `src/entrypoints/webhook-handler.ts` | Row 7: parses, authorizes, delegates or maps a response. |
+| `src/server/webhook.ts` | `src/entrypoints/webhook.ts` | Row 7: parses, authorizes, delegates or maps a response. |
+
+## src/persistence/ (28 modules moved in)
+
+| Old path | New path | Why |
+|---|---|---|
+| `src/server/persistence/backup.ts` | `src/persistence/backup.ts` | Row 6: the one database. |
+| `src/server/persistence/database.ts` | `src/persistence/database.ts` | Row 6: the one database. |
+| `src/server/evaluation-evidence.ts` | `src/persistence/evaluation-evidence.ts` | The evidence port over the run history (reads only). |
+| `src/server/persistence/index.ts` | `src/persistence/index.ts` | Row 6: the one database. |
+| `src/server/persistence/json-column.ts` | `src/persistence/json-column.ts` | Row 6: the one database. |
+| `src/server/lesson-store-sqlite-adapter.ts` | `src/persistence/lesson-store-sqlite-adapter.ts` | An engine port over the history database. |
+| `src/server/persistence/migrations/0001-initial.ts` | `src/persistence/migrations/0001-initial.ts` | Row 6: the one database. |
+| `src/server/persistence/migrations/index.ts` | `src/persistence/migrations/index.ts` | Row 6: the one database. |
+| `src/server/phase-history.ts` | `src/persistence/phase-history.ts` | The phase-history port over the run history. |
+| `src/server/plan-snapshot-sqlite.adapter.ts` | `src/persistence/plan-snapshot-sqlite.adapter.ts` | An engine port over the history database. |
+| `src/server/persistence/repositories/context.repository.ts` | `src/persistence/repositories/context.repository.ts` | Row 6: the one database. |
+| `src/server/persistence/repositories/evaluation.repository.ts` | `src/persistence/repositories/evaluation.repository.ts` | Row 6: the one database. |
+| `src/server/persistence/repositories/learning.repository.ts` | `src/persistence/repositories/learning.repository.ts` | Row 6: the one database. |
+| `src/server/persistence/repositories/lesson.repository.ts` | `src/persistence/repositories/lesson.repository.ts` | Row 6: the one database. |
+| `src/server/persistence/repositories/run.repository.ts` | `src/persistence/repositories/run.repository.ts` | Row 6: the one database. |
+| `src/server/persistence/repositories/telemetry.repository.ts` | `src/persistence/repositories/telemetry.repository.ts` | Row 6: the one database. |
+| `src/server/persistence/retention.ts` | `src/persistence/retention.ts` | Row 6: the one database. |
+| `src/server/run-history-sqlite-adapter.ts` | `src/persistence/run-history-sqlite-adapter.ts` | An engine port over the history database. |
+| `src/server/persistence/score-value.ts` | `src/persistence/score-value.ts` | Row 6: the one database. |
+| `src/server/spec-snapshot-sqlite.adapter.ts` | `src/persistence/spec-snapshot-sqlite.adapter.ts` | An engine port over the history database. |
+| `src/types.ts` | `src/persistence/types.ts` | The stored run shapes the repositories read and write; imported by 19 modules (ADR-0022 row 6). |
+| `src/server/use-case-reference-loader.ts` | `src/persistence/use-case-reference-loader.ts` | The reference-set reader of the evidence assembly; its only production consumer is in persistence (ADR-0022 row 8). |
+| `src/server/persistence/migrations/0002` to `0006` | `src/persistence/migrations/` (same names) | Row 6. |
+
+## src/telemetry/ (4 modules moved in)
+
+| Old path | New path | Why |
+|---|---|---|
+| `src/integrations/logger.ts` | `src/telemetry/logger.ts` | Row 6: the process logger (inventory: platform/telemetry). |
+| `src/server/metrics.ts` | `src/telemetry/metrics.ts` | ADR-0020 row 1: kept, moves to the telemetry folder. |
+| `src/integrations/redacting-logger.ts` | `src/telemetry/redacting-logger.ts` | Row 6: the LoggerPort adapter that redacts before it writes. |
+| `src/orchestrator/sanitizer.ts` | `src/telemetry/sanitizer.ts` | The redaction at the logging and egress edge (ADR-0022 row 7). |
+
+## src/agent-runtime/ (5 modules moved in)
+
+| Old path | New path | Why |
+|---|---|---|
+| `src/server/agent-runtime.ts` | `src/agent-runtime/agent-runtime.ts` | Row 6. |
+| `src/util/net.ts` | `src/agent-runtime/net.ts` | The outbound HTTP dispatcher of the agent transport. |
+| `src/integrations/opencode-client.ts` | `src/agent-runtime/opencode-client.ts` | Row 6: the connection to the agent server. |
+| `src/integrations/opencode-server-auth.ts` | `src/agent-runtime/opencode-server-auth.ts` | Row 6: the connection to the agent server. |
+| `src/qa/usage.ts` | `src/agent-runtime/usage.ts` | The token and cost shapes of the agent transport. |
+
+## src/settings/ (5 modules moved in)
+
+| Old path | New path | Why |
+|---|---|---|
+| `src/server/api-token.ts` | `src/settings/api-token.ts` | Row 6 (inventory: platform/settings): the control-plane secret the process owns once; governance-sensitive (own commit). |
+| `src/server/env-store.ts` | `src/settings/env-store.ts` | Row 6: persists operator variables to `.env` and the live environment. |
+| `src/util/env.ts` | `src/settings/env.ts` | Row 6: reads the environment. |
+| `src/paths.ts` | `src/settings/paths.ts` | Row 6: the roots every other folder locates its directories by. |
+| `src/server/port.ts` | `src/settings/port.ts` | Row 6: the control plane's port and listen host, which the settings registry reads. |
+
+## src/test-support/ (6 modules moved in)
+
+| Old path | New path | Why |
+|---|---|---|
+| `src/server/web-console/console-harness.ts` | `src/test-support/console-harness.ts` | Test support (OD-16): nothing in production imports it. |
+| `src/integrations/fixtures/README.md` | `src/test-support/fixtures/README.md` | Test support (OD-16). |
+| `src/integrations/fixtures/opencode-roster.json` | `src/test-support/fixtures/opencode-roster.json` | Test support (OD-16). |
+| `src/integrations/fixtures/opencode-roster.ts` | `src/test-support/fixtures/opencode-roster.ts` | Test support (OD-16). |
+| `src/no-console.scan.ts` | `src/test-support/no-console.scan.ts` | Test support (OD-16): nothing in production imports it. |
+| `src/telemetry/trace-harness.ts` | `src/test-support/trace-harness.ts` | Test support (OD-16): nothing in production imports it. |
+
+## Left in place
+
+| Path | Why |
+|---|---|
+| `src/agent-runtime/*` (8 modules), `src/settings/*` (6), `src/telemetry/*` (13) | Already in their target folder. |
+| `src/no-model-literals.test.ts`, `src/one-copy-per-rule.test.ts` | Guards over the whole `src/` tree with no module of their own; they leave with the root rename at step 5 (ADR-0022 row 15). |
+
+## Platform-internal imports the shape leaves (for step 6)
+
+Counts of production imports between the subfolders after step 4, measured on the import graph of 2c3bd9a1 with the map above. Step 4 moves paths and breaks no coupling a move does not need; step 6 adds the rule that the subfolders meet only in `composition/` and takes these edges to zero or to injected ports (ADR-0022 row 16). `composition -> x` is the allowed direction; the rows marked "not toward composition" are the others.
+
+| From | To | Imports |
+|---|---|---|
+| `composition` | `agent-runtime` | 14 |
+| `composition` | `entrypoints` | 32 |
+| `composition` | `persistence` | 17 |
+| `composition` | `settings` | 22 |
+| `composition` | `telemetry` | 16 |
+| `agent-runtime` | `entrypoints` | 1 (not toward composition) |
+| `agent-runtime` | `persistence` | 2 (not toward composition) |
+| `agent-runtime` | `settings` | 6 (not toward composition) |
+| `agent-runtime` | `telemetry` | 5 (not toward composition) |
+| `entrypoints` | `agent-runtime` | 3 (not toward composition) |
+| `entrypoints` | `composition` | 12 (not toward composition) |
+| `entrypoints` | `persistence` | 21 (not toward composition) |
+| `entrypoints` | `settings` | 5 (not toward composition) |
+| `entrypoints` | `telemetry` | 16 (not toward composition) |
+| `persistence` | `agent-runtime` | 1 (not toward composition) |
+| `persistence` | `entrypoints` | 2 (not toward composition) |
+| `persistence` | `settings` | 3 (not toward composition) |
+| `persistence` | `telemetry` | 11 (not toward composition) |
+| `settings` | `composition` | 1 (not toward composition) |
+| `settings` | `entrypoints` | 2 (not toward composition) |
+| `settings` | `telemetry` | 4 (not toward composition) |
+| `telemetry` | `agent-runtime` | 1 (not toward composition) |
+| `telemetry` | `composition` | 1 (not toward composition) |
+| `telemetry` | `persistence` | 3 (not toward composition) |
+| `telemetry` | `settings` | 2 (not toward composition) |
+
+The couplings the step-0 part "rest" lists ("Platform-internal couplings Step 4 must break") that this map keeps: `settings/registry.ts` and `settings/settings.ts` import `entrypoints/tools-endpoint` and `composition/egress-wiring` for constants and a parser; `telemetry/ledger.ts` and `telemetry/bootstrap.ts` import `persistence/`; `telemetry/with-prompt-bodies.ts` imports `agent-runtime/opencode-client`; `persistence/` and `agent-runtime/` import `telemetry/` (the logger and the sanitizer) and `settings/active`. None of these needs breaking for a move, and each is a code change.
