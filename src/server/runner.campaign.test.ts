@@ -13,6 +13,7 @@ import { CampaignCaptureMismatchError } from "./campaign-capture";
 import type { RunConfigEnvironment } from "./effective-config";
 import { getHistory } from "./persistence/index";
 import { parseStoredRunConfig } from "./effective-config";
+import { continuationRequestOf } from "./wire-app";
 
 const cfg = (name: string, qa: Record<string, unknown> = {}): AppConfig =>
   ({
@@ -322,4 +323,38 @@ test("a frozen request queues no login bootstrap and rebuilds no context map ahe
   assert.equal(queue.size, 2, "the bootstrap and the run");
   await queue.drain();
   assert.ok(modes.includes("context"), "the ordinary request rebuilt the map first");
+});
+
+test("a continuation of a campaign replicate is part of the campaign: it carries the replicate's labels and is frozen as it was, in the arm it ran in", async () => {
+  const h = traceHarness();
+  const queue = new JobQueue();
+  const app = uniqueApp();
+  const continuationOf = async (parentId: string): Promise<{ id: string; told: unknown[] }> => {
+    const parent = getHistory().runs.getRecord(parentId)!;
+    const request = continuationRequestOf({
+      parent, fixCases: parent.cases,
+      campaign: getHistory().runs.getRunCampaign(parentId),
+      lessons: parseStoredRunConfig(getHistory().runs.getStoredEffectiveConfig(parentId)?.json)?.grounding.lessons,
+    });
+    const run = freezeSeen(h, queue, request);
+    await queue.drain();
+    return run;
+  };
+  const learning = freezeSeen(h, queue, request(app, { campaign: campaign({ arm: "learning", lessons: "on" }, 2), grounding: { lessons: true } }));
+  await queue.drain();
+  const frozen = freezeSeen(h, queue, request(app, { campaign: campaign({ arm: "frozen", lessons: "off" }, 2) }));
+  await queue.drain();
+  const ordinary = freezeSeen(h, queue, request(app));
+  await queue.drain();
+
+  const afterLearning = await continuationOf(learning.id);
+  assert.deepEqual(getHistory().runs.getRunCampaign(afterLearning.id), { id: "ab-1", variant: { arm: "learning", lessons: "on" }, replicate: 2 });
+  assert.deepEqual(afterLearning.told, [{ frozen: true, lessons: true }]);
+  const afterFrozen = await continuationOf(frozen.id);
+  assert.deepEqual(getHistory().runs.getRunCampaign(afterFrozen.id), { id: "ab-1", variant: { arm: "frozen", lessons: "off" }, replicate: 2 });
+  assert.deepEqual(afterFrozen.told, [{ frozen: true, lessons: false }]);
+  const afterOrdinary = await continuationOf(ordinary.id);
+  assert.equal(getHistory().runs.getRunCampaign(afterOrdinary.id), undefined, "a continuation of an ordinary run is as it was");
+  assert.deepEqual(afterOrdinary.told, [{ frozen: false, lessons: true }]);
+  assert.equal(getHistory().runs.getRecord(afterOrdinary.id)?.parentRunId, ordinary.id);
 });

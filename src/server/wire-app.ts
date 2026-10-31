@@ -27,9 +27,10 @@ import { serveDashboard, resolveDashboardDir } from "./static";
 import { MAX_CONTINUATION_DEPTH } from "./persistence/repositories/run.repository";
 import { createEvaluationService } from "./evaluation-service";
 import { ScoreMetricsSink } from "../telemetry/score-metrics-sink";
-import { hashStaticPrompts, type RunConfigEnvironment } from "./effective-config";
+import { hashStaticPrompts, parseStoredRunConfig, type RunConfigEnvironment } from "./effective-config";
+import type { CampaignIdentity } from "../contract/campaign";
 import { buildRunViewExtras, defaultRunViewDeps } from "./run-view";
-import { enqueueTrackedRun, enqueueDoorRun, enqueueContextMapRun, enqueueLoginBootstrapRun, cancelTrackedRun, finalizeInterruptedRuns, type RunnerDeps } from "./runner";
+import { enqueueTrackedRun, enqueueDoorRun, type RunRequest, enqueueContextMapRun, enqueueLoginBootstrapRun, cancelTrackedRun, finalizeInterruptedRuns, type RunnerDeps } from "./runner";
 import { codeGraphFor } from "./engine-root";
 import { appAuthDir, appSuiteStoreDir, createRunEngineFactory, resolveCodeSandbox } from "./run-engine-factory";
 import { longestRunTimeBudgetMs, type ContextHealRunRequest } from "@contexts/run-orchestration/application/index";
@@ -48,7 +49,7 @@ import { OpenCodeRuntimeStrategy } from "../agent-runtime";
 import { getHistoryDatabase } from "./persistence/index";
 import { pruneHistory, retentionPolicyFrom } from "./persistence/retention";
 import { backupDatabase } from "./persistence/backup";
-import { type RunMode, type TestTarget } from "../types";
+import { type RunMode, type RunRecord, type TestTarget } from "../types";
 import { installShutdown, installUnhandledRejectionLogger } from "./shutdown";
 import { startHealthPoller } from "./health-poller";
 import { github } from "../integrations/github";
@@ -93,6 +94,26 @@ export interface WiredApp {
   app: App;
   /* Run once before `app.listen()`: retention, and finalizing the runs a previous process left unfinished. */
   beforeListen(): void;
+}
+
+/*
+ * The request a continuation of `parent` enqueues. `campaign` is the replicate the parent was and `lessons` the lesson state it ran under, both
+ * from the parent's record; a continuation of a campaign replicate is part of that campaign.
+ */
+export function continuationRequestOf(input: { parent: RunRecord; fixCases: RunRecord["cases"]; guidance?: string | undefined; campaign?: CampaignIdentity | undefined; lessons?: boolean | null | undefined }): RunRequest {
+  const { parent, fixCases, guidance, campaign, lessons } = input;
+  return {
+    app: parent.app,
+    sha: parent.sha,
+    target: parent.target,
+    mode: parent.mode,
+    guidance,
+    fixCases,
+    parentRunId: parent.id,
+    source: "manual",
+    trigger: "continuation",
+    ...(campaign ? { campaign, ...(typeof lessons === "boolean" ? { grounding: { lessons } } : {}) } : {}),
+  };
 }
 
 export function wireApp(settingsStore: SettingsStore): WiredApp {
@@ -693,17 +714,7 @@ export function wireApp(settingsStore: SettingsStore): WiredApp {
       depth: (parent) => getHistory().runs.continuationDepth(parent),
       enqueue: ({ parent, fixCases, guidance }) => {
         if (lifecycle.shuttingDown()) return "";
-        return enqueueTrackedRun(queue, {
-          app: parent.app,
-          sha: parent.sha,
-          target: parent.target,
-          mode: parent.mode,
-          guidance,
-          fixCases,
-          parentRunId: parent.id,
-          source: "manual",
-          trigger: "continuation",
-        }, runnerDeps());
+        return enqueueTrackedRun(queue, continuationRequestOf({ parent, fixCases, guidance, campaign: getHistory().runs.getRunCampaign(parent.id), lessons: parseStoredRunConfig(getHistory().runs.getStoredEffectiveConfig(parent.id)?.json)?.grounding.lessons }), runnerDeps());
       },
     },
   };
