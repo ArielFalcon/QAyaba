@@ -34,9 +34,13 @@ export function contradictsPack(c: QaCase, confirmed: ConfirmedDataRoutes): bool
  */
 export function dataStateDiffers(c: QaCase, confirmed: ConfirmedDataRoutes): boolean {
   if (c.failureResultCount === undefined || failureUnsettled(c.failureSettle)) return false;
-  if (c.failureResultCount === 0) return contradictsPack(c, confirmed);
-  const known = packCountAt(c, confirmed);
-  return known !== undefined && known !== c.failureResultCount;
+  return readsDifferently(pathnameOf(c.finalUrl), c.failureResultCount, confirmed);
+}
+
+/* One settled read of a page's results against the pack's: an empty state where the pack read results, or another count than the pack's. A page the pack read no count for shows nothing. */
+function readsDifferently(path: string | undefined, resultCount: number, confirmed: ConfirmedDataRoutes): boolean {
+  const known = path === undefined ? undefined : confirmed?.find((route) => route.path === path)?.resultCount;
+  return resultCount === 0 ? (known ?? 0) > 0 : known !== undefined && known !== resultCount;
 }
 
 /*
@@ -51,5 +55,23 @@ export function dataStateFailuresOf(cases: readonly QaCase[], confirmed: Confirm
     const path = pathnameOf(c.finalUrl);
     if (path !== undefined) byPath.set(path, (byPath.get(path) ?? 0) + 1);
   }
+  return [...byPath].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)).map(([path, count]) => ({ path, count }));
+}
+
+/* A failing test of a `run_spec` call, at the settled point its failure was read: the page (pathname) and the results the page showed there. */
+export interface FailureRead {
+  path: string;
+  resultCount: number;
+}
+
+/* The data-state failures among the failure points of a run's `run_spec` calls, by page: the same test as a final execution's case, sorted by page. */
+export function dataStateFailuresOfReads(reads: readonly FailureRead[], confirmed: ConfirmedDataRoutes): Array<{ path: string; count: number }> {
+  return mergeDataStateFailures(reads.filter((read) => readsDifferently(read.path, read.resultCount, confirmed)).map((read) => ({ path: read.path, count: 1 })));
+}
+
+/* Failures by page added up across lists, sorted by page. */
+export function mergeDataStateFailures(...lists: ReadonlyArray<ReadonlyArray<{ path: string; count: number }>>): Array<{ path: string; count: number }> {
+  const byPath = new Map<string, number>();
+  for (const { path, count } of lists.flat()) byPath.set(path, (byPath.get(path) ?? 0) + count);
   return [...byPath].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)).map(([path, count]) => ({ path, count }));
 }

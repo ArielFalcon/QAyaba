@@ -118,7 +118,7 @@ export async function collectCampaign(campaignId: string, deps: Pick<CompareDeps
         const entry = catalogEntry(catalog, s.name);
         return { name: s.name, value: s.value, dataType: entry?.dataType ?? s.dataType, polarity: entry?.polarity ?? s.polarity, graderVersion: s.graderVersion };
       });
-      runs[i] = { runId: r.id, variant: r.variant, replicate: r.replicate, scores };
+      runs[i] = { runId: r.id, variant: r.variant, replicate: r.replicate, scores, ...(r.restoredDigest !== undefined ? { snapshot: r.restoredDigest } : {}) };
     }
   };
   await Promise.all(Array.from({ length: Math.min(FETCH_CONCURRENCY, graded.length) }, worker));

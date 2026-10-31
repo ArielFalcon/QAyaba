@@ -10,6 +10,7 @@ import { STEP_INTENTS, scoreOf } from "./grader-catalog.ts";
 import { extractReferences } from "./context-refs.ts";
 import { itemId } from "@kernel/context-item-ids.ts";
 import { sameSpecPathByTail } from "@kernel/spec-path.ts";
+import { LESSON_SLICE_SCORE, encodeLessonSlice } from "./lesson-slice.ts";
 import { WINDOW_FIT_REASON } from "@kernel/prompt-sections.ts";
 import type { ContextEvidence, RunEvaluationEvidence as Evidence } from "./run-evaluation-evidence.ts";
 import type { RawScore, Score } from "./score.ts";
@@ -630,14 +631,35 @@ const dataStateFailures: Grader = {
 const callsToGreen: Grader = {
   names: ["calls_to_green"],
   grade: finishedOnly((e) => {
-    const counts = e.deliveredSpecs.flatMap((spec) => {
-      const ran = e.runSpecCalls.filter((c) => c.outcome !== "refused" && sameSpecPathByTail(c.path, spec.path));
-      const firstGreen = ran.findIndex((c) => c.outcome === "passed");
-      return firstGreen === -1 ? [] : [firstGreen + 1];
-    });
+    const counts = greenCallCounts(e).map((spec) => spec.calls);
     if (counts.length === 0) return [];
     const more = counts.filter((n) => n > 1).length;
     return [{ name: "calls_to_green", value: counts.reduce((sum, n) => sum + n, 0) / counts.length, ...(more > 0 ? { comment: `${more} of ${counts.length} spec(s) needed more than one run_spec call` } : {}) }];
+  }),
+};
+
+/* Each delivered spec that went green and the `run_spec` calls it took up to and including its first pass; a refused call is no run and a spec no call passed is left out. */
+function greenCallCounts(e: Evidence): Array<{ path: string; calls: number }> {
+  return e.deliveredSpecs.flatMap((spec) => {
+    const ran = e.runSpecCalls.filter((c) => c.outcome !== "refused" && sameSpecPathByTail(c.path, spec.path));
+    const firstGreen = ran.findIndex((c) => c.outcome === "passed");
+    return firstGreen === -1 ? [] : [{ path: spec.path, calls: firstGreen + 1 }];
+  });
+}
+
+/*
+ * What the lesson cycle compares between a frozen and a learning replicate of one commit: the commit, the pages of the lessons the run was told,
+ * its data-state failures by page and, per delivered spec that went green, the pages of its flow and its calls. The comparison restricts both
+ * runs to the pages the learning run's lessons cover, which only the pair knows, so the figures are kept per page here. Silent for a run that
+ * recorded no lessons signal or no commit.
+ */
+const lessonSliceGrader: Grader = {
+  names: [LESSON_SLICE_SCORE],
+  grade: finishedOnly((e) => {
+    const lessons = e.signals?.lessons;
+    if (!lessons || e.sha === undefined) return [];
+    const specs = greenCallCounts(e).map(({ path, calls }) => ({ routes: [...(lessons.specPages?.find((flow) => sameSpecPathByTail(flow.spec, path))?.routes ?? [])], calls }));
+    return [{ name: LESSON_SLICE_SCORE, value: encodeLessonSlice({ commit: e.sha, scopes: [...(lessons.scopes ?? [])], failures: lessons.failuresByPage?.map(({ path, count }) => ({ path, count })) ?? null, specs }) }];
   }),
 };
 
@@ -672,6 +694,7 @@ export const GRADERS: readonly Grader[] = [
   lessonsDelivered,
   dataStateFailures,
   callsToGreen,
+  lessonSliceGrader,
   infraError,
   stepIntent,
   contextUtilization,

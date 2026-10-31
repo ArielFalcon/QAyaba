@@ -116,6 +116,8 @@ export interface ReferenceEvidence {
 
 export interface RunEvaluationEvidence {
   runId: string;
+  /* The commit the run measured; absent when the run's record has none. */
+  sha?: string;
   /* The run this one rebuilds/continues (a context heal, a /continue). Diagnostic lineage only: freshness never reads it. */
   parentRunId?: string;
   app: string;
@@ -162,8 +164,8 @@ export interface RunEvaluationEvidence {
         survivors?: { routed: number; total: number } | undefined;
         /* The flaky cases of a flaky run by class, and what the correction came to; undefined when the run was not flaky. */
         flakyTriage?: { cases: number; dataInstability: number; timing: number; outcome: string } | undefined;
-        /* The lessons the run's briefs stated and the failures of its final execution that read DEV's data differently from the pack; undefined when the run recorded no lessons signal. `dataStateFailures` is undefined when the run measured none. */
-        lessons?: { delivered: number; dataStateFailures: number | undefined } | undefined;
+        /* The lessons the run's briefs stated and the failures (of its final execution and its run_spec calls) that read DEV's data differently from the pack; undefined when the run recorded no lessons signal. `dataStateFailures` is undefined when the run measured none; `scopes` are the pages of the delivered lessons, `failuresByPage` the same failures by page and `specPages` the pages each flow was given and the spec it authors. */
+        lessons?: { delivered: number; dataStateFailures: number | undefined; scopes?: readonly string[] | undefined; failuresByPage?: ReadonlyArray<{ path: string; count: number }> | undefined; specPages?: ReadonlyArray<{ spec: string; routes: readonly string[] }> | undefined } | undefined;
         /* The routes the capture could not show at their own address, by availability class; undefined when the run classified none. */
         routeAvailability?: { unavailable: number; byClass: Readonly<Partial<Record<string, number>>> } | undefined;
         /* The reviewer's final verdict (the effective one) and its rounds; undefined when no reviewer phase ran. */

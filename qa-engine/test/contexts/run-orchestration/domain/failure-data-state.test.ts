@@ -2,7 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { QaCase } from "@kernel/qa-case.ts";
-import { dataStateFailuresOf } from "@contexts/run-orchestration/domain/failure-data-state.ts";
+import { dataStateFailuresOf, dataStateFailuresOfReads, mergeDataStateFailures } from "@contexts/run-orchestration/domain/failure-data-state.ts";
 
 const failed = (over: Partial<QaCase> = {}): QaCase => ({ name: "lists", status: "fail", file: "flows/a.spec.ts", ...over });
 const SETTLED = { inFlight: 0, treeStable: true };
@@ -37,4 +37,25 @@ test("a failure on a page still changing, with no data state, with no pack evide
 test("a flaky case whose first attempt failed this way is a data-state failure too", () => {
   const flaky = failed({ status: "flaky", failureResultCount: 0, finalUrl: "https://dev/orders", failureSettle: SETTLED });
   assert.deepEqual(dataStateFailuresOf([flaky], PACK), [{ path: "/orders", count: 1 }]);
+});
+
+test("a failing run_spec test is read the same way: its settled failure point against the pack, by page", () => {
+  const reads = [
+    { path: "/restaurants", resultCount: 0 },
+    { path: "/restaurants", resultCount: 1 },
+    { path: "/restaurants", resultCount: 3 },
+    { path: "/orders", resultCount: 0 },
+    { path: "/elsewhere", resultCount: 0 },
+  ];
+  assert.deepEqual(dataStateFailuresOfReads(reads, PACK), [{ path: "/orders", count: 1 }, { path: "/restaurants", count: 2 }]);
+  assert.deepEqual(dataStateFailuresOfReads(reads, undefined), []);
+  assert.deepEqual(dataStateFailuresOfReads([], PACK), []);
+});
+
+test("the failures of the final execution and of the run_spec calls add up by page", () => {
+  assert.deepEqual(
+    mergeDataStateFailures([{ path: "/orders", count: 1 }], [{ path: "/orders", count: 2 }, { path: "/a", count: 1 }]),
+    [{ path: "/a", count: 1 }, { path: "/orders", count: 3 }],
+  );
+  assert.deepEqual(mergeDataStateFailures([], []), []);
 });

@@ -1140,6 +1140,31 @@ test("a lesson the author's window gave way to a count was not delivered: delive
   assert.ok(degraded > 0, "some window sends the brief with the lesson given up to a count");
 });
 
+test("the signal states the settled failure points the flows' run_spec calls met and the pages each flow was given, including a call a later correction makes", async () => {
+  const plan = { kind: "fanout", flows: [{ id: "shops", objective: "the shop list", routes: ["/shops/madrid"] }, { id: "login", objective: "sign in works", routes: ["/login"] }] };
+  const lead = leadWith([[{ flow: "shops", action: "accept" }, { flow: "login", action: "accept" }]], plan);
+  const r = rig();
+  r.closedLoop.openFlow = ((original) => (flowInput: FlowLoopOpenInput) => {
+    const handle = original(flowInput)!;
+    if (flowInput.flowId === "shops") {
+      r.flowLoops.at(-1)!.ledger.push({
+        path: flowInput.specFile, sha256: "b", status: "failed", devWrites: 0,
+        failures: [{ path: "/shops/madrid", resultCount: 0 }, { path: "/shops/madrid", resultCount: 2, unsettled: true }, { path: "/shops/madrid" }, { detail: "no page" }, { path: "/shops/madrid", resultCount: 3 }],
+      });
+    }
+    return { ...handle, isClosed: async () => true };
+  })(r.closedLoop.openFlow);
+  const outcome = await new LeadSidekicks(r.deps).coordinate(input(r, { plan: lead.plan }));
+  assert.equal(outcome.action, "fanout");
+  if (outcome.action !== "fanout") return;
+  assert.deepEqual(outcome.signal.runSpecFailureReads, [{ path: "/shops/madrid", resultCount: 0 }, { path: "/shops/madrid", resultCount: 3 }], "only a failing test whose page and results were read at a settled point");
+  assert.deepEqual(outcome.signal.specPages, [{ spec: "flows/shops.spec.ts", routes: ["/shops/madrid"] }, { spec: "flows/login.spec.ts", routes: ["/login"] }]);
+  r.flowLoops.find((l) => l.input.flowId === "shops")!.ledger.push({ path: "flows/shops.spec.ts", sha256: "c", status: "failed", devWrites: 0, failures: [{ path: "/shops/madrid", resultCount: 1 }] });
+  await outcome.pass!.correct([]);
+  assert.equal(outcome.signal.runSpecFailureReads?.length, 3, "the signal the run reads at its end holds the calls the pass made after it was built");
+  await outcome.pass!.release();
+});
+
 test("a run with no lessons builds the same briefs and records no delivery, as before", async () => {
   const plan = { kind: "fanout", flows: [{ id: "shops", objective: "the shop list", routes: ["/shops/madrid"] }] };
   const r = rig();

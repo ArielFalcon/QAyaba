@@ -32,6 +32,8 @@ export interface CampaignRun {
   readonly variant: Readonly<Record<string, string>>;
   readonly replicate: number;
   readonly scores: readonly RunScore[];
+  /* The digest of the suite the run restored: two runs share a snapshot when theirs are equal; absent when the run recorded none. */
+  readonly snapshot?: string | undefined;
 }
 
 export interface Interval {

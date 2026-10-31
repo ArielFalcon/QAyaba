@@ -531,13 +531,15 @@ export class LeadSidekicks {
         ...(tally.turns > 0 ? { review: tally } : {}),
         ...unreadableSignal(base.unreadable?.plan ?? 0, context.unreadable),
         ...(context.lessonsDelivered.size > 0 ? { lessonsDelivered: [...context.lessonsDelivered.values()] } : {}),
+        specPages: flows.map((flow) => ({ spec: flow.specFile, routes: [...flow.routes] })),
+        ...runSpecFailureReadsOf(live),
       };
       for (const p of proposals) this.deps.log?.(`coordination: flow ${p.flowId} changed ${p.total} file(s) it was not given to write; they are proposals and were not applied`);
 
       /* With the lead's session the pass is kept open for the reviewer's corrections; its holder releases it. */
       if (how.lead && !input.signal?.aborted && aggregated.end === GENERATION_END.DELIVERED) {
         handed = true;
-        return { action: "fanout", aggregated, proposals, signal, pass: this.passOf(how.lead, flows, parallel, context, live), flowCandidates };
+        return { action: "fanout", aggregated, proposals, signal, pass: this.passOf(how.lead, flows, parallel, context, live, signal), flowCandidates };
       }
       return { action: "fanout", aggregated, proposals, signal, flowCandidates };
     } finally {
@@ -1003,13 +1005,19 @@ export class LeadSidekicks {
   }
 
   /* The pass, kept open: corrections are asked of the lead's planning session and carried out by the flows' sidekicks. */
-  private passOf(lead: LeadSessionHandle, flows: AdmittedFlow[], parallel: number, context: FlowContext, live: Map<string, LiveFlow>): CoordinatedPass {
+  private passOf(lead: LeadSessionHandle, flows: AdmittedFlow[], parallel: number, context: FlowContext, live: Map<string, LiveFlow>, signal: CoordinationGateSignal): CoordinatedPass {
     const tally: CorrectionTally = { turns: 0, routed: 0, unrouted: 0, revised: 0, replaced: 0, rebutted: 0, unreadable: 0, repairs: 0 };
     const state = { released: false };
     /* The pass's own list of flows: the plan's, then the maintenance flows it opens. */
     const pool = [...flows];
     return {
-      correct: (findings, origin = CORRECTION_ORIGIN.REVIEW) => this.correct(lead, pool, parallel, context, live, findings, origin, tally, state),
+      correct: async (findings, origin = CORRECTION_ORIGIN.REVIEW) => {
+        const corrected = await this.correct(lead, pool, parallel, context, live, findings, origin, tally, state);
+        /* The calls the correction's sidekicks made are the run's too: the signal the run reads at its end holds them. */
+        delete signal.runSpecFailureReads;
+        Object.assign(signal, runSpecFailureReadsOf(live));
+        return corrected;
+      },
       leaveUnrouted: (findings, origin, reason) => {
         tally.unrouted += findings.length;
         this.leftUnrouted(context.input, origin, findings.map((_, i) => i), reason);
@@ -1509,6 +1517,12 @@ function describePlan(plan: AdmittedPlan): string {
 function knownFactsOf(redaction: RedactionPort, input: Pick<CoordinateInput, "confirmedDataRoutes">, routes?: readonly string[]): EvidenceRef[] {
   const pages = (input.confirmedDataRoutes ?? []).filter((page) => routes === undefined || routes.some((route) => namesTemplatePage(route, page.path) || namesTemplatePage(page.path, route)));
   return pages.length > 0 ? evidenceFromPackDataRoutes(redaction, pages) : [];
+}
+
+/* The settled failure points of the failing tests of every flow's run_spec calls, in call order: where a test failed on a page, and what the page showed there. A failure read while the page was still changing, or with no page or no count, says nothing about DEV's data. */
+function runSpecFailureReadsOf(live: ReadonlyMap<string, LiveFlow>): Pick<CoordinationGateSignal, "runSpecFailureReads"> {
+  const reads = [...live.values()].flatMap((entry) => (entry.loop?.ledger() ?? []).flatMap((call) => (call.failures ?? []).flatMap((f) => (f.unsettled !== true && f.path !== undefined && f.resultCount !== undefined ? [{ path: f.path, resultCount: f.resultCount }] : []))));
+  return reads.length > 0 ? { runSpecFailureReads: reads } : {};
 }
 
 /* The lessons that name one of the flow's pages, as facts of its brief; none for a run with no lessons. */

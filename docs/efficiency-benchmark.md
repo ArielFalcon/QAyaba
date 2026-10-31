@@ -525,13 +525,19 @@ The one lever that lifts anything is the learning arm, `grounding.lessons: true`
 launcher): it lifts the lesson state only, so a frozen run reads the lessons derived from earlier runs' observations
 (docs/architecture/rfc/0013-learning-slice.md). The replicate isolation and the process audit stay withheld. Absent, a campaign run reads no lessons and a run without a campaign reads them.
 
-**The lesson cycle.** `campaign-compare` adds a "Lesson cycle" section to a campaign that has a learning arm (variant `lessons=on`): one frozen and one
-learning replicate of the same commit and snapshot, read as a direction and never as proof (RFC-0013, Q6-Q8). It is **improved** when the learning arm's
-`data_state_failures` are lower and its `calls_to_green` not higher and no guard (`mutation_kill_rate`, `change_coverage_ratio`, `defect_found`) is
-lower; green is never read. It is **unproven** (the cycle does not count and repeats) unless a lesson was delivered (`lessons_delivered`) and a run shows a
-data-state failure or a spec that needed more than one call, and unless the failures were measured in both arms; otherwise a counted cycle without
-improvement is **not improved**. The figures are per run (the mean over an arm's replicates), not per covered flow. Runs graded before grader version 4 carry none of
-these scores, so a comparison across that point states the epoch break.
+**The lesson cycle.** `campaign-compare` adds a "Lesson cycle" section to a campaign that has a learning arm (variant `lessons=on`). A cycle is a **pair**:
+one frozen and one learning replicate of the same commit and snapshot (the runs share the commit they measured, the suite digest they restored, the replicate
+number and every variant label but `lessons`), read as a direction and never as proof (RFC-0013, Q6-Q8). Each run carries its figures by page in the
+categorical score `lesson_slice`, and the comparison restricts both runs of a pair to the pages the learning run's delivered lessons cover (a lesson on a
+template covers the pages that fill it): `data_state_failures` there (the failed cases of the final execution and the failing tests of the flows'
+`run_spec` calls that read DEV's data differently from the pack) and `calls_to_green` of the specs whose flow was given those pages. A pair is **improved**
+when the learning replicate's failures there are lower and its calls not higher and no guard (`mutation_kill_rate`, `change_coverage_ratio`,
+`defect_found`) is lower; green is never read. A pair **counts** only when a lesson was delivered and a replicate shows a data-state failure on those pages or
+a spec there that needed more than one call. The campaign's verdict is **unproven** (the cycle does not count and repeats) when a run pairs with nothing, a
+pair has an arm that was not measured (no slice, failures unmeasured, a guard scored in one replicate only or by two grader versions) or no pair counts;
+otherwise a counted pair without improvement makes it **not improved** and any other counted set **improved**. The per-run scores `lessons_delivered`,
+`data_state_failures` (over every page) and `calls_to_green` (over every spec) stay as descriptive figures. Runs graded before grader version 4 carry no slice
+and pair with nothing, so a comparison across that point states the epoch break.
 
 `QA_CAMPAIGN_FREEZE` is retired: a value still set warns once at start and decides nothing. A cross-repo case enters through the webhook, whose payload
 carries no campaign, so the server does not freeze it (the launcher says so when it plans one).

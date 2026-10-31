@@ -8,7 +8,9 @@ import type { ServedVersionState } from "@kernel/served-version.ts";
 import type { CoordinateInput } from "@contexts/coordination/application/lead-sidekicks.ts";
 import type { LessonDelivery } from "@kernel/coordination.ts";
 import { RecordLessonObservations, type Lesson, type LessonObservation, type LessonsPort, type LessonStorePort } from "@contexts/cross-run-learning/application/index.ts";
-import { dispose, newRig, observe, type Rig } from "./run-flow/run-end-rig.ts";
+import { GENERATION_END } from "@kernel/generation-end.ts";
+import type { CoordinateResult } from "@contexts/coordination/application/index.ts";
+import { RIG_SPEC, dispose, newRig, observe, type Rig } from "./run-flow/run-end-rig.ts";
 
 const READ: PageDataRead = { scope: "/shops/madrid", grounded: true, dataState: true, unconfirmed: false, resultCount: 0, emptyConfirmed: true, ready: true };
 
@@ -196,4 +198,26 @@ test("a run that never executed has not measured the failures: the signal carrie
   });
   assert.equal(observed.result?.decision.verdict, "invalid");
   assert.equal(observed.saved[0]!.gateSignals.lessons?.dataStateFailures, undefined);
+});
+
+test("the failures the flows' run_spec calls met at a settled failure point count with those of the final execution, by page, and the pages the flows were given reach the lessons signal alone", async () => {
+  const fanout = (signal: Record<string, unknown>) => (rig: Rig): void => {
+    rig.execute = async () => ({ verdict: "fail", cases: [{ name: "lists shops", status: "fail", file: "flows/shops.spec.ts", finalUrl: "https://dev.example/shops/madrid", failureSettle: SETTLED, failureResultCount: 1 }], logs: "" });
+    rig.publish = async () => ({ outcome: "issue" });
+    rig.extra = {
+      ...withPackRead(rig.extra),
+      leadSidekicks: { coordinate: async (): Promise<CoordinateResult> => ({ action: "fanout", aggregated: { end: GENERATION_END.DELIVERED, specs: [RIG_SPEC], incompleteFlows: [] }, proposals: [], signal: { plan: "fanout", flows: 1, delivered: 1, incomplete: 0, ...signal } }) },
+    };
+  };
+  const { observed } = await runWith(fanout({
+    runSpecFailureReads: [{ path: "/shops/madrid", resultCount: 0 }, { path: "/shops/madrid", resultCount: 3 }, { path: "/shops/madrid", resultCount: 1 }, { path: "/home", resultCount: 0 }],
+    specPages: [{ spec: "flows/shops.spec.ts", routes: ["/shops/madrid"] }],
+  }));
+  const signals = observed.saved[0]!.gateSignals;
+  assert.deepEqual(signals.lessons?.dataStateFailures, [{ path: "/shops/madrid", count: 3 }], "the failed case and two calls' failure points (an empty read and another count) on a page the pack read with 3 results; a read of 3 differs from nothing");
+  assert.deepEqual(signals.lessons?.specPages, [{ spec: "flows/shops.spec.ts", routes: ["/shops/madrid"] }]);
+  assert.equal(signals.coordination?.runSpecFailureReads, undefined);
+  assert.equal(signals.coordination?.specPages, undefined);
+  const none = await runWith(fanout({}));
+  assert.equal(none.observed.saved[0]!.gateSignals.lessons?.specPages, undefined);
 });

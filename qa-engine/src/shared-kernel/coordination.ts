@@ -115,6 +115,10 @@ export interface CoordinationGateSignal {
   unreadable?: { plan: number; delegation: number; repairs: number };
   /* The lessons the flows' briefs stated, each once. Absent when none was delivered. */
   lessonsDelivered?: LessonDelivery[];
+  /* The settled failure points of the failing tests of the flows' run_spec calls, by page (pathname) and the results read there. The run weighs them against the pack for the lessons signal and persists no copy of its own. Absent when none was read. */
+  runSpecFailureReads?: Array<{ path: string; resultCount: number }>;
+  /* The pages each flow of the plan was given and the spec it authors, for the lessons signal. Absent for a run that planned no flow. */
+  specPages?: Array<{ spec: string; routes: string[] }>;
 }
 
 /* The settings an app declared, with every limit it left out taken from the defaults. */

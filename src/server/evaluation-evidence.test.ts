@@ -379,12 +379,20 @@ test("the outcome's coverage, mutation, review, triage and causal signals reach 
 });
 
 test("the lessons a run's briefs stated and the failures it measured by page reach the evidence as counts, and a run that recorded none leaves them undefined", async () => {
-  const lessons = { observed: 2, leftOut: {}, delivered: [{ kind: "data-volatility", scope: "/a", digest: "x" }, { kind: "data-volatility", scope: "/b", digest: "y" }], dataStateFailures: [{ path: "/a", count: 2 }, { path: "/b", count: 1 }] };
+  const lessons = {
+    observed: 2, leftOut: {}, delivered: [{ kind: "data-volatility", scope: "/b", digest: "y" }, { kind: "data-volatility", scope: "/a", digest: "x" }, { kind: "other", scope: "/a", digest: "z" }],
+    dataStateFailures: [{ path: "/a", count: 2 }, { path: "/b", count: 1 }], specPages: [{ spec: "flows/a.spec.ts", routes: ["/a"] }],
+  };
   const e = (await new HistoryEvidenceAdapter(deps({ getRunOutcome: () => outcomeOf({ lessons }) })).load("run-1"))!;
-  assert.deepEqual(e.signals?.lessons, { delivered: 2, dataStateFailures: 3 });
+  assert.deepEqual(e.signals?.lessons, { delivered: 3, dataStateFailures: 3, scopes: ["/a", "/b"], failuresByPage: lessons.dataStateFailures, specPages: lessons.specPages });
   const unmeasured = (await new HistoryEvidenceAdapter(deps({ getRunOutcome: () => outcomeOf({ lessons: { observed: 1, leftOut: {} } }) })).load("run-1"))!;
-  assert.deepEqual(unmeasured.signals?.lessons, { delivered: 0, dataStateFailures: undefined });
+  assert.deepEqual(unmeasured.signals?.lessons, { delivered: 0, dataStateFailures: undefined, scopes: [], failuresByPage: undefined, specPages: undefined });
   assert.equal((await new HistoryEvidenceAdapter(deps({ getRunOutcome: () => outcomeOf({}) })).load("run-1"))!.signals?.lessons, undefined);
+});
+
+test("the evidence names the commit the run measured: the lesson cycle pairs runs by it", async () => {
+  const e = (await new HistoryEvidenceAdapter(deps({ getRecord: () => record({ sha: "1234567" }) })).load("run-1"))!;
+  assert.equal(e.sha, "1234567");
 });
 
 test("a run that recorded none of those signals leaves them undefined", async () => {

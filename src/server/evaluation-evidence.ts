@@ -487,6 +487,7 @@ export class HistoryEvidenceAdapter implements EvidencePort {
     return {
       runId,
       ...(record.parentRunId ? { parentRunId: record.parentRunId } : {}),
+      sha: record.sha,
       app: record.app,
       mode: record.mode,
       finished,
@@ -511,7 +512,7 @@ export class HistoryEvidenceAdapter implements EvidencePort {
             bundleMutation: g.bundleMutation ? { applied: g.bundleMutation.applied, killed: g.bundleMutation.killed } : undefined,
             survivors: survivorsOf(spans),
             flakyTriage: g.flakyTriage,
-            lessons: g.lessons ? { delivered: g.lessons.delivered?.length ?? 0, dataStateFailures: g.lessons.dataStateFailures?.reduce((sum, p) => sum + p.count, 0) } : undefined,
+            lessons: g.lessons ? { delivered: g.lessons.delivered?.length ?? 0, dataStateFailures: g.lessons.dataStateFailures?.reduce((sum, p) => sum + p.count, 0), scopes: [...new Set((g.lessons.delivered ?? []).map((d) => d.scope))].sort(), failuresByPage: g.lessons.dataStateFailures, specPages: g.lessons.specPages } : undefined,
             routeAvailability: g.routeAvailability ? { unavailable: g.routeAvailability.unavailable, byClass: g.routeAvailability.byClass } : undefined,
             reviewer: g.reviewer ? { approved: g.reviewer.approved, rounds: g.reviewer.rounds, modelRounds: g.reviewer.modelRounds } : undefined,
             causal: causalOf(g.causal),
