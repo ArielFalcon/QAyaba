@@ -7,8 +7,8 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { stageServiceContext, serviceContextDir, type ServiceContextManifest, type ServiceContextStagingPort } from "@contexts/service-topology/application/index";
 import { defaultStageDeps } from "./service-context";
-import { ConfinedPathError } from "../../qa-engine/src/shared-infrastructure/spec-path-confinement";
-import { withoutWaitingOnNamedPipe } from "../../qa-engine/test/support/named-pipe-watch";
+import { ConfinedPathError } from "../../engine/src/shared-infrastructure/spec-path-confinement";
+import { withoutWaitingOnNamedPipe } from "../../engine/test/support/named-pipe-watch";
 
 const SECRET = "SECRET-OUTSIDE-THE-MIRROR-0451";
 

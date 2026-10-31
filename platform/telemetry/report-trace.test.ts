@@ -1,11 +1,11 @@
 /* The execution of a suite as spans, synthesized from the Playwright JSON report, over the real telemetry adapter. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { synthesizeReportSpans } from "../../qa-engine/src/contexts/test-execution/infrastructure/report-spans";
+import { synthesizeReportSpans } from "../../engine/src/contexts/test-execution/infrastructure/report-spans";
 import { ThrowingTelemetry } from "@kernel/telemetry/guarded-telemetry";
-import { planReport, MAX_PLANNED_CASES } from "../../qa-engine/src/contexts/test-execution/application/index";
-import { newSandboxReport, withExecScope } from "../../qa-engine/src/shared-infrastructure/process-sandbox/exec-scope";
-import { createRunSecretScope, withRunSecretScope } from "../../qa-engine/src/shared-kernel/run-secret-redaction";
+import { planReport, MAX_PLANNED_CASES } from "../../engine/src/contexts/test-execution/application/index";
+import { newSandboxReport, withExecScope } from "../../engine/src/shared-infrastructure/process-sandbox/exec-scope";
+import { createRunSecretScope, withRunSecretScope } from "../../engine/src/shared-kernel/run-secret-redaction";
 import type { QaCase } from "@kernel/qa-case";
 import { parsePlaywrightReport } from "@contexts/test-execution/infrastructure/playwright-report";
 import { traceHarness, T0, SpanStatusCode } from "../test-support/trace-harness";
@@ -290,7 +290,7 @@ test("a telemetry port that throws on every call does not make the synthesis thr
 });
 
 test("an error message is redacted by the run's own secrets before it is exported", async () => {
-  const { createRunSecretScope, withRunSecretScope } = await import("../../qa-engine/src/shared-kernel/run-secret-redaction");
+  const { createRunSecretScope, withRunSecretScope } = await import("../../engine/src/shared-kernel/run-secret-redaction");
   const h = traceHarness();
   const secrets = createRunSecretScope();
   secrets.addAccountSecrets(["hunter2-secret-value"]);
@@ -302,7 +302,7 @@ test("an error message is redacted by the run's own secrets before it is exporte
 });
 
 test("the runner hands the report to its observer once, with the parsed cases, and the verdict is the same whether the observer traces, throws or is absent", async () => {
-  const { runE2E } = await import("../../qa-engine/src/contexts/test-execution/infrastructure/e2e-execution.runner");
+  const { runE2E } = await import("../../engine/src/contexts/test-execution/infrastructure/e2e-execution.runner");
   const passing = {
     stats: { expected: 1, unexpected: 0, flaky: 0, skipped: 0 },
     suites: [{ title: "flows/a.spec.ts", file: "flows/a.spec.ts", specs: [{ title: "a", tests: [{ status: "expected", results: [{ status: "passed", duration: 10, retry: 0, startTime: iso(T0) }] }] }] }],
@@ -330,7 +330,7 @@ test("the runner hands the report to its observer once, with the parsed cases, a
 });
 
 test("a report that executed zero tests still tells the observer once, with an empty cases array", async () => {
-  const { runE2E } = await import("../../qa-engine/src/contexts/test-execution/infrastructure/e2e-execution.runner");
+  const { runE2E } = await import("../../engine/src/contexts/test-execution/infrastructure/e2e-execution.runner");
   let told = 0;
   let seen: readonly QaCase[] | undefined;
   const out = await runE2E("/nonexistent/e2e", { baseUrl: "https://dev.example.com", namespace: "ns" }, {
@@ -343,7 +343,7 @@ test("a report that executed zero tests still tells the observer once, with an e
 });
 
 test("a pass the child did not exit clean for still tells the observer once, with its cases", async () => {
-  const { runE2E } = await import("../../qa-engine/src/contexts/test-execution/infrastructure/e2e-execution.runner");
+  const { runE2E } = await import("../../engine/src/contexts/test-execution/infrastructure/e2e-execution.runner");
   const passing = {
     stats: { expected: 1, unexpected: 0, flaky: 0, skipped: 0 },
     suites: [{ title: "flows/a.spec.ts", file: "flows/a.spec.ts", specs: [{ title: "a", tests: [{ status: "expected", results: [{ status: "passed", duration: 10, retry: 0, startTime: iso(T0) }] }] }] }],
@@ -360,7 +360,7 @@ test("a pass the child did not exit clean for still tells the observer once, wit
 });
 
 test("a run that produced no report is not told to the observer", async () => {
-  const { runE2E } = await import("../../qa-engine/src/contexts/test-execution/infrastructure/e2e-execution.runner");
+  const { runE2E } = await import("../../engine/src/contexts/test-execution/infrastructure/e2e-execution.runner");
   let told = 0;
   const out = await runE2E("/nonexistent/e2e", { baseUrl: "https://dev.example.com", namespace: "ns" }, { runSuite: async () => ({ report: {}, logs: "", ran: false }), onReport: () => { told += 1; } });
   assert.equal(out.verdict, "infra-error");

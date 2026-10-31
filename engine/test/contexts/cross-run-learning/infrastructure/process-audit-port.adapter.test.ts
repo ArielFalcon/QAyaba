@@ -1,0 +1,312 @@
+/* engine/test/contexts/cross-run-learning/infrastructure/process-audit-port.adapter.test.ts
+   self-sources `recent` outcomes via a factory-injected read, runs the deterministic
+   auditProcess/applyAudit domain logic, and dispatches findings to the injected sink
+   (invalidateContext) and the log. Every failure mode (a throwing read/sink,
+   a slow read past the timeout budget) is caught inline — never re-thrown.
+ */
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { ProcessAuditPortAdapter, PROCESS_AUDIT_TIMEOUT_MS } from "@contexts/cross-run-learning/infrastructure/process-audit-port.adapter.ts";
+import type { RunOutcome } from "@kernel/run-outcome.ts";
+import { installProcessLogger, resetProcessLoggerForTests } from "@kernel/ports/process-logger.ts";
+import type { LoggerPort } from "@kernel/ports/logger.port.ts";
+import { NON_LEARNING, OBSERVED_OPERATING } from "@contexts/cross-run-learning/domain/learning-gates.ts";
+
+function outcome(over: Partial<RunOutcome> = {}): RunOutcome {
+  return {
+    runId: over.runId ?? "r1",
+    app: "petclinic",
+    sha: over.sha ?? "abc1234def",
+    mode: "manual",
+    target: "e2e",
+    verdict: over.verdict ?? "fail",
+    errorClass: over.errorClass ?? "E-EXEC-FAIL",
+    gateSignals: { static: false, coverageRatio: null, reviewerCorrections: [], flaky: false, retries: 0, ...over.gateSignals },
+    at: over.at ?? "2026-06-13T00:00:00Z",
+  };
+}
+
+test("a recurring engine-defect class is logged as an observe finding, and the run verdict is unaffected (nothing thrown)", async () => {
+  const current = outcome({ errorClass: "E-STATIC", verdict: "invalid" });
+  const logged: string[] = [];
+  const adapter = new ProcessAuditPortAdapter({
+    app: "petclinic",
+    readRecentOutcomes: () => [current, outcome({ errorClass: "E-STATIC", sha: "b" }), outcome({ errorClass: "E-STATIC", sha: "c" })],
+    invalidateContext: () => { throw new Error("must not be called"); },
+    log: (line) => logged.push(line),
+  });
+
+  await assert.doesNotReject(() => adapter.audit(current));
+
+  assert.equal(logged.filter((line) => line.includes("[audit] observe (recurring-error-class)")).length, 1);
+});
+
+test("runs that decided nothing, like outages and flaky runs, are left out of the streak window", async () => {
+  const current = outcome({ errorClass: "E-STATIC", verdict: "invalid" });
+  const logged: string[] = [];
+  const adapter = new ProcessAuditPortAdapter({
+    app: "petclinic",
+    /* Three engine-defect runs with an undecided run, an outage and a flaky run between them: without those in the window the streak is unbroken. */
+    readRecentOutcomes: () => [
+      current,
+      outcome({ errorClass: "E-NO-DECISION", verdict: "infra-error", sha: "n" }),
+      outcome({ errorClass: "E-STATIC", verdict: "invalid", sha: "b" }),
+      outcome({ errorClass: "E-INFRA", verdict: "infra-error", sha: "i" }),
+      outcome({ errorClass: "E-FLAKY", verdict: "flaky", sha: "f" }),
+      outcome({ errorClass: "E-STATIC", verdict: "invalid", sha: "c" }),
+    ],
+    invalidateContext: () => false,
+    log: (line) => logged.push(line),
+  });
+  await adapter.audit(current);
+  assert.equal(logged.filter((line) => line.includes("recurring-error-class")).length, 1, "the undecided run did not break the streak");
+});
+
+test("a step-budget run stays in the streak window, so recurring exhaustion can be seen", async () => {
+  const current = outcome({ errorClass: "E-STEP-BUDGET", verdict: "infra-error" });
+  const logged: string[] = [];
+  const adapter = new ProcessAuditPortAdapter({
+    app: "petclinic",
+    readRecentOutcomes: () => [current, outcome({ errorClass: "E-STEP-BUDGET", verdict: "infra-error", sha: "b" }), outcome({ errorClass: "E-STEP-BUDGET", verdict: "infra-error", sha: "c" })],
+    invalidateContext: () => { throw new Error("must not be called"); },
+    log: (line) => logged.push(line),
+  });
+  await adapter.audit(current);
+  assert.ok(logged.some((line) => line.includes("observe")), logged.join("\n"));
+});
+
+test("the streak window drops exactly the classes the learning gates treat as non-learning, except the ones whose own recurrence is observed", async () => {
+  const observed: string[] = [];
+  for (const errorClass of [...NON_LEARNING].filter((c) => !OBSERVED_OPERATING.has(c))) {
+    const current = outcome({ errorClass, verdict: "infra-error" });
+    const adapter = new ProcessAuditPortAdapter({
+      app: "petclinic",
+      readRecentOutcomes: () => [current, outcome({ errorClass, verdict: "infra-error", sha: "b" }), outcome({ errorClass, verdict: "infra-error", sha: "c" })],
+      invalidateContext: () => false,
+      log: (line) => observed.push(`${errorClass}: ${line}`),
+    });
+    await adapter.audit(current);
+  }
+  assert.deepEqual(observed, [], "a streak made only of non-learning runs is invisible to the audit");
+});
+
+test("context-heal finding invalidates the architecture map", async () => {
+  const current = outcome({ errorClass: "E-FRAGILE-SELECTOR" });
+  let invalidatedReason: string | undefined;
+  const adapter = new ProcessAuditPortAdapter({
+    app: "petclinic",
+    readRecentOutcomes: () => [current, outcome({ errorClass: "E-FRAGILE-SELECTOR", sha: "b" }), outcome({ errorClass: "E-FRAGILE-SELECTOR", sha: "c" })],
+    invalidateContext: (reason) => { invalidatedReason = reason; return true; },
+  });
+
+  await adapter.audit(current);
+
+  assert.ok(invalidatedReason);
+  assert.match(invalidatedReason!, /recurring-ui-mismatch/);
+});
+
+test("observe finding calls no sink at all", async () => {
+  const current = outcome({ verdict: "fail", gateSignals: { static: false, coverageRatio: null, reviewerCorrections: [], flaky: false, retries: 3 } });
+  const adapter = new ProcessAuditPortAdapter({
+    app: "petclinic",
+    readRecentOutcomes: () => [current],
+    invalidateContext: () => { throw new Error("must not be called"); },
+  });
+
+  await assert.doesNotReject(() => adapter.audit(current));
+});
+
+test("no findings at all → no sink call, resolves cleanly", async () => {
+  const current = outcome({ verdict: "pass", errorClass: null });
+  const adapter = new ProcessAuditPortAdapter({
+    app: "petclinic",
+    readRecentOutcomes: () => [current],
+    invalidateContext: () => { throw new Error("must not be called"); },
+  });
+
+  await assert.doesNotReject(() => adapter.audit(current));
+});
+
+test("two-layer gating: flaky/infra-class outcomes are excluded from the recent-outcomes streak input before reaching auditProcess", async () => {
+  const current = outcome({ errorClass: "E-STATIC", verdict: "invalid" });
+  const logged: string[] = [];
+  /* Raw feed: current + a FLAKY entry with a DIFFERENT errorClass wedged in the window + 2 more
+     E-STATIC entries. Unfiltered, slice(0,3) = [E-STATIC, E-FLAKY, E-STATIC] never matches (breaks
+     the streak) — the recurring-error-class finding would NOT fire. Filtered (excluding the flaky
+     entry), the streak becomes 3 consecutive E-STATIC entries and the finding DOES fire — proving
+     the adapter filters before calling into auditProcess, not merely inside the domain function.
+   */
+  const rawRecent: RunOutcome[] = [
+    current,
+    outcome({ verdict: "flaky", errorClass: "E-FLAKY", sha: "noise" }),
+    outcome({ errorClass: "E-STATIC", sha: "b" }),
+    outcome({ errorClass: "E-STATIC", sha: "c" }),
+  ];
+  const adapter = new ProcessAuditPortAdapter({
+    app: "petclinic",
+    readRecentOutcomes: () => rawRecent,
+    invalidateContext: () => true,
+    log: (line) => logged.push(line),
+  });
+
+  await adapter.audit(current);
+
+  assert.equal(logged.filter((line) => line.includes("recurring-error-class")).length, 1, "the flaky-noise entry must be excluded from the streak so the real 3-in-a-row is recognized");
+});
+
+test("two-layer gating: an E-INFRA recent entry is also excluded from the streak input", async () => {
+  const current = outcome({ errorClass: "E-STATIC", verdict: "invalid" });
+  const logged: string[] = [];
+  const rawRecent: RunOutcome[] = [
+    current,
+    outcome({ verdict: "infra-error", errorClass: "E-INFRA", sha: "noise" }),
+    outcome({ errorClass: "E-STATIC", sha: "b" }),
+    outcome({ errorClass: "E-STATIC", sha: "c" }),
+  ];
+  const adapter = new ProcessAuditPortAdapter({
+    app: "petclinic",
+    readRecentOutcomes: () => rawRecent,
+    invalidateContext: () => true,
+    log: (line) => logged.push(line),
+  });
+
+  await adapter.audit(current);
+
+  assert.equal(logged.filter((line) => line.includes("recurring-error-class")).length, 1);
+});
+
+test("fault isolation: a throwing readRecentOutcomes is caught, never rethrown, onAuditError is called", async () => {
+  let reportedError: unknown;
+  const current = outcome();
+  const adapter = new ProcessAuditPortAdapter({
+    app: "petclinic",
+    readRecentOutcomes: () => { throw new Error("db exploded"); },
+    invalidateContext: () => true,
+    onAuditError: (e) => { reportedError = e; },
+  });
+
+  await assert.doesNotReject(() => adapter.audit(current));
+  assert.ok(reportedError instanceof Error);
+  assert.match((reportedError as Error).message, /db exploded/);
+});
+
+test("fault isolation: a throwing sink is caught, never rethrown", async () => {
+  const current = outcome({ errorClass: "E-FRAGILE-SELECTOR" });
+  const adapter = new ProcessAuditPortAdapter({
+    app: "petclinic",
+    readRecentOutcomes: () => [current, outcome({ errorClass: "E-FRAGILE-SELECTOR", sha: "b" }), outcome({ errorClass: "E-FRAGILE-SELECTOR", sha: "c" })],
+    invalidateContext: () => { throw new Error("context sink exploded"); },
+  });
+
+  await assert.doesNotReject(() => adapter.audit(current));
+});
+
+test("timeout-capped: a hanging read never blocks audit() past the configured timeout, and is logged", async () => {
+  const current = outcome();
+  const lines: string[] = [];
+  const adapter = new ProcessAuditPortAdapter({
+    app: "petclinic",
+    readRecentOutcomes: () => new Promise<RunOutcome[]>(() => {}), /* never resolves */
+    invalidateContext: () => true,
+    timeoutMs: 20,
+    log: (line) => lines.push(line),
+  });
+
+  const start = Date.now();
+  await assert.doesNotReject(() => adapter.audit(current));
+  assert.ok(Date.now() - start < 2_000, "audit() must resolve near the configured timeoutMs, not hang");
+  assert.ok(lines.some((l) => l.includes("timed out")));
+});
+
+test("PROCESS_AUDIT_TIMEOUT_MS default is exported and positive", () => {
+  assert.ok(PROCESS_AUDIT_TIMEOUT_MS > 0);
+});
+
+/* ── The operating signal: recurring time-budget ends ───────────────────────────────────────────── */
+
+function timeBudget(sha: string): RunOutcome {
+  return outcome({ errorClass: "E-TIME-BUDGET", verdict: "infra-error", sha });
+}
+
+function auditing(recent: RunOutcome[]) {
+  const logs: string[] = [];
+  let invalidated = 0;
+  const adapter = new ProcessAuditPortAdapter({
+    app: "petclinic",
+    readRecentOutcomes: () => recent,
+    invalidateContext: () => { invalidated++; return true; },
+    log: (line) => logs.push(line),
+  });
+  return { adapter, logs, invalidated: () => invalidated };
+}
+
+test("three time-budget ends in a row are made visible as an observe-only finding", async () => {
+  const current = timeBudget("a");
+  const { adapter, logs } = auditing([current, timeBudget("b"), timeBudget("c")]);
+  await adapter.audit(current);
+  assert.equal(logs.filter((l) => l.includes("[audit] observe (recurring-time-exhaustion)")).length, 1);
+  assert.match(logs.join("\n"), /E-TIME-BUDGET 3 runs in a row/);
+});
+
+test("a recurring time-budget end never rebuilds the map", async () => {
+  const current = timeBudget("a");
+  const { adapter, invalidated } = auditing([current, timeBudget("b"), timeBudget("c")]);
+  await adapter.audit(current);
+  assert.equal(invalidated(), 0);
+});
+
+test("two time-budget ends in a row are not yet a streak", async () => {
+  const current = timeBudget("a");
+  const { adapter, logs } = auditing([current, timeBudget("b"), outcome({ errorClass: "E-EXEC-FAIL", sha: "c" })]);
+  await adapter.audit(current);
+  assert.equal(logs.length, 0);
+});
+
+test("an outage or a flaky run between time-budget ends neither extends nor breaks their streak", async () => {
+  const current = timeBudget("a");
+  const { adapter, logs } = auditing([
+    current,
+    outcome({ errorClass: "E-INFRA", verdict: "infra-error", sha: "i" }),
+    timeBudget("b"),
+    outcome({ errorClass: "E-FLAKY", verdict: "flaky", sha: "f" }),
+    timeBudget("c"),
+  ]);
+  await adapter.audit(current);
+  assert.equal(logs.filter((l) => l.includes("recurring-time-exhaustion")).length, 1);
+});
+
+test("the time-budget ends stay out of the window of any other class's audit, as before", async () => {
+  const current = outcome({ errorClass: "E-STATIC", verdict: "invalid" });
+  const { adapter, logs } = auditing([current, timeBudget("t"), outcome({ errorClass: "E-STATIC", verdict: "invalid", sha: "b" }), outcome({ errorClass: "E-STATIC", verdict: "invalid", sha: "c" })]);
+  await adapter.audit(current);
+  assert.equal(logs.filter((l) => l.includes("recurring-error-class")).length, 1, "the engine-defect streak of E-STATIC is not broken by a run that decided nothing");
+});
+
+test("three unavailable-reviewer runs in a row are made visible as an observe-only finding", async () => {
+  const unavailable = (sha: string) => outcome({ errorClass: "E-REVIEWER-UNAVAILABLE", verdict: "infra-error", sha });
+  const current = unavailable("a");
+  const { adapter, logs } = auditing([current, unavailable("b"), unavailable("c")]);
+  await adapter.audit(current);
+  assert.equal(logs.filter((l) => l.includes("[audit] observe (recurring-reviewer-unavailable)")).length, 1);
+});
+
+test("an observe finding written through the engine logger ships to the log store: no span records it", async () => {
+  const lines: Array<{ level: string; message: string; ship: unknown }> = [];
+  const recorder = (level: string) => (message: string, fields?: Record<string, unknown>): void => void lines.push({ level, message, ship: fields?.ship });
+  const logger: LoggerPort = { debug: recorder("debug"), info: recorder("info"), warn: recorder("warn"), error: recorder("error"), child: () => logger };
+  installProcessLogger(logger);
+  try {
+    const current = outcome({ errorClass: "E-STATIC", verdict: "invalid" });
+    const adapter = new ProcessAuditPortAdapter({
+      app: "petclinic",
+      readRecentOutcomes: () => [current, outcome({ errorClass: "E-STATIC", sha: "b" }), outcome({ errorClass: "E-STATIC", sha: "c" })],
+      invalidateContext: () => false,
+    });
+    await adapter.audit(current);
+  } finally {
+    resetProcessLoggerForTests();
+  }
+  const finding = lines.find((l) => l.message.includes("[audit] observe (recurring-error-class)"));
+  assert.ok(finding, JSON.stringify(lines));
+  assert.equal(finding.ship, true);
+});

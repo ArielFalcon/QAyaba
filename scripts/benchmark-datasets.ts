@@ -1,6 +1,6 @@
 /*
  * Loads a benchmark dataset from config/benchmarks/datasets/<name>@<version>.json and validates it
- * (qa-engine/src/contexts/evaluation/domain/benchmark-dataset.ts). A campaign replays the dataset's items; an item's `description`
+ * (engine/src/contexts/evaluation/domain/benchmark-dataset.ts). A campaign replays the dataset's items; an item's `description`
  * is metadata and is never sent to a run.
  */
 import { readFileSync, readdirSync } from "node:fs";

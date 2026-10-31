@@ -1,16 +1,16 @@
-/* The composition root's wiring of the execution sandbox: the one place that turns the environment it is handed (the typed Settings' environment) into it. The launcher, the per-run scope provider and the identity they run children as are built here and handed to the engine; qa-engine reads no environment for any of it. Every launcher built here asks the boot check of the file boundary before each spawn (file-boundary.ts). */
+/* The composition root's wiring of the execution sandbox: the one place that turns the environment it is handed (the typed Settings' environment) into it. The launcher, the per-run scope provider and the identity they run children as are built here and handed to the engine; engine reads no environment for any of it. Every launcher built here asks the boot check of the file boundary before each spawn (file-boundary.ts). */
 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createExecSandbox, resolveExecSandboxMode, type EgressGate, type ExecSandboxMode, type ExecSandboxPort } from "../../qa-engine/src/shared-infrastructure/process-sandbox/exec-sandbox";
-import type { ExecScopePort } from "../../qa-engine/src/shared-infrastructure/process-sandbox/exec-scope";
-import { createExecScopeProvider } from "../../qa-engine/src/shared-infrastructure/process-sandbox/exec-scope-provider";
-import type { Sandbox } from "../../qa-engine/src/shared-infrastructure/process-sandbox/sandbox";
-import type { MirrorFsOps } from "../../qa-engine/src/shared-infrastructure/process-sandbox/mirror-access";
+import { createExecSandbox, resolveExecSandboxMode, type EgressGate, type ExecSandboxMode, type ExecSandboxPort } from "../../engine/src/shared-infrastructure/process-sandbox/exec-sandbox";
+import type { ExecScopePort } from "../../engine/src/shared-infrastructure/process-sandbox/exec-scope";
+import { createExecScopeProvider } from "../../engine/src/shared-infrastructure/process-sandbox/exec-scope-provider";
+import type { Sandbox } from "../../engine/src/shared-infrastructure/process-sandbox/sandbox";
+import type { MirrorFsOps } from "../../engine/src/shared-infrastructure/process-sandbox/mirror-access";
 import { resolveEgressMode } from "../settings/sandbox-status";
 import { fileBoundaryGateFor } from "./file-boundary";
 import type { TelemetryPort } from "@kernel/telemetry/telemetry.port";
-import { processReaper } from "../../qa-engine/src/shared-infrastructure/process-sandbox/sandbox-reaper";
+import { processReaper } from "../../engine/src/shared-infrastructure/process-sandbox/sandbox-reaper";
 
 export interface ExecWiring {
   exec: ExecSandboxPort;

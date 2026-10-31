@@ -14,12 +14,12 @@
     "types": ["node"],
     "baseUrl": ".",
     "paths": {
-      "@kernel/*": ["qa-engine/src/shared-kernel/*"],
-      "@contexts/*": ["qa-engine/src/contexts/*"],
-      "@interface/*": ["qa-engine/src/interface/*"]
+      "@kernel/*": ["engine/src/shared-kernel/*"],
+      "@contexts/*": ["engine/src/contexts/*"],
+      "@interface/*": ["engine/src/interface/*"]
     }
   },
   "include": ["platform"],
   "exclude": ["platform/**/__fixtures__"],
-  "references": [{ "path": "./qa-engine" }]
+  "references": [{ "path": "./engine" }]
 }

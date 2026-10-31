@@ -7,10 +7,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ChildProcess, SpawnOptions } from "node:child_process";
 import { SpanStatusCode } from "@opentelemetry/api";
-import { createExecSandbox, resetExecSandboxWarnings, type EgressGate, type ExecSandboxDeps } from "../../qa-engine/src/shared-infrastructure/process-sandbox/exec-sandbox";
-import { newSandboxReport, withExecScope, type RunScope } from "../../qa-engine/src/shared-infrastructure/process-sandbox/exec-scope";
-import { openRunWorkDir } from "../../qa-engine/src/shared-infrastructure/process-sandbox/exec-workdir";
-import { createRunSecretScope, withRunSecretScope } from "../../qa-engine/src/shared-kernel/run-secret-redaction";
+import { createExecSandbox, resetExecSandboxWarnings, type EgressGate, type ExecSandboxDeps } from "../../engine/src/shared-infrastructure/process-sandbox/exec-sandbox";
+import { newSandboxReport, withExecScope, type RunScope } from "../../engine/src/shared-infrastructure/process-sandbox/exec-scope";
+import { openRunWorkDir } from "../../engine/src/shared-infrastructure/process-sandbox/exec-workdir";
+import { createRunSecretScope, withRunSecretScope } from "../../engine/src/shared-kernel/run-secret-redaction";
 import { ThrowingTelemetry } from "@kernel/telemetry/guarded-telemetry";
 import { traceHarness } from "../test-support/trace-harness";
 

@@ -12,9 +12,9 @@
  * It reads and writes the orchestrator's run history, so run it inside the orchestrator container, as the other operator scripts.
  */
 import { pathToFileURL } from "node:url";
-import { MAX_SCORE_COMMENT_CHARS, specOfScore, type ScoreDataType, type ScorePolarity } from "../qa-engine/src/contexts/evaluation/application/index.ts";
+import { MAX_SCORE_COMMENT_CHARS, specOfScore, type ScoreDataType, type ScorePolarity } from "../engine/src/contexts/evaluation/application/index.ts";
 import { sameSpecPathByTail } from "@kernel/spec-path.ts";
-import { referenceFor, type UseCaseReference } from "../qa-engine/src/contexts/evaluation/application/index.ts";
+import { referenceFor, type UseCaseReference } from "../engine/src/contexts/evaluation/application/index.ts";
 import { USE_CASES_DIR, loadReferences } from "../platform/persistence/use-case-reference-loader.ts";
 
 export { USE_CASES_DIR, loadReferences };

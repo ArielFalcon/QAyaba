@@ -8,8 +8,8 @@
 import type { ChildProcess } from "node:child_process";
 import { cpSync, existsSync, lstatSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
-import type { ExecSandboxPort } from "../qa-engine/src/shared-infrastructure/process-sandbox/exec-sandbox.ts";
-import type { QaCase } from "../qa-engine/src/shared-kernel/qa-case.ts";
+import type { ExecSandboxPort } from "../engine/src/shared-infrastructure/process-sandbox/exec-sandbox.ts";
+import type { QaCase } from "../engine/src/shared-kernel/qa-case.ts";
 
 export interface SmokeCheckContext {
   /* The throwaway project the smoke installed, as a spec directory. */

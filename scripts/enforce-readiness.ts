@@ -10,7 +10,7 @@
  */
 import { existsSync } from "node:fs";
 import { pathToFileURL } from "node:url";
-import { REQUIRED_CONSECUTIVE_REPLICATES, enforceReadiness, type AppReadiness, type Replicate } from "../qa-engine/src/contexts/objective-signal/application/index.ts";
+import { REQUIRED_CONSECUTIVE_REPLICATES, enforceReadiness, type AppReadiness, type Replicate } from "../engine/src/contexts/objective-signal/application/index.ts";
 import type { CampaignReplicateRow } from "../platform/persistence/repositories/run.repository.ts";
 
 export type Parsed = { ok: true; app: string | undefined; since: string | undefined } | { ok: false; problem: string };

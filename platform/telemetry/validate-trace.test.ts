@@ -1,9 +1,9 @@
 /* The static gate's checks as spans under the phase that is open. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { countCheckErrors, firstCheckError, traceValidateDeps } from "../../qa-engine/src/contexts/test-execution/infrastructure/static-gate.trace";
-import { validateSpecs, type ValidateDeps } from "../../qa-engine/src/contexts/test-execution/infrastructure/static-gate.checks";
-import { newSandboxReport, withExecScope, type RunScope } from "../../qa-engine/src/shared-infrastructure/process-sandbox/exec-scope";
+import { countCheckErrors, firstCheckError, traceValidateDeps } from "../../engine/src/contexts/test-execution/infrastructure/static-gate.trace";
+import { validateSpecs, type ValidateDeps } from "../../engine/src/contexts/test-execution/infrastructure/static-gate.checks";
+import { newSandboxReport, withExecScope, type RunScope } from "../../engine/src/shared-infrastructure/process-sandbox/exec-scope";
 import type { CheckResult } from "@contexts/test-execution/application/index.ts";
 import { ThrowingTelemetry } from "@kernel/telemetry/guarded-telemetry";
 import { traceHarness } from "../test-support/trace-harness";

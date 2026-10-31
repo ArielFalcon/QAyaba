@@ -9,7 +9,7 @@ import { writeFileSync, readFileSync, rmSync, unlinkSync, existsSync } from "nod
 import { JobQueue } from "../entrypoints/queue";
 import { describeAppLoadFailure, loadAppConfig, listAppConfigs, scanAppConfigs } from "./config-loader";
 
-import { YamlAppConfigAdapter } from "../../qa-engine/src/contexts/app-catalog/infrastructure/yaml-app-config.adapter";
+import { YamlAppConfigAdapter } from "../../engine/src/contexts/app-catalog/infrastructure/yaml-app-config.adapter";
 import { routeApi } from "../entrypoints/api";
 import type { ApiDeps } from "../entrypoints/api/deps";
 import type { ApiRunRequest } from "../entrypoints/api/run-request";
@@ -28,7 +28,7 @@ import { MAX_CONTINUATION_DEPTH } from "../persistence/repositories/run.reposito
 import { createEvaluationService } from "./evaluation-service";
 import { ScoreMetricsSink } from "../telemetry/score-metrics-sink";
 import { parseStoredRunConfig, type RunConfigEnvironment } from "../entrypoints/effective-config";
-import { hashStaticPrompts } from "../../qa-engine/src/contexts/run-orchestration/infrastructure/static-prompt-hash";
+import { hashStaticPrompts } from "../../engine/src/contexts/run-orchestration/infrastructure/static-prompt-hash";
 import type { CampaignIdentity } from "../entrypoints/contract/campaign";
 import { buildRunViewExtras, defaultRunViewDeps } from "../entrypoints/run-view";
 import { enqueueTrackedRun, enqueueDoorRun, type RunRequest, enqueueContextMapRun, enqueueLoginBootstrapRun, cancelTrackedRun, finalizeInterruptedRuns, type RunnerDeps } from "../entrypoints/runner";
@@ -36,8 +36,8 @@ import { codeGraphFor } from "./engine-root";
 import { appAuthDir, appSuiteStoreDir, createRunEngineFactory, resolveCodeSandbox, resolveCoordinationTelemetryPath } from "./run-engine-factory";
 import { PendingChangeSets, longestRunTimeBudgetMs, type ContextHealRunRequest } from "@contexts/run-orchestration/application/index";
 import { egressGateFor } from "./egress-wiring";
-import { SandboxedBinaryRunnerAdapter } from "../../qa-engine/src/shared-infrastructure/process-sandbox/sandboxed-binary-runner.adapter";
-import { ProcessKillAdapter } from "../../qa-engine/src/shared-infrastructure/process-sandbox/process-kill.adapter";
+import { SandboxedBinaryRunnerAdapter } from "../../engine/src/shared-infrastructure/process-sandbox/sandboxed-binary-runner.adapter";
+import { ProcessKillAdapter } from "../../engine/src/shared-infrastructure/process-sandbox/process-kill.adapter";
 import { deleteSuiteSnapshots, deleteSuiteStoreDir } from "@contexts/workspace-and-publication/infrastructure/suite-store.adapter";
 import { pruneMirrors, type MirrorPruneDeps } from "@contexts/workspace-and-publication/application/prune-mirrors";
 import { fsMirrorStore, getDirectorySize } from "@contexts/workspace-and-publication/infrastructure/mirror-fs.adapter";
@@ -71,7 +71,7 @@ import { RedactionPortAdapter } from "../telemetry/sanitizer";
 import { processTelemetry, TELEMETRY_SHUTDOWN_TIMEOUT_MS } from "./process-telemetry";
 import { HostHealth } from "../telemetry/host-health";
 import { BackendHealthMonitor, systemBackendFetch } from "../telemetry/backend-health";
-import { resolveSandbox } from "../../qa-engine/src/shared-infrastructure/process-sandbox/sandbox";
+import { resolveSandbox } from "../../engine/src/shared-infrastructure/process-sandbox/sandbox";
 import { createToolsServer, resolveToolsListenHost, resolveToolsToken } from "../entrypoints/tools-endpoint";
 import { ClosedLoopRegistry } from "@contexts/agent-tools/infrastructure/closed-loop-registry";
 import { AgentBrowserRegistry } from "@contexts/agent-tools/infrastructure/agent-browser-registry";
@@ -80,7 +80,7 @@ import { CodeGraphToolRegistry } from "@contexts/agent-tools/infrastructure/code
 import { FsDelegationWorkspaceAdapter } from "@contexts/coordination/infrastructure/adapters/delegation-workspace.adapter";
 import { DELEGATIONS_DIR } from "../settings/paths";
 import { workdirRoot } from "./repo-mirror";
-import { sweepOrphanAgentBrowsers } from "../../qa-engine/src/shared-infrastructure/process-sandbox/orphan-browser-sweep";
+import { sweepOrphanAgentBrowsers } from "../../engine/src/shared-infrastructure/process-sandbox/orphan-browser-sweep";
 import { buildScriptExec, execWorkRoot } from "./exec-sandbox-factory";
 import { loadOrCreateApiToken } from "../settings/api-token";
 import { shouldLogApiRequest } from "../entrypoints/api-request-log";

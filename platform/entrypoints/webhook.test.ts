@@ -101,7 +101,7 @@ test("handleWebhook: with no secret configured the CORE does not require a signa
   assert.equal(r.status, 202);
 });
 
-/* The commit-id rule every entry point applies (qa-engine/src/shared-kernel/git-revision.ts): 7 to 40 hex characters, any case. */
+/* The commit-id rule every entry point applies (engine/src/shared-kernel/git-revision.ts): 7 to 40 hex characters, any case. */
 const ACCEPTED_SHAS = ["abc1234", "ABC1234", "a".repeat(40)];
 const REFUSED_SHAS = ["abc123", "a".repeat(41), "--output=/tmp/x", "abc 1234", "abc1234\n", "", "main"];
 

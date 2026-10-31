@@ -10,8 +10,8 @@
 
 import { ROOT_CONTEXT, trace, TraceFlags, type Context } from "@opentelemetry/api";
 import { SeverityNumber, type Logger } from "@opentelemetry/api-logs";
-import { sha256Hex } from "../../qa-engine/src/shared-kernel/content-hash";
-import { REDACTION_FAILED, redactThenBound } from "../../qa-engine/src/shared-kernel/redact-then-bound";
+import { sha256Hex } from "../../engine/src/shared-kernel/content-hash";
+import { REDACTION_FAILED, redactThenBound } from "../../engine/src/shared-kernel/redact-then-bound";
 import type { CaptureMode } from "@kernel/telemetry/capture-mode";
 import type { TelemetryContext } from "@kernel/telemetry/telemetry.port";
 

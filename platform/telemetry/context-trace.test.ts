@@ -10,8 +10,8 @@ import {
   TracedServiceLinksPort,
   TracedStructuralSignalPort,
   telemetryGroundingTrace,
-} from "../../qa-engine/src/contexts/generation/infrastructure/adapters/context-trace";
-import { PreGenerationGroundingPortAdapter } from "../../qa-engine/src/contexts/generation/infrastructure/adapters/pre-generation-grounding-port.adapter";
+} from "../../engine/src/contexts/generation/infrastructure/adapters/context-trace";
+import { PreGenerationGroundingPortAdapter } from "../../engine/src/contexts/generation/infrastructure/adapters/pre-generation-grounding-port.adapter";
 import type { UseCaseCandidate } from "@kernel/use-case-candidate.ts";
 import type { ServiceLinksPort } from "@contexts/service-topology/application/index.ts";
 import type { StructuralSignalPort } from "@kernel/ports/structural-signal.port.ts";
@@ -19,9 +19,9 @@ import { buildContextPack, type ContextPackDeps } from "@contexts/generation/inf
 import { createCaptureDomDeps } from "@contexts/generation/infrastructure/dom-snapshot";
 import { domCaptureObserver, recordDomCapture } from "@contexts/generation/infrastructure/dom-capture-trace";
 import { MAX_ITEM_IDS } from "@kernel/context-item-ids";
-import { recordContextSpan } from "../../qa-engine/src/shared-infrastructure/telemetry/run-spans";import { newSandboxReport, withExecScope, type RunScope } from "../../qa-engine/src/shared-infrastructure/process-sandbox/exec-scope";
-import { createRunSecretScope, withRunSecretScope } from "../../qa-engine/src/shared-kernel/run-secret-redaction";
-import { testExecSandbox } from "../../qa-engine/test/support/exec-sandbox-harness";
+import { recordContextSpan } from "../../engine/src/shared-infrastructure/telemetry/run-spans";import { newSandboxReport, withExecScope, type RunScope } from "../../engine/src/shared-infrastructure/process-sandbox/exec-scope";
+import { createRunSecretScope, withRunSecretScope } from "../../engine/src/shared-kernel/run-secret-redaction";
+import { testExecSandbox } from "../../engine/test/support/exec-sandbox-harness";
 import { Sha } from "@kernel/sha";
 import { BlastRadius } from "@kernel/blast-radius";
 import { ThrowingTelemetry } from "@kernel/telemetry/guarded-telemetry";

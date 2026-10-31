@@ -22,11 +22,11 @@ import { readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 import { DatabaseSync, type StatementSync } from "node:sqlite";
-import { STORE_READER_SCRIPT } from "../qa-engine/src/shared-infrastructure/code-graph/codegraph-engine.ts";
-import { selectSeeds, type StoreSymbol } from "../qa-engine/src/shared-infrastructure/code-graph/codegraph-code-graph.adapter.ts";
-import { DiffParserService } from "../qa-engine/src/shared-kernel/diff-parser/diff-parser.service.ts";
-import { LanguageRegistry } from "../qa-engine/src/shared-kernel/language-id.ts";
-import { CHANGE_SCOPE_LIMITS } from "../qa-engine/src/contexts/change-analysis/application/index.ts";
+import { STORE_READER_SCRIPT } from "../engine/src/shared-infrastructure/code-graph/codegraph-engine.ts";
+import { selectSeeds, type StoreSymbol } from "../engine/src/shared-infrastructure/code-graph/codegraph-code-graph.adapter.ts";
+import { DiffParserService } from "../engine/src/shared-kernel/diff-parser/diff-parser.service.ts";
+import { LanguageRegistry } from "../engine/src/shared-kernel/language-id.ts";
+import { CHANGE_SCOPE_LIMITS } from "../engine/src/contexts/change-analysis/application/index.ts";
 
 const CALLABLE_KINDS = ["function", "method", "class", "component", "interface"];
 const VALUE_KINDS = ["constant", "variable"];

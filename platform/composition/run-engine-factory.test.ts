@@ -12,20 +12,20 @@ import { appSuiteStoreDir, createRunEngineFactory, engineAgentDeps, buildEngineR
 import { AppConfig } from "./config-loader";
 import { ChangeSet } from "@contexts/change-analysis/application/index";
 import { CodeGraphToolRegistry } from "@contexts/agent-tools/infrastructure/code-graph-tool-registry";
-import { createRunSecretScope, withRunSecretScope } from "../../qa-engine/src/shared-kernel/run-secret-redaction";
+import { createRunSecretScope, withRunSecretScope } from "../../engine/src/shared-kernel/run-secret-redaction";
 import { JobQueue } from "../entrypoints/queue";
 import { enqueueTrackedRun } from "../entrypoints/runner";
 import type { ArchitectureContext } from "@contexts/generation/application/index.ts";
 import type { AgentDeps } from "../agent-runtime/opencode-client";
 import { assertTrustedGitTree, defaultMirrorDeps, hardenGitArgs, UntrustedGitTreeError, type MirrorDeps } from "./repo-mirror";
-import { closeGitDir, GIT_ENV, makeGitlinkRepo, plantNestedRepo, ranPlantedCommand, writeMarkerCommand } from "../../qa-engine/test/shared-infrastructure/process-sandbox/git-fixtures";
+import { closeGitDir, GIT_ENV, makeGitlinkRepo, plantNestedRepo, ranPlantedCommand, writeMarkerCommand } from "../../engine/test/shared-infrastructure/process-sandbox/git-fixtures";
 import { SqliteRunHistoryAdapter } from "../persistence/run-history-sqlite-adapter";
 import { defaultCaptureDomDeps } from "@contexts/generation/infrastructure/dom-snapshot";
 import { AUTH_SETUP_ENV } from "@contexts/app-catalog/infrastructure/auth-session.adapter";
 import { AuthPreconditionError, PRECONDITION_KIND } from "@contexts/app-catalog/application/index";
 import { SUBMITTED_MARKER } from "@contexts/app-catalog/infrastructure/login-discovery/login-discovery.script";
-import { activeExecScope } from "../../qa-engine/src/shared-infrastructure/process-sandbox/exec-scope";
-import { scriptedLoginEvidence } from "../../qa-engine/test/support/login-evidence";
+import { activeExecScope } from "../../engine/src/shared-infrastructure/process-sandbox/exec-scope";
+import { scriptedLoginEvidence } from "../../engine/test/support/login-evidence";
 import { createAgentDeps } from "@contexts/generation/infrastructure/agent-transport-policy";
 import { RUN_TIME_BUDGET_ENV } from "@contexts/run-orchestration/application/index";
 import { isRunDeadlineError } from "@kernel/run-deadline";
@@ -794,7 +794,7 @@ test("the composed RepairPort drives GenerateTestsUseCase's generator-contract-c
         promptCount++;
         if (promptCount === 1) {
           /* Malformed generator output: no closing verdict JSON with a `specs` array at all —
-             checkGeneratorVerdict (qa-engine/src/contexts/generation/domain/verdict-validate.ts) must reject this.
+             checkGeneratorVerdict (engine/src/contexts/generation/domain/verdict-validate.ts) must reject this.
            */
           return "I wrote the tests but forgot to emit the closing JSON verdict.";
         }
@@ -870,7 +870,7 @@ test("buildEngineRootDeps sets reviewTimeoutMs to the reviewerTimeoutMs() settin
 
    groundingCollaborators.contextPackDeps and reviewDomGroundingCollaborators/
    preExecGroundingCollaborators.captureDomDeps are ALWAYS overridden (authDir-aware), so DOM
-   capture reads auth material from the orchestrator-only authDir, never the mirror — the qa-engine
+   capture reads auth material from the orchestrator-only authDir, never the mirror — the engine
    default is an inert placeholder that throws when used. This is why the tests below assert these
    fields are PRESENT rather than `{}`.
  */
@@ -1424,7 +1424,7 @@ test("the publish step (context mode): the tracked-file denylist guard is ALSO w
    publish's `[...authHeaderArgs(), "push", ...]`). Fresh mirrors have NO git identity, so commit
    uses `-c user.name=<GIT_AUTHOR_NAME ?? "qayaba"> -c user.email=<GIT_AUTHOR_EMAIL ??
    "qayaba@users.noreply.github.com">`. the publish step decorates the injected git fn (factory-side
-   — the qa-engine adapter stays token-agnostic) so push carries auth and commit carries identity.
+   — the engine adapter stays token-agnostic) so push carries auth and commit carries identity.
    These tests pin the EXACT argv the fake receives.
  */
 
@@ -2461,7 +2461,7 @@ test("cross-repo: checkout(sha) stages sibling services at branch HEAD without r
   ], "trigger is staged with the event sha; siblings are contracts-only");
 });
 
-/* ── Service staging as a qa-engine workspace adapter (MultiRepoCheckoutAdapter) ─────────────── */
+/* ── Service staging as a engine workspace adapter (MultiRepoCheckoutAdapter) ─────────────── */
 
 test("service staging: declared services are mirrored CONCURRENTLY (Promise.all), not one-at-a-time", async () => {
   const app: AppConfig = { ...cfg("factory-service-staging-parallel"), services: [{ repo: "org/svc-a" }, { repo: "org/svc-b" }] };

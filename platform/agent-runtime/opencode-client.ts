@@ -1,7 +1,7 @@
 
 /*
  * Provider I/O edge: thin OpenCode SDK primitives (session create/prompt/abort) plus a few
- * control-plane wrappers. Domain/policy lives in qa-engine.
+ * control-plane wrappers. Domain/policy lives in engine.
  */
 
 import { appLogger } from "../telemetry/redacting-logger";
@@ -641,10 +641,10 @@ export function openCodePromptBody(args: { agent: string; text: string; model?: 
  * every open() (the runner/pipeline path via the facade). There is no factory-level usage sink (it
  * was dead in the production strategy path, which always constructs this with no argument).
  * Raw transport (genuinely raw @opencode-ai/sdk primitives — client construction,
- * session.create/prompt/abort/delete). Injected into qa-engine's createAgentDeps, which owns ALL
+ * session.create/prompt/abort/delete). Injected into engine's createAgentDeps, which owns ALL
  * policy (circuit-breaker gating, fallback-model retry, telemetry assembly, sanitize-before-emit).
  * Raw response-shape validation (res.error, missing id) is a genuinely raw-transport concern and
- * stays HERE — qa-engine's policy layer only sees a clean RawPromptResult or a rejected promise.
+ * stays HERE — engine's policy layer only sees a clean RawPromptResult or a rejected promise.
  */
 async function buildRawAgentTransport(): Promise<RawAgentTransport> {
   const client = await getSharedClient();

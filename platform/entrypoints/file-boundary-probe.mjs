@@ -7,7 +7,7 @@
  *
  * It reads the planned attempts as JSON on stdin and prints, for each in order, only what the system call answered: its error code
  * (null when it worked) and, for a write, what it found at the path. What an answer means is decided by the parent
- * (qa-engine/src/shared-infrastructure/process-sandbox/file-boundary.ts).
+ * (engine/src/shared-infrastructure/process-sandbox/file-boundary.ts).
  */
 
 import { closeSync, openSync, readdirSync, readFileSync, statSync, unlinkSync } from "node:fs";

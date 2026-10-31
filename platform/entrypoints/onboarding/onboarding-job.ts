@@ -147,7 +147,7 @@ export interface OnboardingJobDeps {
   hasProposerAgent(): Promise<boolean>;
   /** Composes the LLM proposer adapter for this run; ctx.signal is the job AbortSignal. */
   buildProposer(ctx: { app: string; signal: AbortSignal }): ProfileProposerPort;
-  /** Composes the REAL OnboardingService (qa-engine, imported, never reimplemented) wired with the
+  /** Composes the REAL OnboardingService (engine, imported, never reimplemented) wired with the
    *  onRound observer that feeds this job's live status. */
   buildOnboardingService(proposer: ProfileProposerPort, onRound: (p: OnboardingRoundProgress) => void): OnboardingService;
   /** OPTIONAL: resolve a winning profile's cross-repo links for the status edge summary.

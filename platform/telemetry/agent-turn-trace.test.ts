@@ -15,8 +15,8 @@ import { INSTRUMENTS, checkInstrumentTable } from "./instrument-table";
 import { NoopTelemetry } from "@kernel/telemetry/noop-telemetry";
 import { ThrowingTelemetry } from "@kernel/telemetry/guarded-telemetry";
 import type { TelemetryPort } from "@kernel/telemetry/telemetry.port";
-import { createRunSecretScope, withRunSecretScope } from "../../qa-engine/src/shared-kernel/run-secret-redaction";
-import { newSandboxReport, withExecScope, type RunScope } from "../../qa-engine/src/shared-infrastructure/process-sandbox/exec-scope";
+import { createRunSecretScope, withRunSecretScope } from "../../engine/src/shared-kernel/run-secret-redaction";
+import { newSandboxReport, withExecScope, type RunScope } from "../../engine/src/shared-infrastructure/process-sandbox/exec-scope";
 import { traceHarness, type FakeClock } from "../test-support/trace-harness";
 import { HostListeners, watchSpanForHost } from "./host-listeners";
 

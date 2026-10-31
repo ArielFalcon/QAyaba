@@ -1,5 +1,5 @@
 /* Permanent seam: the engine's RunOutcome reaching the history store, and AppConfig ↔ EngineRootDeps.
-   qa-engine cannot import src/, so this shell test is the drift gate. The stored outcome is derived from the
+   engine cannot import src/, so this shell test is the drift gate. The stored outcome is derived from the
    engine's type, so only the forwarding is pinned here. */
 import { test, describe, mock } from "node:test";
 import assert from "node:assert/strict";
@@ -10,7 +10,7 @@ import { join } from "node:path";
 import type { RunOutcome as KernelRunOutcome } from "@kernel/run-outcome";
 import { GENERATION_END } from "@kernel/generation-end";
 import { wireEngine, type EngineRootDeps } from "./engine-root";
-import { ConfinedPathError } from "../../qa-engine/src/shared-infrastructure/spec-path-confinement";
+import { ConfinedPathError } from "../../engine/src/shared-infrastructure/spec-path-confinement";
 
 import { type RunHistorySqliteAdapterDeps, SqliteRunHistoryAdapter } from "../persistence/run-history-sqlite-adapter";
 import { buildEngineRootDeps, type RunEngineFactoryDeps } from "./run-engine-factory";

@@ -19,7 +19,7 @@ import type { TelemetryHealth } from "./telemetry-health";
 import type { TelemetryClock, TelemetryPort } from "@kernel/telemetry/telemetry.port";
 import { getHistory, getHistoryDatabase } from "../persistence/index";
 import { pruneRunPlans, pruneRunSpans, pruneSpecSnapshots } from "../persistence/retention";
-import { sanitizeText } from "../../qa-engine/src/shared-infrastructure/redaction/pattern-redaction.adapter";
+import { sanitizeText } from "../../engine/src/shared-infrastructure/redaction/pattern-redaction.adapter";
 import { resolveTelemetryConfig, type TelemetryConfig } from "../settings/telemetry-config";
 import { LedgerSpanProcessor, type RunSpanStore } from "./ledger";
 import { EVENT_LOOP_DELAY_BOUNDARIES_MS, SUSPEND_DURATION_BOUNDARIES_S } from "./host-health";

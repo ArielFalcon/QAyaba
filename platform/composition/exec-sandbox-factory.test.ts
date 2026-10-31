@@ -4,8 +4,8 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildExecWiring, buildScriptExec } from "./exec-sandbox-factory";
-import { SandboxUnavailableError } from "../../qa-engine/src/shared-infrastructure/process-sandbox/exec-sandbox";
-import { newSandboxReport } from "../../qa-engine/src/shared-infrastructure/process-sandbox/exec-scope";
+import { SandboxUnavailableError } from "../../engine/src/shared-infrastructure/process-sandbox/exec-sandbox";
+import { newSandboxReport } from "../../engine/src/shared-infrastructure/process-sandbox/exec-scope";
 
 /* The launchers the service and the operator scripts build both ask the boot check's status before a spawn: a wiring that forgot it would run agent code on a host whose files are open. */
 test("the run's and the scripts' launchers refuse agent code when the boot check found the file boundary open", async () => {

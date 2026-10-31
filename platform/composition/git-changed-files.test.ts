@@ -6,7 +6,7 @@ import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { gitChangedFiles } from "./run-engine-factory";
-import { GIT_ENV, closeGitDir, git } from "../../qa-engine/test/shared-infrastructure/process-sandbox/git-fixtures";
+import { GIT_ENV, closeGitDir, git } from "../../engine/test/shared-infrastructure/process-sandbox/git-fixtures";
 
 function withMirror(body: (repo: string, first: string, second: string, scratch: string) => void): void {
   const scratch = mkdtempSync(join(tmpdir(), "qayaba-changed-files-"));

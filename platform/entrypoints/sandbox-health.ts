@@ -1,9 +1,9 @@
 /* What /api/health says about the execution sandbox. A service whose sandbox cannot be honored still answers (so its container stays up for the operator to read why), but it says it is degraded: under QA_EXEC_SANDBOX=required with no sandbox uid or with a file boundary the boot check did not find holding, or under QA_EGRESS_MODE=enforce with the egress filter's boot self-test not passed, every run that executes agent code will end E-SANDBOX. */
 
 import { readFileSync } from "node:fs";
-import { resolveExecSandboxMode } from "../../qa-engine/src/shared-infrastructure/process-sandbox/exec-sandbox";
-import { resolveSandbox, type Sandbox } from "../../qa-engine/src/shared-infrastructure/process-sandbox/sandbox";
-import { parseFileBoundaryStatus } from "../../qa-engine/src/shared-infrastructure/process-sandbox/file-boundary";
+import { resolveExecSandboxMode } from "../../engine/src/shared-infrastructure/process-sandbox/exec-sandbox";
+import { resolveSandbox, type Sandbox } from "../../engine/src/shared-infrastructure/process-sandbox/sandbox";
+import { parseFileBoundaryStatus } from "../../engine/src/shared-infrastructure/process-sandbox/file-boundary";
 import { readFileBoundaryStatusFile, resolveEgressMode } from "../settings/sandbox-status";
 
 export interface SandboxHealth {

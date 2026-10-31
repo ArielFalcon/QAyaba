@@ -56,39 +56,39 @@ export interface MutationPreset {
   concurrency?: number;
 }
 
-const OS = "qa-engine/src/contexts/objective-signal/domain";
-const OS_TEST = "qa-engine/test/contexts/objective-signal/domain";
-const KERNEL = "qa-engine/src/shared-kernel";
-const KERNEL_TEST = "qa-engine/test/shared-kernel";
-const LEARN = "qa-engine/src/contexts/cross-run-learning/domain";
-const LEARN_TEST = "qa-engine/test/contexts/cross-run-learning/domain";
-const ORCH = "qa-engine/src/contexts/run-orchestration";
-const ORCH_TEST = "qa-engine/test/contexts/run-orchestration";
-const OBJECTIVE_SIGNAL_CTX = "qa-engine/src/contexts/objective-signal";
-const OBJECTIVE_SIGNAL_CTX_TEST = "qa-engine/test/contexts/objective-signal";
-const CROSS_RUN_LEARNING_CTX = "qa-engine/src/contexts/cross-run-learning";
-const CROSS_RUN_LEARNING_CTX_TEST = "qa-engine/test/contexts/cross-run-learning";
-const GENERATION_CTX = "qa-engine/src/contexts/generation";
-const GENERATION_CTX_TEST = "qa-engine/test/contexts/generation";
-const COORDINATION_CTX = "qa-engine/src/contexts/coordination";
-const COORDINATION_CTX_TEST = "qa-engine/test/contexts/coordination";
-const AGENT_TOOLS_CTX = "qa-engine/src/contexts/agent-tools";
-const AGENT_TOOLS_CTX_TEST = "qa-engine/test/contexts/agent-tools";
-const APP_CATALOG_CTX = "qa-engine/src/contexts/app-catalog";
-const APP_CATALOG_CTX_TEST = "qa-engine/test/contexts/app-catalog";
-const GEN = "qa-engine/src/contexts/generation";
-const GEN_TEST = "qa-engine/test/contexts/generation";
-const PUB = "qa-engine/src/contexts/workspace-and-publication/domain";
-const PUB_TEST = "qa-engine/test/contexts/workspace-and-publication/domain";
-const PUB_INFRA = "qa-engine/src/contexts/workspace-and-publication/infrastructure";
-const OS_INFRA = "qa-engine/src/contexts/objective-signal/infrastructure";
-const OS_INFRA_TEST = "qa-engine/test/contexts/objective-signal/infrastructure";
-const TOPO = "qa-engine/src/contexts/service-topology/infrastructure";
-const TOPO_TEST = "qa-engine/test/contexts/service-topology/infrastructure";
-const TOPO_APP = "qa-engine/src/contexts/service-topology/application";
-const TOPO_APP_TEST = "qa-engine/test/contexts/service-topology/application";
-const TE = "qa-engine/src/contexts/test-execution";
-const TE_TEST = "qa-engine/test/contexts/test-execution";
+const OS = "engine/src/contexts/objective-signal/domain";
+const OS_TEST = "engine/test/contexts/objective-signal/domain";
+const KERNEL = "engine/src/shared-kernel";
+const KERNEL_TEST = "engine/test/shared-kernel";
+const LEARN = "engine/src/contexts/cross-run-learning/domain";
+const LEARN_TEST = "engine/test/contexts/cross-run-learning/domain";
+const ORCH = "engine/src/contexts/run-orchestration";
+const ORCH_TEST = "engine/test/contexts/run-orchestration";
+const OBJECTIVE_SIGNAL_CTX = "engine/src/contexts/objective-signal";
+const OBJECTIVE_SIGNAL_CTX_TEST = "engine/test/contexts/objective-signal";
+const CROSS_RUN_LEARNING_CTX = "engine/src/contexts/cross-run-learning";
+const CROSS_RUN_LEARNING_CTX_TEST = "engine/test/contexts/cross-run-learning";
+const GENERATION_CTX = "engine/src/contexts/generation";
+const GENERATION_CTX_TEST = "engine/test/contexts/generation";
+const COORDINATION_CTX = "engine/src/contexts/coordination";
+const COORDINATION_CTX_TEST = "engine/test/contexts/coordination";
+const AGENT_TOOLS_CTX = "engine/src/contexts/agent-tools";
+const AGENT_TOOLS_CTX_TEST = "engine/test/contexts/agent-tools";
+const APP_CATALOG_CTX = "engine/src/contexts/app-catalog";
+const APP_CATALOG_CTX_TEST = "engine/test/contexts/app-catalog";
+const GEN = "engine/src/contexts/generation";
+const GEN_TEST = "engine/test/contexts/generation";
+const PUB = "engine/src/contexts/workspace-and-publication/domain";
+const PUB_TEST = "engine/test/contexts/workspace-and-publication/domain";
+const PUB_INFRA = "engine/src/contexts/workspace-and-publication/infrastructure";
+const OS_INFRA = "engine/src/contexts/objective-signal/infrastructure";
+const OS_INFRA_TEST = "engine/test/contexts/objective-signal/infrastructure";
+const TOPO = "engine/src/contexts/service-topology/infrastructure";
+const TOPO_TEST = "engine/test/contexts/service-topology/infrastructure";
+const TOPO_APP = "engine/src/contexts/service-topology/application";
+const TOPO_APP_TEST = "engine/test/contexts/service-topology/application";
+const TE = "engine/src/contexts/test-execution";
+const TE_TEST = "engine/test/contexts/test-execution";
 
 const DEFAULT_THRESHOLDS: MutationThresholds = { high: 90, low: 80, break: null };
 
@@ -113,7 +113,7 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
       `${ORCH_TEST}/domain/fix-loop-retry.test.ts`,
       `${ORCH_TEST}/application/run-qa.use-case.test.ts`,
       `${GENERATION_CTX_TEST}/infrastructure/adapters/generation-turns.adapter.test.ts`,
-      "qa-engine/test/contract/coordination-seam.contract.test.ts",
+      "engine/test/contract/coordination-seam.contract.test.ts",
     ],
     thresholds: DEFAULT_THRESHOLDS,
   },
@@ -126,11 +126,11 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
     ],
     tests: [
       `${ORCH_TEST}/application/coordination-pushback.test.ts`,
-      "qa-engine/test/contract/coordination-phases-5-14.contract.test.ts",
-      "qa-engine/test/contract/coordination-disk-and-model.contract.test.ts",
-      "qa-engine/test/contract/coordination-delegation.contract.test.ts",
-      "qa-engine/test/contract/coordination-sidekick.contract.test.ts",
-      "qa-engine/test/contract/coordination-seam.contract.test.ts",
+      "engine/test/contract/coordination-phases-5-14.contract.test.ts",
+      "engine/test/contract/coordination-disk-and-model.contract.test.ts",
+      "engine/test/contract/coordination-delegation.contract.test.ts",
+      "engine/test/contract/coordination-sidekick.contract.test.ts",
+      "engine/test/contract/coordination-seam.contract.test.ts",
       "platform/entrypoints/coordination-events.test.ts",
     ],
     thresholds: DEFAULT_THRESHOLDS,
@@ -166,7 +166,7 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
       `${GEN_TEST}/infrastructure/sse/opencode-tool-outcome.test.ts`,
       `${GEN_TEST}/infrastructure/sse/event-stream.test.ts`,
       `${GEN_TEST}/infrastructure/agent-transport-policy.test.ts`,
-      "qa-engine/test/contract/agent-efficiency-reconcile.contract.test.ts",
+      "engine/test/contract/agent-efficiency-reconcile.contract.test.ts",
     ],
     thresholds: DEFAULT_THRESHOLDS,
   },
@@ -220,7 +220,7 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
   "route-capturability": {
     description: "route capturability: which route strings name one page a browser can open, which of the map's routes the changed files point at and so come first, the filter and the cut the pack applies to the candidates, and the list of routes left out",
     mutate: [
-      "qa-engine/src/shared-kernel/route-capturability.ts",
+      "engine/src/shared-kernel/route-capturability.ts",
       `${GEN}/domain/route-ranking.ts`,
       `${GEN}/domain/route-instantiation.ts`,
       `${GEN}/infrastructure/loggable-route.ts`,
@@ -235,7 +235,7 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
       `${GEN}/infrastructure/context-pack.ts@capture-state-line`,
     ],
     tests: [
-      "qa-engine/test/shared-kernel/route-capturability.test.ts",
+      "engine/test/shared-kernel/route-capturability.test.ts",
       `${GEN_TEST}/domain/route-ranking.test.ts`,
       `${GEN_TEST}/domain/route-instantiation.test.ts`,
       `${GEN_TEST}/infrastructure/loggable-route.test.ts`,
@@ -247,8 +247,8 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
   "carry-forward": {
     description: "carry-forward of the specs a run delivers: the canonical spec path, the one fold that keeps each spec once with its newest declared text, what a verdict declares, the merge after each pass (the lead refreshes, a sidekick adds paths only), the attribution of a selector contradiction to the specs that raised it, the line of the suite's entry and the listing of the suite for a regeneration (which specs there are, which the turn must change, how many of the others are shown, whether the objective is asked again) with the way it is written into a prompt, and the lines that wire them: the declarations a generation returns, the origin each check gives its contradictions (the pre-exec gate's and Lever-2's, through the FixLoop), the specs each regeneration is handed (the run's own and the suite's), the adapter's check that each is still there and the grounding's fold of the manifest into the suite's entries",
     mutate: [
-      "qa-engine/src/shared-kernel/spec-path.ts",
-      "qa-engine/src/shared-kernel/delivered-spec.ts",
+      "engine/src/shared-kernel/spec-path.ts",
+      "engine/src/shared-kernel/delivered-spec.ts",
       `${GEN}/domain/declared-specs.ts`,
       `${ORCH}/domain/helpers/delivered-specs.ts`,
       `${ORCH}/domain/helpers/contradiction-attribution.ts`,
@@ -288,8 +288,8 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
       `${ORCH}/application/run-flow/phases/coverage.steps.ts@delivered-before-coverage-regen`,
     ],
     tests: [
-      "qa-engine/test/shared-kernel/spec-path.test.ts",
-      "qa-engine/test/shared-kernel/delivered-spec.test.ts",
+      "engine/test/shared-kernel/spec-path.test.ts",
+      "engine/test/shared-kernel/delivered-spec.test.ts",
       `${GEN_TEST}/domain/declared-specs.test.ts`,
       `${GEN_TEST}/application/generate-tests.declared-specs.test.ts`,
       `${ORCH_TEST}/domain/helpers/delivered-specs.test.ts`,
@@ -328,8 +328,8 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
   },
   "patch-app-yaml": {
     description: "app config patch: the managed fields of an app's YAML are edited in place, and placeholders, comments and unmanaged keys come out as they went in",
-    mutate: ["qa-engine/src/contexts/app-catalog/application/patch-app-yaml.ts"],
-    tests: ["qa-engine/test/contexts/app-catalog/application/patch-app-yaml.test.ts", "platform/composition/app-admin.test.ts"],
+    mutate: ["engine/src/contexts/app-catalog/application/patch-app-yaml.ts"],
+    tests: ["engine/test/contexts/app-catalog/application/patch-app-yaml.test.ts", "platform/composition/app-admin.test.ts"],
     thresholds: DEFAULT_THRESHOLDS,
   },
   "prompt-contract": {
@@ -415,7 +415,7 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
     description: "coordination telemetry ledger read model served to the API/TUI",
     mutate: [`${COORDINATION_CTX}/infrastructure/adapters/coordination-ledger-reader.adapter.ts`, "platform/entrypoints/coordination-events.ts"],
     tests: [
-      "qa-engine/test/contexts/coordination/infrastructure/adapters/coordination-ledger-reader.adapter.test.ts",
+      "engine/test/contexts/coordination/infrastructure/adapters/coordination-ledger-reader.adapter.test.ts",
       "platform/entrypoints/coordination-events.test.ts",
       "platform/entrypoints/api.test.ts",
     ],
@@ -432,8 +432,8 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
     mutate: [`${PUB}/write-confinement.service.ts`],
     tests: [
       `${PUB_TEST}/write-confinement.service.test.ts`,
-      "qa-engine/test/contexts/workspace-and-publication/infrastructure/write-confinement.adapter.test.ts",
-      "qa-engine/test/contexts/workspace-and-publication/infrastructure/vcs-write.adapter.test.ts",
+      "engine/test/contexts/workspace-and-publication/infrastructure/write-confinement.adapter.test.ts",
+      "engine/test/contexts/workspace-and-publication/infrastructure/vcs-write.adapter.test.ts",
     ],
     thresholds: DEFAULT_THRESHOLDS,
     /* Both adapter tests drive real git repositories per case. */
@@ -442,13 +442,13 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
   "spec-path-confinement": {
     description: "spec path confinement: the one reader of a path an agent reported (the real-path anchor, the refusal of symlinks, parent segments, absolute paths and named pipes, the size cap, the released descriptor, the descriptor tied to the validated file by its identity and by the kernel's path, the file read whole), the strict read, listing, directory and write of the files the orchestrator keeps in the spec directory (no link on the way, a capped listing, a temporary file renamed over the target), the removal of what refuses a read (a name unlinked or a directory set aside, never opened or followed, never outside the spec directory) and the walk of the specs that never follows a link, looks at no more than a cap of entries in all and names what it could not walk, and the walk of the files of a repository that follows no link, counts what is no file, directory or link and is held to a cap of entries and of files, with the sites that read, probe, write, list or remove through them: the manifest's IO, the read gate's manifest check and zero-assertion scan, the context map, what setup reads, copies and replaces in the project (the seed, flows/, the fixtures, ignore, login and config files, the lock and the install marker, which it removes once when the strict read refuses it), the login's stock check and the verdict parser's listing of the suite",
     mutate: [
-      "qa-engine/src/shared-infrastructure/spec-path-confinement.ts",
+      "engine/src/shared-infrastructure/spec-path-confinement.ts",
       /* The manifest's file hashes, its strict read (a refusal is "no manifest") and its write (a refusal is thrown). */
       `${GEN}/infrastructure/manifest-fs.ts@sha256-of-named-file`,
       `${GEN}/infrastructure/manifest-fs.ts@reconcile-safe-entries`,
       /* The read gate's zero-assertion scan (a spec it cannot vouch for, and a path it could not walk, are findings) and its manifest check, whose output goes back to the agent. */
-      "qa-engine/src/contexts/test-execution/infrastructure/static-gate.checks.ts@spec-scan",
-      "qa-engine/src/contexts/test-execution/infrastructure/static-gate.checks.ts@eslint-fix-source",
+      "engine/src/contexts/test-execution/infrastructure/static-gate.checks.ts@spec-scan",
+      "engine/src/contexts/test-execution/infrastructure/static-gate.checks.ts@eslint-fix-source",
       /* The context map: a strict read, and warnings that say nothing of what the file holds. */
       `${GENERATION_CTX}/infrastructure/adapters/pre-generation-grounding-port.adapter.ts@operation-id-filter`,
       /* Setup: the caps, the strict copy of the seed (the mark of a project last) and the wiring of the real strict calls, the entries of .qa that are removed when they are not ordinary, the strict read and replacement of each file of the project (a refusal fails the setup), the removal of what refuses the install marker, and the lock vetted before an install is started. */
@@ -462,27 +462,27 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
       `${GEN}/infrastructure/verdict-parser.adapter.ts@parser-region`,
     ],
     tests: [
-      "qa-engine/test/shared-infrastructure/spec-path-confinement.test.ts",
-      "qa-engine/test/shared-infrastructure/spec-path-confinement.seam.test.ts",
-      "qa-engine/test/shared-infrastructure/spec-path-confinement.owned.test.ts",
-      "qa-engine/test/shared-infrastructure/spec-path-confinement.listing.test.ts",
-      "qa-engine/test/shared-infrastructure/spec-path-confinement.purge.test.ts",
-      "qa-engine/test/shared-infrastructure/spec-path-confinement.repo-walk.test.ts",
+      "engine/test/shared-infrastructure/spec-path-confinement.test.ts",
+      "engine/test/shared-infrastructure/spec-path-confinement.seam.test.ts",
+      "engine/test/shared-infrastructure/spec-path-confinement.owned.test.ts",
+      "engine/test/shared-infrastructure/spec-path-confinement.listing.test.ts",
+      "engine/test/shared-infrastructure/spec-path-confinement.purge.test.ts",
+      "engine/test/shared-infrastructure/spec-path-confinement.repo-walk.test.ts",
       /* Lever-2's spec sources, the reviewer's inlining and the review DOM grounding. */
       `${GENERATION_CTX_TEST}/infrastructure/adapters/generation-turns.adapter.test.ts`,
       `${GENERATION_CTX_TEST}/infrastructure/adapters/review-dom-grounding-port.adapter.test.ts`,
       `${GEN_TEST}/infrastructure/prompt-builders/prompts.test.ts`,
       /* The manifest's file hashes and write, the sidekick's claimed files and the pre-exec capture. */
       `${GEN_TEST}/infrastructure/manifest-fs.test.ts`,
-      "qa-engine/test/contract/coordination-disk-and-model.contract.test.ts",
+      "engine/test/contract/coordination-disk-and-model.contract.test.ts",
       `${GENERATION_CTX_TEST}/infrastructure/adapters/pre-exec-grounding-port.adapter.test.ts`,
       /* The read gate's manifest check and zero-assertion scan, the listing of the specs and the context map. */
-      "qa-engine/test/contexts/test-execution/infrastructure/static-gate.checks.test.ts",
+      "engine/test/contexts/test-execution/infrastructure/static-gate.checks.test.ts",
       `${GENERATION_CTX_TEST}/infrastructure/adapters/pre-generation-grounding-port.adapter.test.ts`,
       `${GENERATION_CTX_TEST}/infrastructure/adapters/pre-generation-grounding-port.context-map.test.ts`,
       /* What setup reads and replaces, and the login's stock check. */
-      "qa-engine/test/contexts/workspace-and-publication/infrastructure/setup.adapter.confinement.test.ts",
-      "qa-engine/test/contexts/workspace-and-publication/infrastructure/setup.adapter.test.ts",
+      "engine/test/contexts/workspace-and-publication/infrastructure/setup.adapter.confinement.test.ts",
+      "engine/test/contexts/workspace-and-publication/infrastructure/setup.adapter.test.ts",
       `${APP_CATALOG_CTX_TEST}/infrastructure/auth-session.adapter.confinement.test.ts`,
       `${APP_CATALOG_CTX_TEST}/infrastructure/auth-session.adapter.test.ts`,
       /* The verdict parser's listing of the suite. */
@@ -493,7 +493,7 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
   "run-output-readers": {
     description: "what a run of the tests leaves for the orchestrator to read: the strict, capped read of a directory of output and of a report (never waits on a pipe, never follows a link, never throws, says how many files it left out and why without naming or quoting them, and uses a set of dumps, reports or counters whole or not at all, so that the coverage or the count of a part is never taken for the run's), the coverage dumps, the collector that reads them, and the mutation counters (an unknown count is not judged)",
     mutate: [
-      "qa-engine/src/shared-infrastructure/run-output-reader.ts",
+      "engine/src/shared-infrastructure/run-output-reader.ts",
       `${OS_INFRA}/coverage-dump-reader.ts`,
       `${OS_INFRA}/target-coverage-collector.ts`,
       `${OS_INFRA}/fault-injection-counter-reader.ts`,
@@ -501,7 +501,7 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
     ],
     tests: [
       /* The reader's own cases: what a directory that is cut at the entry cap is, to a set used whole and to one scanned. */
-      "qa-engine/test/shared-infrastructure/run-output-reader.test.ts",
+      "engine/test/shared-infrastructure/run-output-reader.test.ts",
       `${OS_INFRA_TEST}/coverage-dump-reader.test.ts`,
       `${OS_INFRA_TEST}/coverage-dump-reader.confinement.test.ts`,
       `${OS_INFRA_TEST}/fault-injection-counter-reader.test.ts`,
@@ -510,7 +510,7 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
       /* The real readers behind the collector the factory builds. */
       `${OS_INFRA_TEST}/target-coverage-collector.test.ts`,
       /* The scan that the e2e runner reads the failure dumps with: it uses what it can and keeps going, where the readers above use a set whole or not at all. */
-      "qa-engine/test/contexts/test-execution/infrastructure/e2e-execution.runner.confinement.test.ts",
+      "engine/test/contexts/test-execution/infrastructure/e2e-execution.runner.confinement.test.ts",
     ],
     thresholds: DEFAULT_THRESHOLDS,
   },
@@ -518,17 +518,17 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
     description: "what the e2e runner reads back from the Playwright child, which runs code the agent wrote: the JSON report (a strict, capped read that never waits on a pipe or follows a link, and a report that cannot be used is a run with no result, infrastructure and never a pass, said with the reason and nothing the report held) and the failure-capture dumps (each read strictly under a cap, each that cannot be used left out so that its case runs without grounding, said once for the directory with a count and a reason and no file's name or content), with the lines of the runner that read them back and that distrust a pass the child did not exit 0 for (the status or the signal that ended it) and leave the report of a run that is settled unread",
     mutate: [
       /* Why a pass is not believed, and what the runner makes of it. */
-      "qa-engine/src/contexts/test-execution/infrastructure/e2e-execution.runner.ts@report-callback",
-      "qa-engine/src/contexts/test-execution/infrastructure/e2e-execution.runner.ts@no-report-outcome",
+      "engine/src/contexts/test-execution/infrastructure/e2e-execution.runner.ts@report-callback",
+      "engine/src/contexts/test-execution/infrastructure/e2e-execution.runner.ts@no-report-outcome",
       /* The caps, the report's read, the dump's decoding and the dumps' read. */
-      "qa-engine/src/contexts/test-execution/infrastructure/e2e-execution.runner.ts@output-readers",
+      "engine/src/contexts/test-execution/infrastructure/e2e-execution.runner.ts@output-readers",
       /* What the runner does when the child is gone: reads the report unless the run is settled, before the directory it is in is removed (a line apart, which is the removal and not a read), and says why when it could not. */
-      "qa-engine/src/contexts/test-execution/infrastructure/e2e-execution.runner.ts@cleanup-deps-head",
-      "qa-engine/src/contexts/test-execution/infrastructure/e2e-execution.runner.ts@default-cleanup-deps",
+      "engine/src/contexts/test-execution/infrastructure/e2e-execution.runner.ts@cleanup-deps-head",
+      "engine/src/contexts/test-execution/infrastructure/e2e-execution.runner.ts@default-cleanup-deps",
     ],
     tests: [
-      "qa-engine/test/contexts/test-execution/infrastructure/e2e-execution.runner.confinement.test.ts",
-      "qa-engine/test/contexts/test-execution/infrastructure/e2e-execution.runner.test.ts",
+      "engine/test/contexts/test-execution/infrastructure/e2e-execution.runner.confinement.test.ts",
+      "engine/test/contexts/test-execution/infrastructure/e2e-execution.runner.test.ts",
     ],
     thresholds: DEFAULT_THRESHOLDS,
   },
@@ -547,7 +547,7 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
   "repo-reads": {
     description: "what the orchestrator reads of the mirror of a repository and writes of what it stages from one, directories the agent can write into: the walk of the files of a repository's tree and the reader that skips what it cannot use and says it once without a name or a byte of a file (no link followed, no named pipe opened, entries and sizes bounded), the three boundary resolvers that read the sources and the OpenAPI document of every repository of a system through it, and the staging of a service's context (the service's files listed, read and omitted with a reason when refused, the staging directory emptied and written through the strict calls rooted at the working copy)",
     mutate: [
-      "qa-engine/src/shared-infrastructure/repo-reader.ts",
+      "engine/src/shared-infrastructure/repo-reader.ts",
       `${TOPO}/repo-walk.ts`,
       /* The loops that list and read each repository's sources, and the OpenAPI documents. */
       `${TOPO}/event-resolver.adapter.ts@pool-read`,
@@ -565,7 +565,7 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
       "platform/composition/service-context.ts@sweep-skip-dirs",
     ],
     tests: [
-      "qa-engine/test/shared-infrastructure/repo-reader.test.ts",
+      "engine/test/shared-infrastructure/repo-reader.test.ts",
       `${TOPO_TEST}/resolvers.confinement.test.ts`,
       `${TOPO_TEST}/event-resolver.adapter.test.ts`,
       `${TOPO_TEST}/http-backend-resolver.adapter.test.ts`,
@@ -623,7 +623,7 @@ const SANDBOX_IGNORE = [
   ".atl",
   ".codegraph",
   ".qa-store",
-  "qa-engine/.tsbuild",
+  "engine/.tsbuild",
   "reports",
 ];
 
@@ -849,13 +849,13 @@ export function testCommandFor(preset: MutationPreset): string {
 
 /* The checker type-checks the mutated files (and what they import) with the options of the project
    they belong to; `references` are not inherited through `extends`, so this runs in single-project
-   mode. allowImportingTsExtensions lets src/ files pull in qa-engine sources, which import with `.ts`.
+   mode. allowImportingTsExtensions lets src/ files pull in engine sources, which import with `.ts`.
    The file lives under os.tmpdir(), so typeRoots points back at the repo's @types. */
 export function checkerTsconfigFor(preset: MutationPreset, root: string): object {
   const sources = preset.mutate.map(sourcePathOf);
-  const inQaEngine = sources.every((s) => s.startsWith("qa-engine/"));
+  const inQaEngine = sources.every((s) => s.startsWith("engine/"));
   return {
-    extends: join(root, inQaEngine ? "qa-engine/tsconfig.json" : "tsconfig.json"),
+    extends: join(root, inQaEngine ? "engine/tsconfig.json" : "tsconfig.json"),
     compilerOptions: {
       noEmit: true,
       composite: false,

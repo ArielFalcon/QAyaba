@@ -14,7 +14,7 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 /* Where a model id must not appear: production TypeScript, the web console's scripts and the documentation. */
 const SCANNED: ReadonlyArray<{ dir: string; keep: (name: string) => boolean }> = [
   { dir: "platform", keep: (name) => name.endsWith(".ts") && !name.endsWith(".test.ts") && !name.endsWith(".d.ts") },
-  { dir: "qa-engine/src", keep: (name) => name.endsWith(".ts") && !name.endsWith(".test.ts") && !name.endsWith(".d.ts") },
+  { dir: "engine/src", keep: (name) => name.endsWith(".ts") && !name.endsWith(".test.ts") && !name.endsWith(".d.ts") },
   { dir: "web", keep: (name) => name.endsWith(".js") },
   { dir: "docs", keep: (name) => name.endsWith(".md") },
 ];

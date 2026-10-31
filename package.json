@@ -23,9 +23,9 @@
     "start": "tsx platform/composition/index.ts",
     "test": "node scripts/run-tests.mjs",
     "test:isolated": "node scripts/run-tests.mjs --isolated",
-    "typecheck": "tsc -b qa-engine/tsconfig.json && tsc --noEmit -p tsconfig.json && tsc --noEmit -p qa-engine/tsconfig.json && tsc --noEmit -p scripts/tsconfig.json && npm run embedded:typecheck",
-    "embedded:typecheck": "tsc --noEmit -p qa-engine/tsconfig.embedded.json",
-    "embedded:lint": "eslint -c qa-engine/embedded.eslint.config.js \"qa-engine/src/**/embedded/**/*.cjs\"",
+    "typecheck": "tsc -b engine/tsconfig.json && tsc --noEmit -p tsconfig.json && tsc --noEmit -p engine/tsconfig.json && tsc --noEmit -p scripts/tsconfig.json && npm run embedded:typecheck",
+    "embedded:typecheck": "tsc --noEmit -p engine/tsconfig.embedded.json",
+    "embedded:lint": "eslint -c engine/embedded.eslint.config.js \"engine/src/**/embedded/**/*.cjs\"",
     "mutate": "tsx scripts/mutate.ts",
     "sandbox:smoke": "tsx scripts/sandbox-smoke.ts",
     "mutate:keystone": "tsx scripts/mutate.ts keystone",
@@ -39,7 +39,7 @@
     "campaign-report": "tsx scripts/campaign-compare.ts",
     "label": "tsx scripts/label-run.ts",
     "previous-forms:check": "tsx scripts/check-previous-forms.ts",
-    "arch:check": "depcruise --config qa-engine/.dependency-cruiser.cjs qa-engine/src platform scripts",
+    "arch:check": "depcruise --config engine/.dependency-cruiser.cjs engine/src platform scripts",
     "seed:lint": "cd config/e2e && eslint ."
   },
   "dependencies": {

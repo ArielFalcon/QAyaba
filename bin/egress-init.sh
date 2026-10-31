@@ -5,7 +5,7 @@
 #   1. creates the QA_EGRESS chains (nat + filter for IPv4, filter for IPv6) already CLOSED, and the jumps to them from
 #      OUTPUT for the sandbox uid (`-m owner --uid-owner`). From this moment the uid reaches nothing: the chain's only rule
 #      is a reject. The service opens exactly what a run declares, later, by rewriting the chain in one atomic commit
-#      (qa-engine/src/shared-infrastructure/egress/iptables-ruleset.ts).
+#      (engine/src/shared-infrastructure/egress/iptables-ruleset.ts).
 #   2. self-tests, AS the sandbox uid: a connection to a public IPv4 address, to a public IPv6 address and to the API on
 #      loopback must all be refused at once (a reject answers immediately; a hang means the rule is not what it should be).
 #   3. writes `ok`, or `unavailable: <why>`, to the status file the service reads (QA_EGRESS_STATUS_FILE,

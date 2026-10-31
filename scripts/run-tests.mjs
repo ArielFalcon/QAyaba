@@ -32,7 +32,7 @@ const TIMINGS_FILE = join(ROOT, "scripts", "test-timings.json");
 const REPORTER = join(ROOT, "scripts", "test-run-reporter.mjs");
 export const DEFAULT_TEST_GLOBS = [
   "platform/**/*.test.ts",
-  "qa-engine/test/**/*.test.ts",
+  "engine/test/**/*.test.ts",
   "packages/sdk/**/*.test.ts",
   "agents/**/*.test.mjs",
   "scripts/**/*.test.ts",

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { sanitizeText, containsSecrets } from "../../qa-engine/src/shared-infrastructure/redaction/pattern-redaction.adapter";
+import { sanitizeText, containsSecrets } from "../../engine/src/shared-infrastructure/redaction/pattern-redaction.adapter";
 import { RedactionPortAdapter } from "./sanitizer";
 
 /* RedactionPortAdapter must detect a secret VALUE present verbatim in text, driven by env VAR

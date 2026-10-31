@@ -1,4 +1,4 @@
-/* Package events decodes the RunEvent SSE stream. RunEventBody is a 15-variant discriminated union that does not codegen into idiomatic Go (a oneOf without an OpenAPI discriminator), so the envelope + variants are hand-written here — in their own package to avoid name clashes with the codegen'd command types in internal/contract (both have an "AgentActivity", different concepts). The contract stays the source of truth: events_test.go round-trips canonical server JSON (matching qa-engine/src/shared-kernel/contract/events.ts) to catch drift. */
+/* Package events decodes the RunEvent SSE stream. RunEventBody is a 15-variant discriminated union that does not codegen into idiomatic Go (a oneOf without an OpenAPI discriminator), so the envelope + variants are hand-written here — in their own package to avoid name clashes with the codegen'd command types in internal/contract (both have an "AgentActivity", different concepts). The contract stays the source of truth: events_test.go round-trips canonical server JSON (matching engine/src/shared-kernel/contract/events.ts) to catch drift. */
 package events
 
 import (
@@ -90,7 +90,7 @@ type RunVerdict struct {
 	Verdict string `json:"verdict"`
 	/* success = the engine produced a trustworthy result and acted; error = it could not run or
 	   could not produce runnable tests. Distinct from Verdict — a fail (real bug) is
-	   engineStatus=success (qa-engine/src/shared-kernel/contract/events.ts). Required on the wire. */
+	   engineStatus=success (engine/src/shared-kernel/contract/events.ts). Required on the wire. */
 	EngineStatus string `json:"engineStatus"`
 	Passed       int    `json:"passed"`
 	Failed       int    `json:"failed"`

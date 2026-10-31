@@ -19,7 +19,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import type { RunEventBody } from "@kernel/contract/events.ts";
 import { assertCommitSha } from "@kernel/git-revision.ts";
 import { STAGE_SPAN_PREFIX } from "@kernel/run-step.ts";
-import { readConfinedSpecFile } from "../qa-engine/src/shared-infrastructure/spec-path-confinement.ts";
+import { readConfinedSpecFile } from "../engine/src/shared-infrastructure/spec-path-confinement.ts";
 import type { AgentTurnRecord } from "../platform/persistence/repositories/telemetry.repository.ts";
 import type { RunOutcome, RunRecord } from "../platform/persistence/types.ts";
 import { buildPipelineReport, parseGroundTruth, renderMarkdown, type GroundTruth, type PhaseSpan, type ProbeReport, type TimedRunEvent } from "./probe-metrics.ts";

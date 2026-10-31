@@ -1,7 +1,7 @@
 /*
  * Boot check of the execution sandbox's file boundary, run by bin/container-entrypoint.sh as root before the service starts.
  *
- * It plans every attempt the sandbox uid must see refused (qa-engine/src/shared-infrastructure/process-sandbox/file-boundary.ts:
+ * It plans every attempt the sandbox uid must see refused (engine/src/shared-infrastructure/process-sandbox/file-boundary.ts:
  * reading the API token and the service's environment, listing the data (code-graph stores included), auth, config and mirror directories,
  * writing the app root, every mount under it found in /proc/self/mountinfo, the orchestrator's code and config and the status
  * files), makes them in a child started as that uid exactly the way the launcher starts agent code (spawn with uid and gid, no
@@ -19,7 +19,7 @@
  */
 
 import { appLogger } from "../telemetry/redacting-logger";
-import { redactAndBound } from "../../qa-engine/src/shared-infrastructure/redaction/redact-and-bound";
+import { redactAndBound } from "../../engine/src/shared-infrastructure/redaction/redact-and-bound";
 import { spawnSync, type SpawnSyncOptions } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { chmodSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
@@ -34,8 +34,8 @@ import {
   type FileBoundaryLayout,
   type FileBoundaryProbe,
   type FileBoundaryVerdict,
-} from "../../qa-engine/src/shared-infrastructure/process-sandbox/file-boundary";
-import { resolveSandbox, type Sandbox } from "../../qa-engine/src/shared-infrastructure/process-sandbox/sandbox";
+} from "../../engine/src/shared-infrastructure/process-sandbox/file-boundary";
+import { resolveSandbox, type Sandbox } from "../../engine/src/shared-infrastructure/process-sandbox/sandbox";
 import { qayabaRoot } from "../settings/paths";
 import { apiTokenPath } from "../settings/api-token";
 import { egressStatusFile, fileBoundaryStatusFile } from "../settings/sandbox-status";
@@ -57,7 +57,7 @@ export function fileBoundaryLayout(env: NodeJS.ProcessEnv, root: string): FileBo
       join(config, "egress"),
       mirrors,
       join(root, "platform"),
-      join(root, "qa-engine"),
+      join(root, "engine"),
       join(root, "bin"),
       join(root, "scripts"),
       join(root, "node_modules"),
@@ -108,7 +108,7 @@ export function writeStatus(path: string, text: string, uniqueSuffix: () => stri
 /* The most of the probe's stderr the status file carries. */
 const MAX_PROBE_STDERR_CHARS = 300;
 
-/* Why the probe did not finish, for the status file the health API serves: the child's own words, redacted and then cut (qa-engine shared-kernel/redact-then-bound.ts). */
+/* Why the probe did not finish, for the status file the health API serves: the child's own words, redacted and then cut (engine shared-kernel/redact-then-bound.ts). */
 export function probeFailureReason(child: { error?: Error | undefined; status: number | null; signal: NodeJS.Signals | null; stderr?: string | null }): string {
   if (child.error) return redactAndBound(child.error.message, MAX_PROBE_STDERR_CHARS);
   return `exit ${child.status ?? child.signal}: ${redactAndBound((child.stderr ?? "").trim(), MAX_PROBE_STDERR_CHARS)}`;

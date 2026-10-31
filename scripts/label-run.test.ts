@@ -5,7 +5,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadReferences, main, parseArguments, testTitles, type LabelRow, type LabelRunDeps } from "./label-run.ts";
-import { parseUseCaseReference } from "../qa-engine/src/contexts/evaluation/application/index.ts";
+import { parseUseCaseReference } from "../engine/src/contexts/evaluation/application/index.ts";
 
 const PLAN = JSON.stringify({
   kind: "fanout",

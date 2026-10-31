@@ -1,13 +1,13 @@
 
 import { z } from "zod";
-import { TURN_ENDS } from "../../../qa-engine/src/shared-kernel/turn-end";
+import { TURN_ENDS } from "../../../engine/src/shared-kernel/turn-end";
 import { LoginPathSchema } from "@contexts/app-catalog/application/index";
-import { isRepoSlug } from "../../../qa-engine/src/shared-kernel/repo-slug";
-import { TestTargetSchema, RunModeSchema, RunVerdictSchema, RunEngineStatusSchema } from "../../../qa-engine/src/shared-kernel/contract/events";
+import { isRepoSlug } from "../../../engine/src/shared-kernel/repo-slug";
+import { TestTargetSchema, RunModeSchema, RunVerdictSchema, RunEngineStatusSchema } from "../../../engine/src/shared-kernel/contract/events";
 import { CAMPAIGN_ID_PATTERN, CAMPAIGN_LABEL_PATTERN, MAX_CAMPAIGN_REPLICATE, MAX_VARIANT_KEYS } from "./campaign";
-import { CAPTURE_MODES } from "../../../qa-engine/src/shared-kernel/telemetry/capture-mode";
-import { ACTIVITY_KINDS } from "../../../qa-engine/src/shared-kernel/activity-kind";
-import type { ChangeEntryRecord } from "../../../qa-engine/src/shared-kernel/change-set";
+import { CAPTURE_MODES } from "../../../engine/src/shared-kernel/telemetry/capture-mode";
+import { ACTIVITY_KINDS } from "../../../engine/src/shared-kernel/activity-kind";
+import type { ChangeEntryRecord } from "../../../engine/src/shared-kernel/change-set";
 
 export const CaseStatusSchema = z.enum(["pass", "fail", "flaky"]);
 
@@ -147,7 +147,7 @@ export const CaptureModeSchema = z.enum(CAPTURE_MODES);
 /*
  * The campaign a run belongs to: stored and echoed as data. The variant labels never change what a run does (section 14):
  * only the explicit levers and the deployment's configuration do. The presence of a campaign does: the server freezes the run
- * (qa-engine/src/contexts/run-orchestration/domain/run-freeze.ts, docs/architecture/adr/0009-campaign-freeze-on-server.md).
+ * (engine/src/contexts/run-orchestration/domain/run-freeze.ts, docs/architecture/adr/0009-campaign-freeze-on-server.md).
  */
 export const CampaignInputSchema = z.object({
   id: z.string().regex(CAMPAIGN_ID_PATTERN, { error: "campaign.id must be 1-100 characters of A-Z a-z 0-9 _ . : -" }),
@@ -913,7 +913,7 @@ export const RunReportViewSchema = z.object({
 });
 
 /** ── Architecture map (`e2e/.qa/context.json`) — the FE<->BE map a mode:context run produces,
- * persisted in the context_maps SQLite store and exposed read-only. Wire mirror of qa-engine's
+ * persisted in the context_maps SQLite store and exposed read-only. Wire mirror of engine's
  * port-local ArchitectureContext (generation's generation-input.ts / shared-kernel/grounding.ts) —
  * same no-cross-context-import precedent as those two, now also mirrored at the contract boundary. */
 export const ArchitectureRouteSchema = z.object({

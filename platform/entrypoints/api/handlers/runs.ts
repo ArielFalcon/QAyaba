@@ -4,7 +4,7 @@ import { appLogger } from "../../../telemetry/redacting-logger";
 import { z } from "zod";
 import { AgentTurnViewSchema, RunDetailSchema, RunRecordSchema } from "../../contract/commands";
 import { RunEventSchema, type RunEvent } from "@kernel/contract/events";
-import { sanitizeText } from "../../../../qa-engine/src/shared-infrastructure/redaction/pattern-redaction.adapter";
+import { sanitizeText } from "../../../../engine/src/shared-infrastructure/redaction/pattern-redaction.adapter";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { ApiError } from "../api-error";
 import { param, type ApiContext } from "../context";

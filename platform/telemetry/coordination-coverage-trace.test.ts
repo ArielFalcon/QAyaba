@@ -1,11 +1,11 @@
 /* The coordination ledger and the change-coverage measurement as spans of the phase that is open, over the real telemetry adapter. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { TracedCoordinationTelemetry } from "../../qa-engine/src/contexts/coordination/infrastructure/adapters/coordination-telemetry-trace";
-import { TracedObjectiveSignalPort } from "../../qa-engine/src/contexts/objective-signal/infrastructure/adapters/objective-signal-trace";
-import type { CoordinationTelemetryEvent } from "../../qa-engine/src/contexts/coordination/application/index";
+import { TracedCoordinationTelemetry } from "../../engine/src/contexts/coordination/infrastructure/adapters/coordination-telemetry-trace";
+import { TracedObjectiveSignalPort } from "../../engine/src/contexts/objective-signal/infrastructure/adapters/objective-signal-trace";
+import type { CoordinationTelemetryEvent } from "../../engine/src/contexts/coordination/application/index";
 import type { ObjectiveSignalPort } from "@contexts/objective-signal/application/index.ts";
-import { newSandboxReport, withExecScope, type RunScope } from "../../qa-engine/src/shared-infrastructure/process-sandbox/exec-scope";
+import { newSandboxReport, withExecScope, type RunScope } from "../../engine/src/shared-infrastructure/process-sandbox/exec-scope";
 import { Sha } from "@kernel/sha";
 import { BlastRadius } from "@kernel/blast-radius";
 import { lookupAttribute } from "@kernel/telemetry/attribute-registry";

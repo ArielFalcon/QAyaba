@@ -5,10 +5,10 @@ import type { LogRecord } from "@opentelemetry/api-logs";
 import { trace } from "@opentelemetry/api";
 import type { AgentDeps } from "../agent-runtime/opencode-client";
 import type { CaptureMode } from "@kernel/telemetry/capture-mode";
-import { sha256Hex } from "../../qa-engine/src/shared-kernel/content-hash";
+import { sha256Hex } from "../../engine/src/shared-kernel/content-hash";
 import { MAX_BODY_CHARS, MAX_LINE_BYTES, PromptBodyExporter, chunkBody, splitSections, type TurnBodyIdentity } from "./prompt-body-logs";
-import { sanitizeText } from "../../qa-engine/src/shared-infrastructure/redaction/pattern-redaction.adapter";
-import { createRunSecretScope, withRunSecretScope } from "../../qa-engine/src/shared-kernel/run-secret-redaction";
+import { sanitizeText } from "../../engine/src/shared-infrastructure/redaction/pattern-redaction.adapter";
+import { createRunSecretScope, withRunSecretScope } from "../../engine/src/shared-kernel/run-secret-redaction";
 import { registerPromptBodyHost, withPromptBodies } from "./with-prompt-bodies";
 
 const TRACE = "0af7651916cd43dd8448eb211c80319c";

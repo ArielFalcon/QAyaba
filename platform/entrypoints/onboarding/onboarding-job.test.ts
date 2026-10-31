@@ -1,6 +1,6 @@
 /* platform/entrypoints/onboarding/onboarding-job.test.ts
    OnboardingJob is the server-side, in-memory single-job state machine that composes the LLM
-   proposer adapter + the REAL OnboardingService (qa-engine) with server-side mirror provisioning,
+   proposer adapter + the REAL OnboardingService (engine) with server-side mirror provisioning,
    a runner-busy guard, an env-guard, and a round-budget timeout with AbortSignal cancellation.
  */
 import { test } from "node:test";

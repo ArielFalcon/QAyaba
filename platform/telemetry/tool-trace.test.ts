@@ -24,11 +24,11 @@ import { AccountLock } from "@contexts/test-execution/application/index";
 import type { AgentBrowserHostPort, PageState } from "@contexts/test-execution/application/index.ts";
 import { ThrowingTelemetry } from "@kernel/telemetry/guarded-telemetry";
 import type { TelemetryPort } from "@kernel/telemetry/telemetry.port";
-import { createExecSandbox, resetExecSandboxWarnings } from "../../qa-engine/src/shared-infrastructure/process-sandbox/exec-sandbox";
-import { activeExecScope, newSandboxReport, withExecScope, type RunScope } from "../../qa-engine/src/shared-infrastructure/process-sandbox/exec-scope";
-import { openRunWorkDir } from "../../qa-engine/src/shared-infrastructure/process-sandbox/exec-workdir";
-import { synthesizeReportSpans } from "../../qa-engine/src/contexts/test-execution/infrastructure/report-spans";
-import { noteSuiteAuth, suiteAuthNotes } from "../../qa-engine/src/shared-infrastructure/telemetry/run-auth-notes";
+import { createExecSandbox, resetExecSandboxWarnings } from "../../engine/src/shared-infrastructure/process-sandbox/exec-sandbox";
+import { activeExecScope, newSandboxReport, withExecScope, type RunScope } from "../../engine/src/shared-infrastructure/process-sandbox/exec-scope";
+import { openRunWorkDir } from "../../engine/src/shared-infrastructure/process-sandbox/exec-workdir";
+import { synthesizeReportSpans } from "../../engine/src/contexts/test-execution/infrastructure/report-spans";
+import { noteSuiteAuth, suiteAuthNotes } from "../../engine/src/shared-infrastructure/telemetry/run-auth-notes";
 import { traceHarness, T0, type FakeClock } from "../test-support/trace-harness";
 
 const CWD = "/mirrors/org__app";

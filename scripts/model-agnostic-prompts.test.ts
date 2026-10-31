@@ -31,7 +31,7 @@ import { LlmProfileProposerAdapter } from "@contexts/service-topology/infrastruc
 import type { RunRecord } from "../platform/persistence/types.ts";
 import { PROMPT_HEADINGS, repairInstruction } from "@contexts/generation/application/index.ts";
 import { DIMENSIONS, MATRIX_STEP_LIMIT, allValidSpecs, buildInput, cellName, type CellSpec } from "./prompt-contract-matrix.ts";
-import { PatternRedactionAdapter, sanitizeText } from "../qa-engine/src/shared-infrastructure/redaction/pattern-redaction.adapter.ts";
+import { PatternRedactionAdapter, sanitizeText } from "../engine/src/shared-infrastructure/redaction/pattern-redaction.adapter.ts";
 
 const redaction = new PatternRedactionAdapter();
 

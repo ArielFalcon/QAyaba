@@ -13,7 +13,7 @@ import {
   type EngineRootDeps,
 } from "./engine-root";
 import { RunPipelineAdapter } from "@contexts/run-orchestration/infrastructure/run-pipeline.adapter";
-import { loginToBeWritten } from "../../qa-engine/test/support/coordinator-over-author";
+import { loginToBeWritten } from "../../engine/test/support/coordinator-over-author";
 import { Sha } from "@kernel/sha";
 import { BlastRadius } from "@kernel/blast-radius";
 import { mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
@@ -31,8 +31,8 @@ import type { SpecSnapshotPort } from "@kernel/ports/spec-snapshot.port";
 import { SpecSnapshotValidationPort } from "@contexts/workspace-and-publication/infrastructure/adapters/spec-snapshot-validation.adapter";
 import { TracedSuiteStore } from "@contexts/workspace-and-publication/infrastructure/adapters/suite-store-trace";
 import { SuiteStoreAdapter } from "@contexts/workspace-and-publication/infrastructure/suite-store.adapter";
-import { primaryChangeSet } from "../../qa-engine/test/support/change-set";
-import { passingCases } from "../../qa-engine/test/support/passing-cases";
+import { primaryChangeSet } from "../../engine/test/support/change-set";
+import { passingCases } from "../../engine/test/support/passing-cases";
 /* ── A minimal fake EngineRootDeps — every collaborator is a lightweight stub, matching the
    SAME stub shapes run-pipeline.adapter.test.ts already uses for the 10-scenario parity
    (this test does not re-run that parity; it proves the composition root wires the RIGHT classes).

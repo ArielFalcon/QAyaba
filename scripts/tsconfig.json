@@ -14,8 +14,8 @@
     "types": ["node"],
     "baseUrl": ".",
     "paths": {
-      "@kernel/*": ["../qa-engine/src/shared-kernel/*"],
-      "@contexts/*": ["../qa-engine/src/contexts/*"]
+      "@kernel/*": ["../engine/src/shared-kernel/*"],
+      "@contexts/*": ["../engine/src/contexts/*"]
     }
   },
   "include": ["."],

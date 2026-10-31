@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import type { CoordinationLedgerEvent } from "../../qa-engine/src/contexts/coordination/application/index";
+import type { CoordinationLedgerEvent } from "../../engine/src/contexts/coordination/application/index";
 import { toCoordinationSignals } from "./coordination-events";
 
 /* The events a ledger of these lines holds once the reader has read it. */

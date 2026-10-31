@@ -1,6 +1,6 @@
 /*
  * Refuses filesystem writes from a test process into the repository's tracked tree. node --test runs
- * test files in parallel, so a file planted under src/ or qa-engine/src/ — even one removed in a
+ * test files in parallel, so a file planted under src/ or engine/src/ — even one removed in a
  * finally — is visible to every concurrent test that scans the tree, and a crashed run leaves it
  * behind to be committed. Tests write to os.tmpdir() instead.
  *

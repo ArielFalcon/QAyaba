@@ -1,8 +1,8 @@
 import { z } from "zod";
-import { RunModeSchema } from "../../qa-engine/src/shared-kernel/contract/events";
+import { RunModeSchema } from "../../engine/src/shared-kernel/contract/events";
 
-export { ManifestEntrySchema, ManifestSchema } from "../../qa-engine/src/shared-kernel/manifest/manifest-entry";
-export type { ManifestEntry as ValidatedManifestEntry } from "../../qa-engine/src/shared-kernel/manifest/manifest-entry";
+export { ManifestEntrySchema, ManifestSchema } from "../../engine/src/shared-kernel/manifest/manifest-entry";
+export type { ManifestEntry as ValidatedManifestEntry } from "../../engine/src/shared-kernel/manifest/manifest-entry";
 
 /*
  * ── Webhook payload schema ────────────────────────────────────────────────────

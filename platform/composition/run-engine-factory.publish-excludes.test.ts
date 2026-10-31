@@ -17,8 +17,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildConfinement, publishWiring } from "./run-engine-factory";
 import { realGit } from "./repo-mirror";
-import { closeGitDir, indexedGitlinks, makeEmbeddedRepo } from "../../qa-engine/test/shared-infrastructure/process-sandbox/git-fixtures";
-import { defaultSpecWriteDeps, writeOwnedSpecFile } from "../../qa-engine/src/shared-infrastructure/spec-path-confinement";
+import { closeGitDir, indexedGitlinks, makeEmbeddedRepo } from "../../engine/test/shared-infrastructure/process-sandbox/git-fixtures";
+import { defaultSpecWriteDeps, writeOwnedSpecFile } from "../../engine/src/shared-infrastructure/spec-path-confinement";
 import type { RunMode } from "@kernel/run-mode";
 
 /* The publish step of a run as the engine wires it: the context's policy over the shell's git wiring. */

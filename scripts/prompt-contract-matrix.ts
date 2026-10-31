@@ -4,7 +4,7 @@
  * reach the agent, pairs each with the static role layer of the runtime and lints every
  * combination. A layer's cell is assembled from the input its own runtime hands the prompt: the
  * OpenCode runtime enforces a step limit and the prompt is given it, or states none for a role it reports no cap for.
- * The lint lives in qa-engine; this module lives in scripts/ because it also reads the static role layers and the baseline file.
+ * The lint lives in engine; this module lives in scripts/ because it also reads the static role layers and the baseline file.
  *
  * Every combination is budgeted: its user-prompt bytes and directive volume against the largest
  * recorded for its bucket (mode, phase, tree and grounding; a cell with a step limit has the

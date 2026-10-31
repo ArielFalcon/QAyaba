@@ -5,8 +5,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createJsonLogger } from "./logger";
 import { createRedactingLogger } from "./redacting-logger";
-import { REDACTED } from "../../qa-engine/src/shared-kernel/ports/redaction.port";
-import { createRunSecretScope, withRunSecretScope } from "../../qa-engine/src/shared-kernel/run-secret-redaction";
+import { REDACTED } from "../../engine/src/shared-kernel/ports/redaction.port";
+import { createRunSecretScope, withRunSecretScope } from "../../engine/src/shared-kernel/run-secret-redaction";
 
 const GITHUB_TOKEN = `ghp_${"a1B2c3D4".repeat(4)}abcd`;
 const ACCOUNT_SECRET = "correct-horse-battery";

@@ -4,9 +4,9 @@ import { execFileSync } from "node:child_process";
 import { cpSync, existsSync, lstatSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { hardenGitArgs as engineHardenGitArgs, UntrustedGitTreeError } from "../../qa-engine/src/shared-infrastructure/process-sandbox/git-hardening";
-import { hardenDetachedGitArgs as engineHardenDetachedGitArgs } from "../../qa-engine/src/shared-infrastructure/process-sandbox/detached-git-hardening";
-import { closeGitDir, GIT_ENV, indexedGitlinks, makeEmbeddedRepo, makeGitlinkRepo, plantNestedRepo, ranPlantedCommand, writeMarkerCommand } from "../../qa-engine/test/shared-infrastructure/process-sandbox/git-fixtures";
+import { hardenGitArgs as engineHardenGitArgs, UntrustedGitTreeError } from "../../engine/src/shared-infrastructure/process-sandbox/git-hardening";
+import { hardenDetachedGitArgs as engineHardenDetachedGitArgs } from "../../engine/src/shared-infrastructure/process-sandbox/detached-git-hardening";
+import { closeGitDir, GIT_ENV, indexedGitlinks, makeEmbeddedRepo, makeGitlinkRepo, plantNestedRepo, ranPlantedCommand, writeMarkerCommand } from "../../engine/test/shared-infrastructure/process-sandbox/git-fixtures";
 import { InfraError } from "@kernel/domain-error";
 import { defaultMirrorDeps, realGit, ensureMirror, ensureMirrorAtBranch, getCommitDiff, listChangedSpecs, getCommitMessage, getHeadSha, resolveRef, hardenGitArgs, hardenDetachedGitArgs, MirrorDeps } from "./repo-mirror";
 

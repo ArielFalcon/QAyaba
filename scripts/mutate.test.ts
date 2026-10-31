@@ -167,7 +167,7 @@ test("every preset resolves against the real sources", () => {
 });
 
 test("every mutation-scope marker pair in the sources is named by a preset", () => {
-  const files = ["qa-engine/src", "platform"].flatMap(sourcesUnder);
+  const files = ["engine/src", "platform"].flatMap(sourcesUnder);
   assert.deepEqual(markerProblemsOf(PRESETS, files, readFromRepo), []);
 });
 
@@ -199,9 +199,9 @@ test("the generation-end preset mutates exactly the classifier, the terminal map
   assert.ok(preset, "the generation-end preset exists");
   const sources = preset.mutate.map(sourcePathOf);
   assert.deepEqual(sources, [
-    "qa-engine/src/contexts/generation/domain/generation-end.ts",
-    "qa-engine/src/contexts/run-orchestration/domain/helpers/generation-end-terminal.ts",
-    "qa-engine/src/contexts/cross-run-learning/domain/learning-gates.ts",
+    "engine/src/contexts/generation/domain/generation-end.ts",
+    "engine/src/contexts/run-orchestration/domain/helpers/generation-end-terminal.ts",
+    "engine/src/contexts/cross-run-learning/domain/learning-gates.ts",
   ]);
   for (const module of ["generation-end", "generation-end-terminal", "learning-gates"]) {
     assert.ok(preset.tests.some((t) => t.endsWith(`${module}.test.ts`)), `${module}'s own tests run against every mutant`);
@@ -213,10 +213,10 @@ test("the precondition-verdict preset mutates the typed precondition error, its 
   const preset = PRESETS["precondition-verdict"];
   assert.ok(preset, "the precondition-verdict preset exists");
   assert.deepEqual([...new Set(preset.mutate.map(sourcePathOf))], [
-    "qa-engine/src/contexts/app-catalog/domain/auth-precondition.ts",
-    "qa-engine/src/contexts/run-orchestration/domain/helpers/precondition-terminal.ts",
-    "qa-engine/src/shared-kernel/error-class.ts",
-    "qa-engine/src/contexts/cross-run-learning/domain/process-audit.ts",
+    "engine/src/contexts/app-catalog/domain/auth-precondition.ts",
+    "engine/src/contexts/run-orchestration/domain/helpers/precondition-terminal.ts",
+    "engine/src/shared-kernel/error-class.ts",
+    "engine/src/contexts/cross-run-learning/domain/process-audit.ts",
   ]);
   for (const module of ["auth-precondition", "precondition-terminal", "error-class", "error-class.classification", "learning-gates", "process-audit"]) {
     assert.ok(preset.tests.some((t) => t.endsWith(`${module}.test.ts`)), `${module}'s tests run against every mutant`);
@@ -227,7 +227,7 @@ test("the precondition-verdict preset mutates the typed precondition error, its 
 test("the patch-app-yaml preset mutates the config patcher, against its own tests and the update use case that drives it", () => {
   const preset = PRESETS["patch-app-yaml"];
   assert.ok(preset, "the patch-app-yaml preset exists");
-  assert.deepEqual(preset.mutate.map(sourcePathOf), ["qa-engine/src/contexts/app-catalog/application/patch-app-yaml.ts"]);
+  assert.deepEqual(preset.mutate.map(sourcePathOf), ["engine/src/contexts/app-catalog/application/patch-app-yaml.ts"]);
   for (const module of ["patch-app-yaml", "app-admin"]) {
     assert.ok(preset.tests.some((t) => t.endsWith(`${module}.test.ts`)), `${module}'s tests run against every mutant`);
   }
@@ -238,13 +238,13 @@ test("the spec-path-confinement preset mutates the confined reader and the stric
   const preset = PRESETS["spec-path-confinement"];
   assert.ok(preset, "the spec-path-confinement preset exists");
   assert.deepEqual([...new Set(preset.mutate.map(sourcePathOf))], [
-    "qa-engine/src/shared-infrastructure/spec-path-confinement.ts",
-    "qa-engine/src/contexts/generation/infrastructure/manifest-fs.ts",
-    "qa-engine/src/contexts/test-execution/infrastructure/static-gate.checks.ts",
-    "qa-engine/src/contexts/generation/infrastructure/adapters/pre-generation-grounding-port.adapter.ts",
-    "qa-engine/src/contexts/workspace-and-publication/infrastructure/setup.adapter.ts",
-    "qa-engine/src/contexts/app-catalog/infrastructure/auth-session.adapter.ts",
-    "qa-engine/src/contexts/generation/infrastructure/verdict-parser.adapter.ts",
+    "engine/src/shared-infrastructure/spec-path-confinement.ts",
+    "engine/src/contexts/generation/infrastructure/manifest-fs.ts",
+    "engine/src/contexts/test-execution/infrastructure/static-gate.checks.ts",
+    "engine/src/contexts/generation/infrastructure/adapters/pre-generation-grounding-port.adapter.ts",
+    "engine/src/contexts/workspace-and-publication/infrastructure/setup.adapter.ts",
+    "engine/src/contexts/app-catalog/infrastructure/auth-session.adapter.ts",
+    "engine/src/contexts/generation/infrastructure/verdict-parser.adapter.ts",
   ]);
   for (const tests of [
     "shared-infrastructure/spec-path-confinement.test.ts",
@@ -277,11 +277,11 @@ test("the run-output-readers preset mutates the strict capped readers of what a 
   const preset = PRESETS["run-output-readers"];
   assert.ok(preset, "the run-output-readers preset exists");
   assert.deepEqual(preset.mutate.map(sourcePathOf), [
-    "qa-engine/src/shared-infrastructure/run-output-reader.ts",
-    "qa-engine/src/contexts/objective-signal/infrastructure/coverage-dump-reader.ts",
-    "qa-engine/src/contexts/objective-signal/infrastructure/target-coverage-collector.ts",
-    "qa-engine/src/contexts/objective-signal/infrastructure/fault-injection-counter-reader.ts",
-    "qa-engine/src/contexts/objective-signal/domain/dump-sanitizers.ts",
+    "engine/src/shared-infrastructure/run-output-reader.ts",
+    "engine/src/contexts/objective-signal/infrastructure/coverage-dump-reader.ts",
+    "engine/src/contexts/objective-signal/infrastructure/target-coverage-collector.ts",
+    "engine/src/contexts/objective-signal/infrastructure/fault-injection-counter-reader.ts",
+    "engine/src/contexts/objective-signal/domain/dump-sanitizers.ts",
   ]);
   for (const tests of [
     "shared-infrastructure/run-output-reader.test.ts",
@@ -299,7 +299,7 @@ test("the run-output-readers preset mutates the strict capped readers of what a 
 test("the e2e-run-reads preset mutates only the lines of the e2e runner that read back what the Playwright child leaves, against the runner's own tests", () => {
   const preset = PRESETS["e2e-run-reads"];
   assert.ok(preset, "the e2e-run-reads preset exists");
-  assert.deepEqual([...new Set(preset.mutate.map(sourcePathOf))], ["qa-engine/src/contexts/test-execution/infrastructure/e2e-execution.runner.ts"]);
+  assert.deepEqual([...new Set(preset.mutate.map(sourcePathOf))], ["engine/src/contexts/test-execution/infrastructure/e2e-execution.runner.ts"]);
   assert.ok(preset.mutate.every((entry) => sourcePathOf(entry) !== entry), "the rest of the runner is other code, so every entry is narrowed");
   for (const tests of ["infrastructure/e2e-execution.runner.confinement.test.ts", "infrastructure/e2e-execution.runner.test.ts"]) {
     assert.ok(preset.tests.some((t) => t.endsWith(tests)), `${tests} runs against every mutant`);
@@ -310,7 +310,7 @@ test("the e2e-run-reads preset mutates only the lines of the e2e runner that rea
 test("the v8-coverage-decode preset mutates the decoding of a V8 dump alone, against its parse tests, its adapter's and the reader and collector that reduce each dump as it is read", () => {
   const preset = PRESETS["v8-coverage-decode"];
   assert.ok(preset, "the v8-coverage-decode preset exists");
-  assert.deepEqual(preset.mutate.map(sourcePathOf), ["qa-engine/src/contexts/objective-signal/infrastructure/v8-browser-coverage.adapter.ts"]);
+  assert.deepEqual(preset.mutate.map(sourcePathOf), ["engine/src/contexts/objective-signal/infrastructure/v8-browser-coverage.adapter.ts"]);
   for (const tests of ["infrastructure/v8-browser-coverage.parse.test.ts", "infrastructure/v8-browser-coverage.adapter.test.ts", "infrastructure/coverage-dump-reader.test.ts", "infrastructure/target-coverage-collector.test.ts"]) {
     assert.ok(preset.tests.some((t) => t.endsWith(tests)), `${tests} runs against every mutant`);
   }
@@ -321,12 +321,12 @@ test("the repo-reads preset mutates the reader of a repository's files, the line
   const preset = PRESETS["repo-reads"];
   assert.ok(preset, "the repo-reads preset exists");
   assert.deepEqual([...new Set(preset.mutate.map(sourcePathOf))], [
-    "qa-engine/src/shared-infrastructure/repo-reader.ts",
-    "qa-engine/src/contexts/service-topology/infrastructure/repo-walk.ts",
-    "qa-engine/src/contexts/service-topology/infrastructure/event-resolver.adapter.ts",
-    "qa-engine/src/contexts/service-topology/infrastructure/http-backend-resolver.adapter.ts",
-    "qa-engine/src/contexts/service-topology/infrastructure/openapi-http-resolver.adapter.ts",
-    "qa-engine/src/contexts/service-topology/application/stage-service-context.ts",
+    "engine/src/shared-infrastructure/repo-reader.ts",
+    "engine/src/contexts/service-topology/infrastructure/repo-walk.ts",
+    "engine/src/contexts/service-topology/infrastructure/event-resolver.adapter.ts",
+    "engine/src/contexts/service-topology/infrastructure/http-backend-resolver.adapter.ts",
+    "engine/src/contexts/service-topology/infrastructure/openapi-http-resolver.adapter.ts",
+    "engine/src/contexts/service-topology/application/stage-service-context.ts",
     "platform/composition/service-context.ts",
   ]);
   assert.ok(
@@ -351,7 +351,7 @@ test("the repo-reads preset mutates the reader of a repository's files, the line
 test("the login-evidence preset mutates the classifier, the scrubber and the note in one module, against their own tests", () => {
   const preset = PRESETS["login-evidence"];
   assert.ok(preset, "the login-evidence preset exists");
-  assert.deepEqual(preset.mutate.map(sourcePathOf), ["qa-engine/src/contexts/app-catalog/domain/helpers/login-evidence.ts"]);
+  assert.deepEqual(preset.mutate.map(sourcePathOf), ["engine/src/contexts/app-catalog/domain/helpers/login-evidence.ts"]);
   for (const module of ["login-evidence", "classify-login-evidence"]) {
     assert.ok(preset.tests.some((t) => t.endsWith(`${module}.test.ts`)), `${module}'s tests run against every mutant`);
   }
@@ -362,23 +362,23 @@ test("the prompt-contract preset mutates the lint, the regeneration predicate, t
   const preset = PRESETS["prompt-contract"];
   assert.ok(preset, "the prompt-contract preset exists");
   assert.deepEqual(preset.mutate.map(sourcePathOf), [
-    "qa-engine/src/contexts/generation/domain/prompt-contract-lint.ts",
-    "qa-engine/src/contexts/generation/domain/regen-turn.ts",
-    "qa-engine/src/contexts/generation/domain/diff-stat.ts",
-    "qa-engine/src/contexts/generation/domain/harness-facts.ts",
-    "qa-engine/src/contexts/generation/domain/step-limit.ts",
-    "qa-engine/src/contexts/generation/domain/suite-listing-render.ts",
-    "qa-engine/src/contexts/generation/infrastructure/adapters/pre-generation-grounding-port.adapter.ts",
+    "engine/src/contexts/generation/domain/prompt-contract-lint.ts",
+    "engine/src/contexts/generation/domain/regen-turn.ts",
+    "engine/src/contexts/generation/domain/diff-stat.ts",
+    "engine/src/contexts/generation/domain/harness-facts.ts",
+    "engine/src/contexts/generation/domain/step-limit.ts",
+    "engine/src/contexts/generation/domain/suite-listing-render.ts",
+    "engine/src/contexts/generation/infrastructure/adapters/pre-generation-grounding-port.adapter.ts",
   ]);
   for (const module of ["prompt-contract-lint", "regen-turn", "diff-stat", "harness-facts"]) {
     assert.ok(preset.tests.some((t) => t.endsWith(`${module}.test.ts`)), `${module}'s own tests run against every mutant`);
   }
   /* Both end in step-limit.test.ts, so the suffix check above would let either stand in for the other. */
   for (const tests of [
-    "qa-engine/test/contexts/generation/domain/step-limit.test.ts",
-    "qa-engine/test/contexts/generation/infrastructure/prompt-builders/prompts.step-limit.test.ts",
-    "qa-engine/test/contexts/generation/domain/suite-listing-render.test.ts",
-    "qa-engine/test/contexts/generation/infrastructure/prompt-builders/prompts.listing.test.ts",
+    "engine/test/contexts/generation/domain/step-limit.test.ts",
+    "engine/test/contexts/generation/infrastructure/prompt-builders/prompts.step-limit.test.ts",
+    "engine/test/contexts/generation/domain/suite-listing-render.test.ts",
+    "engine/test/contexts/generation/infrastructure/prompt-builders/prompts.listing.test.ts",
   ]) {
     assert.ok(preset.tests.includes(tests), `${tests} runs against every mutant`);
   }
@@ -418,7 +418,7 @@ test("the route-capturability preset mutates the route classification, the pack'
     assert.ok(sources.some((s) => s.endsWith(`${module}.ts`)), `${module} is mutated`);
   }
   assert.ok(
-    preset.mutate.includes("qa-engine/src/contexts/generation/domain/route-ranking.ts"),
+    preset.mutate.includes("engine/src/contexts/generation/domain/route-ranking.ts"),
     "the ranking is mutated whole, never narrowed to a range",
   );
   for (const module of ["route-capturability", "route-ranking", "context-pack"]) {
@@ -431,25 +431,25 @@ test("the carry-forward preset mutates the spec path and the one fold, the decla
   const preset = PRESETS["carry-forward"];
   assert.ok(preset, "the carry-forward preset exists");
   assert.deepEqual([...new Set(preset.mutate.map(sourcePathOf))], [
-    "qa-engine/src/shared-kernel/spec-path.ts",
-    "qa-engine/src/shared-kernel/delivered-spec.ts",
-    "qa-engine/src/contexts/generation/domain/declared-specs.ts",
-    "qa-engine/src/contexts/run-orchestration/domain/helpers/delivered-specs.ts",
-    "qa-engine/src/contexts/run-orchestration/domain/helpers/contradiction-attribution.ts",
-    "qa-engine/src/contexts/generation/domain/suite-entry.ts",
-    "qa-engine/src/contexts/generation/domain/suite-listing.ts",
-    "qa-engine/src/contexts/generation/domain/suite-listing-render.ts",
-    "qa-engine/src/contexts/generation/application/generate-tests.use-case.ts",
-    "qa-engine/src/contexts/generation/infrastructure/adapters/generation-turns.adapter.ts",
-    "qa-engine/src/contexts/generation/infrastructure/adapters/pre-generation-grounding-port.adapter.ts",
-    "qa-engine/src/contexts/generation/domain/selector-check.ts",
-    "qa-engine/src/contexts/generation/domain/pre-exec-grounding.service.ts",
-    "qa-engine/src/contexts/run-orchestration/domain/fix-loop.aggregate.ts",
-    "qa-engine/src/contexts/run-orchestration/application/run-flow/phases/generation-services.ts",
-    "qa-engine/src/contexts/run-orchestration/application/run-flow/phases/generate.steps.ts",
-    "qa-engine/src/contexts/run-orchestration/application/run-flow/phases/execute.steps.ts",
-    "qa-engine/src/contexts/run-orchestration/application/run-flow/phases/fix-loop.steps.ts",
-    "qa-engine/src/contexts/run-orchestration/application/run-flow/phases/coverage.steps.ts",
+    "engine/src/shared-kernel/spec-path.ts",
+    "engine/src/shared-kernel/delivered-spec.ts",
+    "engine/src/contexts/generation/domain/declared-specs.ts",
+    "engine/src/contexts/run-orchestration/domain/helpers/delivered-specs.ts",
+    "engine/src/contexts/run-orchestration/domain/helpers/contradiction-attribution.ts",
+    "engine/src/contexts/generation/domain/suite-entry.ts",
+    "engine/src/contexts/generation/domain/suite-listing.ts",
+    "engine/src/contexts/generation/domain/suite-listing-render.ts",
+    "engine/src/contexts/generation/application/generate-tests.use-case.ts",
+    "engine/src/contexts/generation/infrastructure/adapters/generation-turns.adapter.ts",
+    "engine/src/contexts/generation/infrastructure/adapters/pre-generation-grounding-port.adapter.ts",
+    "engine/src/contexts/generation/domain/selector-check.ts",
+    "engine/src/contexts/generation/domain/pre-exec-grounding.service.ts",
+    "engine/src/contexts/run-orchestration/domain/fix-loop.aggregate.ts",
+    "engine/src/contexts/run-orchestration/application/run-flow/phases/generation-services.ts",
+    "engine/src/contexts/run-orchestration/application/run-flow/phases/generate.steps.ts",
+    "engine/src/contexts/run-orchestration/application/run-flow/phases/execute.steps.ts",
+    "engine/src/contexts/run-orchestration/application/run-flow/phases/fix-loop.steps.ts",
+    "engine/src/contexts/run-orchestration/application/run-flow/phases/coverage.steps.ts",
   ]);
   for (const whole of ["spec-path", "delivered-spec", "declared-specs", "delivered-specs", "contradiction-attribution", "suite-entry", "suite-listing", "suite-listing-render"]) {
     assert.ok(preset.mutate.some((entry) => sourcePathOf(entry) === entry && entry.endsWith(`/${whole}.ts`)), `${whole} is mutated whole, never narrowed to a range`);
@@ -581,11 +581,11 @@ test("a run re-tests every mutant unless incremental mode is asked for (the comm
 
 test("the checker type-checks the mutated file without its anchor, with the options of its own project", () => {
   const engine = checkerTsconfigFor(
-    { description: "x", mutate: ["qa-engine/src/x.ts#run"], tests: ["t.ts"], thresholds: { high: 90, low: 80, break: null } },
+    { description: "x", mutate: ["engine/src/x.ts#run"], tests: ["t.ts"], thresholds: { high: 90, low: 80, break: null } },
     "/repo",
   ) as { extends: string; files: string[] };
-  assert.deepEqual(engine.files, ["/repo/qa-engine/src/x.ts"]);
-  assert.equal(engine.extends, "/repo/qa-engine/tsconfig.json");
+  assert.deepEqual(engine.files, ["/repo/engine/src/x.ts"]);
+  assert.equal(engine.extends, "/repo/engine/tsconfig.json");
 
   const shell = checkerTsconfigFor(
     { description: "x", mutate: ["platform/entrypoints/auth.ts@scope"], tests: ["t.ts"], thresholds: { high: 90, low: 80, break: null } },
@@ -597,7 +597,7 @@ test("the checker type-checks the mutated file without its anchor, with the opti
 
 /* By default Stryker inserts `// @ts-nocheck` into every JavaScript and TypeScript file of its sandbox, so a test of a file's exact bytes (the stock check of a shipped seed is a sha256 of its text) passed outside the sandbox and failed inside it, in the first run of the preset that held one. The tests run through tsx, which does not type-check, and the checker reads the project's own files, so nothing needs the comment. */
 test("the sandbox keeps every file as it is: no type-check directive is inserted into the files the tests read", () => {
-  const preset: MutationPreset = { description: "x", mutate: ["qa-engine/src/x.ts"], tests: ["t.ts"], thresholds: { high: 90, low: 80, break: null } };
+  const preset: MutationPreset = { description: "x", mutate: ["engine/src/x.ts"], tests: ["t.ts"], thresholds: { high: 90, low: 80, break: null } };
 
   const config = strykerConfigFor("x", preset, { tsconfigFile: "/tmp/tsconfig.json", concurrency: 2, incremental: false }) as { disableTypeChecks: unknown; checkers: unknown };
 

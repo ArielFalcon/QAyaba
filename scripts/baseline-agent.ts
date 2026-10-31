@@ -45,11 +45,11 @@ import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import type { RunVerdict } from "@kernel/run-verdict.ts";
 import { isCommitSha } from "@kernel/git-revision.ts";
-import { sanitizeText } from "../qa-engine/src/shared-infrastructure/redaction/pattern-redaction.adapter.ts";
+import { sanitizeText } from "../engine/src/shared-infrastructure/redaction/pattern-redaction.adapter.ts";
 import { CallEfficiencyTracker } from "@contexts/generation/infrastructure/sse/call-efficiency-tracker.ts";
 import { buildTurnStepBudget, type TurnCallMetrics } from "@contexts/generation/application/index.ts";
 import { finalStepText } from "@contexts/generation/application/index.ts";
-import { AUTH_MATERIAL_FILES } from "../qa-engine/src/shared-infrastructure/process-sandbox/auth-session-env.ts";
+import { AUTH_MATERIAL_FILES } from "../engine/src/shared-infrastructure/process-sandbox/auth-session-env.ts";
 import { EXPERIMENT_COPIES_DIR, WARM_SNAPSHOTS_DIR } from "../platform/settings/paths.ts";
 import {
   DEFAULT_SUITE_DIR, contentReadsOf, promptSections, renderMarkdown, scoreGroundTruth, totalsOf, turnFromCallMetrics, type GroundTruth, type PhaseDurations, type ProbeReport, type ProbeSpec, type ReadingContext,
@@ -58,7 +58,7 @@ import { assertFileName, defaultProbeResultsDir, readGroundTruthFile, writeJsonA
 import { saveSuiteFiles, specsOf, suiteDelta } from "./campaign-suite.ts";
 import { prepareHarnessAuth } from "./harness-auth.ts";
 import { loadSnapshot, restoreSuite, specsTouchedSinceSnapshot, warmSnapshotDir, warmStatus, type LoadedSnapshot } from "./warm-suite.ts";
-import { MAX_FILE_BYTES } from "../qa-engine/src/shared-infrastructure/suite-tree.ts";
+import { MAX_FILE_BYTES } from "../engine/src/shared-infrastructure/suite-tree.ts";
 import type { AcceptanceReport } from "@contexts/run-orchestration/application/index.ts";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -923,9 +923,9 @@ export async function defaultDeps(env: Record<string, string | undefined> = proc
   const { buildSetupAdapter, resolveCodeSandbox } = await import("../platform/composition/run-engine-factory.ts");
   const { buildScriptExec } = await import("../platform/composition/exec-sandbox-factory.ts");
   const { egressGateFor, scriptOriginsFor, scriptRegistryOrigins } = await import("../platform/composition/egress-wiring.ts");
-  const { readConfinedSpecFile, readConfinedSpecBytes } = await import("../qa-engine/src/shared-infrastructure/spec-path-confinement.ts");
-  const { runE2E, createDefaultE2eExecuteDeps, e2eTimeoutMs } = await import("../qa-engine/src/contexts/test-execution/infrastructure/e2e-execution.runner.ts");
-  const { ProcessKillAdapter } = await import("../qa-engine/src/shared-infrastructure/process-sandbox/process-kill.adapter.ts");
+  const { readConfinedSpecFile, readConfinedSpecBytes } = await import("../engine/src/shared-infrastructure/spec-path-confinement.ts");
+  const { runE2E, createDefaultE2eExecuteDeps, e2eTimeoutMs } = await import("../engine/src/contexts/test-execution/infrastructure/e2e-execution.runner.ts");
+  const { ProcessKillAdapter } = await import("../engine/src/shared-infrastructure/process-sandbox/process-kill.adapter.ts");
   const { installHttpDispatcher } = await import("../platform/agent-runtime/net.ts");
   installHttpDispatcher();
 

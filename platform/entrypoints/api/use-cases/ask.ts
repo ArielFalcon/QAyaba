@@ -2,7 +2,7 @@
 
 import { HELP_INSTRUCTION, boundQuestion, buildHelpContext, buildRunChatContext, buildRunContext, helpHistoryLine, helpQuestionContext, recentOutcomesContext, runHistoryLine, runQuestionContext, type AssistantTextDeps } from "@contexts/operator-assistant/application/index";
 import { AskResponseSchema } from "../../contract/commands";
-import { sanitizeText } from "../../../../qa-engine/src/shared-infrastructure/redaction/pattern-redaction.adapter";
+import { sanitizeText } from "../../../../engine/src/shared-infrastructure/redaction/pattern-redaction.adapter";
 import { activityRouter } from "../../../agent-runtime/opencode-client";
 import { infraErrorGloss } from "../../infra-error-gloss";
 import { DEFAULT_HOST } from "../../../settings/port";

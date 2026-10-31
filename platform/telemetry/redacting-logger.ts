@@ -1,7 +1,7 @@
 import { logJson } from "./logger";
 import { RedactionPortAdapter } from "./sanitizer";
-import type { LogFields, LoggerPort, LogLevel } from "../../qa-engine/src/shared-kernel/ports/logger.port";
-import type { RedactionPort } from "../../qa-engine/src/shared-kernel/ports/redaction.port";
+import type { LogFields, LoggerPort, LogLevel } from "../../engine/src/shared-kernel/ports/logger.port";
+import type { RedactionPort } from "../../engine/src/shared-kernel/ports/redaction.port";
 
 /*
  * The shell's LoggerPort. A line is redacted before it is handed to the JSON logger, so the rotating file, the console

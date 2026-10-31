@@ -1,10 +1,10 @@
 /*
  * The coordination ledger's projection for the SIGNALS panel: a pure function over the events the engine's ledger
- * reader returns (qa-engine coordination/infrastructure/adapters/coordination-ledger-reader.adapter.ts), which
+ * reader returns (engine coordination/infrastructure/adapters/coordination-ledger-reader.adapter.ts), which
  * wire-app.ts wires to the ledger path.
  */
 import type { CoordinationSignals } from "./contract/commands";
-import { DELEGATION_FAILURE_CLASSES, type CoordinationLedgerEvent } from "../../qa-engine/src/contexts/coordination/application/index";
+import { DELEGATION_FAILURE_CLASSES, type CoordinationLedgerEvent } from "../../engine/src/contexts/coordination/application/index";
 
 const CONTRACT_FAILURE_CLASSES: ReadonlySet<string> = new Set(DELEGATION_FAILURE_CLASSES);
 
@@ -21,7 +21,7 @@ export function toCoordinationSignals(events: readonly CoordinationLedgerEvent[]
   const delegateRunIds = new Set(outcomes.filter((e) => e.action === "delegate").map((e) => e.runId));
   /*
    * A delegation contract failure is read from the typed failureClass field (set by
-   * classifyDelegationFailure in qa-engine — "failed" | "blocked" | "claimed-files-missing"), never
+   * classifyDelegationFailure in engine — "failed" | "blocked" | "claimed-files-missing"), never
    * guessed from the free-text `reason` prose. The prose only ever reads "sidekick status=<X>" and
    * a regex over it could never distinguish, say, a pushback-blocked delegation from a completed one
    * whose claimed files never verified on disk. Only a delegation failure class counts: a line with no

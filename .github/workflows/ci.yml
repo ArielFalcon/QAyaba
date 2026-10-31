@@ -3,8 +3,8 @@
 # it makes GitHub itself refuse to merge a change whose CI is red. The job id `ci` is the
 # required-check name.
 #
-# arch:check (the qa-engine/src src/ boundary + VCS-write-seam
-# dependency-cruiser gates) was previously enforced ONLY by qa-engine/test/arch/*.test.ts's own
+# arch:check (the engine/src src/ boundary + VCS-write-seam
+# dependency-cruiser gates) was previously enforced ONLY by engine/test/arch/*.test.ts's own
 # node:test assertions inside `npm test` — real, but not itself run standalone in CI, so a change
 # that broke `npm run arch:check` specifically (as opposed to the node:test wrapper around it)
 # had no dedicated CI signal. Running it as its own step gives it an explicit, independently
@@ -43,7 +43,7 @@ jobs:
       # The e2e seed (config/e2e/) must pass the lint it ships: every app's static gate runs it,
       # and a seed error lands on the agent as a fix round on harness files.
       - run: npm run seed:lint
-      # The scripts that run as text in another process (qa-engine/src/**/embedded); their typecheck is part of `npm run typecheck`.
+      # The scripts that run as text in another process (engine/src/**/embedded); their typecheck is part of `npm run typecheck`.
       - run: npm run embedded:lint
       - run: npm run sdk:typecheck
       # Catches a platform/entrypoints/contract/*.ts (zod) edit that shipped without rerunning

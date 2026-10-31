@@ -3,16 +3,16 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { RunQaUseCase, type RunQaUseCaseDeps } from "@contexts/run-orchestration/application/index";
 import { ok } from "@kernel/result";
-import { fakeWorkspace } from "../../qa-engine/test/contexts/run-orchestration/application/run-flow/fake-workspace";
+import { fakeWorkspace } from "../../engine/test/contexts/run-orchestration/application/run-flow/fake-workspace";
 import { Sha } from "@kernel/sha";
 import { ThrowingTelemetry } from "@kernel/telemetry/guarded-telemetry";
 import type { TelemetryPort } from "@kernel/telemetry/telemetry.port";
-import { scriptedGeneration } from "../../qa-engine/test/support/generation-output";
-import { generationOnDisk, runWorkspace } from "../../qa-engine/test/support/run-workspace";
+import { scriptedGeneration } from "../../engine/test/support/generation-output";
+import { generationOnDisk, runWorkspace } from "../../engine/test/support/run-workspace";
 import { traceHarness } from "../test-support/trace-harness";
-import { confinedSpecFiles } from "../../qa-engine/src/shared-infrastructure/spec-files.adapter";
-import { served } from "../../qa-engine/test/support/coordinator-over-author";
-import { primaryChangeSet } from "../../qa-engine/test/support/change-set";
+import { confinedSpecFiles } from "../../engine/src/shared-infrastructure/spec-files.adapter";
+import { served } from "../../engine/test/support/coordinator-over-author";
+import { primaryChangeSet } from "../../engine/test/support/change-set";
 
 const SPEC_SOURCE = "await page.goto('/orders');\nawait page.getByTestId('invented-id').click();\nawait page.getByTestId('real-id').click();\n";
 

@@ -4,18 +4,18 @@ import { appLogger } from "../telemetry/redacting-logger";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { parse } from "yaml";
-import { DnsFilter } from "../../qa-engine/src/shared-infrastructure/egress/dns-filter";
-import { EgressController } from "../../qa-engine/src/shared-infrastructure/egress/egress-controller";
-import { compileEgressPolicy } from "../../qa-engine/src/shared-kernel/egress-policy";
+import { DnsFilter } from "../../engine/src/shared-infrastructure/egress/dns-filter";
+import { EgressController } from "../../engine/src/shared-infrastructure/egress/egress-controller";
+import { compileEgressPolicy } from "../../engine/src/shared-kernel/egress-policy";
 import { installOriginsOf, resolveRunOrigins, type RegistryGroups } from "@contexts/test-execution/application/index";
-import { createIptablesApplier } from "../../qa-engine/src/shared-infrastructure/egress/iptables-runner";
-import { TransparentProxy } from "../../qa-engine/src/shared-infrastructure/egress/transparent-proxy";
-import type { EgressGate } from "../../qa-engine/src/shared-infrastructure/process-sandbox/exec-sandbox";
-import type { Sandbox } from "../../qa-engine/src/shared-infrastructure/process-sandbox/sandbox";
+import { createIptablesApplier } from "../../engine/src/shared-infrastructure/egress/iptables-runner";
+import { TransparentProxy } from "../../engine/src/shared-infrastructure/egress/transparent-proxy";
+import type { EgressGate } from "../../engine/src/shared-infrastructure/process-sandbox/exec-sandbox";
+import type { Sandbox } from "../../engine/src/shared-infrastructure/process-sandbox/sandbox";
 import { loadAppConfig } from "./config-loader";
 import { qayabaRoot } from "../settings/paths";
 import { resolveEgressMode } from "../settings/sandbox-status";
-import { forwardDnsQuery } from "../../qa-engine/src/shared-infrastructure/egress/dns-forward";
+import { forwardDnsQuery } from "../../engine/src/shared-infrastructure/egress/dns-forward";
 
 /* config/egress/registries.yaml: group name to origins. A group that is not a list of strings is a configuration error, said with its name. */
 let warnedNoRegistries = false;

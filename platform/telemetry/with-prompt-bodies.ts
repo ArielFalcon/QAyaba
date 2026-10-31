@@ -2,8 +2,8 @@
 
 import type { AgentDeps } from "../agent-runtime/opencode-client";
 import type { TelemetryContext } from "@kernel/telemetry/telemetry.port";
-import { sha256Hex } from "../../qa-engine/src/shared-kernel/content-hash";
-import { redactByValue } from "../../qa-engine/src/shared-kernel/run-secret-redaction";
+import { sha256Hex } from "../../engine/src/shared-kernel/content-hash";
+import { redactByValue } from "../../engine/src/shared-kernel/run-secret-redaction";
 import type { CaptureMode } from "@kernel/telemetry/capture-mode";
 import { PromptBodyExporter, type TurnBodyIdentity } from "./prompt-body-logs";
 
@@ -21,7 +21,7 @@ export function registerPromptBodyHost(next: PromptBodyHost | undefined): void {
 }
 
 export interface PromptBodyDecoratorDeps {
-  /* Digest of the static prompt layers (`hashStaticPrompts`, qa-engine/src/contexts/run-orchestration/infrastructure/static-prompt-hash.ts). */
+  /* Digest of the static prompt layers (`hashStaticPrompts`, engine/src/contexts/run-orchestration/infrastructure/static-prompt-hash.ts). */
   readonly staticHash: () => string | null;
   /* The turn span of the session's turn in flight (the registry the turn-span decorator fills). */
   readonly traces: { turnContext(sessionId: string): TelemetryContext | undefined };

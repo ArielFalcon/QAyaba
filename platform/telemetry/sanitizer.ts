@@ -1,5 +1,5 @@
-import { REDACTED, SecretLeakError, type RedactionMode, type RedactionPort, type SecretDetection } from "../../qa-engine/src/shared-kernel/ports/redaction.port";
-import { PatternRedactionAdapter } from "../../qa-engine/src/shared-infrastructure/redaction/pattern-redaction.adapter";
+import { REDACTED, SecretLeakError, type RedactionMode, type RedactionPort, type SecretDetection } from "../../engine/src/shared-kernel/ports/redaction.port";
+import { PatternRedactionAdapter } from "../../engine/src/shared-infrastructure/redaction/pattern-redaction.adapter";
 import { activeEnvironment } from "../settings/active";
 
 /*

@@ -1,5 +1,5 @@
 /*
- * Composition root: maps AppConfig into a qa-engine EngineRootDeps and returns
+ * Composition root: maps AppConfig into a engine EngineRootDeps and returns
  * buildEngine(...). Wires host collaborators (agent runtime, GitHub, runners).
  * Env reads for execution timeouts stay here. Agent remains read-only on watched repos.
  */
@@ -67,7 +67,7 @@ import type { CodeGraphToolRegistry } from "@contexts/agent-tools/infrastructure
 import { PlaywrightAgentBrowserHost } from "@contexts/test-execution/infrastructure/agent-browser/playwright-agent-browser.host";
 import { SandboxedChromiumLauncher } from "@contexts/test-execution/infrastructure/agent-browser/chromium-sandbox.launcher";
 import { loadPlaywrightChromium } from "@contexts/test-execution/infrastructure/agent-browser/playwright-core.loader";
-import { redactByValue } from "../../qa-engine/src/shared-kernel/run-secret-redaction";
+import { redactByValue } from "../../engine/src/shared-kernel/run-secret-redaction";
 import { ValidationPortAdapter } from "@contexts/test-execution/infrastructure/adapters/validation-port.adapter";
 import { ExecutionPortAdapter } from "@contexts/test-execution/infrastructure/adapters/execution-port.adapter";
 import { ObjectiveSignalPortAdapter } from "@contexts/objective-signal/infrastructure/adapters/objective-signal-port.adapter";
@@ -88,7 +88,7 @@ import type { ArchitectureContext } from "@contexts/generation/application/index
 import type { TelemetryClock, TelemetryPort } from "@kernel/telemetry/telemetry.port";
 import { CONTEXT_MAP_MAX_AGE_MS, contextMapResultCount, type ContextProvenance } from "@kernel/telemetry/context-provenance";
 import { withPromptBodies } from "../telemetry/with-prompt-bodies";
-import { hashStaticPrompts } from "../../qa-engine/src/contexts/run-orchestration/infrastructure/static-prompt-hash";
+import { hashStaticPrompts } from "../../engine/src/contexts/run-orchestration/infrastructure/static-prompt-hash";
 import { withTurnTelemetry } from "@contexts/generation/infrastructure/telemetry/with-turn-telemetry";
 import { agentTurnTraces } from "@contexts/generation/infrastructure/telemetry/turn-trace-registry";
 import type { StepIntentContext } from "@contexts/generation/application/index";
@@ -115,10 +115,10 @@ import { makeTargetCoverageCollector } from "@contexts/objective-signal/infrastr
 import { assembleChangeCoverage } from "@contexts/objective-signal/application/index";
 
 
-import { SandboxedBinaryRunnerAdapter } from "../../qa-engine/src/shared-infrastructure/process-sandbox/sandboxed-binary-runner.adapter";
-import { ProcessKillAdapter } from "../../qa-engine/src/shared-infrastructure/process-sandbox/process-kill.adapter";
+import { SandboxedBinaryRunnerAdapter } from "../../engine/src/shared-infrastructure/process-sandbox/sandboxed-binary-runner.adapter";
+import { ProcessKillAdapter } from "../../engine/src/shared-infrastructure/process-sandbox/process-kill.adapter";
 
-import { GitCoChangeAdapter } from "../../qa-engine/src/shared-infrastructure/code-graph/git-co-change.adapter";
+import { GitCoChangeAdapter } from "../../engine/src/shared-infrastructure/code-graph/git-co-change.adapter";
 
 
 import {
@@ -138,20 +138,20 @@ import {
   createDefaultE2eCleanupDeps,
   e2eTimeoutMs,
   type E2eExecuteDeps,
-} from "../../qa-engine/src/contexts/test-execution/infrastructure/e2e-execution.runner";
+} from "../../engine/src/contexts/test-execution/infrastructure/e2e-execution.runner";
 
 import {
   validateSpecs,
   createValidateDeps,
   fixLintedSpecs,
-} from "../../qa-engine/src/contexts/test-execution/infrastructure/static-gate.checks";
-import { resolveSandbox, openInstallTree, sealInstallTree, type Sandbox } from "../../qa-engine/src/shared-infrastructure/process-sandbox/sandbox";
-import type { ExecSandboxPort } from "../../qa-engine/src/shared-infrastructure/process-sandbox/exec-sandbox";
-import { createExecBinaryRunner } from "../../qa-engine/src/shared-infrastructure/process-sandbox/exec-binary-runner";
+} from "../../engine/src/contexts/test-execution/infrastructure/static-gate.checks";
+import { resolveSandbox, openInstallTree, sealInstallTree, type Sandbox } from "../../engine/src/shared-infrastructure/process-sandbox/sandbox";
+import type { ExecSandboxPort } from "../../engine/src/shared-infrastructure/process-sandbox/exec-sandbox";
+import { createExecBinaryRunner } from "../../engine/src/shared-infrastructure/process-sandbox/exec-binary-runner";
 import { buildExecWiring } from "./exec-sandbox-factory";
 import { egressGateFor, loadRegistryGroups } from "./egress-wiring";
 import { blockedHostMatcher, resolveRunOrigins, suiteAccountFor } from "@contexts/test-execution/application/index";
-import { setSandboxGroup } from "../../qa-engine/src/shared-infrastructure/process-sandbox/git-hardening";
+import { setSandboxGroup } from "../../engine/src/shared-infrastructure/process-sandbox/git-hardening";
 import type { EffectiveConfig, GroundingInput } from "../entrypoints/contract/commands";
 import { requireEnv } from "../settings/env";
 import { RedactionPortAdapter, redactSourceForModel } from "../telemetry/sanitizer";
@@ -252,8 +252,8 @@ export function buildMirrorGc(git: GitFn = realGit): MirrorGcAdapter {
 
 
 /*
- * The ONLY place GITHUB_TOKEN is read for the publish path: qa-engine's github-http.ts takes
- * authHeaders() as an injected closure and reads no environment itself (qa-engine reads none
+ * The ONLY place GITHUB_TOKEN is read for the publish path: engine's github-http.ts takes
+ * authHeaders() as an injected closure and reads no environment itself (engine reads none
  * at all), so this composition root is the sole credential-locality seam for
  * every GitHub PR/Issue call the engine makes. (repo-mirror.ts and platform/composition/
  * github.ts read GITHUB_TOKEN too, but for git clone/fetch auth and the login/collaborator-check
@@ -656,7 +656,7 @@ export function buildEngineRootDeps(
 
 
   /*
-   * The server froze the run (run-freeze.ts: a campaign-tagged request; qa-engine reads no environment and no request): the run starts
+   * The server froze the run (run-freeze.ts: a campaign-tagged request; engine reads no environment and no request): the run starts
    * from a fixed state (the suite store read-only, the context map and the login not rebuilt, no process audit). The collaborators below
    * are left out, which the composition root reads as "not wired" (a provable no-op), never as a stub that pretends to learn.
    */
@@ -792,7 +792,7 @@ export function buildEngineRootDeps(
    * The run-level wall-clock deadline: one per run (this factory builds the engine for one run), armed by the use case
    * after classification and read by every agent turn of the run through the bounded runtime below, so no turn (a
    * regeneration, a fix-loop round, a repair, the coverage regen, the reviewer, a sidekick) outlives it.
-   * QA_RUN_TIME_BUDGET_MS_* override a kind of run's time; read here once because qa-engine reads no environment. A
+   * QA_RUN_TIME_BUDGET_MS_* override a kind of run's time; read here once because engine reads no environment. A
    * mistyped value throws.
    */
   const runDeadline = new RunDeadline({ now: deps.now ?? Date.now, budgets: resolveRunTimeBudgets(deps.env ?? activeEnvironment()) });
@@ -859,7 +859,7 @@ export function buildEngineRootDeps(
 
   /*
    * checkout(sha) resolves the real per-run mirrorDir and stages every declared sibling service's
-   * READ-ONLY context into it (MultiRepoCheckoutAdapter, qa-engine-resident). Mirror ops are
+   * READ-ONLY context into it (MultiRepoCheckoutAdapter, engine-resident). Mirror ops are
    * curried here so the adapter never needs to know about MirrorDeps (a src/-only type) —
    * production always threads the module's own defaultMirrorDeps.
    */
@@ -907,7 +907,7 @@ export function buildEngineRootDeps(
      */
     coordinationTelemetryPath: resolveCoordinationTelemetryPath(),
     /*
-     * Per-delegation wall-clock cap — env-tunable here (the shell), never read by qa-engine's
+     * Per-delegation wall-clock cap — env-tunable here (the shell), never read by engine's
      * engine-root itself. Absent → engine-root's own hardcoded default (420_000).
      */
     /*
@@ -957,7 +957,7 @@ export function buildEngineRootDeps(
     /*
      * contextPackDeps.domDeps is ALWAYS overridden so the
      * pre-generation DOM capture reads auth material from the orchestrator-only authDir, never
-     * from the mirror — the qa-engine default (defaultCaptureDomDeps) would
+     * from the mirror — the engine default (defaultCaptureDomDeps) would
      * otherwise derive credential paths from e2eDir itself.
      */
     groundingCollaborators: {
@@ -1289,7 +1289,7 @@ export function buildEngineRootDeps(
     }) }),
     /*
      * ContextMapCapturePort — write side of the FE<->BE architecture map. Constructed here for the
-     * same reason processAudit is: its store is the history repositories (src-only; qa-engine may never import
+     * same reason processAudit is: its store is the history repositories (src-only; engine may never import
      * it). Wired unconditionally: a clean context-mode pass is the only run that ever invokes it.
      * Storing a fresh map disarms the process audit's stale flag, whoever started the context run
      * (a heal, a manual or onboarding run, the server or the CLI). Only a map the run wrote is

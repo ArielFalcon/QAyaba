@@ -7,7 +7,7 @@ import { resolveEgressMode, type EgressMode } from "./sandbox-status";
 import { parseCampaignRetentionDays, parseRetentionDays, resolveTelemetryConfig, type TelemetryConfig } from "./telemetry-config";
 import { resolveBackendHealthConfig, type BackendHealthConfig } from "./backend-health-config";
 import { resolveRunTimeBudgets } from "@contexts/run-orchestration/application/index";
-import { resolveExecSandboxMode, type ExecSandboxMode } from "../../qa-engine/src/shared-infrastructure/process-sandbox/exec-sandbox";
+import { resolveExecSandboxMode, type ExecSandboxMode } from "../../engine/src/shared-infrastructure/process-sandbox/exec-sandbox";
 import { DEFAULT_DRAIN_MS, DEFAULT_REVIEWER_TIMEOUT_MS, DEFAULT_SESSION_TTL_SECONDS, DEFAULT_STALL_MS } from "./defaults";
 import { SETTINGS_REGISTRY, settingDef } from "./registry";
 import { deprecatedSettingWarnings, retiredSettingWarnings } from "./retired";

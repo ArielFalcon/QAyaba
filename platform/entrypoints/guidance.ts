@@ -1,6 +1,6 @@
-/* Operator guidance: the one place the free text a run request, a continuation or a webhook carries is bounded. It is redacted first (the orchestrator's environment secrets, the run's secrets and the patterns) and cut after (qa-engine shared-kernel/redact-then-bound.ts), so a pasted credential that straddles the bound leaves nothing of itself in the task a prompt carries. */
+/* Operator guidance: the one place the free text a run request, a continuation or a webhook carries is bounded. It is redacted first (the orchestrator's environment secrets, the run's secrets and the patterns) and cut after (engine shared-kernel/redact-then-bound.ts), so a pasted credential that straddles the bound leaves nothing of itself in the task a prompt carries. */
 
-import { redactThenBound } from "../../qa-engine/src/shared-kernel/redact-then-bound";
+import { redactThenBound } from "../../engine/src/shared-kernel/redact-then-bound";
 import { RedactionPortAdapter } from "../telemetry/sanitizer";
 
 /* The longest guidance a run request carries. */

@@ -45,9 +45,9 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import type { AgentConfig } from "@opencode-ai/sdk";
 import { AGENT_NAME_FOR_ROLE, capabilitiesForRole } from "./types";
-import { AGENT_BROWSER_TOOLS } from "../../qa-engine/src/shared-kernel/agent-browser";
-import { CODE_GRAPH_AGENTS, CODE_GRAPH_TOOLS } from "../../qa-engine/src/shared-kernel/code-graph-tools";
-import { AGENT_BROWSER_AGENTS, PROBE_REL_DIR } from "../../qa-engine/src/contexts/test-execution/application/index";
+import { AGENT_BROWSER_TOOLS } from "../../engine/src/shared-kernel/agent-browser";
+import { CODE_GRAPH_AGENTS, CODE_GRAPH_TOOLS } from "../../engine/src/shared-kernel/code-graph-tools";
+import { AGENT_BROWSER_AGENTS, PROBE_REL_DIR } from "../../engine/src/contexts/test-execution/application/index";
 import { NO_TOOLS } from "./opencode-client";
 import type { AgentRole } from "./types";
 
@@ -830,7 +830,7 @@ test("the exemption list of a held server is enforced both ways", () => {
 });
 
 test("qa-reviewer's mode matches how it is actually invoked (direct prompt, not subagent delegation)", () => {
-  /* qa-engine review-port adapter) — no other opencode agent delegates to it, so the old
+  /* engine review-port adapter) — no other opencode agent delegates to it, so the old
      "subagent" label mischaracterized the invocation path. The SDK's AgentConfig documents the
      mode union ("subagent" | "primary" | "all") without describing any semantic difference
      between "primary" and "all"; "all" was chosen as the least-restrictive option for a

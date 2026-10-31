@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { main, percentile } from "./walk-profile.ts";
 
-const STORE = join(import.meta.dirname, "..", "qa-engine", "test", "shared-infrastructure", "code-graph", "__fixtures__", "codegraph-angular-routes", "store.db");
+const STORE = join(import.meta.dirname, "..", "engine", "test", "shared-infrastructure", "code-graph", "__fixtures__", "codegraph-angular-routes", "store.db");
 
 /* A one-line edit of the login page's class (src/app/login/login.page.ts line 4). */
 const DIFF = [

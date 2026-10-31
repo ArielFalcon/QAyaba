@@ -48,7 +48,7 @@ test("kernel and runtime AgentRole unions contain the exact same member set (inc
   assert.deepEqual(
     [...RUNTIME_ROLES].sort(),
     [...KERNEL_ROLES].sort(),
-    "platform/agent-runtime/types.ts's AgentRole and qa-engine/src/shared-kernel/agent-role.ts's " +
+    "platform/agent-runtime/types.ts's AgentRole and engine/src/shared-kernel/agent-role.ts's " +
       "AgentRole must declare the exact same role set — they were wired out of lockstep.",
   );
   assert.ok(RUNTIME_ROLES.includes("proposer"), "runtime AgentRole must include proposer");

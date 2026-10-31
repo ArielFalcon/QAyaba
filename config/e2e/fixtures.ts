@@ -394,7 +394,7 @@ function matchDataState(routes: Record<string, { resultSelector?: string; result
 // prompt or a record shows: the block holds none of the run's secrets, so it cannot redact, and the
 // orchestrator redacts what it reads and only then cuts it to the bound it shows. The bound is therefore far
 // above any of those (it must stay at or above the orchestrator's longest bound plus the redaction lookahead:
-// PRODUCER_MEMORY_BOUND_CHARS in qa-engine/src/shared-kernel/redact-then-bound.ts, which a test keeps equal).
+// PRODUCER_MEMORY_BOUND_CHARS in engine/src/shared-kernel/redact-then-bound.ts, which a test keeps equal).
 const QA_TEXT_MEMORY_BOUND_CHARS = 16384;
 // Reduces a URL to origin + pathname so a query string or fragment never reaches the dump. The address of a
 // DEV write is an identity (the control of the run cuts it at the same length, so a request has one key in both)

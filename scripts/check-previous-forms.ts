@@ -42,9 +42,9 @@ const RECORDS_PREFIX = "docs/architecture/";
 /* The tests that pin what a retired name leaves behind (a stored row that still carries the value fields, a grade that is no longer emitted): they have to write the names. */
 const RETIRED_FIELD_TESTS = [
   "platform/persistence/repositories/learning.repository.retired-fields.test.ts",
-  "qa-engine/test/contexts/evaluation/retired-graders.test.ts",
+  "engine/test/contexts/evaluation/retired-graders.test.ts",
 ];
-const SHIPPED_SEED_REVISIONS_PREFIX = "qa-engine/test/contexts/workspace-and-publication/infrastructure/__fixtures__/seed-revisions/";
+const SHIPPED_SEED_REVISIONS_PREFIX = "engine/test/contexts/workspace-and-publication/infrastructure/__fixtures__/seed-revisions/";
 
 export const BANNED_RULES: BannedRule[] = [
   { id: "engine-flag", patterns: [/PIPELINE_ENGINE/i, /pipeline-engine-flag/i, /selectEngine/i] },

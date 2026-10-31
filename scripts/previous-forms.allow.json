@@ -31,7 +31,7 @@
   },
   {
     "rule": "codex",
-    "path": "qa-engine/test/contexts/app-catalog/application/app-config.schema.test.ts",
+    "path": "engine/test/contexts/app-catalog/application/app-config.schema.test.ts",
     "contains": "codex",
     "reason": "Pins that the retired per-runtime budget key is refused in an app config."
   },
@@ -67,7 +67,7 @@
   },
   {
     "rule": "router-kind",
-    "path": "qa-engine/test/contract/coordination-seam.contract.test.ts",
+    "path": "engine/test/contract/coordination-seam.contract.test.ts",
     "contains": "coordinationMode",
     "reason": "Pins that the retired mode selector is gone from the composition."
   },

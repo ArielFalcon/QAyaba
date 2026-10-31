@@ -1,0 +1,1564 @@
+/* SetupAdapter.install() still throws on a runner-signaled timeout; optional helper slots are
+   always-present class methods, not injectable no-ops. */
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import {
+  SetupAdapter,
+  nodeFsDeps,
+  FAILURE_CAPTURE_MARKER,
+  failureCaptureBlockFrom,
+  type SetupAdapterFsDeps,
+} from "@contexts/workspace-and-publication/infrastructure/setup.adapter.ts";
+import type { SandboxedBinaryRunner, SandboxedRunRequest, SandboxedRunResult } from "../../../../src/shared-infrastructure/process-sandbox/sandboxed-binary-runner.ts";
+
+/* 5 levels up from this file to the repo root (engine/test/contexts/workspace-and-publication/
+   infrastructure/ -> engine/test/contexts/ -> engine/test/ -> engine/ -> repo root) —
+   verified empirically against the real config/e2e/ tree before writing this file.
+ */
+const REAL_SEED_DIR = fileURLToPath(new URL("../../../../../config/e2e", import.meta.url));
+
+/* The block setup appends into a repo: the region of the real seed's fixtures.ts between the capture markers. */
+const SEED_CAPTURE_BLOCK = failureCaptureBlockFrom(REAL_SEED_DIR);
+
+function okResult(overrides: Partial<SandboxedRunResult> = {}): SandboxedRunResult {
+  return { exitCode: 0, stdout: "", stderr: "", timedOut: false, ...overrides };
+}
+
+function fakeRunner(run: (req: SandboxedRunRequest) => Promise<SandboxedRunResult>): SandboxedBinaryRunner {
+  return { run };
+}
+
+const neverCalledRunner: SandboxedBinaryRunner = {
+  run: async () => {
+    throw new Error("runner should not be called in this test");
+  },
+};
+
+function realAdapter(seedDir = REAL_SEED_DIR): SetupAdapter {
+  return new SetupAdapter({ fs: nodeFsDeps, runner: neverCalledRunner, seedDir });
+}
+
+/* A minimal, fully-stubbed fs fake for the orchestration-layer (setup()) tests below — no real disk
+   touched. `hasPackageJson` controls the bootstrap/no-bootstrap branch; every file of the project
+   (node_modules, .install-hash, package-lock.json, fixtures...) is absent, so isInstallCurrent() is
+   always false and install() always runs, matching the original tests' fixtures (a fresh /mirror/e2e
+   with no real cache marker on disk). `onReadOwned` sees each file of the project setup looks for.
+ */
+function orchestrationFs(opts: { hasPackageJson: boolean; onBootstrap?: (dest: string) => void; onEnsureSpecDir?: (path: string) => void; onReadOwned?: (rel: string) => void }): SetupAdapterFsDeps {
+  return {
+    exists: (path) => (path.endsWith("package.json") ? opts.hasPackageJson : false),
+    cp: (_src, dest) => opts.onBootstrap?.(dest),
+    read: () => "",
+    mkdir: (path) => {
+      if (path.endsWith("flows")) opts.onEnsureSpecDir?.(path);
+    },
+    readOwned: (_root, rel) => {
+      opts.onReadOwned?.(rel);
+      return { absent: true };
+    },
+    writeOwned: () => {},
+    purgeRefused: () => ({ nothing: true }),
+    purgeRefusedDirectory: () => ({ nothing: true }),
+  };
+}
+
+test("repo with an e2e project: installs, does not bootstrap", async () => {
+  const seq: string[] = [];
+  const fs = orchestrationFs({ hasPackageJson: true, onBootstrap: () => seq.push("bootstrap") });
+  const runner = fakeRunner(async () => {
+    seq.push("install");
+    return okResult();
+  });
+  await new SetupAdapter({ fs, runner, seedDir: "/seed" }).setup("/mirror/e2e");
+  assert.deepEqual(seq, ["install"]);
+});
+
+test("repo without an e2e project: seeds first, then installs", async () => {
+  const seq: string[] = [];
+  let seeded = "";
+  const fs = orchestrationFs({
+    hasPackageJson: false,
+    onBootstrap: (dest) => {
+      seeded = dest;
+      seq.push("bootstrap");
+    },
+  });
+  const runner = fakeRunner(async () => {
+    seq.push("install");
+    return okResult();
+  });
+  await new SetupAdapter({ fs, runner, seedDir: "/seed" }).setup("/mirror/e2e");
+  assert.deepEqual(seq, ["bootstrap", "install"]); /* bootstrap BEFORE install */
+  assert.equal(seeded, "/mirror/e2e");
+});
+
+/* The parallel fan-out workers are each assigned `flows/<flow>.spec.ts` and can only `write` (no
+   mkdir). If the orchestrator does not create `flows/` first, every worker write fails silently and a
+   complete/exhaustive run generates ZERO specs. Setup MUST ensure the dir — after seeding, before install.
+ */
+test("ensures the flows/ spec dir exists (after bootstrap, before install) so fan-out workers can write", async () => {
+  const seq: string[] = [];
+  let ensuredFor = "";
+  const fs = orchestrationFs({
+    hasPackageJson: false,
+    onBootstrap: () => seq.push("bootstrap"),
+    onEnsureSpecDir: (path) => {
+      ensuredFor = path;
+      seq.push("ensureSpecDir");
+    },
+  });
+  const runner = fakeRunner(async () => {
+    seq.push("install");
+    return okResult();
+  });
+  await new SetupAdapter({ fs, runner, seedDir: "/seed" }).setup("/mirror/e2e");
+  assert.deepEqual(seq, ["bootstrap", "ensureSpecDir", "install"]);
+  assert.equal(ensuredFor, join("/mirror/e2e", "flows"));
+});
+
+/* Even on the install-cached fast path (deps up to date → no npm ci), the flows/ dir must still be
+   ensured: a fresh checkout/clean can wipe it while node_modules (and the install marker) survive.
+ */
+test("ensures flows/ even when the install is cached and skipped", async () => {
+  const seq: string[] = [];
+  const fs = orchestrationFs({
+    hasPackageJson: true,
+    onBootstrap: () => seq.push("bootstrap"),
+    onEnsureSpecDir: () => seq.push("ensureSpecDir"),
+  });
+  const runner = fakeRunner(async () => {
+    seq.push("install");
+    return okResult();
+  });
+  /* /mirror/e2e has no node_modules marker, so isInstallCurrent is false and install runs; the point
+     here is simply that ensureSpecDir is invoked unconditionally before that branch.
+   */
+  await new SetupAdapter({ fs, runner, seedDir: "/seed" }).setup("/mirror/e2e");
+  assert.ok(seq.includes("ensureSpecDir"), `ensureSpecDir must run: ${seq.join(",")}`);
+});
+
+test("a hung install times out and throws (the pipeline surfaces it as infra-error)", async () => {
+  const fs = orchestrationFs({ hasPackageJson: true });
+  /* The runner hangs forever (never resolves) — the OUTER race in setup() (defense-in-depth,
+     independent of the runner's own internal timeout) must still fire and throw.
+   */
+  const runner = fakeRunner(() => new Promise(() => {}));
+  await assert.rejects(
+    () => new SetupAdapter({ fs, runner, seedDir: "/seed" }).setup("/mirror/e2e", { timeoutMs: 30 }),
+    /timed out after 30ms — killed/,
+  );
+});
+
+test("an already-aborted signal throws without starting the install", async () => {
+  const controller = new AbortController();
+  controller.abort();
+  let installed = false;
+  const fs = orchestrationFs({ hasPackageJson: true });
+  const runner = fakeRunner(async () => {
+    installed = true;
+    return okResult();
+  });
+  await assert.rejects(
+    () => new SetupAdapter({ fs, runner, seedDir: "/seed" }).setup("/mirror/e2e", { signal: controller.signal }),
+    /aborted by operator cancel/,
+  );
+  assert.equal(installed, false);
+});
+
+test("signal and timeoutMs are passed through to the runner request", async () => {
+  const controller = new AbortController();
+  let seen: SandboxedRunRequest | undefined;
+  const fs = orchestrationFs({ hasPackageJson: true });
+  const runner = fakeRunner(async (req) => {
+    seen = req;
+    return okResult();
+  });
+  await new SetupAdapter({ fs, runner, seedDir: "/seed" }).setup("/mirror/e2e", { signal: controller.signal, timeoutMs: 5_000 });
+  assert.equal(seen?.signal, controller.signal);
+  assert.equal(seen?.timeoutMs, 5_000);
+});
+
+test("the install runs with a bounded output tail: its lifecycle scripts are untrusted and its output is never read", async () => {
+  let seen: SandboxedRunRequest | undefined;
+  const fs = orchestrationFs({ hasPackageJson: true });
+  const runner = fakeRunner(async (req) => {
+    seen = req;
+    return okResult();
+  });
+  await new SetupAdapter({ fs, runner, seedDir: "/seed" }).setup("/mirror/e2e");
+  assert.ok(typeof seen?.outputKeepChars === "number" && seen.outputKeepChars > 0, "the runner is asked to keep only a tail of the install output");
+});
+
+test("a failing install still propagates its own error (not a timeout)", async () => {
+  const fs = orchestrationFs({ hasPackageJson: true });
+  const runner = fakeRunner(async () => okResult({ exitCode: 1, timedOut: false }));
+  await assert.rejects(
+    () => new SetupAdapter({ fs, runner, seedDir: "/seed" }).setup("/mirror/e2e", { timeoutMs: 5_000 }),
+    /failed \(code 1\)/,
+  );
+});
+
+test("a runner-signaled timeout (timedOut:true, never rejects per SandboxedRunResult's own contract) still throws", async () => {
+  const fs = orchestrationFs({ hasPackageJson: true });
+  const runner = fakeRunner(async () => okResult({ exitCode: null, timedOut: true }));
+  await assert.rejects(
+    () => new SetupAdapter({ fs, runner, seedDir: "/seed" }).setup("/mirror/e2e", { timeoutMs: 5_000 }),
+    /timed out after 5000ms — killed/,
+  );
+});
+
+/* A mid-install operator cancel collapses to the SAME timedOut:true result shape as an internal
+   timeout (SandboxedBinaryRunnerAdapter's onAbort branch resolves timedOut:true on operator
+   cancel, mirroring its own timeout branch — see that module's header note). Without a consumer-
+   level check, install() could not tell the two apart and always threw the generic "timed out
+   after Xms — killed" message, masking the distinct operator-cancel message the deleted
+   src/qa/setup.ts original always threw for this path. Fixed at the consumer level (this method).
+ */
+test("a mid-install operator cancel (signal aborts DURING the run) throws the distinct operator-cancel message, not the generic timeout message", async () => {
+  const controller = new AbortController();
+  const fs = orchestrationFs({ hasPackageJson: true });
+  const runner = fakeRunner(async () => {
+    /* Simulate the abort firing WHILE the install is in flight: by the time the runner settles,
+       the signal is already aborted — matching SandboxedBinaryRunnerAdapter's onAbort resolution.
+     */
+    controller.abort();
+    return okResult({ exitCode: null, timedOut: true });
+  });
+  await assert.rejects(
+    () => new SetupAdapter({ fs, runner, seedDir: "/seed" }).setup("/mirror/e2e", { signal: controller.signal, timeoutMs: 5_000 }),
+    (err: Error) => {
+      assert.match(err.message, /e2e dependency install aborted by operator cancel/);
+      assert.doesNotMatch(err.message, /timed out after/, "the generic timeout message must not mask the distinct operator-cancel message");
+      return true;
+    },
+  );
+});
+
+/* Tests run against real temp dirs so append-only and idempotency are provable without mocking the
+   FS. SetupAdapter's own ensureFailureCapture (nodeFsDeps-backed) is the production code under test.
+ */
+
+test("ensureFailureCapture: first injection appends the block; existing lines untouched", () => {
+  const dir = mkdtempSync(join(tmpdir(), "qa-setup-test-"));
+  try {
+    const fixturesPath = join(dir, "fixtures.ts");
+    const existingContent = "export const test = base.extend({});\nexport { expect };\n";
+    writeFileSync(fixturesPath, existingContent);
+    realAdapter().ensureFailureCapture(dir);
+    const after = readFileSync(fixturesPath, "utf8");
+    /* Marker must be present after injection. */
+    assert.ok(after.includes(FAILURE_CAPTURE_MARKER), "marker not found after injection");
+    /* Existing lines must still be present at the start (append-only). */
+    assert.ok(after.startsWith(existingContent), "existing content was modified (not append-only)");
+    assert.equal(after.slice(0, existingContent.length), existingContent);
+    /* retry) and the new body fields — guarding that setup.adapter.ts's SEED_CAPTURE_BLOCK stays
+       in sync with the fixture. The block must be ESM-safe — dynamic import(), never require().
+     */
+    assert.match(after, /testInfo\.project\.name/, "the injected block must record the project name");
+    assert.match(after, /basename\(testInfo\.file/, "the injected block must record the spec file basename");
+    assert.match(after, /createHash\("sha1"\)\.update\(`\$\{file\}\/\$\{title\}`\)/, "the filename hash must fold in the file AND the full title (no 80-char truncation)");
+    assert.match(after, /\$\{safeProject\}__\$\{hash\}__\$\{testInfo\.retry\}\.json/, "the filename must be project__hash__retry");
+    assert.match(after, /JSON\.stringify\(\{ project, file, title, retry: testInfo\.retry, yaml, finalUrl, httpStatus, runtimeErrors: dedupedRuntimeErrors, networkErrors, \.\.\.\(backgroundFailures\.count > 0 \? \{ backgroundNetwork: backgroundFailures \} : \{\}\), settle, resultCount \}\)/, "the body must carry project, file, title, retry, yaml, finalUrl, httpStatus, runtimeErrors, networkErrors");
+    /* ESM-safe — the appended block runs in a native-ESM fixtures.ts where require() is undefined. */
+    assert.doesNotMatch(after, /require\(/, "the injected block must not use require() (ReferenceError in ESM — dead capture)");
+    assert.match(after, /await import\("node:fs"\)/, "the injected block must pull node:fs via dynamic import()");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("ensureFailureCapture: idempotent — running twice produces identical output as running once", () => {
+  const dir = mkdtempSync(join(tmpdir(), "qa-setup-test-"));
+  try {
+    const fixturesPath = join(dir, "fixtures.ts");
+    writeFileSync(fixturesPath, "export { expect };\n");
+    realAdapter().ensureFailureCapture(dir);
+    const afterFirst = readFileSync(fixturesPath, "utf8");
+    realAdapter().ensureFailureCapture(dir);
+    const afterSecond = readFileSync(fixturesPath, "utf8");
+    assert.equal(afterSecond, afterFirst, "second injection changed the file (not idempotent)");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("ensureFailureCapture: agent-added lines above the marker are preserved", () => {
+  const dir = mkdtempSync(join(tmpdir(), "qa-setup-test-"));
+  try {
+    const fixturesPath = join(dir, "fixtures.ts");
+    const agentLines = "export const myHelper = () => {};\nexport { expect };\n";
+    writeFileSync(fixturesPath, agentLines);
+    realAdapter().ensureFailureCapture(dir);
+    const after = readFileSync(fixturesPath, "utf8");
+    assert.ok(after.includes("myHelper"), "agent-added lines were removed");
+    const markerIdx = after.indexOf(FAILURE_CAPTURE_MARKER);
+    const helperIdx = after.indexOf("myHelper");
+    assert.ok(markerIdx > helperIdx, "marker appears before agent lines (not append-only)");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("ensureFailureCapture: missing fixtures.ts is a no-op (new onboards get block from seed)", () => {
+  const dir = mkdtempSync(join(tmpdir(), "qa-setup-test-"));
+  try {
+    assert.ok(!existsSync(join(dir, "fixtures.ts")), "test precondition: fixtures.ts must not exist");
+    assert.doesNotThrow(() => realAdapter().ensureFailureCapture(dir));
+    assert.ok(!existsSync(join(dir, "fixtures.ts")), "ensureFailureCapture created fixtures.ts when it should be a no-op");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("setup() calls ensureFailureCapture after ensureSpecDir, and does not throw when fixtures.ts is absent", async () => {
+  const seq: string[] = [];
+  const fs = orchestrationFs({
+    hasPackageJson: true,
+    onEnsureSpecDir: () => seq.push("ensureSpecDir"),
+    onReadOwned: (rel) => {
+      if (rel === "fixtures.ts") seq.push("ensureFailureCapture");
+    },
+  });
+  const runner = fakeRunner(async () => {
+    seq.push("install");
+    return okResult();
+  });
+  await new SetupAdapter({ fs, runner, seedDir: "/seed" }).setup("/mirror/e2e");
+  const specIdx = seq.indexOf("ensureSpecDir");
+  const captureIdx = seq.indexOf("ensureFailureCapture");
+  assert.ok(specIdx !== -1, "ensureSpecDir was not called");
+  assert.ok(captureIdx !== -1, "ensureFailureCapture was not called");
+  assert.ok(specIdx < captureIdx, "ensureFailureCapture must run after ensureSpecDir");
+  assert.ok(captureIdx < seq.indexOf("install"), "and before the install");
+});
+
+/* A repo's e2e/playwright.config.ts follows the current seed only while it is byte-for-byte a shipped
+   seed revision (stock). Any edit makes it the repo's own: it is never overwritten, and a missing
+   managed env-passthrough key is reported instead.
+ */
+
+test("setup() calls ensurePlaywrightEnvKeys unconditionally, alongside ensureFailureCapture, before the install-current check", async () => {
+  const seq: string[] = [];
+  const fs = orchestrationFs({
+    hasPackageJson: true,
+    onReadOwned: (rel) => {
+      if (rel === "playwright.config.ts") seq.push("ensurePlaywrightEnvKeys"); /* the file is absent: the no-op path */
+    },
+  });
+  const runner = fakeRunner(async () => {
+    seq.push("install");
+    return okResult();
+  });
+  await new SetupAdapter({ fs, runner, seedDir: "/seed" }).setup("/mirror/e2e");
+  assert.ok(seq.includes("ensurePlaywrightEnvKeys"), "ensurePlaywrightEnvKeys was not reached");
+  assert.ok(seq.indexOf("ensurePlaywrightEnvKeys") < seq.indexOf("install"), "ensurePlaywrightEnvKeys must run before install");
+});
+
+const SEED_REVISIONS_DIR = fileURLToPath(new URL("./__fixtures__/seed-revisions", import.meta.url));
+
+/* The exact bytes of a seed file as an earlier revision shipped it into watched repos. */
+function shippedRevision(name: string): string {
+  return readFileSync(join(SEED_REVISIONS_DIR, name), "utf8");
+}
+
+/* Runs `ensure` on a temp e2e dir holding `name` with `body`; returns the file afterwards. */
+function afterEnsure(name: string, body: string, ensure: (adapter: SetupAdapter, dir: string) => void, seedDir = REAL_SEED_DIR): string {
+  const dir = mkdtempSync(join(tmpdir(), "qa-setup-seed-owned-"));
+  try {
+    writeFileSync(join(dir, name), body);
+    ensure(realAdapter(seedDir), dir);
+    return readFileSync(join(dir, name), "utf8");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+const ensureConfig = (adapter: SetupAdapter, dir: string): void => adapter.ensurePlaywrightEnvKeys(dir);
+
+test("ensurePlaywrightEnvKeys replaces every earlier shipped seed revision with the current seed", () => {
+  const currentSeed = readFileSync(join(REAL_SEED_DIR, "playwright.config.ts"), "utf8");
+  for (const revision of ["playwright.config.rev1.txt", "playwright.config.rev2.txt", "playwright.config.rev3.txt"]) {
+    assert.equal(afterEnsure("playwright.config.ts", shippedRevision(revision), ensureConfig), currentSeed, `${revision} is stock`);
+  }
+});
+
+test("ensurePlaywrightEnvKeys never overwrites a shipped seed revision the repo customized", () => {
+  const customized = shippedRevision("playwright.config.rev2.txt").replace("  retries: 2,", "  retries: 2,\n  expect: { timeout: 15_000 },");
+  assert.notEqual(customized, shippedRevision("playwright.config.rev2.txt"), "test precondition: the customization applied");
+
+  assert.equal(afterEnsure("playwright.config.ts", customized, ensureConfig), customized);
+});
+
+test("ensurePlaywrightEnvKeys: a config that is no seed revision is NOT touched, even if missing the keys", () => {
+  const customConfig = `import { defineConfig } from "@playwright/test";\nexport default defineConfig({\n  testDir: ".",\n  use: { baseURL: process.env.PW_BASE_URL, timeout: 5000 },\n});\n`;
+  assert.equal(afterEnsure("playwright.config.ts", customConfig, ensureConfig), customConfig);
+});
+
+test("ensurePlaywrightEnvKeys leaves the current seed as it is, and a replaced copy stays put on the next run", () => {
+  const currentSeed = readFileSync(join(REAL_SEED_DIR, "playwright.config.ts"), "utf8");
+  assert.equal(afterEnsure("playwright.config.ts", currentSeed, ensureConfig), currentSeed);
+
+  const dir = mkdtempSync(join(tmpdir(), "qa-setup-pwconfig-idem-"));
+  try {
+    const configPath = join(dir, "playwright.config.ts");
+    writeFileSync(configPath, shippedRevision("playwright.config.rev1.txt"));
+    realAdapter().ensurePlaywrightEnvKeys(dir);
+    const afterFirst = readFileSync(configPath, "utf8");
+    realAdapter().ensurePlaywrightEnvKeys(dir);
+    assert.equal(readFileSync(configPath, "utf8"), afterFirst);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+/* The seed that ships today is itself a revision repos hold once the seed changes again. */
+test("ensurePlaywrightEnvKeys moves a copy of the shipped seed on to the next seed revision", () => {
+  const shipped = readFileSync(join(REAL_SEED_DIR, "playwright.config.ts"), "utf8");
+  const nextSeedDir = mkdtempSync(join(tmpdir(), "qa-setup-next-seed-"));
+  try {
+    const nextSeed = `${shipped}// the next seed revision\n`;
+    writeFileSync(join(nextSeedDir, "playwright.config.ts"), nextSeed);
+    assert.equal(afterEnsure("playwright.config.ts", shipped, ensureConfig, nextSeedDir), nextSeed);
+  } finally {
+    rmSync(nextSeedDir, { recursive: true, force: true });
+  }
+});
+
+/* auth.setup.ts follows the current seed only while it is byte-for-byte a shipped seed revision — an
+   earlier one saved the session under the agent-visible mirror. A login rewritten for the app is its
+   own, whether or not it kept the seed marker. */
+const ensureAuth = (adapter: SetupAdapter, dir: string): void => adapter.ensureAuthSetup(dir);
+
+test("ensureAuthSetup replaces a stock auth.setup.ts from an earlier seed revision with the current seed", () => {
+  const currentSeed = readFileSync(join(REAL_SEED_DIR, "auth.setup.ts"), "utf8");
+  assert.equal(afterEnsure("auth.setup.ts", shippedRevision("auth.setup.rev1.txt"), ensureAuth), currentSeed);
+});
+
+test("ensureAuthSetup never overwrites a login rewritten for the app that kept the seed marker", () => {
+  const appLogin = `/* qa-auth-setup-seed */\nimport { test as setup } from "@playwright/test";\nsetup("authenticate", async ({ page }) => {\n  await page.goto("/sso");\n  await page.getByRole("button", { name: "Continue with SSO" }).click();\n  await page.context().storageState({ path: process.env.PW_STORAGE_STATE ?? ".auth/user.json" });\n});\n`;
+  assert.equal(afterEnsure("auth.setup.ts", appLogin, ensureAuth), appLogin);
+});
+
+test("ensureAuthSetup moves a copy of the shipped seed on to the next seed revision", () => {
+  const shipped = readFileSync(join(REAL_SEED_DIR, "auth.setup.ts"), "utf8");
+  const nextSeedDir = mkdtempSync(join(tmpdir(), "qa-setup-next-auth-seed-"));
+  try {
+    const nextSeed = `${shipped}/* the next seed revision */\n`;
+    writeFileSync(join(nextSeedDir, "auth.setup.ts"), nextSeed);
+    assert.equal(afterEnsure("auth.setup.ts", shipped, ensureAuth, nextSeedDir), nextSeed);
+  } finally {
+    rmSync(nextSeedDir, { recursive: true, force: true });
+  }
+});
+
+test("ensureAuthSetup never overwrites an app-owned auth.setup.ts", () => {
+  const dir = mkdtempSync(join(tmpdir(), "qa-setup-auth-owned-"));
+  try {
+    const appOwned = `import { test as setup } from "@playwright/test";\nsetup("authenticate", async ({ page }) => { await page.goto("/sso"); });\n`;
+    writeFileSync(join(dir, "auth.setup.ts"), appOwned);
+
+    realAdapter().ensureAuthSetup(dir);
+
+    assert.equal(readFileSync(join(dir, "auth.setup.ts"), "utf8"), appOwned);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("ensureAuthSetup gives a repo without auth.setup.ts the current seed", () => {
+  const dir = mkdtempSync(join(tmpdir(), "qa-setup-auth-missing-"));
+  try {
+    realAdapter().ensureAuthSetup(dir);
+
+    const currentSeed = readFileSync(join(REAL_SEED_DIR, "auth.setup.ts"), "utf8");
+    assert.equal(readFileSync(join(dir, "auth.setup.ts"), "utf8"), currentSeed);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("ensureSessionGitignore appends .auth/ once and creates the file when it is missing", () => {
+  const dir = mkdtempSync(join(tmpdir(), "qa-setup-auth-ignore-"));
+  try {
+    const ignorePath = join(dir, ".gitignore");
+    writeFileSync(ignorePath, "node_modules/\n");
+    realAdapter().ensureSessionGitignore(dir);
+    const once = readFileSync(ignorePath, "utf8");
+    assert.match(once, /\.auth\//);
+    realAdapter().ensureSessionGitignore(dir);
+    assert.equal(readFileSync(ignorePath, "utf8"), once);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+  const empty = mkdtempSync(join(tmpdir(), "qa-setup-auth-ignore-new-"));
+  try {
+    realAdapter().ensureSessionGitignore(empty);
+    assert.equal(readFileSync(join(empty, ".gitignore"), "utf8"), ".auth/\n");
+  } finally {
+    rmSync(empty, { recursive: true, force: true });
+  }
+});
+
+test("ensurePlaywrightEnvKeys: missing playwright.config.ts is a no-op (new onboards get it from the seed copy already)", () => {
+  const dir = mkdtempSync(join(tmpdir(), "qa-setup-pwconfig-missing-"));
+  try {
+    assert.ok(!existsSync(join(dir, "playwright.config.ts")), "test precondition: config must not exist");
+    assert.doesNotThrow(() => realAdapter().ensurePlaywrightEnvKeys(dir));
+    assert.ok(!existsSync(join(dir, "playwright.config.ts")), "ensurePlaywrightEnvKeys must not create the file");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+/* ── The failure-capture block is ESM-safe (dynamic import, never require()) ──────────────
+   config/e2e/fixtures.ts is native ESM ("type":"module", uses import.meta.url). The qa-failure-capture
+   afterEach previously called require("node:fs") etc. → ReferenceError in ESM → swallowed by the
+   surrounding try/catch → NO dump file → Lever-1's primary grounding path was DEAD. These tests prove
+   the block (a) contains no require( token and (b) actually writes a dump when run as a real ES module.
+ */
+
+test("SEED_CAPTURE_BLOCK contains no require( token (ESM-safe)", () => {
+  assert.doesNotMatch(SEED_CAPTURE_BLOCK, /require\(/, "the injected block must not use require() — it runs in a native-ESM fixtures.ts");
+  /* And it MUST pull its deps via dynamic import() instead. */
+  assert.match(SEED_CAPTURE_BLOCK, /await import\("node:fs"\)/);
+  assert.match(SEED_CAPTURE_BLOCK, /await import\("node:path"\)/);
+  assert.match(SEED_CAPTURE_BLOCK, /await import\("node:crypto"\)/);
+});
+
+test("the afterEach body, run as a real ES module, writes a dump (no ReferenceError)", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "qa-c1-esm-"));
+  try {
+    const moduleSrc =
+      `const test = { beforeEach(fn) { globalThis.__qaBeforeEach = fn; }, afterEach(fn) { globalThis.__qaCapture = fn; } };\n` +
+      SEED_CAPTURE_BLOCK +
+      `\nexport const beforeEachFn = globalThis.__qaBeforeEach;\nexport const afterEachFn = globalThis.__qaCapture;\n`;
+    const modPath = join(dir, "capture.mts");
+    writeFileSync(modPath, moduleSrc);
+    const captureDir = join(dir, "dumps");
+    writeFileSync(join(dir, ".keep"), "");
+    const { mkdirSync } = await import("node:fs");
+    mkdirSync(captureDir, { recursive: true });
+
+    const mod = await import(pathToFileURL(modPath).href);
+    assert.equal(typeof mod.beforeEachFn, "function", "the block must register a beforeEach callback");
+    assert.equal(typeof mod.afterEachFn, "function", "the block must register an afterEach callback");
+
+    let responseHandler: ((r: unknown) => void) | undefined;
+    const fakeFinalUrl = "http://localhost:3000/owners/new";
+    const fakePage = {
+      on(event: string, cb: (r: unknown) => void) {
+        if (event === "response") responseHandler = cb;
+      },
+      url: () => fakeFinalUrl,
+      locator: (_sel: string) => ({ ariaSnapshot: async () => '- button "Submit"\n- heading "Owners"' }),
+    };
+    const fakeTestInfo = {
+      status: "failed",
+      expectedStatus: "passed",
+      titlePath: ["chromium", "owner registration", "create owner"],
+      project: { name: "desktop" },
+      file: "/repo/e2e/owners.spec.ts",
+      retry: 0,
+    };
+
+    const prev = process.env.QA_FAILURE_CAPTURE_DIR;
+    process.env.QA_FAILURE_CAPTURE_DIR = captureDir;
+    try {
+      await mod.beforeEachFn({ page: fakePage });
+      assert.ok(responseHandler, "beforeEach must register a response handler via page.on('response', ...)");
+
+      const syntheticResponse = {
+        url: () => "http://localhost:3000/api/owners",
+        status: () => 500,
+        request: () => ({ resourceType: () => "fetch" }),
+      };
+      responseHandler!(syntheticResponse);
+
+      await mod.afterEachFn({ page: fakePage }, fakeTestInfo);
+    } finally {
+      if (prev === undefined) delete process.env.QA_FAILURE_CAPTURE_DIR;
+      else process.env.QA_FAILURE_CAPTURE_DIR = prev;
+    }
+
+    const dumps = readdirSync(captureDir);
+    assert.equal(dumps.length, 1, `exactly one dump must be written, got ${JSON.stringify(dumps)}`);
+    const body = JSON.parse(readFileSync(join(captureDir, dumps[0]!), "utf8"));
+    assert.equal(body.project, "desktop");
+    assert.equal(body.file, "owners.spec.ts", "the dump body must carry the spec file basename");
+    assert.equal(body.title, "owner registration › create owner", "title is titlePath without the leading project element");
+    assert.equal(body.retry, 0);
+    assert.match(body.yaml, /button "Submit"/, "the dump must carry the post-failure aria YAML");
+    assert.equal(body.httpStatus, 500, "dump must carry the attributed 5xx httpStatus");
+    assert.equal(body.finalUrl, fakeFinalUrl, "dump must carry the finalUrl from page.url()");
+    assert.match(dumps[0]!, /^desktop__[0-9a-f]{12}__0\.json$/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+/* ── The write counter: how many mutating requests a spec sent to DEV (run_spec's cap) ───────────────── */
+
+async function loadCaptureModule(dir: string, name: string): Promise<{ beforeEachFn: (args: unknown) => Promise<void>; afterEachFn: (args: unknown, info: unknown) => Promise<void> }> {
+  const moduleSrc =
+    `const test = { beforeEach(fn) { globalThis.__qa_${name}_before = fn; }, afterEach(fn) { globalThis.__qa_${name}_after = fn; } };\n` +
+    SEED_CAPTURE_BLOCK +
+    `\nexport const beforeEachFn = globalThis.__qa_${name}_before;\nexport const afterEachFn = globalThis.__qa_${name}_after;\n`;
+  const modPath = join(dir, `${name}.mts`);
+  writeFileSync(modPath, moduleSrc);
+  return import(pathToFileURL(modPath).href);
+}
+
+/* `handlers` are the listeners for the requests a server answered, `sent` those for the requests as they leave. */
+function pageWithContext(requests: { handlers: Array<(r: unknown) => void>; sent?: Array<(r: unknown) => void> }, context: object = {}) {
+  const ctx = context as { on?: (event: string, cb: (r: unknown) => void) => void };
+  ctx.on ??= (event, cb) => {
+    if (event === "requestfinished") requests.handlers.push(cb);
+    if (event === "request") (requests.sent ??= []).push(cb);
+  };
+  return { on() {}, url: () => "http://localhost/", context: () => ctx, locator: () => ({ ariaSnapshot: async () => "" }) };
+}
+
+const passingInfo = { status: "passed", expectedStatus: "passed", titlePath: ["chromium", "orders", "creates one"], project: { name: "desktop" }, file: "/repo/e2e/orders.spec.ts", retry: 0, workerIndex: 0, testId: "abc-123" };
+
+test("with the counter asked for, a test's mutating requests are written to its ledger file, pass or fail", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "qa-writes-"));
+  const prevDir = process.env.QA_FAILURE_CAPTURE_DIR;
+  const prevFlag = process.env.PW_COUNT_DEV_WRITES;
+  try {
+    const captureDir = join(dir, "dumps");
+    mkdirSync(captureDir);
+    const mod = await loadCaptureModule(dir, "count");
+    const requests: { handlers: Array<(r: unknown) => void>; sent?: Array<(r: unknown) => void> } = { handlers: [] };
+    const page = pageWithContext(requests);
+    process.env.QA_FAILURE_CAPTURE_DIR = captureDir;
+    process.env.PW_COUNT_DEV_WRITES = "1";
+    await mod.beforeEachFn({ page });
+    assert.equal(requests.handlers.length, 1, "one listener on the test's context for the requests DEV answered");
+    for (const method of ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]) {
+      const request = { method: () => method };
+      for (const sent of requests.sent ?? []) sent(request);
+      requests.handlers[0]!(request);
+    }
+    await mod.afterEachFn({ page }, passingInfo);
+    const files = readdirSync(captureDir);
+    assert.equal(files.length, 1, `a passing test leaves only its ledger, got ${JSON.stringify(files)}`);
+    assert.match(files[0]!, /^ledger-[A-Za-z0-9_-]+\.json$/);
+    assert.deepEqual(JSON.parse(readFileSync(join(captureDir, files[0]!), "utf8")), { v: 2, writes: 4, pending: 0, done: true });
+  } finally {
+    if (prevDir === undefined) delete process.env.QA_FAILURE_CAPTURE_DIR; else process.env.QA_FAILURE_CAPTURE_DIR = prevDir;
+    if (prevFlag === undefined) delete process.env.PW_COUNT_DEV_WRITES; else process.env.PW_COUNT_DEV_WRITES = prevFlag;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("the counter starts from zero for every test and counts a shared context once", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "qa-writes-shared-"));
+  const prevDir = process.env.QA_FAILURE_CAPTURE_DIR;
+  const prevFlag = process.env.PW_COUNT_DEV_WRITES;
+  try {
+    const captureDir = join(dir, "dumps");
+    mkdirSync(captureDir);
+    const mod = await loadCaptureModule(dir, "shared");
+    const requests = { handlers: [] as Array<(r: unknown) => void> };
+    const sharedContext = {};
+    process.env.QA_FAILURE_CAPTURE_DIR = captureDir;
+    process.env.PW_COUNT_DEV_WRITES = "1";
+    await mod.beforeEachFn({ page: pageWithContext(requests, sharedContext) });
+    requests.handlers[0]!({ method: () => "POST" });
+    await mod.afterEachFn({ page: pageWithContext(requests, sharedContext) }, { ...passingInfo, testId: "t1" });
+    await mod.beforeEachFn({ page: pageWithContext(requests, sharedContext) });
+    assert.equal(requests.handlers.length, 1, "the second test on the same context adds no second listener");
+    await mod.afterEachFn({ page: pageWithContext(requests, sharedContext) }, { ...passingInfo, testId: "t2" });
+    const counts = readdirSync(captureDir).sort().map((f) => JSON.parse(readFileSync(join(captureDir, f), "utf8")).writes);
+    assert.deepEqual(counts, [1, 0]);
+  } finally {
+    if (prevDir === undefined) delete process.env.QA_FAILURE_CAPTURE_DIR; else process.env.QA_FAILURE_CAPTURE_DIR = prevDir;
+    if (prevFlag === undefined) delete process.env.PW_COUNT_DEV_WRITES; else process.env.PW_COUNT_DEV_WRITES = prevFlag;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("writes sent through the API clients (the request fixture, page.request, context.request) are counted by what they fetch, once each however often they are seen", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "qa-writes-api-"));
+  const prevDir = process.env.QA_FAILURE_CAPTURE_DIR;
+  const prevFlag = process.env.PW_COUNT_DEV_WRITES;
+  try {
+    const captureDir = join(dir, "dumps");
+    mkdirSync(captureDir);
+    const mod = await loadCaptureModule(dir, "api");
+    const sent: string[] = [];
+    const client = () => ({ fetch: async (target: unknown, options?: { method?: string }) => { sent.push(options?.method ?? "request-object"); return target; } });
+    const request = client();
+    const contextRequest = client();
+    const context = { on() {}, request: contextRequest };
+    const page = { on() {}, url: () => "http://localhost/", context: () => context, locator: () => ({ ariaSnapshot: async () => "" }) };
+    process.env.QA_FAILURE_CAPTURE_DIR = captureDir;
+    process.env.PW_COUNT_DEV_WRITES = "1";
+    await mod.beforeEachFn({ page, request });
+    await request.fetch("/a", { method: "POST" });
+    await request.fetch("/b", { method: "GET" });
+    await contextRequest.fetch("/c", { method: "delete" });
+    await contextRequest.fetch({ method: () => "PATCH" });
+    await request.fetch({ method: () => "HEAD" });
+    await mod.afterEachFn({ page, request }, passingInfo);
+    await mod.beforeEachFn({ page, request });
+    await request.fetch("/d", { method: "PUT" });
+    await mod.afterEachFn({ page, request }, { ...passingInfo, testId: "second" });
+    assert.equal(sent.length, 6, "every fetch still reaches the real client");
+    const counts = readdirSync(captureDir).sort().map((f) => JSON.parse(readFileSync(join(captureDir, f), "utf8")).writes);
+    assert.deepEqual(counts.sort(), [1, 3], "the first test sent POST, DELETE and PATCH; the second PUT; the clients are wrapped once");
+  } finally {
+    if (prevDir === undefined) delete process.env.QA_FAILURE_CAPTURE_DIR; else process.env.QA_FAILURE_CAPTURE_DIR = prevDir;
+    if (prevFlag === undefined) delete process.env.PW_COUNT_DEV_WRITES; else process.env.PW_COUNT_DEV_WRITES = prevFlag;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a write nobody answered is not counted: a browser request the network refused, an API fetch that failed", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "qa-writes-unanswered-"));
+  const prevDir = process.env.QA_FAILURE_CAPTURE_DIR;
+  const prevFlag = process.env.PW_COUNT_DEV_WRITES;
+  try {
+    const captureDir = join(dir, "dumps");
+    mkdirSync(captureDir);
+    const mod = await loadCaptureModule(dir, "unanswered");
+    const handlers: Record<string, Array<(r: unknown) => void>> = {};
+    const emit = (event: string, request: { method(): string }) => { for (const cb of handlers[event] ?? []) cb(request); };
+    const post = { method: () => "POST" };
+    const put = { method: () => "PUT" };
+    const request = { fetch: async (target: unknown, _options?: { method?: string }) => { if (target === "/refused") throw new Error("net::ERR_NAME_NOT_RESOLVED"); return { ok: () => true }; } };
+    const context = { on: (event: string, cb: (r: unknown) => void) => { (handlers[event] ??= []).push(cb); }, request: { fetch: async () => ({}) } };
+    const page = { on() {}, url: () => "http://localhost/", context: () => context, locator: () => ({ ariaSnapshot: async () => "" }) };
+    process.env.QA_FAILURE_CAPTURE_DIR = captureDir;
+    process.env.PW_COUNT_DEV_WRITES = "1";
+    await mod.beforeEachFn({ page, request });
+    emit("request", post);
+    emit("requestfailed", post);
+    emit("request", put);
+    emit("requestfinished", put);
+    await request.fetch("/refused", { method: "POST" }).catch(() => {});
+    await request.fetch("/answered", { method: "DELETE" });
+    await mod.afterEachFn({ page, request }, passingInfo);
+    const [ledger] = readdirSync(captureDir);
+    assert.deepEqual(JSON.parse(readFileSync(join(captureDir, ledger!), "utf8")), { v: 2, writes: 2, pending: 0, done: true }, "the PUT DEV answered and the DELETE fetch that came back; the POST that failed and the fetch that threw left pending");
+  } finally {
+    if (prevDir === undefined) delete process.env.QA_FAILURE_CAPTURE_DIR; else process.env.QA_FAILURE_CAPTURE_DIR = prevDir;
+    if (prevFlag === undefined) delete process.env.PW_COUNT_DEV_WRITES; else process.env.PW_COUNT_DEV_WRITES = prevFlag;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a write still out when its test finishes stays that test's: the page closing does not settle it, and its answer is not counted to the next test", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "qa-writes-outlived-"));
+  const prevDir = process.env.QA_FAILURE_CAPTURE_DIR;
+  const prevFlag = process.env.PW_COUNT_DEV_WRITES;
+  try {
+    const captureDir = join(dir, "dumps");
+    mkdirSync(captureDir);
+    const mod = await loadCaptureModule(dir, "outlived");
+    const handlers: Record<string, Array<(r: unknown) => void>> = {};
+    const emit = (event: string, request: { method(): string }) => { for (const cb of handlers[event] ?? []) cb(request); };
+    let release: (() => void) | undefined;
+    const request = { fetch: async (_target: unknown, _options?: { method?: string }) => { await new Promise<void>((resolve) => { release = resolve; }); throw new Error("Request context disposed"); } };
+    const context = { on: (event: string, cb: (r: unknown) => void) => { (handlers[event] ??= []).push(cb); }, request: { fetch: async () => ({}) } };
+    const page = { on() {}, url: () => "http://localhost/", context: () => context, locator: () => ({ ariaSnapshot: async () => "" }) };
+    const read = (name: string): unknown => JSON.parse(readFileSync(join(captureDir, name), "utf8"));
+    process.env.QA_FAILURE_CAPTURE_DIR = captureDir;
+    process.env.PW_COUNT_DEV_WRITES = "1";
+    const clicked = { method: () => "POST" };
+    const saved = { method: () => "PUT" };
+    await mod.beforeEachFn({ page, request });
+    emit("request", clicked);
+    emit("request", saved);
+    const fetched = request.fetch("/orders", { method: "DELETE" }).catch(() => {});
+    await mod.afterEachFn({ page, request }, passingInfo);
+    emit("requestfailed", clicked);
+    release!();
+    await fetched;
+    const [first] = readdirSync(captureDir);
+    assert.deepEqual(read(first!), { v: 2, writes: 0, pending: 3, done: true }, "the page closing (the click's POST failed) and the API client's disposal settle nothing: each write may have reached DEV");
+    await mod.beforeEachFn({ page, request });
+    emit("requestfinished", saved);
+    await mod.afterEachFn({ page, request }, passingInfo);
+    const second = readdirSync(captureDir).find((name) => name !== first);
+    assert.deepEqual(read(second!), { v: 2, writes: 0, pending: 0, done: true }, "the PUT the first test left out is the first test's, answered or not");
+    assert.deepEqual(read(first!), { v: 2, writes: 0, pending: 3, done: true });
+  } finally {
+    if (prevDir === undefined) delete process.env.QA_FAILURE_CAPTURE_DIR; else process.env.QA_FAILURE_CAPTURE_DIR = prevDir;
+    if (prevFlag === undefined) delete process.env.PW_COUNT_DEV_WRITES; else process.env.PW_COUNT_DEV_WRITES = prevFlag;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("without the counter asked for, a passing test leaves nothing and a page with no context does not break the block", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "qa-writes-off-"));
+  const prevDir = process.env.QA_FAILURE_CAPTURE_DIR;
+  const prevFlag = process.env.PW_COUNT_DEV_WRITES;
+  try {
+    const captureDir = join(dir, "dumps");
+    mkdirSync(captureDir);
+    const mod = await loadCaptureModule(dir, "off");
+    process.env.QA_FAILURE_CAPTURE_DIR = captureDir;
+    delete process.env.PW_COUNT_DEV_WRITES;
+    const bare = { on() {}, url: () => "http://localhost/", locator: () => ({ ariaSnapshot: async () => "" }) };
+    await mod.beforeEachFn({ page: bare });
+    await mod.afterEachFn({ page: bare }, passingInfo);
+    assert.deepEqual(readdirSync(captureDir), []);
+    process.env.PW_COUNT_DEV_WRITES = "1";
+    await mod.beforeEachFn({ page: bare });
+    await mod.afterEachFn({ page: bare }, passingInfo);
+    assert.deepEqual(JSON.parse(readFileSync(join(captureDir, readdirSync(captureDir)[0]!), "utf8")), { v: 2, writes: 0, pending: 0, done: true });
+  } finally {
+    if (prevDir === undefined) delete process.env.QA_FAILURE_CAPTURE_DIR; else process.env.QA_FAILURE_CAPTURE_DIR = prevDir;
+    if (prevFlag === undefined) delete process.env.PW_COUNT_DEV_WRITES; else process.env.PW_COUNT_DEV_WRITES = prevFlag;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("httpStatus is absent when no ≥500 response was observed", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "qa-c1-no5xx-"));
+  try {
+    const moduleSrc =
+      `const test = { beforeEach(fn) { globalThis.__qaBefore_no5xx = fn; }, afterEach(fn) { globalThis.__qaAfter_no5xx = fn; } };\n` +
+      SEED_CAPTURE_BLOCK +
+      `\nexport const beforeEachFn = globalThis.__qaBefore_no5xx;\nexport const afterEachFn = globalThis.__qaAfter_no5xx;\n`;
+    const modPath = join(dir, "no5xx.mts");
+    writeFileSync(modPath, moduleSrc);
+    const captureDir = join(dir, "dumps");
+    const { mkdirSync } = await import("node:fs");
+    mkdirSync(captureDir, { recursive: true });
+
+    const mod = await import(pathToFileURL(modPath).href);
+    let responseHandler: ((r: unknown) => void) | undefined;
+    const fakePage = {
+      on(event: string, cb: (r: unknown) => void) {
+        if (event === "response") responseHandler = cb;
+      },
+      url: () => "http://localhost:3000/owners",
+      locator: () => ({ ariaSnapshot: async () => '- button "X"' }),
+    };
+    const fakeTestInfo = { status: "failed", expectedStatus: "passed", titlePath: ["p", "s", "t"], project: { name: "desktop" }, file: "x.spec.ts", retry: 0 };
+
+    const prev = process.env.QA_FAILURE_CAPTURE_DIR;
+    process.env.QA_FAILURE_CAPTURE_DIR = captureDir;
+    try {
+      await mod.beforeEachFn({ page: fakePage });
+      responseHandler!({ url: () => "http://localhost:3000/api/x", status: () => 404, request: () => ({ resourceType: () => "fetch" }) });
+      await mod.afterEachFn({ page: fakePage }, fakeTestInfo);
+    } finally {
+      if (prev === undefined) delete process.env.QA_FAILURE_CAPTURE_DIR;
+      else process.env.QA_FAILURE_CAPTURE_DIR = prev;
+    }
+
+    const dumps = readdirSync(captureDir);
+    const body = JSON.parse(readFileSync(join(captureDir, dumps[0]!), "utf8"));
+    assert.equal(body.httpStatus, undefined, "4xx must NOT produce httpStatus on the dump");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("httpStatus is absent when only a background ping/beacon 500 was observed", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "qa-c1-bgping-"));
+  try {
+    const moduleSrc =
+      `const test = { beforeEach(fn) { globalThis.__qaBefore_bgping = fn; }, afterEach(fn) { globalThis.__qaAfter_bgping = fn; } };\n` +
+      SEED_CAPTURE_BLOCK +
+      `\nexport const beforeEachFn = globalThis.__qaBefore_bgping;\nexport const afterEachFn = globalThis.__qaAfter_bgping;\n`;
+    const modPath = join(dir, "bgping.mts");
+    writeFileSync(modPath, moduleSrc);
+    const captureDir = join(dir, "dumps");
+    const { mkdirSync } = await import("node:fs");
+    mkdirSync(captureDir, { recursive: true });
+
+    const mod = await import(pathToFileURL(modPath).href);
+    let responseHandler: ((r: unknown) => void) | undefined;
+    const fakePage = {
+      on(event: string, cb: (r: unknown) => void) {
+        if (event === "response") responseHandler = cb;
+      },
+      url: () => "http://localhost:3000/owners",
+      locator: () => ({ ariaSnapshot: async () => '- button "X"' }),
+    };
+    const fakeTestInfo = { status: "failed", expectedStatus: "passed", titlePath: ["p", "s", "t"], project: { name: "desktop" }, file: "x.spec.ts", retry: 0 };
+
+    const prev = process.env.QA_FAILURE_CAPTURE_DIR;
+    process.env.QA_FAILURE_CAPTURE_DIR = captureDir;
+    try {
+      await mod.beforeEachFn({ page: fakePage });
+      responseHandler!({ url: () => "http://localhost:3000/telemetry", status: () => 500, request: () => ({ resourceType: () => "ping" }) });
+      await mod.afterEachFn({ page: fakePage }, fakeTestInfo);
+    } finally {
+      if (prev === undefined) delete process.env.QA_FAILURE_CAPTURE_DIR;
+      else process.env.QA_FAILURE_CAPTURE_DIR = prev;
+    }
+
+    const dumps = readdirSync(captureDir);
+    const body = JSON.parse(readFileSync(join(captureDir, dumps[0]!), "utf8"));
+    assert.equal(body.httpStatus, undefined, "background ping 500 must be excluded by the background-request heuristic — httpStatus must be absent");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("httpStatus is absent when only a cross-origin 500 was observed", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "qa-c1-xorigin-"));
+  try {
+    const moduleSrc =
+      `const test = { beforeEach(fn) { globalThis.__qaBefore_xorigin = fn; }, afterEach(fn) { globalThis.__qaAfter_xorigin = fn; } };\n` +
+      SEED_CAPTURE_BLOCK +
+      `\nexport const beforeEachFn = globalThis.__qaBefore_xorigin;\nexport const afterEachFn = globalThis.__qaAfter_xorigin;\n`;
+    const modPath = join(dir, "xorigin.mts");
+    writeFileSync(modPath, moduleSrc);
+    const captureDir = join(dir, "dumps");
+    const { mkdirSync } = await import("node:fs");
+    mkdirSync(captureDir, { recursive: true });
+
+    const mod = await import(pathToFileURL(modPath).href);
+    let responseHandler: ((r: unknown) => void) | undefined;
+    const fakePage = {
+      on(event: string, cb: (r: unknown) => void) {
+        if (event === "response") responseHandler = cb;
+      },
+      url: () => "http://localhost:3000/owners",
+      locator: () => ({ ariaSnapshot: async () => '- button "X"' }),
+    };
+    const fakeTestInfo = { status: "failed", expectedStatus: "passed", titlePath: ["p", "s", "t"], project: { name: "desktop" }, file: "x.spec.ts", retry: 0 };
+
+    const prev = process.env.QA_FAILURE_CAPTURE_DIR;
+    process.env.QA_FAILURE_CAPTURE_DIR = captureDir;
+    try {
+      await mod.beforeEachFn({ page: fakePage });
+      responseHandler!({ url: () => "https://cdn.example.com/asset.js", status: () => 500, request: () => ({ resourceType: () => "fetch" }) });
+      await mod.afterEachFn({ page: fakePage }, fakeTestInfo);
+    } finally {
+      if (prev === undefined) delete process.env.QA_FAILURE_CAPTURE_DIR;
+      else process.env.QA_FAILURE_CAPTURE_DIR = prev;
+    }
+
+    const dumps = readdirSync(captureDir);
+    const body = JSON.parse(readFileSync(join(captureDir, dumps[0]!), "utf8"));
+    assert.equal(body.httpStatus, undefined, "cross-origin 500 must be excluded by the same-origin gate — httpStatus must be absent");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("errorResponses resets between tests — reused page does not cross-attribute", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "qa-c1-reset-"));
+  try {
+    const moduleSrc =
+      `const test = { beforeEach(fn) { globalThis.__qaBefore_reset = fn; }, afterEach(fn) { globalThis.__qaAfter_reset = fn; } };\n` +
+      SEED_CAPTURE_BLOCK +
+      `\nexport const beforeEachFn = globalThis.__qaBefore_reset;\nexport const afterEachFn = globalThis.__qaAfter_reset;\n`;
+    const modPath = join(dir, "reset.mts");
+    writeFileSync(modPath, moduleSrc);
+    const captureDir = join(dir, "dumps");
+    const { mkdirSync } = await import("node:fs");
+    mkdirSync(captureDir, { recursive: true });
+
+    const mod = await import(pathToFileURL(modPath).href);
+    let responseHandler: ((r: unknown) => void) | undefined;
+    const fakePage = {
+      on(event: string, cb: (r: unknown) => void) {
+        if (event === "response") responseHandler = cb;
+      },
+      url: () => "http://localhost:3000/owners",
+      locator: () => ({ ariaSnapshot: async () => '- button "X"' }),
+    };
+    const fakeTestInfo1 = { status: "failed", expectedStatus: "passed", titlePath: ["p", "test-1", "t1"], project: { name: "desktop" }, file: "x.spec.ts", retry: 0 };
+    const fakeTestInfo2 = { status: "failed", expectedStatus: "passed", titlePath: ["p", "test-2", "t2"], project: { name: "desktop" }, file: "x.spec.ts", retry: 0 };
+
+    const prev = process.env.QA_FAILURE_CAPTURE_DIR;
+    process.env.QA_FAILURE_CAPTURE_DIR = captureDir;
+    try {
+      await mod.beforeEachFn({ page: fakePage });
+      responseHandler!({ url: () => "http://localhost:3000/api/owners", status: () => 500, request: () => ({ resourceType: () => "fetch" }) });
+      await mod.afterEachFn({ page: fakePage }, fakeTestInfo1);
+
+      await mod.beforeEachFn({ page: fakePage });
+      await mod.afterEachFn({ page: fakePage }, fakeTestInfo2);
+    } finally {
+      if (prev === undefined) delete process.env.QA_FAILURE_CAPTURE_DIR;
+      else process.env.QA_FAILURE_CAPTURE_DIR = prev;
+    }
+
+    const dumps = readdirSync(captureDir).sort();
+    assert.equal(dumps.length, 2, "two dumps must be written");
+    const body2 = JSON.parse(readFileSync(join(captureDir, dumps[1]!), "utf8"));
+    assert.equal(body2.httpStatus, undefined, "second test must NOT inherit the first test's 500 — errorResponses must have been reset");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("the afterEach body is a no-op when QA_FAILURE_CAPTURE_DIR is unset (no dump, no throw)", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "qa-c1-noop-"));
+  try {
+    const moduleSrc =
+      `const test = { beforeEach(fn) { globalThis.__qaBeforeNoop = fn; }, afterEach(fn) { globalThis.__qaCaptureNoop = fn; } };\n` +
+      SEED_CAPTURE_BLOCK +
+      `\nexport const beforeEachFn = globalThis.__qaBeforeNoop;\nexport const afterEachFn = globalThis.__qaCaptureNoop;\n`;
+    const modPath = join(dir, "capture-noop.mts");
+    writeFileSync(modPath, moduleSrc);
+    const mod = await import(pathToFileURL(modPath).href);
+    const fakePage = {
+      on(_event: string, _cb: unknown) {},
+      url: () => "http://localhost:3000/",
+      locator: () => ({ ariaSnapshot: async () => '- button "X"' }),
+    };
+    const fakeTestInfo = { status: "failed", expectedStatus: "passed", titlePath: ["p", "s", "t"], project: { name: "desktop" }, file: "x.spec.ts", retry: 0 };
+    const prev = process.env.QA_FAILURE_CAPTURE_DIR;
+    delete process.env.QA_FAILURE_CAPTURE_DIR;
+    try {
+      await assert.doesNotReject(() => mod.beforeEachFn({ page: fakePage }));
+      await assert.doesNotReject(() => mod.afterEachFn({ page: fakePage }, fakeTestInfo));
+    } finally {
+      if (prev !== undefined) process.env.QA_FAILURE_CAPTURE_DIR = prev;
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("failureCaptureBlockFrom returns the seed's marker region, from the newline before the opening marker through the closing marker line", () => {
+  const lines = readFileSync(join(REAL_SEED_DIR, "fixtures.ts"), "utf8").split("\n");
+  const open = lines.findIndex((line) => line.includes(FAILURE_CAPTURE_MARKER));
+  const close = lines.findIndex((line) => line === "// <<< qa-failure-capture <<<");
+  assert.ok(open !== -1 && close > open, "the seed carries both markers");
+  assert.equal(failureCaptureBlockFrom(REAL_SEED_DIR), `\n${lines.slice(open, close + 1).join("\n")}\n`);
+});
+
+test("failureCaptureBlockFrom refuses a seed whose fixtures.ts carries no capture block", () => {
+  const dir = mkdtempSync(join(tmpdir(), "qa-seed-"));
+  try {
+    writeFileSync(join(dir, "fixtures.ts"), "export const x = 1;\n");
+    assert.throws(() => failureCaptureBlockFrom(dir), /carries no failure-capture block/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+/* The capture block is type-checked under the seed's tsconfig in setup.adapter.type-check.test.ts, which runs the compiler. */
+const REPO_FIXTURES = 'import { test as base, expect } from "@playwright/test";\nexport const test = base.extend<{}>({});\nexport { expect };\n';
+
+/* Every capture block a repo received, appended or in the seed's fixtures.ts, is recorded as a
+   failure-capture.revN.txt fixture; the newest is the block shipped today. Only a block that is still
+   byte-for-byte an earlier revision is upgraded, in place. Changing SEED_CAPTURE_BLOCK means
+   recording it as the next revision, which makes the outgoing block an earlier one that must upgrade. */
+const FAILURE_CAPTURE_REVISIONS = readdirSync(SEED_REVISIONS_DIR)
+  .filter((name) => /^failure-capture\.rev\d+\.txt$/.test(name))
+  .sort((a, b) => Number(/\d+/.exec(a)![0]) - Number(/\d+/.exec(b)![0]));
+
+test("the block shipped today is the newest recorded capture block revision", () => {
+  const newest = FAILURE_CAPTURE_REVISIONS.at(-1)!;
+  assert.equal(
+    shippedRevision(newest),
+    SEED_CAPTURE_BLOCK,
+    `SEED_CAPTURE_BLOCK changed: record it as the next failure-capture.revN.txt after ${newest} and add the outgoing block's sha256 to the earlier revisions`,
+  );
+});
+
+test("ensureFailureCapture upgrades every earlier recorded block revision in place to the current block", () => {
+  const later = "export const helperAddedLater = 1;\n";
+  const earlier = FAILURE_CAPTURE_REVISIONS.slice(0, -1);
+  assert.ok(earlier.length > 0, "precondition: earlier revisions are recorded");
+  for (const revision of earlier) {
+    const after = afterEnsure("fixtures.ts", REPO_FIXTURES + shippedRevision(revision) + later, (adapter, dir) => adapter.ensureFailureCapture(dir));
+    assert.equal(after, REPO_FIXTURES + SEED_CAPTURE_BLOCK + later, `${revision} is an earlier capture block`);
+  }
+});
+
+/* One revision was appended without its markers. A repo holding it byte-for-byte gets the current
+   block in its place; appending beside it would redeclare its variables and fail every run's
+   type-check. */
+test("ensureFailureCapture replaces in place the capture block appended without markers", () => {
+  const later = "export const helperAddedLater = 1;\n";
+  const after = afterEnsure("fixtures.ts", REPO_FIXTURES + shippedRevision("failure-capture.unmarked.txt") + later, (adapter, dir) => adapter.ensureFailureCapture(dir));
+  assert.equal(after, REPO_FIXTURES + SEED_CAPTURE_BLOCK + later);
+});
+
+test("ensureFailureCapture leaves an edited copy of the block appended without markers as it is, appending nothing", () => {
+  const unmarked = shippedRevision("failure-capture.unmarked.txt");
+  const edited = REPO_FIXTURES + unmarked.replace("runtimeErrors = [];\n  try {", "runtimeErrors = [];\n  console.log('edited');\n  try {");
+  assert.notEqual(edited, REPO_FIXTURES + unmarked, "test precondition: the edit applied");
+
+  assert.equal(afterEnsure("fixtures.ts", edited, (adapter, dir) => adapter.ensureFailureCapture(dir)), edited);
+});
+
+test("ensureFailureCapture never touches an appended capture block someone edited", () => {
+  const edited = REPO_FIXTURES + shippedRevision("failure-capture.rev3.txt").replace("let errorResponses = [];", "let errorResponses: unknown[] = [];");
+  assert.notEqual(edited, REPO_FIXTURES + shippedRevision("failure-capture.rev3.txt"), "test precondition: the edit applied");
+
+  assert.equal(afterEnsure("fixtures.ts", edited, (adapter, dir) => adapter.ensureFailureCapture(dir)), edited);
+});
+
+/* ── The afterEach body, run as a real ES module, dumps runtimeErrors ─────────
+   Same harness as the ESM tests above: run the block's beforeEach/afterEach as genuine ESM
+   callbacks against a fake page that emits console/pageerror events, and assert the dump.
+ */
+
+test("dump carries deduped+capped runtimeErrors from console('error')+pageerror events", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "qa-c1-runtime-"));
+  try {
+    const moduleSrc =
+      `const test = { beforeEach(fn) { globalThis.__qaBefore_rt = fn; }, afterEach(fn) { globalThis.__qaAfter_rt = fn; } };\n` +
+      SEED_CAPTURE_BLOCK +
+      `\nexport const beforeEachFn = globalThis.__qaBefore_rt;\nexport const afterEachFn = globalThis.__qaAfter_rt;\n`;
+    const modPath = join(dir, "runtime.mts");
+    writeFileSync(modPath, moduleSrc);
+    const captureDir = join(dir, "dumps");
+    const { mkdirSync } = await import("node:fs");
+    mkdirSync(captureDir, { recursive: true });
+
+    const mod = await import(pathToFileURL(modPath).href);
+    const handlers: Record<string, ((arg: unknown) => void) | undefined> = {};
+    const fakePage = {
+      on(event: string, cb: (arg: unknown) => void) {
+        handlers[event] = cb;
+      },
+      url: () => "http://localhost:3000/owners",
+      locator: () => ({ ariaSnapshot: async () => '- button "Submit"' }),
+    };
+    const fakeTestInfo = { status: "failed", expectedStatus: "passed", titlePath: ["p", "owner registration", "create owner"], project: { name: "desktop" }, file: "/repo/e2e/owners.spec.ts", retry: 0 };
+
+    const prev = process.env.QA_FAILURE_CAPTURE_DIR;
+    process.env.QA_FAILURE_CAPTURE_DIR = captureDir;
+    try {
+      await mod.beforeEachFn({ page: fakePage });
+      assert.ok(handlers.console, "beforeEach must register a console listener via page.on('console', ...)");
+      assert.ok(handlers.pageerror, "beforeEach must register a pageerror listener via page.on('pageerror', ...)");
+
+      handlers.console!({ type: () => "warning", text: () => "some deprecation warning" });
+      handlers.console!({ type: () => "error", text: () => "ERROR Error: NG0100: ExpressionChangedAfterItHasBeenCheckedError" });
+      handlers.console!({ type: () => "error", text: () => "ERROR Error: NG0100: ExpressionChangedAfterItHasBeenCheckedError" });
+      handlers.pageerror!({ message: "TypeError: Cannot read properties of undefined" });
+
+      await mod.afterEachFn({ page: fakePage }, fakeTestInfo);
+    } finally {
+      if (prev === undefined) delete process.env.QA_FAILURE_CAPTURE_DIR;
+      else process.env.QA_FAILURE_CAPTURE_DIR = prev;
+    }
+
+    const dumps = readdirSync(captureDir);
+    assert.equal(dumps.length, 1);
+    const body = JSON.parse(readFileSync(join(captureDir, dumps[0]!), "utf8"));
+    assert.ok(Array.isArray(body.runtimeErrors), "dump must carry a runtimeErrors array");
+    assert.equal(body.runtimeErrors.length, 2, "the duplicate console.error must be deduped and the warning excluded");
+    assert.ok(
+      body.runtimeErrors.some((e: { type: string; text: string }) => e.type === "pageerror" && e.text.includes("TypeError")),
+      "the pageerror entry must be present",
+    );
+    assert.ok(
+      body.runtimeErrors.some((e: { type: string; text: string }) => e.type === "error" && e.text.includes("NG0100")),
+      "the deduped console.error entry must be present",
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("runtimeErrors is reset between tests — reused page does not cross-attribute", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "qa-c1-runtime-reset-"));
+  try {
+    const moduleSrc =
+      `const test = { beforeEach(fn) { globalThis.__qaBefore_rtreset = fn; }, afterEach(fn) { globalThis.__qaAfter_rtreset = fn; } };\n` +
+      SEED_CAPTURE_BLOCK +
+      `\nexport const beforeEachFn = globalThis.__qaBefore_rtreset;\nexport const afterEachFn = globalThis.__qaAfter_rtreset;\n`;
+    const modPath = join(dir, "runtime-reset.mts");
+    writeFileSync(modPath, moduleSrc);
+    const captureDir = join(dir, "dumps");
+    const { mkdirSync } = await import("node:fs");
+    mkdirSync(captureDir, { recursive: true });
+
+    const mod = await import(pathToFileURL(modPath).href);
+    const handlers: Record<string, ((arg: unknown) => void) | undefined> = {};
+    const fakePage = {
+      on(event: string, cb: (arg: unknown) => void) {
+        handlers[event] = cb;
+      },
+      url: () => "http://localhost:3000/owners",
+      locator: () => ({ ariaSnapshot: async () => '- button "X"' }),
+    };
+    const fakeTestInfo1 = { status: "failed", expectedStatus: "passed", titlePath: ["p", "test-1", "t1"], project: { name: "desktop" }, file: "x.spec.ts", retry: 0 };
+    const fakeTestInfo2 = { status: "failed", expectedStatus: "passed", titlePath: ["p", "test-2", "t2"], project: { name: "desktop" }, file: "x.spec.ts", retry: 0 };
+
+    const prev = process.env.QA_FAILURE_CAPTURE_DIR;
+    process.env.QA_FAILURE_CAPTURE_DIR = captureDir;
+    try {
+      await mod.beforeEachFn({ page: fakePage });
+      handlers.pageerror!({ message: "TypeError: boom" });
+      await mod.afterEachFn({ page: fakePage }, fakeTestInfo1);
+
+      await mod.beforeEachFn({ page: fakePage });
+      await mod.afterEachFn({ page: fakePage }, fakeTestInfo2);
+    } finally {
+      if (prev === undefined) delete process.env.QA_FAILURE_CAPTURE_DIR;
+      else process.env.QA_FAILURE_CAPTURE_DIR = prev;
+    }
+
+    const dumps = readdirSync(captureDir).sort();
+    assert.equal(dumps.length, 2);
+    const body2 = JSON.parse(readFileSync(join(captureDir, dumps[1]!), "utf8"));
+    assert.equal(body2.runtimeErrors.length, 0, "second test must NOT inherit the first test's runtimeErrors — must have been reset");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("the afterEach body remains a no-op when QA_FAILURE_CAPTURE_DIR is unset, even with console/pageerror listeners active", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "qa-c1-runtime-noop-"));
+  try {
+    const moduleSrc =
+      `const test = { beforeEach(fn) { globalThis.__qaBeforeRtNoop = fn; }, afterEach(fn) { globalThis.__qaCaptureRtNoop = fn; } };\n` +
+      SEED_CAPTURE_BLOCK +
+      `\nexport const beforeEachFn = globalThis.__qaBeforeRtNoop;\nexport const afterEachFn = globalThis.__qaCaptureRtNoop;\n`;
+    const modPath = join(dir, "capture-rt-noop.mts");
+    writeFileSync(modPath, moduleSrc);
+    const mod = await import(pathToFileURL(modPath).href);
+    const fakePage = {
+      on(_event: string, _cb: unknown) {},
+      url: () => "http://localhost:3000/",
+      locator: () => ({ ariaSnapshot: async () => '- button "X"' }),
+    };
+    const fakeTestInfo = { status: "failed", expectedStatus: "passed", titlePath: ["p", "s", "t"], project: { name: "desktop" }, file: "x.spec.ts", retry: 0 };
+    const prev = process.env.QA_FAILURE_CAPTURE_DIR;
+    delete process.env.QA_FAILURE_CAPTURE_DIR;
+    try {
+      await assert.doesNotReject(() => mod.beforeEachFn({ page: fakePage }));
+      await assert.doesNotReject(() => mod.afterEachFn({ page: fakePage }, fakeTestInfo));
+    } finally {
+      if (prev !== undefined) process.env.QA_FAILURE_CAPTURE_DIR = prev;
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+/* ── Network failures: a passing test with evidence still dumps ─────────
+   The block records requestfailed events (sanitized URL, capped error text, resource type) and
+   writes a dump for a PASSING test that showed evidence, without an aria snapshot.
+ */
+
+test("a passing test with only a failed request writes no dump: network evidence describes a failure", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "qa-c1-netpass-"));
+  try {
+    const captureDir = join(dir, "dumps");
+    mkdirSync(captureDir);
+    const mod = await loadCaptureModule(dir, "netpass");
+    const handlers: Record<string, ((arg: unknown) => void) | undefined> = {};
+    const fakePage = {
+      on(event: string, cb: (arg: unknown) => void) {
+        handlers[event] = cb;
+      },
+      url: () => "https://dev.example/orders",
+      locator: () => ({ ariaSnapshot: async () => '- button "X"' }),
+    };
+    const passing = { status: "passed", expectedStatus: "passed", titlePath: ["p", "orders", "list"], project: { name: "desktop" }, file: "/repo/e2e/orders.spec.ts", retry: 0 };
+
+    const prev = process.env.QA_FAILURE_CAPTURE_DIR;
+    process.env.QA_FAILURE_CAPTURE_DIR = captureDir;
+    try {
+      await mod.beforeEachFn({ page: fakePage });
+      assert.ok(handlers.requestfailed, "beforeEach must register a requestfailed listener via page.on('requestfailed', ...)");
+      handlers.requestfailed!({ url: () => "https://dev.example/api/x?token=secret", failure: () => ({ errorText: "net::ERR_FAILED" }), resourceType: () => "fetch" });
+      await mod.afterEachFn({ page: fakePage }, passing);
+    } finally {
+      if (prev === undefined) delete process.env.QA_FAILURE_CAPTURE_DIR;
+      else process.env.QA_FAILURE_CAPTURE_DIR = prev;
+    }
+
+    assert.deepEqual(readdirSync(captureDir), [], "a passing test with only network evidence writes no dump");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a failed request records its failure().errorText verbatim (net::ERR_NAME_NOT_RESOLVED)", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "qa-c1-neterr-"));
+  try {
+    const captureDir = join(dir, "dumps");
+    mkdirSync(captureDir);
+    const mod = await loadCaptureModule(dir, "neterr");
+    const handlers: Record<string, ((arg: unknown) => void) | undefined> = {};
+    const fakePage = {
+      on(event: string, cb: (arg: unknown) => void) {
+        handlers[event] = cb;
+      },
+      url: () => "https://dev.example/orders",
+      locator: () => ({ ariaSnapshot: async () => '- button "X"' }),
+    };
+    const failing = { status: "failed", expectedStatus: "passed", titlePath: ["p", "orders", "list"], project: { name: "desktop" }, file: "/repo/e2e/orders.spec.ts", retry: 0 };
+
+    const prev = process.env.QA_FAILURE_CAPTURE_DIR;
+    process.env.QA_FAILURE_CAPTURE_DIR = captureDir;
+    try {
+      await mod.beforeEachFn({ page: fakePage });
+      handlers.requestfailed!({ url: () => "https://dev.example/api/x", failure: () => ({ errorText: "net::ERR_NAME_NOT_RESOLVED" }), resourceType: () => "fetch" });
+      await mod.afterEachFn({ page: fakePage }, failing);
+    } finally {
+      if (prev === undefined) delete process.env.QA_FAILURE_CAPTURE_DIR;
+      else process.env.QA_FAILURE_CAPTURE_DIR = prev;
+    }
+
+    const dumps = readdirSync(captureDir);
+    assert.equal(dumps.length, 1);
+    const body = JSON.parse(readFileSync(join(captureDir, dumps[0]!), "utf8"));
+    assert.equal(body.networkErrors[0].errorText, "net::ERR_NAME_NOT_RESOLVED", "the request's failure errorText must be recorded verbatim");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+/* The install runs agent-editable lifecycle scripts as the sandbox uid: the tree is handed over for it and is the orchestrator's again afterwards, whatever the install did. */
+test("the install tree is opened before the install and sealed after it", async () => {
+  const seq: string[] = [];
+  const fs = orchestrationFs({ hasPackageJson: true });
+  const runner = fakeRunner(async () => {
+    seq.push("install");
+    return okResult();
+  });
+  const installGuard = { open: (dir: string) => seq.push(`open ${dir}`), seal: (dir: string) => seq.push(`seal ${dir}`) };
+  await new SetupAdapter({ fs, runner, seedDir: "/seed", installGuard }).setup("/mirror/e2e");
+  assert.deepEqual(seq, ["open /mirror/e2e", "install", "seal /mirror/e2e"]);
+});
+
+test("the install tree is sealed when the install fails or is killed", async () => {
+  for (const result of [() => okResult({ exitCode: 1 }), () => Promise.reject(new Error("boom"))] as const) {
+    const sealed: string[] = [];
+    const fs = orchestrationFs({ hasPackageJson: true });
+    const runner = fakeRunner(async () => result());
+    const installGuard = { open: () => {}, seal: (dir: string) => sealed.push(dir) };
+    await assert.rejects(() => new SetupAdapter({ fs, runner, seedDir: "/seed", installGuard }).setup("/mirror/e2e"));
+    assert.deepEqual(sealed, ["/mirror/e2e"]);
+  }
+});
+
+test("the install child is handed no variables of its own: the launcher's install profile decides its environment", async () => {
+  let seen: SandboxedRunRequest | undefined;
+  const fs = orchestrationFs({ hasPackageJson: true });
+  const runner = fakeRunner(async (req) => {
+    seen = req;
+    return okResult();
+  });
+  await new SetupAdapter({ fs, runner, seedDir: "/seed" }).setup("/mirror/e2e");
+  assert.deepEqual(seen?.env, {});
+});
+
+/* ── The capture runs as a fixture, which reaches every spec file ─────────────────────────────────
+   A hook declared in fixtures.ts binds only to the first spec file a worker loads (the module is
+   evaluated once per worker), so the seed runs the capture from an auto fixture; the block's own hooks
+   stand in only where no fixture could be added, and setup says so. */
+
+const FIXTURE_MARKER = ">>> qa-capture-fixture (system-owned: do not edit) >>>";
+
+function warningsOf(run: () => void): string[] {
+  const warnings: string[] = [];
+  const original = console.warn;
+  console.warn = (...args: unknown[]) => { warnings.push(args.map(String).join(" ")); };
+  try {
+    run();
+  } finally {
+    console.warn = original;
+  }
+  return warnings;
+}
+
+test("the seed runs the failure capture from an auto fixture", () => {
+  const seed = readFileSync(join(REAL_SEED_DIR, "fixtures.ts"), "utf8");
+  assert.ok(seed.includes(FIXTURE_MARKER), "the seed must carry the capture fixture");
+  assert.ok(seed.indexOf(FIXTURE_MARKER) < seed.indexOf("\nexport { expect };"), "the fixture lives inside the seed's test.extend");
+});
+
+test("setup gives a fixtures.ts from the seed that ran the capture from hooks the capture fixture, the current blocks and the mutation fixture, and leaves the response-oracle fixture it holds as it is", () => {
+  const current = readFileSync(join(REAL_SEED_DIR, "fixtures.ts"), "utf8");
+  const hooks = shippedRevision("fixtures.rev-hooks.txt");
+  let after = "";
+  const warnings = warningsOf(() => {
+    after = afterEnsure("fixtures.ts", hooks, (adapter, dir) => {
+      adapter.ensureFailureCapture(dir);
+      adapter.ensureSourceMaps(dir);
+      adapter.ensureMutationFixture(dir);
+    });
+  });
+  for (const [opening, closing] of SYSTEM_OWNED_BLOCKS) assert.equal(markedBlock(after, opening, closing), markedBlock(current, opening, closing), opening);
+  assert.ok(after.indexOf(">>> qa-capture-fixture") < after.indexOf("_faultInject: ["), "the capture fixture sits before the response-oracle fixture the copy holds");
+  assert.ok(after.indexOf("_faultInject: [") < after.indexOf("_mutate: ["), "and the mutation fixture after it");
+  assert.equal(markedBlock(after, "RESPONSE-ORACLE pass", "  _faultInject: ["), markedBlock(hooks, "RESPONSE-ORACLE pass", "  _faultInject: ["), "the retired fixture is not touched");
+  assert.deepEqual(warnings, []);
+});
+
+test("setup leaves the current seed's fixtures.ts as it is and says nothing", () => {
+  const seed = readFileSync(join(REAL_SEED_DIR, "fixtures.ts"), "utf8");
+  let after = "";
+  const warnings = warningsOf(() => {
+    after = afterEnsure("fixtures.ts", seed, (adapter, dir) => adapter.ensureFailureCapture(dir));
+  });
+  assert.equal(after, seed);
+  assert.deepEqual(warnings, []);
+});
+
+test("a fixtures.ts not shaped like the seed gets the block's hooks and setup warns that the capture covers only the first spec file", () => {
+  let after = "";
+  const warnings = warningsOf(() => {
+    after = afterEnsure("fixtures.ts", REPO_FIXTURES, (adapter, dir) => adapter.ensureFailureCapture(dir));
+  });
+  assert.ok(after.includes(FAILURE_CAPTURE_MARKER), "the block is appended");
+  assert.equal(after.includes(FIXTURE_MARKER), false, "no fixture is written into a test.extend setup does not know");
+  assert.equal(warnings.length, 1);
+  assert.match(warnings[0]!, /only the first spec file/);
+});
+
+test("a seed-shaped fixtures.ts whose capture block was edited gets no fixture, and setup warns", () => {
+  const edited = shippedRevision("fixtures.rev-hooks.txt").replace("let dataInFlight = 0;", "let dataInFlight = 0; // edited");
+  assert.notEqual(edited, shippedRevision("fixtures.rev-hooks.txt"), "test precondition: the edit applied");
+  let after = "";
+  const warnings = warningsOf(() => {
+    after = afterEnsure("fixtures.ts", edited, (adapter, dir) => adapter.ensureFailureCapture(dir));
+  });
+  assert.equal(after, edited);
+  assert.equal(warnings.length, 1);
+  assert.match(warnings[0]!, /only the first spec file/);
+});
+
+/* The previous seed's fixtures.ts, byte-for-byte as it shipped: its source maps were fetched without the run's DEV gate credentials. */
+const UNGATED_MAPS_SEED = readFileSync(fileURLToPath(new URL("./__fixtures__/seed-revisions/fixtures.rev-ungated-maps.txt", import.meta.url)), "utf8");
+
+function withFixtures(content: string, run: (dir: string) => void): string {
+  const dir = mkdtempSync(join(tmpdir(), "qa-setup-maps-"));
+  try {
+    writeFileSync(join(dir, "fixtures.ts"), content);
+    run(dir);
+    return readFileSync(join(dir, "fixtures.ts"), "utf8");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+/* The text of `src` between the line of its `opening` marker and the end of its closing marker line. */
+function markedBlock(src: string, opening: string, closing: string): string {
+  const start = src.lastIndexOf("\n", src.indexOf(opening)) + 1;
+  const end = src.indexOf(closing) + closing.length;
+  return src.slice(start, end);
+}
+
+test("ensureSourceMaps: a fixtures.ts still holding the previous seed's source-map code gets the current seed's, call site included", () => {
+  const current = readFileSync(join(REAL_SEED_DIR, "fixtures.ts"), "utf8");
+  const after = withFixtures(UNGATED_MAPS_SEED, (dir) => realAdapter().ensureSourceMaps(dir));
+  assert.equal(markedBlock(after, ">>> qa-source-maps", "// <<< qa-source-maps <<<\n"), markedBlock(current, ">>> qa-source-maps", "// <<< qa-source-maps <<<\n"));
+  assert.match(after, /attachSourceMaps\(entries as unknown as CoverageEntry\[\], page\.request\)/);
+  assert.doesNotMatch(after, /const res = await fetch\(mapUrl\)/);
+});
+
+const FULL_MAPS_SEED = readFileSync(fileURLToPath(new URL("./__fixtures__/seed-revisions/fixtures.rev-full-maps.txt", import.meta.url)), "utf8");
+
+test("ensureSourceMaps: a fixtures.ts still holding the seed's code that kept each map whole is brought to the current seed", () => {
+  const current = readFileSync(join(REAL_SEED_DIR, "fixtures.ts"), "utf8");
+  assert.notEqual(FULL_MAPS_SEED, current);
+  const after = withFixtures(FULL_MAPS_SEED, (dir) => realAdapter().ensureSourceMaps(dir));
+  assert.equal(markedBlock(after, ">>> qa-source-maps", "// <<< qa-source-maps <<<\n"), markedBlock(current, ">>> qa-source-maps", "// <<< qa-source-maps <<<\n"));
+  assert.match(after, /attachSourceMaps\(entries as unknown as CoverageEntry\[\], page\.request\)/);
+});
+
+const CAPTURE_FIXTURE_TYPE = "  // system-owned: do not edit — runs the failure-point capture around every test.\n  _failureCapture: void;\n";
+const MUTATION_FIXTURE_TYPE = "  // system-owned: do not edit — the orchestrator's mutation pass (PW_MUTANT).\n  _mutate: void;\n";
+const SYSTEM_OWNED_BLOCKS: ReadonlyArray<readonly [string, string]> = [
+  [">>> qa-capture-fixture", "// <<< qa-capture-fixture <<<\n"],
+  [">>> qa-failure-capture", "// <<< qa-failure-capture <<<\n"],
+  [">>> qa-source-maps", "// <<< qa-source-maps <<<\n"],
+  [">>> qa-mutation-fixture", "// <<< qa-mutation-fixture <<<\n"],
+];
+
+/* The current seed as a copy made from it would be without a fixture: the fixture's block and its type entry taken out. */
+function currentSeedWithout(fixture: "capture" | "mutation" | "both"): string {
+  let src = readFileSync(join(REAL_SEED_DIR, "fixtures.ts"), "utf8");
+  const take = (opening: string, closing: string, type: string): void => {
+    const block = markedBlock(src, opening, closing);
+    assert.ok(src.includes(block) && src.includes(type), `test precondition: the seed holds ${opening}`);
+    src = src.replace(block + (block.includes("qa-capture-fixture") ? "\n" : ""), "").replace(type, "");
+  };
+  if (fixture !== "mutation") take(">>> qa-capture-fixture", "// <<< qa-capture-fixture <<<\n", CAPTURE_FIXTURE_TYPE);
+  if (fixture !== "capture") take(">>> qa-mutation-fixture", "// <<< qa-mutation-fixture <<<\n", MUTATION_FIXTURE_TYPE);
+  return src;
+}
+
+test("ensureMutationFixture: a fixtures.ts from the seed without the mutation fixture gets it, typed, whether it holds the retired response-oracle fixture or not; one that has it, or is not shaped like the seed, is left as it is", () => {
+  const current = readFileSync(join(REAL_SEED_DIR, "fixtures.ts"), "utf8");
+  const opening = ">>> qa-mutation-fixture";
+  const closing = "// <<< qa-mutation-fixture <<<\n";
+
+  /* A copy made before the seed dropped the response-oracle fixture: it keeps the fixture, and the mutation fixture comes after it. */
+  const withOracle = withFixtures(UNGATED_MAPS_SEED, (dir) => realAdapter().ensureMutationFixture(dir));
+  assert.equal(markedBlock(withOracle, opening, closing), markedBlock(current, opening, closing));
+  assert.ok(withOracle.includes(MUTATION_FIXTURE_TYPE), "typed");
+  assert.ok(withOracle.indexOf("_mutate: [") > withOracle.indexOf("_faultInject: ["), "after the response-oracle fixture");
+
+  /* A copy of the current seed: put back exactly where the seed has it. */
+  const without = currentSeedWithout("mutation");
+  assert.notEqual(without, current);
+  assert.equal(withFixtures(without, (dir) => realAdapter().ensureMutationFixture(dir)), current);
+
+  assert.equal(withFixtures(current, (dir) => realAdapter().ensureMutationFixture(dir)), current);
+  const own = "export const test = base.extend({});\nexport { expect };\n";
+  assert.equal(withFixtures(own, (dir) => realAdapter().ensureMutationFixture(dir)), own);
+});
+
+test("ensureFailureCapture: a fixtures.ts from the current seed without the capture fixture gets it back, typed, before the mutation fixture when it holds one and at the end of test.extend when it does not", () => {
+  const current = readFileSync(join(REAL_SEED_DIR, "fixtures.ts"), "utf8");
+  const [opening, closing] = SYSTEM_OWNED_BLOCKS[0]!;
+
+  /* Before the mutation fixture, where the seed has it (the type entries may differ in order, which a type literal does not care about). */
+  const beforeMutation = withFixtures(currentSeedWithout("capture"), (dir) => realAdapter().ensureFailureCapture(dir));
+  assert.equal(markedBlock(beforeMutation, opening, closing), markedBlock(current, opening, closing));
+  assert.ok(beforeMutation.includes(CAPTURE_FIXTURE_TYPE), "typed");
+  assert.ok(beforeMutation.indexOf(">>> qa-capture-fixture") < beforeMutation.indexOf(">>> qa-mutation-fixture"));
+
+  /* With neither fixture in the copy, both go to the end of test.extend, capture first, as the seed has them. */
+  const withNeither = withFixtures(currentSeedWithout("both"), (dir) => {
+    const adapter = realAdapter();
+    adapter.ensureFailureCapture(dir);
+    adapter.ensureMutationFixture(dir);
+  });
+  assert.equal(withNeither, current);
+});
+
+test("setup brings a fixtures.ts that is still the previous seed byte-for-byte to the current seed's blocks and fixtures, keeping the response-oracle fixture it holds", () => {
+  const current = readFileSync(join(REAL_SEED_DIR, "fixtures.ts"), "utf8");
+  const after = withFixtures(UNGATED_MAPS_SEED, (dir) => {
+    const adapter = realAdapter();
+    adapter.ensureFailureCapture(dir);
+    adapter.ensureSourceMaps(dir);
+    adapter.ensureMutationFixture(dir);
+  });
+  for (const [opening, closing] of SYSTEM_OWNED_BLOCKS) assert.equal(markedBlock(after, opening, closing), markedBlock(current, opening, closing), opening);
+  assert.ok(after.includes("_faultInject: ["), "the retired fixture stays in the copy");
+});
+
+test("ensureSourceMaps: the current seed, an edited copy of the previous code and a call site that is not the seed's are each left as they are", () => {
+  const current = readFileSync(join(REAL_SEED_DIR, "fixtures.ts"), "utf8");
+  assert.equal(withFixtures(current, (dir) => realAdapter().ensureSourceMaps(dir)), current);
+
+  const edited = UNGATED_MAPS_SEED.replace("const res = await fetch(mapUrl);", "const res = await fetch(mapUrl, { cache: \"no-store\" });");
+  assert.notEqual(edited, UNGATED_MAPS_SEED);
+  assert.equal(withFixtures(edited, (dir) => realAdapter().ensureSourceMaps(dir)), edited);
+
+  const ownCall = UNGATED_MAPS_SEED.replace("await attachSourceMaps(entries as unknown as CoverageEntry[]);", "await attachSourceMaps(entries as never);");
+  assert.equal(withFixtures(ownCall, (dir) => realAdapter().ensureSourceMaps(dir)), ownCall);
+});
+
+test("setup upgrades the source-map code of an existing project before it installs", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "qa-setup-maps-"));
+  try {
+    for (const name of ["package.json", "package-lock.json"]) writeFileSync(join(dir, name), "{}");
+    writeFileSync(join(dir, "fixtures.ts"), UNGATED_MAPS_SEED);
+    const runner = fakeRunner(async () => okResult());
+    await new SetupAdapter({ fs: nodeFsDeps, runner, seedDir: REAL_SEED_DIR }).setup(dir).catch(() => undefined);
+    assert.match(readFileSync(join(dir, "fixtures.ts"), "utf8"), /page\.request\)/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

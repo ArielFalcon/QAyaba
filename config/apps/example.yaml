@@ -28,12 +28,12 @@ baseBranch: "main"             # target branch for the QA pull requests
 #     versionUrl: "https://dev-api.example.internal/orders/version"
 #   - repo: "org/payments-svc"
 
-# Optional: the qa-engine cross-repo boundary conventions — how THIS repo's
+# Optional: the engine cross-repo boundary conventions — how THIS repo's
 # frontend calls its backends, and where each backend's OpenAPI contract lives. Complements
 # `services:` above (which lists the participating repos); `boundaries:` declares the CALL
-# CONVENTION between them so the qa-engine resolver can stitch frontend call-sites to backend
+# CONVENTION between them so the engine resolver can stitch frontend call-sites to backend
 # operationIds with zero app-specific literal in the engine itself. Consumed only by the
-# qa-engine resolver (service-topology context), which re-reads this block; the app config schema only checks its shape.
+# engine resolver (service-topology context), which re-reads this block; the app config schema only checks its shape.
 # The schema is strict: a key it does not declare is an error and the app is not loaded (see GET /api/health).
 # boundaries:
 #   - transport: http

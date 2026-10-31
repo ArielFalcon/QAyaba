@@ -11,13 +11,13 @@ import { consoleCallLines } from "./no-console.scan";
  */
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
-const SCANNED = ["platform", "qa-engine/src"];
+const SCANNED = ["platform", "engine/src"];
 
 /* Output the operator reads as the product, the JSON logger's own mirror. */
 const ALLOWED: readonly string[] = [
   "platform/composition/cli.ts",
   "platform/telemetry/logger.ts",
-  "qa-engine/src/shared-kernel/ports/process-logger.ts",
+  "engine/src/shared-kernel/ports/process-logger.ts",
 ];
 
 function productionSources(dir: string): string[] {

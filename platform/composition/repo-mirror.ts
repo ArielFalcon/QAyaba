@@ -11,16 +11,16 @@ import { RedactionPortAdapter } from "../telemetry/sanitizer";
 import { InfraError } from "@kernel/domain-error";
 /* A sha or ref handed to git as a positional argument is judged by @kernel/git-revision first: a value that passes can never be read as an option (`--output=...`). */
 import { assertCommitSha, assertRefName } from "@kernel/git-revision";
-import { MirrorProvisionAdapter, type MirrorProvisionDeps } from "../../qa-engine/src/contexts/workspace-and-publication/infrastructure/mirror-provision.adapter";
-import { hardenGitArgs, literalPathspecs } from "../../qa-engine/src/shared-infrastructure/process-sandbox/git-hardening";
-import { hardenDetachedGitArgs } from "../../qa-engine/src/shared-infrastructure/process-sandbox/detached-git-hardening";
+import { MirrorProvisionAdapter, type MirrorProvisionDeps } from "../../engine/src/contexts/workspace-and-publication/infrastructure/mirror-provision.adapter";
+import { hardenGitArgs, literalPathspecs } from "../../engine/src/shared-infrastructure/process-sandbox/git-hardening";
+import { hardenDetachedGitArgs } from "../../engine/src/shared-infrastructure/process-sandbox/detached-git-hardening";
 import { activeEnvironment } from "../settings/active";
 import { activeSettings } from "../settings/store";
 
 /* The orchestrator's git hardening has one definition, in the engine (which cannot import src/); every git caller on a working copy goes through it. */
-export { hardenGitArgs, assertTrustedGitTree, UntrustedGitTreeError } from "../../qa-engine/src/shared-infrastructure/process-sandbox/git-hardening";
+export { hardenGitArgs, assertTrustedGitTree, UntrustedGitTreeError } from "../../engine/src/shared-infrastructure/process-sandbox/git-hardening";
 /* The one variant with no working copy to verify (a clone, an ls-remote): the shell owns such calls, the engine may not import it. */
-export { hardenDetachedGitArgs } from "../../qa-engine/src/shared-infrastructure/process-sandbox/detached-git-hardening";
+export { hardenDetachedGitArgs } from "../../engine/src/shared-infrastructure/process-sandbox/detached-git-hardening";
 
 
 const redactionPort = new RedactionPortAdapter();

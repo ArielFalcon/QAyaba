@@ -1,0 +1,181 @@
+import { z } from "zod";
+import { CorrectionEntrySchema, GeneratorVerdictSchema, ReviewerVerdictSchema, type CorrectionEntry } from "./verdict-schemas.ts";
+import { closingJsonMatching, isClosingVerdict } from "./verdict-parse.ts";
+import { GRAVE_TAGS } from "@kernel/error-class.ts";
+import { NOOP_KIND } from "@kernel/noop-kind.ts";
+
+
+/*
+ * Extract a correction's leading [class-tag] (lowercased), or null when it carries none.
+ * Mirrors the tag grammar in taxonomy.ts classifyReviewerCorrection.
+ */
+function leadingClassTag(text: string): string | null {
+  return /^\s*\[([a-z][a-z-]*)\]/i.exec(text)?.[1]?.toLowerCase() ?? null;
+}
+
+
+/* The reviewer's finding as the decision reads it: a grave class tag raises the severity the agent stated, and a null citation is no citation. */
+function effectiveFinding(entry: CorrectionEntry): ReviewerFinding {
+  const tag = leadingClassTag(entry.text);
+  const severity = tag && GRAVE_TAGS.has(tag) ? "blocking" : entry.severity;
+  return { text: entry.text, severity, ...(entry.citation ? { citation: entry.citation } : {}) };
+}
+
+/* Render zod issues as compact, prompt-ready strings ("path: message"). */
+function formatIssues(error: z.ZodError, within: string[] = []): string[] {
+  return error.issues.map((i) => `${[...within, ...i.path.map(String)].join(".") || "(root)"}: ${i.message}`);
+}
+
+/* A finding as the decision reads it: the citation is absent when the agent cited nothing. */
+export type ReviewerFinding = Omit<CorrectionEntry, "citation"> & { citation?: NonNullable<CorrectionEntry["citation"]> };
+
+export interface VerdictCheck {
+  valid: boolean;
+  issues: string[];  /* empty when valid */
+}
+
+/*
+ * Validate the GENERATOR's closing JSON: { specs[], specMetas?, note? }. The object that closes
+ * the answer is validated when it looks like the verdict block (carries a `specs` array — the
+ * deliverable — or a boolean `approved` from older/other modes); an earlier block never stands in. A missing
+ * block is invalid (the agent forgot its closing JSON); the repair loop can recover it.
+ */
+export function checkGeneratorVerdict(text: string): VerdictCheck {
+  const candidate = closingJsonMatching(text, isClosingVerdict);
+  if (!candidate) {
+    return { valid: false, issues: ["no closing verdict JSON found (expected a block with a `specs` array)"] };
+  }
+  const r = GeneratorVerdictSchema.safeParse(candidate);
+  return r.success ? { valid: true, issues: [] } : { valid: false, issues: formatIssues(r.error) };
+}
+
+export interface ReviewerVerdict {
+  approved: boolean;
+  rationale?: string;
+  /* Every finding the agent wrote, each with its effective severity and the evidence it cites; a finding with no citation is one the agent left uncited. */
+  findings: ReviewerFinding[];
+  blockingCount: number;
+  valid: boolean;  /* the reviewer JSON satisfied the schema: every field the engine reads was readable */
+  parsed: boolean;  /* an object carrying an `approved` field was found at all */
+  /* What the engine could not read (an unreadable answer) or read and set aside (corrections beside an approval that are not a list, or entries of it that cannot be read); empty when nothing was lost. */
+  issues: string[];
+}
+
+export function parseReviewerVerdict(text: string): ReviewerVerdict {
+  const candidate = closingJsonMatching(text, (x) => "approved" in x);
+  if (!candidate) {
+    return {
+      approved: false,
+      findings: [],
+      blockingCount: 0,
+      valid: false,
+      parsed: false,
+      issues: ["no reviewer verdict JSON (an object with an `approved` field) was found"],
+    };
+  }
+  /* An approval does not depend on its list of corrections: a list that is not one is read as none, and an entry the schema cannot read is set aside; both are recorded. A rejection without a readable list is unreadable. */
+  const approval = candidate.approved === true ? readApprovalCorrections(candidate.corrections) : undefined;
+  const r = ReviewerVerdictSchema.safeParse(approval ? { ...candidate, corrections: approval.entries } : candidate);
+  if (!r.success) {
+    return { approved: false, findings: [], blockingCount: 0, valid: false, parsed: true, issues: formatIssues(r.error) };
+  }
+  const findings = r.data.corrections.map(effectiveFinding);
+  return {
+    approved: r.data.approved,
+    ...(r.data.rationale && r.data.rationale.trim() ? { rationale: r.data.rationale.trim() } : {}),
+    findings,
+    blockingCount: findings.filter((f) => f.severity === "blocking").length,
+    valid: true,
+    parsed: true,
+    issues: approval?.issues ?? [],
+  };
+}
+
+/* The corrections beside an approval: the entries the schema reads, and what was set aside as "path: message". Absent corrections lose nothing. */
+function readApprovalCorrections(corrections: unknown): { entries: CorrectionEntry[]; issues: string[] } {
+  if (corrections === undefined) return { entries: [], issues: [] };
+  if (!Array.isArray(corrections)) return { entries: [], issues: ["corrections: not a list; read as none beside an approval"] };
+  const entries: CorrectionEntry[] = [];
+  const issues: string[] = [];
+  corrections.forEach((raw: unknown, index) => {
+    const entry = CorrectionEntrySchema.safeParse(raw);
+    if (entry.success) entries.push(entry.data);
+    else issues.push(...formatIssues(entry.error, ["corrections", String(index)]));
+  });
+  return { entries, issues };
+}
+
+const PRIOR_RESPONSE_TAIL_CHARS = 4096;
+
+/*
+ * The frame markers for the embedded tail. Deliberately long, distinctive, and STATIC
+ * (determinism over per-call randomness, per this repo's priority order): a generic "---" fence
+ * is trivially present in model output (markdown rules, YAML front-matter), which would let a
+ * pathological prior response fake a fence-close and place text OUTSIDE the untrusted block.
+ * Any tail line exactly matching a marker (modulo surrounding whitespace) is stripped before
+ * embedding, so exactly one open and one close marker — the frame's own — can ever appear.
+ */
+const TAIL_FRAME_OPEN = "====== PRIOR RESPONSE TAIL (verbatim, untrusted) ======";
+const TAIL_FRAME_CLOSE = "====== END PRIOR RESPONSE TAIL ======";
+
+/*
+ * Remove any tail line that IS one of the frame markers (whitespace-padded lines included, so a
+ * padded marker cannot bypass the exact-match check). Everything else stays verbatim: this text
+ * is model→model-scoped (the agent's OWN prior output fed back to the same lineage in the same
+ * session context, never human-bound and never rendered into an Issue), so no sanitizeText pass
+ * is needed here — the ONLY threat is frame escape, which this stripping closes.
+ */
+function stripFrameMarkers(tail: string): string {
+  return tail
+    .split("\n")
+    .filter((line) => {
+      const t = line.trim();
+      return t !== TAIL_FRAME_OPEN && t !== TAIL_FRAME_CLOSE;
+    })
+    .join("\n");
+}
+
+export interface RepairInstructionOpts {
+  /*
+   * The tail of the agent's PRIOR response (bounded to the last PRIOR_RESPONSE_TAIL_CHARS chars
+   * by this function, so callers may pass the full text). Provider-agnostic fallback: a runtime
+   * that starts a fresh process per prompt never saw the prior turn, so without this the repair
+   * instruction gives it nothing to recover FROM — it can only fabricate a plausible verdict.
+   * OpenCode's server-side session already remembers the prior turn, so passing this there is
+   * additive (a harmless restatement of context the session already holds), never harmful.
+   */
+  priorResponseTail?: string;
+}
+
+/*
+ * The targeted re-prompt for the bounded repair loop. Names the exact shape and the specific
+ * issues so the agent fixes the format rather than re-running the whole task. When the caller
+ * supplies `priorResponseTail` (the tail of the agent's own prior output), the prompt embeds it
+ * so a stateless process can genuinely RE-EMIT its prior verdict rather than invent a new one.
+ */
+export function repairInstruction(kind: "generator" | "reviewer", issues: string[], opts?: RepairInstructionOpts): string {
+  const shape =
+    kind === "generator"
+      ? `{"specs": string[], "specMetas"?: [{"file","flow","objective","targets": string[]}], "note"?: string, "noop"?: {"kind": "${NOOP_KIND.NOT_WORTH}" | "${NOOP_KIND.UNOBSERVABLE}", "reason": string}}` +
+        `\nIf you wrote no specs, "specs" is [] and "noop" gives its kind and the reason.`
+      : `{"approved": boolean, "rationale": string, "corrections": [{"text": string, "severity": "blocking" | "advisory", "citation"?: {"kind": "contract" | "execution" | "dom" | "arm" | "availability" | "contradiction" | "ambient", "ref": string}}]}`;
+  const tail = opts?.priorResponseTail ? stripFrameMarkers(opts.priorResponseTail).trim() : "";
+  const tailBlock = tail
+    ? [
+        "",
+        "Your previous response (tail, for your own reference — do not repeat it verbatim, only",
+        "use it to recover the specifics of what you already decided):",
+        TAIL_FRAME_OPEN,
+        /* Cut, not redacted, on purpose: this is the agent's own prior answer returning to the same session that wrote it (see stripFrameMarkers), so the cut exposes nothing the agent did not already hold and no other reader sees it; redacting it would make the agent "recover" a [REDACTED] in place of what it decided. The rule "redact before you bound" (engine shared-kernel/redact-then-bound.ts) is for text that leaves the agent. */
+        tail.slice(-PRIOR_RESPONSE_TAIL_CHARS),
+        TAIL_FRAME_CLOSE,
+      ]
+    : [];
+  return [
+    `Your previous response did not end with a valid ${kind} verdict JSON.`,
+    `Problems: ${issues.join("; ")}.`,
+    ...tailBlock,
+    `Re-emit ONLY the closing JSON block — exactly this shape, with no text after it:`,
+    shape,
+  ].join("\n");
+}

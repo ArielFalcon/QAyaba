@@ -12,7 +12,7 @@ import {
 } from "./warm-suite.ts";
 import { workdirRoot } from "../platform/composition/repo-mirror.ts";
 import { qayabaDataDir } from "../platform/settings/paths.ts";
-import { MAX_FILE_BYTES } from "../qa-engine/src/shared-infrastructure/suite-tree.ts";
+import { MAX_FILE_BYTES } from "../engine/src/shared-infrastructure/suite-tree.ts";
 
 const STOCK_SEED = readFileSync(join(import.meta.dirname, "..", "config", "e2e", "auth.setup.ts"), "utf8");
 const APP_LOGIN = "import { test as setup } from '@playwright/test';\nsetup('authenticate', async ({ page }) => { await page.goto('/login'); });\n";

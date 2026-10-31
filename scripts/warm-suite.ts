@@ -37,10 +37,10 @@ import { createHash } from "node:crypto";
 import { existsSync, lstatSync, mkdirSync, renameSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { isStockAuthSetup } from "../qa-engine/src/shared-infrastructure/e2e-seed/auth-setup-seed.ts";
-import { readOwnedSpecFile, writeOwnedSpecFile } from "../qa-engine/src/shared-infrastructure/spec-path-confinement.ts";
-import { MAX_FILE_BYTES, NODE_MODULES, assertRealDirectory, assertSafeRelative, exclusionReason, looksLikeSessionState, readStrict, walkTree } from "../qa-engine/src/shared-infrastructure/suite-tree.ts";
-import { suiteSnapshotDir } from "../qa-engine/src/contexts/workspace-and-publication/infrastructure/suite-store.adapter.ts";
+import { isStockAuthSetup } from "../engine/src/shared-infrastructure/e2e-seed/auth-setup-seed.ts";
+import { readOwnedSpecFile, writeOwnedSpecFile } from "../engine/src/shared-infrastructure/spec-path-confinement.ts";
+import { MAX_FILE_BYTES, NODE_MODULES, assertRealDirectory, assertSafeRelative, exclusionReason, looksLikeSessionState, readStrict, walkTree } from "../engine/src/shared-infrastructure/suite-tree.ts";
+import { suiteSnapshotDir } from "../engine/src/contexts/workspace-and-publication/infrastructure/suite-store.adapter.ts";
 import { WARM_SNAPSHOTS_DIR, qayabaDataDir } from "../platform/settings/paths.ts";
 import { DEFAULT_SUITE_DIR } from "./probe-metrics.ts";
 import { assertFileName } from "./probe-report.ts";
@@ -476,7 +476,7 @@ export async function main(argv: string[], deps: WarmDeps): Promise<number> {
 
 /** The adapter over an app's suite store, the one writer of its files. */
 async function appSuiteStore(app: string) {
-  const { SuiteStoreAdapter } = await import("../qa-engine/src/contexts/workspace-and-publication/infrastructure/suite-store.adapter.ts");
+  const { SuiteStoreAdapter } = await import("../engine/src/contexts/workspace-and-publication/infrastructure/suite-store.adapter.ts");
   const { appSuiteStoreDir } = await import("../platform/composition/run-engine-factory.ts");
   const { qayabaRoot } = await import("../platform/settings/paths.ts");
   const { loadAppConfig } = await import("../platform/composition/config-loader.ts");

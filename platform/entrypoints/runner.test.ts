@@ -118,7 +118,7 @@ test("engineFactory supplied — routes to port.run", async () => {
   assert.equal(calls[0]?.source, "manual");
 });
 
-/* The engine's agent transport throws qa-engine's AgentTimeoutError when an agent call exceeds its
+/* The engine's agent transport throws engine's AgentTimeoutError when an agent call exceeds its
    hard deadline, and nothing between RunQaUseCase and the runner wraps it. */
 test("an agent call that exceeded its deadline finalizes as infrastructure, not as an internal crash", async () => {
   const queue = new JobQueue();

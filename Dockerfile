@@ -62,7 +62,7 @@ RUN ARCH="$(dpkg --print-architecture)" \
 # Unprivileged user for executing UNTRUSTED code: the agent-written Playwright specs, the e2e project's
 # own tsc/eslint/install and a login script. The
 # orchestrator runs as root and DROPS to this user for every one of those spawns (the execution
-# launcher, qa-engine/src/shared-infrastructure/process-sandbox/exec-sandbox.ts), so untrusted code
+# launcher, engine/src/shared-infrastructure/process-sandbox/exec-sandbox.ts), so untrusted code
 # cannot read the root-owned API token (data/.api_token), the auth material under /app/data, the app
 # configs, or another watched repo under /app/.mirrors (bin/container-entrypoint.sh closes them at every
 # boot and then proves it as this uid), tamper with the orchestrator's files (/app/src, node_modules),

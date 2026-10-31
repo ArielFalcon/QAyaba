@@ -18,7 +18,7 @@
 
 import { cpSync, existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { QaCase } from "../qa-engine/src/shared-kernel/qa-case.ts";
+import type { QaCase } from "../engine/src/shared-kernel/qa-case.ts";
 import { SMOKE_CHECKS } from "./sandbox-smoke-checks.ts";
 
 export const SMOKE_SPEC_DIR = join(import.meta.dirname, "sandbox-smoke");
@@ -63,8 +63,8 @@ async function main(): Promise<number> {
   const { resolveRunOrigins } = await import("@contexts/test-execution/application/index.ts");
   const { qayabaRoot } = await import("../platform/settings/paths.ts");
   const { workdirRoot } = await import("../platform/composition/repo-mirror.ts");
-  const { runE2E, createDefaultE2eExecuteDeps, e2eTimeoutMs } = await import("../qa-engine/src/contexts/test-execution/infrastructure/e2e-execution.runner.ts");
-  const { ProcessKillAdapter } = await import("../qa-engine/src/shared-infrastructure/process-sandbox/process-kill.adapter.ts");
+  const { runE2E, createDefaultE2eExecuteDeps, e2eTimeoutMs } = await import("../engine/src/contexts/test-execution/infrastructure/e2e-execution.runner.ts");
+  const { ProcessKillAdapter } = await import("../engine/src/shared-infrastructure/process-sandbox/process-kill.adapter.ts");
 
   const sandbox = resolveCodeSandbox(env);
   if (!sandbox) {

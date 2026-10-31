@@ -2,9 +2,9 @@
  * The shell's side of the run deadline's reserve: the phases of an app's recent runs, read from the run history and checked on the
  * way in (a stored row is data, so a phase name the engine does not know or a figure that is not a number is left out).
  */
-import { DEADLINE_PURPOSES, type DeadlinePurpose } from "../../qa-engine/src/shared-kernel/deadline-purpose";
-import { RUN_PHASES, type RunPhase } from "../../qa-engine/src/shared-kernel/run-step";
-import type { PhaseHistoryPort, PhaseRecord, RunTimeBudgetKey } from "../../qa-engine/src/contexts/run-orchestration/application/index";
+import { DEADLINE_PURPOSES, type DeadlinePurpose } from "../../engine/src/shared-kernel/deadline-purpose";
+import { RUN_PHASES, type RunPhase } from "../../engine/src/shared-kernel/run-step";
+import type { PhaseHistoryPort, PhaseRecord, RunTimeBudgetKey } from "../../engine/src/contexts/run-orchestration/application/index";
 
 export interface StoredPhaseRecord {
   furthestPhase: string | null;

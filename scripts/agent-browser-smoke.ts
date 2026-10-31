@@ -25,12 +25,12 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { buildScriptExec } from "../platform/composition/exec-sandbox-factory.ts";
 import { egressGateFor } from "../platform/composition/egress-wiring.ts";
-import { ProcessKillAdapter } from "../qa-engine/src/shared-infrastructure/process-sandbox/process-kill.adapter.ts";
-import { resolveSandbox } from "../qa-engine/src/shared-infrastructure/process-sandbox/sandbox.ts";
-import { createRouteGuard } from "../qa-engine/src/contexts/test-execution/application/index.ts";
-import { PlaywrightAgentBrowserHost } from "../qa-engine/src/contexts/test-execution/infrastructure/agent-browser/playwright-agent-browser.host.ts";
-import { SandboxedChromiumLauncher } from "../qa-engine/src/contexts/test-execution/infrastructure/agent-browser/chromium-sandbox.launcher.ts";
-import { loadPlaywrightChromium } from "../qa-engine/src/contexts/test-execution/infrastructure/agent-browser/playwright-core.loader.ts";
+import { ProcessKillAdapter } from "../engine/src/shared-infrastructure/process-sandbox/process-kill.adapter.ts";
+import { resolveSandbox } from "../engine/src/shared-infrastructure/process-sandbox/sandbox.ts";
+import { createRouteGuard } from "../engine/src/contexts/test-execution/application/index.ts";
+import { PlaywrightAgentBrowserHost } from "../engine/src/contexts/test-execution/infrastructure/agent-browser/playwright-agent-browser.host.ts";
+import { SandboxedChromiumLauncher } from "../engine/src/contexts/test-execution/infrastructure/agent-browser/chromium-sandbox.launcher.ts";
+import { loadPlaywrightChromium } from "../engine/src/contexts/test-execution/infrastructure/agent-browser/playwright-core.loader.ts";
 import type { BlockedRequest } from "@contexts/test-execution/application/index.ts";
 
 const SESSION_VALUE = "sess-9f3a1c7e";
