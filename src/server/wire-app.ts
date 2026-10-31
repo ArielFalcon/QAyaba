@@ -1,7 +1,6 @@
 
 import { appLogger, logLine } from "../integrations/redacting-logger";
 import { installProcessLogger } from "@kernel/ports/process-logger";
-import { PendingChangeSets } from "./pending-change-sets";
 import type { IncomingMessage } from "node:http";
 import { join } from "node:path";
 import { qayabaDataDir, qayabaRoot } from "../paths";
@@ -35,7 +34,7 @@ import { buildRunViewExtras, defaultRunViewDeps } from "./run-view";
 import { enqueueTrackedRun, enqueueDoorRun, type RunRequest, enqueueContextMapRun, enqueueLoginBootstrapRun, cancelTrackedRun, finalizeInterruptedRuns, type RunnerDeps } from "./runner";
 import { codeGraphFor } from "./engine-root";
 import { appAuthDir, appSuiteStoreDir, createRunEngineFactory, resolveCodeSandbox, resolveCoordinationTelemetryPath } from "./run-engine-factory";
-import { longestRunTimeBudgetMs, type ContextHealRunRequest } from "@contexts/run-orchestration/application/index";
+import { PendingChangeSets, longestRunTimeBudgetMs, type ContextHealRunRequest } from "@contexts/run-orchestration/application/index";
 import { egressGateFor } from "./egress-wiring";
 import { SandboxedBinaryRunnerAdapter } from "../../qa-engine/src/shared-infrastructure/process-sandbox/sandboxed-binary-runner.adapter";
 import { ProcessKillAdapter } from "../../qa-engine/src/shared-infrastructure/process-sandbox/process-kill.adapter";
@@ -307,7 +306,7 @@ export function wireApp(settingsStore: SettingsStore): WiredApp {
    * onboarding mirror-race guard — so no path can skip parking while onboarding provisions mirrors.
    * Built at call time: engineFactory and onboardingJob are assigned later in this module.
    */
-  /* The change sets of the runs waiting in the queue: a push of an app that lands while one of its runs waits joins it (src/server/pending-change-sets.ts). */
+  /* The change sets of the runs waiting in the queue: a push of an app that lands while one of its runs waits joins it (run-orchestration's PendingChangeSets). */
   const pendingChangeSets = new PendingChangeSets();
 
   function runnerDeps(): RunnerDeps {

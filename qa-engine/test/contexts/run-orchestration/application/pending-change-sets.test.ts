@@ -1,7 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { PendingChangeSets, isCoalescible, type DeclaredRepos } from "./pending-change-sets";
-import type { RunRequest } from "./runner";
+import { PendingChangeSets, declaredReposOf, declaresRepo, isCoalescible, type DeclaredRepos, type PushRequest } from "@contexts/run-orchestration/application/index.ts";
+
+type RunRequest = PushRequest & { app: string; target: "e2e" };
 
 const APP: DeclaredRepos = { app: "demo", primary: "org/front", services: ["org/back", "org/billing"] };
 const FRONT_REQ: RunRequest = { app: "demo", sha: "f111111", baseSha: "f000000", target: "e2e", mode: "diff", source: "webhook" };
@@ -83,7 +84,8 @@ test("runs of another app or another shadow setting are not joined", () => {
   registered(registry, "run-1", { ...FRONT_REQ, shadow: true });
 
   assert.equal(registry.offer(BACK_REQ, APP, alwaysQueued), undefined, "different shadow");
-  assert.equal(registry.offer({ ...BACK_REQ, shadow: true, app: "other" }, { ...APP, app: "other" }, alwaysQueued), undefined, "different app");
+  const other: RunRequest = { ...BACK_REQ, shadow: true, app: "other" };
+  assert.equal(registry.offer(other, { ...APP, app: "other" }, alwaysQueued), undefined, "different app");
 });
 
 test("a repo the app does not declare is not joined", () => {
@@ -102,11 +104,11 @@ test("only an e2e webhook diff run without a continuation, purpose, guidance or 
     { mode: "context" as const },
     { guidance: "test the form" },
     { parentRunId: "run-0" },
-    { purpose: "login-bootstrap" as RunRequest["purpose"] },
+    { purpose: "login-bootstrap" },
     { commits: 3 },
     { closedLoop: true },
     { agentBrowser: false },
-    { campaign: { id: "c", variant: { arm: "a" }, replicate: 1 } as RunRequest["campaign"] },
+    { campaign: { id: "c", variant: { arm: "a" }, replicate: 1 } },
   ]) {
     assert.equal(isCoalescible({ ...FRONT_REQ, ...refused }), false, JSON.stringify(refused));
   }
@@ -126,4 +128,13 @@ test("an ineligible offer never merges into a queued run", () => {
 
   assert.equal(registry.offer({ ...BACK_REQ, source: "manual" }, APP, alwaysQueued), undefined);
   assert.equal(registry.offer({ ...BACK_REQ, guidance: "x" }, APP, alwaysQueued), undefined);
+});
+
+test("an app declares its own repo and its services, and no other", () => {
+  const declared = declaredReposOf("demo", { repo: "org/front", services: [{ repo: "org/back" }] });
+  assert.deepEqual(declared, { app: "demo", primary: "org/front", services: ["org/back"] });
+  assert.deepEqual(declaredReposOf("demo", { repo: "org/front" }).services, []);
+  assert.equal(declaresRepo(declared, "org/front"), true);
+  assert.equal(declaresRepo(declared, "org/back"), true);
+  assert.equal(declaresRepo(declared, "org/stranger"), false);
 });

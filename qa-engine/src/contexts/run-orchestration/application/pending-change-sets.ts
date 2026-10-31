@@ -7,15 +7,50 @@
  * does when its turn comes; after it the run's set is closed.
  */
 
-import { ChangeSet, type ChangeEntry } from "@contexts/change-analysis/application/index";
-import { Sha } from "@kernel/sha";
-import type { RunRequest } from "./runner";
+import { ChangeSet, type ChangeEntry } from "@contexts/change-analysis/application/index.ts";
+import type { RunMode } from "@kernel/run-mode.ts";
+import { Sha } from "@kernel/sha.ts";
+
+/*
+ * What a push says of the run it asks for: the fields the rules below read. A request that carries more (the shell's run request)
+ * satisfies it; the fields only tested for presence are opaque here.
+ */
+export interface PushRequest {
+  sha: string;
+  baseSha?: string | undefined;
+  commits?: number | undefined;
+  triggerRepo?: string | undefined;
+  shadow?: boolean | undefined;
+  mode: RunMode;
+  source?: string | undefined;
+  trigger?: string | undefined;
+  guidance?: string | undefined;
+  parentRunId?: string | undefined;
+  purpose?: unknown;
+  fixCases?: unknown;
+  previousNamespace?: string | undefined;
+  closedLoop?: boolean | undefined;
+  agentBrowser?: boolean | undefined;
+  grounding?: unknown;
+  campaign?: unknown;
+  captureMode?: unknown;
+}
 
 /* The repos an app declares: the entries of a change set can name no other. */
 export interface DeclaredRepos {
   app: string;
   primary: string;
   services: readonly string[];
+}
+
+/* The repos an app's configuration declares. */
+export function declaredReposOf(app: string, config: { repo: string; services?: readonly { repo: string }[] | undefined }): DeclaredRepos {
+  return { app, primary: config.repo, services: (config.services ?? []).map((s) => s.repo) };
+}
+
+/* Whether the repo is the app's own or one of its declared services. */
+export function declaresRepo(declared: DeclaredRepos, repo: string): boolean {
+  return repo === declared.primary || declared.services.includes(repo);
 }
 
 interface Queued {
@@ -31,7 +66,7 @@ interface Queued {
  * continuation, guided, purposeful, commit-counted or per-run-overridden request, and a campaign run
  * stay a run of their own.
  */
-export function isCoalescible(req: RunRequest): boolean {
+export function isCoalescible(req: PushRequest): boolean {
   return (
     (req.source ?? "webhook") === "webhook" &&
     (req.trigger === undefined || req.trigger === "webhook") &&
@@ -51,7 +86,7 @@ export function isCoalescible(req: RunRequest): boolean {
 }
 
 /* The entry a request is: the repo it pushed, at its head, over the range its base opens (or the commit count it asked for). */
-export function changeEntryOf(req: RunRequest, primaryRepo: string): ChangeEntry {
+export function changeEntryOf(req: PushRequest, primaryRepo: string): ChangeEntry {
   const repo = req.triggerRepo ?? primaryRepo;
   return {
     repo,
@@ -76,16 +111,16 @@ export class PendingChangeSets {
   private readonly queued = new Map<string, Queued>();
 
   /* Records the set of a run that was just queued. A request that cannot share a run is not recorded. */
-  register(runId: string, req: RunRequest, declared: DeclaredRepos): void {
+  register(runId: string, req: PushRequest, declared: DeclaredRepos): void {
     if (!isCoalescible(req)) return;
     this.queued.set(runId, { app: declared.app, shadow: req.shadow, set: ChangeSet.of(declared.app, [changeEntryOf(req, declared.primary)]), joined: false });
   }
 
   /* Joins the push to the latest queued run of its app and returns that run's id; undefined when no queued run can take it. */
-  offer(req: RunRequest, declared: DeclaredRepos, isQueued: (runId: string) => boolean): string | undefined {
+  offer(req: PushRequest, declared: DeclaredRepos, isQueued: (runId: string) => boolean): string | undefined {
     if (!isCoalescible(req)) return undefined;
     const entry = changeEntryOf(req, declared.primary);
-    if (entry.repo !== declared.primary && !declared.services.includes(entry.repo)) return undefined;
+    if (!declaresRepo(declared, entry.repo)) return undefined;
     let target: [string, Queued] | undefined;
     for (const candidate of this.queued) {
       if (candidate[1].app === declared.app && candidate[1].shadow === req.shadow && isQueued(candidate[0])) target = candidate;

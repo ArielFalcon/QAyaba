@@ -13,7 +13,7 @@ import { loadAppConfig, AppConfig } from "../orchestrator/config-loader";
 import { assertUniformCapture, CAMPAIGN_CAPTURE_MODE, requestedCaptureMode, specCountsOf } from "@contexts/evaluation/application/index";
 import { serializablePhases, type RunFactsPatch } from "./persistence/repositories/run.repository";
 import { mergeTurnLimits, primaryLimit, traceFactsOf } from "@kernel/run-trace-facts";
-import { phaseSnapshotOf } from "@contexts/run-orchestration/application/index";
+import { PendingChangeSets, changeEntryOf, declaredReposOf, declaresRepo, isCoalescible, phaseSnapshotOf, type DeclaredRepos } from "@contexts/run-orchestration/application/index";
 import { testDataNamespace } from "../qa/test-data";
 import { RunMode, TestTarget, TriggerSource, QaCase, QaRunResult, engineStatus, type RunChangeEntry } from "../types";
 import { RedactionPortAdapter } from "../orchestrator/sanitizer";
@@ -23,7 +23,6 @@ import type { RunEventStore } from "./run-events";
 import type { RunEventBody } from "@kernel/contract/events";
 import { Sha } from "@kernel/sha";
 import { ChangeSet, anchorProjection, type ChangeEntry } from "@contexts/change-analysis/application/index";
-import { changeEntryOf, isCoalescible, PendingChangeSets, type DeclaredRepos } from "./pending-change-sets";
 import { RUN_PURPOSE, type RunPurpose } from "@kernel/run-mode";
 import { isUntrustedGitTreeError } from "@kernel/domain-error";
 import type { CampaignIdentity } from "../contract/campaign";
@@ -187,9 +186,8 @@ function finalStatusAsAnnounced(status: QaCase["status"]): LiveAnnouncedStatus {
 
 
 function assertTriggerRepoDeclared(appConfig: AppConfig, triggerRepo: string | undefined): void {
-  if (!triggerRepo || triggerRepo === appConfig.repo) return;
-  const declared = appConfig.services?.some((s) => s.repo === triggerRepo);
-  if (!declared) {
+  if (!triggerRepo) return;
+  if (!declaresRepo(declaredReposOf(appConfig.name, appConfig), triggerRepo)) {
     throw new Error(`trigger repo ${triggerRepo} is not a declared service of app ${appConfig.name}`);
   }
 }
@@ -424,7 +422,7 @@ function declaredRepos(req: RunRequest, deps: RunnerDeps): DeclaredRepos | undef
   if (!deps.pendingChangeSets || !isCoalescible(req)) return undefined;
   try {
     const app = (deps.loadApp ?? loadAppConfig)(req.app);
-    return { app: req.app, primary: app.repo, services: (app.services ?? []).map((s) => s.repo) };
+    return declaredReposOf(req.app, app);
   } catch {
     return undefined;
   }

@@ -33,3 +33,5 @@ export { contextMapNeedsRebuild } from "./context-map-rebuild.ts";
 export type { ContextMapRebuildPorts } from "./context-map-rebuild.ts";
 export { agentsOfTurns, configInEffect, recordRunConfig } from "./recorded-run-config.ts";
 export type { RecordedAgent, RecordedAgentTurn, RecordedRunConfig, RunConfigDeclaration, RunConfigEnvironment, RunConfigInEffect, RunConfigRequest, RunFreezeFact } from "./recorded-run-config.ts";
+export { PendingChangeSets, changeEntryOf, declaredReposOf, declaresRepo, isCoalescible } from "./pending-change-sets.ts";
+export type { DeclaredRepos, PushRequest } from "./pending-change-sets.ts";
