@@ -3,13 +3,14 @@
  * commit and snapshot, read as a direction and never as proof. Pure: it reads the scores of the campaign's runs and nothing else.
  *
  * A cycle is a pair: the runs of the campaign that share a commit, a suite snapshot, a replicate number and every variant label but `lessons`, one of
- * them told lessons (`lessons=on`). Runs that pair with nothing make no cycle and a pair with an arm that was not measured is `unproven`.
+ * them told lessons (`lessons=on`). Runs that pair with nothing make no cycle, and a pair with an arm that was not measured or whose signal is ambiguous does not count.
  *
  * Over the pages the learning replicate's lessons cover, improvement is: its data-state failures are lower and its calls-to-green not higher, and no
  * guard (mutants killed, changed lines covered on the final bytes, defects found) is lower. Green never counts: no score of the verdict is read. A pair
  * counts only when a lesson was delivered and at least one replicate shows a data-state failure on those pages or a spec there that needed more than
- * one call; otherwise the trigger did not occur and the cycle repeats. The campaign's verdict is `unproven` unless every run pairs and at least one pair
- * counts; a counted pair without improvement makes it `not-improved`, the kill criterion's case.
+ * one call; otherwise the trigger did not occur and the cycle repeats. Each counted pair is judged on its own: a counted pair without improvement
+ * makes the campaign `not-improved`, the kill criterion's case, else a counted pair makes it `improved`, and it is `unproven` only when no pair counts.
+ * What pairs with nothing and what does not count is listed and decides nothing.
  */
 
 import type { CampaignRun, RunScore } from "./campaign-comparison.ts";
@@ -158,17 +159,18 @@ export function judgeLessonCycle(runs: readonly CampaignRun[]): LessonCycle {
     else unpaired.push(...[...frozen, ...learning].map((m) => m.run.runId));
   }
   const base = { frozenRuns, learningRuns, pairs, unpaired };
+  const note = (pair: CyclePair): string[] => pair.reasons.map((reason) => `${pair.commit} replicate ${pair.replicate}: ${reason}`);
   const unproven = (...why: string[]): LessonCycle => ({ verdict: "unproven", reasons: why, ...base });
 
   if (pairs.length === 0) return unproven(`a cycle needs one frozen and one learning replicate of the same commit and snapshot; the campaign has ${frozenRuns} frozen and ${learningRuns} learning run(s), none of which pair${unpaired.length > 0 ? ` (${unpaired.join(", ")} carry no lesson slice or find no single counterpart)` : ""}`);
+  /* Each counted pair is judged on its own; what pairs with nothing and what cannot be compared is listed and decides nothing. */
   if (unpaired.length > 0) reasons.push(`${unpaired.length} run(s) pair with nothing (no lesson slice, no counterpart of the same commit, snapshot and replicate, or more than one): ${unpaired.join(", ")}`);
-  for (const pair of pairs) if (pair.status === "invalid") reasons.push(...pair.reasons.map((reason) => `${pair.commit} replicate ${pair.replicate}: ${reason}`));
-  if (reasons.length > 0) return unproven(...reasons);
+  for (const pair of pairs) if (pair.status === "invalid") reasons.push(...note(pair));
   const counted = pairs.filter((pair) => pair.status === "improved" || pair.status === "not-improved");
-  if (counted.length === 0) return unproven(...pairs.flatMap((pair) => pair.reasons.map((reason) => `${pair.commit} replicate ${pair.replicate}: ${reason}`)));
+  if (counted.length === 0) return unproven(...reasons, ...pairs.filter((pair) => pair.status === "not-counted").flatMap(note));
   const failed = counted.filter((pair) => pair.status === "not-improved");
-  if (failed.length > 0) return { verdict: "not-improved", reasons: failed.flatMap((pair) => pair.reasons.map((reason) => `${pair.commit} replicate ${pair.replicate}: ${reason}`)), ...base };
-  return { verdict: "improved", reasons: counted.flatMap((pair) => pair.reasons.map((reason) => `${pair.commit} replicate ${pair.replicate}: ${reason}`)), ...base };
+  if (failed.length > 0) return { verdict: "not-improved", reasons: [...failed.flatMap(note), ...reasons], ...base };
+  return { verdict: "improved", reasons: [...counted.flatMap(note), ...reasons], ...base };
 }
 
 const fmt = (n: number | undefined): string => (n === undefined ? "-" : Number.isInteger(n) ? String(n) : n.toFixed(3));

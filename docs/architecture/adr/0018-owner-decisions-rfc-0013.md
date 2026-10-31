@@ -33,6 +33,8 @@ Every recommended answer of RFC-0013 is accepted as written; RFC-0013's status i
 
 Note 2026-10-31 on row 10: the webhook payload does not get a `campaign` field. The decision recorded when T20 landed is that a campaign run comes only through the control API and a webhook run is never a campaign run, so a service-triggered run is never frozen. The row's text above is kept as it was decided; `docs/observability-design.md` states the rule as it stands.
 
+Note 2026-10-31 on rows 7 and 8: the cycle's verdict is read pair by pair. Each counted pair is judged on its own, a counted pair without improvement makes the campaign's verdict `not-improved`, else a counted pair makes it `improved`, and it is `unproven` only when no pair counts; runs that pair with nothing and pairs that cannot be compared are listed and decide nothing.
+
 This settles ADR-0009's two points left to T20 (Q9 and Q10) and ADR-0003's "Not decided here" items on the lesson entity and storage, the stand-ins, the vehicle, "bounded size", the data-state failure, the replicates of "one cycle", "improvement" and the process audit's second admission.
 
 ## What this does not grant

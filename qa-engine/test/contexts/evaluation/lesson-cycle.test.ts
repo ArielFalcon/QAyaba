@@ -120,21 +120,34 @@ test("a spec that needed more than one call is a trigger even when no data-state
   assert.equal(trigger.verdict, "not-improved", "counted, and the failures are not lower (0 against 0)");
 });
 
-test("cycles are pairs: replicates of different commits are never pooled, and an unmeasured replicate of one commit leaves the campaign unproven", () => {
-  /* Two cases equal per case: improved on X; on Y the learning replicate has no slice (graded before grader version 4, or no lessons signal). */
+test("cycles are pairs judged each on its own: runs that pair with nothing or an invalid pair are listed and decide nothing, and no counted pair leaves the campaign unproven", () => {
   const x = [frozen({ commit: "cX" }), learning({ commit: "cX" })];
+  /* Commit Y: its learning run has no slice (graded before grader version 4, or no lessons signal). */
   const y = [frozen({ commit: "cY" }), learning({ commit: "cY", slice: false })];
   const cycle = judgeLessonCycle([...x, ...y]);
-  assert.equal(cycle.verdict, "unproven");
+  assert.equal(cycle.verdict, "improved");
   assert.equal(cycle.pairs.length, 1);
-  assert.equal(cycle.pairs[0]!.status, "improved");
   assert.equal(cycle.unpaired.length, 2, "the unmeasured run and the frozen run of its commit make no cycle");
   assert.match(cycle.reasons.join(), /pair with nothing/);
+  assert.equal(judgeLessonCycle([...y, frozen({ commit: "cZ" }), learning({ commit: "cZ" })]).pairs.length, 1);
+  assert.equal(judgeLessonCycle(y).verdict, "unproven", "no counted pair");
   /* Every pair measured: the pairs decide, each on its own commit. */
   assert.equal(judgeLessonCycle([...x, frozen({ commit: "cY" }), learning({ commit: "cY" })]).verdict, "improved");
   const failing = judgeLessonCycle([...x, frozen({ commit: "cY" }), learning({ commit: "cY", failures: [{ path: "/shops/madrid", count: 3 }] })]);
   assert.equal(failing.verdict, "not-improved");
   assert.match(failing.reasons.join(), /^cY replicate 1:/);
+});
+
+test("a counted pair without improvement decides the campaign whatever else is unpaired or invalid, and an improved one whatever else cannot be paired", () => {
+  const notImproved = [frozen(), learning({ failures: [{ path: "/shops/madrid", count: 3 }] })];
+  const invalidPair = [frozen({ commit: "c2" }), learning({ commit: "c2", failures: null })];
+  const withInvalid = judgeLessonCycle([...notImproved, ...invalidPair]);
+  assert.equal(withInvalid.verdict, "not-improved");
+  assert.equal(withInvalid.pairs.find((p) => p.commit === "c2")!.status, "invalid");
+  assert.match(withInvalid.reasons.join(), /c2 replicate 1: the data-state failures were not measured/, "the invalid pair is still listed");
+  assert.equal(judgeLessonCycle([...notImproved, frozen({ replicate: 2 })]).verdict, "not-improved", "an extra frozen replicate");
+  assert.equal(judgeLessonCycle([frozen(), learning(), learning({ snapshot: "snap-2" })]).verdict, "improved", "a continuation with another digest pairs with nothing");
+  assert.equal(judgeLessonCycle([frozen(), learning(), learning({ snapshot: "snap-2" })]).unpaired.length, 1);
 });
 
 test("runs pair only on the same commit, snapshot, replicate and every other label; several runs for one arm of a pair make no cycle", () => {

@@ -533,9 +533,11 @@ template covers the pages that fill it): `data_state_failures` there (the failed
 `run_spec` calls that read DEV's data differently from the pack) and `calls_to_green` of the specs whose flow was given those pages. A pair is **improved**
 when the learning replicate's failures there are lower and its calls not higher and no guard (`mutation_kill_rate`, `change_coverage_ratio`,
 `defect_found`) is lower; green is never read. A pair **counts** only when a lesson was delivered and a replicate shows a data-state failure on those pages or
-a spec there that needed more than one call. The campaign's verdict is **unproven** (the cycle does not count and repeats) when a run pairs with nothing, a
-pair has an arm that was not measured (no slice, failures unmeasured, a guard scored in one replicate only or by two grader versions) or no pair counts;
-otherwise a counted pair without improvement makes it **not improved** and any other counted set **improved**. The per-run scores `lessons_delivered`,
+a spec there that needed more than one call. Each counted pair is judged on its own: any counted pair
+without improvement makes the campaign's verdict **not improved**, else a counted pair makes it **improved**, and it is **unproven** (the cycle does not count
+and repeats) only when no pair counts. A run that pairs with nothing (no slice, no single counterpart of the same commit, snapshot and replicate) and a pair
+that cannot be compared (an arm not measured, a guard scored in one replicate only or by two grader versions) are listed in the report and decide nothing.
+The per-run scores `lessons_delivered`,
 `data_state_failures` (over every page) and `calls_to_green` (over every spec) stay as descriptive figures. Runs graded before grader version 4 carry no slice
 and pair with nothing, so a comparison across that point states the epoch break.
 
