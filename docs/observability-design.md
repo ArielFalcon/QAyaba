@@ -211,6 +211,8 @@ producer instead of being its child.
   the HTTP request span.
 - The wait is an **attribute on the root**, not a span that pre-dates it. Waits up to the 6 min
   before a run is dequeued stay visible without distorting the run's own duration.
+- What the run does after it is dequeued and before the engine's first phase is **not** left as a blank in the root: each
+  piece is a `qayaba.stage.<name>` child span (§4.2, "Stages").
 - The trigger kind is a **new `RunRequest.trigger`** field: `webhook | api | cli | campaign | continuation | context | login-bootstrap`.
   Today `source` is only `webhook | manual`, and API, webhook and campaign runs cannot be told apart.
 - **Cancellation** ends the root with status UNSET and `qayaba.run.cancelled=true`. An operator
@@ -249,6 +251,11 @@ The design uses a **phase cursor** instead, a small domain object owned by the u
 
 ```
 qayaba.run
+├─ qayaba.stage.onboarding_wait   only when the run parked behind an onboarding job; as long as it waited
+├─ qayaba.stage.context_map       the question whether the context map describes the commit, and the context run it orders
+├─ qayaba.stage.config            the app's configuration loaded, shadow resolved, the effective configuration recorded
+├─ qayaba.stage.engine_build      the engine assembled for this run (`createRunEngineFactory`)
+├─ qayaba.stage.sandbox_open      the run's sandbox scope opened: orphans of the sandbox uid reaped, the egress filter prepared, the mirrors sealed, the work dir made
 ├─ qayaba.phase.gate              qayaba.served_version.state: undeclared | unreadable | equal | behind | ahead | unrelated
 ├─ qayaba.phase.workspace         checkout, mirror, index sync
 ├─ qayaba.phase.classify          action, tier

@@ -309,6 +309,55 @@ test("a child started while a phase is open is a child of that phase, in the sam
   }
 });
 
+test("the sandbox scope a run opens and closes is a stage of the run, so its time is not left unexplained", async () => {
+  const h = traceHarness();
+  const scope: RunScope = { runId: input.runId, workDir: "/tmp/none", egress: { dev: [], install: [] }, report: newSandboxReport() };
+  const execScope = {
+    ...ambientExecScope,
+    open: async () => {
+      h.clock.advance(900);
+      return { run: <T>(fn: () => T): T => withExecScope(scope, fn), close: () => { h.clock.advance(250); } };
+    },
+  };
+  const useCase = new RunQaUseCase({ ...baseDeps(h.clock), telemetry: h.telemetry, execScope });
+
+  const { result } = await runUnderRoot(h, useCase);
+
+  assert.equal(result?.gateSignals.furthestPhase, "learn");
+  const root = h.only("qayaba.run");
+  const ms = (t: [number, number]): number => t[0] * 1000 + t[1] / 1e6;
+  const open = h.only("qayaba.stage.sandbox_open");
+  const close = h.only("qayaba.stage.sandbox_close");
+  assert.equal(open.parentSpanContext?.spanId, root.spanContext().spanId);
+  assert.equal(close.parentSpanContext?.spanId, root.spanContext().spanId);
+  assert.equal(ms(open.endTime) - ms(open.startTime), 900);
+  assert.equal(ms(close.endTime) - ms(close.startTime), 250);
+  assert.ok(ms(open.endTime) <= ms(h.only("qayaba.phase.gate").startTime), "the scope is open before the first phase");
+  assert.ok(ms(close.startTime) >= ms(h.only("qayaba.phase.learn").endTime), "the scope closes after the last phase");
+  assert.deepEqual(h.unended(), []);
+  assert.deepEqual(h.orphans(), []);
+});
+
+test("the teardown after the last phase (the coordinated pass, the closed loop, the browser) is a stage of every run, whatever its verdict", async () => {
+  for (const overrides of [undefined, { classify: async () => ({ action: "skip" as const, reason: "docs-only commit", diff: "" }) }]) {
+    const h = traceHarness();
+    await runUnderRoot(h, useCaseWith(h.telemetry, h.clock, overrides));
+    const teardown = h.only("qayaba.stage.teardown");
+    const ms = (t: [number, number]): number => t[0] * 1000 + t[1] / 1e6;
+    const lastPhaseEnd = Math.max(...h.spans().filter((s) => s.name.startsWith("qayaba.phase.")).map((s) => ms(s.endTime)));
+    assert.equal(teardown.parentSpanContext?.spanId, h.only("qayaba.run").spanContext().spanId);
+    assert.ok(ms(teardown.startTime) >= lastPhaseEnd, "it starts after the last phase");
+    assert.deepEqual(h.unended(), []);
+  }
+});
+
+test("a run with no sandbox scope has no sandbox stage: there is no work to explain", async () => {
+  const h = traceHarness();
+  await runUnderRoot(h, useCaseWith(h.telemetry, h.clock));
+  assert.deepEqual(h.named("qayaba.stage.sandbox_open"), []);
+  assert.deepEqual(h.named("qayaba.stage.sandbox_close"), []);
+});
+
 test("a run deadline that ends a run after generation delivered keeps the generation end and names the deadline as the limit", async () => {
   const h = traceHarness();
   const deps = baseDeps(h.clock);

@@ -165,6 +165,82 @@ test("the time a run parked for onboarding is on the root", async () => {
   assert.equal(attr(h.only("qayaba.run"), "qayaba.onboarding.wait_ms"), 10_000);
 });
 
+const msOf = (t: [number, number]): number => t[0] * 1000 + t[1] / 1e6;
+const lastedMs = (span: { startTime: [number, number]; endTime: [number, number] }): number => msOf(span.endTime) - msOf(span.startTime);
+
+test("the work a run does before its engine starts is a child span of the root, one per stage, in order, on the run's clock", async () => {
+  const h = traceHarness();
+  const queue = new JobQueue();
+  const app = uniqueApp();
+  let engineStartedAt = 0;
+  const port: RunPipelinePort = {
+    run: async (input) => {
+      engineStartedAt = h.clock.now();
+      h.telemetry.startSpan("qayaba.phase.gate").end();
+      return outcomeOf(input);
+    },
+  };
+  enqueueTrackedRun(queue, request(app), {
+    ...deps(h, port),
+    loadApp: (name) => { h.clock.advance(120); return cfg(name); },
+    engineFactory: () => { h.clock.advance(300); return port; },
+  });
+  await queue.drain();
+
+  const root = h.only("qayaba.run");
+  const stages = h.spans().filter((s) => s.name.startsWith("qayaba.stage."));
+  assert.deepEqual(stages.map((s) => s.name), ["qayaba.stage.context_map", "qayaba.stage.config", "qayaba.stage.engine_build"]);
+  for (const stage of stages) assert.equal(stage.parentSpanContext?.spanId, root.spanContext().spanId, stage.name);
+  assert.equal(lastedMs(h.only("qayaba.stage.config")), 120);
+  assert.equal(lastedMs(h.only("qayaba.stage.engine_build")), 300);
+  assert.ok(msOf(h.only("qayaba.stage.engine_build").endTime) <= engineStartedAt, "the build ends before the engine starts");
+  assert.deepEqual(h.unended(), []);
+});
+
+test("a run parked for onboarding says so as a stage of its own, as long as it waited", async () => {
+  const h = traceHarness();
+  const queue = new JobQueue();
+  let polls = 0;
+  enqueueTrackedRun(queue, request(uniqueApp()), deps(h, portReturning(), {
+    isOnboardingActive: () => (polls += 1) <= 2,
+    sleep: async () => { h.clock.advance(5_000); },
+  }));
+  await queue.drain();
+  assert.equal(lastedMs(h.only("qayaba.stage.onboarding_wait")), 10_000);
+});
+
+test("a run that was never parked has no onboarding stage", async () => {
+  const h = traceHarness();
+  const queue = new JobQueue();
+  enqueueTrackedRun(queue, request(uniqueApp()), deps(h, portReturning()));
+  await queue.drain();
+  assert.deepEqual(h.named("qayaba.stage.onboarding_wait"), []);
+});
+
+test("the question whether the context map describes the commit, and the rebuild it orders, are a stage of the run", async () => {
+  const h = traceHarness();
+  const queue = new JobQueue();
+  enqueueTrackedRun(queue, request(uniqueApp()), deps(h, portReturning(), {
+    contextMapNeedsRebuild: async () => { h.clock.advance(700); return false; },
+  }));
+  await queue.drain();
+  assert.equal(lastedMs(h.only("qayaba.stage.context_map")), 700);
+});
+
+test("a stage that fails marks its span as an error and the run still ends as it did before", async () => {
+  const h = traceHarness();
+  const queue = new JobQueue();
+  const app = uniqueApp();
+  const id = enqueueTrackedRun(queue, request(app), {
+    ...deps(h, portReturning()),
+    engineFactory: () => { throw new Error("cannot build the engine"); },
+  });
+  await queue.drain();
+  assert.equal(h.only("qayaba.stage.engine_build").status.code, SpanStatusCode.ERROR);
+  assert.equal(getHistory().runs.getRecord(id)?.verdict, "infra-error");
+  assert.deepEqual(h.unended(), []);
+});
+
 test("a finished run records what it came to on the root and counts as one run", async () => {
   const h = traceHarness();
   const queue = new JobQueue();
@@ -528,6 +604,6 @@ test("with the real bootstrap in local mode, the ledger holds the run's spans un
 
   const rows = getHistory().telemetry.listRunSpans(id);
   const names = rows.map((r) => r.name).sort();
-  assert.deepEqual(names, ["qayaba.phase.gate", "qayaba.run", "qayaba.run.enqueue"]);
+  assert.deepEqual(names, ["qayaba.phase.gate", "qayaba.run", "qayaba.run.enqueue", "qayaba.stage.config", "qayaba.stage.context_map", "qayaba.stage.engine_build"]);
   assert.ok(rows.every((r) => r.endNs !== null));
 });

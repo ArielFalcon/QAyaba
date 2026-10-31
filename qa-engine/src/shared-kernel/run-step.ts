@@ -33,3 +33,24 @@ export const RUN_PHASES = [
 ] as const;
 
 export type RunPhase = (typeof RUN_PHASES)[number];
+
+/**
+ * The stretches of a run's wall time that lie outside every phase, each a `qayaba.stage.<name>` child span of the run's root, in the
+ * order they happen. A phase is what the engine's cursor says the run is doing; a stage is the work around it that no phase holds:
+ * the shell's preparation before the engine starts, the sandbox scope the engine opens before its first phase and closes after its
+ * last, and the teardown between the last phase and that close. A reader accounts for a run's time as phases + stages + what no span explains.
+ */
+export const RUN_STAGES = [
+  "onboarding_wait",
+  "context_map",
+  "config",
+  "engine_build",
+  "sandbox_open",
+  "teardown",
+  "sandbox_close",
+] as const;
+
+export type RunStage = (typeof RUN_STAGES)[number];
+
+export const STAGE_SPAN_PREFIX = "qayaba.stage.";
+export const stageSpanName = (stage: RunStage): string => `${STAGE_SPAN_PREFIX}${stage}`;

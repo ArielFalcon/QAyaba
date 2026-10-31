@@ -472,24 +472,30 @@ function trackRun(req: RunRequest, deps: RunnerDeps, captureMode: CaptureMode, w
       const waitStart = Date.now();
       const parkedAt = trace.now();
       let parkLogged = false;
-      while (isOnboardingActive()) {
-        /*
-         * Park visibility: without this line an operator sees status "running" with no progress
-         * and no run.started event for up to the wait ceiling — say WHY, once.
-         */
-        if (!parkLogged) {
-          parkLogged = true;
-          appLogger.info(`[qa] run parked: onboarding job active — waiting before mirror work (${req.app}@${req.sha})`);
+      let parkedStage: { end(): void } | undefined;
+      try {
+        while (isOnboardingActive()) {
+          /*
+           * Park visibility: without this line an operator sees status "running" with no progress
+           * and no run.started event for up to the wait ceiling — say WHY, once.
+           */
+          if (!parkLogged) {
+            parkLogged = true;
+            parkedStage = trace.openStage("onboarding_wait");
+            appLogger.info(`[qa] run parked: onboarding job active — waiting before mirror work (${req.app}@${req.sha})`);
+          }
+          const step = onboardingWaitStep(signal.aborted, Date.now() - waitStart, onboardingWaitMaxMs);
+          if (step === "cancelled") break;  /* an operator cancel during the wait — handled below */
+          if (step === "give-up") {
+            appLogger.warn(
+              `[qa] onboarding still active after ${onboardingWaitMaxMs}ms — proceeding anyway to avoid starving the QA pipeline (${req.app}@${req.sha})`,
+            );
+            break;
+          }
+          await waitForOnboarding(onboardingPollMs, { signal });
         }
-        const step = onboardingWaitStep(signal.aborted, Date.now() - waitStart, onboardingWaitMaxMs);
-        if (step === "cancelled") break;  /* an operator cancel during the wait — handled below */
-        if (step === "give-up") {
-          appLogger.warn(
-            `[qa] onboarding still active after ${onboardingWaitMaxMs}ms — proceeding anyway to avoid starving the QA pipeline (${req.app}@${req.sha})`,
-          );
-          break;
-        }
-        await waitForOnboarding(onboardingPollMs, { signal });
+      } finally {
+        parkedStage?.end();
       }
       if (parkLogged) trace.onboardingWait(trace.now() - parkedAt);
       if (signal.aborted) {
@@ -502,21 +508,24 @@ function trackRun(req: RunRequest, deps: RunnerDeps, captureMode: CaptureMode, w
         return;
       }
 
-      await rebuildContextMapFirst(req, record.id, deps, signal);
+      await trace.stage("context_map", () => rebuildContextMapFirst(req, record.id, deps, signal));
       if (signal.aborted) {
         appLogger.info(`[qa] skipping ${req.app}@${req.sha} — cancelled while its context map was rebuilt`);
         cancelledTrace(record.id, trace);
         return;
       }
 
-      const appConfig = loadApp(req.app);
-      deps.runEvents?.publish(record.id, { type: "run.started", app: req.app, sha: req.sha, mode: req.mode, target: req.target });
-      /* Runtime shadow override from the TUI/API takes precedence over the YAML config. */
-      if (req.shadow !== undefined) {
-        appConfig.qa.shadow = req.shadow;
-      }
-      if (appConfig.qa.shadow !== undefined) trace.shadow(appConfig.qa.shadow);
-      const resolvedRunConfig = recordRunConfig(record.id, appConfig, req, captureMode, runConfigEnv, trace);
+      /* The run's configuration, resolved and recorded on the run and on its trace root: one stage, so loading it is not time before the engine nobody can account for. */
+      const { appConfig, resolvedRunConfig } = trace.stage("config", () => {
+        const loaded = loadApp(req.app);
+        deps.runEvents?.publish(record.id, { type: "run.started", app: req.app, sha: req.sha, mode: req.mode, target: req.target });
+        /* Runtime shadow override from the TUI/API takes precedence over the YAML config. */
+        if (req.shadow !== undefined) {
+          loaded.qa.shadow = req.shadow;
+        }
+        if (loaded.qa.shadow !== undefined) trace.shadow(loaded.qa.shadow);
+        return { appConfig: loaded, resolvedRunConfig: recordRunConfig(record.id, loaded, req, captureMode, runConfigEnv, trace) };
+      });
 
       if (!deps.engineFactory) {
         throw new Error(
@@ -534,8 +543,8 @@ function trackRun(req: RunRequest, deps: RunnerDeps, captureMode: CaptureMode, w
       const liveAnnounced = new Map<string, LiveAnnouncedStatus>();
       const observer = buildRunObserver(record.id, deps.runEvents, liveAnnounced);
       const run = await runViaEngine(
-
-        deps.engineFactory(
+        /* Building the engine for this run is work of its own, before the engine's first phase. */
+        trace.stage("engine_build", () => deps.engineFactory!(
           appConfig,
           runNamespace,
           {
@@ -548,7 +557,7 @@ function trackRun(req: RunRequest, deps: RunnerDeps, captureMode: CaptureMode, w
             freeze: decideRunFreeze(req) },
           observer,
           previousNamespace,
-        ),
+        )),
         req,
         record.id,
         signal,

@@ -18,7 +18,8 @@ import { redactThenBound } from "../../../shared-kernel/redact-then-bound.ts";
 import type { ExecScopePort } from "../../../shared-kernel/ports/exec-scope.port.ts";
 import type { AuthSession } from "@contexts/app-catalog/application/index.ts";
 import { GENERATION_END } from "@kernel/generation-end.ts";
-import { type RunPhase } from "@kernel/run-step.ts";
+import { type RunPhase, type RunStage } from "@kernel/run-step.ts";
+import { traceStage } from "./run-stage-spans.ts";
 import { RunPhaseCursor, recordPhaseSnapshot, type PhaseClock } from "../domain/run-phase-cursor.ts";
 import { PhaseSpans } from "./run-phase-spans.ts";
 import { runFlow, type FlowHooks } from "./run-flow/run-flow.ts";
@@ -88,7 +89,7 @@ export class RunQaUseCase {
     let sandbox: Awaited<ReturnType<ExecScopePort["open"]>> | undefined;
     const scopes = this.deps.execScope;
     try {
-      sandbox = await scopes?.open({ runId: input.runId });
+      sandbox = scopes ? await this.stage("sandbox_open", () => scopes.open({ runId: input.runId }), secrets) : undefined;
     } catch (err) {
       /* The scope could not be made because the sandbox is not safe to run in (a process of an earlier run still holds the sandbox uid): the run ends E-SANDBOX without executing anything. */
       if (!scopes?.isSandboxUnavailable(err)) throw err;
@@ -104,8 +105,16 @@ export class RunQaUseCase {
     try {
       return await withRunSecretScope(secrets, () => (sandbox ? sandbox.run(() => this.runInScope(input, secrets, signal)) : this.runInScope(input, secrets, signal)));
     } finally {
-      sandbox?.close();
+      if (sandbox) {
+        const opened = sandbox;
+        this.stage("sandbox_close", () => opened.close(), secrets);
+      }
     }
+  }
+
+  /* A stretch of the run that is no phase (RUN_STAGES), as a span under the run's root. */
+  private stage<T>(stage: RunStage, fn: () => T, secrets: RedactionScope): T {
+    return traceStage(this.telemetry, stage, fn, { secrets });
   }
 
   /* The run's trail: its phase cursor and the spans the cursor opens, created before anything runs. */
@@ -146,12 +155,15 @@ export class RunQaUseCase {
       throw err;
     } finally {
       phases.close();
-      await this.closeCoordinatedPass(trail);
-      await this.closeClosedLoop(trail);
-      await this.closeAgentBrowser(trail);
-      this.closeCodeGraphTools(trail);
-      this.closeGeolocation(trail);
-      this.sayDeniedHosts();
+      /* After the last phase and before the sandbox scope closes: what the run still holds open (the coordinated pass, the closed loop, the browser) is closed here, and the stage says how long that took. */
+      await this.stage("teardown", async () => {
+        await this.closeCoordinatedPass(trail);
+        await this.closeClosedLoop(trail);
+        await this.closeAgentBrowser(trail);
+        this.closeCodeGraphTools(trail);
+        this.closeGeolocation(trail);
+        this.sayDeniedHosts();
+      }, secrets);
     }
   }
 

@@ -13,6 +13,8 @@
 import { guardTelemetry } from "@kernel/telemetry/guarded-telemetry.ts";
 import type { SpanHandle, TelemetryClock, TelemetryContext, TelemetryPort } from "@kernel/telemetry/telemetry.port.ts";
 import { RunEnding, factsAttrs, identityAttrs, runLevelLimits, type HostEventListener, type RunFacts, type RunIdentity } from "../domain/run-trace.ts";
+import { traceStage } from "./run-stage-spans.ts";
+import { stageSpanName, type RunStage } from "@kernel/run-step.ts";
 import type { HostEventsPort } from "./ports/host-events.port.ts";
 import type { RunConfigInEffect } from "./recorded-run-config.ts";
 
@@ -91,6 +93,17 @@ export class RunTrace {
   /* Runs the engine call under the root. */
   within<T>(fn: () => T): T {
     return this.telemetry.withParent(this.span, fn);
+  }
+
+  /* Runs a stretch of the run that is no phase (RUN_STAGES) as a `qayaba.stage.<name>` child of the root, so the root's time is explained from its first moment. */
+  stage<T>(stage: RunStage, fn: () => T): T {
+    return traceStage(this.telemetry, stage, fn, { parent: this.span });
+  }
+
+  /* A stage that opens only if the run reaches it (a wait it may not need), closed by the caller on every path out: the same `qayaba.stage.<name>` span `stage` makes, opened at the moment the run is in it. */
+  openStage(stage: RunStage): { end(): void } {
+    const span = this.telemetry.startSpan(stageSpanName(stage), { kind: "internal", parent: this.span, startTime: this.clock.now() });
+    return { end: () => span.end(this.clock.now()) };
   }
 
   /* Known once the app's config is loaded (a request may leave it to the app's own setting). */
