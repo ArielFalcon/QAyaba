@@ -15,7 +15,7 @@ import { RepoReader } from "../../qa-engine/src/shared-infrastructure/repo-reade
 
 /*
  * Excludes VCS internals and installed deps from the default sweep's directory walk — mirrors
- * getDirectorySize's own recursive-walk precedent (mirror-prune.ts). The walk is the one walk of
+ * getDirectorySize's own recursive-walk precedent (workspace-and-publication's mirror-fs.adapter.ts). The walk is the one walk of
  * the files of a repository (spec-path-confinement): it follows no link, opens no named pipe,
  * looks at no more than a cap of entries and visits them in the order of their names; what it
  * could not walk is said once for the service, naming no file.
