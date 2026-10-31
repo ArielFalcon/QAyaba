@@ -35,7 +35,7 @@ import { enqueueTrackedRun, enqueueDoorRun, type RunRequest, enqueueContextMapRu
 import { codeGraphFor } from "./engine-root";
 import { appAuthDir, appSuiteStoreDir, createRunEngineFactory, resolveCodeSandbox, resolveCoordinationTelemetryPath } from "./run-engine-factory";
 import { PendingChangeSets, longestRunTimeBudgetMs, type ContextHealRunRequest } from "@contexts/run-orchestration/application/index";
-import { egressGateFor } from "./egress-wiring";
+import { egressGateFor } from "../composition/egress-wiring";
 import { SandboxedBinaryRunnerAdapter } from "../../qa-engine/src/shared-infrastructure/process-sandbox/sandboxed-binary-runner.adapter";
 import { ProcessKillAdapter } from "../../qa-engine/src/shared-infrastructure/process-sandbox/process-kill.adapter";
 import { deleteSuiteSnapshots, deleteSuiteStoreDir } from "@contexts/workspace-and-publication/infrastructure/suite-store.adapter";
@@ -81,7 +81,7 @@ import { FsDelegationWorkspaceAdapter } from "@contexts/coordination/infrastruct
 import { DELEGATIONS_DIR } from "../settings/paths";
 import { workdirRoot } from "../integrations/repo-mirror";
 import { sweepOrphanAgentBrowsers } from "../../qa-engine/src/shared-infrastructure/process-sandbox/orphan-browser-sweep";
-import { buildScriptExec, execWorkRoot } from "./exec-sandbox-factory";
+import { buildScriptExec, execWorkRoot } from "../composition/exec-sandbox-factory";
 import { loadOrCreateApiToken } from "../settings/api-token";
 import { shouldLogApiRequest } from "./api-request-log";
 import { suiteHoldsVerifiedLoginFor } from "./login-bootstrap-wiring";

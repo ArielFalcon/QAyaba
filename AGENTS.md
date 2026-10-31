@@ -790,7 +790,7 @@ test, and the verdict is its last action.
   folder; `/app/config` is a link to `.host/config`) and the mirrors at every boot; the sandbox uid reads one mirror at a time
   (the run opens it to its group and seals it again) and writes none of it. A host bind mount may not enforce permissions
   (Docker Desktop's `fakeowner`), so secrets never live in one the sandbox uid can reach and code is mounted read-only. Then
-  `src/server/file-boundary-check.ts` tries, as the sandbox uid, to read the token and `/proc/1/environ`, list the closed
+  `src/entrypoints/file-boundary-check.ts` tries, as the sandbox uid, to read the token and `/proc/1/environ`, list the closed
   directories and write the app root, every mount under it (from `/proc/self/mountinfo`) and the orchestrator's code and config;
   any success, or no result, is a breach: `/api/health` reports the sandbox degraded and `QA_EXEC_SANDBOX=required` refuses agent
   code (`infra-error E-SANDBOX`). Do not give the sandbox uid, or a path it can write, a way to the API token, `/app/data`, the

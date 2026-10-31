@@ -72,7 +72,7 @@ services:
     # so it cannot read the root-owned API token, the auth material, another repo's mirror or the
     # provider keys, tamper with the orchestrator's files, or write the mirror it runs in — see
     # docs/execution-sandbox.md. The entrypoint proves the file side at every boot by trying, as that uid, what it must not do
-    # (src/server/file-boundary-check.ts); a boundary that does not hold refuses agent code (E-SANDBOX). no-new-privileges blocks the dropped child from re-acquiring root via
+    # (src/entrypoints/file-boundary-check.ts); a boundary that does not hold refuses agent code (E-SANDBOX). no-new-privileges blocks the dropped child from re-acquiring root via
     # setuid. NET_ADMIN is for the egress filter (bin/egress-init.sh): an iptables chain that holds the
     # sandbox uid's network to the origins the app declares.
     security_opt:

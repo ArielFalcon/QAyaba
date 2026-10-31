@@ -16,7 +16,7 @@ const ALLOWED: Readonly<Record<string, string>> = {
   "src/cli.ts": "the CLI entry point loads the settings once",
   "src/settings/paths.ts": "the repository root is needed before any settings exist",
   "src/telemetry/logger.ts": "the log directory is needed before any settings exist",
-  "src/server/file-boundary-check.ts": "a process of its own, started as root before the service, that loads no settings so an unrelated invalid variable cannot stop the sandbox check",
+  "src/entrypoints/file-boundary-check.ts": "a process of its own, started as root before the service, that loads no settings so an unrelated invalid variable cannot stop the sandbox check",
 };
 
 const ENV_READ = /\bprocess\s*(?:\.\s*env\b|\[\s*["']env["']\s*\])|\{[^}]*\benv\b[^}]*\}\s*=\s*process\b/;

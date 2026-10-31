@@ -108,7 +108,7 @@ module.exports = {
           "^qa-engine/src/shared-infrastructure/egress/iptables-runner\\.ts$",
           "^src/integrations/repo-mirror\\.ts$",
           "^src/server/run-engine-factory\\.ts$",
-          "^src/server/file-boundary-check\\.ts$",
+          "^src/entrypoints/file-boundary-check\\.ts$",
           "^(src|scripts)/.*\\.test\\.ts$",
           ...TOOLING_SPAWNERS.map((f) => "^" + f.replace(/\./g, "\\.") + "$"),
         ],

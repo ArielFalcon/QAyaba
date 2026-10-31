@@ -54,7 +54,7 @@ export function resolveExecSandboxMode(env: NodeJS.ProcessEnv, platform: NodeJS.
   throw new Error(`QA_EXEC_SANDBOX must be "required" or "best-effort", got ${JSON.stringify(raw)}`);
 }
 
-/* The file boundary as the boot check found it (src/server/file-boundary-check.ts): whether the sandbox uid really cannot read the orchestrator's secrets or write its code and config on this host's filesystems. A permission that a filesystem does not enforce (a bind mount of Docker Desktop's file sharing) is only proven by trying, as that uid. */
+/* The file boundary as the boot check found it (src/entrypoints/file-boundary-check.ts): whether the sandbox uid really cannot read the orchestrator's secrets or write its code and config on this host's filesystems. A permission that a filesystem does not enforce (a bind mount of Docker Desktop's file sharing) is only proven by trying, as that uid. */
 export interface FileBoundaryGate {
   /* What the sandbox uid can reach that it must not, in words; undefined when the boundary holds. */
   breach(): string | undefined;

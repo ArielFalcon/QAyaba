@@ -189,7 +189,7 @@ Every piece of agent-influenced code runs through the exec launcher (`qa-engine/
 - **Egress** (`qa-engine/src/shared-infrastructure/egress/`): each child holds a lease on its profile's origins. The DNS filter and SNI proxy refuse undeclared names (NXDOMAIN or reset, fast). Denied hosts are collected per run (`gateSignals.sandbox.denied`, max 64) and **per login attempt** (`openDeniedWindow`).
   - **A denied host can break a page silently.** Keycloak's form never rendered because its CSS imports Google Fonts.
   - Hosts the app leaves blocked on purpose are declared in `dev.blockedOrigins`, e.g. telemetry such as Sentry.
-- **File boundary.** At boot the entrypoint proves, as the sandbox uid, that it cannot read secrets or write code and config (`src/server/file-boundary-check.ts`, status in `/run/qa-file-boundary.status`). The egress filter's status is in `/run/qa-egress.status`.
+- **File boundary.** At boot the entrypoint proves, as the sandbox uid, that it cannot read secrets or write code and config (`src/entrypoints/file-boundary-check.ts`, status in `/run/qa-file-boundary.status`). The egress filter's status is in `/run/qa-egress.status`.
   - `/api/health` exposes `sandbox: {degraded, isolation, egress, files}`.
   - Docker Desktop bind mounts (`fakeowner`) do not enforce permissions; that is why this proof exists.
 - **Host suspension.** On a laptop, Docker Desktop's VM stops while the Mac sleeps. Wall-clock time jumps and monotonic timers inside the VM do not advance; we observed no logs at all for 32 minutes. **Telemetry must make a suspend visible**, e.g. via event-loop lag, a wall-versus-monotonic gap or heartbeat gaps. Otherwise every long campaign on a laptop produces phantom "hangs".

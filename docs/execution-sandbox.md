@@ -12,7 +12,7 @@ environment, or with open network. This document is how that is enforced and how
 | Boundary | What it stops | Where it lives |
 |---|---|---|
 | **Identity and environment** | Agent code running as root, or seeing the orchestrator's secrets | the launcher: `qa-engine/src/shared-infrastructure/process-sandbox/exec-sandbox.ts`, `exec-env.ts` |
-| **Files** | Reading the API token, the auth material, the app configs, another repo's mirror; writing the orchestrator's code and config or the mirror it runs in | `bin/container-entrypoint.sh`, the boot check (`src/server/file-boundary-check.ts`, `process-sandbox/file-boundary.ts`), `mirror-access.ts`, `exec-workdir.ts` |
+| **Files** | Reading the API token, the auth material, the app configs, another repo's mirror; writing the orchestrator's code and config or the mirror it runs in | `bin/container-entrypoint.sh`, the boot check (`src/entrypoints/file-boundary-check.ts`, `process-sandbox/file-boundary.ts`), `mirror-access.ts`, `exec-workdir.ts` |
 | **Network** | Exfiltrating over the network, reaching the control-plane API or other containers | `qa-engine/src/shared-infrastructure/egress/`, `bin/egress-init.sh` |
 
 A new spawn site cannot bypass the first: `npm run arch:check` fails on any module of `qa-engine/src`, `src` or `scripts/` that
@@ -108,14 +108,14 @@ app config (and so widen `dev.allowedOrigins` for the next run) or rewrite the o
   the orchestrator.
 - **Code is mounted read-only** in the dev override (`src`, `qa-engine`, `scripts`, `web`, `tsconfig.json`, the package files): a
   read-only mount is refused by the kernel for every uid. The orchestrator writes none of them at runtime.
-- **The boundary is proven at every boot.** After setting the modes the entrypoint runs `src/server/file-boundary-check.ts`, which
+- **The boundary is proven at every boot.** After setting the modes the entrypoint runs `src/entrypoints/file-boundary-check.ts`, which
   makes, in a child started as the sandbox uid the way the launcher starts agent code, every attempt that uid must see refused:
   read `/proc/1/environ` and the API token (new and old place), list `data/`, `data/auth`, `config/`, `config/apps`
   and the mirrors volume, and write the app root, **every mount under it found in `/proc/self/mountinfo`** (so a bind added later is
   checked without anyone listing it), the orchestrator's code and config, the status files the service trusts and the directory they sit in (`/run`: a status file is
   absent when the probe runs, so who may create it is who may write there). A write is tried
   by creating a file in a directory (removed again) or by opening a file for writing (no byte changes). The child is the plain
-  script `src/server/file-boundary-probe.mjs`, run with the plain node binary, no loader and an environment of `PATH` alone: a
+  script `src/entrypoints/file-boundary-probe.mjs`, run with the plain node binary, no loader and an environment of `PATH` alone: a
   TypeScript loader's disk cache (`<tmp>/tsx-<uid>`) is writable by the sandbox uid, survives restarts and is loaded unvalidated,
   so a probe that ran through it could be forged to report everything refused (the entrypoint also removes that cache at every
   boot). The child reports only each call's error code; the orchestrator judges the report and leaves `ok` or `breach: <what>` in `QA_FILE_BOUNDARY_STATUS_FILE` (default

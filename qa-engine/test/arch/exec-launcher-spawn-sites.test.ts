@@ -96,7 +96,7 @@ test("the shell's three named sites and its test files may import child_process"
   const { ok, output } = inSyntheticTree({
     "src/integrations/repo-mirror.ts": spawning,
     "src/server/run-engine-factory.ts": spawning,
-    "src/server/file-boundary-check.ts": spawning,
+    "src/entrypoints/file-boundary-check.ts": spawning,
     "src/server/probe-spawn.test.ts": spawning,
   });
   assert.equal(ok, true, output);

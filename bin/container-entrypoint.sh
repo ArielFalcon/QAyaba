@@ -16,7 +16,7 @@
 #                      for its length (mirror-access.ts) and closes it again.
 # /proc/1/environ is root-only (0400) and so unreadable once a child has dropped to the sandbox uid.
 #
-# Then the modes are PROVEN, not assumed: src/server/file-boundary-check.ts tries, as the sandbox uid, to read the secrets,
+# Then the modes are PROVEN, not assumed: src/entrypoints/file-boundary-check.ts tries, as the sandbox uid, to read the secrets,
 # list the closed directories and write the app root, every mount under it and the orchestrator's code and config, and leaves
 # `ok` or `breach: <what>` in QA_FILE_BOUNDARY_STATUS_FILE. A breach (or no status at all) makes the service refuse agent code
 # under QA_EXEC_SANDBOX=required (E-SANDBOX) and /api/health report the sandbox degraded. The smoke test
@@ -68,8 +68,8 @@ rm -rf "${TMPDIR:-/tmp}/tsx-$SANDBOX_UID"
 # boot of the same container is removed first, so a check that does not run leaves no status, which the service never trusts.
 FILE_BOUNDARY_STATUS="${QA_FILE_BOUNDARY_STATUS_FILE:-/run/qa-file-boundary.status}"
 rm -f "$FILE_BOUNDARY_STATUS"
-if [ -f "$APP/src/server/file-boundary-check.ts" ] && [ -x "$APP/node_modules/.bin/tsx" ]; then
-  (cd "$APP" && QAYABA_ROOT="$APP" "$APP/node_modules/.bin/tsx" src/server/file-boundary-check.ts) \
+if [ -f "$APP/src/entrypoints/file-boundary-check.ts" ] && [ -x "$APP/node_modules/.bin/tsx" ]; then
+  (cd "$APP" && QAYABA_ROOT="$APP" "$APP/node_modules/.bin/tsx" src/entrypoints/file-boundary-check.ts) \
     || echo "[qa] the file boundary does NOT hold (see above); runs that execute agent code follow QA_EXEC_SANDBOX=${QA_EXEC_SANDBOX:-required}" >&2
 fi
 

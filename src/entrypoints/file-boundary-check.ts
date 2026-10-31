@@ -9,13 +9,13 @@
  * QA_FILE_BOUNDARY_STATUS_FILE (default /run/qa-file-boundary.status). The service never trusts a missing status: the launcher
  * then refuses agent code under QA_EXEC_SANDBOX=required (E-SANDBOX) and /api/health says why.
  *
- * The probing child is src/server/file-boundary-probe.mjs, started with the plain node binary and no loader: a TypeScript loader
+ * The probing child is src/entrypoints/file-boundary-probe.mjs, started with the plain node binary and no loader: a TypeScript loader
  * keeps its transforms under the temporary directory (tsx-<uid>), which the sandbox uid can write and which survives restarts, and
  * loads what it finds there unvalidated, so earlier agent code could forge a probe that reports everything refused. The child's
  * environment is PATH alone, so it reads no temporary directory, hook or option an earlier run could have prepared.
  *
  * Exit 0 when the boundary holds, 1 when it does not; the entrypoint starts the service either way.
- *   tsx src/server/file-boundary-check.ts            the check (root)
+ *   tsx src/entrypoints/file-boundary-check.ts            the check (root)
  */
 
 import { appLogger } from "../telemetry/redacting-logger";
@@ -36,7 +36,7 @@ import {
 } from "../../qa-engine/src/shared-infrastructure/process-sandbox/file-boundary";
 import { resolveSandbox, type Sandbox } from "../../qa-engine/src/shared-infrastructure/process-sandbox/sandbox";
 import { qayabaRoot } from "../settings/paths";
-import { fileBoundaryLayout, fileBoundaryStatusFile } from "./file-boundary";
+import { fileBoundaryLayout, fileBoundaryStatusFile } from "../composition/file-boundary";
 
 const PROBE_SCRIPT = join(dirname(fileURLToPath(import.meta.url)), "file-boundary-probe.mjs");
 const PROBE_TIMEOUT_MS = 60_000;

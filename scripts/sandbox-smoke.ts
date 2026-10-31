@@ -58,8 +58,8 @@ async function main(): Promise<number> {
   const undeclared = env.QA_SMOKE_UNDECLARED || "https://example.org";
 
   const { resolveCodeSandbox, buildSetupAdapter } = await import("../src/server/run-engine-factory.ts");
-  const { buildExecWiring } = await import("../src/server/exec-sandbox-factory.ts");
-  const { egressGateFor, loadRegistryGroups } = await import("../src/server/egress-wiring.ts");
+  const { buildExecWiring } = await import("../src/composition/exec-sandbox-factory.ts");
+  const { egressGateFor, loadRegistryGroups } = await import("../src/composition/egress-wiring.ts");
   const { resolveRunOrigins } = await import("@contexts/test-execution/application/index.ts");
   const { qayabaRoot } = await import("../src/settings/paths.ts");
   const { workdirRoot } = await import("../src/integrations/repo-mirror.ts");

@@ -1,5 +1,5 @@
 /*
- * The probing child of the boot check (src/server/file-boundary-check.ts), run as the sandbox uid.
+ * The probing child of the boot check (src/entrypoints/file-boundary-check.ts), run as the sandbox uid.
  *
  * It is plain JavaScript on purpose and the parent starts it with no loader: a TypeScript loader keeps its transforms in a cache
  * under the temporary directory, which this uid can write and which survives restarts, and loads what it finds there without
