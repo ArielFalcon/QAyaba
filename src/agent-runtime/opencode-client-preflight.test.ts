@@ -12,11 +12,11 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { defaultAgentDeps } from "../../integrations/opencode-client";
+import { defaultAgentDeps } from "./opencode-client";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const OPENCODE_CLIENT_PATH = join(HERE, "..", "..", "integrations", "opencode-client.ts");
-const AGENT_TRANSPORT_POLICY_PATH = join(HERE, "..", "..", "..", "qa-engine", "src", "contexts", "generation", "infrastructure", "agent-transport-policy.ts");
+const OPENCODE_CLIENT_PATH = join(HERE, "opencode-client.ts");
+const AGENT_TRANSPORT_POLICY_PATH = join(HERE, "..", "..", "qa-engine", "src", "contexts", "generation", "infrastructure", "agent-transport-policy.ts");
 
 test("pre-flight: defaultAgentDeps is still exported as a zero-arg async factory", () => {
   assert.equal(typeof defaultAgentDeps, "function");

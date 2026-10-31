@@ -16,7 +16,7 @@ import { SERENA_WRITE_TOOL_NAMES } from "@contexts/generation/application/index"
 import { callEfficiencyTracker } from "@contexts/generation/infrastructure/sse/call-efficiency-tracker";
 import { agentTurnTraces } from "@contexts/generation/infrastructure/telemetry/turn-trace-registry";
 
-import { enforcedStepLimit } from "../agent-runtime/step-limit";
+import { enforcedStepLimit } from "./step-limit";
 import { openCodeServerAuth } from "./opencode-server-auth";
 import { AGENT_BROWSER_AGENTS, GEOLOCATION_AGENTS } from "@contexts/test-execution/application/index";
 import { CODE_GRAPH_AGENTS } from "@kernel/code-graph-tools";
@@ -37,7 +37,7 @@ export type { LiveActivity };
 
 /* Re-export so control-plane importers keep resolving extractJsonObjects/parseVerdict here. */
 import { extractJsonObjects, parseVerdict } from "@contexts/generation/application/index";
-import { causeChain } from "../util/net";
+import { causeChain } from "./net";
 export { extractJsonObjects, parseVerdict };
 
 import {
@@ -723,7 +723,7 @@ export function answeredFrom(info: { modelID?: unknown; providerID?: unknown; fi
 /**
  * The limit of a prompt that states none of its own: the generator's budget or the reviewer's, whichever is longer, plus
  * headroom. It is a policy limit, enforced by the turn itself (the prompt is aborted on the server when it runs out); the
- * agent transport holds no deadline of its own (src/util/net.ts), so a turn given a longer limit keeps it.
+ * agent transport holds no deadline of its own (src/agent-runtime/net.ts), so a turn given a longer limit keeps it.
  */
 export function agentPromptCapMs(): number {
   const generatorMax = activeSettings().agent.timeoutMs ?? MAX_AGENT_TIMEOUT_MS;

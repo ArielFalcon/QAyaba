@@ -397,7 +397,7 @@ test("the step-limit preset mutates the resolver, the lines that read, judge and
     "src/agent-runtime/step-limit.ts",
     "src/agent-runtime/opencode-strategy.ts",
     "src/agent-runtime/facades.ts",
-    "src/integrations/opencode-client.ts",
+    "src/agent-runtime/opencode-client.ts",
     "src/server/run-engine-factory.ts",
   ]);
   for (const module of ["step-limit", "opencode-strategy", "facades", "opencode-agents", "opencode-client", "run-engine-factory.step-limit"]) {

@@ -15,7 +15,7 @@ import { ConfinedPathError } from "../../qa-engine/src/shared-infrastructure/spe
 import { type RunHistorySqliteAdapterDeps, SqliteRunHistoryAdapter } from "../persistence/run-history-sqlite-adapter";
 import { buildEngineRootDeps, type RunEngineFactoryDeps } from "./run-engine-factory";
 import type { AppConfig } from "../orchestrator/config-loader";
-import type { AgentDeps } from "../integrations/opencode-client";
+import type { AgentDeps } from "../agent-runtime/opencode-client";
 import { AgentRuntimeFacade } from "../agent-runtime/facades";
 import type { AgentFacade, AgentProvider, AgentRuntimeStrategy, StepLimits } from "../agent-runtime/types";
 import type { OpencodeRunInput, ReviewInput } from "@contexts/generation/application/index";

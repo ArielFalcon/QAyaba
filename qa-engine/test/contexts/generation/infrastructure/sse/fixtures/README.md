@@ -5,7 +5,7 @@
 Captured 2026-09-28 from a live `opencode serve` v1.17.7 instance (the `agents`
 container in this repo's own docker-compose stack), via the same
 `@opencode-ai/sdk` `event.subscribe`/`session.prompt` primitives
-`src/integrations/opencode-client.ts` uses. The prompt was a single trivial,
+`src/agent-runtime/opencode-client.ts` uses. The prompt was a single trivial,
 tool-free turn ("Reply with the single word: ack. Do not use any tools.")
 against the `build` agent, run with no other session active.
 

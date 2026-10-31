@@ -55,7 +55,7 @@
   },
   {
     "rule": "dual-mode",
-    "path": "src/server/agent-runtime.test.ts",
+    "path": "src/agent-runtime/agent-runtime.test.ts",
     "contains": "AGENT_RUNTIME_MODE",
     "reason": "Pins that the retired mode variable is not written."
   },

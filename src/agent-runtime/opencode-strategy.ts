@@ -15,9 +15,9 @@ import {
   type AgentDeps,
   type AgentOpenDescriptor,
   type AgentTurnEvent,
-} from "../integrations/opencode-client";
+} from "./opencode-client";
 import type { RunEventBody } from "@kernel/contract/events";
-import type { UsageSnapshot } from "../qa/usage";
+import type { UsageSnapshot } from "./usage";
 import { enforcedStepLimit } from "./step-limit";
 import { activeEnvironment } from "../settings/active";
 import {

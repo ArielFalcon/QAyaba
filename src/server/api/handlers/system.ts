@@ -3,7 +3,7 @@
 import { appLogger } from "../../../telemetry/redacting-logger";
 import { QueueStatusSchema, TelemetryHealthSchema, VersionInfoSchema, type TelemetryHealthView } from "../../../contract/commands";
 import type { TelemetryBackendsHealth } from "../../../telemetry/telemetry-health";
-import { getOpenSessionCount } from "../../../integrations/opencode-client";
+import { getOpenSessionCount } from "../../../agent-runtime/opencode-client";
 import { activeEnvironment } from "../../../settings/active";
 import { describeSandboxHealth } from "../../sandbox-health";
 import { handshake } from "../../version";

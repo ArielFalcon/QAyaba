@@ -44,10 +44,10 @@ import { fsMirrorStore, getDirectorySize } from "@contexts/workspace-and-publica
 import { computeActiveRepoSlugs, repoSlug } from "@contexts/workspace-and-publication/domain/active-repo-slugs";
 import { RESERVED_MIRROR_DIR_NAMES } from "./mirror-prune";
 import { buildArtifactBytesMetrics, type ArtifactSizeCache } from "../telemetry/metrics";
-import { installHttpDispatcher } from "../util/net";
+import { installHttpDispatcher } from "../agent-runtime/net";
 import { resolveRef, defaultMirrorDeps, ensureMirrorAtBranch, getHeadSha } from "../integrations/repo-mirror";
-import { askAssistant, AgentDeps, getOpenSessionCount, defaultAgentDeps, setAgentBrowserGrantLookup, setCodeGraphGrantLookup, setGeolocationGrantLookup } from "../integrations/opencode-client";
-import { createAgentRuntimeManager, logAgentConfigWarnings } from "./agent-runtime";
+import { askAssistant, AgentDeps, getOpenSessionCount, defaultAgentDeps, setAgentBrowserGrantLookup, setCodeGraphGrantLookup, setGeolocationGrantLookup } from "../agent-runtime/opencode-client";
+import { createAgentRuntimeManager, logAgentConfigWarnings } from "../agent-runtime/agent-runtime";
 import { keyPresence, validateAgentRuntimeConfig } from "../agent-runtime/config";
 import { AGENT_NAME_FOR_ROLE } from "../agent-runtime/types";
 import { AgentRuntimeAdapter } from "@contexts/generation/infrastructure/agent-runtime.adapter";
@@ -789,7 +789,7 @@ export function wireApp(settingsStore: SettingsStore): WiredApp {
     onListening: () => {
       /*
        * Make global fetch proxy-aware (HTTP(S)_PROXY/NO_PROXY) from boot, before any GitHub API or
-       * health call. No-op when no proxy is configured. The agent transport has its own dispatcher (src/util/net.ts).
+       * health call. No-op when no proxy is configured. The agent transport has its own dispatcher (src/agent-runtime/net.ts).
        */
       installHttpDispatcher();
       /*

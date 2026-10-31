@@ -3,7 +3,7 @@
 import { HELP_INSTRUCTION, boundQuestion, buildHelpContext, buildRunChatContext, buildRunContext, helpHistoryLine, helpQuestionContext, recentOutcomesContext, runHistoryLine, runQuestionContext, type AssistantTextDeps } from "@contexts/operator-assistant/application/index";
 import { AskResponseSchema } from "../../../contract/commands";
 import { sanitizeText } from "../../../../qa-engine/src/shared-infrastructure/redaction/pattern-redaction.adapter";
-import { activityRouter } from "../../../integrations/opencode-client";
+import { activityRouter } from "../../../agent-runtime/opencode-client";
 import { infraErrorGloss } from "../../../qa/learning/infra-error-gloss";
 import { DEFAULT_HOST } from "../../port";
 import { getHistory } from "../../../persistence/index";

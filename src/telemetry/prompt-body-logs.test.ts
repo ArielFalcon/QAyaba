@@ -3,7 +3,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { LogRecord } from "@opentelemetry/api-logs";
 import { trace } from "@opentelemetry/api";
-import type { AgentDeps } from "../integrations/opencode-client";
+import type { AgentDeps } from "../agent-runtime/opencode-client";
 import type { CaptureMode } from "@kernel/telemetry/capture-mode";
 import { sha256Hex } from "../../qa-engine/src/shared-kernel/content-hash";
 import { MAX_BODY_CHARS, MAX_LINE_BYTES, PromptBodyExporter, chunkBody, splitSections, type TurnBodyIdentity } from "./prompt-body-logs";

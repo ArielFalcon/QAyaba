@@ -1,5 +1,5 @@
 import { appLogger } from "../telemetry/redacting-logger";
-import { defaultEnvStoreFs, applyEnvVars, type EnvStoreFs } from "./env-store";
+import { defaultEnvStoreFs, applyEnvVars, type EnvStoreFs } from "../server/env-store";
 import { RedactionPortAdapter } from "../telemetry/sanitizer";
 import {
   configFromEnv,
@@ -7,9 +7,9 @@ import {
   publicAgentConfig,
   validateAgentRuntimeConfig,
   type PublicAgentConfig,
-} from "../agent-runtime/config";
-import { AgentRuntimeFacade } from "../agent-runtime/facades";
-import { AGENT_PROVIDERS } from "../agent-runtime/types";
+} from "./config";
+import { AgentRuntimeFacade } from "./facades";
+import { AGENT_PROVIDERS } from "./types";
 import type {
   AssignmentTier,
   AgentFacade,
@@ -18,7 +18,7 @@ import type {
   AgentRuntimeConfig,
   AgentRuntimeStrategy,
   RoleAssignment,
-} from "../agent-runtime/types";
+} from "./types";
 import type { AgentConfigUpdate, AgentModelInfo } from "../contract/commands";
 import { activeEnvironment } from "../settings/active";
 

@@ -1,6 +1,6 @@
 import { afterEach, describe, test } from "node:test";
 import assert from "node:assert/strict";
-import { reviewerTimeoutMs, stallMs, agentPromptCapMs } from "../integrations/opencode-client";
+import { reviewerTimeoutMs, stallMs, agentPromptCapMs } from "../agent-runtime/opencode-client";
 import { RedactionPortAdapter } from "../telemetry/sanitizer";
 import { DEFAULT_REVIEWER_TIMEOUT_MS, DEFAULT_STALL_MS } from "./defaults";
 import { activeEnvironment, resetActiveSettingsForTests } from "./active";

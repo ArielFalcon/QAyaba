@@ -1,5 +1,5 @@
-import type { AgentDeps, AgentSession } from "../integrations/opencode-client";
-import type { LiveActivity } from "../integrations/opencode-client";
+import type { AgentDeps, AgentSession } from "./opencode-client";
+import type { LiveActivity } from "./opencode-client";
 import type { RunEventBody } from "@kernel/contract/events";
 import {
   AGENT_ROLES,

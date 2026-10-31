@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { OpenCodeRuntimeStrategy } from "./opencode-strategy";
 import { AGENT_NAME_FOR_ROLE, capabilitiesForRole, roleForAgentName } from "./types";
 import type { AgentRuntimePort } from "@kernel/ports/agent-runtime.port";
-import type { AgentDeps } from "../integrations/opencode-client";
+import type { AgentDeps } from "./opencode-client";
 
 /* Capability policy is expressed ONCE, provider-agnostic; each strategy enforces it with its own
    mechanism (OpenCode tools{} map). The judge must not be able to write.

@@ -110,7 +110,7 @@ Keep the two rigorously separate.
 - **Control plane** (row 7) — `src/server/*` (webhook, queue, API, TUI surface) and `client/`. The control API is a route table
   (`src/server/api/route-table.ts`): each route declares its method, path and `auth`; handlers throw `ApiError` and every
   error answers `{ schemaVersion: 1, error }`; a known path with an unsupported method answers 405.
-- **Provider I/O edges** (rows 6 and 4) — `src/integrations/opencode-client.ts` (raw SDK primitives
+- **Provider I/O edges** (rows 6 and 4) — `src/agent-runtime/opencode-client.ts` (raw SDK primitives
   only) and `src/agent-runtime/*` (provider-agnostic facade + the OpenCode strategy).
 - **Persistence** (rows 6 and 4) — `src/persistence/` (schema, migrations, repositories) behind `getHistory()`, and
   `src/persistence/run-history-sqlite-adapter.ts`.
@@ -740,7 +740,7 @@ test, and the verdict is its last action.
   map gives it, so it carries no `read` block. `agent-tool-surface.test.ts` derives each role's resolved rules from `agents/opencode.json`.
 - **`opencode serve` is never open.** The supervisor always starts it with `OPENCODE_SERVER_PASSWORD` (the value
   compose gives the `agents` and `orchestrator` services, or a random one when unset, with a loud warning), and the
-  orchestrator's clients (`src/integrations/opencode-server-auth.ts`) send it as Basic auth, refuse to be built
+  orchestrator's clients (`src/agent-runtime/opencode-server-auth.ts`) send it as Basic auth, refuse to be built
   without it and throw on a 401. The value is never logged, is scrubbed from untrusted spawns and from supervisor
   responses, and must be identical on both services.
 - **The agents container never holds the test account.** `DEV_TEST_USER`/`DEV_TEST_PASS` are not in its compose
@@ -872,7 +872,7 @@ test, and the verdict is its last action.
   (fields, enums, error responses) and exercises the backend **through the UI**, never the API
   directly.
 - **Long agent turns:** every request to `opencode serve` goes through the agent transport's own dispatcher
-  (`src/util/net.ts`), which has no headers or body deadline: a turn ends only by its own limit or the run's
+  (`src/agent-runtime/net.ts`), which has no headers or body deadline: a turn ends only by its own limit or the run's
   deadline (the prompt is aborted on the server), never by a transport timeout under a limit nobody set.
   The dispatcher is the installed `undici`'s, so the request goes through that undici's own `fetch`: Node's global fetch
   bundles another undici, and a dispatcher of a different version fails every request before it leaves. A request that

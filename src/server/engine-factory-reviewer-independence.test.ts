@@ -2,7 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { buildEngineRootDeps, type RunEngineFactoryDeps } from "./run-engine-factory";
-import type { AgentDeps } from "../integrations/opencode-client";
+import type { AgentDeps } from "../agent-runtime/opencode-client";
 import type { AgentFacade, RoleAssignment } from "../agent-runtime/types";
 import type { AppConfig } from "../orchestrator/config-loader";
 

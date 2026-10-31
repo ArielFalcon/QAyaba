@@ -10,8 +10,8 @@ import { DELEGATIONS_DIR, qayabaDataDir, qayabaRoot } from "../paths";
 import { readFileSync, mkdirSync, writeFileSync, realpathSync, lstatSync, rmSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import type { AppConfig } from "../orchestrator/config-loader";
-import type { AgentDeps } from "../integrations/opencode-client";
-import { reviewerTimeoutMs, agentPromptCapMs, agentConfigFacts, maxStepsFromConfig, setSessionToolDeny, withTimeout } from "../integrations/opencode-client";
+import type { AgentDeps } from "../agent-runtime/opencode-client";
+import { reviewerTimeoutMs, agentPromptCapMs, agentConfigFacts, maxStepsFromConfig, setSessionToolDeny, withTimeout } from "../agent-runtime/opencode-client";
 import { AGENT_NAME_FOR_ROLE, assignmentForRole, type AgentFacade, type AgentRuntimeConfig, type ModelWindows, type StepLimits } from "../agent-runtime/types";
 import { reviewerIndependence } from "../agent-runtime/config";
 import { enforcedStepLimit } from "../agent-runtime/step-limit";
@@ -23,7 +23,7 @@ import {
   registerRunSession,
   unregisterRunSession,
   stallMs,
-} from "../integrations/opencode-client";
+} from "../agent-runtime/opencode-client";
 import type { RunPipelinePort, ObserverPort } from "@contexts/run-orchestration/application/index.ts";
 import {
   RequestContextHeal,

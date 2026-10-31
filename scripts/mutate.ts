@@ -388,9 +388,9 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
       "src/agent-runtime/opencode-strategy.ts@step-limit-read",
       "src/agent-runtime/opencode-strategy.ts@dispose-without-limit",
       "src/agent-runtime/facades.ts@facade-step-limits",
-      "src/integrations/opencode-client.ts@max-steps-from-config-head",
-      "src/integrations/opencode-client.ts#AgentOnTheWire",
-      "src/integrations/opencode-client.ts@list-agent-caps",
+      "src/agent-runtime/opencode-client.ts@max-steps-from-config-head",
+      "src/agent-runtime/opencode-client.ts#AgentOnTheWire",
+      "src/agent-runtime/opencode-client.ts@list-agent-caps",
       /* The factory's per-run memo: the deadline, the role mapping, the one read and its warning. */
       "src/server/run-engine-factory.ts@context-map-compare-fallback",
     ],
@@ -398,8 +398,8 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
       "src/agent-runtime/step-limit.test.ts",
       "src/agent-runtime/opencode-strategy.test.ts",
       "src/agent-runtime/facades.test.ts",
-      "src/integrations/opencode-agents.test.ts",
-      "src/integrations/opencode-client.test.ts",
+      "src/agent-runtime/opencode-agents.test.ts",
+      "src/agent-runtime/opencode-client.test.ts",
       /* Apart from run-engine-factory.test.ts, whose many tests would all run once per mutant. */
       "src/server/run-engine-factory.step-limit.test.ts",
     ],

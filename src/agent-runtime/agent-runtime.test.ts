@@ -1,9 +1,9 @@
 import { test, mock } from "node:test";
 import assert from "node:assert/strict";
 import { createAgentRuntimeManager } from "./agent-runtime";
-import type { EnvStoreFs } from "./env-store";
-import type { AgentProvider, AgentRuntimeStrategy } from "../agent-runtime/types";
-import { providerConfig } from "../agent-runtime/config";
+import type { EnvStoreFs } from "../server/env-store";
+import type { AgentProvider, AgentRuntimeStrategy } from "./types";
+import { providerConfig } from "./config";
 
 function memoryFs(initial = ""): EnvStoreFs & { content: string } {
   return {

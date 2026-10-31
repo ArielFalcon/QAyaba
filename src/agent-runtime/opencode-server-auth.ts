@@ -6,7 +6,7 @@
  */
 
 import { activeEnvironment } from "../settings/active";
-import { agentTransportFetch } from "../util/net";
+import { agentTransportFetch } from "./net";
 
 export const OPENCODE_SERVER_PASSWORD_ENV = "OPENCODE_SERVER_PASSWORD";
 const OPENCODE_SERVER_USER = "opencode";

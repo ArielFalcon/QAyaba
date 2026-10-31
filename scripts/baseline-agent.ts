@@ -926,7 +926,7 @@ export async function defaultDeps(env: Record<string, string | undefined> = proc
   const { readConfinedSpecFile, readConfinedSpecBytes } = await import("../qa-engine/src/shared-infrastructure/spec-path-confinement.ts");
   const { runE2E, createDefaultE2eExecuteDeps, e2eTimeoutMs } = await import("../qa-engine/src/contexts/test-execution/infrastructure/e2e-execution.runner.ts");
   const { ProcessKillAdapter } = await import("../qa-engine/src/shared-infrastructure/process-sandbox/process-kill.adapter.ts");
-  const { installHttpDispatcher } = await import("../src/util/net.ts");
+  const { installHttpDispatcher } = await import("../src/agent-runtime/net.ts");
   installHttpDispatcher();
 
   const script = buildScriptExec(env as NodeJS.ProcessEnv, resolveCodeSandbox(env as NodeJS.ProcessEnv), egressGateFor(env as NodeJS.ProcessEnv, resolveCodeSandbox(env as NodeJS.ProcessEnv)));
@@ -935,7 +935,7 @@ export async function defaultDeps(env: Record<string, string | undefined> = proc
   const git = defaultMirrorDeps;
   const slug = (repo: string): string => repo.replaceAll("/", "__");
   const serveUrl = env.OPENCODE_SERVE_URL ?? "http://agents:4096";
-  const { openCodeServerAuth } = await import("../src/integrations/opencode-server-auth.ts");
+  const { openCodeServerAuth } = await import("../src/agent-runtime/opencode-server-auth.ts");
   const serverAuth = openCodeServerAuth(env);
 
   /* The agent wrote these specs, so they are read only through the confined reader. */
@@ -1154,7 +1154,7 @@ export async function defaultDeps(env: Record<string, string | undefined> = proc
       const { buildAcceptanceHarness } = await import("../src/server/run-engine-factory.ts");
       const { AcceptDeliveredSpecsUseCase } = await import("@contexts/run-orchestration/application/index.ts");
       const { Sha } = await import("@kernel/sha.ts");
-      const { defaultAgentDeps } = await import("../src/integrations/opencode-client.ts");
+      const { defaultAgentDeps } = await import("../src/agent-runtime/opencode-client.ts");
       const full = loadAppConfig(app.name);
       /* The reviewer's sessions are the host's OpenCode sessions, opened only when a review is asked for. */
       const agentDeps = review ? await defaultAgentDeps() : undefined;

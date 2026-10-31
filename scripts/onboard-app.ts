@@ -18,7 +18,7 @@ import { OnboardingService, serializeBoundary, spliceBoundariesBlock, type Onboa
 import type { RepoRef } from "../qa-engine/src/contexts/service-topology/application/index.ts";
 import { LlmProfileProposerAdapter } from "../qa-engine/src/contexts/service-topology/infrastructure/llm-profile-proposer.adapter.ts";
 import { AgentRuntimeAdapter } from "../qa-engine/src/contexts/generation/infrastructure/agent-runtime.adapter.ts";
-import { defaultAgentDeps } from "../src/integrations/opencode-client";
+import { defaultAgentDeps } from "../src/agent-runtime/opencode-client";
 import { AGENT_NAME_FOR_ROLE } from "../src/agent-runtime/types.ts";
 import { appLogger } from "../src/telemetry/redacting-logger.ts";
 import { RedactionPortAdapter } from "../src/telemetry/sanitizer.ts";

@@ -24,7 +24,7 @@ import type { AgentRuntimePort } from "@kernel/ports/agent-runtime.port.ts";
 import { silentLogger } from "@kernel/ports/logger.port.ts";
 import { providerConfig } from "../src/agent-runtime/config.ts";
 import { AGENT_NAME_FOR_ROLE, type AgentRole } from "../src/agent-runtime/types.ts";
-import { askAssistant, type AgentDeps } from "../src/integrations/opencode-client.ts";
+import { askAssistant, type AgentDeps } from "../src/agent-runtime/opencode-client.ts";
 import { buildRunChatContext, buildRunContext, type AssistantTextDeps } from "@contexts/operator-assistant/application/index";
 import { infraErrorGloss } from "../src/qa/learning/infra-error-gloss.ts";
 import { LlmProfileProposerAdapter } from "@contexts/service-topology/infrastructure/llm-profile-proposer.adapter.ts";

@@ -1,4 +1,4 @@
-import { agentConfigFacts, turnModel } from "../integrations/opencode-client";
+import { agentConfigFacts, turnModel } from "./opencode-client";
 import type { DeclaredModels } from "./types";
 
 /* The models a roster file declares; `configPath` names the file (default: the host's). */

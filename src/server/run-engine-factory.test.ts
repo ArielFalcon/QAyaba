@@ -16,7 +16,7 @@ import { createRunSecretScope, withRunSecretScope } from "../../qa-engine/src/sh
 import { JobQueue } from "./queue";
 import { enqueueTrackedRun } from "./runner";
 import type { ArchitectureContext } from "@contexts/generation/application/index.ts";
-import type { AgentDeps } from "../integrations/opencode-client";
+import type { AgentDeps } from "../agent-runtime/opencode-client";
 import { assertTrustedGitTree, defaultMirrorDeps, hardenGitArgs, UntrustedGitTreeError, type MirrorDeps } from "../integrations/repo-mirror";
 import { closeGitDir, GIT_ENV, makeGitlinkRepo, plantNestedRepo, ranPlantedCommand, writeMarkerCommand } from "../../qa-engine/test/shared-infrastructure/process-sandbox/git-fixtures";
 import { SqliteRunHistoryAdapter } from "../persistence/run-history-sqlite-adapter";
@@ -42,9 +42,9 @@ import {
   registerRunSession,
   unregisterRunSession,
   activityRouter,
-} from "../integrations/opencode-client";
+} from "../agent-runtime/opencode-client";
 import { rosterFixturePath } from "../test-support/fixtures/opencode-roster";
-import { setAgentsConfigPath } from "../integrations/opencode-client";
+import { setAgentsConfigPath } from "../agent-runtime/opencode-client";
 import type { RunMode } from "@kernel/run-mode";
 import { getHistory } from "../persistence/index";
 import type { RunFreeze } from "./run-freeze";
@@ -2847,7 +2847,7 @@ test("the factory tells the browser registry about the authoring sessions throug
 test("a sidekick session opened for a flow is told to the run_spec registry with its flow, and the tools its run denied it are denied its prompts until it ends", async () => {
   const { ClosedLoopRegistry } = await import("@contexts/agent-tools/infrastructure/closed-loop-registry");
   const { RunSpecCapability } = await import("@contexts/test-execution/application/index");
-  const { sessionToolDeny } = await import("../integrations/opencode-client");
+  const { sessionToolDeny } = await import("../agent-runtime/opencode-client");
   const registry = new ClosedLoopRegistry();
   const capability = new RunSpecCapability({ runId: "run-flow", limits: { maxCalls: 1, perCallMs: 60_000, maxDevWrites: 1 }, expiresAtMs: Number.MAX_SAFE_INTEGER, now: () => 0, agents: new Set(["qa-author"]) });
   registry.register({ runId: "run-flow", delegationId: "run-flow-cart", capability, call: async () => { throw new Error("not called"); } });
@@ -2862,7 +2862,7 @@ test("a sidekick session opened for a flow is told to the run_spec registry with
 });
 
 test("a session opened with no denied tools installs none", async () => {
-  const { sessionToolDeny } = await import("../integrations/opencode-client");
+  const { sessionToolDeny } = await import("../agent-runtime/opencode-client");
   const deps: AgentDeps = { open: async () => ({ id: "ses-plain-1", prompt: async () => "", dispose: async () => {} }) as never };
   const opened = engineAgentDeps({ getAgentDeps: () => deps });
   await opened.open("qa-author", "/m", { descriptor: { runId: "run-plain", role: "qa-author" } });

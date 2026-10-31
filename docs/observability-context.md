@@ -143,7 +143,7 @@ engine port  →  RunDeadlineRuntime (run-orchestration/infrastructure/run-deadl
                   · primary attempt, then FALLBACK MODEL retry  ← a hidden second attempt on a different model
                   · per-role circuit breaker                    ← recordCircuitFailure
                   · on timeout: abortRun() + recordUnansweredTurn("timeout"|"aborted")
-             →  src/integrations/opencode-client.ts  (HTTP POST /session/:id/message, Basic auth;
+             →  src/agent-runtime/opencode-client.ts  (HTTP POST /session/:id/message, Basic auth;
                   per-prompt `tools` map hides tools; SSE /event stream for live activity)
              →  opencode serve  →  provider (with its OWN retries: "AI_RetryError: Failed after 3 attempts")
 ```

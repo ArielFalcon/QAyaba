@@ -44,12 +44,12 @@ import assert from "node:assert/strict";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import type { AgentConfig } from "@opencode-ai/sdk";
-import { AGENT_NAME_FOR_ROLE, capabilitiesForRole } from "../agent-runtime/types";
+import { AGENT_NAME_FOR_ROLE, capabilitiesForRole } from "./types";
 import { AGENT_BROWSER_TOOLS } from "../../qa-engine/src/shared-kernel/agent-browser";
 import { CODE_GRAPH_AGENTS, CODE_GRAPH_TOOLS } from "../../qa-engine/src/shared-kernel/code-graph-tools";
 import { AGENT_BROWSER_AGENTS, PROBE_REL_DIR } from "../../qa-engine/src/contexts/test-execution/application/index";
 import { NO_TOOLS } from "./opencode-client";
-import type { AgentRole } from "../agent-runtime/types";
+import type { AgentRole } from "./types";
 
 /* The ONLY MCP servers the agents may reach. None of these runs the orchestrator's
    authoritative test execution or carries a git-write capability:

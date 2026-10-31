@@ -1,6 +1,6 @@
 /* The agent facade decorator that hands a turn's prompt and output to the body exporter (prompt-body-logs.ts). It sits outside the turn-span decorator, so the turn's span exists by the time a prompt starts, and it adds no await to the prompt path: the caller's promise is the transport's own, only observed. Without a registered exporter (telemetry off, no log endpoint) it is the identity. */
 
-import type { AgentDeps } from "../integrations/opencode-client";
+import type { AgentDeps } from "../agent-runtime/opencode-client";
 import type { TelemetryContext } from "@kernel/telemetry/telemetry.port";
 import { sha256Hex } from "../../qa-engine/src/shared-kernel/content-hash";
 import { redactByValue } from "../../qa-engine/src/shared-kernel/run-secret-redaction";

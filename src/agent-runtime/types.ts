@@ -1,6 +1,6 @@
-import type { AgentDeps, AgentSession, AgentOpenDescriptor, AgentTurnEvent } from "../integrations/opencode-client";
-import type { LiveActivity } from "../integrations/opencode-client";
-import type { UsageSnapshot } from "../qa/usage";
+import type { AgentDeps, AgentSession, AgentOpenDescriptor, AgentTurnEvent } from "./opencode-client";
+import type { LiveActivity } from "./opencode-client";
+import type { UsageSnapshot } from "./usage";
 import type { RunEventBody } from "@kernel/contract/events";
 
 import { AGENT_ROLES, capabilitiesForRole, type AgentProvider, type AgentRole, type RoleAssignment, type RoleCapabilities } from "@kernel/agent-role";
