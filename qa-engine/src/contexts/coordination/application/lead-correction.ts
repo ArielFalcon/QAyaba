@@ -216,7 +216,7 @@ export function admitLeadCorrection(redaction: RedactionPort, output: string, fl
   const scrub = (text: string): string => redaction.redact(text);
   const numberOf = (value: unknown): number | undefined => (typeof value === "number" && Number.isInteger(value) && value >= 1 && value <= findings.length ? value - 1 : undefined);
 
-  if (!raw) admission.unreadable.push({ where: "answer", reason: "it holds no JSON object with a `corrections` or `rebuttals` list" });
+  if (!raw) admission.unreadable.push({ where: "answer", reason: "it does not end with a JSON object with a `corrections` or `rebuttals` list" });
   else {
     /* Each order is read once: a flow of this pass, a revise or a replace, and finding numbers that are findings of the turn. An entry that is not that is unacted on and recorded, never read as a revise. */
     const orders = readEntries(raw.corrections, "corrections", (entry, index) => {

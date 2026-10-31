@@ -253,9 +253,10 @@ The answer is untrusted, and the orchestrator's facts decide over it:
 - a flow the answer does not name, or an answer that runs out of its time, leaves the flows as they are;
 - an entry of the answer the reader cannot read (an action that is not `accept`, `revise`, `replace` or `drop`, a flow that is not under review, a flow answered twice) is never read as a default and never skipped in silence: it is returned as an unreadable entry (where it sits and why), the lead is asked once more in the same session, naming the entries, and what stays unreadable is recorded and not acted on (its flow gets no order); an answer that holds no review list at all is asked about the same way and, still unread, leaves the flows as they are.
 
-How an agent's closing JSON is read (sidekick results, the lead's review and correction answers): the LAST top-level object
-of the output that has the shape of that contract (`shared-kernel/last-json-object.ts`), whatever narration or earlier objects
-come before it; braces in prose never hide it. A sidekick output with no DelegationResult is a failed result marked `readMiss: unreadable`:
+How an agent's closing JSON is read (sidekick results, the lead's plan, review and correction answers): the object that closes
+the output (`closingJsonObject`, `shared-kernel/last-json-object.ts`): its last top-level object, with nothing after it that
+opens a brace, checked against that contract. Narration and earlier objects before it never hide it, and an earlier object
+never stands in for a closing one that does not read: that answer is unreadable and asked about once. A sidekick output with no DelegationResult is a failed result marked `readMiss: unreadable`:
 still not a success, files still taken back, but recorded with failure class and `qayaba.delegation.status` `unreadable` instead of
 `failed`, so it is never counted as a failure the sidekick reported (the `sidekick_report_consistent` grader does not read it as one).
 A flow sidekick's prompt carries one closing contract, the DelegationResult block. It names no `recommendation`: nothing reads one.

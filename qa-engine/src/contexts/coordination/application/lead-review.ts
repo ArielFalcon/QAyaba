@@ -141,7 +141,7 @@ export function admitLeadReview(redaction: RedactionPort, output: string, flows:
   const closing = closingJsonObject(output);
   const raw = closing !== undefined && Array.isArray(closing.review) ? (closing as { review: unknown[] }) : undefined;
   if (!raw) {
-    admission.unreadable.push({ where: "answer", reason: "it holds no JSON object with a `review` list" });
+    admission.unreadable.push({ where: "answer", reason: "it does not end with a JSON object with a `review` list" });
     return admission;
   }
   admission.readable = true;

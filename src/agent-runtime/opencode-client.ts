@@ -35,10 +35,10 @@ import {
 export { activityRouter, registerRunSession, unregisterRunSession, startActivitySink };
 export type { LiveActivity };
 
-/* Re-export so control-plane importers keep resolving extractJsonObjects/parseVerdict here. */
-import { extractJsonObjects, parseVerdict } from "@contexts/generation/application/index";
+/* Re-export so control-plane importers keep resolving parseVerdict here. */
+import { parseVerdict } from "@contexts/generation/application/index";
 import { causeChain } from "./net";
-export { extractJsonObjects, parseVerdict };
+export { parseVerdict };
 
 import {
   specFileForFlow,

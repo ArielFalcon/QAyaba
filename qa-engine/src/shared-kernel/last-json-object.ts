@@ -60,11 +60,6 @@ function objectSpansIn(text: string): ObjectSpan[] {
   }
 }
 
-/* Every top-level JSON object of the text, in document order. Arrays and spans that do not parse are not objects. */
-export function jsonObjectsIn(text: string): Record<string, unknown>[] {
-  return objectSpansIn(text).map((span) => span.object);
-}
-
 /*
  * The object that closes the text: its last top-level object, when nothing after it opens another brace. A closing block that does
  * not parse (not JSON, cut short), or anything after the answer that opens a brace, leaves undefined: an earlier object, which the

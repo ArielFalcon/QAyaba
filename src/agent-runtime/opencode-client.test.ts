@@ -9,7 +9,6 @@ import {
   buildPromptAssembled,
   buildContextTask,
   parseVerdict,
-  extractJsonObjects,
   specFileForFlow,
   renderArchitectureContext,
   buildReviewerPrompt,
@@ -326,11 +325,6 @@ test("parseVerdict returns undefined specMetas when absent or empty", () => {
   assert.equal(parseVerdict('{"approved": true, "specs": ["a.spec.ts"]}').specMetas, undefined);
   assert.equal(parseVerdict('{"approved": true, "specMetas": "not-array"}').specMetas, undefined);
   assert.equal(parseVerdict('{"approved": true, "specMetas": []}').specMetas, undefined);
-});
-
-test("extractJsonObjects returns balanced top-level objects in order, skipping invalid spans", () => {
-  const objs = extractJsonObjects('noise {"a":1} mid {"b":{"c":2}} tail {not json}');
-  assert.deepEqual(objs, [{ a: 1 }, { b: { c: 2 } }]);
 });
 
 test("buildPrompt surfaces reviewer corrections as the highest-priority block", () => {

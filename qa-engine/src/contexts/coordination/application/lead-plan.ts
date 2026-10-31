@@ -33,7 +33,7 @@ export type PlanDowngrade = (typeof PLAN_DOWNGRADE)[keyof typeof PLAN_DOWNGRADE]
 
 /* What each refusal tells the lead it got wrong, as facts; the plan contract it already holds says the shapes. */
 const DOWNGRADE_FACTS: Readonly<Record<PlanDowngrade, () => string>> = {
-  [PLAN_DOWNGRADE.NO_PLAN]: () => "the answer held no plan JSON object",
+  [PLAN_DOWNGRADE.NO_PLAN]: () => "the answer did not end with a plan JSON object",
   [PLAN_DOWNGRADE.MALFORMED]: () => "it is not one of the plan shapes: a kind, a field or a field's type is not the contract's",
   [PLAN_DOWNGRADE.EMPTY]: () => "it is a fan-out with no flow and no use case dropped with a basis and a reason; a change that needs no test is a noop with its reason",
   [PLAN_DOWNGRADE.DUPLICATE]: () => "two of its flows have the same id",

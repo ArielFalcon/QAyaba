@@ -1,6 +1,6 @@
 import type { SpecMeta } from "@kernel/qa-case.ts";
 import { readNoopKind, type NoopKind } from "@kernel/noop-kind.ts";
-import { closingJsonObject, jsonObjectsIn } from "@kernel/last-json-object.ts";
+import { closingJsonObject } from "@kernel/last-json-object.ts";
 
 export interface FinalVerdict {
   approved: boolean;
@@ -19,15 +19,6 @@ export interface FinalVerdict {
   rebuttals?: { finding: string; basis: "execution" | "contract"; ref: string; reason: string }[];
   /** false when no verdict JSON was found (fail-closed). Distinguishes parse miss from rejection. */
   parsed: boolean;
-}
-
-/*
- * Every top-level JSON object of free-form agent text, in document order. The scanner is the
- * kernel's (`@kernel/last-json-object`), the repo's one reader of an agent's closing JSON: an
- * unbalanced brace in narration never hides it.
- */
-export function extractJsonObjects(text: string): unknown[] {
-  return jsonObjectsIn(text);
 }
 
 /* The object that closes the text when `pred` holds for it, or undefined: an earlier object never stands in for a closing one that does not read or is of another shape. */

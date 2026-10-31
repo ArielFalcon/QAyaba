@@ -19,19 +19,10 @@ function isUnparseableSentinel(candidate: SchemaCandidate): boolean {
   return candidate.transport === "http" && candidate.frontFiles === UNPARSEABLE_SENTINEL.frontFiles;
 }
 
-/* Extracts a JSON payload from an LLM's free-form text reply: the last fenced ```json block if
- *  parses, otherwise the object that closes the reply when it carries `candidates` (the kernel
- *  scanner, so narration braces never hide it and an earlier draft never stands in for it). Returns null when neither shape is found — the caller degrades that
- *  to a fail-open empty verdict. */
+/* Extracts the JSON payload of an LLM's free-form reply: the object that closes it, when it carries `candidates` (the kernel
+ *  scanner: narration braces never hide it, a closing fence does not count, and an earlier draft, fenced or not, never stands in
+ *  for it). Returns null when the reply does not close with one; the caller degrades that to a fail-open empty verdict. */
 function extractJson(text: string): unknown {
-  const lastFenced = [...text.matchAll(/```json\s*([\s\S]*?)```/g)].at(-1)?.[1];
-  if (lastFenced !== undefined) {
-    try {
-      return JSON.parse(lastFenced);
-    } catch {
-      /* a broken fence: the answer may still stand outside it */
-    }
-  }
   const closing = closingJsonObject(text);
   return closing !== undefined && "candidates" in closing ? closing : null;
 }

@@ -66,7 +66,7 @@ export type { ToolSequenceEntry } from "../domain/tool-sequence.ts";
 export { buildTurnStepBudget } from "../domain/turn-efficiency-summary.ts";
 export type { TurnCallMetrics, TurnUsage } from "../domain/turn-efficiency-summary.ts";
 export { parseAriaSnapshot, parseAriaSnapshotWithState } from "../domain/aria-snapshot.ts";
-export { extractJsonObjects, parseVerdict } from "../domain/verdict-parse.ts";
+export { parseVerdict } from "../domain/verdict-parse.ts";
 export type { FinalVerdict } from "../domain/verdict-parse.ts";
 export { checkGeneratorVerdict, parseReviewerVerdict, repairInstruction } from "../domain/verdict-validate.ts";
 export type { RepairInstructionOpts, ReviewerFinding, ReviewerVerdict, VerdictCheck } from "../domain/verdict-validate.ts";

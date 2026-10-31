@@ -63,8 +63,8 @@ export interface SidekickSession {
 
 /* What the orchestrator asks of a sidekick whose answer it could not read in full: only to restate the closing result. */
 function repairInstruction(result: DelegationResult): string {
-  const lines = result.readMiss !== undefined ? ["your answer held no result of the contract"] : describeUnreadable(result.unreadableEntries ?? []);
-  return `The orchestrator could not read your last answer in full: ${lines.join("; ")}. Do no more work and change no file. Restate your closing result only.`;
+  const lines = result.readMiss !== undefined ? ["your answer did not end with a result of the contract"] : describeUnreadable(result.unreadableEntries ?? []);
+  return `The orchestrator could not read your last answer in full: ${lines.join("; ")}. Do no more work and change no file. Restate your closing result only, as the last thing in your answer, with nothing after it.`;
 }
 
 /* Whether an answer needs the one repair turn: it held no result, or entries the engine could not read as the contract says. An answer with nothing in it is the sidekick's absence, not a result to repair. */

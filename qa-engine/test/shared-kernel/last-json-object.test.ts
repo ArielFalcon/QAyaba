@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { closingJsonObject, jsonObjectsIn } from "@kernel/last-json-object.ts";
+import { closingJsonObject } from "@kernel/last-json-object.ts";
 
 test("the object that closes the text is the answer, whatever objects came before it", () => {
   const text = 'first {"specs":["a.spec.ts"]} then {"status":"old"} and finally {"status":"completed","n":{"deep":1}}';
@@ -32,6 +32,6 @@ test("an object after the answer closes the text instead of it", () => {
   assert.deepEqual(closingJsonObject('{"status":"completed"}\n{"note":"a quoted payload"}'), { note: "a quoted payload" });
 });
 
-test("every top-level object is listed in document order and arrays are not objects", () => {
-  assert.deepEqual(jsonObjectsIn('x {"a":1} y [1,2] {"b":{"c":2}} {not json}'), [{ a: 1 }, { b: { c: 2 } }]);
+test("an array is not an object, and the nested objects of the closing one are not answers of their own", () => {
+  assert.deepEqual(closingJsonObject('x {"a":1} y [1,2] {"b":{"c":2}}'), { b: { c: 2 } });
 });
