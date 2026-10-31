@@ -2,6 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { ok } from "@kernel/result.ts";
+import type { QaCase } from "@kernel/qa-case.ts";
 import type { PageDataRead } from "@kernel/page-data-read.ts";
 import type { ServedVersionState } from "@kernel/served-version.ts";
 import type { CoordinateInput } from "@contexts/coordination/application/lead-sidekicks.ts";
@@ -50,13 +51,13 @@ test("the same read is admitted in a run that ends pass, one that ends invalid a
 
 test("the run records how many pages it read and why the others taught nothing, beside its other gate signals", async () => {
   const { observed } = await runWith(() => {});
-  assert.deepEqual(observed.saved[0]!.gateSignals.lessons, { observed: 2, leftOut: { "no-data-state": 1 } });
+  assert.deepEqual(observed.saved[0]!.gateSignals.lessons, { observed: 2, leftOut: { "no-data-state": 1 }, dataStateFailures: [] });
 });
 
 test("under a served-version state the kind does not admit, every read is left out under that state", async () => {
   const { observed, rows } = await runWith(() => {}, "undeclared");
   assert.ok(rows.length === 2 && rows.every((r) => !r.admitted && r.leftOutReason === "served-version:undeclared"));
-  assert.deepEqual(observed.saved[0]!.gateSignals.lessons, { observed: 2, leftOut: { "served-version:undeclared": 2 } });
+  assert.deepEqual(observed.saved[0]!.gateSignals.lessons, { observed: 2, leftOut: { "served-version:undeclared": 2 }, dataStateFailures: [] });
 });
 
 test("a run with no recorder wired, or whose grounding read no page, records nothing and persists no lessons signal, as before", async () => {
@@ -162,4 +163,37 @@ test("a run with no lessons to derive, or whose derivation fails, is handed none
       dispose(rig);
     }
   }
+});
+
+/* The measure: the failures of the final execution that show DEV's data differing from what the pack read. */
+const SETTLED = { inFlight: 0, treeStable: true };
+const withPackRead = (extra: Rig["extra"]): Rig["extra"] => ({ ...extra, preGenerationGrounding: { ground: async () => ({ pageReads: [READ], packConfirmedDataRoutes: [{ path: "/shops/madrid", resultCount: 3 }] }) } });
+
+test("the run records, by page, the failures of its final execution that read DEV's data differently from the pack, and an empty list when it executed and had none", async () => {
+  const caseAt = (over: Partial<QaCase>): QaCase => ({ name: "lists shops", status: "fail", file: "flows/shops.spec.ts", finalUrl: "https://dev.example/shops/madrid", failureSettle: SETTLED, ...over });
+  const executing = (cases: QaCase[]) => (rig: Rig): void => {
+    rig.extra = withPackRead(rig.extra);
+    rig.execute = async () => ({ verdict: "fail", cases, logs: "" });
+    rig.publish = async () => ({ outcome: "issue" });
+  };
+  /* Another count than the pack's: the run ends fail. */
+  const other = await runWith(executing([caseAt({ failureResultCount: 1 })]));
+  assert.equal(other.observed.result?.decision.verdict, "fail");
+  assert.deepEqual(other.observed.saved[0]!.gateSignals.lessons?.dataStateFailures, [{ path: "/shops/madrid", count: 1 }]);
+  /* An empty read on a page the pack read with results: the fix loop's triage ends the run E-PRECONDITION with no case left to read, so it carries no measure and not a zero. */
+  const empty = await runWith(executing([caseAt({ failureResultCount: 0 })]));
+  assert.equal(empty.observed.saved[0]!.errorClass, "E-PRECONDITION");
+  assert.equal(empty.observed.saved[0]!.gateSignals.lessons?.dataStateFailures, undefined);
+
+  const green = await runWith((rig) => { rig.extra = withPackRead(rig.extra); });
+  assert.deepEqual(green.observed.saved[0]!.gateSignals.lessons?.dataStateFailures, []);
+});
+
+test("a run that never executed has not measured the failures: the signal carries none", async () => {
+  const { observed } = await runWith((rig) => {
+    rig.extra = withPackRead(rig.extra);
+    rig.validate = async () => ({ ok: false, errors: ["[lint] no-wait-for-timeout"] });
+  });
+  assert.equal(observed.result?.decision.verdict, "invalid");
+  assert.equal(observed.saved[0]!.gateSignals.lessons?.dataStateFailures, undefined);
 });

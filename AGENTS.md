@@ -1140,7 +1140,7 @@ disk are still the last that ran green, file by file, and the suite store captur
   never blocks or rejects.
 - **Graders** (`qa-engine/src/contexts/evaluation`, `GRADER_VERSION`): no two graders score the same fact, none scores an empty
   denominator, and a boolean that saturates becomes a ratio. Whether the suite has value is answered by `mutation_kill_rate`,
-  `change_coverage_ratio`, `branch_coverage_ratio`, `defect_found`, `survivors_routed` and `review_verdict`.
+  `change_coverage_ratio`, `branch_coverage_ratio`, `defect_found`, `survivors_routed` and `review_verdict`. The lesson slice is measured by `data_state_failures`, `calls_to_green` and `lessons_delivered` (`gateSignals.lessons`), read by `campaign-compare`'s lesson cycle section, never by green.
 
 - **Causal label** (record only, never a gate): `gateSignals.causal` labels a failure by whether the change reaches it, and `coverageByCandidate` holds the per-use-case coverage.
 

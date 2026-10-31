@@ -267,7 +267,7 @@ test("buildEngine records the pages the pack read through cfg.lessonStore, and w
   assert.equal(outcome.verdict, "pass");
   assert.equal(batches.length, 1);
   assert.deepEqual(batches[0]!.map((r) => (r as { scope: string }).scope), ["/shops"]);
-  assert.deepEqual(outcome.gateSignals.lessons, { observed: 1, leftOut: { "served-version:undeclared": 1 } });
+  assert.deepEqual(outcome.gateSignals.lessons, { observed: 1, leftOut: { "served-version:undeclared": 1 }, dataStateFailures: [] });
   const bare = await run(fakeConfig({ baseUrl: "https://dev.example.com", groundingCollaborators }), "engine-root-lessons-absent");
   assert.equal(bare.gateSignals.lessons, undefined);
 });

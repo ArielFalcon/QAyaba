@@ -12,6 +12,8 @@ export { DatasetError, datasetFileName, parseDataset, parseDatasetFileName } fro
 export type { BenchmarkDataset } from "../domain/benchmark-dataset.ts";
 export { ComparisonError, DEFAULT_BOOTSTRAP_ITERATIONS, DEFAULT_SEED, compareCampaign, renderComparisonMarkdown } from "../domain/campaign-comparison.ts";
 export type { CampaignComparison, CampaignRun, RunScore } from "../domain/campaign-comparison.ts";
+export { judgeLessonCycle, renderLessonCycleMarkdown } from "../domain/lesson-cycle.ts";
+export type { CycleVerdict, LessonCycle } from "../domain/lesson-cycle.ts";
 export { campaignRunsView } from "../domain/campaign-runs.ts";
 export type { CampaignRunRow, CampaignRunView } from "../domain/campaign-runs.ts";
 export { COVERAGE_CLASSES, GRADER_CATALOG, GRADER_VERSION, MAX_SCORE_COMMENT_CHARS, specOfScore } from "../domain/grader-catalog.ts";

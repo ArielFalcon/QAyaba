@@ -5,7 +5,8 @@
  *
  * Reads the campaign's runs and their scores through the service's PUBLIC API (base URL and token from the environment, like the other
  * scripts), aggregates per variant and per score (mean, bootstrap 95% interval, n) and, against the baseline arm, the difference with its
- * interval. A difference is never called a lift with fewer than 3 replicates. Polarity comes from /evaluations/catalog. Writes markdown and
+ * interval. A difference is never called a lift with fewer than 3 replicates. A campaign with a learning arm (`--grounding lessons=on`) also gets
+ * the lesson cycle section: improved, not improved or unproven, read from the scores of one frozen and one learning replicate. Polarity comes from /evaluations/catalog. Writes markdown and
  * JSON; with no --out they go to stdout. (scripts/campaign-report.ts is the plain-agent campaign's record writer, a different tool.)
  */
 import { mkdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
@@ -15,8 +16,8 @@ import {
   CampaignRunsSchema, EvaluationCatalogSchema, RunEvaluationSchema, type CampaignRuns, type EvaluationCatalog,
 } from "../src/contract/commands.ts";
 import {
-  ComparisonError, compareCampaign, renderComparisonMarkdown, DEFAULT_BOOTSTRAP_ITERATIONS, DEFAULT_SEED,
-  type CampaignComparison, type CampaignRun, type RunScore,
+  ComparisonError, compareCampaign, judgeLessonCycle, renderComparisonMarkdown, renderLessonCycleMarkdown, DEFAULT_BOOTSTRAP_ITERATIONS, DEFAULT_SEED,
+  type CampaignComparison, type CampaignRun, type LessonCycle, type RunScore,
 } from "@contexts/evaluation/application/index.ts";
 import { CAMPAIGN_ID_PATTERN } from "../src/contract/campaign.ts";
 import { isolationReasons } from "./campaign-report.ts";
@@ -126,6 +127,8 @@ export async function collectCampaign(campaignId: string, deps: Pick<CompareDeps
 
 export interface CompareReport {
   comparison: CampaignComparison;
+  /* The lesson cycle (RFC-0013): present only when the campaign has a learning arm (variant `lessons=on`). */
+  lessonCycle?: LessonCycle;
   /* Every run the service holds for the campaign is done and graded. */
   complete: boolean;
   runsListed: number;
@@ -150,9 +153,11 @@ export async function runCompare(argv: readonly string[], deps: CompareDeps): Pr
       return 1;
     }
     const comparison = compareCampaign(runs, { campaignId: parsed.campaign, baseline: parsed.baseline, seed: parsed.seed, iterations: parsed.iterations });
-    const report: CompareReport = { comparison, complete: listing.complete, runsListed: listing.runs.length, runsCompared: runs.length, ungraded, contaminated, isolationUnknown };
+    const lessonCycle = runs.some((r) => r.variant.lessons === "on") ? judgeLessonCycle(runs) : undefined;
+    const report: CompareReport = { comparison, ...(lessonCycle ? { lessonCycle } : {}), complete: listing.complete, runsListed: listing.runs.length, runsCompared: runs.length, ungraded, contaminated, isolationUnknown };
     const markdown = [
       renderComparisonMarkdown(comparison, { complete: listing.complete }),
+      ...(lessonCycle ? ["", renderLessonCycleMarkdown(lessonCycle)] : []),
       ...(contaminated.length > 0 ? ["", "## Replicates left out: not the same start", "", ...contaminated.map((c) => `- ${c.runId} (replicate ${c.replicate}, ${Object.entries(c.variant).map(([k, v]) => `${k}=${v}`).join(", ")}): ${c.reason}`)] : []),
       ...(isolationUnknown.length > 0 ? ["", `Isolation unknown (no restored digest recorded): ${isolationUnknown.length} run(s).`] : []),
     ].join("\n");

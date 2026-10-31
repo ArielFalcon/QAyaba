@@ -137,3 +137,43 @@ test("variants are compared each with their own first replicate, never with anot
   assert.deepEqual(json.contaminated, []);
   assert.equal(json.isolationUnknown.length, 0);
 });
+
+/* The lesson cycle section: present only for a campaign with a learning arm, read from the scores of its runs. */
+function lessonService(frozen: Record<string, number>, learning: Record<string, number>): { deps: CompareDeps; out: string[]; written: Map<string, string> } {
+  const names = [...new Set([...Object.keys(frozen), ...Object.keys(learning)])];
+  const scoresOf = (values: Record<string, number>) => names.filter((n) => n in values).map((name) => ({ name, value: values[name]!, dataType: "NUMERIC", polarity: "none", source: "deterministic", graderVersion: "4" }));
+  const out: string[] = [];
+  const written = new Map<string, string>();
+  const deps: CompareDeps = {
+    get: async (path) => {
+      if (path === "/api/v1/campaigns/c1/runs") return { schemaVersion: 1, campaignId: "c1", complete: true, runs: [{ id: "f1", variant: { lessons: "off" }, replicate: 1, status: "done", evaluationStatus: "complete" }, { id: "l1", variant: { lessons: "on" }, replicate: 1, status: "done", evaluationStatus: "complete" }] };
+      if (path === "/api/v1/evaluations/catalog") return { schemaVersion: 1, phases: ["gate"], scores: names.map((name) => ({ name, dataType: "NUMERIC", polarity: "none", graderVersion: "4" })) };
+      const m = /^\/api\/v1\/runs\/([^/]+)\/evaluation$/.exec(path);
+      return { schemaVersion: 1, runId: m![1], traceId: null, status: "complete", scores: scoresOf(m![1] === "l1" ? learning : frozen) };
+    },
+    out: (line) => out.push(line),
+    writeText: (path, text) => void written.set(path, text),
+  };
+  return { deps, out, written };
+}
+
+test("a campaign with a learning arm gets the lesson cycle section and its verdict in the report", async () => {
+  const frozen = { data_state_failures: 3, calls_to_green: 2, lessons_delivered: 0 };
+  const improved = lessonService(frozen, { data_state_failures: 1, calls_to_green: 1, lessons_delivered: 2 });
+  assert.equal(await runCompare(["--campaign", "c1", "--out", "/o"], improved.deps), 0);
+  assert.match(improved.written.get("/o/comparison.md")!, /## Lesson cycle\n\n1 frozen and 1 learning run\(s\)\. Verdict: \*\*improved/);
+  assert.equal(JSON.parse(improved.written.get("/o/comparison.json")!).lessonCycle.verdict, "improved");
+  const notImproved = lessonService(frozen, { data_state_failures: 3, calls_to_green: 2, lessons_delivered: 2 });
+  await runCompare(["--campaign", "c1", "--out", "/o"], notImproved.deps);
+  assert.equal(JSON.parse(notImproved.written.get("/o/comparison.json")!).lessonCycle.verdict, "not-improved");
+  const unproven = lessonService(frozen, { data_state_failures: 1, calls_to_green: 1, lessons_delivered: 0 });
+  await runCompare(["--campaign", "c1", "--out", "/o"], unproven.deps);
+  assert.equal(JSON.parse(unproven.written.get("/o/comparison.json")!).lessonCycle.verdict, "unproven");
+});
+
+test("a campaign with no learning arm has no lesson cycle section: its report is what it was", async () => {
+  const { deps, written } = service(rows());
+  await runCompare(["--campaign", "c1", "--out", "/o"], deps);
+  assert.equal(written.get("/o/comparison.md")!.includes("Lesson cycle"), false);
+  assert.equal("lessonCycle" in JSON.parse(written.get("/o/comparison.json")!), false);
+});

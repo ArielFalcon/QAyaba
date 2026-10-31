@@ -13,7 +13,7 @@ import type { RawScore, Score, ScoreDataType, ScorePolarity } from "./score.ts";
 /* The longest comment a score carries: it is read by people and travels to a sink, never a free-form log. */
 export const MAX_SCORE_COMMENT_CHARS = 500;
 
-export const GRADER_VERSION = "3";
+export const GRADER_VERSION = "4";
 
 export const STEP_INTENTS = ["auth", "explore", "write_spec", "run_spec", "review", "other"] as const;
 
@@ -66,6 +66,9 @@ export const GRADER_CATALOG: readonly ScoreSpec[] = [
   spec({ name: "availability_regressions", dataType: "NUMERIC", polarity: "lower_better", range: { min: 0 } }),
   spec({ name: "availability_unexplained", dataType: "NUMERIC", polarity: "lower_better", range: UNIT }),
   spec({ name: "drops_contradicted", dataType: "NUMERIC", polarity: "lower_better", range: { min: 0 } }),
+  spec({ name: "lessons_delivered", dataType: "NUMERIC", polarity: "none", range: { min: 0 } }),
+  spec({ name: "data_state_failures", dataType: "NUMERIC", polarity: "lower_better", range: { min: 0 } }),
+  spec({ name: "calls_to_green", dataType: "NUMERIC", polarity: "lower_better", range: { min: 1 } }),
   spec({ name: "infra_error", dataType: "CATEGORICAL", polarity: "none" }),
   spec({ name: "plan_graph_route_coverage", dataType: "NUMERIC", polarity: "higher_better", range: UNIT }),
   spec({ name: "delivered_graph_route_coverage", dataType: "NUMERIC", polarity: "higher_better", range: UNIT }),

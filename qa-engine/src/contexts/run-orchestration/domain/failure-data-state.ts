@@ -38,3 +38,18 @@ export function dataStateDiffers(c: QaCase, confirmed: ConfirmedDataRoutes): boo
   const known = packCountAt(c, confirmed);
   return known !== undefined && known !== c.failureResultCount;
 }
+
+/*
+ * The data-state failures of a run's final execution, by the page (pathname) the failure point was on: the cases that did not pass and whose
+ * failure shows DEV's data differing from what the pack read (`dataStateDiffers`). This is the measure of the lesson slice, not an input to a
+ * lesson; it reads no verdict and no error class. Sorted by page.
+ */
+export function dataStateFailuresOf(cases: readonly QaCase[], confirmed: ConfirmedDataRoutes): Array<{ path: string; count: number }> {
+  const byPath = new Map<string, number>();
+  for (const c of cases) {
+    if (c.status === "pass" || !dataStateDiffers(c, confirmed)) continue;
+    const path = pathnameOf(c.finalUrl);
+    if (path !== undefined) byPath.set(path, (byPath.get(path) ?? 0) + 1);
+  }
+  return [...byPath].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)).map(([path, count]) => ({ path, count }));
+}

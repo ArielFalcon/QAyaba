@@ -525,6 +525,14 @@ The one lever that lifts anything is the learning arm, `grounding.lessons: true`
 launcher): it lifts the lesson state only, so a frozen run reads the lessons derived from earlier runs' observations
 (docs/architecture/rfc/0013-learning-slice.md). The replicate isolation and the process audit stay withheld. Absent, a campaign run reads no lessons and a run without a campaign reads them.
 
+**The lesson cycle.** `campaign-compare` adds a "Lesson cycle" section to a campaign that has a learning arm (variant `lessons=on`): one frozen and one
+learning replicate of the same commit and snapshot, read as a direction and never as proof (RFC-0013, Q6-Q8). It is **improved** when the learning arm's
+`data_state_failures` are lower and its `calls_to_green` not higher and no guard (`mutation_kill_rate`, `change_coverage_ratio`, `defect_found`) is
+lower; green is never read. It is **unproven** (the cycle does not count and repeats) unless a lesson was delivered (`lessons_delivered`) and a run shows a
+data-state failure or a spec that needed more than one call, and unless the failures were measured in both arms; otherwise a counted cycle without
+improvement is **not improved**. The figures are per run (the mean over an arm's replicates), not per covered flow. Runs graded before grader version 4 carry none of
+these scores, so a comparison across that point states the epoch break.
+
 `QA_CAMPAIGN_FREEZE` is retired: a value still set warns once at start and decides nothing. A cross-repo case enters through the webhook, whose payload
 carries no campaign, so the server does not freeze it (the launcher says so when it plans one).
 

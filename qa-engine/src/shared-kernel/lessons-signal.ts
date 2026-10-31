@@ -12,4 +12,6 @@ export interface LessonsSignal {
   leftOut: Readonly<Record<string, number>>;
   /** The lessons a flow's brief stated, each once: its kind, the page and a digest of the line. Absent when none was delivered. */
   delivered?: LessonDelivery[];
+  /** The failed cases of the final execution whose settled failure point showed DEV's data differing from what the pack read, by page. Present (empty when none) for a run that executed; absent for one that did not. The measure of the lesson slice, never an input to a lesson. */
+  dataStateFailures?: Array<{ path: string; count: number }>;
 }

@@ -378,6 +378,15 @@ test("the outcome's coverage, mutation, review, triage and causal signals reach 
   assert.equal(e.signals?.flakyTriage?.dataInstability, 1);
 });
 
+test("the lessons a run's briefs stated and the failures it measured by page reach the evidence as counts, and a run that recorded none leaves them undefined", async () => {
+  const lessons = { observed: 2, leftOut: {}, delivered: [{ kind: "data-volatility", scope: "/a", digest: "x" }, { kind: "data-volatility", scope: "/b", digest: "y" }], dataStateFailures: [{ path: "/a", count: 2 }, { path: "/b", count: 1 }] };
+  const e = (await new HistoryEvidenceAdapter(deps({ getRunOutcome: () => outcomeOf({ lessons }) })).load("run-1"))!;
+  assert.deepEqual(e.signals?.lessons, { delivered: 2, dataStateFailures: 3 });
+  const unmeasured = (await new HistoryEvidenceAdapter(deps({ getRunOutcome: () => outcomeOf({ lessons: { observed: 1, leftOut: {} } }) })).load("run-1"))!;
+  assert.deepEqual(unmeasured.signals?.lessons, { delivered: 0, dataStateFailures: undefined });
+  assert.equal((await new HistoryEvidenceAdapter(deps({ getRunOutcome: () => outcomeOf({}) })).load("run-1"))!.signals?.lessons, undefined);
+});
+
 test("a run that recorded none of those signals leaves them undefined", async () => {
   const e = (await new HistoryEvidenceAdapter(deps({ getRunOutcome: () => outcomeOf({}) })).load("run-1"))!;
   assert.equal(e.signals?.survivors, undefined);

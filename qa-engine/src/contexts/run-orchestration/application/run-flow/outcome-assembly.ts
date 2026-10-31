@@ -39,6 +39,8 @@ export interface OutcomeExtras {
   routeAvailability?: RunOutcome["gateSignals"]["routeAvailability"];
   stubbedState?: RunOutcome["gateSignals"]["stubbedState"];
   dataContradictions?: RunOutcome["gateSignals"]["dataContradictions"];
+  /* The data-state failures of the final execution by page; absent when the run did not execute. */
+  dataStateFailures?: Array<{ path: string; count: number }>;
   note?: string;
   heldPublication?: RunOutcome["gateSignals"]["heldPublication"];
   preExecAmbiguityCatches?: number;
@@ -128,7 +130,9 @@ export function toRunOutcome(
   const servedVersion = ctx.host.servedVersion();
   const lessonsTally = ctx.host.lessons();
   const { lessonsDelivered: delivered = [], ...coordinationSignal } = coordination ?? { flows: 0, delivered: 0, incomplete: 0 };
-  const lessons = lessonsTally !== undefined || delivered.length > 0 ? { observed: 0, leftOut: {}, ...lessonsTally, ...(delivered.length > 0 ? { delivered } : {}) } : undefined;
+  const lessons = lessonsTally !== undefined || delivered.length > 0
+    ? { observed: 0, leftOut: {}, ...lessonsTally, ...(delivered.length > 0 ? { delivered } : {}), ...(extra?.dataStateFailures !== undefined ? { dataStateFailures: extra.dataStateFailures } : {}) }
+    : undefined;
   const gateCoverageRatio = coverageRatio;
   return {
     runId: input.runId,

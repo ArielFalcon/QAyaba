@@ -608,6 +608,39 @@ const flakyTriage: Grader = {
   }),
 };
 
+/* How many lessons the run's briefs stated. Graded for every run that recorded a lessons signal (0 for a run that was told none), so an arm that was told none is read as such. */
+const lessonsDelivered: Grader = {
+  names: ["lessons_delivered"],
+  grade: finishedOnly((e) => (e.signals?.lessons ? [{ name: "lessons_delivered", value: e.signals.lessons.delivered }] : [])),
+};
+
+/* The failures of the final execution whose settled failure point read DEV's data differently from the pack: the measure of the lesson slice, never an input to a lesson. Silent for a run that measured none. */
+const dataStateFailures: Grader = {
+  names: ["data_state_failures"],
+  grade: finishedOnly((e) => {
+    const count = e.signals?.lessons?.dataStateFailures;
+    return count === undefined ? [] : [{ name: "data_state_failures", value: count }];
+  }),
+};
+
+/*
+ * How many run_spec calls a delivered spec took to pass, on average: each spec's calls (a refused call is no run) up to and including the first one that
+ * passed. A spec no call passed is left out, and the score is silent when none passed.
+ */
+const callsToGreen: Grader = {
+  names: ["calls_to_green"],
+  grade: finishedOnly((e) => {
+    const counts = e.deliveredSpecs.flatMap((spec) => {
+      const ran = e.runSpecCalls.filter((c) => c.outcome !== "refused" && sameSpecPathByTail(c.path, spec.path));
+      const firstGreen = ran.findIndex((c) => c.outcome === "passed");
+      return firstGreen === -1 ? [] : [firstGreen + 1];
+    });
+    if (counts.length === 0) return [];
+    const more = counts.filter((n) => n > 1).length;
+    return [{ name: "calls_to_green", value: counts.reduce((sum, n) => sum + n, 0) / counts.length, ...(more > 0 ? { comment: `${more} of ${counts.length} spec(s) needed more than one run_spec call` } : {}) }];
+  }),
+};
+
 /* The drops of a use case the run's facts contradicted and the lead kept: how many, and which. Graded for every plan of flows (0 when none). */
 const dropsContradicted: Grader = {
   names: ["drops_contradicted"],
@@ -636,6 +669,9 @@ export const GRADERS: readonly Grader[] = [
   routeAvailability,
   flakyTriage,
   dropsContradicted,
+  lessonsDelivered,
+  dataStateFailures,
+  callsToGreen,
   infraError,
   stepIntent,
   contextUtilization,

@@ -8,6 +8,7 @@
 
 import { engineLog } from "@kernel/ports/process-logger.ts";
 import { isAccepted } from "../../domain/run-decision.service.ts";
+import { dataStateFailuresOf } from "../../domain/failure-data-state.ts";
 import { learningGates } from "@contexts/cross-run-learning/application/index.ts";
 import { reviewsTests } from "./phases/review.steps.ts";
 import { reviewerApprovedForOutcomeOf, decidedOf } from "./phases/decide.steps.ts";
@@ -336,6 +337,8 @@ async function persistOutcome(state: Readonly<RunState>, ctx: WorkspaceRunContex
     ...(branchCases ? { branchCases } : {}),
     ...(survivorClosure ? { survivorClosure } : {}),
     ...(flakyTriage ? { flakyTriage } : {}),
+    /* The failures of the execution that show DEV's data differing from the pack, whatever verdict they end in. A run whose fix loop settled its failure as DEV not rendering the target (E-PRECONDITION) leaves no case to read, so it carries no measure rather than a zero. */
+    ...(state.fixLoop.devNotRenderedConclusive ? {} : { dataStateFailures: dataStateFailuresOf(run.cases, state.grounding.confirmedDataRoutes) }),
     ...(missingCases.length ? { missingCases } : {}),
     ...(state.grounding.routeAvailability ? { routeAvailability: routeAvailabilitySignal(state.grounding.routeAvailability.read, state.grounding.routeAvailability.facts) } : {}),
     ...(stubbed ? { stubbedState: stubbed.signal } : {}),
