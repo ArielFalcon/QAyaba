@@ -55,8 +55,8 @@ export interface OutcomeExtras {
   crossRepoImpactLowerBound?: true;
   /* Only the mainline post-execute caller has real logs. */
   logs?: string;
-  /* Only the mainline post-FixLoop caller has a real adjudication class. */
-  adjudicationClass?: string;
+  /* Only the mainline post-FixLoop caller has a real adjudication: what the fix loop's adjudicator concluded, its reason included. */
+  adjudication?: NonNullable<RunOutcome["adjudication"]>;
   /* Omitted entirely when confinement never ran — never a fabricated {strays:0}. */
   confinement?: { strays: number; dangerous: number; reverted: string[] };
   /* Absent when the run did not grant the run_spec tool. */
@@ -198,6 +198,6 @@ export function toRunOutcome(
     cases,
     ...(extra?.logs !== undefined ? { logs: extra.logs } : {}),
     /* Conditional-spread — only when FixLoop genuinely produced a verdict class. */
-    ...(extra?.adjudicationClass !== undefined ? { adjudication: { class: extra.adjudicationClass } } : {}),
+    ...(extra?.adjudication !== undefined ? { adjudication: extra.adjudication } : {}),
   };
 }

@@ -23,9 +23,10 @@ describe("infraErrorGloss", () => {
     assert.match(gloss, /engine/i);
   });
 
-  it("says the precondition class is a login the run could not complete, and not an engine-side condition", () => {
+  it("says the precondition class is a login the run could not complete or a deployed app that did not show the tests' target, and not an engine-side condition", () => {
     const gloss = infraErrorGloss("E-PRECONDITION");
     assert.match(gloss, /login/i);
+    assert.match(gloss, /did not show what the failing tests target/i);
     assert.doesNotMatch(gloss, /engine/i);
   });
 

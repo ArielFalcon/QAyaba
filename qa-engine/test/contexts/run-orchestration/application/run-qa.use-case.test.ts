@@ -13,6 +13,7 @@ import { FixLoop } from "@contexts/run-orchestration/domain/fix-loop.aggregate.t
 import { MAX_STATIC_FIX_ROUNDS } from "@contexts/run-orchestration/domain/derive-cycle-backstop.ts";
 import { acceptanceNamespace } from "@contexts/run-orchestration/domain/acceptance-namespace.ts";
 import { ERROR_CLASS } from "@kernel/error-class.ts";
+import { ADJ_ACTION, ADJ_CLASS, ADJ_CONFIDENCE } from "@contexts/run-orchestration/domain/adjudicate.service.ts";
 import { AuthPreconditionError, PRECONDITION_KIND } from "@contexts/app-catalog/domain/auth-precondition.ts";
 import { AuthSessionAdapter } from "@contexts/app-catalog/infrastructure/auth-session.adapter.ts";
 import type { LoginDiscoveryInput, LoginDiscoveryResult } from "@contexts/app-catalog/infrastructure/login-discovery/login-discovery.runner.ts";
@@ -8789,6 +8790,42 @@ test("a failure that reads empty, twice, a page the Context Pack read with resul
     assert.equal(out.errorClass, ERROR_CLASS.PRECONDITION);
     assert.equal(generations, 1, "the contradicted failure is never handed back for a rewrite");
     assert.equal(executions, 2, "the suite run and the one triage re-read");
+  } finally {
+    fixtures.cleanup();
+  }
+});
+
+test("the record of a run its fix loop ended as E-PRECONDITION says why: the triage's adjudication, reason included, and a note", async () => {
+  const fixtures = reviewFixtures();
+  try {
+    const failing = {
+      name: "owners list",
+      file: "flows/owners.spec.ts",
+      status: "fail" as const,
+      detail: "expect(locator).toBeVisible() failed\n\nLocator: locator('app-list')\nError: element(s) not found",
+      failureDom: "heading: Owners\ntext: 0 results",
+      finalUrl: "https://dev.example/owners/list",
+      failureResultCount: 0,
+    };
+    const { ports, savedOutcomes } = stubPorts({
+      prepare: async () => fakeHandle({ specDir: fixtures.specDir, mirrorDir: fixtures.mirrorDir }),
+      ground: async () => ({ packConfirmedDataRoutes: [{ path: "/owners/list", resultCount: 3 }] }),
+      generate: async () => {
+        fixtures.write("flows/owners.spec.ts", "test('owners list', async () => {});\n");
+        return scriptedGeneration({ specs: ["flows/owners.spec.ts"] });
+      },
+      execute: async () => ({ verdict: "fail", cases: [failing], logs: "" }),
+    });
+    const out = await new RunQaUseCase({ ...ports, config: { ...baseConfig, needsReview: false } }).run({ ...baseInput, runId: "precondition-record" });
+
+    assert.equal(out.errorClass, ERROR_CLASS.PRECONDITION);
+    const saved = savedOutcomes.at(-1)!;
+    assert.equal(saved.adjudication?.class, ADJ_CLASS.DEV_NOT_RENDERED);
+    assert.equal(saved.adjudication?.confidence, ADJ_CONFIDENCE.HIGH);
+    assert.equal(saved.adjudication?.action, ADJ_ACTION.BREAK_ISSUE);
+    const reason = saved.adjudication?.reason ?? "";
+    assert.ok(reason.length > 0, "the adjudication keeps its reason");
+    assert.ok((saved.note ?? "").includes(reason), `the note carries the reason: ${saved.note}`);
   } finally {
     fixtures.cleanup();
   }

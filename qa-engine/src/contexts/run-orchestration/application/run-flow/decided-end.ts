@@ -26,6 +26,10 @@ import { routeAvailabilitySignal, type RouteAvailabilityFact } from "@kernel/rou
 import { detectStubbedState, type SpecText } from "@contexts/test-execution/application/index.ts";
 import { dataContradictionsSignal } from "@kernel/data-contradiction.ts";
 import { distinctLinkCount } from "@kernel/service-links.ts";
+import { ERROR_CLASS } from "@kernel/error-class.ts";
+
+/* The adjudicator's reason the run record keeps: whole for the engine's own sentences, cut only when it quotes an agent's claim at length. */
+const ADJUDICATION_REASON_MAX_CHARS = 2000;
 
 /* The availability facts a PR or an Issue lists: the change's own unavailabilities and the possible regressions. */
 function publishedAvailability(state: Readonly<RunState>): RouteAvailabilityFact[] {
@@ -311,6 +315,19 @@ function sharedSignals(state: Readonly<RunState>, ctx: WorkspaceRunContext, loop
   };
 }
 
+/* The fix loop's adjudication as the record keeps it; its reason can quote an agent's claim, so it is redacted and bounded. Absent when the loop never adjudicated. */
+function recordedAdjudication(state: Readonly<RunState>, ctx: WorkspaceRunContext): NonNullable<RunOutcome["adjudication"]> | undefined {
+  const verdict = state.fixLoop.lastAdjudicatorVerdict;
+  if (!verdict) return undefined;
+  return { class: verdict.class, confidence: verdict.confidence, action: verdict.action, reason: ctx.host.boundText(verdict.reason, ADJUDICATION_REASON_MAX_CHARS) };
+}
+
+function noteOf(publishOutcome: string | undefined, preconditionReason: string | undefined): string | undefined {
+  const precondition = preconditionReason !== undefined ? `DEV did not render the target of the failing tests (${ERROR_CLASS.PRECONDITION}): ${preconditionReason}` : undefined;
+  const parts = [publishOutcome, precondition].filter((part): part is string => part !== undefined);
+  return parts.length > 0 ? parts.join(" ") : undefined;
+}
+
 /* Derive the errorClass once for both the persisted outcome and the returned result. */
 async function persistOutcome(state: Readonly<RunState>, ctx: WorkspaceRunContext, publishOutcome: string | undefined, stubbed: StubbedRecord | undefined, held: Published["held"]): Promise<Persisted> {
   const { deps, services } = ctx;
@@ -328,6 +345,8 @@ async function persistOutcome(state: Readonly<RunState>, ctx: WorkspaceRunContex
     sandboxRefused: ctx.host.sandboxRefused(),
   });
   if (isContextCleanPass) return { errorClass, loopSignal, mainlineOutcome: undefined };
+  const adjudication = recordedAdjudication(state, ctx);
+  const preconditionReason = state.fixLoop.devNotRenderedConclusive ? adjudication?.reason : undefined;
   const mainlineOutcome = toRunOutcome(ctx, decision, run.cases, retries, coverageRatio, errorClass, {
     staticOk: validation.ok,
     reviewerApproved: reviewerApprovedForOutcomeOf(state),
@@ -347,8 +366,8 @@ async function persistOutcome(state: Readonly<RunState>, ctx: WorkspaceRunContex
     ...(state.grounding.dataContradictions ? { dataContradictions: dataContradictionsSignal(state.grounding.dataContradictions.read, state.grounding.dataContradictions.facts) } : {}),
     reviewerCorrections: finalReviewerCorrections,
     ...(reviewerSignal !== undefined ? { reviewer: reviewerSignal } : {}),
-    /* Publish outcome string, never fabricated when publish() was not called. */
-    ...(publishOutcome !== undefined ? { note: publishOutcome } : {}),
+    /* Publish outcome string, never fabricated when publish() was not called; a run the fix loop settled as DEV not rendering its target publishes nothing, so its note is the adjudicator's reason. */
+    ...(noteOf(publishOutcome, preconditionReason) !== undefined ? { note: noteOf(publishOutcome, preconditionReason) } : {}),
     /* The PR text with the coverage report of a run the gate held: nothing was opened, so the record is where it is kept. */
     ...(held ? { heldPublication: held } : {}),
     /* Real pre-exec counters, not a hardcoded 0. */
@@ -368,7 +387,7 @@ async function persistOutcome(state: Readonly<RunState>, ctx: WorkspaceRunContex
     /* impactedLinksCount is gated on the result, not the collaborator's presence: a same-repo run stays undefined (never ran), not a fabricated 0. Counted over distinct links; a hop the walk could not finish (or left partial) makes the count a lower bound, which the flag says. */
     ...(crossRepoImpact ? { crossRepoImpactedCount: distinctLinkCount(crossRepoImpact.impactedLinks), ...(crossRepoImpact.stops?.length ? { crossRepoImpactLowerBound: true as const } : {}) } : {}),
     logs: run.logs,
-    adjudicationClass: state.fixLoop.lastAdjudicatorVerdict?.class,
+    ...(adjudication ? { adjudication } : {}),
     /* Merged confinement across every enforce() this run made. Omitted when never wired. */
     ...(services.confinement.totals !== undefined ? { confinement: services.confinement.totals } : {}),
     ...sharedSignals(state, ctx, loopSignal),

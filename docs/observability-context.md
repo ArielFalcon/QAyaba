@@ -122,7 +122,7 @@ The single engine is `RunQaUseCase` (`qa-engine/src/contexts/run-orchestration/a
 | `E-NO-AUTHOR` | No author sidekick could run; `gateSignals.coordination.refusal` names why |
 | `E-STEP-BUDGET` | The step cap was hit |
 | `E-TIME-BUDGET` | The run deadline was hit |
-| `E-PRECONDITION` | The login could not complete (kinds incl. egress-denied) |
+| `E-PRECONDITION` | The login could not complete (kinds incl. egress-denied), or the fix loop's triage re-read confirmed DEV did not render a failing test's target (the record's `adjudication` and `note` carry the reason) |
 | `E-SANDBOX` | The sandbox uid, the egress filter or the file boundary is not proven |
 | `E-REVIEWER-UNAVAILABLE` | The reviewer could not be reached |
 | `E-STATIC` | Validation failed |

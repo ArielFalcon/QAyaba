@@ -11,11 +11,12 @@ const ENGINE_SIDE_GLOSS: Readonly<Record<string, string>> = {
   "E-TIME-BUDGET": "the agent ran out of time without reporting any spec — an engine-side condition, not a fault of the app",
 };
 /*
- * A login the run could not complete is neither the engine's condition nor the DEV environment's: it
- * is a precondition of the run, worded apart from the engine-side classes and with no fault assigned.
+ * A login the run could not complete, or a deployed app that a second read confirmed did not show what a failing
+ * test targets, is neither the engine's condition nor a fault of the tests: it is a precondition of the run,
+ * worded apart from the engine-side classes and with no fault assigned.
  */
 const PRECONDITION_GLOSS: Readonly<Record<string, string>> = {
-  "E-PRECONDITION": "the app's login could not be completed before testing began — a precondition of the run, not a fault in the code under test",
+  "E-PRECONDITION": "a precondition of the run was not met: the app's login could not be completed, or a second read confirmed the deployed app did not show what the failing tests target — not a fault in the code under test",
 };
 /*
  * An unavailable reviewer is a collaborator the run could not reach: the tests passed but were never judged. It is neither the
