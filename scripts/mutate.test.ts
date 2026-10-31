@@ -227,7 +227,7 @@ test("the precondition-verdict preset mutates the typed precondition error, its 
 test("the patch-app-yaml preset mutates the config patcher, against its own tests and the update use case that drives it", () => {
   const preset = PRESETS["patch-app-yaml"];
   assert.ok(preset, "the patch-app-yaml preset exists");
-  assert.deepEqual(preset.mutate.map(sourcePathOf), ["src/server/onboarding/patch-app-yaml.ts"]);
+  assert.deepEqual(preset.mutate.map(sourcePathOf), ["qa-engine/src/contexts/app-catalog/application/patch-app-yaml.ts"]);
   for (const module of ["patch-app-yaml", "app-admin"]) {
     assert.ok(preset.tests.some((t) => t.endsWith(`${module}.test.ts`)), `${module}'s tests run against every mutant`);
   }

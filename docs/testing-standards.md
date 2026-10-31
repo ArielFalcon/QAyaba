@@ -1272,7 +1272,7 @@ unattributed GET, which the list's own guard made unobservable; it was restructu
 
 Each is a genuine equivalent mutant: no test can observe it without asserting the mutated literal.
 
-**patch-app-yaml** (`src/server/onboarding/patch-app-yaml.ts`)
+**patch-app-yaml** (`qa-engine/src/contexts/app-catalog/application/patch-app-yaml.ts`)
 - `alreadyReads` — the `catch` block emptied (BlockStatement): a placeholder whose variable is unset
   reads as no value, and a callback that returns nothing is read the same by `some`.
 

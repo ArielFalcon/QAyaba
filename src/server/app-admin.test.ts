@@ -2,9 +2,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { parse } from "yaml";
 import { createApp, updateApp, deleteApp, type AppAdminDeps } from "./app-admin";
-import { AppConfigInvalidError, AppNotFoundError, expandEnv, type AppConfig } from "../orchestrator/config-loader";
-import { AppConfigSchema } from "@contexts/app-catalog/application/index";
-import { buildYaml, type OnboardInput } from "./onboard";
+import { AppConfigInvalidError, AppNotFoundError, type AppConfig } from "../orchestrator/config-loader";
+import { AppConfigSchema, buildYaml, expandEnv, type OnboardInput } from "@contexts/app-catalog/application/index";
 import { serializeBoundary, spliceBoundariesBlock } from "./onboarding/write-boundaries";
 import type { HttpBoundaryProfile, EventBoundaryProfile } from "@contexts/service-topology/application/index.ts";
 

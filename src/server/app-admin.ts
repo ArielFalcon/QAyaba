@@ -4,10 +4,11 @@
  */
 
 import { parse } from "yaml";
-import { AppConfigSchema, APP_NAME_RULE, appCreationDefaults, isValidAppName } from "@contexts/app-catalog/application/index";
-import { AppConfigInvalidError, AppNotFoundError, expandEnv, type AppConfig } from "../orchestrator/config-loader";
-import { buildYaml, suggestName, type OnboardAuthInput, type OnboardInput, type OnboardServiceInput } from "./onboard";
-import { patchAppYaml } from "./onboarding/patch-app-yaml";
+import {
+  AppConfigSchema, APP_NAME_RULE, appCreationDefaults, buildYaml, expandEnv, isValidAppName, patchAppYaml, suggestName,
+  type OnboardAuthInput, type OnboardInput, type OnboardServiceInput,
+} from "@contexts/app-catalog/application/index";
+import { AppConfigInvalidError, AppNotFoundError, type AppConfig } from "../orchestrator/config-loader";
 import type { RepoInfo } from "../integrations/github";
 
 export interface AppAdminDeps {

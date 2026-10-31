@@ -326,8 +326,8 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
   },
   "patch-app-yaml": {
     description: "app config patch: the managed fields of an app's YAML are edited in place, and placeholders, comments and unmanaged keys come out as they went in",
-    mutate: ["src/server/onboarding/patch-app-yaml.ts"],
-    tests: ["src/server/onboarding/patch-app-yaml.test.ts", "src/server/app-admin.test.ts"],
+    mutate: ["qa-engine/src/contexts/app-catalog/application/patch-app-yaml.ts"],
+    tests: ["qa-engine/test/contexts/app-catalog/application/patch-app-yaml.test.ts", "src/server/app-admin.test.ts"],
     thresholds: DEFAULT_THRESHOLDS,
   },
   "prompt-contract": {

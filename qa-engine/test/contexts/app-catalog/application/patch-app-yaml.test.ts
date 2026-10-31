@@ -6,9 +6,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { parse } from "yaml";
-import { AppConfigSchema } from "@contexts/app-catalog/application/index";
-import { expandEnv } from "../../orchestrator/config-loader";
-import { patchAppYaml } from "./patch-app-yaml";
+import { AppConfigSchema, expandEnv, patchAppYaml } from "@contexts/app-catalog/application/index.ts";
 
 const ENV = { DEMO_DEV_URL: "https://dev.demo.example", DEMO_SVC_URL: "https://svc.demo.example/version" };
 

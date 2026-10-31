@@ -23,8 +23,8 @@
  */
 
 import { Scalar, YAMLMap, YAMLSeq, isAlias, isMap, isScalar, isSeq, parseDocument } from "yaml";
-import { expandEnv } from "../../orchestrator/config-loader";
-import type { OnboardAuthInput, OnboardServiceInput } from "../onboard";
+import { expandEnv } from "../domain/env-expansion.ts";
+import type { OnboardAuthInput, OnboardServiceInput } from "../domain/app-config-yaml.ts";
 
 export interface AppYamlPatch {
   repo?: string;

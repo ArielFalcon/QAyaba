@@ -163,7 +163,7 @@ import type { RunFreeze } from "./run-freeze";
 import { SqliteLessonStoreAdapter } from "./lesson-store-sqlite-adapter";
 import { ProcessAuditPortAdapter } from "@contexts/cross-run-learning/infrastructure/process-audit-port.adapter";
 import { YamlBoundaryProfileAdapter } from "@contexts/service-topology/infrastructure/yaml-boundary-profile.adapter";
-import { expandEnv } from "../orchestrator/config-loader";
+import { expandEnv } from "@contexts/app-catalog/application/index";
 import { getHistory } from "./persistence/index";
 import { historyPhaseHistory } from "./phase-history";
 import { activeEnvironment } from "../settings/active";
