@@ -219,7 +219,9 @@ is the only engine; webhook (`src/server/webhook-handler.ts`, wired by `src/serv
    request is page-dependent by its resource type (document, fetch, xhr, script, stylesheet), never by host.
 8. **Change-coverage** — did the green run exercise the diff's changed lines? (below)
 9. **Decide** — green + approved + coverage not blocking → PR. Rejected/`fail`/`invalid`
-   → Issue. Before any model round a deterministic DOM pre-check (`generation/domain/deterministic-review-precheck.ts`) may reject a spec whose positive assertion the captured page lacks; it never checks a spec file whose every case passed on DEV on the bytes under review (that assertion resolved on the live site, whatever viewport, session, locale or location the capture differed in), counted as `gateSignals.reviewer.preCheckSkippedProven`. A reviewer that could not be reached (its session failed, or it returned nothing) judged
+   → Issue. A green, approved suite that the coverage gate blocks (`enforce` with a measured `fail`) is **held**: no PR,
+   no Issue, the PR text with the coverage report kept on the run (`gateSignals.heldPublication`), the suite out of the store
+   (shadow replaces nothing: held opens nothing). A flaky run is quarantined whatever the gate says. Before any model round a deterministic DOM pre-check (`generation/domain/deterministic-review-precheck.ts`) may reject a spec whose positive assertion the captured page lacks; it never checks a spec file whose every case passed on DEV on the bytes under review (that assertion resolved on the live site, whatever viewport, session, locale or location the capture differed in), counted as `gateSignals.reviewer.preCheckSkippedProven`. A reviewer that could not be reached (its session failed, or it returned nothing) judged
    nothing, which is not a rejection: the run ends as a persisted `infra-error` `E-REVIEWER-UNAVAILABLE`
    (the reviewer's reason on the run record and in the log, no PR and no Issue, nothing learned; three in
    a row log an observe-only audit finding). The reviewer's answer crosses to the decision whole: it is read into
@@ -975,6 +977,16 @@ that catches nothing. The objective signal that breaks the circle is **change-co
 - In `enforce`, a `fail` triggers **exactly one** regeneration at the uncovered lines,
   re-measured under its own `${runId}-coverage-regen` namespace. Only that second
   measurement can change the decision; a failed or empty regen keeps the first result.
+  A `fail` that stands **holds** the run (decision `held`, ADR-0005): nothing is opened in the app's repository, the PR text
+  with the coverage report (ratio against `minRatio`, uncovered lines, arms no test took) is rendered, sanitized and kept in
+  `gateSignals.heldPublication`, and the suite stays out of the store. A `fail` under `signal` and an `unknown` under
+  `enforce` decide as before. The final whole-suite measurement under `enforce` never changes a flaky run's verdict or cases:
+  a green one measures the bytes, a red one measures nothing and the kept measurement is marked stale.
+- **When an app moves to `enforce`** is the owner's act on its configuration; no code refuses the setting. The condition
+  (ADR-0005): the last three consecutive replicates of one campaign case at one qayaba commit each had a trustworthy
+  measurement (a ratio, not stale, no `evidenceLeftOut`, no read-trouble `unmeasured`, no unreadable mutants) with bundle
+  mutation on; a replicate that fails that or a new qayaba commit restarts the count. `npm run enforce-readiness` answers per app
+  from the run history (`objective-signal/domain/enforce-readiness.ts`).
 
 - The measurement reads the latest dumps of every spec file: the namespace of the last whole-suite execution
   without the spec files re-run since, plus each fix-loop round's namespace for the spec files it re-ran
