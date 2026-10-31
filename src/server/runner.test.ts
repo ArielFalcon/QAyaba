@@ -26,6 +26,7 @@ import type { RunOutcome } from "@kernel/run-outcome.ts";
 import { AgentTimeoutError, UntrustedGitTreeError } from "@kernel/domain-error";
 import { traceHarness } from "../telemetry/trace-harness";
 import { getHistory } from "./persistence/index";
+import { testDataNamespace } from "../qa/test-data";
 
 const cfg = (name: string): AppConfig => ({
   name,
@@ -349,6 +350,47 @@ test("the runner passes a testDataNamespace-shaped, per-run namespace to engineF
      cfg(...) fixtures use testDataPrefix "qa-bot"; shortSha("def5678") === "def5678" (already 7 chars).
    */
   assert.match(receivedNamespace!, /^qa-bot-def5678-/, "namespace must start with testDataPrefix-shortSha");
+});
+
+/* The data a run left in DEV is cleaned by the next run of the app: the rule is which prior record counts as a run that left some. */
+async function previousNamespaceSeenBy(app: string, prior: { status?: "running" | "enqueued" | "done"; verdict?: "pass" | "fail" | "infra-error" } | undefined, request: Partial<RunRequest> = {}): Promise<{ seen: string | undefined; priorId: string | undefined }> {
+  const queue = new JobQueue();
+  const { port } = fakePort();
+  let priorId: string | undefined;
+  if (prior) {
+    const rec = getHistory().runs.createRecord({ app, sha: "9abcdef0", target: "e2e", mode: "diff" });
+    getHistory().runs.updateRecord(rec.id, { ...(prior.status ? { status: prior.status } : {}), ...(prior.verdict ? { verdict: prior.verdict } : {}) });
+    priorId = rec.id;
+  }
+  let seen: string | undefined;
+  enqueueTrackedRun(queue, { app, sha: "def5678", target: "e2e", mode: "diff", source: "manual", ...request }, {
+    loadApp: cfg,
+    engineFactory: (_appConfig, _namespace, _run, _observer, previousNamespace) => {
+      seen = previousNamespace;
+      return port;
+    },
+  });
+  await queue.drain();
+  return { seen, priorId };
+}
+
+test("a prior run of the app left running, enqueued or ended as infra-error has its test data cleaned by the next run, under the namespace it used", async () => {
+  for (const [app, prior] of [["orphan-running", { status: "running" }], ["orphan-enqueued", { status: "enqueued" }], ["orphan-infra", { status: "done", verdict: "infra-error" }]] as const) {
+    const { seen, priorId } = await previousNamespaceSeenBy(app, prior);
+    assert.equal(seen, testDataNamespace("qa-bot", "9abcdef0", priorId), app);
+    assert.match(seen!, /^qa-bot-9abcdef-/, app);
+  }
+});
+
+test("a prior run that finished with a verdict of its own, or no prior run, leaves nothing to clean", async () => {
+  assert.equal((await previousNamespaceSeenBy("orphan-pass", { status: "done", verdict: "pass" })).seen, undefined);
+  assert.equal((await previousNamespaceSeenBy("orphan-fail", { status: "done", verdict: "fail" })).seen, undefined);
+  assert.equal((await previousNamespaceSeenBy("orphan-none", undefined)).seen, undefined);
+});
+
+test("a request that names the namespace to clean keeps it, empty included, whatever the prior run was", async () => {
+  assert.equal((await previousNamespaceSeenBy("orphan-named", { status: "running" }, { previousNamespace: "qa-bot-custom" })).seen, "qa-bot-custom");
+  assert.equal((await previousNamespaceSeenBy("orphan-empty", { status: "running" }, { previousNamespace: "" })).seen, "");
 });
 
 test("two DIFFERENT runs (different sha) produce DIFFERENT namespaces passed to engineFactory", async () => {
