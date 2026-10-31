@@ -1,0 +1,82 @@
+/*
+ * One finished run's RunEvaluationEvidence, derived from what the run recorded: its record, its outcome row, its agent turns, its span
+ * ledger and its spec snapshots. What the engine decided at run time (a reviewer was due, the coverage decision and policy, the limit that
+ * fired) is read back from the run's columns, never recomputed from the app's current configuration, so a regrade today grades the run as
+ * it was. Where a fact was never recorded the evidence says so (undefined or null) and the graders stay silent. Pure: the history reads
+ * belong to the caller, which hands them over as `EvidenceSources`.
+ */
+import type { RunEvaluationEvidence } from "../domain/run-evaluation-evidence.ts";
+import type { UseCaseReference } from "../domain/use-case-reference.ts";
+import type { EvidenceSources } from "../domain/evidence-sources.ts";
+import { planEvidenceOf } from "../domain/plan-evidence.ts";
+import { deliveredSpecNames, deliveredSpecsOf, specCountsOf } from "../domain/spec-evidence.ts";
+import { causalOf, contextOf, limitIntentOf, runSpecCallsOf, sidekickReportsOf, stepIntentsOf, survivorsOf } from "../domain/span-evidence.ts";
+import { referenceEvidenceOf } from "./reference-evidence.ts";
+
+const COVERAGE_STATUSES = ["pass", "fail", "unknown"] as const;
+
+export interface EvidenceContext {
+  /* The labelled use cases of the apps, against which a plan's candidates are set. */
+  readonly references: readonly UseCaseReference[];
+  /* The agent name of the reviewer in the roster: the turns of that agent are the reviewer's. */
+  readonly reviewerAgent: string;
+}
+
+export function assembleRunEvidence(sources: EvidenceSources, context: EvidenceContext): RunEvaluationEvidence {
+  const { runId, record, facts, outcome, spans, turns, snapshots } = sources;
+  const finished = record.status === "done" && record.verdict !== undefined;
+  const verdict = record.verdict ?? null;
+  const furthestPhase = sources.phases?.furthestPhase ?? null;
+
+  const specs = specCountsOf(record, snapshots, furthestPhase);
+  const g = outcome?.gateSignals;
+  const plan = planEvidenceOf(sources.plan, record);
+  const reference = referenceEvidenceOf(context.references, record, plan);
+  const coverageStatus = COVERAGE_STATUSES.find((c) => c === facts?.coverageStatus);
+
+  return {
+    runId,
+    ...(record.parentRunId ? { parentRunId: record.parentRunId } : {}),
+    sha: record.sha,
+    app: record.app,
+    mode: record.mode,
+    finished,
+    cancelled: facts?.cancelled === true,
+    verdict,
+    errorClass: outcome?.errorClass ?? null,
+    decision: facts?.decision ?? null,
+    furthestPhase,
+    specs,
+    reviewerTurns: turns.length === 0 ? undefined : turns.filter((t) => t.role === context.reviewerAgent).length,
+    reviewRequired: facts?.reviewRequired ?? undefined,
+    signals: g
+      ? {
+          static: g.static,
+          reviewerApproved: g.reviewerApproved,
+          coverageStatus,
+          coverageMode: facts?.coverageMode ?? undefined,
+          catalogGateFailClosed: g.catalogGateFailClosed,
+          droppedRejections: g.reviewer?.droppedRejections,
+          coverageRatio: g.coverageRatio ?? undefined,
+          branchCoverage: g.branchCoverage,
+          bundleMutation: g.bundleMutation ? { applied: g.bundleMutation.applied, killed: g.bundleMutation.killed } : undefined,
+          survivors: survivorsOf(spans),
+          flakyTriage: g.flakyTriage,
+          lessons: g.lessons ? { delivered: g.lessons.delivered?.length ?? 0, dataStateFailures: g.lessons.dataStateFailures?.reduce((sum, p) => sum + p.count, 0), scopes: [...new Set((g.lessons.delivered ?? []).map((d) => d.scope))].sort(), failuresByPage: g.lessons.dataStateFailures, specPages: g.lessons.specPages } : undefined,
+          routeAvailability: g.routeAvailability ? { unavailable: g.routeAvailability.unavailable, byClass: g.routeAvailability.byClass } : undefined,
+          reviewer: g.reviewer ? { approved: g.reviewer.approved, rounds: g.reviewer.rounds, modelRounds: g.reviewer.modelRounds } : undefined,
+          causal: causalOf(g.causal),
+        }
+      : undefined,
+    limit: facts?.limitFired ? { fired: facts.limitFired, role: facts.limitRole ?? undefined, intent: limitIntentOf(spans, facts.limitRole ?? undefined) } : undefined,
+    limits: facts?.limits ? facts.limits.map(({ fired, role, scope }) => ({ fired, role, scope })) : undefined,
+    stepIntents: stepIntentsOf(spans),
+    context: contextOf(spans, turns, snapshots),
+    plan,
+    ...(reference ? { reference } : {}),
+    runSpecCalls: runSpecCallsOf(spans),
+    deliveredSpecs: deliveredSpecsOf(deliveredSpecNames(record, snapshots), snapshots, record),
+    sidekickReports: sidekickReportsOf(spans),
+    finishedAt: outcome?.at ?? record.at,
+  };
+}

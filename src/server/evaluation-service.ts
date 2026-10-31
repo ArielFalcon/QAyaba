@@ -10,20 +10,13 @@ import { RegradeUseCase, MAX_REGRADE_RUNS, type RegradeRequest } from "@contexts
 import type { EvaluationStatus, RegradeJob, RegradeJobStorePort, RunSelectorPort, ScoreSinkPort, ScoreStorePort, EvidencePort } from "@contexts/evaluation/application/index.ts";
 import { campaignRunsView, type CampaignRunRow, type CampaignRunView } from "@contexts/evaluation/application/index";
 import { GRADER_CATALOG } from "@contexts/evaluation/application/index";
-import { isScoreSource, type Score, type ScoreDataType, type ScorePolarity } from "@contexts/evaluation/application/index";
+import { currentScores, isScoreSource, type Score, type ScoreDataType, type ScorePolarity } from "@contexts/evaluation/application/index";
 import { RUN_PHASES } from "@kernel/run-step";
 import { HistoryEvidenceAdapter } from "./evaluation-evidence";
 import { RedactionPortAdapter } from "../orchestrator/sanitizer";
 import { getHistory } from "./persistence/index";
 
 const redaction = new RedactionPortAdapter();
-
-/* The newest grader version wins; versions are compared as numbers when they are, as strings otherwise. */
-function newer(a: string, b: string): boolean {
-  const na = Number(a);
-  const nb = Number(b);
-  return Number.isFinite(na) && Number.isFinite(nb) ? na > nb : a.localeCompare(b, undefined, { numeric: true }) > 0;
-}
 
 export class SqliteScoreStore implements ScoreStorePort {
   replace(runId: string, scores: readonly Score[], gradedAt: string, scope: { graderVersion: string; baseNames?: readonly string[] }): void {
@@ -56,15 +49,7 @@ export class SqliteScoreStore implements ScoreStorePort {
       ...(r.comment !== null ? { comment: r.comment } : {}),
       ...(r.observationId !== null ? { observationId: r.observationId } : {}),
     }] : []));
-    if (opts.allVersions) return scores;
-    /* The default view is the graders' (design §14): a human label (graderVersion "human", never a version number) shows only with all versions. */
-    const latest = new Map<string, Score>();
-    for (const s of scores) {
-      if (s.source === "human") continue;
-      const cur = latest.get(s.name);
-      if (!cur || newer(s.graderVersion, cur.graderVersion)) latest.set(s.name, s);
-    }
-    return [...latest.values()];
+    return currentScores(scores, opts);
   }
 
   setStatus(runId: string, status: EvaluationStatus, at: string): void {

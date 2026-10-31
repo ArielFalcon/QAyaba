@@ -10,7 +10,8 @@ import { withTurnTelemetry } from "@contexts/generation/infrastructure/telemetry
 import { AgentTurnTraces } from "@contexts/generation/infrastructure/telemetry/turn-trace-registry";
 import type { StepIntentContext } from "@contexts/generation/application/index";
 import { gradeEvidence } from "@contexts/evaluation/application/index";
-import { HistoryEvidenceAdapter, defaultEvidenceDeps, type LedgerSpan } from "../server/evaluation-evidence";
+import { HistoryEvidenceAdapter, defaultEvidenceDeps } from "../server/evaluation-evidence";
+import type { LedgerSpan } from "@contexts/evaluation/application/index";
 import { traceHarness } from "./trace-harness";
 import { getHistory } from "../server/persistence/index";
 

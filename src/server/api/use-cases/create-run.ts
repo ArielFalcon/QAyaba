@@ -4,7 +4,7 @@ import { CampaignInputSchema, CaptureModeSchema, CreateRunResultSchema, Groundin
 import type { CampaignIdentity } from "../../../contract/campaign";
 import type { CaptureMode } from "@kernel/telemetry/capture-mode";
 import { parseRunMode, type TestTarget } from "../../../types";
-import { CampaignCaptureMismatchError } from "../../campaign-capture";
+import { CampaignCaptureMismatchError } from "@contexts/evaluation/application/index";
 import { ApiError } from "../api-error";
 import type { ApiDeps } from "../deps";
 import { apiRunRequest } from "../run-request";

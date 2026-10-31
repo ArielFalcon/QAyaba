@@ -315,7 +315,7 @@ test("GET /campaigns/:id/runs answers 400 with schemaVersion for an id that does
 });
 
 test("POST /runs answers 409 naming the campaign's capture mode when the run's applied mode differs", async () => {
-  const { CampaignCaptureMismatchError } = await import("./campaign-capture");
+  const { CampaignCaptureMismatchError } = await import("@contexts/evaluation/application/index");
   const d = deps({ enqueue: () => { throw new CampaignCaptureMismatchError("ab-1", "metadata", "full"); } });
   const { status, json } = await call("POST", "/api/v1/runs", JSON.stringify({ app: "demo", sha: "abc1234", campaign: { id: "ab-1", variant: {}, replicate: 1 }, captureMode: "full" }), d);
   assert.equal(status, 409);

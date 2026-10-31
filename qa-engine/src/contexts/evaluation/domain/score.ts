@@ -38,3 +38,25 @@ export interface RawScore {
   comment?: string;
   observationId?: string;
 }
+
+/* The newest grader version wins; versions are compared as numbers when they are, as strings otherwise. */
+function newer(a: string, b: string): boolean {
+  const na = Number(a);
+  const nb = Number(b);
+  return Number.isFinite(na) && Number.isFinite(nb) ? na > nb : a.localeCompare(b, undefined, { numeric: true }) > 0;
+}
+
+/*
+ * The scores a run shows by default: for each name the newest grader version's (design §14). A human label (graderVersion "human",
+ * never a version number) shows only with all versions. With `allVersions` every stored score is returned as stored.
+ */
+export function currentScores(scores: readonly Score[], opts: { allVersions: boolean }): Score[] {
+  if (opts.allVersions) return [...scores];
+  const latest = new Map<string, Score>();
+  for (const s of scores) {
+    if (s.source === "human") continue;
+    const cur = latest.get(s.name);
+    if (!cur || newer(s.graderVersion, cur.graderVersion)) latest.set(s.name, s);
+  }
+  return [...latest.values()];
+}

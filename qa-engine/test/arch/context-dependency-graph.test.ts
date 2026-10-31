@@ -19,6 +19,7 @@ const ALLOWED: Record<string, readonly string[]> = {
   "app-catalog": ["generation", "test-execution"],
   "change-analysis": ["agent-tools", "generation"],
   coordination: ["agent-tools", "generation", "test-execution"],
+  evaluation: ["generation"],
   generation: ["service-topology"],
   "run-orchestration": ["agent-tools", "app-catalog", "change-analysis", "coordination", "cross-run-learning", "generation", "objective-signal", "service-topology", "test-execution", "workspace-and-publication"],
   "test-execution": ["generation", "objective-signal"],

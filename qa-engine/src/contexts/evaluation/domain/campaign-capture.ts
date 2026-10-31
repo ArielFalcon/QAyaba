@@ -3,7 +3,7 @@
  * different capture mode would make the arms differ in what their traces hold, and a caller could smuggle a richer export into one arm.
  * The mode compared is the APPLIED one, after the server's ceiling.
  */
-import type { CaptureMode } from "@kernel/telemetry/capture-mode";
+import type { CaptureMode } from "@kernel/telemetry/capture-mode.ts";
 
 export class CampaignCaptureMismatchError extends Error {
   constructor(

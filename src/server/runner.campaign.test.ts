@@ -9,7 +9,7 @@ import type { RunPipelinePort, RunInput } from "@contexts/run-orchestration/appl
 import type { RunOutcome } from "@kernel/run-outcome";
 import type { CampaignIdentity } from "../contract/campaign";
 import { traceHarness } from "../telemetry/trace-harness";
-import { CampaignCaptureMismatchError } from "./campaign-capture";
+import { CampaignCaptureMismatchError } from "@contexts/evaluation/application/index";
 import type { RunConfigEnvironment } from "./effective-config";
 import { getHistory } from "./persistence/index";
 import { parseStoredRunConfig } from "./effective-config";

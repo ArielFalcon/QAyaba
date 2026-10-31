@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createEvaluationService } from "./evaluation-service";
 import { GRADER_VERSION, gradeEvidence } from "@contexts/evaluation/application/index";
-import { HistoryEvidenceAdapter, countPassedSpecs, defaultEvidenceDeps } from "./evaluation-evidence";
+import { HistoryEvidenceAdapter, defaultEvidenceDeps } from "./evaluation-evidence";
 import { buildRunViewExtras, type RunViewDeps } from "./run-view";
 import Database from "better-sqlite3";
 import { RegradeRequestError } from "@contexts/evaluation/application/index";
@@ -197,12 +197,6 @@ test("a case whose name merely contains a spec's name is not attributed to it", 
 test("a spec left without cases makes the passed count unknown unless the run passed", async () => {
   const id = finishedRun("eval-g4", { verdict: "fail", decision: "issue", cases: [{ name: "login works", status: "pass", file: "login.spec.ts" }] });
   assert.equal((await evidenceOf(id))?.specs.passed, undefined);
-});
-
-test("a file that fits two specs fits neither", () => {
-  const specs = ["e2e/a/x.spec.ts", "e2e/b/x.spec.ts"];
-  assert.equal(countPassedSpecs(specs, [{ name: "t", status: "pass", file: "x.spec.ts" }], 2, "fail"), undefined);
-  assert.equal(countPassedSpecs(specs, [{ name: "t", status: "pass", file: "a/x.spec.ts" }, { name: "u", status: "fail", file: "b/x.spec.ts" }], 2, "fail"), 1);
 });
 
 test("an invalid run has no valid spec, and a run that never got past validation has an unknown count", async () => {

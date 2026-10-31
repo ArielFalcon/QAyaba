@@ -10,11 +10,10 @@
 import { appLogger } from "../integrations/redacting-logger";
 import { JobQueue } from "./queue";
 import { loadAppConfig, AppConfig } from "../orchestrator/config-loader";
-import { assertUniformCapture, CAMPAIGN_CAPTURE_MODE, requestedCaptureMode } from "./campaign-capture";
+import { assertUniformCapture, CAMPAIGN_CAPTURE_MODE, requestedCaptureMode, specCountsOf } from "@contexts/evaluation/application/index";
 import { serializablePhases, type RunFactsPatch } from "./persistence/repositories/run.repository";
 import { mergeTurnLimits, primaryLimit, traceFactsOf } from "@kernel/run-trace-facts";
 import { phaseSnapshotOf } from "@contexts/run-orchestration/application/index";
-import { specCountsOf } from "./evaluation-evidence";
 import { testDataNamespace } from "../qa/test-data";
 import { RunMode, TestTarget, TriggerSource, QaCase, QaRunResult, engineStatus, type RunChangeEntry } from "../types";
 import { RedactionPortAdapter } from "../orchestrator/sanitizer";
