@@ -729,6 +729,21 @@ test("resolveRef resolves a tag, and a branch wins over a tag of the same name",
   }
 });
 
+test("resolveRef resolves the shorter spellings git itself accepts for a ref of the remote", async () => {
+  const { remote, shas, deps } = remoteWithBranches();
+  try {
+    execFileSync("git", ["update-ref", "refs/pull/1/head", shas["other"] as string], { cwd: remote, env: GIT_ENV });
+    execFileSync("git", ["update-ref", "refs/remotes/origin/dev", shas["feature/main"] as string], { cwd: remote, env: GIT_ENV });
+    assert.equal(await resolveRef("org/app", "heads/main", deps), shas["main"]);
+    assert.equal(await resolveRef("org/app", "tags/v1", deps), shas["other"]);
+    assert.equal(await resolveRef("org/app", "pull/1/head", deps), shas["other"]);
+    assert.equal(await resolveRef("org/app", "origin/dev", deps), shas["feature/main"]);
+    await assert.rejects(() => resolveRef("org/app", "dev", deps), /no SHA resolved for dev/);
+  } finally {
+    rmSync(remote, { recursive: true, force: true });
+  }
+});
+
 test("resolveRef refuses a name that only the tail of another ref matches", async () => {
   const { remote, deps } = remoteWithBranches();
   try {

@@ -216,11 +216,12 @@ export const defaultMirrorDeps: MirrorDeps = {
  * the URL argument itself stays tokenless.
  *
  * ls-remote matches its pattern against the tail of every ref name (`main` lists `refs/heads/main` and
- * `refs/heads/feature/main`), so the answer is the line whose ref name is exactly the one asked for: a branch, then a tag
-, then the full name the caller gave.
+ * `refs/heads/feature/main`), so the answer is the line whose ref name is exactly one git's own rules make of the name
+ * asked for: a branch, then a tag (a branch wins over a tag of the same name), then the full name the caller gave, then
+ * the name under `refs/` (`heads/main`, `pull/1/head`) and under `refs/remotes/` (`origin/main`).
  */
 export async function resolveRef(repo: string, ref: string, deps: MirrorDeps): Promise<string> {
-  /* Git 2.43+ refuses an option after the URL, older versions read one: a ref from an API payload or an app's config is judged first as defence in depth. */
+  /* ls-remote reads the argument after the URL as a pattern, never an option; a ref from an API payload or an app's config is still judged first as defence in depth. */
   assertRefName(ref);
   const stdout = await deps.git([...authHeaderArgs(), "ls-remote", tokenlessUrl(repo), ref]);
   const shaByName = new Map<string, string>();
@@ -228,7 +229,7 @@ export async function resolveRef(repo: string, ref: string, deps: MirrorDeps): P
     const [sha, name] = line.split("\t");
     if (sha && name) shaByName.set(name, sha);
   }
-  for (const name of [`refs/heads/${ref}`, `refs/tags/${ref}`, ref]) {
+  for (const name of [`refs/heads/${ref}`, `refs/tags/${ref}`, ref, `refs/${ref}`, `refs/remotes/${ref}`, `refs/remotes/${ref}/HEAD`]) {
     const sha = shaByName.get(name);
     if (sha && sha.length >= 40) return sha;
   }
