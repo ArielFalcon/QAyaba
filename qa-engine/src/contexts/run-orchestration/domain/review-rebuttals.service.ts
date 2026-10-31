@@ -12,12 +12,18 @@ export type RebuttalBasis = "execution" | "contract";
 
 /** One finding the generator refuses to correct, and the evidence it claims for that refusal. */
 export interface ReviewRebuttal {
-  /** The reviewer finding it answers, as the generator received it. */
-  readonly finding: string;
+  /** The id of the finding it answers, as the run admitted it: a rebuttal names one finding, never every finding with the same text. */
+  readonly findingId: string;
   readonly basis: RebuttalBasis;
   /** The case name or spec path (execution), or `<spec>#<clause>` (contract). */
   readonly ref: string;
   readonly reason: string;
+}
+
+/** A finding of the round a rebuttal can name: its id and, for the record, its text. */
+export interface RoundFinding {
+  readonly id: string;
+  readonly text: string;
 }
 
 /** What the orchestrator knows about the current bytes: the only facts that can withdraw a finding. */
@@ -32,28 +38,24 @@ export interface RebuttalEvidence {
 
 /** A finding the turn disputed without evidence the orchestrator could check. */
 export interface DisputedFinding {
+  readonly findingId: string;
+  /** The finding's text, for the record. */
   readonly finding: string;
   readonly rebuttal: ReviewRebuttal;
 }
 
 export interface VerifiedRebuttals {
-  /** Findings withdrawn with evidence the orchestrator checked: they no longer block. */
+  /** The ids of the findings withdrawn with evidence the orchestrator checked: they no longer block. */
   readonly withdrawn: readonly string[];
   /** Findings disputed on a claim nobody can check: the run cannot settle them. */
   readonly disputed: readonly DisputedFinding[];
+  /** Rebuttals whose id names no finding of the round: unreadable, they withdraw and dispute nothing. */
+  readonly unnamed: readonly ReviewRebuttal[];
 }
 
-/* The shortest overlap that still identifies one finding rather than a phrase the two share. */
-const MIN_MATCH_CHARS = 24;
-
-/** A finding's identity for matching: whitespace and case do not make it another finding. */
-export function findingKey(text: string): string {
-  return text.replace(/\s+/g, " ").trim().toLowerCase();
-}
-
-/** A citation reference's identity: the same separators and path slashes, whatever the model wrote. */
+/** A citation reference's identity: the same separators and path slashes, whatever the model wrote; whitespace and case do not make it another reference. */
 export function refKey(ref: string): string {
-  return findingKey(ref).replaceAll("\\", "/");
+  return ref.replace(/\s+/g, " ").trim().toLowerCase().replaceAll("\\", "/");
 }
 
 /** The key a contract rebuttal's `<spec>#<clause>` holds in `intactClauses`: the spec in its suite-relative form, whatever prefix it was spelled with. */
@@ -73,45 +75,72 @@ function greenFor(ref: string, evidence: RebuttalEvidence): boolean {
   return spec !== undefined && evidence.greenCaseRefs.has(spec);
 }
 
-/*
- * The generator names a finding by repeating it. A repeated finding may be abridged, so a containment
- * counts once it is long enough to be specific; anything shorter is ambiguous and names nothing.
- */
-function names(rebuttalFinding: string, finding: string): boolean {
-  const claimed = findingKey(rebuttalFinding);
-  const actual = findingKey(finding);
-  if (claimed === actual) return true;
-  const [shorter, longer] = [claimed, actual].sort((a, b) => a.length - b.length) as [string, string];
-  return shorter.length >= MIN_MATCH_CHARS && longer.includes(shorter);
-}
-
 /**
- * Sort each rebuttal of this round's findings into withdrawn (the orchestrator checked what it names)
- * and disputed (it does not). A rebuttal that names no finding of this round disputes nothing; a
- * finding with any verified rebuttal is withdrawn, never also disputed.
+ * Sort each rebuttal of this round's findings into withdrawn (the orchestrator checked what it names) and disputed (it does not).
+ * A rebuttal names one finding by the id the run admitted it under; one whose id is no finding of this round is unnamed and
+ * disputes nothing. A finding with any verified rebuttal is withdrawn, never also disputed.
  */
 export function verifyRebuttals(
   rebuttals: readonly ReviewRebuttal[],
-  findings: readonly string[],
+  findings: readonly RoundFinding[],
   evidence: RebuttalEvidence,
 ): VerifiedRebuttals {
+  const byId = new Map(findings.map((finding) => [finding.id, finding]));
   const withdrawn = new Set<string>();
   const disputed = new Map<string, DisputedFinding>();
+  const unnamed: ReviewRebuttal[] = [];
 
   for (const rebuttal of rebuttals) {
+    const finding = byId.get(rebuttal.findingId);
+    if (!finding) {
+      unnamed.push(rebuttal);
+      continue;
+    }
     const checked =
       rebuttal.basis === "execution"
         ? greenFor(rebuttal.ref, evidence)
         : evidence.intactClauses.has(contractRefKey(rebuttal.ref, evidence.specRelDir ?? ""));
-    for (const finding of findings) {
-      if (!names(rebuttal.finding, finding)) continue;
-      if (checked) withdrawn.add(finding);
-      else if (!disputed.has(finding)) disputed.set(finding, { finding, rebuttal });
-    }
+    if (checked) withdrawn.add(finding.id);
+    else if (!disputed.has(finding.id)) disputed.set(finding.id, { findingId: finding.id, finding: finding.text, rebuttal });
   }
 
   return {
     withdrawn: [...withdrawn],
-    disputed: [...disputed.values()].filter((entry) => !withdrawn.has(entry.finding)),
+    disputed: [...disputed.values()].filter((entry) => !withdrawn.has(entry.findingId)),
+    unnamed,
   };
+}
+
+/** A rebuttal as a turn's answer carries it: the finding's id when the answer named it by the number it was shown (the lead), else only the text it repeated (the author). */
+export interface AnsweredRebuttal {
+  readonly finding: string;
+  readonly findingId?: string;
+  readonly basis: RebuttalBasis;
+  readonly ref: string;
+  readonly reason: string;
+}
+
+/* Whitespace and case do not make a repeated text another text. */
+const repeatedText = (text: string): string => text.replace(/\s+/g, " ").trim().toLowerCase();
+
+/**
+ * The rebuttals of a turn, each naming one finding of the round by its id. A rebuttal the answer named by id is taken as it is.
+ * The author's contract (`agents/agent/qa-author.md`) still names a finding by repeating its text: such a repeat names the one
+ * finding of the round with exactly that text, whitespace and case aside; a text no finding has, or several findings share, names
+ * none and is returned unread, never matched to a part of a text or to every finding that shares it.
+ */
+export function namedRebuttals(answered: readonly AnsweredRebuttal[], findings: readonly RoundFinding[]): { rebuttals: ReviewRebuttal[]; unread: AnsweredRebuttal[] } {
+  const rebuttals: ReviewRebuttal[] = [];
+  const unread: AnsweredRebuttal[] = [];
+  for (const rebuttal of answered) {
+    const { basis, ref, reason } = rebuttal;
+    if (rebuttal.findingId !== undefined) {
+      rebuttals.push({ findingId: rebuttal.findingId, basis, ref, reason });
+      continue;
+    }
+    const repeated = findings.filter((finding) => repeatedText(finding.text) === repeatedText(rebuttal.finding));
+    if (repeated.length === 1) rebuttals.push({ findingId: repeated[0]!.id, basis, ref, reason });
+    else unread.push(rebuttal);
+  }
+  return { rebuttals, unread };
 }

@@ -64,6 +64,8 @@ export function boundReviewRationale(rationale: string | undefined): string | un
 
 /** One finding of the reviewer's answer: its text, the severity the reviewer gave it and the evidence it cites. A finding with no `citation` is one the reviewer left uncited. */
 export interface ReviewFinding {
+  /** The finding's identity within its round, given when the run admits it (`identifyFindings`): two findings with the same text are two findings. Absent on the reviewer's own answer. */
+  id?: string;
   text: string;
   severity: "blocking" | "advisory";
   citation?: { kind: "contract" | "execution" | "dom" | "arm" | "availability" | "contradiction"; ref: string };

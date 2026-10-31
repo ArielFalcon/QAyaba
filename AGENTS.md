@@ -245,13 +245,17 @@ is the only engine; webhook (`src/entrypoints/webhook-handler.ts`, wired by `src
    clause, an execution of this run or a DOM fact, the orchestrator verifies the citation
    (`review-finding-filter.service.ts`; a cited or rebutted spec is resolved by `resolveCitedSpec` /
    `resolveSpecReference` in `shared-kernel/spec-path.ts`, never compared raw) and only a verified blocking finding blocks — an uncited,
-   out-of-scope or DOM-only one is advisory telemetry, never sent to the author. A finding that cites
+   out-of-scope or DOM-only one is advisory telemetry, never sent to the author. Every finding the filter admits gets an id
+   (`identifyFindings`): routing, the lead's numbered answers and rebuttals name a finding by it, never by its text, so two
+   findings with the same text that cite two specs stay two findings. A finding that cites
    an arm of the changed code no test ran (`{"kind":"arm","ref":"<file>:<line>"}`, tagged
    `[missing-case]`) is a missing case: it is taken out before that filter,
    kept only when the run's measurement lists that arm (the reviewer receives the list only while it
    describes the bytes under review), recorded in `gateSignals.missingCases` and shown in the PR or
    Issue, and it never blocks or rejects: a rejection resting only on missing cases is an approval. The author may
-   answer a finding with a typed `rebuttals` entry instead of a correction; it withdraws the finding only
+   answer a finding with a typed `rebuttals` entry instead of a correction (the lead names the finding by its number, the author by
+   repeating its text, which names the one finding with exactly that text; a text no finding or several carry names none and is
+   recorded unread); it withdraws the finding only
    against evidence the run can check (a case green on the current bytes, or a contract clause still
    intact — `review-rebuttals.service.ts`). A verified blocking finding that survives while its rebuttal
    stays unverified, with nothing delivered to correct it, is a judgment the engine cannot settle: the run

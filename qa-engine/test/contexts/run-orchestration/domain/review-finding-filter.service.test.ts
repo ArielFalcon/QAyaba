@@ -150,13 +150,21 @@ const flowsScope: ReviewScope = {
   executedSpecs: new Set(["flows/map-filter-dialogs.spec.ts"]),
 };
 
-test("two findings with the same text are judged apart: the verified one comes back itself, the dropped one does not", () => {
+test("two findings with the same text are judged apart: the verified one comes back with its own id, the dropped one does not", () => {
   const verified = finding({ text: "[false-positive] same words", citation: { kind: "execution", ref: "flows/map-filter-dialogs.spec.ts" } });
   const uncited = finding({ text: "[false-positive] same words" });
   const out = filterReviewFindings([uncited, verified], flowsScope);
-  assert.equal(out.blocking.length, 1);
-  assert.equal(out.blocking[0], verified);
+  assert.deepEqual(out.blocking, [{ ...verified, id: "F2" }], "the id is the finding's place in the answer, whatever was dropped before it");
   assert.deepEqual(out.dropped, ["[false-positive] same words"]);
+});
+
+test("two verified findings with the same text citing different specs are two findings, each with its own id and citation", () => {
+  const twoSpecs: ReviewScope = { specRelDir: SPEC_DIR, inScopeSpecs: new Set(["flows/a.spec.ts", "flows/b.spec.ts"]), executedSpecs: new Set(["flows/a.spec.ts", "flows/b.spec.ts"]) };
+  const out = filterReviewFindings(
+    [finding({ text: "same words", citation: { kind: "execution", ref: "flows/a.spec.ts" } }), finding({ text: "same words", citation: { kind: "execution", ref: "flows/b.spec.ts" } })],
+    twoSpecs,
+  );
+  assert.deepEqual(out.blocking.map((f) => ({ id: f.id, ref: f.citation?.ref })), [{ id: "F1", ref: "flows/a.spec.ts" }, { id: "F2", ref: "flows/b.spec.ts" }]);
 });
 
 test("an execution citation that carries the spec directory still blocks when that spec is in scope and was executed", () => {

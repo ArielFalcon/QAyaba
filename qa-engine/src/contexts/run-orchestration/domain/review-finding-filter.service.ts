@@ -5,7 +5,8 @@
  * generator, never a gate. A finding that names an arm of the changed code no test ran is a missing case:
  * kept when the run's measurement lists that arm, recorded and shown, never a requirement or a gate.
  * A citation and the run's scope are compared in one canonical form (the suite-relative spec path), so the
- * way an agent spells a file never decides whether its finding counts.
+ * way an agent spells a file never decides whether its finding counts. Every finding the run admits gets an id
+ * (`identifyFindings`): routing, the lead's numbered answers and rebuttals name a finding by it, never by its text.
  * Pure: no I/O. See docs and the D slice of the change spec.
  */
 
@@ -45,9 +46,20 @@ export interface ReviewScope {
 /** Why a finding can never block: it cites nothing, an arm nobody checked, a reference that names no spec the suite can hold, a spec outside this run's scope, or an execution this run did not perform. */
 export type DropReason = "uncited" | "arm" | "unresolved" | "out-of-scope" | "not-executed" | "no-availability-fact" | "no-contradiction-fact";
 
+/** A finding as the run admitted it: the same object, with the id that names it within its round. */
+export type IdentifiedFinding<T> = T & { readonly id: string };
+
+/**
+ * The ids of one round's findings, given at admission: the finding's position in the answer the round judged (`F1`, `F2`, ...).
+ * Two findings with the same text get two ids, and an id is never derived from the text.
+ */
+export function identifyFindings<T extends { readonly text: string }>(findings: readonly T[]): IdentifiedFinding<T>[] {
+  return findings.map((finding, index) => ({ ...finding, id: `F${index + 1}` }));
+}
+
 export interface FilteredReviewFindings<T extends CitedFinding = CitedFinding> {
-  /** Verified, reviewer-blocking findings, the very objects given: the only ones that reach the generator or fail the gate. Two findings with the same text are judged apart. */
-  readonly blocking: T[];
+  /** Verified, reviewer-blocking findings, the very objects given with the id admission gave each: the only ones that reach the generator or fail the gate. Two findings with the same text are judged apart. */
+  readonly blocking: IdentifiedFinding<T>[];
   /** Verified-but-advisory, plus every DOM-only finding: recorded, never a requirement. */
   readonly advisory: string[];
   /** No citation, an unverifiable one, or a citation outside this run's scope. */
@@ -80,7 +92,7 @@ export function filterReviewFindings<T extends CitedFinding>(
   findings: readonly T[],
   scope: ReviewScope,
 ): FilteredReviewFindings<T> {
-  const blocking: T[] = [];
+  const blocking: IdentifiedFinding<T>[] = [];
   const advisory: string[] = [];
   const dropped: string[] = [];
   const droppedBlocking: Partial<Record<DropReason, number>> = {};
@@ -92,7 +104,7 @@ export function filterReviewFindings<T extends CitedFinding>(
     if (finding.severity === "blocking") droppedBlocking[reason] = (droppedBlocking[reason] ?? 0) + 1;
   };
 
-  for (const finding of findings) {
+  for (const finding of identifyFindings(findings)) {
     const citation = finding.citation;
     if (!citation) {
       drop(finding, "uncited");

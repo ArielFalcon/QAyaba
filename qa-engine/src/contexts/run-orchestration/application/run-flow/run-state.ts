@@ -23,6 +23,7 @@ import type { RunDegradationFact, RunLimitFact } from "@kernel/run-trace-facts.t
 import type { AdjudicatorVerdict } from "../../domain/adjudicate.service.ts";
 import type { FixLoopStage } from "../../domain/fix-loop.aggregate.ts";
 import type { CoordinationGateSignal } from "@kernel/coordination.ts";
+import type { CorrectionFinding } from "@contexts/coordination/application/index.ts";
 import type { RunOutcome } from "@kernel/run-outcome.ts";
 import type { BundleMutationOutcome, CandidateCoverage, CausalLabel, CoverageExclusions, CoverageRecount, CoverageRerun, MutantProof, MutantRun, SurvivorClosure, UntakenArm } from "@contexts/objective-signal/application/index.ts";
 import type { RunDecision } from "../../domain/run-decision.ts";
@@ -242,8 +243,8 @@ export const REVIEW_DECISION_EFFECT = {
 export interface ReviewRoundScratch {
   reviewResult: Awaited<ReturnType<ReviewPort["review"]>>;
   decidedBy: ReviewDecidedBy;
-  /** The spec each verified finding's citation names. */
-  blockingSpecs: Map<string, string>;
+  /** The round's findings as a correction is handed them: each with the id the run admitted it under and the spec its citation names. */
+  findings: Array<CorrectionFinding & { id: string }>;
   snapshot: SuiteRestorePoint;
   deliveredBefore: readonly DeliveredSpec[];
   regen: GenerationOutput | undefined;

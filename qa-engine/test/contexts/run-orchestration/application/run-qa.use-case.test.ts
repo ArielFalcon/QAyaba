@@ -8554,6 +8554,29 @@ test("a rebuttal the orchestrator can verify withdraws its finding and the revie
   }
 });
 
+test("an author rebuttal that repeats a text two findings share withdraws neither: it names no single finding", async () => {
+  const { fixtures, generate } = rebuttingGeneration((finding) => ({ finding, basis: "execution", ref: "flows/checkout.spec.ts", reason: "the case ran green on these bytes" }));
+  try {
+    const twins = async () => ({
+      approved: false,
+      findings: [
+        { text: DISPUTED_FINDING, severity: "blocking" as const, citation: { kind: "execution" as const, ref: "flows/checkout.spec.ts" } },
+        { text: DISPUTED_FINDING, severity: "blocking" as const, citation: { kind: "contract" as const, ref: "flows/checkout.spec.ts#assertion-0" } },
+      ],
+      blockingCount: 2,
+      parsed: true,
+    });
+    const { ports } = disputedPorts(fixtures, generate, twins as ReviewPort["review"]);
+    const out = await new RunQaUseCase({ ...ports, config: { ...baseConfig } }).run({ ...baseInput, runId: "review-rebuttal-twins" });
+
+    assert.notEqual(out.decision.sideEffect, "pr", "both verified findings still stand");
+    assert.equal(out.gateSignals.reviewer?.approved, false);
+    assert.deepEqual(out.gateSignals.reviewer?.rebuttals, { received: 1, withdrawn: 0 });
+  } finally {
+    fixtures.cleanup();
+  }
+});
+
 test("a generator that refuses a finding and offers no basis is a plain rejection, not a dispute", async () => {
   const { fixtures, generate } = rebuttingGeneration(() => ({ finding: "", basis: "execution", ref: "", reason: "" }));
   try {

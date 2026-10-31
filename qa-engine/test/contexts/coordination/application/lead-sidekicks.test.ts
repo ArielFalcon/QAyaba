@@ -1397,8 +1397,8 @@ test("the lead's rebuttal comes back for the run to check, and a finding on a fl
   const lead = leadAnswering([ACCEPT_ALL, rebut, "not json"]);
   const outcome = await new LeadSidekicks(r.deps).coordinate(input(r, { plan: lead.plan, closedLoop: undefined }));
   if (outcome.action !== "fanout") return assert.fail("fanout expected");
-  const first = await outcome.pass!.correct([{ text: "the total is never asserted", spec: "e2e/flows/cart.spec.ts" }]);
-  assert.deepEqual(first.rebuttals, [{ finding: "the total is never asserted", basis: "execution", ref: "cart › total", reason: "the total is asserted" }]);
+  const first = await outcome.pass!.correct([{ id: "F1", text: "the total is never asserted", spec: "e2e/flows/cart.spec.ts" }]);
+  assert.deepEqual(first.rebuttals, [{ findingId: "F1", finding: "the total is never asserted", basis: "execution", ref: "cart › total", reason: "the total is asserted" }]);
   assert.deepEqual(first.specs, [], "a rebutted finding is sent to nobody");
   const second = await outcome.pass!.correct([{ text: "the login asserts only the URL", spec: "e2e/flows/login.spec.ts" }, { text: "a loose finding" }]);
   assert.equal(second.readable, false);

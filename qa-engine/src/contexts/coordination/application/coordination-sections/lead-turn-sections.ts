@@ -67,6 +67,8 @@ export interface CandidateGaps {
 
 /* One finding a correction turn routes: a verified blocking finding of the reviewer, or a fact one of the run's checks observed, with the spec it names when it names one. */
 export interface CorrectionFinding {
+  /* The reviewer finding's identity, given when the run admitted it: what a rebuttal names, never the text. A finding the run observed (static gate, execution, coverage) has none and is never rebutted. */
+  id?: string;
   text: string;
   spec?: string;
   /* The changed source file the finding is about (a coverage gap names code, not a spec), and the line when it names one. */

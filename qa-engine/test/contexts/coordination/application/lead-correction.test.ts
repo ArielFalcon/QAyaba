@@ -11,9 +11,9 @@ const flows: FlowUnderCorrection[] = [
   { id: "login", objective: "sign in works", specFile: "flows/login.spec.ts", sessionOpen: false },
 ];
 const findings: CorrectionFinding[] = [
-  { text: "the total is never asserted", spec: "e2e/flows/cart.spec.ts" },
-  { text: "flows/login.spec.ts asserts only the URL" },
-  { text: "a selector is a CSS class" },
+  { id: "F1", text: "the total is never asserted", spec: "e2e/flows/cart.spec.ts" },
+  { id: "F2", text: "flows/login.spec.ts asserts only the URL" },
+  { id: "F3", text: "a selector is a CSS class" },
 ];
 
 test("a finding belongs to the flow whose spec its citation names, or failing that its text names, and to none otherwise", () => {
@@ -64,9 +64,26 @@ test("a finding that cites one flow is never moved to another", () => {
 test("a rebutted finding is sent to nobody and comes back as the rebuttal the run checks; a rebuttal without its basis is not taken", () => {
   const answer = JSON.stringify({ rebuttals: [{ finding: 1, basis: "execution", ref: "cart › total", reason: "it passed" }, { finding: 2, basis: "opinion", ref: "x", reason: "y" }] });
   const admitted = admitLeadCorrection(redaction, answer, flows, findings);
-  assert.deepEqual(admitted.rebuttals, [{ finding: "the total is never asserted", basis: "execution", ref: "cart › total", reason: "it passed" }]);
+  assert.deepEqual(admitted.rebuttals, [{ findingId: "F1", finding: "the total is never asserted", basis: "execution", ref: "cart › total", reason: "it passed" }]);
   assert.equal(admitted.orders.some((o) => o.flowId === "cart"), false);
   assert.ok(admitted.orders.some((o) => o.flowId === "login"));
+});
+
+test("a rebuttal by number names the finding at that number by its id, whatever text another finding shares", () => {
+  const same = "the test asserts only that the page loaded";
+  const twins: CorrectionFinding[] = [{ id: "F1", text: same, spec: "flows/cart.spec.ts" }, { id: "F2", text: same, spec: "flows/login.spec.ts" }];
+  const answer = JSON.stringify({ rebuttals: [{ finding: 2, basis: "execution", ref: "flows/login.spec.ts", reason: "it ran green" }] });
+  const admitted = admitLeadCorrection(redaction, answer, flows, twins);
+  assert.deepEqual(admitted.rebuttals.map((r) => r.findingId), ["F2"]);
+  assert.deepEqual(admitted.orders.map((o) => ({ flowId: o.flowId, indices: o.indices })), [{ flowId: "cart", indices: [0] }], "the twin the lead did not rebut still goes to its own flow");
+});
+
+test("a rebuttal of a finding that carries no id is an unreadable entry, never matched by the finding's text", () => {
+  const answer = JSON.stringify({ rebuttals: [{ finding: 1, basis: "execution", ref: "cart › total", reason: "it passed" }] });
+  const admitted = admitLeadCorrection(redaction, answer, flows, [{ text: "the total is never asserted", spec: "flows/cart.spec.ts" }]);
+  assert.deepEqual(admitted.rebuttals, []);
+  assert.deepEqual(admitted.unreadable.map((u) => u.where), ["rebuttals[0]"]);
+  assert.deepEqual(admitted.orders.map((o) => o.flowId), ["cart"], "the finding stands and goes to its flow");
 });
 
 test("an order whose action is neither revise nor replace is unreadable and is never read as a revise", () => {

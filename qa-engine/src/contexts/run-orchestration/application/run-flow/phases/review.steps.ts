@@ -10,8 +10,8 @@ import { renderSpecChanges, sameReviewedSpecs, type ReviewSpecText } from "@cont
 import type { SpecRoot } from "@kernel/ports/spec-files.port.ts";
 import { precheckSpecsAgainstDom } from "@contexts/generation/application/index.ts";
 import { specRelDirOf } from "@kernel/spec-path.ts";
-import { citedSpec, filterReviewFindings, takeMissingCases, type DropReason } from "../../../domain/review-finding-filter.service.ts";
-import { verifyRebuttals, findingKey } from "../../../domain/review-rebuttals.service.ts";
+import { citedSpec, filterReviewFindings, identifyFindings, takeMissingCases, type DropReason } from "../../../domain/review-finding-filter.service.ts";
+import { namedRebuttals, verifyRebuttals } from "../../../domain/review-rebuttals.service.ts";
 import { MAX_REVIEW_ROUNDS } from "../../../domain/derive-cycle-backstop.ts";
 import { reviewAction } from "../../../domain/review-action.ts";
 import type { ReviewPort } from "@contexts/generation/application/index.ts";
@@ -265,13 +265,16 @@ export async function reviewRound(state: Readonly<RunState>, ctx: WorkspaceRunCo
    * The findings filter (D): only a finding that cites a contract clause, an execution or a DOM
    * fact this run can verify may block. Everything else is advisory telemetry, never sent to the
    * generator. The pre-check is the orchestrator's own deterministic evidence, so it is not a
-   * reviewer finding and is never filtered.
+   * reviewer finding and is never filtered. Every finding the round admits gets its id here, and is
+   * named by it from then on.
    */
   let filteredReviewFindings = 0;
   let advisoryReviewFindings = 0;
   let droppedBlockingReasons: Partial<Record<DropReason, number>> = {};
-  /* The spec each verified finding's citation names, for routing it to the flow that owns that spec. */
+  /* The spec each verified finding's citation names, by the finding's id, for routing it to the flow that owns that spec. */
   let blockingSpecs = new Map<string, string>();
+  /* The round's findings as the run admitted them, each with its id. */
+  let admitted: ReadonlyArray<{ readonly id: string; readonly text: string }>;
   if (decidedBy === "model" && reviewResult.findings.length > 0) {
     const findings = reviewResult.findings;
     /* The scope and the citations meet in the suite-relative form: the spec directory an agent prefixes to a path is not part of the file's name. */
@@ -285,7 +288,7 @@ export async function reviewRound(state: Readonly<RunState>, ctx: WorkspaceRunCo
     });
     blockingSpecs = new Map(filtered.blocking.flatMap((f) => {
       const spec = f.citation ? citedSpec(f.citation.ref, specRelDir) : undefined;
-      return spec !== undefined ? [[f.text, spec] as const] : [];
+      return spec !== undefined ? [[f.id, spec] as const] : [];
     }));
     filteredReviewFindings = filtered.dropped.length;
     advisoryReviewFindings = filtered.advisory.length;
@@ -300,6 +303,7 @@ export async function reviewRound(state: Readonly<RunState>, ctx: WorkspaceRunCo
         engineLog.error(`[telemetry] the filtered-findings counter could not be recorded (the run goes on): ${err instanceof Error ? err.message : String(err)}`);
       }
     }
+    admitted = filtered.blocking;
     reviewResult = {
       ...reviewResult,
       /* Only a verified finding can keep the reviewer's rejection standing. */
@@ -307,6 +311,10 @@ export async function reviewRound(state: Readonly<RunState>, ctx: WorkspaceRunCo
       findings: filtered.blocking,
       blockingCount: filtered.blocking.length,
     };
+  } else {
+    const identified = identifyFindings(reviewResult.findings);
+    admitted = identified;
+    reviewResult = { ...reviewResult, findings: identified };
   }
   const corrections = findingTexts(reviewResult.findings);
   const reviewedBlocking = reviewResult.blockingCount ?? corrections.length;
@@ -377,7 +385,10 @@ export async function reviewRound(state: Readonly<RunState>, ctx: WorkspaceRunCo
   session.current = {
     reviewResult,
     decidedBy,
-    blockingSpecs,
+    findings: admitted.map(({ id, text }) => {
+      const spec = blockingSpecs.get(id);
+      return { id, text, ...(spec !== undefined ? { spec } : {}) };
+    }),
     snapshot: await snapshotSuite(),
     deliveredBefore: state.generation.delivered,
     regen: undefined,
@@ -397,11 +408,10 @@ export async function reviewCorrect(state: Readonly<RunState>, ctx: WorkspaceRun
   if (!cur) throw new Error("a review correction ran before its round was judged");
   let { acceptanceCalls } = state.coverage;
   const pass = trail.coordinatedPass;
-  const { reviewResult, blockingSpecs } = cur;
-  const findings: CorrectionFinding[] = findingTexts(reviewResult.findings).map((text) => ({ text, ...(blockingSpecs.has(text) ? { spec: blockingSpecs.get(text)! } : {}) }));
+  const findings: CorrectionFinding[] = cur.findings;
   const { output: regen, leadCorrections } = !pass
     ? {
-        output: await regenerateByAuthor(state, ctx, signal, { reviewCorrections: findingTexts(reviewResult.findings) }),
+        output: await regenerateByAuthor(state, ctx, signal, { reviewCorrections: findings.map((finding) => finding.text) }),
         leadCorrections: 0,
       }
     : mayCorrectThroughLead(state, ctx)
@@ -439,7 +449,7 @@ export async function reviewResolve(state: Readonly<RunState>, ctx: WorkspaceRun
   const session = sessionOf(state);
   const cur = session.current;
   if (!cur || !cur.regen) throw new Error("a review correction was resolved before it ran");
-  const { reviewResult, decidedBy, regen, snapshot, deliveredBefore, changedSpecFiles, changedSupportFiles, outcome } = cur;
+  const { decidedBy, regen, snapshot, deliveredBefore, changedSpecFiles, changedSupportFiles, outcome } = cur;
   const { stats: reviewStats } = session;
   let run = runOf(state);
   let coverage = state.coverage;
@@ -448,20 +458,27 @@ export async function reviewResolve(state: Readonly<RunState>, ctx: WorkspaceRun
    * never rebuttable, so only a model round's findings are open to one. A verified rebuttal withdraws its finding;
    * one the run cannot check leaves the finding standing and is remembered as what the generator refused.
    */
-  const rebuttals = decidedBy === "model" ? (regen.rebuttals ?? []) : [];
-  const corrections = findingTexts(reviewResult.findings);
+  const answered = decidedBy === "model" ? (regen.rebuttals ?? []) : [];
+  const roundFindings = cur.findings.map(({ id, text }) => ({ id, text }));
+  const corrections = roundFindings.map((finding) => finding.text);
+  /* A rebuttal names one finding of the round by its id; one that names none is unread, recorded, and withdraws nothing. */
+  const named = namedRebuttals(answered, roundFindings);
+  const rebuttals = named.rebuttals;
   const settled = rebuttals.length > 0
-    ? verifyRebuttals(rebuttals, corrections, rebuttalEvidence(ctx, run.cases, rebuttals))
-    : { withdrawn: [], disputed: [] };
-  const withdrawn = new Set(settled.withdrawn.map(findingKey));
-  const outstanding = corrections.filter((finding) => !withdrawn.has(findingKey(finding)));
-  if (rebuttals.length > 0) {
-    reviewStats.rebuttals += rebuttals.length;
+    ? verifyRebuttals(rebuttals, roundFindings, rebuttalEvidence(ctx, run.cases, rebuttals))
+    : { withdrawn: [], disputed: [], unnamed: [] };
+  const unread = named.unread.length + settled.unnamed.length;
+  if (unread > 0) engineLog.warn(`[qa] review: ${unread} rebuttal(s) named no single finding of the round (an unknown id, or a repeated text no finding or several findings carry); they are not read and withdraw nothing.`);
+  const withdrawn = new Set(settled.withdrawn);
+  const outstanding = roundFindings.filter((finding) => !withdrawn.has(finding.id)).map((finding) => finding.text);
+  if (answered.length > 0) {
+    reviewStats.rebuttals += answered.length;
     reviewStats.rebuttalWithdrawn += settled.withdrawn.length;
     /* Observe-only: a rebuttal is recorded with what the orchestrator made of it, and never changes a verdict by itself. */
     try {
       ctx.telemetry.counter("qayaba.review.rebuttal")(settled.withdrawn.length, { "qayaba.app": input.app, "qayaba.review.rebuttal.outcome": "withdrawn" });
       ctx.telemetry.counter("qayaba.review.rebuttal")(settled.disputed.length, { "qayaba.app": input.app, "qayaba.review.rebuttal.outcome": "disputed" });
+      if (unread > 0) ctx.telemetry.counter("qayaba.review.rebuttal")(unread, { "qayaba.app": input.app, "qayaba.review.rebuttal.outcome": "unread" });
     } catch (err) {
       engineLog.error(`[telemetry] the rebuttal counter could not be recorded (the run goes on): ${err instanceof Error ? err.message : String(err)}`);
     }

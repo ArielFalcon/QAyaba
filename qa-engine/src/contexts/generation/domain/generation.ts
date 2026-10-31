@@ -28,6 +28,6 @@ export interface GenerationOutput {
   turn?: AgentTurnStats;
   /* The generator's typed claim that the test is correct; a claim, never evidence. Absent unless the verdict carried one. */
   testCorrect?: { cause: "env" | "app"; reason: string };
-  /* The findings the generator disputes instead of correcting, each with the basis the run must check. Absent unless the verdict carried one. */
-  rebuttals?: { finding: string; basis: "execution" | "contract"; ref: string; reason: string }[];
+  /* The findings the generator disputes instead of correcting, each with the basis the run must check: by the finding's id when the answer named it by number (the lead), else by the text it repeated (the author). Absent unless the verdict carried one. */
+  rebuttals?: { finding: string; findingId?: string; basis: "execution" | "contract"; ref: string; reason: string }[];
 }

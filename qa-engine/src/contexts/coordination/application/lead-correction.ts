@@ -91,6 +91,9 @@ export interface CorrectionOrder {
 }
 
 export interface CorrectionRebuttal {
+  /* The id of the finding the lead rebutted, read from the number it was shown: the run checks the rebuttal against that finding alone. */
+  findingId: string;
+  /* The finding's text, for the record. */
   finding: string;
   basis: "execution" | "contract";
   ref: string;
@@ -266,9 +269,11 @@ export function admitLeadCorrection(redaction: RedactionPort, output: string, fl
         if (!basis.ok) return basis;
         const ref = textOf(redaction, e.ref, MAX_REF_CHARS);
         if (ref === "") return entryUnreadable(`finding ${index + 1}: ref is missing`);
+        const findingId = findings[index]!.id;
+        if (findingId === undefined) return entryUnreadable(`finding ${index + 1} carries no id a rebuttal can name`);
         if (rebutted.has(index)) return entryUnreadable(`finding ${index + 1} is rebutted twice; the first rebuttal stands`);
         rebutted.add(index);
-        return entryRead({ finding: findings[index]!.text, basis: basis.value, ref, reason: textOf(redaction, e.reason, MAX_REASON_CHARS) });
+        return entryRead({ findingId, finding: findings[index]!.text, basis: basis.value, ref, reason: textOf(redaction, e.reason, MAX_REASON_CHARS) });
       }, scrub, { optional: true });
       admission.unreadable.push(...rebuttals.unreadable);
       admission.rebuttals.push(...rebuttals.entries);
