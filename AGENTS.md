@@ -1131,7 +1131,8 @@ that catches nothing. The objective signal that breaks the circle is **change-co
   cooperative clock of its own.
   The pass is its own step (`measure-mutation`, after the coverage by execution is recorded; Run deadline, above), held to the
   coverage purpose's time: each re-run (the observation before, each mutant, the observation after)
-  starts only when `RunDeadlinePort.allowance("coverage")` holds its estimate, the measured duration (`QaCase.durationMs`) of
+  starts only when the coverage allowance, read without allotting it (`RunDeadlinePort.peekAllowance("coverage")`: the coverage
+  `allotment` event stays the one the coverage regeneration is allotted), holds its estimate, the measured duration (`QaCase.durationMs`) of
   the cases of the run's own final execution it would execute (its spec files, only its tests when it names them;
   `objective-signal/domain/rerun-budget.ts`). A re-run with no estimate (no case known for it, or one with no measured
   duration) is held only to an allowance that is not spent; nothing bounds a run whose deadline is not armed. A mutant left out

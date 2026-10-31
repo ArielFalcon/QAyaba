@@ -158,7 +158,7 @@ export const mutationSkipReason = (state: Readonly<RunState>, ctx: WorkspaceRunC
  */
 export async function measureMutation(state: Readonly<RunState>, ctx: WorkspaceRunContext): Result {
   const deadline = ctx.services.runDeadlinePort;
-  const rerunBudget: RerunBudget = { allowance: () => deadline.allowance?.("coverage") ?? null, cases: runOf(state).cases };
+  const rerunBudget: RerunBudget = { allowance: () => deadline.peekAllowance?.("coverage") ?? null, cases: runOf(state).cases };
   const signal = await ctx.deps.objectiveSignal.measureMutation!(state.coverage.mutationPass!, ctx.workspace.specDir, { rerunBudget });
   if (!signal.bundleMutation) return { update: { coverage: { ...state.coverage, mutationPass: undefined } } };
   return { update: { coverage: coverageMeasured(state, ctx, signal, state.coverage.exclusions) } };

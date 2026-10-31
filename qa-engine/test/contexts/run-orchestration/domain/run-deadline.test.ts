@@ -305,6 +305,19 @@ test("each purpose is announced to the observer once, with the source of its res
   assert.deepEqual(told, ["generate:measured", "decide:none"]);
 });
 
+test("a peek at what a purpose may spend reads what its allowance reads and announces no allotment, so the purpose is announced when it is allotted its time", () => {
+  const { deadline, at } = armedAt(40 * MIN);
+  const told: number[] = [];
+  deadline.observe((a) => told.push(a.ms));
+  const peeked = deadline.peekAllowance("coverage");
+  at(5 * MIN);
+  const peekedLater = deadline.peekAllowance("coverage");
+  const allotted = deadline.allowance("coverage");
+  assert.notEqual(peeked, peekedLater);
+  assert.equal(peekedLater, allotted);
+  assert.deepEqual(told, [allotted], "announced once, when allotted");
+});
+
 test("the cut-off instant is the deadline's own: no purpose has time left at it", () => {
   const { deadline, at } = armedAt(1_000);
   at(1_000);

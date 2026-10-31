@@ -174,11 +174,8 @@ export class RunDeadline implements RunDeadlineView {
 
   /** The time `purpose` (default: the run's current one) may spend now, with the reserve it leaves; null while no deadline is armed. */
   allotment(purpose: DeadlinePurpose = this.current): Allotment | null {
-    const left = this.remainingMs();
-    if (left === undefined) return null;
-    const reserve = this.reserveAfter(purpose, left);
-    const allotment: Allotment = { purpose, ms: Math.max(0, left - reserve.ms), reserve };
-    if (!this.told.has(purpose)) {
+    const allotment = this.allotmentNow(purpose);
+    if (allotment && !this.told.has(purpose)) {
       this.told.add(purpose);
       try {
         this.listener?.(allotment);
@@ -192,6 +189,18 @@ export class RunDeadline implements RunDeadlineView {
   /** What each purpose may still spend: the time left less the reserve held for the purposes after it. Null while no deadline is armed. */
   allowance(purpose?: DeadlinePurpose): number | null {
     return this.allotment(purpose)?.ms ?? null;
+  }
+
+  /** What `purpose` may still spend, read without allotting it: a check of what is left (whether a re-run fits) is not the purpose being allotted its time, which is reported when a turn or a phase asks for it. Null while no deadline is armed. */
+  peekAllowance(purpose: DeadlinePurpose): number | null {
+    return this.allotmentNow(purpose)?.ms ?? null;
+  }
+
+  private allotmentNow(purpose: DeadlinePurpose): Allotment | null {
+    const left = this.remainingMs();
+    if (left === undefined) return null;
+    const reserve = this.reserveAfter(purpose, left);
+    return { purpose, ms: Math.max(0, left - reserve.ms), reserve };
   }
 
   describe(): { label: string; budgetMs: number } | undefined {

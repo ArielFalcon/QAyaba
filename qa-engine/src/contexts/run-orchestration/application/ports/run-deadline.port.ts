@@ -17,6 +17,8 @@ export interface RunDeadlinePort {
   remainingMs?(): number | undefined;
   /** Milliseconds a purpose (omitted: the run's current one) may still spend: the time left less what the purposes after it are owed; null while no deadline is armed. The one reading the run's time decisions share. */
   allowance?(purpose?: DeadlinePurpose): number | null;
+  /** What `purpose` may still spend, as `allowance` reads it, without allotting it: the purpose's allotment is told when a turn or a phase is allotted its time, never when a re-run checks what is left. */
+  peekAllowance?(purpose: DeadlinePurpose): number | null;
   /** Fires at the instant the run's time is spent; undefined while no deadline is armed. Every child process the launcher starts is killed by it. */
   signal?(): AbortSignal | undefined;
   /** Whether that instant has been reached. */

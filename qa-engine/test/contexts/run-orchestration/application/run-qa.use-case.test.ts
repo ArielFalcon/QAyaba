@@ -1533,11 +1533,12 @@ const PASS_DIFF = ["diff --git a/src/checkout.ts b/src/checkout.ts", "--- a/src/
 /* Every span opened, with the attributes it was given. */
 class SpanAttrsRecorder extends NoopTelemetry {
   readonly spans: Array<{ name: string; attrs: Record<string, unknown> }> = [];
+  readonly events: Array<{ name: string; attrs: Record<string, unknown> }> = [];
   override startSpan(name?: string, opts?: StartSpanOptions): SpanHandle {
     const inner = super.startSpan(name, opts);
     const rec = { name: String(name), attrs: { ...((opts as { attrs?: Record<string, unknown> } | undefined)?.attrs ?? {}) } };
     this.spans.push(rec);
-    return { ...inner, setAttrs: (attrs) => { Object.assign(rec.attrs, attrs); inner.setAttrs(attrs); }, addEvent: (...a) => inner.addEvent(...a), recordError: (...a) => inner.recordError(...a), end: (...a) => inner.end(...a), context: () => inner.context() };
+    return { ...inner, setAttrs: (attrs) => { Object.assign(rec.attrs, attrs); inner.setAttrs(attrs); }, addEvent: (name, attrs, time) => { this.events.push({ name, attrs: { ...(attrs ?? {}) } }); inner.addEvent(name, attrs, time); }, recordError: (...a) => inner.recordError(...a), end: (...a) => inner.end(...a), context: () => inner.context() };
   }
   measureSpans(): Array<Record<string, unknown>> {
     return this.spans.filter((s) => s.name === "qayaba.coverage.measure").map((s) => s.attrs);
@@ -1553,6 +1554,8 @@ interface MutationRigOptions {
   realWorkspace?: boolean;
   /* No mutant's script is served as the coverage saw it: none reaches a page. */
   reachesNoPage?: boolean;
+  /* The run's clock, which each re-run of the mutation pass moves on by `rerunMs`; absent, time stands still. */
+  clock?: { now: number; rerunMs: number };
 }
 
 function mutationRig(o: MutationRigOptions = {}) {
@@ -1579,6 +1582,7 @@ function mutationRig(o: MutationRigOptions = {}) {
   const page = { name: PASS_CASE, requests: [{ method: "GET", url: "https://dev.example/api/x", count: 1 }], dom: ["heading: Pay"] };
   const runMutant = async (args: { namespace: string }) => {
     reruns.push(args.namespace.replace(/^.*-(obs2?|mut\d)$/, "$1"));
+    if (o.clock) o.clock.now += o.clock.rerunMs;
     const pass = { name: PASS_CASE, status: "pass" as const, file: PASS_SPEC };
     if (args.namespace.endsWith("-mut0")) return { verdict: "fail", cases: [{ ...pass, status: "fail" as const }], observations: [page] };
     if (args.namespace.endsWith("-mut1")) return { verdict: "pass", cases: [pass], observations: [{ ...page, requests: [...page.requests, { method: "POST", url: "https://dev.example/api/pay", count: 1 }] }] };
@@ -1593,7 +1597,7 @@ function mutationRig(o: MutationRigOptions = {}) {
   return { reads, reruns, telemetry, traced: new TracedObjectiveSignalPort(port, telemetry) };
 }
 
-async function runMutationRig(runId: string, o: MutationRigOptions = {}) {
+async function runMutationRig(runId: string, o: MutationRigOptions = {}, deadline: RunDeadline = deadlineFiredByHand(3_600_000).deadline, generated?: () => void) {
   const rig = mutationRig(o);
   const real = o.realWorkspace ? realCoverageWorkspace() : undefined;
   const execute: ExecutionPort["execute"] = async (dir, opts) => {
@@ -1608,13 +1612,13 @@ async function runMutationRig(runId: string, o: MutationRigOptions = {}) {
     recount: (...a) => rig.traced.recount!(...a),
     recheckSurvivors: (...a) => rig.traced.recheckSurvivors!(...a),
     ...(rig.traced.measureMutation ? { measureMutation: (...a: Parameters<NonNullable<ObjectiveSignalPort["measureMutation"]>>) => rig.traced.measureMutation!(...a) } : {}),
-    ...(real ? { prepare: real.prepare, generate: real.generate } : {}),
+    ...(real ? { prepare: real.prepare, generate: async (...a) => { generated?.(); return real.generate(...a); } } : {}),
   });
-  const { deadline } = deadlineFiredByHand(3_600_000);
   try {
     const out = await new RunQaUseCase({
       ...ports,
       runDeadline: deadline,
+      telemetry: rig.telemetry,
       config: { ...baseConfig, needsReview: false, coveragePolicyMode: o.mode ?? "signal", ...(o.minRatio !== undefined ? { coverageMinRatio: o.minRatio } : {}) },
     }).run({ ...baseInput, runId });
     const g = savedOutcomes.at(-1)!.gateSignals;
@@ -1700,6 +1704,26 @@ test("the measurement by execution carries how its mutants were chosen on its sp
     { "qayaba.mutation.sites_skipped": 0, "qayaba.mutation.reruns_by_test": 3, "qayaba.mutation.reruns_by_spec_file": 0 },
     "the selection, and nothing of a pass that has not run",
   );
+});
+
+test("the coverage allotment is reported when the coverage regeneration is allotted its time, not when the mutation pass reads what is left", async () => {
+  const clock = { now: 0, rerunMs: 60_000 };
+  const deadline = new RunDeadline({ now: () => clock.now, budgets: { ...RUN_TIME_BUDGET_MS, diff: 3_600_000 }, schedule: () => () => {} });
+  const atRegeneration: number[] = [];
+  const allotmentNow = (): number => {
+    const left = deadline.remainingMs()!;
+    return Math.max(0, left - deadline.reserveAfter("coverage", left).ms);
+  };
+  let calls = 0;
+  const { rig } = await runMutationRig("coverage-allotment-reported", { mode: "enforce", minRatio: 0.9, realWorkspace: true, clock }, deadline, () => {
+    calls += 1;
+    if (calls === 2) atRegeneration.push(allotmentNow());
+  });
+
+  assert.deepEqual(rig.reruns.slice(0, 5), ["obs", "mut0", "mut1", "mut2", "obs2"], "the mutation pass ran before the regeneration");
+  const coverage = rig.telemetry.events.filter((e) => e.name === "allotment" && e.attrs["qayaba.allotment.purpose"] === "coverage");
+  assert.equal(coverage.length, 1, "once per purpose");
+  assert.deepEqual(coverage.map((e) => e.attrs["qayaba.allotment.ms"]), atRegeneration, "the time the regeneration was allotted, after the mutation pass spent its share");
 });
 
 test("a mutation pass that judged no mutant leaves the coverage by execution as it was", async () => {
