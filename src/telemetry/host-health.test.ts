@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { ThrowingTelemetry } from "@kernel/telemetry/guarded-telemetry";
 import { HostHealth, countSandboxZombies, SUSPEND_DURATION_BOUNDARIES_S, EVENT_LOOP_DELAY_BOUNDARIES_MS, type EventLoopMonitor, type HostScheduler, type ProcFs } from "./host-health";
 import { HostListeners, type HostEventListener } from "./host-listeners";
-import { traceHarness } from "./trace-harness";
+import { traceHarness } from "../test-support/trace-harness";
 
 const HEARTBEAT_MS = 5_000;
 const SAMPLE_MS = 10_000;

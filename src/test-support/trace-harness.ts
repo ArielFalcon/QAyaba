@@ -6,7 +6,7 @@ import { SpanStatusCode, type Meter } from "@opentelemetry/api";
 
 /* Re-exported so a test outside src/telemetry/ needs no SDK import of its own. */
 export { SpanStatusCode };
-import { OtelTelemetry, type CaptureMode } from "./otel-telemetry.adapter";
+import { OtelTelemetry, type CaptureMode } from "../telemetry/otel-telemetry.adapter";
 import type { TelemetryClock } from "@kernel/telemetry/telemetry.port";
 
 export const T0 = 1_760_000_000_000;

@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { RunTrace, markEnqueued, type RunIdentity } from "@contexts/run-orchestration/application/index";
 import { HostListeners } from "./host-listeners";
-import { traceHarness } from "./trace-harness";
+import { traceHarness } from "../test-support/trace-harness";
 
 const identity: RunIdentity = { engineVersion: "test", runId: "r1", app: "shop", sha: "abc", mode: "diff", target: "e2e", trigger: "api" };
 const facts = { verdict: "pass" as const, errorClass: null };

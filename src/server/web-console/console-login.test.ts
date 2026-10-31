@@ -5,7 +5,7 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { controlApi, loadConsole, type ConsoleRequest, type Reply } from "./console-harness";
+import { controlApi, loadConsole, type ConsoleRequest, type Reply } from "../../test-support/console-harness";
 
 const ACCEPTED_TOKEN = "session-token-accepted";
 

@@ -29,7 +29,7 @@ import { activeExecScope, newSandboxReport, withExecScope, type RunScope } from 
 import { openRunWorkDir } from "../../qa-engine/src/shared-infrastructure/process-sandbox/exec-workdir";
 import { synthesizeReportSpans } from "../../qa-engine/src/contexts/test-execution/infrastructure/report-spans";
 import { noteSuiteAuth, suiteAuthNotes } from "../../qa-engine/src/shared-infrastructure/telemetry/run-auth-notes";
-import { traceHarness, T0, type FakeClock } from "./trace-harness";
+import { traceHarness, T0, type FakeClock } from "../test-support/trace-harness";
 
 const CWD = "/mirrors/org__app";
 const SESSION = "ses_tool";

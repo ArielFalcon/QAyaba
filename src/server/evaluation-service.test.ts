@@ -6,7 +6,7 @@ import { HistoryEvidenceAdapter, defaultEvidenceDeps } from "./evaluation-eviden
 import { buildRunViewExtras, type RunViewDeps } from "./run-view";
 import Database from "better-sqlite3";
 import { RegradeRequestError } from "@contexts/evaluation/application/index";
-import { traceHarness } from "../telemetry/trace-harness";
+import { traceHarness } from "../test-support/trace-harness";
 import { ScoreMetricsSink } from "../telemetry/score-metrics-sink";
 import type { RunOutcome } from "../types";
 

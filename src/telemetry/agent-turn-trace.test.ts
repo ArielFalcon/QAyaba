@@ -17,7 +17,7 @@ import { ThrowingTelemetry } from "@kernel/telemetry/guarded-telemetry";
 import type { TelemetryPort } from "@kernel/telemetry/telemetry.port";
 import { createRunSecretScope, withRunSecretScope } from "../../qa-engine/src/shared-kernel/run-secret-redaction";
 import { newSandboxReport, withExecScope, type RunScope } from "../../qa-engine/src/shared-infrastructure/process-sandbox/exec-scope";
-import { traceHarness, type FakeClock } from "./trace-harness";
+import { traceHarness, type FakeClock } from "../test-support/trace-harness";
 import { HostListeners, watchSpanForHost } from "./host-listeners";
 
 const CWD = "/mirrors/org__app";
@@ -465,7 +465,7 @@ test("a seeded secret in the prompt, a target or an error never reaches a span, 
 });
 
 test("in off capture mode no hash or size of the prompt leaves; structure still does", async () => {
-  const off = (await import("./trace-harness")).traceHarness({ captureMode: "off" });
+  const off = (await import("../test-support/trace-harness")).traceHarness({ captureMode: "off" });
   const r = rig({ promptSession: twoSteps, telemetry: off.telemetry });
   await twoStepTurn(r);
   const turn = off.only("invoke_agent qa-author");
@@ -658,7 +658,7 @@ test("a tool error never leaves raw: a pattern secret and a run secret in the me
 });
 
 test("in off capture mode a tool's error text does not leave", async () => {
-  const off = (await import("./trace-harness")).traceHarness({ captureMode: "off" });
+  const off = (await import("../test-support/trace-harness")).traceHarness({ captureMode: "off" });
   const r = rig({
     telemetry: off.telemetry,
     promptSession: async ({ stream }) => {
@@ -678,7 +678,7 @@ test("in off capture mode a tool's error text does not leave", async () => {
 
 test("the tool an invalid call attempted is agent-chosen text: metadata capture emits it and off capture does not", async () => {
   const attemptedIn = async (captureMode: "off" | "metadata"): Promise<unknown> => {
-    const harness = (await import("./trace-harness")).traceHarness({ captureMode });
+    const harness = (await import("../test-support/trace-harness")).traceHarness({ captureMode });
     const input = { tool: "readfile", error: "filePath is required" };
     const r = rig({
       telemetry: harness.telemetry,

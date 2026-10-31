@@ -8,7 +8,7 @@ import type { AppConfig } from "../orchestrator/config-loader";
 import type { RunPipelinePort, RunInput } from "@contexts/run-orchestration/application/index.ts";
 import type { RunOutcome } from "@kernel/run-outcome";
 import type { CampaignIdentity } from "../contract/campaign";
-import { traceHarness } from "../telemetry/trace-harness";
+import { traceHarness } from "../test-support/trace-harness";
 import { CampaignCaptureMismatchError } from "@contexts/evaluation/application/index";
 import type { RunConfigEnvironment } from "./effective-config";
 import { getHistory } from "./persistence/index";

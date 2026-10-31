@@ -9,7 +9,7 @@ import { newSandboxReport, withExecScope, type RunScope } from "../../qa-engine/
 import { Sha } from "@kernel/sha";
 import { BlastRadius } from "@kernel/blast-radius";
 import { lookupAttribute } from "@kernel/telemetry/attribute-registry";
-import { traceHarness } from "./trace-harness";
+import { traceHarness } from "../test-support/trace-harness";
 
 function inPhase<T>(h: ReturnType<typeof traceHarness>, name: string, fn: () => T): T {
   const phase = h.telemetry.startSpan(name);

@@ -12,7 +12,7 @@ import type { StepIntentContext } from "@contexts/generation/application/index";
 import { gradeEvidence } from "@contexts/evaluation/application/index";
 import { HistoryEvidenceAdapter, defaultEvidenceDeps } from "../server/evaluation-evidence";
 import type { LedgerSpan } from "@contexts/evaluation/application/index";
-import { traceHarness } from "./trace-harness";
+import { traceHarness } from "../test-support/trace-harness";
 import { getHistory } from "../server/persistence/index";
 
 const CWD = "/mirrors/org__app";

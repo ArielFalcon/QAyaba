@@ -10,7 +10,7 @@ import { consoleCallLines } from "./no-console.scan";
  * files below may make one.
  */
 
-const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const SCANNED = ["src", "qa-engine/src"];
 
 /* Output the operator reads as the product, the JSON logger's own mirror. */

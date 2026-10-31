@@ -8,7 +8,7 @@ import { gradeEvidence } from "@contexts/evaluation/application/index";
 import type { RunPipelinePort } from "@contexts/run-orchestration/application/index.ts";
 import type { RunOutcome } from "@kernel/run-outcome";
 import { attachTraceFacts } from "@kernel/run-trace-facts";
-import { traceHarness } from "../telemetry/trace-harness";
+import { traceHarness } from "../test-support/trace-harness";
 import { getHistory } from "./persistence/index";
 import { buildRunViewExtras, defaultRunViewDeps } from "./run-view";
 

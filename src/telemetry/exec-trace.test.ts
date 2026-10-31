@@ -12,7 +12,7 @@ import { newSandboxReport, withExecScope, type RunScope } from "../../qa-engine/
 import { openRunWorkDir } from "../../qa-engine/src/shared-infrastructure/process-sandbox/exec-workdir";
 import { createRunSecretScope, withRunSecretScope } from "../../qa-engine/src/shared-kernel/run-secret-redaction";
 import { ThrowingTelemetry } from "@kernel/telemetry/guarded-telemetry";
-import { traceHarness } from "./trace-harness";
+import { traceHarness } from "../test-support/trace-harness";
 
 const SANDBOX = { uid: process.getuid?.() ?? 1002, gid: process.getgid?.() ?? 1002, home: "/home/sandbox" };
 let nextPid = 40_000;

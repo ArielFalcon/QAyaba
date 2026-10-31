@@ -120,7 +120,7 @@ so that the file processes `node --test` starts die with it.
 
 ## The web console harness
 
-`src/server/web-console/console-harness.ts` loads `web/public/js` into a `node:vm` context with a
+`src/test-support/console-harness.ts` loads `web/public/js` into a `node:vm` context with a
 scripted `fetch`, a virtual clock (`advance(ms)`), `sessionStorage` and a string-backed DOM. Tests
 talk to the console only through its public seams — `api`, the rendered text of `#app`, `click`,
 the login screen — and route requests with `controlApi` / `sseEvent`. Never reach into console

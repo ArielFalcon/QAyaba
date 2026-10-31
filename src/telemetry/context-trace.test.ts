@@ -26,7 +26,7 @@ import { Sha } from "@kernel/sha";
 import { BlastRadius } from "@kernel/blast-radius";
 import { ThrowingTelemetry } from "@kernel/telemetry/guarded-telemetry";
 import type { TelemetryPort } from "@kernel/telemetry/telemetry.port";
-import { traceHarness } from "./trace-harness";
+import { traceHarness } from "../test-support/trace-harness";
 import { buildPromptAssembled } from "@contexts/generation/infrastructure/prompt-builders/prompts";
 import { recordDeliveredContextSpans } from "@contexts/generation/infrastructure/telemetry/turn-probe";
 import type { OpencodeRunInput } from "@contexts/generation/application/index.ts";

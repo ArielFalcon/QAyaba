@@ -13,7 +13,7 @@ import { AGENT_NAME_FOR_ROLE, type AgentFacade, type StepLimits } from "../agent
 import type { AppConfig } from "../orchestrator/config-loader";
 import type { EngineRootDeps } from "./engine-root";
 import type { StepLimitRole } from "@contexts/generation/application/index.ts";
-import { rosterFixturePath } from "../integrations/fixtures/opencode-roster";
+import { rosterFixturePath } from "../test-support/fixtures/opencode-roster";
 import { setAgentsConfigPath } from "../integrations/opencode-client";
 import Database from "better-sqlite3";
 

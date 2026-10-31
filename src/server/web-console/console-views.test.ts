@@ -5,7 +5,7 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { appView, controlApi, loadConsole, runRecord, sseEvent } from "./console-harness";
+import { appView, controlApi, loadConsole, runRecord, sseEvent } from "../../test-support/console-harness";
 
 test("a run queued from the console is followed to its verdict, offered in a toast, and its stream released", async () => {
   const h = await loadConsole({

@@ -9,7 +9,7 @@ import { ThrowingTelemetry } from "@kernel/telemetry/guarded-telemetry";
 import type { TelemetryPort } from "@kernel/telemetry/telemetry.port";
 import { scriptedGeneration } from "../../qa-engine/test/support/generation-output";
 import { generationOnDisk, runWorkspace } from "../../qa-engine/test/support/run-workspace";
-import { traceHarness } from "./trace-harness";
+import { traceHarness } from "../test-support/trace-harness";
 import { confinedSpecFiles } from "../../qa-engine/src/shared-infrastructure/spec-files.adapter";
 import { served } from "../../qa-engine/test/support/coordinator-over-author";
 import { primaryChangeSet } from "../../qa-engine/test/support/change-set";

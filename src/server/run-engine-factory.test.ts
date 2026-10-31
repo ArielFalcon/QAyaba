@@ -43,7 +43,7 @@ import {
   unregisterRunSession,
   activityRouter,
 } from "../integrations/opencode-client";
-import { rosterFixturePath } from "../integrations/fixtures/opencode-roster";
+import { rosterFixturePath } from "../test-support/fixtures/opencode-roster";
 import { setAgentsConfigPath } from "../integrations/opencode-client";
 import type { RunMode } from "@kernel/run-mode";
 import { getHistory } from "./persistence/index";
@@ -753,7 +753,7 @@ test("the composed engine hands the host the app's own step classification, and 
 });
 
 test("engineAgentDeps traces a prompt as an invoke_agent turn when the host has a telemetry port, and adds nothing when it has none", async () => {
-  const { traceHarness } = await import("../telemetry/trace-harness");
+  const { traceHarness } = await import("../test-support/trace-harness");
   const h = traceHarness();
   const host: AgentDeps = { open: async () => ({ id: "ses-traced", prompt: async () => "answer", dispose: async () => {} }) as never };
   const traced = engineAgentDeps({ getAgentDeps: () => host, telemetry: h.telemetry, clock: h.clock });

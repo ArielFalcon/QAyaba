@@ -13,7 +13,7 @@ import { DEMOTE_REASON, classifyDemoteReason, type SuiteStorePort } from "@kerne
 import { ThrowingTelemetry } from "@kernel/telemetry/guarded-telemetry";
 import type { TelemetryPort } from "@kernel/telemetry/telemetry.port";
 import { AUTH_MATERIAL_FILES } from "../../qa-engine/src/shared-infrastructure/process-sandbox/auth-session-env";
-import { traceHarness } from "./trace-harness";
+import { traceHarness } from "../test-support/trace-harness";
 
 const REQ = { specDir: "/nonexistent/e2e", baseUrl: "https://dev.example.com", auth: { kind: "form" as const, usernameEnv: "U", passwordEnv: "P" }, phase: "pre-generate" as const };
 

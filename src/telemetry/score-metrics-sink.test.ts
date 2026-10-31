@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { ScoreMetricsSink } from "./score-metrics-sink";
-import { traceHarness } from "./trace-harness";
+import { traceHarness } from "../test-support/trace-harness";
 import { GRADER_CATALOG, type Score } from "@contexts/evaluation/application/index";
 import type { RecordMeasurement } from "@kernel/telemetry/telemetry.port";
 

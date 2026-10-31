@@ -5,7 +5,7 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { loadConsole, sseEvent, type ConsoleRequest, type Reply } from "./console-harness";
+import { loadConsole, sseEvent, type ConsoleRequest, type Reply } from "../../test-support/console-harness";
 
 const EVENTS = "/api/v1/runs/r1/events";
 const MINUTE = 60_000;

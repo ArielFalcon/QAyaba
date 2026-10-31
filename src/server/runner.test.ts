@@ -27,7 +27,7 @@ import { createRunEventStore } from "./run-events";
 import type { RunPipelinePort, RunInput } from "@contexts/run-orchestration/application/index.ts";
 import type { RunOutcome } from "@kernel/run-outcome.ts";
 import { AgentTimeoutError, UntrustedGitTreeError } from "@kernel/domain-error";
-import { traceHarness } from "../telemetry/trace-harness";
+import { traceHarness } from "../test-support/trace-harness";
 import { getHistory } from "./persistence/index";
 import { testDataNamespace } from "../qa/test-data";
 

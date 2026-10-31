@@ -2,5 +2,5 @@
 import { fileURLToPath } from "node:url";
 
 export function rosterFixturePath(): string {
-  return fileURLToPath(new URL("../../../src/integrations/fixtures/opencode-roster.json", import.meta.url));
+  return fileURLToPath(new URL("../../../src/test-support/fixtures/opencode-roster.json", import.meta.url));
 }

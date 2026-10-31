@@ -8,7 +8,7 @@ import { newSandboxReport, withExecScope } from "../../qa-engine/src/shared-infr
 import { createRunSecretScope, withRunSecretScope } from "../../qa-engine/src/shared-kernel/run-secret-redaction";
 import type { QaCase } from "@kernel/qa-case";
 import { parsePlaywrightReport } from "@contexts/test-execution/infrastructure/playwright-report";
-import { traceHarness, T0, SpanStatusCode } from "./trace-harness";
+import { traceHarness, T0, SpanStatusCode } from "../test-support/trace-harness";
 
 const NOW = () => T0 + 60_000;
 const identity = (text: string): string => text;

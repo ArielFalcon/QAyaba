@@ -5,7 +5,7 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { appView, controlApi, loadConsole, runRecord } from "./console-harness";
+import { appView, controlApi, loadConsole, runRecord } from "../../test-support/console-harness";
 import { toSignalsView } from "../signals-view";
 import type { RunRecord } from "../../types";
 

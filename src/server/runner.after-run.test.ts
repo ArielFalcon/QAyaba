@@ -7,7 +7,7 @@ import type { AppConfig } from "../orchestrator/config-loader";
 import type { RunPipelinePort, RunInput } from "@contexts/run-orchestration/application/index.ts";
 import type { RunOutcome } from "@kernel/run-outcome";
 import { attachTraceFacts } from "@kernel/run-trace-facts";
-import { traceHarness } from "../telemetry/trace-harness";
+import { traceHarness } from "../test-support/trace-harness";
 import { getHistory } from "./persistence/index";
 
 const cfg = (name: string): AppConfig => ({ name, repo: "org/demo", dev: { baseUrl: "https://dev" }, qa: { needsReview: true, testDataPrefix: "qa-bot", shadow: true }, report: { onFailure: "github-issue" } });

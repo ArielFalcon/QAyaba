@@ -6,7 +6,7 @@ import { validateSpecs, type ValidateDeps } from "../../qa-engine/src/contexts/t
 import { newSandboxReport, withExecScope, type RunScope } from "../../qa-engine/src/shared-infrastructure/process-sandbox/exec-scope";
 import type { CheckResult } from "@contexts/test-execution/application/index.ts";
 import { ThrowingTelemetry } from "@kernel/telemetry/guarded-telemetry";
-import { traceHarness } from "./trace-harness";
+import { traceHarness } from "../test-support/trace-harness";
 
 const ok: CheckResult = { ok: true, output: "" };
 const TSC_OUTPUT = "flows/a.spec.ts(3,5): error TS2322: Type 'string' is not assignable to type 'number'.\nflows/b.spec.ts(9,1): error TS2304: Cannot find name 'x'.\n";
