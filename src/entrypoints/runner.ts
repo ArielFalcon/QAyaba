@@ -41,12 +41,16 @@ import {
   sourceOfTrigger,
   terminalCaseEvent,
   withTurnLimits as withTurnLimitsOf,
+  cancelCause,
   decideRunFreeze,
+  isCancellable,
+  unfinishedRunEnding,
   type DeclaredRepos,
   type LiveAnnouncedStatus,
   type RunFacts,
   type RunFreeze,
   type RunTrigger,
+  type UnfinishedRunEnding,
 } from "@contexts/run-orchestration/application/index";
 import { testDataNamespace } from "./test-data";
 import { RunMode, TestTarget, TriggerSource, QaCase, QaRunResult, engineStatus, type RunChangeEntry } from "../persistence/types";
@@ -732,36 +736,27 @@ function notifyRunFinished(deps: Pick<RunnerDeps, "afterRun">, runId: string): v
  */
 export function cancelTrackedRun(queue: JobQueue, id: string, deps: Pick<RunnerDeps, "runEvents" | "afterRun"> = {}): boolean {
   const record = getHistory().runs.getRecord(id);
-  if (!record) return false;
-  if (record.status !== "running" && record.status !== "enqueued") return false;
-
-  /* Abort the live job first — succeeds only when this id is the one holding the queue. */
-  if (record.status === "running" && queue.cancel(id)) {
-    finalizeUnfinished(id, "cancelled by operator", deps, true);
-    return true;
-  }
+  if (!record || !isCancellable(record.status)) return false;
 
   /*
-   * Not the live job: still enqueued (never started), or a "running" record the queue no longer
-   * holds. Finalize it either way so it stops being the active run; the successor is untouched.
+   * Abort the live job first: it succeeds only when this id is the one holding the queue. Otherwise the run is still enqueued (never
+   * started) or a "running" record the queue no longer holds; it is finalized either way so it stops being the active run, and the
+   * successor is untouched.
    */
-  const note = record.status === "enqueued"
-    ? "cancelled by operator"
-    : "cancelled by operator (run was no longer active)";
-  finalizeUnfinished(id, note, deps, true);
-  return false;
+  const abortedLive = record.status === "running" && queue.cancel(id);
+  finalizeUnfinished(id, unfinishedRunEnding(cancelCause(record.status, abortedLive)), deps);
+  return abortedLive;
 }
 
 /*
- * Finalizes a run that will never reach its own verdict — cancelled, or interrupted by a restart —
- * as infra-error, and ends its event stream with that verdict. The job of a cancelled run discards
- * its late resolution once the record is done, so this is the run's only run.verdict; without it
- * a watching client only learns the run is over by reading the record.
+ * Finalizes a run that will never reach its own verdict (cancelled, or interrupted by a restart) as the engine says such a run ends,
+ * and ends its event stream with that verdict. The job of a cancelled run discards its late resolution once the record is done, so
+ * this is the run's only run.verdict; without it a watching client only learns the run is over by reading the record.
  */
-function finalizeUnfinished(id: string, note: string, deps: Pick<RunnerDeps, "runEvents" | "afterRun">, cancelled: boolean): void {
-  /* An operator's cancel is recorded as such, so grading says "cancelled" and nothing else about a run that never ran its pipeline. */
-  getHistory().runs.updateRecord(id, { status: "done", step: "done", verdict: "infra-error", note, ...(cancelled ? { facts: { cancelled: true } } : {}) });
-  deps.runEvents?.publish(id, { type: "run.verdict", verdict: "infra-error", engineStatus: engineStatus("infra-error"), outcome: note });
+function finalizeUnfinished(id: string, ending: UnfinishedRunEnding, deps: Pick<RunnerDeps, "runEvents" | "afterRun">): void {
+  const { verdict, note, cancelled } = ending;
+  getHistory().runs.updateRecord(id, { status: "done", step: "done", verdict, note, ...(cancelled ? { facts: { cancelled: true } } : {}) });
+  deps.runEvents?.publish(id, { type: "run.verdict", verdict, engineStatus: engineStatus(verdict), outcome: note });
   notifyRunFinished(deps, id);
 }
 
@@ -778,7 +773,7 @@ export function finalizeInterruptedRuns(deps: Pick<RunnerDeps, "runEvents" | "af
   }
   appLogger.info(`[qa] recovering ${zombies.length} interrupted run(s) from previous process...`);
   for (const r of zombies) {
-    finalizeUnfinished(r.id, "process restarted — run was interrupted", deps, false);
+    finalizeUnfinished(r.id, unfinishedRunEnding("interrupted"), deps);
     appLogger.info(`[qa]   finalized ${r.id} (${r.app}@${r.sha.slice(0, 7)}) as infra-error (was ${r.status}, step ${r.step ?? "unknown"})`, { ship: true });
   }
   appLogger.info(`[qa] recovery complete — ${zombies.length} run(s) marked as infra-error`);
