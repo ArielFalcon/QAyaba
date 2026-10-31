@@ -12,7 +12,7 @@
  */
 import type { RunRecord, RunOutcome } from "../persistence/types";
 import type { RunUsage } from "../agent-runtime/usage";
-import type { ReportView } from "../contract/commands";
+import type { ReportView } from "../entrypoints/contract/commands";
 import { infraErrorGloss } from "../qa/learning/infra-error-gloss";
 
 type Insight = ReportView["insights"][number];

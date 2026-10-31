@@ -21,7 +21,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { RUN_MODES, type RunMode, type TestTarget } from "@kernel/run-mode.ts";
 import type { RunEventBody } from "@kernel/contract/events.ts";
 import { isCommitSha } from "@kernel/git-revision.ts";
-import { QueueStatusSchema } from "../src/contract/commands.ts";
+import { QueueStatusSchema } from "../src/entrypoints/contract/commands.ts";
 import { classifyRunEfficiency, type CoarseRunEfficiency } from "@contexts/generation/application/index.ts";
 import { CALL_BUCKETS } from "@contexts/generation/application/index.ts";
 import { delegateRun } from "../src/server/run-delegate.ts";

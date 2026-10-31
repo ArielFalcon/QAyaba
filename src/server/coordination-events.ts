@@ -3,7 +3,7 @@
  * reader returns (qa-engine coordination/infrastructure/adapters/coordination-ledger-reader.adapter.ts), which
  * wire-app.ts wires to the ledger path.
  */
-import type { CoordinationSignals } from "../contract/commands";
+import type { CoordinationSignals } from "../entrypoints/contract/commands";
 import { DELEGATION_FAILURE_CLASSES, type CoordinationLedgerEvent } from "../../qa-engine/src/contexts/coordination/application/index";
 
 const CONTRACT_FAILURE_CLASSES: ReadonlySet<string> = new Set(DELEGATION_FAILURE_CLASSES);

@@ -14,12 +14,12 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import {
   CampaignRunsSchema, EvaluationCatalogSchema, RunEvaluationSchema, type CampaignRuns, type EvaluationCatalog,
-} from "../src/contract/commands.ts";
+} from "../src/entrypoints/contract/commands.ts";
 import {
   ComparisonError, compareCampaign, judgeLessonCycle, renderComparisonMarkdown, renderLessonCycleMarkdown, DEFAULT_BOOTSTRAP_ITERATIONS, DEFAULT_SEED,
   type CampaignComparison, type CampaignRun, type LessonCycle, type RunScore,
 } from "@contexts/evaluation/application/index.ts";
-import { CAMPAIGN_ID_PATTERN } from "../src/contract/campaign.ts";
+import { CAMPAIGN_ID_PATTERN } from "../src/entrypoints/contract/campaign.ts";
 import { isolationReasons } from "./campaign-report.ts";
 
 export interface CompareArguments {

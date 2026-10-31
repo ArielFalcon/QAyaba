@@ -9,7 +9,7 @@
  * campaign-tagged run that declares `grounding.lessons: true`; the replicate isolation and the process audit stay withheld.
  */
 
-import type { GroundingInput } from "../contract/commands";
+import type { GroundingInput } from "../entrypoints/contract/commands";
 
 export interface RunFreeze {
   /* The suite store is read-only, the context map is not rebuilt, no automatic login bootstrap is queued, no process audit is built. */

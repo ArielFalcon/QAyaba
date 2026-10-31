@@ -1,6 +1,6 @@
 /* Wraps HTTP handling so a throw can never leave a request unanswered or become an unhandled rejection. */
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { ApiError, respondError } from "./api/api-error";
+import { ApiError, respondError } from "../entrypoints/api/api-error";
 
 /* Runs `work`; if it throws, logs the fault and answers 500 in the schemaVersion error shape (or just ends a response already started). */
 export async function guardResponse(res: ServerResponse, work: () => Promise<void> | void, log: (message: string) => void): Promise<void> {

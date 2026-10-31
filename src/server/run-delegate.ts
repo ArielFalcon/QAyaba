@@ -4,7 +4,7 @@
  */
 
 import type { RunMode, TestTarget } from "../persistence/types";
-import type { GroundingInput } from "../contract/commands";
+import type { GroundingInput } from "../entrypoints/contract/commands";
 import { longestRunTimeBudgetMs, resolveRunTimeBudgets } from "@contexts/run-orchestration/application/index";
 
 export interface DelegateRunInput {

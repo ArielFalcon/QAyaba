@@ -19,7 +19,7 @@ import type {
   AgentRuntimeStrategy,
   RoleAssignment,
 } from "./types";
-import type { AgentConfigUpdate, AgentModelInfo } from "../contract/commands";
+import type { AgentConfigUpdate, AgentModelInfo } from "../entrypoints/contract/commands";
 import { activeEnvironment } from "../settings/active";
 
 export interface AgentRuntimeManager {

@@ -46,7 +46,7 @@ jobs:
       # The scripts that run as text in another process (qa-engine/src/**/embedded); their typecheck is part of `npm run typecheck`.
       - run: npm run embedded:lint
       - run: npm run sdk:typecheck
-      # Catches a src/contract/*.ts (zod) edit that shipped without rerunning
+      # Catches a src/entrypoints/contract/*.ts (zod) edit that shipped without rerunning
       # `npm run contract:gen && npm run sdk:gen` — see scripts/check-contract-fresh.ts.
       - run: npm run contract:check
       # Catches a src/settings/registry.ts edit that shipped without rerunning `npm run settings:gen` — see scripts/check-settings-fresh.ts.

@@ -45,7 +45,7 @@ func TestCreateRunResultCarriesTarget(t *testing.T) {
 }
 
 /* Decoding the orchestrator's real GET /api/v1/apps/:name/boundaries/propose/status
-   payload (see src/server/onboarding/onboarding-job.ts → OnboardingJobStatusSchema)
+   payload (see src/entrypoints/onboarding/onboarding-job.ts → OnboardingJobStatusSchema)
    into the codegen'd struct — the same no-drift guarantee as RunRecord above, now for
    the boundary-onboarding job's poll DTO. Two shapes: a winner (outcome + resolvedProfile
    set) and a no-profile completion (outcome set, resolvedProfile absent). */

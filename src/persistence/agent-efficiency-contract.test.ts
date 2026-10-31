@@ -3,7 +3,7 @@
    schema change fails here, not in a client. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { AgentTurnViewSchema } from "../contract/commands";
+import { AgentTurnViewSchema } from "../entrypoints/contract/commands";
 import type { AgentTurnEvent } from "@contexts/generation/infrastructure/agent-transport-policy";
 import type { RunOutcome } from "./types";
 import { getHistory } from "./index";

@@ -11,8 +11,8 @@ import { describeAppLoadFailure, loadAppConfig, listAppConfigs } from "../orches
 
 import { YamlAppConfigAdapter } from "../../qa-engine/src/contexts/app-catalog/infrastructure/yaml-app-config.adapter";
 import { routeApi } from "./api";
-import type { ApiDeps } from "./api/deps";
-import type { ApiRunRequest } from "./api/run-request";
+import type { ApiDeps } from "../entrypoints/api/deps";
+import type { ApiRunRequest } from "../entrypoints/api/run-request";
 import { authorizeBearer, createLocalConsoleLogin, issueSession } from "../entrypoints/auth";
 import { verifyGithubIdentity, authorizeUser } from "../entrypoints/github-auth";
 import { createFixedWindowLimiter } from "./rate-limit";
@@ -29,7 +29,7 @@ import { createEvaluationService } from "./evaluation-service";
 import { ScoreMetricsSink } from "../telemetry/score-metrics-sink";
 import { parseStoredRunConfig, type RunConfigEnvironment } from "./effective-config";
 import { hashStaticPrompts } from "../../qa-engine/src/contexts/run-orchestration/infrastructure/static-prompt-hash";
-import type { CampaignIdentity } from "../contract/campaign";
+import type { CampaignIdentity } from "../entrypoints/contract/campaign";
 import { buildRunViewExtras, defaultRunViewDeps } from "./run-view";
 import { enqueueTrackedRun, enqueueDoorRun, type RunRequest, enqueueContextMapRun, enqueueLoginBootstrapRun, cancelTrackedRun, finalizeInterruptedRuns, type RunnerDeps } from "./runner";
 import { codeGraphFor } from "./engine-root";
@@ -62,7 +62,7 @@ import { github } from "../integrations/github";
 import { createApp as adminCreateApp, updateApp as adminUpdateApp, deleteApp as adminDeleteApp, type AppAdminDeps } from "./app-admin";
 import { writeConfig, configExists } from "./onboard";
 import { applyEnvVars, defaultEnvStoreFs } from "../settings/env-store";
-import { createOnboardingJob, type RepoIndexOutcome } from "./onboarding/onboarding-job";
+import { createOnboardingJob, type RepoIndexOutcome } from "../entrypoints/onboarding/onboarding-job";
 import { LlmProfileProposerAdapter } from "@contexts/service-topology/infrastructure/llm-profile-proposer.adapter";
 import { OnboardingService } from "@contexts/service-topology/application/index";
 import { buildServiceBoundaryResolver } from "@contexts/service-topology/infrastructure/resolver-factory";

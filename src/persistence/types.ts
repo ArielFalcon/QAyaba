@@ -1,6 +1,6 @@
 
 
-import type { ActivityKindSchema, RunChangeEntrySchema } from "../contract/commands";
+import type { ActivityKindSchema, RunChangeEntrySchema } from "../entrypoints/contract/commands";
 import type { z } from "zod";
 import { parseRunMode, RUN_MODES, type RunMode, type TestTarget, type TriggerSource } from "@kernel/run-mode";
 import { RUN_ENGINE_STATUSES, engineStatus, type RunEngineStatus, type RunVerdict } from "@kernel/run-verdict";

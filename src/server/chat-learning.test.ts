@@ -4,8 +4,8 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { answerHelp, askAboutRun } from "./api/use-cases/ask";
-import type { ApiDeps } from "./api/deps";
+import { answerHelp, askAboutRun } from "../entrypoints/api/use-cases/ask";
+import type { ApiDeps } from "../entrypoints/api/deps";
 import { getHistory } from "../persistence/index";
 import { DEFAULT_HOST } from "../settings/port";
 import type { RunRecord } from "../persistence/types";

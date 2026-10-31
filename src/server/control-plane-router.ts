@@ -1,8 +1,8 @@
 /* The control plane's request sequence, in order: CORS preflight, the `/api` surface (version prefix normalization, the Bearer auth gate, the per-address throttle on the public sign-in routes, metrics, the API), the same-origin web console, and the deployment webhook for any other POST. Everything it touches is injected, so the whole sequence runs over fakes. */
 
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { ApiError, respondError } from "./api/api-error";
-import { isPublicRoute, normalizeApiPath } from "./api/route-table";
+import { ApiError, respondError } from "../entrypoints/api/api-error";
+import { isPublicRoute, normalizeApiPath } from "../entrypoints/api/route-table";
 import type { RateLimiter } from "./rate-limit";
 
 export interface ControlPlaneDeps {

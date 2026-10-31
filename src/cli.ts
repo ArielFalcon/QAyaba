@@ -28,7 +28,7 @@ import { join } from "node:path";
 import { loadAppConfig } from "./orchestrator/config-loader";
 import { parseRunMode, RUN_MODES, type RunMode } from "./persistence/types";
 import { runSucceeded } from "./cli-exit";
-import type { GroundingInput } from "./contract/commands";
+import type { GroundingInput } from "./entrypoints/contract/commands";
 import { renderRunReport } from "./qa/value-report";
 import { createAgentRuntimeManager } from "./agent-runtime/agent-runtime";
 import { defaultEnvStoreFs } from "./settings/env-store";

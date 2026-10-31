@@ -208,7 +208,7 @@ export const BANNED_RULES: BannedRule[] = [
   {
     id: "app-telemetry-route",
     patterns: [/\b(?:AppTelemetryView|AppTelemetryViewSchema|getAppTelemetry|computeTelemetryAnalysis|TelemetryAnalysis|TelemetryRoleStat|TelemetryEfficiency)\b/, /\/apps\/(?::name|\{name\}|[\w-]+)\/telemetry\b/],
-    exemptPrefixes: [RECORDS_PREFIX, "src/server/api.test.ts", "src/contract/openapi.test.ts"],
+    exemptPrefixes: [RECORDS_PREFIX, "src/server/api.test.ts", "src/entrypoints/contract/openapi.test.ts"],
   },
   {
     id: "escalation-signal",
@@ -236,7 +236,7 @@ export const BANNED_RULES: BannedRule[] = [
   },
   { id: "stored-outcome-copy", patterns: [/\b(?:toStoredRunOutcome|StructuredReflection)\b/], exemptPrefixes: [RECORDS_PREFIX] },
   { id: "shell-dead-run-types", patterns: [/\bAgentResult\b/], exemptPrefixes: [RECORDS_PREFIX] },
-  { id: "shell-events-reexport", patterns: [/\bsrc\/contract\/events(?:\.ts)?(?![\w.-])/], exemptPrefixes: [RECORDS_PREFIX] },
+  { id: "shell-events-reexport", patterns: [/\bsrc\/entrypoints\/contract\/events(?:\.ts)?(?![\w.-])/], exemptPrefixes: [RECORDS_PREFIX] },
   {
     id: "narration",
     patterns: [/migration-tier/i, /\bSlice \d/i, /\bcutover\b/i, /deleted twin/i, /frozen oracle/i, /the (old|earlier|former) (engine|pipeline|loader|path|build)/i, /\bcharacterization\b/i, /\bported (from|to)\b/i],

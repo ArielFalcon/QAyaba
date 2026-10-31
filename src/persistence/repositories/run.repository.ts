@@ -3,7 +3,7 @@ import { RUN_PHASES } from "@kernel/run-step";
 import { DEADLINE_PURPOSES, PHASES_OF_PURPOSE } from "@kernel/deadline-purpose";
 import { RUN_TIME_BUDGET_FORMER_LABELS } from "@contexts/run-orchestration/application/index";
 import type { CaptureMode } from "@kernel/telemetry/capture-mode";
-import type { CampaignIdentity } from "../../contract/campaign";
+import type { CampaignIdentity } from "../../entrypoints/contract/campaign";
 import { logJson } from "../../telemetry/logger";
 import { RedactionPortAdapter } from "../../telemetry/sanitizer";
 import type { AgentActivity, QaCase, RunChangeEntry, RunMode, RunOutcome, RunRecord, RunVerdict, TestTarget } from "../types";

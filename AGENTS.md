@@ -108,7 +108,7 @@ Keep the two rigorously separate.
   starts it), `src/server/engine-root.ts` (assembles the engine from each context's `composition/` builders) and
   `src/server/run-engine-factory.ts`, which maps each app's `AppConfig` into the engine's `EngineRootDeps` and wires the host collaborators (agent runtime, GitHub, runners).
 - **Control plane** (row 7) — `src/server/*` (webhook, queue, API, TUI surface) and `client/`. The control API is a route table
-  (`src/server/api/route-table.ts`): each route declares its method, path and `auth`; handlers throw `ApiError` and every
+  (`src/entrypoints/api/route-table.ts`): each route declares its method, path and `auth`; handlers throw `ApiError` and every
   error answers `{ schemaVersion: 1, error }`; a known path with an unsupported method answers 405.
 - **Provider I/O edges** (rows 6 and 4) — `src/agent-runtime/opencode-client.ts` (raw SDK primitives
   only) and `src/agent-runtime/*` (provider-agnostic facade + the OpenCode strategy).

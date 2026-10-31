@@ -10,7 +10,7 @@
 import type { RunVerdict } from "@kernel/run-verdict.ts";
 import { sameSpecPathByTail } from "@kernel/spec-path.ts";
 import { isCommitSha } from "@kernel/git-revision.ts";
-import type { GroundingInput } from "../src/contract/commands.ts";
+import type { GroundingInput } from "../src/entrypoints/contract/commands.ts";
 import type { FakeFlag } from "./fake-pass-detector.ts";
 import { assertFileName } from "./probe-report.ts";
 

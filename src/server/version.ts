@@ -6,7 +6,7 @@
 import { readFileSync, statSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { VersionInfo } from "../contract/commands";
+import type { VersionInfo } from "../entrypoints/contract/commands";
 
 export const WIRE_API_VERSION = "v1";
 

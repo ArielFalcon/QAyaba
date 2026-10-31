@@ -6,7 +6,7 @@
  * against vanity reporting: a metric that did not move (or has no baseline) scores 0 and never
  * headlines, so the report surfaces what changed the ground truth, not what ran.
  */
-import type { TrendsView, ReportView } from "../contract/commands";
+import type { TrendsView, ReportView } from "../entrypoints/contract/commands";
 
 type Insight = ReportView["insights"][number];
 type Intent = Insight["intent"];

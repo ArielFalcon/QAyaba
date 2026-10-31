@@ -23,4 +23,4 @@ The web dashboard for qayaba: a Fleet mission-control overview, the runs feed, r
 
 `web/package.json` declares the `@qayaba/web` workspace. It has no dependencies and no
 build step — `web/public/` is served as-is. The console's tests live in
-`src/server/web-console/` (run by `npm test`).
+`src/entrypoints/web-console/` (run by `npm test`).
