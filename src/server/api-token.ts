@@ -1,6 +1,6 @@
 /* The control-plane API token when QA_API_TOKEN does not pin one: generated once and kept in the data directory (the qayaba-data volume in the container), which is closed to the sandbox uid on every filesystem because it is a volume and not a host folder. */
 
-import { appLogger } from "../integrations/redacting-logger";
+import { appLogger } from "../telemetry/redacting-logger";
 import { chmodSync, mkdirSync, readdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 import { join } from "node:path";

@@ -2,7 +2,7 @@
 
    `off` (or OTEL_SDK_DISABLED) returns the null object and creates nothing. `local` (the default) builds a NodeTracerProvider by hand, not NodeSDK, so no auto-instrumentation patches any module: the span ledger always, plus an OTLP/proto batch exporter only when an endpoint is configured. NodeSDK would also read the OTEL_BSP_*, resource and OTEL_SDK_DISABLED variables itself; without it they are mapped here (config.ts). Nothing here throws at runtime: a bad configuration throws once, at composition, and shutdown never throws. */
 
-import { appLogger, installLogShipper } from "../integrations/redacting-logger";
+import { appLogger, installLogShipper } from "./redacting-logger";
 import { context as apiContext, type ContextManager } from "@opentelemetry/api";
 import { W3CTraceContextPropagator, ExportResultCode, type ExportResult } from "@opentelemetry/core";
 import { AsyncLocalStorageContextManager } from "@opentelemetry/context-async-hooks";

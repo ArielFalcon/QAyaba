@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import { finalizeInterruptedRuns } from "./runner";
 import { createDurableRunEventStore } from "./durable-run-events";
 import { getHistory } from "../persistence/index";
-import { installLogShipper, type ShippedLine } from "../integrations/redacting-logger";
+import { installLogShipper, type ShippedLine } from "../telemetry/redacting-logger";
 
 test("a run interrupted by a restart is finalized and its event stream ends with a verdict a resuming client sees", () => {
   const rec = getHistory().runs.createRecord({ app: "boot-zombie", sha: "eee5555", target: "e2e", mode: "diff" });

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { InMemorySpanExporter, type SpanExporter, type ReadableSpan } from "@opentelemetry/sdk-trace-base";
 import { ExportResultCode, type ExportResult } from "@opentelemetry/core";
 import { createTelemetry, type BootstrapDeps } from "./bootstrap";
-import { createRedactingLogger } from "../integrations/redacting-logger";
+import { createRedactingLogger } from "./redacting-logger";
 import type { LogRecordExporter, ReadableLogRecord } from "@opentelemetry/sdk-logs";
 import type { RunSpanRow } from "../persistence/repositories/telemetry.repository";
 import { NoopTelemetry } from "@kernel/telemetry/noop-telemetry";

@@ -444,7 +444,7 @@ test("realGit scrubs inline x-access-token credentials from a failing spawn's er
     realGit(["-c", `url.https://x-access-token:${fakeToken}@github.com/.insteadOf=https://github.com/`, "clone", "file:///nonexistent/definitely-missing.git", "/tmp/qa-scrub-probe-target"], undefined),
     (err: Error) => {
       assert.ok(!err.message.includes(fakeToken), "the token must NOT appear in the error message");
-      /* RedactionPortAdapter (env+pattern, src/orchestrator/sanitizer.ts), which replaces the whole
+      /* RedactionPortAdapter (env+pattern, src/telemetry/sanitizer.ts), which replaces the whole
          egress boundary — not the old module-local util/redact.ts "[REDACTED_CREDENTIAL]" literal.
          Intentional, documented consequence of consolidating on one mechanism, not a regression —
          the diagnostic-shape goal (command stays readable, credential span gone) is preserved.

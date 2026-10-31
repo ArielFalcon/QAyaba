@@ -1,6 +1,6 @@
 /* What a route hands back, and the one place it becomes a response. */
 
-import { appLogger } from "../../integrations/redacting-logger";
+import { appLogger } from "../../telemetry/redacting-logger";
 import type { ServerResponse } from "node:http";
 import type { z } from "zod";
 import { json } from "../helpers";

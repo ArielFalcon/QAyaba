@@ -20,8 +20,8 @@ import { LlmProfileProposerAdapter } from "../qa-engine/src/contexts/service-top
 import { AgentRuntimeAdapter } from "../qa-engine/src/contexts/generation/infrastructure/agent-runtime.adapter.ts";
 import { defaultAgentDeps } from "../src/integrations/opencode-client";
 import { AGENT_NAME_FOR_ROLE } from "../src/agent-runtime/types.ts";
-import { appLogger } from "../src/integrations/redacting-logger.ts";
-import { RedactionPortAdapter } from "../src/orchestrator/sanitizer.ts";
+import { appLogger } from "../src/telemetry/redacting-logger.ts";
+import { RedactionPortAdapter } from "../src/telemetry/sanitizer.ts";
 
 const EXIT = {
   RESOLVED: 0,

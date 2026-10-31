@@ -68,7 +68,7 @@ Reuse this before adding anything.
 | `SandboxReport` / exec scope (ALS) | `process-sandbox/exec-scope.ts` | Denied hosts per run, `openDeniedWindow` per login attempt, refusal reason | Denials keep the host but drop the port. Not per child |
 | `RunDeadlineExceededError` | `shared-kernel/run-deadline.ts:20` | `budgetMs`, `label`, `role`, `stop` | Only on the deadline path. Other limits are implicit |
 | Run-secret redaction (ALS) | `shared-infrastructure/redaction/run-secret-redaction.ts` | `redactByValue` inside the run scope | **No-op outside the run's async context** |
-| `/api/metrics` | `src/server/metrics.ts`, `src/server/wire-app.ts` | Prometheus text: queue depth, sessions, verdict counts | Not OTel. Raw path only |
+| `/api/metrics` | `src/telemetry/metrics.ts`, `src/server/wire-app.ts` | Prometheus text: queue depth, sessions, verdict counts | Not OTel. Raw path only |
 | `probe-report`, `efficiency-benchmark`, campaign runner | `scripts/` | The acceptance baselines | Campaign identity exists only client-side; the server cannot tag a run |
 
 There is **no** `@opentelemetry/*` dependency, no logger abstraction (~270 raw `console.*` sites
@@ -817,7 +817,7 @@ Loki's chunk compression already absorbs. A run in `full` stores about 200-300 K
     runs in the HTTP server's context, and the exporter runs in neither.
   - So each span handle carries the run's `RunSecretScope`, given at creation (root, phases,
     server spans). `setAttrs` and `addEvent` redact through **that** scope, not through `activeRunSecretScope()`.
-- **Policy:** the outbound one (`src/orchestrator/sanitizer.ts`, `"issue"` mode, which includes
+- **Policy:** the outbound one (`src/telemetry/sanitizer.ts`, `"issue"` mode, which includes
   by-value redaction). AGENTS.md requires it for data leaving the system. It is applied **only to keys
   whose registry class is `redacted-text` or `content`**. Ids, hosts and enums are not run through
   PII and private-IP patterns, which would corrupt them.

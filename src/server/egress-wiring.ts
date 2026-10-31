@@ -1,6 +1,6 @@
 /* The composition root's wiring of the egress filter: the registries file it reads, the hands-in of the origins a run's children may reach (the engine's test-execution context decides them) and the one process-wide controller that enforces them. The origins are data (the app's config and config/egress/registries.yaml); the controller is built once per process, because the proxy listeners and the kernel rules it brings up belong to the process, not to a run. */
 
-import { appLogger } from "../integrations/redacting-logger";
+import { appLogger } from "../telemetry/redacting-logger";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { parse } from "yaml";

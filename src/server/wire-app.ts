@@ -1,5 +1,5 @@
 
-import { appLogger, logLine } from "../integrations/redacting-logger";
+import { appLogger, logLine } from "../telemetry/redacting-logger";
 import { installProcessLogger } from "@kernel/ports/process-logger";
 import type { IncomingMessage } from "node:http";
 import { join } from "node:path";
@@ -43,7 +43,7 @@ import { pruneMirrors, type MirrorPruneDeps } from "@contexts/workspace-and-publ
 import { fsMirrorStore, getDirectorySize } from "@contexts/workspace-and-publication/infrastructure/mirror-fs.adapter";
 import { computeActiveRepoSlugs, repoSlug } from "@contexts/workspace-and-publication/domain/active-repo-slugs";
 import { RESERVED_MIRROR_DIR_NAMES } from "./mirror-prune";
-import { buildArtifactBytesMetrics, type ArtifactSizeCache } from "./metrics";
+import { buildArtifactBytesMetrics, type ArtifactSizeCache } from "../telemetry/metrics";
 import { installHttpDispatcher } from "../util/net";
 import { resolveRef, defaultMirrorDeps, ensureMirrorAtBranch, getHeadSha } from "../integrations/repo-mirror";
 import { askAssistant, AgentDeps, getOpenSessionCount, defaultAgentDeps, setAgentBrowserGrantLookup, setCodeGraphGrantLookup, setGeolocationGrantLookup } from "../integrations/opencode-client";
@@ -67,7 +67,7 @@ import { LlmProfileProposerAdapter } from "@contexts/service-topology/infrastruc
 import { OnboardingService } from "@contexts/service-topology/application/index";
 import { buildServiceBoundaryResolver } from "@contexts/service-topology/infrastructure/resolver-factory";
 
-import { RedactionPortAdapter } from "../orchestrator/sanitizer";
+import { RedactionPortAdapter } from "../telemetry/sanitizer";
 import { processTelemetry, TELEMETRY_SHUTDOWN_TIMEOUT_MS } from "../telemetry/process-telemetry";
 import { HostHealth } from "../telemetry/host-health";
 import { BackendHealthMonitor, systemBackendFetch } from "../telemetry/backend-health";

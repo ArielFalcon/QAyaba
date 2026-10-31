@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { installLogShipper, type ShippedLine } from "../integrations/redacting-logger";
+import { installLogShipper, type ShippedLine } from "../telemetry/redacting-logger";
 import { AppConfigInvalidError, AppNotFoundError, describeAppLoadFailure, listAppConfigs, loadAppConfig } from "./config-loader";
 
 test("loadAppConfig expands placeholders against the active environment", () => {

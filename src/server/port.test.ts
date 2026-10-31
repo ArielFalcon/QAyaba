@@ -11,7 +11,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DEFAULT_HOST, DEFAULT_PORT, describeListenAddress, listenErrorHint, resolveListenHost, resolvePort, serverErrorListener } from "./port";
 import { isLoopbackAddress } from "./auth";
-import { RedactionPortAdapter } from "../orchestrator/sanitizer";
+import { RedactionPortAdapter } from "../telemetry/sanitizer";
 
 test("the server listens on the default port unless PORT names another", () => {
   assert.equal(resolvePort({}), DEFAULT_PORT);

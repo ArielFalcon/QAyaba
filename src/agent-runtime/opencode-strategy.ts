@@ -1,5 +1,5 @@
-import { RedactionPortAdapter } from "../orchestrator/sanitizer";
-import { appLogger } from "../integrations/redacting-logger";
+import { RedactionPortAdapter } from "../telemetry/sanitizer";
+import { appLogger } from "../telemetry/redacting-logger";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import {

@@ -1,6 +1,6 @@
 import type { ArchitectureContext } from "@contexts/generation/application/index.ts";
-import { logJson } from "../../integrations/logger";
-import { RedactionPortAdapter } from "../../orchestrator/sanitizer";
+import { logJson } from "../../telemetry/logger";
+import { RedactionPortAdapter } from "../../telemetry/sanitizer";
 import type { HistoryDatabase } from "../database";
 
 const redactionPort = new RedactionPortAdapter();

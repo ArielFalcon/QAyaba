@@ -1,5 +1,5 @@
-import { logJson } from "../integrations/logger";
-import { RedactionPortAdapter } from "../orchestrator/sanitizer";
+import { logJson } from "../telemetry/logger";
+import { RedactionPortAdapter } from "../telemetry/sanitizer";
 
 const redactionPort = new RedactionPortAdapter();
 

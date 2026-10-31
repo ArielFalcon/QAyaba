@@ -4,7 +4,7 @@
  * Env reads for execution timeouts stay here. Agent remains read-only on watched repos.
  */
 
-import { appLogger } from "../integrations/redacting-logger";
+import { appLogger } from "../telemetry/redacting-logger";
 import { join } from "node:path";
 import { DELEGATIONS_DIR, qayabaDataDir, qayabaRoot } from "../paths";
 import { readFileSync, mkdirSync, writeFileSync, realpathSync, lstatSync, rmSync } from "node:fs";
@@ -154,7 +154,7 @@ import { blockedHostMatcher, resolveRunOrigins, suiteAccountFor } from "@context
 import { setSandboxGroup } from "../../qa-engine/src/shared-infrastructure/process-sandbox/git-hardening";
 import type { EffectiveConfig, GroundingInput } from "../contract/commands";
 import { requireEnv } from "../util/env";
-import { RedactionPortAdapter, redactSourceForModel } from "../orchestrator/sanitizer";
+import { RedactionPortAdapter, redactSourceForModel } from "../telemetry/sanitizer";
 import { ensureMirror, ensureMirrorAtBranch, defaultMirrorDeps, workdirRoot, realGit, authHeaderArgs, hardenGitArgs, assertTrustedGitTree } from "../integrations/repo-mirror";
 import { stageServiceContext, serviceContextDir, type StageServiceContextInput, type StagedServiceContext } from "@contexts/service-topology/application/index";
 import { defaultStageDeps } from "./service-context";

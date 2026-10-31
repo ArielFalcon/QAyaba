@@ -1,6 +1,6 @@
-import { appLogger } from "../integrations/redacting-logger";
+import { appLogger } from "../telemetry/redacting-logger";
 import { defaultEnvStoreFs, applyEnvVars, type EnvStoreFs } from "./env-store";
-import { RedactionPortAdapter } from "../orchestrator/sanitizer";
+import { RedactionPortAdapter } from "../telemetry/sanitizer";
 import {
   configFromEnv,
   keyPresence,

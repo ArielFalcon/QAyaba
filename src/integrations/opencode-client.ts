@@ -4,7 +4,7 @@
  * control-plane wrappers. Domain/policy lives in qa-engine.
  */
 
-import { appLogger } from "./redacting-logger";
+import { appLogger } from "../telemetry/redacting-logger";
 import { readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import type { Agent as OpenCodeAgent } from "@opencode-ai/sdk/v2";

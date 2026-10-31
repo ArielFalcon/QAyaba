@@ -12,7 +12,7 @@ import type { ApiDeps } from "./api/deps";
 import { normalizeApiPath, matchRoute } from "./api/route-table";
 import { sendResult } from "./api/respond";
 import { redactionPort } from "./api/support";
-import { logJson } from "../integrations/logger";
+import { logJson } from "../telemetry/logger";
 
 /*
  * Answers the request from the route table. Returns true when the request matched an /api route (so the

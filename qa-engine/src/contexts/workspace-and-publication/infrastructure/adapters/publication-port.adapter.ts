@@ -85,7 +85,7 @@ export interface PublicationPortCollaborators {
   issue: GitHubIssueCollaborator;
   shadowLog: ShadowLogCollaborator;
   render: PublicationRenderCollaborator;
-  /* Required. Constructor throws if absent — no identity default (fail-closed on public Issue/PR bodies). Injected; qa-engine never imports src/orchestrator/sanitizer.ts. */
+  /* Required. Constructor throws if absent — no identity default (fail-closed on public Issue/PR bodies). Injected; qa-engine never imports src/telemetry/sanitizer.ts. */
   sanitize: (text: string) => string;
   /* Optional at the type (only the "pr" route uses it). Absent + "pr" route → publish() throws rather than opening a PR against an unpushed branch. */
   vcsWrite?: VcsPublishCollaborator;

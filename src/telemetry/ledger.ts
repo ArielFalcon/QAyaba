@@ -4,7 +4,7 @@
 
    Run id. Taken from the span's own `qayaba.run.id` attribute at start, else inherited from the parent's row, and re-checked at end (an attribute set late). */
 
-import { appLogger } from "../integrations/redacting-logger";
+import { appLogger } from "./redacting-logger";
 import type { Context } from "@opentelemetry/api";
 import { SpanStatusCode } from "@opentelemetry/api";
 import type { ReadableSpan, Span, SpanProcessor } from "@opentelemetry/sdk-trace-base";

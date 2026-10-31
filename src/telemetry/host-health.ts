@@ -10,7 +10,7 @@
 
    Everything is fail-open: a fault is counted, logged once, and never reaches a run or the server. Timers are unref'd so they never keep the process alive. Clocks, timers, the monitor, /proc and the telemetry port are injected, so tests need no real time. */
 
-import { appLogger } from "../integrations/redacting-logger";
+import { appLogger } from "./redacting-logger";
 import { readdirSync, readFileSync } from "node:fs";
 import { monitorEventLoopDelay } from "node:perf_hooks";
 import { guardTelemetry } from "@kernel/telemetry/guarded-telemetry";

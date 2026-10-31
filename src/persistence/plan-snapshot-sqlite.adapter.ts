@@ -1,6 +1,6 @@
 /* The shell's side of PlanSnapshotPort: a run's plan goes into the run history's run_plans table. Total: a fault is logged and the run goes on. */
 
-import { appLogger } from "../integrations/redacting-logger";
+import { appLogger } from "../telemetry/redacting-logger";
 import type { PlanSnapshot, PlanSnapshotPort } from "@kernel/ports/plan-snapshot.port";
 import { getHistory } from "./index";
 

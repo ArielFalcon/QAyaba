@@ -591,7 +591,7 @@ test("an auth.ts-shaped diff never trips the diff→model guard (false-positive 
 });
 
 /* "a secret survives redaction at diff→model → SecretLeakError thrown" is covered at the unit
-   level in src/orchestrator/sanitizer.test.ts (assertNoSecretLeak's own dedicated tests) rather than
+   level in src/telemetry/sanitizer.test.ts (assertNoSecretLeak's own dedicated tests) rather than
    as an end-to-end prompts.ts fixture: sanitizeText and containsSecrets share ONE pattern table with
    identical skip/modelSkip logic, so a secret genuinely surviving redaction is not constructible
    through this real pipeline today (by design — the guard exists as an invariant check against a

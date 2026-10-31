@@ -11,7 +11,7 @@
  * Pure handler plus a thin Node wrapper; the handler never throws and never says what went wrong inside.
  */
 
-import { appLogger } from "../integrations/redacting-logger";
+import { appLogger } from "../telemetry/redacting-logger";
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import os from "node:os";

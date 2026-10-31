@@ -1,7 +1,7 @@
 /* Pieces several routes share: loading the app a route is about, the views and sanitizers that shape what leaves, and the lenient query parsers. */
 
 import { sanitizeText } from "../../../qa-engine/src/shared-infrastructure/redaction/pattern-redaction.adapter";
-import { RedactionPortAdapter } from "../../orchestrator/sanitizer";
+import { RedactionPortAdapter } from "../../telemetry/sanitizer";
 import { AppConfigInvalidError, AppNotFoundError, type AppConfig } from "../../orchestrator/config-loader";
 import { engineStatus, type RunRecord } from "../../persistence/types";
 import { ApiError } from "./api-error";

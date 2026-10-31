@@ -4,8 +4,8 @@ import type { ProfileProposerPort, ResolveLinksResult } from "@contexts/service-
 import type { BoundaryProfile, RepoRef } from "@contexts/service-topology/application/index.ts";
 import { serializeBoundary, spliceBoundariesBlock } from "@contexts/service-topology/application/index";
 import { aggregateResolution, type ResolutionSummary } from "./resolution-summary";
-import { RedactionPortAdapter } from "../../orchestrator/sanitizer";
-import { logJson } from "../../integrations/logger";
+import { RedactionPortAdapter } from "../../telemetry/sanitizer";
+import { logJson } from "../../telemetry/logger";
 
 
 const redactionPort = new RedactionPortAdapter();

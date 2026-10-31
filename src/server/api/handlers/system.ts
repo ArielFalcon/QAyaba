@@ -1,6 +1,6 @@
 /* Routes about the service itself: liveness, telemetry health, the version handshake and the queue. */
 
-import { appLogger } from "../../../integrations/redacting-logger";
+import { appLogger } from "../../../telemetry/redacting-logger";
 import { QueueStatusSchema, TelemetryHealthSchema, VersionInfoSchema, type TelemetryHealthView } from "../../../contract/commands";
 import type { TelemetryBackendsHealth } from "../../../telemetry/telemetry-health";
 import { getOpenSessionCount } from "../../../integrations/opencode-client";

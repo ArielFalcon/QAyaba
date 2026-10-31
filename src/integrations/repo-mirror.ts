@@ -7,7 +7,7 @@
 import { execFile } from "node:child_process";
 import { existsSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { RedactionPortAdapter } from "../orchestrator/sanitizer";
+import { RedactionPortAdapter } from "../telemetry/sanitizer";
 import { InfraError } from "@kernel/domain-error";
 /* A sha or ref handed to git as a positional argument is judged by @kernel/git-revision first: a value that passes can never be read as an option (`--output=...`). */
 import { assertCommitSha, assertRefName } from "@kernel/git-revision";

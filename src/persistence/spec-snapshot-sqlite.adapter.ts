@@ -1,6 +1,6 @@
 /* The shell's side of SpecSnapshotPort: the snapshots go into the run history's run_spec_snapshots table. Total: a fault is logged and the run goes on. */
 
-import { appLogger } from "../integrations/redacting-logger";
+import { appLogger } from "../telemetry/redacting-logger";
 import type { SpecSnapshot, SpecSnapshotPort } from "@kernel/ports/spec-snapshot.port";
 import { getHistory } from "./index";
 import type { SpecSnapshotRow } from "./repositories/run.repository";

@@ -29,7 +29,7 @@ export async function prepareHarnessAuth(input: HarnessAuthInput): Promise<{ una
   const { AuthSessionAdapter } = await import("../qa-engine/src/contexts/app-catalog/infrastructure/auth-session.adapter.ts");
   const { createDiscoverLogin } = await import("../qa-engine/src/contexts/app-catalog/infrastructure/login-discovery/login-discovery.runner.ts");
   const { loadContextMapFromDisk } = await import("../qa-engine/src/contexts/generation/infrastructure/adapters/pre-generation-grounding-port.adapter.ts");
-  const { RedactionPortAdapter } = await import("../src/orchestrator/sanitizer.ts");
+  const { RedactionPortAdapter } = await import("../src/telemetry/sanitizer.ts");
   const redaction = new RedactionPortAdapter();
   const sandbox = resolveCodeSandbox(process.env);
   const script = buildScriptExec(process.env, sandbox, egressGateFor(process.env, sandbox));

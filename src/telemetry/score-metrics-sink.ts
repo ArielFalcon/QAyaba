@@ -8,7 +8,7 @@
  * regrade replaces a series); `qayaba.eval.class` counts grading events, so a regrade counts its class once more.
  */
 
-import { appLogger } from "../integrations/redacting-logger";
+import { appLogger } from "./redacting-logger";
 import type { ScoreSinkPort } from "@contexts/evaluation/application/index.ts";
 import { GRADER_CATALOG } from "@contexts/evaluation/application/index";
 import type { Score } from "@contexts/evaluation/application/index";

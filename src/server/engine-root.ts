@@ -229,7 +229,7 @@ export interface EngineRootDeps {
   reviewerApprovedForPublish?: boolean;
   coverageBlocksForPublish?: boolean;
   e2eChangedForPublish?: boolean;
-  /* Issue/PR-body sanitizer. Injected, never imported (qa-engine stays src/-free). Required: the workspace-and-publication builder throws if absent — no identity default. Shell composition supplies sanitizeText from src/orchestrator/sanitizer.ts. */
+  /* Issue/PR-body sanitizer. Injected, never imported (qa-engine stays src/-free). Required: the workspace-and-publication builder throws if absent — no identity default. Shell composition supplies sanitizeText from src/telemetry/sanitizer.ts. */
   sanitize?: (text: string) => string;
   /* Post-redaction fail-loud check on the "issue" route. Optional at the type; production composition always supplies RedactionPort.containsSecret alongside sanitize. */
   containsSecret?: (text: string) => boolean;

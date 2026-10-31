@@ -18,7 +18,7 @@
  *   tsx src/server/file-boundary-check.ts            the check (root)
  */
 
-import { appLogger } from "../integrations/redacting-logger";
+import { appLogger } from "../telemetry/redacting-logger";
 import { redactAndBound } from "../../qa-engine/src/shared-infrastructure/redaction/redact-and-bound";
 import { spawnSync, type SpawnSyncOptions } from "node:child_process";
 import { randomBytes } from "node:crypto";

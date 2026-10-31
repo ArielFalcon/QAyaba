@@ -1,7 +1,7 @@
 import { mkdirSync, readdirSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { qayabaDataDir } from "../paths";
-import { RedactionPortAdapter } from "../orchestrator/sanitizer";
+import { RedactionPortAdapter } from "../telemetry/sanitizer";
 import type { HistoryDatabase } from "./database";
 
 const redactionPort = new RedactionPortAdapter();

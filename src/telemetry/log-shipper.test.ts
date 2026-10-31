@@ -2,7 +2,7 @@ import { afterEach, describe, test } from "node:test";
 import assert from "node:assert/strict";
 import { trace } from "@opentelemetry/api";
 import type { LogRecord } from "@opentelemetry/api-logs";
-import { createRedactingLogger, installLogShipper } from "../integrations/redacting-logger";
+import { createRedactingLogger, installLogShipper } from "./redacting-logger";
 import { createLogShipper, LOG_BODY_CAP_CHARS } from "./log-shipper";
 import { traceHarness } from "../test-support/trace-harness";
 import type { CaptureMode } from "./otel-telemetry.adapter";

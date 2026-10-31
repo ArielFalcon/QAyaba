@@ -1,6 +1,6 @@
 /* Routes about runs: launch, read, list, cancel, stream events, agent turns, continue, ask. */
 
-import { appLogger } from "../../../integrations/redacting-logger";
+import { appLogger } from "../../../telemetry/redacting-logger";
 import { z } from "zod";
 import { AgentTurnViewSchema, RunDetailSchema, RunRecordSchema } from "../../../contract/commands";
 import { RunEventSchema, type RunEvent } from "@kernel/contract/events";

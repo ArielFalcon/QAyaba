@@ -3,7 +3,7 @@
  * Grading is always scheduled, never awaited: a run's queue slot, its verdict and the next run are untouched by what a grader does.
  */
 
-import { appLogger } from "../integrations/redacting-logger";
+import { appLogger } from "../telemetry/redacting-logger";
 import { randomBytes } from "node:crypto";
 import { GradeRunUseCase } from "@contexts/evaluation/application/index";
 import { RegradeUseCase, MAX_REGRADE_RUNS, type RegradeRequest } from "@contexts/evaluation/application/index";
@@ -13,7 +13,7 @@ import { GRADER_CATALOG } from "@contexts/evaluation/application/index";
 import { currentScores, isScoreSource, type Score, type ScoreDataType, type ScorePolarity } from "@contexts/evaluation/application/index";
 import { RUN_PHASES } from "@kernel/run-step";
 import { HistoryEvidenceAdapter } from "../persistence/evaluation-evidence";
-import { RedactionPortAdapter } from "../orchestrator/sanitizer";
+import { RedactionPortAdapter } from "../telemetry/sanitizer";
 import { getHistory } from "../persistence/index";
 
 const redaction = new RedactionPortAdapter();

@@ -16,7 +16,7 @@
 import type { Context } from "@opentelemetry/api";
 import { SeverityNumber, type Logger } from "@opentelemetry/api-logs";
 import type { LogLevel } from "@kernel/ports/logger.port";
-import type { LogShipper } from "../integrations/redacting-logger";
+import type { LogShipper } from "./redacting-logger";
 import { TEXT_CAP_CHARS, type CaptureMode } from "./otel-telemetry.adapter";
 
 /* The body cap follows the capture mode: a line that explains how something went is short; full keeps more of its fields. */

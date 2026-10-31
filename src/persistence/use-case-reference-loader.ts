@@ -2,7 +2,7 @@
  * The reference sets of use cases an operator labelled (`config/benchmarks/use-cases/<app>.json`), read from disk. Shared by the labelling
  * script and the evidence assembly, so both read the same files the same way.
  */
-import { appLogger } from "../integrations/redacting-logger";
+import { appLogger } from "../telemetry/redacting-logger";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { parseUseCaseReference, type UseCaseReference } from "@contexts/evaluation/application/index";

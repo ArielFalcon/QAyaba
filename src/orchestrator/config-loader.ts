@@ -3,7 +3,7 @@
  * ${VARS} expand from the environment so credentials never live in the repo.
  */
 
-import { appLogger } from "../integrations/redacting-logger";
+import { appLogger } from "../telemetry/redacting-logger";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { qayabaRoot } from "../paths";

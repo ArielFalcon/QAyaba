@@ -213,7 +213,7 @@ test("does NOT redact long Java identifiers or paths with >30-char segments (bot
   assert.doesNotMatch(out, /\[REDACTED\]/);
 });
 
-/* Twin of src/orchestrator/sanitizer.test.ts — keep in lockstep. isPathLikeRun's no-slash
+/* Twin of src/telemetry/sanitizer.test.ts — keep in lockstep. isPathLikeRun's no-slash
    escape is a real identifier (camelCase/PascalCase with a case transition), capped at 64 chars. */
 test("a camelCase identifier (45 chars, no digits) still survives — escape stays intact", () => {
   const identifier = "populateCoursesDescriptionMultilingualUseCase";
