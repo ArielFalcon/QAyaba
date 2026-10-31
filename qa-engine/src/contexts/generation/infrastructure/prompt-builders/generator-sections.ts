@@ -476,7 +476,8 @@ function renderReviewerCorrections(ctx: PromptContext): SectionRender {
           : `Where a fix concerns a selector or an assertion, re-verify it against the live page with ${browser.name} before editing.`,
         ``,
 
-        ...input.reviewCorrections.map((c) => `- ${sanitizeText(c).text}`),
+        /* Numbered from 1 in the order given: a rebuttal names its finding by this number, never by its text. */
+        ...input.reviewCorrections.map((c, i) => `${i + 1}. ${sanitizeText(c).text}`),
         ``,
       ].join("\n")
     : "";

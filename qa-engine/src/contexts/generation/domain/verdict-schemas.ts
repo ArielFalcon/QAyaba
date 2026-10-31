@@ -24,7 +24,8 @@ const TestCorrectSchema = z.object({ cause: z.enum(["env", "app"]), reason: z.st
  * decision at all. `reason` is prose the run records but never weighs.
  */
 const RebuttalSchema = z.object({
-  finding: z.string().trim().min(1),
+  /* The number the correction turn showed the finding by; text is read too, and names no finding unless it is that number. */
+  finding: z.union([z.number().int().positive(), z.string().trim().min(1)]),
   basis: z.enum(["execution", "contract"]),
   ref: z.string().trim().min(1),
   reason: z.string().trim().min(1),

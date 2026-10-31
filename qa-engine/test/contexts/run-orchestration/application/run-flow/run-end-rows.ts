@@ -103,7 +103,7 @@ function refusedFinding(rig: Rig): void {
       rig.ws.write(spec, "test('checkout', async () => {});\n");
       return scriptedGeneration({ specs: [spec]});
     }
-    return scriptedGeneration({ specs: [], rebuttals: [{ finding: DISPUTED_FINDING, basis: "execution", ref: "flows/absent.spec.ts", reason: "the case passed" }] as never });
+    return scriptedGeneration({ specs: [], rebuttals: [{ finding: "1", basis: "execution", ref: "flows/absent.spec.ts", reason: "the case passed" }] as never });
   };
 }
 

@@ -63,14 +63,14 @@ function testCorrectOf(raw: unknown): { cause: "env" | "app"; reason: string } |
   return { cause, reason };
 }
 
-/* A rebuttal only when it names the finding, a basis the orchestrator can check, the reference it must check and a reason; anything else is no rebuttal (fail-closed, it can withdraw nothing). */
+/* A rebuttal only when it names the finding (the number the correction turn showed it, read as text), a basis the orchestrator can check, the reference it must check and a reason; anything else is no rebuttal (fail-closed, it can withdraw nothing). */
 function rebuttalsOf(raw: unknown): { finding: string; basis: "execution" | "contract"; ref: string; reason: string }[] | undefined {
   if (!Array.isArray(raw)) return undefined;
   const rebuttals: { finding: string; basis: "execution" | "contract"; ref: string; reason: string }[] = [];
   for (const entry of raw) {
     if (typeof entry !== "object" || entry === null || Array.isArray(entry)) continue;
     const record = entry as Record<string, unknown>;
-    const finding = typeof record.finding === "string" ? record.finding.trim() : "";
+    const finding = typeof record.finding === "string" ? record.finding.trim() : typeof record.finding === "number" && Number.isFinite(record.finding) ? String(record.finding) : "";
     const basis = record.basis;
     const ref = typeof record.ref === "string" ? record.ref.trim() : "";
     const reason = typeof record.reason === "string" ? record.reason.trim() : "";

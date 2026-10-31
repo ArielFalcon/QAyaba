@@ -111,7 +111,7 @@ export function verifyRebuttals(
   };
 }
 
-/** A rebuttal as a turn's answer carries it: the finding's id when the answer named it by the number it was shown (the lead), else only the text it repeated (the author). */
+/** A rebuttal as a turn's answer carries it: the finding's id when the lead's answer named it, else the number the author's correction turn showed it (`finding`). */
 export interface AnsweredRebuttal {
   readonly finding: string;
   readonly findingId?: string;
@@ -120,14 +120,14 @@ export interface AnsweredRebuttal {
   readonly reason: string;
 }
 
-/* Whitespace and case do not make a repeated text another text. */
-const repeatedText = (text: string): string => text.replace(/\s+/g, " ").trim().toLowerCase();
+/* The number a correction turn shows a finding by: its place in the round's findings, from 1. */
+const shownNumber = /^[1-9][0-9]*$/;
 
 /**
  * The rebuttals of a turn, each naming one finding of the round by its id. A rebuttal the answer named by id is taken as it is.
- * The author's contract (`agents/agent/qa-author.md`) still names a finding by repeating its text: such a repeat names the one
- * finding of the round with exactly that text, whitespace and case aside; a text no finding has, or several findings share, names
- * none and is returned unread, never matched to a part of a text or to every finding that shares it.
+ * The author names a finding by the number its correction turn showed it (`agents/agent/qa-author.md`), its place in the round's
+ * findings from 1; a number the round never showed, or anything else (a repeated text), names none and is returned unread. A
+ * finding is never named by its text: two findings may say the same thing about different specs.
  */
 export function namedRebuttals(answered: readonly AnsweredRebuttal[], findings: readonly RoundFinding[]): { rebuttals: ReviewRebuttal[]; unread: AnsweredRebuttal[] } {
   const rebuttals: ReviewRebuttal[] = [];
@@ -138,8 +138,8 @@ export function namedRebuttals(answered: readonly AnsweredRebuttal[], findings: 
       rebuttals.push({ findingId: rebuttal.findingId, basis, ref, reason });
       continue;
     }
-    const repeated = findings.filter((finding) => repeatedText(finding.text) === repeatedText(rebuttal.finding));
-    if (repeated.length === 1) rebuttals.push({ findingId: repeated[0]!.id, basis, ref, reason });
+    const shown = shownNumber.test(rebuttal.finding) ? findings[Number(rebuttal.finding) - 1] : undefined;
+    if (shown) rebuttals.push({ findingId: shown.id, basis, ref, reason });
     else unread.push(rebuttal);
   }
   return { rebuttals, unread };

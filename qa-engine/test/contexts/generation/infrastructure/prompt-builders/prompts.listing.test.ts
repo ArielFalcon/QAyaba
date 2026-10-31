@@ -665,3 +665,10 @@ test("a limited prompt still ends with the step limit and then the milestone whe
   const a = buildPromptAssembled(mkInput({ stepLimit: 40, existingSpecFiles: [C_LINE], deliveredSpecs: [A], fixCases: [failing("flows/a.spec.ts")] }));
   assert.deepEqual(Object.keys(a.sectionSizes).slice(-2), ["step-limit", "step-milestone"]);
 });
+
+test("the reviewer's corrections are shown numbered in the order given, the number a rebuttal names its finding by", () => {
+  const corrections = ["flows/a.spec.ts: assert the discounted total", "flows/a.spec.ts: assert the discounted total"];
+  const text = buildPromptAssembled(mkInput({ deliveredSpecs: [A, B], reviewCorrections: corrections })).text;
+  const numbered = text.split("\n").filter((line) => /^\d+\. flows\/a\.spec\.ts: assert the discounted total$/.test(line));
+  assert.deepEqual(numbered.map((line) => line.split(".")[0]), ["1", "2"]);
+});

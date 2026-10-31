@@ -124,23 +124,18 @@ test("a rebuttal the answer named by id is taken as it is, whatever text it carr
   assert.deepEqual(out.unread, []);
 });
 
-test("a repeated text names the one finding of the round with exactly that text, whitespace and case aside", () => {
-  const out = namedRebuttals([answered({ finding: `  ${FINDING.toUpperCase().replaceAll(" ", "  ")}\n` })], [ONE, TWO]);
-  assert.deepEqual(out.rebuttals.map((r) => r.findingId), [ONE.id]);
+test("an author's rebuttal names a finding by the number it was shown, whatever text another finding shares", () => {
+  const twins = identifyFindings([{ text: FINDING }, { text: FINDING }]);
+  const out = namedRebuttals([answered({ finding: "2" })], twins);
+  assert.deepEqual(out.rebuttals.map((r) => r.findingId), [twins[1]!.id]);
   assert.deepEqual(out.unread, []);
 });
 
-test("a repeated text that is only part of a finding names none and is unread", () => {
-  const abridged = answered({ finding: "checkout.spec.ts: the discount is never asserted" });
-  const out = namedRebuttals([abridged], [ONE, TWO]);
-  assert.deepEqual(out.rebuttals, []);
-  assert.deepEqual(out.unread, [abridged]);
-});
-
-test("a repeated text two findings share names neither and is unread, so it can withdraw neither", () => {
-  const twins = identifyFindings([{ text: FINDING }, { text: FINDING }]);
-  const repeat = answered({ finding: FINDING });
-  const out = namedRebuttals([repeat], twins);
-  assert.deepEqual(out.rebuttals, []);
-  assert.deepEqual(out.unread, [repeat]);
+test("an author's rebuttal that names a finding by its text, or by a number the round never showed, names none and is unread", () => {
+  for (const finding of [FINDING, "0", "3", "1.5", "-1", "two"]) {
+    const rebuttal = answered({ finding });
+    const out = namedRebuttals([rebuttal], [ONE, TWO]);
+    assert.deepEqual(out.rebuttals, [], finding);
+    assert.deepEqual(out.unread, [rebuttal], finding);
+  }
 });

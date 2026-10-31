@@ -189,7 +189,7 @@ verdict decides whether these specs publish; if it rejects, you receive its conc
 corrections in a follow-up turn — apply ONLY those, without rewriting what was correct.
 
 If you are certain a correction is wrong, you may rebut it instead of applying it: answer that
-turn with `"rebuttals": [{ "finding": "<the correction, repeated>", "basis": "execution" |
+turn with `"rebuttals": [{ "finding": <the correction's number>, "basis": "execution" |
 "contract", "ref": "...", "reason": "..." }]` and no spec changes. `basis` is what the
 orchestrator checks, never your reasons: `execution` with the spec file (or case) that ran green
 on the current bytes, `contract` with `<spec path>#<clause>` for an assertion the contract still

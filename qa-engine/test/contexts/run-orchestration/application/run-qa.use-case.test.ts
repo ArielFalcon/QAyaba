@@ -8528,8 +8528,8 @@ function disputedFinding(citation: { kind: "contract" | "execution" | "dom"; ref
   });
 }
 
-/* A primary pass that delivers the spec, then a rebuttal turn that refuses the finding it was handed. */
-function rebuttingGeneration(rebuttal: (correction: string) => object, specsAtPrimary = true) {
+/* A primary pass that delivers the spec, then a rebuttal turn that refuses a finding it was handed, named by the number the turn showed it (the first, unless a test names another). */
+function rebuttingGeneration(rebuttal: (finding: string) => object, specsAtPrimary = true, named = "1") {
   const fixtures = reviewFixtures();
   let turn = 0;
   return {
@@ -8540,7 +8540,7 @@ function rebuttingGeneration(rebuttal: (correction: string) => object, specsAtPr
         if (specsAtPrimary) fixtures.write("flows/checkout.spec.ts", "test('checkout', async () => {});\n");
         return scriptedGeneration({ specs: specsAtPrimary ? ["flows/checkout.spec.ts"] : []});
       }
-      return scriptedGeneration({ specs: [], rebuttals: [rebuttal(DISPUTED_FINDING)] as never });
+      return scriptedGeneration({ specs: [], rebuttals: [rebuttal(named)] as never });
     },
   };
 }
@@ -8591,8 +8591,8 @@ test("a rebuttal the orchestrator can verify withdraws its finding and the revie
   }
 });
 
-test("an author rebuttal that repeats a text two findings share withdraws neither: it names no single finding", async () => {
-  const { fixtures, generate } = rebuttingGeneration((finding) => ({ finding, basis: "execution", ref: "flows/checkout.spec.ts", reason: "the case ran green on these bytes" }));
+test("an author rebuttal that repeats a finding's text instead of its number withdraws nothing, even when two findings share the text", async () => {
+  const { fixtures, generate } = rebuttingGeneration((finding) => ({ finding, basis: "execution", ref: "flows/checkout.spec.ts", reason: "the case ran green on these bytes" }), true, DISPUTED_FINDING);
   try {
     const twins = async () => ({
       approved: false,

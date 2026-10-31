@@ -48,6 +48,12 @@ test("checkGeneratorVerdict accepts an empty specs list that carries a typed reb
   assert.deepEqual(c.issues, []);
 });
 
+test("a rebuttal names its finding by the number the correction turn showed it", () => {
+  const c = checkGeneratorVerdict('{"specs":[],"rebuttals":[{"finding":2,"basis":"execution","ref":"a.spec.ts","reason":"the case ran green on these bytes"}]}');
+  assert.equal(c.valid, true);
+  assert.deepEqual(c.issues, []);
+});
+
 test("checkGeneratorVerdict rejects a rebuttal nothing could be checked against, naming the missing decision", () => {
   for (const entry of [
     '{"finding":"[false-positive] a.spec.ts","reason":"trust me"}',
