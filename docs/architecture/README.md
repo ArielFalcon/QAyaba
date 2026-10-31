@@ -116,6 +116,7 @@ Decisions (ADR):
 | [ADR-0016](adr/0016-refactor-review-base-causes.md) | The refactor review's base causes, one task each | Accepted | The refactor review of 2026-10-30 (feature document L31) and the owner's rules of L30 |
 | [ADR-0017](adr/0017-time-authority-answers.md) | RFC-0012's answers: one time authority | Accepted | RFC-0012's questions, under ADR-0015 point 2 |
 | [ADR-0018](adr/0018-owner-decisions-rfc-0013.md) | RFC-0013's answers: the learning slice | Accepted | RFC-0013's questions, under ADR-0015 point 2 |
+| [ADR-0019](adr/0019-owner-decisions-rfc-0014.md) | RFC-0014's answers: the signal that replaces the diff tiers | Accepted | RFC-0014's questions, under ADR-0015 point 2 |
 
 Proposals (RFC):
 
@@ -134,6 +135,7 @@ Proposals (RFC):
 | [RFC-0011](rfc/0011-multi-hop-cross-repo-impact.md) | Multi-hop cross-repository impact | Accepted (ADR-0014) | Owner's observation of 2026-10-30 (feature document L21), confirmed by reading |
 | [RFC-0012](rfc/0012-one-time-authority.md) | One time authority for a run | Accepted | ADR-0016 R2, ADR-0002 addition 7 (T33) |
 | [RFC-0013](rfc/0013-learning-slice.md) | The learning slice: one lesson kind, a server-side freeze, a kill criterion | Accepted | ADR-0003 D1-D4 and D14, ADR-0009 D10 (T20) |
+| [RFC-0014](rfc/0014-diff-tier-signal.md) | The signal that replaces the diff tiers | Accepted | ADR-0001 open question 3 (T22) |
 
 Other:
 
