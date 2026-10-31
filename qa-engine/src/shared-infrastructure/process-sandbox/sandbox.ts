@@ -66,7 +66,7 @@ function rebaseUnderHome(value: string, fromHome: string, toHome: string): strin
  * into every child process. Overriding only HOME/USER/LOGNAME would leave the sandboxed child
  * writing into root's own cache dir, which it cannot access (EACCES). So the rule is
  * ecosystem-agnostic: ANY package-manager config var (the same prefix family `scrubEnv` already
- * allows through — npm_config_, PIP_, PNPM_, YARN_, COREPACK_, ...) whose
+ * allows through — npm_config_, PNPM_, YARN_, COREPACK_, ...) whose
  * value sits under the PARENT's home is rebased onto the sandbox's own home, never onto vars
  * outside that family (PATH must keep pointing at the real, world-readable node/npm install, not a
  * nonexistent path under the sandbox home). A legitimate, non-home-relative setting (a private

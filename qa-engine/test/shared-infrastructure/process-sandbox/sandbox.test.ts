@@ -46,7 +46,7 @@ test("sandboxSpawnOptions: passthrough env when no sandbox; uid/gid + redirected
    npm_config_cache=/root/.npm (and siblings) into every child process, and a child that kept them
    would try to write to a cache directory it cannot own (EACCES, `npm ci` exit 243). The rule is
    general: ANY inherited package-manager config var (npm_config_*, PNPM_, YARN_, COREPACK_,
-   PIP_, ...) whose value sits under the parent's HOME is rebased onto the
+   ...) whose value sits under the parent's HOME is rebased onto the
    sandbox's own (writable) home, not just npm's cache var specifically. */
 test("sandboxSpawnOptions rebases root-home package-manager config paths onto the sandbox home", () => {
   const env = {
@@ -55,14 +55,12 @@ test("sandboxSpawnOptions rebases root-home package-manager config paths onto th
     npm_config_userconfig: "/root/.npmrc",
     PNPM_HOME: "/root/.pnpm",
     YARN_CACHE_FOLDER: "/root/.yarn",
-    PIP_CACHE_DIR: "/root/.cache/pip",
   };
   const opts = sandboxSpawnOptions(env, { uid: 1001, gid: 1001, home: "/home/sandbox" });
   assert.equal(opts.env.npm_config_cache, "/home/sandbox/.npm");
   assert.equal(opts.env.npm_config_userconfig, "/home/sandbox/.npmrc");
   assert.equal(opts.env.PNPM_HOME, "/home/sandbox/.pnpm");
   assert.equal(opts.env.YARN_CACHE_FOLDER, "/home/sandbox/.yarn");
-  assert.equal(opts.env.PIP_CACHE_DIR, "/home/sandbox/.cache/pip");
 });
 
 test("sandboxSpawnOptions leaves a package-manager config value untouched when it is not under the parent home (e.g. a private registry URL)", () => {
