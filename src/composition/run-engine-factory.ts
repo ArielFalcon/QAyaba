@@ -255,7 +255,7 @@ export function buildMirrorGc(git: GitFn = realGit): MirrorGcAdapter {
  * The ONLY place GITHUB_TOKEN is read for the publish path: qa-engine's github-http.ts takes
  * authHeaders() as an injected closure and reads no environment itself (qa-engine reads none
  * at all), so this composition root is the sole credential-locality seam for
- * every GitHub PR/Issue call the engine makes. (repo-mirror.ts and src/integrations/
+ * every GitHub PR/Issue call the engine makes. (repo-mirror.ts and src/composition/
  * github.ts read GITHUB_TOKEN too, but for git clone/fetch auth and the login/collaborator-check
  * path respectively — different concerns, not the publish path this closure serves.)
  */

@@ -306,7 +306,7 @@ test("manifest.reconcile receives the run's spec root: the mirror, and the spec 
 
 /* ── manifest-enrichment fix: entries are built from specMetas, stamped with changeRef ─────────
    Live-run root cause: the engine assembled rawEntries from deliverable.specs alone
-   (objective:"", no targets/changeRef), which the real manifest schema (src/orchestrator/
+   (objective:"", no targets/changeRef), which the real manifest schema (src/entrypoints/
    schemas.ts ManifestEntrySchema) always rejects — verdict=invalid on every real run that reached
    the static gate with a non-empty manifest. Entries
    come from specMetas (objective/flow/targets from the agent), changeRef stamped by the

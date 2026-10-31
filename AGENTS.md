@@ -37,8 +37,14 @@ auto-merge**. Failures open an Issue. The suite lives in git and improves run af
 | Path | What |
 |---|---|
 | `qa-engine/src/` | The engine: bounded contexts (`change-analysis`, `generation`, `coordination`, `agent-tools`, `test-execution`, `objective-signal`, `cross-run-learning`, `run-orchestration`, …), hexagonal. New engine logic goes here. |
-| `src/` | The shell the migration empties: each module has a row of the [decision table](#placement-rule) and moves to the engine or the platform at steps 2 to 5 of `docs/engine-platform-architecture.md` (see [Boundary](#boundary-qa-engine--src)). |
-| `src/settings/` | The typed Settings: one registry of every environment variable, `loadSettings(env)`, the store; `docs/settings.md` is generated from it. |
+| `src/` | The shell the migration empties: its modules sit in the platform's subfolders below, which become `platform/` at step 5 of `docs/engine-platform-architecture.md` (see [Boundary](#boundary-qa-engine--src)). |
+| `src/composition/` | The process roots (`index.ts`, `cli.ts`, `wire-app.ts`), the engine root and the factory, and the wiring that builds adapters (sandbox, egress, file boundary, config loader, GitHub, repo mirror). |
+| `src/entrypoints/` | The HTTP API (`api/`), the wire contract (`contract/`), the webhook, the queue, the runner, the views, the tools listener, the boot check of the file boundary, onboarding and the operator reports. |
+| `src/persistence/` | The one database: connection, schema, migrations, repositories, and the adapters of engine ports over it. |
+| `src/telemetry/` | The tracing and metrics SDK, its exporters and bootstrap, the process loggers and the sanitizer. |
+| `src/agent-runtime/` | The agent-server client, the provider-agnostic facade and the runtime manager. |
+| `src/settings/` | The typed Settings: one registry of every environment variable, `loadSettings(env)`, the store, the paths, the control-plane port and API token; `docs/settings.md` is generated from it. |
+| `src/test-support/` | Test-only modules (the trace harness, the console harness, the roster fixture, the console scan); no production module imports them. |
 | `agents/` | `agents` container: OpenCode config (`opencode.json`), prompts (`AGENTS.md`, `agent/*.md`, `skill/`), MCPs (Serena, Playwright). |
 | `config/apps/` | Watched-app YAMLs (gitignored user data; template: `example.yaml`). `config/e2e/` is the seed copied into a repo's `e2e/`. |
 | `client/` | Go TUI. `web/` web console. `packages/sdk` + `contract/openapi.json` the API contract. |
@@ -52,7 +58,7 @@ No build step — TypeScript runs via `tsx`.
 ```bash
 npm ci
 npm test                    # node:test via tsx in shared-process workers (scripts/run-tests.mjs); network/agent runtimes/Playwright stubbed
-npm test -- path/to/file.test.ts "src/server/**/*.test.ts" [--test-name-pattern="..."] [--workers=N]
+npm test -- path/to/file.test.ts "src/entrypoints/**/*.test.ts" [--test-name-pattern="..."] [--workers=N]
 npm run test:isolated       # the same suite, one process per test file (plain node --test): the fallback when sharing is in doubt
 npm run typecheck
 node --import ./test-setup.mjs --import tsx --test path/to/file.test.ts [--test-name-pattern="..."]
@@ -107,7 +113,7 @@ Keep the two rigorously separate.
 - **Composition root** (row 8) — `src/composition/wire-app.ts` (settings, persistence, API, webhook, queue; `src/composition/index.ts` only
   starts it), `src/composition/engine-root.ts` (assembles the engine from each context's `composition/` builders) and
   `src/composition/run-engine-factory.ts`, which maps each app's `AppConfig` into the engine's `EngineRootDeps` and wires the host collaborators (agent runtime, GitHub, runners).
-- **Control plane** (row 7) — `src/server/*` (webhook, queue, API, TUI surface) and `client/`. The control API is a route table
+- **Control plane** (row 7) — `src/entrypoints/*` (webhook, queue, API, TUI surface) and `client/`. The control API is a route table
   (`src/entrypoints/api/route-table.ts`): each route declares its method, path and `auth`; handlers throw `ApiError` and every
   error answers `{ schemaVersion: 1, error }`; a known path with an unsupported method answers 405.
 - **Provider I/O edges** (rows 6 and 4) — `src/agent-runtime/opencode-client.ts` (raw SDK primitives

@@ -142,7 +142,7 @@ module.exports = {
     {
       // The direction enforced here is ONE-WAY: qa-engine/src/ may never import src/ (below). The OPPOSITE
       // direction — src/ importing qa-engine/src/ — is open by design (the shell consumes the
-      // engine, not the reverse) and is NOT machine-enforced by this rule; src/server/
+      // engine, not the reverse) and is NOT machine-enforced by this rule; src/composition/
       // run-engine-factory.ts (the composition factory) is one such importer, but not the
       // only one — src/composition/repo-mirror.ts (MirrorProvisionAdapter),
       // src/telemetry/sanitizer.ts and src/entrypoints/contract/{commands,
