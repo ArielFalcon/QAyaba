@@ -385,3 +385,45 @@ test("recentPhaseRecords reads only runs of the asked kind: a tiny change's rese
   assert.equal(runs.recentPhaseRecords(app, "manual", 10).length, 2, "a manual run stored before the kind was recorded is a manual run");
   assert.equal(runs.getRunFacts(runs.createRecord({ target: "e2e", app, sha: "bbbbbbb6", mode: "diff" }).id)?.timeBudget, null, "a run that recorded no kind reads it as unknown");
 });
+
+function campaignReplicate(app: string, campaignId: string, replicate: number, opts: { engineVersion?: string | null; gateSignals?: RunOutcome["gateSignals"] | null; status?: "done" | "running"; at?: string } = {}): string {
+  const r = getHistory().runs.createRecord({ target: "e2e", app, sha: "abcdef1234", mode: "diff", campaign: { id: campaignId, variant: { arm: "B" }, replicate } });
+  getHistory().runs.updateRecord(r.id, { status: opts.status ?? "done", verdict: "pass", ...(opts.engineVersion !== undefined ? { facts: { engineVersion: opts.engineVersion } } : {}) });
+  if (opts.gateSignals !== null) {
+    getHistory().learning.saveRunOutcome({
+      runId: r.id, app, sha: "abcdef1234", mode: "diff", target: "e2e", verdict: "pass", errorClass: null,
+      gateSignals: opts.gateSignals ?? { static: true, coverageRatio: 0.8, reviewerCorrections: [], flaky: false, retries: 0 },
+      at: opts.at ?? new Date().toISOString(),
+    });
+  }
+  return r.id;
+}
+
+test("the replicates of a campaign are read oldest first with the commit that ran them and the signals they recorded", () => {
+  const app = "hist-replicates-a";
+  const first = campaignReplicate(app, "camp-a", 1, { engineVersion: "0.1.0+aaaaaaaaaaaa" });
+  const second = campaignReplicate(app, "camp-a", 2, { engineVersion: "0.1.0+aaaaaaaaaaaa", gateSignals: null });
+  const third = campaignReplicate(app, "camp-a", 3);
+
+  const rows = getHistory().runs.listCampaignReplicates({ app });
+
+  assert.deepEqual(rows.map((r) => r.runId), [first, second, third]);
+  assert.deepEqual(rows[0], { runId: first, app, sha: "abcdef1234", campaignId: "camp-a", variant: { arm: "B" }, replicate: 1, engineVersion: "0.1.0+aaaaaaaaaaaa", gateSignals: { static: true, coverageRatio: 0.8, reviewerCorrections: [], flaky: false, retries: 0 } });
+  assert.equal(rows[1]!.gateSignals, null, "a run that saved no outcome");
+  assert.equal(rows[2]!.engineVersion, null, "a run that recorded no engine version");
+});
+
+test("the replicates leave out runs that are not part of a campaign, runs that have not finished and other apps, and a date narrows them", () => {
+  const app = "hist-replicates-b";
+  getHistory().runs.createRecord({ target: "e2e", app, sha: "abcdef1234", mode: "diff" });
+  campaignReplicate(app, "camp-b", 1, { status: "running" });
+  campaignReplicate("hist-replicates-other", "camp-b", 2);
+  const kept = campaignReplicate(app, "camp-b", 3);
+  const old = campaignReplicate(app, "camp-b", 4);
+  const raw = new Database(process.env.HISTORY_DB_PATH!);
+  raw.prepare("UPDATE runs SET at = ? WHERE id = ?").run("2026-10-01T12:00:00.000Z", old);
+  raw.close();
+
+  assert.deepEqual(getHistory().runs.listCampaignReplicates({ app }).map((r) => r.runId).sort(), [kept, old].sort());
+  assert.deepEqual(getHistory().runs.listCampaignReplicates({ app, since: "2026-10-02T00:00:00.000Z" }).map((r) => r.runId), [kept]);
+});

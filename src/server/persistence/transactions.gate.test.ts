@@ -46,7 +46,7 @@ function instrumented(t: { after: (fn: () => void) => void }): Harness {
 const READS: Record<string, readonly string[]> = {
   RunRepository: [
     "recalcCounts", "rowToRecord", "getRunPhases", "recentPhaseRecords", "getRunFacts", "getRunCampaign", "getCampaignCaptureMode", "listCampaignRuns",
-    "listFinishedCampaignRunIds", "getStoredEffectiveConfig", "getRunFunnel", "getRecord", "listRecords", "childrenOf", "currentRun", "interruptedRecords",
+    "listFinishedCampaignRunIds", "listCampaignReplicates", "getStoredEffectiveConfig", "getRunFunnel", "getRecord", "listRecords", "childrenOf", "currentRun", "interruptedRecords",
     "continuationDepth", "runVerdictCounts", "loadRunEvents", "runExists", "listFinishedRunIdsSince", "listSpecSnapshots", "getRunPlan",
   ],
   ContextRepository: ["isContextStale", "loadContextMap"],

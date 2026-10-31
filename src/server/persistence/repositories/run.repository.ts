@@ -4,7 +4,7 @@ import type { CaptureMode } from "@kernel/telemetry/capture-mode";
 import type { CampaignIdentity } from "../../../contract/campaign";
 import { logJson } from "../../../integrations/logger";
 import { RedactionPortAdapter } from "../../../orchestrator/sanitizer";
-import type { AgentActivity, QaCase, RunChangeEntry, RunMode, RunRecord, RunVerdict, TestTarget } from "../../../types";
+import type { AgentActivity, QaCase, RunChangeEntry, RunMode, RunOutcome, RunRecord, RunVerdict, TestTarget } from "../../../types";
 import type { SpecRecord } from "@kernel/qa-case";
 import type { RunDegradationFact, RunLimitFact } from "@kernel/run-trace-facts";
 import type { HistoryDatabase } from "../database";
@@ -25,6 +25,20 @@ export interface CampaignRunRecord {
   status: string;
   verdict: string | null;
   evaluationStatus: string | null;
+}
+
+export interface CampaignReplicateRow {
+  runId: string;
+  app: string;
+  /* The commit of the app the run tested. */
+  sha: string;
+  campaignId: string;
+  variant: Record<string, string>;
+  replicate: number;
+  /* The version of the engine that ran it; null when the run recorded none. */
+  engineVersion: string | null;
+  /* The signals the run's outcome recorded; null when it saved no outcome. */
+  gateSignals: RunOutcome["gateSignals"] | null;
 }
 
 export interface RunFunnelRow {
@@ -368,6 +382,34 @@ export class RunRepository {
   /* The finished runs of a campaign (a regrade covers only runs that are over). One more than `limit` is returned at most, so the caller can tell it was exceeded. */
   listFinishedCampaignRunIds(campaignId: string, limit: number): string[] {
     return (this.db.statement("SELECT id FROM runs WHERE campaign_id = ? AND status = 'done' ORDER BY at ASC, rowid ASC LIMIT ?").all(campaignId, limit + 1) as Array<{ id: string }>).map((r) => r.id);
+  }
+
+  /*
+   * The finished runs of any campaign, oldest first, with the commit of the engine that ran each and the signals it recorded
+   * (null when it saved no outcome). The evidence the operator's enforce-readiness check reads. Read-only.
+   */
+  listCampaignReplicates(opts: { app?: string; since?: string } = {}): CampaignReplicateRow[] {
+    const where = ["r.campaign_id IS NOT NULL", "r.status = 'done'"];
+    const params: string[] = [];
+    if (opts.app !== undefined) { where.push("r.app = ?"); params.push(opts.app); }
+    if (opts.since !== undefined) { where.push("datetime(r.at) >= datetime(?)"); params.push(opts.since); }
+    const rows = this.db
+      .statement(
+        `SELECT r.id, r.app, r.sha, r.campaign_id, r.campaign_variant, r.campaign_replicate, r.engine_version, o.gate_signals
+         FROM runs r LEFT JOIN run_outcomes o ON o.id = r.id
+         WHERE ${where.join(" AND ")} ORDER BY r.at ASC, r.rowid ASC`,
+      )
+      .all(...params) as Array<{ id: string; app: string; sha: string; campaign_id: string; campaign_variant: string | null; campaign_replicate: number | null; engine_version: string | null; gate_signals: string | null }>;
+    return rows.map((r) => ({
+      runId: r.id,
+      app: r.app,
+      sha: r.sha,
+      campaignId: r.campaign_id,
+      variant: parseJsonColumn<Record<string, string>>(r.campaign_variant ?? "{}", {}, { table: "runs", column: "campaign_variant", id: r.id }),
+      replicate: r.campaign_replicate ?? 1,
+      engineVersion: r.engine_version,
+      gateSignals: r.gate_signals === null ? null : parseJsonColumn<RunOutcome["gateSignals"] | null>(r.gate_signals, null, { table: "run_outcomes", column: "gate_signals", id: r.id }),
+    }));
   }
 
   /* What the run recorded about the configuration it ran with at run time (JSON text). */

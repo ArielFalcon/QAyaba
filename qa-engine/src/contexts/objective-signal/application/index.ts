@@ -27,3 +27,5 @@ export { perCandidateCoverage } from "../domain/per-candidate-coverage.ts";
 export type { CandidateCoverage, CandidateUnmeasured } from "../domain/per-candidate-coverage.ts";
 export { COVERAGE_READ_FAULTS, DUMP_OUTCOMES, faultOfOutcome, isReadTrouble, unusedOutcome } from "../domain/dump-outcome.ts";
 export type { CoverageReadFault, DumpOutcome } from "../domain/dump-outcome.ts";
+export { REQUIRED_CONSECUTIVE_REPLICATES, enforceReadiness, untrustedReasons } from "../domain/enforce-readiness.ts";
+export type { AppReadiness, CaseReadiness, Replicate, ReplicateSignals, UntrustedReason } from "../domain/enforce-readiness.ts";

@@ -75,6 +75,7 @@ npm run settings:check      # fails when docs/settings.md is stale
 npm run mutate -- <preset>  # mutation testing per preset (scripts/mutate.ts)
 npm run sandbox:smoke       # IN the running orchestrator container: proves the execution sandbox holds (docs/execution-sandbox.md)
 npm run label -- --run <id> (--show | --name <score> --value <v>) # label one run by hand against the use-case reference set (inside the orchestrator container)
+npm run enforce-readiness -- [--app <app>] [--since <ISO date>] # per app: did the last 3 consecutive replicates of one campaign case at one qayaba commit have a trustworthy measurement with bundle mutation on (ADR-0005; inside the orchestrator container; read-only, moves no app)
 npm run efficiency-benchmark # agent step/call telemetry over real runs; never a gate (needs the stack up; docs/efficiency-benchmark.md)
 npm run probe-report -- <runId...> # one run's phases, turns, tool use, tokens and cost (inside the orchestrator container)
 npm run baseline-agent -- --app <app> --sha <sha> --timeout-min <n> --label <l> # experiment only: a plain agent on a throwaway copy, same metrics as probe-report
