@@ -6,8 +6,8 @@
  */
 import type { TimeLimitSource } from "./turn-limit.ts";
 
-/* `tier-budget` is no longer produced (the first-pass cap was deleted); it stays in the vocabulary because stored spans and runs carry it. */
-export type CapLimit = Extract<TimeLimitSource, "tier-budget" | "plan-budget" | "flow-budget" | "tool-call">;
+/* The caps a caller states for a purpose; `tier-budget` stays readable in the vocabulary but no caller can state it. */
+export type CapLimit = Extract<TimeLimitSource, "plan-budget" | "flow-budget" | "tool-call">;
 
 export interface HeldTime {
   ms: number;

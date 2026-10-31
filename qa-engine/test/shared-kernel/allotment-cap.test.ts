@@ -20,5 +20,5 @@ test("with no deadline armed the cap stands alone", () => {
 });
 
 test("an allowance already spent leaves nothing, never a negative time", () => {
-  assert.deepEqual(heldTo({ ms: 120_000, limit: "tier-budget" }, -5), { ms: 0, limit: "allotment" });
+  assert.deepEqual(heldTo({ ms: 120_000, limit: "flow-budget" }, -5), { ms: 0, limit: "allotment" });
 });

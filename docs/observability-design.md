@@ -354,7 +354,7 @@ Grouped. The full list lives in the registry (§9.3).
 wrapper, so a run that throws still carries it.
 
 **The limit the run leads with** is `qayaba.limit.fired`. It also appears on turns (§5.3), with
-the values `run-deadline | allotment | repair-cap | session-timeout | prompt-budget | host-cap | stall | step-cap | cancel | fault | none`; `fault` is a turn a fault of the transport or the provider ended, no limit having fired (its `error.type` names the class).
+the values `run-deadline | allotment | plan-budget | flow-budget | tool-call | repair-cap | session-timeout | prompt-budget | host-cap | stall | step-cap | cancel | fault | none` (`tier-budget` only on runs stored before the diff tiers were removed); `fault` is a turn a fault of the transport or the provider ended, no limit having fired (its `error.type` names the class).
 
 **How a run ended is typed facts, never a sentence.** The engine records each fact where it happens and the shell writes the same
 facts on the root span and on the run record (`RunTraceFacts`, `qa-engine/src/shared-kernel/run-trace-facts.ts`); the run's note is
