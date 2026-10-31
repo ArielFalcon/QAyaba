@@ -18,7 +18,7 @@ import { authorizeBearer, createLocalConsoleLogin, issueSession } from "./auth";
 import { verifyGithubIdentity, authorizeUser } from "./github-auth";
 import { createFixedWindowLimiter } from "./rate-limit";
 import { toSignalsView } from "./signals-view";
-import { readRecentCoordinationEvents, toCoordinationSignals } from "./coordination-events";
+import { readCoordinationLedger, toCoordinationSignals } from "./coordination-events";
 import { toTrendsView } from "./trends-view";
 import { toReportView } from "./report-view";
 import { toRunReportView } from "./run-report-view";
@@ -33,7 +33,7 @@ import type { CampaignIdentity } from "../contract/campaign";
 import { buildRunViewExtras, defaultRunViewDeps } from "./run-view";
 import { enqueueTrackedRun, enqueueDoorRun, type RunRequest, enqueueContextMapRun, enqueueLoginBootstrapRun, cancelTrackedRun, finalizeInterruptedRuns, type RunnerDeps } from "./runner";
 import { codeGraphFor } from "./engine-root";
-import { appAuthDir, appSuiteStoreDir, createRunEngineFactory, resolveCodeSandbox } from "./run-engine-factory";
+import { appAuthDir, appSuiteStoreDir, createRunEngineFactory, resolveCodeSandbox, resolveCoordinationTelemetryPath } from "./run-engine-factory";
 import { longestRunTimeBudgetMs, type ContextHealRunRequest } from "@contexts/run-orchestration/application/index";
 import { egressGateFor } from "./egress-wiring";
 import { SandboxedBinaryRunnerAdapter } from "../../qa-engine/src/shared-infrastructure/process-sandbox/sandboxed-binary-runner.adapter";
@@ -641,13 +641,13 @@ export function wireApp(settingsStore: SettingsStore): WiredApp {
     },
     signals: () => toSignalsView(
       listAppConfigs().map((a) => ({ runs: getHistory().runs.listRecords(a.name, 50), outcomes: getHistory().learning.listRunOutcomes(a.name, 50) })),
-      toCoordinationSignals(readRecentCoordinationEvents({ limit: 1000 }).events),
+      toCoordinationSignals(readCoordinationLedger(resolveCoordinationTelemetryPath(), { limit: 1000 }).events),
     ),
     /*
      * Durable coordination ledger tail — full window (cap 1000 per read) so the audit UI can
      * scroll back further than a single run.
      */
-    coordinationEvents: (filter) => readRecentCoordinationEvents(filter),
+    coordinationEvents: (filter) => readCoordinationLedger(resolveCoordinationTelemetryPath(), filter),
     /*
      * Each handler builds its own TrendsView via buildTrends (one SQLite read per request); report
      * then feeds that view to toReportView. buildTrends is the single home for the read + the 100

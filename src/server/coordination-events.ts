@@ -7,9 +7,8 @@
  */
 import { appLogger } from "../integrations/redacting-logger";
 import { openSync, fstatSync, readSync, closeSync } from "node:fs";
-import { resolveCoordinationTelemetryPath } from "./run-engine-factory";
-import type { CoordinationEvent, CoordinationEventsView, CoordinationSignals } from "../contract/commands";
-import { DELEGATION_FAILURE_CLASSES, type CoordinationTelemetryKind } from "../../qa-engine/src/contexts/coordination/application/index";
+import type { CoordinationSignals } from "../contract/commands";
+import { DELEGATION_FAILURE_CLASSES, type CoordinationLedgerEvent, type CoordinationLedgerView, type CoordinationTelemetryKind } from "../../qa-engine/src/contexts/coordination/application/index";
 
 const CONTRACT_FAILURE_CLASSES: ReadonlySet<string> = new Set(DELEGATION_FAILURE_CLASSES);
 
@@ -49,10 +48,10 @@ export interface CoordinationEventsFilter {
 export function parseCoordinationLedger(
   raw: string,
   filter: CoordinationEventsFilter = {},
-): { events: CoordinationEvent[]; truncated: boolean } {
+): CoordinationLedgerView {
   const limit = clampLimit(filter.limit);
   const lines = raw.split("\n");
-  const matched: CoordinationEvent[] = [];
+  const matched: CoordinationLedgerEvent[] = [];
   for (const line of lines) {
     /* JSON.parse ignores surrounding whitespace (a CRLF line parses) and rejects a blank line. */
     let parsed: { [key: string]: unknown } | null | undefined;
@@ -74,7 +73,7 @@ export function parseCoordinationLedger(
   return { events: matched, truncated: false };
 }
 
-function coerce(o: Record<string, unknown>): CoordinationEvent {
+function coerce(o: Record<string, unknown>): CoordinationLedgerEvent {
   const optInt = (v: unknown): number | undefined =>
     typeof v === "number" && Number.isFinite(v) && v >= 0 ? Math.floor(v) : undefined;
   const optStr = (v: unknown): string | undefined => (typeof v === "string" ? v : undefined);
@@ -110,7 +109,7 @@ function clampLimit(limit: number | undefined): number {
  * DelegationOutcome is the run-scoped boundary (one per run), so delegate share is the
  * share of outcome events whose action is "delegate".
  */
-export function toCoordinationSignals(events: readonly CoordinationEvent[]): CoordinationSignals {
+export function toCoordinationSignals(events: readonly CoordinationLedgerEvent[]): CoordinationSignals {
   const delegationEvents = events.filter((e) => e.kind === "delegation");
   const outcomes = events.filter((e) => e.kind === "outcome");
   const runIds = new Set(outcomes.map((e) => e.runId));
@@ -148,15 +147,15 @@ function round4(n: number): number {
 }
 
 /*
- * I/O wrapper the control plane wires in: reads the CURRENT durable ledger (the same path
+ * I/O wrapper the control plane wires in: reads the durable ledger at `path` (the one
  * composition writes to) and returns the filtered view. A missing file (fresh install, or
  * coordination did not record anything yet) is an empty ledger — never an error.
  */
 export function readCoordinationLedger(
+  path: string,
   filter: CoordinationEventsFilter = {},
-  path: string = resolveCoordinationTelemetryPath(),
   fsDeps: CoordinationLedgerFsDeps = defaultCoordinationLedgerFsDeps,
-): CoordinationEventsView {
+): CoordinationLedgerView {
   try {
     return readLedgerTail(path, filter, fsDeps);
   } catch (err) {
@@ -188,7 +187,7 @@ function readLedgerTail(
   path: string,
   filter: CoordinationEventsFilter,
   fs: CoordinationLedgerFsDeps,
-): { events: CoordinationEvent[]; truncated: boolean } {
+): CoordinationLedgerView {
   const fd = fs.openSync(path, "r");
   try {
     const size = fs.fstatSync(fd).size;
@@ -218,9 +217,4 @@ function readWindow(fs: CoordinationLedgerFsDeps, fd: number, position: number, 
   let read: number;
   while ((read = fs.readSync(fd, buffer, filled, length - filled, position + filled)) > 0) filled += read;
   return buffer.subarray(0, filled);
-}
-
-/* Convenience alias for the api-deps wiring: bounded tail (limit clamps inside the reader). */
-export function readRecentCoordinationEvents(filter: CoordinationEventsFilter = {}): CoordinationEventsView {
-  return readCoordinationLedger(filter);
 }

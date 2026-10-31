@@ -40,7 +40,7 @@ test("parseCoordinationLedger: tail + filter + truncation flag", () => {
 
 test("readCoordinationLedger: missing file = empty ledger (fresh install), never throws", () => {
   const dir = join(tmpdir(), "coord-read-", String(process.pid), "-missing");
-  const view = readCoordinationLedger({}, join(dir, "coordination-events.jsonl"));
+  const view = readCoordinationLedger(join(dir, "coordination-events.jsonl"), {});
   assert.deepEqual(view.events, []);
   assert.equal(view.truncated, false);
 });
@@ -57,7 +57,7 @@ test("readCoordinationLedger: a non-ENOENT read failure is logged loudly and ret
       readSync,
       closeSync,
     };
-    assert.throws(() => readCoordinationLedger({}, "/some/path/coordination-events.jsonl", fakeFs), /permission denied/);
+    assert.throws(() => readCoordinationLedger("/some/path/coordination-events.jsonl", {}, fakeFs), /permission denied/);
     assert.equal(errorMock.mock.calls.length, 1, "a non-ENOENT failure must be logged, not swallowed");
     const logged = String(errorMock.mock.calls[0]?.arguments[0]);
     assert.match(logged, /\/some\/path\/coordination-events\.jsonl/, "the log names the ledger path");
@@ -90,7 +90,7 @@ test("readCoordinationLedger: reads only a bounded tail, not the whole file, for
       }) as typeof readSync,
       closeSync,
     };
-    const view = readCoordinationLedger({ limit: 5 }, path, countingFs);
+    const view = readCoordinationLedger(path, { limit: 5 }, countingFs);
     assert.equal(view.events.length, 5);
     assert.equal(view.truncated, true);
     assert.equal(view.events.at(-1)?.runId, "r2999", "the tail must be the MOST RECENT events");
@@ -120,7 +120,7 @@ test("readCoordinationLedger: a reader that returns short reads still yields eve
       closeSync,
     };
 
-    const view = readCoordinationLedger({ limit: 100 }, path, shortReadFs);
+    const view = readCoordinationLedger(path, { limit: 100 }, shortReadFs);
 
     assert.deepEqual(view.events.map((e) => e.runId), lines.map((_, i) => `r${i}`));
   } finally {
@@ -153,7 +153,7 @@ test("readCoordinationLedger: a runId filter reads a run's events exactly, even 
     const fullParse = parseCoordinationLedger(text, { runId: "target" });
     assert.equal(fullParse.events.length, 3, "sanity: a full-file parse must see all 3 of the target run's events");
 
-    const view = readCoordinationLedger({ runId: "target" }, path);
+    const view = readCoordinationLedger(path, { runId: "target" });
     assert.deepEqual(view.events, fullParse.events, "a runId-filtered read must match a full-file parse exactly, even when interleaved with other runs' events");
     assert.equal(view.truncated, fullParse.truncated);
   } finally {
@@ -166,7 +166,7 @@ test("readCoordinationLedger: real file tail with run filter + limit", () => {
   try {
     const path = join(dir, "coordination-events.jsonl");
     writeFileSync(path, raw + "\n", "utf8");
-    const view = readCoordinationLedger({ runId: "r1", limit: 3 }, path);
+    const view = readCoordinationLedger(path, { runId: "r1", limit: 3 });
     assert.equal(view.truncated, true);
     assert.equal(view.events.length, 3);
     const last = view.events.at(-1);
@@ -381,7 +381,7 @@ test("readCoordinationLedger rethrows whatever the reader threw, even a non-Erro
         readSync,
         closeSync,
       };
-      assert.throws(() => readCoordinationLedger({}, "/x/coordination-events.jsonl", fakeFs), (err: unknown) => err === thrown);
+      assert.throws(() => readCoordinationLedger("/x/coordination-events.jsonl", {}, fakeFs), (err: unknown) => err === thrown);
     }
   } finally {
     errorMock.mock.restore();
@@ -398,7 +398,7 @@ test("readCoordinationLedger: a filtered read of a ledger larger than one window
     const size = statSync(path).size;
     assert.ok(size > 16 * 1024 && size < 128 * 1024, `fixture size ${size}B must sit between the first and second window`);
 
-    const view = readCoordinationLedger({ runId: "target" }, path);
+    const view = readCoordinationLedger(path, { runId: "target" });
     assert.deepEqual(view.events.map((e) => e.reason), ["first"]);
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -425,13 +425,13 @@ test("readCoordinationLedger closes the ledger file it opened, whether the read 
         closeSync(fd);
       },
     });
-    readCoordinationLedger({}, path, tracking(readSync));
+    readCoordinationLedger(path, {}, tracking(readSync));
     const failing = (() => {
       throw Object.assign(new Error("EIO: i/o error"), { code: "EIO" });
     }) as typeof readSync;
     const errorMock = mock.method(console, "error", () => {});
     try {
-      assert.throws(() => readCoordinationLedger({}, path, tracking(failing)), /i\/o error/);
+      assert.throws(() => readCoordinationLedger(path, {}, tracking(failing)), /i\/o error/);
     } finally {
       errorMock.mock.restore();
     }
@@ -455,7 +455,7 @@ test("readCoordinationLedger: a ledger that shrinks under the read (rotation) re
       readSync,
       closeSync,
     };
-    const view = readCoordinationLedger({}, path, shrinking);
+    const view = readCoordinationLedger(path, {}, shrinking);
     assert.deepEqual(view.events, parseCoordinationLedger(raw).events);
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -467,3 +467,114 @@ function mkdtemp(): string {
   mkdirSync(dir, { recursive: true });
   return dir;
 }
+
+/* ── Ledger sweep: what the reader returns and the signals served from it, over the ledgers a process meets ── */
+
+const outcome = (runId: string, at: number, action = "delegate") =>
+  line({ runId, kind: "outcome", action, reason: "pipeline verdict=pass", finalOutcome: "pass", at });
+
+test("ledger sweep: an absent or empty ledger is an empty view with unmeasured signals", () => {
+  const dir = mkdtemp();
+  try {
+    const empty = join(dir, "empty.jsonl");
+    writeFileSync(empty, "", "utf8");
+    for (const path of [join(dir, "absent.jsonl"), empty]) {
+      const view = readCoordinationLedger(path, {});
+      assert.deepEqual(view, { events: [], truncated: false });
+      assert.deepEqual(toCoordinationSignals(view.events), { measured: false, totalRuns: 0, delegateRuns: 0, contractFailureRate: null, avgDelegationMs: null });
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("ledger sweep: a ledger rotated at the writer's cap reads as its newest events", () => {
+  const dir = mkdtemp();
+  try {
+    const path = join(dir, "coordination-events.jsonl");
+    /* The writer rotates a ledger of 5001 events down to its newest 4000: events 1001..5000. */
+    const first = 1001;
+    const last = 5000;
+    const lines: string[] = [];
+    for (let i = first; i <= last; i++) lines.push(outcome(`r${i}`, i, i % 2 === 0 ? "delegate" : "direct"));
+    writeFileSync(path, `${lines.join("\n")}\n`, "utf8");
+
+    const page = readCoordinationLedger(path, {});
+    assert.equal(page.truncated, true);
+    assert.deepEqual(page.events.map((e) => e.runId), Array.from({ length: 200 }, (_, i) => `r${last - 199 + i}`));
+
+    const widest = readCoordinationLedger(path, { limit: 5000 });
+    assert.equal(widest.truncated, true, "the limit is clamped to 1000");
+    assert.equal(widest.events.length, 1000);
+    assert.equal(widest.events[0]?.runId, `r${last - 999}`);
+    assert.equal(widest.events.at(-1)?.runId, `r${last}`);
+    assert.deepEqual(toCoordinationSignals(widest.events), { measured: true, totalRuns: 1000, delegateRuns: 500, contractFailureRate: null, avgDelegationMs: null });
+
+    const oldest = readCoordinationLedger(path, { runId: `r${first}` });
+    assert.deepEqual(oldest.events.map((e) => e.runId), [`r${first}`], "a filtered read reaches the oldest event the rotation kept");
+    assert.deepEqual(readCoordinationLedger(path, { runId: `r${first - 1}` }), { events: [], truncated: false }, "and none the rotation dropped");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("ledger sweep: malformed lines, unknown kinds and a partial last line are skipped, never fatal", () => {
+  const dir = mkdtemp();
+  try {
+    const path = join(dir, "coordination-events.jsonl");
+    const text = [
+      outcome("a", 1),
+      "",
+      "not json at all",
+      "[1,2,3]",
+      "null",
+      "42",
+      line({ runId: "b", kind: "proposal", reason: "x", at: 2 }) + "\r",
+      line({ runId: "c", kind: "future-kind", reason: "x", at: 3 }),
+      line({ runId: "d", kind: "outcome", reason: "x" }),
+      line({ runId: "e", kind: "delegation", reason: "kept", durationMs: -1, attempt: 2.7, coverageRatio: "high", at: 4 }),
+      outcome("f", 5, "direct"),
+    ].join("\n") + "\n" + `{"runId":"g","kind":"outcome","reason":"cut mid-wr`;
+    writeFileSync(path, text, "utf8");
+
+    const view = readCoordinationLedger(path, {});
+    assert.deepEqual(view.events.map((e) => e.runId), ["a", "b", "e", "f"]);
+    assert.equal(view.truncated, false);
+    const delegation = view.events[2];
+    assert.equal(delegation?.durationMs, undefined);
+    assert.equal(delegation?.attempt, 2);
+    assert.equal("coverageRatio" in (delegation ?? {}), false);
+    assert.deepEqual(toCoordinationSignals(view.events), { measured: true, totalRuns: 2, delegateRuns: 1, contractFailureRate: 0, avgDelegationMs: null });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("ledger sweep: lines far larger than the first read window keep their neighbours and their own content", () => {
+  const dir = mkdtemp();
+  try {
+    const path = join(dir, "coordination-events.jsonl");
+    const hugeReason = "x".repeat(300_000);
+    const text = [
+      outcome("small-before", 1),
+      line({ runId: "huge", kind: "outcome", action: "delegate", reason: hugeReason, at: 2 }),
+      "y".repeat(200_000),
+      outcome("small-after", 3, "direct"),
+    ].join("\n") + "\n";
+    writeFileSync(path, text, "utf8");
+
+    const all = readCoordinationLedger(path, {});
+    assert.deepEqual(all.events.map((e) => e.runId), ["small-before", "huge", "small-after"]);
+    assert.equal(all.events[1]?.reason, hugeReason);
+    assert.deepEqual(toCoordinationSignals(all.events), { measured: true, totalRuns: 3, delegateRuns: 2, contractFailureRate: null, avgDelegationMs: null });
+
+    const tail = readCoordinationLedger(path, { limit: 1 });
+    assert.deepEqual(tail.events.map((e) => e.runId), ["small-after"]);
+    assert.equal(tail.truncated, true);
+
+    const filtered = readCoordinationLedger(path, { runId: "small-before" });
+    assert.deepEqual(filtered.events.map((e) => e.runId), ["small-before"]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

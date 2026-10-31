@@ -81,6 +81,8 @@ export {
   CoordinationTelemetryRecorder,
   type CoordinationTelemetryEvent,
   type CoordinationTelemetryKind,
+  type CoordinationLedgerEvent,
+  type CoordinationLedgerView,
   type LeadDecisionAction,
   type CoordinationTelemetryPort,
 } from "./coordination-telemetry.ts";

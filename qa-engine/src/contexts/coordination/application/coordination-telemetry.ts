@@ -87,6 +87,30 @@ export interface CoordinationTelemetryEvent {
   readonly coverageRatio?: number | null;
 }
 
+/* An event as the ledger's reader returns it: the fields every reader needs, with the free-text ones as plain strings because a ledger holds lines recorded by earlier versions (an action or a review outcome the current unions no longer name). */
+export interface CoordinationLedgerEvent {
+  readonly runId: string;
+  readonly kind: CoordinationTelemetryKind;
+  readonly reason: string;
+  readonly at: number;
+  readonly action?: string;
+  readonly sidekickKind?: string;
+  readonly durationMs?: number;
+  readonly delegationId?: string;
+  readonly attempt?: number;
+  readonly failureClass?: string;
+  readonly progressFingerprint?: string;
+  readonly finalOutcome?: string;
+  readonly reviewOutcome?: string;
+  readonly coverageRatio?: number | null;
+}
+
+/* What a read of the ledger returns: the newest matching events, oldest first, and whether older matches were left out by the limit. */
+export interface CoordinationLedgerView {
+  readonly events: CoordinationLedgerEvent[];
+  readonly truncated: boolean;
+}
+
 export interface CoordinationTelemetryPort {
   record(event: CoordinationTelemetryEvent): void;
 }
