@@ -955,6 +955,22 @@ test("publish() puts the data contradictions of the run's pages into the PR body
   for (const body of bodies) assert.match(body, /Possible data contradictions[\s\S]*none carrying "category"/);
 });
 
+test("publish() puts the cases that check a page only as DEV served it empty into the PR body and the Issue body it renders", async () => {
+  const bodies: string[] = [];
+  const pr = { openWithAutoMerge: async (_repo: string, _branch: string, _title: string, b: string) => { bodies.push(b); return { url: "u", number: 1 }; } };
+  const issue = { open: async (_repo: string, _title: string, b: string) => { bodies.push(b); return { url: "https://github.com/org/app/issues/9", number: 9 }; } };
+  const adapter = new PublicationPortAdapter({ decide: new PublishDecisionService(), pr, issue, shadowLog: new ShadowLogAdapter(() => {}), sanitize: identitySanitize, vcsWrite: fakeVcsWrite([]), render: realRender() }, {
+    repo: "org/app", branch: "qa-bot/abc1234", reviewerApproved: true, coverageBlocks: false, shadow: false, e2eChanged: true,
+  });
+  const ambientDataState = { pins: [{ file: "flows/listing.spec.ts", test: "renders the empty listing", pages: ["/listing"] }], arms: [] };
+
+  await adapter.publish({ verdict: "pass", cases: [], logs: "", workspace: handle(), ambientDataState });
+  await adapter.publish({ verdict: "fail", cases: [{ name: "checkout", status: "fail" }], logs: "", ambientDataState });
+
+  assert.equal(bodies.length, 2);
+  for (const body of bodies) assert.ok(body.includes("flows/listing.spec.ts") && body.includes("renders the empty listing") && body.includes("/listing"), body);
+});
+
 /* A coverage block under enforce holds the work in qayaba: nothing is written to the app's repository, and the text the PR would have carried, with the coverage report, is handed back for the run to keep. */
 
 function recordingAdapter(opts: { coverageBlocks: boolean; shadow?: boolean; sanitize?: (text: string) => string }) {

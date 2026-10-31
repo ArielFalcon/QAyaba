@@ -9,7 +9,9 @@ import { correctionClassOf, findingTexts } from "@contexts/generation/applicatio
 import { renderSpecChanges, sameReviewedSpecs, type ReviewSpecText } from "@contexts/generation/application/index.ts";
 import type { SpecRoot } from "@kernel/ports/spec-files.port.ts";
 import { precheckSpecsAgainstDom } from "@contexts/generation/application/index.ts";
-import { specRelDirOf } from "@kernel/spec-path.ts";
+import { resolveSpecReference, specRelDirOf } from "@kernel/spec-path.ts";
+import { ambientPinRef } from "@kernel/page-data-read.ts";
+import { ambientPinsOf } from "../ambient-data-state.ts";
 import { citedSpec, filterReviewFindings, identifyFindings, takeMissingCases, type DropReason } from "../../../domain/review-finding-filter.service.ts";
 import { namedRebuttals, verifyRebuttals } from "../../../domain/review-rebuttals.service.ts";
 import { MAX_REVIEW_ROUNDS } from "../../../domain/derive-cycle-backstop.ts";
@@ -131,6 +133,8 @@ export async function reviewRound(state: Readonly<RunState>, ctx: WorkspaceRunCo
     runId: input.runId,
   };
   const specRoot: SpecRoot = services.specRoot;
+  /* The cases that checked a page only as DEV served it empty, read from the specs as they stand for this round: what an `ambient` citation names. */
+  const ambientPins = ambientPinsOf(state, ctx);
   const reviewCases = session.reviewCases;
   const previousRoundSpecs = session.previousRoundSpecs;
   const previousRoundCorrections = session.previousRoundCorrections;
@@ -236,6 +240,7 @@ export async function reviewRound(state: Readonly<RunState>, ctx: WorkspaceRunCo
         ...(session.armsCurrent ? { untakenArms: state.coverage.untakenArms } : {}),
         ...(state.grounding.routeAvailability?.facts.length ? { routeAvailability: state.grounding.routeAvailability.facts } : {}),
         ...(state.grounding.dataContradictions?.facts.length ? { dataContradictions: state.grounding.dataContradictions.facts } : {}),
+        ...(ambientPins.length ? { ambientDataPins: ambientPins } : {}),
         /* The run's own execution of the specs under review: the reviewer weighs a 5xx or a redirect against the test instead of guessing. */
         ...(reviewCases.length > 0 ? { executionEvidence: { verdict: run.verdict, cases: reviewCases } } : {}),
         ...(changeView ? { changeView } : {}),
@@ -287,6 +292,10 @@ export async function reviewRound(state: Readonly<RunState>, ctx: WorkspaceRunCo
       executedSpecs: new Set(run.cases.map((c) => c.file).filter((file): file is string => !!file)),
       availabilityRoutes: new Set((state.grounding.routeAvailability?.facts ?? []).flatMap((fact) => [pathOnly(fact.route), ...(fact.template !== undefined ? [pathOnly(fact.template)] : [])])),
       contradictionRefs: dataContradictionRefs(state.grounding.dataContradictions?.facts ?? []),
+      ambientPinRefs: new Set(ambientPins.flatMap((pin) => {
+        const spec = resolveSpecReference(pin.file, specRelDir);
+        return spec !== undefined ? [ambientPinRef({ file: spec, test: pin.test })] : [];
+      })),
     });
     blockingSpecs = new Map(filtered.blocking.flatMap((f) => {
       const spec = f.citation ? citedSpec(f.citation.ref, specRelDir) : undefined;

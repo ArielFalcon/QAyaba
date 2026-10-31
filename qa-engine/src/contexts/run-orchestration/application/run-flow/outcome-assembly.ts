@@ -37,6 +37,7 @@ export interface OutcomeExtras {
   routeAvailability?: RunOutcome["gateSignals"]["routeAvailability"];
   stubbedState?: RunOutcome["gateSignals"]["stubbedState"];
   dataContradictions?: RunOutcome["gateSignals"]["dataContradictions"];
+  ambientDataState?: RunOutcome["gateSignals"]["ambientDataState"];
   /* The data-state failures of the final execution and of the flows' run_spec calls, by page; absent when the run did not execute. */
   dataStateFailures?: Array<{ path: string; count: number }>;
   note?: string;
@@ -154,6 +155,7 @@ export function toRunOutcome(
       ...(extra?.routeAvailability ? { routeAvailability: extra.routeAvailability } : {}),
       ...(extra?.stubbedState ? { stubbedState: extra.stubbedState } : {}),
       ...(extra?.dataContradictions ? { dataContradictions: extra.dataContradictions } : {}),
+      ...(extra?.ambientDataState ? { ambientDataState: extra.ambientDataState } : {}),
       ...(extra?.heldPublication ? { heldPublication: extra.heldPublication } : {}),
       reviewerCorrections: extra?.reviewerCorrections ?? [],
       /* Conditional-spread: true undefined survives when no reviewer-unavailable rationale exists. */

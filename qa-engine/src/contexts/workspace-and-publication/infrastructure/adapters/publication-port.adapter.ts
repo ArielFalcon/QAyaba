@@ -8,7 +8,7 @@ import type { QaCase } from "@kernel/qa-case.ts";
 import { SecretLeakError } from "@kernel/ports/redaction.port.ts";
 import type { PublicationPort } from "../../application/ports/publication.port.ts";
 import type { WorkspaceHandle } from "../../domain/workspace-handle.ts";
-import type { CoverageReportView, StubbedStateView } from "../../domain/render-publication.ts";
+import type { AmbientDataStateView, CoverageReportView, StubbedStateView } from "../../domain/render-publication.ts";
 import type { WorkspaceRegistry } from "./workspace-registry.ts";
 
 /* Local structural mirror of workspace-and-publication's PublishContext/PublishDecision (domain/publish-decision.service.ts) — duck-typed, NOT imported, per the security-boundary note. */
@@ -66,6 +66,7 @@ export interface PublicationRenderCollaborator {
     routeAvailability?: readonly RouteAvailabilityFact[];
     stubbedState?: StubbedStateView;
     dataContradictions?: readonly DataContradiction[];
+    ambientDataState?: AmbientDataStateView;
   }, redact: (text: string) => string): string;
   prBody(input: {
     sha?: string;
@@ -76,6 +77,7 @@ export interface PublicationRenderCollaborator {
     routeAvailability?: readonly RouteAvailabilityFact[];
     stubbedState?: StubbedStateView;
     dataContradictions?: readonly DataContradiction[];
+    ambientDataState?: AmbientDataStateView;
   }, redact: (text: string) => string): string;
 }
 
@@ -150,6 +152,7 @@ export class PublicationPortAdapter implements PublicationPort {
     routeAvailability?: readonly RouteAvailabilityFact[];
     stubbedState?: StubbedStateView;
     dataContradictions?: readonly DataContradiction[];
+    ambientDataState?: AmbientDataStateView;
     coverageReport?: CoverageReportView;
   }): Promise<{ outcome: string; revertedDenylisted?: string[]; revertedDangerous?: string[]; held?: { title: string; body: string } }> {
     /* A handle this registry did not issue throws here, on every route, before anything is rendered or sent. */
@@ -179,6 +182,7 @@ export class PublicationPortAdapter implements PublicationPort {
           ...(decision.routeAvailability?.length ? { routeAvailability: decision.routeAvailability } : {}),
           ...(decision.stubbedState ? { stubbedState: decision.stubbedState } : {}),
           ...(decision.dataContradictions?.length ? { dataContradictions: decision.dataContradictions } : {}),
+          ...(decision.ambientDataState?.pins.length ? { ambientDataState: decision.ambientDataState } : {}),
         }, sanitize),
       );
     const prBodyText = (coverage?: CoverageReportView): string =>
@@ -192,6 +196,7 @@ export class PublicationPortAdapter implements PublicationPort {
           ...(decision.routeAvailability?.length ? { routeAvailability: decision.routeAvailability } : {}),
           ...(decision.stubbedState ? { stubbedState: decision.stubbedState } : {}),
           ...(decision.dataContradictions?.length ? { dataContradictions: decision.dataContradictions } : {}),
+          ...(decision.ambientDataState?.pins.length ? { ambientDataState: decision.ambientDataState } : {}),
         }, sanitize),
       );
     /* Issues open in the triggering repo when supplied; PRs always target ctx.repo (primary). */

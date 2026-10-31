@@ -54,6 +54,11 @@ export interface PublicationPort {
     };
     /** The fields the consumer's code expects of an answer that the captured pages' answers lack: listed in the PR or Issue as possible defects of the app's data, with the stubbed tests that fulfil them, never a gate. */
     dataContradictions?: readonly DataContradiction[];
+    /** The passing cases that checked a page only as DEV served it confirmed empty, and the untaken arms of the changed code on those pages: listed in the PR or Issue, never a gate. */
+    ambientDataState?: {
+      pins: ReadonlyArray<{ file: string; test: string; pages: readonly string[] }>;
+      arms: ReadonlyArray<{ file: string; line: number; arm: string; pages: readonly string[] }>;
+    };
     /**
      * The run's working copy, for the "pr" route's git-write: the adapter reads the mirror, the commit and the target from the
      * handle it issued, so no path comes from the caller. Absent on an actual "pr" route with a required vcsWrite collaborator is a

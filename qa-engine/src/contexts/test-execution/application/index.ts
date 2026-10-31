@@ -28,6 +28,7 @@ export type { AgentBrowserRefusalCode } from "../domain/agent-browser-capability
 export { mutatingEntryError, routePatternError } from "../domain/agent-browser-route-guard.ts";
 export { DevLease } from "../domain/dev-lease.ts";
 export { detectStubbedState } from "../domain/stubbed-state.ts";
+export { detectAmbientDataPins } from "../domain/ambient-data-state.ts";
 export type { SpecText, StubbedStateReport, StubbedTest, StubbedViolation, StubbedViolationKind } from "../domain/stubbed-state.ts";
 export { MAX_PLANNED_CASES, planReport } from "../domain/playwright-report-plan.ts";
 export type { BrowserLauncherPort, SessionMaterial } from "../domain/playwright-types.ts";

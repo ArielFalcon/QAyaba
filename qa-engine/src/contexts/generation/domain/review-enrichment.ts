@@ -7,6 +7,7 @@ import type { ReviewChangeView } from "./review-change-view.ts";
  */
 import type { RouteAvailabilityFact } from "@kernel/route-availability.ts";
 import type { DataContradiction } from "@kernel/data-contradiction.ts";
+import type { AmbientDataPin } from "@kernel/page-data-read.ts";
 
 export interface ReviewEnrichment {
   priorCorrections?: readonly string[];
@@ -16,6 +17,8 @@ export interface ReviewEnrichment {
   routeAvailability?: readonly RouteAvailabilityFact[];
   /* The fields the consumer's code expects of an answer that the captured pages' answers lacked: the facts a `contradiction` citation names. */
   dataContradictions?: readonly DataContradiction[];
+  /* The passing cases that checked a page only as DEV served it confirmed empty: the facts an `ambient` citation names. */
+  ambientDataPins?: readonly AmbientDataPin[];
   /* The spec lines that changed since the prior rejection, already bounded and rendered. */
   specChanges?: string;
   /* Paths of the suite's existing specs: context only, never a target and never a reason to reject. */

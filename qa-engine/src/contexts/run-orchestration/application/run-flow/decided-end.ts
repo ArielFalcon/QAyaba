@@ -23,7 +23,8 @@ import type { RunQaResult } from "./run-types.ts";
 import { runOf, type RunState } from "./run-state.ts";
 import { recordDegradation } from "./reducers.ts";
 import { routeAvailabilitySignal, type RouteAvailabilityFact } from "@kernel/route-availability.ts";
-import { detectStubbedState, type SpecText } from "@contexts/test-execution/application/index.ts";
+import { detectStubbedState } from "@contexts/test-execution/application/index.ts";
+import { ambientRecordOf, deliveredSpecTexts, type AmbientRecord } from "./ambient-data-state.ts";
 import { dataContradictionsSignal } from "@kernel/data-contradiction.ts";
 import { distinctLinkCount } from "@kernel/service-links.ts";
 import { ERROR_CLASS } from "@kernel/error-class.ts";
@@ -48,15 +49,8 @@ interface StubbedRecord {
  * Off-path: a fault here is logged and the run goes on without the record. */
 function stubbedStateOf(state: Readonly<RunState>, ctx: WorkspaceRunContext): StubbedRecord | undefined {
   try {
-    const specs: SpecText[] = [];
-    for (const file of new Set(state.generation.delivered.map((d) => d.file))) {
-      try {
-        specs.push({ file, text: ctx.services.specFiles.read(ctx.services.specRoot, file) });
-      } catch {
-        /* A spec the reader refuses or no longer finds is not published either. */
-      }
-    }
-    const report = detectStubbedState(specs);
+    /* A spec the reader refuses or no longer finds is not published either. */
+    const report = detectStubbedState(deliveredSpecTexts(state, ctx));
     if (report.tests.length === 0 && report.violations.length === 0) return undefined;
     return {
       view: { tests: report.tests, ...(report.violations.length > 0 ? { violations: report.violations } : {}) },
@@ -93,6 +87,30 @@ function recordStubbedState(ctx: WorkspaceRunContext, record: StubbedRecord): vo
   }
 }
 
+/* The gate signal of the run's ambient pins: how many cases, their pages once each, and the untaken arms on those pages. */
+function ambientSignalOf(record: AmbientRecord): NonNullable<RunOutcome["gateSignals"]["ambientDataState"]> {
+  return { cases: record.pins.length, pages: [...new Set(record.pins.flatMap((pin) => pin.pages))].sort(), arms: record.arms.length };
+}
+
+/* One span for the record: the cases that checked a page only as DEV served it empty, those pages, and the untaken arms there. */
+function recordAmbientDataState(ctx: WorkspaceRunContext, record: AmbientRecord): void {
+  const signal = ambientSignalOf(record);
+  try {
+    ctx.telemetry
+      .startSpan("qayaba.ambient_data_state", {
+        attrs: {
+          "qayaba.app": ctx.input.app,
+          "qayaba.ambient.cases": signal.cases,
+          "qayaba.ambient.pages": signal.pages,
+          "qayaba.ambient.arms": signal.arms,
+        },
+      })
+      .end();
+  } catch (err) {
+    engineLog.error(`[telemetry] the ambient data-state span could not be recorded (the run goes on): ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
 export async function finalizeDecided(state: Readonly<RunState>, ctx: WorkspaceRunContext): Promise<RunQaResult> {
   await recordCoordinationOutcome(state, ctx);
   await ctx.services.confinement.enforce();
@@ -104,9 +122,11 @@ export async function finalizeDecided(state: Readonly<RunState>, ctx: WorkspaceR
   /* Read once, from the specs as they stand when the run ends: the publication and the record say the same. */
   const stubbed = stubbedStateOf(state, ctx);
   if (stubbed) recordStubbedState(ctx, stubbed);
+  const ambient = ambientRecordOf(state, ctx);
+  if (ambient) recordAmbientDataState(ctx, ambient);
 
   let published: Published = {};
-  if (decidedOf(state).decision.sideEffect !== "none") published = await publishDecision(state, ctx, stubbed);
+  if (decidedOf(state).decision.sideEffect !== "none") published = await publishDecision(state, ctx, stubbed, ambient);
   const publishOutcome = published.outcome;
 
   /* Once, after confinement and publish, so gc never races this run's git write. */
@@ -114,7 +134,7 @@ export async function finalizeDecided(state: Readonly<RunState>, ctx: WorkspaceR
 
   /* What the run went on past is said on its record beside what publication came to. */
   const note = [...state.run.degradations.map((d) => d.note), ...(publishOutcome !== undefined ? [publishOutcome] : [])].join("; ") || undefined;
-  const persisted = await persistOutcome(state, ctx, note, stubbed, published.held);
+  const persisted = await persistOutcome(state, ctx, note, stubbed, ambient, published.held);
   if (persisted.mainlineOutcome) {
     ctx.trail.phases.enter("learn");
     await learnFromOutcome(state, ctx, persisted.mainlineOutcome);
@@ -202,7 +222,7 @@ async function keepAcceptedSuite(state: Readonly<RunState>, ctx: WorkspaceRunCon
  * blocksPublish ride along so a green-but-rejected run opens an Issue and an enforce coverage fail holds the PR. e2eChanged is
  * omitted (no computed source: do not fabricate). Cross-repo Issues file in triggerRepo; PRs still target the primary.
  */
-async function publishDecision(state: Readonly<RunState>, ctx: WorkspaceRunContext, stubbed: StubbedRecord | undefined): Promise<Published> {
+async function publishDecision(state: Readonly<RunState>, ctx: WorkspaceRunContext, stubbed: StubbedRecord | undefined, ambient: AmbientRecord | undefined): Promise<Published> {
   const { deps, input, workspace, services } = ctx;
   const run = runOf(state);
   const { reviewerApproved } = state.review;
@@ -233,6 +253,8 @@ async function publishDecision(state: Readonly<RunState>, ctx: WorkspaceRunConte
       ...(stubbed ? { stubbedState: stubbed.view } : {}),
       /* Every pair of data sources of a page that disagreed on what their items carry: possible defects of the app's data, for the human reading the PR or the Issue. */
       ...(state.grounding.dataContradictions?.facts.length ? { dataContradictions: state.grounding.dataContradictions.facts } : {}),
+      /* The cases that checked a page only as DEV served it empty, with the untaken arms on those pages. */
+      ...(ambient ? { ambientDataState: { pins: ambient.pins, arms: ambient.arms } } : {}),
       ...(resolveTested(state)?.length ? { tested: resolveTested(state) } : {}),
     });
   } catch (pubErr) {
@@ -329,7 +351,7 @@ function noteOf(publishOutcome: string | undefined, preconditionReason: string |
 }
 
 /* Derive the errorClass once for both the persisted outcome and the returned result. */
-async function persistOutcome(state: Readonly<RunState>, ctx: WorkspaceRunContext, publishOutcome: string | undefined, stubbed: StubbedRecord | undefined, held: Published["held"]): Promise<Persisted> {
+async function persistOutcome(state: Readonly<RunState>, ctx: WorkspaceRunContext, publishOutcome: string | undefined, stubbed: StubbedRecord | undefined, ambient: AmbientRecord | undefined, held: Published["held"]): Promise<Persisted> {
   const { deps, services } = ctx;
   const { decision, isContextCleanPass } = decidedOf(state);
   const { retries, validation } = state.execution;
@@ -364,6 +386,7 @@ async function persistOutcome(state: Readonly<RunState>, ctx: WorkspaceRunContex
     ...(state.grounding.routeAvailability ? { routeAvailability: routeAvailabilitySignal(state.grounding.routeAvailability.read, state.grounding.routeAvailability.facts) } : {}),
     ...(stubbed ? { stubbedState: stubbed.signal } : {}),
     ...(state.grounding.dataContradictions ? { dataContradictions: dataContradictionsSignal(state.grounding.dataContradictions.read, state.grounding.dataContradictions.facts) } : {}),
+    ...(ambient ? { ambientDataState: ambientSignalOf(ambient) } : {}),
     reviewerCorrections: finalReviewerCorrections,
     ...(reviewerSignal !== undefined ? { reviewer: reviewerSignal } : {}),
     /* Publish outcome string, never fabricated when publish() was not called; a run the fix loop settled as DEV not rendering its target publishes nothing, so its note is the adjudicator's reason. */

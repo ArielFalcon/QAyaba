@@ -17,6 +17,7 @@ import { regenerate, type EvidenceFinding } from "./generation-services.ts";
 import { branchCasesAction, coverageRegenAction } from "../../../domain/coverage-regen.ts";
 import { acceptanceNamespace } from "../../../domain/acceptance-namespace.ts";
 import { isRealPass } from "@kernel/case-proof.ts";
+import { ambientPinFindings, ambientRecordOf, type AmbientRecord } from "../ambient-data-state.ts";
 
 type Result = Promise<StepOutcome<RunState>>;
 
@@ -464,10 +465,22 @@ export function gapReference(units: readonly GapUnit[], survived: readonly Survi
   return [...files, ...mutated].join("\n");
 }
 
-/* A regeneration at the coverage gap: its units routed by the file each names, the surviving mutants by the spec that reached them; an author that has no lead reads the gap whole, survivors included. */
-function regenerateAtCoverageGap(state: Readonly<RunState>, ctx: WorkspaceRunContext, base: string, units: readonly GapUnit[], survived: readonly SurvivedMutant[]): Promise<GapRegeneration> {
-  const gap = [base, renderSurvivedMutants(survived)].filter(Boolean).join("\n\n");
-  return regenerateAtGap(state, ctx, { coverageGap: gap, coverageGapReference: gapReference(units, survived), coverageGapItems: units.map((u) => u.text) }, CORRECTION_ORIGIN.COVERAGE, gapFindings(base, units, survived));
+/*
+ * A regeneration at the coverage gap: its units routed by the file each names, the surviving mutants by the spec that reached them, and
+ * each case that checked a page only as DEV served it empty by its spec (`pinned`); an author that has no lead reads the gap whole,
+ * survivors and pinned cases included. The pinned cases join a regeneration the gap starts; they start none of their own.
+ */
+function regenerateAtCoverageGap(state: Readonly<RunState>, ctx: WorkspaceRunContext, base: string, units: readonly GapUnit[], survived: readonly SurvivedMutant[], pinned: ReadonlyArray<{ finding: CorrectionFinding }> = []): Promise<GapRegeneration> {
+  const gap = [base, renderSurvivedMutants(survived), ...pinned.map((p) => p.finding.text)].filter(Boolean).join("\n\n");
+  const findings = [...(gapFindings(base, units, survived) ?? []), ...pinned];
+  return regenerateAtGap(state, ctx, { coverageGap: gap, coverageGapReference: gapReference(units, survived), coverageGapItems: units.map((u) => u.text) }, CORRECTION_ORIGIN.COVERAGE, findings.length > 0 ? findings : undefined);
+}
+
+/* The run's pinned cases as the gap carries them: the untaken arms on their pages, and one finding per case for the flow that owns its spec, naming the places the app declares. */
+function ambientGapOf(state: Readonly<RunState>, ctx: WorkspaceRunContext): { arms: AmbientRecord["arms"]; findings: Array<{ finding: CorrectionFinding }> } {
+  const record = ambientRecordOf(state, ctx);
+  if (!record) return { arms: [], findings: [] };
+  return { arms: record.arms, findings: ambientPinFindings(record.pins, ctx.trail.geolocation?.placeNames() ?? []) };
 }
 
 /* Enforce-mode one-shot coverage regeneration at the uncovered lines and the arms no test ran; it runs at most once per run and is independent of the FixLoop budget. The whole-suite re-measure that decides coverage is the single final re-measure before decide. */
@@ -475,7 +488,8 @@ export async function regenerateForCoverage(state: Readonly<RunState>, ctx: Work
   const { uncovered, untakenArms } = state.coverage;
   const survived = survivorsOf(state);
   const gap = [renderCoverageGap(uncovered, state.grounding.candidates), renderBranchGap(untakenArms)].filter(Boolean).join("\n\n");
-  const regen = await regenerateAtCoverageGap(state, ctx, gap, gapUnits(uncovered, untakenArms, state.grounding.candidates, state.coverage.ranBy), survived);
+  const ambient = ambientGapOf(state, ctx);
+  const regen = await regenerateAtCoverageGap(state, ctx, gap, gapUnits(uncovered, untakenArms, state.grounding.candidates, state.coverage.ranBy, ambient.arms), survived, ambient.findings);
   const survivorClosure = await closeSurvivors(state, ctx, regen);
   const coverage = await recountAfter(state, ctx, regen);
   return { update: { execution: withRun(state.execution, regen.run), coverage: { ...coverage, ...(survivorClosure ? { survivorClosure } : {}) }, loops: { ...state.loops, coverageRegen: state.loops.coverageRegen + 1, leadCorrections: state.loops.leadCorrections + regen.leadCorrections } } };
@@ -485,7 +499,8 @@ export async function regenerateForCoverage(state: Readonly<RunState>, ctx: Work
 export async function regenerateForBranchCases(state: Readonly<RunState>, ctx: WorkspaceRunContext): Result {
   const armsBefore = state.coverage.untakenArms.length;
   const survived = survivorsOf(state);
-  const regen = await regenerateAtCoverageGap(state, ctx, renderBranchGap(state.coverage.untakenArms), gapUnits([], state.coverage.untakenArms, [], state.coverage.ranBy), survived);
+  const ambient = ambientGapOf(state, ctx);
+  const regen = await regenerateAtCoverageGap(state, ctx, renderBranchGap(state.coverage.untakenArms), gapUnits([], state.coverage.untakenArms, [], state.coverage.ranBy, ambient.arms), survived, ambient.findings);
   const survivorClosure = await closeSurvivors(state, ctx, regen);
   const coverage = await recountAfter(state, ctx, regen);
   const armsAfter = regen.outcome !== "accepted" ? armsBefore : coverage.untakenArmsCurrent ? coverage.untakenArms.length : undefined;
