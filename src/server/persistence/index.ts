@@ -4,6 +4,7 @@ import { openHistoryDatabase, type HistoryDatabase } from "./database";
 import { ContextRepository } from "./repositories/context.repository";
 import { EvaluationRepository } from "./repositories/evaluation.repository";
 import { LearningRepository } from "./repositories/learning.repository";
+import { LessonRepository } from "./repositories/lesson.repository";
 import { RunRepository } from "./repositories/run.repository";
 import { TelemetryRepository } from "./repositories/telemetry.repository";
 import { activeSettings } from "../../settings/store";
@@ -17,6 +18,7 @@ export interface History {
   readonly contexts: ContextRepository;
   readonly evaluations: EvaluationRepository;
   readonly learning: LearningRepository;
+  readonly lessons: LessonRepository;
   readonly telemetry: TelemetryRepository;
   /* Deletes everything history holds for an app, across every aggregate, in one transaction. Returns the number of run rows removed. */
   purgeApp(app: string): number;
@@ -27,14 +29,17 @@ export function createHistory(db: HistoryDatabase): History {
   const runs = new RunRepository(db);
   const contexts = new ContextRepository(db);
   const learning = new LearningRepository(db);
+  const lessons = new LessonRepository(db);
   return {
     runs,
     contexts,
     learning,
+    lessons,
     purgeApp: (app) =>
       db.write(() => {
         const removed = runs.deleteApp(app);
         learning.deleteApp(app);
+        lessons.deleteApp(app);
         contexts.deleteApp(app);
         return removed;
       }),

@@ -4,6 +4,7 @@ import { engineLog } from "@kernel/ports/process-logger.ts";
 import type { ServiceLink, ContractDrift, CrossRepoImpact, ImpactDirection, ImpactedLink, ImpactStop } from "@kernel/service-links.ts";
 import { PRE_GENERATION_GROUNDING_STEP_DETAIL } from "@kernel/run-step.ts";
 import { BlastRadius } from "@kernel/blast-radius.ts";
+import type { PageDataRead } from "@kernel/page-data-read.ts";
 import { DiffParserService } from "@kernel/diff-parser/diff-parser.service.ts";
 import type { DecisionListing } from "@kernel/changed-decision.ts";
 import type { ChangeScope, ChangeScopeRepo, ReachTier, UseCaseCandidate } from "@contexts/change-analysis/application/index.ts";
@@ -12,6 +13,7 @@ import { throwIfAborted } from "../abort.ts";
 import type { WorkspaceRunContext } from "../run-context.ts";
 import type { RunState } from "../run-state.ts";
 import { carryOn } from "../failure-policy.ts";
+import { recordRunFact } from "../reducers.ts";
 import { indexOne } from "./opening.steps.ts";
 import { LinkGraph, LinkWalk, type HopResult } from "@contexts/service-topology/application/index.ts";
 import { Sha } from "@kernel/sha.ts";
@@ -38,6 +40,7 @@ export async function groundRepository(state: Readonly<RunState>, ctx: Workspace
   let groundingChangedDecisions: RunState["grounding"]["changedDecisions"] = [];
   let groundingRouteAvailability: RunState["grounding"]["routeAvailability"];
   let groundingDataContradictions: RunState["grounding"]["dataContradictions"];
+  let groundingPageReads: PageDataRead[] | undefined;
   if (deps.preGenerationGrounding) {
     deps.observer?.onStep("generate", PRE_GENERATION_GROUNDING_STEP_DETAIL);
     try {
@@ -59,6 +62,7 @@ export async function groundRepository(state: Readonly<RunState>, ctx: Workspace
       groundingHarnessFacts = grounding.harnessFacts;
       groundingMoreNodes = grounding.changedValuesWithMoreNodes ?? [];
       groundingConfirmedDataRoutes = grounding.packConfirmedDataRoutes;
+      groundingPageReads = grounding.pageReads;
       if (grounding.changedDecisions) {
         groundingChangedDecisions = grounding.changedDecisions.decisions;
         recordDecisions(ctx, grounding.changedDecisions);
@@ -70,6 +74,7 @@ export async function groundRepository(state: Readonly<RunState>, ctx: Workspace
       engineLog[level]("[qa] WARNING: pre-generation grounding failed (non-fatal, generation continues ungrounded):", { error: err });
     }
   }
+  await recordPageReads(state, ctx, groundingPageReads);
   return {
     update: {
       grounding: {
@@ -92,6 +97,29 @@ export async function groundRepository(state: Readonly<RunState>, ctx: Workspace
       },
     },
   };
+}
+
+/*
+ * What the pack read of DEV's data is recorded as observations while the run is still deciding nothing: every run writes its reads, and the
+ * verdict, which is not yet known, is never an input. Off-path: a fault in the store is said and the run goes on without the record.
+ */
+async function recordPageReads(state: Readonly<RunState>, ctx: WorkspaceRunContext, reads: readonly PageDataRead[] | undefined): Promise<void> {
+  const recorder = ctx.deps.lessonRecorder;
+  if (!recorder || !reads?.length) return;
+  try {
+    const tally = await recorder.record({
+      app: ctx.input.app,
+      runId: ctx.input.runId,
+      sha: ctx.input.sha.toString(),
+      repo: ctx.input.changeSet.anchor.repo,
+      servedState: state.run.servedVersion?.state ?? "undeclared",
+      at: new Date().toISOString(),
+      reads,
+    });
+    recordRunFact(state, "lessons", tally);
+  } catch (err) {
+    engineLog.error("[qa] WARNING: the pages read of DEV could not be recorded as observations (non-fatal, the run goes on):", { error: err });
+  }
 }
 
 /*

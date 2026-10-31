@@ -171,3 +171,26 @@ test("ground() hands the run the pages the pack read with results under the decl
   const none = await withPages([pages[1], pages[2], pages[3]]).ground("/tmp/qa-golden/e2e", undefined, labelDiff);
   assert.equal("packConfirmedDataRoutes" in none, false);
 });
+
+test("ground() hands the run what every captured page said of DEV's data, empty and unconfirmed reads included, named by the template a page was opened from", async () => {
+  const withPages = (pages: unknown[]): PreGenerationGroundingPortAdapter =>
+    new PreGenerationGroundingPortAdapter(
+      { e2eDir: "/mirrors/org/app/e2e" },
+      { buildContextPack: async () => ({ text: "## Context Pack", domBytes: 1, contractBytes: 0, trace: { rankedRoutes: [], capturablePages: pages.length, pages, pageDeliveries: [], changedTestIds: [], contractIds: [], omittedLines: 0 } as never }) },
+    );
+  const grounded = await withPages([
+    { route: "/restaurantes/madrid", template: "/restaurantes/:city", grounded: true, dataState: true, ready: true, resultExpected: true, resultCount: 3 },
+    { route: "/ofertas", grounded: true, dataState: true, resultExpected: true, resultCount: 0, emptyConfirmed: true },
+    { route: "/lenta", grounded: true, dataState: true, dataStateUnconfirmed: true, resultExpected: true, resultCount: 0 },
+    { route: "/home", grounded: true },
+    { route: "/perdida", grounded: false },
+  ]).ground("/tmp/qa-golden/e2e", undefined, labelDiff);
+  assert.deepEqual(grounded.pageReads, [
+    { scope: "/restaurantes/:city", grounded: true, dataState: true, unconfirmed: false, ready: true, resultCount: 3 },
+    { scope: "/ofertas", grounded: true, dataState: true, unconfirmed: false, resultCount: 0, emptyConfirmed: true },
+    { scope: "/lenta", grounded: true, dataState: true, unconfirmed: true, resultCount: 0 },
+    { scope: "/home", grounded: true, dataState: undefined, unconfirmed: false },
+    { scope: "/perdida", grounded: false, dataState: undefined, unconfirmed: false },
+  ]);
+  assert.equal("pageReads" in (await withPages([]).ground("/tmp/qa-golden/e2e", undefined, labelDiff)), false);
+});

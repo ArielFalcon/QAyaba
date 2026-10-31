@@ -2,6 +2,7 @@ import type { GroundingOmission, ArchitectureContext, HarnessFacts } from "@kern
 import type { RouteAvailabilityFact } from "@kernel/route-availability.ts";
 import type { DataContradiction } from "@kernel/data-contradiction.ts";
 import type { DecisionListing } from "@kernel/changed-decision.ts";
+import type { PageDataRead } from "@kernel/page-data-read.ts";
 
 export interface GroundingResult {
   /** Assembled context-pack text. Absent when the pack build failed or produced nothing. */
@@ -22,6 +23,8 @@ export interface GroundingResult {
   changedValuesWithMoreNodes?: string[];
   /** The pages the pack read with results (> 0) under the app's declared data state, by pathname. Absent when it read none. */
   packConfirmedDataRoutes?: { path: string; resultCount: number }[];
+  /** What every page the pack captured said of DEV's data under the app's declared data state, empty states and unconfirmed reads included. Absent when the pack captured none. */
+  pageReads?: PageDataRead[];
   /** The decisions on the change's own changed lines, read statically from the working copy, and the changed files that did not parse. Absent without a diff, without a working copy, or on a cross-repo run. */
   changedDecisions?: DecisionListing;
   /** Why each captured route the pack could not show at its own address was not, and how many routes the capture read. Absent when the pack did not classify. */

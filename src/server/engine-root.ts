@@ -64,7 +64,7 @@ import type { E2eExecutionStrategy } from "@contexts/test-execution/infrastructu
 import type { CoveragePolicy, ChangeCoverage } from "@contexts/objective-signal/application/index";
 import type { BundleMutationPort, CoverageCollectorPort } from "@contexts/objective-signal/application/index";
 import type { VcsReadPort } from "@contexts/change-analysis/application/index";
-import type { ProcessAuditPort } from "@contexts/cross-run-learning/application/index";
+import type { LessonStorePort, ProcessAuditPort } from "@contexts/cross-run-learning/application/index";
 
 /* The code graph of an app, built by its context: the factory builds a run's graph with it and onboarding builds its first index with it. */
 /* The builders and deps types the shell and its tests reach, so engine-root.ts is the one shell module that imports a composition module. */
@@ -243,6 +243,9 @@ export interface EngineRootDeps {
 
   /* Process audit. Optional, no stub: absent omits RunQaUseCaseDeps.processAudit. The shell factory constructs ProcessAuditPortAdapter (src-only sinks). */
   processAudit?: ProcessAuditPort;
+
+  /* The append-only record of what runs read of DEV (lesson_observations). Optional, no stub: absent omits RunQaUseCaseDeps.lessonRecorder. The shell factory supplies the history-backed store for every run, frozen or not. */
+  lessonStore?: LessonStorePort;
 
   /* Write side of the FE<->BE architecture map (context_maps SQLite store). Optional, no stub:
      absent omits RunQaUseCaseDeps.contextMapCapture (no capture, same as today). The shell factory
@@ -430,6 +433,7 @@ function assemble(cfg: EngineRootDeps): RunOrchestrationApi {
 
   const learningApi = buildCrossRunLearning({
     ...(cfg.processAudit ? { processAudit: cfg.processAudit } : {}),
+    ...(cfg.lessonStore ? { lessonStore: cfg.lessonStore } : {}),
   });
 
   const coordination = buildCoordination({
@@ -487,6 +491,8 @@ function assemble(cfg: EngineRootDeps): RunOrchestrationApi {
     ...(workspaceAndPublication.mirrorGc ? { mirrorGc: workspaceAndPublication.mirrorGc } : {}),
     /* Absent processAudit is omitted entirely — never a fabricated no-op stub. */
     ...(learningApi.processAudit ? { processAudit: learningApi.processAudit } : {}),
+    /* Absent lessonStore is omitted entirely — nothing is recorded and no lessons signal is persisted. */
+    ...(learningApi.lessonRecorder ? { lessonRecorder: learningApi.lessonRecorder } : {}),
     /* Absent runDeadline is omitted entirely — never a fabricated deadline that bounds nothing. */
     ...(cfg.runDeadline ? { runDeadline: cfg.runDeadline } : {}),
     redact: (text) => patternRedaction.redact(text),

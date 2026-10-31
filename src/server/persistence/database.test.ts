@@ -10,6 +10,8 @@ import { RunRepository } from "./repositories/run.repository";
 import { migration0002 } from "./migrations/0002-agent-turn-partial-text";
 import { migration0003 } from "./migrations/0003-run-ending-facts";
 import { migration0004 } from "./migrations/0004-run-engine-version";
+import { migration0005 } from "./migrations/0005-case-expected-status";
+import { migration0006 } from "./migrations/0006-run-time-budget";
 import { LATEST_SCHEMA_VERSION, type Migration } from "./migrations/index";
 import { SCHEMA_1_SQL, migration0001 } from "./migrations/0001-initial";
 
@@ -45,14 +47,17 @@ function buildUnversioned(path: string, mutate?: (db: Database.Database) => void
   db.close();
 }
 
-test("an empty database ends at the latest schema version with exactly the tables the migration declares", (t) => {
+/* The tables later schemas added: each is a migration of its own, and the first schema's list stays what it declared. */
+const LATER_TABLES = ["lesson_observations"];
+
+test("an empty database ends at the latest schema version with exactly the tables the migrations declare", (t) => {
   const path = join(scratch(t), "history.db");
   const history = openHistoryDatabase(path);
   t.after(() => history.close());
 
   assert.equal(history.read(userVersion), LATEST_SCHEMA_VERSION);
   assert.ok(SCHEMA_1_TABLES.length > 0, "the migration declares tables");
-  assert.deepEqual(history.read(tableNames), SCHEMA_1_TABLES);
+  assert.deepEqual(history.read(tableNames), [...SCHEMA_1_TABLES, ...LATER_TABLES].sort());
 });
 
 test("reopening a database keeps its rows and its version", (t) => {
@@ -263,4 +268,24 @@ test("a run's limits, degradations and shadow flag are stored with its facts and
   assert.deepEqual([facts.decision, facts.shadowed, facts.limits, facts.degradations, facts.limitFired], ["pr", true, limits, degradations, "run-deadline"]);
   runs.updateRecord(id, { facts: { limits: [], degradations: [] } });
   assert.deepEqual([runs.getRunFacts(id)!.limits, runs.getRunFacts(id)!.degradations], [[], []], "recorded none is not the same as not recorded");
+});
+
+test("a schema 6 database is brought to the latest schema with every stored row as it was and the observations table empty", (t) => {
+  const path = join(scratch(t), "history.db");
+  const before = new Database(path);
+  for (const migration of [migration0001, migration0002, migration0003, migration0004, migration0005, migration0006]) migration.up(before);
+  before.pragma("user_version = 6");
+  before.prepare("INSERT INTO runs (id, app, sha, at, decision) VALUES ('old', 'app', 'abcdef1', '2026-10-01T00:00:00.000Z', 'pr')").run();
+  before.prepare("INSERT INTO run_outcomes (id, app, sha, mode, target, verdict, error_class, gate_signals, at) VALUES ('old', 'app', 'abcdef1', 'diff', 'e2e', 'pass', NULL, '{}', '2026-10-01T00:00:00.000Z')").run();
+  const rows = (db: Database.Database): string => JSON.stringify([db.prepare("SELECT * FROM runs").all(), db.prepare("SELECT * FROM run_outcomes").all()]);
+  const rowsBefore = rows(before);
+  before.close();
+
+  const history = openHistoryDatabase(path);
+  t.after(() => history.close());
+
+  assert.equal(history.read(userVersion), LATEST_SCHEMA_VERSION);
+  assert.equal(history.read(rows), rowsBefore, "no stored value was rewritten");
+  assert.equal(history.read((db) => (db.prepare("SELECT COUNT(*) AS n FROM lesson_observations").get() as { n: number }).n), 0);
+  assert.ok(SCHEMA_1_TABLES.every((table) => history.read(tableNames).includes(table)), "nothing existing is dropped");
 });

@@ -173,7 +173,7 @@ test("a settings document that differs from the registry is stale and a missing 
 });
 
 test("each retired variable that is still set is reported once at load; an unset or empty one is not", () => {
-  const retired = ["SELF_MAINTAINER_AUTOMERGE", "SELF_MAINTAINER_CI_CHECK", "QAYABA_REPO", "QA_REFLECTOR_ENABLED", "REFLECTOR_TIMEOUT_MS", "QA_JUDGES_ENABLED", "QA_JUDGES_DAILY_TOKENS", "LANGFUSE_BASE_URL", "LANGFUSE_PUBLIC_KEY", "LANGFUSE_SECRET_KEY", "LANGFUSE_ALLOW_EXTERNAL", "COORDINATION_ESCALATED_MODEL", "QA_DIFF_TIME_BUDGET_MS_TINY", "QA_DIFF_TIME_BUDGET_MS_FOCUSED", "QA_DIFF_TIME_BUDGET_MS_BROAD", "QA_RUN_TIME_BUDGET_MS_COMPLETE", "QA_RUN_TIME_BUDGET_MS_EXHAUSTIVE", "AGENT_RUNTIME_MODE", "AGENT_SINGLE_PROVIDER", "AGENT_PRIMARY_PROVIDER", "AGENT_REVIEWER_PROVIDER", "AGENT_CHAT_PROVIDER"];
+  const retired = ["SELF_MAINTAINER_AUTOMERGE", "SELF_MAINTAINER_CI_CHECK", "QAYABA_REPO", "QA_REFLECTOR_ENABLED", "REFLECTOR_TIMEOUT_MS", "QA_JUDGES_ENABLED", "QA_JUDGES_DAILY_TOKENS", "LANGFUSE_BASE_URL", "LANGFUSE_PUBLIC_KEY", "LANGFUSE_SECRET_KEY", "LANGFUSE_ALLOW_EXTERNAL", "COORDINATION_ESCALATED_MODEL", "QA_DIFF_TIME_BUDGET_MS_TINY", "QA_DIFF_TIME_BUDGET_MS_FOCUSED", "QA_DIFF_TIME_BUDGET_MS_BROAD", "QA_RUN_TIME_BUDGET_MS_COMPLETE", "QA_RUN_TIME_BUDGET_MS_EXHAUSTIVE", "AGENT_RUNTIME_MODE", "AGENT_SINGLE_PROVIDER", "AGENT_PRIMARY_PROVIDER", "AGENT_REVIEWER_PROVIDER", "AGENT_CHAT_PROVIDER", "QA_CAMPAIGN_FREEZE"];
   assert.deepEqual(loadSettings({}).warnings, []);
   assert.deepEqual(loadSettings(Object.fromEntries(retired.map((name) => [name, ""]))).warnings, []);
   const warnings = loadSettings(Object.fromEntries(retired.map((name) => [name, "true"]))).warnings;
@@ -226,4 +226,14 @@ test("a first-pass time cap of a diff tier is reported as retired and neither fa
       assert.deepEqual(loaded.run, baseline.run, `${name}=${value}: the run settings are those of an environment without it`);
     }
   }
+});
+
+test("the retired campaign freeze variable warns whatever it holds, never fails the load and changes no setting", () => {
+  const base = loadSettings({});
+  for (const value of ["1", "true", "0", "maybe"]) {
+    const loaded = loadSettings({ QA_CAMPAIGN_FREEZE: value });
+    assert.deepEqual(loaded.warnings.map((w) => w.split(" ")[0]), ["QA_CAMPAIGN_FREEZE"], value);
+    assert.deepEqual(loaded.run, base.run, value);
+  }
+  assert.deepEqual(base.warnings, []);
 });

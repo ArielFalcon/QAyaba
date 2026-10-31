@@ -10,6 +10,7 @@ import type { NoopKind } from "./noop-kind.ts";
 import type { RouteAvailabilityGateSignal } from "./route-availability.ts";
 import type { DataContradictionGateSignal } from "./data-contradiction.ts";
 import type { ServedVersionSignal } from "./served-version.ts";
+import type { LessonsSignal } from "./lessons-signal.ts";
 import type { ObservedDifference } from "./observed-difference.ts";
 
 export type ErrorClass = string | null;
@@ -101,6 +102,8 @@ export interface RunOutcome {
     sandbox?: { egress: "enforced" | "unenforced" | "not-applicable"; denied: string[] };
     /* What DEV served relative to the commit under test, read at the deploy gate: one state of a closed set (undeclared, unreadable, equal, behind, ahead, unrelated), with the typed reason when unreadable, the commit served, and the time waited for a deploy that had not landed. Absent when the run ended before the gate read it. Persist-only: it reads nothing back into a verdict. */
     servedVersion?: ServedVersionSignal;
+    /* How many pages the run read of DEV under the app's declared data state, and why the ones that taught nothing were left out. Absent when the run recorded no read. Persist-only: it reads nothing back into a verdict. */
+    lessons?: LessonsSignal;
     /* Whether the reviewer judged with the generator's own model. Absent when the runtime assignment is unknown. Persist-only: it reads nothing back into a verdict. */
     reviewerIndependence?: "shared-model" | "distinct-model";
     /* How the generator used run_spec this run, and whether the loop ended closed. Absent when the run did not grant the tool. Persist-only: it reads nothing back into a verdict. */

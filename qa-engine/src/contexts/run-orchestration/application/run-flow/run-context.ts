@@ -6,6 +6,7 @@ import type { TelemetryPort } from "@kernel/telemetry/telemetry.port.ts";
 import type { PreconditionFailure, RunQaConfig, RunQaInput, RunQaUseCaseDeps, RunTrail } from "./run-types.ts";
 import type { CoordinationGateSignal } from "@kernel/coordination.ts";
 import type { ServedVersionSignal } from "@kernel/served-version.ts";
+import type { LessonsSignal } from "@kernel/lessons-signal.ts";
 import type { WorkspaceHandle } from "@contexts/workspace-and-publication/application/index.ts";
 import type { RunServices } from "./run-services.ts";
 
@@ -33,6 +34,8 @@ export interface RunHost {
   coordination(): CoordinationGateSignal | undefined;
   /** What DEV served relative to the commit under test, once the gate read it; absent when the run ended before the gate did. */
   servedVersion(): ServedVersionSignal | undefined;
+  /** What the run recorded of the pages it read of DEV; absent when it read none or recorded none. */
+  lessons(): LessonsSignal | undefined;
   /** Whether the launcher refused to start agent code in this run. */
   sandboxRefused(): boolean;
   /** What the run's sandbox did, for the persisted gate signals; absent when no child was started. */

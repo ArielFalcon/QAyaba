@@ -126,6 +126,7 @@ export function toRunOutcome(
   const coordination = ctx.host.coordination();
   const sandbox = ctx.host.sandboxSignal();
   const servedVersion = ctx.host.servedVersion();
+  const lessons = ctx.host.lessons();
   const gateCoverageRatio = coverageRatio;
   return {
     runId: input.runId,
@@ -166,6 +167,7 @@ export function toRunOutcome(
       ...(sandbox ? { sandbox } : {}),
       ...(deps.config?.reviewerIndependence !== undefined ? { reviewerIndependence: deps.config.reviewerIndependence } : {}),
       ...(servedVersion !== undefined ? { servedVersion } : {}),
+      ...(lessons !== undefined ? { lessons } : {}),
       /*
        * Conditional-spread, not `?? 0`: "never ran" stays distinguishable from
        * "ran and found zero".

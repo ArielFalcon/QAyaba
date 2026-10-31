@@ -255,6 +255,23 @@ test("buildEngine omits processAudit entirely when cfg.processAudit is absent �
   assert.equal(outcome.verdict, "pass");
 });
 
+/* cfg.lessonStore is threaded to the ground step: the pages the pack read are recorded as observations, whatever the run comes to. */
+test("buildEngine records the pages the pack read through cfg.lessonStore, and wires nothing when the store is absent", async () => {
+  const batches: unknown[][] = [];
+  const page = { route: "/shops", grounded: true, dataState: true, resultExpected: true, resultCount: 2 };
+  const groundingCollaborators = {
+    buildContextPack: async () => ({ text: "## Context Pack", blastRadiusBytes: 0, domBytes: 0, contractBytes: 0, trace: { rankedRoutes: [], capturablePages: 1, pages: [page], pageDeliveries: [], changedTestIds: [], contractIds: [], omittedLines: 0 } as never }),
+  };
+  const run = (cfg: EngineRootDeps, runId: string) => buildEngine(cfg).run({ app: "app", sha: Sha.of("abc1234"), changeSet: primaryChangeSet("app", Sha.of("abc1234")), source: "manual", mode: "diff", target: "e2e", runId });
+  const outcome = await run(fakeConfig({ baseUrl: "https://dev.example.com", groundingCollaborators, lessonStore: { record: async (rows) => { batches.push([...rows]); }, listAdmitted: async () => [] } }), "engine-root-lessons");
+  assert.equal(outcome.verdict, "pass");
+  assert.equal(batches.length, 1);
+  assert.deepEqual(batches[0]!.map((r) => (r as { scope: string }).scope), ["/shops"]);
+  assert.deepEqual(outcome.gateSignals.lessons, { observed: 1, leftOut: { "served-version:undeclared": 1 } });
+  const bare = await run(fakeConfig({ baseUrl: "https://dev.example.com", groundingCollaborators }), "engine-root-lessons-absent");
+  assert.equal(bare.gateSignals.lessons, undefined);
+});
+
 /* Root threads cfg.contextMapCapture through to RunQaUseCaseDeps.contextMapCapture — same
    black-box style as processAudit above. A clean context-mode pass (mode:"context",
    verdict "pass") is the ONLY case that reaches RunQaUseCase's isContextCleanPass capture call. ──

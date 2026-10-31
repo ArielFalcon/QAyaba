@@ -6,6 +6,7 @@ import type { ArchitectureContext, GroundingOmission, HarnessFacts } from "@kern
 import type { RouteAvailabilityFact } from "@kernel/route-availability.ts";
 import type { DataContradiction } from "@kernel/data-contradiction.ts";
 import type { ServedVersionSignal } from "@kernel/served-version.ts";
+import type { LessonsSignal } from "@kernel/lessons-signal.ts";
 import type { ChangeScope, UseCaseCandidate } from "@contexts/change-analysis/application/index.ts";
 import type { CommitIntent } from "@kernel/commit-intent.ts";
 import type { GenerationEnrichment, GenerationOutput } from "@contexts/generation/application/index.ts";
@@ -335,6 +336,8 @@ export interface RunFacts {
   timeBudget: string | undefined;
   /** What DEV served relative to the commit under test, once the gate read it; written only by the gate step. */
   servedVersion: ServedVersionSignal | undefined;
+  /** What the ground step recorded of the pages it read of DEV; written only by the ground step. */
+  lessons: LessonsSignal | undefined;
 }
 
 export interface RunState {
@@ -432,7 +435,7 @@ export function initialRunState(): RunState {
     review: { session: undefined, reviewerApproved: true, reviewerApprovedForOutcome: undefined, finalReviewerCorrections: [], missingCases: [], reviewerSignal: undefined },
     decided: undefined,
     loops: initialLoopCounters(),
-    run: { generationEnd: undefined, limits: [], degradations: [], endReason: undefined, reviewRequired: undefined, timeBudget: undefined, servedVersion: undefined },
+    run: { generationEnd: undefined, limits: [], degradations: [], endReason: undefined, reviewRequired: undefined, timeBudget: undefined, servedVersion: undefined, lessons: undefined },
     coordination: undefined,
     proof: {},
   };

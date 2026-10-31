@@ -42,7 +42,7 @@ import type { TelemetryPort } from "@kernel/telemetry/telemetry.port.ts";
 import type { PreconditionKind } from "@contexts/app-catalog/application/index.ts";
 import type { CoordinationTelemetryPort } from "@contexts/coordination/application/index.ts";
 import type { IntentContractPort } from "@contexts/objective-signal/application/index.ts";
-import type { ProcessAuditPort } from "@contexts/cross-run-learning/application/index.ts";
+import type { LessonRecorderPort, ProcessAuditPort } from "@contexts/cross-run-learning/application/index.ts";
 
 /** A login the run could not complete: the kind, a note already scrubbed of credentials, and the attempt's duration. */
 export interface PreconditionFailure {
@@ -175,6 +175,12 @@ export interface RunQaUseCaseDeps {
    * operating signal, by `observesOperatingSignal`. Fault-isolated inside the adapter.
    */
   processAudit?: ProcessAuditPort;
+  /**
+   * Records the pages the ground step read of DEV as observations (docs/architecture/rfc/0013-learning-slice.md). Every run records,
+   * frozen or not: the reads are facts about DEV and writing them changes nothing the run does. Off-path: a fault is said and the run goes on.
+   * Absent: nothing is recorded and the run persists no lessons signal.
+   */
+  lessonRecorder?: LessonRecorderPort;
   /**
    * The run-level wall-clock deadline, armed once after classification. Absent: no deadline is armed
    * and the run is bounded only by its per-turn limits.

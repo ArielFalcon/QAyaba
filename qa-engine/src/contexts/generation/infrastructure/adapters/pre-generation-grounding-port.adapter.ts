@@ -8,6 +8,8 @@ import { exportedSignatures, fixtureMembers, playwrightConfigFacts, type Harness
 import { join } from "node:path";
 import { buildContextPack, defaultContextPackDeps, packDeliveredItemIds } from "@contexts/generation/infrastructure/context-pack.ts";
 import type { ContextPackAssembly, ContextPackDeps } from "@contexts/generation/infrastructure/context-pack.ts";
+import type { CapturedPage } from "../dom-snapshot.ts";
+import type { PageDataRead } from "@kernel/page-data-read.ts";
 import type { ArchitectureContext } from "@contexts/generation/application/index.ts";
 import type { ContextProvenance } from "@kernel/telemetry/context-provenance.ts";
 import { readManifest } from "@contexts/generation/infrastructure/manifest-fs.ts";
@@ -256,6 +258,19 @@ function confirmedDataRoutes(pages: readonly { route: string; finalUrl?: string;
   return out;
 }
 
+/* What every captured page said of DEV's data: the facts of the capture itself, handed over unjudged. A page opened from a template of the map is named by the template. */
+function pageReadsOf(pages: readonly CapturedPage[]): PageDataRead[] {
+  return pages.map((page) => ({
+    scope: page.template ?? page.route,
+    grounded: page.grounded === true,
+    dataState: page.dataState,
+    unconfirmed: page.dataStateUnconfirmed === true,
+    ...(page.ready !== undefined ? { ready: page.ready } : {}),
+    ...(page.resultCount !== undefined ? { resultCount: page.resultCount } : {}),
+    ...(page.emptyConfirmed === true ? { emptyConfirmed: true } : {}),
+  }));
+}
+
 export class PreGenerationGroundingPortAdapter implements PreGenerationGroundingPort {
   constructor(
     private readonly ctx: PreGenerationGroundingStaticContext,
@@ -451,6 +466,8 @@ export class PreGenerationGroundingPortAdapter implements PreGenerationGrounding
       if (packResult.dataContradictions !== undefined) result.dataContradictions = packResult.dataContradictions;
       const confirmed = confirmedDataRoutes(packResult.trace?.pages ?? []);
       if (confirmed.length > 0) result.packConfirmedDataRoutes = confirmed;
+      const reads = pageReadsOf(packResult.trace?.pages ?? []);
+      if (reads.length > 0) result.pageReads = reads;
       this.tell(() => this.collaborators.trace?.pack?.(packResult));    } catch (err) {
       if (isAbortError(err)) return result; /* abort: return whatever was gathered so far, never throw — see the note above. */
       engineLog.warn(`[qa] WARNING: context-pack build FAILED (non-blocking): ${err instanceof Error ? err.message : String(err)}`);

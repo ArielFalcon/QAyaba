@@ -2515,6 +2515,19 @@ test("a frozen run does not audit, whatever lessons it reads", () => {
   }
 });
 
+test("every run is given the lesson store, frozen or not: what a run reads of DEV is a fact it records either way", async () => {
+  const app = cfg("factory-lesson-store");
+  for (const freeze of [undefined, FROZEN, { frozen: true, lessons: true }, { frozen: false, lessons: false }]) {
+    const config = buildEngineRootDeps(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff", ...(freeze ? { freeze } : {}) });
+    assert.ok(config.lessonStore, JSON.stringify(freeze));
+  }
+  const config = buildEngineRootDeps(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff", freeze: FROZEN });
+  const row = { id: "factory-lesson#data-volatility#0", app: app.name, runId: "factory-lesson", sha: "abc1234", repo: "org/demo", kind: "data-volatility" as const, scope: "/shops", servedState: "equal" as const, admitted: true, leftOutReason: null, fact: { resultCount: 1 }, at: "2026-10-30T10:00:00.000Z" };
+  await config.lessonStore!.record([row]);
+  assert.deepEqual(await config.lessonStore!.listAdmitted({ app: app.name, scopes: ["/shops"], before: "2026-10-31T00:00:00.000Z" }), [row]);
+  getHistory().purgeApp(app.name);
+});
+
 test("in a frozen run, a stale-flagged app requests no context rebuild", async () => {
   const app = cfg(`factory-freeze-stale-${Math.random().toString(36).slice(2)}`);
   getHistory().contexts.markContextStale(app.name);

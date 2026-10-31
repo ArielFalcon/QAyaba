@@ -145,6 +145,7 @@ import { ensureMirror, ensureMirrorAtBranch, defaultMirrorDeps, workdirRoot, rea
 import { stageServiceContext, serviceContextDir } from "./service-context";
 import { SqliteRunHistoryAdapter } from "./run-history-sqlite-adapter";
 import type { RunFreeze } from "./run-freeze";
+import { SqliteLessonStoreAdapter } from "./lesson-store-sqlite-adapter";
 import { agentBrowserEnabled, closedLoopEnabled, serviceTopologyWired } from "./run-config-gates";
 import { ProcessAuditPortAdapter } from "@contexts/cross-run-learning/infrastructure/process-audit-port.adapter";
 import { YamlBoundaryProfileAdapter } from "@contexts/service-topology/infrastructure/yaml-boundary-profile.adapter";
@@ -1271,6 +1272,8 @@ export function buildEngineRootDeps(
 
     ...(deps.historyFilePath ? { historyFilePath: deps.historyFilePath } : { runHistory: new SqliteRunHistoryAdapter() }),
 
+    /* Every run records what it read of DEV, frozen or not: the rows are facts about DEV and writing them changes nothing the run does. */
+    lessonStore: new SqliteLessonStoreAdapter(),
     ...(campaignFrozen ? {} : { processAudit: new ProcessAuditPortAdapter({
       app: app.name,
       readRecentOutcomes: (a, limit) => getHistory().learning.listRunOutcomes(a, limit),
