@@ -1102,10 +1102,17 @@ that catches nothing. The objective signal that breaks the circle is **change-co
   merges into the collection in the order of the dumps, a decoding that cannot run (deadline, heap limit, crash, no
   worker) leaves the set unused with its own reason and adds nothing to the collection, and the decoding has no
   cooperative clock of its own.
+  The pass is held to the coverage purpose's time: each re-run (the observation before, each mutant, the observation after)
+  starts only when `RunDeadlinePort.allowance("coverage")` holds its estimate, the measured duration (`QaCase.durationMs`) of
+  the cases of the run's own final execution it would execute (its spec files, only its tests when it names them;
+  `objective-signal/domain/rerun-budget.ts`). A re-run with no estimate (no case known for it, or one with no measured
+  duration) is held only to an allowance that is not spent; nothing bounds a run whose deadline is not armed. A mutant left out
+  is neither applied nor judged, and an observation left out leaves the survivors `unobserved`; `MAX_MUTANTS` stays the ceiling.
   `gateSignals.bundleMutation` holds `{ applied, killed, survived[] }`, plus `skippedSites { count, reasons }`
   (sites left out, by `no-source-line` or `not-in-source-line`), `rerunsBySpecFile` (mutants whose tests
-  could not be told) and `unreadable` (mutants not judged for unreadable counters; the object is then present even
-  with `applied: 0`) when there are any.
+  could not be told), `unreadable` (mutants not judged for unreadable counters) and `leftOut { reruns, reason: "time" }`
+  (re-runs not started for time; span `qayaba.mutation.reruns_left_out`) when there are any; with only unreadable or left-out
+  mutants the object is present with `applied: 0`.
   **What a survivor moved** (signal, never a gate): the survivor's finding says which observable the mutation changed, because an author
   that knows only the line cannot write the assertion that kills it. Each mutant's re-run is observed (`PW_OBSERVE=1`: the capture block of the seed's
   `fixtures.ts` records, per test that ran, the requests its page depended on by method + origin + pathname with a count, never the query, fragment,

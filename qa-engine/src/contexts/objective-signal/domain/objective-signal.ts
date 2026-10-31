@@ -3,6 +3,7 @@ import type { SurvivedMutant } from "./coverage-collector.ts";
 import type { AggregateUnmeasured, CandidateCoverage } from "./per-candidate-coverage.ts";
 import type { TestSupportFile, UnreachableByDesign } from "./coverage-exclusions.ts";
 import type { CoverageReadFault } from "./dump-outcome.ts";
+import type { RerunsLeftOut } from "./rerun-budget.ts";
 
 /** What a change-coverage measurement counted, and why a measurement that decides nothing did not. */
 export interface CoverageMeasurement {
@@ -44,7 +45,7 @@ export interface UntakenArm {
   arm: string;
 }
 
-/** What the mutants of the changed code in the served script did: judged, noticed by a test, and where the others are; the sites on changed lines a test reached that were no candidate, counted by why (`skippedSites`, absent when none was); how many mutants re-ran every test of their spec files because the tests that reached them could not be told (`rerunsBySpecFile`, absent when none did); and how many were not judged because the counters of their re-run could not be read (`unreadable`, absent when none was). */
+/** What the mutants of the changed code in the served script did: judged, noticed by a test, and where the others are; the sites on changed lines a test reached that were no candidate, counted by why (`skippedSites`, absent when none was); how many mutants re-ran every test of their spec files because the tests that reached them could not be told (`rerunsBySpecFile`, absent when none did); and how many were not judged because the counters of their re-run could not be read (`unreadable`, absent when none was); and the re-runs not started because the time left could not hold them, and why (`leftOut`, absent when none was). */
 export interface BundleMutationOutcome {
   applied: number;
   killed: number;
@@ -52,6 +53,7 @@ export interface BundleMutationOutcome {
   skippedSites?: SkippedSites;
   rerunsBySpecFile?: number;
   unreadable?: number;
+  leftOut?: RerunsLeftOut;
 }
 
 /** How the mutants of a measurement were chosen: the sites left out by why (absent when none was), and how many mutants re-run only the tests that reached them and how many every test of their spec files. */

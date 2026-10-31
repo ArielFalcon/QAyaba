@@ -12,6 +12,11 @@ export function isDumpOfSpecFile(dump: string, specFile: string): boolean {
   return dump.startsWith(key.slice(0, DUMP_TITLE_CHARS)) && (key.length >= DUMP_TITLE_CHARS || dump.charAt(key.length) === "-");
 }
 
+/* The test a case stands for, named as the coverage fixture names its dumps: the case's name is its title path, whose parts are joined by ` › ` and start with the spec file's path. */
+export function testOfCase(caseName: string): string {
+  return dashed(caseName).slice(0, DUMP_TITLE_CHARS);
+}
+
 const FIXTURE_DUMP = /^(.+)-\d+-\d+\.json$/;
 
 /* The test that wrote `dump`, named as the coverage fixture names it (`<title path dashed and cut>-<worker>-<repeat>.json`): its dashed, cut title path; undefined for a name the fixture does not write. */

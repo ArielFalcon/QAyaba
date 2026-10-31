@@ -196,7 +196,7 @@ export class ObjectiveSignalPortAdapter implements ObjectiveSignalPort {
       const bySpecFile = mutants.filter((m) => m.tests === undefined).length;
       mutantSelection = { ...(skipped.count > 0 ? { skippedSites: skipped } : {}), rerunsByTest: mutants.length - bySpecFile, rerunsBySpecFile: bySpecFile };
       /* The first judgment of the survivors also tells what each moved (their pages against an unmutated re-run); the re-check of a regeneration's answer does not. */
-      if (mutants.length > 0) bundleMutation = await this.deps.mutation.measure(mutants, specDir, namespace, baselineCases ?? this.ctx.baselineCases ?? [], { observe: true });
+      if (mutants.length > 0) bundleMutation = await this.deps.mutation.measure(mutants, specDir, namespace, baselineCases ?? this.ctx.baselineCases ?? [], { observe: true, ...(opts?.rerunBudget ? { budget: opts.rerunBudget } : {}) });
     }
     const proofs = bundleMutation?.proofs ?? [];
     /* What a killed mutant made run, a test checked: the verified coverage adds it, the coverage by execution alone stays beside it. */
@@ -233,6 +233,7 @@ export class ObjectiveSignalPortAdapter implements ObjectiveSignalPort {
               killed: bundleMutation.killed,
               survived: bundleMutation.survived,
               ...(bundleMutation.unreadable ? { unreadable: bundleMutation.unreadable } : {}),
+              ...(bundleMutation.leftOut ? { leftOut: bundleMutation.leftOut } : {}),
               ...(mutantSelection?.skippedSites ? { skippedSites: mutantSelection.skippedSites } : {}),
               ...(mutantSelection?.rerunsBySpecFile ? { rerunsBySpecFile: mutantSelection.rerunsBySpecFile } : {}),
             },
