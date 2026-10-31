@@ -1,11 +1,16 @@
 /* Prometheus gauges for the control plane. */
 
 import { join } from "node:path";
-import { type AppConfig } from "../composition/config-loader";
+
+/* What the gauges read of a watched app: its name and the repository its mirror is named after. */
+export interface MeteredApp {
+  readonly name: string;
+  readonly repo: string;
+}
 
 export interface ArtifactBytesDeps {
   /** Return configured app list. */
-  listAppConfigs(): AppConfig[];
+  listAppConfigs(): readonly MeteredApp[];
   /** Return the mirrors root directory. */
   mirrorRoot(): string;
   /** Compute total bytes under a directory tree (best-effort: may return 0 on error). */

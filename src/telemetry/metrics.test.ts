@@ -1,10 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { collectArtifactBytes, buildArtifactBytesMetrics, type ArtifactBytesDeps, type ArtifactSizeCache } from "./metrics";
-import type { AppConfig } from "../composition/config-loader";
+import { collectArtifactBytes, buildArtifactBytesMetrics, type ArtifactBytesDeps, type ArtifactSizeCache, type MeteredApp } from "./metrics";
 
-function makeApp(name: string, repo: string): AppConfig {
-  return { name, repo } as unknown as AppConfig;
+function makeApp(name: string, repo: string): MeteredApp {
+  return { name, repo };
 }
 
 function makeDeps(sizes: Record<string, number>): ArtifactBytesDeps {
