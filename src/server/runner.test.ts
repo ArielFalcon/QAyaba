@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { JobQueue } from "./queue";
 import {
   enqueueTrackedRun,
+  sourceOfTrigger,
   enqueueContextMapRun,
   enqueueLoginBootstrapRun,
   cancelTrackedRun,
@@ -1996,4 +1997,9 @@ test("without a registry a second push queues its own run, as before", async () 
   assert.notEqual(a, b);
   release();
   await queue.drain();
+});
+
+test("only a deploy's webhook starts a run the engine treats as deploy-triggered; a control-API run, a campaign replicate included, is manual", () => {
+  assert.equal(sourceOfTrigger("webhook"), "webhook");
+  assert.equal(sourceOfTrigger("api"), "manual");
 });

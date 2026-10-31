@@ -58,6 +58,14 @@ export const ONBOARDING_WAIT_MARGIN_MS = 5 * 60 * 1000;
 export const ONBOARDING_WAIT_MAX_MS =
   ONBOARDING_MIRROR_CEILING_MS + ONBOARDING_JOB_CEILING_MS + ONBOARDING_INDEXING_CEILING_MS + ONBOARDING_WAIT_MARGIN_MS;
 
+/*
+ * The source a run's engine input carries, for a door that tells the trigger: only a deploy's webhook is "webhook" (the engine's
+ * deploy-triggered run); a control-API run, whoever sent it, is "manual", so a campaign replicate or a replay never waits for a deploy.
+ */
+export function sourceOfTrigger(trigger: "api" | "webhook"): TriggerSource {
+  return trigger === "webhook" ? "webhook" : "manual";
+}
+
 export interface RunRequest {
   app: string;
   sha: string;
