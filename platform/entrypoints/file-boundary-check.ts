@@ -40,6 +40,9 @@ import { qayabaRoot } from "../settings/paths";
 import { apiTokenPath } from "../settings/api-token";
 import { egressStatusFile, fileBoundaryStatusFile } from "../settings/sandbox-status";
 
+/* The folders under the root that hold the orchestrator's code: the sandbox uid must not write any of them. */
+export const CODE_ROOT_NAMES = ["platform", "engine", "bin", "scripts"] as const;
+
 /* What the sandbox uid must not be able to do on this host, besides writing any mount under the root (found in the mount table, not listed here): read the service's environment and the API token, list the orchestrator's state, write its code, its config, the status files the service trusts and the directories they sit in. */
 export function fileBoundaryLayout(env: NodeJS.ProcessEnv, root: string): FileBoundaryLayout {
   const data = join(root, "data");
@@ -56,10 +59,7 @@ export function fileBoundaryLayout(env: NodeJS.ProcessEnv, root: string): FileBo
       join(config, "e2e"),
       join(config, "egress"),
       mirrors,
-      join(root, "platform"),
-      join(root, "engine"),
-      join(root, "bin"),
-      join(root, "scripts"),
+      ...CODE_ROOT_NAMES.map((name) => join(root, name)),
       join(root, "node_modules"),
       join(root, "package.json"),
       fileBoundaryStatusFile(env),
@@ -69,6 +69,12 @@ export function fileBoundaryLayout(env: NodeJS.ProcessEnv, root: string): FileBo
       dirname(egressStatusFile(env)),
     ],
   };
+}
+
+/* The code folders a layout holds unwritable: what the in-container smoke plants into, so it follows the layout instead of a path typed beside it. */
+export function codeRootsOf(layout: FileBoundaryLayout): string[] {
+  const roots = new Set(CODE_ROOT_NAMES.map((name) => join(layout.appRoot, name)));
+  return layout.unwritable.filter((path) => roots.has(path));
 }
 
 const PROBE_SCRIPT = join(dirname(fileURLToPath(import.meta.url)), "file-boundary-probe.mjs");

@@ -26,3 +26,9 @@ test("every smoke spec states what a pass means, so a reader cannot take a read 
     assert.match(readFileSync(join(SMOKE_SPEC_DIR, f), "utf8"), /PASSES when/, f);
   }
 });
+
+test("the filesystem smoke plants into the code roots the boot check's layout names, never a path typed in the spec", () => {
+  const spec = readFileSync(join(SMOKE_SPEC_DIR, "filesystem.spec.ts"), "utf8");
+  assert.doesNotMatch(spec, /["'`]\/app\/(src|platform|engine|bin|scripts)\b/);
+  assert.match(spec, /context\.codeRoots/);
+});

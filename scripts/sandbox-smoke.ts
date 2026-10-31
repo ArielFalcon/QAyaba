@@ -62,6 +62,7 @@ async function main(): Promise<number> {
   const { egressGateFor, loadRegistryGroups } = await import("../platform/composition/egress-wiring.ts");
   const { resolveRunOrigins } = await import("@contexts/test-execution/application/index.ts");
   const { qayabaRoot } = await import("../platform/settings/paths.ts");
+  const { fileBoundaryLayout, codeRootsOf } = await import("../platform/entrypoints/file-boundary-check.ts");
   const { workdirRoot } = await import("../platform/composition/repo-mirror.ts");
   const { runE2E, createDefaultE2eExecuteDeps, e2eTimeoutMs } = await import("../engine/src/contexts/test-execution/infrastructure/e2e-execution.runner.ts");
   const { ProcessKillAdapter } = await import("../engine/src/shared-infrastructure/process-sandbox/process-kill.adapter.ts");
@@ -95,7 +96,7 @@ async function main(): Promise<number> {
       console.log(`sandbox:smoke: seeding a throwaway project in ${e2eDir} and installing it as uid ${sandbox.uid} (egress ${gate ? `${gate.mode}` : "n/a"})`);
       await buildSetupAdapter(wiring.exec, sandbox).setup(e2eDir);
       for (const f of specFiles) cpSync(join(SMOKE_SPEC_DIR, f), join(e2eDir, f));
-      writeFileSync(join(e2eDir, "smoke-context.json"), JSON.stringify({ otherMirror: other, undeclared, apiPort: Number(env.PORT ?? 458) }));
+      writeFileSync(join(e2eDir, "smoke-context.json"), JSON.stringify({ otherMirror: other, codeRoots: codeRootsOf(fileBoundaryLayout(env, qayabaRoot())), undeclared, apiPort: Number(env.PORT ?? 458) }));
       const deps = createDefaultE2eExecuteDeps(new ProcessKillAdapter(), e2eTimeoutMs(env), wiring.exec);
       const run = await runE2E(e2eDir, { baseUrl: origin, namespace: "sandbox-smoke", specFiles }, deps);
       for (const c of run.cases) console.log(`  ${c.status === "pass" ? "ok  " : "FAIL"} ${c.name}${c.status === "pass" ? "" : ` — ${c.detail ?? ""}`}`);

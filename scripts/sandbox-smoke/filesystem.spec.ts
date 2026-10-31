@@ -14,7 +14,7 @@ function codeOf(action: () => unknown): string {
 }
 
 // What the harness tells the specs, written beside them by the orchestrator (a child gets no variables of its own choosing).
-const context = JSON.parse(readFileSync(join(process.cwd(), "smoke-context.json"), "utf8")) as { otherMirror: string };
+const context = JSON.parse(readFileSync(join(process.cwd(), "smoke-context.json"), "utf8")) as { otherMirror: string; codeRoots: string[] };
 
 const DENIED = /^(EACCES|EPERM|EROFS)$/;
 
@@ -38,7 +38,9 @@ test("the mirrors volume cannot be listed", () => {
 });
 
 test("the orchestrator's own code cannot be changed", () => {
-  expect(codeOf(() => writeFileSync("/app/src/planted-by-smoke.txt", "x"))).toMatch(DENIED);
+  // The folders come from the boot check's layout (codeRootsOf), so a renamed folder cannot leave this planting into a path that no longer exists: a missing folder (ENOENT) is not a refusal.
+  expect(context.codeRoots.length).toBeGreaterThan(0);
+  for (const root of context.codeRoots) expect(codeOf(() => writeFileSync(join(root, "planted-by-smoke.txt"), "x")), root).toMatch(DENIED);
 });
 
 test("an app config cannot be written, so a run cannot widen what the next run may reach", () => {
