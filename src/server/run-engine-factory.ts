@@ -6,7 +6,7 @@
 
 import { appLogger } from "../telemetry/redacting-logger";
 import { join } from "node:path";
-import { DELEGATIONS_DIR, qayabaDataDir, qayabaRoot } from "../paths";
+import { DELEGATIONS_DIR, qayabaDataDir, qayabaRoot } from "../settings/paths";
 import { readFileSync, mkdirSync, writeFileSync, realpathSync, lstatSync, rmSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import type { AppConfig } from "../orchestrator/config-loader";
@@ -153,7 +153,7 @@ import { egressGateFor, loadRegistryGroups } from "./egress-wiring";
 import { blockedHostMatcher, resolveRunOrigins, suiteAccountFor } from "@contexts/test-execution/application/index";
 import { setSandboxGroup } from "../../qa-engine/src/shared-infrastructure/process-sandbox/git-hardening";
 import type { EffectiveConfig, GroundingInput } from "../contract/commands";
-import { requireEnv } from "../util/env";
+import { requireEnv } from "../settings/env";
 import { RedactionPortAdapter, redactSourceForModel } from "../telemetry/sanitizer";
 import { ensureMirror, ensureMirrorAtBranch, defaultMirrorDeps, workdirRoot, realGit, authHeaderArgs, hardenGitArgs, assertTrustedGitTree } from "../integrations/repo-mirror";
 import { stageServiceContext, serviceContextDir, type StageServiceContextInput, type StagedServiceContext } from "@contexts/service-topology/application/index";

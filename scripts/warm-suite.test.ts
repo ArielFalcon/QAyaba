@@ -11,7 +11,7 @@ import {
   main, parseArguments, restoreSuite, specsTouchedSinceSnapshot, storeSnapshotDir, warmSnapshotDir, warmStatus, type WarmDeps,
 } from "./warm-suite.ts";
 import { workdirRoot } from "../src/integrations/repo-mirror.ts";
-import { qayabaDataDir } from "../src/paths.ts";
+import { qayabaDataDir } from "../src/settings/paths.ts";
 import { MAX_FILE_BYTES } from "../qa-engine/src/shared-infrastructure/suite-tree.ts";
 
 const STOCK_SEED = readFileSync(join(import.meta.dirname, "..", "config", "e2e", "auth.setup.ts"), "utf8");

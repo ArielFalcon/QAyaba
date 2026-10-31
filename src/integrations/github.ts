@@ -1,4 +1,4 @@
-import { requireEnv } from "../util/env";
+import { requireEnv } from "../settings/env";
 
 export interface GitHubDeps {
   fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response>;

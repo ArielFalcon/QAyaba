@@ -14,7 +14,7 @@ const ROOT = join(SRC, "..");
 const ALLOWED: Readonly<Record<string, string>> = {
   "src/index.ts": "the server entry point loads the settings once",
   "src/cli.ts": "the CLI entry point loads the settings once",
-  "src/paths.ts": "the repository root is needed before any settings exist",
+  "src/settings/paths.ts": "the repository root is needed before any settings exist",
   "src/telemetry/logger.ts": "the log directory is needed before any settings exist",
   "src/server/file-boundary-check.ts": "a process of its own, started as root before the service, that loads no settings so an unrelated invalid variable cannot stop the sandbox check",
 };

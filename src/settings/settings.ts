@@ -1,7 +1,7 @@
 /* `loadSettings(env)` is the one place the shell reads its environment. It parses every registry entry, collects every problem and throws one SettingsError naming the variables, never a secret's value. The rest of the shell receives the typed groups. */
 
 import { inspect } from "node:util";
-import { DEFAULT_PORT, resolveListenHost, resolvePort } from "../server/port";
+import { DEFAULT_PORT, resolveListenHost, resolvePort } from "./port";
 import { resolveToolsPort } from "../server/tools-endpoint";
 import { resolveEgressMode, type EgressMode } from "../server/egress-wiring";
 import { parseCampaignRetentionDays, parseRetentionDays, resolveTelemetryConfig, type TelemetryConfig } from "../telemetry/config";

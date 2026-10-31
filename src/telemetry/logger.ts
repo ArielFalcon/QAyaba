@@ -1,6 +1,6 @@
 import { createWriteStream, mkdirSync, readdirSync, statSync, unlinkSync, type WriteStream } from "node:fs";
 import { join } from "node:path";
-import { qayabaDataDir } from "../paths";
+import { qayabaDataDir } from "../settings/paths";
 import { finished } from "node:stream/promises";
 import type { LogLevel } from "@kernel/ports/logger.port";
 

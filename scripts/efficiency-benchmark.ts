@@ -657,7 +657,7 @@ function serviceApiToken(env: Record<string, string | undefined>): string | unde
 }
 
 export async function defaultService(env: Record<string, string | undefined>): Promise<BenchmarkService> {
-  const { resolvePort } = await import("../src/server/port.ts");
+  const { resolvePort } = await import("../src/settings/port.ts");
   const token = serviceApiToken(env);
   return { fetch, baseUrl: `http://localhost:${resolvePort(env)}`, ...(token ? { token } : {}) };
 }

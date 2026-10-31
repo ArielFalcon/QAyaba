@@ -1,6 +1,6 @@
 /* The one list of environment variables the orchestrator reads. Each entry names a variable, its type and default, whether it holds a secret and what it does; docs/settings.md is generated from it and the compose/.env.example parity test is held to it. */
 
-import { DEFAULT_LISTEN_HOST, DEFAULT_PORT } from "../server/port";
+import { DEFAULT_LISTEN_HOST, DEFAULT_PORT } from "./port";
 import { DEFAULT_TOOLS_PORT } from "../server/tools-endpoint";
 import { DEFAULT_CAMPAIGN_RETENTION_DAYS, DEFAULT_SERVICE_NAME, DEFAULT_SPAN_RETENTION_DAYS } from "../telemetry/config";
 import { resolveRunTimeBudgets } from "@contexts/run-orchestration/application/index";

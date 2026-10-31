@@ -41,7 +41,7 @@ import { isStockAuthSetup } from "../qa-engine/src/shared-infrastructure/e2e-see
 import { readOwnedSpecFile, writeOwnedSpecFile } from "../qa-engine/src/shared-infrastructure/spec-path-confinement.ts";
 import { MAX_FILE_BYTES, NODE_MODULES, assertRealDirectory, assertSafeRelative, exclusionReason, looksLikeSessionState, readStrict, walkTree } from "../qa-engine/src/shared-infrastructure/suite-tree.ts";
 import { suiteSnapshotDir } from "../qa-engine/src/contexts/workspace-and-publication/infrastructure/suite-store.adapter.ts";
-import { WARM_SNAPSHOTS_DIR, qayabaDataDir } from "../src/paths.ts";
+import { WARM_SNAPSHOTS_DIR, qayabaDataDir } from "../src/settings/paths.ts";
 import { DEFAULT_SUITE_DIR } from "./probe-metrics.ts";
 import { assertFileName } from "./probe-report.ts";
 
@@ -478,7 +478,7 @@ export async function main(argv: string[], deps: WarmDeps): Promise<number> {
 async function appSuiteStore(app: string) {
   const { SuiteStoreAdapter } = await import("../qa-engine/src/contexts/workspace-and-publication/infrastructure/suite-store.adapter.ts");
   const { appSuiteStoreDir } = await import("../src/server/run-engine-factory.ts");
-  const { qayabaRoot } = await import("../src/paths.ts");
+  const { qayabaRoot } = await import("../src/settings/paths.ts");
   const { loadAppConfig } = await import("../src/orchestrator/config-loader.ts");
   return new SuiteStoreAdapter({
     storeDir: appSuiteStoreDir(qayabaRoot(), app),

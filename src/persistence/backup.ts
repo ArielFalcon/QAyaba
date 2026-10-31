@@ -1,6 +1,6 @@
 import { mkdirSync, readdirSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
-import { qayabaDataDir } from "../paths";
+import { qayabaDataDir } from "../settings/paths";
 import { RedactionPortAdapter } from "../telemetry/sanitizer";
 import type { HistoryDatabase } from "./database";
 

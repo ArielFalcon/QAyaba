@@ -94,7 +94,7 @@ test("a path built from a template, a constant of another file and an unresolved
     import { ITEMS } from "./paths";
     export function load(id: string): Promise<Item> { return fetchJson(\`\${process.env.API}\${ITEMS}/\${id}/detail\`); }
   `;
-  const files = sources({ "src/api.ts": api, "src/paths.ts": "export const ITEMS = '/items';\n" });
+  const files = sources({ "src/api.ts": api, "src/settings/paths.ts": "export const ITEMS = '/items';\n" });
   assert.deepEqual(names(expect(files, { method: "GET", path: "/v1/items/42/detail" })), ["x"]);
   assert.equal(expect(files, { method: "GET", path: "/things" }), undefined);
 });

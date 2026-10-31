@@ -35,7 +35,7 @@ import {
   type FileBoundaryVerdict,
 } from "../../qa-engine/src/shared-infrastructure/process-sandbox/file-boundary";
 import { resolveSandbox, type Sandbox } from "../../qa-engine/src/shared-infrastructure/process-sandbox/sandbox";
-import { qayabaRoot } from "../paths";
+import { qayabaRoot } from "../settings/paths";
 import { fileBoundaryLayout, fileBoundaryStatusFile } from "./file-boundary";
 
 const PROBE_SCRIPT = join(dirname(fileURLToPath(import.meta.url)), "file-boundary-probe.mjs");

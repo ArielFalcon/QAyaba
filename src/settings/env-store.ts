@@ -4,7 +4,7 @@
 
 import { chmodSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { qayabaRoot } from "../paths";
+import { qayabaRoot } from "./paths";
 
 const KEY_RE = /^[A-Z][A-Z0-9_]*$/;
 

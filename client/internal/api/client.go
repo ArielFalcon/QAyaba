@@ -24,7 +24,7 @@ type Client struct {
 }
 
 /* DefaultHost is where the orchestrator listens when its PORT is unset (DEFAULT_PORT in
-   src/server/port.ts); every entry point of this client falls back to it when QA_HOST is unset. */
+   src/settings/port.ts); every entry point of this client falls back to it when QA_HOST is unset. */
 const DefaultHost = "localhost:458"
 
 /* ClientVersion is the wire version this binary reports to the server's handshake.

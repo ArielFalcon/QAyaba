@@ -25,7 +25,7 @@ test("a missing registries file declares no registry, which is closed", () => {
 });
 
 test("the registries file the repo ships parses, and every origin in it compiles", async () => {
-  const { qayabaRoot } = await import("../paths");
+  const { qayabaRoot } = await import("../settings/paths");
   const groups = loadRegistryGroups(qayabaRoot());
   assert.ok((groups.npm?.length ?? 0) > 0, "the e2e target needs the npm registry");
 });

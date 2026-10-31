@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import { qayabaDataDir } from "../paths";
+import { qayabaDataDir } from "../settings/paths";
 import { openHistoryDatabase, type HistoryDatabase } from "./database";
 import { ContextRepository } from "./repositories/context.repository";
 import { EvaluationRepository } from "./repositories/evaluation.repository";

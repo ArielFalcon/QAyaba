@@ -6,7 +6,7 @@
 import { appLogger } from "../telemetry/redacting-logger";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
-import { qayabaRoot } from "../paths";
+import { qayabaRoot } from "../settings/paths";
 import { parse } from "yaml";
 import { AppConfigSchema, expandEnv, type ValidatedAppConfig } from "@contexts/app-catalog/application/index";
 import { activeEnvironment } from "../settings/active";

@@ -13,7 +13,7 @@ import { TransparentProxy } from "../../qa-engine/src/shared-infrastructure/egre
 import type { EgressGate } from "../../qa-engine/src/shared-infrastructure/process-sandbox/exec-sandbox";
 import type { Sandbox } from "../../qa-engine/src/shared-infrastructure/process-sandbox/sandbox";
 import { loadAppConfig } from "../orchestrator/config-loader";
-import { qayabaRoot } from "../paths";
+import { qayabaRoot } from "../settings/paths";
 import { forwardDnsQuery } from "../../qa-engine/src/shared-infrastructure/egress/dns-forward";
 
 export type EgressMode = "enforce" | "warn";

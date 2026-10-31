@@ -16,7 +16,7 @@
 
 import { fileURLToPath } from "node:url";
 import { JobQueue } from "./server/queue";
-import { qayabaRoot } from "./paths";
+import { qayabaRoot } from "./settings/paths";
 import { enqueueTrackedRun } from "./server/runner";
 import { processTelemetry, TELEMETRY_SHUTDOWN_TIMEOUT_MS } from "./telemetry/process-telemetry";
 import { createDurableRunEventStore } from "./server/durable-run-events";
@@ -31,7 +31,7 @@ import { runSucceeded } from "./cli-exit";
 import type { GroundingInput } from "./contract/commands";
 import { renderRunReport } from "./qa/value-report";
 import { createAgentRuntimeManager } from "./agent-runtime/agent-runtime";
-import { defaultEnvStoreFs } from "./server/env-store";
+import { defaultEnvStoreFs } from "./settings/env-store";
 import type { Settings } from "./settings/settings";
 import { createSettingsStore, installSettingsStore, type SettingsStore } from "./settings/store";
 import { OpenCodeRuntimeStrategy } from "./agent-runtime";

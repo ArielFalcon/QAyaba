@@ -3,7 +3,7 @@
 import { createServer, type Server } from "node:http";
 import { createControlPlaneHandler, type ControlPlaneDeps } from "./control-plane-router";
 import { guardRequestHandler } from "./guarded-handler";
-import { describeListenAddress, serverErrorListener } from "./port";
+import { describeListenAddress, serverErrorListener } from "../settings/port";
 import { createFixedWindowLimiter } from "./rate-limit";
 import type { Lifecycle } from "./shutdown";
 import { createWebhookHandler, type WebhookHandlerDeps } from "./webhook-handler";

@@ -50,7 +50,7 @@ import { CallEfficiencyTracker } from "@contexts/generation/infrastructure/sse/c
 import { buildTurnStepBudget, type TurnCallMetrics } from "@contexts/generation/application/index.ts";
 import { finalStepText } from "@contexts/generation/application/index.ts";
 import { AUTH_MATERIAL_FILES } from "../qa-engine/src/shared-infrastructure/process-sandbox/auth-session-env.ts";
-import { EXPERIMENT_COPIES_DIR, WARM_SNAPSHOTS_DIR } from "../src/paths.ts";
+import { EXPERIMENT_COPIES_DIR, WARM_SNAPSHOTS_DIR } from "../src/settings/paths.ts";
 import {
   DEFAULT_SUITE_DIR, contentReadsOf, promptSections, renderMarkdown, scoreGroundTruth, totalsOf, turnFromCallMetrics, type GroundTruth, type PhaseDurations, type ProbeReport, type ProbeSpec, type ReadingContext,
 } from "./probe-metrics.ts";

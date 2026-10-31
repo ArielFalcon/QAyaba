@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import { answerHelp, askAboutRun } from "./api/use-cases/ask";
 import type { ApiDeps } from "./api/deps";
 import { getHistory } from "../persistence/index";
-import { DEFAULT_HOST } from "./port";
+import { DEFAULT_HOST } from "../settings/port";
 import type { RunRecord } from "../persistence/types";
 
 const record = (app: string): RunRecord => ({ id: `${app}-run`, app, sha: "abcdef1234567890", target: "e2e", mode: "diff", status: "done", verdict: "fail", cases: [], logs: [], at: "t" });

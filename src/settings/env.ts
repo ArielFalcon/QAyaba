@@ -1,4 +1,4 @@
-import { activeEnvironment } from "../settings/active";
+import { activeEnvironment } from "./active";
 
 export function requireEnv(key: string): string {
   const v = activeEnvironment()[key];

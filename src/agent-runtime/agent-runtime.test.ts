@@ -1,7 +1,7 @@
 import { test, mock } from "node:test";
 import assert from "node:assert/strict";
 import { createAgentRuntimeManager } from "./agent-runtime";
-import type { EnvStoreFs } from "../server/env-store";
+import type { EnvStoreFs } from "../settings/env-store";
 import type { AgentProvider, AgentRuntimeStrategy } from "./types";
 import { providerConfig } from "./config";
 

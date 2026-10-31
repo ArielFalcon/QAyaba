@@ -1,5 +1,5 @@
 import { appLogger } from "../telemetry/redacting-logger";
-import { defaultEnvStoreFs, applyEnvVars, type EnvStoreFs } from "../server/env-store";
+import { defaultEnvStoreFs, applyEnvVars, type EnvStoreFs } from "../settings/env-store";
 import { RedactionPortAdapter } from "../telemetry/sanitizer";
 import {
   configFromEnv,
