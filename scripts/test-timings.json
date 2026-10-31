@@ -476,7 +476,7 @@
   "qa-engine/test/shared-kernel/diff-parser/changed-literals.test.ts": 8,
   "qa-engine/test/shared-kernel/diff-parser/changed-text.test.ts": 4,
   "qa-engine/test/shared-kernel/diff-parser/diff-parser.service.test.ts": 7,
-  "qa-engine/test/shared-kernel/diff-stat.test.ts": 2,
+  "qa-engine/test/contexts/generation/domain/diff-stat.test.ts": 2,
   "qa-engine/test/shared-kernel/domain-error.test.ts": 1,
   "qa-engine/test/shared-kernel/egress-policy.test.ts": 28,
   "qa-engine/test/shared-kernel/error-class.classification.test.ts": 2,

@@ -362,7 +362,7 @@ test("the prompt-contract preset mutates the lint, the regeneration predicate, t
   assert.deepEqual(preset.mutate.map(sourcePathOf), [
     "qa-engine/src/contexts/generation/domain/prompt-contract-lint.ts",
     "qa-engine/src/contexts/generation/domain/regen-turn.ts",
-    "qa-engine/src/shared-kernel/diff-stat.ts",
+    "qa-engine/src/contexts/generation/domain/diff-stat.ts",
     "qa-engine/src/contexts/generation/domain/harness-facts.ts",
     "qa-engine/src/contexts/generation/domain/step-limit.ts",
     "qa-engine/src/contexts/generation/domain/suite-listing-render.ts",

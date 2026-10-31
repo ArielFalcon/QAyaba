@@ -335,7 +335,7 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
     mutate: [
       `${GEN}/domain/prompt-contract-lint.ts`,
       `${GEN}/domain/regen-turn.ts`,
-      `${KERNEL}/diff-stat.ts`,
+      `${GEN}/domain/diff-stat.ts`,
       `${GEN}/domain/harness-facts.ts`,
       `${GEN}/domain/step-limit.ts`,
       `${GEN}/domain/suite-listing-render.ts`,
@@ -344,7 +344,7 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
     tests: [
       `${GEN_TEST}/domain/prompt-contract-lint.test.ts`,
       `${GEN_TEST}/domain/regen-turn.test.ts`,
-      `${KERNEL_TEST}/diff-stat.test.ts`,
+      `${GEN_TEST}/domain/diff-stat.test.ts`,
       `${GEN_TEST}/domain/harness-facts.test.ts`,
       `${GEN_TEST}/domain/step-limit.test.ts`,
       `${GEN_TEST}/domain/suite-listing-render.test.ts`,

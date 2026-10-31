@@ -1,7 +1,7 @@
 /* The task block of a generator prompt: what this turn is asked to do, per mode, target and turn kind. The "how" lives in agents/agent/*.md. Never import src/. */
 
 import { sanitizeText } from "../../../../shared-infrastructure/redaction/pattern-redaction.adapter.ts";
-import { diffStat, type DiffStat } from "@kernel/diff-stat.ts";
+import { diffStat, type DiffStat } from "@contexts/generation/domain/diff-stat.ts";
 import { PROMPT_HEADINGS } from "@contexts/generation/domain/prompt-headings.ts";
 import { isReGenTurn } from "@contexts/generation/domain/regen-turn.ts";
 import { claim, type PromptClaim } from "@contexts/generation/domain/prompt-contract-lint.ts";
