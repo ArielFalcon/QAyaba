@@ -670,8 +670,71 @@ test("resolveRef refuses a ref that git would read as an option before it reache
 
 test("resolveRef still resolves a branch, a tag and a full ref name", async () => {
   for (const ref of ["main", "release/1.2", "v1.2.3", "refs/heads/main", "HEAD"]) {
-    const d = gitStub(() => "a".repeat(40));
-    await resolveRef("org/app", ref, d);
+    const named = ref.startsWith("refs/") || ref === "HEAD" ? ref : `refs/heads/${ref}`;
+    const d = gitStub(() => `${"a".repeat(40)}\t${named}\n`);
+    assert.equal(await resolveRef("org/app", ref, d), "a".repeat(40));
     assert.equal(d.calls[0]?.at(-1), ref);
+  }
+});
+
+/* ls-remote matches a pattern against the tail of every ref name, so `main` also lists `feature/main`: a ref resolves to the ref of exactly that name. */
+function remoteWithBranches(): { remote: string; shas: Record<string, string>; deps: MirrorDeps } {
+  const remote = mkdtempSync(join(tmpdir(), "resolve-ref-"));
+  const git = (...args: string[]): string => execFileSync("git", args, { cwd: remote, env: GIT_ENV, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+  git("init", "-q", "-b", "main");
+  const shas: Record<string, string> = {};
+  const commit = (name: string): void => {
+    writeFileSync(join(remote, "f"), name);
+    git("add", "f");
+    git("commit", "-qm", name);
+    shas[name] = git("rev-parse", "HEAD");
+  };
+  commit("main");
+  git("checkout", "-q", "-b", "feature/main");
+  commit("feature/main");
+  git("checkout", "-q", "-b", "other");
+  commit("other");
+  git("tag", "main", shas["other"] as string);
+  git("tag", "v1", shas["other"] as string);
+  git("checkout", "-q", "main");
+  const deps: MirrorDeps = {
+    root: "/tmp/mirrors", exists: () => true, removeFile: () => {},
+    git: async (args) => {
+      const at = args.indexOf("ls-remote");
+      return execFileSync("git", ["ls-remote", remote, ...args.slice(at + 2)], { cwd: remote, env: GIT_ENV, encoding: "utf8" });
+    },
+  };
+  return { remote, shas, deps };
+}
+
+test("resolveRef answers with the branch of exactly that name, not one whose name ends with it", async () => {
+  const { remote, shas, deps } = remoteWithBranches();
+  try {
+    assert.equal(await resolveRef("org/app", "main", deps), shas["main"]);
+    assert.equal(await resolveRef("org/app", "feature/main", deps), shas["feature/main"]);
+    assert.equal(await resolveRef("org/app", "refs/heads/other", deps), shas["other"]);
+    assert.equal(await resolveRef("org/app", "HEAD", deps), shas["main"]);
+  } finally {
+    rmSync(remote, { recursive: true, force: true });
+  }
+});
+
+test("resolveRef resolves a tag, and a branch wins over a tag of the same name", async () => {
+  const { remote, shas, deps } = remoteWithBranches();
+  try {
+    assert.equal(await resolveRef("org/app", "v1", deps), shas["other"]);
+    assert.equal(await resolveRef("org/app", "main", deps), shas["main"]);
+  } finally {
+    rmSync(remote, { recursive: true, force: true });
+  }
+});
+
+test("resolveRef refuses a name that only the tail of another ref matches", async () => {
+  const { remote, deps } = remoteWithBranches();
+  try {
+    await assert.rejects(() => resolveRef("org/app", "ain", deps), /no SHA resolved for ain/);
+    await assert.rejects(() => resolveRef("org/app", "ghost", deps), /no SHA resolved for ghost/);
+  } finally {
+    rmSync(remote, { recursive: true, force: true });
   }
 });

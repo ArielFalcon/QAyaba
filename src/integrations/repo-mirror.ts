@@ -214,13 +214,24 @@ export const defaultMirrorDeps: MirrorDeps = {
  * Auth flows through the -c insteadOf rewrite: the rewritten URL carries inline
  * credentials, so no credential helper is consulted (no terminal → no prompt) and
  * the URL argument itself stays tokenless.
+ *
+ * ls-remote matches its pattern against the tail of every ref name (`main` lists `refs/heads/main` and
+ * `refs/heads/feature/main`), so the answer is the line whose ref name is exactly the one asked for: a branch, then a tag
+, then the full name the caller gave.
  */
 export async function resolveRef(repo: string, ref: string, deps: MirrorDeps): Promise<string> {
-  /* The ref follows the URL, where ls-remote still reads options: a ref from an API payload or an app's config is judged first. */
+  /* Git 2.43+ refuses an option after the URL, older versions read one: a ref from an API payload or an app's config is judged first as defence in depth. */
   assertRefName(ref);
   const stdout = await deps.git([...authHeaderArgs(), "ls-remote", tokenlessUrl(repo), ref]);
-  const sha = stdout.split(/\s/)[0];
-  if (!sha || sha.length < 40) throw new Error(`no SHA resolved for ${ref}`);
-  return sha;
+  const shaByName = new Map<string, string>();
+  for (const line of stdout.split("\n")) {
+    const [sha, name] = line.split("\t");
+    if (sha && name) shaByName.set(name, sha);
+  }
+  for (const name of [`refs/heads/${ref}`, `refs/tags/${ref}`, ref]) {
+    const sha = shaByName.get(name);
+    if (sha && sha.length >= 40) return sha;
+  }
+  throw new Error(`no SHA resolved for ${ref}`);
 }
 
