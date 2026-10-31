@@ -9,6 +9,7 @@ import type { TelemetryPort } from "../../../shared-kernel/telemetry/telemetry.p
 import type { CheckResult } from "../domain/execution-strategy.ts";
 import type { ValidateDeps } from "./static-gate.checks.ts";
 
+import type { ForwardsAll } from "@kernel/forwarding.ts";
 export type ValidateCheckName = "typecheck" | "lint" | "list" | "manifest";
 
 const TSC_ERROR = /\berror TS\d+/g;
@@ -88,5 +89,5 @@ export function traceValidateDeps(deps: ValidateDeps, telemetry: TelemetryPort):
     lint: traced("lint", deps.lint),
     listTests: traced("list", deps.listTests),
     checkManifest: traced("manifest", deps.checkManifest),
-  };
+  } satisfies ForwardsAll<ValidateDeps>;
 }

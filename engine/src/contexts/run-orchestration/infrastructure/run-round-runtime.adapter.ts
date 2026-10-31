@@ -9,6 +9,7 @@
 import type { AgentPromptOpts, AgentRuntimePort, AgentSession, OpenSessionOpts } from "@kernel/ports/agent-runtime.port.ts";
 import type { AgentRole } from "@kernel/agent-role.ts";
 
+import type { AssertNever, ForwardsAll, MissingForwards } from "@kernel/forwarding.ts";
 export class RunRoundRuntime implements AgentRuntimePort {
   private readonly rounds = new Map<AgentRole, number>();
 
@@ -19,7 +20,7 @@ export class RunRoundRuntime implements AgentRuntimePort {
     return {
       prompt: (text, promptOpts) => this.prompt(role, session, text, promptOpts),
       dispose: () => session.dispose(),
-    };
+    } satisfies ForwardsAll<AgentSession>;
   }
 
   private async prompt(role: AgentRole, session: AgentSession, text: string, promptOpts?: AgentPromptOpts): Promise<{ output: string }> {
@@ -29,3 +30,6 @@ export class RunRoundRuntime implements AgentRuntimePort {
     return session.prompt(text, { ...promptOpts, round });
   }
 }
+
+/* A method AgentRuntimePort gains is a compile error here until RunRoundRuntime forwards it. */
+type _RunRoundRuntimeForwards = AssertNever<MissingForwards<AgentRuntimePort, RunRoundRuntime>>;

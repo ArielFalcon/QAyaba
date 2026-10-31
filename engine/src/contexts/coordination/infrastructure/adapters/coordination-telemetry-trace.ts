@@ -9,6 +9,7 @@ import { startRunChildSpan } from "../../../../shared-infrastructure/telemetry/r
 import type { TelemetryPort } from "../../../../shared-kernel/telemetry/telemetry.port.ts";
 import type { CoordinationTelemetryEvent, CoordinationTelemetryPort } from "../../application/coordination-telemetry.ts";
 
+import type { AssertNever, MissingForwards } from "@kernel/forwarding.ts";
 /* The most items of a list an event exports; the registry caps the array again. */
 const MAX_LISTED = 12;
 
@@ -65,3 +66,6 @@ export class TracedCoordinationTelemetry implements CoordinationTelemetryPort {
     }).end();
   }
 }
+
+/* A method CoordinationTelemetryPort gains is a compile error here until TracedCoordinationTelemetry forwards it. */
+type _TracedCoordinationTelemetryForwards = AssertNever<MissingForwards<CoordinationTelemetryPort, TracedCoordinationTelemetry>>;

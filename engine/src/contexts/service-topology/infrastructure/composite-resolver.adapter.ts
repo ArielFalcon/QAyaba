@@ -5,6 +5,7 @@ import type { ServiceBoundaryResolverPort } from "../application/ports/service-b
 import type { ResolveLinksResult } from "../domain/service-boundary-resolver.ts";
 import type { RepoRef, ExternalCall, UnresolvedCall } from "../domain/index.ts";
 
+import type { AssertNever, MissingForwards } from "@kernel/forwarding.ts";
 const RESOLVER_TIMEOUT_MS = 30_000;
 
 /** Wraps one resolver call with a bounded timeout. A stuck or throwing resolver degrades to empty. Guards against both async rejection AND synchronous throw before Promise is returned. */
@@ -79,3 +80,6 @@ export class CompositeServiceBoundaryResolver implements ServiceBoundaryResolver
     return { links: [...seenLinks.values()], drift, external, unresolved };
   }
 }
+
+/* A method ServiceBoundaryResolverPort gains is a compile error here until CompositeServiceBoundaryResolver carries it. */
+type _CompositeServiceBoundaryResolverForwards = AssertNever<MissingForwards<ServiceBoundaryResolverPort, CompositeServiceBoundaryResolver>>;

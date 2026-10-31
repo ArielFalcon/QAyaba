@@ -4,6 +4,7 @@ import { engineLog } from "@kernel/ports/process-logger.ts";
 import { NoopTelemetry } from "./noop-telemetry.ts";
 import type { RecordMeasurement, SpanHandle, StartSpanOptions, TelemetryContext, TelemetryPort } from "./telemetry.port.ts";
 
+import type { AssertNever, MissingForwards } from "@kernel/forwarding.ts";
 const NOOP = new NoopTelemetry();
 const GUARDED = new WeakSet<object>();
 
@@ -169,3 +170,9 @@ export class ThrowingTelemetry implements TelemetryPort {
     return this.fail();
   }
 }
+
+/* A method TelemetryPort gains is a compile error here until GuardedTelemetry forwards it. */
+type _GuardedTelemetryForwards = AssertNever<MissingForwards<TelemetryPort, GuardedTelemetry>>;
+
+/* A method SpanHandle gains is a compile error here until GuardedSpan forwards it. */
+type _GuardedSpanForwards = AssertNever<MissingForwards<SpanHandle, GuardedSpan>>;

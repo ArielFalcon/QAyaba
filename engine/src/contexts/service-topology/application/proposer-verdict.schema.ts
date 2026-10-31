@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { BoundaryProfile } from "../domain/index.ts";
+import type { AssertNever } from "@kernel/forwarding.ts";
 
 /*
  * LLM-text Zod parser for the proposer flow. Field names match the context's BoundaryProfile union; every string uses `.min(1)` — empty globs
@@ -74,7 +75,6 @@ export type SchemaCandidate = z.infer<typeof CandidateSchema>;
  * per-variant key diffs, plus a whole-union transport-literal coverage gate for new variants.
  */
 type KeyDiff<A, B> = Exclude<keyof A, keyof B> | Exclude<keyof B, keyof A>;
-type AssertNever<T extends never> = T;
 
 type _HttpParity = AssertNever<
   KeyDiff<Extract<SchemaCandidate, { transport: "http" }>, Extract<BoundaryProfile, { transport: "http" }>>

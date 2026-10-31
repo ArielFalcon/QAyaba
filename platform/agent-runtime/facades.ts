@@ -18,6 +18,7 @@ import {
 import type { DeclaredModels } from "./types";
 import { declaredAgentModel } from "./declared-model";
 
+import type { AssertNever, ForwardsAll, MissingForwards } from "@kernel/forwarding";
 /*
  * The one facade over the agent runtimes: every role is opened on the strategy its assignment names. The host runs
  * one runtime today; a second one is added by a member of AgentProvider and a strategy for it.
@@ -52,7 +53,7 @@ export class AgentRuntimeFacade implements AgentFacade {
         );
         return counts.reduce((sum, count) => sum + count, 0);
       },
-    };
+    } satisfies ForwardsAll<AgentDeps>;
   }
 
   async getStatus(): Promise<{ providers: AgentProviderHealth[] }> {
@@ -100,3 +101,6 @@ export class AgentRuntimeFacade implements AgentFacade {
     await Promise.all(this.providers().map((provider) => this.strategies[provider].startEventStream?.(onActivity, signal, onRunEvent) ?? Promise.resolve()));
   }
 }
+
+/* A method AgentFacade gains is a compile error here until AgentRuntimeFacade carries it. */
+type _AgentRuntimeFacadeForwards = AssertNever<MissingForwards<AgentFacade, AgentRuntimeFacade>>;

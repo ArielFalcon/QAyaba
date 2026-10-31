@@ -12,6 +12,7 @@
 import { MAX_RECORDED_EXECUTIONS, recordOfExecution, type ExecutionRecord, type ExecutionsSignal } from "@kernel/execution-conditions.ts";
 import type { ExecutionOpts, ExecutionPort } from "@contexts/test-execution/application/index.ts";
 
+import type { ForwardsAll } from "@kernel/forwarding.ts";
 export interface RunExecutions {
   /** The run signed a saved session in at `at` (wall-clock ms): every execution after it is told so, and records its age. */
   signedIn(at: number): void;
@@ -50,7 +51,7 @@ export function runExecutions(deps: RunExecutionsDeps = {}): RunExecutions {
         }
         return result;
       },
-    }),
+    } satisfies ForwardsAll<ExecutionPort>),
     signal: () => (runs.length === 0 ? undefined : { runs: [...runs], ...(omitted > 0 ? { omitted } : {}) }),
   };
 }

@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import { roleToAgentName } from "../composition/run-engine-factory";
 import type { AgentRole as RuntimeAgentRole } from "./types";
 import type { AgentRole as KernelAgentRole } from "@kernel/agent-role";
+import type { AssertNever } from "@kernel/forwarding";
 
 test("roleToAgentName maps the kernel proposer role to the qa-proposer agent", () => {
   assert.equal(roleToAgentName("proposer"), "qa-proposer");
@@ -25,7 +26,6 @@ test("roleToAgentName maps the sidekick role to its own qa-author agent (not qa-
  */
 
 type KeyDiff<A, B> = Exclude<A, B> | Exclude<B, A>;
-type AssertNever<T extends never> = T;
 
 /* If this line fails to compile, the kernel and runtime AgentRole unions have drifted. */
 // eslint-disable-next-line @typescript-eslint/no-unused-vars

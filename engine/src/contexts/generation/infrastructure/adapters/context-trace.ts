@@ -17,6 +17,7 @@ import type { CrossRepoImpactPort, ServiceLinksPort } from "@contexts/service-to
 import type { StructuralSignalPort, StructuralSignalResult } from "@kernel/ports/structural-signal.port.ts";
 import type { GroundingTrace } from "./pre-generation-grounding-port.adapter.ts";
 
+import type { AssertNever, MissingForwards } from "@kernel/forwarding.ts";
 const bytesOf = (text: string): number => Buffer.byteLength(text, "utf8");
 const jsonBytes = (value: unknown): number => {
   try {
@@ -142,3 +143,12 @@ export class TracedCrossRepoImpactPort implements CrossRepoImpactPort {
     return impact;
   }
 }
+
+/* A method ServiceLinksPort gains is a compile error here until TracedServiceLinksPort forwards it. */
+type _TracedServiceLinksPortForwards = AssertNever<MissingForwards<ServiceLinksPort, TracedServiceLinksPort>>;
+
+/* A method StructuralSignalPort gains is a compile error here until TracedStructuralSignalPort forwards it. */
+type _TracedStructuralSignalPortForwards = AssertNever<MissingForwards<StructuralSignalPort, TracedStructuralSignalPort>>;
+
+/* A method CrossRepoImpactPort gains is a compile error here until TracedCrossRepoImpactPort forwards it. */
+type _TracedCrossRepoImpactPortForwards = AssertNever<MissingForwards<CrossRepoImpactPort, TracedCrossRepoImpactPort>>;

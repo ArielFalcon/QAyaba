@@ -13,6 +13,7 @@ import { isAgentTimeoutError } from "@kernel/domain-error.ts";
 import type { DeadlinePurpose } from "@kernel/deadline-purpose.ts";
 import { AllotmentSpentError, RunDeadlineExceededError, type RunDeadlineStop, type RunDeadlineView } from "@kernel/run-deadline.ts";
 
+import type { AssertNever, ForwardsAll, MissingForwards } from "@kernel/forwarding.ts";
 export interface RunDeadlineRuntimeOptions {
   /** The longest the host lets a prompt with no limit of its own run: when that is shorter than the time left, the host's deadline is what ends such a turn, not the run's. Absent: the host states none. */
   hostPromptCapMs?: number;
@@ -50,7 +51,7 @@ export class RunDeadlineRuntime implements AgentRuntimePort {
     return {
       prompt: (text, promptOpts) => this.prompt(role, session, opts?.timeoutMs, text, promptOpts),
       dispose: () => this.dispose(role, session),
-    };
+    } satisfies ForwardsAll<AgentSession>;
   }
 
   /* A session that does not answer its delete would hold the run past its end: the delete gets what the run has left, or the grace once that is spent, and a hang is logged, never thrown, as a failed delete is. */
@@ -104,3 +105,6 @@ export class RunDeadlineRuntime implements AgentRuntimePort {
     }
   }
 }
+
+/* A method AgentRuntimePort gains is a compile error here until RunDeadlineRuntime forwards it. */
+type _RunDeadlineRuntimeForwards = AssertNever<MissingForwards<AgentRuntimePort, RunDeadlineRuntime>>;

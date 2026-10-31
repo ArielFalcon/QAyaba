@@ -17,6 +17,7 @@ import type { BundleMutationOutcome, CoverageMeasurement, MutantSelectionRecord 
 import type { CoverageSignal, ObjectiveSignalPort } from "../../application/ports/objective-signal.port.ts";
 import { engineLog } from "@kernel/ports/process-logger.ts";
 
+import type { AssertNever, MissingForwards } from "@kernel/forwarding.ts";
 /* How many candidates were measured and, per reason, how many were not: `reason: count`, once each. */
 function candidateAttrs(perCandidate: readonly CandidateCoverage[]) {
   const reasons = new Map<string, number>();
@@ -193,3 +194,6 @@ export class TracedObjectiveSignalPort implements ObjectiveSignalPort {
     return this.inner.blocks(status);
   }
 }
+
+/* A method ObjectiveSignalPort gains is a compile error here until TracedObjectiveSignalPort forwards it. */
+type _TracedObjectiveSignalPortForwards = AssertNever<MissingForwards<ObjectiveSignalPort, TracedObjectiveSignalPort>>;

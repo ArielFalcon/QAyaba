@@ -11,6 +11,7 @@ import { startRunChildSpan } from "../../../../shared-infrastructure/telemetry/r
 import { SKIP_REASON, classifyDemoteReason, type SuiteCaptureInput, SuiteCaptureResult, SuiteRestoreResult, SuiteRoot, SuiteStorePort } from "../../../../shared-kernel/ports/suite-store.port.ts";
 import type { TelemetryPort } from "../../../../shared-kernel/telemetry/telemetry.port.ts";
 
+import type { AssertNever, MissingForwards } from "@kernel/forwarding.ts";
 export const SKIP_CLASS = ["login-session", "changed-after-run", "login-not-verified", "vanished", "unreadable"] as const;
 export type SkipClass = (typeof SKIP_CLASS)[number];
 
@@ -99,3 +100,6 @@ export class TracedSuiteStore implements SuiteStorePort {
     }
   }
 }
+
+/* A method SuiteStorePort gains is a compile error here until TracedSuiteStore forwards it. */
+type _TracedSuiteStoreForwards = AssertNever<MissingForwards<SuiteStorePort, TracedSuiteStore>>;

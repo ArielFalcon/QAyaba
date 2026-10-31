@@ -28,6 +28,7 @@ import { createLogShipper } from "./log-shipper";
 import { PromptBodyExporter } from "./prompt-body-logs";
 import { registerPromptBodyHost } from "./with-prompt-bodies";
 
+import type { AssertNever, MissingForwards } from "@kernel/forwarding";
 export const DEFAULT_SHUTDOWN_TIMEOUT_MS = 5000;
 const METRIC_EXPORT_INTERVAL_MS = 60_000;
 /* Run and phase durations last 60-9000 s; the semconv advisory buckets stop near 82 s and would make p50/p95 meaningless. */
@@ -111,6 +112,9 @@ class ObservedExporter implements SpanExporter {
     this.status.lastError = sanitizeText(text, "issue").text.slice(0, MAX_ERROR_CHARS);
   }
 }
+
+/* A method SpanExporter gains is a compile error here until ObservedExporter forwards it. */
+type _ObservedExporterForwards = AssertNever<MissingForwards<SpanExporter, ObservedExporter>>;
 
 function offHandle(clock: TelemetryClock): TelemetryHandle {
   const health: TelemetryHealth = {

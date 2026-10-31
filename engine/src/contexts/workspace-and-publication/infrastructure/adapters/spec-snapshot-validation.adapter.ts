@@ -24,6 +24,7 @@ import { normalizeSpecPath } from "@kernel/spec-path.ts";
 import { MAX_SPEC_SNAPSHOTS_PER_CAPTURE, MAX_SPEC_SNAPSHOT_BYTES_PER_RUN, MAX_SPEC_SNAPSHOT_TEXT_BYTES, type SpecSnapshot, type SpecSnapshotPort } from "@kernel/ports/spec-snapshot.port.ts";
 import type { ValidationPort, ValidationRunInfo } from "@contexts/test-execution/application/index.ts";
 
+import type { AssertNever, MissingForwards } from "@kernel/forwarding.ts";
 /* How many runs' kept specs a port remembers. */
 export const MAX_REMEMBERED_RUNS = 4;
 
@@ -114,3 +115,6 @@ export class SpecSnapshotValidationPort implements ValidationPort {
     }
   }
 }
+
+/* A method ValidationPort gains is a compile error here until SpecSnapshotValidationPort forwards it. */
+type _SpecSnapshotValidationPortForwards = AssertNever<MissingForwards<ValidationPort, SpecSnapshotValidationPort>>;
