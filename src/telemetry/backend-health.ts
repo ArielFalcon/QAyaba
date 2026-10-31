@@ -9,7 +9,7 @@
    Bounded and cheap: every request has a timeout, the result is cached for a short ttl, concurrent callers share one probe, and `peek` never waits (it starts a background refresh when stale). Everything is fail-open: a fault becomes a `down` entry with an address-free reason, never a throw. Addresses come from the environment (QA_TELEMETRY_LOKI_URL, QA_TELEMETRY_TEMPO_URL, QA_TELEMETRY_COLLECTOR_METRICS_URLS); a backend with none is `unconfigured` and does not make the stack unhealthy. HTTP, the clock and the ttl are injected. */
 
 import type { BackendHealth, BackendStatus, TelemetryBackendsHealth } from "./telemetry-health";
-import { DEFAULT_SERVICE_NAME } from "../settings/telemetry-config";
+import type { BackendHealthConfig } from "../settings/backend-health-config";
 import { redactAndBound } from "../../qa-engine/src/shared-infrastructure/redaction/redact-and-bound";
 
 export const BACKEND_HEALTH_TTL_MS = 30_000;
@@ -35,42 +35,12 @@ export interface BackendResponse {
 }
 export type BackendFetch = (url: string, init: BackendFetchInit) => Promise<BackendResponse>;
 
-export interface BackendHealthConfig {
-  readonly lokiUrl?: string;
-  readonly tempoUrl?: string;
-  readonly collectorMetricsUrls: readonly string[];
-  /* The service whose newest line and trace are looked for. */
-  readonly serviceName: string;
-}
-
 export interface BackendHealthDeps {
   readonly config: BackendHealthConfig;
   readonly fetch: BackendFetch;
   readonly now: () => number;
   readonly ttlMs?: number;
   readonly timeoutMs?: number;
-}
-
-type Env = Record<string, string | undefined>;
-
-const trimUrl = (raw: string | undefined): string | undefined => {
-  const v = (raw ?? "").trim().replace(/\/+$/, "");
-  return v === "" ? undefined : v;
-};
-
-export function resolveBackendHealthConfig(env: Env): BackendHealthConfig {
-  const lokiUrl = trimUrl(env.QA_TELEMETRY_LOKI_URL);
-  const tempoUrl = trimUrl(env.QA_TELEMETRY_TEMPO_URL);
-  const collectorMetricsUrls = (env.QA_TELEMETRY_COLLECTOR_METRICS_URLS ?? "")
-    .split(",")
-    .map((u) => u.trim())
-    .filter((u) => u !== "");
-  return {
-    ...(lokiUrl ? { lokiUrl } : {}),
-    ...(tempoUrl ? { tempoUrl } : {}),
-    collectorMetricsUrls,
-    serviceName: (env.OTEL_SERVICE_NAME ?? "").trim() || DEFAULT_SERVICE_NAME,
-  };
 }
 
 /* Sum of the samples of every metric whose name matches. Labels are ignored; comments and unparsable lines are skipped. */
