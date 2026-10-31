@@ -14,7 +14,7 @@ import type { EgressGate } from "../../qa-engine/src/shared-infrastructure/proce
 import type { Sandbox } from "../../qa-engine/src/shared-infrastructure/process-sandbox/sandbox";
 import { loadAppConfig } from "../orchestrator/config-loader";
 import { qayabaRoot } from "../paths";
-import { forwardDnsQuery } from "./dns-forward";
+import { forwardDnsQuery } from "../../qa-engine/src/shared-infrastructure/egress/dns-forward";
 
 export type EgressMode = "enforce" | "warn";
 
