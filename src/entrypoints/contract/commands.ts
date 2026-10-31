@@ -6,6 +6,8 @@ import { isRepoSlug } from "../../../qa-engine/src/shared-kernel/repo-slug";
 import { TestTargetSchema, RunModeSchema, RunVerdictSchema, RunEngineStatusSchema } from "../../../qa-engine/src/shared-kernel/contract/events";
 import { CAMPAIGN_ID_PATTERN, CAMPAIGN_LABEL_PATTERN, MAX_CAMPAIGN_REPLICATE, MAX_VARIANT_KEYS } from "./campaign";
 import { CAPTURE_MODES } from "../../../qa-engine/src/shared-kernel/telemetry/capture-mode";
+import { ACTIVITY_KINDS } from "../../../qa-engine/src/shared-kernel/activity-kind";
+import type { ChangeEntryRecord } from "../../../qa-engine/src/shared-kernel/change-set";
 
 export const CaseStatusSchema = z.enum(["pass", "fail", "flaky"]);
 
@@ -43,7 +45,7 @@ export const SpecRecordSchema = z.object({
   flow: z.string().optional(),
 });
 
-export const ActivityKindSchema = z.enum(["file", "command", "todo", "phase", "error"]);
+export const ActivityKindSchema = z.enum(ACTIVITY_KINDS);
 
 export const AgentActivitySchema = z.object({
   kind: ActivityKindSchema,
@@ -61,7 +63,7 @@ export const RunChangeEntrySchema = z.object({
   headSha: z.string(),
   baseSha: z.string().optional(),
   commits: z.number().int().positive().optional(),
-});
+}) satisfies z.ZodType<ChangeEntryRecord>;
 
 export const RunRecordSchema = z.object({
   id: z.string(),

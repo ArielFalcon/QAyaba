@@ -1,10 +1,10 @@
-/* `ActivityKind` is declared locally below (mirrors src/persistence/types.ts's own 5-value union) — qa-engine never imports src/. Authoritative event shapes (from @opencode-ai/sdk types): message.part.updated → { part: Part, delta? } sessionID lives in part.sessionID part.type "tool" → { tool, state:{ status, input, title } } (write/edit/bash/…) part.type "patch" → { files: string[] } part.type "file" → { filename } part.type text/reasoning/step → PROSE → dropped (this was the broken `"file": "s`) todo.updated → { sessionID, todos: Todo[] } (each: content, status, priority, id) command.executed → { sessionID, name, arguments } file.edited → { file } (no sessionID — cannot be run-scoped) session.error → { sessionID?, error } The router demuxes by sessionID → runId and stays ADVISORY-ONLY. Raw model prose is never surfaced — only clean structured fields (the file written, the command run, the todo the agent is on). */
+/* `ActivityKind` is the kernel's (activity-kind.ts). Authoritative event shapes (from @opencode-ai/sdk types): message.part.updated → { part: Part, delta? } sessionID lives in part.sessionID part.type "tool" → { tool, state:{ status, input, title } } (write/edit/bash/…) part.type "patch" → { files: string[] } part.type "file" → { filename } part.type text/reasoning/step → PROSE → dropped (this was the broken `"file": "s`) todo.updated → { sessionID, todos: Todo[] } (each: content, status, priority, id) command.executed → { sessionID, name, arguments } file.edited → { file } (no sessionID — cannot be run-scoped) session.error → { sessionID?, error } The router demuxes by sessionID → runId and stays ADVISORY-ONLY. Raw model prose is never surfaced — only clean structured fields (the file written, the command run, the todo the agent is on). */
 
 import { redactAndBound } from "../../../../shared-infrastructure/redaction/redact-and-bound.ts";
 import { isShellTool, isWriteTool, toolInputPath } from "../../domain/tool-call-taxonomy.ts";
 
-/** Mirrors src/persistence/types.ts's own ActivityKind exactly — declared locally (qa-engine never imports src/). It is the kind of an activity-list entry, not the 4-value kind of an `agent.activity` run event (`AgentActivityKind` in tool-call-taxonomy.ts). */
-export type ActivityKind = "file" | "command" | "todo" | "phase" | "error";
+import type { ActivityKind } from "@kernel/activity-kind.ts";
+export type { ActivityKind };
 
 export interface RoutedActivity {
   runId: string;

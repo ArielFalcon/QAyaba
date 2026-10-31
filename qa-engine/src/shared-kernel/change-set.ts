@@ -14,6 +14,9 @@ export interface ChangeEntry {
   readonly commits?: number;
 }
 
+/* A change entry as a run's record keeps it and the control API serves it: the same fields, the commits as plain strings. */
+export type ChangeEntryRecord = { -readonly [K in keyof ChangeEntry]: Exclude<ChangeEntry[K], undefined> extends Sha ? string : ChangeEntry[K] };
+
 export class ChangeSet {
   private constructor(readonly app: string, readonly entries: readonly ChangeEntry[]) {}
 

@@ -1,11 +1,11 @@
 
 
-import type { ActivityKindSchema, RunChangeEntrySchema } from "../entrypoints/contract/commands";
-import type { z } from "zod";
 import { parseRunMode, RUN_MODES, type RunMode, type TestTarget, type TriggerSource } from "@kernel/run-mode";
 import { RUN_ENGINE_STATUSES, engineStatus, type RunEngineStatus, type RunVerdict } from "@kernel/run-verdict";
 import type { CaseStatus, QaCase, SpecRecord } from "@kernel/qa-case";
 import type { RunOutcome as EngineRunOutcome } from "@kernel/run-outcome";
+import type { ActivityKind } from "@kernel/activity-kind";
+import type { ChangeEntryRecord } from "@kernel/change-set";
 
 export { parseRunMode, RUN_MODES, RUN_ENGINE_STATUSES, engineStatus };
 export type { RunMode, TestTarget, TriggerSource, RunEngineStatus, RunVerdict, CaseStatus, QaCase };
@@ -24,7 +24,7 @@ export interface QaRunResult {
  * A structured, real-time activity event for the TUI. `kind` (and `status` for todos) lets the
  * dashboard categorize a live panel. Raw model-stream prose is never an activity.
  */
-export type ActivityKind = z.infer<typeof ActivityKindSchema>;
+export type { ActivityKind };
 
 export interface AgentActivity {
   kind: ActivityKind;
@@ -34,7 +34,7 @@ export interface AgentActivity {
 }
 
 /* Full run history record persisted in SQLite (src/persistence/repositories/run.repository.ts). */
-export type RunChangeEntry = z.infer<typeof RunChangeEntrySchema>;
+export type RunChangeEntry = ChangeEntryRecord;
 
 export interface RunRecord {
   id: string;

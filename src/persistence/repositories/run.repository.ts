@@ -1,9 +1,8 @@
 import { randomBytes } from "node:crypto";
 import { RUN_PHASES } from "@kernel/run-step";
 import { DEADLINE_PURPOSES, PHASES_OF_PURPOSE } from "@kernel/deadline-purpose";
-import { RUN_TIME_BUDGET_FORMER_LABELS } from "@contexts/run-orchestration/application/index";
+import { RUN_TIME_BUDGET_FORMER_LABELS, type RunCampaign } from "@contexts/run-orchestration/application/index";
 import type { CaptureMode } from "@kernel/telemetry/capture-mode";
-import type { CampaignIdentity } from "../../entrypoints/contract/campaign";
 import { logJson } from "../../telemetry/logger";
 import { RedactionPortAdapter } from "../../telemetry/sanitizer";
 import type { AgentActivity, QaCase, RunChangeEntry, RunMode, RunOutcome, RunRecord, RunVerdict, TestTarget } from "../types";
@@ -244,7 +243,7 @@ export class RunRepository {
   createRecord(opts: {
     app: string; sha: string; ref?: string; target: TestTarget; mode: RunMode; parentRunId?: string; triggerRepo?: string;
     /* The campaign replicate this run is, and the content capture its trace was granted (already capped by the server). */
-    campaign?: CampaignIdentity; captureMode?: CaptureMode;
+    campaign?: RunCampaign; captureMode?: CaptureMode;
   }): RunRecord {
     const id = `run-${opts.sha.slice(0, 7)}-${Date.now().toString(36)}-${randomBytes(4).toString("hex")}`;
     const at = new Date().toISOString();
@@ -359,7 +358,7 @@ export class RunRepository {
   }
 
   /* The campaign a run belongs to, or undefined for an ordinary run (or no such run). */
-  getRunCampaign(id: string): CampaignIdentity | undefined {
+  getRunCampaign(id: string): RunCampaign | undefined {
     const row = this.db.statement("SELECT campaign_id, campaign_variant, campaign_replicate FROM runs WHERE id = ?").get(id) as { campaign_id: string | null; campaign_variant: string | null; campaign_replicate: number | null } | undefined;
     if (!row || row.campaign_id === null) return undefined;
     return { id: row.campaign_id, variant: parseJsonColumn<Record<string, string>>(row.campaign_variant ?? "{}", {}, { table: "runs", column: "campaign_variant", id }), replicate: row.campaign_replicate ?? 1 };
