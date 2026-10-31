@@ -83,6 +83,7 @@
   "qa-engine/test/contexts/coordination/application/sidekick-prompt.closing.test.ts": 1,
   "qa-engine/test/contexts/coordination/application/sidekick-prompt.harness.test.ts": 1,
   "qa-engine/test/contexts/coordination/composition/build-coordination.test.ts": 2,
+  "qa-engine/test/contexts/coordination/infrastructure/adapters/coordination-ledger-reader.adapter.test.ts": 50,
   "qa-engine/test/contexts/coordination/infrastructure/adapters/delegation-workspace.adapter.test.ts": 807,
   "qa-engine/test/contexts/cross-run-learning/composition/build-cross-run-learning.test.ts": 15,
   "qa-engine/test/contexts/cross-run-learning/domain/learning-gates.test.ts": 5,

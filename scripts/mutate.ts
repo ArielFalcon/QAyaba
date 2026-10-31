@@ -411,8 +411,12 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
   },
   "coordination-events": {
     description: "coordination telemetry ledger read model served to the API/TUI",
-    mutate: ["src/server/coordination-events.ts"],
-    tests: ["src/server/coordination-events.test.ts", "src/server/api.test.ts"],
+    mutate: [`${COORDINATION_CTX}/infrastructure/adapters/coordination-ledger-reader.adapter.ts`, "src/server/coordination-events.ts"],
+    tests: [
+      "qa-engine/test/contexts/coordination/infrastructure/adapters/coordination-ledger-reader.adapter.test.ts",
+      "src/server/coordination-events.test.ts",
+      "src/server/api.test.ts",
+    ],
     thresholds: DEFAULT_THRESHOLDS,
   },
   "local-login": {
