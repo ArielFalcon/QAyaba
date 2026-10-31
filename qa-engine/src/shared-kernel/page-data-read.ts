@@ -4,7 +4,7 @@
  */
 
 export interface PageDataRead {
-  /* What the read is about: the address the page was captured at, or the template of the map when the page was opened from one. */
+  /* What the read is about: the pathname of the address the page was captured at (never its query or fragment), or the template of the map when the page was opened from one. */
   readonly scope: string;
   /* The page rendered with content and ended on the address asked for, so what it says is what that address shows. */
   readonly grounded: boolean;

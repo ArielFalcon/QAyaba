@@ -194,3 +194,16 @@ test("ground() hands the run what every captured page said of DEV's data, empty 
   ]);
   assert.equal("pageReads" in (await withPages([]).ground("/tmp/qa-golden/e2e", undefined, labelDiff)), false);
 });
+
+test("ground() names a page read by its pathname alone: a query or fragment of the captured address, which may carry a secret, is stored nowhere", async () => {
+  const grounded = await new PreGenerationGroundingPortAdapter(
+    { e2eDir: "/mirrors/org/app/e2e" },
+    { buildContextPack: async () => ({ text: "## Context Pack", domBytes: 1, contractBytes: 0, trace: { rankedRoutes: [], capturablePages: 3, pages: [
+      { route: "/search?q=madrid&token=abc123secret", grounded: true, dataState: true, resultExpected: true, resultCount: 3 },
+      { route: "/orders#section-2", grounded: true },
+      { route: "https://dev.example/shops/madrid?session=abc123secret#top", grounded: true },
+    ], pageDeliveries: [], changedTestIds: [], contractIds: [], omittedLines: 0 } as never }) },
+  ).ground("/tmp/qa-golden/e2e", undefined, labelDiff);
+  assert.deepEqual(grounded.pageReads?.map((read) => read.scope), ["/search", "/orders", "/shops/madrid"]);
+  assert.doesNotMatch(JSON.stringify(grounded.pageReads), /abc123secret|madrid&|#/);
+});

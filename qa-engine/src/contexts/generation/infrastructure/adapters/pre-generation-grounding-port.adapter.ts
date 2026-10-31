@@ -258,10 +258,19 @@ function confirmedDataRoutes(pages: readonly { route: string; finalUrl?: string;
   return out;
 }
 
-/* What every captured page said of DEV's data: the facts of the capture itself, handed over unjudged. A page opened from a template of the map is named by the template. */
+/* The pathname of an address as captured: a query or fragment may carry a secret or a value of the moment, and no page is named by either. */
+function pathnameOf(address: string): string {
+  try {
+    return new URL(address, "http://qayaba.invalid").pathname;
+  } catch {
+    return address.split(/[?#]/, 1)[0] ?? address;
+  }
+}
+
+/* What every captured page said of DEV's data: the facts of the capture itself, handed over unjudged. A page is named by its pathname, or by the template of the map when it was opened from one. */
 function pageReadsOf(pages: readonly CapturedPage[]): PageDataRead[] {
   return pages.map((page) => ({
-    scope: page.template ?? page.route,
+    scope: page.template ?? pathnameOf(page.route),
     grounded: page.grounded === true,
     dataState: page.dataState,
     unconfirmed: page.dataStateUnconfirmed === true,

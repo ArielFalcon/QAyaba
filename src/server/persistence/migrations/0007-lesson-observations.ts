@@ -4,7 +4,7 @@ import type { Migration } from "./index";
 /*
  * Schema 7: what runs read of DEV, one row per page read and lesson kind (docs/architecture/rfc/0013-learning-slice.md). Append-only: a run
  * adds its rows and nothing ever updates or removes one except purging the whole app. A lesson is derived from the admitted rows when it is
- * read and is never stored. `scope` is the captured route address, or the template of the map when the page came from one; `fact` holds the
+ * read and is never stored. `scope` is the pathname of the captured address (never its query or fragment), or the template of the map when the page came from one; `fact` holds the
  * read (result count, empty state confirmed, readiness); `left_out_reason` is null for an admitted row. Nothing existing is rewritten or dropped.
  */
 export const migration0007: Migration = {
