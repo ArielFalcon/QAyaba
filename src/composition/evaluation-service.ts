@@ -12,6 +12,8 @@ import { campaignRunsView, type CampaignRunRow, type CampaignRunView } from "@co
 import { GRADER_CATALOG } from "@contexts/evaluation/application/index";
 import { currentScores, isScoreSource, type Score, type ScoreDataType, type ScorePolarity } from "@contexts/evaluation/application/index";
 import { RUN_PHASES } from "@kernel/run-step";
+import type { CampaignRunsView, CatalogScoreView, EvaluationService, RegradeJobView, RunEvaluationView } from "../entrypoints/api/evaluation-service.port";
+export type { CampaignRunsView, CatalogScoreView, EvaluationService, RegradeJobView, RunEvaluationView };
 import { HistoryEvidenceAdapter } from "../persistence/evaluation-evidence";
 import { RedactionPortAdapter } from "../telemetry/sanitizer";
 import { getHistory } from "../persistence/index";
@@ -90,16 +92,6 @@ export class HistoryRunSelector implements RunSelectorPort {
 }
 
 /* The wire shape of a catalog entry (GET /evaluations/catalog). */
-export interface CatalogScoreView {
-  name: string;
-  dataType: ScoreDataType;
-  polarity: ScorePolarity;
-  range?: { min: number; max?: number };
-  categories?: string[];
-  suffixes?: string[];
-  graderVersion: string;
-}
-
 /* The graders: the machine-readable source of names, types and polarity. */
 export function catalogView(): { phases: string[]; scores: CatalogScoreView[] } {
   return {
@@ -118,23 +110,6 @@ export function catalogView(): { phases: string[]; scores: CatalogScoreView[] } 
   };
 }
 
-export interface RunEvaluationView {
-  runId: string;
-  traceId: string | null;
-  status: EvaluationStatus;
-  scores: Score[];
-}
-
-export interface RegradeJobView {
-  jobId: string;
-  status: RegradeJob["status"];
-  runs: number;
-  graded: number;
-  failed: Array<{ runId: string; error: string }>;
-  startedAt: string;
-  finishedAt?: string;
-}
-
 /* The digest the run's suite-store restore span carries; null when there is no such span or it cannot be read. */
 function restoredDigestFromSpans(runId: string): string | null {
   try {
@@ -144,28 +119,6 @@ function restoredDigestFromSpans(runId: string): string | null {
   } catch {
     return null;
   }
-}
-
-export interface CampaignRunsView {
-  campaignId: string;
-  runs: Array<CampaignRunView & { restoredDigest?: string }>;
-  complete: boolean;
-}
-
-/* What the runner and the API see of the evaluation context. */
-export interface EvaluationService {
-  /* Grades the run later, off the caller's path. Never throws, never blocks. */
-  scheduleGrading(runId: string): void;
-  /* Undefined: no such run. */
-  evaluation(runId: string, allVersions: boolean): RunEvaluationView | undefined;
-  startRegrade(request: RegradeRequest): { jobId: string; runs: number };
-  regradeJob(jobId: string): RegradeJobView | undefined;
-  /* The campaign's runs (narrowed to those carrying every label of `variant`) and whether they are all done and graded. */
-  campaignRuns(campaignId: string, variant: Readonly<Record<string, string>>): CampaignRunsView;
-  /* Boot: ends the jobs a previous process left open. */
-  recoverInterrupted(): number;
-  /* The score catalog: the graders. */
-  catalog(): { phases: string[]; scores: CatalogScoreView[] };
 }
 
 export interface EvaluationServiceDeps {

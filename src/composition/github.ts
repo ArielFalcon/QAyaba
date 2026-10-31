@@ -1,4 +1,6 @@
 import { requireEnv } from "../settings/env";
+import type { RepoInfo } from "../entrypoints/api/app-admin.port";
+export type { RepoInfo };
 
 export interface GitHubDeps {
   fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response>;
@@ -8,13 +10,6 @@ export const defaultGitHubDeps: GitHubDeps = {
   fetch: (input, init?) => globalThis.fetch(input, init),
 };
 
-export interface RepoInfo {
-  name: string;
-  fullName: string;
-  private: boolean;
-  defaultBranch: string;
-  description: string | null;
-}
 
 function ghHeaders(): Record<string, string> {
   return {

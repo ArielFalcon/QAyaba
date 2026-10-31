@@ -9,7 +9,8 @@ import {
   type OnboardAuthInput, type OnboardInput, type OnboardServiceInput,
 } from "@contexts/app-catalog/application/index";
 import { AppConfigInvalidError, AppNotFoundError, type AppConfig } from "./config-loader";
-import type { RepoInfo } from "./github";
+import type { CreateAppInput, CreateAppResult, RepoInfo, UpdateAppInput } from "../entrypoints/api/app-admin.port";
+export type { CreateAppInput, CreateAppResult, UpdateAppInput };
 import { isRepoSlug } from "@kernel/repo-slug";
 
 export interface AppAdminDeps {
@@ -32,49 +33,6 @@ export interface AppAdminDeps {
   /** The config file's text exactly as written: comments and `${VAR}` placeholders included (loadApp returns them expanded). */
   readConfig(name: string): string;
   env: Record<string, string | undefined>;
-}
-
-export interface CreateAppInput {
-  repo: string;
-  name?: string;
-  baseUrl?: string;
-  versionUrl?: string;
-  needsReview?: boolean;
-  shadow?: boolean;
-  testDataPrefix?: string;
-  services?: OnboardServiceInput[];
-  env?: Record<string, string>;
-  auth?: OnboardAuthInput;
-  dryRun?: boolean;
-  validateOnly?: boolean;
-}
-
-export interface UpdateAppInput {
-  name: string;
-  repo?: string;
-  baseUrl?: string;
-  versionUrl?: string;
-  needsReview?: boolean;
-  shadow?: boolean;
-  testDataPrefix?: string;
-  services?: OnboardServiceInput[];
-  env?: Record<string, string>;
-  /** Absent on update preserves the auth block already in the YAML. */
-  auth?: OnboardAuthInput;
-  /** true drops the YAML auth block. Absent preserves it when auth is also absent. */
-  clearAuth?: boolean;
-  dryRun?: boolean;
-}
-
-export interface CreateAppResult {
-  ok: boolean;
-  errors?: string[];
-  repoInfo?: RepoInfo;
-  yaml?: string;
-  name?: string;
-  path?: string;
-  envApplied?: string[];
-  warnings?: string[];
 }
 
 /* A repo is judged before GitHub is asked about it: it is interpolated into the API's address, and later becomes a mirror directory. */
