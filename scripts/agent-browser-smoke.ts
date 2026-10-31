@@ -32,6 +32,7 @@ import { PlaywrightAgentBrowserHost } from "../engine/src/contexts/test-executio
 import { SandboxedChromiumLauncher } from "../engine/src/contexts/test-execution/infrastructure/agent-browser/chromium-sandbox.launcher.ts";
 import { loadPlaywrightChromium } from "../engine/src/contexts/test-execution/infrastructure/agent-browser/playwright-core.loader.ts";
 import type { BlockedRequest } from "@contexts/test-execution/application/index.ts";
+import { installRedactingProcessLogger } from "../platform/telemetry/redacting-logger.ts";
 
 const SESSION_VALUE = "sess-9f3a1c7e";
 const failures: string[] = [];
@@ -193,4 +194,5 @@ async function main(): Promise<number> {
   return failures.length === 0 ? 0 : 1;
 }
 
+installRedactingProcessLogger();
 process.exit(await main());

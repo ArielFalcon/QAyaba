@@ -7,8 +7,8 @@ import { fileURLToPath } from "node:url";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 
-/* A file is a process root when it runs `main` only if it is the process entry. */
-const ENTRY_GUARD = /process\.argv\[1\]\s*(===|&&)|isProcessEntry\(\)|import\.meta\.url === `file:/;
+/* A file is a process root when it runs `main` only if it is the process entry, or runs it unguarded at its top level. */
+const ENTRY_GUARD = /process\.argv\[1\]\s*(===|&&)|isProcessEntry\(\)|import\.meta\.url === `file:|^process\.exit\(await main\(/m;
 
 function roots(dir: string): string[] {
   return readdirSync(join(ROOT, dir))
