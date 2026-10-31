@@ -284,7 +284,7 @@ qayaba.run
 │  ├─ qayaba.coverage.measure     one for the coverage by execution (with how its mutants were chosen, whether a pass follows or not) and, when a mutation pass ran on it, one for the pass (the coverage its killed mutants verified); changed/covered lines, changed/mapped files, changed/taken branches, judged/killed mutants, the mutation sites left out because their source line does not hold what they mutate (`qayaba.mutation.sites_skipped`, `_reasons` as `reason: count`), the mutants not judged because the counters of their re-run could not be read (`qayaba.mutation.unreadable`, absent when none was), the re-runs of the mutation pass not started because the time left could not hold their estimate, the mutants left unjudged and the unmutated observations counted apart (`qayaba.mutation.mutants_left_out`, `observations_left_out`, absent when none was), mutants re-running only the tests that reached them or their spec files' every test (`reruns_by_test`, `reruns_by_spec_file`), the survivors whose mutation moved a request or a line of the accessible tree between the same tests run with and without it (what two unmutated runs of the same tests, one before the first mutant and one after the last, disagree on is noise and never counts), moved none, or could not be compared (`qayaba.mutation.survivors_moved`, `survivors_unmoved`, `survivors_unobserved`; absent when the survivors were not observed; the observable itself is in the survivor's finding and in `gateSignals.bundleMutation.survived[].moved` and, per spec file, `movedBySpec`, never in a span attribute), why nothing was measured
 │  │  └─ qayaba.coverage.decode   one per read of the dumps of a namespace (children of measure and of recount): `qayaba.dumps.count|bytes|outcome|start_ms|work_ms|namespace`; outcome is completed, absent, aborted, heap-limit, crashed, unavailable, over-cap or unusable. A measurement that decides nothing because a read failed says so in `qayaba.coverage.unmeasured` (decode-aborted, decode-heap-limit, decode-crashed, decode-unavailable, dumps-over-cap, dumps-unusable, no-dumps), never as no-changed-file-mapped; one that stands without a killed mutant's dumps lists them in `qayaba.coverage.evidence_left_out`
 │  ├─ qayaba.coverage.survivor_recheck  surviving mutants re-applied after the regeneration that answered them: rechecked, judged, closed
-│  └─ qayaba.coverage.recount     the same counts after an accepted regeneration, from the dumps on disk
+│  └─ qayaba.coverage.recount     the same counts after an accepted regeneration, from the dumps of the last measurement execution that ran each spec file's current bytes
 ├─ qayaba.phase.review            invoke_agent qa-reviewer per round, review-dom grounding
 ├─ qayaba.phase.decide            verdict, decision pr|issue|quarantine|held|none (shadow is the separate `qayaba.decision.shadowed`)
 ├─ qayaba.phase.publish           suite_store.capture, PR/Issue
@@ -327,6 +327,17 @@ Rules, from the brief §2.1 and the OTel spec:
   `.outcome` (`no-flaky-case`, `no-pass`, or the correction's `accepted`/`empty`/`rejected`/`capped`), and
   `gateSignals.flakyTriage { cases, dataInstability, timing, outcome, kept?, restored? }`. Its findings carry the `flaky`
   correction origin ("passed on retry"), counted in the lead's correction budget.
+- **Execution contract** (RFC-0015). Judging executions never measure: coverage comes from one measurement execution of the
+  passing tests (`qayaba.exec measurement`, namespace `<runId>-measure`, coverage and observation on, retries 0, global
+  timeout = what the coverage allowance holds), which is also the mutants' first unmutated observation (there is no `-obs`
+  re-run; `-obs2` stays). `gateSignals.changeCoverage.measuredBy { namespace, tests, failedOnlyUnderMeasurement[] }` names it
+  and the tests that passed in the verdict and failed under it (they credit no coverage and are no mutant's baseline);
+  `gateSignals.bundleMutation.notJudged { "baseline-not-green-under-measurement": n }` counts the mutants whose only reaching
+  tests were such tests (never counted as survived). A measurement the allowance cannot hold is not started:
+  `unmeasured: measurement-not-run` (coverage `unknown`, which under `enforce` holds the run). A judging execution of a run
+  that signed in, failing on the app's login page, is run once more after the run signs in again; a second wall ends the run
+  `E-PRECONDITION` with `adjudication.reason` `session-lost`. The session's age at each execution's start is on its span and in
+  `gateSignals.executions`, the fact a later decision about the app's session length can use.
 - **Ambient data state** (T38). A passing case whose every assertion ran on a page as it loaded, before any step of its own, on a
   page the Context Pack read as a confirmed empty state is recorded at the decided end as
   `gateSignals.ambientDataState { cases, pages, arms }` (`arms`: the untaken arms of the changed code on those pages, while the
@@ -582,7 +593,14 @@ The launcher (`exec-sandbox.ts` `spawn`) is the one place every agent-influenced
 through. It opens `qayaba.exec <profile>` (INTERNAL) at spawn and ends it on `close`. Attributes:
 - `qayaba.exec.profile`
 - `qayaba.exec.command_class` (`tsc|eslint|playwright-list|playwright-test|npm-ci|login|dom-capture|browser|code-test`, a closed set taken from the call site)
-- `qayaba.exec.purpose` and `qayaba.exec.namespace` on a Playwright child: what the execution was for (`suite` the whole suite, `acceptance` a regeneration's changed spec files, `fix-retry` a fix-loop re-run, `run-spec`, `control`, `mutant`, `observation`, `cleanup`; `purposeOfExecution` in `shared-kernel/exec-purpose.ts` derives the last four from the request, the call sites name the others) and the data namespace its dumps are read under
+- `qayaba.exec.purpose` and `qayaba.exec.namespace` on a Playwright child: what the execution was for (`suite` the whole suite, `acceptance` a regeneration's changed spec files, `fix-retry` a fix-loop re-run, `run-spec`, `measurement` the one execution that measures coverage, `control`, `mutant`, `observation`, `cleanup`; `purposeOfExecution` in `shared-kernel/exec-purpose.ts` derives the last four from the request, the call sites name the others) and the data namespace its dumps are read under
+- on a Playwright spec child, the execution contract it ran under (RFC-0015, `shared-kernel/execution-conditions.ts`):
+  `qayaba.exec.contract.digest` (the digest of the contract's judging conditions, equal across every judging execution of a
+  run), `qayaba.exec.contract.kind` (`judging` or `measuring`), `qayaba.exec.contract.deviations` (what the execution adds to
+  the contract: `coverage`, `observe`, `route`, `write-counter`, or `none`), `qayaba.exec.retries`, `qayaba.exec.spec_files`,
+  `qayaba.exec.global_timeout_ms` and `qayaba.exec.session.age_ms` (how long before the child started the run signed the
+  session in, when it did). The run record lists the same per execution, in the order they ran, as `gateSignals.executions
+  { runs[], omitted? }`.
 - `process.exit.code`, `qayaba.exec.signal`, `qayaba.exec.timed_out`
 - `qayaba.reaper.killed`
 - `qayaba.egress.denied_cotemporal`: hosts denied **while this child was alive**, via a per-child

@@ -192,7 +192,7 @@ The RFC that lands a row flips it to **in force** in the same commit.
 
 `RunQaUseCase` (`qa-engine/src/contexts/run-orchestration/application/run-qa.use-case.ts`)
 is the only engine; webhook (`src/entrypoints/webhook-handler.ts`, wired by `src/composition/wire-app.ts`) and CLI (`src/composition/cli.ts`) both enter through
-`enqueueTrackedRun`. It walks a table of 48 named steps in 15 phases (`application/run-flow/run-steps.ts`, ids in `step-ids.ts`); a step returns one closed outcome (go on, go to a step, or end the run for a reason), every end goes through `finalizeRun` (`run-flow/finalize-run.ts`), the only place a run is saved, published, audited and pruned, and every fault a step lets escape is classified by `failure-policy.ts` into rethrow, end, carry on or degrade. A step passed over says why on its trace event (`qayaba.run_step.reason`: the step's `skipReason`, e.g. the coverage measurement of a context run or of a run with no green bytes, or the mutation pass of a measurement that found none due, `no-mutation-due`), and every Playwright child names what it ran for (`qayaba.exec.purpose`: suite, acceptance, fix-retry, run-spec, control, mutant, observation, cleanup) and its namespace; a `run_spec` call that did not pass carries `qayaba.tool.failure_kind` (the closed kinds of `runSpecFailureKind`). `diff` mode:
+`enqueueTrackedRun`. It walks a table of 49 named steps in 15 phases (`application/run-flow/run-steps.ts`, ids in `step-ids.ts`); a step returns one closed outcome (go on, go to a step, or end the run for a reason), every end goes through `finalizeRun` (`run-flow/finalize-run.ts`), the only place a run is saved, published, audited and pruned, and every fault a step lets escape is classified by `failure-policy.ts` into rethrow, end, carry on or degrade. A step passed over says why on its trace event (`qayaba.run_step.reason`: the step's `skipReason`, e.g. the coverage measurement of a context run or of a run with no green bytes, or the mutation pass of a measurement that found none due, `no-mutation-due`), and every Playwright child names what it ran for (`qayaba.exec.purpose`: suite, acceptance, fix-retry, run-spec, control, mutant, observation, cleanup) and its namespace; a `run_spec` call that did not pass carries `qayaba.tool.failure_kind` (the closed kinds of `runSpecFailureKind`). `diff` mode:
 
 1. **Gate** — read what DEV serves (`dev.versionUrl`, `services[].versionUrl`: a GET answering `{ sha, healthy }`, the one reader today) and record one state on every run (`gateSignals.servedVersion`, the gate phase span's `qayaba.served_version.*`): `undeclared` (no source declared, never reported as verified), `unreadable` (with a typed reason: `unreachable`, `http-status`, `malformed-body`, `no-commit`, `commit-not-in-history`, `history-unavailable`), `equal`, `behind`, `ahead` or `unrelated`. The reader returns only the served commit; the engine relates it to the run's sha from the repo mirror's history (`run-orchestration/domain/served-version.ts`, `DeployGatePortAdapter`). Only a run started by a deploy's webhook (`source: "webhook"`; the control API and the CLI are `manual`) waits, and only while the state is `behind`, up to `deployTimeoutMs`, after which the run ends `infra-error` (`deploy-gate-failed`, as before); every other state is recorded without waiting and never blocks. Once waiting on `behind`, a read that gives nothing is one more poll (the wait ends on `equal`, `ahead`, `unrelated` or `commit-not-in-history`, or at the timeout). Health is a separate question (`waitUntilHealthy`): at the entry (sharing the version wait's deadline, so an unreadable source is recorded and never waited for as a version, yet ends the run `deploy-gate-failed` at the entry's health wait, before any generation) and before Playwright and in the fix loop, DEV must report `healthy: true`, and an unreadable source is not healthy, so DEV going down still ends the run `infra-error`. A deploy-triggered run that entered `equal` is also held to its commit before Playwright; a newer deploy ends it `infra-error`, with the re-read on `servedVersion.atExecution`.
 2. **Classify** — checkout, diff + message, `classifyCommit` (Conventional Commits
@@ -605,8 +605,8 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   green suite, releasing the coordinated pass, the final proof guard and the decision start no process and spend no turn, so they have nothing for it to cut;
   the mutation pass holds only what finished before it, since a re-run the deadline killed is not judged and none starts after it);
   `guarded` then ends `E-TIME-BUDGET` or keeps the proof (`deadline-after-proof`): every step that only runs on a green suite (the coverage
-  announcement and measurement, the mutation pass, the regenerations, the review) is `proven`, and the measurement is the `coverage` phase in every mode.
-  The coverage measurement keeps its cheap part apart from its costly one: `measure-coverage` reads the execution's dumps and records
+  announcement, the measurement execution and the measurement, the mutation pass, the regenerations, the review) is `proven`, and the measurement is the `coverage` phase in every mode.
+  The coverage measurement keeps its cheap part apart from its costly one: `measure-coverage` reads the measurement execution's dumps and records
   the coverage by execution alone, and `measure-mutation`, the next step, runs only when that measurement chose mutants to judge
   (`mutationPass`, which holds the mutants and what that one read of the dumps gave, so the pass reads none of them again): it
   runs the mutants and the verified recount (`ObjectiveSignalPort.measureMutation`, traced as a `qayaba.coverage.measure` span of
@@ -1021,6 +1021,23 @@ that a test *runs*, not that it is *meaningful* — left alone it drifts into a 
 that catches nothing. The objective signal that breaks the circle is **change-coverage**
 (`qa-engine/src/contexts/objective-signal/domain/`):
 
+- **The execution contract** (RFC-0015, ADR-0023): every execution of a run's suite is **judging** (its outcome decides
+  something: the verdict, a fix-loop round's adoption, a file's acceptance, a `run_spec` proof the run relies on, a mutant's kill,
+  a survivor's closure) or **measuring** (a signal only: coverage, observation). Judging executions run under one contract, one
+  value built in one place (`shared-kernel/execution-conditions.ts`) and recorded on every execution's `qayaba.exec` span
+  (`qayaba.exec.contract.digest|kind|deviations`, the session's age) and on the run record (`gateSignals.executions`). A condition
+  may differ between judging executions only when an RFC shows from the code that it cannot change a case's outcome, or when it is
+  recorded and the outcome is read only for what it does not touch (the namespace). **A judging execution never measures**
+  (`PW_COVERAGE=0`, set explicitly both ways): coverage is taken by one measurement execution (purpose `measurement`, step
+  `execute-measurement`, `<runId>-measure`, coverage and observation on, retries 0) of the tests that passed, with the global time
+  the coverage allowance holds; a test that passed in the verdict and failed under measurement is listed
+  (`changeCoverage.measuredBy.failedOnlyUnderMeasurement`), credits nothing and is no mutant's baseline, and a measurement the
+  allowance cannot hold is not started (`unmeasured: measurement-not-run`: unknown, which under `enforce` holds the run). A run with
+  the coverage policy `off`, a cross-repo run or a run with no diff runs none.
+  The session is a condition of a judging execution, checked by a fact, never by its age: a judging execution of a run that signed
+  in whose failure ended on the login page (`endedOnLoginWall`) is run once more after the run signs in again through its own
+  login; a second wall, or a login that cannot complete, ends the run `infra-error E-PRECONDITION` with the adjudication reason
+  `session-lost` (recorded, never learned from, no Issue).
 - `qa.changeCoverage.mode`: `off` | `signal` (default, record only) | `enforce` (gate);
   `minRatio` default `0.7`.
 - `DecideCoverageService.blocks(status)` is the single source of truth for blocking.
@@ -1031,19 +1048,26 @@ that catches nothing. The objective signal that breaks the circle is **change-co
   A `fail` that stands **holds** the run (decision `held`, ADR-0005): nothing is opened in the app's repository, the PR text
   with the coverage report (ratio against `minRatio`, uncovered lines, arms no test took) is rendered, sanitized and kept in
   `gateSignals.heldPublication`, and the suite stays out of the store. A `fail` under `signal` and an `unknown` under
-  `enforce` decide as before. The final whole-suite measurement under `enforce` never changes a flaky run's verdict or cases:
-  a green one measures the bytes, a red one measures nothing and the kept measurement is marked stale.
+  `enforce` decide as before. The final re-measure under `enforce` is a judging whole-suite execution, then the measurement
+  execution of its passing tests; it never changes a flaky run's verdict or cases: a green one measures the bytes, a red one
+  measures nothing and the kept measurement is marked stale.
 - **When an app moves to `enforce`** is the owner's act on its configuration; no code refuses the setting. The condition
   (ADR-0005): the last three consecutive replicates of one campaign case at one qayaba commit each had a trustworthy
   measurement (a ratio, not stale, no `evidenceLeftOut`, no read-trouble `unmeasured`, no unreadable mutants) with bundle
   mutation on; a replicate that fails that or a new qayaba commit restarts the count. `npm run enforce-readiness` answers per app
   from the run history (`objective-signal/domain/enforce-readiness.ts`).
 
-- The measurement reads the latest dumps of every spec file: the namespace of the last whole-suite execution
-  without the spec files re-run since, plus each fix-loop round's namespace for the spec files it re-ran
-  (`FixLoopResult.coverageReruns`, the same assembly `recount` uses; a re-run's namespace is read for its own
-  spec files only). Its mutants are chosen from those dumps. When the loop puts the best round's bytes back,
-  its dumps go back with them. Re-runs whose dumps cannot all be read measure nothing (`unknown`).
+- The measurement reads the dumps of the measurement execution, and the run keeps them by the bytes they ran
+  (`coverage.dumps`: the namespace, each spec file's sha256 and the tests that failed only under it). Its mutants are chosen
+  from those dumps. A recount reads each spec file from the last measurement execution that ran its current bytes (the
+  kept files of an accepted regeneration are measured in `<acceptance>-measure`); a file whose current bytes no measurement
+  ran leaves the recount undone and the measurement as it was. Judging executions (the fix loop's rounds and retries, the
+  acceptances) leave no dumps and keep no dump bookkeeping; a fix-loop retry always runs only the failing files. Dumps that
+  cannot all be read measure nothing (`unknown`).
+- The seed writes each script a worker's pages ran once per namespace, as `<sha256>.script.json` (its source and map), and a
+  test's dump names the script by that sha256; the reader keeps a script only when its source hashes to its name, reads the
+  inline form older seeds wrote, and leaves the set unusable when a dump names a script no worker kept. The `_coverage`
+  fixture's teardown has a fixture time of its own.
 - The changed lines are the change's own code: the repo's test files a commit carries (the language
   registry's `isTestFile`) are neither collected nor counted. A browser run counts only the changed lines a loaded
   script holds code for (a segment of its source map maps to the line; a script served as written: its non-blank
@@ -1157,8 +1181,9 @@ that catches nothing. The objective signal that breaks the circle is **change-co
   that knows only the line cannot write the assertion that kills it. Each mutant's re-run is observed (`PW_OBSERVE=1`: the capture block of the seed's
   `fixtures.ts` records, per test that ran, the requests its page depended on by method + origin + pathname with a count, never the query, fragment,
   body, headers or cookies, at most 100 distinct, and the accessible tree it ended on, in `observed-*.json` of the failure-capture directory), and the
-  survivors are compared with TWO unmutated re-runs, observed the same way, that bracket the mutants' re-runs: `<ns>-obs` before the first mutant
-  runs, over every mutant's spec files and tests (the survivors are not known yet), and `<ns>-obs2` after the last, over the survivors' spec files and
+  survivors are compared with TWO unmutated runs, observed the same way, that bracket the mutants' re-runs: the measurement execution itself, before
+  the first mutant runs (no observation re-run of its own; a mutant whose only reaching tests failed under it is not judged,
+  `bundleMutation.notJudged["baseline-not-green-under-measurement"]`, and never counted as survived), and `<ns>-obs2` after the last, over the survivors' spec files and
   tests (retries 0, nothing else added; unmutated re-runs of the same tests instead of the suite's own execution because the app's state differs
   between executions and only the paired runs differ in the mutation alone). The tests are the ones the mutants named, passed to the seed's mutation
   fixture as an edit that names no script, so it skips every other test and touches no response; when a mutant named none, every test of the spec
@@ -1189,12 +1214,12 @@ that catches nothing. The objective signal that breaks the circle is **change-co
   whose measurement blocks nothing and found untaken arms on changed lines gets **one** regeneration (the
   step `regenerate-for-branch-cases`) with those arms as the cases still missing (a blocking enforce
   measurement regenerates for coverage instead, with the same arms in its gap). It goes through acceptance
-  like any regeneration; an accepted one is recounted from the dumps on disk (the first run's minus
-  those of the re-run spec files, plus the acceptance's), never by re-running the whole suite. A gap regeneration
+  like any regeneration; an accepted one is recounted from the measurements of each file's current bytes (the
+  first measurement for the files it did not change, the acceptance's measurement for the kept ones), never by re-running the whole suite. A gap regeneration
   (coverage, branch cases, flaky), a review correction or a fix-loop round never reuses a `run_spec` proof: a proof
   says the bytes passed, not which tests they hold nor what they ran, so every acceptance executes every spec file it
-  changed, and that one execution supplies the kept files' cases (new and renamed tests included), the dumps of the
-  recount and the survivor closure's baseline, the reviewer's scope and the fix loop's verdict. A file that fails it gets its prior bytes, cases and delivery back by the per-file rule
+  changed, and that one execution supplies the kept files' cases (new and renamed tests included), the reviewer's scope and
+  the fix loop's verdict; the measurement of its kept files supplies the dumps of the recount and the survivor closure's baseline. A file that fails it gets its prior bytes, cases and delivery back by the per-file rule
   below; at the acceptance cap the regeneration is capped and the first measurement stands.
   `gateSignals.branchCases { outcome, armsBefore, armsAfter?, kept?, restored? }`.
 - **Per-file acceptance**: a regeneration (gap, flaky or review correction) that changed spec files only is
@@ -1206,9 +1231,10 @@ that catches nothing. The objective signal that breaks the circle is **change-co
   case recorded for it and no proof, and a file the turn deleted has no case by nature, so its deletion stands. The engine, for any app whatever its own lint, reads what a regeneration did to a file's tests from the mode each declared and the counts per file, never from their titles (`modeRefusals`): it refuses a file left with more skipped tests (`test.skip`, `test.fixme`, `testInfo.skip()`, an alias) or more tests expected to fail (`test.fail()`) than the run before it had, or, when a test was failing, with fewer tests declared to pass (a renamed test keeps the count and is no escape), and a test a correction names (`named`) that comes back skipped or expected to fail; a skip or a `test.fail()` already in the prior bytes (`prior`: the cases and skipped tests of the run before) is not the regeneration's doing and blocks nothing. That file
   gets its prior bytes back, or the round is rejected when it is judged whole. Only the kept files with a real passing case get a proof (the one rule above), so the bytes on
 disk are still the last that ran green, file by file, and the suite store captures only those; survivor
-  closure is judged on the kept files. With none kept, or a changed file the specs import, it is accepted or
-  rejected whole. The recount reads the kept files from the acceptance's dumps (a re-run's namespace is read for
-  its own spec files only) and the restored files from the dumps of the bytes they were given back.
+  closure is judged on the kept files, against the measurement of their accepted bytes. With none kept, or a changed file the specs import, it is accepted or
+  rejected whole. The acceptance itself measures nothing: the kept files are measured in `<acceptance>-measure`, and the
+  recount reads each file from the last measurement that ran its current bytes (a restored file from the one of the bytes it
+  was given back).
   `kept`/`restored` are counted on the regeneration's gate signal and its `regeneration_acceptance` span event.
   The fix loop's iterative rounds adopt a failing execution whole, as before. A run deadline spent during it is the
   run's degrade (`deadline-after-proof`), as for the coverage regeneration.

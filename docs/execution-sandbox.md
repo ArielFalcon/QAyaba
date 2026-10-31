@@ -133,7 +133,8 @@ filter and the redaction). The suite's fixtures still write their dumps to `e2e/
 `e2e/.qa/fault-injection/<namespace>`: while the child runs those two paths are links, made by the orchestrator, to a folder in
 the run's work dir, and once the child is gone the links are removed and only what passes the check is copied over
 (`run-dump-bridge.ts`): a file name pattern, a size cap, a parse and a rebuild field by field (a coverage dump keeps a script's
-url, source, executed ranges and the source map's sources, root and mappings; a counter keeps its count), written by the
+url, sha256, source, executed ranges and the source map's sources, root and mappings, and a worker's file of the scripts it kept
+once, `<sha256>.script.json`, the same fields with no ranges; a counter keeps its count), written by the
 orchestrator as a plain file. The rebuild of a coverage dump runs in a worker thread that lives for the one handover, so a large dump never holds the orchestrator's event loop; the reads and the writes stay on the main thread, confined. The set is whole or nothing, as the readers take it: a set that is left out puts one plain file where the folder would be, which the readers refuse to follow and report as an unknown count, so a refused counter is never taken for a run that corrupted no response. The residual: a string field the readers do
 use (a script's source) can still carry a payload the writer chose, in bounded size.
 
