@@ -37,8 +37,7 @@ test("saveContextMap/loadContextMap round-trip per app; latest save wins; a corr
   assert.deepEqual(stored2!.data, map2);
 
   /* Corrupt the row directly (bypassing saveContextMap, which only ever writes valid JSON) — a
-     second connection to the SAME on-disk db (WAL mode allows this), same technique the learning
-     repository's scorecard test uses. */
+     second connection to the SAME on-disk db (WAL mode allows this). */
   const dbPath = process.env.HISTORY_DB_PATH ?? join(process.env.QAYABA_ROOT ?? process.cwd(), "data", "qayaba.db");
   const raw = new Database(dbPath);
   try {
