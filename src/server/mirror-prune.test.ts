@@ -1,8 +1,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { mkdirSync, mkdtempSync, existsSync, readdirSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   pruneMirrors,
   computeActiveRepoSlugs,
+  defaultMirrorPruneDeps,
   repoSlug,
   PRUNE_MAX_AGE_MS,
   type MirrorEntry,
@@ -203,4 +207,147 @@ test("computeActiveRepoSlugs tolerates a missing app config (repoForApp undefine
 
 test("repoSlug mirrors repo-mirror.ts directory naming", () => {
   assert.equal(repoSlug("owner/repo"), "owner__repo");
+});
+
+/* ── A sweep over a mirrors root: what the pass removes, keeps and logs ──────── */
+
+test("a sweep over a mirrors root removes the orphans and the stale configured mirrors, and keeps everything else", () => {
+  const sizes = new Map<string, number>();
+  const names: Array<[string, number, number]> = [
+    ["team__front", FRESH, 10],  /* configured, fresh: kept */
+    ["team__service-api", FRESH, 20],  /* a service repo of an app, fresh: kept */
+    ["team__stale", STALE, 30],  /* configured, idle past the window: removed */
+    ["team__edge", NOW - PRUNE_MAX_AGE_MS, 40],  /* configured, idle exactly the window: kept */
+    ["team__edge-over", NOW - PRUNE_MAX_AGE_MS - 1, 50],  /* configured, one millisecond past: removed */
+    ["gone__repo", FRESH, 60],  /* no app names it: removed even when fresh */
+    ["owner__repo.v2", FRESH, 70],  /* dotted name, not configured: removed */
+    ["owner__my-repo", FRESH, 80],  /* dashed name, configured: kept */
+    ["busy__repo", STALE, 90],  /* running job's mirror, orphaned and stale: kept */
+    [".hidden", FRESH, 100],  /* a dot-directory that is not one of the reserved ones: an orphan, removed */
+    [EXPERIMENT_COPIES_DIR, STALE, 110],
+    [WARM_SNAPSHOTS_DIR, STALE, 120],
+    [DELEGATIONS_DIR, STALE, 130],
+  ];
+  const entries = names.map(([name, mtimeMs, size]) => {
+    sizes.set(`/mirrors/${name}`, size);
+    return entry(name, mtimeMs);
+  });
+  const sized: string[] = [];
+  const { deps, removed, logs } = makeDeps({
+    entries,
+    configured: ["team__front", "team__service-api", "team__stale", "team__edge", "team__edge-over", "owner__my-repo"],
+    active: ["busy__repo"],
+    directorySize: (path) => {
+      sized.push(path);
+      return sizes.get(path) ?? 0;
+    },
+  });
+  const result = pruneMirrors(deps);
+  const expected = ["team__stale", "team__edge-over", "gone__repo", "owner__repo.v2", ".hidden"];
+  assert.deepEqual(result, { deleted: expected, freedBytes: 30 + 50 + 60 + 70 + 100 });
+  assert.deepEqual(removed, expected.map((name) => `/mirrors/${name}`));
+  assert.deepEqual(sized, removed, "a mirror is measured just before it is removed, and no other is measured");
+  assert.deepEqual(logs, [
+    { level: "info", message: "pruned old mirrors", meta: { deletedCount: 5, deleted: expected, freedBytes: 310, freedMB: 0 } },
+  ]);
+});
+
+test("a mirror whose size cannot be measured is not removed and the pass goes on", () => {
+  const { deps, removed, logs } = makeDeps({
+    entries: [entry("a__a", FRESH), entry("b__b", FRESH)],
+    configured: [],
+    directorySize: (path) => {
+      if (path.endsWith("a__a")) throw new Error("EIO");
+      return 5;
+    },
+  });
+  const result = pruneMirrors(deps);
+  assert.deepEqual(result, { deleted: ["b__b"], freedBytes: 5 });
+  assert.deepEqual(removed, ["/mirrors/b__b"]);
+  assert.deepEqual(logs.map((l) => [l.level, l.message, l.meta?.path, l.meta?.error]), [
+    ["warn", "pruneMirrors: failed to delete mirror", "/mirrors/a__a", "EIO"],
+    ["info", "pruned old mirrors", undefined, undefined],
+  ]);
+});
+
+test("an unreadable mirrors root logs the root it could not read", () => {
+  const { deps, logs } = makeDeps({ listThrows: true });
+  pruneMirrors(deps);
+  assert.deepEqual(logs, [{ level: "warn", message: "pruneMirrors: could not read mirror directory", meta: { mirrorRoot: "/mirrors" } }]);
+});
+
+/* ── The same pass over real directories ─────────────────────────────────────── */
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+function writeBytes(dir: string, name: string, bytes: number): void {
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, name), "x".repeat(bytes));
+}
+
+test("a pass over a real mirrors root removes what the rule picks, follows no link out of the root and counts the bytes it freed", () => {
+  const scratch = mkdtempSync(join(tmpdir(), "qa-mirror-prune-"));
+  const previousMirrorDir = process.env.MIRROR_DIR;
+  try {
+    const root = join(scratch, "mirrors");
+    const outside = join(scratch, "outside");
+    mkdirSync(root);
+    writeBytes(outside, "precious.txt", 7);
+    writeBytes(join(root, "team__front"), "a.txt", 11);
+    writeBytes(join(root, "team__front", "node_modules", "dep"), "b.txt", 13);
+    writeBytes(join(root, "team__stale"), "c.txt", 17);
+    writeBytes(join(root, "gone__repo", "deep", "er"), "d.txt", 19);
+    writeBytes(join(root, "owner__repo.v2"), "e.txt", 23);
+    writeBytes(join(root, EXPERIMENT_COPIES_DIR), "f.txt", 1);
+    writeBytes(join(root, WARM_SNAPSHOTS_DIR), "g.txt", 1);
+    writeBytes(join(root, DELEGATIONS_DIR), "h.txt", 1);
+    writeFileSync(join(root, "team__file"), "not a directory");  /* a file named like a mirror */
+    symlinkSync(join(outside, "precious.txt"), join(root, "link__file"));  /* a link to a file */
+    symlinkSync(outside, join(root, "link__outside"));  /* a link to a directory outside the root */
+    const old = new Date(Date.now() - 8 * DAY_MS);
+    utimesSync(join(root, "team__stale"), old, old);
+    process.env.MIRROR_DIR = root;
+
+    const logs: Array<{ level: string; message: string; meta?: Record<string, unknown> }> = [];
+    const deps: MirrorPruneDeps = {
+      ...defaultMirrorPruneDeps(() => null),
+      configuredRepoSlugs: () => new Set(["team__front", "team__stale"]),
+      activeRepoSlugs: () => new Set(),
+      log: (level, message, meta) => logs.push({ level, message, meta }),
+    };
+    const result = pruneMirrors(deps);
+
+    assert.deepEqual(result.deleted.sort(), ["gone__repo", "link__outside", "owner__repo.v2", "team__stale"]);
+    /* The link is measured through, as the pass always did: its target's bytes count (7), the link alone is removed. */
+    assert.equal(result.freedBytes, 17 + 19 + 23 + 7);
+    assert.deepEqual(readdirSync(root).sort(), [DELEGATIONS_DIR, EXPERIMENT_COPIES_DIR, WARM_SNAPSHOTS_DIR, "link__file", "team__file", "team__front"].sort());
+    assert.ok(existsSync(join(outside, "precious.txt")), "nothing outside the root is touched");
+    assert.ok(existsSync(join(root, "team__front", "node_modules", "dep", "b.txt")));
+    assert.deepEqual(logs.map((l) => [l.level, l.message]), [["info", "pruned old mirrors"]]);
+  } finally {
+    if (previousMirrorDir === undefined) delete process.env.MIRROR_DIR;
+    else process.env.MIRROR_DIR = previousMirrorDir;
+    rmSync(scratch, { recursive: true, force: true });
+  }
+});
+
+test("a pass over a mirrors root that is not there logs a warning and removes nothing", () => {
+  const scratch = mkdtempSync(join(tmpdir(), "qa-mirror-prune-"));
+  const previousMirrorDir = process.env.MIRROR_DIR;
+  try {
+    process.env.MIRROR_DIR = join(scratch, "missing");
+    const logs: string[] = [];
+    const result = pruneMirrors({
+      ...defaultMirrorPruneDeps(() => null),
+      configuredRepoSlugs: () => new Set(),
+      activeRepoSlugs: () => new Set(),
+      log: (level, message) => logs.push(`${level}:${message}`),
+    });
+    assert.deepEqual(result, { deleted: [], freedBytes: 0 });
+    assert.deepEqual(logs, ["warn:pruneMirrors: could not read mirror directory"]);
+  } finally {
+    if (previousMirrorDir === undefined) delete process.env.MIRROR_DIR;
+    else process.env.MIRROR_DIR = previousMirrorDir;
+    rmSync(scratch, { recursive: true, force: true });
+  }
 });
