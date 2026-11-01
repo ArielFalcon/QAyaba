@@ -37,14 +37,14 @@ test("two generation turns in one run are numbered 0 then 1 across the sessions 
   assert.deepEqual(h.seen.map((p) => p.opts?.round), [0, 1]);
 });
 
-test("a repair turn inside its session is left alone: its round stays what the transport counts locally", async () => {
+test("a continuation turn inside its session is left alone: its round stays what the transport counts locally", async () => {
   const h = harness();
   const session = await h.runtime.openSession("author", "/w");
   await session.prompt("first pass");
-  await session.prompt("restate the verdict", { isRepair: true, withoutTools: true });
+  await session.prompt("submit again", { isRepair: true, submitOnly: true });
   await h.runtime.openSession("author", "/w").then((s) => s.prompt("next regeneration"));
 
-  assert.deepEqual(h.seen.map((p) => p.opts?.round), [0, undefined, 1], "the repair turn neither took a round nor advanced the counter");
+  assert.deepEqual(h.seen.map((p) => p.opts?.round), [0, undefined, 1], "the continuation turn neither took a round nor advanced the counter");
 });
 
 test("each role's turns are numbered on their own", async () => {
@@ -65,7 +65,7 @@ test("each role's turns are numbered on their own", async () => {
 test("every other option of the prompt reaches the transport untouched, with the round added", async () => {
   const h = harness();
   const session = await h.runtime.openSession("author", "/w");
-  await session.prompt("hi", { stepLimit: 7, finalStepOnly: true, sectionSizes: { a: 1 } });
+  await session.prompt("hi", { stepLimit: 7, textOnly: true, sectionSizes: { a: 1 } });
 
-  assert.deepEqual(h.seen[0]!.opts, { stepLimit: 7, finalStepOnly: true, sectionSizes: { a: 1 }, round: 0 });
+  assert.deepEqual(h.seen[0]!.opts, { stepLimit: 7, textOnly: true, sectionSizes: { a: 1 }, round: 0 });
 });

@@ -530,13 +530,12 @@ export function stallMs(): number {
 
 
 /*
- * Every tool a prompt can reach, named so a per-prompt `tools` map can switch it off: OpenCode's own tools, and the
- * wildcard patterns for the MCP servers the roles are wired to (the same patterns agents/opencode.json denies per
- * role). The bare "*" is the catch-all for a tool added later; the explicit names are for a build that matches
- * names and not patterns.
+ * Every tool a prompt can reach but the submit tools, named so a per-prompt `tools` map can switch it off: OpenCode's own tools,
+ * and the wildcard patterns for the MCP servers the roles are wired to (the same patterns agents/opencode.json denies per role).
+ * No bare "*": a catch-all would deny the one submit tool a continuation keeps, and nothing says which of two rules wins.
  */
 export const NO_TOOLS: Readonly<Record<string, false>> = Object.fromEntries(
-  ["*", "bash", "read", "write", "edit", "patch", "glob", "grep", "list", "webfetch", "task", "todowrite", "todoread", "run_spec", "authbrowser*", "set_geolocation", "codegraph*", "submit_*", "serena*", "playwright*"].map((name) => [name, false as const]),
+  ["bash", "read", "write", "edit", "patch", "glob", "grep", "list", "webfetch", "task", "todowrite", "todoread", "run_spec", "authbrowser*", "set_geolocation", "codegraph*", "serena*", "playwright*"].map((name) => [name, false as const]),
 );
 
 /*
@@ -615,24 +614,21 @@ function otherSubmitTools(armed: SubmitTool): Record<string, false> {
   return Object.fromEntries(SUBMIT_TOOLS.filter((name) => name !== armed).map((name) => [name, false as const]));
 }
 
-/** Every tool but the armed submit tool, for the continuation that may only deliver the answer: the names NO_TOOLS lists, the catch-all pattern left out because it would deny the armed tool too. */
+/** Every tool but the armed submit tool, for the continuation that may only deliver the answer. */
 function everythingButSubmit(armed: SubmitTool): Record<string, false> {
-  const { "*": _catchAll, "submit_*": _submits, ...named } = NO_TOOLS;
-  return { ...named, ...otherSubmitTools(armed) };
+  return { ...NO_TOOLS, ...otherSubmitTools(armed) };
 }
 
-/** The body of one OpenCode prompt. A prompt that asks for no tools carries the deny map; one that may not write is denied the file tools; one of a session the browser, or the code graph, was not granted to hides their tools; the tools its session was denied are denied it; a prompt that submits an answer is denied every submit tool but its own, and a continuation that may only submit is denied every other tool; every other prompt leaves the tools to its agent's configuration. */
-export function openCodePromptBody(args: { agent: string; text: string; model?: { providerID: string; modelID: string } | undefined; withoutTools?: boolean | undefined; withoutWrites?: boolean | undefined; hideBrowserTools?: boolean | undefined; hideGeolocationTool?: boolean | undefined; hideCodeGraphTools?: boolean | undefined; denyTools?: readonly string[] | undefined; submitTool?: SubmitTool | undefined; submitOnly?: boolean | undefined }) {
-  const tools: Record<string, false> = args.withoutTools
-    ? { ...NO_TOOLS }
-    : {
-        ...(args.hideBrowserTools ? { "authbrowser*": false as const } : {}),
-        ...(args.hideGeolocationTool ? { set_geolocation: false as const } : {}),
-        ...(args.hideCodeGraphTools ? { "codegraph*": false as const } : {}),
-        ...(args.withoutWrites ? NO_WRITE_TOOLS : {}),
-        ...(args.submitTool === undefined ? {} : args.submitOnly ? everythingButSubmit(args.submitTool) : otherSubmitTools(args.submitTool)),
-        ...Object.fromEntries((args.denyTools ?? []).map((name) => [name, false as const])),
-      };
+/** The body of one OpenCode prompt. One that may not write is denied the file tools; one of a session the browser, or the code graph, was not granted to hides their tools; the tools its session was denied are denied it; a prompt that submits an answer is denied every submit tool but its own, and a continuation that may only submit is denied every other tool; every other prompt leaves the tools to its agent's configuration. */
+export function openCodePromptBody(args: { agent: string; text: string; model?: { providerID: string; modelID: string } | undefined; withoutWrites?: boolean | undefined; hideBrowserTools?: boolean | undefined; hideGeolocationTool?: boolean | undefined; hideCodeGraphTools?: boolean | undefined; denyTools?: readonly string[] | undefined; submitTool?: SubmitTool | undefined; submitOnly?: boolean | undefined }) {
+  const tools: Record<string, false> = {
+    ...(args.hideBrowserTools ? { "authbrowser*": false as const } : {}),
+    ...(args.hideGeolocationTool ? { set_geolocation: false as const } : {}),
+    ...(args.hideCodeGraphTools ? { "codegraph*": false as const } : {}),
+    ...(args.withoutWrites ? NO_WRITE_TOOLS : {}),
+    ...(args.submitTool === undefined ? {} : args.submitOnly ? everythingButSubmit(args.submitTool) : otherSubmitTools(args.submitTool)),
+    ...Object.fromEntries((args.denyTools ?? []).map((name) => [name, false as const])),
+  };
   return {
     agent: args.agent,
     parts: [{ type: "text" as const, text: args.text }],
@@ -666,11 +662,11 @@ async function buildRawAgentTransport(): Promise<RawAgentTransport> {
       if (!id) throw new Error("OpenCode: the session returned no id");
       return { id };
     },
-    promptSession: async ({ id, cwd, agent, text, model, withoutTools, withoutWrites, submitTool, submitOnly }): Promise<RawPromptResult> => {
+    promptSession: async ({ id, cwd, agent, text, model, withoutWrites, submitTool, submitOnly }): Promise<RawPromptResult> => {
       const res = await client.session.prompt({
         path: { id },
         query: { directory: cwd },
-        body: openCodePromptBody({ agent, text, model, withoutTools, withoutWrites, submitTool, submitOnly, hideBrowserTools: hidesBrowserTools(agent, id), hideGeolocationTool: hidesGeolocationTool(agent, id), hideCodeGraphTools: hidesCodeGraphTools(agent, id), denyTools: sessionToolDeny(id) }),
+        body: openCodePromptBody({ agent, text, model, withoutWrites, submitTool, submitOnly, hideBrowserTools: hidesBrowserTools(agent, id), hideGeolocationTool: hidesGeolocationTool(agent, id), hideCodeGraphTools: hidesCodeGraphTools(agent, id), denyTools: sessionToolDeny(id) }),
       });
       if (res.error) throw promptFailure(res.error, res.response?.status);
       /*

@@ -183,10 +183,9 @@ test("an output that stays without a submission after its one continuation ends 
   assert.match(result.note ?? "", /no accepted submission/);
 });
 
-test("a generation asks for its verdict through the submit tool and states no final-step reading", async () => {
+test("a generation asks for its verdict through the submit tool", async () => {
   const { prompts } = await generate([{ output: SPEC_VERDICT, stats: FINISHED }]);
   assert.equal(prompts[0]!.opts?.submit?.tool, "submit_specs");
-  assert.equal(prompts[0]!.opts?.finalStepOnly, undefined);
 });
 
 test("a runtime that cannot measure a turn leaves the generation's stats out, and its exhaustion unknown", async () => {

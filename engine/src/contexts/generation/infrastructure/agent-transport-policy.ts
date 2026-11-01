@@ -162,8 +162,6 @@ export interface RawAgentTransport {
     agent: string;
     text: string;
     model?: { providerID: string; modelID: string };
-    /** The prompt may use no tool at all: the transport states that to the runtime in whatever form it takes. */
-    withoutTools?: boolean;
     /** The prompt may not write or edit a file: the transport states that to the runtime in whatever form it takes. */
     withoutWrites?: boolean;
     /** The submit tool the prompt's answer is a call of: the transport leaves that one tool to the agent's configuration and hides the other submit tools. */
@@ -578,7 +576,7 @@ export function createAgentDeps(raw: RawAgentTransport, collab: AgentDepsCollabo
               .then((prepared) => {
                 observed = prepared;
                 return countingTransportFailure(() =>
-                  raw.promptSession({ id, cwd, agent, text, ...(overrideModel ? { model: overrideModel } : {}), ...(promptOpts?.withoutTools ? { withoutTools: true } : {}), ...(promptOpts?.withoutWrites ? { withoutWrites: true } : {}), ...(promptOpts?.submit ? { submitTool: promptOpts.submit.tool, ...(promptOpts.submitOnly ? { submitOnly: true } : {}) } : {}) }),
+                  raw.promptSession({ id, cwd, agent, text, ...(overrideModel ? { model: overrideModel } : {}), ...(promptOpts?.withoutWrites ? { withoutWrites: true } : {}), ...(promptOpts?.submit ? { submitTool: promptOpts.submit.tool, ...(promptOpts.submitOnly ? { submitOnly: true } : {}) } : {}) }),
                 );
               })
               .then((res) => {
@@ -628,7 +626,7 @@ export function createAgentDeps(raw: RawAgentTransport, collab: AgentDepsCollabo
                     engineLog.error(`[qa] turn stats callback failed: ${err instanceof Error ? err.message : String(err)}`);
                   }
                 }
-                return promptOpts?.finalStepOnly ? finalText : outputRaw;
+                return outputRaw;
               })
               .catch((err) => {
                 recordCircuitFailure(breakerRole);

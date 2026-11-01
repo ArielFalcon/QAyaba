@@ -934,7 +934,7 @@ test("every role granted the authenticated browser tools denies webfetch, declar
   }
 });
 
-test("a prompt that asks for no tool at all denies the browser tools too", () => {
+test("the continuation that may only submit starts from a deny list that covers the browser tools", () => {
   for (const tool of AGENT_BROWSER_TOOLS) assert.equal(NO_TOOLS[tool] === false || NO_TOOLS["authbrowser*"] === false, true, tool);
 });
 
@@ -981,7 +981,7 @@ test("the lead carries the credential-deny read block", () => {
   assert.deepEqual(lead.permission.read, reviewer.permission?.read, "the same credential denials every reading role carries");
 });
 
-test("a prompt that asks for no tool at all denies the code-graph tools, and their tool file and client exist", () => {
+test("the continuation that may only submit starts from a deny list that covers the code-graph tools, and their tool file and client exist", () => {
   for (const tool of CODE_GRAPH_TOOLS) assert.equal(NO_TOOLS[tool] === false || NO_TOOLS["codegraph*"] === false, true, tool);
   assert.ok(existsSync(join(process.cwd(), "agents", "tool", "codegraph.ts")));
   assert.ok(existsSync(join(process.cwd(), "agents", "lib", "codegraph-client.mjs")));
@@ -1029,8 +1029,7 @@ test("the lead resolves its three submit tools to allow and every other submit t
   assert.equal(capabilitiesForRole("lead").canWrite, false);
 });
 
-test("a prompt that asks for no tool at all denies the submit tools, and the one tool file, its client, its schema converter and its contracts exist", () => {
-  assert.equal(NO_TOOLS["submit_*"], false);
+test("the submit tool file, its client, its schema converter and its contracts exist", () => {
   for (const file of [["tool", "submit.ts"], ["lib", "submit-client.mjs"], ["lib", "submit-schema.mjs"], ["lib", "submit-contracts.json"]]) {
     assert.ok(existsSync(join(process.cwd(), "agents", ...file)), file.join("/"));
   }

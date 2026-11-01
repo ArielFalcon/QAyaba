@@ -1032,21 +1032,11 @@ test("a connection reset on the real stream client reaches the stream lifecycle 
   assert.equal(new Set(calls.map((c) => c.token)).size, 1);
 });
 
-test("openCodePromptBody: a prompt that asks for no tools carries a deny map covering the built-in tools and the MCP wildcards", () => {
-  const body = openCodePromptBody({ agent: "qa-author", text: "restate", withoutTools: true });
-  assert.equal(body.agent, "qa-author");
-  assert.deepEqual(body.parts, [{ type: "text", text: "restate" }]);
-  const tools = (body as { tools?: Record<string, boolean> }).tools;
-  assert.ok(tools, "the deny map is sent");
-  for (const name of ["bash", "read", "write", "edit", "glob", "grep", "run_spec", "serena*", "playwright*"]) assert.equal(tools[name], false, name);
-  assert.ok(Object.values(tools).every((allowed) => allowed === false), "nothing is switched on by this map");
-});
-
 test("openCodePromptBody: any other prompt leaves the tools to its agent's configuration and keeps a model override", () => {
   const model = { providerID: "p", modelID: "m" };
   const body = openCodePromptBody({ agent: "qa-reviewer", text: "judge", model });
   assert.deepEqual(body, { agent: "qa-reviewer", parts: [{ type: "text", text: "judge" }], model });
-  assert.equal("tools" in openCodePromptBody({ agent: "a", text: "t", withoutTools: false }), false);
+  assert.equal("tools" in openCodePromptBody({ agent: "a", text: "t" }), false);
 });
 
 test("openCodePromptBody: a prompt that may not write is denied the file tools and the symbol edits, and keeps every other tool", () => {
@@ -1064,22 +1054,18 @@ test("openCodePromptBody: a prompt that may not write is denied every editing to
   }
 });
 
-test("openCodePromptBody: a prompt may be denied its writes and the browser at once, and a prompt without tools stays without all of them", () => {
+test("openCodePromptBody: a prompt may be denied its writes and the browser at once", () => {
   const both = (openCodePromptBody({ agent: "qa-author", text: "x", withoutWrites: true, hideBrowserTools: true }) as { tools?: Record<string, boolean> }).tools ?? {};
   assert.equal(both["authbrowser*"], false);
   assert.equal(both.write, false);
-  const none = (openCodePromptBody({ agent: "qa-author", text: "x", withoutTools: true, withoutWrites: true }) as { tools?: Record<string, boolean> }).tools ?? {};
-  assert.equal(none["*"], false);
 });
 
-test("openCodePromptBody: the tools a session was denied are denied its prompts, beside the other denials, and a prompt without tools stays without all of them", () => {
+test("openCodePromptBody: the tools a session was denied are denied its prompts, beside the other denials", () => {
   const denied = (openCodePromptBody({ agent: "qa-author", text: "x", denyTools: ["serena*", "run_spec"], withoutWrites: true }) as { tools?: Record<string, boolean> }).tools ?? {};
   assert.equal(denied["serena*"], false);
   assert.equal(denied.run_spec, false);
   assert.equal(denied.write, false);
   assert.equal("tools" in openCodePromptBody({ agent: "qa-author", text: "x", denyTools: [] }), false);
-  const none = (openCodePromptBody({ agent: "qa-author", text: "x", withoutTools: true, denyTools: ["serena*"] }) as { tools?: Record<string, boolean> }).tools ?? {};
-  assert.equal(none["*"], false);
 });
 
 test("a session's denied tools are kept per session, replaced by a later set, and forgotten when cleared", () => {
@@ -1099,8 +1085,6 @@ test("openCodePromptBody: a prompt of a session the run did not grant the browse
   assert.equal(hidden.agent, "qa-author");
   assert.deepEqual(hidden.model, model);
   assert.equal("tools" in openCodePromptBody({ agent: "qa-author", text: "write", hideBrowserTools: false }), false);
-  const none = (openCodePromptBody({ agent: "qa-author", text: "x", withoutTools: true, hideBrowserTools: true }) as { tools?: Record<string, boolean> }).tools;
-  assert.equal(none?.["authbrowser*"], false, "a prompt that asks for no tools still denies them, once");
 });
 
 test("a session is shown the browser's tools only when the orchestrator granted it, and only an authoring role is ever asked about", () => {
@@ -1140,7 +1124,7 @@ test("a session is shown the location tool only when its run carries an authorin
   }
 });
 
-test("the lead's code-graph tools are in the deny-all map and are hidden from a lead's prompt whose session the run granted no graph", async () => {
+test("the lead's code-graph tools are in the list a continuation that may only submit denies and are hidden from a lead's prompt whose session the run granted no graph", async () => {
   const { NO_TOOLS: noTools, openCodePromptBody: body, hidesCodeGraphTools, setCodeGraphGrantLookup } = await import("./opencode-client");
   assert.equal(noTools["codegraph*"], false);
   const hidden = body({ agent: "qa-lead", text: "plan", hideCodeGraphTools: true }) as { tools?: Record<string, boolean> };
@@ -1165,12 +1149,11 @@ test("a prompt armed with a submit tool is denied every other submit tool by nam
 });
 
 test("a continuation that may only submit is denied every other tool and keeps the armed submit tool", async () => {
-  const { NO_TOOLS: noTools, openCodePromptBody: body } = await import("./opencode-client");
+  const { openCodePromptBody: body } = await import("./opencode-client");
   const tools = (body({ agent: "qa-author", text: "submit now", submitTool: "submit_specs", submitOnly: true }) as { tools?: Record<string, boolean> }).tools ?? {};
   assert.equal("submit_specs" in tools, false, "the armed tool is not denied");
   assert.equal("*" in tools, false, "a catch-all would deny the armed tool as well");
   for (const name of ["bash", "read", "write", "edit", "run_spec", "authbrowser*", "codegraph*", "serena*", "playwright*", "submit_result", "submit_review"]) assert.equal(tools[name], false, name);
-  assert.equal(noTools["submit_*"], false, "a prompt that asks for no tool at all denies every submit tool");
 });
 
 test("a prompt the server answers 404 is a session the runtime no longer has; any other failure is not", () => {

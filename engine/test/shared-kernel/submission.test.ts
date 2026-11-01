@@ -39,7 +39,7 @@ test("a turn that submits is the answer and asks nothing more", async () => {
 
 test("a turn that ends without a submission gets one continuation restricted to the submit tool, told the last rejection, within the same bounds", async () => {
   const { session, prompts } = scripted({ output: "{broken", submission: open("output-length", [{ path: "flows[0].objective", reason: "objective is missing" }], 1) }, { output: "", submission: accepted("fixed", 1) });
-  const turn = await submitTurn(session, "plan it", { timeoutMs: 90_000, timeLimit: "plan-budget", stepLimit: 12, withoutWrites: true, finalStepOnly: true }, contract);
+  const turn = await submitTurn(session, "plan it", { timeoutMs: 90_000, timeLimit: "plan-budget", stepLimit: 12, withoutWrites: true, textOnly: true }, contract);
   assert.deepEqual(turn, { submitted: true, value: "fixed", output: "", calls: 2, continued: true });
   assert.equal(prompts.length, 2);
   const continuation = prompts[1]!;
