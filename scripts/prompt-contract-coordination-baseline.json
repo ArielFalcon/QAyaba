@@ -9,11 +9,11 @@
       "directives": 2
     },
     "lead-correction-refused/plain": {
-      "bytes": 433,
+      "bytes": 442,
       "directives": 0
     },
     "lead-correction/coverage": {
-      "bytes": 677,
+      "bytes": 1006,
       "directives": 1
     },
     "lead-correction/execution": {
@@ -63,12 +63,14 @@
   },
   "staticLayers": {
     "qa-author": 24625,
-    "qa-lead": 15007
+    "qa-lead": 15171
   },
   "lastIncrease": {
-    "reason": "RFC-0018 merged with the prompt context root-cause units: the author's role layer names the submit_specs and submit_result calls where main's layer said closing JSON (+25 bytes over main's 24600)",
+    "reason": "RFC-0019: the lead's correction answer gains the typed decline of a decision's arms; the coverage origin's rule states it, the role prompt's answer shape lists it and the re-ask repeats it",
     "budgets": [
-      "static:qa-author"
+      "lead-correction-refused/plain:bytes",
+      "lead-correction/coverage:bytes",
+      "static:qa-lead"
     ]
   }
 }

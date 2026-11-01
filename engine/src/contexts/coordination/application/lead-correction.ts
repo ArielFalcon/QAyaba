@@ -17,6 +17,9 @@ import { LEAD_CORRECTION_SECTIONS, REFUSED_CORRECTION_SECTIONS, type CorrectionF
 export type { CorrectionFinding, FlowUnderCorrection };
 import { entryRead, entryUnreadable, readEntries, readOneOf, type UnreadableEntry } from "./answer-reading.ts";
 import { endsWithSpecPath, sameSpecPath } from "@kernel/spec-path.ts";
+import { candidatesSeededBy } from "@kernel/change-map.ts";
+import { DROP_BASIS, armDeclineRefusal, type DropBasis } from "@kernel/drop-basis.ts";
+import type { UseCaseCandidate } from "@kernel/use-case-candidate.ts";
 import type { RedactionPort } from "@kernel/ports/redaction.port.ts";
 
 const MAX_REF_CHARS = 400;
@@ -41,6 +44,13 @@ export type CorrectionOrigin = (typeof CORRECTION_ORIGIN)[keyof typeof CORRECTIO
 const OBSERVED_FACTS_RULE = "These are facts the run observed: each one is corrected, none is rebutted.";
 const CORRECT_EACH_FINDING = "Correct your spec for each finding without weakening an assertion.";
 const COVERAGE_RULE = "These are measurements, not demands: take the arm when the page can be brought to that state through the UI against DEV; otherwise change nothing for it and say so in `concerns`. Never force or weaken an assertion; the recount is the disposition of each finding.";
+const DECLINE_BASES = Object.values(DROP_BASIS).map((basis) => `\`${basis}\``).join(", ");
+const COVERAGE_LEAD_RULE = [
+  "These are measurements, not demands: a decision's arms are taken when the page can be brought to that state through the UI against DEV.",
+  `An arm no test can take is declined in \`declines\` instead of being sent to a flow: its finding number, a basis of the plan's drops (${DECLINE_BASES}) and a reason.`,
+  "The orchestrator holds the basis to its facts once; what you keep stands, recorded as contradicted. A declined arm stays in the measurement and the report.",
+  "Never force or weaken an assertion; the recount is the disposition of each finding.",
+].join(" ");
 
 const ORIGIN_TEXT: Record<CorrectionOrigin, { heading: string; lead: string; sidekick: string; leadRule: string; closing: string }> = {
   review: {
@@ -75,7 +85,7 @@ const ORIGIN_TEXT: Record<CorrectionOrigin, { heading: string; lead: string; sid
     heading: "Changed lines no test exercised",
     lead: "The run passed, but the change-coverage measurement found changed lines that none of the delivered specs exercised.",
     sidekick: "The run passed, but changed lines no test exercised remain. Extend your spec to exercise those of your flow:",
-    leadRule: COVERAGE_RULE,
+    leadRule: COVERAGE_LEAD_RULE,
     closing: COVERAGE_RULE,
   },
   "pre-exec": {
@@ -100,6 +110,9 @@ export function correctionClosing(origin: CorrectionOrigin): string {
 /* Whether the findings of this origin are a judgment the lead may rebut. */
 const rebuttable = (origin: CorrectionOrigin): boolean => origin === CORRECTION_ORIGIN.REVIEW;
 
+/* Whether the findings of this origin may be declined: the change-coverage measurement's arms are taken when a test can take them. */
+const declinable = (origin: CorrectionOrigin): boolean => origin === CORRECTION_ORIGIN.COVERAGE;
+
 export interface CorrectionOrder {
   flowId: string;
   action: typeof REVIEW_ACTION.REVISE | typeof REVIEW_ACTION.REPLACE;
@@ -121,13 +134,29 @@ export interface CorrectionRebuttal {
   reason: string;
 }
 
+/* A decision's arms the lead holds no test can take: the basis it gave from the plan's closed set, and why the run's facts contradict it when they do (it stands all the same). */
+export interface CorrectionDecline {
+  /* The position of the finding among the turn's findings. */
+  index: number;
+  basis: DropBasis;
+  reason: string;
+  contradicted?: string;
+}
+
+/* What the orchestrator knows of the run that a decline is held to. */
+export interface DeclineFacts {
+  candidates: readonly UseCaseCandidate[];
+}
+
 export interface CorrectionAdmission {
   readable: boolean;
   /* The entries of the answer (or the answer itself) the engine could not read: not acted on, recorded, asked about once. */
   unreadable: UnreadableEntry[];
   orders: CorrectionOrder[];
   rebuttals: CorrectionRebuttal[];
-  /* The positions of the findings no flow was sent and the lead did not rebut. */
+  /* The findings the lead declined: sent to no flow and not unrouted. */
+  declines: CorrectionDecline[];
+  /* The positions of the findings no flow was sent and the lead neither rebutted nor declined. */
   unrouted: number[];
   refused: Array<{ flowId?: string; finding?: number; reason: string }>;
 }
@@ -257,34 +286,36 @@ export function renderLeadCorrection(redaction: RedactionPort, flows: readonly F
  * turn that submitted it (`leadCorrectionContract`); this request is about the orchestrator's facts: a finding left out is a decision
  * the lead has not made yet.
  */
-export function assembleRefusedCorrection(refused: CorrectionAdmission["refused"], findingCount: number, omitted: readonly number[] = [], origin: CorrectionOrigin = CORRECTION_ORIGIN.REVIEW): AssembledPrompt {
-  return assembleDefs(REFUSED_CORRECTION_SECTIONS, { refused, findingCount, omitted: omitted.map((i) => i + 1), rebuttable: rebuttable(origin) }, { separator: "\n" });
+export function assembleRefusedCorrection(refused: CorrectionAdmission["refused"], findingCount: number, omitted: readonly number[] = [], origin: CorrectionOrigin = CORRECTION_ORIGIN.REVIEW, declines: readonly CorrectionDecline[] = []): AssembledPrompt {
+  const contradictedDeclines = declines.flatMap((d) => (d.contradicted === undefined ? [] : [{ finding: d.index + 1, basis: d.basis, why: d.contradicted }]));
+  return assembleDefs(REFUSED_CORRECTION_SECTIONS, { refused, findingCount, omitted: omitted.map((i) => i + 1), rebuttable: rebuttable(origin), contradictedDeclines }, { separator: "\n" });
 }
 
 function textOf(redaction: RedactionPort, value: unknown, max: number): string {
   return typeof value === "string" ? redaction.redact(value).trim().slice(0, max) : "";
 }
 
-/* Reads the lead's submitted routing: the object the correction contract accepted. No answer at all (`undefined`) is the lead's absence and unreadable is empty; any other answer is unreadable unless it is an object with a `corrections` or a `rebuttals` list. */
-export function admitLeadCorrection(redaction: RedactionPort, answer: unknown, flows: readonly FlowUnderCorrection[], findings: readonly CorrectionFinding[], origin: CorrectionOrigin = CORRECTION_ORIGIN.REVIEW): CorrectionAdmission {
-  const admission: CorrectionAdmission = { readable: false, unreadable: [], orders: [], rebuttals: [], unrouted: [], refused: [] };
+/* Reads the lead's submitted routing: the object the correction contract accepted. No answer at all (`undefined`) is the lead's absence and unreadable is empty; any other answer is unreadable unless it is an object with a `corrections`, `rebuttals` or `declines` list. */
+export function admitLeadCorrection(redaction: RedactionPort, answer: unknown, flows: readonly FlowUnderCorrection[], findings: readonly CorrectionFinding[], origin: CorrectionOrigin = CORRECTION_ORIGIN.REVIEW, facts: DeclineFacts = { candidates: [] }): CorrectionAdmission {
+  const admission: CorrectionAdmission = { readable: false, unreadable: [], orders: [], rebuttals: [], declines: [], unrouted: [], refused: [] };
   const route = routesOfFindings(findings, flows);
   const owner = route.map((r) => r?.flowId);
   const movable = findings.map((finding, i) => movableAmong(finding, flows, route[i]));
   /* The flow the lead gave a finding several flows hold: the first order that names it, which replaces the default owner. */
   const given = new Map<number, string>();
   const byId = new Map(flows.map((flow) => [flow.id, flow]));
-  const listed = typeof answer === "object" && answer !== null ? (answer as { corrections?: unknown; rebuttals?: unknown }) : undefined;
-  const raw = listed !== undefined && (Array.isArray(listed.corrections) || Array.isArray(listed.rebuttals)) ? listed : undefined;
+  const listed = typeof answer === "object" && answer !== null ? (answer as { corrections?: unknown; rebuttals?: unknown; declines?: unknown }) : undefined;
+  const raw = listed !== undefined && (Array.isArray(listed.corrections) || Array.isArray(listed.rebuttals) || Array.isArray(listed.declines)) ? listed : undefined;
   const readable = raw !== undefined;
   admission.readable = readable;
   const routed = new Map<string, { action: CorrectionOrder["action"]; instruction: string; extra: Set<number> }>();
   const rebutted = new Set<number>();
+  const declined = new Set<number>();
   const scrub = (text: string): string => redaction.redact(text);
   const numberOf = (value: unknown): number | undefined => (typeof value === "number" && Number.isInteger(value) && value >= 1 && value <= findings.length ? value - 1 : undefined);
 
   if (!raw) {
-    if (answer !== undefined) admission.unreadable.push({ where: "answer", reason: "it is not an object with a `corrections` or `rebuttals` list" });
+    if (answer !== undefined) admission.unreadable.push({ where: "answer", reason: "it is not an object with a `corrections`, `rebuttals` or `declines` list" });
   } else {
     /* Each order is read once: a flow of this pass, a revise or a replace, and finding numbers that are findings of the turn. An entry that is not that is unacted on and recorded, never read as a revise. */
     const orders = readEntries(raw.corrections, "corrections", (entry, index) => {
@@ -346,14 +377,47 @@ export function admitLeadCorrection(redaction: RedactionPort, answer: unknown, f
       admission.unreadable.push(...rebuttals.unreadable);
       admission.rebuttals.push(...rebuttals.entries);
     }
+    if (!declinable(origin)) {
+      if (Array.isArray(raw.declines) && raw.declines.length > 0) admission.refused.push({ reason: "declines are not read for findings of this origin: only the change-coverage measurement's arms are declined" });
+    } else {
+      /* A finding the lead sends to a flow itself is corrected: one answer per finding. */
+      const ordered = new Set([...given.keys(), ...[...routed.values()].flatMap((order) => [...order.extra])]);
+      const seen = new Set<number>();
+      const declines = readEntries(raw.declines, "declines", (entry) => {
+        if (!entry || typeof entry !== "object" || Array.isArray(entry)) return entryUnreadable("it is not an object");
+        const e = entry as Record<string, unknown>;
+        const index = numberOf(e.finding);
+        if (index === undefined) return entryUnreadable(`finding ${JSON.stringify(e.finding)} is not a finding of this turn (1..${findings.length})`);
+        if (findings[index]!.declinable !== true) return entryUnreadable(`finding ${index + 1} is not about a decision's arms: only those can be declined`);
+        const basis = readOneOf(e.basis, Object.values(DROP_BASIS), `finding ${index + 1}: basis`);
+        if (!basis.ok) return basis;
+        const reason = textOf(redaction, e.reason, MAX_REASON_CHARS);
+        if (reason === "") return entryUnreadable(`finding ${index + 1}: reason is missing`);
+        if (seen.has(index)) return entryUnreadable(`finding ${index + 1} is declined twice; the first decline stands`);
+        seen.add(index);
+        return entryRead({ index, basis: basis.value, reason });
+      }, scrub, { optional: true });
+      admission.unreadable.push(...declines.unreadable);
+      for (const decline of declines.entries) {
+        if (ordered.has(decline.index)) {
+          admission.refused.push({ finding: decline.index + 1, reason: "the finding is also ordered to a flow: one answer per finding, and the order stands" });
+          continue;
+        }
+        const file = findings[decline.index]!.file;
+        const contradicted = file === undefined ? undefined : armDeclineRefusal(candidatesSeededBy(file, facts.candidates), decline.basis);
+        declined.add(decline.index);
+        admission.declines.push({ ...decline, ...(contradicted !== undefined ? { contradicted } : {}) });
+      }
+    }
   }
 
+  const decidedByLead = (i: number): boolean => rebutted.has(i) || declined.has(i);
   const sent = new Set<number>();
   const settled = owner.map((id, i) => given.get(i) ?? id);
   for (const flow of flows) {
-    const own = findings.flatMap((_, i) => (settled[i] === flow.id && !rebutted.has(i) ? [i] : []));
+    const own = findings.flatMap((_, i) => (settled[i] === flow.id && !decidedByLead(i) ? [i] : []));
     const order = routed.get(flow.id);
-    const indices = [...own, ...[...(order?.extra ?? [])].filter((i) => !rebutted.has(i))];
+    const indices = [...own, ...[...(order?.extra ?? [])].filter((i) => !decidedByLead(i))];
     if (indices.length === 0) {
       if (order) admission.refused.push({ flowId: flow.id, reason: "the order names no finding the flow is to correct" });
       continue;
@@ -362,6 +426,6 @@ export function admitLeadCorrection(redaction: RedactionPort, answer: unknown, f
     const action = order?.action === REVIEW_ACTION.REPLACE || !flow.sessionOpen ? REVIEW_ACTION.REPLACE : REVIEW_ACTION.REVISE;
     admission.orders.push({ flowId: flow.id, action, instruction: order?.instruction || DEFAULT_CORRECTION_INSTRUCTION, findings: indices.map((i) => findings[i]!.text), indices });
   }
-  admission.unrouted = findings.flatMap((_, i) => (sent.has(i) || rebutted.has(i) ? [] : [i]));
+  admission.unrouted = findings.flatMap((_, i) => (sent.has(i) || decidedByLead(i) ? [] : [i]));
   return admission;
 }

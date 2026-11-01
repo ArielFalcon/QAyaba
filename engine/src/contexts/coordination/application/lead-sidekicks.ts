@@ -70,7 +70,7 @@ import { candidateFlowId, candidateFlowOf, maintenanceFlowId, maintenanceFlowOf,
 import type { FindingPlacement } from "@kernel/finding-placement.ts";
 import { leadCorrectionContract } from "./lead-correction.contract.ts";
 import { leadReviewContract } from "./lead-review.contract.ts";
-import { CORRECTION_ORIGIN, admitLeadCorrection, correctionClosing, correctionPreamble, routesOfFindings, assembleLeadCorrection, assembleRefusedCorrection, type CorrectionOrigin, type CorrectionOrder, type CorrectionRebuttal, type FlowUnderCorrection, type CorrectionFinding } from "./lead-correction.ts";
+import { CORRECTION_ORIGIN, admitLeadCorrection, correctionClosing, correctionPreamble, routesOfFindings, assembleLeadCorrection, assembleRefusedCorrection, type CorrectionDecline, type CorrectionOrigin, type CorrectionOrder, type CorrectionRebuttal, type FlowUnderCorrection, type CorrectionFinding } from "./lead-correction.ts";
 
 /* The flow's slice of the Context Pack, as a brief field, or nothing when the pack did not read its pages or show a contradiction its use cases reach. */
 const pagesOf = (pack: string | undefined, routes: readonly string[], contradictedRoutes: readonly string[]): { pages: string } | undefined => {
@@ -204,6 +204,8 @@ export interface CorrectionTally {
   revised: number;
   replaced: number;
   rebutted: number;
+  /* The arms the lead declined and the run's facts let stand; absent when there was none. */
+  declined?: number;
   /* Maintenance flows opened for findings that named a spec no flow of the plan owns; absent when there was none. */
   maintained?: number;
   /* Entries of the lead's correction answers and of the sidekicks' results in these turns that the reader could not read after their one repair turn, and the repair turns asked. */
@@ -1045,9 +1047,10 @@ export class LeadSidekicks {
       return { sent: true };
     };
     let askedAgain = new Set<number>();
+    const facts = { candidates: input.candidates ?? [] };
     const first = await askLead(assembleLeadCorrection(this.deps.redaction, under, findings, origin, this.leadFit()), false);
     if (first.sent) tally.turns += 1;
-    let admission = admitLeadCorrection(this.deps.redaction, first.answer, under, findings, origin);
+    let admission = admitLeadCorrection(this.deps.redaction, first.answer, under, findings, origin, facts);
     for (const r of admission.refused) this.record(input, { kind: "lead-decision", origin, reason: `correction (${origin}): ${r.flowId ? `flow ${r.flowId} ` : ""}${r.finding ? `finding ${r.finding} ` : ""}not taken: ${r.reason}` });
     /*
      * An order the orchestrator refused leaves findings with no flow, and a readable answer may leave findings it neither sent to a flow
@@ -1056,14 +1059,15 @@ export class LeadSidekicks {
      */
     const omitted = admission.readable ? admission.unrouted.filter((i) => !this.opensFlowFor(input, flows, findings[i]!)) : [];
     const refusedLeft = admission.refused.length > 0 && admission.unrouted.length > 0;
-    if ((refusedLeft || omitted.length > 0) && !state.released && !input.signal?.aborted) {
-      const parts = [...(admission.refused.length > 0 ? [`${admission.refused.length} part(s) of the answer not admitted`] : []), ...(omitted.length > 0 ? [`finding(s) ${omitted.map((i) => i + 1).join(", ")} neither sent to a flow nor rebutted`] : [])];
+    const contradicted = admission.declines.filter((decline) => decline.contradicted !== undefined);
+    if ((refusedLeft || omitted.length > 0 || contradicted.length > 0) && !state.released && !input.signal?.aborted) {
+      const parts = [...(admission.refused.length > 0 ? [`${admission.refused.length} part(s) of the answer not admitted`] : []), ...(omitted.length > 0 ? [`finding(s) ${omitted.map((i) => i + 1).join(", ")} neither sent to a flow nor rebutted`] : []), ...(contradicted.length > 0 ? [`decline(s) of finding(s) ${contradicted.map((d) => d.index + 1).join(", ")} the run's facts contradict`] : [])];
       if (this.leadTurnTime(input) !== undefined) this.record(input, { kind: "lead-decision", origin, reason: `correction (${origin}): ${parts.join("; ")}; asking the lead once more` });
-      const again = await askLead(assembleRefusedCorrection(admission.refused, findings.length, omitted, origin), true);
+      const again = await askLead(assembleRefusedCorrection(admission.refused, findings.length, omitted, origin, contradicted), true);
       if (again.sent) {
         tally.turns += 1;
         askedAgain = new Set(omitted);
-        const second = admitLeadCorrection(this.deps.redaction, again.answer, under, findings, origin);
+        const second = admitLeadCorrection(this.deps.redaction, again.answer, under, findings, origin, facts);
         if (second.readable && second.unrouted.length <= admission.unrouted.length) {
           admission = second;
           for (const r of second.refused) this.record(input, { kind: "lead-decision", origin, reason: `correction (${origin}): ${r.flowId ? `flow ${r.flowId} ` : ""}${r.finding ? `finding ${r.finding} ` : ""}not taken after the second asking: ${r.reason}` });
@@ -1071,6 +1075,11 @@ export class LeadSidekicks {
       }
     }
     tally.rebutted += admission.rebuttals.length;
+    if (admission.declines.length > 0) {
+      tally.declined = (tally.declined ?? 0) + admission.declines.length;
+      const stood = admission.declines.map((d) => `${d.index + 1} (${d.basis}${d.contradicted !== undefined ? `, contradicted: ${d.contradicted}` : ""})`);
+      this.record(input, { kind: "lead-decision", origin, findings: admission.declines.length, reason: `correction (${origin}): finding(s) ${stood.join("; ")} declined; the arm stays in the measurement and no flow is sent it`.slice(0, 1_000) });
+    }
     const after = this.room(input);
     const stopped = state.released || input.signal?.aborted === true || (after !== undefined && after < MIN_FLOW_MS);
     const orders = stopped ? [] : admission.orders.filter((o) => live.has(o.flowId));
@@ -1129,7 +1138,7 @@ export class LeadSidekicks {
     this.leftUnrouted(input, origin, leftWith("no-flow-took", (i) => askedAgain.has(i)), "the lead neither sent them to a flow nor rebutted them after being asked once more, and no cold author is run for them", "no-flow-took");
     this.leftUnrouted(input, origin, leftWith("no-flow-took", (i) => !askedAgain.has(i)), "no flow took them and no cold author is run for them", "no-flow-took");
     const finalUnrouted = left;
-    const placements = placementsOf(findings, under, orders, maintenance, left);
+    const placements = placementsOf(findings, under, orders, maintenance, left, admission.declines);
     this.record(input, { kind: "lead-decision", origin, ...routingSummary(placements, left, codeOf), reason: `correction (${origin}): ${findings.length} finding(s) routed` });
     const read = this.deps.readSpec;
     const specSources = read ? await Promise.all(specs.map((spec) => read({ mirrorDir: input.mirrorDir, specDir: input.specDir }, spec).catch(() => undefined))) : undefined;
@@ -1423,12 +1432,15 @@ export class LeadSidekicks {
  * or the lead's order when it gave the finding to another flow or to one the engine's facts leave open), or a flow the orchestrator
  * opened for it; none for a finding left unrouted.
  */
-function placementsOf(findings: readonly CorrectionFinding[], under: readonly FlowUnderCorrection[], orders: readonly CorrectionOrder[], maintenance: ReadonlyArray<{ indices: number[]; flow: { id: string } }>, left: readonly number[]): FindingPlacement[] {
+function placementsOf(findings: readonly CorrectionFinding[], under: readonly FlowUnderCorrection[], orders: readonly CorrectionOrder[], maintenance: ReadonlyArray<{ indices: number[]; flow: { id: string } }>, left: readonly number[], declines: readonly CorrectionDecline[]): FindingPlacement[] {
   const routed = routesOfFindings(findings, under);
   const unrouted = new Set(left);
   const ordered = new Map(orders.flatMap((o) => o.indices.map((i) => [i, o.flowId] as const)));
   const opened = new Map(maintenance.flatMap((m) => m.indices.map((i) => [i, m.flow.id] as const)));
+  const declined = new Map(declines.map((decline) => [decline.index, decline] as const));
   return findings.map((_, i): FindingPlacement => {
+    const decline = declined.get(i);
+    if (decline !== undefined) return { declined: { basis: decline.basis, ...(decline.contradicted !== undefined ? { contradicted: decline.contradicted } : {}) } };
     if (unrouted.has(i)) return {};
     const flowId = ordered.get(i);
     if (flowId !== undefined) return { flowId, by: routed[i]?.flowId === flowId ? routed[i]!.by : "lead" };

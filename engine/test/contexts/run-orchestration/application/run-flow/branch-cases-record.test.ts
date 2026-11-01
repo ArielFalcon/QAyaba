@@ -1,7 +1,7 @@
 /* What the branch-cases regeneration records of the decisions it was sent: the identity of an arm is its decision's, so a taken arm is counted by identity and not by count. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { branchCasesRecord } from "@contexts/run-orchestration/application/run-flow/branch-cases-record.ts";
+import { branchCasesRecord, declinedDecisionsOf } from "@contexts/run-orchestration/application/run-flow/branch-cases-record.ts";
 import { gapUnits } from "@contexts/run-orchestration/application/run-flow/phases/coverage.steps.ts";
 
 const arm = (file: string, line: number, label: string, column = 2) => ({ file, line, column, kind: "if", arm: label });
@@ -60,4 +60,26 @@ test("a run with no pass records no share and no survivors, and a regeneration w
 
   assert.equal("maxFlowShare" in record, false);
   assert.equal("survivors" in record, false);
+});
+
+test("a decision the lead declined is recorded with its basis, apart from one no flow took, and counts for no flow's share", () => {
+  const placements = [{ declined: { basis: "needs-unavailable-state" as const } }, { declined: { basis: "no-observable-change" as const, contradicted: "its changed code is executable code" } }, { flowId: "alpha", by: "evaluator" as const }, {}];
+
+  const record = branchCasesRecord({ before, after: before, units, placements });
+
+  assert.deepEqual(record.decisions!.map((d) => d.declined), [{ basis: "needs-unavailable-state" }, { basis: "no-observable-change", contradicted: true }, undefined, undefined]);
+  assert.equal(record.decisions![3]!.flow, undefined, "an undeclined decision no flow took is not declined");
+  assert.equal(record.maxFlowShare, 1 / 4);
+  assert.deepEqual(record.armsTaken, 0, "a declined arm stays untaken in the recount");
+});
+
+test("the declined decisions of a turn are listed by their identity with the basis, and a turn that declined nothing lists none", () => {
+  const placements = [{}, { declined: { basis: "already-covered" as const } }, {}, { declined: { basis: "no-observable-change" as const, contradicted: "fact" } }];
+
+  assert.deepEqual(declinedDecisionsOf(units, placements), [
+    { file: "src/b.ts", line: 9, column: 2, kind: "if", basis: "already-covered" },
+    { file: "src/b.ts", line: 9, column: 40, kind: "if", basis: "no-observable-change", contradicted: true },
+  ]);
+  assert.deepEqual(declinedDecisionsOf(units, undefined), []);
+  assert.deepEqual(declinedDecisionsOf(units, units.map(() => ({}))), []);
 });

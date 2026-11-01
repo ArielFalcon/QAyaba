@@ -583,6 +583,20 @@ test("the branch-cases record names, per decision sent, the flow the lead's pass
   assert.equal(record?.maxFlowShare, 1 / 2);
 });
 
+test("a declined decision is recorded with its basis and its arm stays untaken in the record, while the flow the lead did send gets its own", async () => {
+  let r!: Rig;
+  let kept!: ReturnType<typeof keptPass>;
+  r = rig(() => delivered(kept.pass));
+  kept = keptPass(r, () => ({ readable: true, specs: [], rebuttals: [], unrouted: [], placements: [{ declined: { basis: "needs-unavailable-state" } }, { flowId: "a", by: "evaluator" }] }));
+  const arm = (line: number) => ({ file: "src/list.ts", line, column: 0, kind: "if", arm: "the else" });
+  const objectiveSignal = { measure: async () => ({ status: "pass" as const, ratio: 0.9, untakenArms: [arm(4), arm(7)] }), blocks: () => false };
+  await new RunQaUseCase(r.deps({ objectiveSignal, config: { needsReview: false, shadow: false, onFailure: "github-issue", maxRetries: 2, coveragePolicyMode: "signal", coverageBranchCases: "regenerate" } })).run(INPUT);
+  const record = r.saved.at(-1)?.gateSignals.branchCases;
+  assert.deepEqual(record?.decisions?.map((d) => [d.line, d.flow, d.declined]), [[4, undefined, { basis: "needs-unavailable-state" }], [7, "a", undefined]]);
+  assert.equal(record?.armsAfter, 2, "no test ran, so both arms are still untaken");
+  assert.equal(r.saved.at(-1)?.gateSignals.branchCoverage?.changed, undefined, "the measurement of a run that measured no branches is as it was");
+});
+
 test("a run the lead authored alone still regenerates a coverage gap whole, with the gap as one text", async () => {
   const r = rig();
   const objectiveSignal = {

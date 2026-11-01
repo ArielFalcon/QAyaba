@@ -62,6 +62,16 @@ export function dropRefusal(candidate: UseCaseCandidate, basis: DropBasis): stri
   return undefined;
 }
 
+/*
+ * Why the facts contradict the decline of an arm, given the use cases the arm's file seeds, or undefined when they do not. The basis is
+ * held to each use case as a drop of it is (`dropRefusal`); one use case it holds for is enough for it to be true of the arm, and a file
+ * that seeds none has no fact against it.
+ */
+export function armDeclineRefusal(candidates: readonly UseCaseCandidate[], basis: DropBasis): string | undefined {
+  const refusals = candidates.map((candidate) => dropRefusal(candidate, basis));
+  return refusals.every((why) => why !== undefined) ? refusals[0] : undefined;
+}
+
 /* The bases a drop of the candidate is refused as: what `dropRefusal` says for each. */
 export function refusedDropBasesOf(candidate: UseCaseCandidate): DropBasis[] {
   return Object.values(DROP_BASIS).filter((basis) => dropRefusal(candidate, basis) !== undefined);

@@ -1,8 +1,30 @@
 import type { UntakenArm, UntakenDecision } from "@contexts/objective-signal/application/index.ts";
 import type { FindingPlacement } from "@kernel/finding-placement.ts";
-import type { BranchCasesRecord } from "@kernel/run-outcome.ts";
+import type { DropBasis } from "@kernel/drop-basis.ts";
+import type { BranchCasesDecision, BranchCasesRecord } from "@kernel/run-outcome.ts";
 
 type Recorded = Pick<BranchCasesRecord, "findings" | "armsTaken" | "maxFlowShare" | "survivors" | "decisions">;
+
+/* A decision the lead declined: its identity and the basis it gave; `contradicted` when the run's facts contradicted the basis. */
+export interface DeclinedDecision {
+  file: string;
+  line: number;
+  column: number;
+  kind: string;
+  basis: DropBasis;
+  contradicted?: true;
+}
+
+const declinedOf = (placement: FindingPlacement | undefined): BranchCasesDecision["declined"] =>
+  placement?.declined ? { basis: placement.declined.basis, ...(placement.declined.contradicted !== undefined ? { contradicted: true as const } : {}) } : undefined;
+
+/** The decisions of `units` the lead declined, from what the pass did with each finding in their order. */
+export function declinedDecisionsOf(units: ReadonlyArray<{ decision?: UntakenDecision }>, placements: readonly FindingPlacement[] | undefined): DeclinedDecision[] {
+  return units.flatMap(({ decision }, i) => {
+    const declined = declinedOf(placements?.[i]);
+    return decision && declined ? [{ file: decision.file, line: decision.line, column: decision.column, kind: decision.kind, ...declined }] : [];
+  });
+}
 
 const armKey = ({ file, line, column, kind, arm }: UntakenArm): string => `${file}:${line}:${column}:${kind}:${arm}`;
 
@@ -21,6 +43,7 @@ export function branchCasesRecord({ before, after, units, placements }: { before
     if (!decision) return [];
     const placement = placements?.[i];
     const taken = takenOf(decision);
+    const declined = declinedOf(placement);
     return [{
       file: decision.file,
       line: decision.line,
@@ -30,6 +53,7 @@ export function branchCasesRecord({ before, after, units, placements }: { before
       ...(placement?.flowId !== undefined ? { flow: placement.flowId } : {}),
       ...(placement?.by !== undefined ? { by: placement.by } : {}),
       ...(taken !== undefined ? { taken } : {}),
+      ...(declined ? { declined } : {}),
     }];
   });
   const perFlow = new Map<string, number>();

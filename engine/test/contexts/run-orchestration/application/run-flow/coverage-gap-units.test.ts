@@ -95,3 +95,9 @@ test("a unit about changed lines, or about a file the run holds no fact of, says
 
   assert.deepEqual(units.map((u) => u.text), before.map((u) => u.text));
 });
+
+test("only the unit about a decision's arms can be declined by the lead: the unit about changed lines is corrected", () => {
+  const units = gapUnits([{ file: "src/a.ts", lines: [3] }], [arm("src/a.ts", 9)], []);
+
+  assert.deepEqual(units.map((u) => u.finding.declinable), [undefined, true]);
+});

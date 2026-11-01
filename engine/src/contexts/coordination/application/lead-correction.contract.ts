@@ -8,8 +8,11 @@
 import { z } from "zod";
 import type { RedactionPort } from "@kernel/ports/redaction.port.ts";
 import { SUBMIT_TOOL, type SubmissionContract } from "@kernel/submission.ts";
+import { DROP_BASIS, type DropBasis } from "@kernel/drop-basis.ts";
 import { REVIEW_ACTION } from "./lead-review.ts";
 import { admitLeadCorrection, CORRECTION_ORIGIN, type CorrectionFinding, type CorrectionOrigin, type FlowUnderCorrection } from "./lead-correction.ts";
+
+const DROP_BASES = Object.values(DROP_BASIS) as [DropBasis, ...DropBasis[]];
 
 export const LEAD_CORRECTION_WIRE = z.object({
   corrections: z
@@ -34,6 +37,16 @@ export const LEAD_CORRECTION_WIRE = z.object({
     )
     .optional()
     .describe("Only when the findings are the independent reviewer's; leave it out when they are facts the run observed."),
+  declines: z
+    .array(
+      z.object({
+        finding: z.number().int().describe("The number of the finding about a decision's arms that no test can take, exactly as the list numbers it."),
+        basis: z.enum(DROP_BASES).describe(`Why no test is needed or possible: ${DROP_BASES.join(", ")}. The turn states what each requires.`),
+        reason: z.string().describe("Why this basis holds for the arm."),
+      }),
+    )
+    .optional()
+    .describe("Only when the findings are the change-coverage measurement's; a declined arm is sent to no flow and stays in the measurement."),
 });
 
 export function leadCorrectionContract(

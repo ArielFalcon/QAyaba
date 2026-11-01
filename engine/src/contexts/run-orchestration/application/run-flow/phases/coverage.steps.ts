@@ -21,7 +21,7 @@ import { regenerate, type EvidenceFinding } from "./generation-services.ts";
 import { branchCasesAction, coverageRegenAction } from "../../../domain/coverage-regen.ts";
 import { acceptanceNamespace } from "../../../domain/acceptance-namespace.ts";
 import { isRealPass } from "@kernel/case-proof.ts";
-import { branchCasesRecord } from "../branch-cases-record.ts";
+import { branchCasesRecord, declinedDecisionsOf } from "../branch-cases-record.ts";
 import type { FindingPlacement } from "@kernel/finding-placement.ts";
 import { ambientPinFindings, ambientRecordOf, type AmbientRecord } from "../ambient-data-state.ts";
 import { gapReachOf } from "../gap-reach.ts";
@@ -672,7 +672,7 @@ export function gapUnits(uncovered: CoverageOutcome["uncovered"], arms: Coverage
       const reach = telling?.reachOf(u.file) ?? [];
       const facts = reach.length > 0 ? ` The run's facts about where this file is reached: ${reach.join("; ")}.` : "";
       const text = `decision on a changed line with ${u.arms.length === 1 ? "an arm" : "arms"} that NO test ran: ${renderUntakenDecision(u)}${empty}${source}${facts}`;
-      return { text, decision: u, finding: { text, file: u.file, line: u.line, ...(u.evaluatedBy ? { ranBy: u.evaluatedBy } : {}) } };
+      return { text, decision: u, finding: { text, file: u.file, line: u.line, declinable: true as const, ...(u.evaluatedBy ? { ranBy: u.evaluatedBy } : {}) } };
     }),
   ];
 }
@@ -727,12 +727,16 @@ export async function regenerateForCoverage(state: Readonly<RunState>, ctx: Work
   const survived = survivorsOf(state);
   const gap = [renderCoverageGap(uncovered, state.grounding.candidates), renderBranchGap(untakenArms)].filter(Boolean).join("\n\n");
   const ambient = ambientGapOf(state, ctx);
-  const regen = await regenerateAtCoverageGap(state, ctx, gap, gapUnits(uncovered, untakenArms, state.grounding.candidates, state.coverage.ranBy, ambient.arms, gapTelling(state, ctx)), survived, ambient.findings);
+  const units = gapUnits(uncovered, untakenArms, state.grounding.candidates, state.coverage.ranBy, ambient.arms, gapTelling(state, ctx));
+  const regen = await regenerateAtCoverageGap(state, ctx, gap, units, survived, ambient.findings);
   const measured = await measureKept(state, ctx, regen);
   const survivorClosure = await closeSurvivors(state, ctx, regen, measured);
   const coverage = await recountAfter(state, ctx, regen, measured);
-  return { update: { execution: withRun(state.execution, regen.run), coverage: { ...coverage, ...(survivorClosure ? { survivorClosure } : {}) }, loops: { ...state.loops, coverageRegen: state.loops.coverageRegen + 1, leadCorrections: state.loops.leadCorrections + regen.leadCorrections } } };
+  return { update: { execution: withRun(state.execution, regen.run), coverage: { ...coverage, ...(survivorClosure ? { survivorClosure } : {}), declinedArms: declinedArmsAfter(state, units, regen) }, loops: { ...state.loops, coverageRegen: state.loops.coverageRegen + 1, leadCorrections: state.loops.leadCorrections + regen.leadCorrections } } };
 }
+
+/* The decisions declined so far in the run and those this regeneration's pass declined; their arms stay untaken. */
+const declinedArmsAfter = (state: Readonly<RunState>, units: readonly GapUnit[], regen: GapRegeneration): RunState["coverage"]["declinedArms"] => [...state.coverage.declinedArms, ...declinedDecisionsOf(units, regen.placements)];
 
 /* The one regeneration from the arms of the changed code no test ran and the mutants no test noticed: they are the cases still missing. It never blocks; what it did is recorded with the arms before and after it. */
 export async function regenerateForBranchCases(state: Readonly<RunState>, ctx: WorkspaceRunContext): Result {
@@ -750,7 +754,7 @@ export async function regenerateForBranchCases(state: Readonly<RunState>, ctx: W
   return {
     update: {
       execution: withRun(state.execution, regen.run),
-      coverage: { ...coverage, ...(survivorClosure ? { survivorClosure } : {}), branchCases: { outcome: regen.outcome, armsBefore, ...(armsAfter !== undefined ? { armsAfter } : {}), ...regen.files, ...recorded } },
+      coverage: { ...coverage, ...(survivorClosure ? { survivorClosure } : {}), declinedArms: declinedArmsAfter(state, units, regen), branchCases: { outcome: regen.outcome, armsBefore, ...(armsAfter !== undefined ? { armsAfter } : {}), ...regen.files, ...recorded } },
       loops: { ...state.loops, leadCorrections: state.loops.leadCorrections + regen.leadCorrections },
     },
   };

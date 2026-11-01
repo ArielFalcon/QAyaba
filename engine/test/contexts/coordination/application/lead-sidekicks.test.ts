@@ -2846,3 +2846,88 @@ test("a correction turn tells, per finding, the flow it was sent to and the fact
   await outcome.pass!.release();
   assert.deepEqual(corrected.placements, [{ flowId: "cart", by: "spec" }, { flowId: "cart", by: "lead" }, {}]);
 });
+
+/* ── a decision's arms the lead declines ─────── */
+
+const armAt = (file: string, line: number) => ({ text: `decision arm on a changed line that NO test ran: ${file}:${line} if: else`, file, line, declinable: true as const });
+const declining = (...declines: Array<[number, string]>): string => JSON.stringify({ declines: declines.map(([finding, basis]) => ({ finding, basis, reason: "no browser action reaches this branch" })) });
+
+test("a lead that declines every arm of a coverage turn orders no flow: nobody is asked, nothing is unrouted, and each finding records its basis", async () => {
+  const lead = leadCiting([ACCEPT_ALL, declining([1, "needs-unavailable-state"], [2, "needs-unavailable-state"])], CITING_PLAN);
+  const r = rig();
+  const outcome = await new LeadSidekicks(r.deps).coordinate(input(r, { plan: lead.plan, closedLoop: undefined, candidates: SEEDED }));
+  if (outcome.action !== "fanout") return assert.fail("fanout expected");
+
+  const corrected = await outcome.pass!.correct([armAt("src/cart.ts", 4), armAt("src/cart.ts", 9)], CORRECTION_ORIGIN.COVERAGE);
+  await outcome.pass!.release();
+
+  assert.equal(r.executed.some((e) => e.asked), false, "no revision turn");
+  assert.deepEqual([corrected.specs, corrected.unrouted], [[], []]);
+  assert.deepEqual(corrected.placements, [{ declined: { basis: "needs-unavailable-state" } }, { declined: { basis: "needs-unavailable-state" } }]);
+  assert.equal(lead.asked.length, 2, "the correction turn alone: nothing is contradicted, refused or left out");
+  assert.equal(outcome.pass!.tally().declined, 2);
+  assert.equal(outcome.pass!.tally().unrouted, 0);
+  assert.ok(r.events.some((e) => /declined/.test(e.reason ?? "") && /needs-unavailable-state/.test(e.reason ?? "")), "the decline is on the record");
+});
+
+test("the flow is asked only for the arms the lead did not decline", async () => {
+  const lead = leadCiting([ACCEPT_ALL, declining([1, "needs-unavailable-state"])], CITING_PLAN);
+  const r = rig();
+  const outcome = await new LeadSidekicks(r.deps).coordinate(input(r, { plan: lead.plan, closedLoop: undefined, candidates: SEEDED }));
+  if (outcome.action !== "fanout") return assert.fail("fanout expected");
+
+  const corrected = await outcome.pass!.correct([armAt("src/cart.ts", 4), armAt("src/cart.ts", 9)], CORRECTION_ORIGIN.COVERAGE);
+  await outcome.pass!.release();
+
+  const asked = r.executed.find((e) => e.asked && e.brief.delegationId === "run-1-flow-cart")!;
+  assert.doesNotMatch(asked.opts.feedback!, /src\/cart\.ts:4 /);
+  assert.match(asked.opts.feedback!, /src\/cart\.ts:9 /);
+  assert.deepEqual(corrected.placements, [{ declined: { basis: "needs-unavailable-state" } }, { flowId: "cart", by: "candidate" }]);
+});
+
+test("a declined arm on a file that seeds a use case no flow covers opens no flow", async () => {
+  const lead = leadCiting([ACCEPT_ALL, declining([1, "needs-unavailable-state"])], CITING_PLAN);
+  const r = rig({ hasFile: new Set(["cart", "login", "cand-orders"]) });
+  const outcome = await new LeadSidekicks(r.deps).coordinate(input(r, { plan: lead.plan, closedLoop: undefined, candidates: SEEDED }));
+  if (outcome.action !== "fanout") return assert.fail("fanout expected");
+
+  await outcome.pass!.correct([armAt("src/orders.ts", 9)], CORRECTION_ORIGIN.COVERAGE);
+  await outcome.pass!.release();
+
+  assert.equal(opened(r, "cand-orders").length, 0);
+});
+
+test("a decline the run's facts contradict goes back to the lead once with the fact, and what the lead keeps stands, recorded as contradicted", async () => {
+  const keep = declining([1, "no-observable-change"]);
+  const lead = leadCiting([ACCEPT_ALL, keep, keep], CITING_PLAN);
+  const r = rig();
+  const outcome = await new LeadSidekicks(r.deps).coordinate(input(r, { plan: lead.plan, closedLoop: undefined, candidates: SEEDED }));
+  if (outcome.action !== "fanout") return assert.fail("fanout expected");
+
+  const corrected = await outcome.pass!.correct([armAt("src/cart.ts", 4)], CORRECTION_ORIGIN.COVERAGE);
+  await outcome.pass!.release();
+
+  assert.equal(lead.asked.length, 3, "the correction turn and the one re-ask, never a second");
+  assert.match(lead.asked[2]!, /finding 1/);
+  assert.match(lead.asked[2]!, /no-observable-change/);
+  assert.match(lead.asked[2]!, /executable code/, "the fact that contradicts it");
+  assert.equal(r.executed.some((e) => e.asked), false);
+  assert.deepEqual(corrected.unrouted, []);
+  assert.equal(corrected.placements![0]!.declined!.basis, "no-observable-change");
+  assert.match(corrected.placements![0]!.declined!.contradicted!, /executable code/);
+});
+
+test("a contradicted decline the lead withdraws when asked once more is corrected by its flow", async () => {
+  const withdraw = JSON.stringify({ corrections: [{ flow: "cart", action: "revise", findings: [], instruction: "cover it" }] });
+  const lead = leadCiting([ACCEPT_ALL, declining([1, "no-observable-change"]), withdraw], CITING_PLAN);
+  const r = rig();
+  const outcome = await new LeadSidekicks(r.deps).coordinate(input(r, { plan: lead.plan, closedLoop: undefined, candidates: SEEDED }));
+  if (outcome.action !== "fanout") return assert.fail("fanout expected");
+
+  const corrected = await outcome.pass!.correct([armAt("src/cart.ts", 4)], CORRECTION_ORIGIN.COVERAGE);
+  await outcome.pass!.release();
+
+  assert.deepEqual(corrected.specs, ["flows/cart.spec.ts"]);
+  assert.deepEqual(corrected.placements, [{ flowId: "cart", by: "candidate" }]);
+  assert.equal(outcome.pass!.tally().declined, undefined, "a decline that did not stand is not counted");
+});

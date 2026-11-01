@@ -2,6 +2,9 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { CORRECTION_ORIGIN, DEFAULT_CORRECTION_INSTRUCTION, admitLeadCorrection, correctionPreamble, flowOfFinding, routeOfFinding, routesOfFindings, renderLeadCorrection, type FlowUnderCorrection, type CorrectionFinding } from "@contexts/coordination/application/lead-correction.ts";
 import { REVIEW_ACTION } from "@contexts/coordination/application/lead-review.ts";
+import { DROP_BASIS, dropRefusal } from "@kernel/drop-basis.ts";
+import type { UseCaseCandidate } from "@kernel/use-case-candidate.ts";
+import { pageCandidate } from "../../../support/use-case-candidate.ts";
 import { PatternRedactionAdapter } from "../../../../src/shared-infrastructure/redaction/pattern-redaction.adapter.ts";
 
 const redaction = new PatternRedactionAdapter();
@@ -146,7 +149,7 @@ test("a correction answer that claims an approval or a verdict changes nothing: 
     findings,
   );
   assert.deepEqual(claiming, plain);
-  assert.deepEqual(Object.keys(claiming).sort(), ["orders", "readable", "rebuttals", "refused", "unreadable", "unrouted"]);
+  assert.deepEqual(Object.keys(claiming).sort(), ["declines", "orders", "readable", "rebuttals", "refused", "unreadable", "unrouted"]);
 });
 
 const covering: FlowUnderCorrection[] = [
@@ -297,4 +300,96 @@ test("the prompt lists a finding evaluated by one flow under it and offers it to
   const text = renderLeadCorrection(redaction, trio, [evaluated(1, "flows/beta.spec.ts")], CORRECTION_ORIGIN.COVERAGE);
   assert.match(text, /### Flow `beta`[\s\S]*decision 1/);
   assert.match(text, /^- 1: .*`alpha`.*`beta`.*`gamma`/m);
+});
+
+/* ── a decision's arms the lead declines ─────── */
+
+const armOf = (line: number, file = "src/cart.ts"): CorrectionFinding => ({ text: `decision on a changed line ${line}`, file, line, declinable: true });
+const linesOf = (file = "src/cart.ts"): CorrectionFinding => ({ text: `changed lines of ${file}`, file });
+const holders: FlowUnderCorrection[] = [
+  { id: "cart", objective: "the cart total", specFile: "flows/cart.spec.ts", sessionOpen: true, seedFiles: ["src/cart.ts"], candidates: ["uc-/cart"] },
+  { id: "login", objective: "sign in works", specFile: "flows/login.spec.ts", sessionOpen: true, seedFiles: ["src/login.ts"], candidates: ["uc-/login"] },
+];
+const decline = (finding: number, basis = "needs-unavailable-state", reason = "DEV returns no such response") => ({ finding, basis, reason });
+const admitDeclines = (declines: unknown[], found: CorrectionFinding[], extra: Record<string, unknown> = {}, candidates: UseCaseCandidate[] = []) =>
+  admitLeadCorrection(redaction, { declines, ...extra }, holders, found, CORRECTION_ORIGIN.COVERAGE, { candidates });
+
+test("a declined arm is sent to no flow and is not left unrouted, while the findings beside it still go to their flow", () => {
+  const found = [armOf(4), linesOf(), armOf(9)];
+  const admitted = admitDeclines([decline(1)], found);
+
+  assert.deepEqual(admitted.declines.map((d) => [d.index, d.basis]), [[0, "needs-unavailable-state"]]);
+  assert.deepEqual(admitted.orders.map((o) => [o.flowId, o.indices]), [["cart", [1, 2]]]);
+  assert.deepEqual(admitted.unrouted, []);
+  assert.deepEqual(admitted.unreadable, []);
+});
+
+test("a flow whose findings are all declined is ordered nothing", () => {
+  const admitted = admitDeclines([decline(1), decline(2, "no-observable-change", "a defensive default")], [armOf(4), armOf(9)]);
+
+  assert.deepEqual(admitted.orders, []);
+  assert.deepEqual(admitted.declines.map((d) => d.index), [0, 1]);
+  assert.deepEqual(admitted.unrouted, []);
+});
+
+test("only a finding about a decision's arms is declined: another finding is an unreadable entry the lead is told inside the turn", () => {
+  const admitted = admitDeclines([decline(1), decline(2)], [linesOf(), armOf(9)]);
+
+  assert.deepEqual(admitted.unreadable.map((u) => u.where), ["declines[0]"]);
+  assert.match(admitted.unreadable[0]!.reason, /decision's arms/);
+  assert.deepEqual(admitted.declines.map((d) => d.index), [1]);
+  assert.deepEqual(admitted.orders.map((o) => [o.flowId, o.indices]), [["cart", [0]]], "the lines finding is corrected as before");
+});
+
+test("a decline needs a basis of the plan's closed set and a reason, and a finding is declined once", () => {
+  const admitted = admitDeclines([decline(1, "too-hard"), decline(1, "needs-unavailable-state", ""), decline(2), decline(2, "no-observable-change", "again"), decline(9)], [armOf(4), armOf(9)]);
+
+  assert.deepEqual(admitted.unreadable.map((u) => u.where), ["declines[0]", "declines[1]", "declines[3]", "declines[4]"]);
+  assert.match(admitted.unreadable[0]!.reason, /too-hard/);
+  assert.match(admitted.unreadable[1]!.reason, /reason/);
+  assert.match(admitted.unreadable[2]!.reason, /declined twice/);
+  assert.deepEqual(admitted.declines.map((d) => [d.index, d.basis]), [[1, "needs-unavailable-state"]], "the first decline of a finding stands");
+});
+
+test("a decline whose basis the run's facts contradict is read with the fact and still stands", () => {
+  const code = pageCandidate("/cart", undefined, { seeds: [{ file: "src/cart.ts", symbol: "*" }] });
+  const admitted = admitDeclines([decline(1, "no-observable-change", "a guard"), decline(2, "needs-unavailable-state")], [armOf(4), armOf(9)], {}, [code]);
+
+  assert.equal(admitted.declines[0]!.contradicted, dropRefusal(code, DROP_BASIS.NO_OBSERVABLE_CHANGE));
+  assert.equal(admitted.declines[1]!.contradicted, undefined, "a state the orchestrator cannot see is not contradicted");
+  assert.deepEqual(admitted.orders, [], "contradicted or not, the arm is sent to no flow");
+});
+
+test("the facts weigh on the use cases the arm's file seeds and on no other", () => {
+  const cart = pageCandidate("/cart", undefined, { seeds: [{ file: "src/cart.ts", symbol: "*" }] });
+  const login = pageCandidate("/login", undefined, { seeds: [{ file: "src/login.ts", symbol: "*" }], existingSpecs: ["flows/login.spec.ts"] });
+
+  const admitted = admitDeclines([decline(1, "already-covered", "the suite proves it")], [armOf(4, "src/cart.ts")], {}, [cart, login]);
+
+  assert.equal(admitted.declines[0]!.contradicted, dropRefusal(cart, DROP_BASIS.ALREADY_COVERED), "no spec is linked to the use case the file seeds; login's spec is another use case's");
+});
+
+test("a finding the lead also orders to a flow is corrected, and the decline is not taken", () => {
+  const loose = armOf(4, "src/orphan.ts");
+  const admitted = admitDeclines([decline(1)], [loose], { corrections: [{ flow: "cart", action: "revise", findings: [1], instruction: "cover it" }] });
+
+  assert.deepEqual(admitted.declines, []);
+  assert.deepEqual(admitted.orders.map((o) => [o.flowId, o.indices]), [["cart", [0]]]);
+  assert.ok(admitted.refused.some((r) => r.finding === 1 && /also ordered/.test(r.reason)));
+});
+
+test("declines are read only for the change-coverage measurement: another origin's findings are facts, and a decline of one is not taken", () => {
+  const observed = [{ ...armOf(4), spec: "flows/cart.spec.ts" }];
+  const admitted = admitLeadCorrection(redaction, { declines: [decline(1)] }, holders, observed, CORRECTION_ORIGIN.EXECUTION);
+
+  assert.deepEqual(admitted.declines, []);
+  assert.deepEqual(admitted.orders.map((o) => [o.flowId, o.indices]), [["cart", [0]]]);
+  assert.ok(admitted.refused.some((r) => /declines are not read/.test(r.reason)));
+});
+
+test("an answer that holds only declines reads, and a coverage turn offers the decline in the words of the plan's bases", () => {
+  assert.equal(admitDeclines([decline(1)], [armOf(4)]).readable, true);
+  const text = renderLeadCorrection(redaction, holders, [armOf(4)], CORRECTION_ORIGIN.COVERAGE);
+  assert.match(text, /declines/);
+  for (const basis of Object.values(DROP_BASIS)) assert.match(text, new RegExp(basis), basis);
 });

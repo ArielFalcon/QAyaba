@@ -1,10 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { leadReviewContract } from "@contexts/coordination/application/lead-review.contract.ts";
-import { leadCorrectionContract } from "@contexts/coordination/application/lead-correction.contract.ts";
+import { LEAD_CORRECTION_WIRE, leadCorrectionContract } from "@contexts/coordination/application/lead-correction.contract.ts";
 import { FLOW_OUTCOME } from "@contexts/coordination/application/flow-outcomes.ts";
 import type { FlowUnderReview } from "@contexts/coordination/application/lead-review.ts";
-import type { CorrectionFinding, FlowUnderCorrection } from "@contexts/coordination/application/lead-correction.ts";
+import { CORRECTION_ORIGIN, type CorrectionFinding, type FlowUnderCorrection } from "@contexts/coordination/application/lead-correction.ts";
 import { SUBMIT_TOOL, type SubmissionCheck } from "@kernel/submission.ts";
 import { PatternRedactionAdapter } from "../../../../src/shared-infrastructure/redaction/pattern-redaction.adapter.ts";
 
@@ -53,4 +53,23 @@ test("the correction contract holds rebuttals to the same reader: a basis outsid
   const refused = errorsOf(contract.check({ rebuttals: [{ finding: 1, basis: "opinion", ref: "x" }] }));
   assert.deepEqual(refused.map((e) => e.path), ["rebuttals[0]"]);
   assert.match(refused[0]!.reason, /opinion/);
+});
+
+test("the correction contract holds a decline to the reader inside the turn: a finding that is not a decision's arms and a basis outside the plan's set are refused with where", () => {
+  const arms: CorrectionFinding[] = [{ text: "decision on a changed line", file: "src/cart.ts", line: 4, declinable: true }, { text: "changed lines of src/cart.ts", file: "src/cart.ts" }];
+  const contract = leadCorrectionContract(redaction, flowsUnderCorrection, arms, CORRECTION_ORIGIN.COVERAGE);
+
+  assert.equal(contract.check({ declines: [{ finding: 1, basis: "needs-unavailable-state", reason: "DEV returns no such response" }] }).ok, true);
+  const refused = errorsOf(contract.check({ declines: [{ finding: 2, basis: "needs-unavailable-state", reason: "x" }, { finding: 1, basis: "too-hard", reason: "x" }] }));
+  assert.deepEqual(refused.map((e) => e.path), ["declines[0]", "declines[1]"]);
+  assert.match(refused[0]!.reason, /decision's arms/);
+  assert.match(refused[1]!.reason, /too-hard/);
+});
+
+test("the wire schema the tool is generated from types a decline with the plan's bases", () => {
+  const valid = { declines: [{ finding: 1, basis: "already-covered", reason: "the suite proves it" }] };
+
+  assert.equal(LEAD_CORRECTION_WIRE.safeParse(valid).success, true);
+  assert.equal(LEAD_CORRECTION_WIRE.safeParse({ declines: [{ finding: 1, basis: "tired", reason: "x" }] }).success, false);
+  assert.equal(LEAD_CORRECTION_WIRE.safeParse({ declines: [{ finding: 1, basis: "already-covered" }] }).success, false, "a decline states why");
 });

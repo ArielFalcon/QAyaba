@@ -14,6 +14,7 @@ import type { LessonsSignal } from "./lessons-signal.ts";
 import type { ObservedDifference } from "./observed-difference.ts";
 import type { ExecutionsSignal } from "./execution-conditions.ts";
 import type { FindingPlacementFact } from "./finding-placement.ts";
+import type { DropBasis } from "./drop-basis.ts";
 
 export type ErrorClass = string | null;
 
@@ -27,6 +28,8 @@ export interface BranchCasesDecision {
   flow?: string;
   by?: FindingPlacementFact;
   taken?: number;
+  /* The basis the lead gave for declining the decision's arms, and whether the run's facts contradicted it: the decision went to no flow and its arms stay in the measurement. */
+  declined?: { basis: DropBasis; contradicted?: true };
 }
 
 /**

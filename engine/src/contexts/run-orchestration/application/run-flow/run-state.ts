@@ -29,6 +29,7 @@ import type { BundleMutationOutcome, CandidateCoverage, CausalLabel, CoverageExc
 import type { RunDecision } from "../../domain/run-decision.ts";
 import type { RunEvidence } from "../../domain/run-decision.service.ts";
 import type { EndReason } from "./end-reason.ts";
+import type { DeclinedDecision } from "./branch-cases-record.ts";
 
 /* What the classifier said about the change. Only a diff run classifies: every other run generates and has no diff. */
 export interface Classification {
@@ -193,6 +194,8 @@ export interface CoverageOutcome {
   untakenArmsCurrent: boolean;
   /** What the branch-case regeneration did; undefined when it did not run. A signal, never a gate. */
   branchCases: BranchCasesOutcome | undefined;
+  /* The decisions the lead declined in a gap regeneration (their arms stay in `untakenArms`): the report of a held run marks them. */
+  declinedArms: DeclinedDecision[];
   /** What the flaky triage found and did; undefined when the run was not flaky or had no flaky case. A signal, never a gate. */
   flakyTriage: FlakyTriageOutcome | undefined;
   /** What the mutants of the changed code did; undefined when none was judged. A signal, never a gate. */
@@ -452,6 +455,7 @@ export function initialRunState(): RunState {
       untakenArms: [],
       untakenArmsCurrent: false,
       branchCases: undefined,
+      declinedArms: [],
       flakyTriage: undefined,
       bundleMutation: undefined,
       mutationPass: undefined,

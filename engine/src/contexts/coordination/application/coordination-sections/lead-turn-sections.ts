@@ -75,6 +75,8 @@ export interface CorrectionFinding {
   /* The changed source file the finding is about (a coverage gap names code, not a spec), and the line when it names one. */
   file?: string;
   line?: number;
+  /* The finding is about a decision's arms the change-coverage measurement found untaken: the only kind the lead may decline. */
+  declinable?: true;
   /* The spec files (relative to the spec directory) whose tests' coverage dumps ran what the finding is about, a line of `file` or, for a decision, one of its arms (`evaluatedBy`): what the run executed, which settles the flow of a finding several flows could take. */
   ranBy?: readonly string[];
 }
@@ -370,6 +372,8 @@ export interface RefusedCorrectionPromptContext {
   omitted: readonly number[];
   /* Whether the turn's findings are a judgment the lead may rebut. */
   rebuttable: boolean;
+  /* The declines the run's facts contradict: the finding's number (1-based), the basis given and the fact that contradicts it. */
+  contradictedDeclines: readonly { finding: number; basis: string; why: string }[];
 }
 
 /* The one request that sends an answer back to the lead: why each part of it was not admitted, the findings it left out, the numbers that are findings, and what to answer. */
@@ -400,13 +404,25 @@ export const REFUSED_CORRECTION_SECTIONS: readonly PromptSectionDef<RefusedCorre
     }),
   }),
   section({
+    id: "contradicted-declines",
+    priority: 17, stability: "run", reason: "A decline of an arm whose basis the run's facts contradict is asked about once, then honoured and recorded, as a drop of a use case is (RFC-0019)",
+    applies: ({ contradictedDeclines }) => contradictedDeclines.length > 0,
+    render: ({ contradictedDeclines }) => ({
+      content: [
+        "## Declines the run's facts contradict",
+        ...contradictedDeclines.map((d) => `- finding ${d.finding}, \`${d.basis}\`: ${d.why}`),
+        "Keep a decline and it stands, recorded as contradicted; or send the finding to a flow.",
+      ].join("\n"),
+    }),
+  }),
+  section({
     id: "answer",
     priority: 20, stability: "run", reason: "The re-asked correction says which numbers are findings and that the answer must be complete (f67ef0c3)",
     applies: () => true,
     render: ({ findingCount }) => ({
       content: [
         `The findings are numbered 1..${findingCount}, each number is one finding, and an order names the findings its flow is to take by those numbers.`,
-        `Answer with ${SUBMIT_TOOL.CORRECTIONS}, complete (repeat every order and rebuttal you still hold). This is the only other correction turn for these findings.`,
+        `Answer with ${SUBMIT_TOOL.CORRECTIONS}, complete (repeat every order, rebuttal and decline you still hold). This is the only other correction turn for these findings.`,
       ].join("\n"),
     }),
   }),

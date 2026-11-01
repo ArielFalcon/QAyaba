@@ -59,6 +59,6 @@ itself are facts: each one is corrected, none is rebutted. The change-coverage f
 
 Answer by calling `submit_corrections`. A finding citing a flow's spec is always sent to it; `findings` adds the numbers of findings that cite no flow, or that you move to it, exactly as the list numbers them. Arguments:
 
-`{"corrections":[{"flow":"<flow id>","action":"revise|replace","findings":[<number>],"instruction":"<what to change>"}],"rebuttals":[{"finding":<number>,"basis":"execution|contract","ref":"<test or clause>","reason":"<why the finding is wrong>"}]}`
+`{"corrections":[{"flow":"<flow id>","action":"revise|replace","findings":[<number>],"instruction":"<what to change>"}],"rebuttals":[{"finding":<number>,"basis":"execution|contract","ref":"<test or clause>","reason":"<why the finding is wrong>"}],"declines":[{"finding":<number>,"basis":"no-observable-change|already-covered|needs-unavailable-state","reason":"<why>"}]}`
 
-Leave out `rebuttals` when the findings are facts the run observed.
+Leave out `rebuttals` when the findings are facts the run observed, and `declines` unless the turn offers it.

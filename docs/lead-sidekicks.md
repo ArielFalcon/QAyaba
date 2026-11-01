@@ -434,7 +434,16 @@ the sidekick's instruction (`CORRECTION_ORIGIN`, `lead-correction.ts`):
 | `execution` | one per failing case of the fix loop, citing its spec |
 | `coverage` | one per file with uncovered change lines and one per decision with arms no test ran (a decision is identified by file, line, column and kind and carries all its untaken arms; every one, listed across use cases and files), each naming its changed file, citing no spec |
 
-These are facts the run observed: the lead is not offered a rebuttal, and one it gives anyway is not taken. What no flow takes
+These are facts the run observed: the lead is not offered a rebuttal, and one it gives anyway is not taken. The `coverage` origin alone
+offers a decline (RFC-0019): a finding about a decision's arms (`declinable`) that no test can take is answered in `declines` with
+`{ finding, basis, reason }`, the basis one of the plan's drop bases (`DROP_BASIS`). The reader refuses inside the turn a decline of
+any other finding, a basis outside the set and a reason left out; a finding the lead also orders to a flow stays ordered. The
+orchestrator holds the basis to the use cases the arm's file seeds as it holds a drop (`armDeclineRefusal` over `dropRefusal`: contradicted
+only when every such use case refuses it, never when the file seeds none); a contradicted decline is asked about in the turn's one
+re-ask, and what the lead keeps stands, recorded as contradicted. A declined finding goes to no flow (no revision turn, no maintenance
+flow, no flow opened for the use case its file seeds) and is not counted unrouted; when no finding is left to route the step ends on
+its existing empty outcome. The arm stays in the measurement and the grader inputs, and the record marks the decision with its basis
+(`branchCases.decisions[].declined`, `corrections.declined`). What no flow takes
 gets a maintenance flow or stays unrouted, as above, and is not regenerated; the turn's findings are told apart by their position, never by their text, and
 the lead can hand a finding that cites no flow to any flow by its number. A finding that cites no spec belongs to the one flow whose
 spec its text names as a whole path; one that names several is the lead's to place. A correction hands back the source of every

@@ -234,6 +234,39 @@
             "ref"
           ]
         }
+      },
+      "declines": {
+        "description": "Only when the findings are the change-coverage measurement's; a declined arm is sent to no flow and stays in the measurement.",
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "finding": {
+              "type": "integer",
+              "minimum": -9007199254740991,
+              "maximum": 9007199254740991,
+              "description": "The number of the finding about a decision's arms that no test can take, exactly as the list numbers it."
+            },
+            "basis": {
+              "type": "string",
+              "enum": [
+                "no-observable-change",
+                "already-covered",
+                "needs-unavailable-state"
+              ],
+              "description": "Why no test is needed or possible: no-observable-change, already-covered, needs-unavailable-state. The turn states what each requires."
+            },
+            "reason": {
+              "type": "string",
+              "description": "Why this basis holds for the arm."
+            }
+          },
+          "required": [
+            "finding",
+            "basis",
+            "reason"
+          ]
+        }
       }
     }
   },
