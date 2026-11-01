@@ -1,11 +1,11 @@
 {
   "cells": {
     "flow-author-brief/full": {
-      "bytes": 3624,
+      "bytes": 3993,
       "directives": 5
     },
     "flow-author-brief/plain": {
-      "bytes": 1773,
+      "bytes": 2172,
       "directives": 2
     },
     "lead-answer-unreadable/review": {
@@ -17,8 +17,8 @@
       "directives": 0
     },
     "lead-correction/coverage": {
-      "bytes": 489,
-      "directives": 0
+      "bytes": 677,
+      "directives": 1
     },
     "lead-correction/execution": {
       "bytes": 541,
@@ -53,11 +53,11 @@
       "directives": 1
     },
     "lead-replan/refused-drop": {
-      "bytes": 674,
+      "bytes": 634,
       "directives": 0
     },
     "lead-review/last-turn-with-gaps": {
-      "bytes": 1128,
+      "bytes": 1088,
       "directives": 1
     },
     "lead-review/turn-1": {
@@ -70,13 +70,16 @@
     }
   },
   "staticLayers": {
-    "qa-author": 25901,
-    "qa-lead": 15260
+    "qa-author": 24600,
+    "qa-lead": 15021
   },
   "lastIncrease": {
-    "reason": "T38 (L63): the author is told a page its grounding reads as a confirmed empty state is DEV's data, never to be asserted as it loads",
+    "reason": "integrated units: the brief states its grants, time and closing shape and the coverage correction states its contract",
     "budgets": [
-      "static:qa-author"
+      "flow-author-brief/full:bytes",
+      "flow-author-brief/plain:bytes",
+      "lead-correction/coverage:bytes",
+      "lead-correction/coverage:directives"
     ]
   }
 }
