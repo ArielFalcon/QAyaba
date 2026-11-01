@@ -1218,7 +1218,7 @@ that catches nothing. The objective signal that breaks the circle is **change-co
   files runs. What the two unmutated re-runs disagree on is the noise floor (a refreshed token, a tile, a chunk, a value DEV changed between runs or
   drifted while the mutants ran) and is never reported: a request or a tree line moved only when neither
   unmutated run showed it and the mutated run did, or both showed it and the mutated run did not (`observed-difference.ts`); without both unmutated
-  observations nothing is said. Only tests that passed in all three runs are compared; how many times a request was made is not compared.
+  observations nothing is said. Only tests that passed in all three runs are compared; how many times a request was made is not compared, and a request is told by its method, origin and pathname with the digit runs of the pathname collapsed (`requestShape` in `observed-difference.ts`), so a map tile, an id or a page number is one request while another endpoint or another non-numeric id is not.
   `survived[].moved` is `{ kind: "moved", requests: { added, removed }, dom: { added, removed }, tests, omitted? }` (at most 10 items a list,
   a line cut at 200 characters), `{ kind: "unmoved", tests }` (the finding says no request and no tree line moved, so what the mutation changes is in neither)
   or `{ kind: "unobserved", reason }` (a re-run left no observation, an unmutated one could not run, or no test passed in all of them: nothing is said).

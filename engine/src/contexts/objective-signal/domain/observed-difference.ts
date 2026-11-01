@@ -1,4 +1,4 @@
-/* What a mutation moved. A surviving mutant is a fault the suite reached and checked nothing of; the author can write the assertion that kills it only if it knows what the fault changes that a page shows. The same tests run three times, twice without the mutation and once with it, and the pages are compared per test: the requests it depended on (method, origin and pathname; how many times is not compared, a poll that ran once more is noise) and the lines of the accessible tree it ended on. What differs between the two unmutated runs is run-to-run noise (a refreshed token, a tile the map chose, a price DEV changed) and is never reported: a request or a line moved only when neither unmutated run showed it and the mutated run did, or both showed it and the mutated run did not. Only the tests that passed in all three runs are compared. The difference is told per spec file too, so a survivor reaches only the files whose own pages moved. It is a fact for the regeneration and the record; the mutant itself (the served script and its edit) is not part of it. Pure; a signal, never a gate. */
+/* What a mutation moved. A surviving mutant is a fault the suite reached and checked nothing of; the author can write the assertion that kills it only if it knows what the fault changes that a page shows. The same tests run three times, twice without the mutation and once with it, and the pages are compared per test: the requests it depended on (method, origin and pathname with the digit runs of the pathname collapsed, so an id, a map tile or a page number is one request; how many times is not compared, a poll that ran once more is noise) and the lines of the accessible tree it ended on. What differs between the two unmutated runs is run-to-run noise (a refreshed token, a tile the map chose, a price DEV changed) and is never reported: a request or a line moved only when neither unmutated run showed it and the mutated run did, or both showed it and the mutated run did not. Only the tests that passed in all three runs are compared. The difference is told per spec file too, so a survivor reaches only the files whose own pages moved. It is a fact for the regeneration and the record; the mutant itself (the served script and its edit) is not part of it. Pure; a signal, never a gate. */
 import type { MovedLists, ObservedDifference } from "@kernel/observed-difference.ts";
 import { MAX_OBSERVED_LINE_CHARS, type ObservedPage } from "./observed-page.ts";
 
@@ -19,7 +19,13 @@ export interface SpecFileDifference {
 }
 
 const cut = (line: string): string => (line.length > MAX_OBSERVED_LINE_CHARS ? `${line.slice(0, MAX_OBSERVED_LINE_CHARS)}…` : line);
-const requestKey = (r: { method: string; url: string }): string => `${r.method} ${r.url}`;
+const requestLine = (r: { method: string; url: string }): string => `${r.method} ${r.url}`;
+
+/* A request's identity for the comparison: its line with every digit run of the pathname collapsed. The origin keeps its digits, and so does the tree. */
+function requestShape(line: string): string {
+  const pathStart = line.indexOf("/", line.indexOf("://") + 3);
+  return pathStart < 0 ? line : `${line.slice(0, pathStart)}${line.slice(pathStart).replace(/\d+/g, "#")}`;
+}
 
 /* `from` appended to `into` without repeats. */
 function addAll(into: string[], from: readonly string[]): void {
@@ -30,13 +36,14 @@ function addAll(into: string[], from: readonly string[]): void {
  * One test's items (requests or tree lines) against the two unmutated runs: added are the mutated run's items neither unmutated run
  * showed, removed the items both unmutated runs showed that the mutated run did not. An item only one unmutated run showed is noise.
  */
-function movedItems(first: readonly string[], second: readonly string[], mutant: readonly string[]): { added: string[]; removed: string[] } {
-  const a = new Set(first);
-  const b = new Set(second);
-  const after = new Set(mutant);
+function movedItems(first: readonly string[], second: readonly string[], mutant: readonly string[], identity: (item: string) => string = (item) => item): { added: string[]; removed: string[] } {
+  const a = new Set(first.map(identity));
+  const b = new Set(second.map(identity));
+  const after = new Set(mutant.map(identity));
+  const distinct = (items: readonly string[]): string[] => items.filter((item, i) => items.findIndex((other) => identity(other) === identity(item)) === i);
   return {
-    added: [...after].filter((item) => !a.has(item) && !b.has(item)),
-    removed: [...a].filter((item) => b.has(item) && !after.has(item)),
+    added: distinct(mutant).filter((item) => !a.has(identity(item)) && !b.has(identity(item))),
+    removed: distinct(first).filter((item) => b.has(identity(item)) && !after.has(identity(item))),
   };
 }
 
@@ -60,7 +67,7 @@ export function diffObservations(baseline: UnmutatedPages, mutant: readonly Obse
     const two = second.get(after.name);
     if (!one || !two || !comparable.has(after.name)) continue;
     compared++;
-    const req = movedItems(one.requests.map(requestKey), two.requests.map(requestKey), after.requests.map(requestKey));
+    const req = movedItems(one.requests.map(requestLine), two.requests.map(requestLine), after.requests.map(requestLine), requestShape);
     const tree = movedItems(one.dom, two.dom, after.dom);
     if ([req.added, req.removed, tree.added, tree.removed].every((list) => list.length === 0)) continue;
     tests.push(after.name);
