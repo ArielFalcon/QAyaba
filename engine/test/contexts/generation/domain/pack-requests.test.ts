@@ -1,16 +1,16 @@
 /* The Context Pack lists, per captured page, the data requests it made; a flow is handed those of its pages, and the plan's facts can read what a page recorded. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { packPagesFor, recordedRequestsFor } from "@contexts/generation/domain/pack-pages.ts";
+import { packPagesFor } from "@contexts/generation/domain/pack-pages.ts";
 import { REQUESTS_SECTION_INTRO, requestsSectionLines } from "@contexts/generation/domain/pack-requests.ts";
 import { PACK_HEADINGS } from "@contexts/generation/domain/prompt-headings.ts";
 
 const STYLE = "https://maps.example/styles/v1/owner/theme-a";
 
 const lines = requestsSectionLines([
-  { route: "/map", requests: { listed: [{ method: "GET", url: STYLE, count: 1 }, { method: "POST", url: "https://dev.example/api/orders", count: 3, blocked: true }], omitted: 0 } },
-  { route: "/shops/madrid", template: "/shops/:city", requests: { listed: [{ method: "GET", url: "https://dev.example/api/shops", count: 2 }], omitted: 4 } },
-  { route: "/quiet", requests: { listed: [], omitted: 0 } },
+  { route: "/map", requests: { listed: [{ method: "GET", url: STYLE, count: 1 }, { method: "POST", url: "https://dev.example/api/orders", count: 3, blocked: true }], otherHosts: [], omitted: 0 } },
+  { route: "/shops/madrid", template: "/shops/:city", requests: { listed: [{ method: "GET", url: "https://dev.example/api/shops", count: 2 }], otherHosts: [], omitted: 4 } },
+  { route: "/quiet", requests: { listed: [], otherHosts: [], omitted: 0 } },
 ]);
 
 test("each page's requests are listed one fact per request, with the count and whether it completed", () => {
@@ -25,7 +25,7 @@ test("what the capture's bounds left out is stated for the page, and a page that
 });
 
 test("no page that made a request, no fact", () => {
-  assert.deepEqual(requestsSectionLines([{ route: "/quiet", requests: { listed: [], omitted: 0 } }]), []);
+  assert.deepEqual(requestsSectionLines([{ route: "/quiet", requests: { listed: [], otherHosts: [], omitted: 0 } }]), []);
   assert.deepEqual(requestsSectionLines([]), []);
 });
 
@@ -66,10 +66,18 @@ test("a flow whose pages recorded no request gets its pages as before, with no r
   assert.equal(slice.includes(PACK_HEADINGS.requests), false);
 });
 
-test("the requests a pack recorded for pages are read back, by address or by template, and nothing is read from a pack without the section", () => {
-  assert.deepEqual(recordedRequestsFor(pack, ["/map"]), [`GET ${STYLE}`, "POST https://dev.example/api/orders (×3) [did not complete]"]);
-  assert.deepEqual(recordedRequestsFor(pack, ["/shops/:city"]), ["GET https://dev.example/api/shops (×2)"]);
-  assert.deepEqual(recordedRequestsFor(pack, ["/cart", "/nowhere"]), []);
-  assert.deepEqual(recordedRequestsFor(undefined, ["/map"]), []);
-  assert.deepEqual(recordedRequestsFor(`### ${PACK_HEADINGS.liveDom}\nroute /map:\n  heading "Map"`, ["/map"]), []);
+const hostsLines = requestsSectionLines([
+  { route: "/map", requests: { listed: [{ method: "GET", url: STYLE, count: 1 }], otherHosts: [{ host: "sentry.example", count: 3 }, { host: "events.maps.example", count: 1 }], omitted: 0 } },
+  { route: "/blocked-only", requests: { listed: [], otherHosts: [{ host: "sentry.example", count: 2 }], omitted: 0 } },
+]);
+const hostsPack = [`### ${PACK_HEADINGS.liveDom}`, "route /map:", "route /blocked-only:", "", `### ${PACK_HEADINGS.requests} ${REQUESTS_SECTION_INTRO}`, ...hostsLines].join("\n");
+
+test("the requests to other hosts are one line of the page counting them per host", () => {
+  const line = hostsLines.find((l) => l.startsWith("- /map: (")) ?? "";
+  assert.ok(line.includes("sentry.example ×3") && line.includes("events.maps.example ×1"), line);
+  assert.equal(hostsLines.filter((l) => l.startsWith("- /map:")).length, 2, "one request fact and one host line");
+});
+
+test("a flow's slice of the pack still carries the host-count line of its page", () => {
+  assert.ok(packPagesFor(hostsPack, ["/blocked-only"])!.includes("sentry.example ×2"));
 });

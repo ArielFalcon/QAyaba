@@ -34,9 +34,9 @@ export function pageIsNamed(route: string, template: string | undefined, wanted:
 }
 
 /* The facts of one of the pack's sections of per-page facts (the requests section unless another is named) for the wanted pages, in the pack's order; `heading` is the section's own heading line, when it holds any. */
-function requestFactsFor(pack: string, wanted: ReadonlySet<string>, section: string = PACK_HEADINGS.requests): { heading?: string; facts: Array<{ line: string; request: string; counted: boolean }> } {
+function requestFactsFor(pack: string, wanted: ReadonlySet<string>, section: string = PACK_HEADINGS.requests): { heading?: string; facts: string[] } {
   let heading: string | undefined;
-  const facts: Array<{ line: string; request: string; counted: boolean }> = [];
+  const facts: string[] = [];
   let inSection = false;
   for (const line of pack.split("\n")) {
     if (HEADING.test(line)) {
@@ -46,15 +46,9 @@ function requestFactsFor(pack: string, wanted: ReadonlySet<string>, section: str
     }
     if (!inSection) continue;
     const fact = requestFactOf(line);
-    if (fact && pageIsNamed(fact.route, fact.template, wanted)) facts.push({ line, request: fact.request, counted: fact.isOmittedCount });
+    if (fact && pageIsNamed(fact.route, fact.template, wanted)) facts.push(line);
   }
   return { ...(heading !== undefined ? { heading } : {}), facts };
-}
-
-/* The requests the pack recorded for the pages `routes` name (a page by its address, or by the template it was opened from), each as the fact states it. The line that counts what the capture left out is no request. A pack without the section records none. */
-export function recordedRequestsFor(pack: string | undefined, routes: readonly string[]): string[] {
-  if (!pack || routes.length === 0) return [];
-  return requestFactsFor(pack, wantedPages(routes)).facts.filter((fact) => !fact.counted).map((fact) => fact.request);
 }
 
 /*
@@ -90,7 +84,7 @@ export function packPagesFor(pack: string | undefined, routes: readonly string[]
     { section: PACK_HEADINGS.contradictions, wanted: contradicted },
   ].flatMap(({ section, wanted: named }) => {
     const facts = requestFactsFor(pack, named, section);
-    return facts.facts.length === 0 ? [] : ["", facts.heading!, ...facts.facts.map((fact) => fact.line)];
+    return facts.facts.length === 0 ? [] : ["", facts.heading!, ...facts.facts];
   });
   if (mine.length === 0 && factLines.length === 0) return undefined;
   return [...(mine.length > 0 ? head : []), ...mine.map((page) => page.join("\n")), ...factLines].join("\n");

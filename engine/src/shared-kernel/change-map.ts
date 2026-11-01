@@ -6,14 +6,16 @@
  * `candidatesSeededBy`): the map, the slices, the briefs and the routing of a finding by the file it names ask the same question.
  */
 import { LanguageRegistry, type LanguageId } from "./language-id.ts";
-import { classifyPath, type FileClass } from "./file-classes.ts";
+import { FILE_CLASS_ORDER, classifyPath, type FileClass } from "./file-classes.ts";
 import { sectionPath, sectionStat } from "./diff-hunks.ts";
 import { sameSpecPath } from "./spec-path.ts";
-import type { ChangedSymbol } from "./change-reach.ts";
-import type { UseCaseCandidate } from "./use-case-candidate.ts";
+import type { ChangedSymbol, SharedSeed } from "./change-reach.ts";
 
 /* The seeds a candidate is read by: its own changed code, and the changed code a hub carries to its page together with others. */
-export type SeededCandidate = Pick<UseCaseCandidate, "seeds" | "sharedSeeds">;
+export interface SeededCandidate {
+  seeds: ChangedSymbol[];
+  sharedSeeds?: SharedSeed[];
+}
 
 /* How a changed file seeds a candidate: through one of its own seeds, or only through a hub's code the candidate shares with other pages. */
 export type Seeding = "direct" | "shared";
@@ -40,6 +42,29 @@ export function seedingOf(file: string, candidate: SeededCandidate): Seeding | u
 export function candidatesSeededBy<C extends SeededCandidate>(file: string, candidates: readonly C[]): C[] {
   const direct = candidates.filter((candidate) => seedingOf(file, candidate) === "direct");
   return [...direct, ...candidates.filter((candidate) => seedingOf(file, candidate) === "shared")];
+}
+
+/* One changed file that reaches a candidate: the engine's class of the file, how it seeds the candidate, the lines the change added to it when the diff was read and, for shared code, the most pages one of its hubs reaches. */
+export interface ChangedCode {
+  file: string;
+  fileClass: FileClass;
+  seeding: Seeding;
+  addedLines?: number;
+  pages?: number;
+}
+
+/* The changed code a candidate stands on, one entry per file: by class most relevant first, then files its own seeds hold before files only a hub's code holds, then by path. The one definition behind the candidate's line and the refusal of a drop. */
+export function changedCodeOf(candidate: SeededCandidate): ChangedCode[] {
+  const entries = new Map<string, ChangedCode>();
+  const hold = (seed: ChangedSymbol, pages?: number): void => {
+    const entry = entries.get(seed.file) ?? { file: seed.file, fileClass: classifyPath(seed.file), seeding: seedingOf(seed.file, candidate)! };
+    if (entry.addedLines === undefined && seed.addedLines !== undefined) entry.addedLines = seed.addedLines;
+    if (entry.seeding === "shared" && pages !== undefined) entry.pages = Math.max(entry.pages ?? 0, pages);
+    entries.set(seed.file, entry);
+  };
+  for (const seed of candidate.seeds) hold(seed);
+  for (const seed of candidate.sharedSeeds ?? []) hold(seed, seed.pages);
+  return [...entries.values()].sort((a, b) => FILE_CLASS_ORDER.indexOf(a.fileClass) - FILE_CLASS_ORDER.indexOf(b.fileClass) || Number(a.seeding === "shared") - Number(b.seeding === "shared") || a.file.localeCompare(b.file));
 }
 
 /* A file's kind as a reader sees it: a declared language, or `other` (styles, templates, data). */
@@ -72,7 +97,7 @@ export interface ChangeMap {
   candidates: ChangeMapCandidate[];
 }
 
-export function buildChangeMap(input: { diff: string; candidates: readonly UseCaseCandidate[] }): ChangeMap {
+export function buildChangeMap(input: { diff: string; candidates: ReadonlyArray<SeededCandidate & { id: string }> }): ChangeMap {
   const candidates: ChangeMapCandidate[] = input.candidates.map((candidate) => ({
     id: candidate.id,
     seeds: candidateSeeds(candidate),

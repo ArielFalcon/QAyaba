@@ -1,8 +1,8 @@
 import { test } from "node:test";
+import { DROP_BASIS } from "@kernel/drop-basis.ts";
 import assert from "node:assert/strict";
 import {
   admitLeadPlan,
-  DROP_BASIS,
   MIN_BROWSER_CALLS_PER_FLOW,
   MIN_RUN_SPEC_CALLS_PER_FLOW,
   MIN_RUN_SPEC_DEV_WRITES_PER_FLOW,

@@ -2,26 +2,15 @@
  * A use case the change makes testable: an entry point its changed symbols reach, with how directly, the evidence path, whether
  * a browser can reach it, and the specs the suite already holds for it. Derived deterministically from the change's scope.
  */
-import { LanguageRegistry } from "./language-id.ts";
-import { entryKey, type ChangedSymbol, type EntryPoint, type ReachBasis, type ReachTier } from "./change-reach.ts";
+import { FILE_CLASS_ORDER } from "./file-classes.ts";
+import { changedCodeOf, type ChangedCode } from "./change-map.ts";
+import { entryKey, type ChangedSymbol, type EntryPoint, type SharedSeed, type ReachBasis, type ReachTier } from "./change-reach.ts";
 
 /* `page` is a page of the app; `via-page` an operation that some page reaches in the browser (`pages` names them); `backend-only` an operation no page reaches. */
 export type Reachability = "page" | "via-page" | "backend-only";
 
-export interface CandidateChangedFile {
-  file: string;
-  /* Absent when the diff of the file was not read. */
-  addedLines?: number;
-}
-
 /* The seed of a file the map links to a page: no symbol, no range, so every added line of the file is the candidate's. */
 export const FILE_SEED_SYMBOL = "*";
-
-/* A hub's changed symbol as one of its pages sees it: the symbol and range, the entries the hub reaches that are pages, and the lines the change added to its file when the diff was read. */
-export interface SharedSeed extends ChangedSymbol {
-  pages: number;
-  addedLines?: number;
-}
 
 export interface UseCaseCandidate {
   /* `uc-` and 8 hex digits, stable for the same entry point whatever the order the candidates were derived in. */
@@ -33,8 +22,6 @@ export interface UseCaseCandidate {
   seeds: ChangedSymbol[];
   /* Changed symbols that reach this page together with many others, or whose graph walk the budget cut: a hub proves no entry on its own, but it is positive evidence that the change reaches this one. A file seeds the candidate through them as through `seeds` (`candidateSeeds`, `seedingOf` in `change-map.ts`): the change map, the briefs, the gap's grouping and the routing of a finding by its file read both, telling a shared seed apart where it matters (a finding several flows hold goes first to one its file seeds directly; only a direct seed opens a flow for an uncovered use case). Per-candidate coverage reads `seeds`. */
   sharedSeeds?: SharedSeed[];
-  /* The changed files that seed the candidate, each with the lines the change added to it when the diff was read. Executable lines are only known once a run has measured them, so a count here is of added lines. */
-  changedFiles?: CandidateChangedFile[];
   confidence: number;
   reachability: Reachability;
   pages: string[];
@@ -70,20 +57,21 @@ function specWithObjectives(file: string, objectives: readonly string[] | undefi
   return declared.length > 0 ? `${file} (declares: ${declared.join("; ")})` : file;
 }
 
-/* A changed file as the lead reads it: its path, the kind the language registry gives it (a declared language, or `other`, which holds styles, templates and data) and the lines the change added to it. */
-function changedFileText(changed: CandidateChangedFile): string {
-  const kind = LanguageRegistry.languageForFile(changed.file) ?? "other";
-  return `${changed.file} (${kind}${changed.addedLines !== undefined ? `, +${changed.addedLines}` : ""})`;
+/* A changed file as the lead reads it: its path, the engine's class of it, whether the candidate's own code or a hub's seeds it, the lines the change added and, for a hub's code, the pages it reaches. */
+function changedCodeEntryText(entry: ChangedCode): string {
+  const added = entry.addedLines !== undefined ? `, +${entry.addedLines}` : "";
+  const reach = entry.seeding === "shared" && entry.pages !== undefined ? `, reaches ${entry.pages} page${entry.pages === 1 ? "" : "s"}` : "";
+  return `${entry.file} (${entry.fileClass}, ${entry.seeding}${added}${reach})`;
 }
 
-/* The changed code that reaches this page together with others, as the lead reads it: file, kind, added lines and how many pages the same code reaches. */
-function sharedSeedsText(shared: readonly SharedSeed[]): string {
-  if (shared.length === 0) return "";
-  const text = shared.slice(0, MAX_LINE_FILES).map((seed) => {
-    const kind = LanguageRegistry.languageForFile(seed.file) ?? "other";
-    return `${seed.file} (${kind}${seed.addedLines !== undefined ? `, +${seed.addedLines}` : ""}, reaches ${seed.pages} page${seed.pages === 1 ? "" : "s"})`;
-  });
-  return `shared with other pages: ${text.join(", ")}${shared.length > MAX_LINE_FILES ? `, +${shared.length - MAX_LINE_FILES} more` : ""}`;
+/* The changed files that reach the candidate, once each and code first; past the cap, a count by class of what the line leaves out. */
+function changedCodeText(candidate: UseCaseCandidate): string {
+  const entries = changedCodeOf(candidate);
+  if (entries.length === 0) return "";
+  const left = entries.slice(MAX_LINE_FILES);
+  const byClass = FILE_CLASS_ORDER.map((fileClass) => ({ fileClass, count: left.filter((entry) => entry.fileClass === fileClass).length })).filter(({ count }) => count > 0);
+  const more = left.length > 0 ? `, +${left.length} more (${byClass.map(({ fileClass, count }) => `${count} ${fileClass}`).join(", ")})` : "";
+  return `changed code reaching this use case: ${entries.slice(0, MAX_LINE_FILES).map(changedCodeEntryText).join(", ")}${more}`;
 }
 
 /* The size of the change a flow would own (its owned slice): the hunks and the lines they add and remove. */
@@ -99,7 +87,7 @@ export function ownedSliceText(size: OwnedSliceSize): string {
 }
 
 /*
- * One line that names a candidate to the lead: id, entry, how directly the change reaches it, the changed files that seed it, the
+ * One line that names a candidate to the lead: id, entry, how directly the change reaches it, the changed code that reaches it, the
  * part of the diff its flow would own when the run read the diff, the evidence path and the specs the suite already holds for it,
  * each with what its manifest declares it checks. Unsanitized: the caller redacts.
  */
@@ -107,8 +95,5 @@ export function candidateLine(candidate: UseCaseCandidate, slice?: OwnedSliceSiz
   const evidence = candidate.evidence.join(" > ");
   const cut = evidence.length > MAX_LINE_EVIDENCE_CHARS ? `${evidence.slice(0, MAX_LINE_EVIDENCE_CHARS)}...` : evidence;
   const specs = candidate.existingSpecs.slice(0, MAX_LINE_SPECS).map((file) => specWithObjectives(file, candidate.specObjectives?.[file])).join(", ");
-  const files = candidate.changedFiles ?? [];
-  const changed = files.length > 0 ? `changed: ${files.slice(0, MAX_LINE_FILES).map(changedFileText).join(", ")}${files.length > MAX_LINE_FILES ? `, +${files.length - MAX_LINE_FILES} more file(s)` : ""}` : "";
-  const shared = sharedSeedsText(candidate.sharedSeeds ?? []);
-  return [candidate.id, entryKey(candidate.entry), `${candidate.tier}, ${candidate.reachability}`, changed, shared, slice ? ownedSliceText(slice) : "", cut, specs !== "" ? `specs: ${specs}` : "no spec yet"].filter((part) => part !== "").join(" | ");
+  return [candidate.id, entryKey(candidate.entry), `${candidate.tier}, ${candidate.reachability}`, changedCodeText(candidate), slice ? ownedSliceText(slice) : "", cut, specs !== "" ? `specs: ${specs}` : "no spec yet"].filter((part) => part !== "").join(" | ");
 }

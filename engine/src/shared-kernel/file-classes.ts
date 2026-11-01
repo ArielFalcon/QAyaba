@@ -36,6 +36,11 @@ function matchesAny(patterns: readonly RegExp[], filePath: string): boolean {
 /* npm's lockfiles carry an extension the generic lockfile pattern above does not match. They are generated for a slice (never owned); the prompt-cap's relevance groups keep their original membership. */
 const NPM_LOCKFILES = /^(package-lock|npm-shrinkwrap)\.json$/;
 
+/* Whether a changed file is executable code of a declared language, the code whose behaviour a browser can observe: a test file, a style sheet, a template or a generated file is not. */
+export function isChangedCode(filePath: string): boolean {
+  return LanguageRegistry.languageForFile(filePath) !== null && !LanguageRegistry.isTestFile(filePath);
+}
+
 export function classifyPath(filePath: string): FileClass {
   if (matchesAny(GENERATED_PATTERNS, filePath) || matchesAny([NPM_LOCKFILES], filePath)) return "generated";
   if (matchesAny(LOW_RELEVANCE_PATTERNS, filePath)) return "low-relevance";

@@ -24,7 +24,7 @@ const pack = [
   ...page("/cart", 40),
   "",
   `### ${PACK_HEADINGS.requests} ${REQUESTS_SECTION_INTRO}`,
-  ...requestsSectionLines([{ route: "/cart", requests: { listed: REQUESTS, omitted: 0 } }]),
+  ...requestsSectionLines([{ route: "/cart", requests: { listed: REQUESTS, otherHosts: [], omitted: 0 } }]),
   "",
   `### ${PACK_HEADINGS.contracts}`,
   "- `getCart`: GET /api/cart",

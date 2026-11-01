@@ -26,7 +26,7 @@ const pack = [
   ...page("/cart", 40),
   "",
   `### ${PACK_HEADINGS.requests} ${REQUESTS_SECTION_INTRO}`,
-  ...requestsSectionLines([{ route: "/cart", requests: { listed: REQUESTS, omitted: 0 } }]),
+  ...requestsSectionLines([{ route: "/cart", requests: { listed: REQUESTS, otherHosts: [], omitted: 0 } }]),
   "",
   `### ${PACK_HEADINGS.contracts}`,
   "- `getCart`: GET /api/cart",
@@ -59,7 +59,7 @@ test("over the author's window the contradictions outlast the page, the requests
   const whole = buildPromptAssembled(generator({ contextPack: pack }), { fit: roomy });
   /* What the page, its requests and the contract weigh in the prompt: a window short of that much holds nothing else of the pack but the contradictions. */
   const pageBytes = bytesOf(page("/cart", 40).slice(1).join("\n"));
-  const requestBytes = bytesOf(requestsSectionLines([{ route: "/cart", requests: { listed: REQUESTS, omitted: 0 } }]).join("\n"));
+  const requestBytes = bytesOf(requestsSectionLines([{ route: "/cart", requests: { listed: REQUESTS, otherHosts: [], omitted: 0 } }]).join("\n"));
   const contractBytes = bytesOf("- `getCart`: GET /api/cart");
   const factBytes = bytesOf(contradictionsSectionLines(FACTS).join("\n"));
 

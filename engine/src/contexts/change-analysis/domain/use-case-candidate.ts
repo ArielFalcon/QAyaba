@@ -6,9 +6,9 @@
 import { sha256Hex } from "@kernel/content-hash.ts";
 import { entryKey, type EntryPoint, type ReachBasis, type ReachTier } from "@kernel/change-reach.ts";
 import { normalizeRoute, type PageMap } from "./page-files.ts";
-import { FILE_SEED_SYMBOL, type CandidateChangedFile, type Reachability, type SharedSeed, type UseCaseCandidate } from "@kernel/use-case-candidate.ts";
+import { FILE_SEED_SYMBOL, type Reachability, type UseCaseCandidate } from "@kernel/use-case-candidate.ts";
 import { DECLARED_FILE_SEED_SYMBOL } from "@kernel/change-map.ts";
-import type { ChangedSymbol } from "@kernel/change-reach.ts";
+import type { ChangedSymbol, SharedSeed } from "@kernel/change-reach.ts";
 import type { ChangeScope, ReachEntry } from "./change-scope.ts";
 
 export type { Reachability, UseCaseCandidate } from "@kernel/use-case-candidate.ts";
@@ -113,12 +113,12 @@ function labelOf(entry: EntryPoint, map: PageMap | undefined): string | undefine
   return isText(route?.name) ? route.name : undefined;
 }
 
-/* The changed files that seed a candidate, once each, with the lines the change added to them in the repo that holds them. */
-function changedFilesOf(seeds: readonly { file: string }[], scope: ChangeScope, repo: string): CandidateChangedFile[] {
+/* The seeds with the lines the change added to their file, read in the repo that holds the entry first. */
+function withAddedLines(seeds: readonly ChangedSymbol[], scope: ChangeScope, repo: string): ChangedSymbol[] {
   const repos = [...scope.repos.filter((r) => r.repo === repo), ...scope.repos.filter((r) => r.repo !== repo)];
-  return [...new Set(seeds.map((seed) => seed.file))].sort().map((file) => {
-    const addedLines = repos.map((r) => r.addedLines?.[file]).find((n) => n !== undefined);
-    return { file, ...(addedLines !== undefined ? { addedLines } : {}) };
+  return seeds.map((seed) => {
+    const addedLines = repos.map((r) => r.addedLines?.[seed.file]).find((n) => n !== undefined);
+    return addedLines !== undefined ? { ...seed, addedLines } : seed;
   });
 }
 
@@ -190,9 +190,8 @@ export function deriveCandidates(scope: ChangeScope, enrichment: CandidateEnrich
       tier: r.tier,
       basis: r.basis,
       evidence: [...r.evidence],
-      seeds,
+      seeds: withAddedLines(seeds, scope, r.entry.repo),
       ...(sharedSeeds.length > 0 ? { sharedSeeds } : {}),
-      changedFiles: changedFilesOf(seeds, scope, r.entry.repo),
       confidence: r.confidence,
       reachability,
       pages,

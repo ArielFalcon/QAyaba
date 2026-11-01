@@ -68,18 +68,20 @@ signed-in app (see below); without either, no sidekick can author and the run en
    with a basis and a reason is the lead's declared no-op (the run is `skipped` with those reasons); with no reasoned, based drop it is refused `empty`. The plan must answer for each direct
    use-case candidate of the change that a browser can reach (the admission set, at most `MAX_ADMISSION_CANDIDATES`): a
    flow covers a candidate when it cites its id (`candidates`) or visits one of its pages, and the lead may drop one with a
-   typed basis and a reason (`dropped`; `DROP_BASIS`: `no-observable-change`, `already-covered`, `needs-unavailable-state`). The orchestrator holds the basis
-   to the facts it has (`dropRefusal`, `plan-coverage.ts`): `no-observable-change` is refused when a seed of the candidate is
-   executable code of a declared language (`LanguageRegistry`, a test file excluded) or when the candidate's pages made data requests
-   while the run's capture read them (the Context Pack's `Requests the pages made` section, read back by `recordedRequestsFor`; the
-   refusal names the first three), `already-covered` when no spec of the suite
+   typed basis and a reason (`dropped`; `DROP_BASIS`: `no-observable-change`, `already-covered`, `needs-unavailable-state`). What each basis requires is one
+   table in the kernel (`shared-kernel/drop-basis.ts`, `DROP_BASIS_RULES`), and the planning turn prints it, so the role prompt restates none of it. The orchestrator holds the basis
+   to the facts it has (`dropRefusal`, in the same module, which answers in the table's words): `no-observable-change` is refused when a seed of the candidate is
+   executable code of a declared language (`LanguageRegistry`, a test file excluded); the data requests a page made are no fact it is refused for. `already-covered` is refused when no spec of the suite
    is linked to the candidate; a drop with no basis of the set, or a refused one, leaves the candidate unresolved and goes back
    to the lead in the one amendment turn with the fact that contradicts it. The fact is a signal, not proof (a refactor, a
    type-only or a comment edit changes code and nothing a browser observes), so it applies to every no-op shape (`{"kind":"noop"}`, which
    drops each use case on `no-observable-change`, a fan-out of no flow, and the drops inside a fan-out): a drop the lead keeps after the
    one re-ask stands (a no-op stays `skipped`, a fan-out keeps its flows) and is recorded per candidate with its basis and the contradicting fact
    (`gateSignals.coordination.dropsContradicted`, `contradicted` on the plan snapshot's candidate, a `lead-decision` event); it is never an infra error. The planning turn lists the candidates, each with the specs the suite already holds for it and what the manifest
-   declares each one checks and the part of the diff its flow would own (`candidateLine`; its owned slice from the change map,
+   declares each one checks and the part of the diff its flow would own (`candidateLine`, followed by the bases a drop of it is refused as, from `refusedDropBasesOf`, the function behind the refusal, so the first plan turn announces what the amendment turn would otherwise refuse; the changed code reaching the use case is one
+   list, `changedCodeOf` in `change-map.ts`, one entry per file with the engine's class of it, code first, and whether the use case's own
+   code or a hub's seeds it, cut by a count per class; the `no-observable-change` refusal reads the same list through `isChangedCode`;
+   its owned slice from the change map,
    `owned-slices.ts`: hunks, added and removed lines), so the lead plans from that instead of opening them and groups use cases into
    flows of a workable size; the section states the run's capacity. **One amendment turn** (`MAX_PLAN_ROUNDS`): a plan that leaves a
    use case unresolved (a refused drop among them), names flows past the capacity, or admits a flow whose owned change alone does
