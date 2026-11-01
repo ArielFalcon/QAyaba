@@ -32,6 +32,15 @@ import type { ClosedLoopRegistry } from "../closed-loop-registry.ts";
 import { trustedSessionRenewal } from "./trusted-session-renewal.ts";
 import { traceToolCall, type ToolObserver, type ToolTraceWiring } from "./tool-call-trace.ts";
 import { runSpecFailureAttrs, runSpecOutcome } from "./tool-call-outcome.ts";
+import { appDefectNote } from "../../domain/authoring-failure.ts";
+import type { FlowFailureFact } from "../../domain/closed-loop.ts";
+
+function withAppDefectNote(answer: RunSpecResponse, failures: readonly FlowFailureFact[] | undefined): RunSpecResponse {
+  if (!answer.ok || answer.report.status === "passed") return answer;
+  const note = appDefectNote(failures);
+  if (note === undefined) return answer;
+  return { ...answer, report: { ...answer.report, note: answer.report.note ? `${answer.report.note}; ${note}` : note } };
+}
 
 /* How many times a run's calls may renew the saved session from inside the authoring loop (trusted-session-renewal.ts). */
 export const MAX_RUN_SPEC_RENEWALS = 1;
@@ -130,12 +139,14 @@ export class ClosedLoopPortAdapter implements ClosedLoopPort {
     return this.handle(input, capability, runWrites, root, inRunContext, session);
   }
 
-  /* One call, as a span of the orchestrator's own when tracing is wired; the answer is the use case's, untouched. */
+  /* One call, as a span of the orchestrator's own when tracing is wired; the answer is the use case's, with the app-defect note when its failure is the app's. */
   private served(request: RunSpecRequest, capability: RunSpecCapability, run: (observer: ToolObserver) => Promise<RunSpecResponse>): Promise<RunSpecResponse> {
     /* A call that began settles its ledger entry before it answers: a new last entry is this call's, none is a call that never ran a spec. */
     const before = capability.ledger.length;
-    const outcome = (answer: RunSpecResponse) => ({ ...runSpecOutcome(answer), ...runSpecFailureAttrs(answer, capability.ledger.length > before ? capability.ledger.at(-1)?.failures : undefined) });
-    return traceToolCall(this.deps.trace, { span: "qayaba.tool.run_spec", tool: "run_spec", sessionId: request.sessionId, messageId: request.messageId }, run, outcome);
+    const failuresOfCall = () => (capability.ledger.length > before ? capability.ledger.at(-1)?.failures : undefined);
+    const outcome = (answer: RunSpecResponse) => ({ ...runSpecOutcome(answer), ...runSpecFailureAttrs(answer, failuresOfCall()) });
+    const answered = async (observer: ToolObserver) => withAppDefectNote(await run(observer), failuresOfCall());
+    return traceToolCall(this.deps.trace, { span: "qayaba.tool.run_spec", tool: "run_spec", sessionId: request.sessionId, messageId: request.messageId }, answered, outcome);
   }
 
   private handle(input: ClosedLoopOpenInput, capability: RunSpecCapability, runWrites: RunDevWriteLedger, root: SpecRoot, inRunContext: <R>(fn: () => R) => R, session: ReturnType<typeof trustedSessionRenewal> | undefined): ClosedLoopHandle {

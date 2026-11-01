@@ -34,7 +34,7 @@ interface Rig {
   events: string[];
 }
 
-async function rig(t: TestContext, over: { devWrites?: number; runDevWrites?: number; uncounted?: boolean; devWriteRequests?: DevWriteRequest[]; script?: Array<{ devWrites: number; unfinishedTests?: number; stopped?: boolean }> } = {}): Promise<Rig> {
+async function rig(t: TestContext, over: { devWrites?: number; runDevWrites?: number; uncounted?: boolean; devWriteRequests?: DevWriteRequest[]; script?: Array<{ devWrites: number; unfinishedTests?: number; stopped?: boolean }>; failing?: { httpStatus: number } } = {}): Promise<Rig> {
   const base = mkdtempSync(join(tmpdir(), "closed-loop-flow-"));
   t.after(() => rmSync(base, { recursive: true, force: true }));
   const mirrorDir = join(base, "mirror");
@@ -59,6 +59,7 @@ async function rig(t: TestContext, over: { devWrites?: number; runDevWrites?: nu
         r.executed.push({ specDir: dir, opts: opts as ExecutionOpts });
         const scripted = over.script?.shift();
         if (scripted?.stopped) return { verdict: "infra-error", cases: [], logs: "playwright runner aborted by operator cancel — killed", devWrites: scripted.devWrites, ...(scripted.unfinishedTests !== undefined ? { unfinishedTests: scripted.unfinishedTests } : {}) };
+        if (over.failing) return { verdict: "fail", cases: [{ name: "loads", status: "fail", detail: "expect(locator).toBeVisible() failed", httpStatus: over.failing.httpStatus, finalUrl: "https://dev.example/orders" }], logs: "", devWrites: 0 };
         return { verdict: "pass", cases: [{ name: "loads", status: "pass" }], logs: "", ...(over.uncounted ? {} : { devWrites: over.devWrites ?? 1 }), ...(over.devWriteRequests ? { devWriteRequests: over.devWriteRequests } : {}) };
       },
     },
@@ -110,6 +111,19 @@ test("a call runs the spec the sidekick wrote in its workspace, from the working
   assert.deepEqual(executed!.opts.specFiles, [STAGED]);
   assert.equal(executed!.opts.namespace, "run-9-login-rs1", "the flow's own namespace, apart from the run's and the siblings'");
   assert.deepEqual(r.cleaned, ["run-9-login-rs1"]);
+});
+
+test("a failed call whose failure is the app's says so in its answer, and one that is the spec's does not", async (t) => {
+  for (const [httpStatus, appAtFault] of [[503, true], [404, false]] as const) {
+    const r = await rig(t, { failing: { httpStatus } });
+    r.run.openFlow(r.flowInput());
+    r.writeWorkspace("flows/login.spec.ts", SPEC);
+    bind(r);
+    const response = await call(r);
+    assert.ok(response.ok);
+    assert.equal(response.report.status, "failed");
+    assert.equal(/the app is at fault/.test(response.report.note ?? ""), appAtFault, `HTTP ${httpStatus}`);
+  }
 });
 
 test("a flow can run its own spec and no other", async (t) => {

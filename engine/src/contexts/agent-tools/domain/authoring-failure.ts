@@ -39,6 +39,12 @@ export function classifyAuthoringFailure(failures: readonly FlowFailureFact[] | 
   return undefined;
 }
 
+/* What a failed call tells its author when the failure is the app's: a finding to deliver as it is, not a spec to make green. */
+export function appDefectNote(failures: readonly FlowFailureFact[] | undefined): string | undefined {
+  const failure = classifyAuthoringFailure(failures);
+  if (failure?.kind !== AUTHORING_FAILURE.APP_DEFECT) return undefined;
+  return `the app is at fault (${failure.reason}): this failure is a finding, not a defect of the spec; deliver the spec as it is, without weakening an assertion, and say so in concerns`;
+}
 
 /* Why a run_spec call that did not pass failed, as the trace of the call names it: the kind of the facts its failing tests left (above), else what the report itself says (a spec that did not load, a saved session that was lost, a spec stopped at its time), else other. */
 export const RUN_SPEC_FAILURE_KINDS = [...Object.values(AUTHORING_FAILURE), "load-error", "session-lost", "timed-out", "other"] as const;
