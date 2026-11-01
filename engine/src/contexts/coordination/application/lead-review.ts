@@ -127,7 +127,10 @@ export const REVIEW_ACTIONS = Object.values(REVIEW_ACTION);
 /* What the orchestrator tells a sidekick whose spec was accepted before it passed. */
 function verifyInstruction(redaction: RedactionPort, flow: FlowUnderReview): string {
   const failure = flow.runSpec?.lastFailure ? ` Its last failure${FAILURE_INSTRUCTION_NOTE[flow.runSpec.lastFailureOn ?? "earlier"]}: ${redaction.redact(flow.runSpec.lastFailure)}` : "";
-  return `Your spec has not passed run_spec on its current bytes.${failure} Run it, make it pass without weakening an assertion, and report again.`;
+  const spent = flow.runSpec !== undefined && flow.runSpec.calls >= flow.runSpec.maxCalls;
+  return spent
+    ? `Your spec has not passed run_spec on its current bytes.${failure} No run_spec call is left: correct the spec from this failure without weakening an assertion and report again; the run's execution judges it.`
+    : `Your spec has not passed run_spec on its current bytes.${failure} Run it, make it pass without weakening an assertion, and report again.`;
 }
 
 /* Reads the lead's submitted review: the object the review contract accepted, or any answer, which is unreadable unless it is an object with a `review` list. */

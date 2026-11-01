@@ -165,6 +165,8 @@ test("an accept of a spec whose last run_spec call failed is sent back even when
   const admitted = admitLeadReview(redaction, answer([{ flow: "cart", action: "accept" }]), [failing], { revisionsAllowed: true });
   assert.equal(admitted.orders[0]?.action, REVIEW_ACTION.REVISE);
   assert.match(admitted.orders[0]!.instruction, /expected 3, got 0/);
+  assert.match(admitted.orders[0]!.instruction, /no run_spec call is left/i, "the sidekick is told it cannot run the spec");
+  assert.doesNotMatch(admitted.orders[0]!.instruction, /Run it/, "no order the spent loop refuses");
 });
 
 test("an accept of an unverified spec whose run_spec is refused for writes is not sent back: it cannot run, and the run's execution judges it", () => {
