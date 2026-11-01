@@ -123,6 +123,7 @@ Decisions (ADR):
 | [ADR-0023](adr/0023-owner-decisions-rfc-0015.md) | RFC-0015's answers: one execution contract | Accepted | RFC-0015's questions, under ADR-0015 point 2 |
 | [ADR-0024](adr/0024-shell-exceptions-list-stays-frozen.md) | The shell exceptions list stays frozen at 27 | Accepted | Platform step 6's first bullet, under ADR-0015 point 2; amends the migration plan |
 | [ADR-0025](adr/0025-delivered-specs-do-not-intercept-requests.md) | Delivered specs do not intercept requests | Accepted | The owner, 2026-11-01: "Qayaba no debe poder hacer stubs, eso tapa errores." |
+| [ADR-0026](adr/0026-owner-authorization-rfc-0019.md) | The owner authorizes RFC-0019's recommendation for the branch gap | Accepted | The owner, 2026-11-01: "se deben tratar los mecanismos que causan el error de forma transversal y corregirlo de raiz" (feature document `odd/tasks/branch-gap-mechanisms.md`, S1) |
 
 Proposals (RFC):
 
@@ -145,6 +146,7 @@ Proposals (RFC):
 | [RFC-0015](rfc/0015-verdict-from-uninstrumented-execution.md) | One execution contract; the verdict never comes from an instrumented execution | Accepted (ADR-0023) | T40 (feature document L73-L75), implemented as T41 |
 | [RFC-0016](rfc/0016-context-map-precondition.md) | The context map is a precondition of a run; incremental, framework-free rebuild | Proposed | T44, T45 (feature document L83, L85) |
 | [RFC-0017](rfc/0017-defects-from-verified-facts.md) | A defect is a verified fact, not the shape of a failing test | Proposed (implemented under ADR-0015 point 2) | The owner's questions of 2026-11-01 (feature document `odd/tasks/no-stubs-fact-based-defects.md`, L2) |
+| [RFC-0019](rfc/0019-arm-decline-by-basis.md) | An arm no test can take leaves the regeneration by a decline the engine checks | Accepted (ADR-0026) | The branch gap review (feature document `odd/tasks/branch-gap-mechanisms.md`, S7) |
 
 Other:
 
@@ -152,7 +154,7 @@ Other:
 |---|---|---|
 | [Rejected explanations](rejected-explanations.md) | The refuted hypotheses and the run index | H03, H05, H10, H13, H14, H26, H27; later N03, N07, Q02, Q03, Q05, Q06, Q07 |
 
-These tables list every record through ADR-0025 and RFC-0017 (Correction 2026-10-31: this sentence said ADR-0017 and RFC-0012 while the tables already held ADR-0022 and RFC-0014; ADR-0023, ADR-0024 and RFC-0015 were missing); a later record is added to its table by the change that adds it.
+These tables list every record through ADR-0026 and RFC-0019, except RFC-0018 (not indexed yet) (Correction 2026-10-31: this sentence said ADR-0017 and RFC-0012 while the tables already held ADR-0022 and RFC-0014; ADR-0023, ADR-0024 and RFC-0015 were missing); a later record is added to its table by the change that adds it.
 
 Documents outside this folder that the records build on:
 
