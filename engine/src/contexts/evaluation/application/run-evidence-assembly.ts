@@ -66,6 +66,7 @@ export function assembleRunEvidence(sources: EvidenceSources, context: EvidenceC
           routeAvailability: g.routeAvailability ? { unavailable: g.routeAvailability.unavailable, byClass: g.routeAvailability.byClass } : undefined,
           reviewer: g.reviewer ? { approved: g.reviewer.approved, rounds: g.reviewer.rounds, modelRounds: g.reviewer.modelRounds } : undefined,
           causal: causalOf(g.causal),
+          defects: g.defects ? { found: g.defects.found } : undefined,
         }
       : undefined,
     limit: facts?.limitFired ? { fired: facts.limitFired, role: facts.limitRole ?? undefined, intent: limitIntentOf(spans, facts.limitRole ?? undefined) } : undefined,

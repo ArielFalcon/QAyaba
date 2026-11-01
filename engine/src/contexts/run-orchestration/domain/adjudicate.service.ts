@@ -3,7 +3,7 @@
  * — see its own header); Rule 1 below re-checks the SAME PLAYWRIGHT_INFRA_RE pattern here only
  * because FixLoop's evidence is pre-computed strings, not QaCase[], so it cannot call that helper
  * directly. First match wins: runner_infra → dev_infra → attributed 5xx app_defect →
- * runtime-error app_defect → dev_not_rendered → isLikelyRealBug app_defect →
+ * runtime-error app_defect → dev_not_rendered → isLikelyRealBug app_defect hint (low confidence) →
  * generated_test_defect/continue → break-needs-human → objective_gap (label only) → default
  * continue. Pure: no I/O, never throw. */
 
@@ -172,13 +172,13 @@ export function adjudicate(evidence: AdjudicatorEvidence): AdjudicatorVerdict {
     };
   }
 
-  /* Rule 3: app_defect — same predicate as isLikelyRealBug. allUnique=true + every detail a value-mismatch → real bug. */
+  /* Rule 3: the shape of the failure (unique selectors, every failure a value mismatch) is no fact about the app: it stops the loop so the test is not regenerated into green, and leaves the call to a human. */
   if (isLikelyRealBug(allUnique, failureDetails)) {
     return {
       class: ADJ_CLASS.APP_DEFECT,
-      confidence: ADJ_CONFIDENCE.HIGH,
-      action: ADJ_ACTION.BREAK_ISSUE,
-      reason: `App defect detected: selectors unique + all failures are value mismatches. ${gateReason}`,
+      confidence: ADJ_CONFIDENCE.LOW,
+      action: ADJ_ACTION.BREAK_NEEDS_HUMAN,
+      reason: `Possible app defect: selectors unique + all failures are value mismatches, with no fact from the run to confirm it. ${gateReason}`,
     };
   }
 

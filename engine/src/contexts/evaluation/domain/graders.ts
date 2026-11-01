@@ -557,16 +557,23 @@ const reviewVerdict: Grader = {
 };
 
 /*
- * How many failing cases the causal label puts in the change's reach (what the tests found). A passing run found none; a run whose
- * failures carry no label (not decided, or recorded before the label) says nothing.
+ * What the run found: the failing cases the causal label puts in the change's reach plus the defects the engine verified without a
+ * failing test (`gateSignals.defects`). A passing run found none; a run with neither a label nor a verified defect (not decided, or
+ * recorded before either) says nothing.
  */
 const defectFound: Grader = {
   names: ["defect_found"],
   grade: finishedOnly((e) => {
     if (e.verdict === "pass") return [{ name: "defect_found", value: 0 }];
     const causal = e.signals?.causal;
-    if (!causal) return [];
-    return [{ name: "defect_found", value: causal.inReach, comment: `${causal.inReach} in the change's reach, ${causal.outOfReach} out of reach, ${causal.unknown} unknown` }];
+    const verified = e.signals?.defects?.found ?? 0;
+    if (!causal && verified === 0) return [];
+    const failing = causal?.inReach ?? 0;
+    const parts = [
+      ...(causal ? [`${causal.inReach} failing case(s) in the change's reach, ${causal.outOfReach} out of reach, ${causal.unknown} unknown`] : []),
+      ...(verified > 0 ? [`${verified} defect(s) verified without a failing test`] : []),
+    ];
+    return [{ name: "defect_found", value: failing + verified, comment: parts.join("; ") }];
   }),
 };
 

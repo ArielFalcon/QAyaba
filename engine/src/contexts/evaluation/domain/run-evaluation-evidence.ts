@@ -172,6 +172,8 @@ export interface RunEvaluationEvidence {
         reviewer?: { approved: boolean; rounds: number; modelRounds: number } | undefined;
         /* The failing cases by the causal label's reach; undefined when no case failed or the run was not labelled. */
         causal?: { inReach: number; outOfReach: number; unknown: number } | undefined;
+        /* The defects the engine verified without a failing test (`gateSignals.defects`); undefined when the run decided none or was recorded before the rule. */
+        defects?: { found: number } | undefined;
       }
     | undefined;
   /* The limit the run leads with, when one fired (the first the engine met, else the first of its turns): the limit, the role it stopped and the intent of that turn's last step (undefined when unknown). */

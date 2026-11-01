@@ -102,7 +102,7 @@ test("break-issue with runner_infra evidence -> infra-error, no regen call", asy
   assert.equal(regenCalled, false, "runner_infra breaks BEFORE any regeneration call");
 });
 
-test("break-issue with app_defect (real-bug) evidence -> realBugDetected=true, verdict stays fail", async () => {
+test("break-issue with app_defect (an attributed 5xx) evidence -> realBugDetected=true, verdict stays fail", async () => {
   const execution: FixLoopExecutionPort = {
     execute: async () => {
       throw new Error("execute must not be called — the loop should break on the FIRST evaluation");
@@ -119,7 +119,7 @@ test("break-issue with app_defect (real-bug) evidence -> realBugDetected=true, v
   const result = await loop.run({
     initialRun: {
       verdict: "fail",
-      cases: [makeCase({ detail: "expect(locator).toHaveText(expected) failed\nExpected: 'Paid'\nReceived: 'Pending'" })],
+      cases: [makeCase({ httpStatus: 503, detail: "expect(locator).toHaveText(expected) failed\nExpected: 'Paid'\nReceived: 'Pending'" })],
     },
     generating: true,
     mode: "diff",
@@ -133,6 +133,15 @@ test("break-issue with app_defect (real-bug) evidence -> realBugDetected=true, v
 
   assert.equal(result.run.verdict, "fail");
   assert.equal(result.realBugDetected, true);
+});
+
+test("a value-mismatch failure with unique selectors and no fact behind it stops the loop as a hint for a human: no real bug is claimed and nothing is regenerated", async () => {
+  const { loop, rec } = recordingLoop({ regen: noFix, check: () => findings({ anyVerifiedPresent: true }) });
+  const result = await loop.run(loopInput({ initialRun: { verdict: "fail", cases: [makeCase({ file: "checkout.spec.ts", detail: VALUE_MISMATCH })] } }));
+  assert.equal(result.realBugDetected, false);
+  assert.equal(result.run.verdict, "fail");
+  assert.deepEqual([result.lastAdjudicatorVerdict?.class, result.lastAdjudicatorVerdict?.confidence, result.lastAdjudicatorVerdict?.action], ["app_defect", "low", "break-needs-human"]);
+  assert.equal(rec.generates.length, 0);
 });
 
 test("loop condition — maxRetries=0 disables the fix-loop entirely (no regen, no re-execute)", async () => {
@@ -549,7 +558,7 @@ test("bestRunSoFar guard is SKIPPED when realBugDetected fired (the current fail
       return {
         verdict: "fail",
         cases: [
-          { name: "checkout", status: "fail", file: "checkout.spec.ts", detail: "expect(locator).toHaveText(expected) failed\nExpected: 'Paid'\nReceived: 'Pending'" },
+          { name: "checkout", status: "fail", file: "checkout.spec.ts", httpStatus: 503, detail: "expect(locator).toHaveText(expected) failed\nExpected: 'Paid'\nReceived: 'Pending'" },
           ...(i.specFiles === undefined || i.specFiles.includes("login.spec.ts") ? [{ name: "login", status: "pass" as const, file: "login.spec.ts" }] : []),
         ],
       };
@@ -1614,7 +1623,7 @@ test("a real bug found after a better earlier round reports the run that proved 
     check: () => findings({ anyVerifiedPresent: true }),
     runs: [
       { verdict: "fail", cases: [makeCase({ name: "a", file: "a.spec.ts" }), { name: "b", status: "pass", file: "b.spec.ts" }, { name: "c", status: "pass", file: "c.spec.ts" }] },
-      { verdict: "fail", cases: [makeCase({ name: "a", file: "a.spec.ts", detail: VALUE_MISMATCH }), makeCase({ name: "b", file: "b.spec.ts", detail: VALUE_MISMATCH }), { name: "c", status: "pass", file: "c.spec.ts" }] },
+      { verdict: "fail", cases: [makeCase({ name: "a", file: "a.spec.ts", httpStatus: 503, detail: VALUE_MISMATCH }), makeCase({ name: "b", file: "b.spec.ts", httpStatus: 503, detail: VALUE_MISMATCH }), { name: "c", status: "pass", file: "c.spec.ts" }] },
     ],
   });
   const result = await loop.run(
@@ -1726,7 +1735,7 @@ test("with regeneration retired, a failing run is adjudicated once and never reg
 
 test("with regeneration retired, a real defect is still recognised and an infrastructure failure still reclassified", async () => {
   const defect = recordingLoop({ check: () => findings({ anyVerifiedPresent: true }) });
-  const bug = await defect.loop.run(loopInput({ regenerate: false, initialRun: { verdict: "fail", cases: [makeCase({ detail: VALUE_MISMATCH })] } }));
+  const bug = await defect.loop.run(loopInput({ regenerate: false, initialRun: { verdict: "fail", cases: [makeCase({ httpStatus: 503, detail: VALUE_MISMATCH })] } }));
   assert.equal(bug.realBugDetected, true);
 
   const infra = recordingLoop({});

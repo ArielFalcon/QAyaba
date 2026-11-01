@@ -40,7 +40,7 @@ test("review_verdict tells the model's rejection the evidence filter overruled f
   assert.equal(grade(withSignals({ reviewer: undefined }), "review_verdict"), undefined, "no reviewer phase, no verdict");
 });
 
-test("defect_found counts the failing cases in the change's reach; a passing run found none; an unlabelled failure says nothing", () => {
+test("defect_found counts the failing cases in the change's reach and the defects the run verified without a failing test; a passing run found none; an unlabelled failure says nothing", () => {
   assert.equal(grade(evidence({ verdict: "pass" }), "defect_found")?.value, 0);
   const failed = withSignals({ causal: { inReach: 2, outOfReach: 1, unknown: 1 } }, { verdict: "fail", decision: "issue" });
   const s = grade(failed, "defect_found");
@@ -48,6 +48,10 @@ test("defect_found counts the failing cases in the change's reach; a passing run
   assert.match(s?.comment ?? "", /1 out of reach/);
   assert.equal(grade(withSignals({ causal: { inReach: 0, outOfReach: 3, unknown: 0 } }, { verdict: "fail" }), "defect_found")?.value, 0, "failures the change does not reach are not defects it caused");
   assert.equal(grade(withSignals({ causal: undefined }, { verdict: "fail" }), "defect_found"), undefined);
+  const verified = grade(withSignals({ defects: { found: 2 } }, { verdict: "fail", decision: "issue" }), "defect_found");
+  assert.equal(verified?.value, 2, "a run that failed only on verified defects has no failing case and still found them");
+  assert.match(verified?.comment ?? "", /2 defect\(s\) verified without a failing test/);
+  assert.equal(grade(withSignals({ causal: { inReach: 1, outOfReach: 0, unknown: 0 }, defects: { found: 2 } }, { verdict: "fail" }), "defect_found")?.value, 3, "a failing case in reach and a verified defect are two findings");
 });
 
 test("survivors_routed is the share of surviving mutants a delivered spec reached, and nothing without survivors", () => {
