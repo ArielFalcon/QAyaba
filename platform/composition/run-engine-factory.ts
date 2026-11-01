@@ -642,12 +642,13 @@ export function buildEngineRootDeps(
    */
   const suiteAccount = suiteAccountFor(app, deps.env ?? activeEnvironment());
   const egressGate = egressGateFor(deps.env ?? activeEnvironment(), codeSandbox);
+  const runOrigins = resolveRunOrigins(app, loadRegistryGroups(root));
   const execWiring = buildExecWiring({
     env: deps.env ?? activeEnvironment(),
     sandbox: codeSandbox,
     authDir,
     mirrorRoot,
-    egressOrigins: resolveRunOrigins(app, loadRegistryGroups(root)),
+    egressOrigins: runOrigins,
     ...(egressGate ? { egress: egressGate } : {}),
     ...(suiteAccount ? { suiteAccount } : {}),
     ...(deps.telemetry ? { telemetry: deps.telemetry } : {}),
@@ -834,7 +835,7 @@ export function buildEngineRootDeps(
   };
   const e2eCleanupDeps = createDefaultE2eCleanupDeps(new ProcessKillAdapter(), exec);
   /* One launcher-backed DOM capture for every grounding seam (Context Pack, review DOM, pre-exec). */
-  const captureDomDeps = createCaptureDomDeps(exec, undefined, deps.telemetry ? domCaptureObserver(deps.telemetry) : undefined, app.dev.geolocation, app.dev.dataState);
+  const captureDomDeps = createCaptureDomDeps(exec, undefined, deps.telemetry ? domCaptureObserver(deps.telemetry) : undefined, app.dev.geolocation, app.dev.dataState, runOrigins.dev);
   const e2e = new E2eExecutionStrategy((specDir, opts) => runE2E(specDir, opts, e2eExecuteDeps));
 
   /*

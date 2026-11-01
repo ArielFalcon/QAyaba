@@ -46,12 +46,12 @@ function requestFactsFor(pack: string, wanted: ReadonlySet<string>, section: str
     }
     if (!inSection) continue;
     const fact = requestFactOf(line);
-    if (fact && pageIsNamed(fact.route, fact.template, wanted)) facts.push({ line, request: fact.request, counted: fact.isOmittedCount });
+    if (fact && pageIsNamed(fact.route, fact.template, wanted)) facts.push({ line, request: fact.request, counted: fact.isCountLine });
   }
   return { ...(heading !== undefined ? { heading } : {}), facts };
 }
 
-/* The requests the pack recorded for the pages `routes` name (a page by its address, or by the template it was opened from), each as the fact states it. The line that counts what the capture left out is no request. A pack without the section records none. */
+/* The requests the pack recorded for the pages `routes` name (a page by its address, or by the template it was opened from), each as the fact states it. The lines that count requests to other hosts or what the capture left out are no request. A pack without the section records none. */
 export function recordedRequestsFor(pack: string | undefined, routes: readonly string[]): string[] {
   if (!pack || routes.length === 0) return [];
   return requestFactsFor(pack, wantedPages(routes)).facts.filter((fact) => !fact.counted).map((fact) => fact.request);

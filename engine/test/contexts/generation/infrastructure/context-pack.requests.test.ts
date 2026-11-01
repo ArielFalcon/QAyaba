@@ -18,7 +18,7 @@ function captureDeps(pages: CapturedPage[], report = "route /map:\n  heading: Ma
   };
 }
 
-const map: CapturedPage = { route: "/map", grounded: true, printed: true, links: [], nodes: ["heading: Map"], requests: { listed: [{ method: "GET", url: STYLE, count: 1 }, { method: "GET", url: "https://dev.example/api/places", count: 2 }], omitted: 0 } };
+const map: CapturedPage = { route: "/map", grounded: true, printed: true, links: [], nodes: ["heading: Map"], requests: { listed: [{ method: "GET", url: STYLE, count: 1 }, { method: "GET", url: "https://dev.example/api/places", count: 2 }], otherHosts: [], omitted: 0 } };
 const home: CapturedPage = { route: "/home", grounded: true, printed: true, links: [], nodes: ["heading: Home"] };
 const input = { baseUrl: "http://dev.example", e2eDir: "/tmp/e2e", routes: ["/map", "/home"] };
 
@@ -35,7 +35,7 @@ test("the pack lists each captured page's requests, one fact each, with the orig
 });
 
 test("what the capture's safety bounds left out is a fact of the page", async () => {
-  const pack = await buildContextPack(input, captureDeps([{ ...map, requests: { listed: map.requests!.listed, omitted: 12 } }, home]));
+  const pack = await buildContextPack(input, captureDeps([{ ...map, requests: { ...map.requests!, omitted: 12 } }, home]));
   assert.match(sectionOf(pack.text), /- \/map: \(\+12 more request\(s\) not kept/);
 });
 
@@ -47,7 +47,7 @@ test("a page opened from a template of the map is named by both addresses", asyn
 
 test("a secret in a request's path is taken out by the pattern redaction every pack text passes", async () => {
   const token = "sk-abcdefghijklmnopqrstuvwxyz0123456789";
-  const page: CapturedPage = { ...map, requests: { listed: [{ method: "GET", url: `https://api.example/v1/${token}/files`, count: 1 }], omitted: 0 } };
+  const page: CapturedPage = { ...map, requests: { listed: [{ method: "GET", url: `https://api.example/v1/${token}/files`, count: 1 }], otherHosts: [], omitted: 0 } };
   const pack = await buildContextPack(input, captureDeps([page, home]));
   assert.equal((pack.text ?? "").includes(token), false);
   assert.ok(sectionOf(pack.text).includes(REDACTED));
@@ -61,7 +61,7 @@ test("a pack whose pages made no request has no requests section, as before", as
 });
 
 test("a page the pack was only given for the links it shows is not listed, and a pack with the DOM capture off lists none", async () => {
-  const seed: CapturedPage = { route: "/", grounded: true, printed: false, links: [], nodes: ["heading: Root"], requests: { listed: [{ method: "GET", url: "https://dev.example/api/boot", count: 1 }], omitted: 0 } };
+  const seed: CapturedPage = { route: "/", grounded: true, printed: false, links: [], nodes: ["heading: Root"], requests: { listed: [{ method: "GET", url: "https://dev.example/api/boot", count: 1 }], otherHosts: [], omitted: 0 } };
   const deps = captureDeps([map, home, seed]);
   const listed = await buildContextPack(input, deps);
   assert.equal(sectionOf(listed.text).includes("/api/boot"), false);

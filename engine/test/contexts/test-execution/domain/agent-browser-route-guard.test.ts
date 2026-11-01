@@ -12,6 +12,19 @@ test("a read of a declared origin is allowed whatever the safe method", () => {
   }
 });
 
+test("the origin role agrees with the origin step of the decision: declared origins, sockets included, are listed and anything else is counted by host", () => {
+  const g = guard();
+  const declared = ["https://dev.example.com/a", "wss://dev.example.com/socket", "https://cdn.example.com:8443/x"];
+  const other = ["https://dev.example.com:444/a", "http://dev.example.com/a", "https://tracker.example/p", "ftp://dev.example.com/f", "not a url"];
+  for (const url of declared) assert.equal(g.originRole(url), "listed", url);
+  for (const url of other) assert.equal(g.originRole(url), "counted-by-host", url);
+  for (const url of declared.filter((u) => u.startsWith("https")) ) assert.equal(g.decide({ method: "GET", url }).allow, true, url);
+  for (const url of other.filter((u) => u.startsWith("http"))) {
+    const decision = g.decide({ method: "GET", url });
+    assert.equal(decision.allow === false && decision.reason, "origin", url);
+  }
+});
+
 test("every method that can write is blocked, with the reason named", () => {
   const g = guard();
   for (const method of ["POST", "PUT", "PATCH", "DELETE", "post", "PROPFIND"]) {
