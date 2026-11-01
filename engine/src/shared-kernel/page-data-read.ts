@@ -46,11 +46,11 @@ export interface AmbientDataPin {
   readonly counts?: readonly { page: string; count: number }[];
 }
 
-/* How a citation names a pinned case: `<spec>#<title path>`. */
 /* Every page a pin names, the empty ones and the ones whose read result count it asserts. */
 export const ambientPinPages = (pin: Pick<AmbientDataPin, "pages" | "counts">): string[] => [...new Set([...pin.pages, ...(pin.counts ?? []).map((read) => read.page)])];
 
 /* Where a pin's case checked a page only as DEV served it: the empty pages, then the pages whose read result count it asserts. */
 export const ambientPinReads = (pin: Pick<AmbientDataPin, "pages" | "counts">): string[] => [...pin.pages, ...(pin.counts ?? []).map((read) => `${read.page} (${read.count} results read)`)];
 
+/* How a citation names a pinned case: `<spec>#<title path>`. */
 export const ambientPinRef = (pin: Pick<AmbientDataPin, "file" | "test">): string => `${pin.file}#${pin.test}`;
