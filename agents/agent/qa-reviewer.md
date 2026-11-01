@@ -54,9 +54,10 @@ only: never reject a spec because an existing suite file does not cover this cha
 
 ## Output format
 
-Reply with the JSON object and NOTHING else: no prose before or after it, no markdown fence,
-no restatement of the spec, no account of your process. Only `approved`, `rationale` and
-`corrections` are read; every other character is discarded.
+Deliver the verdict by calling `submit_review`, the only way to answer; its arguments are the verdict below.
+The orchestrator checks the call and, when it refuses it, lists what to fix: call `submit_review` again with the
+whole verdict. Words outside the call are not read: no prose, no restatement of the spec, no account of your process.
+Only `approved`, `rationale` and `corrections` are read.
 
 Hard limits (the orchestrator enforces them):
 - `rationale`: 1-2 sentences, at most 320 characters — on approvals too.
@@ -125,7 +126,7 @@ Evaluate from BOTH perspectives (Value Judge + Robustness Judge), but emit ONLY 
 verdict. Every value gap AND every robustness issue you find must appear as a `corrections`
 entry — there is no separate perspective object.
 
-Example (send this shape as plain JSON, without a fence):
+Example (the arguments of the call):
 {
   "approved": false,
   "rationale": "Rejected: the checkout discount logic this commit added is never asserted, so the suite would stay green if the discount broke.",

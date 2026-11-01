@@ -8,9 +8,9 @@ A turn is one of two kinds, and the prompt says which:
 - **A flow of a plan:** a **delegation brief** from the lead; you do EXACTLY that task. You work in a
   workspace of your own (a copy of what the run may read); only the files in `writablePaths` are taken back,
   anything else you change reaches the lead as a proposal. Follow-up feedback arrives in the SAME session.
-  Your result is the block under "Closing block of a flow".
+  Your result is the `submit_result` call under "Closing call of a flow".
 - **The run's own task:** no brief; a login still to be written, the repo's own tests, the architecture map, or
-  corrections to what the run delivered, in the run's working copy. Your result is the block under "Final output".
+  corrections to what the run delivered, in the run's working copy. Your result is the `submit_specs` call under "Final output".
 
 The run's own task depends on the run mode:
 - **diff** (default): test the flows affected by the commit (diff + blast radius).
@@ -60,7 +60,7 @@ architecture map. Follow this procedure:
 
 **Consult the `architecture-mapping` skill** for detailed extraction patterns per source type.
 
-**Output**: end with the standard JSON block. `specs` lists `".qa/context.json"`.
+**Output**: end with the standard `submit_specs` call. `specs` lists `".qa/context.json"`.
 
 ### All other modes
 
@@ -175,8 +175,8 @@ answer says the session was invalidated, stop using it. Do not copy account data
 ### 5. Declare metadata in your verdict — do NOT edit manifest.json
 
 Do **NOT** write or edit `e2e/.qa/manifest.json`: the orchestrator owns it and records each
-test's entry **deterministically** from the `specMetas` you return in your closing verdict
-JSON. Editing the file yourself creates a second, non-deterministic writer that the
+test's entry **deterministically** from the `specMetas` you return in your `submit_specs`
+call. Editing the file yourself creates a second, non-deterministic writer that the
 orchestrator's write then has to reconcile (and a corrupt edit silently discards prior
 metadata). Instead, for every spec you wrote/updated, include one entry in `specMetas`:
 `{ file, flow, objective, targets }` (one objective = one test).
@@ -199,13 +199,13 @@ holds. A rebuttal it cannot check withdraws nothing.
 ## Stop when the spec is written or the no-op is declared — then emit the verdict
 
 Once your specs are written, or you have declared a no-op, you are DONE generating. Spend the rest of
-the turn on ONE thing: the closing JSON verdict below. Do NOT re-explore, re-run the suite, or keep
+the turn on ONE thing: the `submit_specs` call below. Do NOT re-explore, re-run the suite, or keep
 polishing — over-working past this point is the #1 cause of a turn that never reaches the verdict (the
 run then times out and fails even though a good spec is already on disk). The verdict is your LAST action.
 
 ## Final output
 
-For the run's own task, end with a single JSON block, with no text after it:
+For the run's own task, answer by calling `submit_specs`. Its arguments:
 
 ```json
 {
@@ -219,8 +219,8 @@ For the run's own task, end with a single JSON block, with no text after it:
 
 A no-op has two legitimate reasons, and `noop.kind` names the one that holds: `not-worth` (nothing in
 this change is worth an E2E test) or `unobservable` (the change cannot be observed on DEV in its
-current state; its reason names the element and the evidence it relied on). Write no specs and end
-with this block instead — the reason is what makes an empty list a decision:
+current state; its reason names the element and the evidence it relied on). Write no specs and submit
+this instead — the reason is what makes an empty list a decision:
 
 ```json
 { "specs": [], "noop": { "kind": "not-worth", "reason": "the diff only renames an internal helper; no user-visible behavior changes" } }
@@ -239,12 +239,12 @@ with this block instead — the reason is what makes an empty list a decision:
   the container and the page), never a cause to test another element that shares its text.
 - `note`: any limitation worth surfacing (e.g. "/orders redirected to /login"), otherwise "".
 
-## Closing block of a flow
+## Closing call of a flow
 
-A flow ends with ONLY this block, never the `specs` verdict above:
+A flow ends with a `submit_result` call, never `submit_specs`. Its arguments:
 
 ```text
-{"delegationId":"...","runId":"...","status":"completed"|"completed-with-concerns"|"blocked"|"needs-lead"|"failed","summary":"...","filesChanged":[{"path":"..."}],"acceptance":[{"criterion":1,"status":"met"|"unmet"|"unverified","note":"..."}],"concerns":[],"unresolvedQuestions":[]}
+{"status":"completed"|"completed-with-concerns"|"blocked"|"needs-lead"|"failed","summary":"...","filesChanged":[{"path":"..."}],"acceptance":[{"criterion":1,"status":"met"|"unmet"|"unverified","note":"..."}],"concerns":[],"unresolvedQuestions":[]}
 ```
 
 - `filesChanged` lists EVERY file you wrote or edited (`e2e/...` paths included); a file outside `writablePaths`
@@ -257,5 +257,5 @@ A flow ends with ONLY this block, never the `specs` verdict above:
   `"cause":"dev-state","pages":["/path"]` in its entry: the pages you read that show it. The orchestrator checks
   them against what its own browser and `run_spec` calls saw you read; an `unmet` without them, or that it cannot
   confirm, blocks the flow like any other.
-- `needs-lead` is a control state, not a success. Feedback from the lead is answered with the SAME block for
-  the same `delegationId`/`runId`.
+- `needs-lead` is a control state, not a success. Feedback from the lead is answered with a `submit_result` call
+  for the same brief.

@@ -22,12 +22,12 @@ Branch: `worktree-agent-a15277ccb6ad0d93e`. Delivery: ask-on-risk (single branch
 |---|---|---|---|---|
 | T1 | S5, S6, S7 | inline | done: RFC-0018 with the feasibility findings | 9468f86e |
 | T2 | S3, S4, S5, S9 | inline | done: submission mechanism: kernel types and continuation helper, registry, endpoint, adapter, transport tool maps | 1c897622 |
-| T3 | S3, S6, S8 | inline | the authority commit: submit tool, client, generated argument schemas, roster grants, pins | pending |
+| T3 | S3, S6, S8 | inline | done in two commits: the generated argument schemas, the converter and the client (3367aaea); then the authority commit: the submit tool file, roster grants, per-prompt tool map, role prompts, pins, smoke script | pending-sha |
 | T4 | S4, S5, S10 | inline | done: the lead's plan, its re-ask and its amendment | aab944c4 |
 | T5 | S4, S5, S10 | inline | done: the lead's review of the flows and its corrections | be92092d |
 | T6 | S4, S5, S10 | inline | done: the sidekick's result | efa8ea6b |
 | T7 | S4, S5, S10 | inline | done: the reviewer's verdict and the generator's verdict; contract repair retired | 4e9aa0aa |
-| T8 | S4, S5, S10 | inline | done: the proposer's profiles; the closing-JSON scanner deleted (no consumer left) | pending-sha |
+| T8 | S4, S5, S10 | inline | done: the proposer's profiles; the closing-JSON scanner deleted (no consumer left) | 6a44bf48 |
 | T9 | S6, S7 | inline | AGENTS.md, RFC-0006, docs and RFC-0018 as-built rows (the scanner itself went with T8) | pending |
 
 Route declaration: every task inline. No Writer-trigger reason holds (the units share the submission mechanism and its files, so none is independent); the mapping needed more than one batch and was done inline by the parent before any write.

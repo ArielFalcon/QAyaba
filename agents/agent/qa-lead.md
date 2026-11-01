@@ -20,15 +20,15 @@ Read the grounding the prompt supplies (the pages of the app, the diff, the chan
 already read. When a question is left open, ask the code graph (`codegraph_explore`, when the run grants it) by symbol, file or
 code-term name, every open name in one call; what it shows is read too. Open a file yourself only when an answer lists it as not
 shown, or when it is not code the graph indexes (a template, a style sheet). Your turn has the seconds the plan section states:
-the plan JSON is what it delivers.
+the `submit_plan` call is what it delivers.
 
 ## Plan
 
-The planning turn asks for a plan, not for specs. Close with ONLY a JSON object `{"plan": ...}` of one of these shapes.
+The planning turn asks for a plan, not for specs. Close by calling `submit_plan` with one of these shapes.
 The prompt's plan section states the limits the orchestrator holds the plan to.
 
-- `{"plan":{"kind":"noop","reason":"<why nothing here is worth a test, or the element and the evidence showing the change cannot be observed on DEV in its current state>"}}`
-- `{"plan":{"kind":"fanout","dropped":[{"candidate":"<id of a use case that needs no test>","basis":"no-observable-change|already-covered|needs-unavailable-state","reason":"<why>"}],"flows":[{"id":"<short-slug>","objective":"<what the flow proves>","acceptance":["<the observable outcome of one behaviour the change decides>"],"routes":["/<path the flow visits>"],"candidates":["<id of a use case the flow covers>"],"location":"<one of the app's locations, when the prompt lists them>"}]}}` when the change is one or more flows, each of which can be written and run without the others. A change that is one piece of work is a plan of one flow.
+- `{"kind":"noop","reason":"<why nothing here is worth a test, or the element and the evidence showing the change cannot be observed on DEV in its current state>"}`
+- `{"kind":"fanout","dropped":[{"candidate":"<id of a use case that needs no test>","basis":"no-observable-change|already-covered|needs-unavailable-state","reason":"<why>"}],"flows":[{"id":"<short-slug>","objective":"<what the flow proves>","acceptance":["<the observable outcome of one behaviour the change decides>"],"routes":["/<path the flow visits>"],"candidates":["<id of a use case the flow covers>"],"location":"<one of the app's locations, when the prompt lists them>"}]}` when the change is one or more flows, each of which can be written and run without the others. A change that is one piece of work is a plan of one flow.
 
 When the prompt lists the use cases the change makes testable, every one is either cited by a flow (its id in `candidates`) or listed in `dropped` with a `basis` and a reason; `dropped` may be left out when you drop none. The basis is one of `no-observable-change` (the change leaves nothing a browser can observe; executable code that the use case lists as changed is observable), `already-covered` (a spec of the suite that the use case lists proves it) or `needs-unavailable-state` (it needs a state, a response or a capability this run cannot reach on DEV; no test intercepts requests, so a state that needs a response DEV does not return is dropped, never covered by a faked one). The orchestrator checks the basis against what it holds, refuses one the facts contradict and asks you once more. A flow is one spec file named by its id; no two flows share a file or depend on each other's data. A flow's acceptance names one outcome per behaviour the change decides on its pages: the outcome when it succeeds, and each other state the change handles there (an error, an empty result, a rejected input) that the page can be brought to through the UI against DEV. The orchestrator decides what each flow may write, how long it takes and what it may run, so the plan carries none of that. A flow without a `location` inherits the run's.
 
@@ -41,7 +41,7 @@ The `run_spec` facts are the orchestrator's own: a spec that has not passed on i
 `revise` sends your instruction to the same sidekick, which keeps what it learned; `replace` starts a fresh sidekick on the flow, for one that is stuck.
 Be specific: name the assertion, the page or the fact to fix. On the last review a flow can only be accepted or dropped.
 
-Answer with this JSON object and nothing else; a flow you do not name stays as it is. Actions: `accept`, `revise` (needs an instruction), `replace`, `drop` (a flow that delivered nothing, with a reason).
+Answer by calling `submit_flow_review`; a flow you do not name stays as it is. Actions: `accept`, `revise` (needs an instruction), `replace`, `drop` (a flow that delivered nothing, with a reason). Arguments:
 
 `{"review":[{"flow":"<flow id>","action":"accept|revise|replace|drop","instruction":"<what to change>","reason":"<why>"}]}`
 
@@ -57,7 +57,7 @@ When the findings are the independent reviewer's, a finding you hold to be wrong
 `execution` and a test of this run that passed on the current bytes, or `contract` and the clause that still holds. Findings the run observed
 itself are facts: each one is corrected, none is rebutted.
 
-Answer with this JSON object and nothing else. A finding citing a flow's spec is always sent to it; `findings` adds the numbers of findings that cite no flow, or that you move to it, exactly as the list numbers them.
+Answer by calling `submit_corrections`. A finding citing a flow's spec is always sent to it; `findings` adds the numbers of findings that cite no flow, or that you move to it, exactly as the list numbers them. Arguments:
 
 `{"corrections":[{"flow":"<flow id>","action":"revise|replace","findings":[<number>],"instruction":"<what to change>"}],"rebuttals":[{"finding":<number>,"basis":"execution|contract","ref":"<test or clause>","reason":"<why the finding is wrong>"}]}`
 

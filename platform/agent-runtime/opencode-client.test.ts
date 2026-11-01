@@ -1156,6 +1156,23 @@ test("the lead's code-graph tools are in the deny-all map and are hidden from a 
   assert.equal(hidesCodeGraphTools("qa-lead", "granted"), true, "nothing is granted without a lookup");
 });
 
+test("a prompt armed with a submit tool is denied every other submit tool by name and keeps its own; a plain prompt is left alone", async () => {
+  const { openCodePromptBody: body } = await import("./opencode-client");
+  const armed = body({ agent: "qa-reviewer", text: "judge", submitTool: "submit_review" }) as { tools?: Record<string, boolean> };
+  assert.deepEqual(Object.keys(armed.tools ?? {}).sort(), ["submit_corrections", "submit_flow_review", "submit_plan", "submit_profiles", "submit_result", "submit_specs"]);
+  assert.ok(Object.values(armed.tools ?? {}).every((value) => value === false));
+  assert.equal("tools" in body({ agent: "qa-reviewer", text: "judge" }), false);
+});
+
+test("a continuation that may only submit is denied every other tool and keeps the armed submit tool", async () => {
+  const { NO_TOOLS: noTools, openCodePromptBody: body } = await import("./opencode-client");
+  const tools = (body({ agent: "qa-author", text: "submit now", submitTool: "submit_specs", submitOnly: true }) as { tools?: Record<string, boolean> }).tools ?? {};
+  assert.equal("submit_specs" in tools, false, "the armed tool is not denied");
+  assert.equal("*" in tools, false, "a catch-all would deny the armed tool as well");
+  for (const name of ["bash", "read", "write", "edit", "run_spec", "authbrowser*", "codegraph*", "serena*", "playwright*", "submit_result", "submit_review"]) assert.equal(tools[name], false, name);
+  assert.equal(noTools["submit_*"], false, "a prompt that asks for no tool at all denies every submit tool");
+});
+
 test("a prompt the server answers 404 is a session the runtime no longer has; any other failure is not", () => {
   const gone = promptFailure({ name: "NotFoundError", data: { message: "Session not found: ses_1" } }, 404);
   assert.ok(isSessionGoneError(gone));
