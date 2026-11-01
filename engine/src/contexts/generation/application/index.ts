@@ -4,6 +4,7 @@ export { declaredRelativeFiles } from "../domain/declared-resources.ts";
 export { GENERATION_NOTE_MAX_CHARS } from "../domain/generation-end.ts";
 export { extractExportedNames, harnessFactLines, harnessFactOmissions, isSafeAttributeName } from "../domain/harness-facts.ts";
 export { contradictionsReaching } from "../domain/pack-contradictions.ts";
+export { availabilityLine } from "../domain/route-availability-section.ts";
 export { domPageCount, packPagesFor, referenceDomPages } from "../domain/pack-pages.ts";
 export { countByDirectory, domPagesDegrade, NOT_SHOWN, pagesDegrade, referenceDegrade, stepsDegrade } from "../domain/window-fit-references.ts";
 export { promptFactsOpts } from "../domain/prompt-facts.ts";

@@ -76,7 +76,7 @@ function changedBranches(changed: CoveredLines, hits: readonly BranchHit[], sour
   const skipped: SkippedDecisions = { count: 0, reasons: {}, decisions: [] };
   for (const hit of hits) {
     if (!changed.get(hit.file)?.has(hit.line)) continue;
-    const source = hit.expression === undefined ? undefined : sourceOf?.(hit.file);
+    const source = sourceOf?.(hit.file);
     const reason = source && hit.expression !== undefined ? buildAddedDecision({ expression: hit.expression, ...(hit.operator !== undefined ? { operator: hit.operator } : {}) }, hit.line, source) : undefined;
     if (reason) {
       skipped.count++;
@@ -84,10 +84,11 @@ function changedBranches(changed: CoveredLines, hits: readonly BranchHit[], sour
       if (skipped.decisions.length < MAX_RECORDED_SKIPPED_DECISIONS) skipped.decisions.push({ file: hit.file, line: hit.line, column: hit.column, kind: hit.kind, reason });
       continue;
     }
+    const sourceLine = source?.lineAt(hit.line);
     for (const arm of hit.arms) {
       total++;
       if (arm.taken) taken++;
-      else untakenArms.push({ file: hit.file, line: hit.line, column: hit.column, kind: hit.kind, arm: arm.label, ranIn: hit.ranIn });
+      else untakenArms.push({ file: hit.file, line: hit.line, column: hit.column, kind: hit.kind, arm: arm.label, ranIn: hit.ranIn, ...(sourceLine !== undefined ? { sourceLine } : {}) });
     }
   }
   const apart = skipped.count > 0 ? { skippedDecisions: skipped } : {};

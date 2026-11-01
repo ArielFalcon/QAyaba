@@ -73,3 +73,25 @@ test("an arm's finding carries the spec files that evaluated its decision, not t
 
   assert.deepEqual(units.map((u) => [u.finding.line, u.finding.ranBy]), [[undefined, ["flows/cart.spec.ts", "flows/login.spec.ts"]], [7, ["flows/login.spec.ts"]], [9, undefined]]);
 });
+
+test("a decision's unit carries its source line and what the run holds about where its file is reached, and nothing a flow is routed by changes", () => {
+  const untaken = { ...arm("src/store.ts", 7), sourceLine: "    if (cuisine && props.activeMenuCuisineType !== cuisine) return false" };
+  const telling = { reachOf: (file: string) => (file === "src/store.ts" ? ["data contradiction on /search (a defect of the run): GET /menus returned 12 items"] : []), boundSource: (line: string) => line };
+
+  const [told] = gapUnits([], [untaken], [], [], [], telling);
+  const [bare] = gapUnits([], [arm("src/store.ts", 7)], []);
+
+  assert.ok(told!.text.startsWith(bare!.text), "what a unit said before is still said first");
+  assert.match(told!.text, /Source line: "if \(cuisine && props\.activeMenuCuisineType !== cuisine\) return false"/);
+  assert.match(told!.text, /about where this file is reached: data contradiction on \/search \(a defect of the run\)/);
+  assert.deepEqual({ ...told!.finding, text: "" }, { ...bare!.finding, text: "" });
+});
+
+test("a unit about changed lines, or about a file the run holds no fact of, says nothing more than it did", () => {
+  const telling = { reachOf: () => [], boundSource: (line: string) => line };
+
+  const units = gapUnits([{ file: "src/a.ts", lines: [3] }], [arm("src/b.ts", 9)], [], [], [], telling);
+  const before = gapUnits([{ file: "src/a.ts", lines: [3] }], [arm("src/b.ts", 9)], []);
+
+  assert.deepEqual(units.map((u) => u.text), before.map((u) => u.text));
+});

@@ -13,7 +13,7 @@ import type { NoopKind } from "@kernel/noop-kind.ts";
 import type { RunOutcome } from "@kernel/run-outcome.ts";
 import { decide } from "../../domain/run-decision.service.ts";
 import { defectsSignal, type DefectFact } from "@kernel/data-contradiction.ts";
-import { defectsOf } from "./phases/decide.steps.ts";
+import { defectsOf } from "./run-defects.ts";
 import { RunDecision } from "../../domain/run-decision.ts";
 import { ERROR_CLASS } from "@kernel/error-class.ts";
 import { learningGates, observesOperatingSignal } from "@contexts/cross-run-learning/application/index.ts";

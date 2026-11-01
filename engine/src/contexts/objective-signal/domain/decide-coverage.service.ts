@@ -12,8 +12,8 @@ export interface ChangeCoverage {
   uncovered: { file: string; lines: number[] }[];
   /* The arms of the decisions on changed lines, and how many ran; null when no decision was seen on a changed line. A signal beside the line ratio: it never decides the status. */
   branches: { changedBranches: number; takenBranches: number; ratio: number } | null;
-  /* The arms on changed lines that never ran, in file and line order. */
-  untakenArms?: { file: string; line: number; column: number; kind: string; arm: string; ranIn: string[] }[];
+  /* The arms on changed lines that never ran, in file and line order, each with the source line its decision is placed at when the changed file's source could be read. */
+  untakenArms?: { file: string; line: number; column: number; kind: string; arm: string; ranIn: string[]; sourceLine?: string }[];
   /* The decisions on changed lines the build added beside the change (not its own code), left out of `branches` and `untakenArms`; absent when none was. */
   skippedDecisions?: SkippedDecisions;
   /* The changed lines a loaded script holds no code for (imports, types, comments): neither counted nor uncovered. Absent when the collector cannot tell code from the rest. */

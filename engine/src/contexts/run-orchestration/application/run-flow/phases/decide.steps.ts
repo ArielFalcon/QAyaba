@@ -1,14 +1,12 @@
 /* The decide phase of a run: the final proof guard over the delivered specs, the verdict's decision and the coordinated run's closing telemetry. */
 
-import { namesTemplatePage } from "@contexts/generation/application/index.ts";
-import { contradictionDefects, labelFailure, type CausalLabel, type CausalMatchers } from "@contexts/objective-signal/application/index.ts";
-import type { DefectFact } from "@kernel/data-contradiction.ts";
-import { requestServesOperation } from "@contexts/service-topology/application/index.ts";
+import { labelFailure, type CausalLabel } from "@contexts/objective-signal/application/index.ts";
 import { decide, type RunEvidence } from "../../../domain/run-decision.service.ts";
 import { end, type StepOutcome } from "../run-flow.ts";
 import { runEnd } from "../run-end.ts";
 import type { RunContext, WorkspaceRunContext } from "../run-context.ts";
 import { runOf, type DecidedOutcome, type RunState } from "../run-state.ts";
+import { defectsOf, REACH_MATCHERS } from "../run-defects.ts";
 import { reviewsTests } from "./review.steps.ts";
 
 type Result = Promise<StepOutcome<RunState>>;
@@ -88,8 +86,6 @@ export async function guardFinalProof(state: Readonly<RunState>, ctx: WorkspaceR
   }
 }
 
-const REACH_MATCHERS: CausalMatchers = { servesOperation: requestServesOperation, namesPage: namesTemplatePage };
-
 /* Whether the run's failure is in the change's reach, read from its failing cases and the run's scope and flows; undefined when no case failed. It records and decides nothing. */
 export function causalLabelOf(state: Readonly<RunState>): CausalLabel | undefined {
   return labelFailure({
@@ -98,12 +94,6 @@ export function causalLabelOf(state: Readonly<RunState>): CausalLabel | undefine
     flows: state.generation.flowCandidates,
     matchers: REACH_MATCHERS,
   });
-}
-
-/* The defects the run's facts establish with no failing test: a contradiction the provider's contract lacks, on a page or operation the change reaches. A run that generated nothing, or a context run, found none. */
-export function defectsOf(state: Readonly<RunState>, ctx: Pick<RunContext, "input">): DefectFact[] {
-  if (!state.classification.generating || ctx.input.mode === "context") return [];
-  return contradictionDefects({ facts: state.grounding.dataContradictions?.facts ?? [], scope: state.grounding.changeScope, matchers: REACH_MATCHERS });
 }
 
 /* The last step of the table: the run reached its decision, and finalizeRun carries it out (publish, prune, persist, learn). */

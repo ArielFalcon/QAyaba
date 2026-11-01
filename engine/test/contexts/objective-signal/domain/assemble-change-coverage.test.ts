@@ -462,7 +462,17 @@ test("a decision stays when its file's source cannot be read or the collector to
   assert.equal(unread.branches?.changedBranches, 4);
   assert.equal(untold.branches?.changedBranches, 4);
   assert.equal(unread.skippedDecisions, undefined);
-  assert.deepEqual(withSource, without);
+  assert.deepEqual({ ...withSource, untakenArms: withSource.untakenArms!.map(({ sourceLine: _line, ...arm }) => arm) }, without);
+});
+
+test("an untaken arm carries the source line its decision is placed at, and none when the file's source cannot be read", () => {
+  const report = navbarReport([hitAt(5, "this.isNative")]);
+
+  const read = assembleChangeCoverage(NAVBAR_DIFF, report, undefined, navbarSource);
+  const unread = assembleChangeCoverage(NAVBAR_DIFF, report, undefined, () => undefined);
+
+  assert.deepEqual(read.untakenArms!.map((a) => a.sourceLine), ["      ? [{ icon: 'pi-camera' }]"]);
+  assert.deepEqual(unread.untakenArms!.map((a) => "sourceLine" in a), [false]);
 });
 
 /* ── executable changed lines ─────────────────────────────────────────────────────────────────── */

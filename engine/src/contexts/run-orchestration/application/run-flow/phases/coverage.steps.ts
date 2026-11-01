@@ -24,6 +24,9 @@ import { isRealPass } from "@kernel/case-proof.ts";
 import { branchCasesRecord } from "../branch-cases-record.ts";
 import type { FindingPlacement } from "@kernel/finding-placement.ts";
 import { ambientPinFindings, ambientRecordOf, type AmbientRecord } from "../ambient-data-state.ts";
+import { gapReachOf } from "../gap-reach.ts";
+import { defectsOf } from "../run-defects.ts";
+import { cutMarker } from "@kernel/redact-then-bound.ts";
 
 type Result = Promise<StepOutcome<RunState>>;
 
@@ -611,6 +614,20 @@ export interface GapUnit {
   decision?: UntakenDecision;
 }
 
+/* How a unit about a decision tells the lead where its file is reached: the facts the run holds about the pages of the use cases the file seeds, and the arm's own source line, redacted and cut at a safety bound. */
+export interface GapTelling {
+  reachOf: (file: string) => readonly string[];
+  boundSource: (line: string) => string;
+}
+
+/* The longest source line a unit carries: a changed line is untrusted text, and a built or minified one can be any length. */
+const SOURCE_LINE_SAFETY_BOUND = 300;
+
+function gapTelling(state: Readonly<RunState>, ctx: WorkspaceRunContext): GapTelling {
+  const facts = { candidates: state.grounding.candidates, contradictions: state.grounding.dataContradictions?.facts ?? [], defects: defectsOf(state, ctx), emptyPages: state.grounding.emptyDataPages, availability: state.grounding.routeAvailability?.facts ?? [] };
+  return { reachOf: (file) => gapReachOf(file, facts), boundSource: (line) => ctx.host.boundText(line, SOURCE_LINE_SAFETY_BOUND, cutMarker("an arm's source line")) };
+}
+
 /* The items of the groups taken one group at a time, round-robin, so the first of each group come first and no group crowds the others out. Every item is kept. */
 function interleave<T>(groups: ReadonlyMap<string, readonly T[]>): T[] {
   const lists = [...groups.values()];
@@ -637,7 +654,7 @@ function groupBy<T>(items: readonly T[], key: (item: T) => string): Map<string, 
  * on a page a passing case checked only as DEV served it empty (`onEmptyPages`, from `armsOnPinnedPages`) says so: the data that takes
  * it may be what DEV lacks there.
  */
-export function gapUnits(uncovered: CoverageOutcome["uncovered"], arms: CoverageOutcome["untakenArms"], candidates: RunState["grounding"]["candidates"], ranBy: CoverageOutcome["ranBy"] = [], onEmptyPages: ReadonlyArray<{ file: string; line: number; pages: readonly string[] }> = []): GapUnit[] {
+export function gapUnits(uncovered: CoverageOutcome["uncovered"], arms: CoverageOutcome["untakenArms"], candidates: RunState["grounding"]["candidates"], ranBy: CoverageOutcome["ranBy"] = [], onEmptyPages: ReadonlyArray<{ file: string; line: number; pages: readonly string[] }> = [], telling?: GapTelling): GapUnit[] {
   const ran = (file: string): Pick<CorrectionFinding, "ranBy"> => {
     const specs = ranBy.find((r) => r.file === file)?.specFiles;
     return specs && specs.length > 0 ? { ranBy: specs } : {};
@@ -651,7 +668,10 @@ export function gapUnits(uncovered: CoverageOutcome["uncovered"], arms: Coverage
     ...interleave(groupBy(untakenDecisions(arms), (d) => d.file)).map((u) => {
       const pages = onEmptyPages.find((a) => a.file === u.file && a.line === u.line)?.pages ?? [];
       const empty = pages.length > 0 ? ` (on ${pages.join(", ")}, which DEV served as a confirmed empty state: the data that takes ${u.arms.length === 1 ? "this arm" : "these arms"} may be what DEV lacks there)` : "";
-      const text = `decision on a changed line with ${u.arms.length === 1 ? "an arm" : "arms"} that NO test ran: ${renderUntakenDecision(u)}${empty}`;
+      const source = telling && u.sourceLine !== undefined ? ` Source line: ${JSON.stringify(telling.boundSource(u.sourceLine.trim()))}.` : "";
+      const reach = telling?.reachOf(u.file) ?? [];
+      const facts = reach.length > 0 ? ` The run's facts about where this file is reached: ${reach.join("; ")}.` : "";
+      const text = `decision on a changed line with ${u.arms.length === 1 ? "an arm" : "arms"} that NO test ran: ${renderUntakenDecision(u)}${empty}${source}${facts}`;
       return { text, decision: u, finding: { text, file: u.file, line: u.line, ...(u.evaluatedBy ? { ranBy: u.evaluatedBy } : {}) } };
     }),
   ];
@@ -707,7 +727,7 @@ export async function regenerateForCoverage(state: Readonly<RunState>, ctx: Work
   const survived = survivorsOf(state);
   const gap = [renderCoverageGap(uncovered, state.grounding.candidates), renderBranchGap(untakenArms)].filter(Boolean).join("\n\n");
   const ambient = ambientGapOf(state, ctx);
-  const regen = await regenerateAtCoverageGap(state, ctx, gap, gapUnits(uncovered, untakenArms, state.grounding.candidates, state.coverage.ranBy, ambient.arms), survived, ambient.findings);
+  const regen = await regenerateAtCoverageGap(state, ctx, gap, gapUnits(uncovered, untakenArms, state.grounding.candidates, state.coverage.ranBy, ambient.arms, gapTelling(state, ctx)), survived, ambient.findings);
   const measured = await measureKept(state, ctx, regen);
   const survivorClosure = await closeSurvivors(state, ctx, regen, measured);
   const coverage = await recountAfter(state, ctx, regen, measured);
@@ -719,7 +739,7 @@ export async function regenerateForBranchCases(state: Readonly<RunState>, ctx: W
   const armsBefore = state.coverage.untakenArms.length;
   const survived = survivorsOf(state);
   const ambient = ambientGapOf(state, ctx);
-  const units = gapUnits([], state.coverage.untakenArms, [], state.coverage.ranBy, ambient.arms);
+  const units = gapUnits([], state.coverage.untakenArms, [], state.coverage.ranBy, ambient.arms, gapTelling(state, ctx));
   const regen = await regenerateAtCoverageGap(state, ctx, renderBranchGap(state.coverage.untakenArms), units, survived, ambient.findings);
   const measured = await measureKept(state, ctx, regen);
   const survivorClosure = await closeSurvivors(state, ctx, regen, measured);
