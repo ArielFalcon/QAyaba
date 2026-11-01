@@ -94,16 +94,18 @@ test("the prompt is the generator's own for this input, with its planning limits
 });
 
 test("a turn that delivers a plan keeps its session open for the lead's next turn, read-only and bounded, and closes it once", async () => {
-  const { ports, seen } = build(accepted(), { output: "the review" });
+  const { ports, seen } = build(accepted(), accepted({ review: [] }));
   const result = await new GenerateTestsUseCase(ports).plan(planInput());
   assert.equal(seen.disposed, 0, "the lead's session outlives the plan");
   assert.ok(result.lead, "the session comes back with the plan");
-  const answer = await result.lead.ask("REVIEW", { timeoutMs: 45_000 });
-  assert.deepEqual(answer, { output: "the review", timedOut: false });
+  const reviewContract: SubmissionContract<Record<string, unknown>> = { tool: SUBMIT_TOOL.FLOW_REVIEW, check: (answer) => ({ ok: true, value: answer as Record<string, unknown> }) };
+  const answer = await result.lead.askSubmitting("REVIEW", { timeoutMs: 45_000 }, reviewContract);
+  assert.deepEqual(answer, { value: { review: [] }, timedOut: false });
   assert.equal(seen.opened.length, 1, "the next turn is asked in the same session");
   assert.equal(seen.prompts[1]!.text, "REVIEW");
   assert.equal(seen.prompts[1]!.opts?.withoutWrites, true);
   assert.equal(seen.prompts[1]!.opts?.timeoutMs, 45_000);
+  assert.equal(seen.prompts[1]!.opts?.submit, reviewContract, "the turn is answered through the contract it is asked with, not the plan's");
   await result.lead.dispose();
   await result.lead.dispose();
   assert.equal(seen.disposed, 1);
@@ -112,7 +114,7 @@ test("a turn that delivers a plan keeps its session open for the lead's next tur
 test("a lead's next turn that runs out of its time is reported, not thrown", async () => {
   const { ports } = build(accepted(), { throws: new AgentTimeoutError("timed out") });
   const result = await new GenerateTestsUseCase(ports).plan(planInput());
-  assert.deepEqual(await result.lead!.ask("REVIEW", { timeoutMs: 1 }), { output: "", timedOut: true });
+  assert.deepEqual(await result.lead!.askSubmitting("REVIEW", { timeoutMs: 1 }, contract), { timedOut: true });
   await result.lead!.dispose();
 });
 
@@ -205,12 +207,12 @@ test("the planning session is opened for the lead role, which the roster makes r
 });
 
 test("a follow-up turn of the lead hands the transport the sizes and hashes of the sections it was assembled from", async () => {
-  const { ports, seen } = build(accepted(), { output: "a" }, { output: "b" });
+  const { ports, seen } = build(accepted(), accepted(), accepted());
   const result = await new GenerateTestsUseCase(ports).plan(planInput());
-  await result.lead!.ask("REVIEW", { timeoutMs: 1_000, sectionSizes: { flows: 12 }, sectionHashes: { flows: "abc" } });
+  await result.lead!.askSubmitting("REVIEW", { timeoutMs: 1_000, sectionSizes: { flows: 12 }, sectionHashes: { flows: "abc" } }, contract);
   assert.deepEqual(seen.prompts[1]!.opts?.sectionSizes, { flows: 12 });
   assert.deepEqual(seen.prompts[1]!.opts?.sectionHashes, { flows: "abc" });
-  await result.lead!.ask("PLAN AGAIN", { timeoutMs: 1_000 });
+  await result.lead!.askSubmitting("PLAN AGAIN", { timeoutMs: 1_000 }, contract);
   assert.equal(seen.prompts[2]!.opts?.sectionSizes, undefined);
   await result.lead!.dispose();
 });

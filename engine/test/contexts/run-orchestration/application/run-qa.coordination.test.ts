@@ -474,7 +474,7 @@ test("a rebuttal the lead gives one finding by its number withdraws that finding
     { id: "b", objective: "b", specFile: "flows/b.spec.ts", sessionOpen: true },
   ];
   /* Finding 1 (a.spec.ts) is rebutted on a's green run; finding 2 (b.spec.ts) is neither corrected nor rebutted. */
-  const answer = JSON.stringify({ corrections: [], rebuttals: [{ finding: 1, basis: "execution", ref: "flows/a.spec.ts", reason: "a's run asserts the total in its last step" }] });
+  const answer = { corrections: [], rebuttals: [{ finding: 1, basis: "execution", ref: "flows/a.spec.ts", reason: "a's run asserts the total in its last step" }] };
   r = rig(() => flowsAB(kept.pass));
   kept = keptPass(r, (findings) => {
     const admitted = admitLeadCorrection(new PatternRedactionAdapter(), answer, under, findings, CORRECTION_ORIGIN.REVIEW);

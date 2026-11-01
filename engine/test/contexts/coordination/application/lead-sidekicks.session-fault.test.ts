@@ -8,6 +8,7 @@ import assert from "node:assert/strict";
 import { DEFAULT_COORDINATION_SETTINGS } from "@kernel/coordination.ts";
 import { SessionGoneError } from "@kernel/turn-end.ts";
 import { AgentTimeoutError } from "@kernel/domain-error.ts";
+import { submittingFrom } from "../../../support/lead-session.ts";
 import { LeadSidekicks, type CoordinateInput } from "@contexts/coordination/application/lead-sidekicks.ts";
 import { SidekickExecutor } from "@contexts/coordination/application/sidekick-executor.ts";
 import type { TimerPort } from "@contexts/coordination/application/fan-out-dispatcher.ts";
@@ -136,10 +137,10 @@ async function run(turns: Turn[], reviews: unknown[][], opts: RunOpts = {}): Pro
     timedOut: false,
     lead: {
       askForPlan: async () => ({ noSubmission: "no accepted submission", timedOut: false }),
-      ask: async (text: string, _opts: LeadTurnOpts) => {
+      askSubmitting: submittingFrom(async (text: string, _opts: LeadTurnOpts) => {
         state.leadPrompts.push(text);
         return { output: JSON.stringify({ review: reviews[Math.min(reviewTurn++, reviews.length - 1)] }), timedOut: false };
-      },
+      }),
       dispose: async () => {},
     },
   });

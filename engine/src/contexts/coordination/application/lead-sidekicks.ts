@@ -25,7 +25,7 @@ import { AUTHORING_REFUSAL, type CoordinationGateSignal, type CoordinationSettin
 import { formatGeoLocation, type GeoLocation } from "@kernel/geolocation.ts";
 import { isRunDeadlineError } from "../../../shared-kernel/run-deadline.ts";
 import type { AgentBrowserHandle, ClosedLoopHandle, FlowFailureFact, FlowGeolocationHandle, FlowLedgerEntry, FlowLoopHandle, GeolocationHandle } from "@contexts/agent-tools/application/index.ts";
-import type { LeadSessionHandle, PlanOutput } from "@kernel/plan-output.ts";
+import type { LeadSessionHandle, LeadSubmission, PlanOutput } from "@kernel/plan-output.ts";
 import type { DelegationWorkspace, DelegationWorkspaceRequest, WorkspaceChange } from "../domain/delegation-workspace.ts";
 import type { DelegationWorkspacePort } from "./ports/delegation-workspace.port.ts";
 import { createDelegationBrief, type DelegationBrief } from "./delegation-brief.ts";
@@ -41,7 +41,7 @@ import { candidateSlicesOf, changeViewOf, ownedSliceOf, type ChangeView } from "
 import { flowCapacity } from "./flow-capacity.ts";
 import { unansweredTurn, type CandidateClaim, type DelegationResult } from "./delegation-result.ts";
 import { classifyDelegationFailure } from "./delegation-failure-class.ts";
-import { admitLeadReview, assembleUnreadableReviewRequest, candidateGapsOf, assembleLeadReview, MAX_REVIEW_TURNS, REVIEW_ACTION, REVIEW_OVERRIDE, withSpecDigests, type FailureBytes, type FlowUnderReview, type NoWritesLeft, type ReviewOrder, type SeenSpecs } from "./lead-review.ts";
+import { admitLeadReview, candidateGapsOf, assembleLeadReview, MAX_REVIEW_TURNS, REVIEW_ACTION, REVIEW_OVERRIDE, withSpecDigests, type FailureBytes, type FlowUnderReview, type NoWritesLeft, type ReviewOrder, type SeenSpecs } from "./lead-review.ts";
 import type { CoordinationTelemetryEvent, CoordinationTelemetryPort } from "./coordination-telemetry.ts";
 import { PLAN_SNAPSHOT_KIND, type PlanSnapshotCandidate, type PlanSnapshotFlow, type PlanSnapshotKind, type PlanSnapshotPort } from "@kernel/ports/plan-snapshot.port.ts";
 import { authorTask } from "./author-task.ts";
@@ -59,12 +59,14 @@ import { leadPlanContract } from "./lead-plan.contract.ts";
 import { SIDEKICK_AUTHORING, sidekickAuthoring, sidekickDeniedTools, type SidekickAuthoringMode } from "./sidekick-authoring.ts";
 import type { SidekickExecutor, SidekickSession } from "./sidekick-executor.ts";
 import { SESSION_GONE, turnEndOf } from "./sidekick-turn-end.ts";
-import { describeUnreadable, describeUnreadableEntry, readsBetter, type UnreadableEntry } from "./answer-reading.ts";
+import { describeUnreadable, type UnreadableEntry } from "./answer-reading.ts";
 import { packPagesFor, recordedRequestsFor } from "@contexts/generation/application/index.ts";
 import { namesTemplatePage } from "@contexts/generation/application/index.ts";
 import type { HarnessFacts } from "@kernel/grounding.ts";
 import type { RedactionPort } from "@kernel/ports/redaction.port.ts";
 import { candidateFlowId, candidateFlowOf, maintenanceFlowId, maintenanceFlowOf, seedsNoCandidate, specNamedBy, uncoveredCandidateOf } from "./maintenance-flow.ts";
+import { leadCorrectionContract } from "./lead-correction.contract.ts";
+import { leadReviewContract } from "./lead-review.contract.ts";
 import { CORRECTION_ORIGIN, admitLeadCorrection, correctionPreamble, routeOfFinding, assembleLeadCorrection, assembleRefusedCorrection, type CorrectionOrigin, type CorrectionOrder, type CorrectionRebuttal, type FlowUnderCorrection, type CorrectionFinding } from "./lead-correction.ts";
 
 /* The flow's slice of the Context Pack, as a brief field, or nothing when the pack did not read its pages. */
@@ -821,10 +823,11 @@ export class LeadSidekicks {
       }
       const underReview = await Promise.all(flows.map((flow) => this.underReview(flow, live.get(flow.id), reports.get(flow.id)!, input)));
       const gaps = candidateGapsOf(decided.admission, dropped, flows.map((flow, i) => ({ routes: flow.routes, candidates: flow.candidates, review: underReview[i]! })));
-      let reply: { output: string; timedOut: boolean };
+      const revisionsAllowed = turn < MAX_REVIEW_TURNS;
+      let reply: LeadSubmission<Record<string, unknown>>;
       try {
         const request = assembleLeadReview(this.deps.redaction, withSpecDigests(underReview, seen, turn), { turn, maxTurns: MAX_REVIEW_TURNS }, gaps, this.leadFit());
-        reply = await lead.ask(request.text, planTurnOpts(request, input.settings.planBudgetMs, room));
+        reply = await lead.askSubmitting(request.text, planTurnOpts(request, input.settings.planBudgetMs, room), leadReviewContract(this.deps.redaction, underReview, { revisionsAllowed }));
       } catch (err) {
         /* The run's own time spent ends the run; any other failure of the lead's turn leaves the flows as they are. */
         if (isRunDeadlineError(err)) throw err;
@@ -837,36 +840,11 @@ export class LeadSidekicks {
         this.record(input, { kind: "lead-decision", reason: `review turn ${turn}: the lead ran out of its time; the flows stand as they are` });
         break;
       }
-      const read = (output: string) => admitLeadReview(this.deps.redaction, output, underReview, { revisionsAllowed: turn < MAX_REVIEW_TURNS });
-      let admission = read(reply.output);
-      let repairTurn = false;
-      /* A part of the answer the reader could not read is asked about once, in the lead's own session, held as a correction turn is to leave the flows it orders their minimum time; an answer with nothing in it is the lead's absence, not an answer to repair. */
-      if (admission.unreadable.length > 0 && reply.output.trim() !== "") {
-        const turnTime = this.leadTurnTime(input);
-        if (turnTime === undefined) {
-          this.recordUnreadable(input, "review", admission.unreadable, false, `review turn ${turn}: too little of the run is left to ask the lead about what could not be read without costing the flows their minimum time`);
-        } else {
-          repairTurn = true;
-          tally.repairs += 1;
-          try {
-            const request = assembleUnreadableReviewRequest(admission.unreadable);
-            const again = await lead.ask(request.text, turnOpts(request, turnTime.ms, turnTime.limit));
-            if (!again.timedOut) {
-              const second = read(again.output);
-              if (second.readable && (!admission.readable || readsBetter(second.unreadable, admission.unreadable))) admission = second;
-            }
-          } catch (err) {
-            if (isRunDeadlineError(err)) throw err;
-            this.record(input, { kind: "lead-decision", answer: "review", reason: `review turn ${turn}: the lead's turn to restate its review failed (${err instanceof Error ? err.message : String(err)}); its first answer stands` });
-          }
-        }
-      }
-      tally.unreadable += admission.unreadable.length;
-      if (admission.unreadable.length > 0 || repairTurn) this.recordUnreadable(input, "review", admission.unreadable, repairTurn, `review turn ${turn}: ${admission.unreadable.length} part(s) of the answer left unread${repairTurn ? " after asking the lead once more" : ""}, and not acted on`);
-      if (!admission.readable) {
-        this.record(input, { kind: "lead-decision", reason: `review turn ${turn}: the lead's answer could not be read; the flows stand as they are` });
+      if (reply.value === undefined) {
+        this.record(input, { kind: "lead-decision", reason: `review turn ${turn}: ${reply.noSubmission ?? "the lead delivered no accepted review"}; the flows stand as they are`.slice(0, 1_000) });
         break;
       }
+      const admission = admitLeadReview(this.deps.redaction, reply.value, underReview, { revisionsAllowed });
       tally.accepted += admission.accepted.length;
       tally.refused += admission.refused.length;
       for (const r of admission.refused) this.record(input, { kind: "lead-decision", flowId: r.flowId, decision: r.action, overridden: true, overrideReason: r.code, reason: `review turn ${turn}: flow ${r.flowId} ${r.action} not taken: ${r.reason}` });
@@ -1034,29 +1012,28 @@ export class LeadSidekicks {
      * cites or names, the flow whose test ran the file, the flow whose use case holds it as a direct seed, plan order); without the
      * second, the first answer stands.
      */
-    const askLead = async (request: AssembledPrompt, again: boolean): Promise<{ output: string; sent: boolean }> => {
+    const askLead = async (request: AssembledPrompt, again: boolean): Promise<{ answer?: Record<string, unknown>; sent: boolean }> => {
       const turnTime = this.leadTurnTime(input);
       if (turnTime === undefined) {
         this.record(input, { kind: "lead-decision", origin, reason: `correction (${origin}): too little of the run is left ${again ? "to ask the lead again; its first answer stands" : "for the lead to route the findings without costing the flows their minimum time; each finding goes to its default owner"}` });
-        return { output: "", sent: false };
+        return { sent: false };
       }
+      const fallback = again ? "; its first answer stands" : "; each flow is sent its own findings";
       try {
-        const answer = await lead.ask(request.text, turnOpts(request, turnTime.ms, turnTime.limit));
-        if (answer.timedOut) this.record(input, { kind: "lead-decision", origin, reason: `correction (${origin}): the lead ran out of its time${again ? "; its first answer stands" : "; each flow is sent its own findings"}` });
-        else return { output: answer.output, sent: true };
+        const answer = await lead.askSubmitting(request.text, turnOpts(request, turnTime.ms, turnTime.limit), leadCorrectionContract(this.deps.redaction, under, findings, origin));
+        if (answer.timedOut) this.record(input, { kind: "lead-decision", origin, reason: `correction (${origin}): the lead ran out of its time${fallback}` });
+        else if (answer.value === undefined) this.record(input, { kind: "lead-decision", origin, reason: `correction (${origin}): ${answer.noSubmission ?? "the lead delivered no accepted answer"}${fallback}`.slice(0, 1_000) });
+        else return { answer: answer.value, sent: true };
       } catch (err) {
         if (isRunDeadlineError(err)) throw err;
-        this.record(input, { kind: "lead-decision", origin, reason: `correction (${origin}): the lead's turn failed (${err instanceof Error ? err.message : String(err)})${again ? "; its first answer stands" : "; each flow is sent its own findings"}` });
+        this.record(input, { kind: "lead-decision", origin, reason: `correction (${origin}): the lead's turn failed (${err instanceof Error ? err.message : String(err)})${fallback}` });
       }
-      return { output: "", sent: true };
+      return { sent: true };
     };
     let askedAgain = new Set<number>();
     const first = await askLead(assembleLeadCorrection(this.deps.redaction, under, findings, origin, this.leadFit()), false);
     if (first.sent) tally.turns += 1;
-    let admission = admitLeadCorrection(this.deps.redaction, first.output, under, findings, origin);
-    /* What the reader could not read of a real answer is asked about with what the orchestrator refused, in the one repair turn; an answer with nothing in it is the lead's absence. */
-    const unreadableFirst = first.output.trim() !== "" ? admission.unreadable : [];
-    let repairTurn = false;
+    let admission = admitLeadCorrection(this.deps.redaction, first.answer, under, findings, origin);
     for (const r of admission.refused) this.record(input, { kind: "lead-decision", origin, reason: `correction (${origin}): ${r.flowId ? `flow ${r.flowId} ` : ""}${r.finding ? `finding ${r.finding} ` : ""}not taken: ${r.reason}` });
     /*
      * An order the orchestrator refused leaves findings with no flow, and a readable answer may leave findings it neither sent to a flow
@@ -1065,29 +1042,21 @@ export class LeadSidekicks {
      */
     const omitted = admission.readable ? admission.unrouted.filter((i) => !this.opensFlowFor(input, flows, findings[i]!)) : [];
     const refusedLeft = admission.refused.length > 0 && admission.unrouted.length > 0;
-    if ((refusedLeft || omitted.length > 0 || unreadableFirst.length > 0) && !state.released && !input.signal?.aborted) {
-      const parts = [...(admission.refused.length > 0 ? [`${admission.refused.length} part(s) of the answer not admitted`] : []), ...(unreadableFirst.length > 0 ? [`${unreadableFirst.length} part(s) of the answer the reader could not read`] : []), ...(omitted.length > 0 ? [`finding(s) ${omitted.map((i) => i + 1).join(", ")} neither sent to a flow nor rebutted`] : [])];
+    if ((refusedLeft || omitted.length > 0) && !state.released && !input.signal?.aborted) {
+      const parts = [...(admission.refused.length > 0 ? [`${admission.refused.length} part(s) of the answer not admitted`] : []), ...(omitted.length > 0 ? [`finding(s) ${omitted.map((i) => i + 1).join(", ")} neither sent to a flow nor rebutted`] : [])];
       if (this.leadTurnTime(input) !== undefined) this.record(input, { kind: "lead-decision", origin, reason: `correction (${origin}): ${parts.join("; ")}; asking the lead once more` });
-      const again = await askLead(assembleRefusedCorrection([...admission.refused, ...unreadableFirst.map((u) => ({ reason: describeUnreadableEntry(u) }))], findings.length, omitted, origin), true);
+      const again = await askLead(assembleRefusedCorrection(admission.refused, findings.length, omitted, origin), true);
       if (again.sent) {
         tally.turns += 1;
-        if (unreadableFirst.length > 0) {
-          repairTurn = true;
-          tally.repairs += 1;
-        }
         askedAgain = new Set(omitted);
-        const second = admitLeadCorrection(this.deps.redaction, again.output, under, findings, origin);
-        if (second.readable && second.unrouted.length <= admission.unrouted.length && second.unreadable.length <= admission.unreadable.length) {
+        const second = admitLeadCorrection(this.deps.redaction, again.answer, under, findings, origin);
+        if (second.readable && second.unrouted.length <= admission.unrouted.length) {
           admission = second;
           for (const r of second.refused) this.record(input, { kind: "lead-decision", origin, reason: `correction (${origin}): ${r.flowId ? `flow ${r.flowId} ` : ""}${r.finding ? `finding ${r.finding} ` : ""}not taken after the second asking: ${r.reason}` });
         } else this.record(input, { kind: "lead-decision", origin, reason: `correction (${origin}): the lead's second answer did not improve on the first; the first stands` });
       }
     }
     tally.rebutted += admission.rebuttals.length;
-    if (first.output.trim() !== "") {
-      tally.unreadable += admission.unreadable.length;
-      if (admission.unreadable.length > 0 || repairTurn) this.recordUnreadable(input, "correction", admission.unreadable, repairTurn, `correction (${origin}): ${admission.unreadable.length} part(s) of the answer left unread${repairTurn ? " after asking the lead once more" : ""}, and not acted on`, { origin });
-    }
     const after = this.room(input);
     const stopped = state.released || input.signal?.aborted === true || (after !== undefined && after < MIN_FLOW_MS);
     const orders = stopped ? [] : admission.orders.filter((o) => live.has(o.flowId));

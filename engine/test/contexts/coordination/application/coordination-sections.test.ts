@@ -114,5 +114,5 @@ test("the registry names every coordination prompt and each of its sections once
     const ids = defs.map((def) => def.id);
     assert.equal(new Set(ids).size, ids.length, `${name}: duplicate section id`);
   }
-  assert.deepEqual(Object.keys(COORDINATION_PROMPTS).sort(), ["flow-author-brief", "lead-answer-unreadable", "lead-correction", "lead-correction-refused", "lead-feedback", "lead-replan", "lead-review"]);
+  assert.deepEqual(Object.keys(COORDINATION_PROMPTS).sort(), ["flow-author-brief", "lead-correction", "lead-correction-refused", "lead-feedback", "lead-replan", "lead-review"]);
 });

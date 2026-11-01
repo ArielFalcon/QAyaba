@@ -2,8 +2,8 @@
 import { engineLog } from "@kernel/ports/process-logger.ts";
 import type { AgentRuntimePort, AgentTurnStats } from "@kernel/ports/agent-runtime.port.ts";
 import { AUTHOR_SIDEKICK, LEAD_AGENT, openSidekickSession } from "@kernel/sidekick-session.ts";
-import type { LeadTurnOpts } from "@kernel/plan-output.ts";
-import { describeNoSubmission, type SubmittedTurn } from "@kernel/submission.ts";
+import type { LeadSubmission, LeadTurnOpts } from "@kernel/plan-output.ts";
+import { describeNoSubmission, type SubmissionContract, type SubmittedTurn } from "@kernel/submission.ts";
 import { submitTurn } from "@kernel/submit-turn.ts";
 import type { DeliveredSpec } from "@kernel/delivered-spec.ts";
 import { GENERATION_END, type GenerationEndKind } from "@kernel/generation-end.ts";
@@ -80,8 +80,8 @@ export interface PlanResult {
 
 /* The lead's planning session, held open for its next turn. */
 export interface LeadSession {
-  /* Asks the lead again, read-only; a turn that runs out of its time answers `timedOut` with no output. */
-  ask(text: string, opts: LeadTurnOpts): Promise<{ output: string; timedOut: boolean }>;
+  /* Asks the lead again, read-only, for the answer of one contract; a turn that runs out of its time answers `timedOut`, one that delivers none says why. */
+  askSubmitting<T>(text: string, opts: LeadTurnOpts, contract: SubmissionContract<T>): Promise<LeadSubmission<T>>;
   /* Asks the lead again for its plan, read-only, through the plan contract as a planning turn is: a plan the contract accepted, or why none was delivered. */
   askForPlan(text: string, opts: LeadTurnOpts): Promise<{ plan?: Record<string, unknown>; noSubmission?: string; timedOut: boolean }>;
   /* Ends the session. Idempotent. */
@@ -142,43 +142,31 @@ export class GenerateTestsUseCase {
       if (!isAgentTimeoutError(err)) throw err;
       return { timedOut: true, ...(turn ? { turn } : {}) };
     }
-    const ask: LeadSession["ask"] = async (text, askOpts) => {
+    const askSubmitting: LeadSession["askSubmitting"] = async (text, askOpts, asked) => {
       try {
-        const answer = await session.prompt(text, {
-          finalStepOnly: true,
-          withoutWrites: true,
-          timeoutMs: askOpts.timeoutMs,
-          timeLimit: askOpts.timeLimit ?? "plan-budget",
-          ...(askOpts.sectionSizes ? { sectionSizes: askOpts.sectionSizes } : {}),
-          ...(askOpts.sectionHashes ? { sectionHashes: askOpts.sectionHashes } : {}),
-        });
-        return { output: answer.output, timedOut: false };
+        const again = await submitTurn(
+          session,
+          text,
+          {
+            withoutWrites: true,
+            timeoutMs: askOpts.timeoutMs,
+            timeLimit: askOpts.timeLimit ?? "plan-budget",
+            ...(askOpts.sectionSizes ? { sectionSizes: askOpts.sectionSizes } : {}),
+            ...(askOpts.sectionHashes ? { sectionHashes: askOpts.sectionHashes } : {}),
+          },
+          asked,
+        );
+        return again.submitted ? { value: again.value, timedOut: false } : { noSubmission: describeNoSubmission(again), timedOut: false };
       } catch (err) {
         if (!isAgentTimeoutError(err)) throw err;
-        return { output: "", timedOut: true };
+        return { timedOut: true };
       }
     };
     const lead: LeadSession = {
-      ask,
+      askSubmitting,
       askForPlan: async (text, askOpts) => {
-        try {
-          const again = await submitTurn(
-            session,
-            text,
-            {
-              withoutWrites: true,
-              timeoutMs: askOpts.timeoutMs,
-              timeLimit: askOpts.timeLimit ?? "plan-budget",
-              ...(askOpts.sectionSizes ? { sectionSizes: askOpts.sectionSizes } : {}),
-              ...(askOpts.sectionHashes ? { sectionHashes: askOpts.sectionHashes } : {}),
-            },
-            contract,
-          );
-          return { ...submitted(again), timedOut: false };
-        } catch (err) {
-          if (!isAgentTimeoutError(err)) throw err;
-          return { timedOut: true };
-        }
+        const again = await askSubmitting(text, askOpts, contract);
+        return { ...(again.value !== undefined ? { plan: again.value } : {}), ...(again.noSubmission !== undefined ? { noSubmission: again.noSubmission } : {}), timedOut: again.timedOut };
       },
       dispose,
     };

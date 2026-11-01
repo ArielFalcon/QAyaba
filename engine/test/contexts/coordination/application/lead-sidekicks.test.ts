@@ -2,6 +2,7 @@ import { pageCandidate, pageCandidates } from "../../../support/use-case-candida
 import { PLAN_DOWNGRADE, MIN_RUN_SPEC_DEV_WRITES_PER_FLOW } from "@contexts/coordination/application/lead-plan.ts";
 import { AUTHORING_REFUSAL } from "@kernel/coordination.ts";
 import { SUBMIT_TOOL } from "@kernel/submission.ts";
+import { submittingFrom } from "../../../support/lead-session.ts";
 import { UNREADABLE_ANSWER } from "@kernel/unreadable-answer.ts";
 import { CORRECTION_ORIGIN } from "@contexts/coordination/application/lead-correction.ts";
 import { test } from "node:test";
@@ -230,12 +231,12 @@ function leadWith(answers: unknown[][], plan: Record<string, unknown> = FANOUT_P
       timedOut: false,
       lead: {
         askForPlan: noPlanAnswer,
-        ask: async (text: string, opts: LeadTurnOpts) => {
+        askSubmitting: submittingFrom(async (text: string, opts: LeadTurnOpts) => {
           asked.push(text);
           turnOpts.push(opts);
           const review = answers[Math.min(asked.length - 1, answers.length - 1)]!;
           return { output: JSON.stringify({ review }), timedOut: false };
-        },
+        }),
         dispose: async () => { disposed += 1; },
       },
     }),
@@ -682,7 +683,7 @@ test("a flow that delivered nothing may be dropped by the lead with its reason, 
 test("a review that cannot be read, or that runs out of its time, leaves the flows as they are", async () => {
   for (const answer of [{ output: "looks fine to me", timedOut: false }, { output: "", timedOut: true }]) {
     const r = rig({ answers: { cart: [{ status: "failed", summary: "x", filesChanged: [] }] }, hasFile: new Set(["login"]) });
-    const plan = async (): Promise<PlanOutput> => ({ plan: FANOUT_PLAN, timedOut: false, lead: { askForPlan: noPlanAnswer, ask: async () => answer, dispose: async () => {} } });
+    const plan = async (): Promise<PlanOutput> => ({ plan: FANOUT_PLAN, timedOut: false, lead: { askForPlan: noPlanAnswer, askSubmitting: submittingFrom(async () => answer), dispose: async () => {} } });
     const outcome = await new LeadSidekicks(r.deps).coordinate(input(r, { plan }));
     assert.equal(outcome.action === "fanout" ? outcome.aggregated.incompleteFlows.length : -1, 1);
     assert.equal(r.executed.length, 2, "nothing was asked again");
@@ -692,7 +693,7 @@ test("a review that cannot be read, or that runs out of its time, leaves the flo
 
 test("a review turn that fails leaves the flows as they are: what was delivered stays delivered", async () => {
   const r = rig();
-  const plan = async (): Promise<PlanOutput> => ({ plan: FANOUT_PLAN, timedOut: false, lead: { askForPlan: noPlanAnswer, ask: async () => { throw new Error("provider down"); }, dispose: async () => {} } });
+  const plan = async (): Promise<PlanOutput> => ({ plan: FANOUT_PLAN, timedOut: false, lead: { askForPlan: noPlanAnswer, askSubmitting: submittingFrom(async () => { throw new Error("provider down"); }), dispose: async () => {} } });
   const outcome = await new LeadSidekicks(r.deps).coordinate(input(r, { plan }));
   if (outcome.action === "fanout") await outcome.pass?.release();
   assert.equal(outcome.action, "fanout");
@@ -775,7 +776,7 @@ test("the lead's session ends however the plan comes out: a no-op or a plan that
   for (const planned of [{ kind: "noop", reason: "nothing" }, { kind: "lead" }, { kind: "fanout", flows: [] }]) {
     let disposed = 0;
     const r = rig();
-    const plan = async (): Promise<PlanOutput> => ({ plan: planned, timedOut: false, lead: { askForPlan: noPlanAnswer, ask: async () => ({ output: "", timedOut: false }), dispose: async () => { disposed += 1; } } });
+    const plan = async (): Promise<PlanOutput> => ({ plan: planned, timedOut: false, lead: { askForPlan: noPlanAnswer, askSubmitting: submittingFrom(async () => ({ output: "", timedOut: false })), dispose: async () => { disposed += 1; } } });
     await new LeadSidekicks(r.deps).coordinate(input(r, { plan }));
     assert.equal(disposed, 1, JSON.stringify(planned));
   }
@@ -1336,10 +1337,10 @@ function leadAnswering(outputs: string[]): { plan: CoordinateInput["plan"]; aske
       timedOut: false,
       lead: {
         askForPlan: noPlanAnswer,
-        ask: async (text: string) => {
+        askSubmitting: submittingFrom(async (text: string) => {
           asked.push(text);
           return { output: outputs[Math.min(asked.length - 1, outputs.length - 1)]!, timedOut: false };
-        },
+        }),
         dispose: async () => { disposed += 1; },
       },
     }),
@@ -1439,10 +1440,10 @@ test("an order the lead gave in its review that the run has no room left to carr
     plan: FANOUT_PLAN, timedOut: false,
     lead: {
       askForPlan: noPlanAnswer,
-      ask: async () => {
+      askSubmitting: submittingFrom(async () => {
         left = MIN_FLOW_MS - 1;
         return { output: JSON.stringify({ review: [{ flow: "cart", action: "revise", instruction: "assert the total" }, { flow: "login", action: "replace", instruction: "again" }] }), timedOut: false };
-      },
+      }),
       dispose: async () => {},
     },
   });
@@ -1478,11 +1479,11 @@ test("findings the lead sends to a flow when too little of the run is left for i
     plan: FANOUT_PLAN, timedOut: false,
     lead: {
       askForPlan: noPlanAnswer,
-      ask: async () => {
+      askSubmitting: submittingFrom(async () => {
         const output = outputs[Math.min(turn++, outputs.length - 1)]!;
         if (turn === 2) left = MIN_FLOW_MS - 1;
         return { output, timedOut: false };
-      },
+      }),
       dispose: async () => {},
     },
   });
@@ -1498,11 +1499,11 @@ test("findings the lead sends to a flow when too little of the run is left for i
 });
 
 const LOOSE_ARMS = [{ text: "decision arm src/a.ts:4 if: the else" }, { text: "decision arm src/a.ts:9 ?: the right branch" }];
-const OUT_OF_RANGE_ORDER = JSON.stringify({ corrections: [{ flow: "cart", action: "revise", findings: [5, 6], instruction: "cover the arms" }] });
+const NO_FINDING_ORDER = JSON.stringify({ corrections: [{ flow: "cart", action: "revise", findings: [], instruction: "cover the arms" }] });
 const VALID_ORDER = JSON.stringify({ corrections: [{ flow: "cart", action: "revise", findings: [1, 2], instruction: "cover the arms" }] });
 
 test("an order that names no finding goes back to the lead once with the reason, and the re-answer is admitted as any answer", async () => {
-  const lead = leadAnswering([ACCEPT_ALL, OUT_OF_RANGE_ORDER, VALID_ORDER]);
+  const lead = leadAnswering([ACCEPT_ALL, NO_FINDING_ORDER, VALID_ORDER]);
   const r = rig();
   const outcome = await new LeadSidekicks(r.deps).coordinate(input(r, { plan: lead.plan, closedLoop: undefined }));
   if (outcome.action !== "fanout") return assert.fail("fanout expected");
@@ -1520,7 +1521,7 @@ test("an order that names no finding goes back to the lead once with the reason,
 });
 
 test("an order the re-answer still gets refused is recorded, asked about once only, and its findings are left unrouted with no cold regeneration", async () => {
-  const lead = leadAnswering([ACCEPT_ALL, OUT_OF_RANGE_ORDER, OUT_OF_RANGE_ORDER]);
+  const lead = leadAnswering([ACCEPT_ALL, NO_FINDING_ORDER, NO_FINDING_ORDER]);
   const r = rig();
   const outcome = await new LeadSidekicks(r.deps).coordinate(input(r, { plan: lead.plan, closedLoop: undefined }));
   if (outcome.action !== "fanout") return assert.fail("fanout expected");
@@ -1535,53 +1536,61 @@ test("an order the re-answer still gets refused is recorded, asked about once on
   assert.equal(outcome.pass!.tally().unrouted, 2, "counted once, not once per asking");
 });
 
-test("a review entry the engine cannot read is asked about once in the lead's session, and the repaired answer is carried out", async () => {
-  const unreadable = JSON.stringify({ review: [{ flow: "cart", action: "sing", instruction: "assert the total" }, { flow: "login", action: "accept" }] });
-  const repaired = JSON.stringify({ review: [{ flow: "cart", action: "revise", instruction: "assert the total" }, { flow: "login", action: "accept" }] });
-  const lead = leadAnswering([unreadable, repaired, ACCEPT_ALL]);
+/* A lead whose turns try their attempts in order against the contract they are asked through, as the submit tool does inside one turn: a refused attempt is answered with its errors, the first accepted one is the turn's answer. */
+function leadRetryingInTurn(turns: unknown[][]): { plan: CoordinateInput["plan"]; rejections: Array<readonly { path: string; reason: string }[]>; turnsAsked: () => number } {
+  const rejections: Array<readonly { path: string; reason: string }[]> = [];
+  let asked = 0;
+  return {
+    rejections,
+    turnsAsked: () => asked,
+    plan: async () => ({
+      plan: FANOUT_PLAN,
+      timedOut: false,
+      lead: {
+        askForPlan: noPlanAnswer,
+        askSubmitting: async (_text, _opts, contract) => {
+          for (const attempt of turns[Math.min(asked, turns.length - 1)]!) {
+            const checked = contract.check(attempt);
+            if (checked.ok) {
+              asked += 1;
+              return { value: checked.value, timedOut: false };
+            }
+            rejections.push(checked.errors);
+          }
+          asked += 1;
+          return { noSubmission: "no accepted submission", timedOut: false };
+        },
+        dispose: async () => {},
+      },
+    }),
+  };
+}
+
+test("a review entry the engine cannot read is refused inside the lead's turn, naming where it sits, and the review that turn then delivers is carried out", async () => {
+  const unreadable = { review: [{ flow: "cart", action: "sing", instruction: "assert the total" }, { flow: "login", action: "accept" }] };
+  const repaired = { review: [{ flow: "cart", action: "revise", instruction: "assert the total" }, { flow: "login", action: "accept" }] };
+  const lead = leadRetryingInTurn([[unreadable, repaired], [JSON.parse(ACCEPT_ALL)]]);
   const r = rig({ answers: { cart: [{ status: "failed", summary: "x", filesChanged: [] }, { writes: true }] }, hasFile: new Set(["login"]) });
   const outcome = await new LeadSidekicks(r.deps).coordinate(input(r, { plan: lead.plan, closedLoop: undefined }));
   if (outcome.action !== "fanout") return assert.fail("fanout expected");
   await outcome.pass?.release();
-  assert.equal(lead.asked.length, 3, "the review, the one repair turn in the same session, the review of the revision");
-  assert.match(lead.asked[1]!, /review\[0\]/, "the repair names where the entry sits");
-  assert.match(lead.asked[1]!, /sing/, "and what could not be read");
-  assert.ok(r.executed.some((e) => e.asked && e.brief.delegationId === "run-1-flow-cart" && /assert the total/.test(e.opts.feedback ?? "")), "the repaired order reached the sidekick");
-  assert.deepEqual(outcome.signal.review && { unreadable: outcome.signal.review.unreadable, repairs: outcome.signal.review.repairs }, { unreadable: 0, repairs: 1 });
-  assert.ok(r.events.some((e) => e.answer === "review" && e.unreadable === 0 && e.repairTurn === true), "the repair that read better is on the record");
+  assert.equal(lead.rejections.length, 1, "the unreadable review was refused once, in the turn");
+  assert.equal(lead.rejections[0]![0]!.path, "review[0]", "the refusal names where the entry sits");
+  assert.match(lead.rejections[0]![0]!.reason, /sing/, "and what could not be read");
+  assert.equal(lead.turnsAsked(), 2, "the review turn, then the review of the revision: no repair turn");
+  assert.ok(r.executed.some((e) => e.asked && e.brief.delegationId === "run-1-flow-cart" && /assert the total/.test(e.opts.feedback ?? "")), "the order the turn delivered reached the sidekick");
+  assert.deepEqual(outcome.signal.review && { unreadable: outcome.signal.review.unreadable, repairs: outcome.signal.review.repairs }, { unreadable: 0, repairs: 0 });
 });
 
-test("a review entry still unreadable after the one repair turn is recorded and counted, never read as an action, and is not asked about again", async () => {
-  const unreadable = JSON.stringify({ review: [{ flow: "cart", action: "sing", instruction: "assert the total" }, { flow: "login", action: "accept" }] });
-  const lead = leadAnswering([unreadable]);
+test("a review turn that delivers no review the engine can read orders nothing and says why on the record", async () => {
+  const unreadable = { review: [{ flow: "cart", action: "sing", instruction: "assert the total" }, { flow: "login", action: "accept" }] };
+  const lead = leadRetryingInTurn([[unreadable]]);
   const r = rig({ answers: { cart: [{ status: "failed", summary: "x", filesChanged: [] }] }, hasFile: new Set(["login"]) });
   const outcome = await new LeadSidekicks(r.deps).coordinate(input(r, { plan: lead.plan, closedLoop: undefined }));
   if (outcome.action !== "fanout") return assert.fail("fanout expected");
   await outcome.pass?.release();
-  assert.equal(lead.asked.length, 2, "the review and one repair turn, never a second");
   assert.equal(r.executed.some((e) => e.asked), false, "no order was carried out for the entry the engine could not read");
-  assert.equal(outcome.signal.review?.unreadable, 1);
-  assert.equal(outcome.signal.review?.repairs, 1);
-  assert.ok(r.events.some((e) => e.answer === "review" && e.unreadable === 1 && e.repairTurn === true && /review\[0\]/.test(e.reason ?? "")), "the entry that stays unreadable is on the record with where it sits");
-});
-
-test("the lead's repair turn of a review is held to leave the flows it orders their minimum time, and is not sent when it cannot", async () => {
-  const unreadable = [{ flow: "cart", action: "sing", instruction: "assert the total" }, { flow: "login", action: "accept" }];
-  const reviewWithRoom = async (room: number) => {
-    const lead = leadWith([unreadable, unreadable, []]);
-    const r = rig({ answers: { cart: [{ status: "failed", summary: "x", filesChanged: [] }] }, hasFile: new Set(["login"]) });
-    let calls = 0;
-    const outcome = await new LeadSidekicks(r.deps).coordinate(input(r, { plan: lead.plan, closedLoop: undefined, deadline: { allowance: () => (++calls <= 2 ? 3_600_000 : room) } }));
-    if (outcome.action === "fanout") await outcome.pass?.release();
-    return { lead, r };
-  };
-  const roomy = 200_000;
-  const held = await reviewWithRoom(roomy);
-  assert.equal(held.lead.asked.length, 2, "the review and its repair turn");
-  assert.ok(held.lead.turnOpts[1]!.timeoutMs <= roomy - 2 * MIN_FLOW_MS, "the repair leaves the run a flow's minimum and the slack of a second");
-  const tight = await reviewWithRoom(3 * MIN_FLOW_MS - 1);
-  assert.equal(tight.lead.asked.length, 1, "the review is asked, its repair is not");
-  assert.ok(tight.r.events.some((e) => e.answer === "review" && e.unreadable === 1 && e.repairTurn !== true), "what stays unread is on the record");
+  assert.ok(r.events.some((e) => /review turn 1: no accepted submission; the flows stand as they are/.test(e.reason ?? "")));
 });
 
 test("a review answer that reads whole is not asked about again", async () => {
@@ -1595,37 +1604,35 @@ test("a review answer that reads whole is not asked about again", async () => {
   assert.equal(outcome.signal.review?.repairs, 0);
 });
 
-test("a correction order whose action is not revise or replace is asked about once in the lead's session, and the repaired order is carried out", async () => {
-  const unreadable = JSON.stringify({ corrections: [{ flow: "cart", action: "accept", instruction: "assert the total, not the heading" }] });
-  const repaired = JSON.stringify({ corrections: [{ flow: "cart", action: "revise", instruction: "assert the total, not the heading" }] });
-  const lead = leadAnswering([ACCEPT_ALL, unreadable, repaired]);
+test("a correction order whose action is not revise or replace is refused inside the lead's turn, and the order that turn then delivers is carried out", async () => {
+  const unreadable = { corrections: [{ flow: "cart", action: "accept", instruction: "assert the total, not the heading" }] };
+  const repaired = { corrections: [{ flow: "cart", action: "revise", instruction: "assert the total, not the heading" }] };
+  const lead = leadRetryingInTurn([[JSON.parse(ACCEPT_ALL)], [unreadable, repaired]]);
   const r = rig();
   const outcome = await new LeadSidekicks(r.deps).coordinate(input(r, { plan: lead.plan, closedLoop: undefined }));
   if (outcome.action !== "fanout") return assert.fail("fanout expected");
   const corrected = await outcome.pass!.correct([{ text: "the total is never asserted", spec: "e2e/flows/cart.spec.ts" }]);
-  assert.equal(lead.asked.length, 3, "the correction turn and the one repair turn");
-  assert.match(lead.asked[2]!, /corrections\[0\]/);
-  assert.match(lead.asked[2]!, /accept/);
+  assert.equal(lead.rejections.length, 1);
+  assert.equal(lead.rejections[0]![0]!.path, "corrections[0]");
+  assert.match(lead.rejections[0]![0]!.reason, /accept/);
+  assert.equal(lead.turnsAsked(), 2, "the review and the correction turn: no repair turn");
   const asked = r.executed.find((e) => e.asked && e.brief.delegationId === "run-1-flow-cart")!;
-  assert.match(asked.opts.feedback!, /assert the total, not the heading/, "the repaired instruction, not the orchestrator's default");
+  assert.match(asked.opts.feedback!, /assert the total, not the heading/, "the instruction the turn delivered, not the orchestrator's default");
   assert.deepEqual(corrected.specs, ["flows/cart.spec.ts"]);
   assert.equal(outcome.pass!.tally().unreadable, 0);
-  assert.equal(outcome.pass!.tally().repairs, 1);
   await outcome.pass!.release();
 });
 
-test("a correction entry still unreadable after the repair turn is counted and recorded, and the flow is sent its own findings with the orchestrator's instruction", async () => {
-  const unreadable = JSON.stringify({ corrections: [{ flow: "cart", action: "accept", instruction: "assert the total, not the heading" }] });
-  const lead = leadAnswering([ACCEPT_ALL, unreadable]);
+test("a correction turn that delivers no answer the engine can read sends each flow its own findings with the orchestrator's instruction, and says why", async () => {
+  const unreadable = { corrections: [{ flow: "cart", action: "accept", instruction: "assert the total, not the heading" }] };
+  const lead = leadRetryingInTurn([[JSON.parse(ACCEPT_ALL)], [unreadable]]);
   const r = rig();
   const outcome = await new LeadSidekicks(r.deps).coordinate(input(r, { plan: lead.plan, closedLoop: undefined }));
   if (outcome.action !== "fanout") return assert.fail("fanout expected");
   await outcome.pass!.correct([{ text: "the total is never asserted", spec: "e2e/flows/cart.spec.ts" }]);
-  assert.equal(lead.asked.length, 3, "never a second repair");
   const asked = r.executed.find((e) => e.asked && e.brief.delegationId === "run-1-flow-cart")!;
   assert.doesNotMatch(asked.opts.feedback!, /assert the total, not the heading/, "the lead's word of an entry the engine could not read is not carried");
-  assert.equal(outcome.pass!.tally().unreadable, 1);
-  assert.ok(r.events.some((e) => e.answer === "correction" && e.unreadable === 1));
+  assert.ok(r.events.some((e) => /correction \(review\): no accepted submission; each flow is sent its own findings/.test(e.reason ?? "")));
   await outcome.pass!.release();
 });
 
@@ -1633,7 +1640,7 @@ test("findings left unrouted are said at the level of a carried-on loss and stil
   const memory = memoryLogger();
   installProcessLogger(memory);
   try {
-    const lead = leadAnswering([ACCEPT_ALL, OUT_OF_RANGE_ORDER, OUT_OF_RANGE_ORDER]);
+    const lead = leadAnswering([ACCEPT_ALL, NO_FINDING_ORDER, NO_FINDING_ORDER]);
     const r = rig();
     const outcome = await new LeadSidekicks(r.deps).coordinate(input(r, { plan: lead.plan, closedLoop: undefined }));
     if (outcome.action !== "fanout") return assert.fail("fanout expected");
@@ -1708,7 +1715,7 @@ function leadReplanning(first: Record<string, unknown>, again: Array<Record<stri
           return { timedOut: false, ...(plan ? { plan } : { noSubmission: "no accepted submission" }) };
         },
         /* It accepts the flows the review shows it, and only those. */
-        ask: async (text: string) => { reviews.push(text); return { output: JSON.stringify({ review: [...text.matchAll(/### Flow `([^`]+)`/g)].map((m) => ({ flow: m[1], action: "accept" })) }), timedOut: false }; },
+        askSubmitting: submittingFrom(async (text: string) => { reviews.push(text); return { output: JSON.stringify({ review: [...text.matchAll(/### Flow `([^`]+)`/g)].map((m) => ({ flow: m[1], action: "accept" })) }), timedOut: false }; }),
         dispose: async () => {},
       },
     }),
@@ -2038,11 +2045,11 @@ function leadCiting(outputs: string[], plan: Record<string, unknown>, second?: R
       plan,
       timedOut: false,
       lead: {
-        askForPlan: async (text: string) => { replans.push(text); return { ...(second ?? {}), parsed: second !== undefined, timedOut: false }; },
-        ask: async (text: string) => {
+        askForPlan: async (text: string) => { replans.push(text); return { ...(second ?? {}), timedOut: false }; },
+        askSubmitting: submittingFrom(async (text: string) => {
           asked.push(text);
           return { output: outputs[Math.min(asked.length - 1, outputs.length - 1)]!, timedOut: false };
-        },
+        }),
         dispose: async () => {},
       },
     }),
@@ -2276,7 +2283,7 @@ test("a plan of no flows that drops every use case on the basis nothing changed 
   const plan: CoordinateInput["plan"] = async () => ({
     plan: dropping("a refactor, nothing observable"),
     timedOut: false,
-    lead: { askForPlan: async (text: string) => { asked.push(text); return { plan: dropping("still a refactor"), timedOut: false }; }, ask: async () => ({ output: "", timedOut: false }), dispose: async () => {} },
+    lead: { askForPlan: async (text: string) => { asked.push(text); return { plan: dropping("still a refactor"), timedOut: false }; }, askSubmitting: submittingFrom(async () => ({ output: "", timedOut: false })), dispose: async () => {} },
   });
   const r = rig();
   const outcome = await new LeadSidekicks(r.deps).coordinate(input(r, { plan, closedLoop: undefined, candidates: [SEEDED[0]!] }));
@@ -2336,7 +2343,7 @@ test("a correction turn summarises how its findings were routed: by the spec the
 });
 
 test("findings a turn left unrouted say why as a code, and the pass's own leave-unrouted call is told apart", async () => {
-  const lead = leadAnswering([ACCEPT_ALL, OUT_OF_RANGE_ORDER, OUT_OF_RANGE_ORDER]);
+  const lead = leadAnswering([ACCEPT_ALL, NO_FINDING_ORDER, NO_FINDING_ORDER]);
   const r = rig();
   const outcome = await new LeadSidekicks(r.deps).coordinate(input(r, { plan: lead.plan, closedLoop: undefined }));
   if (outcome.action !== "fanout") return assert.fail("fanout expected");
@@ -2571,7 +2578,7 @@ function timedPass(outputs: string[], spend: number | "to-timeout", overshootMs 
     plan: FANOUT_PLAN, timedOut: false,
     lead: {
       askForPlan: noPlanAnswer,
-      ask: async (text: string, opts: LeadTurnOpts) => {
+      askSubmitting: submittingFrom(async (text: string, opts: LeadTurnOpts) => {
         if (!clock.armed) return { output: ACCEPT_ALL, timedOut: false };
         asked.push(text);
         timeouts.push(opts.timeoutMs);
@@ -2580,7 +2587,7 @@ function timedPass(outputs: string[], spend: number | "to-timeout", overshootMs 
         clock.left -= cost;
         if (spend === "to-timeout") return { output: "", timedOut: true };
         return { output: outputs[Math.min(asked.length - 1, outputs.length - 1)]!, timedOut: false };
-      },
+      }),
       dispose: async () => {},
     },
   });
@@ -2632,7 +2639,7 @@ test("a run with too little room for a lead turn sends none and gives each findi
 });
 
 test("the lead is not asked again when that would leave its orders less than a flow needs; its first answer stands", async () => {
-  const { r, asked, start } = timedPass([OUT_OF_RANGE_ORDER, VALID_ORDER], 30_000);
+  const { r, asked, start } = timedPass([NO_FINDING_ORDER, VALID_ORDER], 30_000);
   const outcome = await start(200_000);
   const corrected = await outcome.pass!.correct([...LOOSE_ARMS, CART_FINDING], CORRECTION_ORIGIN.COVERAGE);
   await outcome.pass!.release();
@@ -2653,7 +2660,7 @@ test("findings a pass had no room to correct are counted unrouted, whether or no
 });
 
 test("a fast lead turn with ample room is handed the plan budget and is routed as before", async () => {
-  const { r, asked, timeouts, start } = timedPass([OUT_OF_RANGE_ORDER, VALID_ORDER], 5_000);
+  const { r, asked, timeouts, start } = timedPass([NO_FINDING_ORDER, VALID_ORDER], 5_000);
   const outcome = await start(3_000_000);
   const corrected = await outcome.pass!.correct(LOOSE_ARMS, CORRECTION_ORIGIN.COVERAGE);
   await outcome.pass!.release();
@@ -2670,11 +2677,11 @@ test("findings dropped for lack of time are logged and summarised under the same
     plan: FANOUT_PLAN, timedOut: false,
     lead: {
       askForPlan: noPlanAnswer,
-      ask: async () => {
+      askSubmitting: submittingFrom(async () => {
         const turn = (left === 3_600_000) ? ACCEPT_ALL : JSON.stringify({ corrections: [{ flow: "cart", action: "revise", instruction: "assert the total" }] });
         if (left !== 3_600_000) left = MIN_FLOW_MS - 1;
         return { output: turn, timedOut: false };
-      },
+      }),
       dispose: async () => {},
     },
   });

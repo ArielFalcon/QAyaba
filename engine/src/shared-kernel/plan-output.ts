@@ -1,4 +1,5 @@
 import type { AgentTurnStats } from "@kernel/ports/agent-runtime.port.ts";
+import type { SubmissionContract } from "@kernel/submission.ts";
 import type { TimeLimitSource } from "@kernel/turn-limit.ts";
 
 /**
@@ -23,8 +24,15 @@ export interface LeadTurnOpts {
   sectionSizes?: Record<string, number>;
   sectionHashes?: Record<string, string>;
 }
+/** What a lead turn that must submit came to: the value its contract accepted, or why none was delivered, even after the one continuation. */
+export interface LeadSubmission<T> {
+  value?: T;
+  noSubmission?: string;
+  timedOut: boolean;
+}
 export interface LeadSessionHandle {
-  ask(text: string, opts: LeadTurnOpts): Promise<{ output: string; timedOut: boolean }>;
+  /** Asks the lead, read-only, for the answer of one contract: its review of the flows, or its routing of the findings. */
+  askSubmitting<T>(text: string, opts: LeadTurnOpts, contract: SubmissionContract<T>): Promise<LeadSubmission<T>>;
   /** Asks the lead for its plan again, answered through the plan contract as a planning turn is. */
   askForPlan(text: string, opts: LeadTurnOpts): Promise<Pick<PlanOutput, "plan" | "noSubmission" | "timedOut">>;
   dispose(): Promise<void>;
