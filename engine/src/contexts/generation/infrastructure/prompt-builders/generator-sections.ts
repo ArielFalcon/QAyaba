@@ -642,7 +642,7 @@ export const GENERATOR_SECTIONS: readonly PromptSectionDef<PromptContext>[] = [
   {
     id: LEAD_PLAN_SECTION_ID,
     tier: "critical-recap",
-    priority: 0, stability: "run", reason: "The plan contract a coordinated run's lead answers with instead of specs (2c566984)",
+    priority: 0, stability: "run", reason: "The plan contract a coordinated run's lead answers with instead of specs (2c566984), and the contradictions that reach a use case, so a use case whose only reachable state is the defect is dropped as unavailable instead of given to a flow that must assert it",
     applies: (ctx) => ctx.planningTurn,
     render: (ctx) => ({ content: renderLeadPlan(ctx.input.planning!), claims: [claim.provides("lead-plan")] }),
   },

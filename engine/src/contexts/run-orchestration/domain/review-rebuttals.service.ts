@@ -24,6 +24,8 @@ export interface ReviewRebuttal {
 export interface RoundFinding {
   readonly id: string;
   readonly text: string;
+  /** The finding rests on a fact the engine verified on its own: a green case or an intact clause does not answer it, so no rebuttal withdraws it. */
+  readonly fact?: true;
 }
 
 /** What the orchestrator knows about the current bytes: the only facts that can withdraw a finding. */
@@ -97,9 +99,10 @@ export function verifyRebuttals(
       continue;
     }
     const checked =
-      rebuttal.basis === "execution"
+      !finding.fact &&
+      (rebuttal.basis === "execution"
         ? greenFor(rebuttal.ref, evidence)
-        : evidence.intactClauses.has(contractRefKey(rebuttal.ref, evidence.specRelDir ?? ""));
+        : evidence.intactClauses.has(contractRefKey(rebuttal.ref, evidence.specRelDir ?? "")));
     if (checked) withdrawn.add(finding.id);
     else if (!disputed.has(finding.id)) disputed.set(finding.id, { findingId: finding.id, finding: finding.text, rebuttal });
   }

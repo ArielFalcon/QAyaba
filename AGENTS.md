@@ -187,10 +187,14 @@ The RFC that lands a row flips it to **in force** in the same commit.
 | Whether a change needs no test | Agent with facts | A declared `noop` with a reason and zero specs is honored; silence is not a decision (`E-NO-DECISION`) | Invariants, "Honor the explicit no-op" | in force |
 | Whether the lead accepts a flow's spec | Agent with facts, the engine's facts win | An accept of a spec with no `run_spec` pass on its current bytes is sent back; an app defect is never sent back to be made green | Architecture, "Lead and sidekicks" | in force |
 | Whether a reviewer's finding blocks | Agent with facts, the engine verifies | Only a finding whose citation the engine verifies blocks; an answer holding no readable verdict fails closed as a parse miss, never an approval | Architecture, "Lead and sidekicks" | in force |
+| Whether a case asserts a value DEV serves at the moment | Engine, from a signal | A passing case whose as-loaded assertion holds the number of results the Context Pack read on that page is pinned and sent to the flow that owns its spec, even when it goes on to steps of its own; the digits a selector or an index holds are no count | [RFC-0017](docs/architecture/rfc/0017-defects-from-verified-facts.md) | in force |
+| Whether a use case whose only reachable state is the defect gets a flow | Agent with facts, the engine hands the facts | The plan turn lists against each use case the contradictions its page or its code reaches (`contradictionsReaching`, over `seedingOf`); a drop as `needs-unavailable-state` stands and the run reports the contradiction | [RFC-0017](docs/architecture/rfc/0017-defects-from-verified-facts.md) | in force |
+| Whether a reviewer finding that cites a fact the engine verified blocks | Engine, from a fact | A `contradiction` or `ambient` citation the run's own records bear out blocks and reaches the author as a correction whatever severity the reviewer gave it, and no green case or intact clause withdraws it | [RFC-0017](docs/architecture/rfc/0017-defects-from-verified-facts.md) | in force |
 | Whether one unreadable entry of a reviewer's answer sinks the answer | Engine | Beside an approval the entry is recorded and the approval stands; a rejection is refused inside the turn with where it went wrong, continued once, then fails closed; a lost entry is loud | [RFC-0006](docs/architecture/rfc/0006-review-answer-crosses-whole.md), [RFC-0018](docs/architecture/rfc/0018-agent-answers-are-submissions.md) | in force |
+| Whether a failing final execution of bytes the `run_spec` loop saw pass stands | Engine, from a fact | One re-read of the failed files (the single triage re-read and its budget): a pass is the flaky path, a second failure puts back the regeneration the proof retired and the failure is adjudicated; the conflict is recorded in `gateSignals.closedLoop.conflicts` | [RFC-0017](docs/architecture/rfc/0017-defects-from-verified-facts.md) | in force |
 | Which verdict a run ends with | Engine | One closed outcome per step, one `finalizeRun`, one failure policy; an agent's answer is an input | Architecture, "The run flow" | in force |
 | Whether a request is a write the spec caused | Engine, from a signal | Cause is measured against a control load, not read from the request's destination | [RFC-0007](docs/architecture/rfc/0007-dev-write-attribution.md) | in force |
-| What makes a run a defect of the app | Engine, from a signal | A defect is a fact the engine verifies, never the shape of a failing test's error: a contradiction the provider's contract does not declare, in the change's reach, ends a run `fail` with no failing test; a green suite never outranks it; the adjudicator's rule on the shape of a value-mismatch failure is a hint (`low`, `break-needs-human`) and only a fact (an attributed 5xx, a runtime error, route availability) earns `high` | [RFC-0017](docs/architecture/rfc/0017-defects-from-verified-facts.md) | in force |
+| What makes a run a defect of the app | Engine, from a signal | A defect is a fact the engine verifies, never the shape of a failing test's error: a contradiction the provider's contract does not declare, in the change's reach, ends a run `fail` with no failing test (a flaky run, a declared no-op or an infra-error keeps its verdict and still opens the Issue for it); a green suite never outranks it; the adjudicator's rule on the shape of a value-mismatch failure is a hint (`low`, `break-needs-human`) and only a fact (an attributed 5xx, a runtime error, route availability) earns `high` | [RFC-0017](docs/architecture/rfc/0017-defects-from-verified-facts.md) | in force |
 | Whether a delivered test may intercept requests | Engine | Never: a test that routes, fulfils or replays the responses the page reads is refused like a skipped test and comes back to the author as a failing case | [ADR-0025](docs/architecture/adr/0025-delivered-specs-do-not-intercept-requests.md) | in force |
 | Whether change coverage blocks a publication | Engine, from a signal | The measurement on the final bytes; `unknown` never blocks; only `enforce` blocks | [ADR-0005](docs/architecture/adr/0005-coverage-enforce-activation.md) | in force |
 | When `enforce` may be switched on | Engine, from a signal | Only after three consecutive replicates with a trustworthy measurement and bundle mutation on | [ADR-0005](docs/architecture/adr/0005-coverage-enforce-activation.md) | lands with ADR-0005 |
@@ -236,7 +240,7 @@ is the only engine; webhook (`platform/entrypoints/webhook-handler.ts`, wired by
    request is page-dependent by its resource type (document, fetch, xhr, script, stylesheet), never by host.
 8. **Change-coverage** — did the green run exercise the diff's changed lines? (below)
 9. **Decide** — green + approved + coverage not blocking → PR. Rejected/`fail`/`invalid`
-   → Issue. A green run that found a defect (`gateSignals.defects`, below under "Data contradictions") is `fail` → Issue, with no failing case needed, and its suite is not kept. A green, approved suite that the coverage gate blocks (`enforce` with a measured `fail`) is **held**: no PR,
+   → Issue. A green run that found a defect (`gateSignals.defects`, below under "Data contradictions") is `fail` → Issue, with no failing case needed, and its suite is not kept; any other verdict keeps its own and the defect opens its Issue beside it (a flaky run is still quarantined for its flaky case, a declared no-op is still `skipped`), in every end that records a verdict. A green, approved suite that the coverage gate blocks (`enforce` with a measured `fail`) is **held**: no PR,
    no Issue, the PR text with the coverage report kept on the run (`gateSignals.heldPublication`), the suite out of the store
    (shadow replaces nothing: held opens nothing). A flaky run is quarantined whatever the gate says. Before any model round a deterministic DOM pre-check (`generation/domain/deterministic-review-precheck.ts`) may reject a spec whose positive assertion the captured page lacks; it never checks a spec file whose every case passed on DEV on the bytes under review (that assertion resolved on the live site, whatever viewport, session, locale or location the capture differed in), counted as `gateSignals.reviewer.preCheckSkippedProven`. A reviewer that could not be reached (its session failed, or it returned nothing) judged
    nothing, which is not a rejection: the run ends as a persisted `infra-error` `E-REVIEWER-UNAVAILABLE`
@@ -256,8 +260,9 @@ is the only engine; webhook (`platform/entrypoints/webhook-handler.ts`, wired by
    clause, an execution of this run or a DOM fact, the orchestrator verifies the citation
    (`review-finding-filter.service.ts`; a cited or rebutted spec is resolved by `resolveCitedSpec` /
    `resolveSpecReference` in `shared-kernel/spec-path.ts`, never compared raw) and only a verified blocking finding blocks — an uncited,
-   out-of-scope or DOM-only one is advisory telemetry, never sent to the author, and an `ambient` citation (a case that checked a
-   page only as DEV served it empty, below) is advisory once verified. Every finding the filter admits gets an id
+   out-of-scope or DOM-only one is advisory telemetry, never sent to the author, while a verified `contradiction` or `ambient` citation
+   (a recorded data contradiction; a case that checked a page only as DEV served it empty, below) is a fact the engine checked on its
+   own and blocks whatever severity the reviewer gave it, and no green case or intact clause rebuts it (`restsOnEngineFact`). Every finding the filter admits gets an id
    (`identifyFindings`): routing, the lead's numbered answers and rebuttals name a finding by it, never by its text, so two
    findings with the same text that cite two specs stay two findings. A finding that cites
    an arm of the changed code no test ran (`{"kind":"arm","ref":"<file>:<line>"}`, tagged
@@ -281,8 +286,11 @@ Verdicts: `pass | fail | flaky | invalid | infra-error | skipped`
 completed, or the fix loop's triage re-read confirmed DEV did not render the target: recorded,
 never learned from, no Issue. The triage re-reads a failure once, with
 no regeneration, when the evidence does not blame the test: its target is absent while the same
-bytes passed through `run_spec`, or its failure point read an empty data state (`dev.dataState`)
-on a page this run's Context Pack read with results. The failure capture states whether the page
+bytes passed through `run_spec`, its failure point read an empty data state (`dev.dataState`)
+on a page this run's Context Pack read with results, or every failed file has a green proof on its
+current bytes whatever the failure (`proof-conflict`: the same bytes passed and failed in one run, recorded as
+`gateSignals.closedLoop.conflicts`). A re-read that passes is the flaky path; a `proof-conflict` re-read that fails again
+puts back the regeneration the proof had retired, and the failure is adjudicated as any other. The failure capture states whether the page
 had settled (data requests in flight, a second read of the tree), and the regeneration prompt says so.
 The Context Pack's own capture applies the same test to a count of 0 (`dev.dataState`): after the whole wait, two reads
 in a row with no data request in flight and the tree unchanged make a confirmed empty state (`emptyConfirmed`, never
@@ -380,18 +388,20 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   the topology's `ProviderDocumentsPort`): `provider-undeclared` (the contract describes the answer and does not declare
   K), `provider-declared-absent` (it declares K) or `no-provider-contract`; another operation of the page carrying K is context on the gap
   (`alsoCarriedBy`), never a fact of its own. Facts are observed by the orchestrator, never read from a spec's comment. They appear as the Context
-  Pack's `Possible data contradictions` section (after the requests; a flow's brief carries those of its pages and gives way after the requests,
-  last fact first, as a count) with the consumer's call site, declared type and read sites, as `gateSignals.dataContradictions { pages, found,
+  Pack's `Possible data contradictions` section (after the requests; a flow's brief carries those of its pages and those its use cases' code
+  reaches, and gives way after the requests, last fact first, as a count; the plan turn lists against each use case the refs of the facts that
+  reach it, `candidateContradictions`) with the consumer's call site, declared type and read sites, as `gateSignals.dataContradictions { pages, found,
   schemaBacked, facts[], omitted }` (`schemaBacked` counts `provider-declared-absent`; facts of runs stored before the consumer rule keep their
   `carriedBy`/`missingFrom`/`schemaBacked` and stay readable) (`qayaba.context.data_contradictions` on the context-pack span), in the PR and Issue
   under `Possible data contradictions`, and to the reviewer, which may cite one (`{"kind":"contradiction","ref":"<path>#<key>"}`) against a spec that passes by
   adapting to that state (an expected value read from the state it checks, or a check guarded by it); the orchestrator verifies the ref against the
-  recorded facts (`review-finding-filter.service.ts`, drop reason `no-contradiction-fact`). `provider-declared-absent` (an optional field DEV's data may lack)
+  recorded facts (`review-finding-filter.service.ts`, drop reason `no-contradiction-fact`); a verified citation is a correction whatever severity the reviewer gave. `provider-declared-absent` (an optional field DEV's data may lack)
   and `no-provider-contract` stay signals, never gates. `provider-undeclared` on a page or an operation the change reaches is a **defect of the run by itself**
   (`objective-signal/domain/contradiction-defects.ts`, the reach the causal label uses, `requestReach` and `pageReach`: positive evidence only, a run with no
   scope or a fact the scope does not place finds none): the consumer reads what the provider's contract never promised, so the interface is broken whatever data
   DEV holds and a test that passes around it proves nothing about it. A run that would pass ends `fail` (`verdictOf`, `defectFound` on the run's evidence;
-  every other verdict keeps its own), opens an Issue under `Defects found without a failing test` with the contradiction and what places it in the change's reach,
+  every other verdict keeps its own and, with a defect found, opens its Issue beside it: a flaky run is still quarantined for its flaky case, a declared no-op is still `skipped`
+  and an infra-error that reached a verdict still is one; the `onFailure` and shadow rules of a `fail` hold), opens an Issue under `Defects found without a failing test` with the contradiction and what places it in the change's reach,
   records `gateSignals.defects { found, facts[], omitted }` and no error class (the engine did not fail: nothing reaches the process audit). It fails
   open: the analysis runs inside `buildContextPack` under its own guard, so a fault in the extractor costs the gaps (logged loudly), never the pack.
 - **Pre-exec / review grounding** — `pre-exec-grounding-port.adapter.ts`,
@@ -427,9 +437,9 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   unreadable or claimed by two files for one project, exempts nothing; a control that fails (it could not start, crashed, ended with a status or a signal) exempts nothing whatever it left, is logged, and leaves the call's page traffic charged in full), a ledger of every call's sha256, revoked when the run ends. Scratch specs live in `e2e/.qa-probe/` and are swept
   after every generation: never delivered, stored or validated. A call says `passed` only for bytes with a real passing case and no test that does not stand as a pass: a skipped test, a `test.fail()` test or a test that intercepts requests makes it `failed`, each listed with why, and so does a spec whose every test is skipped (the runner calls that suite infrastructure; the call does not). When `loopClosed` (every delivered spec's current bytes are those
   whose last call passed) the regenerations that only repeat that work are skipped (the pre-exec corrective regeneration and
-  the fix loop's), but an acceptance still executes every spec it accepts; the static-fix rounds, the declared no-op, `E-NO-DECISION` / `E-STEP-BUDGET` / `E-TIME-BUDGET` and the single
+  the fix loop's, which stays retired only while the fix loop's one re-read of a failing final execution agrees with the proof), but an acceptance still executes every spec it accepts; the static-fix rounds, the declared no-op, `E-NO-DECISION` / `E-STEP-BUDGET` / `E-TIME-BUDGET` and the single
   coverage or branch-case regeneration are unchanged. The `Run spec budget` prompt
-  section (facts only) exists only when granted. `gateSignals.closedLoop { calls, devWrites, closed, granted, writesRefused }`.
+  section (facts only) exists only when granted. `gateSignals.closedLoop { calls, devWrites, closed, granted, writesRefused, conflicts }` (`conflicts`: the spec files the final execution failed although the loop had seen their current bytes pass).
 - **Authenticated browser (`authbrowser_*`)** — on unless `qa.agentBrowser.enabled: false`, and skipped for a run with no saved session (or a run asks: `--agent-browser on|off`,
   `agentBrowser` on `POST /api/v1/runs`). The author (`qa-author`) gets four custom tools
   (`agents/tool/authbrowser.ts`: navigate, snapshot, click, type) that POST to the same internal listener as `run_spec`
@@ -543,13 +553,18 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   helper navigation, a fixture other than the read-only ones, or any statement of a test's scopes other than a test, a describe, a
   `beforeEach`/`afterEach`/`afterAll` hook, an import, a declaration that runs nothing or a `describe.configure` that keeps tests
   independent (a `beforeAll`, a `test.use`, a serial mode, a `test` the spec extends with fixtures of its own, code that runs while the
-  file loads) yields nothing). The fact (an ambient pin) names its pages; the change's untaken arms whose file seeds a use case on those pages are
-  attributed to the data DEV lacks there (`armsOnPinnedPages`); the reviewer may cite a pin (`{"kind":"ambient","ref":"<spec>#<title path>"}`),
-  verified against the run's pins and advisory whatever its severity (drop reason `no-ambient-fact`); each pin joins the run's one
+  file loads) yields nothing). A case is also pinned when an assertion inside such a window holds a whole number equal to the results
+  the pack read with results on that window's page (`confirmedDataRoutes`, the pages the pack read with results: a string, a regular
+  expression or a number literal, never the digits a `locator`, `frameLocator` or `.nth` selects by), even when the test goes on to steps of its
+  own: the count DEV serves is its data of the moment, so it is no assertion of the change (`AmbientDataPin.counts`; the detector
+  takes the counts as `liveCounts`, the same fact that backs the data-state triage, no second read). The fact (an ambient pin) names its
+  pages; the change's untaken arms whose file seeds a use case on the empty pages are
+  attributed to the data DEV lacks there (`armsOnPinnedPages`; a count pin attributes none); the reviewer may cite a pin (`{"kind":"ambient","ref":"<spec>#<title path>"}`),
+  verified against the run's pins and a correction whatever its severity (drop reason `no-ambient-fact`); each pin joins the run's one
   gap regeneration (coverage or branch cases) as a finding on its spec, naming the places the app declares
   (`dev.geolocation.places`) or, when it declares none, that the state is DEV's to give and is never faked; and the PR and Issue list the pins with those arms.
   `gateSignals.ambientDataState { cases, pages, arms }` and a `qayaba.ambient_data_state` span record it. The Context Pack states a
-  confirmed empty page as DEV's data, never an outcome to assert as it loads. A signal, never a gate: it starts no regeneration
+  confirmed empty page, and the count of a page read with results, as DEV's data (`AMBIENT_EMPTY_STATE_NOTE`, `LIVE_COUNT_NOTE`), never an outcome to assert as it loads. A signal, never a gate: it starts no regeneration
   and decides nothing.
 - **Step limit and milestone** — the author, lead and reviewer prompts state the cap
   their runtime enforces (facts-only `step-limit` section): one live read per run of the
@@ -728,7 +743,10 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   and later runs read those beliefs as facts over what the Context Pack read live; what a run reuses
   comes from the orchestrator (the suite store, the Context Pack). History schema 8 drops the tables the removed loop wrote
   (`learning_rules`, `curriculum`, `scorecard`) and the `rules_retrieved` and `reflection` columns of `run_outcomes`; copy the history
-  file before the first boot of a build that holds it, since an earlier build refuses schema 8.
+  file before the first boot of a build that holds it, since an earlier build refuses schema 8. History schema 9 adds
+  `run_outcomes.adjudication`, what the fix loop's adjudicator concluded about the run (class, confidence, action and the reason as the record keeps it; NULL
+  for a run that never adjudicated or was written before, rewritten for none), so a later reader can tell a failure classified from a fact from one classified as a hint;
+  the history file is copied before the first boot of a build that holds it, since an earlier build refuses schema 9.
 
 ### The agent and its prompts
 
@@ -895,7 +913,8 @@ test, and the verdict is its last action.
   time holds DEV, whatever the account, because the proxy has no read-only mode. The run's own steps (the Context Pack
   capture, the suite execution) take no lease. Agent-declared tags never decide isolation.
 - **Honor the explicit no-op.** Declared `noop` + reason + zero specs is a valid
-  `skipped`. Silence is not a decision (`E-NO-DECISION` / `E-STEP-BUDGET` / `E-TIME-BUDGET`). `approved`
+  `skipped`, and a defect the engine verified in the same run is still reported (the lead's decision about tests stands; the defect is
+  a fact, not a test). Silence is not a decision (`E-NO-DECISION` / `E-STEP-BUDGET` / `E-TIME-BUDGET`). `approved`
   is never a no-op signal.
 - **A delivered spec never intercepts requests.** A test that answers, alters or replays the responses the page reads (`route` with a handler, `routeFromHAR`, `routeWebSocket`, a `fulfill`, an init script that replaces `fetch`) checks a fake contract and hides the defects of the backend. The engine refuses it as it refuses a skipped test (`refuseOutright`, `modeRefusals`), whatever the app's own lint, and no prompt, skill or reviewer grants an exception. The e2e seed's own fixtures route requests for the failure capture and the mutation pass: the rule reads what the agent delivers, never the seed.
 - **Every way an agent prompt ends is a recorded turn.** `createAgentDeps` records the turn once, where the prompt ends: answered, `timeout`, `aborted`, or `failed` (a fault of the transport or the provider; `limit.fired` is `fault` and `error.type` names the class, read through the fault's `cause` chain), with the calls and usage the tracker saw and its `chat`/`execute_tool` children. A turn the tracker flushed cannot leak its calls into the session's next turn.
@@ -1193,7 +1212,8 @@ that catches nothing. The objective signal that breaks the circle is **change-co
   comparison or logical operators (`mutation-site-source.ts`), so code the build added beside the change (a
   framework's development guard, a lowered `?.`) is never mutated. The
   decisions of changed lines with an arm no test ran come first, each by the site that forces it (the negated
-  condition of an if or `?:`, the swapped `&&`/`||`); the rest are one per changed line (`select-mutants.ts`).
+  condition of an if or `?:`, the swapped `&&`/`||`), taken across the changed files in turn like the rest, which are one
+  per changed line (`select-mutants.ts`: one round-robin serves both phases, so a change that spans many files is not sampled from the first path alone).
   A mutant is judged only when it reached a page; it is killed when a passing test fails. A mutant whose re-run left
   counters that could not be read (a set left out by the dump bridge, a directory that cannot be vouched for) is not known
   to have reached a page or not: it is not judged, logged on a line of its own and counted apart as `unreadable`, never
@@ -1226,8 +1246,8 @@ that catches nothing. The objective signal that breaks the circle is **change-co
   Every mutant re-run is held to the same rule (`rerunBudgetOf`): the survivor closure's re-check to the coverage purpose, estimated
   from the acceptance of the regenerated bytes, and the mutation pass of an enforce run's final measurement to the purpose the run
   is in, estimated from that final execution; what each leaves out is on its record (`survivorClosure.leftOut`, `bundleMutation.leftOut`).
-  `gateSignals.bundleMutation` holds `{ applied, killed, survived[] }`, plus `skippedSites { count, reasons }`
-  (sites left out, by `no-source-line` or `not-in-source-line`), `rerunsBySpecFile` (mutants whose tests
+  `gateSignals.bundleMutation` holds `{ applied, killed, survived[] }`, plus `skippedSites { count, reasons, sites[] }`
+  (sites left out, by `no-source-line` or `not-in-source-line`; `sites` lists each by file and line, cut at `MAX_RECORDED_SKIPPED_SITES` while `count` stays whole), `rerunsBySpecFile` (mutants whose tests
   could not be told), `unreadable` (mutants not judged for unreadable counters) and `leftOut { mutants, observations, reason: "time" }`
   (re-runs not started for time, or cut by the run's deadline: the mutants left unjudged and the unmutated observations, counted apart; span
   `qayaba.mutation.mutants_left_out`, `observations_left_out`) when there are any; with only unreadable or left-out
@@ -1245,7 +1265,7 @@ that catches nothing. The objective signal that breaks the circle is **change-co
   files runs. What the two unmutated re-runs disagree on is the noise floor (a refreshed token, a tile, a chunk, a value DEV changed between runs or
   drifted while the mutants ran) and is never reported: a request or a tree line moved only when neither
   unmutated run showed it and the mutated run did, or both showed it and the mutated run did not (`observed-difference.ts`); without both unmutated
-  observations nothing is said. Only tests that passed in all three runs are compared; how many times a request was made is not compared.
+  observations nothing is said. Only tests that passed in all three runs are compared; how many times a request was made is not compared, and a request is told by its method, origin and pathname with the digit runs of the pathname collapsed (`requestShape` in `observed-difference.ts`), so a map tile, an id or a page number is one request while another endpoint or another non-numeric id is not.
   `survived[].moved` is `{ kind: "moved", requests: { added, removed }, dom: { added, removed }, tests, omitted? }` (at most 10 items a list,
   a line cut at 200 characters), `{ kind: "unmoved", tests }` (the finding says no request and no tree line moved, so what the mutation changes is in neither)
   or `{ kind: "unobserved", reason }` (a re-run left no observation, an unmutated one could not run, or no test passed in all of them: nothing is said).
@@ -1298,7 +1318,7 @@ disk are still the last that ran green, file by file, and the suite store captur
   never blocks or rejects.
 - **Graders** (`engine/src/contexts/evaluation`, `GRADER_VERSION`): no two graders score the same fact, none scores an empty
   denominator, and a boolean that saturates becomes a ratio. Whether the suite has value is answered by `mutation_kill_rate`,
-  `change_coverage_ratio`, `branch_coverage_ratio`, `defect_found` (the failing cases in the change's reach plus the defects the engine verified without a failing test, `gateSignals.defects`; version 5), `survivors_routed` and `review_verdict`. The lesson slice is measured by `data_state_failures`, `calls_to_green` and `lessons_delivered` (`gateSignals.lessons`), read by `campaign-compare`'s lesson cycle section, never by green.
+  `change_coverage_ratio`, `branch_coverage_ratio`, `defect_found` (the facts the engine verified: the defects found without a failing test, `gateSignals.defects`, plus one when the stored adjudication classified the failure as an app defect with high confidence; a failing case in the change's reach is no finding by itself; version 6), `survivors_routed`, `survivors_closed` (the judged survivors a test now fails under after the regeneration they drove, `gateSignals.survivorClosure`; the closure's own figure, never pooled with `mutation_kill_rate`, which stays the first pass's) and `review_verdict`. The lesson slice is measured by `data_state_failures`, `calls_to_green` and `lessons_delivered` (`gateSignals.lessons`), read by `campaign-compare`'s lesson cycle section, never by green.
 
 - **Causal label** (record only, never a gate): `gateSignals.causal` labels a failure by whether the change reaches it, and `coverageByCandidate` holds the per-use-case coverage.
 

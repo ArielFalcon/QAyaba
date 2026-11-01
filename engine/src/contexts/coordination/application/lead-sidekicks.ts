@@ -29,7 +29,7 @@ import type { LeadSessionHandle, LeadSubmission, PlanOutput } from "@kernel/plan
 import type { DelegationWorkspace, DelegationWorkspaceRequest, WorkspaceChange } from "../domain/delegation-workspace.ts";
 import type { DelegationWorkspacePort } from "./ports/delegation-workspace.port.ts";
 import { createDelegationBrief, type DelegationBrief } from "./delegation-brief.ts";
-import { briefChangeFor, fitBriefChange, type BriefChange } from "./brief-change.ts";
+import { briefChangeFor, fitBriefChange, flowCandidatesOf, type BriefChange } from "./brief-change.ts";
 import { assembleSidekickBrief } from "./sidekick-prompt.ts";
 import type { ContextBudget, ContextFit } from "@kernel/context-budget.ts";
 import type { WindowFitOutcome } from "@kernel/prompt-sections.ts";
@@ -60,7 +60,8 @@ import { SIDEKICK_AUTHORING, sidekickAuthoring, sidekickDeniedTools, type Sideki
 import type { SidekickExecutor, SidekickSession } from "./sidekick-executor.ts";
 import { SESSION_GONE, turnEndOf } from "./sidekick-turn-end.ts";
 import { describeUnreadable, type UnreadableEntry } from "./answer-reading.ts";
-import { packPagesFor, recordedRequestsFor } from "@contexts/generation/application/index.ts";
+import { contradictionsReaching, packPagesFor, recordedRequestsFor } from "@contexts/generation/application/index.ts";
+import { dataContradictionRef, type DataContradiction } from "@kernel/data-contradiction.ts";
 import { namesTemplatePage } from "@contexts/generation/application/index.ts";
 import type { HarnessFacts } from "@kernel/grounding.ts";
 import type { RedactionPort } from "@kernel/ports/redaction.port.ts";
@@ -69,11 +70,24 @@ import { leadCorrectionContract } from "./lead-correction.contract.ts";
 import { leadReviewContract } from "./lead-review.contract.ts";
 import { CORRECTION_ORIGIN, admitLeadCorrection, correctionPreamble, routeOfFinding, assembleLeadCorrection, assembleRefusedCorrection, type CorrectionOrigin, type CorrectionOrder, type CorrectionRebuttal, type FlowUnderCorrection, type CorrectionFinding } from "./lead-correction.ts";
 
-/* The flow's slice of the Context Pack, as a brief field, or nothing when the pack did not read its pages. */
-const pagesOf = (pack: string | undefined, routes: readonly string[]): { pages: string } | undefined => {
-  const pages = packPagesFor(pack, routes);
+/* The flow's slice of the Context Pack, as a brief field, or nothing when the pack did not read its pages or show a contradiction its use cases reach. */
+const pagesOf = (pack: string | undefined, routes: readonly string[], contradictedRoutes: readonly string[]): { pages: string } | undefined => {
+  const pages = packPagesFor(pack, routes, contradictedRoutes);
   return pages === undefined ? undefined : { pages };
 };
+
+/* The pages of the contradictions that reach any of the use cases a flow carries, each once. */
+const contradictedRoutesOf = (facts: readonly DataContradiction[], carried: readonly UseCaseCandidate[]): string[] => [...new Set(carried.flatMap((candidate) => contradictionsReaching(facts, candidate).map((fact) => fact.route)))];
+
+/* The refs of the contradictions that reach each use case the plan is asked to answer for, by candidate id; none for a use case no fact reaches. */
+function contradictionRefsOf(facts: readonly DataContradiction[], candidates: readonly UseCaseCandidate[]): Record<string, string[]> {
+  const refs: Record<string, string[]> = {};
+  for (const candidate of candidates) {
+    const reaching = contradictionsReaching(facts, candidate);
+    if (reaching.length > 0) refs[candidate.id] = reaching.map(dataContradictionRef);
+  }
+  return refs;
+}
 
 
 /* What a plan's drops are held to besides the candidate itself: the requests the run's capture recorded for a candidate's pages, as the Context Pack states them. */
@@ -130,6 +144,8 @@ export interface CoordinateInput {
   lessons?: readonly LessonFact[];
   /* The run's Context Pack: each flow's brief carries the Live DOM of the pages that flow visits. */
   contextPack?: string;
+  /* The possible data contradictions the pack found: a flow's brief carries those of its pages and those its use cases' code reaches, and the planning turn names against each use case the ones that reach it. */
+  dataContradictions?: readonly DataContradiction[];
   /* What the suite's harness declares and the specs the suite holds: each flow's brief states them so its author need not open the harness files. */
   harnessFacts?: HarnessFacts;
   existingSpecs?: readonly string[];
@@ -311,6 +327,7 @@ export class LeadSidekicks {
     const admission = admissionSetOf(input.candidates);
     const change = changeViewOf(input.change?.diffs, input.candidates);
     const candidateSlices = change && admission.required.length > 0 ? candidateSlicesOf(change, admission.required) : undefined;
+    const candidateContradictions = contradictionRefsOf(input.dataContradictions ?? [], admission.required);
     /* The capacity the plan is told, as it will stand once the planning turn has taken its time. */
     const capacity = this.capacity(input, parallel, before === undefined ? undefined : before - settings.planBudgetMs);
     const planned = await input.plan({
@@ -322,6 +339,7 @@ export class LeadSidekicks {
       ...(admission.required.length > 0 ? { candidates: admission.required } : {}),
       ...(admission.others > 0 ? { otherCandidates: admission.others } : {}),
       ...(candidateSlices ? { candidateSlices } : {}),
+      ...(Object.keys(candidateContradictions).length > 0 ? { candidateContradictions } : {}),
       ...(input.change?.decisions?.length ? { decisions: input.change.decisions } : {}),
       submit: leadPlanContract((answer) => this.admit(input, answer, parallel)),
     });
@@ -693,7 +711,7 @@ export class LeadSidekicks {
         scope: { readablePaths: ["."], writablePaths: flow.writablePaths, allowedCommands: [] },
         knownFacts: [...knownFactsOf(this.deps.redaction, input, flow.routes), ...lessonFactsOf(this.deps.redaction, input, flow.routes)],
         tools,
-        ...(pagesOf(input.contextPack, flow.routes) ?? {}),
+        ...(pagesOf(input.contextPack, flow.routes, contradictedRoutesOf(input.dataContradictions ?? [], flowCandidatesOf(flow, input.candidates))) ?? {}),
         ...(input.harnessFacts ? { harnessFacts: input.harnessFacts, specRelDir: input.specRelDir } : {}),
         ...(input.existingSpecs?.length ? { suite: input.existingSpecs } : {}),
         ...(derived.candidates.length > 0 ? { candidates: derived.candidates } : {}),

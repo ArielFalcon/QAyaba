@@ -2,7 +2,7 @@
 import { pageCandidate } from "../../../support/use-case-candidate.ts";
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { AMBIENT_EMPTY_STATE_NOTE, buildContextPack, deriveClaimsFromPackText, withoutPackSection, MAX_LISTED_UNCAPTURABLE, NODE_SAFETY_BOUND_REASON, PACK_HEADINGS, TEMPLATE_LEFT_OUT, packDeliveredItemIds, packProducedItemIds, type ContextPackAssembly, type ContextPackDeps } from "@contexts/generation/infrastructure/context-pack.ts";
+import { AMBIENT_EMPTY_STATE_NOTE, LIVE_COUNT_NOTE, buildContextPack, deriveClaimsFromPackText, withoutPackSection, MAX_LISTED_UNCAPTURABLE, NODE_SAFETY_BOUND_REASON, PACK_HEADINGS, TEMPLATE_LEFT_OUT, packDeliveredItemIds, packProducedItemIds, type ContextPackAssembly, type ContextPackDeps } from "@contexts/generation/infrastructure/context-pack.ts";
 import { itemId } from "@kernel/context-item-ids.ts";
 import { countDirectives, hasTrustLanguage, type FactId, type PromptClaim } from "@contexts/generation/domain/prompt-contract-lint.ts";
 import { captureDomForRoutes, MAX_ROUTES, MAX_ROUTES_PER_CHANGE, REDIRECT_ADVISORY_INTRO, type CaptureDomDeps } from "@contexts/generation/infrastructure/dom-snapshot.ts";
@@ -800,6 +800,7 @@ test("a page with a confirmed data state reports its result count and effective 
   };
   const result = await buildContextPack({ routes: ["/home"], baseUrl: "http://localhost:3000", e2eDir: "/fake/e2e" }, deps);
   assert.ok(result.text?.includes("11 result(s)"), "the result count is stated");
+  assert.ok(result.text?.includes(LIVE_COUNT_NOTE), "a count read is stated as DEV's data of the moment");
   assert.ok(result.text?.includes('location "Madrid"'), "the effective location is quoted");
 });
 
@@ -828,6 +829,7 @@ test("a page whose empty state was confirmed says so, and is not called unconfir
   };
   const result = await buildContextPack({ routes: ["/list"], baseUrl: "http://localhost:3000", e2eDir: "/fake/e2e" }, deps);
   assert.ok(result.text?.includes("0 result(s)"));
+  assert.equal(result.text?.includes(LIVE_COUNT_NOTE), false, "an empty read is not a count");
   assert.ok(result.text?.includes("empty state confirmed"), "the confirmed empty state is stated");
   assert.ok(!result.text?.includes("data state not confirmed"));
 });

@@ -5,7 +5,7 @@ import { outcomeText, type RouteAvailabilityFact } from "@kernel/route-availabil
 import { dataContradictionStatement, type DataContradiction, type DefectFact } from "@kernel/data-contradiction.ts";
 import { redactThenBound } from "@kernel/redact-then-bound.ts";
 import { printedRoute } from "@kernel/printed-route.ts";
-import type { AmbientDataPin } from "@kernel/page-data-read.ts";
+import { ambientPinReads, type AmbientDataPin } from "@kernel/page-data-read.ts";
 
 export interface TestedItem {
   flow?: string;
@@ -64,18 +64,21 @@ function renderFailedCase(c: QaCase, bound: Bound): string {
 }
 
 function headline(verdict: RunVerdict, failedCount: number, totalCount: number, flakyCount: number, defectCount: number): string {
+  const found = failedCount === 0 && defectCount > 0 ? `${defectCount} defect(s) found without a failing check` : undefined;
   switch (verdict) {
     case "fail":
-      if (failedCount === 0 && defectCount > 0) return `${defectCount} defect(s) found without a failing check`;
+      if (found) return found;
       return totalCount
         ? `${failedCount} of ${totalCount} check(s) failed against the live environment`
         : "the tests failed against the live environment";
     case "invalid":
       return "the generated tests could not be validated (static gate)";
-    case "flaky":
-      return `${flakyCount} test(s) were unstable and were quarantined`;
+    case "flaky": {
+      const unstable = `${flakyCount} test(s) were unstable and were quarantined`;
+      return found ? `${found}, and ${unstable}` : unstable;
+    }
     default:
-      return "the generated tests need changes before they can land";
+      return found ?? "the generated tests need changes before they can land";
   }
 }
 
@@ -219,7 +222,7 @@ function renderAmbientDataStateSection(view: AmbientDataStateView | undefined, b
   const pins = (view?.pins ?? []).slice(0, MAX_ITEMS);
   if (pins.length === 0) return "";
   const pages = (list: readonly string[]): string => list.map((page) => `\`${bound(page, CAP_FLOW)}\``).join(", ");
-  const blocks = [`**Checked only as DEV served it, empty** (every assertion of these cases ran on the page as it loaded, before any step of their own, and the run read that page as a confirmed empty state: the pass cannot tell DEV's lack of data from the change; a signal, not a gate):\n${pins.map((pin) => `- \`${bound(pin.file, CAP_FLOW)}\` › ${bound(pin.test, CAP_NAME)} — ${pages(pin.pages)}`).join("\n")}`];
+  const blocks = [`**Checked only as DEV served it** (these cases ran on the page as it loaded, before any step of their own, either on a page the run read as a confirmed empty state or asserting the result count the run read there: the pass cannot tell DEV's data of the moment from the change; a signal, not a gate):\n${pins.map((pin) => `- \`${bound(pin.file, CAP_FLOW)}\` › ${bound(pin.test, CAP_NAME)} — ${ambientPinReads(pin).map((read) => `\`${bound(read, CAP_FLOW)}\``).join(", ")}`).join("\n")}`];
   const arms = (view?.arms ?? []).slice(0, MAX_ITEMS);
   if (arms.length > 0) blocks.push(`Arms of the changed code on those pages no test took (DEV may lack the data that takes them):\n${arms.map((a) => `- \`${bound(a.file, CAP_FLOW)}:${a.line}\` — ${bound(a.arm, CAP_NAME)} (${pages(a.pages)})`).join("\n")}`);
   return blocks.join("\n\n");

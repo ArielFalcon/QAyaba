@@ -141,6 +141,8 @@ export interface RunEvaluationEvidence {
   reviewerTurns: number | undefined;
   /* Whether the engine ran a reviewer for this run, as it decided at run time. Undefined: the run recorded none. */
   reviewRequired: boolean | undefined;
+  /* The fix loop's adjudication of the run's failure as the outcome row stored it; absent when the run never reached the adjudicator or was recorded before it was stored. */
+  adjudication?: { class: string; confidence: string | undefined } | undefined;
   /* The run's outcome row; absent when the run produced none (a context run, a crash before the outcome). */
   signals:
     | {
@@ -162,6 +164,8 @@ export interface RunEvaluationEvidence {
         bundleMutation?: { applied: number; killed: number } | undefined;
         /* The surviving mutants a delivered spec's tests reached (so they reached its flow) and the total; undefined when the run recorded no survivor count. */
         survivors?: { routed: number; total: number } | undefined;
+        /* The surviving mutants the regeneration they drove was re-checked against, and how many a test now fails under (`gateSignals.survivorClosure`); undefined when no accepted regeneration answered a survivor. */
+        survivorClosure?: { judged: number; closed: number } | undefined;
         /* The flaky cases of a flaky run by class, and what the correction came to; undefined when the run was not flaky. */
         flakyTriage?: { cases: number; dataInstability: number; timing: number; outcome: string } | undefined;
         /* The lessons the run's briefs stated and the failures (of its final execution and its run_spec calls) that read DEV's data differently from the pack; undefined when the run recorded no lessons signal. `dataStateFailures` is undefined when the run measured none; `scopes` are the pages of the delivered lessons, `failuresByPage` the same failures by page and `specPages` the pages each flow was given and the spec it authors. */

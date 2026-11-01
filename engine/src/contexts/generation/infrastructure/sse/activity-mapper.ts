@@ -2,6 +2,7 @@
 
 import type { RunEventBody } from "@kernel/contract/events.ts";
 import { kindForTool, toolInputPath } from "@contexts/generation/domain/tool-call-taxonomy.ts";
+import { describeSessionError } from "@contexts/generation/domain/agent-error-class.ts";
 import { toolOutcomeMessage } from "@contexts/generation/domain/tool-outcome.ts";
 import { redactAndBound } from "../../../../shared-infrastructure/redaction/redact-and-bound.ts";
 import { toolOutcomeOf, type OpencodeToolPart } from "./opencode-tool-outcome.ts";
@@ -125,7 +126,7 @@ export function mapOpencodeEvent(
     }
 
     case "session.error":
-      return [{ type: "agent.error", detail: activityText(String(p.error ?? "unknown error")) }];
+      return [{ type: "agent.error", detail: activityText(describeSessionError(p.error) ?? "unknown error") }];
 
     default:
       return [];

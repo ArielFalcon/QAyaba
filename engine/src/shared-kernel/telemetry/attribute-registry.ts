@@ -205,7 +205,7 @@ export const ATTRIBUTES = {
   "qayaba.fix_loop.failing_before": int("Failing cases before the fix loop."),
   "qayaba.fix_loop.failing_after": int("Failing cases after the fix loop."),
   "qayaba.fix_loop.absent_selectors": int("Absent selectors from the first fix-loop round's divergence evidence."),
-  "qayaba.fix_loop.triage_trigger": str("What made a failure a candidate for the fix loop's one triage re-read: pack-conflict or absent-selectors."),
+  "qayaba.fix_loop.triage_trigger": str("What made a failure a candidate for the fix loop's one triage re-read: pack-conflict, absent-selectors or proof-conflict."),
   "qayaba.fix_loop.triage_outcome": str("What the triage came to: passed, dev-not-rendered, inconclusive, no-budget or unproven (no green proof, no re-read)."),
   "qayaba.fix_loop.triage_files": int("Spec files the triage re-read covered."),
   "qayaba.fix_loop.specs_changed": bool("The fix loop changed the spec set."),

@@ -50,3 +50,10 @@ test("skipped → noop (agent approved zero specs — clean exit, not an error)"
 /* PublishDecisionService does not own infra-error notification (alert channel, retry logic).
    An infra-error verdict maps to noop here.
  */
+
+test("a defect found opens an Issue for a flaky run, an infra-error and a skip, which would otherwise open nothing, and shadow still replaces it", () => {
+  for (const verdict of ["flaky", "infra-error", "skipped"] as const) {
+    assert.equal(svc.decide({ ...base, verdict, defectFound: true }).outcome, "issue", verdict);
+    assert.equal(svc.decide({ ...base, verdict, defectFound: true, shadow: true }).outcome, "shadow", verdict);
+  }
+});

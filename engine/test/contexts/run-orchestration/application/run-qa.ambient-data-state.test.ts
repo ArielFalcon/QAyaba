@@ -43,14 +43,14 @@ class SpanLog extends NoopTelemetry {
   }
 }
 
-async function run(spec: string, reads: PageDataRead[] = [EMPTY_READ]) {
+async function run(spec: string, reads: PageDataRead[] = [EMPTY_READ], packConfirmedDataRoutes?: Array<{ path: string; resultCount: number }>) {
   const rig = newRig();
   try {
     const published: Array<Parameters<PublicationPort["publish"]>[0]> = [];
     let enrichment: Parameters<ReviewPort["review"]>[3];
     const telemetry = new SpanLog();
     rig.ws.write(RIG_SPEC, spec);
-    rig.extra = { telemetry, preGenerationGrounding: { ground: async () => ({ pageReads: reads }) } };
+    rig.extra = { telemetry, preGenerationGrounding: { ground: async () => ({ pageReads: reads, ...(packConfirmedDataRoutes ? { packConfirmedDataRoutes } : {}) }) } };
     rig.execute = async () => ({ verdict: "pass", cases: [{ name: `${RIG_SPEC} › ${TITLE}`, status: "pass", file: RIG_SPEC }], logs: "" });
     rig.review = async (...args) => {
       enrichment = args[3];
@@ -105,4 +105,25 @@ test("the branch-cases regeneration carries the pinned case to its spec's author
   } finally {
     dispose(rig);
   }
+});
+
+const COUNTED = `import { test, expect } from "./fixtures";
+test("${TITLE}", async ({ page }) => {
+  await page.goto("${PAGE}");
+  await expect(page.getByText("4 resultados")).toBeVisible();
+});
+`;
+
+test("a passing case that asserts the result count the pack read on a page as it loaded reaches the reviewer, the gate signal and the publication input, and the verdict stays pass", async () => {
+  const { observed, published, enrichment } = await run(COUNTED, [{ ...EMPTY_READ, resultCount: 4, emptyConfirmed: undefined }], [{ path: PAGE, resultCount: 4 }]);
+  assert.equal(observed.result?.decision.verdict, "pass");
+  assert.deepEqual(enrichment?.ambientDataPins?.map((p) => [p.test, p.pages, p.counts]), [[TITLE, [], [{ page: PAGE, count: 4 }]]]);
+  assert.deepEqual(observed.saved.at(-1)!.gateSignals.ambientDataState?.pages, [PAGE]);
+  assert.deepEqual(published[0]!.ambientDataState?.pins.map((p) => p.counts), [[{ page: PAGE, count: 4 }]]);
+});
+
+test("the same assertion on a page the pack read no count for pins nothing", async () => {
+  const { observed, published } = await run(COUNTED, [{ ...EMPTY_READ, resultCount: 4, emptyConfirmed: undefined }]);
+  assert.equal(observed.saved.at(-1)!.gateSignals.ambientDataState, undefined);
+  assert.equal(published[0]!.ambientDataState, undefined);
 });

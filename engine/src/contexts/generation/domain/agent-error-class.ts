@@ -48,6 +48,16 @@ export interface ProviderErrorPayload {
   data?: { message?: string; statusCode?: number };
 }
 
+/* A session error as the runtime reports it, in one line: a text as it is, a provider payload by its name and message; undefined when it names nothing. */
+export function describeSessionError(error: unknown): string | undefined {
+  if (typeof error === "string") return error;
+  if (typeof error !== "object" || error === null) return undefined;
+  const { name, data } = error as { name?: unknown; data?: { message?: unknown } };
+  const message = typeof data?.message === "string" ? data.message : undefined;
+  if (typeof name === "string") return message === undefined ? name : `${name}: ${message}`;
+  return message;
+}
+
 const QUOTA_WORDS = /quota|usage limit|insufficient|credit|billing|exceeded your current|payment required/i;
 const SOCKET_CODES = new Set(["ECONNRESET", "EPIPE", "ECONNABORTED", "UND_ERR_SOCKET", "UND_ERR_CLOSED", "UND_ERR_ABORTED"]);
 /* The HTTP client's own faults between the orchestrator and the runtime (undici's connect, headers and body timeouts, a refused or unresolvable address): the request never completed, and no limit of ours cut it. */

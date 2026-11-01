@@ -5,7 +5,9 @@ import { Sha } from "@kernel/sha.ts";
 import type { DataContradiction } from "@kernel/data-contradiction.ts";
 import { ChangeSet, deriveCandidates, type ChangeScope, type ChangeScopePort } from "@contexts/change-analysis/application/index.ts";
 import type { PublicationPort } from "@contexts/workspace-and-publication/application/index.ts";
-import { dispose, newRig, observe } from "./run-flow/run-end-rig.ts";
+import { RIG_SPEC, dispose, newRig, observe, type Rig } from "./run-flow/run-end-rig.ts";
+import { scriptedGeneration } from "../../../support/generation-output.ts";
+import { GENERATION_END } from "@kernel/generation-end.ts";
 import { contradictionFact } from "../../../support/data-contradiction.ts";
 
 const FRONT = "org/front";
@@ -24,9 +26,10 @@ const SCOPE: ChangeScope = {
   degraded: [],
 };
 
-async function run(facts: DataContradiction[], opts: { scope?: boolean } = {}) {
+async function run(facts: DataContradiction[], opts: { scope?: boolean; rig?: (rig: Rig) => void } = {}) {
   const rig = newRig();
   try {
+    opts.rig?.(rig);
     const published: Array<Parameters<PublicationPort["publish"]>[0]> = [];
     const changeScope: ChangeScopePort = { resolve: async () => SCOPE, candidates: async ({ scope }) => deriveCandidates(scope) };
     rig.input = { changeSet: ChangeSet.of("demo", [{ repo: FRONT, role: "primary", headSha: FRONT_SHA }]), sha: FRONT_SHA };
@@ -76,4 +79,32 @@ test("a run with no scope to place the contradiction in finds no defect", async 
   const { observed } = await run([contradictionFact({ route: "/browse" })], { scope: false });
   assert.equal(observed.result?.decision.verdict, "pass");
   assert.equal(observed.saved[0]!.gateSignals.defects, undefined);
+});
+
+test("a declared no-op that found a defect is still skipped, and opens an Issue that lists the defect and records it", async () => {
+  const { observed, published } = await run([contradictionFact({ route: "/browse" })], { rig: (rig) => { rig.author = async () => scriptedGeneration({ specs: [], end: GENERATION_END.DECLARED_NOOP, note: "nothing in this change is worth a test" }); } });
+  assert.equal(observed.result?.decision.verdict, "skipped");
+  assert.equal(observed.result?.decision.sideEffect, "issue");
+  assert.equal(published.length, 1);
+  assert.equal(published[0]!.verdict, "skipped");
+  assert.deepEqual(published[0]!.defects?.map((d) => d.fact.key), ["category"]);
+  assert.equal(observed.saved[0]!.verdict, "skipped");
+  assert.equal(observed.saved[0]!.gateSignals.defects?.found, 1);
+});
+
+test("a declared no-op that found no defect opens nothing", async () => {
+  const { observed, published } = await run([contradictionFact({ route: "/about" })], { rig: (rig) => { rig.author = async () => scriptedGeneration({ specs: [], end: GENERATION_END.DECLARED_NOOP, note: "nothing in this change is worth a test" }); } });
+  assert.equal(observed.result?.decision.sideEffect, "none");
+  assert.equal(published.length, 0);
+});
+
+test("a flaky run that found a defect keeps its flaky verdict and opens an Issue for the defect", async () => {
+  const { observed, published } = await run([contradictionFact({ route: "/browse" })], {
+    rig: (rig) => { rig.execute = async () => ({ verdict: "flaky", cases: [{ name: `${RIG_SPEC} › flaky case`, status: "flaky", file: RIG_SPEC }], logs: "" }); },
+  });
+  assert.equal(observed.result?.decision.verdict, "flaky");
+  assert.equal(observed.result?.decision.sideEffect, "issue");
+  assert.equal(published[0]!.verdict, "flaky");
+  assert.deepEqual(published[0]!.defects?.map((d) => d.fact.key), ["category"]);
+  assert.equal(observed.saved[0]!.gateSignals.flaky, true);
 });

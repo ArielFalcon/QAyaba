@@ -3,8 +3,9 @@
  * may block only when it cites evidence the orchestrator can check: a spec's contract clause, an
  * execution the run performed, or a DOM fact. Anything else is advisory telemetry — never sent to the
  * generator, never a gate. A finding that names an arm of the changed code no test ran is a missing case:
- * kept when the run's measurement lists that arm, recorded and shown, never a requirement or a gate. A finding that names a case the
- * run recorded as checking a page only as DEV served it confirmed empty (`ambient`) is kept as advisory whatever its severity: a signal, never a gate.
+ * kept when the run's measurement lists that arm, recorded and shown, never a requirement or a gate. A finding that cites a fact the
+ * engine verified on its own (a recorded data `contradiction`, a case the run recorded as checking a page only as DEV served it
+ * `ambient`) blocks whatever severity the reviewer gave it: the fact is the engine's, so the reviewer's severity decides nothing.
  * A citation and the run's scope are compared in one canonical form (the suite-relative spec path), so the
  * way an agent spells a file never decides whether its finding counts. Every finding the run admits gets an id
  * (`identifyFindings`): routing, the lead's numbered answers and rebuttals name a finding by it, never by its text.
@@ -48,6 +49,11 @@ export interface ReviewScope {
 
 /** Why a finding can never block: it cites nothing, an arm nobody checked, a reference that names no spec the suite can hold, a spec outside this run's scope, or an execution this run did not perform. */
 export type DropReason = "uncited" | "arm" | "unresolved" | "out-of-scope" | "not-executed" | "no-availability-fact" | "no-contradiction-fact" | "no-ambient-fact";
+
+/** Whether a finding rests on a fact the engine verified on its own, which nothing the generator answers can withdraw. */
+export function restsOnEngineFact(finding: CitedFinding): boolean {
+  return finding.citation?.kind === "contradiction" || finding.citation?.kind === "ambient";
+}
 
 /** A finding as the run admitted it: the same object, with the id that names it within its round. */
 export type IdentifiedFinding<T> = T & { readonly id: string };
@@ -143,17 +149,16 @@ export function filterReviewFindings<T extends CitedFinding>(
         drop(finding, "no-contradiction-fact");
         continue;
       }
-      if (finding.severity === "blocking") blocking.push(finding);
-      else advisory.push(finding.text);
+      blocking.push(finding);
       continue;
     }
     if (citation.kind === "ambient") {
-      /* A case that checked a page only as DEV served it empty is a fact of the run's reads and the spec's syntax; it is a signal for the reader, never a reason to reject. */
+      /* A case that checked a page only as DEV served it empty is a fact of the run's reads and the spec's syntax: its pass cannot tell DEV's lack of data from the change. */
       if (!(scope.ambientPinRefs ?? new Set<string>()).has(ambientRefOf(citation.ref, scope.specRelDir) ?? "")) {
         drop(finding, "no-ambient-fact");
         continue;
       }
-      advisory.push(finding.text);
+      blocking.push(finding);
       continue;
     }
     if (citation.kind === "dom") {

@@ -42,6 +42,16 @@ test("a rebuttal naming a case that is not green in this run is a dispute, never
   assert.deepEqual(out.disputed.map((entry) => ({ id: entry.findingId, text: entry.finding })), [{ id: ONE.id, text: FINDING }]);
 });
 
+test("a finding that rests on a fact the engine verified is not withdrawn by a green case or an intact clause, only disputed", () => {
+  const fact: RoundFinding = { ...ONE, fact: true };
+  const green = verifyRebuttals([rebuttal()], [fact], evidence());
+  assert.deepEqual(green.withdrawn, []);
+  assert.deepEqual(green.disputed.map((entry) => entry.findingId), [ONE.id]);
+  const clause = verifyRebuttals([rebuttal({ basis: "contract", ref: "flows/checkout.spec.ts#assertion-0" })], [fact], evidence());
+  assert.deepEqual(clause.withdrawn, []);
+  assert.deepEqual(clause.disputed.map((entry) => entry.findingId), [ONE.id]);
+});
+
 test("a contract rebuttal withdraws a finding when the cited clause is intact", () => {
   const out = verifyRebuttals([rebuttal({ basis: "contract", ref: "flows/checkout.spec.ts#assertion-0" })], [ONE], evidence());
   assert.deepEqual(out.withdrawn, [ONE.id]);

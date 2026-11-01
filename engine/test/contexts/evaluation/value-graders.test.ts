@@ -40,24 +40,35 @@ test("review_verdict tells the model's rejection the evidence filter overruled f
   assert.equal(grade(withSignals({ reviewer: undefined }), "review_verdict"), undefined, "no reviewer phase, no verdict");
 });
 
-test("defect_found counts the failing cases in the change's reach and the defects the run verified without a failing test; a passing run found none; an unlabelled failure says nothing", () => {
+test("defect_found counts the facts the run verified, the defects without a failing test and a failure the adjudicator classified as an app defect from a fact; a failing case in reach is no finding; a passing run found none; a run that recorded neither says nothing", () => {
   assert.equal(grade(evidence({ verdict: "pass" }), "defect_found")?.value, 0);
-  const failed = withSignals({ causal: { inReach: 2, outOfReach: 1, unknown: 1 } }, { verdict: "fail", decision: "issue" });
-  const s = grade(failed, "defect_found");
-  assert.equal(s?.value, 2);
-  assert.match(s?.comment ?? "", /1 out of reach/);
-  assert.equal(grade(withSignals({ causal: { inReach: 0, outOfReach: 3, unknown: 0 } }, { verdict: "fail" }), "defect_found")?.value, 0, "failures the change does not reach are not defects it caused");
-  assert.equal(grade(withSignals({ causal: undefined }, { verdict: "fail" }), "defect_found"), undefined);
+  const failedInReach = withSignals({ causal: { inReach: 2, outOfReach: 0, unknown: 0 } }, { verdict: "fail", decision: "issue" });
+  assert.equal(grade(failedInReach, "defect_found"), undefined, "the shape of a failure in reach is a hint, not a fact");
   const verified = grade(withSignals({ defects: { found: 2 } }, { verdict: "fail", decision: "issue" }), "defect_found");
   assert.equal(verified?.value, 2, "a run that failed only on verified defects has no failing case and still found them");
   assert.match(verified?.comment ?? "", /2 defect\(s\) verified without a failing test/);
-  assert.equal(grade(withSignals({ causal: { inReach: 1, outOfReach: 0, unknown: 0 }, defects: { found: 2 } }, { verdict: "fail" }), "defect_found")?.value, 3, "a failing case in reach and a verified defect are two findings");
+  const flaky = grade(withSignals({ defects: { found: 1 } }, { verdict: "flaky", decision: "issue" }), "defect_found");
+  assert.equal(flaky?.value, 1, "a defect found beside a flaky verdict still counts");
+  const fromFact = grade(evidence({ verdict: "fail", adjudication: { class: "app_defect", confidence: "high" } }), "defect_found");
+  assert.equal(fromFact?.value, 1);
+  assert.match(fromFact?.comment ?? "", /from a fact/);
+  assert.equal(grade(evidence({ verdict: "fail", adjudication: { class: "app_defect", confidence: "low" } }), "defect_found")?.value, 0, "the adjudicator's hint from the shape of a failure is not a fact");
+  assert.equal(grade(evidence({ verdict: "fail", adjudication: { class: "generated_test_defect", confidence: "medium" } }), "defect_found")?.value, 0, "a failure the adjudicator blamed on the test found no defect");
+  assert.equal(grade(withSignals({ defects: { found: 2 } }, { verdict: "fail", adjudication: { class: "app_defect", confidence: "high" } }), "defect_found")?.value, 3, "a verified defect and an adjudicated failure are two findings");
 });
 
 test("survivors_routed is the share of surviving mutants a delivered spec reached, and nothing without survivors", () => {
   assert.equal(grade(withSignals({ survivors: { routed: 1, total: 3 } }), "survivors_routed")?.value, 1 / 3);
   assert.equal(grade(withSignals({ survivors: { routed: 0, total: 0 } }), "survivors_routed"), undefined);
   assert.equal(grade(withSignals({ survivors: undefined }), "survivors_routed"), undefined);
+});
+
+test("survivors_closed is the share of judged survivors a test now fails under, apart from the first pass's kill rate, and nothing when none was judged again", () => {
+  const closure = withSignals({ bundleMutation: { applied: 3, killed: 1 }, survivorClosure: { judged: 2, closed: 1 } });
+  assert.equal(grade(closure, "survivors_closed")?.value, 1 / 2);
+  assert.equal(grade(closure, "mutation_kill_rate")?.value, 1 / 3, "the first pass's rate does not take the closure's kills");
+  assert.equal(grade(withSignals({ survivorClosure: { judged: 0, closed: 0 } }), "survivors_closed"), undefined);
+  assert.equal(grade(withSignals({ survivorClosure: undefined }), "survivors_closed"), undefined);
 });
 
 test("availability_regressions counts the possible regressions and availability_unexplained is the unsettled share, both silent without an unavailable route", () => {
@@ -95,6 +106,6 @@ test("drops_contradicted counts the dropped use cases the run's facts contradict
 
 test("none of the new graders grades a run that has not finished", () => {
   const e = withSignals({ coverageStatus: "pass", coverageRatio: 1, bundleMutation: { applied: 1, killed: 1 }, flakyTriage: { cases: 1, dataInstability: 1, timing: 0, outcome: "accepted" } }, { finished: false, verdict: null });
-  const names = ["mutation_kill_rate", "change_coverage_ratio", "branch_coverage_ratio", "review_verdict", "defect_found", "survivors_routed", "flaky_triage", "drops_contradicted"];
+  const names = ["mutation_kill_rate", "change_coverage_ratio", "branch_coverage_ratio", "review_verdict", "defect_found", "survivors_routed", "survivors_closed", "flaky_triage", "drops_contradicted"];
   assert.deepEqual(gradeEvidence(e, names), []);
 });

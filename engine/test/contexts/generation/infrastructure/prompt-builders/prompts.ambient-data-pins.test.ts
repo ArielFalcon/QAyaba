@@ -46,3 +46,9 @@ test("without a recorded pin the reviewer prompt has no such section", () => {
   assert.equal(SECTION in buildReviewerPromptAssembled(mkReview()).sectionSizes, false);
   assert.equal(SECTION in buildReviewerPromptAssembled(mkReview({ ambientDataPins: [] })).sectionSizes, false);
 });
+
+test("a case pinned on a read result count lists the page and the count beside its ref", () => {
+  const pin: AmbientDataPin = { file: "flows/search.spec.ts", test: "search › lists the results", pages: [], counts: [{ page: "/search", count: 7 }] };
+  const text = sectionText(buildReviewerPromptAssembled(mkReview({ ambientDataPins: [pin] })), SECTION);
+  for (const part of [ambientPinRef(pin), "/search", "7"]) assert.ok(text.includes(part), part);
+});

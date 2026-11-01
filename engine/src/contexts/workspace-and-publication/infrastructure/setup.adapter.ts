@@ -177,6 +177,8 @@ const SOURCE_MAPS_END_MARKER = "// <<< qa-source-maps <<<\n";
 const EARLIER_SOURCE_MAPS_BLOCKS: ReadonlySet<string> = new Set([
   /* It kept each map whole, embedded sources included. */
   "36277aa0f962f8b292a20fa1a9daf0dcfd4a6cab5662810e1ec020d387593b55",
+  /* It fetched the maps of a test's scripts one after another. */
+  "73fa12733eb88bf3ae63940fc9a4a205580f6aeda39f15d4368d1a9091c9a3e5",
 ]);
 
 /*

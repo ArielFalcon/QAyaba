@@ -31,6 +31,8 @@ export interface PlanningLimits {
   otherCandidates?: number;
   /* The part of the change each candidate's flow would own (its owned slice), by candidate id: so the lead groups candidates into flows of a workable size. */
   candidateSlices?: Readonly<Record<string, OwnedSliceSize>>;
+  /* The refs of the data contradictions that reach each candidate (its pages show them, or its code holds their call site or the sites that read the field), by candidate id; a candidate no fact reaches is absent. */
+  candidateContradictions?: Readonly<Record<string, readonly string[]>>;
   /* The decisions on the changed lines of the run's own diff, from the static listing: the plan's diff shows the hunks holding one first. Absent: none was listed. */
   decisions?: readonly ChangedDecision[];
   /* The contract the lead delivers its plan through: its submit tool, judged by the run's own admission. Required by the planning turn and by every turn that asks the lead for a plan again. */

@@ -7,6 +7,7 @@ import { migration0005 } from "./0005-case-expected-status";
 import { migration0006 } from "./0006-run-time-budget";
 import { migration0007 } from "./0007-lesson-observations";
 import { migration0008 } from "./0008-drop-dead-learning-tables";
+import { migration0009 } from "./0009-run-outcome-adjudication";
 
 export interface Migration {
   version: number;
@@ -15,7 +16,7 @@ export interface Migration {
 }
 
 /* Ordered by version; a schema change is a new file in this folder appended here. */
-export const MIGRATIONS: readonly Migration[] = [migration0001, migration0002, migration0003, migration0004, migration0005, migration0006, migration0007, migration0008];
+export const MIGRATIONS: readonly Migration[] = [migration0001, migration0002, migration0003, migration0004, migration0005, migration0006, migration0007, migration0008, migration0009];
 
 export const LATEST_SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1]!.version;
 

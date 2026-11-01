@@ -21,5 +21,7 @@ export interface ClosedLoopGateSignal {
   granted?: number;
   /* Calls refused for writes to DEV: the run's cap was spent, or the calling flow's own share was. Absent when none was. */
   writesRefused?: number;
+  /* The spec files the final execution failed although the run_spec loop had seen their current bytes pass. Absent when none was. */
+  conflicts?: number;
   closed: boolean;
 }

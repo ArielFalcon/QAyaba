@@ -30,6 +30,40 @@ test("a request only the mutated run made, and one only the unmutated runs made,
   });
 });
 
+test("requests that differ only in the digits of a pathname segment are one request: a map tile, an id or a page number is noise, not a mutation's effect", () => {
+  const tile = (z: number, x: number, y: number): [string, string] => ["GET", `https://tiles.example.com/v3/${z}/${x}/${y}.png`];
+  const baseline = [page("map.spec.ts › pan", [tile(12, 2046, 1362), ["GET", "https://dev.example.com/api/restaurants/41"]])];
+  const mutant = [page("map.spec.ts › pan", [tile(12, 2047, 1363), tile(13, 4093, 2724), ["GET", "https://dev.example.com/api/restaurants/57"]])];
+
+  const moved = diffObservations(twice(baseline), mutant, new Set(["map.spec.ts › pan"]));
+
+  assert.deepEqual(moved, { kind: "unmoved", tests: 1 });
+});
+
+test("a different endpoint, or a different id that is not a number, is still the observable that moved", () => {
+  const baseline = [page("a.spec.ts › t", [["GET", "https://dev.example.com/api/restaurants/41"], ["GET", "https://dev.example.com/api/cities/madrid"]])];
+  const mutant = [page("a.spec.ts › t", [["GET", "https://dev.example.com/api/dishes/41"], ["GET", "https://dev.example.com/api/cities/lisbon"]])];
+
+  const moved = diffObservations(twice(baseline), mutant, new Set(["a.spec.ts › t"]));
+
+  assert.equal(moved.kind, "moved");
+  assert.deepEqual(moved.kind === "moved" && moved.requests, {
+    added: ["GET https://dev.example.com/api/dishes/41", "GET https://dev.example.com/api/cities/lisbon"],
+    removed: ["GET https://dev.example.com/api/restaurants/41", "GET https://dev.example.com/api/cities/madrid"],
+  });
+});
+
+test("the digits of the origin still tell two hosts apart, and a count in the accessible tree is still what moved", () => {
+  const baseline = [page("a.spec.ts › t", [["GET", "https://api1.example.com/items"]], ["text: 4 results"])];
+  const mutant = [page("a.spec.ts › t", [["GET", "https://api2.example.com/items"]], ["text: 5 results"])];
+
+  const moved = diffObservations(twice(baseline), mutant, new Set(["a.spec.ts › t"]));
+
+  assert.equal(moved.kind, "moved");
+  assert.deepEqual(moved.kind === "moved" && moved.requests, { added: ["GET https://api2.example.com/items"], removed: ["GET https://api1.example.com/items"] });
+  assert.deepEqual(moved.kind === "moved" && moved.dom, { added: ["text: 5 results"], removed: ["text: 4 results"] });
+});
+
 test("a line of the accessible tree only one side showed is the observable that moved", () => {
   const baseline = [page("a.spec.ts › t", [], ["heading: Map", "button: Light theme"])];
   const mutant = [page("a.spec.ts › t", [], ["heading: Map", "button: Dark theme [pressed]"])];
@@ -68,7 +102,7 @@ test("with no observation of one run, or no test every run observed, nothing is 
 });
 
 test("what moved is bounded and cut: past the cap the rest is counted, a long line is cut, and a request seen in several tests is listed once", () => {
-  const many = Array.from({ length: MAX_MOVED_ITEMS + 5 }, (_, i): [string, string] => ["GET", `https://dev.example.com/api/item/${i}`]);
+  const many = Array.from({ length: MAX_MOVED_ITEMS + 5 }, (_, i): [string, string] => ["GET", `https://dev.example.com/api/item/${String.fromCharCode(97 + i)}`]);
   const long = `link: ${"x".repeat(500)}`;
   const moved = diffObservations(
     twice([page("a.spec.ts › one", [], []), page("a.spec.ts › two", [], [])]),

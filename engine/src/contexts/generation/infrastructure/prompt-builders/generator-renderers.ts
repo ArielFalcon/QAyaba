@@ -41,6 +41,11 @@ export function renderClosedLoop(limits: ClosedLoopLimits): string {
   return [`## ${PROMPT_HEADINGS.closedLoop}`, `run_spec: at most ${limits.maxCalls} calls this run, ${seconds} seconds each, ${limits.maxDevWrites} requests that write to DEV (POST, PUT, PATCH, DELETE) in all.`, ``].join("\n");
 }
 
+/* A candidate's line, with the data contradictions that reach it when there are any. */
+function withContradictions(line: string, refs: readonly string[] | undefined): string {
+  return refs?.length ? `${line} | data contradictions: ${refs.join(", ")}` : line;
+}
+
 /* The limits a lead's plan is held to on a coordinated run's planning turn, as facts. The shapes a plan may take are the role prompt's; the orchestrator decides what each flow may write, how long it takes and what it may run, so the plan carries none of that. */
 export function renderLeadPlan(limits: PlanningLimits): string {
   return [
@@ -54,9 +59,12 @@ export function renderLeadPlan(limits: PlanningLimits): string {
     ...(limits.candidates?.length
       ? [
           `The change makes these use cases testable (id | entry | reach | changed files | the part of the diff its flow would own | evidence | specs the suite holds); a flow owns the parts of the use cases it covers, so group them into flows of a size one author can work through:`,
-          ...limits.candidates.map((candidate) => `- ${sanitizeText(candidateLine(candidate, limits.candidateSlices?.[candidate.id])).text}`),
+          ...limits.candidates.map((candidate) => `- ${sanitizeText(withContradictions(candidateLine(candidate, limits.candidateSlices?.[candidate.id]), limits.candidateContradictions?.[candidate.id])).text}`),
           ...(limits.otherCandidates ? [`${limits.otherCandidates} less direct use case(s) are not listed and need no flow.`] : []),
           `Give a flow to each one whose behaviour the change alters and cite its id in the flow's "candidates", or list it in "dropped" with a "basis" of the plan contract and the reason it needs no test; one the plan neither covers nor drops is asked of you once more.`,
+          ...(Object.keys(limits.candidateContradictions ?? {}).length > 0
+            ? [`A use case that lists data contradictions has a field its code expects that no answer the pages received carries: when the behaviour a flow would test needs that field present, no state a test can assert exists, so drop the use case as a state this run cannot reach on DEV, naming the contradiction; the run records the contradiction and lists it in the PR or the Issue.`]
+            : []),
         ]
       : []),
     ``,

@@ -35,7 +35,7 @@ const coverageScriptsWritten = new Map<string, Set<string>>();
 interface QaMapRequest {
   get(url: string, options?: { failOnStatusCode?: boolean }): Promise<{ ok(): boolean; text(): Promise<string> }>;
 }
-const qaSourceMaps = new Map<string, unknown>();
+const qaSourceMaps = new Map<string, Promise<unknown>>();
 function qaIsSourceMap(value: unknown): boolean {
   const m = value as { sources?: unknown; mappings?: unknown } | null;
   return typeof m === "object" && m !== null && Array.isArray(m.sources) && typeof m.mappings === "string";
@@ -45,53 +45,56 @@ function qaReadFields(value: unknown): unknown {
   const m = value as { sources: unknown[]; sourceRoot?: unknown; mappings: string };
   return { ...(m.sourceRoot !== undefined ? { sourceRoot: m.sourceRoot } : {}), sources: m.sources, mappings: m.mappings };
 }
-async function qaFetchSourceMap(url: string, request: QaMapRequest): Promise<unknown> {
-  if (qaSourceMaps.has(url)) return qaSourceMaps.get(url);
-  let map: unknown;
+async function qaLoadSourceMap(url: string, request: QaMapRequest): Promise<unknown> {
   try {
     const res = await request.get(url, { failOnStatusCode: false });
-    if (res.ok()) {
-      const json: unknown = JSON.parse(await res.text());
-      map = qaReadFields(json);
-    }
+    if (res.ok()) return qaReadFields(JSON.parse(await res.text()));
   } catch {
     /* best-effort: no map */
   }
-  qaSourceMaps.set(url, map);
+  return undefined;
+}
+function qaFetchSourceMap(url: string, request: QaMapRequest): Promise<unknown> {
+  let map = qaSourceMaps.get(url);
+  if (map === undefined) {
+    map = qaLoadSourceMap(url, request);
+    qaSourceMaps.set(url, map);
+  }
   return map;
 }
 async function attachSourceMaps(entries: CoverageEntry[], request: QaMapRequest): Promise<void> {
-  for (const e of entries) {
-    if (!e.source || !e.url) continue;
-    // The LAST sourceMappingURL comment wins (source-map spec): a minified bundle can inline an
-    // earlier library chunk's own `//# sourceMappingURL=` in a string, which must not be mistaken
-    // for the bundle's real (trailing) map reference.
-    const all = e.source.match(/\/\/[#@]\s*sourceMappingURL=(\S+)/g);
-    const ref = all && all.length > 0 ? /sourceMappingURL=(\S+)/.exec(all[all.length - 1]!)![1]! : undefined;
-    try {
-      if (ref?.startsWith("data:")) {
-        const comma = ref.indexOf(",");
-        const meta = ref.slice(5, comma);
-        const data = ref.slice(comma + 1);
-        const json: unknown = JSON.parse(meta.includes("base64") ? Buffer.from(data, "base64").toString("utf8") : decodeURIComponent(data));
-        const map = qaReadFields(json);
-        if (map !== undefined) e.map = map;
-        continue;
-      }
-      let mapUrl: URL;
-      if (ref) mapUrl = new URL(ref, e.url);
-      else {
-        mapUrl = new URL(e.url);
-        if (!/^https?:$/.test(mapUrl.protocol)) continue;
-        mapUrl.search = "";
-        mapUrl.hash = "";
-        mapUrl.pathname += ".map";
-      }
-      const map = await qaFetchSourceMap(mapUrl.toString(), request);
+  await Promise.all(entries.map((e) => attachSourceMap(e, request)));
+}
+async function attachSourceMap(e: CoverageEntry, request: QaMapRequest): Promise<void> {
+  if (!e.source || !e.url) return;
+  // The LAST sourceMappingURL comment wins (source-map spec): a minified bundle can inline an
+  // earlier library chunk's own `//# sourceMappingURL=` in a string, which must not be mistaken
+  // for the bundle's real (trailing) map reference.
+  const all = e.source.match(/\/\/[#@]\s*sourceMappingURL=(\S+)/g);
+  const ref = all && all.length > 0 ? /sourceMappingURL=(\S+)/.exec(all[all.length - 1]!)![1]! : undefined;
+  try {
+    if (ref?.startsWith("data:")) {
+      const comma = ref.indexOf(",");
+      const meta = ref.slice(5, comma);
+      const data = ref.slice(comma + 1);
+      const json: unknown = JSON.parse(meta.includes("base64") ? Buffer.from(data, "base64").toString("utf8") : decodeURIComponent(data));
+      const map = qaReadFields(json);
       if (map !== undefined) e.map = map;
-    } catch {
-      /* best-effort: no map → URL-suffix fallback */
+      return;
     }
+    let mapUrl: URL;
+    if (ref) mapUrl = new URL(ref, e.url);
+    else {
+      mapUrl = new URL(e.url);
+      if (!/^https?:$/.test(mapUrl.protocol)) return;
+      mapUrl.search = "";
+      mapUrl.hash = "";
+      mapUrl.pathname += ".map";
+    }
+    const map = await qaFetchSourceMap(mapUrl.toString(), request);
+    if (map !== undefined) e.map = map;
+  } catch {
+    /* best-effort: no map → URL-suffix fallback */
   }
 }
 // <<< qa-source-maps <<<

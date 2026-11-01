@@ -125,7 +125,7 @@ export const END_EFFECTS: Readonly<Record<EndReason, EndEffects>> = {
   "setup-failed": UNRECORDED,
   "auth-failed": UNRECORDED,
   "login-precondition": RECORDED_TERMINAL,
-  "generation-noop": { persist: "yes", publish: "none", learn: "none", prune: "after-persist", enforce: false },
+  "generation-noop": { persist: "yes", publish: "decision", learn: "none", prune: "after-persist", enforce: false },
   "generation-ended-without-specs": RECORDED_TERMINAL,
   "generation-empty-output": UNRECORDED,
   "no-author": RECORDED_TERMINAL,

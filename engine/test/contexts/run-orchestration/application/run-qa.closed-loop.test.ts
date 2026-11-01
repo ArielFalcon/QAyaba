@@ -1,4 +1,4 @@
-/* A run may grant its generator the run_spec tool: the loop is opened after the login and before the first generation, probes are swept after every generation, and when every delivered spec was seen passing in its current bytes the regenerations that would only repeat that work are retired. The explicit no-op, the silence classes and the single change-coverage regeneration are untouched in both branches. */
+/* A run may grant its generator the run_spec tool: the loop is opened after the login and before the first generation, probes are swept after every generation, and when every delivered spec was seen passing in its current bytes the regenerations that would only repeat that work are retired until a failing final execution is read once more and fails again. The explicit no-op, the silence classes and the single change-coverage regeneration are untouched in both branches. */
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -264,6 +264,7 @@ function provenBytesLoop(r: Rig): void {
 test("a static-fix round that rewrites a proven spec leaves the loop open for its new bytes, so a failing execution then regenerates; one that leaves the bytes keeps the fix loop retired", async () => {
   for (const rewrites of [true, false]) {
     let validations = 0;
+    let executions = 0;
     const r = rig();
     provenBytesLoop(r);
     const out = await new RunQaUseCase(r.deps({
@@ -276,7 +277,7 @@ test("a static-fix round that rewrites a proven spec leaves the loop open for it
         },
       },
       validation: { validate: async () => (validations++ === 0 ? { ok: false, errors: ["[lint] playwright/expect-expect"] } : { ok: true, errors: [] }) },
-      execution: { execute: async () => ({ verdict: "fail" as const, cases: FAIL, logs: "" }) },
+      execution: { execute: async () => (executions++ === 0 ? { verdict: "fail" as const, cases: FAIL, logs: "" } : { verdict: "pass" as const, cases: PASS, logs: "" }) },
     })).run(INPUT);
     assert.equal(out.gateSignals.retries >= 1, true, `the static gate was repaired, rewrites=${rewrites}`);
     if (rewrites) {
@@ -300,7 +301,7 @@ test("the pre-execution corrective regeneration is skipped when the loop is clos
   assert.equal(closed.generations, 1);
 });
 
-test("a failing execution regenerates when the loop is not closed, and goes to adjudication alone when it is", async () => {
+test("a failing execution regenerates when the loop is not closed; when it is, one re-read says whether the failure or the proof stands", async () => {
   const failing = { execute: async () => (events.push("execute"), { verdict: "fail" as const, cases: FAIL, logs: "" }) };
   const events: string[] = [];
 
@@ -308,19 +309,28 @@ test("a failing execution regenerates when the loop is not closed, and goes to a
   await new RunQaUseCase(open.deps({ execution: failing })).run(INPUT);
   assert.ok(open.generations > 1, "the fix loop regenerates");
 
-  const closed = rig({ closed: true });
-  const out = await new RunQaUseCase(closed.deps({ execution: failing })).run(INPUT);
-  assert.equal(closed.generations, 1, "no regeneration");
+  const agrees = rig({ closed: true });
+  let reads = 0;
+  const flaky = await new RunQaUseCase(agrees.deps({ execution: { execute: async () => (reads++ === 0 ? { verdict: "fail" as const, cases: FAIL, logs: "" } : { verdict: "pass" as const, cases: PASS, logs: "" }) } })).run(INPUT);
+  assert.equal(reads, 2, "the failure was read once more, and not rewritten");
+  assert.equal(agrees.generations, 1, "the re-read agrees with the proof: the regeneration stays retired");
+  assert.equal(flaky.decision.verdict, "flaky");
+  assert.equal(flaky.decision.sideEffect, "quarantine");
+  assert.equal(flaky.gateSignals.closedLoop?.conflicts, 1);
+
+  const contradicted = rig({ closed: true });
+  const out = await new RunQaUseCase(contradicted.deps({ execution: failing })).run(INPUT);
+  assert.ok(contradicted.generations > 1, "the re-read failed again: two failures against one pass put the regeneration back");
   assert.equal(out.decision.verdict, "fail");
   assert.equal(out.decision.sideEffect, "issue");
-  assert.ok(closed.saved.at(-1)!.adjudication?.class, "the Issue still carries the adjudicator's class");
+  assert.equal(out.gateSignals.closedLoop?.conflicts, 1);
+  assert.ok(contradicted.saved.at(-1)!.adjudication?.class, "the Issue still carries the adjudicator's class");
 });
 
 test("a deterministic infrastructure failure is still reclassified when the loop is closed", async () => {
   const infra: QaCase[] = [{ name: "a", status: "fail", file: "flows/a.spec.ts", detail: "net::ERR_CONNECTION_REFUSED at https://dev" }];
   const closed = rig({ closed: true });
   const out = await new RunQaUseCase(closed.deps({ execution: { execute: async () => ({ verdict: "fail", cases: infra, logs: "" }) } })).run(INPUT);
-  assert.equal(closed.generations, 1);
   assert.notEqual(out.decision.sideEffect, "pr");
 });
 

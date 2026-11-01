@@ -57,8 +57,13 @@ export function recordedRequestsFor(pack: string | undefined, routes: readonly s
   return requestFactsFor(pack, wantedPages(routes)).facts.filter((fact) => !fact.counted).map((fact) => fact.request);
 }
 
-export function packPagesFor(pack: string | undefined, routes: readonly string[]): string | undefined {
-  if (!pack || routes.length === 0) return undefined;
+/*
+ * The flow's slice of the pack: the Live DOM of the pages `routes` name, then the requests those pages made and the contradictions their
+ * data shows. `contradictedRoutes` are further pages whose contradictions the flow is handed because its code reaches them
+ * (`contradictionsReaching`); with none of its pages in the pack the slice holds those alone.
+ */
+export function packPagesFor(pack: string | undefined, routes: readonly string[], contradictedRoutes: readonly string[] = []): string | undefined {
+  if (!pack || (routes.length === 0 && contradictedRoutes.length === 0)) return undefined;
   const wanted = wantedPages(routes);
   const head: string[] = [];
   const pages: string[][] = [];
@@ -78,13 +83,17 @@ export function packPagesFor(pack: string | undefined, routes: readonly string[]
     const [, route, template] = PAGE_LINE.exec(first!)!;
     return pageIsNamed(route!, template, wanted);
   });
-  if (mine.length === 0) return undefined;
   /* The facts of the pages' other sections come after them: what they requested, then what their data contradicts. */
-  const factLines = [PACK_HEADINGS.requests, PACK_HEADINGS.contradictions].flatMap((section) => {
-    const facts = requestFactsFor(pack, wanted, section);
+  const contradicted = wantedPages([...routes, ...contradictedRoutes]);
+  const factLines = [
+    ...(mine.length > 0 ? [{ section: PACK_HEADINGS.requests, wanted }] : []),
+    { section: PACK_HEADINGS.contradictions, wanted: contradicted },
+  ].flatMap(({ section, wanted: named }) => {
+    const facts = requestFactsFor(pack, named, section);
     return facts.facts.length === 0 ? [] : ["", facts.heading!, ...facts.facts.map((fact) => fact.line)];
   });
-  return [...head, ...mine.map((page) => page.join("\n")), ...factLines].join("\n");
+  if (mine.length === 0 && factLines.length === 0) return undefined;
+  return [...(mine.length > 0 ? head : []), ...mine.map((page) => page.join("\n")), ...factLines].join("\n");
 }
 
 /* The lines of a pack text that are facts of one of its sections: the `- ` lines under the heading, which runs to the next heading. */

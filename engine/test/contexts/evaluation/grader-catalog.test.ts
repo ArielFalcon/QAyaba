@@ -62,7 +62,7 @@ test("pending catalog entries are not graded names, graded ones are", () => {
 });
 
 test("the value graders are in the catalog, the merged duplicates are not, and the context ratios are numeric", () => {
-  for (const name of ["mutation_kill_rate", "change_coverage_ratio", "branch_coverage_ratio", "review_verdict", "defect_found", "survivors_routed", "flaky_triage", "drops_contradicted"]) assert.equal(isGradedName(name), true, name);
+  for (const name of ["mutation_kill_rate", "change_coverage_ratio", "branch_coverage_ratio", "review_verdict", "defect_found", "survivors_routed", "survivors_closed", "flaky_triage", "drops_contradicted"]) assert.equal(isGradedName(name), true, name);
   for (const name of ["auth_overhead", "plan_route_coverage", "delivered_route_coverage"]) assert.equal(isCatalogName(name), false, name);
   assert.equal(specOfScore("context_complete")?.dataType, "NUMERIC");
   assert.equal(specOfScore("context_fresh")?.dataType, "NUMERIC");

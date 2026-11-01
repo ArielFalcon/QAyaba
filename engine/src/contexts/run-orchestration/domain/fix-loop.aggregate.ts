@@ -168,13 +168,15 @@ export interface FixLoopResult {
   rejectedClaims: number;
   /* The triage's record: what made a failure a candidate for the one re-read, and what came of it. Absent when no failure was a candidate. */
   triage?: FixLoopTriage;
+  /* The spec files whose failing bytes a green proof contradicted: the final execution failed what the run_spec loop saw pass. 0 when none did. */
+  proofConflicts: number;
 }
 
 export interface FixLoopTriage {
-  /* `pack-conflict`: the failures read an empty data state on pages the Context Pack read with results; `absent-selectors`: their target was absent from the failure-point tree; `availability`: they ended where a route the capture classified sends the run's client. */
-  trigger: "pack-conflict" | "absent-selectors" | "availability";
-  /* `passed`: the re-read passed (the run is flaky); `dev-not-rendered`: it failed the same way; `inconclusive`: it failed differently; `no-budget`: no execution was left for it; `unproven`: an absent target whose bytes had no green proof, so no re-read was spent. An availability trigger never re-reads: `precondition` (the environment sent every failure away), `needs-human` (a possible regression) or `corrected` (the test is told where its route ends). */
-  outcome: "passed" | "dev-not-rendered" | "inconclusive" | "no-budget" | "unproven" | "precondition" | "needs-human" | "corrected";
+  /* `pack-conflict`: the failures read an empty data state on pages the Context Pack read with results; `absent-selectors`: their target was absent from the failure-point tree; `proof-conflict`: every failed file had a green proof on its current bytes, whatever the failure; `availability`: they ended where a route the capture classified sends the run's client. */
+  trigger: "pack-conflict" | "absent-selectors" | "proof-conflict" | "availability";
+  /* `passed`: the re-read passed (the run is flaky); `dev-not-rendered`: it failed the same way; `inconclusive`: it failed differently; `reproduced`: a proof-conflict re-read failed again, so the proof no longer retires the regeneration; `no-budget`: no execution was left for it; `unproven`: an absent target whose bytes had no green proof, so no re-read was spent. An availability trigger never re-reads: `precondition` (the environment sent every failure away), `needs-human` (a possible regression) or `corrected` (the test is told where its route ends). */
+  outcome: "passed" | "dev-not-rendered" | "inconclusive" | "reproduced" | "no-budget" | "unproven" | "precondition" | "needs-human" | "corrected";
   /* The spec files the re-read covered. */
   files: number;
 }
@@ -287,8 +289,9 @@ interface RoundScratch {
  */
 export interface FixLoopState {
   readonly input: FixLoopInput;
-  readonly regenerate: boolean;
-  readonly maxRetries: number;
+  /** False while the generator's proof retires the regeneration; a re-read that contradicts the proof turns it back on. */
+  regenerate: boolean;
+  maxRetries: number;
   stage: FixLoopStage;
   /** Why the loop stopped; set with `stage: "done"`. */
   stop: FixLoopStop | undefined;
@@ -309,6 +312,7 @@ export interface FixLoopState {
   /** The one triage re-execution this loop may spend. */
   triaged: boolean;
   triage: FixLoopTriage | undefined;
+  proofConflicts: number;
   /** A rejected test-correct claim earns one repair even when the progress gate would stop the round. */
   claimRejected: boolean;
   /** Only what a later round reads from the previous regeneration. */
@@ -353,6 +357,7 @@ export class FixLoop {
       rejectedClaims: 0,
       triaged: false,
       triage: undefined,
+      proofConflicts: 0,
       claimRejected: false,
       lastRegenResult: input.initialSpecSources?.length ? { specSources: input.initialSpecSources } : undefined,
       round: undefined,
@@ -402,6 +407,7 @@ export class FixLoop {
       preconditionFailed: state.preconditionFailed,
       rejectedClaims: state.rejectedClaims,
       ...(state.triage ? { triage: state.triage } : {}),
+      proofConflicts: state.proofConflicts,
     };
   }
 
@@ -483,6 +489,8 @@ export class FixLoop {
     /*
      * The second witness: every failure read an empty data state on a page the Context Pack read with
      * results in this same run. The pack stands where a green proof would, since it saw the target's data.
+     * Any other failure of bytes with a green proof is a proof conflict: the same bytes passed and failed in one run, so one
+     * re-read (no retries) says which reading stands; a pass is intermittence, a second failure puts the regeneration back.
      */
     let devNotRendered: AdjudicatorEvidence["devNotRendered"];
     /* A failure that ended where its route sends the run's client: the class of the route's fact decides, with no re-read. */
@@ -494,53 +502,57 @@ export class FixLoop {
       if (availability.kind === "precondition") availabilityVerdict = { class: ADJ_CLASS.DEV_NOT_RENDERED, confidence: ADJ_CONFIDENCE.HIGH, action: ADJ_ACTION.BREAK_ISSUE, reason: availability.reason };
     }
     const packConflict = failed.length > 0 && failed.every((c) => contradictsPack(c, input.packConfirmedDataRoutes));
-    if (
-      availabilityVerdict === undefined &&
-      !state.triaged &&
-      (absentKeys.size > 0 || packConflict) &&
-      failureClasses.length > 0 &&
-      /* A contradicted data state is the page's own reading, whatever the assertion that met it; an absent target stands only on a presence failure. */
-      (packConflict || failureClasses.every((failure) => failure === "locator" || failure === "timeout")) &&
-      failed.every((c) => !!c.file)
-    ) {
+    const absentTarget = absentKeys.size > 0 && failureClasses.length > 0 && failureClasses.every((failure) => failure === "locator" || failure === "timeout");
+    if (availabilityVerdict === undefined && !state.triaged && failureClasses.length > 0 && failed.every((c) => !!c.file)) {
       const failedFiles = [...new Set(failed.map((c) => c.file as string))];
-      const proofs = packConflict ? [] : await Promise.all(failedFiles.map((file) => input.integrity.hasGreenProof(file)));
-      const record = (outcome: FixLoopTriage["outcome"]): void => {
-        state.triage ??= { trigger: packConflict ? "pack-conflict" : "absent-selectors", outcome, files: failedFiles.length };
-      };
-      if (!packConflict && !proofs.every(Boolean)) record("unproven");
-      if (packConflict || proofs.every(Boolean)) {
-        state.triaged = true;
-        const remaining = input.integrity.allowanceMs();
-        if ((remaining !== undefined && remaining <= 0) || !input.integrity.spendExecution()) {
-          devNotRendered = "inconclusive";
-          record("no-budget");
-        } else {
-          const triageRun = await this.deps.execution.execute({
-            namespace: `${input.namespace}-triage`,
-            specFiles: failedFiles,
-            retries: 0,
-          });
-          if (triageRun.verdict === "pass" || triageRun.verdict === "flaky") {
-            /* The same bytes passed on a second read: intermittent, as a retry that passes is today. */
-            const reportedFiles = new Set(triageRun.cases.map((c) => c.file));
-            state.run = {
-              verdict: "flaky",
-              cases: [...state.run.cases.filter((c) => !reportedFiles.has(c.file)), ...triageRun.cases],
-            };
-            record("passed");
-            return fixLoopAction({ after: "triage", passed: true });
+      const proven = (await Promise.all(failedFiles.map((file) => input.integrity.hasGreenProof(file)))).every(Boolean);
+      const trigger: FixLoopTriage["trigger"] | undefined = packConflict ? "pack-conflict" : absentTarget ? "absent-selectors" : proven ? "proof-conflict" : undefined;
+      if (proven) state.proofConflicts = failedFiles.length;
+      if (trigger !== undefined) {
+        const record = (outcome: FixLoopTriage["outcome"]): void => {
+          state.triage ??= { trigger, outcome, files: failedFiles.length };
+        };
+        if (trigger === "absent-selectors" && !proven) record("unproven");
+        if (trigger === "pack-conflict" || proven) {
+          state.triaged = true;
+          const remaining = input.integrity.allowanceMs();
+          if ((remaining !== undefined && remaining <= 0) || !input.integrity.spendExecution()) {
+            if (trigger !== "proof-conflict") devNotRendered = "inconclusive";
+            record("no-budget");
+          } else {
+            const triageRun = await this.deps.execution.execute({
+              namespace: `${input.namespace}-triage`,
+              specFiles: failedFiles,
+              retries: 0,
+            });
+            if (triageRun.verdict === "pass" || triageRun.verdict === "flaky") {
+              /* The same bytes passed on a second read: intermittent, as a retry that passes is today. */
+              const reportedFiles = new Set(triageRun.cases.map((c) => c.file));
+              state.run = {
+                verdict: "flaky",
+                cases: [...state.run.cases.filter((c) => !reportedFiles.has(c.file)), ...triageRun.cases],
+              };
+              record("passed");
+              return fixLoopAction({ after: "triage", passed: true });
+            }
+            if (trigger === "proof-conflict") {
+              /* Two failures against one pass: the proof no longer says a rewrite is unlikely to cure it. */
+              state.regenerate = true;
+              state.maxRetries = input.maxRetries;
+              record("reproduced");
+            } else {
+              const triageFailed = triageRun.cases.filter((c) => c.status === "fail");
+              const triageTrees = triageFailed.map((c) => buildFailureDomLines(c.failureDom)).filter((tree) => tree.length > 0);
+              const triageAbsentKeys = this.deps.selectorCheck.check(specSources, triageTrees).absentKeys;
+              const stable =
+                triageRun.verdict === "fail" &&
+                (packConflict
+                  ? triageFailed.length > 0 && triageFailed.every((c) => contradictsPack(c, input.packConfirmedDataRoutes))
+                  : [...absentKeys].every((key) => triageAbsentKeys.has(key)));
+              devNotRendered = stable ? "conclusive" : "inconclusive";
+              record(stable ? "dev-not-rendered" : "inconclusive");
+            }
           }
-          const triageFailed = triageRun.cases.filter((c) => c.status === "fail");
-          const triageTrees = triageFailed.map((c) => buildFailureDomLines(c.failureDom)).filter((tree) => tree.length > 0);
-          const triageAbsentKeys = this.deps.selectorCheck.check(specSources, triageTrees).absentKeys;
-          const stable =
-            triageRun.verdict === "fail" &&
-            (packConflict
-              ? triageFailed.length > 0 && triageFailed.every((c) => contradictsPack(c, input.packConfirmedDataRoutes))
-              : [...absentKeys].every((key) => triageAbsentKeys.has(key)));
-          devNotRendered = stable ? "conclusive" : "inconclusive";
-          record(stable ? "dev-not-rendered" : "inconclusive");
         }
       }
     }

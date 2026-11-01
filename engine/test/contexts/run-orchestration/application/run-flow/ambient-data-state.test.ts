@@ -44,3 +44,18 @@ test("with no place declared, the pinned case's finding says the state is DEV's 
   assert.ok(finding!.finding.text.includes("Never intercept requests"), "it forbids the faked route");
   assert.equal(finding!.finding.text.includes("set_geolocation"), false, "it names no place");
 });
+
+const COUNT_PIN: AmbientDataPin = { file: "flows/search.spec.ts", test: "search › lists the results", pages: [], counts: [{ page: "/search", count: 7 }] };
+
+test("a case that asserts the result count the pack read is a finding for its spec's flow that names the page and the count, and never asks for a place", () => {
+  const findings = ambientPinFindings([COUNT_PIN], ["north"]);
+  assert.equal(findings.length, 1);
+  assert.equal(findings[0]!.finding.spec, COUNT_PIN.file);
+  for (const part of [COUNT_PIN.test, "/search", "7"]) assert.ok(findings[0]!.finding.text.includes(part), part);
+  assert.equal(findings[0]!.finding.text.includes("north"), false, "the count is not given by moving to a place");
+});
+
+test("a case pinned on an empty page and on a read count gets one finding for each", () => {
+  const both: AmbientDataPin = { ...PIN, counts: COUNT_PIN.counts };
+  assert.equal(ambientPinFindings([both], []).length, 2);
+});

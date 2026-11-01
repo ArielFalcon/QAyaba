@@ -317,3 +317,18 @@ test("with no pinned case neither the PR nor the Issue says anything of it", () 
   assert.equal(renderPrBody({ }), renderPrBody({ ambientDataState: { pins: [], arms: [] } }));
   assert.equal(renderIssue({ verdict: "fail", cases: [failCase()] }), renderIssue({ verdict: "fail", cases: [failCase()], ambientDataState: { pins: [], arms: [] } }));
 });
+
+test("the PR names the page and the read result count a case asserts as the page loaded", () => {
+  const counted = { pins: [{ file: "flows/search.spec.ts", test: "search › lists the results", pages: [], counts: [{ page: "/search", count: 7 }] }], arms: [] };
+  const body = renderPrBody({ ambientDataState: counted });
+  for (const part of ["flows/search.spec.ts", "search › lists the results", "/search", "7"]) assert.ok(body.includes(part), part);
+});
+
+test("the Issue of a run that found a defect says so in its headline whatever the verdict, and a flaky run says it was also quarantined", () => {
+  for (const verdict of ["skipped", "infra-error", "flaky"] as const) {
+    const body = renderIssue({ verdict, cases: [], defects: [DEFECT] });
+    assert.ok(body.split("\n")[0]!.includes("1 defect(s) found without a failing check"), verdict);
+    assert.ok(body.includes(DEFECT.fact.key), "the defect is listed");
+  }
+  assert.ok(renderIssue({ verdict: "flaky", cases: [], defects: [DEFECT] }).split("\n")[0]!.includes("quarantined"));
+});

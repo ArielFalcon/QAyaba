@@ -15,8 +15,8 @@ export class LearningRepository {
   constructor(private readonly db: HistoryDatabase) {
     const raw = db.raw;
     this.insertOutcome = raw.prepare(`
-      INSERT INTO run_outcomes (id, app, sha, mode, target, verdict, error_class, gate_signals, at)
-      VALUES (@id, @app, @sha, @mode, @target, @verdict, @errorClass, @gateSignals, @at)
+      INSERT INTO run_outcomes (id, app, sha, mode, target, verdict, error_class, gate_signals, adjudication, at)
+      VALUES (@id, @app, @sha, @mode, @target, @verdict, @errorClass, @gateSignals, @adjudication, @at)
     `);
     this.reclassifyOutcome = raw.prepare("UPDATE run_outcomes SET verdict = 'infra-error', error_class = ? WHERE id = ?");
     this.listOutcomes = raw.prepare("SELECT * FROM run_outcomes WHERE app = ? ORDER BY at DESC, rowid DESC LIMIT ?");
@@ -44,6 +44,7 @@ export class LearningRepository {
       verdict: outcome.verdict,
       errorClass: outcome.errorClass ?? null,
       gateSignals: JSON.stringify(outcome.gateSignals),
+      adjudication: outcome.adjudication === undefined ? null : JSON.stringify(outcome.adjudication),
       at: outcome.at,
     });
   }
@@ -83,6 +84,7 @@ export class LearningRepository {
       verdict: row.verdict as RunVerdict,
       errorClass: (row.error_class as RunOutcome["errorClass"]) ?? null,
       gateSignals: parseJsonColumn(row.gate_signals as string, EMPTY_GATE_SIGNALS, site("gate_signals")),
+      ...(typeof row.adjudication === "string" ? { adjudication: parseJsonColumn<NonNullable<RunOutcome["adjudication"]>>(row.adjudication, { class: "unknown" }, site("adjudication")) } : {}),
       at: row.at as string,
     };
   }

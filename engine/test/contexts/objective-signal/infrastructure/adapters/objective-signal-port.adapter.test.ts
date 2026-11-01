@@ -556,7 +556,10 @@ test("measure() makes no mutant of a site whose source line in the working copy 
     const result = await adapter.measure(BlastRadius.of(Sha.of("abc1234"), ["src/checkout.ts"]), "/e2e", SAMPLE_DIFF, ["pays"], { caseFiles: ["flows/pay.spec.ts"] });
 
     assert.deepEqual(asked, [{ line: 1, tests: ["flows-pay-spec-ts-x"] }]);
-    assert.deepEqual(result.bundleMutation?.skippedSites, { count: 1, reasons: { "not-in-source-line": 1 } });
+    const skipped = result.bundleMutation?.skippedSites;
+    assert.equal(skipped?.count, 1);
+    assert.deepEqual(skipped?.reasons, { "not-in-source-line": 1 });
+    assert.deepEqual(skipped?.sites, [{ file: "src/checkout.ts", line: 2, reason: "not-in-source-line" }]);
     assert.equal(result.bundleMutation?.rerunsBySpecFile, undefined, "every mutant re-runs only the tests that reached it");
     assert.equal(result.mutantSelection?.rerunsByTest, 1);
   } finally {

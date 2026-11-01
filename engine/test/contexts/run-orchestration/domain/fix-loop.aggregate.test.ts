@@ -1427,7 +1427,7 @@ test("a test-correct:env claim with no conclusive environment evidence is ignore
   const result = await loop.run(
     loopInput({
       initialRun: { verdict: "fail", cases: [makeCase({ name: "price", file: "checkout.spec.ts", detail: VALUE_MISMATCH })] },
-      integrity: integrity(),
+      integrity: integrity({ hasGreenProof: async () => false }),
       maxRetries: 2,
     }),
   );
@@ -1445,7 +1445,7 @@ test("a test-correct:app claim backed by a value mismatch stops the loop as an a
   const result = await loop.run(
     loopInput({
       initialRun: { verdict: "fail", cases: [makeCase({ name: "total", file: "checkout.spec.ts", detail: VALUE_MISMATCH })] },
-      integrity: integrity(),
+      integrity: integrity({ hasGreenProof: async () => false }),
     }),
   );
 
@@ -1915,5 +1915,128 @@ test("an absent target whose bytes have no green proof reports an unproven triag
   assert.equal(rec.executes.length, 0, "no proof: no re-read");
   assert.equal(rec.generates.length, 1);
   assert.deepEqual(result.triage, { trigger: "absent-selectors", outcome: "unproven", files: 1 });
+});
+
+/* ── Proof conflict: the final execution fails bytes the run_spec loop saw pass ───────────────────── */
+
+const PASSED_AGAIN: FixLoopRun = { verdict: "pass", cases: [{ name: "price", status: "pass", file: "checkout.spec.ts" }] };
+const priceFailure = (overrides: Partial<QaCase> = {}): QaCase => makeCase({ name: "price", file: "checkout.spec.ts", detail: VALUE_MISMATCH, ...overrides });
+
+test("a failure of bytes with a green proof is re-read once whatever its class, and a re-read that passes makes the run flaky without a repair", async () => {
+  const { loop, rec } = recordingLoop({ runs: [PASSED_AGAIN] });
+  let spends = 0;
+
+  const result = await loop.run(
+    loopInput({
+      regenerate: false,
+      initialRun: { verdict: "fail", cases: [priceFailure()] },
+      integrity: integrity({ spendExecution: () => (spends++, true) }),
+    }),
+  );
+
+  assert.equal(rec.executes.length, 1, "one re-read, not a rewrite");
+  assert.equal(rec.executes[0]!.namespace, "qa-bot-run-triage");
+  assert.deepEqual(rec.executes[0]!.specFiles, ["checkout.spec.ts"]);
+  assert.equal(rec.executes[0]!.retries, 0);
+  assert.equal(spends, 1, "the re-read claims one execution from the run's cap");
+  assert.equal(rec.generates.length, 0);
+  assert.equal(result.run.verdict, "flaky");
+  assert.deepEqual(result.triage, { trigger: "proof-conflict", outcome: "passed", files: 1 });
+  assert.equal(result.proofConflicts, 1);
+});
+
+test("a re-read that fails again leaves the proof contradicted: the retired regeneration is back on and the failure is adjudicated", async () => {
+  const failing = makeCase({ name: "price", file: "checkout.spec.ts", detail: LOCATOR_FAULT });
+  const { loop, rec } = recordingLoop({ runs: [{ verdict: "fail", cases: [failing] }], regen: noFix });
+
+  const result = await loop.run(loopInput({ regenerate: false, maxRetries: 2, initialRun: { verdict: "fail", cases: [failing] }, integrity: integrity() }));
+
+  assert.equal(rec.executes.length, 1);
+  assert.equal(rec.generates.length, 1, "two failures against one pass: the generator is asked again");
+  assert.equal(result.run.verdict, "fail");
+  assert.ok(result.lastAdjudicatorVerdict, "the failure is adjudicated");
+  assert.deepEqual(result.triage, { trigger: "proof-conflict", outcome: "reproduced", files: 1 });
+});
+
+test("a failure the adjudicator stops on after a re-read that failed again is still reported and not rewritten", async () => {
+  const { loop, rec } = recordingLoop({ runs: [{ verdict: "fail", cases: [priceFailure()] }], check: () => findings({ anyVerifiedPresent: true }) });
+
+  const result = await loop.run(loopInput({ regenerate: false, initialRun: { verdict: "fail", cases: [priceFailure()] }, integrity: integrity() }));
+
+  assert.equal(rec.executes.length, 1);
+  assert.equal(rec.generates.length, 0, "a value mismatch on unique selectors is a possible app defect, never regenerated into green");
+  assert.equal(result.lastAdjudicatorVerdict?.action, "break-needs-human");
+});
+
+test("with no execution left the proof stands: no re-read, and the retired regeneration stays retired", async () => {
+  const { loop, rec } = recordingLoop({ regen: noFix });
+
+  const result = await loop.run(
+    loopInput({
+      regenerate: false,
+      maxRetries: 2,
+      initialRun: { verdict: "fail", cases: [makeCase({ file: "checkout.spec.ts", detail: LOCATOR_FAULT })] },
+      integrity: integrity({ spendExecution: () => false }),
+    }),
+  );
+
+  assert.equal(rec.executes.length, 0);
+  assert.equal(rec.generates.length, 0);
+  assert.deepEqual(result.triage, { trigger: "proof-conflict", outcome: "no-budget", files: 1 });
+});
+
+test("with no time left for the fix purpose the proof stands and no execution is claimed", async () => {
+  const { loop, rec } = recordingLoop({ regen: noFix });
+  let spends = 0;
+
+  const result = await loop.run(
+    loopInput({
+      regenerate: false,
+      initialRun: { verdict: "fail", cases: [priceFailure()] },
+      integrity: integrity({ allowanceMs: () => 0, spendExecution: () => (spends++, true) }),
+    }),
+  );
+
+  assert.equal(rec.executes.length, 0);
+  assert.equal(spends, 0);
+  assert.equal(result.triage?.outcome, "no-budget");
+});
+
+test("a failure with no green proof, or with a proof for only some of its files, is not re-read", async () => {
+  const none = recordingLoop({ regen: noFix });
+  const unproven = await none.loop.run(loopInput({ initialRun: { verdict: "fail", cases: [priceFailure()] }, integrity: integrity({ hasGreenProof: async () => false }) }));
+  assert.equal(none.rec.executes.length, 0);
+  assert.equal(unproven.triage, undefined);
+  assert.equal(unproven.proofConflicts, 0);
+
+  const some = recordingLoop({ regen: noFix });
+  const partly = await some.loop.run(
+    loopInput({
+      initialRun: { verdict: "fail", cases: [priceFailure(), makeCase({ name: "total", file: "cart.spec.ts", detail: VALUE_MISMATCH })] },
+      integrity: integrity({ hasGreenProof: async (file) => file === "checkout.spec.ts" }),
+    }),
+  );
+  assert.equal(some.rec.executes.length, 0, "a file without a proof is not in conflict with anything");
+  assert.equal(partly.triage, undefined);
+});
+
+test("a data state the Context Pack contradicts keeps its own trigger when the bytes also have a green proof", async () => {
+  const { loop } = recordingLoop({ runs: [PASSED_AGAIN] });
+
+  const result = await loop.run(loopInput({ initialRun: { verdict: "fail", cases: [emptyListCase()] }, integrity: integrity(), packConfirmedDataRoutes: PACK_CONFIRMED }));
+
+  assert.equal(result.triage?.trigger, "pack-conflict");
+});
+
+test("the one re-read is spent once per loop: a later failing round with a proof is not re-read again", async () => {
+  const failing = makeCase({ name: "price", file: "checkout.spec.ts", detail: LOCATOR_FAULT });
+  const reshuffled = { ...failing, name: "price again" };
+  const acceptance = fakeAcceptance(async () => ({ kind: "accepted", changedSpecFiles: ["checkout.spec.ts"], execution: { verdict: "fail", cases: [reshuffled] }, accepted: {} }));
+  const { loop, rec } = recordingLoop({ runs: [{ verdict: "fail", cases: [failing] }], regen: () => ({ specs: ["checkout.spec.ts"] }), acceptance });
+
+  await loop.run(loopInput({ regenerate: false, maxRetries: 3, initialRun: { verdict: "fail", cases: [failing] }, integrity: integrity() }));
+
+  assert.equal(acceptance.accepted.length, 2, "the loop went on to a second round after the re-read");
+  assert.equal(rec.executes.length, 1, "the second round's failure, with a proof, is not re-read");
 });
 

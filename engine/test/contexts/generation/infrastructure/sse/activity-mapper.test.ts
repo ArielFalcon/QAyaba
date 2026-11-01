@@ -124,6 +124,16 @@ test("command.executed → command activity; session.error → agent.error", () 
   );
 });
 
+test("session.error with an error object is rendered by its name and message, never as [object Object]", () => {
+  const out = mapValid({ type: "session.error", properties: { sessionID: "sess_1", error: { name: "APIError", data: { message: "rate limit hit", statusCode: 429 } } } });
+  assert.equal(out.length, 1);
+  const detail = (out[0] as { type: string; detail: string }).detail;
+  assert.equal((out[0] as { type: string }).type, "agent.error");
+  assert.match(detail, /APIError/);
+  assert.match(detail, /rate limit hit/);
+  assert.doesNotMatch(detail, /\[object Object\]/);
+});
+
 test("events for an unknown session are dropped (demux safety)", () => {
   assert.deepEqual(mapOpencodeEvent(toolEvent({ status: "completed" }, { tool: "read", sessionID: "sess_OTHER" }), SESSIONS), []);
   assert.deepEqual(mapOpencodeEvent({ type: "todo.updated", properties: { sessionID: "ghost", todos: [{ content: "x", status: "pending" }] } }, SESSIONS), []);

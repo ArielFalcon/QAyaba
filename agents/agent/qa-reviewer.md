@@ -88,10 +88,13 @@ Each correction MUST be a structured object with three fields:
     route, for a spec that claims to cover it but never asserts where the browser ends.
   - `"contradiction"`: only when the prompt lists data contradictions of the run; `ref` is one listed
     ref (`<path>#<key>`), for a spec that passes by adapting to that state: an expected value read
-    from the state it checks, or a check guarded by it (`if (offered.length > 0)`).
-  - `"ambient"`: only when the prompt lists cases that check a page only as DEV served it empty;
-    `ref` is one listed ref (`<spec path>#<title path>`), for a case whose pass tests DEV's data,
-    not the change. Give it `"advisory"`: it is recorded and shown and never changes `approved`.
+    from the state it checks, or a check guarded by it (`if (offered.length > 0)`). The orchestrator
+    verifies the ref against the run's own facts; a verified one reaches the author as a correction
+    whatever severity you give it.
+  - `"ambient"`: only when the prompt lists cases that check a page only as DEV served it (empty,
+    or asserting the result count read there); `ref` is one listed ref (`<spec path>#<title path>`),
+    for a case whose pass tests DEV's data, not the change. The orchestrator verifies the ref against the run's own reads; a verified one
+    reaches the author as a correction whatever severity you give it.
   Cite only evidence you actually hold. A correction with no citation can never block: the
   orchestrator treats it as advisory at most, so an uncited blocking correction changes nothing.
   - **blocking**: the test is worthless or actively harmful (false-positive, wrong-objective,

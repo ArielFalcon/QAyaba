@@ -1,6 +1,7 @@
 /* `ActivityKind` is the kernel's (activity-kind.ts). Authoritative event shapes (from @opencode-ai/sdk types): message.part.updated → { part: Part, delta? } sessionID lives in part.sessionID part.type "tool" → { tool, state:{ status, input, title } } (write/edit/bash/…) part.type "patch" → { files: string[] } part.type "file" → { filename } part.type text/reasoning/step → PROSE → dropped (this was the broken `"file": "s`) todo.updated → { sessionID, todos: Todo[] } (each: content, status, priority, id) command.executed → { sessionID, name, arguments } file.edited → { file } (no sessionID — cannot be run-scoped) session.error → { sessionID?, error } The router demuxes by sessionID → runId and stays ADVISORY-ONLY. Raw model prose is never surfaced — only clean structured fields (the file written, the command run, the todo the agent is on). */
 
 import { redactAndBound } from "../../../../shared-infrastructure/redaction/redact-and-bound.ts";
+import { describeSessionError } from "../../domain/agent-error-class.ts";
 import { isShellTool, isWriteTool, toolInputPath } from "../../domain/tool-call-taxonomy.ts";
 
 import type { ActivityKind } from "@kernel/activity-kind.ts";
@@ -111,7 +112,7 @@ export function routeEvent(event: RawEvent, sessions: ReadonlyMap<string, string
       return { activities: p.file ? [{ runId, kind: "file", text: basename(String(p.file)) }] : [] };
 
     case "session.error":
-      return { activities: [{ runId, kind: "error", text: activityText(`error: ${String(p.error ?? "unknown")}`) }] };
+      return { activities: [{ runId, kind: "error", text: activityText(`error: ${describeSessionError(p.error) ?? "unknown"}`) }] };
 
     default:
       return { activities: [], dropped: "unknown-kind" };

@@ -19,6 +19,7 @@ export interface PublishDecisionCollaborator {
     coverageBlocks: boolean;
     shadow: boolean;
     e2eChanged: boolean;
+    defectFound?: boolean;
   }): { outcome: "pr" | "issue" | "shadow" | "quarantine" | "held" | "noop"; reason: string };
 }
 /* Local structural mirrors of GitHubPrPort / GitHubIssuePort / ShadowPublicationPort's own publish surface (workspace-and-publication/application/ports/) — duck-typed, NOT imported. */
@@ -104,8 +105,8 @@ export interface PublicationPortStaticContext {
 }
 
 /* Sanitize the verdict in the title the same way every other rendered field is sanitized. */
-function renderTitle(verdict: RunVerdict, sanitize: (text: string) => string): string {
-  return `qa-bot: ${sanitize(verdict)} run`;
+function renderTitle(verdict: RunVerdict, sanitize: (text: string) => string, defectFound: boolean): string {
+  return `qa-bot: ${sanitize(verdict)} run${defectFound && verdict !== "fail" ? " with a defect found" : ""}`;
 }
 
 export class PublicationPortAdapter implements PublicationPort {
@@ -156,16 +157,18 @@ export class PublicationPortAdapter implements PublicationPort {
   }): Promise<{ outcome: string; revertedDenylisted?: string[]; revertedDangerous?: string[]; held?: { title: string; body: string } }> {
     /* A handle this registry did not issue throws here, on every route, before anything is rendered or sent. */
     const workspace = decision.workspace ? this.registry.resolve(decision.workspace) : undefined;
+    const defectFound = (decision.defects?.length ?? 0) > 0;
     const publishDecision = this.deps.decide.decide({
       verdict: decision.verdict,
       reviewerApproved: decision.reviewerApproved ?? this.ctx.reviewerApproved,
       coverageBlocks: decision.coverageBlocks ?? this.ctx.coverageBlocks,
       shadow: this.ctx.shadow,
       e2eChanged: decision.e2eChanged ?? this.ctx.e2eChanged,
+      defectFound,
     });
 
     const sanitize = this.deps.sanitize;
-    const title = renderTitle(decision.verdict, sanitize);
+    const title = renderTitle(decision.verdict, sanitize, defectFound);
     /* Distinct Issue vs PR bodies, built lazily per route. decision.logs is never read — raw logs must not reach a public body. Each composed body is sanitized once as a whole string. */
     const issueBody = (): string =>
       sanitize(
@@ -208,6 +211,7 @@ export class PublicationPortAdapter implements PublicationPort {
           coverageBlocks: decision.coverageBlocks ?? this.ctx.coverageBlocks,
           shadow: false,
           e2eChanged: decision.e2eChanged ?? this.ctx.e2eChanged,
+          defectFound,
         });
         if (underlying.outcome === "pr") {
           await this.deps.shadowLog.openPr(this.ctx.repo, this.ctx.branch, title, prBodyText());

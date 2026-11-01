@@ -1,5 +1,5 @@
-/* Which passing cases checked a page only as DEV served it, on a page DEV served confirmed empty, decided from the spec's syntax tree and the run's own reads. The detector reads each test's statements in the order they run (the `beforeEach` hooks of the scopes above it, outermost first, then its body; a `test.step` body in place) and keeps the windows in which the page is as it loaded: a window opens at `page.goto(<path>)` on the test's own `page` fixture and stays open while every statement only reads the page (an `expect` assertion, a locator, a read or a wait). Any other statement is a step of the test's own and ends the windows for the rest of the test, so an empty state the test produced (a filter it applied, data it removed) is never one DEV served.
-   A case is an ambient pin when its test asserted at least once, every assertion ran inside an as-loaded window and at least one ran on a page the run read as a confirmed empty state. What the detector cannot read soundly yields no pin, never a guess: a computed title or address, a navigation through a helper, a fixture other than the read-only ones (it may arrange state), any statement of the test's scopes the syntax cannot vouch for (a `beforeAll`, a `test.use`, a serial mode, a `test` the spec declares with fixtures of its own, code that runs while the file loads or its tests are collected), anything but a locator before the first navigation, a title path two tests share, a file that does not parse. A pin is a fact for the reader, never a verdict. */
+/* Which passing cases checked a page only as DEV served it, decided from the spec's syntax tree and the run's own reads: on a page DEV served confirmed empty, or with an assertion that holds the number of results the Context Pack read on that page. The detector reads each test's statements in the order they run (the `beforeEach` hooks of the scopes above it, outermost first, then its body; a `test.step` body in place) and keeps the windows in which the page is as it loaded: a window opens at `page.goto(<path>)` on the test's own `page` fixture and stays open while every statement only reads the page (an `expect` assertion, a locator, a read or a wait). Any other statement is a step of the test's own and ends the windows for the rest of the test, so an empty state the test produced (a filter it applied, data it removed) is never one DEV served.
+   A case is an ambient pin when its test asserted at least once, every assertion ran inside an as-loaded window and at least one ran on a page the run read as a confirmed empty state. What the detector cannot read soundly yields no pin, never a guess: a computed title or address, a navigation through a helper, a fixture other than the read-only ones (it may arrange state), any statement of the test's scopes the syntax cannot vouch for (a `beforeAll`, a `test.use`, a serial mode, a `test` the spec declares with fixtures of its own, code that runs while the file loads or its tests are collected), anything but a locator before the first navigation, a title path two tests share, a file that does not parse. A case is also a count pin when an assertion inside an as-loaded window holds, in a string, a regular expression or a number, a whole number equal to the results the Context Pack read on that window's page (the digits of a locator's selector or an index are no count): the number it asserts is DEV's data of the moment. A pin is a fact for the reader, never a verdict. */
 
 import ts from "typescript";
 import type { QaCase } from "@kernel/qa-case.ts";
@@ -45,6 +45,26 @@ function pageBindingOf(fn: Fn): { page: string | undefined } | undefined {
   return { page };
 }
 
+/* Calls whose literals select or position an element, not state a value the page shows: their digits are no count. */
+const SELECTING_CALLS = new Set(["locator", "frameLocator", "nth"]);
+/* A whole number in a text: digits that no letter, digit or decimal or thousands separator joins to another character. */
+const WHOLE_NUMBER = /(?<![\w.,-])\d+(?![\w]|[.,]\d)/g;
+
+/* The whole numbers the literals of an assertion statement hold, leaving out what a selecting call is given. */
+function assertedNumbers(statement: ts.Statement): number[] {
+  const found: number[] = [];
+  const visit = (node: ts.Node): void => {
+    if (ts.isCallExpression(node) && SELECTING_CALLS.has(memberName(node) ?? "")) return;
+    if (ts.isNumericLiteral(node)) found.push(Number(node.text));
+    else if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node) || ts.isRegularExpressionLiteral(node)) {
+      for (const match of node.text.matchAll(WHOLE_NUMBER)) found.push(Number(match[0]));
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(statement);
+  return found;
+}
+
 /* The path a `goto` opens when it is one from the root with no query or fragment; undefined for any other address. */
 function navigationPath(argument: ts.Expression | undefined): string | undefined {
   const text = argument === undefined ? undefined : literalText(unwrap(argument));
@@ -53,7 +73,7 @@ function navigationPath(argument: ts.Expression | undefined): string | undefined
 }
 
 /* What one statement of a test is to the window: a navigation, a read (an assertion or not), or a step of the test's own. */
-type Classified = { kind: "navigate"; path: string } | { kind: "read"; asserts: boolean } | { kind: "step"; asserts: boolean };
+type Classified = { kind: "navigate"; path: string } | { kind: "read"; asserts: boolean; numbers: number[] } | { kind: "step"; asserts: boolean };
 
 /* One function (a hook or the test) read with its own bindings: the page fixture and the locators it declares. */
 class FunctionReading {
@@ -135,7 +155,7 @@ class FunctionReading {
       const { readOnly, asserts } = this.reads(statement);
       if (readOnly && (ts.isExpressionStatement(statement) || ts.isVariableStatement(statement))) {
         if (ts.isVariableStatement(statement)) this.declareLocators(statement);
-        out.push({ kind: "read", asserts });
+        out.push({ kind: "read", asserts, numbers: asserts ? assertedNumbers(statement) : [] });
       } else {
         out.push({ kind: "step", asserts });
       }
@@ -156,11 +176,17 @@ class FunctionReading {
   }
 }
 
-/* One test of a spec as the detector reads it: its title path, and the pages its assertions ran on as they loaded, or why it says nothing. */
-type ReadTest = { titlePath: string; pages: string[] | undefined };
+/* What a test's as-loaded windows hold: the pages when every assertion of the test ran in one (undefined otherwise), and the whole numbers the assertions inside each window name. */
+interface LoadedReading {
+  pages: string[] | undefined;
+  numbers: Map<string, Set<number>>;
+}
 
-/* The pages a test asserted on as they loaded, or undefined when any assertion ran outside such a window, none ran, or the test cannot be read soundly. */
-function asLoadedPages(hooks: readonly Fn[], body: Fn): string[] | undefined {
+/* One test of a spec as the detector reads it: its title path, and what its as-loaded windows hold, or undefined when it says nothing. */
+type ReadTest = { titlePath: string; loaded: LoadedReading | undefined };
+
+/* What a test asserted on as its pages loaded, or undefined when the test cannot be read soundly: a step before any navigation, a fixture that may arrange state, a body the syntax cannot read. */
+function readAsLoaded(hooks: readonly Fn[], body: Fn): LoadedReading | undefined {
   const classified: Classified[] = [];
   for (const fn of [...hooks, body]) {
     const binding = pageBindingOf(fn);
@@ -169,8 +195,10 @@ function asLoadedPages(hooks: readonly Fn[], body: Fn): string[] | undefined {
   }
   let window: string | undefined;
   let stepped = false;
+  let everyAssertionLoaded = true;
   let assertions = 0;
   const pages = new Set<string>();
+  const numbers = new Map<string, Set<number>>();
   for (const item of classified) {
     if (item.kind === "navigate") {
       /* A page opened after a step of the test's own is not one DEV served untouched. */
@@ -178,17 +206,22 @@ function asLoadedPages(hooks: readonly Fn[], body: Fn): string[] | undefined {
       continue;
     }
     if (item.kind === "step") {
-      if (item.asserts || window === undefined) return undefined;
+      if (window === undefined) return undefined;
+      if (item.asserts) everyAssertionLoaded = false;
       stepped = true;
       window = undefined;
       continue;
     }
     if (!item.asserts) continue;
-    if (window === undefined) return undefined;
+    if (window === undefined) {
+      everyAssertionLoaded = false;
+      continue;
+    }
     assertions += 1;
     pages.add(window);
+    numbers.set(window, new Set([...(numbers.get(window) ?? []), ...item.numbers]));
   }
-  return assertions > 0 ? [...pages] : undefined;
+  return { pages: everyAssertionLoaded && assertions > 0 ? [...pages] : undefined, numbers };
 }
 
 /* The call a statement of a scope is, when the statement is that call alone. */
@@ -280,7 +313,7 @@ function nestedTests(node: ts.Node, titles: readonly string[] | undefined): Read
   const visit = (current: ts.Node): void => {
     if (ts.isCallExpression(current) && structuralCall(current)?.kind === "test") {
       const title = literalText(current.arguments[0]);
-      found.push({ titlePath: titles !== undefined && title !== undefined ? [...titles, title].join(TITLE_SEPARATOR) : "", pages: undefined });
+      found.push({ titlePath: titles !== undefined && title !== undefined ? [...titles, title].join(TITLE_SEPARATOR) : "", loaded: undefined });
     }
     ts.forEachChild(current, visit);
   };
@@ -312,7 +345,7 @@ function readTests(spec: SpecText): ReadTest[] {
       if (structural?.kind === "test") {
         const title = literalText(call!.arguments[0]);
         const titlePath = titles === undefined || title === undefined ? "" : [...titles, title].join(TITLE_SEPARATOR);
-        tests.push({ titlePath, pages: titlePath !== "" && scopeSound ? asLoadedPages(scopeHooks, structural.body) : undefined });
+        tests.push({ titlePath, loaded: titlePath !== "" && scopeSound ? readAsLoaded(scopeHooks, structural.body) : undefined });
         continue;
       }
       tests.push(...nestedTests(statement, titles));
@@ -327,19 +360,24 @@ function readTests(spec: SpecText): ReadTest[] {
 
 /*
  * The ambient pins of a run: each passing case whose test asserted only on pages as they loaded, at least once on a page in `emptyPages`
- * (the pages the run read as a confirmed empty state). Pure: the caller reads the specs through the confined reader. In spec order.
+ * (the pages the run read as a confirmed empty state), or whose as-loaded assertion holds the number of results the pack read on its
+ * page (`liveCounts`, by pathname). Pure: the caller reads the specs through the confined reader. In spec order.
  */
-export function detectAmbientDataPins(input: { specs: readonly SpecText[]; cases: readonly QaCase[]; emptyPages: readonly string[] }): AmbientDataPin[] {
-  if (input.emptyPages.length === 0) return [];
+export function detectAmbientDataPins(input: { specs: readonly SpecText[]; cases: readonly QaCase[]; emptyPages: readonly string[]; liveCounts?: readonly { path: string; resultCount: number }[] }): AmbientDataPin[] {
+  const liveCounts = new Map((input.liveCounts ?? []).map((read) => [read.path, read.resultCount]));
+  if (input.emptyPages.length === 0 && liveCounts.size === 0) return [];
   const empty = new Set(input.emptyPages);
   const pins: AmbientDataPin[] = [];
   for (const spec of input.specs) {
     const passing = new Set(input.cases.filter((c) => isRealPass(c) && sameSpecPath(c.file, spec.file)).map(titlePathOf).filter((p): p is string => p !== undefined));
     if (passing.size === 0) continue;
     for (const t of readTests(spec)) {
-      if (t.pages === undefined || !passing.has(t.titlePath)) continue;
-      const pages = t.pages.filter((page) => empty.has(page)).sort();
-      if (pages.length > 0) pins.push({ file: spec.file, test: t.titlePath, pages });
+      if (t.loaded === undefined || !passing.has(t.titlePath)) continue;
+      const pages = (t.loaded.pages ?? []).filter((page) => empty.has(page)).sort();
+      const counts = [...t.loaded.numbers]
+        .flatMap(([page, numbers]) => (liveCounts.has(page) && numbers.has(liveCounts.get(page)!) ? [{ page, count: liveCounts.get(page)! }] : []))
+        .sort((a, b) => (a.page < b.page ? -1 : a.page > b.page ? 1 : 0));
+      if (pages.length > 0 || counts.length > 0) pins.push({ file: spec.file, test: t.titlePath, pages, ...(counts.length > 0 ? { counts } : {}) });
     }
   }
   return pins;

@@ -1,0 +1,879 @@
+// Shared toolbox (Filter A). Every spec imports `test`/`expect` and the helpers
+// from here instead of starting from scratch. It standardizes login, namespaced
+// data, cleanup and the app's own capabilities (geolocation, mobile/offline,
+// cookies/cache, photo upload).
+//
+// Hybrid model: the skeleton is shared (this file); the app-specific login
+// selectors live in auth.setup.ts, filled in by the agent and persisted in git.
+// For the "how" of each capability, see the `playwright-authoring` skill.
+
+import { test as base, expect, type BrowserContext, type Page } from "@playwright/test";
+import { createHash } from "node:crypto";
+import { linkSync, mkdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+
+// system-owned: do not edit. A V8 coverage entry plus its (best-effort) source map. The
+// orchestrator uses `map` to translate covered bundle bytes back to original source files.
+interface CoverageEntry {
+  url?: string;
+  sha256?: string;
+  source?: string;
+  map?: unknown;
+}
+
+// The scripts this worker has already written to each coverage directory, by the sha256 of their source.
+const coverageScriptsWritten = new Map<string, Set<string>>();
+
+// >>> qa-source-maps (system-owned: do not edit) >>>
+// For each script, find its source map and attach it: the inline data-URI decoded, or the file the
+// LAST `//# sourceMappingURL=` names, or `<script url>.map` when the script names none (a build that
+// keeps its maps "hidden"). A map is fetched through the browser context's request, so the run's DEV
+// gate credentials, client certificate and cookies reach it as they reach the page. Anything that is
+// not a source map (an app's HTML fallback, an error page) is no map. Only what the orchestrator reads
+// is kept (sources, sourceRoot, mappings): a map's embedded sources would more than double a dump.
+// Best-effort, once per URL per worker: no map → the orchestrator falls back to URL-suffix resolution.
+interface QaMapRequest {
+  get(url: string, options?: { failOnStatusCode?: boolean }): Promise<{ ok(): boolean; text(): Promise<string> }>;
+}
+const qaSourceMaps = new Map<string, unknown>();
+function qaIsSourceMap(value: unknown): boolean {
+  const m = value as { sources?: unknown; mappings?: unknown } | null;
+  return typeof m === "object" && m !== null && Array.isArray(m.sources) && typeof m.mappings === "string";
+}
+function qaReadFields(value: unknown): unknown {
+  if (!qaIsSourceMap(value)) return undefined;
+  const m = value as { sources: unknown[]; sourceRoot?: unknown; mappings: string };
+  return { ...(m.sourceRoot !== undefined ? { sourceRoot: m.sourceRoot } : {}), sources: m.sources, mappings: m.mappings };
+}
+async function qaFetchSourceMap(url: string, request: QaMapRequest): Promise<unknown> {
+  if (qaSourceMaps.has(url)) return qaSourceMaps.get(url);
+  let map: unknown;
+  try {
+    const res = await request.get(url, { failOnStatusCode: false });
+    if (res.ok()) {
+      const json: unknown = JSON.parse(await res.text());
+      map = qaReadFields(json);
+    }
+  } catch {
+    /* best-effort: no map */
+  }
+  qaSourceMaps.set(url, map);
+  return map;
+}
+async function attachSourceMaps(entries: CoverageEntry[], request: QaMapRequest): Promise<void> {
+  for (const e of entries) {
+    if (!e.source || !e.url) continue;
+    // The LAST sourceMappingURL comment wins (source-map spec): a minified bundle can inline an
+    // earlier library chunk's own `//# sourceMappingURL=` in a string, which must not be mistaken
+    // for the bundle's real (trailing) map reference.
+    const all = e.source.match(/\/\/[#@]\s*sourceMappingURL=(\S+)/g);
+    const ref = all && all.length > 0 ? /sourceMappingURL=(\S+)/.exec(all[all.length - 1]!)![1]! : undefined;
+    try {
+      if (ref?.startsWith("data:")) {
+        const comma = ref.indexOf(",");
+        const meta = ref.slice(5, comma);
+        const data = ref.slice(comma + 1);
+        const json: unknown = JSON.parse(meta.includes("base64") ? Buffer.from(data, "base64").toString("utf8") : decodeURIComponent(data));
+        const map = qaReadFields(json);
+        if (map !== undefined) e.map = map;
+        continue;
+      }
+      let mapUrl: URL;
+      if (ref) mapUrl = new URL(ref, e.url);
+      else {
+        mapUrl = new URL(e.url);
+        if (!/^https?:$/.test(mapUrl.protocol)) continue;
+        mapUrl.search = "";
+        mapUrl.hash = "";
+        mapUrl.pathname += ".map";
+      }
+      const map = await qaFetchSourceMap(mapUrl.toString(), request);
+      if (map !== undefined) e.map = map;
+    } catch {
+      /* best-effort: no map → URL-suffix fallback */
+    }
+  }
+}
+// <<< qa-source-maps <<<
+
+export interface QaFixtures {
+  namespace: string; // PER-ATTEMPT data prefix `qa-bot-<sha>-w<worker>r<retry>` (use to NAME/find created
+                     // entities). The run-level BASE is `process.env.PW_NAMESPACE` (no -wXrY) — match by THAT
+                     // for cleanup/teardown so all workers' and retries' data is covered.
+  authenticate: () => Promise<void>; // the app's real login (storageState, or one form fill)
+  cleanup: (undo: () => Promise<void>) => void; // registers undo steps (LIFO, automatic)
+  // system-owned: do not edit — the orchestrator reads these dumps for change-coverage.
+  _coverage: void;
+  // system-owned: do not edit — the orchestrator's mutation pass (PW_MUTANT).
+  _mutate: void;
+  // system-owned: do not edit — runs the failure-point capture around every test.
+  _failureCapture: void;
+}
+
+export const test = base.extend<QaFixtures>({
+  namespace: async ({}, use, testInfo) => {
+    const base = process.env.PW_NAMESPACE ?? "qa-bot-local";
+    // Per-ATTEMPT uniqueness, not just per-run. A data-creating test that retries (Playwright
+    // retry) or runs across parallel workers must NOT reuse the same namespace: on a DEV app with
+    // no delete affordance, each attempt creates a duplicate entity with an IDENTICAL name, so a
+    // later `getByRole("link", { name })` matches multiple rows → strict-mode violation — and the
+    // retry trips over the collision it itself just created. Folding in worker + retry makes every
+    // attempt's data unique while keeping the run prefix (`base`) intact for orphan cleanup/coverage.
+    await use(`${base}-w${testInfo.workerIndex}r${testInfo.retry}`);
+  },
+
+  // App login. When the orchestrator already saved a session, PW_STORAGE_STATE
+  // is loaded by playwright.config.ts and this fixture does not fill the form.
+  // Otherwise it performs the same steps as auth.setup.ts. No creds → public app,
+  // no-op (a public app must not fail specs that call authenticate defensively).
+  authenticate: async ({ page }, use) => {
+    await use(async () => {
+      if (process.env.PW_STORAGE_STATE) {
+        if (page.url() === "about:blank") await page.goto("/");
+        return;
+      }
+      const user = process.env.DEV_TEST_USER;
+      const pass = process.env.DEV_TEST_PASS;
+      if (!user || !pass) {
+        console.warn("[qa] authenticate(): DEV_TEST_USER/PASS not set — app treated as PUBLIC, skipping login.");
+        return;
+      }
+      await page.goto("/");
+      await page.getByLabel(/username|email|user/i).fill(user);
+      await page.getByLabel(/^password$/i).fill(pass);
+      await page.getByRole("button", { name: /log ?in|sign ?in|entrar/i }).click();
+      const password = page.getByLabel(/^password$/i);
+      try {
+        await password.first().waitFor({ state: "hidden", timeout: 8000 });
+      } catch {
+        /* Still on the form — throw below. */
+      }
+      if ((await password.count()) > 0 && (await password.first().isVisible())) {
+        throw new Error("login did not leave the password form; rewrite e2e/auth.setup.ts for this app");
+      }
+    });
+  },
+
+  // Automatic cleanup (LIFO, best-effort): each test registers how to undo what it
+  // creates, so namespaced data does not accumulate on DEV.
+  cleanup: [
+    async ({}, use) => {
+      const undos: Array<() => Promise<void>> = [];
+      await use((undo) => undos.push(undo));
+      for (const undo of undos.reverse()) {
+        try {
+          await undo();
+        } catch (e) {
+          console.error("[cleanup] failed to undo test data:", e);
+        }
+      }
+    },
+    { auto: true },
+  ],
+
+  // system-owned: do not edit. Collects V8 JS coverage (Chromium) per test and dumps it to
+  // .qa/coverage/, which the orchestrator intersects with the diff for change-coverage. Best
+  // effort: a no-op on non-Chromium browsers or when coverage is disabled (PW_COVERAGE=0); never
+  // fails a test. Disabled automatically during the cleanup-only pass (PW_CLEANUP). Each script's
+  // source and map are written once per worker, as `<sha256>.script.json`, and a test's dump names
+  // the script by that sha256, so a test pays only for the scripts its worker has not seen. The
+  // teardown has a time of its own, so it never spends the test's.
+  _coverage: [
+    async ({ page }, use, testInfo) => {
+      const enabled = process.env.PW_COVERAGE !== "0" && !process.env.PW_CLEANUP && !!page.coverage;
+      if (enabled) {
+        try {
+          await page.coverage.startJSCoverage({ resetOnNavigation: false });
+        } catch {
+          /* unsupported → skip */
+        }
+      }
+      await use();
+      if (enabled) {
+        try {
+          const entries = (await page.coverage.stopJSCoverage()) as unknown as CoverageEntry[];
+          // Per-namespace subdir (qa-bot-<sha>): the orchestrator reads only this run's dumps.
+          const dir = join(process.cwd(), ".qa", "coverage", process.env.PW_NAMESPACE ?? "local");
+          mkdirSync(dir, { recursive: true });
+          const written = coverageScriptsWritten.get(dir) ?? new Set<string>();
+          coverageScriptsWritten.set(dir, written);
+          const fresh = new Map<string, CoverageEntry>();
+          for (const entry of entries) {
+            if (typeof entry.source !== "string") continue;
+            entry.sha256 = createHash("sha256").update(entry.source, "utf8").digest("hex");
+            if (!written.has(entry.sha256) && !fresh.has(entry.sha256)) fresh.set(entry.sha256, entry);
+          }
+          // Attach each new script's SOURCE MAP so the orchestrator can map covered BUNDLE bytes back
+          // to original source files+lines. Without this, a hashed/bundled deploy (Angular/React
+          // prod) is permanently "unknown" — the served URL never matches a repo path. Best-effort:
+          // a missing map just falls back to URL-suffix resolution (unbundled/dev).
+          await attachSourceMaps([...fresh.values()], page.request);
+          // A script file is written whole under a temporary name and then put in place, so no reader sees half of one. Every
+          // worker writes its own copy, and a copy without a map never replaces one: a mapped copy is renamed over whatever is
+          // there, an unmapped one is only linked into a free name, and dropped when the link finds another worker's copy there.
+          // On a filesystem that refuses hard links, the unmapped copy is written into the free name directly instead (never over
+          // a copy that is there), so the script file still exists.
+          for (const [sha256, entry] of fresh) {
+            const temporary = join(dir, `${sha256}.script.${testInfo.workerIndex}.tmp`);
+            const target = join(dir, `${sha256}.script.json`);
+            const text = JSON.stringify([{ url: entry.url, sha256, source: entry.source, ...(entry.map !== undefined ? { map: entry.map } : {}) }]);
+            writeFileSync(temporary, text);
+            if (entry.map !== undefined) renameSync(temporary, target);
+            else {
+              try {
+                linkSync(temporary, target);
+              } catch (err) {
+                if ((err as { code?: unknown }).code !== "EEXIST") {
+                  try {
+                    writeFileSync(target, text, { flag: "wx" });
+                  } catch {
+                    /* another worker's copy came in place meanwhile */
+                  }
+                }
+              }
+              rmSync(temporary, { force: true });
+            }
+            written.add(sha256);
+          }
+          const dump = entries.map((entry) => (entry.sha256 !== undefined ? { ...entry, source: undefined, map: undefined } : entry));
+          const safe = testInfo.titlePath.join("-").replace(/[^a-z0-9]+/gi, "-").slice(0, 60);
+          writeFileSync(join(dir, `${safe}-${testInfo.workerIndex}-${testInfo.repeatEachIndex}.json`), JSON.stringify(dump));
+        } catch {
+          /* best effort — coverage is a signal, never a blocker */
+        }
+      }
+    },
+    { auto: true, timeout: 120_000 },
+  ],
+
+  // >>> qa-capture-fixture (system-owned: do not edit) >>>
+  // Runs the failure-point capture (the qa-failure-capture block at the end of this file) around every
+  // test. A fixture reaches every spec file; a hook declared in this module binds only to the first spec
+  // file a worker loads, so the block's own hooks stand in only where this fixture is absent.
+  _failureCapture: [
+    async ({ page, request }, use, testInfo) => {
+      qaFailureCaptureByFixture = true;
+      await qaFailureCaptureStart(page, request);
+      await use();
+      await qaFailureCaptureFinish(page, testInfo);
+    },
+    { auto: true },
+  ],
+  // <<< qa-capture-fixture <<<
+
+  // >>> qa-mutation-fixture (system-owned: do not edit) >>>
+  // The orchestrator's MUTATION pass sets PW_MUTANT to one edit of one script the page loads
+  // ({ url, sha256, start, end, replacement }) and re-runs the tests that reached it: a test that stays
+  // green while the changed code it ran does the opposite does not check that code. The edit is made
+  // only to a response whose text is the script the coverage saw (same sha256). How many responses were
+  // mutated is counted in a counter file under .qa/fault-injection/<ns>/, so a mutant that never reached the page
+  // is not scored. When the mutant names the tests whose coverage dumps ran it (`tests`, each named as
+  // the coverage fixture names a dump), every other test is skipped. No-op in a normal run.
+  _mutate: [
+    async ({ page }, use, testInfo) => {
+      let mutated = 0;
+      const raw = process.env.PW_MUTANT;
+      if (raw) {
+        const { createHash } = await import("node:crypto");
+        const m = JSON.parse(raw) as { url: string; sha256: string; start: number; end: number; replacement: string; tests?: unknown };
+        const dumpName = testInfo.titlePath.join("-").replace(/[^a-z0-9]+/gi, "-").slice(0, 60);
+        testInfo.skip(Array.isArray(m.tests) && !m.tests.includes(dumpName), "the mutated code did not run in this test");
+        await page.route((url) => url.href === m.url, async (route) => {
+          let res;
+          try {
+            res = await route.fetch();
+          } catch {
+            return route.continue();
+          }
+          const body = await res.text();
+          if (createHash("sha256").update(body).digest("hex") !== m.sha256) return route.fulfill({ response: res });
+          mutated++;
+          return route.fulfill({ response: res, body: body.slice(0, m.start) + m.replacement + body.slice(m.end) });
+        });
+      }
+      await use();
+      if (mutated > 0) {
+        try {
+          const fs = await import("node:fs");
+          const path = await import("node:path");
+          const dir = path.join(process.cwd(), ".qa", "fault-injection", process.env.PW_NAMESPACE ?? "local");
+          fs.mkdirSync(dir, { recursive: true });
+          fs.writeFileSync(path.join(dir, `mutated-${process.pid}.json`), JSON.stringify({ corrupted: mutated }));
+        } catch {
+          /* best effort — the marker is a signal, never a test failure */
+        }
+      }
+    },
+    { auto: true },
+  ],
+  // <<< qa-mutation-fixture <<<
+});
+
+export { expect };
+
+// >>> qa-failure-capture (system-owned: do not edit) >>>
+// Captures the aria snapshot of the page at the failure point, the page's final URL, the HTTP
+// status of the most-recent correlated 5xx server error, the failures of the requests the page depends on
+// (requestfailed events; background traffic is counted apart), the runtime errors (console error + pageerror), whether the page had settled (data requests
+// in flight, time since the last data response, a second read of the tree) and the result count the
+// app's declared data state (PW_DATA_STATE) shows there, writing them to QA_FAILURE_CAPTURE_DIR so
+// the orchestrator can ground the fix-loop regeneration and surface runtime evidence to the adjudicator
+// and reviewer. A passing test still dumps when it showed network or page-error evidence (a failed request,
+// a 5xx or an uncaught page error), without an aria snapshot; a benign console log does not trigger it.
+// Best-effort only: the page may be closed on a nav-crash (try/catch swallows), and the entire block is a
+// no-op when QA_FAILURE_CAPTURE_DIR is unset.
+//
+// SELF-CONTAINED: this exact block is also appended (append-only) into existing repos'
+// fixtures.ts by the orchestrator, so it CANNOT assume any top-level import is present.
+// node:fs/path/crypto are pulled in via dynamic import() INSIDE the async afterEach —
+// a CommonJS-style synchronous load is not defined in this native-ESM module
+// ("type":"module") and would throw a ReferenceError that the catch would swallow.
+//
+// The capture runs from the seed's auto fixture (_failureCapture), which reaches every spec file. The
+// hooks at the end of this block stand in where that fixture is absent: a hook declared in this module
+// binds only to the first spec file a worker loads, since the module is evaluated once per worker.
+import type { APIRequestContext as QaCaptureRequest, Page as QaCapturePage, TestInfo as QaCaptureTestInfo } from "@playwright/test";
+let errorResponses: { url: string; status: number; resourceType: string }[] = [];
+// App-defect detection: browser console `error`-level entries and uncaught `pageerror`
+// exceptions observed during the current test. Reset per-test (mirrors errorResponses) so a reused
+// page never cross-attributes a PRIOR test's runtime errors to the current one. Best-effort: the
+// orchestrator's runtime-error classifier turns this into a diagnostic signal ONLY — it never
+// blocks or masks a real generated-test defect.
+let runtimeErrors: { type: string; text: string }[] = [];
+// Browser network failures (requestfailed events) observed during the current test, reset per-test like the
+// other evidence arrays. Each entry carries the sanitized URL (origin + pathname only — a query string or
+// fragment never reaches the dump), a truncated error text and the resource type.
+let failedRequests: { url: string; errorText: string; resourceType: string }[] = [];
+// What the page depends on, as opposed to the background traffic around it (error-tracking and analytics
+// beacons, map-vendor events, the browser's own housekeeping). The resource type decides, never the host: a
+// request is page-dependent when it is of a type the page needs to render or act (the foreground
+// interactions document, fetch, xhr, plus the scripts and style sheets it loads), whatever origin it goes
+// to. The suite's network only reaches the origins the app declares, so an origin cannot tell a needed API
+// from a telemetry host: a refused script or fetch IS the diagnosis (egress), while a beacon, image, font or
+// media request is fire-and-forget and the page works without it. Only a page-dependent failure is a network
+// error of the test; the rest is counted apart so it stays visible and never explains a failure.
+const PAGE_FOREGROUND_TYPES = ['document', 'fetch', 'xhr'];
+const PAGE_DEPENDENT_TYPES = new Set([...PAGE_FOREGROUND_TYPES, 'script', 'stylesheet']);
+const BACKGROUND_HOSTS_CAP = 5;
+let backgroundFailures: { count: number; hosts: string[] } = { count: 0, hosts: [] };
+function isPageDependent(resourceType: string): boolean {
+  return PAGE_DEPENDENT_TYPES.has(resourceType);
+}
+function noteBackgroundFailure(rawUrl: string): void {
+  backgroundFailures.count++;
+  try {
+    const host = new URL(rawUrl).hostname.toLowerCase();
+    if (host && !backgroundFailures.hosts.includes(host) && backgroundFailures.hosts.length < BACKGROUND_HOSTS_CAP) backgroundFailures.hosts.push(host);
+  } catch {}
+}
+// Settle facts of the current test's page: data requests (fetch/xhr) started and not yet finished or
+// failed, and when the last one finished. Reset per-test like the other evidence.
+let dataInFlight = 0;
+let lastDataAt = 0;
+function isDataRequest(r: { resourceType(): string }): boolean { try { const t = r.resourceType(); return t === 'fetch' || t === 'xhr'; } catch { return false; } }
+// The app's declared data state for a pathname: an exact key first, then a key with parameters
+// ("/shops/:city") the pathname fills segment by segment, then a key ending "/*" (its prefix and its
+// root) — the same matching the Context Pack's capture applies to dev.dataState.
+function fillsDataStateTemplate(key: string, pathname: string): boolean {
+  const keyParts = key.split('/').filter((part) => part !== '');
+  if (!keyParts.some((part) => part.startsWith(':'))) return false;
+  const parts = pathname.split('/').filter((part) => part !== '');
+  return keyParts.length === parts.length && keyParts.every((part, i) => (part.startsWith(':') ? part.length > 1 : part === parts[i]));
+}
+function matchDataState(routes: Record<string, { resultSelector?: string; resultTextSelector?: string }>, pathname: string): { resultSelector?: string; resultTextSelector?: string } | undefined {
+  if (Object.prototype.hasOwnProperty.call(routes, pathname)) return routes[pathname];
+  for (const key of Object.keys(routes)) {
+    if (fillsDataStateTemplate(key, pathname)) return routes[key];
+  }
+  for (const key of Object.keys(routes)) {
+    if (key.endsWith('/*') && (pathname === key.slice(0, -2) || pathname.startsWith(key.slice(0, -1)))) return routes[key];
+  }
+  return undefined;
+}
+// The most characters of one piece of text this block keeps in a dump. It is a memory bound, not the length a
+// prompt or a record shows: the block holds none of the run's secrets, so it cannot redact, and the
+// orchestrator redacts what it reads and only then cuts it to the bound it shows. The bound is therefore far
+// above any of those (it must stay at or above the orchestrator's longest bound plus the redaction lookahead:
+// PRODUCER_MEMORY_BOUND_CHARS in engine/src/shared-kernel/redact-then-bound.ts, which a test keeps equal).
+const QA_TEXT_MEMORY_BOUND_CHARS = 16384;
+// Reduces a URL to origin + pathname so a query string or fragment never reaches the dump. The address of a
+// DEV write is an identity (the control of the run cuts it at the same length, so a request has one key in both)
+// and is cut at 300; the address of a failed request is text the orchestrator will redact and then cut to the
+// bound it shows, so it is kept up to the memory bound.
+function networkUrl(raw: string, max = 300): string { try { const u = new URL(raw); const url = u.origin + u.pathname; return url.length > max ? url.slice(0, max) : url; } catch { return ""; } }
+// DEV-write counter, on only when the orchestrator asks (PW_COUNT_DEV_WRITES=1, for a spec it executes on the
+// generator's behalf): the mutating requests (POST, PUT, PATCH, DELETE) of a test's page and context that a server
+// answered, kept per test in a ledger file in the capture directory so the orchestrator can hold what a spec does
+// to DEV to a cap. The ledger is written when the test starts and rewritten atomically (a temporary file renamed over
+// it) on every change, so a test that is killed has left what it did: `writes` counts the requests a server
+// answered, `pending` the ones sent and not yet answered (raised when the request leaves, before anything waits for
+// its answer), and `done` is set when the test finishes. A request that fails while its test runs (refused by the
+// sandbox's egress filter, like an error reporter's beacon, or failed on the network) is not counted and leaves
+// `pending`. One still out when its test finishes stays in that test's `pending`, since it may have reached DEV: a later
+// failure (the page closing, the API client disposed) does not settle it, and a later answer is that test's, never
+// counted to the next. A context
+// is listened to once however many tests share it. Requests of the API clients (the `request` fixture,
+// `page.request`, `context.request`) are not browser requests, so their fetch is counted too, pending while it is
+// out and counted once it comes back with a response. Only a write to DEV counts: a
+// request to one of the origins the orchestrator names in PW_DEV_ORIGINS (a JSON list of scheme://host[:port] or
+// scheme://*.suffix[:port], the run's DEV origins), matched by host and port as the egress filter matches them; a page's
+// own requests to other hosts (analytics, error reporters) write nothing to DEV. Without a readable list every write
+// counts. The counter decides nothing about who caused a request: it records each distinct counted request of a test (the
+// first DEV_WRITE_REQUESTS_CAP of them) beside its count, by method, origin + pathname (never the query or the body) and
+// sender (`page` for the test's page and context, `api` for an API client), with how many times it was sent, and names the
+// project the test belongs to. The page also sends requests on its own, with no spec action (a token renewal when it loads, a
+// heartbeat): the orchestrator measures that before any spec code runs, by a control load of the launch URL in a Playwright
+// process of its own, not from this file, whose code a spec's module or hooks run before (the orchestrator writes and
+// runs it, see its control load). It charges a test's page requests only beyond what the control of the test's project
+// saw, and an API client's requests in full.
+let devWrites = 0;
+let devWritesPending = 0;
+type DevWriteSender = 'page' | 'api';
+interface RecordedDevWrite { method: string; url: string; sender: DevWriteSender; count: number }
+let devWriteRequests: RecordedDevWrite[] = [];
+// The browser writes that are out and count as pending, each with the ledger epoch of the test it left in, so its answer or failure settles that test's entry.
+const sentWrites = new WeakMap<object, number>();
+// The test's ledger: where it is, the temporary file it is rewritten through (the name cannot match a ledger's), whether
+// the test has finished, and which test it belongs to, so a request that outlives its test never moves the next one's pending.
+let ledgerFs: typeof import('node:fs') | undefined;
+let ledgerFile: string | undefined;
+let ledgerTemp: string | undefined;
+let ledgerDone = false;
+let ledgerProject: string | undefined;
+let ledgerSeq = 0;
+let ledgerEpoch = 0;
+const DEV_WRITE_REQUESTS_CAP = 20;
+const countedContexts = new WeakSet<object>();
+const countedApis = new WeakSet<object>();
+interface DevOrigin { host: string; wildcard: boolean; port: number }
+function readDevOrigins(raw: string | undefined): DevOrigin[] | undefined {
+  if (!raw) return undefined;
+  try {
+    const list: unknown = JSON.parse(raw);
+    if (!Array.isArray(list) || list.length === 0) return undefined;
+    const origins: DevOrigin[] = [];
+    for (const entry of list) {
+      const m = typeof entry === 'string' ? /^(https?):\/\/(\*\.)?([^/?#@:*]+)(?::(\d+))?\/?$/i.exec(entry) : null;
+      if (!m) return undefined;
+      const host = m[3]!.toLowerCase().replace(/\.$/, '');
+      origins.push({ host, wildcard: m[2] !== undefined, port: m[4] ? Number(m[4]) : m[1]!.toLowerCase() === 'https' ? 443 : 80 });
+    }
+    return origins;
+  } catch { return undefined; }
+}
+// The DEV origins and the base URL the launcher started this process with, read once when the fixtures load: a spec
+// runs after this module, so rewriting its environment cannot move a write off DEV's count.
+const devOrigins: DevOrigin[] | undefined = readDevOrigins(process.env.PW_DEV_ORIGINS);
+const launchBaseUrl: string | undefined = process.env.PW_BASE_URL;
+// Whether a request to `raw` goes to DEV. A URL that cannot be read counts, the closed reading.
+function isDevWrite(raw: string | undefined): boolean {
+  if (!devOrigins || raw === undefined) return true;
+  try {
+    const u = new URL(raw);
+    const host = u.hostname.toLowerCase().replace(/\.$/, '');
+    const port = u.port ? Number(u.port) : u.protocol === 'https:' ? 443 : u.protocol === 'http:' ? 80 : -1;
+    return devOrigins.some((o) => o.port === port && (o.wildcard ? host.endsWith('.' + o.host) : host === o.host));
+  } catch { return true; }
+}
+// Rewrites the ledger with what the test has counted so far: written beside it and renamed over it, so a reader that
+// finds the file finds one whole state, never a half-written one. Best effort: the count is a bound on the spec, never
+// a test failure.
+function flushLedger(): void {
+  if (!ledgerFs || !ledgerFile || !ledgerTemp) return;
+  try {
+    ledgerFs.writeFileSync(ledgerTemp, JSON.stringify({ v: 2, writes: devWrites, pending: devWritesPending, done: ledgerDone, ...(ledgerProject !== undefined ? { project: ledgerProject } : {}), ...(devWriteRequests.length > 0 ? { requests: devWriteRequests } : {}) }));
+    ledgerFs.renameSync(ledgerTemp, ledgerFile);
+  } catch {}
+}
+// Starts the test's ledger: on disk before the test runs anything, with nothing counted and nothing pending. Named by
+// process, worker and sequence, so no two tests of a run share a file.
+async function openLedger(): Promise<void> {
+  ledgerFs = undefined;
+  ledgerFile = undefined;
+  ledgerTemp = undefined;
+  ledgerDone = false;
+  ledgerProject = undefined;
+  ledgerEpoch++;
+  try {
+    const dir = process.env.QA_FAILURE_CAPTURE_DIR;
+    if (!dir) return;
+    const fs = await import("node:fs");
+    const { join } = await import("node:path");
+    const name = 'p' + process.pid + '-w' + (process.env.TEST_WORKER_INDEX ?? '0') + '-' + ++ledgerSeq;
+    ledgerFile = join(dir, 'ledger-' + name + '.json');
+    ledgerTemp = join(dir, '.ledger-' + name + '.tmp');
+    ledgerFs = fs;
+    ledgerProject = projectOfRunningTest();
+    flushLedger();
+  } catch { ledgerFs = undefined; }
+}
+// The name of the project the running test belongs to, cut where the orchestrator's reader cuts it: the key the test's ledger is charged against the control of. Not known outside a test.
+const MAX_PROJECT_CHARS = 200;
+function projectOfRunningTest(): string | undefined {
+  try {
+    const name = (test as unknown as { info(): { project: { name: unknown } } }).info().project.name;
+    return typeof name === 'string' ? name.slice(0, MAX_PROJECT_CHARS) : undefined;
+  } catch { return undefined; }
+}
+// Adds one sighting of a request to a list of distinct requests, merged with an equal one; past the cap a new request is not kept.
+function recordWrite(into: RecordedDevWrite[], sender: DevWriteSender, method: string, url: string): void {
+  const same = into.find((r) => r.method === method && r.url === url && r.sender === sender);
+  if (same) same.count++;
+  else if (into.length < DEV_WRITE_REQUESTS_CAP) into.push({ method, url, sender, count: 1 });
+}
+// A write a server answered: counted and recorded with its sender, and the ledger rewritten.
+function noteAnswered(sender: DevWriteSender, method: string, raw: string | undefined): void {
+  const url = raw === undefined ? '' : networkUrl(raw);
+  devWrites++;
+  if (url) recordWrite(devWriteRequests, sender, method, url);
+  flushLedger();
+}
+interface WriteEvent { method(): string; url(): string }
+// A mutating browser request to DEV leaves: pending until a server answers it or it fails.
+function sendBrowserWrite(r: WriteEvent): void {
+  const method = r.method();
+  if (!/^(?:POST|PUT|PATCH|DELETE)$/.test(method)) return;
+  let url: string | undefined;
+  try { url = r.url(); } catch {}
+  if (!isDevWrite(url)) return;
+  sentWrites.set(r, ledgerEpoch);
+  devWritesPending++;
+  flushLedger();
+}
+// The same request answered (counted) or failed (dropped), in the test it left in. One that left before the counter saw it is
+// counted when answered; one still out when its test finished stays that test's pending (a failure settles nothing, an answer
+// once another test began is not the new test's).
+function settleBrowserWrite(r: WriteEvent, answered: boolean): void {
+  const method = r.method();
+  if (!/^(?:POST|PUT|PATCH|DELETE)$/.test(method)) return;
+  let url: string | undefined;
+  try { url = r.url(); } catch {}
+  const epoch = sentWrites.get(r);
+  if (epoch === undefined) {
+    if (answered && isDevWrite(url)) noteAnswered('page', method, url);
+    return;
+  }
+  sentWrites.delete(r);
+  if (epoch !== ledgerEpoch || (ledgerDone && !answered)) return;
+  devWritesPending = Math.max(0, devWritesPending - 1);
+  if (answered) noteAnswered('page', method, url);
+  else flushLedger();
+}
+interface WriteCountable { fetch(target: unknown, options?: { method?: string }): Promise<unknown> }
+function countWrites(api: WriteCountable | undefined): void {
+  if (!api || countedApis.has(api)) return;
+  countedApis.add(api);
+  const original = api.fetch.bind(api);
+  api.fetch = async (target, options) => {
+    let method: string | undefined;
+    let url: string | undefined;
+    try {
+      const request = typeof target === 'object' && target !== null ? (target as { method?: unknown; url?: unknown }) : undefined;
+      const own = request && typeof request.method === 'function' ? (request.method as () => string)() : 'GET';
+      const candidate = String(options?.method ?? own).toUpperCase();
+      if (/^(?:POST|PUT|PATCH|DELETE)$/.test(candidate)) method = candidate;
+      if (typeof target === 'string') url = new URL(target, launchBaseUrl).href;
+      else if (request && typeof request.url === 'function') url = (request.url as () => string)();
+    } catch {}
+    const epoch = ledgerEpoch;
+    const sent = method !== undefined && isDevWrite(url);
+    if (sent) { devWritesPending++; flushLedger(); }
+    // Settles the fetch in the test it left in; one still out when that test finished stays its pending unless it is answered.
+    const leave = (answered: boolean): boolean => {
+      if (!sent || epoch !== ledgerEpoch || (ledgerDone && !answered)) return false;
+      devWritesPending = Math.max(0, devWritesPending - 1);
+      return true;
+    };
+    let response: unknown;
+    try {
+      response = await original(target, options);
+    } catch (err) {
+      if (leave(false)) flushLedger();
+      throw err;
+    }
+    if (leave(true)) noteAnswered('api', method!, url);
+    return response;
+  };
+}
+
+// Page observation, on only when the orchestrator asks (PW_OBSERVE=1: the re-run of a mutant of the served script and the
+// unmutated re-run it is compared with). For each test that ran, the requests its page depended on (the resource types of
+// PAGE_DEPENDENT_TYPES, whatever the host) by method and origin + pathname with a count, never the query, the fragment, the
+// body, the headers or the cookies, at most OBSERVED_REQUESTS_CAP distinct, and the accessible tree the page ended on. The
+// orchestrator diffs the two runs' records and tells the author which observable the mutation moved.
+let observedRequests: Array<{ method: string; url: string; count: number }> = [];
+const OBSERVED_REQUESTS_CAP = 100;
+function noteObservedRequest(method: string, raw: string, resourceType: string): void {
+  if (!isPageDependent(resourceType)) return;
+  const url = networkUrl(raw);
+  if (!url) return;
+  const same = observedRequests.find((r) => r.method === method && r.url === url);
+  if (same) same.count++;
+  else if (observedRequests.length < OBSERVED_REQUESTS_CAP) observedRequests.push({ method, url, count: 1 });
+}
+
+async function qaFailureCaptureStart(page: QaCapturePage, request: QaCaptureRequest): Promise<void> {
+  if (!process.env.QA_FAILURE_CAPTURE_DIR) return; // no-op when capture is disabled (zero overhead)
+  errorResponses = [];                               // reset unconditionally so reused pages never cross-attribute
+  runtimeErrors = [];                                 // same per-test reset discipline
+  failedRequests = [];                                // same per-test reset discipline
+  backgroundFailures = { count: 0, hosts: [] };
+  dataInFlight = 0;
+  lastDataAt = 0;
+  devWrites = 0;
+  devWritesPending = 0;
+  devWriteRequests = [];
+  observedRequests = [];
+  if (process.env.PW_OBSERVE === '1') {
+    try {
+      page.on('request', (r) => { try { noteObservedRequest(r.method(), r.url(), r.resourceType()); } catch {} });
+    } catch {}
+  }
+  if (process.env.PW_COUNT_DEV_WRITES === '1') {
+    await openLedger();
+    try {
+      const context = page.context();
+      if (!countedContexts.has(context)) {
+        countedContexts.add(context);
+        context.on('request', (r) => { try { sendBrowserWrite(r); } catch {} });
+        context.on('requestfinished', (r) => { try { settleBrowserWrite(r, true); } catch {} });
+        context.on('requestfailed', (r) => { try { settleBrowserWrite(r, false); } catch {} });
+        countWrites(context.request);
+      }
+      countWrites(request);
+    } catch {}
+  }
+  try {
+    page.on('request', (r) => { if (isDataRequest(r)) dataInFlight++; });
+    page.on('requestfinished', (r) => { if (isDataRequest(r)) { dataInFlight = Math.max(0, dataInFlight - 1); lastDataAt = Date.now(); } });
+  } catch {}
+  try {
+    page.on('response', (r) => {
+      try { const s = r.status(); if (s >= 400 && errorResponses.length < 50) errorResponses.push({ url: r.url(), status: s, resourceType: r.request().resourceType() }); } catch {}
+    });
+  } catch {}
+  try {
+    page.on('requestfailed', (r) => {
+      try {
+        if (isDataRequest(r)) dataInFlight = Math.max(0, dataInFlight - 1);
+        const type = r.resourceType();
+        if (!isPageDependent(type)) { noteBackgroundFailure(r.url()); return; }
+        if (failedRequests.length >= 50) return;
+        const url = networkUrl(r.url(), QA_TEXT_MEMORY_BOUND_CHARS);
+        if (!url) return;
+        const errorText = r.failure()?.errorText ?? "request failed";
+        failedRequests.push({ url, errorText: errorText.length > QA_TEXT_MEMORY_BOUND_CHARS ? errorText.slice(0, QA_TEXT_MEMORY_BOUND_CHARS) : errorText, resourceType: r.resourceType().slice(0, QA_TEXT_MEMORY_BOUND_CHARS) });
+      } catch {}
+    });
+  } catch {}
+  try {
+    page.on('console', (msg) => {
+      try {
+        if (msg.type() !== 'error') return; // only error-level; warnings/logs are not runtime evidence
+        runtimeErrors.push({ type: 'error', text: msg.text() });
+      } catch {}
+    });
+  } catch {}
+  try {
+    page.on('pageerror', (err) => {
+      try { runtimeErrors.push({ type: 'pageerror', text: err.message ?? String(err) }); } catch {}
+    });
+  } catch {}
+}
+
+async function qaFailureCaptureFinish(page: QaCapturePage, testInfo: QaCaptureTestInfo): Promise<void> {
+  const dir = process.env.QA_FAILURE_CAPTURE_DIR;
+  if (!dir) return;                                   // degrade to no-op when the orchestrator did not ask
+  if (process.env.PW_COUNT_DEV_WRITES === '1') {
+    ledgerDone = true;
+    flushLedger();
+  }
+  if (process.env.PW_OBSERVE === '1' && testInfo.status !== 'skipped') {
+    try {
+      const { writeFileSync } = await import("node:fs");
+      const { join, basename } = await import("node:path");
+      const id = String(testInfo.testId ?? testInfo.title).replace(/[^A-Za-z0-9_-]/g, '').slice(0, 60);
+      let tree: string | undefined;
+      try { tree = await page.locator("body").ariaSnapshot(); } catch { /* the page is gone: the requests alone */ }
+      writeFileSync(
+        join(dir, 'observed-w' + testInfo.workerIndex + '-' + id + '-r' + testInfo.retry + '.json'),
+        JSON.stringify({ project: testInfo.project.name, file: basename(testInfo.file ?? ""), title: testInfo.titlePath.filter(Boolean).slice(1).join(" › "), retry: testInfo.retry, requests: observedRequests, ...(tree !== undefined ? { yaml: tree } : {}) }),
+      );
+    } catch { /* best effort — the observation is a signal, never a test failure */ }
+  }
+  const expected = testInfo.status === testInfo.expectedStatus;
+  // A passing test still dumps when the page raised an uncaught error. Network evidence describes a
+  // failure: a passing attempt never dumps for it and never reports network errors, because a telemetry
+  // fetch the egress filter refused is background noise of a test that worked.
+  const hasEvidence = runtimeErrors.some((e) => e.type === "pageerror");
+  if (expected && !hasEvidence) return;
+  try {
+    const { writeFileSync } = await import("node:fs");
+    const { join, basename } = await import("node:path");
+    const { createHash } = await import("node:crypto");
+    // Settle facts as of the failure point, read before anything waits.
+    const inFlight = dataInFlight;
+    const quietMs = lastDataAt > 0 ? Date.now() - lastDataAt : undefined;
+    const yaml = expected ? "" : await page.locator("body").ariaSnapshot(); // a passing test with evidence needs no tree
+    // title = the describe › test chain (drop the leading project element), MATCHING the stream
+    // reporter's _name. The orchestrator's harvest keys off this: the JSON report's case name is
+    // `file › describe › test`, whose trailing segments equal this title's segments.
+    const title = testInfo.titlePath.filter(Boolean).slice(1).join(" › ");
+    const project = testInfo.project.name;
+    // file = the spec's basename. Two tests with the SAME describe › test chain in DIFFERENT spec
+    // files share a title; the file disambiguates them so neither the dump identity nor the harvest
+    // match attaches the wrong DOM. Stored in the body AND folded into the filename hash below.
+    const file = basename(testInfo.file ?? "");
+    // Filename: project + a short hash of file + title + retry. The project keeps two projects
+    // (desktop/mobile) running the same spec from clobbering each other; the (file + title) HASH
+    // (not an 80-char truncation) keeps two long titles sharing an 80-char prefix — or two same-titled
+    // tests in different files — from colliding. The body is authoritative for matching (project/file/
+    // title); the filename only guarantees uniqueness + retry.
+    const hash = createHash("sha1").update(`${file}/${title}`).digest("hex").slice(0, 12);
+    const safeProject = project.replace(/[^a-z0-9]+/gi, "-").slice(0, 40);
+    // Compute finalUrl (sync, always available in afterEach) and the attributed httpStatus
+    // via the attribution heuristic (5xx-only, resource-type-gated, same-origin correlated, last).
+    // (Path-family intentionally omitted: in a SPA the finalUrl is the UI route (e.g. /orders) while
+    // the causing 5xx is the API call (e.g. /api/orders) — different path segments — so path-family
+    // would drop legitimate API 5xxs; same-origin is the correct, not-too-tight correlation.)
+    const finalUrl = page.url();
+    // The result count the app's declared data state shows on this page, read at the failure point.
+    let resultCount: number | undefined;
+    if (!expected && process.env.PW_DATA_STATE) {
+      try {
+        const declared = JSON.parse(process.env.PW_DATA_STATE) as { routes?: unknown };
+        const routes = declared && typeof declared.routes === 'object' && declared.routes !== null ? declared.routes as Record<string, { resultSelector?: string; resultTextSelector?: string }> : undefined;
+        const state = routes ? matchDataState(routes, new URL(finalUrl).pathname) : undefined;
+        if (state?.resultTextSelector) {
+          const m = (await page.locator(state.resultTextSelector).first().innerText({ timeout: 1000 })).match(/\d+/);
+          if (m) resultCount = parseInt(m[0], 10);
+        } else if (state?.resultSelector) {
+          resultCount = await page.locator(state.resultSelector).count();
+        }
+      } catch { resultCount = undefined; }
+    }
+    // A second read of the tree a moment later: a tree that changed was a moment of a render, not a settled page.
+    // The gap between the two reads is the measurement itself, not a wait for the page.
+    let settle: { inFlight: number; quietMs?: number; treeStable: boolean } | undefined;
+    if (!expected) {
+      try {
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+        const again = await page.locator("body").ariaSnapshot();
+        settle = { inFlight, ...(quietMs !== undefined ? { quietMs } : {}), treeStable: again === yaml };
+      } catch { settle = undefined; }
+    }
+    let httpStatus: number | undefined;
+    try {
+      let finalUrlOrigin = '';
+      try { finalUrlOrigin = new URL(finalUrl).origin; } catch {}
+      const survivors = errorResponses.filter((e) => {
+        if (e.status < 500 || e.status > 599) return false; // 5xx only
+        if (!PAGE_FOREGROUND_TYPES.includes(e.resourceType)) return false; // keep only foreground interactions
+        try {
+          const eOrigin = new URL(e.url).origin;
+          return eOrigin === finalUrlOrigin;                  // same-origin correlation
+        } catch { return false; }
+      });
+      if (survivors.length > 0) httpStatus = survivors[survivors.length - 1]!.status; // last survivor
+    } catch {}
+    // Runtime errors: dedupe (same type+text pair collapses to one entry — a repeated framework error
+    // firing on every change-detection cycle would otherwise flood the dump), cap at ~15 entries
+    // (the orchestrator only needs enough to classify, not an exhaustive log), and truncate each
+    // entry's text to ~200 chars (the classifier only needs the first line/signature, not a full
+    // stack). Best-effort: any failure here still lets the rest of the dump (yaml/finalUrl/httpStatus)
+    // write normally.
+    let dedupedRuntimeErrors: { type: string; text: string }[] = [];
+    try {
+      const RUNTIME_ERRORS_CAP = 15;
+      const seen = new Set<string>();
+      for (const e of runtimeErrors) {
+        const text = e.text.length > QA_TEXT_MEMORY_BOUND_CHARS ? e.text.slice(0, QA_TEXT_MEMORY_BOUND_CHARS) : e.text;
+        const key = `${e.type} ${text}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        dedupedRuntimeErrors.push({ type: e.type, text });
+        if (dedupedRuntimeErrors.length >= RUNTIME_ERRORS_CAP) break;
+      }
+    } catch { dedupedRuntimeErrors = []; }
+    // Network errors: merge the HTTP error responses (url/status/resourceType) and the failed requests
+    // (url/errorText/resourceType) into one bounded list, each URL reduced to origin + pathname, deduped
+    // by status|errorText|url|resourceType and capped at 10. Best-effort: a failure here still lets the
+    // rest of the dump write.
+    let networkErrors: { url: string; status?: number; errorText?: string; resourceType: string }[] = [];
+    try {
+      const NETWORK_ERRORS_CAP = 10;
+      const seen = new Set<string>();
+      const merged: { url: string; status?: number; errorText?: string; resourceType: string }[] = [];
+      for (const e of errorResponses) {
+        if (!isPageDependent(e.resourceType)) { noteBackgroundFailure(e.url); continue; }
+        const url = networkUrl(e.url, QA_TEXT_MEMORY_BOUND_CHARS);
+        if (url) merged.push({ url, status: e.status, resourceType: e.resourceType });
+      }
+      for (const e of failedRequests) {
+        const url = networkUrl(e.url, QA_TEXT_MEMORY_BOUND_CHARS);
+        if (url) merged.push({ url, errorText: e.errorText, resourceType: e.resourceType });
+      }
+      for (const e of merged) {
+        const key = `${e.status ?? ""}|${e.errorText ?? ""}|${e.url}|${e.resourceType}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        networkErrors.push(e);
+        if (networkErrors.length >= NETWORK_ERRORS_CAP) break;
+      }
+    } catch { networkErrors = []; }
+    if (expected) networkErrors = [];
+    writeFileSync(
+      join(dir, `${safeProject}__${hash}__${testInfo.retry}.json`),
+      JSON.stringify({ project, file, title, retry: testInfo.retry, yaml, finalUrl, httpStatus, runtimeErrors: dedupedRuntimeErrors, networkErrors, ...(backgroundFailures.count > 0 ? { backgroundNetwork: backgroundFailures } : {}), settle, resultCount }),
+    );
+  } catch { /* page may be closed on a nav-crash — best-effort, never fail the run */ }
+}
+
+// Set by the seed's _failureCapture fixture, which then runs the capture itself.
+let qaFailureCaptureByFixture = false;
+
+test.beforeEach(async ({ page, request }) => {
+  if (!qaFailureCaptureByFixture) await qaFailureCaptureStart(page, request);
+});
+
+test.afterEach(async ({ page }, testInfo) => {
+  if (!qaFailureCaptureByFixture) await qaFailureCaptureFinish(page, testInfo);
+});
+// <<< qa-failure-capture <<<
+
+// Names a test entity with the run's prefix: ns("qa-bot-x", "user").
+export function ns(namespace: string, name: string): string {
+  return `${namespace}-${name}`;
+}
+
+// --- App capabilities (helpers) --------------------------------------------
+
+// Geolocation: the app places the user on a map and lists nearby places when
+// uploading a photo. Forces a deterministic location that the browser API detects.
+export async function setLocation(context: BrowserContext, latitude: number, longitude: number): Promise<void> {
+  await context.grantPermissions(["geolocation"]);
+  await context.setGeolocation({ latitude, longitude });
+}
+
+// Offline mode (the app has an offline mode). Remember to restore with goOnline().
+export async function goOffline(context: BrowserContext): Promise<void> {
+  await context.setOffline(true);
+}
+export async function goOnline(context: BrowserContext): Promise<void> {
+  await context.setOffline(false);
+}
+
+// Reading cookies/storage (some tests assert on these).
+export async function readCookies(context: BrowserContext, name?: string) {
+  const cookies = await context.cookies();
+  return name ? cookies.filter((c) => c.name === name) : cookies;
+}
+export async function readStorage(page: Page, key?: string) {
+  return page.evaluate((k) => (k ? localStorage.getItem(k) : { ...localStorage }), key);
+}
+
+// Photo upload: resolves the path of an asset under e2e/assets/ to upload it. Each
+// asset's optional metadata (what to test) lives in e2e/assets/assets.json.
+export function asset(name: string): string {
+  return new URL(`./assets/${name}`, import.meta.url).pathname;
+}
