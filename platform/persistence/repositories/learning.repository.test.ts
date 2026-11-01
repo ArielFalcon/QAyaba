@@ -69,3 +69,17 @@ test("a crash reclassifies the outcome the engine persisted, keeping the evidenc
     getHistory().purgeApp(app);
   }
 });
+test("the adjudicator's conclusion on a run round-trips with the outcome, and an outcome written without one reads back with none", () => {
+  const app = "hist-outcome-adjudication";
+  getHistory().purgeApp(app);
+  try {
+    const base: Omit<RunOutcome, "runId"> = { app, sha: "deadbeef0", mode: "diff", target: "e2e", verdict: "fail", errorClass: null, gateSignals: { static: true, coverageRatio: null, reviewerCorrections: [], flaky: false, retries: 0 }, at: "2026-11-01T00:00:00.000Z" };
+    const adjudication = { class: "app_defect", confidence: "high", action: "report", reason: "an attributed 5xx on the changed route" };
+    getHistory().learning.saveRunOutcome({ ...base, runId: "run-adjudicated", adjudication });
+    getHistory().learning.saveRunOutcome({ ...base, runId: "run-unadjudicated" });
+    assert.deepEqual(getHistory().learning.getRunOutcome("run-adjudicated")!.adjudication, adjudication);
+    assert.equal("adjudication" in getHistory().learning.getRunOutcome("run-unadjudicated")!, false);
+  } finally {
+    getHistory().purgeApp(app);
+  }
+});

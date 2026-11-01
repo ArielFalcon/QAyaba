@@ -13,6 +13,7 @@ import { migration0004 } from "./migrations/0004-run-engine-version";
 import { migration0005 } from "./migrations/0005-case-expected-status";
 import { migration0006 } from "./migrations/0006-run-time-budget";
 import { migration0007 } from "./migrations/0007-lesson-observations";
+import { migration0008 } from "./migrations/0008-drop-dead-learning-tables";
 import { LATEST_SCHEMA_VERSION, type Migration } from "./migrations/index";
 import { SCHEMA_1_SQL, migration0001 } from "./migrations/0001-initial";
 
@@ -315,7 +316,25 @@ test("a schema 7 database loses the learning tables and the two outcome columns 
   assert.equal(history.read(userVersion), LATEST_SCHEMA_VERSION);
   for (const table of DROPPED_TABLES) assert.equal(history.read(tableNames).includes(table), false, table);
   const outcomeColumns = history.read((db) => (db.prepare("PRAGMA table_info(run_outcomes)").all() as Array<{ name: string }>).map((c) => c.name));
-  assert.deepEqual(outcomeColumns, kept.split(", "));
+  assert.deepEqual(outcomeColumns, [...kept.split(", "), "adjudication"]);
   assert.equal(history.read(outcomes), outcomesBefore);
   assert.equal(history.read(observations), observationsBefore);
+});
+
+test("a schema 8 database gains the adjudication column with every stored outcome as it was and none adjudicated", (t) => {
+  const path = join(scratch(t), "history.db");
+  const before = new Database(path);
+  for (const migration of [migration0001, migration0002, migration0003, migration0004, migration0005, migration0006, migration0007, migration0008]) migration.up(before);
+  before.pragma("user_version = 8");
+  before.prepare("INSERT INTO run_outcomes (id, app, sha, mode, target, verdict, error_class, gate_signals, at) VALUES ('old', 'app', 'abcdef1', 'diff', 'e2e', 'fail', NULL, '{\"static\":true}', '2026-10-01T00:00:00.000Z')").run();
+  const outcomes = (db: Database.Database): string => JSON.stringify(db.prepare("SELECT id, app, sha, mode, target, verdict, error_class, gate_signals, at FROM run_outcomes ORDER BY id").all());
+  const outcomesBefore = outcomes(before);
+  before.close();
+
+  const history = openHistoryDatabase(path);
+  t.after(() => history.close());
+
+  assert.equal(history.read(userVersion), LATEST_SCHEMA_VERSION);
+  assert.equal(history.read(outcomes), outcomesBefore);
+  assert.equal(history.read((db) => (db.prepare("SELECT adjudication FROM run_outcomes WHERE id = 'old'").get() as { adjudication: string | null }).adjudication), null);
 });

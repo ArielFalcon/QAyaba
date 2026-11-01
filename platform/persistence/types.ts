@@ -68,8 +68,8 @@ export type { ErrorClass } from "@kernel/error-class";
 
 /*
  * The outcome the history store keeps: the engine's own record without what the store does not hold (the note, the cases and
- * the logs live on the run record, the adjudication is not persisted). Derived, so a field the engine adds reaches the store's
+ * the logs live on the run record). Derived, so a field the engine adds reaches the store's
  * type without a second declaration. The engine keeps `errorClass` and `usage` wide so it imports nothing downstream; a reader
  * that needs the narrow `ErrorClass` or `RunUsage` narrows at its read.
  */
-export type RunOutcome = Omit<EngineRunOutcome, "note" | "cases" | "logs" | "adjudication">;
+export type RunOutcome = Omit<EngineRunOutcome, "note" | "cases" | "logs">;
