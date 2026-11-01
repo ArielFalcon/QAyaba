@@ -154,6 +154,8 @@ export interface FixLoopOutcome {
   fixLoopFinalSpecMetas: { flow?: string; objective?: string }[] | undefined;
   /** The loop's triage confirmed DEV did not render the target: the run ends as a precondition failure. */
   devNotRenderedConclusive: boolean;
+  /** The spec files whose failing bytes a green proof contradicted. */
+  proofConflicts: number;
 }
 
 /**
@@ -448,7 +450,7 @@ export function initialRunState(): RunState {
       authVerifiedSha256: undefined,
       run: undefined,
     },
-    fixLoop: { session: undefined, lastAdjudicatorVerdict: undefined, fixLoopFinalSpecMetas: undefined, devNotRenderedConclusive: false },
+    fixLoop: { session: undefined, lastAdjudicatorVerdict: undefined, fixLoopFinalSpecMetas: undefined, devNotRenderedConclusive: false, proofConflicts: 0 },
     coverage: {
       blocksPublish: false,
       coverageRatio: null,

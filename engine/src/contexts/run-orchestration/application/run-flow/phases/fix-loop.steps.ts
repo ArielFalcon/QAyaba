@@ -377,6 +377,7 @@ export async function settleFixLoop(state: Readonly<RunState>, ctx: WorkspaceRun
         lastAdjudicatorVerdict: fixLoopResult.lastAdjudicatorVerdict,
         fixLoopFinalSpecMetas: fixLoopResult.lastSpecMetas,
         devNotRenderedConclusive: fixLoopResult.preconditionFailed,
+        proofConflicts: fixLoopResult.proofConflicts,
       },
     },
   };

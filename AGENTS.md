@@ -186,6 +186,7 @@ The RFC that lands a row flips it to **in force** in the same commit.
 | Whether the lead accepts a flow's spec | Agent with facts, the engine's facts win | An accept of a spec with no `run_spec` pass on its current bytes is sent back; an app defect is never sent back to be made green | Architecture, "Lead and sidekicks" | in force |
 | Whether a reviewer's finding blocks | Agent with facts, the engine verifies | Only a finding whose citation the engine verifies blocks; an answer holding no readable verdict fails closed as a parse miss, never an approval | Architecture, "Lead and sidekicks" | in force |
 | Whether one unreadable entry of a reviewer's answer sinks the answer | Engine | Beside an approval the entry is recorded and the approval stands; a rejection repairs once, then fails closed; a lost entry is loud | [RFC-0006](docs/architecture/rfc/0006-review-answer-crosses-whole.md) | in force |
+| Whether a failing final execution of bytes the `run_spec` loop saw pass stands | Engine, from a fact | One re-read of the failed files (the single triage re-read and its budget): a pass is the flaky path, a second failure puts back the regeneration the proof retired and the failure is adjudicated; the conflict is recorded in `gateSignals.closedLoop.conflicts` | [RFC-0017](docs/architecture/rfc/0017-defects-from-verified-facts.md) | in force |
 | Which verdict a run ends with | Engine | One closed outcome per step, one `finalizeRun`, one failure policy; an agent's answer is an input | Architecture, "The run flow" | in force |
 | Whether a request is a write the spec caused | Engine, from a signal | Cause is measured against a control load, not read from the request's destination | [RFC-0007](docs/architecture/rfc/0007-dev-write-attribution.md) | in force |
 | What makes a run a defect of the app | Engine, from a signal | A defect is a fact the engine verifies, never the shape of a failing test's error: a contradiction the provider's contract does not declare, in the change's reach, ends a run `fail` with no failing test; a green suite never outranks it; the adjudicator's rule on the shape of a value-mismatch failure is a hint (`low`, `break-needs-human`) and only a fact (an attributed 5xx, a runtime error, route availability) earns `high` | [RFC-0017](docs/architecture/rfc/0017-defects-from-verified-facts.md) | in force |
@@ -280,8 +281,11 @@ Verdicts: `pass | fail | flaky | invalid | infra-error | skipped`
 completed, or the fix loop's triage re-read confirmed DEV did not render the target: recorded,
 never learned from, no Issue. The triage re-reads a failure once, with
 no regeneration, when the evidence does not blame the test: its target is absent while the same
-bytes passed through `run_spec`, or its failure point read an empty data state (`dev.dataState`)
-on a page this run's Context Pack read with results. The failure capture states whether the page
+bytes passed through `run_spec`, its failure point read an empty data state (`dev.dataState`)
+on a page this run's Context Pack read with results, or every failed file has a green proof on its
+current bytes whatever the failure (`proof-conflict`: the same bytes passed and failed in one run, recorded as
+`gateSignals.closedLoop.conflicts`). A re-read that passes is the flaky path; a `proof-conflict` re-read that fails again
+puts back the regeneration the proof had retired, and the failure is adjudicated as any other. The failure capture states whether the page
 had settled (data requests in flight, a second read of the tree), and the regeneration prompt says so.
 The Context Pack's own capture applies the same test to a count of 0 (`dev.dataState`): after the whole wait, two reads
 in a row with no data request in flight and the tree unchanged make a confirmed empty state (`emptyConfirmed`, never
@@ -426,9 +430,9 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   unreadable or claimed by two files for one project, exempts nothing; a control that fails (it could not start, crashed, ended with a status or a signal) exempts nothing whatever it left, is logged, and leaves the call's page traffic charged in full), a ledger of every call's sha256, revoked when the run ends. Scratch specs live in `e2e/.qa-probe/` and are swept
   after every generation: never delivered, stored or validated. A call says `passed` only for bytes with a real passing case and no test that does not stand as a pass: a skipped test, a `test.fail()` test or a test that intercepts requests makes it `failed`, each listed with why, and so does a spec whose every test is skipped (the runner calls that suite infrastructure; the call does not). When `loopClosed` (every delivered spec's current bytes are those
   whose last call passed) the regenerations that only repeat that work are skipped (the pre-exec corrective regeneration and
-  the fix loop's), but an acceptance still executes every spec it accepts; the static-fix rounds, the declared no-op, `E-NO-DECISION` / `E-STEP-BUDGET` / `E-TIME-BUDGET` and the single
+  the fix loop's, which stays retired only while the fix loop's one re-read of a failing final execution agrees with the proof), but an acceptance still executes every spec it accepts; the static-fix rounds, the declared no-op, `E-NO-DECISION` / `E-STEP-BUDGET` / `E-TIME-BUDGET` and the single
   coverage or branch-case regeneration are unchanged. The `Run spec budget` prompt
-  section (facts only) exists only when granted. `gateSignals.closedLoop { calls, devWrites, closed, granted, writesRefused }`.
+  section (facts only) exists only when granted. `gateSignals.closedLoop { calls, devWrites, closed, granted, writesRefused, conflicts }` (`conflicts`: the spec files the final execution failed although the loop had seen their current bytes pass).
 - **Authenticated browser (`authbrowser_*`)** — on unless `qa.agentBrowser.enabled: false`, and skipped for a run with no saved session (or a run asks: `--agent-browser on|off`,
   `agentBrowser` on `POST /api/v1/runs`). The author (`qa-author`) gets four custom tools
   (`agents/tool/authbrowser.ts`: navigate, snapshot, click, type) that POST to the same internal listener as `run_spec`

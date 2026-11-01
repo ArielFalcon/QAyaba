@@ -69,7 +69,7 @@ export async function loopClosedNow(state: Readonly<RunState>, ctx: WorkspaceRun
 
 export async function closedLoopSignal(state: Readonly<RunState>, ctx: WorkspaceRunContext): Promise<ClosedLoopGateSignal | undefined> {
   const { closedLoop } = ctx.trail;
-  return closedLoop ? { ...closedLoop.signals(), closed: await loopClosedNow(state, ctx) } : undefined;
+  return closedLoop ? { ...closedLoop.signals(), ...(state.fixLoop.proofConflicts > 0 ? { conflicts: state.fixLoop.proofConflicts } : {}), closed: await loopClosedNow(state, ctx) } : undefined;
 /* mutation-scope:begin author-regeneration-routing */
 }
 
