@@ -70,8 +70,8 @@
     }
   },
   "staticLayers": {
-    "qa-author": 26213,
-    "qa-lead": 15279
+    "qa-author": 25901,
+    "qa-lead": 15260
   },
   "lastIncrease": {
     "reason": "T38 (L63): the author is told a page its grounding reads as a confirmed empty state is DEV's data, never to be asserted as it loads",
