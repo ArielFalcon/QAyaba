@@ -137,6 +137,13 @@ test("a name of the deleted diff tiers fails outside docs/architecture and passe
   }
 });
 
+test("the second runtime's name and the removed selector fail outside docs/architecture and pass in the records, which cite them on purpose", () => {
+  for (const [rule, text] of [["codex", "the OpenAI Codex CLI is a second runtime"], ["dual-mode", "the dual mode that was removed stays retired"]] as const) {
+    assert.deepEqual(check([file("docs/guide.md", text)]).violations.map((v) => v.rule), [rule], rule);
+    assert.deepEqual(check([file("docs/architecture/adr/0027-x.md", text)]).violations, [], rule);
+  }
+});
+
 test("the operator's own size label of a benchmark case is not a deleted tier name", () => {
   assert.deepEqual(check([file("scripts/efficiency-benchmark.ts", "export const DIFF_TIER_NAMES = [\"tiny\"] as const;\ntype DiffTier = string;\n")]).violations, []);
 });

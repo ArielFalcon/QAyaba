@@ -51,8 +51,9 @@ export const BANNED_RULES: BannedRule[] = [
   { id: "rewritten-name", patterns: [/Rewritten[A-Z]/, /rewritten-(engine|orchestrator)/i, /rewritten (engine|path|adapters?|orchestrator|publish)/i] },
   { id: "legacy", patterns: [/\blegacy\b/i, /\bLegacy[A-Z]/, /\blegacy[A-Z]/] },
   { id: "bridges", patterns: [/\bbridges?\//i, /wireBridges/i, /bridge adapters?/i, /grounding bridges/i, /the bridges/i] },
-  { id: "codex", patterns: [/codex/i] },
-  { id: "dual-mode", patterns: [/dual[- ](mode|runtime|agent)/i, /AGENT_RUNTIME_MODE/i, /\bAgentMode\b/i, /SingleAgentFacade/i, /DualAgentFacade/i] },
+  /* The records cite the second runtime's name and the removed selector on purpose: RFC-0020 proposes the runtime and names what stays retired, ADR-0027 records the owner's scope. The name rule is retired by the change that lands the runtime, since the name becomes live code again. */
+  { id: "codex", patterns: [/codex/i], exemptPrefixes: [RECORDS_PREFIX] },
+  { id: "dual-mode", patterns: [/dual[- ](mode|runtime|agent)/i, /AGENT_RUNTIME_MODE/i, /\bAgentMode\b/i, /SingleAgentFacade/i, /DualAgentFacade/i], exemptPrefixes: [RECORDS_PREFIX] },
   { id: "router-kind", patterns: [/"router"/i, /orchestration-router/i, /RETIRED_EXPLORER_ROLE/i, /coordinationMode/i, /qa\.explorer/i] },
   /* The configuration key is `qa.changeCoverage.mode` (ADR-0005); `qa.coveragePolicy` is the spelling the documents drifted to. The records quote it on purpose. */
   { id: "coverage-policy-key", patterns: [/\bqa\.coveragePolicy\b/], exemptPrefixes: [RECORDS_PREFIX] },
