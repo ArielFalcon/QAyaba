@@ -571,7 +571,7 @@ async function assistantPrompts(subject: string): Promise<PromptText[]> {
 /* The onboarding proposer's prompt, on the first round and after a round that scored low. */
 async function proposerPrompts(subject: string): Promise<PromptText[]> {
   const sent: string[] = [];
-  const adapter = new LlmProfileProposerAdapter(recordingRuntime(sent), silentLogger, redaction, { app: subject });
+  const adapter = new LlmProfileProposerAdapter(submittingRuntime(sent, { candidates: [] }), silentLogger, redaction, { app: subject });
   const front = { repo: "org/web", mirrorDir: "/m/web" };
   const system = [{ repo: "org/orders", mirrorDir: "/m/orders" }];
   const profile = {

@@ -1,10 +1,12 @@
 import { z } from "zod";
 import type { BoundaryProfile } from "../domain/index.ts";
 import type { AssertNever } from "@kernel/forwarding.ts";
+import { SUBMIT_TOOL, submissionErrorsOf, type SubmissionContract } from "@kernel/submission.ts";
 
 /*
- * LLM-text Zod parser for the proposer flow. Field names match the context's BoundaryProfile union; every string uses `.min(1)` — empty globs
- * and paths are never usable candidates, so reject them at this untrusted parse boundary.
+ * The boundary profiles the proposer submits, as its submit tool carries them. Field names match the context's BoundaryProfile union;
+ * every string uses `.min(1)` — empty globs and paths are never usable candidates. A profile the schema cannot read is returned to the
+ * proposer inside its turn with where it went wrong; the accepted call is the round's candidates.
  */
 const HttpProfileSchema = z.object({
   transport: z.literal("http"),
@@ -36,39 +38,21 @@ const HttpBackendProfileSchema = z.object({
   openApiPath: z.string().min(1),
 });
 
-const CandidateSchema = z.discriminatedUnion("transport", [
-  HttpProfileSchema,
-  EventProfileSchema,
-  HttpBackendProfileSchema,
-]);
-
-/*
- * Recognizable sentinel a malformed candidate degrades to (per-entry .catch), so the adapter can
- * filter it out while preserving valid siblings: the proposer fails OPEN, a bad candidate never
- * poisons the round nor collapses the whole array.
- */
-export const UNPARSEABLE_SENTINEL = {
-  transport: "http",
-  frontFiles: "__UNPARSEABLE__",
-  frontCallSite: { kind: "__UNPARSEABLE__" },
-  servicePrefixTemplate: "__UNPARSEABLE__",
-  serviceRepoTemplate: "__UNPARSEABLE__",
-  openApiPath: "__UNPARSEABLE__",
-} as const satisfies z.infer<typeof HttpProfileSchema>;
-
-/*
- * The inner `.catch([])` guards the `candidates` FIELD (present but non-array/missing). The outer
- * `.catch({candidates: []})` guards the case where the top-level input isn't even an object (e.g.
- * a bare string, null, or garbage JSON) — `.parse()` must never throw for any input shape; every
- * failure mode degrades to a well-formed empty verdict, per the adapter's fail-open contract.
- */
-export const ProposerVerdictSchema = z
-  .object({
-    candidates: z.array(CandidateSchema.catch(UNPARSEABLE_SENTINEL)).catch([]),
-  })
-  .catch({ candidates: [] });
+const CandidateSchema = z.discriminatedUnion("transport", [HttpProfileSchema, EventProfileSchema, HttpBackendProfileSchema]);
 
 export type SchemaCandidate = z.infer<typeof CandidateSchema>;
+
+export const PROPOSER_PROFILES_WIRE = z.object({
+  candidates: z.array(CandidateSchema).describe("The boundary profiles you hypothesize, each discriminated by `transport`. [] when you found no boundary."),
+});
+
+export const proposerProfilesContract: SubmissionContract<readonly SchemaCandidate[]> = {
+  tool: SUBMIT_TOOL.PROFILES,
+  check: (answer) => {
+    const read = PROPOSER_PROFILES_WIRE.safeParse(answer);
+    return read.success ? { ok: true, value: read.data.candidates } : { ok: false, errors: submissionErrorsOf(read.error) };
+  },
+};
 
 /*
  * Type-level gates so the schema cannot silently drift from the domain BoundaryProfile union:

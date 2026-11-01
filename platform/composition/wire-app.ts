@@ -581,7 +581,7 @@ export function wireApp(settingsStore: SettingsStore): WiredApp {
   }
 
   /* The proposer role opens its session through the process-wide agent transport, built when the round starts. */
-  const proposerRuntime = new AgentRuntimeAdapter({ open: async (agent, cwd, opts) => (await defaultAgentDeps()).open(agent, cwd, { ...(opts?.signal ? { signal: opts.signal } : {}), ...(opts?.timeoutMs !== undefined ? { timeoutMs: opts.timeoutMs } : {}) }) }, (role) => AGENT_NAME_FOR_ROLE[role]);
+  const proposerRuntime = new AgentRuntimeAdapter({ open: async (agent, cwd, opts) => (await defaultAgentDeps()).open(agent, cwd, { ...(opts?.signal ? { signal: opts.signal } : {}), ...(opts?.timeoutMs !== undefined ? { timeoutMs: opts.timeoutMs } : {}) }) }, (role) => AGENT_NAME_FOR_ROLE[role], toolsToken.generated ? undefined : submissionRegistry);
   const onboardingJob = createOnboardingJob({
     isRunnerBusy: () => {
       const running = getHistory().runs.currentRun();

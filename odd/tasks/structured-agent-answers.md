@@ -26,9 +26,9 @@ Branch: `worktree-agent-a15277ccb6ad0d93e`. Delivery: ask-on-risk (single branch
 | T4 | S4, S5, S10 | inline | done: the lead's plan, its re-ask and its amendment | aab944c4 |
 | T5 | S4, S5, S10 | inline | done: the lead's review of the flows and its corrections | be92092d |
 | T6 | S4, S5, S10 | inline | done: the sidekick's result | efa8ea6b |
-| T7 | S4, S5, S10 | inline | the reviewer's verdict and the generator's verdict | pending |
-| T8 | S4, S5, S10 | inline | the proposer's profiles | pending |
-| T9 | S6, S7 | inline | retire the scanner where no consumer is left; AGENTS.md and RFC-0006 rows | pending |
+| T7 | S4, S5, S10 | inline | done: the reviewer's verdict and the generator's verdict; contract repair retired | 4e9aa0aa |
+| T8 | S4, S5, S10 | inline | done: the proposer's profiles; the closing-JSON scanner deleted (no consumer left) | pending-sha |
+| T9 | S6, S7 | inline | AGENTS.md, RFC-0006, docs and RFC-0018 as-built rows (the scanner itself went with T8) | pending |
 
 Route declaration: every task inline. No Writer-trigger reason holds (the units share the submission mechanism and its files, so none is independent); the mapping needed more than one batch and was done inline by the parent before any write.
 
