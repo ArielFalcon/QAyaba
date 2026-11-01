@@ -338,6 +338,11 @@ findings, the run asks the lead, in the same planning session, instead of regene
 3. The orchestrator's facts decide: a flow is always sent the findings that cite it, a finding that cites one flow is never moved
    to another, a flow with findings the lead ignored is sent them with the orchestrator's own instruction, and a closed session is
    replaced. An answer that cannot be read still sends each flow its own findings.
+   What a finding asks of its flow is stated once per origin (`ORIGIN_TEXT`, `lead-correction.ts`) and the lead's frame and the
+   sidekick's closing line both render from it. The static gate's, execution's, flaky and pre-execution findings are facts to
+   correct. A coverage finding is a measurement: the sidekick takes the arm when the page can be brought to that state through
+   the UI against DEV, otherwise changes nothing for it and says so in `concerns`, never forcing or weakening an assertion; there
+   is no field to claim it, because the recount measures each arm and is the disposition.
    An answer with a part the orchestrator does not admit (an order naming no finding, an unknown flow) while findings are left
    with no flow, or a readable answer that leaves listed findings neither sent to a flow nor rebutted (and that no flow of the
    orchestrator's own, below, takes), goes back to the lead once, in the same session, with the reasons, the numbers it left out

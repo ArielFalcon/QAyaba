@@ -231,6 +231,15 @@ test("a coverage-only turn shows the lead every flow with the use cases it cover
   assert.doesNotMatch(text, /left out|not listed/);
 });
 
+test("a coverage finding is a measurement the lead never rebuts, and the other observed origins keep their no-rebuttal rule", () => {
+  const observed = [{ text: "src/cart.ts lines 3-4", file: "src/cart.ts" }];
+  const answer = JSON.stringify({ corrections: [], rebuttals: [{ finding: 1, basis: "execution", ref: "total", reason: "unreachable" }] });
+  assert.deepEqual(admitLeadCorrection(redaction, answer, covering, observed, CORRECTION_ORIGIN.COVERAGE).rebuttals, []);
+  for (const origin of [CORRECTION_ORIGIN.STATIC_GATE, CORRECTION_ORIGIN.EXECUTION, CORRECTION_ORIGIN.PRE_EXEC]) {
+    assert.match(renderLeadCorrection(redaction, flows, [{ text: "x", spec: "flows/cart.spec.ts" }], origin), /none is rebutted/, origin);
+  }
+});
+
 test("flaky findings are told a test passed on retry, and are facts the lead does not rebut", () => {
   assert.match(correctionPreamble(CORRECTION_ORIGIN.FLAKY), /passed on retry/);
   assert.doesNotMatch(correctionPreamble(CORRECTION_ORIGIN.FLAKY), /and it failed\./);
