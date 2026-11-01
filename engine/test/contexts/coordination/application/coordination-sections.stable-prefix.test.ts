@@ -28,7 +28,7 @@ const authorBrief = (n: number): DelegationBrief =>
     scope: { readablePaths: ["."], writablePaths: [`e2e/flows/checkout-${n}.spec.ts`], allowedCommands: [] },
     acceptanceCriteria: [`checkout ${n} completes`],
     knownFacts: [{ id: `fact-${n}`, kind: "grounding", summary: `the cart holds ${n} items`, source: "context-pack", confidence: "observed" }],
-    tools: ["read", "write", "run_spec"],
+    grants: { granted: ["run_spec"], withheld: [] },
   });
 
 test("the flow author's brief opens with a stable prefix that two runs share byte for byte, and its run ids are outside it", () => {

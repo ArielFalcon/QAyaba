@@ -59,6 +59,8 @@ import {
   assembleUnreadableReviewRequest,
   assembleSidekickFeedback,
   createDelegationBrief,
+  SIDEKICK_AUTHORING,
+  sidekickGrants,
   type CorrectionOrigin,
 } from "@contexts/coordination/application/index.ts";
 import { RUN_MODES } from "@kernel/run-mode.ts";
@@ -898,10 +900,13 @@ export function coordinationLintSections(assembled: AssembledPrompt): LintSectio
   });
 }
 
+const PLAIN_GRANTS = sidekickGrants(SIDEKICK_AUTHORING.RUN_SPEC_ONLY, { loop: true, agentBrowser: false, geolocation: false });
+const FULL_GRANTS = sidekickGrants(SIDEKICK_AUTHORING.AUTHENTICATED_BROWSER, { loop: true, agentBrowser: true, geolocation: true });
+
 function coordinationBriefs() {
   const scope = { readablePaths: ["."], writablePaths: ["e2e/flows/cart.spec.ts"], allowedCommands: [] };
   const author = (extra: Parameters<typeof createDelegationBrief>[0] extends infer I ? Partial<I> : never = {}) =>
-    createDelegationBrief({ redaction: MATRIX_REDACTION, delegationId: "r1-d1", runId: "r1", objective: "the cart lists the items added to it", task: "Write the Playwright E2E spec for ONE flow.", scope, acceptanceCriteria: ["adding an item shows it in the cart"], tools: ["read", "write", "run_spec"], ...extra } as never);
+    createDelegationBrief({ redaction: MATRIX_REDACTION, delegationId: "r1-d1", runId: "r1", objective: "the cart lists the items added to it", task: "Write the Playwright E2E spec for ONE flow.", scope, acceptanceCriteria: ["adding an item shows it in the cart"], grants: PLAIN_GRANTS, ...extra } as never);
   return { author };
 }
 
@@ -919,13 +924,13 @@ export function buildCoordinationMatrix(root: string = ROOT): CoordinationCell[]
   const correctionFlows = [{ id: "cart", objective: "the cart lists items", specFile: "flows/cart.spec.ts", sessionOpen: true, spec: "test('x', async () => {});", candidates: ["uc-00000001"], seedFiles: ["src/cart.ts"] }];
   const findings = [{ text: "flows/cart.spec.ts: the selector is not scoped", spec: "flows/cart.spec.ts" }, { text: "src/cart.ts:12 no test exercised this line", file: "src/cart.ts", line: 12 }];
   const prompts: Array<{ prompt: string; variant: string; role: CoordinationCell["role"]; assembled: AssembledPrompt; delegation?: DelegationGrant }> = [
-    { prompt: "flow-author-brief", variant: "plain", role: "qa-author", assembled: assembleSidekickBrief(MATRIX_REDACTION, briefs.author()), delegation: { tools: ["read", "write", "run_spec"], writes: true } },
+    { prompt: "flow-author-brief", variant: "plain", role: "qa-author", assembled: assembleSidekickBrief(MATRIX_REDACTION, briefs.author()), delegation: { tools: PLAIN_GRANTS.granted, writes: true } },
     {
       prompt: "flow-author-brief",
       variant: "full",
       role: "qa-author",
       assembled: assembleSidekickBrief(MATRIX_REDACTION, briefs.author({
-        tools: ["read", "write", "run_spec", "authbrowser", "set_geolocation"],
+        grants: FULL_GRANTS,
         pages: "route /cart:\n  heading \"Cart\"",
         knownFacts: [{ id: "pack-data:/cart", kind: "grounding", source: "ContextPack", summary: "the Context Pack read 2 results on /cart under the app's declared data state", confidence: "deterministic", dataRef: "/cart" }],
         candidates: [{ id: "uc-00000001", entry: "page /cart", tier: "direct", evidence: ["src/cart.ts::total", "src/CartPage.ts::CartPage", "page /cart"], symbols: ["total (src/cart.ts:10-14)"], expectedFrom: [{ kind: "commit-message", ref: "feat(cart): show the item count" }] }],
@@ -937,7 +942,7 @@ export function buildCoordinationMatrix(root: string = ROOT): CoordinationCell[]
         },
         suite: ["flows/checkout.spec.ts: checkout completes"],
       })),
-      delegation: { tools: ["read", "write", "run_spec", "authbrowser", "set_geolocation"], writes: true },
+      delegation: { tools: FULL_GRANTS.granted, writes: true },
     },
     { prompt: "lead-review", variant: "turn-1", role: "qa-lead", assembled: assembleLeadReview(MATRIX_REDACTION, review.flows, { turn: 1, maxTurns: 3 }) },
     { prompt: "lead-review", variant: "last-turn-with-gaps", role: "qa-lead", assembled: assembleLeadReview(MATRIX_REDACTION, review.flows, { turn: 3, maxTurns: 3 }, review.gaps) },

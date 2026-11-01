@@ -1,7 +1,7 @@
 /*
- * The kinds of sidekick a lead can dispatch. One entry says which agent runs a kind, over which tools, how its brief is rendered,
- * how its answer is read, where it works and what time it may take; a new kind is one entry here, its roster entry and its prompt
- * file. An entry never widens a grant: the roster (`agents/opencode.json`) is the authority and a test holds the two equal.
+ * The kinds of sidekick a lead can dispatch. One entry says which agent runs a kind, how its brief is rendered, how its answer is
+ * read, where it works and what time it may take; a new kind is one entry here, its roster entry and its prompt file. The tools
+ * are the roster's (`agents/opencode.json`) and, for the ones the orchestrator decides per flow, `sidekickGrants`.
  */
 import type { AgentRole } from "@kernel/agent-role.ts";
 import type { RedactionPort } from "@kernel/ports/redaction.port.ts";
@@ -16,18 +16,6 @@ import { AUTHOR_SIDEKICK, REVIEW_SIDEKICK } from "@kernel/sidekick-session.ts";
 export const SIDEKICK_KIND = { AUTHOR: "author", REVIEW: "review" } as const;
 export type SidekickKind = (typeof SIDEKICK_KIND)[keyof typeof SIDEKICK_KIND];
 
-/* The tool families a kind may hold. A roster tool maps to one: `write` and `edit` to `write`, `authbrowser_*` to `authbrowser`, `codegraph_explore` to `codegraph`, `playwright*` to `playwright`. */
-export const AGENT_TOOL = {
-  READ: "read",
-  WRITE: "write",
-  RUN_SPEC: "run_spec",
-  AUTHBROWSER: "authbrowser",
-  SET_GEOLOCATION: "set_geolocation",
-  CODEGRAPH: "codegraph",
-  PLAYWRIGHT: "playwright",
-} as const;
-export type AgentTool = (typeof AGENT_TOOL)[keyof typeof AGENT_TOOL];
-
 /* Where a kind works: a private copy holding the one spec file it may write, or the run's working copy. */
 export const SIDEKICK_WORKSPACE = { ISOLATED_SPEC_FILE: "isolated-spec-file", WORKING_COPY: "working-copy" } as const;
 export type SidekickWorkspace = (typeof SIDEKICK_WORKSPACE)[keyof typeof SIDEKICK_WORKSPACE];
@@ -41,7 +29,6 @@ interface SidekickKindBase {
   /* The roster key of the agent that runs the kind. */
   readonly agent: string;
   readonly role: AgentRole;
-  readonly tools: readonly AgentTool[];
   readonly workspace: SidekickWorkspace;
   readonly budget: SidekickBudget;
 }
@@ -65,7 +52,6 @@ export type SidekickKindSpec = DelegatingKindSpec | ReviewKindSpec;
 const AUTHOR: DelegatingKindSpec = {
   id: SIDEKICK_KIND.AUTHOR,
   ...AUTHOR_SIDEKICK,
-  tools: [AGENT_TOOL.READ, AGENT_TOOL.WRITE, AGENT_TOOL.RUN_SPEC, AGENT_TOOL.AUTHBROWSER, AGENT_TOOL.SET_GEOLOCATION, AGENT_TOOL.PLAYWRIGHT],
   workspace: SIDEKICK_WORKSPACE.ISOLATED_SPEC_FILE,
   budget: SIDEKICK_BUDGET.FLOW,
   render: (redaction, brief, fit) => renderSidekickBrief(redaction, brief, fit),
@@ -98,7 +84,6 @@ export const authorTargetSpec = (target: AuthorTarget): AuthorTargetSpec => AUTH
 const REVIEW: ReviewKindSpec = {
   id: SIDEKICK_KIND.REVIEW,
   ...REVIEW_SIDEKICK,
-  tools: [AGENT_TOOL.READ],
   workspace: SIDEKICK_WORKSPACE.WORKING_COPY,
   budget: SIDEKICK_BUDGET.REVIEW,
 };

@@ -41,7 +41,7 @@ import type { LeadTurnOpts, PlanOutput } from "@kernel/plan-output.ts";
 import { sha256Hex } from "@kernel/content-hash.ts";
 import { installProcessLogger, resetProcessLoggerForTests } from "@kernel/ports/process-logger.ts";
 import { LOG_EFFECT, levelOfEffect, memoryLogger, type LoggerPort } from "@kernel/ports/logger.port.ts";
-import { AGENT_TOOL, SIDEKICK_KIND, sidekickKindSpec } from "@contexts/coordination/application/sidekick-kinds.ts";
+import { SIDEKICK_KIND, sidekickKindSpec } from "@contexts/coordination/application/sidekick-kinds.ts";
 import type { GeoLocation } from "@kernel/geolocation.ts";
 
 import { PatternRedactionAdapter } from "../../../../src/shared-infrastructure/redaction/pattern-redaction.adapter.ts";
@@ -1086,7 +1086,8 @@ test("each sidekick's brief carries the evidence for the candidate pages its flo
   assert.equal(brief("login").candidates, undefined, "a flow that visits no candidate page carries none");
   assert.deepEqual(brief("shops").knownFacts.map((f) => f.dataRef), ["/shops/madrid"]);
   assert.deepEqual(brief("login").knownFacts, [], "another flow's page is not this flow's fact");
-  assert.deepEqual(brief("shops").tools, ["read", "write", "run_spec", "authbrowser"]);
+  assert.deepEqual(brief("shops").grants?.granted, ["run_spec", "authbrowser"]);
+  assert.ok(brief("shops").task.includes(`${Math.round(DEFAULT_COORDINATION_SETTINGS.flowBudgetMs.opencode / 1000)} seconds`), "the brief states the time that arms the flow's timer");
 });
 
 test("a lesson reaches the brief of the flow whose pages it names and no other, is recorded once as delivered, and never reaches the facts the lead and the reviewer are given", async () => {

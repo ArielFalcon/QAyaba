@@ -7,8 +7,9 @@
 import { claim, countByDirectory, harnessFactLines, harnessFactOmissions, NOT_SHOWN, pagesDegrade, stepsDegrade, suiteEntryFile } from "@contexts/generation/application/index.ts";
 import type { PromptSectionDef, SectionRender } from "@kernel/prompt-sections.ts";
 import type { PromptClaim } from "@kernel/prompt-claim.ts";
+import { SIDEKICK_CAPABILITY, type SidekickCapability } from "../sidekick-authoring.ts";
 import { ACCEPTANCE_STATUSES } from "../acceptance-report.ts";
-import { briefTools, type DelegationBrief } from "../delegation-brief.ts";
+import type { DelegationBrief } from "../delegation-brief.ts";
 import type { EvidenceRef } from "../evidence-ref.ts";
 import { CANDIDATE_CLAIMS } from "../delegation-result.ts";
 import { decisionText } from "@kernel/changed-decision.ts";
@@ -21,18 +22,13 @@ export interface BriefPromptContext {
   scrub(text: string): string;
 }
 
-/* What each tool family lets the sidekick do, in the words the brief states it. A tool the table does not know is named alone. */
-const TOOL_STATEMENT: Readonly<Record<string, string>> = {
-  read: "read the files under readablePaths",
-  write: "write the files under writablePaths and no other",
-  run_spec: "run the spec you wrote",
-  authbrowser: "read DEV through the authenticated browser (authbrowser_*); it never writes",
-  set_geolocation: "move the authoring location",
-  codegraph: "walk the code graph (codegraph_explore), read-only",
-  playwright: "drive a browser against DEV",
+/* What each capability the orchestrator grants lets the sidekick do, in the words the brief states it. */
+const TOOL_STATEMENT: Readonly<Record<SidekickCapability, string>> = {
+  [SIDEKICK_CAPABILITY.RUN_SPEC]: "run the spec you wrote",
+  [SIDEKICK_CAPABILITY.AUTHBROWSER]: "read DEV through the authenticated browser (authbrowser_*); it never writes",
+  [SIDEKICK_CAPABILITY.SET_GEOLOCATION]: "move the authoring location",
+  [SIDEKICK_CAPABILITY.PLAYWRIGHT]: "drive a browser against DEV",
 };
-
-const toolLine = (tool: string): string => (TOOL_STATEMENT[tool] ? `- ${tool}: ${TOOL_STATEMENT[tool]}` : `- ${tool}`);
 
 const section = (def: Omit<PromptSectionDef<BriefPromptContext>, "tier" | "applies"> & { applies?: PromptSectionDef<BriefPromptContext>["applies"] }): PromptSectionDef<BriefPromptContext> => ({
   tier: "task",
@@ -46,12 +42,17 @@ const taskSection = (heading: string, lines: (ctx: BriefPromptContext) => string
 
 const toolsSection = section({
   id: "tools",
-  priority: 95, stability: "static", reason: "The tools its turn grants and only those (R18) (07d8f70b)",
+  priority: 95, stability: "static", reason: "What the orchestrator grants and withholds this turn, derived from the grants that deny the session's tools (R18) (07d8f70b)",
   render: ({ brief }) => {
-    const tools = briefTools(brief);
+    const { granted = [], withheld = [] } = brief.grants ?? {};
     return {
-      content: ["## Tools", tools.length > 0 ? "You hold only these tools:" : "You hold no tool.", ...tools.map(toolLine)].join("\n"),
-      claims: [claim.statesContract("tools"), ...tools.map((tool) => claim.statesTool(tool))],
+      content: [
+        "## Tools",
+        granted.length > 0 ? "Granted by this run:" : "Granted by this run: none.",
+        ...granted.map((tool) => `- ${tool}: ${TOOL_STATEMENT[tool]}`),
+        ...(withheld.length > 0 ? [`Not granted: ${withheld.join(", ")}.`] : []),
+      ].join("\n"),
+      claims: [claim.statesContract("tools"), ...granted.map((tool) => claim.statesTool(tool))],
     };
   },
 });
@@ -105,16 +106,19 @@ function suiteRender({ brief, scrub }: BriefPromptContext): SectionRender {
 
 const withCandidates = (brief: DelegationBrief): boolean => brief.candidates !== undefined && brief.candidates.length > 0;
 
-/* The author's answer: the DelegationResult JSON, one acceptance entry per numbered criterion and one candidate entry per use case of the Change section. */
+/* The flow turn's one closing shape: every field `readDelegationResult` accepts, one acceptance entry per numbered criterion and one candidate entry per use case of the Change section. */
 function authorReturnShape({ brief }: BriefPromptContext): string {
   const candidates = withCandidates(brief);
   return [
     "## Output contract",
     "End with ONLY JSON:",
-    `{"delegationId":"${brief.delegationId}","runId":"${brief.runId}","status":"completed"|"completed-with-concerns"|"blocked"|"needs-lead"|"failed","summary":"...","filesChanged":[{"path":"..."}],"acceptance":[{"criterion":1,"status":${ACCEPTANCE_STATUSES.map((st) => JSON.stringify(st)).join("|")},"note":"..."}],${candidates ? `"candidates":[{"id":"uc-...","status":${CANDIDATE_CLAIMS.map((st) => JSON.stringify(st)).join("|")},"spec":"<test title>"}],` : ""}"concerns":[],"unresolvedQuestions":[]}`,
+    `{"delegationId":"${brief.delegationId}","runId":"${brief.runId}","status":"completed"|"completed-with-concerns"|"blocked"|"needs-lead"|"failed","summary":"...","filesChanged":[{"path":"..."}],"acceptance":[{"criterion":1,"status":${ACCEPTANCE_STATUSES.map((st) => JSON.stringify(st)).join("|")},"note":"..."}],${candidates ? `"candidates":[{"id":"uc-...","status":${CANDIDATE_CLAIMS.map((st) => JSON.stringify(st)).join("|")},"spec":"<test title>"}],` : ""}"concerns":[],"unresolvedQuestions":[],"testCorrect":{"cause":"app"|"env","reason":"..."}}`,
+    "filesChanged: every file you wrote or edited, by its path; a file outside writablePaths makes the result blocked.",
     "acceptance: one entry for every numbered acceptance criterion, by its number: met only when you checked it holds, unmet when your work does not satisfy it, unverified when you could not check it; [] when there are none. Only an unmet entry reports a failure — concerns are notes.",
     "An unmet that DEV's state causes (DEV cannot be brought to the state the criterion needs, as pages you read in this turn show) takes `\"cause\":\"dev-state\",\"pages\":[\"/path\"]` in its entry. The orchestrator checks the pages against what its own browser and run_spec calls saw you read; an unmet without them, or that it cannot confirm, blocks the flow.",
     ...(candidates ? ["candidates: one entry for every use case of the Change section, by its id: covered when a test of yours exercises it, not-covered when none does, blocked when you could not. It is your claim; the orchestrator's own run of the spec decides."] : []),
+    "testCorrect: leave it out unless a later turn asks whether a failing test is right; the orchestrator checks the claim against its own evidence.",
+    "needs-lead is a control state, not a success. A follow-up from the lead is answered with this same shape for the same delegationId and runId.",
     "This is the only closing JSON of your turn: no other verdict object (such as one with a `specs` list) comes with or after it.",
   ].join("\n");
 }

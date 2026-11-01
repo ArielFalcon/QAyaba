@@ -39,12 +39,49 @@ export function sidekickAuthoring(facts: AuthoringFacts): SidekickAuthoringDecis
   return { mode: SIDEKICK_AUTHORING.EXCLUDED, reason: "the app has a login and the run was granted neither the authenticated browser nor run_spec, so a sidekick would author against the login wall" };
 }
 
-/* The tools a sidekick's prompts are denied, whatever its configuration allows. */
-export function sidekickDeniedTools(mode: SidekickAuthoringMode, flowHasLoop: boolean): string[] {
-  return [
-    /* Its symbol edits write wherever the server's project points, which is not the workspace. */
-    "serena*",
-    ...(mode === SIDEKICK_AUTHORING.UNAUTHENTICATED_BROWSER ? [] : ["playwright*"]),
-    ...(flowHasLoop ? [] : ["run_spec"]),
-  ];
+/* The tool families the orchestrator decides for a sidekick, as the brief names them. The roster's own tools (reading, searching, editing) are not the orchestrator's to grant. */
+export const SIDEKICK_CAPABILITY = {
+  RUN_SPEC: "run_spec",
+  AUTHBROWSER: "authbrowser",
+  SET_GEOLOCATION: "set_geolocation",
+  PLAYWRIGHT: "playwright",
+} as const;
+export type SidekickCapability = (typeof SIDEKICK_CAPABILITY)[keyof typeof SIDEKICK_CAPABILITY];
+
+/* What the orchestrator holds of one flow's tools. */
+export interface FlowGrantFacts {
+  /* The flow was given a run_spec loop. */
+  loop: boolean;
+  /* The run holds the authenticated browser. */
+  agentBrowser: boolean;
+  /* The flow has an authoring location to move. */
+  geolocation: boolean;
+}
+
+export interface SidekickGrants {
+  readonly granted: readonly SidekickCapability[];
+  readonly withheld: readonly SidekickCapability[];
+  /* The tools the sidekick's prompts are denied, whatever its configuration allows. */
+  readonly denyTools: readonly string[];
+}
+
+/* The one computation of what a flow's sidekick is granted: the brief states `granted` and `withheld`, and the session denies `denyTools`. */
+export function sidekickGrants(mode: SidekickAuthoringMode, flow: FlowGrantFacts): SidekickGrants {
+  const held: Readonly<Record<SidekickCapability, boolean>> = {
+    [SIDEKICK_CAPABILITY.RUN_SPEC]: flow.loop,
+    [SIDEKICK_CAPABILITY.AUTHBROWSER]: mode === SIDEKICK_AUTHORING.AUTHENTICATED_BROWSER && flow.agentBrowser,
+    [SIDEKICK_CAPABILITY.SET_GEOLOCATION]: flow.geolocation,
+    [SIDEKICK_CAPABILITY.PLAYWRIGHT]: mode === SIDEKICK_AUTHORING.UNAUTHENTICATED_BROWSER,
+  };
+  const capabilities = Object.values(SIDEKICK_CAPABILITY);
+  return {
+    granted: capabilities.filter((capability) => held[capability]),
+    withheld: capabilities.filter((capability) => !held[capability]),
+    denyTools: [
+      /* Its symbol edits write wherever the server's project points, which is not the workspace. */
+      "serena*",
+      ...(held[SIDEKICK_CAPABILITY.PLAYWRIGHT] ? [] : ["playwright*"]),
+      ...(held[SIDEKICK_CAPABILITY.RUN_SPEC] ? [] : ["run_spec"]),
+    ],
+  };
 }

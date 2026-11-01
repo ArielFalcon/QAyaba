@@ -24,7 +24,7 @@ const authorBrief = (): DelegationBrief =>
     task: "write the spec",
     scope: { readablePaths: ["."], writablePaths: ["e2e/flows/checkout.spec.ts"], allowedCommands: [] },
     acceptanceCriteria: ["checkout completes"],
-    tools: ["read", "write", "run_spec"],
+    grants: { granted: ["run_spec"], withheld: ["authbrowser", "set_geolocation", "playwright"] },
   });
 
 /* The assembled sections of a prompt, cut at the blank line the coordination prompts join them with. */
@@ -63,50 +63,67 @@ test("the flow author's brief opens with the tools its turn grants, then its sec
   const headings = text.split("\n").filter((line) => line.startsWith("## "));
   assert.deepEqual(headings, ["## Tools", "## Task", "## Acceptance criteria", "## Scope", "## Authority (frozen)", "## Output contract"]);
   assert.equal(text.split("Do NOT write outside writablePaths").length, 2, "the boundary rule is stated once");
-  assert.match(text, /- read: /);
   assert.match(text, /- run_spec: /);
 });
 
 test("a delegation brief that states its whole contract and only what its turn grants lints clean", () => {
-  const author = briefCell(asBrief(AUTHOR_BRIEF_SECTIONS, authorBrief()), { tools: ["read", "write", "run_spec"], writes: true });
+  const author = briefCell(asBrief(AUTHOR_BRIEF_SECTIONS, authorBrief()), { tools: ["run_spec"], writes: true });
   assert.deepEqual(lintCell(author), []);
 });
 
 test("a brief missing its return shape is a finding naming the part", () => {
   const without = AUTHOR_BRIEF_SECTIONS.filter((def) => def.id !== "contract");
-  const findings = lintCell(briefCell(asBrief(without, authorBrief()), { tools: ["read", "write", "run_spec"], writes: true }));
+  const findings = lintCell(briefCell(asBrief(without, authorBrief()), { tools: ["run_spec"], writes: true }));
   assert.deepEqual(findings.map((f) => [f.rule, f.part]), [["R17", "return-shape"]]);
 });
 
 test("a contract part stated in two sections is a finding naming both", () => {
   const twice = [...AUTHOR_BRIEF_SECTIONS, { id: "restated", tier: "task" as const, priority: 200, stability: "run" as const, reason: "r", applies: () => true, render: () => ({ content: "## Again\nDo NOT write outside writablePaths.", claims: [claim.statesContract("boundary")] }) }];
-  const findings = lintCell(briefCell(asBrief(twice, authorBrief()), { tools: ["read", "write", "run_spec"], writes: true }));
+  const findings = lintCell(briefCell(asBrief(twice, authorBrief()), { tools: ["run_spec"], writes: true }));
   assert.deepEqual(findings.map((f) => [f.rule, f.part, [...f.sections]]), [["R17", "boundary", ["restated", "scope"]]]);
 });
 
 test("a brief that names a tool its turn does not grant, or leaves one out, is a finding", () => {
   const brief = asBrief(AUTHOR_BRIEF_SECTIONS, authorBrief());
-  const overstated = lintCell(briefCell(brief, { tools: ["read", "write"], writes: true }));
+  const overstated = lintCell(briefCell(brief, { tools: [], writes: true }));
   assert.deepEqual(overstated.map((f) => [f.rule, f.part]), [["R18", "tool:run_spec"]]);
-  const unstated = lintCell(briefCell(brief, { tools: ["read", "write", "run_spec", "authbrowser"], writes: true }));
+  const unstated = lintCell(briefCell(brief, { tools: ["run_spec", "authbrowser"], writes: true }));
   assert.deepEqual(unstated.map((f) => [f.rule, f.part]), [["R18", "tool:authbrowser"]]);
 });
 
 test("a brief that says the sidekick may write when its turn grants no write is a finding", () => {
-  const findings = lintCell(briefCell(asBrief(AUTHOR_BRIEF_SECTIONS, authorBrief()), { tools: ["read", "write", "run_spec"], writes: false }));
+  const findings = lintCell(briefCell(asBrief(AUTHOR_BRIEF_SECTIONS, authorBrief()), { tools: ["run_spec"], writes: false }));
   assert.deepEqual(findings.map((f) => [f.rule, f.part]), [["R18", "write"]]);
 });
 
 test("a read-only brief states no write: a scope with no writable path declares no write claim", () => {
   const readOnly = createDelegationBrief({ redaction, delegationId: "d2", runId: "r1", objective: "o", task: "t", scope: { readablePaths: ["."], writablePaths: [], allowedCommands: [] } });
   const prompt = asBrief(AUTHOR_BRIEF_SECTIONS, readOnly);
-  assert.deepEqual(lintCell(briefCell(prompt, { tools: ["read"], writes: false })), []);
+  assert.deepEqual(lintCell(briefCell(prompt, { tools: [], writes: false })), []);
 });
 
-test("a brief that names no tools states what its scope grants by itself", () => {
-  const { text } = renderSidekickBrief(redaction, createDelegationBrief({ redaction, delegationId: "d3", runId: "r1", objective: "o", task: "t", scope: { readablePaths: ["."], writablePaths: ["e2e/a.spec.ts"], allowedCommands: [] } }));
-  assert.match(text, /- read: /);
-  assert.match(text, /- write: /);
+test("a brief states what the run grants and withholds without claiming to be the whole list, and never lists read or write, which its scope states", () => {
+  const { text } = renderSidekickBrief(redaction, authorBrief());
+  const tools = text.slice(text.indexOf("## Tools"), text.indexOf("## Task"));
+  assert.doesNotMatch(tools, /hold only|only these/i);
+  assert.doesNotMatch(tools, /- (read|write):/);
+  for (const name of ["authbrowser", "set_geolocation", "playwright"]) assert.ok(tools.includes(name), `${name} is stated as not granted`);
+  assert.deepEqual(lintCell(briefCell(asBrief(AUTHOR_BRIEF_SECTIONS, authorBrief()), { tools: ["run_spec"], writes: true })), []);
+});
+
+test("a brief names a tool as granted only when its grants hold it, and the lint holds the claims to the grant", () => {
+  const brief = createDelegationBrief({ redaction, delegationId: "d3", runId: "r1", objective: "o", task: "t", scope: { readablePaths: ["."], writablePaths: ["e2e/a.spec.ts"], allowedCommands: [] }, grants: { granted: ["authbrowser", "set_geolocation"], withheld: ["run_spec", "playwright"] } });
+  const prompt = asBrief(AUTHOR_BRIEF_SECTIONS, brief);
+  assert.deepEqual(lintCell(briefCell(prompt, { tools: ["authbrowser", "set_geolocation"], writes: true })), []);
+  assert.deepEqual(lintCell(briefCell(prompt, { tools: ["authbrowser"], writes: true })).map((f) => f.part), ["tool:set_geolocation"]);
+});
+
+test("the flow turn's closing shape is stated once and names every field the flow reader accepts", () => {
+  const { text } = renderSidekickBrief(redaction, authorBrief());
+  assert.equal(text.split('"delegationId"').length, 2);
+  for (const field of ["delegationId", "runId", "status", "summary", "filesChanged", "acceptance", "concerns", "unresolvedQuestions", "testCorrect"]) assert.ok(text.includes(`"${field}"`), field);
+  const withCandidates = createDelegationBrief({ redaction, delegationId: "d4", runId: "r1", objective: "o", task: "t", scope: { readablePaths: ["."], writablePaths: [], allowedCommands: [] }, candidates: [{ id: "uc-1", entry: "page /x", tier: "direct", evidence: [], symbols: [], expectedFrom: [{ kind: "diff", ref: "x" }] }] });
+  assert.ok(renderSidekickBrief(redaction, withCandidates).text.includes('"candidates"'));
 });
 
 test("the registry names every coordination prompt and each of its sections once", () => {
