@@ -107,6 +107,14 @@ function hunksOf(slice: ChangeSlice, listed: readonly ChangedDecision[]): Ranked
   });
 }
 
+/* The use cases a flow carries: those it cites and those whose pages it visits. */
+export function flowCandidatesOf(flow: Pick<PlannedFlow, "routes" | "candidates">, candidates: readonly UseCaseCandidate[] | undefined): UseCaseCandidate[] {
+  const all = candidates ?? [];
+  const cited = flow.candidates.flatMap((id) => all.filter((c) => c.id === id));
+  const named = all.filter((c) => !flow.candidates.includes(c.id) && flowCovers({ routes: flow.routes, candidates: [] }, c));
+  return [...new Set([...cited, ...named])];
+}
+
 /*
  * The candidates a flow carries and its slice of the change. The slice of each diff of the change is cut for the flow's candidates;
  * owned hunks of every diff are merged by class rank, then decision rank, keeping each slice's own order. The decisions the change
@@ -119,9 +127,7 @@ export function briefChangeFor(
   facts: ChangeFacts,
 ): { candidates: BriefCandidate[]; change?: BriefChange } {
   const all = candidates ?? [];
-  const cited = flow.candidates.flatMap((id) => all.filter((c) => c.id === id));
-  const named = all.filter((c) => !flow.candidates.includes(c.id) && flowCovers({ routes: flow.routes, candidates: [] }, c));
-  const picked = [...new Set([...cited, ...named])];
+  const picked = flowCandidatesOf(flow, candidates);
   if (picked.length === 0) return { candidates: [] };
   const ids = picked.map((c) => c.id);
   const files: BriefChangeFile[] = [];

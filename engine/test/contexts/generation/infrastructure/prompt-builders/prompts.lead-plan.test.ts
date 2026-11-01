@@ -87,6 +87,16 @@ test("each use case is named with the part of the change its flow would own, and
   assert.equal(sectionOf(assemble({ planning: unbounded }))!.text.includes(String(PLANNING.capacity)), false);
 });
 
+test("each use case the data contradictions reach lists their refs on its own line, and a plan with none reached states nothing of them", () => {
+  const candidates = [pageCandidate("/order"), pageCandidate("/cart")];
+  const reached = sectionOf(assemble({ planning: { ...PLANNING, candidates, candidateContradictions: { "uc-/order": ["/order#total"] } } }))!;
+  assert.ok(reached.text.split("\n").find((line) => line.includes("uc-/order"))!.includes("/order#total"));
+  assert.equal(reached.text.split("\n").find((line) => line.includes("uc-/cart"))!.includes("/order#total"), false, "a ref belongs to the use case it reaches");
+  const plain = sectionOf(assemble({ planning: { ...PLANNING, candidates } }))!;
+  assert.equal(plain.text.includes("/order#total"), false);
+  assert.ok(reached.text.length > plain.text.length, "the rule for a use case whose only state is the defect comes only with a contradiction");
+});
+
 test("no planning turn, no section: the prompt is what it always was", () => {
   const without = assemble();
   assert.equal(sectionOf(without), undefined);

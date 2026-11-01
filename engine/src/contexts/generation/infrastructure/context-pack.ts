@@ -332,11 +332,14 @@ function captureStateLabel(page: CapturedPage): string {
  */
 export const AMBIENT_EMPTY_STATE_NOTE = "that is DEV's data, not an outcome of the change: do not assert this page as it loads; assert an empty state only as the result of a step the test takes, and reach the results the change handles at a declared place where the page has data";
 
+/* What a page read with results is to an author: the count DEV serves at the moment of the read, not a value the change decides. */
+export const LIVE_COUNT_NOTE = "that count is DEV's data of the moment: assert what the change does with the results, never the number";
+
 /* One "Capture state" line for a page whose dev.dataState route matched: its result count, effective location and, when the state could not be confirmed, the explicit warning that an empty tree is not proof. */
 /* mutation-scope:begin capture-state-line */
 function captureStateLine(page: CapturedPage, hasChangedElements: boolean): string {
   const parts: string[] = [];
-  if (page.resultCount !== undefined) parts.push(`${page.resultCount} result(s)`);
+  if (page.resultCount !== undefined) parts.push(page.resultCount > 0 ? `${page.resultCount} result(s) (${LIVE_COUNT_NOTE})` : `${page.resultCount} result(s)`);
   if (page.emptyConfirmed === true) parts.push(`empty state confirmed (0 read on two reads of a settled page): DEV has no results here now; ${AMBIENT_EMPTY_STATE_NOTE}`);
   if (page.effectiveLocation !== undefined) parts.push(`location "${s(page.effectiveLocation)}"`);
   if (page.captureAttempts !== undefined && page.captureAttempts > 1) parts.push("captured twice");

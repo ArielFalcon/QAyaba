@@ -3,6 +3,7 @@ export { GenerateTestsUseCase } from "./generate-tests.use-case.ts";
 export { declaredRelativeFiles } from "../domain/declared-resources.ts";
 export { GENERATION_NOTE_MAX_CHARS } from "../domain/generation-end.ts";
 export { extractExportedNames, harnessFactLines, isSafeAttributeName } from "../domain/harness-facts.ts";
+export { contradictionsReaching } from "../domain/pack-contradictions.ts";
 export { domPageCount, packPagesFor, recordedRequestsFor, referenceDomPages } from "../domain/pack-pages.ts";
 export { countByDirectory, domPagesDegrade, NOT_SHOWN, pagesDegrade, referenceDegrade, stepsDegrade } from "../domain/window-fit-references.ts";
 export { promptFactsOpts } from "../domain/prompt-facts.ts";

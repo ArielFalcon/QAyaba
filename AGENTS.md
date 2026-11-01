@@ -185,6 +185,8 @@ The RFC that lands a row flips it to **in force** in the same commit.
 | Whether a change needs no test | Agent with facts | A declared `noop` with a reason and zero specs is honored; silence is not a decision (`E-NO-DECISION`) | Invariants, "Honor the explicit no-op" | in force |
 | Whether the lead accepts a flow's spec | Agent with facts, the engine's facts win | An accept of a spec with no `run_spec` pass on its current bytes is sent back; an app defect is never sent back to be made green | Architecture, "Lead and sidekicks" | in force |
 | Whether a reviewer's finding blocks | Agent with facts, the engine verifies | Only a finding whose citation the engine verifies blocks; an answer holding no readable verdict fails closed as a parse miss, never an approval | Architecture, "Lead and sidekicks" | in force |
+| Whether a case asserts a value DEV serves at the moment | Engine, from a signal | A passing case whose as-loaded assertion holds the number of results the Context Pack read on that page is pinned and sent to the flow that owns its spec, even when it goes on to steps of its own; the digits a selector or an index holds are no count | [RFC-0017](docs/architecture/rfc/0017-defects-from-verified-facts.md) | in force |
+| Whether a use case whose only reachable state is the defect gets a flow | Agent with facts, the engine hands the facts | The plan turn lists against each use case the contradictions its page or its code reaches (`contradictionsReaching`, over `seedingOf`); a drop as `needs-unavailable-state` stands and the run reports the contradiction | [RFC-0017](docs/architecture/rfc/0017-defects-from-verified-facts.md) | in force |
 | Whether a reviewer finding that cites a fact the engine verified blocks | Engine, from a fact | A `contradiction` or `ambient` citation the run's own records bear out blocks and reaches the author as a correction whatever severity the reviewer gave it, and no green case or intact clause withdraws it | [RFC-0017](docs/architecture/rfc/0017-defects-from-verified-facts.md) | in force |
 | Whether one unreadable entry of a reviewer's answer sinks the answer | Engine | Beside an approval the entry is recorded and the approval stands; a rejection repairs once, then fails closed; a lost entry is loud | [RFC-0006](docs/architecture/rfc/0006-review-answer-crosses-whole.md) | in force |
 | Whether a failing final execution of bytes the `run_spec` loop saw pass stands | Engine, from a fact | One re-read of the failed files (the single triage re-read and its budget): a pass is the flaky path, a second failure puts back the regeneration the proof retired and the failure is adjudicated; the conflict is recorded in `gateSignals.closedLoop.conflicts` | [RFC-0017](docs/architecture/rfc/0017-defects-from-verified-facts.md) | in force |
@@ -385,8 +387,9 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   the topology's `ProviderDocumentsPort`): `provider-undeclared` (the contract describes the answer and does not declare
   K), `provider-declared-absent` (it declares K) or `no-provider-contract`; another operation of the page carrying K is context on the gap
   (`alsoCarriedBy`), never a fact of its own. Facts are observed by the orchestrator, never read from a spec's comment. They appear as the Context
-  Pack's `Possible data contradictions` section (after the requests; a flow's brief carries those of its pages and gives way after the requests,
-  last fact first, as a count) with the consumer's call site, declared type and read sites, as `gateSignals.dataContradictions { pages, found,
+  Pack's `Possible data contradictions` section (after the requests; a flow's brief carries those of its pages and those its use cases' code
+  reaches, and gives way after the requests, last fact first, as a count; the plan turn lists against each use case the refs of the facts that
+  reach it, `candidateContradictions`) with the consumer's call site, declared type and read sites, as `gateSignals.dataContradictions { pages, found,
   schemaBacked, facts[], omitted }` (`schemaBacked` counts `provider-declared-absent`; facts of runs stored before the consumer rule keep their
   `carriedBy`/`missingFrom`/`schemaBacked` and stay readable) (`qayaba.context.data_contradictions` on the context-pack span), in the PR and Issue
   under `Possible data contradictions`, and to the reviewer, which may cite one (`{"kind":"contradiction","ref":"<path>#<key>"}`) against a spec that passes by
@@ -552,7 +555,7 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   gap regeneration (coverage or branch cases) as a finding on its spec, naming the places the app declares
   (`dev.geolocation.places`) or, when it declares none, that the state is DEV's to give and is never faked; and the PR and Issue list the pins with those arms.
   `gateSignals.ambientDataState { cases, pages, arms }` and a `qayaba.ambient_data_state` span record it. The Context Pack states a
-  confirmed empty page as DEV's data, never an outcome to assert as it loads. A signal, never a gate: it starts no regeneration
+  confirmed empty page, and the count of a page read with results, as DEV's data (`AMBIENT_EMPTY_STATE_NOTE`, `LIVE_COUNT_NOTE`), never an outcome to assert as it loads. A signal, never a gate: it starts no regeneration
   and decides nothing.
 - **Step limit and milestone** — the author, lead and reviewer prompts state the cap
   their runtime enforces (facts-only `step-limit` section): one live read per run of the

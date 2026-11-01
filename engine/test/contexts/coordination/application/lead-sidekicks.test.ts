@@ -31,6 +31,9 @@ import { readDelegationResult } from "@contexts/coordination/application/delegat
 import type { SidekickExecuteOpts } from "@contexts/coordination/application/sidekick-executor.ts";
 import type { DelegationBrief } from "@contexts/coordination/application/delegation-brief.ts";
 import { PACK_HEADINGS } from "@contexts/generation/domain/prompt-headings.ts";
+import { contradictionsSectionLines } from "@contexts/generation/domain/pack-contradictions.ts";
+import { dataContradictionRef } from "@kernel/data-contradiction.ts";
+import { contradictionFact } from "../../../support/data-contradiction.ts";
 import type { DelegationCollection, DelegationWorkspace, DelegationWorkspaceRequest } from "@contexts/coordination/domain/delegation-workspace.ts";
 import type { DelegationWorkspacePort } from "@contexts/coordination/application/ports/delegation-workspace.port.ts";
 import type { AgentBrowserHandle, ClosedLoopHandle, FlowLedgerEntry, FlowLoopHandle, FlowLoopOpenInput, GeolocationHandle } from "@contexts/agent-tools/application/index.ts";
@@ -2798,4 +2801,28 @@ test("a flow whose sidekick overruns the share it is allotted ends that flow alo
     await done.pass?.release();
   }
   assert.ok((deadline.remainingMs() ?? 0) > 0, "the run still has time for the phases after generation");
+});
+
+const CART_CONTRADICTION = contradictionFact({ route: "/cart", key: "total", consumer: { callSite: "src/cart.api.ts:3", callSites: 1, declaredType: "Cart", reads: ["src/cart.view.ts:9"], readCount: 1 } });
+const contradictionPack = [`### ${PACK_HEADINGS.liveDom}`, "route /cart:", "  button \"Checkout\"", "", `### ${PACK_HEADINGS.contradictions} intro`, ...contradictionsSectionLines([CART_CONTRADICTION])].join("\n");
+
+test("a flow whose use case is seeded by the file that reads a contradicted field is handed the contradiction though it visits no page that shows it, and the planning turn names it against that use case", async () => {
+  const r = rig();
+  const reached = pageCandidate("/account", undefined, { id: "uc-account", seeds: [{ file: "src/cart.view.ts", symbol: "render" }] });
+  const seen: PlanningLimits[] = [];
+  const plan = { kind: "fanout", flows: [{ id: "account", objective: "the account page", routes: ["/account"], candidates: ["uc-account"] }] };
+  await r.coordinator.coordinate(input(r, { candidates: [reached], contextPack: contradictionPack, dataContradictions: [CART_CONTRADICTION], plan: async (p) => (seen.push(p), { plan, parsed: true, timedOut: false }) }));
+  assert.deepEqual(seen[0]?.candidateContradictions, { "uc-account": [dataContradictionRef(CART_CONTRADICTION)] });
+  const pages = r.executed.find((e) => e.brief.delegationId === "run-1-flow-account")!.brief.pages;
+  assert.ok(pages?.includes("none carrying \"total\""), "the brief carries the contradiction its code reaches");
+});
+
+test("a flow whose use cases no contradiction reaches is handed none, and the planning turn names none", async () => {
+  const r = rig();
+  const unrelated = pageCandidate("/account", undefined, { id: "uc-account", seeds: [{ file: "src/unrelated.ts", symbol: "render" }] });
+  const seen: PlanningLimits[] = [];
+  const plan = { kind: "fanout", flows: [{ id: "account", objective: "the account page", routes: ["/account"], candidates: ["uc-account"] }] };
+  await r.coordinator.coordinate(input(r, { candidates: [unrelated], contextPack: contradictionPack, dataContradictions: [CART_CONTRADICTION], plan: async (p) => (seen.push(p), { plan, parsed: true, timedOut: false }) }));
+  assert.equal(seen[0]?.candidateContradictions, undefined);
+  assert.equal(r.executed.find((e) => e.brief.delegationId === "run-1-flow-account")!.brief.pages, undefined);
 });
