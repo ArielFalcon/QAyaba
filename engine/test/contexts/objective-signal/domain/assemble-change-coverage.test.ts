@@ -9,7 +9,8 @@ import {
   assembleChangeCoverage,
 } from "@contexts/objective-signal/domain/assemble-change-coverage.ts";
 import { DecideCoverageService } from "@contexts/objective-signal/domain/decide-coverage.service.ts";
-import type { CoverageReport } from "@contexts/objective-signal/domain/coverage-collector.ts";
+import type { BranchHit, CoverageReport } from "@contexts/objective-signal/domain/coverage-collector.ts";
+import { decisionSourceOf } from "@contexts/objective-signal/domain/own-code-on-source-line.ts";
 
 function lines(m: Map<string, Set<number>>): Record<string, number[]> {
   const o: Record<string, number[]> = {};
@@ -410,6 +411,58 @@ test("branches are null when the report saw no decisions, or none on a changed l
     branches: [{ file: "src/store.ts", line: 10, column: 4, kind: "if", ranIn: [], arms: [{ label: "then", taken: false }, { label: "else", taken: false }] }],
   });
   assert.equal(new DecideCoverageService().decide(allUntaken, { mode: "enforce", minRatio: 0.7 }), "pass", "the line ratio alone decides");
+});
+
+/* ── decisions the build added ────────────────────────────────────────────────────────────────── */
+
+/* A component whose inputs the framework's development build wraps in an `ngDevMode` guard, and whose conditional spans three lines. */
+const NAVBAR_SOURCE = [
+  "export class AppNavbarComponent {",
+  "  readonly items = input<NavbarItem[] | null>(null)",
+  "  private readonly baseItems: NavbarItem[] = [",
+  "    ...(this.isNative",
+  "      ? [{ icon: 'pi-camera' }]",
+  "      : []),",
+  "  ]",
+  "}",
+].join("\n");
+const NAVBAR_DIFF = ["diff --git a/src/navbar.ts b/src/navbar.ts", "--- a/src/navbar.ts", "+++ b/src/navbar.ts", "@@ -0,0 +1,8 @@", ...NAVBAR_SOURCE.split("\n").map((line) => `+${line}`)].join("\n");
+const hitAt = (line: number, expression: string, kind: BranchHit["kind"] = "conditional", operator?: string): BranchHit => ({
+  file: "src/navbar.ts",
+  line,
+  column: 4,
+  kind,
+  ranIn: [],
+  expression,
+  ...(operator !== undefined ? { operator } : {}),
+  arms: [{ label: "true", taken: true }, { label: "false", taken: false }],
+});
+const navbarReport = (branches: BranchHit[]): CoverageReport => ({ covered: [{ file: "src/navbar.ts", lines: [1, 2, 3, 4, 5, 6, 7, 8] }], branches });
+const navbarSource = (file: string) => (file === "src/navbar.ts" ? decisionSourceOf(NAVBAR_SOURCE) : undefined);
+
+test("a decision the build added beside the change is no arm of it, and is counted apart; a multi-line decision the map placed on its arm line stays", () => {
+  const report = navbarReport([hitAt(2, "ngDevMode"), hitAt(5, "this.isNative")]);
+
+  const cc = assembleChangeCoverage(NAVBAR_DIFF, report, undefined, navbarSource);
+
+  assert.deepEqual(cc.branches, { changedBranches: 2, takenBranches: 1, ratio: 0.5 });
+  assert.deepEqual(cc.untakenArms!.map((a) => [a.line, a.arm]), [[5, "false"]]);
+  assert.deepEqual(cc.skippedDecisions, { count: 1, reasons: { "not-in-source": 1 }, decisions: [{ file: "src/navbar.ts", line: 2, column: 4, kind: "conditional", reason: "not-in-source" }] });
+});
+
+test("a decision stays when its file's source cannot be read or the collector told nothing of what it decides on, and a source changes nothing for the change's own decisions", () => {
+  const own = hitAt(4, "this.isNative");
+  const { expression: _told, ...unexplained } = hitAt(2, "ngDevMode");
+
+  const unread = assembleChangeCoverage(NAVBAR_DIFF, navbarReport([hitAt(2, "ngDevMode"), own]), undefined, () => undefined);
+  const untold = assembleChangeCoverage(NAVBAR_DIFF, navbarReport([unexplained, own]), undefined, navbarSource);
+  const withSource = assembleChangeCoverage(NAVBAR_DIFF, navbarReport([own]), undefined, navbarSource);
+  const without = assembleChangeCoverage(NAVBAR_DIFF, navbarReport([own]));
+
+  assert.equal(unread.branches?.changedBranches, 4);
+  assert.equal(untold.branches?.changedBranches, 4);
+  assert.equal(unread.skippedDecisions, undefined);
+  assert.deepEqual(withSource, without);
 });
 
 /* ── executable changed lines ─────────────────────────────────────────────────────────────────── */

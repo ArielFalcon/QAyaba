@@ -1,4 +1,5 @@
 /* Coverage keystone. Unmeasured or zero changed lines → unknown. unknown NEVER blocks publish — blocks() is true only for enforce + fail. */
+import type { SkippedDecisions } from "./own-code-on-source-line.ts";
 
 export type CoverageStatus = "pass" | "fail" | "unknown";
 export type CoverageMode = "off" | "signal" | "enforce";
@@ -13,6 +14,8 @@ export interface ChangeCoverage {
   branches: { changedBranches: number; takenBranches: number; ratio: number } | null;
   /* The arms on changed lines that never ran, in file and line order. */
   untakenArms?: { file: string; line: number; column: number; kind: string; arm: string; ranIn: string[] }[];
+  /* The decisions on changed lines the build added beside the change (not its own code), left out of `branches` and `untakenArms`; absent when none was. */
+  skippedDecisions?: SkippedDecisions;
   /* The changed lines a loaded script holds no code for (imports, types, comments): neither counted nor uncovered. Absent when the collector cannot tell code from the rest. */
   notExecutable?: { file: string; lines: number[] }[];
   /* The changed files no loaded script maps: their added lines of code (every non-blank one when the language declares no statement syntax) are counted, and uncovered. */

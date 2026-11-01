@@ -10,7 +10,8 @@ import type { CoverageCollectorPort } from "../../application/ports/coverage-col
 import type { BundleMutationResult, CoverageRead, CoverageReport, DumpSource, MutantProof, MutantRun } from "../../domain/coverage-collector.ts";
 import type { CoverageReadFault } from "../../domain/dump-outcome.ts";
 import { DecideCoverageService, type ChangeCoverage, type CoveragePolicy } from "../../domain/decide-coverage.service.ts";
-import { parseDiffHunks, type NoCodeLinesOf } from "../../domain/assemble-change-coverage.ts";
+import { parseDiffHunks, type DecisionSourceOf, type NoCodeLinesOf } from "../../domain/assemble-change-coverage.ts";
+import { decisionSourceOf } from "../../domain/own-code-on-source-line.ts";
 import { linesWithoutCode } from "../statement-code-lines.ts";
 import { selectMutants, type SourceLineOf } from "../../domain/select-mutants.ts";
 import type { MutantSelectionRecord } from "../../domain/objective-signal.ts";
@@ -36,8 +37,8 @@ export interface ObjectiveSignalPortCollaborators {
 export interface ObjectiveSignalPortStaticContext {
   policy: CoveragePolicy;
   repoDir: string;
-  /* Turns CoverageReport + diff into ChangeCoverage, an unloaded file's lines read by its language's statement syntax. Absent → decide() gets null → unknown, never blocks. */
-  assembleChangeCoverage?: (diff: string, report: CoverageReport, noCodeOf?: NoCodeLinesOf) => ChangeCoverage;
+  /* Turns CoverageReport + diff into ChangeCoverage, an unloaded file's lines read by its language's statement syntax and a decision told from what the build added by its file's source. Absent → decide() gets null → unknown, never blocks. */
+  assembleChangeCoverage?: (diff: string, report: CoverageReport, noCodeOf?: NoCodeLinesOf, sourceOf?: DecisionSourceOf) => ChangeCoverage;
   baselineCases?: string[];
   /* Same per-run namespace ExecutionPortAdapter uses so dumps are read from the directory execution wrote. Optional; falls back to br.sha.toString(). */
   namespace?: string;
@@ -76,6 +77,7 @@ function measurementOf(cc: ChangeCoverage | null, skipped: CoverageMeasurement["
     ...(cc.notExecutable ? { notExecutableLines: count(cc.notExecutable) } : {}),
     ...(cc.notLoaded?.length ? { notLoadedFiles: cc.notLoaded.map((f) => f.file) } : {}),
     ...(cc.noCode?.length ? { noCodeFiles: cc.noCode } : {}),
+    ...(cc.skippedDecisions ? { skippedDecisions: cc.skippedDecisions } : {}),
     ...(evidenceLeftOut && evidenceLeftOut.length > 0 ? { evidenceLeftOut: [...evidenceLeftOut] } : {}),
     ...(byExecution
       ? {
@@ -158,6 +160,18 @@ function noCodeLines(readSource: (file: string) => string | undefined): NoCodeLi
   };
 }
 
+/* A changed file's source as its decisions are looked for in it, each file read once per measurement. */
+function decisionSources(readSource: (file: string) => string | undefined): DecisionSourceOf {
+  const known = new Map<string, ReturnType<DecisionSourceOf>>();
+  return (file) => {
+    if (!known.has(file)) {
+      const text = readSource(file);
+      known.set(file, text === undefined ? undefined : decisionSourceOf(text));
+    }
+    return known.get(file);
+  };
+}
+
 /* What a recount reads: each source's dumps of its own spec files, without the tests that credit nothing. */
 const dumpSourcesOf = (sources: readonly CoverageSource[]): DumpSource[] =>
   sources.map((source) => ({ namespace: source.namespace, onlySpecFiles: source.specFiles, ...(source.exceptTests && source.exceptTests.length > 0 ? { exceptTests: source.exceptTests } : {}) }));
@@ -191,7 +205,7 @@ export class ObjectiveSignalPortAdapter implements ObjectiveSignalPort {
     const collected = willAssemble ? await this.collectFrom(specDir, namespace, sources, changedFiles) : undefined;
     const report = collected?.report ?? null;
     tellReads(collected?.reads, opts?.onRead);
-    const executed: ChangeCoverage | null = report ? this.ctx.assembleChangeCoverage!(changeDiff!, report, noCodeOf) : null;
+    const executed: ChangeCoverage | null = report ? this.assemble(changeDiff!, report, noCodeOf) : null;
     const trouble = readTroubleOf(report, collected?.fault);
     const ranBy = ranByOf(report, caseFiles);
 
@@ -317,7 +331,7 @@ export class ObjectiveSignalPortAdapter implements ObjectiveSignalPort {
     if (!recollect || !this.ctx.assembleChangeCoverage) return null;
     const proofSources = proofs.map(({ namespace, specFiles, ...mutant }) => ({ namespace, onlySpecFiles: specFiles, mutant }));
     const report = await recollect.call(this.deps.collector, specDir, [...sources, ...proofSources], changedFiles);
-    return { cc: report.incomplete ? null : this.ctx.assembleChangeCoverage(changeDiff, report, noCodeOf), report };
+    return { cc: report.incomplete ? null : this.assemble(changeDiff, report, noCodeOf), report };
   }
 
   holdsChangedCode(diff: string): boolean {
@@ -344,6 +358,10 @@ export class ObjectiveSignalPortAdapter implements ObjectiveSignalPort {
     return noCodeLines(this.deps.readSource ?? workingCopySource(this.ctx.repoDir, "change-coverage"));
   }
 
+  private assemble(changeDiff: string, report: CoverageReport, noCodeOf: NoCodeLinesOf): ChangeCoverage {
+    return this.ctx.assembleChangeCoverage!(changeDiff, report, noCodeOf, decisionSources(this.deps.readSource ?? workingCopySource(this.ctx.repoDir, "change-coverage")));
+  }
+
   async recheckSurvivors(survivors: readonly MutantRun[], specDir: string, namespace: string, baselineCases: readonly string[], opts?: { rerunBudget?: RerunBudget; rerun?: MutantRerun }): Promise<BundleMutationResult | null> {
     if (!this.deps.mutation || survivors.length === 0) return null;
     const asked = { ...(opts?.rerunBudget ? { budget: opts.rerunBudget } : {}), ...(opts?.rerun ? { rerun: opts.rerun } : {}) };
@@ -364,7 +382,7 @@ export class ObjectiveSignalPortAdapter implements ObjectiveSignalPort {
     tellReads(report.reads, opts?.onRead);
     /* A source that could not be read would count a part of the suite as the whole: the measurement before the recount stands, and the read that failed is told to the observer. */
     if (report.incomplete) return null;
-    const cc = this.ctx.assembleChangeCoverage(changeDiff, report, this.noCodeOf());
+    const cc = this.assemble(changeDiff, report, this.noCodeOf());
     const ranBy = ranByOf(report, opts?.caseFiles ?? []);
     return {
       status: this.deps.decide.decide(cc, this.ctx.policy),

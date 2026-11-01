@@ -1211,7 +1211,18 @@ that catches nothing. The objective signal that breaks the circle is **change-co
   arm, the spec files among the run's cases whose dumps those are (`UntakenArm.evaluatedBy`, through the one
   dump-to-spec mapping `ranByOf` uses, `specFilesWritingAny`): the specs that evaluated the decision. It adds no
   count: the line ratio and the taken arms are those of the same dumps. A happy-path suite shows a high line ratio and a low
-  branch one.
+  branch one. A decision counts as the change's only when it is not the build's (`buildAddedDecision`, beside
+  `expressionOnSourceLine` in `objective-signal/domain/own-code-on-source-line.ts`, the one owner of the question): the collector
+  records the expression a decision decides on and the operator at the top of it (`BranchHit.expression|operator`), and the
+  assembler reads the changed file's source from the working copy (a file it cannot read keeps every decision) and leaves a
+  decision out when no name of its expression is a name of the file (a framework's `ngDevMode` guard), or when the line the
+  map placed it at holds a name of it but not the operator that makes it a decision (a two-way binding's
+  `setter(x, $event) || (x = $event)` on `[(value)]="x"`), the operator also looked for on the lines that carry the placed
+  one on with an operator of their own. A line that holds none of its names says nothing, because a map places a multi-line
+  decision on any of its lines and a template's bindings beside their element, so such a decision stays. The decisions left
+  out leave `changedBranches`, `takenBranches`, `untakenArms` and the gap, and are counted apart by why and listed by place
+  (`gateSignals.branchCoverage.skippedDecisions`, span `qayaba.coverage.decisions_skipped`), beside the mutation pass's
+  `skippedSites`; a run measured before they were left out has no such record, and its arm counts hold them.
 - **Verified coverage**: what a killed mutant made run, a test checked, so it counts as covered. The dumps of a
   killed mutant's re-run (only those of the spec files whose tests failed) are read with its edit undone
   (`infrastructure/undo-mutant.ts`) and added to the measurement: the ratio, the uncovered lines and the arms no test
@@ -1225,7 +1236,7 @@ that catches nothing. The objective signal that breaks the circle is **change-co
   fixture skips the others; when the dumps do not name their tests, every test of their spec files). A site is
   a mutant only when the source line its map places it at (the map's `sourcesContent`, else the working copy
   through the confined reader) holds the expression it changes: a name of the expression and each of its
-  comparison or logical operators (`mutation-site-source.ts`), so code the build added beside the change (a
+  comparison or logical operators (`own-code-on-source-line.ts`), so code the build added beside the change (a
   framework's development guard, a lowered `?.`) is never mutated. The
   decisions of changed lines with an arm no test ran come first, each by the site that forces it (the negated
   condition of an if or `?:`, the swapped `&&`/`||`), taken across the changed files in turn like the rest, which are one

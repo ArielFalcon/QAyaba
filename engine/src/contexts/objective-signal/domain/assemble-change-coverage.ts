@@ -1,6 +1,7 @@
 import type { BranchHit, CoverageReport } from "./coverage-collector.ts";
 import type { ChangeCoverage } from "./decide-coverage.service.ts";
 import { LanguageRegistry } from "@kernel/language-id.ts";
+import { buildAddedDecision, MAX_RECORDED_SKIPPED_DECISIONS, type DecisionSource, type SkippedDecisions } from "./own-code-on-source-line.ts";
 
 type CoveredLines = Map<string, Set<number>>;
 
@@ -64,25 +65,38 @@ export function addedLines(diff: string): Map<string, Map<number, string>> {
   return changed;
 }
 
-/* The arms of the decisions on changed lines: how many, how many ran, and which never did. Null counts when no decision is on a changed line. */
-function changedBranches(changed: CoveredLines, hits: readonly BranchHit[]): Pick<ChangeCoverage, "branches" | "untakenArms"> {
+/* A changed file's source as its decisions are looked for in it; undefined when it cannot be read. */
+export type DecisionSourceOf = (file: string) => DecisionSource | undefined;
+
+/* The arms of the decisions on changed lines: how many, how many ran, and which never did; a decision the build added beside the change is left out and counted apart. Null counts when no decision is on a changed line. */
+function changedBranches(changed: CoveredLines, hits: readonly BranchHit[], sourceOf?: DecisionSourceOf): Pick<ChangeCoverage, "branches" | "untakenArms" | "skippedDecisions"> {
   let total = 0;
   let taken = 0;
   const untakenArms: NonNullable<ChangeCoverage["untakenArms"]> = [];
+  const skipped: SkippedDecisions = { count: 0, reasons: {}, decisions: [] };
   for (const hit of hits) {
     if (!changed.get(hit.file)?.has(hit.line)) continue;
+    const source = hit.expression === undefined ? undefined : sourceOf?.(hit.file);
+    const reason = source && hit.expression !== undefined ? buildAddedDecision({ expression: hit.expression, ...(hit.operator !== undefined ? { operator: hit.operator } : {}) }, hit.line, source) : undefined;
+    if (reason) {
+      skipped.count++;
+      skipped.reasons[reason] = (skipped.reasons[reason] ?? 0) + 1;
+      if (skipped.decisions.length < MAX_RECORDED_SKIPPED_DECISIONS) skipped.decisions.push({ file: hit.file, line: hit.line, column: hit.column, kind: hit.kind, reason });
+      continue;
+    }
     for (const arm of hit.arms) {
       total++;
       if (arm.taken) taken++;
       else untakenArms.push({ file: hit.file, line: hit.line, column: hit.column, kind: hit.kind, arm: arm.label, ranIn: hit.ranIn });
     }
   }
-  if (total === 0) return { branches: null };
+  const apart = skipped.count > 0 ? { skippedDecisions: skipped } : {};
+  if (total === 0) return { branches: null, ...apart };
   untakenArms.sort((a, b) => a.file.localeCompare(b.file) || a.line - b.line || a.column - b.column);
-  return { branches: { changedBranches: total, takenBranches: taken, ratio: taken / total }, untakenArms };
+  return { branches: { changedBranches: total, takenBranches: taken, ratio: taken / total }, untakenArms, ...apart };
 }
 
-export function computeChangeCoverage(changed: CoveredLines, covered: CoveredLines, branchHits: readonly BranchHit[] = []): ChangeCoverage {
+export function computeChangeCoverage(changed: CoveredLines, covered: CoveredLines, branchHits: readonly BranchHit[] = [], sourceOf?: DecisionSourceOf): ChangeCoverage {
   const perFile: ChangeCoverage["perFile"] = [];
   const uncovered: ChangeCoverage["uncovered"] = [];
   let totalChanged = 0;
@@ -109,7 +123,7 @@ export function computeChangeCoverage(changed: CoveredLines, covered: CoveredLin
     overall: { changedLines: totalChanged, coveredChanged: totalCovered, ratio: totalChanged ? totalCovered / totalChanged : 1 },
     perFile,
     uncovered,
-    ...changedBranches(changed, branchHits),
+    ...changedBranches(changed, branchHits, sourceOf),
   };
 }
 
@@ -166,9 +180,9 @@ function extensionOf(file: string): string {
   return dot <= 0 ? "" : name.slice(dot + 1).toLowerCase();
 }
 
-export function assembleChangeCoverage(diff: string, report: CoverageReport, noCodeOf?: NoCodeLinesOf): ChangeCoverage {
+export function assembleChangeCoverage(diff: string, report: CoverageReport, noCodeOf?: NoCodeLinesOf, sourceOf?: DecisionSourceOf): ChangeCoverage {
   const covered = toCoveredLines(report);
-  if (!report.executable) return computeChangeCoverage(parseDiffHunks(diff), covered, report.branches);
+  if (!report.executable) return computeChangeCoverage(parseDiffHunks(diff), covered, report.branches, sourceOf);
   const { counted, ...apart } = executableChanged(addedLines(diff), toCoveredLines({ covered: report.executable }), covered, noCodeOf);
-  return { ...computeChangeCoverage(counted, covered, report.branches), ...apart };
+  return { ...computeChangeCoverage(counted, covered, report.branches, sourceOf), ...apart };
 }

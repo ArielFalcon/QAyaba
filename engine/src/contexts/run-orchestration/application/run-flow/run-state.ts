@@ -185,8 +185,8 @@ export interface CoverageOutcome {
   uncovered: { file: string; lines: number[] }[];
   /** The share of each use case's changed lines the run executed, or why it has none; undefined when no use case was asked for. A signal beside the ratio, never a gate. */
   perCandidate: CandidateCoverage[] | undefined;
-  /** The arms of the decisions on changed lines and how many ran; undefined when none was seen. A signal, never a gate. */
-  branchCoverage: { changed: number; taken: number } | undefined;
+  /** The arms of the decisions on changed lines and how many ran, and the decisions the build added beside the change that were left out; undefined when no decision was seen. A signal, never a gate. */
+  branchCoverage: RunOutcome["gateSignals"]["branchCoverage"];
   /** The arms on changed lines no test ran: the gap of a coverage or branch regeneration, and the reviewer's list of missing cases. */
   untakenArms: UntakenArm[];
   /** `untakenArms` describes the bytes on disk: false until measured, and after an accepted regeneration the dumps on disk could not recount. */

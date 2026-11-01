@@ -91,6 +91,7 @@ function countsOf(m: CoverageMeasurement | undefined): Attrs {
     "qayaba.coverage.mapped_files": m.mappedFiles,
     ...(m.changedBranches !== undefined ? { "qayaba.coverage.changed_branches": m.changedBranches, "qayaba.coverage.taken_branches": m.takenBranches ?? 0 } : {}),
     ...(m.noCodeFiles?.length ? { "qayaba.coverage.no_code_files": m.noCodeFiles } : {}),
+    ...(m.skippedDecisions ? { "qayaba.coverage.decisions_skipped": m.skippedDecisions.count, "qayaba.coverage.decisions_skipped_reasons": Object.entries(m.skippedDecisions.reasons).map(([reason, count]) => `${reason}: ${count}`) } : {}),
     ...(m.unmeasured ? { "qayaba.coverage.unmeasured": m.unmeasured } : {}),
     ...(m.evidenceLeftOut?.length ? { "qayaba.coverage.evidence_left_out": m.evidenceLeftOut } : {}),
     ...(m.perCandidate ? candidateAttrs(m.perCandidate) : {}),

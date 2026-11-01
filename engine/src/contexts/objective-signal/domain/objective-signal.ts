@@ -1,4 +1,5 @@
 import type { SkippedSites } from "./select-mutants.ts";
+import type { SkippedDecisions } from "./own-code-on-source-line.ts";
 import type { MutantsNotJudged, SurvivedMutant } from "./coverage-collector.ts";
 import type { AggregateUnmeasured, CandidateCoverage } from "./per-candidate-coverage.ts";
 import type { TestSupportFile, UnreachableByDesign } from "./coverage-exclusions.ts";
@@ -25,6 +26,8 @@ export interface CoverageMeasurement {
   unreachableByDesign?: UnreachableByDesign[];
   /** Changed files only test files import: left out of every count, recorded apart. Absent when none. */
   testSupportFiles?: TestSupportFile[];
+  /** The decisions on changed lines the build added beside the change (a framework's development guard, a two-way binding's setter): left out of the arms above, counted by why and listed by place. Absent when none was. */
+  skippedDecisions?: SkippedDecisions;
   /** With a killed mutant's dumps added: the covered lines the passing tests ran by themselves, and the lines and arms only a killed mutant's re-run ran. `coveredChanged` holds both. */
   coveredByExecution?: number;
   provenByMutation?: number;

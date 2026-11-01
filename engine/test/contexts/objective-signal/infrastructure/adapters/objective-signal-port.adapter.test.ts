@@ -437,6 +437,32 @@ test("measure() reports the branches on the changed lines and the arms that neve
   assert.deepEqual(result.untakenArms, [{ file: "src/checkout.ts", line: 1, column: 0, kind: "if", arm: "else" }]);
 });
 
+test("measure() and recount() leave out the decisions the build added beside the change, which the working copy's source does not hold, and record them apart", async () => {
+  const repoDir = mkdtempSync(join(tmpdir(), "qa-decision-source-"));
+  try {
+    mkdirSync(join(repoDir, "src"));
+    writeFileSync(join(repoDir, "src/checkout.ts"), "export class Checkout {\n  readonly total = input<number>(0)\n}\n");
+    const arms = [{ label: "true", taken: true }, { label: "false", taken: false }];
+    const own = { file: "src/checkout.ts", line: 1, column: 0, kind: "if" as const, ranIn: [], arms, expression: "Checkout" };
+    const build = { file: "src/checkout.ts", line: 2, column: 30, kind: "conditional" as const, ranIn: [], arms, expression: "ngDevMode" };
+    const report: CoverageReport = { covered: [{ file: "src/checkout.ts", lines: [1, 2] }], branches: [own, build] };
+    const collector: CoverageCollectorPort = { collect: async () => report, recollect: async () => report };
+    const adapter = new ObjectiveSignalPortAdapter({ collector, decide: new DecideCoverageService() }, { policy: { mode: "signal", minRatio: 0.7 }, repoDir, assembleChangeCoverage });
+    const br = BlastRadius.of(Sha.of("abc1234"), ["src/checkout.ts"]);
+
+    const measured = await adapter.measure(br, "/e2e", SAMPLE_DIFF);
+    const recounted = await adapter.recount!(br, "/e2e", SAMPLE_DIFF, [{ namespace: "run-measure", specFiles: ["flows/c.spec.ts"] }]);
+
+    for (const result of [measured, recounted]) {
+      assert.deepEqual([result?.measurement?.changedBranches, result?.measurement?.takenBranches], [2, 1]);
+      assert.deepEqual(result?.untakenArms?.map((a) => a.line), [1]);
+      assert.deepEqual(result?.measurement?.skippedDecisions, { count: 1, reasons: { "not-in-source": 1 }, decisions: [{ file: "src/checkout.ts", line: 2, column: 30, kind: "conditional", reason: "not-in-source" }] });
+    }
+  } finally {
+    rmSync(repoDir, { recursive: true, force: true });
+  }
+});
+
 test("measure() hands the mutants on the changed lines to the mutation oracle, with the spec files that reached them, and reports what it found", async () => {
   const site = (line: number) => ({ file: "src/checkout.ts", line, column: 0, operator: "negate condition", script: { url: "https://dev/main.js", sha256: "h" }, edit: { start: 0, end: 1, replacement: "!" }, original: "x", sourceLine: "if (x) pay();", ranIn: ["flows-pay-spec-ts-x-0-0.json"] });
   const report: CoverageReport = { covered: [{ file: "src/checkout.ts", lines: [1, 2] }], mutationSites: [site(1), site(9)] };

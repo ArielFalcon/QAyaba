@@ -2,7 +2,7 @@
    A mutant is made only where the change is (a site on a changed line), only of the change's own code (the source line holds the expression the site mutates: what a build added beside it is no candidate, and each site left out is counted by why), and only where a test reached (a site that ran). First come the decisions of the changed lines an arm of which no test ran, each by the site that forces it (the negated condition of an if or a `?:`, the swapped operator of a `&&` or `||`): the code no test ran is what a killed mutant can prove the tests check. Those too are taken across the changed files in turn. The rest are one per changed line, taken across the changed files in turn, so a few mutants speak of as much of the change as they can. Each re-runs the tests that ran its site: a dump is named after its test's title path, which starts with the spec file's path, so the dumps tell the spec files and the tests; when no spec file can be told from the names every spec file that passed is re-run, and when the tests cannot be told every test of the spec files is. */
 import type { BranchHit, MutationSite } from "./coverage-collector.ts";
 import { isDumpOfSpecFile, testOfDump } from "./dump-names.ts";
-import { expressionOnSourceLine, type SiteSkipReason } from "./mutation-site-source.ts";
+import { expressionOnSourceLine, type SiteSkipReason } from "./own-code-on-source-line.ts";
 
 /* How many mutants a run re-runs: each costs a re-run of the tests that reach it against DEV. */
 export const MAX_MUTANTS = 3;

@@ -35,7 +35,7 @@ export const coverageSkipReason = (state: Readonly<RunState>, ctx: WorkspaceRunC
 
 /* The arms of the decisions on changed lines a measurement counted, and how many ran; undefined when it saw none. */
 export const branchCoverageOf = (m: CoverageMeasurement | undefined): CoverageOutcome["branchCoverage"] =>
-  m?.changedBranches !== undefined ? { changed: m.changedBranches, taken: m.takenBranches ?? 0 } : undefined;
+  m?.changedBranches !== undefined ? { changed: m.changedBranches, taken: m.takenBranches ?? 0, ...(m.skippedDecisions ? { skippedDecisions: m.skippedDecisions } : {}) } : undefined;
 
 /* The part of a measurement the run records beside its ratio; undefined when it measured nothing. A measurement that decides nothing because its evidence could not be read (no dump, or a read that ended in a fault) is recorded with that reason: an ending found only in a log line is not recorded. */
 export function changeCoverageOf(m: CoverageMeasurement | undefined): CoverageOutcome["changeCoverage"] {

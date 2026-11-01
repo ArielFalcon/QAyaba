@@ -6,6 +6,7 @@ import ts from "typescript";
 import { decodeMappings, lineStartOffsets, type V8Entry } from "./v8-source-map.ts";
 
 import type { BranchHit, BranchKind, MutationSite } from "../domain/coverage-collector.ts";
+import { isDecisionOperator } from "../domain/own-code-on-source-line.ts";
 
 /* How an arm is told from the counts: it ran when the count at `own` is above nothing; an arm with no code of its own ran when the count at `outer` exceeds the count at `inner`. */
 type Probe = { own: number } | { outer: number; inner: number };
@@ -17,6 +18,8 @@ interface ScriptDecision {
   at: number;
   kind: BranchKind;
   arms: ArmProbe[];
+  expression: string;
+  operator?: string;
 }
 /* An edit of the generated script that inverts what a decision or a comparison of it does, and the expression it changes. */
 interface ScriptSite {
@@ -63,6 +66,15 @@ export function analyzeScript(source: string): { decisions: ScriptDecision[]; si
   const out: ScriptDecision[] = [];
   const sites: ScriptSite[] = [];
   const start = (node: ts.Node): number => node.getStart(sf);
+  const textOf = (node: ts.Node): string => source.slice(start(node), node.end).slice(0, MAX_MUTANT_TEXT);
+  /* The comparison or logical operator at the top of a condition, parentheses looked through; none when the condition is not one. */
+  const topOperator = (condition: ts.Expression): string | undefined => {
+    let node = condition;
+    while (ts.isParenthesizedExpression(node)) node = node.expression;
+    const text = ts.isBinaryExpression(node) ? node.operatorToken.getText(sf) : undefined;
+    return text !== undefined && isDecisionOperator(text) ? text : undefined;
+  };
+  const head = (condition: ts.Expression): Pick<ScriptDecision, "expression" | "operator"> => ({ expression: textOf(condition), ...(topOperator(condition) !== undefined ? { operator: topOperator(condition)! } : {}) });
   const negate = (condition: ts.Expression): void => {
     const text = source.slice(start(condition), condition.end);
     if (text.length <= MAX_MUTANT_TEXT) sites.push({ at: start(condition), operator: "negate condition", start: start(condition), end: condition.end, replacement: `!(${text})`, expression: text });
@@ -83,18 +95,21 @@ export function analyzeScript(source: string): { decisions: ScriptDecision[]; si
       out.push({
         at: start(node.expression),
         kind: "if",
+        ...head(node.expression),
         arms: [
           { label: "then", probe: { own: then } },
           { label: "else", probe: node.elseStatement ? { own: start(node.elseStatement) } : { outer: start(node), inner: then } },
         ],
       });
     } else if (ts.isConditionalExpression(node)) {
-      out.push({ at: start(node.condition), kind: "conditional", arms: [{ label: "true", probe: { own: start(node.whenTrue) } }, { label: "false", probe: { own: start(node.whenFalse) } }] });
+      out.push({ at: start(node.condition), kind: "conditional", ...head(node.condition), arms: [{ label: "true", probe: { own: start(node.whenTrue) } }, { label: "false", probe: { own: start(node.whenFalse) } }] });
     } else if (ts.isBinaryExpression(node) && LOGICAL.has(node.operatorToken.kind)) {
       const right = start(node.right);
       out.push({
         at: start(node.left),
         kind: "logical",
+        expression: textOf(node),
+        operator: node.operatorToken.getText(sf),
         arms: [
           { label: `right of ${node.operatorToken.getText(sf)} evaluated`, probe: { own: right } },
           { label: `${node.operatorToken.getText(sf)} short-circuited`, probe: { outer: start(node.left), inner: right } },
@@ -104,6 +119,7 @@ export function analyzeScript(source: string): { decisions: ScriptDecision[]; si
       out.push({
         at: start(node.expression),
         kind: "switch",
+        expression: textOf(node.expression),
         arms: node.caseBlock.clauses.map((clause) => ({
           label: ts.isCaseClause(clause) ? `case ${clause.expression.getText(sf).slice(0, MAX_CASE_LABEL)}` : "default",
           probe: { own: start(clause) },
@@ -223,6 +239,8 @@ export interface ReadDecision {
   kind: BranchKind;
   labels: string[];
   taken: boolean[];
+  expression: string;
+  operator?: string;
 }
 export interface ReadSite {
   file: string;
@@ -285,7 +303,7 @@ export class ScriptBranchReader {
       read.sites.push({ file: site.file, line: site.line, column: site.column, operator: site.operator, start: site.start, end: site.end, replacement: site.replacement, expression: site.expression, original: source.slice(site.start, site.end), ...(site.sourceLine !== undefined ? { sourceLine: site.sourceLine } : {}) });
     }
     for (const d of placed.decisions) {
-      read.decisions.push({ file: d.file, line: d.line, column: d.column, kind: d.kind, labels: d.arms.map((a) => a.label), taken: d.arms.map((a) => ("own" in a.probe ? count(a.probe.own) > 0 : count(a.probe.outer) > count(a.probe.inner))) });
+      read.decisions.push({ file: d.file, line: d.line, column: d.column, kind: d.kind, labels: d.arms.map((a) => a.label), taken: d.arms.map((a) => ("own" in a.probe ? count(a.probe.own) > 0 : count(a.probe.outer) > count(a.probe.inner))), expression: d.expression, ...(d.operator !== undefined ? { operator: d.operator } : {}) });
     }
     return read;
   }
@@ -391,7 +409,7 @@ export class BranchSink implements BranchAdder {
       const known = this.hits.get(id);
       const evaluated = d.taken.some(Boolean);
       if (!known) {
-        this.hits.set(id, { file: d.file, line: d.line, column: d.column, kind: d.kind, arms: d.labels.map((label, i) => ({ label, taken: d.taken[i]! })), ranIn: evaluated ? [this.dump] : [] });
+        this.hits.set(id, { file: d.file, line: d.line, column: d.column, kind: d.kind, arms: d.labels.map((label, i) => ({ label, taken: d.taken[i]! })), ranIn: evaluated ? [this.dump] : [], expression: d.expression, ...(d.operator !== undefined ? { operator: d.operator } : {}) });
       } else if (known.arms.length === d.taken.length) {
         known.arms.forEach((arm, i) => {
           arm.taken ||= d.taken[i]!;

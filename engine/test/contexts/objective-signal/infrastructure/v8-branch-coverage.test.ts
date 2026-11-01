@@ -46,6 +46,29 @@ test("each decision of a changed file is found at its line with whether each arm
   assert.deepEqual(arms(hits, 8), { "case 404": true, "case 503": false, default: false });
 });
 
+test("a decision carries the expression it decides on and the operator at the top of it, which tells what the build added beside the change from the change's own", async () => {
+  const source = `function route(status, ready, tag) {
+  if ((status === 404)) return "missing";
+  if (isReady(ready === true)) return "ready";
+  const label = tag ? "tagged" : "plain";
+  return label ?? tag;
+}
+route(404, true, "x");
+`;
+  const functions = await ranUnderCoverage(source);
+  const sink = new BranchSink();
+  defaultParseV8Coverage([{ url: "https://dev.example/src/route.ts", source, functions }], ["src/route.ts"], undefined, sink);
+
+  const heads = sink.result()!.map((h) => [h.line, h.kind, h.expression, h.operator]);
+
+  assert.deepEqual(heads, [
+    [2, "if", "(status === 404)", "==="],
+    [3, "if", "isReady(ready === true)", undefined],
+    [4, "conditional", "tag", undefined],
+    [5, "logical", "label ?? tag", "??"],
+  ]);
+});
+
 test("an arm taken in any dump is taken, and a dump of a script whose decisions all ran in another adds nothing new", async () => {
   const first = await ranUnderCoverage(STORE + `load(true, false, 404, "memory");\n`);
   const second = await ranUnderCoverage(STORE + `load(false, true, 503, null);\n`);
