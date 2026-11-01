@@ -530,15 +530,6 @@ export function stallMs(): number {
 
 
 /*
- * Every tool a prompt can reach but the submit tools, named so a per-prompt `tools` map can switch it off: OpenCode's own tools,
- * and the wildcard patterns for the MCP servers the roles are wired to (the same patterns agents/opencode.json denies per role).
- * No bare "*": a catch-all would deny the one submit tool a continuation keeps, and nothing says which of two rules wins.
- */
-export const NO_TOOLS: Readonly<Record<string, false>> = Object.fromEntries(
-  ["bash", "read", "write", "edit", "patch", "glob", "grep", "list", "webfetch", "task", "todowrite", "todoread", "run_spec", "authbrowser*", "set_geolocation", "codegraph*", "serena*", "playwright*"].map((name) => [name, false as const]),
-);
-
-/*
  * Which sessions the orchestrator granted the authenticated browser: the host installs a lookup over its registry. The tools are on
  * for the authoring roles in agents/opencode.json whether or not a run granted them, so a prompt of an authoring role whose session
  * was not granted hides them with a per-prompt map instead of listing four tools the orchestrator would refuse. Until a lookup is
@@ -614,26 +605,36 @@ function otherSubmitTools(armed: SubmitTool): Record<string, false> {
   return Object.fromEntries(SUBMIT_TOOLS.filter((name) => name !== armed).map((name) => [name, false as const]));
 }
 
-/** Every tool but the armed submit tool, for the continuation that may only deliver the answer. */
-function everythingButSubmit(armed: SubmitTool): Record<string, false> {
-  return { ...NO_TOOLS, ...otherSubmitTools(armed) };
-}
+const ANY_SUBMIT_TOOL = "submit_*";
 
-/** The body of one OpenCode prompt. One that may not write is denied the file tools; one of a session the browser, or the code graph, was not granted to hides their tools; the tools its session was denied are denied it; a prompt that submits an answer is denied every submit tool but its own, and a continuation that may only submit is denied every other tool; every other prompt leaves the tools to its agent's configuration. */
-export function openCodePromptBody(args: { agent: string; text: string; model?: { providerID: string; modelID: string } | undefined; withoutWrites?: boolean | undefined; hideBrowserTools?: boolean | undefined; hideGeolocationTool?: boolean | undefined; hideCodeGraphTools?: boolean | undefined; denyTools?: readonly string[] | undefined; submitTool?: SubmitTool | undefined; submitOnly?: boolean | undefined }) {
-  const tools: Record<string, false> = {
-    ...(args.hideBrowserTools ? { "authbrowser*": false as const } : {}),
-    ...(args.hideGeolocationTool ? { set_geolocation: false as const } : {}),
-    ...(args.hideCodeGraphTools ? { "codegraph*": false as const } : {}),
+type PromptToolArgs = { withoutWrites?: boolean | undefined; hideBrowserTools?: boolean | undefined; hideGeolocationTool?: boolean | undefined; hideCodeGraphTools?: boolean | undefined; denyTools?: readonly string[] | undefined; submitTool?: SubmitTool | undefined; submitOnly?: boolean | undefined };
+
+/**
+ * The `tools` map of one prompt. OpenCode turns it into session permission rules appended after the agent's own, so a rule it
+ * carries wins over the agent's configuration both ways; the last rule that matches a tool decides, in key order; a key is matched
+ * as a pattern (`*`, `serena*`). The session keeps the rules of the last prompt that sent any: a prompt that sends none inherits
+ * them, a non-empty map replaces them whole. So every prompt sends a map, and the continuation that may only submit denies every
+ * tool, whatever its name, and then allows the armed one.
+ */
+function toolsOf(args: PromptToolArgs): Record<string, boolean> {
+  if (args.submitTool !== undefined && args.submitOnly) return { "*": false, [args.submitTool]: true };
+  return {
+    ...(args.hideBrowserTools ? { "authbrowser*": false } : {}),
+    ...(args.hideGeolocationTool ? { set_geolocation: false } : {}),
+    ...(args.hideCodeGraphTools ? { "codegraph*": false } : {}),
     ...(args.withoutWrites ? NO_WRITE_TOOLS : {}),
-    ...(args.submitTool === undefined ? {} : args.submitOnly ? everythingButSubmit(args.submitTool) : otherSubmitTools(args.submitTool)),
+    ...(args.submitTool === undefined ? { [ANY_SUBMIT_TOOL]: false } : otherSubmitTools(args.submitTool)),
     ...Object.fromEntries((args.denyTools ?? []).map((name) => [name, false as const])),
   };
+}
+
+/** The body of one OpenCode prompt. One that may not write is denied the file tools; one of a session the browser, or the code graph, was not granted to hides their tools; the tools its session was denied are denied it; a prompt that submits an answer is denied every submit tool but its own, one that submits nothing is denied them all, and a continuation that may only submit is denied every other tool. */
+export function openCodePromptBody(args: PromptToolArgs & { agent: string; text: string; model?: { providerID: string; modelID: string } | undefined }) {
   return {
     agent: args.agent,
     parts: [{ type: "text" as const, text: args.text }],
     ...(args.model ? { model: args.model } : {}),
-    ...(Object.keys(tools).length > 0 ? { tools } : {}),
+    tools: toolsOf(args),
   };
 }
 

@@ -477,7 +477,8 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   typed arguments are built from `agents/lib/submit-contracts.json` (JSON Schema rendered from each context's wire schema by `npm run
   submit-contracts:gen`, converted to zod by `agents/lib/submit-schema.mjs`, which refuses a keyword it does not know) and the call is one
   POST to the same internal listener (`/internal/submit`, `agents/lib/submit-client.mjs`). The orchestrator answers `accepted`, or the
-  errors (a path and a reason each) the model fixes in the same turn. Processes with no tools endpoint (a local `npm run qa` with no service
+  errors (a path and a reason each) the model fixes in the same turn. OpenCode validates nothing of a custom tool's arguments, so the schema
+  is what the model is shown and the contract of the owning context is the only judge. Processes with no tools endpoint (a local `npm run qa` with no service
   running, `npm run onboard`, the baseline experiment's `--accept-review`) cannot receive an answer: their first prompt that asks for
   one fails naming `QA_TOOLS_TOKEN`.
 - **Lead and sidekicks (`qa.coordination`)** — the only coordination: every e2e run that generates has the lead return a **plan**
@@ -853,7 +854,7 @@ test, and the verdict is its last action.
   cap; a call after the accepted one is refused. It writes no file, runs nothing and reaches no repository, and the errors it returns are
   redacted and cut. `agents/opencode.json` grants each role its own submit tools only (the lead its plan, flow-review and corrections tools, the
   author its result and specs tools, the reviewer its review tool, the proposer its profiles tool, the assistant none), pinned by
-  `agent-tool-surface.test.ts`; a prompt armed with one is denied the other six by name, and the continuation is denied every other tool.
+  `agent-tool-surface.test.ts`; a prompt armed with one is denied the other six by name, one that submits nothing is denied them all, and the continuation is denied every tool (`*`) and then allowed its own. Every prompt sends a tools map, since OpenCode keeps a session's last one when a prompt sends none.
   Never grant a submit tool to a role that does not deliver its contract, widen one to carry a path or a command, or let a turn that armed none
   call one. `QA_TOOLS_TOKEN` is required for every run that asks an agent for an answer: without a matching token the engine is handed no
   registry and the first such prompt fails naming the variable.

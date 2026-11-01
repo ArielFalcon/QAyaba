@@ -49,7 +49,6 @@ import { AGENT_BROWSER_TOOLS } from "../../engine/src/shared-kernel/agent-browse
 import { CODE_GRAPH_AGENTS, CODE_GRAPH_TOOLS } from "../../engine/src/shared-kernel/code-graph-tools";
 import { SUBMIT_TOOL, SUBMIT_TOOLS } from "../../engine/src/shared-kernel/submission";
 import { AGENT_BROWSER_AGENTS, PROBE_REL_DIR } from "../../engine/src/contexts/test-execution/application/index";
-import { NO_TOOLS } from "./opencode-client";
 import type { AgentRole } from "./types";
 
 /* The ONLY MCP servers the agents may reach. None of these runs the orchestrator's
@@ -934,10 +933,6 @@ test("every role granted the authenticated browser tools denies webfetch, declar
   }
 });
 
-test("the continuation that may only submit starts from a deny list that covers the browser tools", () => {
-  for (const tool of AGENT_BROWSER_TOOLS) assert.equal(NO_TOOLS[tool] === false || NO_TOOLS["authbrowser*"] === false, true, tool);
-});
-
 test("the browser tool file exists, where the tools directory of the config puts it", () => {
   assert.ok(existsSync(join(process.cwd(), "agents", "tool", "authbrowser.ts")), "the file whose exports are the four tools exists");
   assert.ok(existsSync(join(process.cwd(), "agents", "lib", "authbrowser-client.mjs")), "and so does the client it calls through");
@@ -981,8 +976,7 @@ test("the lead carries the credential-deny read block", () => {
   assert.deepEqual(lead.permission.read, reviewer.permission?.read, "the same credential denials every reading role carries");
 });
 
-test("the continuation that may only submit starts from a deny list that covers the code-graph tools, and their tool file and client exist", () => {
-  for (const tool of CODE_GRAPH_TOOLS) assert.equal(NO_TOOLS[tool] === false || NO_TOOLS["codegraph*"] === false, true, tool);
+test("the code-graph tool file and client exist", () => {
   assert.ok(existsSync(join(process.cwd(), "agents", "tool", "codegraph.ts")));
   assert.ok(existsSync(join(process.cwd(), "agents", "lib", "codegraph-client.mjs")));
 });
