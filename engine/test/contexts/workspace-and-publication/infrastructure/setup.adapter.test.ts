@@ -1464,6 +1464,15 @@ test("ensureSourceMaps: a fixtures.ts still holding the seed's code that kept ea
   assert.match(after, /attachSourceMaps\(entries as unknown as CoverageEntry\[\], page\.request\)/);
 });
 
+const SERIAL_MAPS_SEED = readFileSync(fileURLToPath(new URL("./__fixtures__/seed-revisions/fixtures.rev-serial-maps.txt", import.meta.url)), "utf8");
+
+test("ensureSourceMaps: a fixtures.ts still holding the seed's code that fetched the maps one after another is brought to the current seed", () => {
+  const current = readFileSync(join(REAL_SEED_DIR, "fixtures.ts"), "utf8");
+  assert.notEqual(markedBlock(SERIAL_MAPS_SEED, ">>> qa-source-maps", "// <<< qa-source-maps <<<\n"), markedBlock(current, ">>> qa-source-maps", "// <<< qa-source-maps <<<\n"));
+  const after = withFixtures(SERIAL_MAPS_SEED, (dir) => realAdapter().ensureSourceMaps(dir));
+  assert.equal(markedBlock(after, ">>> qa-source-maps", "// <<< qa-source-maps <<<\n"), markedBlock(current, ">>> qa-source-maps", "// <<< qa-source-maps <<<\n"));
+});
+
 const CAPTURE_FIXTURE_TYPE = "  // system-owned: do not edit — runs the failure-point capture around every test.\n  _failureCapture: void;\n";
 const MUTATION_FIXTURE_TYPE = "  // system-owned: do not edit — the orchestrator's mutation pass (PW_MUTANT).\n  _mutate: void;\n";
 const SYSTEM_OWNED_BLOCKS: ReadonlyArray<readonly [string, string]> = [

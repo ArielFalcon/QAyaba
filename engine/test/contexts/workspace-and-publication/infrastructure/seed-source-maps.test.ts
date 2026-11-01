@@ -59,3 +59,47 @@ test("what is not a source map is no map", async () => {
   await attachSourceMaps(entries, serving({ "https://dev.example.com/spa.js.map": "<!doctype html><html></html>" }));
   assert.equal(entries[0]!.map, undefined);
 });
+
+const holdingUntilAllAsked = (bodies: Record<string, string>, expected: number): Request & { asked: string[]; maxInFlight: number } => {
+  const asked: string[] = [];
+  const waiting: Array<() => void> = [];
+  let inFlight = 0;
+  const state = { asked, maxInFlight: 0 };
+  const releaseAll = () => waiting.splice(0).forEach((release) => release());
+  return Object.assign(state, {
+    get: async (url: string) => {
+      asked.push(url);
+      inFlight++;
+      state.maxInFlight = Math.max(state.maxInFlight, inFlight);
+      const held = new Promise<void>((resolve) => waiting.push(resolve));
+      if (asked.length >= expected) releaseAll();
+      else setTimeout(releaseAll, 50);
+      await held;
+      inFlight--;
+      const body = bodies[url];
+      return { ok: () => body !== undefined, text: async () => body ?? "" };
+    },
+  });
+};
+
+test("the maps of a test's scripts are fetched together, not one after another", async () => {
+  const entries: Entry[] = [
+    { url: "https://dev.example.com/chunk-P.js", source: "console.log(5);" },
+    { url: "https://dev.example.com/chunk-Q.js", source: "console.log(6);" },
+  ];
+  const request = holdingUntilAllAsked({ "https://dev.example.com/chunk-P.js.map": JSON.stringify(MAP), "https://dev.example.com/chunk-Q.js.map": JSON.stringify(MAP) }, 2);
+  await attachSourceMaps(entries, request);
+  assert.equal(request.maxInFlight, 2);
+  assert.deepEqual(entries.map((e) => e.map), [READ_FIELDS, READ_FIELDS]);
+});
+
+test("two scripts that name the same map fetch it once", async () => {
+  const entries: Entry[] = [
+    { url: "https://dev.example.com/a/one.js", source: "console.log(7);\n//# sourceMappingURL=/shared-R.js.map" },
+    { url: "https://dev.example.com/b/two.js", source: "console.log(8);\n//# sourceMappingURL=/shared-R.js.map" },
+  ];
+  const request = serving({ "https://dev.example.com/shared-R.js.map": JSON.stringify(MAP) });
+  await attachSourceMaps(entries, request);
+  assert.deepEqual(request.asked, ["https://dev.example.com/shared-R.js.map"]);
+  assert.deepEqual(entries.map((e) => e.map), [READ_FIELDS, READ_FIELDS]);
+});
