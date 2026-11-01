@@ -587,6 +587,16 @@ const survivorsRouted: Grader = {
   }),
 };
 
+/* The judged survivors a test now fails under, after the regeneration they drove: the closure's own figure, never pooled with `mutation_kill_rate`, which stays the first pass's. Silent when no survivor was judged again. */
+const survivorsClosed: Grader = {
+  names: ["survivors_closed"],
+  grade: finishedOnly((e) => {
+    const c = e.signals?.survivorClosure;
+    if (!c || c.judged <= 0) return [];
+    return [{ name: "survivors_closed", value: ratio(c.closed, c.judged), comment: `${c.closed} of ${c.judged} surviving mutants were killed after their regeneration` }];
+  }),
+};
+
 /*
  * The routes the capture could not show at their own address: how many the change may have broken (a route it governs that also raised a
  * runtime error), and the share whose cause the run's evidence could not settle. Silent for a run that classified none.
@@ -695,6 +705,7 @@ export const GRADERS: readonly Grader[] = [
   reviewVerdict,
   defectFound,
   survivorsRouted,
+  survivorsClosed,
   routeAvailability,
   flakyTriage,
   dropsContradicted,

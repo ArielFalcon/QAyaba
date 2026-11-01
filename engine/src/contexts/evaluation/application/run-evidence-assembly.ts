@@ -61,6 +61,7 @@ export function assembleRunEvidence(sources: EvidenceSources, context: EvidenceC
           branchCoverage: g.branchCoverage,
           bundleMutation: g.bundleMutation ? { applied: g.bundleMutation.applied, killed: g.bundleMutation.killed } : undefined,
           survivors: survivorsOf(spans),
+          survivorClosure: g.survivorClosure ? { judged: g.survivorClosure.judged, closed: g.survivorClosure.closed } : undefined,
           flakyTriage: g.flakyTriage,
           lessons: g.lessons ? { delivered: g.lessons.delivered?.length ?? 0, dataStateFailures: g.lessons.dataStateFailures?.reduce((sum, p) => sum + p.count, 0), scopes: [...new Set((g.lessons.delivered ?? []).map((d) => d.scope))].sort(), failuresByPage: g.lessons.dataStateFailures, specPages: g.lessons.specPages } : undefined,
           routeAvailability: g.routeAvailability ? { unavailable: g.routeAvailability.unavailable, byClass: g.routeAvailability.byClass } : undefined,

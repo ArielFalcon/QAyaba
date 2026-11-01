@@ -62,6 +62,7 @@ export const GRADER_CATALOG: readonly ScoreSpec[] = [
   spec({ name: "review_verdict", dataType: "CATEGORICAL", polarity: "none", categories: REVIEW_VERDICTS }),
   spec({ name: "defect_found", dataType: "NUMERIC", polarity: "none", range: { min: 0 } }),
   spec({ name: "survivors_routed", dataType: "NUMERIC", polarity: "higher_better", range: UNIT }),
+  spec({ name: "survivors_closed", dataType: "NUMERIC", polarity: "higher_better", range: UNIT }),
   spec({ name: "flaky_triage", dataType: "CATEGORICAL", polarity: "none", categories: FLAKY_CLASSES }),
   spec({ name: "availability_regressions", dataType: "NUMERIC", polarity: "lower_better", range: { min: 0 } }),
   spec({ name: "availability_unexplained", dataType: "NUMERIC", polarity: "lower_better", range: UNIT }),

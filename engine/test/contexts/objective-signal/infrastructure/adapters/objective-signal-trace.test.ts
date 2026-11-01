@@ -122,7 +122,7 @@ test("the coverage span counts the survivors whose mutation moved an observable,
 });
 
 test("the coverage span counts the mutation sites left out per reason and how each mutant's re-run was scoped, even when no mutant was judged", async () => {
-  const mutantSelection = { skippedSites: { count: 3, reasons: { "not-in-source-line": 2, "no-source-line": 1 } }, rerunsByTest: 0, rerunsBySpecFile: 0 };
+  const mutantSelection = { skippedSites: { count: 3, reasons: { "not-in-source-line": 2, "no-source-line": 1 }, sites: [] }, rerunsByTest: 0, rerunsBySpecFile: 0 };
   const inner: ObjectiveSignalPort = { measure: async () => ({ status: "pass", ratio: 1, mutantSelection }), blocks: () => false };
   const telemetry = new Recorder();
   await new TracedObjectiveSignalPort(inner, telemetry).measure(BlastRadius.of(Sha.of("abc1234"), []), "/e2e");

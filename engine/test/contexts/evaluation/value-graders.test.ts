@@ -60,6 +60,14 @@ test("survivors_routed is the share of surviving mutants a delivered spec reache
   assert.equal(grade(withSignals({ survivors: undefined }), "survivors_routed"), undefined);
 });
 
+test("survivors_closed is the share of judged survivors a test now fails under, apart from the first pass's kill rate, and nothing when none was judged again", () => {
+  const closure = withSignals({ bundleMutation: { applied: 3, killed: 1 }, survivorClosure: { judged: 2, closed: 1 } });
+  assert.equal(grade(closure, "survivors_closed")?.value, 1 / 2);
+  assert.equal(grade(closure, "mutation_kill_rate")?.value, 1 / 3, "the first pass's rate does not take the closure's kills");
+  assert.equal(grade(withSignals({ survivorClosure: { judged: 0, closed: 0 } }), "survivors_closed"), undefined);
+  assert.equal(grade(withSignals({ survivorClosure: undefined }), "survivors_closed"), undefined);
+});
+
 test("availability_regressions counts the possible regressions and availability_unexplained is the unsettled share, both silent without an unavailable route", () => {
   const classified = withSignals({ routeAvailability: { unavailable: 4, byClass: { "change-introduced": 1, "regression-candidate": 1, unexplained: 2 } } });
   assert.equal(grade(classified, "availability_regressions")?.value, 1);
@@ -95,6 +103,6 @@ test("drops_contradicted counts the dropped use cases the run's facts contradict
 
 test("none of the new graders grades a run that has not finished", () => {
   const e = withSignals({ coverageStatus: "pass", coverageRatio: 1, bundleMutation: { applied: 1, killed: 1 }, flakyTriage: { cases: 1, dataInstability: 1, timing: 0, outcome: "accepted" } }, { finished: false, verdict: null });
-  const names = ["mutation_kill_rate", "change_coverage_ratio", "branch_coverage_ratio", "review_verdict", "defect_found", "survivors_routed", "flaky_triage", "drops_contradicted"];
+  const names = ["mutation_kill_rate", "change_coverage_ratio", "branch_coverage_ratio", "review_verdict", "defect_found", "survivors_routed", "survivors_closed", "flaky_triage", "drops_contradicted"];
   assert.deepEqual(gradeEvidence(e, names), []);
 });

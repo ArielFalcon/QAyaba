@@ -1,7 +1,7 @@
 /* The mutants a run re-runs: only on changed lines a test reached whose source holds the expression a mutant changes, one per line, across the changed files in turn, each re-running the tests that reached it. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { MAX_MUTANTS, selectMutants, specFilesOf } from "@contexts/objective-signal/domain/select-mutants.ts";
+import { MAX_MUTANTS, MAX_RECORDED_SKIPPED_SITES, selectMutants, specFilesOf } from "@contexts/objective-signal/domain/select-mutants.ts";
 import type { MutationSite } from "@contexts/objective-signal/domain/coverage-collector.ts";
 
 /* A site of the served script whose expression is `x === y` (`x <op> y` for a swap of <op>), on a source line that holds it. */
@@ -138,4 +138,44 @@ test("a mutant re-runs only the tests whose dumps ran it, and the spec files' te
   assert.deepEqual(first?.tests, ["flows-a-spec-ts-filters", "flows-a-spec-ts-search-shows-results"]);
   assert.deepEqual(second?.specFiles, files);
   assert.equal(second?.tests, undefined, "no test can be told: every test of the spec files is re-run");
+});
+
+const decisionAt = (file: string, line: number, column: number) => ({ file, line, column, kind: "if" as const, arms: [{ label: "then", taken: true }, { label: "else", taken: false }] });
+const widely = new Map([
+  ["src/a.ts", new Set([10, 11, 12])],
+  ["src/b.ts", new Set([5])],
+  ["src/c.ts", new Set([7])],
+]);
+
+test("the decisions with an arm no test ran are targeted across the changed files in turn, not file by file in path order", () => {
+  const sites = [site("src/a.ts", 10, 0), site("src/a.ts", 11, 0), site("src/a.ts", 12, 0), site("src/b.ts", 5, 0), site("src/c.ts", 7, 0)];
+  const decisions = [decisionAt("src/a.ts", 10, 0), decisionAt("src/a.ts", 11, 0), decisionAt("src/a.ts", 12, 0), decisionAt("src/b.ts", 5, 0), decisionAt("src/c.ts", 7, 0)];
+
+  const picked = selectMutants(sites, widely, ["flows/a.spec.ts"], undefined, decisions).mutants.map((m) => [m.site.file, m.site.line]);
+
+  assert.deepEqual(picked, [["src/a.ts", 10], ["src/b.ts", 5], ["src/c.ts", 7]]);
+});
+
+test("when the targets outnumber the files the turns go round again, and the targets still come before the one-per-line fill", () => {
+  const sites = [site("src/a.ts", 10, 0), site("src/a.ts", 11, 0), site("src/b.ts", 5, 0), site("src/c.ts", 7, 0)];
+  const decisions = [decisionAt("src/a.ts", 10, 0), decisionAt("src/a.ts", 11, 0), decisionAt("src/b.ts", 5, 0)];
+
+  const picked = selectMutants(sites, widely, ["flows/a.spec.ts"], 4, decisions).mutants.map((m) => [m.site.file, m.site.line]);
+
+  assert.deepEqual(picked, [["src/a.ts", 10], ["src/b.ts", 5], ["src/a.ts", 11], ["src/c.ts", 7]]);
+});
+
+test("each skipped site is recorded with its file, line and reason, and a long list is cut while the count stays whole", () => {
+  const injected = "const name = e?.name;";
+  const sites = [
+    site("src/a.ts", 10, 0, undefined, "== → !=", { expression: "e == null", sourceLine: injected }),
+    site("src/b.ts", 5, 0, undefined, "negate condition", { sourceLine: undefined }),
+  ];
+  const { skipped } = selectMutants(sites, changed, ["flows/a.spec.ts"]);
+  assert.deepEqual(skipped.sites, [{ file: "src/a.ts", line: 10, reason: "not-in-source-line" }, { file: "src/b.ts", line: 5, reason: "no-source-line" }]);
+
+  const many = Array.from({ length: MAX_RECORDED_SKIPPED_SITES + 5 }, (_, i) => site("src/a.ts", 10, i, undefined, "== → !=", { expression: "e == null", sourceLine: injected }));
+  const cut = selectMutants(many, changed, ["flows/a.spec.ts"]).skipped;
+  assert.equal(cut.count, MAX_RECORDED_SKIPPED_SITES + 5);
+  assert.equal(cut.sites.length, MAX_RECORDED_SKIPPED_SITES);
 });
