@@ -12,6 +12,11 @@ export function isDumpOfSpecFile(dump: string, specFile: string): boolean {
   return dump.startsWith(key.slice(0, DUMP_TITLE_CHARS)) && (key.length >= DUMP_TITLE_CHARS || dump.charAt(key.length) === "-");
 }
 
+/* The sorted, distinct spec files among `specFiles` that wrote at least one of `dumps`; a dump none of them wrote counts for none. */
+export function specFilesWritingAny(dumps: readonly string[], specFiles: readonly string[]): string[] {
+  return [...new Set(specFiles)].sort().filter((spec) => dumps.some((dump) => isDumpOfSpecFile(dump, spec)));
+}
+
 /* The test a case stands for, named as the coverage fixture names its dumps: the case's name is its title path, whose parts are joined by ` › ` and start with the spec file's path. */
 export function testOfCase(caseName: string): string {
   return dashed(caseName).slice(0, DUMP_TITLE_CHARS);

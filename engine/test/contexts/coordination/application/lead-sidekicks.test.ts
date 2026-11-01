@@ -2331,7 +2331,7 @@ test("a correction turn summarises how its findings were routed: by the spec the
   await outcome.pass!.release();
   const summary = r.events.find((e) => e.origin === CORRECTION_ORIGIN.COVERAGE && e.routes !== undefined);
   assert.equal(summary?.findings, 3);
-  assert.deepEqual(summary?.routes, { spec: 1, candidate: 0, lead: 1, candidateFlow: 0, unrouted: 1 });
+  assert.deepEqual(summary?.routes, { spec: 1, evaluator: 0, candidate: 0, lead: 1, candidateFlow: 0, unrouted: 1 });
   assert.deepEqual(summary?.unroutedReasons, ["no-seed-use-case"]);
   const sent = r.events.find((e) => e.flowId === "cart" && e.decision === "revise" && e.findings === 2);
   assert.ok(sent, "the flow's order says how many findings it was sent");
@@ -2818,4 +2818,15 @@ test("a flow whose use cases no contradiction reaches is handed none, and the pl
   await r.coordinator.coordinate(input(r, { candidates: [unrelated], contextPack: contradictionPack, dataContradictions: [CART_CONTRADICTION], plan: async (p) => (seen.push(p), { plan, parsed: true, timedOut: false }) }));
   assert.equal(seen[0]?.candidateContradictions, undefined);
   assert.equal(r.executed.find((e) => e.brief.delegationId === "run-1-flow-account")!.brief.pages, undefined);
+});
+
+test("a correction turn tells, per finding, the flow it was sent to and the fact that sent it, and none for a finding no flow took", async () => {
+  const order = JSON.stringify({ corrections: [{ flow: "cart", action: "revise", findings: [2], instruction: "cover the arm" }] });
+  const lead = leadAnswering([ACCEPT_ALL, order]);
+  const r = rig();
+  const outcome = await new LeadSidekicks(r.deps).coordinate(input(r, { plan: lead.plan, closedLoop: undefined }));
+  if (outcome.action !== "fanout") return assert.fail("fanout expected");
+  const corrected = await outcome.pass!.correct([{ text: "the total is never asserted", spec: "e2e/flows/cart.spec.ts" }, { text: "decision arm src/a.ts:4 if: the else" }, { text: "decision arm src/a.ts:9 ?: nothing is asked of it", file: "src/a.ts" }], CORRECTION_ORIGIN.COVERAGE);
+  await outcome.pass!.release();
+  assert.deepEqual(corrected.placements, [{ flowId: "cart", by: "spec" }, { flowId: "cart", by: "lead" }, {}]);
 });

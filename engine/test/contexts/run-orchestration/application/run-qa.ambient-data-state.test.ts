@@ -97,7 +97,7 @@ test("the branch-cases regeneration carries the pinned case to its spec's author
     rig.config = { needsReview: false, coveragePolicyMode: "signal", coverageBranchCases: "regenerate" };
     rig.author = async (...args) => { turns.push(JSON.stringify(args)); return author(...args); };
     rig.execute = async () => ({ verdict: "pass", cases: [{ name: `${RIG_SPEC} › ${TITLE}`, status: "pass", file: RIG_SPEC }], logs: "" });
-    rig.measure = async () => ({ status: "pass", ratio: 0.9, uncovered: [], untakenArms: [{ file: "src/listing.ts", line: 3, kind: "if", arm: "then" }], measurement: { changedLines: 10, coveredChanged: 9, changedFiles: 1, mappedFiles: 1, changedBranches: 2, takenBranches: 1 } });
+    rig.measure = async () => ({ status: "pass", ratio: 0.9, uncovered: [], untakenArms: [{ file: "src/listing.ts", line: 3, column: 0, kind: "if", arm: "then" }], measurement: { changedLines: 10, coveredChanged: 9, changedFiles: 1, mappedFiles: 1, changedBranches: 2, takenBranches: 1 } });
     await observe(rig, "ambient-gap");
     const regeneration = turns.find((turn) => turn.includes("src/listing.ts:3"));
     assert.ok(regeneration, "the arm reaches a regeneration");

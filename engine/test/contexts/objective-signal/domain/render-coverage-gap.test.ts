@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { UseCaseCandidate } from "@kernel/use-case-candidate.ts";
-import { renderBranchGap, renderCoverageGap, renderSurvivedMutant, renderSurvivedMutants, survivorFindings } from "@contexts/objective-signal/domain/render-coverage-gap.ts";
+import { renderBranchGap, renderCoverageGap, renderSurvivedMutant, renderSurvivedMutants, survivorFindings, survivorRoutes } from "@contexts/objective-signal/domain/render-coverage-gap.ts";
 
 /* Enforce-mode regen's coverage-gap renderer. Expected outputs are hand-written against
    ObjectiveSignalPort.measure()'s return shape — `uncovered?: {file; lines: number[]}[]`, no
@@ -72,18 +72,28 @@ test("renderCoverageGap: candidates that hold none of the uncovered lines leave 
 test("renderBranchGap: the arms on changed lines no test ran, one line each with where and which arm; nothing when every arm ran", () => {
   assert.equal(renderBranchGap([]), "");
   const [heading, ...items] = renderBranchGap([
-    { file: "src/store.ts", line: 57, kind: "if", arm: "else" },
-    { file: "src/store.html", line: 12, kind: "conditional", arm: "false" },
+    { file: "src/store.ts", line: 57, column: 4, kind: "if", arm: "else" },
+    { file: "src/store.html", line: 12, column: 0, kind: "conditional", arm: "false" },
   ]).split("\n");
   assert.match(heading!, /:$/, "a heading introduces the list");
-  assert.deepEqual(items, ["- src/store.ts:57 if: else", "- src/store.html:12 conditional: false"]);
+  assert.deepEqual(items, ["- src/store.ts:57:5 if: else", "- src/store.html:12:1 conditional: false"]);
 });
 
 test("renderBranchGap: every arm is listed, however many the gap has", () => {
-  const arms = Array.from({ length: 24 }, (_, i) => ({ file: "src/a.ts", line: i + 1, kind: "if", arm: "else" }));
+  const arms = Array.from({ length: 24 }, (_, i) => ({ file: "src/a.ts", line: i + 1, column: 2, kind: "if", arm: "else" }));
   const lines = renderBranchGap(arms).split("\n");
   assert.equal(lines.length, 25);
-  assert.equal(lines.at(-1), "- src/a.ts:24 if: else");
+  assert.equal(lines.at(-1), "- src/a.ts:24:3 if: else");
+});
+
+test("renderBranchGap: a decision with several untaken arms is one line naming them all, and two decisions of one line never read alike", () => {
+  const items = renderBranchGap([
+    { file: "src/a.ts", line: 8, column: 2, kind: "switch", arm: "case 'open'" },
+    { file: "src/a.ts", line: 8, column: 2, kind: "switch", arm: "default" },
+    { file: "src/a.ts", line: 9, column: 10, kind: "logical", arm: "right of ?? evaluated" },
+    { file: "src/a.ts", line: 9, column: 25, kind: "logical", arm: "right of ?? evaluated" },
+  ]).split("\n").slice(1);
+  assert.deepEqual(items, ["- src/a.ts:8:3 switch: case 'open'; default", "- src/a.ts:9:11 logical: right of ?? evaluated", "- src/a.ts:9:26 logical: right of ?? evaluated"]);
 });
 
 test("renderCoverageGap: a candidate seeded by a whole file holds that file's uncovered lines", () => {
@@ -158,20 +168,15 @@ test("a survivor whose pages moved in some of the spec files that reached it is 
   assert.ok(findings[0]!.text.includes(DARK) && findings[0]!.text.includes("flows/map.spec.ts"));
 });
 
-test("a survivor whose pages moved in none of its spec files is a finding for every one of them, each told its own account", () => {
-  const findings = survivorFindings({
-    ...SURVIVOR,
-    specFiles: ["flows/list.spec.ts", "flows/map.spec.ts"],
-    moved: { kind: "unmoved", tests: 2 },
-    movedBySpec: [
-      { spec: "flows/list.spec.ts", moved: { kind: "unmoved", tests: 1 } },
-      { spec: "flows/map.spec.ts", moved: { kind: "unobserved", reason: "no-common-test" } },
-    ],
-  });
+test("a survivor no spec file's pages moved for is recorded and routed to no spec, however many ran it", () => {
+  const unmoved = { ...SURVIVOR, specFiles: ["flows/list.spec.ts", "flows/map.spec.ts"], moved: { kind: "unmoved" as const, tests: 2 }, movedBySpec: [{ spec: "flows/list.spec.ts", moved: { kind: "unmoved" as const, tests: 1 } }, { spec: "flows/map.spec.ts", moved: { kind: "unobserved" as const, reason: "no-common-test" as const } }] };
+  const unobserved = { ...SURVIVOR, specFiles: ["flows/map.spec.ts"], moved: { kind: "unobserved" as const, reason: "baseline" as const } };
 
-  assert.deepEqual(findings.map((f) => f.spec), ["flows/list.spec.ts", "flows/map.spec.ts"]);
-  assert.match(findings[0]!.text, /no observable moved/);
-  assert.doesNotMatch(findings[1]!.text, /no observable moved/, "a file whose tests were not compared is told nothing of the others'");
+  for (const survivor of [unmoved, unobserved]) {
+    assert.deepEqual(survivorRoutes(survivor), []);
+    assert.deepEqual(survivorFindings(survivor), []);
+  }
+  assert.equal(renderSurvivedMutants([unmoved, unobserved]), "");
 });
 
 test("a survivor with no per-file account reaches every spec file that ran it with what moved over all its tests, and one no spec ran is a finding of no spec", () => {

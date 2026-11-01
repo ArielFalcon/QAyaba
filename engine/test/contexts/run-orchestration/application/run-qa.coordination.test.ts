@@ -553,7 +553,7 @@ test("a coverage gap reaches the lead as one finding per changed file and per un
   r = rig(() => delivered(kept.pass));
   kept = keptPass(r, () => ({ readable: true, specs: ["flows/a.spec.ts"], rebuttals: [], unrouted: [] }));
   let measures = 0;
-  const arm = (line: number, text: string) => ({ file: "src/list.ts", line, kind: "if", arm: text });
+  const arm = (line: number, text: string) => ({ file: "src/list.ts", line, column: 0, kind: "if", arm: text });
   const objectiveSignal = {
     measure: async () => (measures++ === 0
       ? { status: "fail" as const, ratio: 0.2, uncovered: [{ file: "src/list.ts", lines: [4, 5] }, { file: "src/detail.ts", lines: [9] }], untakenArms: [arm(4, "the else"), arm(7, "the then")] }
@@ -568,6 +568,19 @@ test("a coverage gap reaches the lead as one finding per changed file and per un
   assert.ok(texts[2]!.includes("src/list.ts:4") && texts[2]!.includes("the else"));
   assert.ok(texts[3]!.includes("src/list.ts:7") && texts[3]!.includes("the then"));
   assert.equal(texts.filter((t) => t.includes("the else")).length, 1, "an item is one finding only");
+});
+
+test("the branch-cases record names, per decision sent, the flow the lead's pass took it to and the fact that sent it, and the largest share one flow received", async () => {
+  let r!: Rig;
+  let kept!: ReturnType<typeof keptPass>;
+  r = rig(() => delivered(kept.pass));
+  kept = keptPass(r, () => ({ readable: true, specs: [], rebuttals: [], unrouted: [1], placements: [{ flowId: "a", by: "evaluator" }, {}] }));
+  const arm = (line: number) => ({ file: "src/list.ts", line, column: 0, kind: "if", arm: "the else" });
+  const objectiveSignal = { measure: async () => ({ status: "pass" as const, ratio: 0.9, untakenArms: [arm(4), arm(7)] }), blocks: () => false };
+  await new RunQaUseCase(r.deps({ objectiveSignal, config: { needsReview: false, shadow: false, onFailure: "github-issue", maxRetries: 2, coveragePolicyMode: "signal", coverageBranchCases: "regenerate" } })).run(INPUT);
+  const record = r.saved.at(-1)?.gateSignals.branchCases;
+  assert.deepEqual(record?.decisions?.map((d) => [d.line, d.flow, d.by]), [[4, "a", "evaluator"], [7, undefined, undefined]]);
+  assert.equal(record?.maxFlowShare, 1 / 2);
 });
 
 test("a run the lead authored alone still regenerates a coverage gap whole, with the gap as one text", async () => {
@@ -670,7 +683,7 @@ test("survivors join the arms no test ran in the same regeneration instead of op
   const { r, kept } = coordinatedRig();
   const objectiveSignal = {
     blocks: () => false,
-    measure: async () => ({ status: "pass" as const, ratio: 1, untakenArms: [{ file: "src/list.ts", line: 7, kind: "if", arm: "the then" }], bundleMutation: { applied: 1, killed: 0, survived: [survivor(4, ["flows/a.spec.ts"])] } }),
+    measure: async () => ({ status: "pass" as const, ratio: 1, untakenArms: [{ file: "src/list.ts", line: 7, column: 0, kind: "if", arm: "the then" }], bundleMutation: { applied: 1, killed: 0, survived: [survivor(4, ["flows/a.spec.ts"])] } }),
   };
   await new RunQaUseCase(r.deps({ objectiveSignal, config: SIGNAL_BRANCH_CASES })).run(INPUT);
   assert.equal(kept.seen.corrected.length, 1);

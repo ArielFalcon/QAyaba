@@ -197,3 +197,41 @@ test("a logical operator is a site when its expression ran, even when its right 
   defaultParseV8Coverage([{ url: "https://dev.example/src/pick.ts", source, functions }], ["src/pick.ts"], undefined, sink);
   assert.deepEqual(sink.mutationSites()!.map((s) => [s.line, s.operator]), [[2, "|| → &&"]]);
 });
+
+/* ── the dumps that evaluated a decision ─────── */
+
+const STORE_URL = "https://dev.example/src/store.ts";
+
+test("a decision records the dumps in which one of its arms ran, and a dump whose script never reached it is not among them", async () => {
+  const called = STORE + `load(true, false, 404, "memory");\n`;
+  const sink = new BranchSink();
+  sink.beginDump("flows-a-spec-ts-opens-0-0.json");
+  defaultParseV8Coverage([{ url: STORE_URL, source: called, functions: await ranUnderCoverage(called) }], ["src/store.ts"], undefined, sink);
+  sink.beginDump("flows-b-spec-ts-idles-0-0.json");
+  defaultParseV8Coverage([{ url: STORE_URL, source: STORE, functions: await ranUnderCoverage(STORE) }], ["src/store.ts"], undefined, sink);
+
+  const hits = sink.result()!;
+
+  assert.ok(hits.length > 0);
+  assert.ok(hits.every((h) => JSON.stringify(h.ranIn) === JSON.stringify(["flows-a-spec-ts-opens-0-0.json"])), "only the dump that called the function evaluated its decisions");
+});
+
+test("a decision no dump evaluated has no dump, and naming the dumps changes neither the arms taken nor the covered lines", async () => {
+  const idle = STORE;
+  const called = STORE + `load(true, false, 404, "memory");\n`;
+  const read = async (source: string, name?: string) => {
+    const sink = new BranchSink();
+    if (name) sink.beginDump(name);
+    const covered = defaultParseV8Coverage([{ url: STORE_URL, source, functions: await ranUnderCoverage(source) }], ["src/store.ts"], undefined, sink);
+    return { hits: sink.result()!, covered };
+  };
+
+  const never = await read(idle, "flows-b-spec-ts-idles-0-0.json");
+  assert.ok(never.hits.length > 0 && never.hits.every((h) => h.ranIn.length === 0 && h.arms.every((a) => !a.taken)));
+
+  const named = await read(called, "flows-a-spec-ts-opens-0-0.json");
+  const anonymous = await read(called);
+  const withoutDumps = (hits: typeof named.hits) => hits.map(({ ranIn: _, ...hit }) => hit);
+  assert.deepEqual(withoutDumps(named.hits), withoutDumps(anonymous.hits));
+  assert.deepEqual([...named.covered], [...anonymous.covered]);
+});

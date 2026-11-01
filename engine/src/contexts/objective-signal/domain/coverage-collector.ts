@@ -11,8 +11,8 @@ export interface CoverageScripts { total: number; withSourceMap: number; }
 /* The decision kinds are the static listing's: a measured decision and a listed one are of the same taxonomy. */
 export type BranchKind = DecisionKind;
 export interface BranchArm { label: string; taken: boolean; }
-/* One decision of a changed file the executed code holds: where its condition is (1-based line, 0-based column), its kind, and whether each arm ran in at least one test. */
-export interface BranchHit { file: string; line: number; column: number; kind: BranchKind; arms: BranchArm[]; }
+/* One decision of a changed file the executed code holds: where its condition is (1-based line, 0-based column), its kind, whether each arm ran in at least one test, and the dumps (one per test) in which one of its arms ran: the ones that evaluated it. In memory only. */
+export interface BranchHit { file: string; line: number; column: number; kind: BranchKind; arms: BranchArm[]; ranIn: string[]; }
 /* A place of a changed file where the served script can be mutated: the exact edit of the script (identified by its URL and the sha256 of its text), the text it replaces, what it does, and the dumps (one per test) that ran it. `expression` is the whole expression the edit changes (the condition it negates, or the comparison or logical expression whose operator it swaps), cut; `sourceLine` is the text of the source line the script's map places it at, when the map carries its sources' text. A site is a mutant only when that line holds the expression (`mutation-site-source.ts`). */
 export interface MutationSite {
   file: string;

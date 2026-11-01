@@ -173,6 +173,7 @@ declare wildcards only below names you own); no path, query or credentials; an I
 | `dev.baseUrl` (always) and `dev.allowedOrigins` in `config/apps/<app>.yaml` | `suite` and `login` children |
 | `config/egress/registries.yaml` (group `npm`) | `install` children: the e2e project's `npm ci` |
 | `egress.installOrigins` in the app config | `install` children: a private registry or mirror |
+| `dev.thirdPartyOrigins` in the app config | `suite` and `login` children, like `dev.allowedOrigins` (declared once: an origin in both lists is a validation error). The only difference is observational: a request to one is counted by host and never listed in the Context Pack's or the authenticated browser's requests |
 | `dev.blockedOrigins` in the app config | nothing: origins left blocked on purpose (telemetry, analytics). The filter refuses them like any undeclared host; the only effect is that a refusal of one is never taken as the reason a login failed (`E-PRECONDITION`, kind `egress-denied`). An origin cannot be both allowed and blocked |
 
 A bad origin is refused when the config loads. A run that tries an undeclared host does not fail for it by itself: the host

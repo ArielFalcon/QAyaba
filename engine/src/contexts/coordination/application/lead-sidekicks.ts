@@ -65,7 +65,8 @@ import { namesTemplatePage } from "@contexts/generation/application/index.ts";
 import type { HarnessFacts } from "@kernel/grounding.ts";
 import type { RedactionPort } from "@kernel/ports/redaction.port.ts";
 import { candidateFlowId, candidateFlowOf, maintenanceFlowId, maintenanceFlowOf, seedsNoCandidate, specNamedBy, uncoveredCandidateOf } from "./maintenance-flow.ts";
-import { CORRECTION_ORIGIN, admitLeadCorrection, correctionClosing, correctionPreamble, routeOfFinding, assembleLeadCorrection, assembleRefusedCorrection, type CorrectionOrigin, type CorrectionOrder, type CorrectionRebuttal, type FlowUnderCorrection, type CorrectionFinding } from "./lead-correction.ts";
+import type { FindingPlacement } from "@kernel/finding-placement.ts";
+import { CORRECTION_ORIGIN, admitLeadCorrection, correctionClosing, correctionPreamble, routesOfFindings, assembleLeadCorrection, assembleRefusedCorrection, type CorrectionOrigin, type CorrectionOrder, type CorrectionRebuttal, type FlowUnderCorrection, type CorrectionFinding } from "./lead-correction.ts";
 
 /* The flow's slice of the Context Pack, as a brief field, or nothing when the pack did not read its pages or show a contradiction its use cases reach. */
 const pagesOf = (pack: string | undefined, routes: readonly string[], contradictedRoutes: readonly string[]): { pages: string } | undefined => {
@@ -183,6 +184,8 @@ export interface PassCorrection {
   rebuttals: CorrectionRebuttal[];
   /* The positions, among the findings the turn was given, of those no flow was sent. */
   unrouted: number[];
+  /* What happened to each finding the turn was given, by position; absent when the pass does not tell. */
+  placements?: FindingPlacement[];
   /*
    * A sidekick's claim, on a correction of a failing execution, that its test is right and the app or the environment is not.
    * Only when no flow put new bytes in the working copy: a claim beside a change is not one. A claim, never evidence.
@@ -1060,11 +1063,11 @@ export class LeadSidekicks {
     const { input } = context;
     const nothing = (why: string, code: string): PassCorrection => {
       tally.unrouted += findings.length;
-      this.record(input, { kind: "lead-decision", origin, findings: findings.length, routes: { spec: 0, candidate: 0, lead: 0, candidateFlow: 0, unrouted: findings.length }, unroutedReasons: findings.length > 0 ? [code] : [], reason: `correction (${origin}): ${why}; the findings stand` });
-      return { readable: false, specs: [], rebuttals: [], unrouted: findings.map((_, i) => i) };
+      this.record(input, { kind: "lead-decision", origin, findings: findings.length, routes: { spec: 0, evaluator: 0, candidate: 0, lead: 0, candidateFlow: 0, unrouted: findings.length }, unroutedReasons: findings.length > 0 ? [code] : [], reason: `correction (${origin}): ${why}; the findings stand` });
+      return { readable: false, specs: [], rebuttals: [], unrouted: findings.map((_, i) => i), placements: findings.map(() => ({})) };
     };
     if (state.released) return nothing("the pass was released", "pass-released");
-    if (findings.length === 0) return { readable: true, specs: [], rebuttals: [], unrouted: [] };
+    if (findings.length === 0) return { readable: true, specs: [], rebuttals: [], unrouted: [], placements: [] };
     const room = this.room(input);
     if (room !== undefined && room < MIN_FLOW_MS) return nothing("too little of the run is left", "no-time");
     const under: FlowUnderCorrection[] = await Promise.all(flows.filter((flow) => live.has(flow.id)).map(async (flow) => {
@@ -1190,7 +1193,8 @@ export class LeadSidekicks {
     this.leftUnrouted(input, origin, leftWith("no-flow-took", (i) => askedAgain.has(i)), "the lead neither sent them to a flow nor rebutted them after being asked once more, and no cold author is run for them", "no-flow-took");
     this.leftUnrouted(input, origin, leftWith("no-flow-took", (i) => !askedAgain.has(i)), "no flow took them and no cold author is run for them", "no-flow-took");
     const finalUnrouted = left;
-    this.record(input, { kind: "lead-decision", origin, ...routingSummary(findings, under, orders, maintenance, left, codeOf), reason: `correction (${origin}): ${findings.length} finding(s) routed` });
+    const placements = placementsOf(findings, under, orders, maintenance, left);
+    this.record(input, { kind: "lead-decision", origin, ...routingSummary(placements, left, codeOf), reason: `correction (${origin}): ${findings.length} finding(s) routed` });
     const read = this.deps.readSpec;
     const specSources = read ? await Promise.all(specs.map((spec) => read({ mirrorDir: input.mirrorDir, specDir: input.specDir }, spec).catch(() => undefined))) : undefined;
     const claims = origin === CORRECTION_ORIGIN.EXECUTION && specs.length === 0 ? slots.flatMap((slot) => {
@@ -1204,6 +1208,7 @@ export class LeadSidekicks {
       ...(specSources && specSources.every((source) => source !== undefined) ? { specSources: specSources as string[] } : {}),
       rebuttals: admission.rebuttals,
       unrouted: finalUnrouted,
+      placements,
       ...(claims.length > 0 ? { testCorrect: { cause: claims.every((c) => c.cause === "env") ? "env" : "app", reason: claims.map((c) => c.reason).join("; ") } } : {}),
     };
   }
@@ -1478,27 +1483,37 @@ export class LeadSidekicks {
 }
 
 /*
- * How a correction turn's findings ended, as the structured attributes of its summary event: the count per route (a finding the lead
- * rebutted is in none) and why the unrouted ones were left, as distinct codes.
+ * What happened to each finding of a correction turn, by position: the flow it was sent to and the fact that sent it (the engine's own,
+ * or the lead's order when it gave the finding to another flow or to one the engine's facts leave open), or a flow the orchestrator
+ * opened for it; none for a finding left unrouted.
  */
-function routingSummary(findings: readonly CorrectionFinding[], under: readonly FlowUnderCorrection[], orders: readonly CorrectionOrder[], maintenance: ReadonlyArray<{ indices: number[] }>, left: readonly number[], codeOf: (index: number) => UnroutedCode): Pick<CoordinationTelemetryEvent, "findings" | "routes" | "unroutedReasons"> {
-  const ordered = new Set(orders.flatMap((o) => o.indices));
-  const opened = new Set(maintenance.flatMap((m) => m.indices));
+function placementsOf(findings: readonly CorrectionFinding[], under: readonly FlowUnderCorrection[], orders: readonly CorrectionOrder[], maintenance: ReadonlyArray<{ indices: number[]; flow: { id: string } }>, left: readonly number[]): FindingPlacement[] {
+  const routed = routesOfFindings(findings, under);
   const unrouted = new Set(left);
-  const routes = { spec: 0, candidate: 0, lead: 0, candidateFlow: 0, unrouted: 0 };
+  const ordered = new Map(orders.flatMap((o) => o.indices.map((i) => [i, o.flowId] as const)));
+  const opened = new Map(maintenance.flatMap((m) => m.indices.map((i) => [i, m.flow.id] as const)));
+  return findings.map((_, i): FindingPlacement => {
+    if (unrouted.has(i)) return {};
+    const flowId = ordered.get(i);
+    if (flowId !== undefined) return { flowId, by: routed[i]?.flowId === flowId ? routed[i]!.by : "lead" };
+    const openedFlow = opened.get(i);
+    return openedFlow !== undefined ? { flowId: openedFlow, by: "opened" } : {};
+  });
+}
+
+/* How a correction turn's findings ended, as the structured attributes of its summary event: the count per route (a finding the lead rebutted is in none) and why the unrouted ones were left, as distinct codes. */
+function routingSummary(placements: readonly FindingPlacement[], left: readonly number[], codeOf: (index: number) => UnroutedCode): Pick<CoordinationTelemetryEvent, "findings" | "routes" | "unroutedReasons"> {
+  const routes = { spec: 0, evaluator: 0, candidate: 0, lead: 0, candidateFlow: 0, unrouted: 0 };
   const reasons = new Set<string>();
-  findings.forEach((finding, i) => {
+  const unrouted = new Set(left);
+  placements.forEach(({ by }, i) => {
     if (unrouted.has(i)) {
       routes.unrouted += 1;
       reasons.add(codeOf(i));
-    } else if (ordered.has(i)) {
-      const by = routeOfFinding(finding, under)?.by;
-      if (by === "spec") routes.spec += 1;
-      else if (by === "candidate") routes.candidate += 1;
-      else routes.lead += 1;
-    } else if (opened.has(i)) routes.candidateFlow += 1;
+    } else if (by === "opened") routes.candidateFlow += 1;
+    else if (by !== undefined) routes[by] += 1;
   });
-  return { findings: findings.length, routes, ...(reasons.size > 0 ? { unroutedReasons: [...reasons] } : {}) };
+  return { findings: placements.length, routes, ...(reasons.size > 0 ? { unroutedReasons: [...reasons] } : {}) };
 }
 
 /* Why a correction turn left a finding with no flow, as the distinct code the run's decisions and the log both carry. */

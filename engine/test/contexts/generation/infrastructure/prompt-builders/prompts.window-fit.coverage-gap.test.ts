@@ -14,7 +14,7 @@ const windowOf = (bytes: number): PromptFit => ({ bytes: size }) => (size <= byt
 const bytesOf = (text: string): number => Buffer.byteLength(text, "utf8");
 
 const FILES = Array.from({ length: 40 }, (_, i) => `src/area-${i}/module-${i}.ts`);
-const ARMS = FILES.flatMap((file, i) => [{ file, line: i + 1, kind: "if", arm: "else" }, { file, line: i + 50, kind: "switch", arm: "default" }]);
+const ARMS = FILES.flatMap((file, i) => [{ file, line: i + 1, column: 0, kind: "if", arm: "else" }, { file, line: i + 50, column: 0, kind: "switch", arm: "default" }]);
 const gap = [renderCoverageGap(FILES.map((file) => ({ file, lines: [1, 2, 3] }))), renderBranchGap(ARMS)].join("\n\n");
 const reference = FILES.map((file) => `- ${file}: 3 unit(s) (changed lines or decision arms no test ran)`).join("\n");
 
@@ -37,7 +37,7 @@ const author = (over: Partial<OpencodeRunInput> = {}): OpencodeRunInput => ({
 test("the author reads every file and arm of a coverage gap, however many it has, while the window is unknown or holds it", () => {
   for (const opts of [{}, { fit: windowOf(50_000_000) }]) {
     const prompt = buildPromptAssembled(author(), opts);
-    for (const arm of ARMS) assert.ok(prompt.text.includes(`${arm.file}:${arm.line} ${arm.kind}: ${arm.arm}`), `${arm.file}:${arm.line}`);
+    for (const arm of ARMS) assert.ok(prompt.text.includes(`${arm.file}:${arm.line}:${arm.column + 1} ${arm.kind}: ${arm.arm}`), `${arm.file}:${arm.line}`);
     assert.doesNotMatch(prompt.text, /more arm\(s\)|more file\(s\)/);
   }
 });

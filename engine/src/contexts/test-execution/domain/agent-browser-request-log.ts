@@ -27,7 +27,7 @@ export class RequestLog {
     const address = requestAddress(request.url);
     if (address === undefined) return;
     if (LOCAL_SCHEMES.has(address.protocol)) return;
-    if (this.originRole(request.url) === "counted-by-host") {
+    if (this.originRole(request.url) !== "listed") {
       this.ledger.addHost(address.host !== "" ? address.host : address.protocol, 1);
       return;
     }

@@ -20,6 +20,7 @@ export type CoordinationTelemetryKind =
 /* How a correction turn's findings were routed, one count per route; the counts add up to at most the turn's findings (a rebutted finding is in none). */
 export interface CoordinationRouteCounts {
   readonly spec: number;
+  readonly evaluator: number;
   readonly candidate: number;
   readonly lead: number;
   readonly candidateFlow: number;

@@ -41,6 +41,7 @@ export class TracedCoordinationTelemetry implements CoordinationTelemetryPort {
       ...(event.findings !== undefined ? { "qayaba.coordination.findings": event.findings } : {}),
       ...(event.routes ? {
         "qayaba.coordination.findings_by_spec": event.routes.spec,
+        "qayaba.coordination.findings_by_evaluator": event.routes.evaluator,
         "qayaba.coordination.findings_by_candidate": event.routes.candidate,
         "qayaba.coordination.findings_by_lead": event.routes.lead,
         "qayaba.coordination.findings_by_candidate_flow": event.routes.candidateFlow,

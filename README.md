@@ -359,6 +359,8 @@ dev:
   allowedOrigins:
     - "https://login.my-idp.example"
     - "https://*.cdn.my-app.example"
+  thirdPartyOrigins:              # optional: third-party hosts the pages load (map tiles, fonts); reachable, but their requests are only counted by host
+    - "https://api.maps.example"
   blockedOrigins:                 # optional: hosts left blocked on purpose (telemetry, analytics); never taken as why a login failed
     - "https://*.ingest.sentry.io"
 egress:

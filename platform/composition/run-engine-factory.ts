@@ -56,6 +56,7 @@ import { loadContextMapFromDisk } from "@contexts/generation/infrastructure/adap
 import { ContextMapCapturePortAdapter, type ContextMapSave, type ContextMapWrittenThisRun } from "@contexts/generation/infrastructure/adapters/context-map-capture-port.adapter";
 import { Sha } from "@kernel/sha";
 import { assertCommitSha } from "@kernel/git-revision";
+import { requestOriginClassifier } from "@kernel/observed-requests";
 import type { CommitAncestryPort } from "@kernel/ports/commit-ancestry.port";
 import { closedLoopLimitsOf } from "@contexts/agent-tools/application/index";
 import { resolveCoordinationSettings } from "@kernel/coordination";
@@ -835,7 +836,7 @@ export function buildEngineRootDeps(
   };
   const e2eCleanupDeps = createDefaultE2eCleanupDeps(new ProcessKillAdapter(), exec);
   /* One launcher-backed DOM capture for every grounding seam (Context Pack, review DOM, pre-exec). */
-  const captureDomDeps = createCaptureDomDeps(exec, undefined, deps.telemetry ? domCaptureObserver(deps.telemetry) : undefined, app.dev.geolocation, app.dev.dataState, runOrigins.dev);
+  const captureDomDeps = createCaptureDomDeps(exec, undefined, deps.telemetry ? domCaptureObserver(deps.telemetry) : undefined, app.dev.geolocation, app.dev.dataState, runOrigins.dev, runOrigins.thirdParty);
   const e2e = new E2eExecutionStrategy((specDir, opts) => runE2E(specDir, opts, e2eExecuteDeps));
 
   /*
@@ -855,6 +856,7 @@ export function buildEngineRootDeps(
         undefined,
         countInjectedResponses,
         app.dev.baseUrl,
+        requestOriginClassifier(runOrigins.dev, runOrigins.thirdParty),
       )
     : undefined;
 
@@ -1128,6 +1130,7 @@ export function buildEngineRootDeps(
       ? {
           agentBrowser: {
             registry: deps.agentBrowserRegistry,
+            thirdPartyOrigins: runOrigins.thirdParty,
             setting: {
               enabled: agentBrowserEnabled(app),
               denyRoutes: app.qa.agentBrowser?.denyRoutes ?? [],

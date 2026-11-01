@@ -68,7 +68,7 @@ test("the decisions of changed lines an arm of which no test ran come first, eac
     site("src/a.ts", 12, 6, undefined, "&& → ||"),
     site("src/b.ts", 5, 0),
   ];
-  const decision = (file: string, line: number, column: number, kind: "if" | "logical", taken: boolean[]) => ({ file, line, column, kind, arms: taken.map((t, i) => ({ label: `arm ${i}`, taken: t })) });
+  const decision = (file: string, line: number, column: number, kind: "if" | "logical", taken: boolean[]) => ({ file, line, column, kind, ranIn: [] as string[], arms: taken.map((t, i) => ({ label: `arm ${i}`, taken: t })) });
   const decisions = [
     decision("src/a.ts", 10, 2, "if", [true, true]),
     decision("src/a.ts", 12, 6, "logical", [true, false]),
@@ -140,7 +140,7 @@ test("a mutant re-runs only the tests whose dumps ran it, and the spec files' te
   assert.equal(second?.tests, undefined, "no test can be told: every test of the spec files is re-run");
 });
 
-const decisionAt = (file: string, line: number, column: number) => ({ file, line, column, kind: "if" as const, arms: [{ label: "then", taken: true }, { label: "else", taken: false }] });
+const decisionAt = (file: string, line: number, column: number) => ({ file, line, column, kind: "if" as const, arms: [{ label: "then", taken: true }, { label: "else", taken: false }], ranIn: [] });
 const widely = new Map([
   ["src/a.ts", new Set([10, 11, 12])],
   ["src/b.ts", new Set([5])],

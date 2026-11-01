@@ -62,12 +62,13 @@ export function networkSchemeOf(protocol: string): "http:" | "https:" | undefine
   return NETWORK_SCHEME[protocol];
 }
 
-/* Whether an observer lists a request or only counts its host: listed when its origin is one the run declares, counted by host otherwise (a host the egress filter refuses, the app's blocked origins included, or an address that reaches no declared network). */
-export type RequestOriginRole = "listed" | "counted-by-host";
+/* Whether an observer lists a request or only counts its host: listed when its origin is one the run declares for the app, counted by host otherwise. `third-party` is an origin the run reaches but whose requests are not the app's (`dev.thirdPartyOrigins`); `counted-by-host` is a host the egress filter refuses (the app's blocked origins included) or an address that reaches no declared network. */
+export type RequestOriginRole = "listed" | "third-party" | "counted-by-host";
 
-/* The one rule every observer of a page's requests applies, from the origins the run declares (`resolveRunOrigins(app).dev`): the egress filter's own match of host and port. */
-export function requestOriginClassifier(origins: readonly string[]): (url: string) => RequestOriginRole {
+/* The one rule every observer of a page's requests applies, from the origins the run reaches and the third-party ones among them (`resolveRunOrigins(app)`'s `dev` and `thirdParty`): the egress filter's own match of host and port. */
+export function requestOriginClassifier(origins: readonly string[], thirdPartyOrigins: readonly string[] = []): (url: string) => RequestOriginRole {
   const policy = compileEgressPolicy(origins);
+  const thirdParty = compileEgressPolicy(thirdPartyOrigins);
   return (url) => {
     let parsed: URL;
     try {
@@ -78,6 +79,7 @@ export function requestOriginClassifier(origins: readonly string[]): (url: strin
     const scheme = networkSchemeOf(parsed.protocol);
     if (scheme === undefined) return "counted-by-host";
     const port = parsed.port !== "" ? Number(parsed.port) : scheme === "https:" ? 443 : 80;
+    if (thirdParty.allows(parsed.hostname, port)) return "third-party";
     return policy.allows(parsed.hostname, port) ? "listed" : "counted-by-host";
   };
 }

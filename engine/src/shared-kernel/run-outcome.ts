@@ -13,8 +13,41 @@ import type { ServedVersionSignal } from "./served-version.ts";
 import type { LessonsSignal } from "./lessons-signal.ts";
 import type { ObservedDifference } from "./observed-difference.ts";
 import type { ExecutionsSignal } from "./execution-conditions.ts";
+import type { FindingPlacementFact } from "./finding-placement.ts";
 
 export type ErrorClass = string | null;
+
+/* A decision of the changed code the branch-cases regeneration was sent: its identity, how many of its arms no test ran, the flow it went to and the fact that sent it (absent when no flow took it), and how many of those arms the recount found taken (absent when the turn was not recounted). */
+export interface BranchCasesDecision {
+  file: string;
+  line: number;
+  column: number;
+  kind: string;
+  arms: number;
+  flow?: string;
+  by?: FindingPlacementFact;
+  taken?: number;
+}
+
+/**
+ * What the one regeneration from the arms of the changed code no test ran did: its outcome, the arms before and after it, and how many
+ * spec files it changed kept their new bytes or were given their prior ones back (absent when it changed none); the decisions it was sent
+ * (`findings`), how many arms the recount found taken by their identity (`armsTaken`, absent when an accepted turn was not recounted), the
+ * largest share of those decisions one flow received (`maxFlowShare`, absent when no pass routed them), the surviving mutants the pass
+ * routed to a flow and those it did not, and what became of each decision. A signal, never a gate; a run stored before these fields has none of them.
+ */
+export interface BranchCasesRecord {
+  outcome: "accepted" | "empty" | "rejected" | "capped";
+  armsBefore: number;
+  armsAfter?: number;
+  kept?: number;
+  restored?: number;
+  findings?: number;
+  armsTaken?: number;
+  maxFlowShare?: number;
+  survivors?: { routed: number; unrouted: number };
+  decisions?: BranchCasesDecision[];
+}
 
 export interface RunOutcome {
   runId: string;
@@ -34,7 +67,7 @@ export interface RunOutcome {
     /* What the mutants of the changed code in the served script did: judged, noticed by a test, and where the others are; the sites on changed lines that were no candidate, counted by why and listed by file and line (`skippedSites`; the list is cut at a safety bound, the count stays whole), and the mutants that re-ran every test of their spec files (`rerunsBySpecFile`); `unreadable`, the mutants not judged because the counters of their re-run could not be read (absent when none was); `leftOut`, the re-runs not started because the time left could not hold them (or cut by the run's deadline), the mutants (left unjudged) and the unmutated observations (which leave the survivors unobserved) counted apart, and why (absent when none was); a survivor carries `moved`, the request or line of the accessible tree the mutation moved between the same tests run with and without it, or that none did. A signal, never a gate; absent when no mutant was judged, none was unreadable and no re-run was left out (with only those, `applied` is 0). */
     bundleMutation?: { applied: number; killed: number; survived: { file: string; line: number; operator: string; moved?: ObservedDifference }[]; skippedSites?: { count: number; reasons: Partial<Record<string, number>>; sites?: { file: string; line: number; reason: string }[] }; rerunsBySpecFile?: number; unreadable?: number; leftOut?: { mutants: number; observations: number; reason: "time" }; notJudged?: Partial<Record<"baseline-not-green-under-measurement", number>> };
     /* What the one regeneration from the arms of the changed code no test ran did: its outcome, the arms before and after it, and how many spec files it changed kept their new bytes or were given their prior ones back (absent when it changed none). A signal, never a gate; absent when it did not run. */
-    branchCases?: { outcome: "accepted" | "empty" | "rejected" | "capped"; armsBefore: number; armsAfter?: number; kept?: number; restored?: number };
+    branchCases?: BranchCasesRecord;
     /* Whether the regeneration the surviving mutants drove made a test notice them: routed, judged (re-applied and reached a page), closed (a test now fails under it) and the ones still open; `leftOut`, those not re-applied because the time left could not hold their re-run. A signal, never a gate; absent when no accepted regeneration answered a survivor. */
     survivorClosure?: { routed: number; judged: number; closed: number; open: { file: string; line: number; operator: string }[]; unreadable?: number; leftOut?: { mutants: number; observations: number; reason: "time" } };
     /** The flaky cases of a flaky run (passed only on retry) by class and what the correction routed to their flows became, with the spec files it changed kept or given their prior bytes back (absent when it changed none); absent when the run was not flaky. A signal, never a gate. */

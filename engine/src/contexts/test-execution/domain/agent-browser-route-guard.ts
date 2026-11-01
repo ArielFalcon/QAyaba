@@ -29,6 +29,8 @@ export type GuardDecision = { allow: true } | { allow: false; reason: GuardReaso
 export interface RouteGuardPolicy {
   /* The origins the run declares (`scheme://host[:port]`, `scheme://*.suffix[:port]`): the same list the egress filter holds the sandbox to. */
   origins: readonly string[];
+  /* The origins among them whose requests are a third party's, reachable but not the app's (`dev.thirdPartyOrigins`). */
+  thirdPartyOrigins?: readonly string[];
   /* Absolute paths (`*` within one segment, `**` across segments, a trailing `/**` also covers the path itself) closed to every method. */
   denyRoutes: readonly string[];
   /* `[METHOD ]/path` entries: a request with a method that writes is let through only when one matches. */
@@ -114,7 +116,7 @@ interface MutatingEntry {
 }
 
 export function createRouteGuard(policy: RouteGuardPolicy): RouteGuard {
-  const originRole = requestOriginClassifier(policy.origins);
+  const originRole = requestOriginClassifier(policy.origins, policy.thirdPartyOrigins);
   const deny = policy.denyRoutes.map((pattern) => patternToRegExp(pattern.toLowerCase(), ""));
   const allow: MutatingEntry[] = policy.allowMutating.map((entry) => {
     const match = /^(?:([A-Z]+) )?(\/.*)$/.exec(entry)!;

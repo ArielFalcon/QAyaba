@@ -7,22 +7,25 @@ export type RegistryGroups = Readonly<Record<string, readonly string[]>>;
 
 /* The part of an app's config this rule reads. */
 export interface RunEgressDeclaration {
-  dev: { baseUrl: string; allowedOrigins?: readonly string[] | undefined; blockedOrigins?: readonly string[] | undefined };
+  dev: { baseUrl: string; allowedOrigins?: readonly string[] | undefined; blockedOrigins?: readonly string[] | undefined; thirdPartyOrigins?: readonly string[] | undefined };
   egress?: { installOrigins?: readonly string[] | undefined } | undefined;
 }
 
 export interface RunEgressOrigins {
   dev: string[];
+  /* The origins among `dev` whose requests are a third party's: reachable, never the app's data. */
+  thirdParty: string[];
   install: string[];
 }
 
 const unique = (origins: readonly string[]): string[] => [...new Set(origins)];
 
-/* What a run's children may reach: a suite or a login reaches the app's own origin and the origins it declares; an install reaches the npm registries and the app's own extra ones. */
+/* What a run's children may reach: a suite or a login reaches the app's own origin, the origins it declares and its third-party origins (one declaration opens them for egress and marks them third-party); an install reaches the npm registries and the app's own extra ones. */
 export function resolveRunOrigins(app: Pick<RunEgressDeclaration, "dev" | "egress">, registries: RegistryGroups): RunEgressOrigins {
   const own = originOf(app.dev.baseUrl);
-  const dev = unique([...(own ? [own] : []), ...(app.dev.allowedOrigins ?? [])]);
-  return { dev, install: installOriginsOf(app.egress, registries) };
+  const thirdParty = unique(app.dev.thirdPartyOrigins ?? []);
+  const dev = unique([...(own ? [own] : []), ...(app.dev.allowedOrigins ?? []), ...thirdParty]);
+  return { dev, thirdParty, install: installOriginsOf(app.egress, registries) };
 }
 
 /* An install reaches the npm registries and the extra origins an app declares for it. */

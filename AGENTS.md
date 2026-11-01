@@ -347,10 +347,10 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
 - **Requests the pages made** — the DOM capture records, per captured route, the data requests (fetch, XHR) the page's code made
   while it was read (`embedded/capture-dom.script.cjs`, in the sandbox like the rest of the capture) as method + origin + pathname with a
   count, never the query, fragment, body, headers, cookies or userinfo, and one that failed marked. The script reports every origin; the
-  orchestrator keeps as a request only one to an origin the run declares (`resolveRunOrigins(app).dev`, handed to `createCaptureDomDeps` like the
-  geolocation) and counts any other host, `dev.blockedOrigins` included, per host (`PageRequests.otherHosts`), by the one kernel rule
-  (`requestOriginClassifier` in `shared-kernel/observed-requests.ts`: the egress filter's own match of host and port) that the authenticated
-  browser's route guard and log apply too (`RouteGuard.originRole`); the kept
+  orchestrator keeps as a request only one to an origin the run declares for the app (`resolveRunOrigins(app).dev` less `.thirdParty`, handed to `createCaptureDomDeps` like the
+  geolocation) and counts any other host, `dev.blockedOrigins` and the declared `dev.thirdPartyOrigins` (map tiles, fonts: reachable, never the app's data, never an observable) included, per host (`PageRequests.otherHosts`), by the one kernel rule
+  (`requestOriginClassifier` in `shared-kernel/observed-requests.ts`: the egress filter's own match of host and port, role `listed`, `third-party` or `counted-by-host`) that the authenticated
+  browser's route guard and log apply too (`RouteGuard.originRole`; the guard admits a `third-party` origin and refuses only `counted-by-host`); the kept
   entries and their bounds are the kernel ledger's (`shared-kernel/observed-requests.ts`, `MAX_LOGGED_*`), the same one the authenticated
   browser's log uses, and what the script or the ledger leaves out is a count (`omitted`). The capture's output passes the run's
   by-value redaction where it enters and the pack text the pattern redaction. The pack lists them as the `Requests the pages made` section
@@ -515,7 +515,7 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   and no use for longer than the longest run budget in force (`docs/lead-sidekicks.md`, "Session lifecycle"). The reviewer's verified corrections go to the lead
   (`lead-correction.ts`), which routes each to the flow whose spec it cites (revise in the same sidekick session, replace with a fresh
   one) or rebuts it; the orchestrator's facts decide over its answer (a finding that cites a flow goes to it and to no other), an
-  order the admission refuses, or findings a readable answer neither sent to a flow nor rebutted (and no flow of the orchestrator's own takes), go back to the lead once with the reasons and the numbers it left out (what it leaves out again is recorded unrouted with that reason), a file that seeds use cases of several flows reaches exactly one (the one the lead's first order gives it to among them; when the lead says nothing, the first flow in the pass's order whose spec's tests ran the file (`CorrectionFinding.ranBy`: from the dumps the measurement or its recount read, by dump name, a dump no passing case's spec wrote counting for none; in memory only), preferring one whose use case it seeds directly, then the first it seeds directly, else the first that shares it), the workspace is refreshed from the working copy first,
+  order the admission refuses, or findings a readable answer neither sent to a flow nor rebutted (and no flow of the orchestrator's own takes), go back to the lead once with the reasons and the numbers it left out (what it leaves out again is recorded unrouted with that reason), a finding about a changed file reaches exactly one flow (the one the lead's first order gives it to among those that evaluated it or hold the file; when the lead says nothing, the flow whose spec evaluated what it is about (`CorrectionFinding.ranBy`: for a decision the spec files whose dumps ran one of its arms, for a file's lines those that ran a line of it, from the dumps the measurement or its recount read, by dump name, a dump no passing case's spec wrote counting for none; in memory only), and among several such flows the one holding the fewest findings of the turn, then the first by spec path, never plan order; only a finding no flow's spec evaluated keeps the static route: the flow whose use case it seeds directly, else the first that shares it), the workspace is refreshed from the working copy first,
   and the result goes through the round's acceptance and rebuttal check like any regeneration. A finding no flow took that names a
   spec of the suite no flow of the plan authored gets one maintenance flow (a fresh flow sidekick on that spec alone, within
   the app's `maxFlows` ceiling when set and the allotted time; `corrections.maintained`); any other is recorded unrouted and never handed to a cold author. The run's own checks before the review take the same route: the
@@ -851,7 +851,7 @@ test, and the verdict is its last action.
   runner, the mutation run) are a frozen list with a reason each (`engine/.dependency-cruiser-tooling-spawners.json`) that may only shrink. `QA_EXEC_SANDBOX=required` (compose) refuses to run agent code
   without the sandbox uid, or with a file boundary the boot check did not prove (`infra-error E-SANDBOX`, never learned from, no Issue).
 - **The sandbox uid's network is closed by default.** An iptables chain matched on that uid redirects its DNS and TCP to a
-  DNS filter and a transparent proxy that allow only the origins declared in config (`dev.allowedOrigins`, the app's own
+  DNS filter and a transparent proxy that allow only the origins declared in config (`dev.allowedOrigins`, `dev.thirdPartyOrigins`, the app's own
   origin, `egress.installOrigins`, `config/egress/registries.yaml`); everything else, IPv6 and the other loopback ports
   included, is rejected. `QA_EGRESS_MODE=enforce` (default) ends a run `E-SANDBOX` when the filter is not active. Origins are
   data: never add a host in code. Denied hosts land in `gateSignals.sandbox.denied`.
@@ -1166,7 +1166,14 @@ that catches nothing. The objective signal that breaks the circle is **change-co
   implicit else, `?:`, `&&`/`||`/`??`, switch clauses) are placed through the same maps, and an arm is
   taken when V8's block counts say it ran. The arms on changed lines go on the coverage span
   (`qayaba.coverage.changed_branches`/`taken_branches`) and `gateSignals.branchCoverage`; the ones that
-  never ran join the enforce regeneration's gap. A happy-path suite shows a high line ratio and a low
+  never ran join the enforce regeneration's gap. A decision is identified by its file, line, column and
+  kind (`BranchHit`), and an untaken arm carries that identity (`UntakenArm.column`): the gap's unit is the
+  decision with the arms of it no test ran (`untakenDecisions`), so two decisions of one line never read alike
+  and the arms of one decision are one finding. A decision also records the dumps in which one of its arms ran
+  (`BranchHit.ranIn`, the way `MutationSite.ranIn` does; in memory only), and the measurement tells, per untaken
+  arm, the spec files among the run's cases whose dumps those are (`UntakenArm.evaluatedBy`, through the one
+  dump-to-spec mapping `ranByOf` uses, `specFilesWritingAny`): the specs that evaluated the decision. It adds no
+  count: the line ratio and the taken arms are those of the same dumps. A happy-path suite shows a high line ratio and a low
   branch one.
 - **Verified coverage**: what a killed mutant made run, a test checked, so it counts as covered. The dumps of a
   killed mutant's re-run (only those of the spec files whose tests failed) are read with its edit undone
@@ -1237,20 +1244,27 @@ that catches nothing. The objective signal that breaks the circle is **change-co
   files runs. What the two unmutated re-runs disagree on is the noise floor (a refreshed token, a tile, a chunk, a value DEV changed between runs or
   drifted while the mutants ran) and is never reported: a request or a tree line moved only when neither
   unmutated run showed it and the mutated run did, or both showed it and the mutated run did not (`observed-difference.ts`); without both unmutated
-  observations nothing is said. Only tests that passed in all three runs are compared; how many times a request was made is not compared, and a request is told by its method, origin and pathname with the digit runs of the pathname collapsed (`requestShape` in `observed-difference.ts`), so a map tile, an id or a page number is one request while another endpoint or another non-numeric id is not.
+  observations nothing is said. Only tests that passed in all three runs are compared; how many times a request was made is not compared. Only the
+  app's own requests are compared: the orchestrator classifies each observed request after the strict read with the one kernel classifier
+  (`requestOriginClassifier`, `shared-kernel/observed-requests.ts`, built in `platform/composition` from `resolveRunOrigins` and handed to the
+  oracle), and a request that is not `listed` (third party, counted by host) never makes a survivor `moved`; the seed's recorder is unchanged. A listed
+  request is told by its method, origin and pathname with the digit runs of the pathname collapsed (`requestShape` in `observed-difference.ts`), so an id or a page
+  number is one request while another endpoint or another non-numeric id is not.
   `survived[].moved` is `{ kind: "moved", requests: { added, removed }, dom: { added, removed }, tests, omitted? }` (at most 10 items a list,
   a line cut at 200 characters), `{ kind: "unmoved", tests }` (the finding says no request and no tree line moved, so what the mutation changes is in neither)
   or `{ kind: "unobserved", reason }` (a re-run left no observation, an unmutated one could not run, or no test passed in all of them: nothing is said).
   `survived[].movedBySpec` is the same per spec file the survivor ran under, over that file's tests alone (absent when a compared test has no known
   spec file): the survivor's finding goes only to the spec files whose own pages moved, each told its own account, and to every spec file that ran it
-  when none moved (`survivorFindings`). The runner reads the files strictly and all or nothing (`test-execution/infrastructure/observation-reader.ts`),
+  when there is no account per file (`survivorFindings`). A survivor the runs found `unmoved` or could not compare (`unobserved`) is recorded in
+  `bundleMutation.survived[]` with its `moved.kind` and routed to no spec (`survivorIsRouted`): it gives no finding and is never re-checked. The runner reads the files strictly and all or nothing (`test-execution/infrastructure/observation-reader.ts`),
   re-derives every request as method + origin + pathname and redacts every line by value and by pattern; the difference holds requests and tree lines of
   the pages and nothing of the mutant. The span counts `qayaba.mutation.survivors_moved|unmoved|unobserved`. The re-check of survivors after a
   regeneration (survivor closure) does not observe.
 - **Survivor closure** (signal, never a gate): a surviving mutant routed to a coverage or branch-case
   regeneration is, once that regeneration is accepted, applied again to the specs it changed among those its
-  finding was routed to (`survivorRoutes`: the specs whose own pages it moved, else every spec that ran it; any
-  changed spec for a survivor no spec ran; not re-run when none of them changed) and judged against the cases
+  finding was routed to (`survivorRoutes`: the specs whose own pages it moved; any
+  changed spec for a survivor no spec ran; not re-run when none of them changed; a survivor routed to no spec because nothing it moved is
+  observable is not re-run and starts no execution, and `routed` counts only the routed ones) and judged against the cases
   their accepted bytes passed (`closeSurvivors`, `survivor-closure.ts`): a regenerated test counts as
   answering its survivor only when that mutant now fails it. The mutant as it ran (served script, edit)
   stays with the orchestrator and never reaches an agent or the record. `gateSignals.survivorClosure
@@ -1268,7 +1282,7 @@ that catches nothing. The objective signal that breaks the circle is **change-co
   changed, and that one execution supplies the kept files' cases (new and renamed tests included), the reviewer's scope and
   the fix loop's verdict; the measurement of its kept files supplies the dumps of the recount and the survivor closure's baseline. A file that fails it gets its prior bytes, cases and delivery back by the per-file rule
   below; at the acceptance cap the regeneration is capped and the first measurement stands.
-  `gateSignals.branchCases { outcome, armsBefore, armsAfter?, kept?, restored? }`.
+  `gateSignals.branchCases { outcome, armsBefore, armsAfter?, kept?, restored?, findings?, armsTaken?, maxFlowShare?, survivors?, decisions? }`: the decisions sent (one finding per decision), the arms the recount no longer lists by their identity, the largest share of the findings one flow received, and per decision the flow that took it, the fact that sent it (`spec`, `evaluator`, `candidate`, `lead`, `opened`) and how many of its arms were taken (`branch-cases-record.ts`; a run stored before these fields reads without them; `docs/observability-design.md`).
 - **Per-file acceptance**: a regeneration (gap, flaky or review correction) that changed spec files only is
   accepted file by file (`RegenerationAcceptance`, `independentSpecs`): when its acceptance run fails, every
   spec file whose cases all passed stands, and every other

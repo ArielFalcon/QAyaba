@@ -74,7 +74,7 @@ export interface CorrectionFinding {
   /* The changed source file the finding is about (a coverage gap names code, not a spec), and the line when it names one. */
   file?: string;
   line?: number;
-  /* The spec files (relative to the spec directory) whose tests' coverage dumps ran a line of `file`: what the run executed, which settles the flow of a file several flows hold. */
+  /* The spec files (relative to the spec directory) whose tests' coverage dumps ran what the finding is about, a line of `file` or, for a decision, one of its arms (`evaluatedBy`): what the run executed, which settles the flow of a finding several flows could take. */
   ranBy?: readonly string[];
 }
 
@@ -332,7 +332,7 @@ export const LEAD_CORRECTION_SECTIONS: readonly PromptSectionDef<CorrectionPromp
     render: (ctx) => ({
       content: [
         "### Findings whose file several flows hold",
-        "Each is listed under the flow whose spec ran its file, else the one whose use case it seeds directly, else the first. An order may give it to another flow named here instead: it then reaches that flow alone.",
+        "Each is listed under the flow whose spec evaluated what it is about (when several did, the one holding the fewest findings of this turn, then the first by spec path), else the one whose use case it seeds directly, else the first. An order may give it to another flow named here instead: it then reaches that flow alone.",
         ...sharedFindingGroups(ctx).map(({ numbers, flows }) => `- ${numberRanges(numbers)}: ${flows.map((id) => `\`${id}\``).join(", ")}`),
       ].join("\n"),
     }),

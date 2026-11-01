@@ -4,6 +4,8 @@ import type { ObservedDifference } from "@kernel/observed-difference.ts";
 import type { UseCaseCandidate } from "@kernel/use-case-candidate.ts";
 import { entryKey } from "@kernel/change-reach.ts";
 import { candidateSeeds } from "@kernel/change-map.ts";
+import type { UntakenArm } from "./objective-signal.ts";
+import { renderUntakenDecision, untakenDecisions } from "./untaken-decisions.ts";
 
 type Uncovered = { file: string; lines: number[] }[];
 
@@ -63,12 +65,10 @@ export function renderCoverageGap(uncovered: Uncovered, candidates: readonly Use
   return `changed lines NOT exercised by any test:\n${lines.join("\n")}`;
 }
 
-type Untaken = { file: string; line: number; kind: string; arm: string }[];
-
-/* Renders the arms on changed lines no test ran, for a coverage or branch-case regeneration; empty when every arm ran. */
-export function renderBranchGap(untaken: Untaken): string {
+/* Renders the decisions on changed lines with arms no test ran, one line each, for a coverage or branch-case regeneration; empty when every arm ran. */
+export function renderBranchGap(untaken: readonly UntakenArm[]): string {
   if (untaken.length === 0) return "";
-  const lines = untaken.map((u) => `- ${u.file}:${u.line} ${u.kind}: ${u.arm}`);
+  const lines = untakenDecisions(untaken).map((d) => `- ${renderUntakenDecision(d)}`);
   return `decision arms on changed lines that NO test ran (each is a behaviour the change decides, reached by a test when the page can be brought to that state through the UI against DEV):\n${lines.join("\n")}`;
 }
 
@@ -87,19 +87,25 @@ export function renderSurvivedMutant(m: SurvivedMutant, specFile?: string): stri
   return observed ? `${fact}; ${observed}` : fact;
 }
 
-/*
- * The spec files a surviving mutant is routed to: those that ran it whose own pages moved, since a file whose pages show nothing of the
- * mutant has nothing to assert on; when none moved (or there is no account per file), every spec file that ran it; none when no spec
- * file is recorded as running it.
- */
-export function survivorRoutes(m: SurvivedMutant): string[] {
-  const specs = m.specFiles ?? [];
-  const moved = specs.filter((spec) => movedFor(m, spec)?.kind === "moved");
-  return m.movedBySpec && moved.length > 0 ? moved : specs;
+/* Whether a survivor is a fact an author can act on: its pages were not compared, or the app's own requests or tree moved. A survivor the runs compared and found unmoved, or could not compare, has nothing an assertion can depend on and is recorded, never routed. */
+export function survivorIsRouted(m: SurvivedMutant): boolean {
+  return m.moved === undefined || m.moved.kind === "moved";
 }
 
-/* The findings a surviving mutant gives, one per spec file it is routed to, each rendered with that file's own account; with none recorded, one finding of no spec. */
+/*
+ * The spec files a surviving mutant is routed to: those that ran it whose own pages moved, since a file whose pages show nothing of the
+ * mutant has nothing to assert on; every spec file that ran it when there is no account per file; none when no spec file is recorded as
+ * running it, or when the survivor is not routed (`survivorIsRouted`).
+ */
+export function survivorRoutes(m: SurvivedMutant): string[] {
+  if (!survivorIsRouted(m)) return [];
+  const specs = m.specFiles ?? [];
+  return m.movedBySpec ? specs.filter((spec) => movedFor(m, spec)?.kind === "moved") : specs;
+}
+
+/* The findings a surviving mutant gives, one per spec file it is routed to, each rendered with that file's own account; none for a survivor that is not routed; with no spec recorded, one finding of no spec. */
 export function survivorFindings(m: SurvivedMutant): { spec?: string; text: string }[] {
+  if (!survivorIsRouted(m)) return [];
   const routed = survivorRoutes(m);
   if (routed.length === 0) return [{ text: renderSurvivedMutant(m) }];
   return routed.map((spec) => ({ spec, text: renderSurvivedMutant(m, spec) }));
@@ -125,7 +131,8 @@ export function renderObservedDifference(d: ObservedDifference): string {
 
 /* The surviving mutants as one gap text for an author that has no lead to route them; empty when none survived. */
 export function renderSurvivedMutants(survived: readonly SurvivedMutant[]): string {
-  if (survived.length === 0) return "";
-  const lines = survived.map((m) => `- ${renderSurvivedMutant(m, m.specFiles?.join(", "))}`);
+  const routed = survived.filter(survivorIsRouted);
+  if (routed.length === 0) return "";
+  const lines = routed.map((m) => `- ${renderSurvivedMutant(m, m.specFiles?.join(", "))}`);
   return `mutants of the changed code that ran under a test and that no test noticed:\n${lines.join("\n")}`;
 }

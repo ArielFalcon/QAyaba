@@ -11,6 +11,7 @@ import { existsSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { RunQaUseCase } from "@contexts/run-orchestration/application/run-qa.use-case.ts";
 import { BundleMutationOracleAdapter } from "@contexts/objective-signal/infrastructure/bundle-mutation-oracle.adapter.ts";
+import { requestOriginClassifier } from "@kernel/observed-requests.ts";
 import { executionConditions } from "@kernel/execution-conditions.ts";
 import { purposeOfExecution } from "@kernel/exec-purpose.ts";
 import type { RunOutcome } from "@kernel/run-outcome.ts";
@@ -98,7 +99,7 @@ async function runScenario(scn: Scenario): Promise<Seen> {
       return { ...signal, mutationPass: { mutants: [{ site, specFiles: ["orders.spec.ts"], tests: ["orders-spec-ts-runs"] }], selection: {}, judgedAgainst: baselineCases ?? [], namespace: `${opts.namespace ?? "ns"}`, sources: [], changeDiff: "", changedFiles: ["src/auth.ts"], executed: { executableLines: 10 }, caseFiles: ["orders.spec.ts"], ...(opts.firstObservation ? { firstObservation: opts.firstObservation } : {}) } };
     },
     measureMutation: async (pass: AnyObj, specDir: string, opts: AnyObj = {}) => {
-      const result = await new BundleMutationOracleAdapter(undefined, () => 1, BASE).measure(pass.mutants, specDir, pass.namespace, pass.judgedAgainst, { observe: true, ...(pass.firstObservation ? { before: pass.firstObservation } : {}), rerun: opts.rerun });
+      const result = await new BundleMutationOracleAdapter(undefined, () => 1, BASE, requestOriginClassifier(["https://dev.example", "https://api.maps.example"])).measure(pass.mutants, specDir, pass.namespace, pass.judgedAgainst, { observe: true, ...(pass.firstObservation ? { before: pass.firstObservation } : {}), rerun: opts.rerun });
       return { ...signal, ...(result ? { bundleMutation: { applied: result.applied, killed: result.killed, survived: result.survived } } : {}) };
     },
     blocks: () => false,

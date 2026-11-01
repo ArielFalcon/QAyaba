@@ -5,7 +5,7 @@
 import { normalizeSpecPath } from "@kernel/spec-path.ts";
 import type { BundleMutationResult, MutantRun, SurvivedMutant } from "./coverage-collector.ts";
 import type { RerunsLeftOut } from "./rerun-budget.ts";
-import { survivorRoutes } from "./render-coverage-gap.ts";
+import { survivorIsRouted, survivorRoutes } from "./render-coverage-gap.ts";
 
 export interface SurvivorClosure {
   /** Survivors routed to the regeneration. */
@@ -23,7 +23,7 @@ export interface SurvivorClosure {
 }
 
 /*
- * Each routed survivor re-run against the specs the regeneration changed among those its finding was routed to (`survivorRoutes`, by
+ * Each routed survivor (`survivorIsRouted`; one the runs found unmoved or could not compare is recorded and never re-run) re-run against the specs the regeneration changed among those its finding was routed to (`survivorRoutes`, by
  * the survivor at the same place of `survived`): the test that answers it was written there. A survivor routed to no spec was told to
  * the lead as it is, so the test that answers it may live in any changed spec. A survivor none of whose routed specs changed is not
  * re-run: nothing was written for it. Every test of those specs runs, since a regenerated test is not among the tests that reached it.
@@ -31,6 +31,7 @@ export interface SurvivorClosure {
 export function survivorRechecks(routed: readonly MutantRun[], survived: readonly SurvivedMutant[], changedSpecFiles: readonly string[]): MutantRun[] {
   const changed = [...new Set(changedSpecFiles)].sort();
   return routed.flatMap(({ site, specFiles: ran }, i) => {
+    if (survived[i] && !survivorIsRouted(survived[i])) return [];
     const routes = new Set((survived[i] ? survivorRoutes(survived[i]) : ran).map(normalizeSpecPath));
     const specFiles = routes.size === 0 ? changed : changed.filter((file) => routes.has(normalizeSpecPath(file)));
     return specFiles.length > 0 ? [{ site, specFiles }] : [];

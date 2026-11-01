@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import type { PublicationPort } from "@contexts/workspace-and-publication/application/index.ts";
 import { dispose, newRig, observe, type Rig } from "./run-end-rig.ts";
 
-const FAILING = { status: "fail" as const, ratio: 0.2, uncovered: [{ file: "src/cart.ts", lines: [10, 11] }], untakenArms: [{ file: "src/cart.ts", line: 14, kind: "if", arm: "else" }] };
+const FAILING = { status: "fail" as const, ratio: 0.2, uncovered: [{ file: "src/cart.ts", lines: [10, 11] }], untakenArms: [{ file: "src/cart.ts", line: 14, column: 0, kind: "if", arm: "else" }] };
 
 type PublishInput = Parameters<PublicationPort["publish"]>[0];
 

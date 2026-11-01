@@ -39,6 +39,8 @@ export interface AgentBrowserPortAdapterDeps {
   /* Whether the generator role runs on a runtime that can call a custom tool (OpenCode). Read at each open: the runtime is switchable. */
   generatorRuntimeCanCall: () => boolean;
   baseUrl: string;
+  /* The origins among the run's whose requests are a third party's. */
+  thirdPartyOrigins?: readonly string[];
   /* The run's saved session, read into memory; called inside the run's scope. */
   material: () => SessionMaterial;
   launcher: BrowserLauncherPort;
@@ -89,6 +91,7 @@ export class AgentBrowserPortAdapter implements AgentBrowserPort {
     const origins = activeExecScope()?.egress.dev;
     const guard = createRouteGuard({
       origins: origins !== undefined && origins.length > 0 ? origins : [originOf(this.deps.baseUrl) ?? this.deps.baseUrl],
+      ...(this.deps.thirdPartyOrigins ? { thirdPartyOrigins: this.deps.thirdPartyOrigins } : {}),
       denyRoutes: this.deps.setting.denyRoutes,
       allowMutating: this.deps.setting.allowMutating,
     });

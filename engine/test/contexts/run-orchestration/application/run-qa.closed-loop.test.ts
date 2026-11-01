@@ -103,6 +103,12 @@ function rig(opts: { closed?: boolean; openThrows?: boolean; grant?: boolean } =
   return r;
 }
 
+/* The counts of a branch-cases record, apart from what it records of the decisions it was sent. */
+const branchCounts = (record: object | undefined) => {
+  const { findings: _findings, armsTaken: _armsTaken, maxFlowShare: _maxFlowShare, survivors: _survivors, decisions: _decisions, ...counts } = (record ?? {}) as Record<string, unknown>;
+  return counts;
+};
+
 test("without the port, or when it grants nothing, the run is what it always was", async () => {
   const none = rig();
   await new RunQaUseCase(none.deps({ closedLoop: undefined })).run(INPUT);
@@ -377,8 +383,8 @@ test("the single change-coverage regeneration still runs when the loop is closed
 /* ── A gap regeneration stands only on an execution of the bytes it accepted, never on a run_spec proof ──────────────────────── */
 
 const ARMS = [
-  { file: "src/a.ts", line: 3, kind: "if", arm: "else" },
-  { file: "src/a.ts", line: 7, kind: "logical", arm: "right of || evaluated" },
+  { file: "src/a.ts", line: 3, column: 0, kind: "if", arm: "else" },
+  { file: "src/a.ts", line: 7, column: 0, kind: "logical", arm: "right of || evaluated" },
 ];
 const SURVIVOR_SITE = {
   file: "src/a.ts",
@@ -454,7 +460,7 @@ test("a gap regeneration whose bytes hold a run_spec proof is still executed by 
   assert.deepEqual(rechecked, [["a when dark", "a when light"]], "the survivor is judged against the tests the accepted bytes hold, as their measurement execution ran them");
   assert.deepEqual(recounted, [[{ namespace: `${ACCEPTANCE_0}-measure`, specFiles: ["flows/a.spec.ts"] }]]);
   const signals = r.saved.at(-1)!.gateSignals;
-  assert.deepEqual(signals.branchCases, { outcome: "accepted", armsBefore: 2, armsAfter: 1, kept: 1, restored: 0 });
+  assert.deepEqual(branchCounts(signals.branchCases), { outcome: "accepted", armsBefore: 2, armsAfter: 1, kept: 1, restored: 0 });
   assert.deepEqual(signals.branchCoverage, { changed: 6, taken: 5 }, "the recount is what the run records");
   assert.deepEqual(signals.survivorClosure, { routed: 1, judged: 1, closed: 1, open: [] });
   assert.deepEqual(r.saved.at(-1)!.cases?.map((c) => c.name).sort(), ["a when dark", "a when light"]);
@@ -470,7 +476,7 @@ test("a gap regeneration whose proved bytes fail their acceptance execution gets
   assert.deepEqual(recounted, [], "the first measurement stands");
   assert.deepEqual(rechecked, [], "nothing accepted, no survivor judged");
   const saved = r.saved.at(-1)!;
-  assert.deepEqual(saved.gateSignals.branchCases, { outcome: "rejected", armsBefore: 2, armsAfter: 2, kept: 0, restored: 1 }, "the first measurement stands");
+  assert.deepEqual(branchCounts(saved.gateSignals.branchCases), { outcome: "rejected", armsBefore: 2, armsAfter: 2, kept: 0, restored: 1 }, "the first measurement stands");
   assert.equal(saved.gateSignals.survivorClosure, undefined);
   assert.deepEqual(saved.cases, PASS, "the cases are those of the bytes on disk");
   assert.equal(out.decision.sideEffect, "pr", "the first proven suite stands");
