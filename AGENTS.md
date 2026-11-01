@@ -1342,7 +1342,8 @@ that catches nothing. The objective signal that breaks the circle is **change-co
   recorded as contradicted (`FindingPlacement.declined`, `corrections.declined`), never an error. A declined finding goes to no flow
   (no revision turn, no maintenance flow, no flow opened for its file's use case) and is not counted unrouted; with nothing left to
   route and no routed survivor the step ends on its existing empty outcome. **The arm stays untaken** in the measurement, the recount,
-  the grader inputs and the survivor closure; a decline changes no verdict, gate or grader.
+  the grader inputs and the survivor closure; the held report and the Issue list it marked `declined: <basis>` (`state.coverage.declinedArms`
+  from both gap regenerations). A decline changes no verdict, gate or grader.
 - **Per-file acceptance**: a regeneration (gap, flaky or review correction) that changed spec files only is
   accepted file by file (`RegenerationAcceptance`, `independentSpecs`): when its acceptance run fails, every
   spec file whose cases all passed stands, and every other

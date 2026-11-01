@@ -354,7 +354,9 @@ Rules, from the brief §2.1 and the OTel spec:
   them); `survivors { routed, unrouted }` the mutant findings of the same turn the pass took to a flow and those it did not; and
   `decisions[]`, one entry per decision with its identity, `arms` (its untaken arms), `flow` and `by` (the flow that took it and the
   fact that sent it: `spec`, `evaluator`, `candidate`, `lead` or `opened`; both absent when no flow took it) and `taken` (how many of its
-  arms the recount found taken, absent when not recounted). The coordination event of a correction turn counts the same routes in
+  arms the recount found taken, absent when not recounted) and `declined { basis, contradicted? }` (the lead declined the decision's arms with this
+  basis of the plan's drops, and the run's facts contradicted it when `contradicted`; no flow took it and its arms stay untaken, RFC-0019). The
+  pass's tally counts them in `coordination.corrections.declined`, and the held run's PR text and the PR or Issue section of the arms on pages DEV served empty list the arm marked `declined: <basis>`. The coordination event of a correction turn counts the same routes in
   `qayaba.coordination.findings_by_evaluator|candidate|lead|spec|candidate_flow`. A run stored before these fields has none of
   them; nothing reads them back into a verdict.
 - **Impact walk.** The code-graph walks of the change run under one `WalkPolicy` (`shared-kernel/code`): depth, a

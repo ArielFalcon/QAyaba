@@ -287,6 +287,18 @@ test("renderPrBody: a held run carries the change-coverage report: the ratio aga
   assert.match(body, /else/);
 });
 
+test("renderPrBody: an arm the lead declined stays in the report, marked with its basis and whether the run's facts contradicted it", () => {
+  const body = renderPrBody({ coverage: { ratio: 0.2, minRatio: 0.7, uncovered: [], untakenArms: [
+    { file: "src/cart.ts", line: 14, arm: "else", declined: { basis: "needs-unavailable-state" } },
+    { file: "src/cart.ts", line: 20, arm: "then", declined: { basis: "no-observable-change", contradicted: true } },
+    { file: "src/cart.ts", line: 30, arm: "else" },
+  ] } });
+
+  assert.match(body, /src\/cart\.ts:14` — else \(declined: needs-unavailable-state\)/);
+  assert.match(body, /src\/cart\.ts:20` — then \(declined: no-observable-change, contradicted by the run's facts\)/);
+  assert.match(body, /src\/cart\.ts:30` — else(?! \()/, "an arm nobody declined is listed as before");
+});
+
 test("renderPrBody: without a coverage report the body has no coverage section", () => {
   assert.doesNotMatch(renderPrBody({ sha: "abc1234" }), /Change coverage/);
 });
@@ -310,6 +322,15 @@ test("the PR and the Issue name each case that checks a page only as DEV served 
     assert.ok(body.includes("flows/listing.spec.ts") && body.includes("listing › renders the empty listing"), "the case");
     assert.ok(body.includes("/listing"), "its page");
     assert.ok(body.includes("src/listing.ts:12") && body.includes("if: then"), "the untaken arm on that page");
+  }
+});
+
+test("an untaken arm on a pinned page that the lead declined is marked in the PR and the Issue, and the one nobody declined is not", () => {
+  const ambient = { ...AMBIENT, arms: [{ ...AMBIENT.arms[0]!, declined: { basis: "needs-unavailable-state" } }, { file: "src/listing.ts", line: 30, arm: "if: else", pages: ["/listing"] }] };
+
+  for (const body of [renderPrBody({ ambientDataState: ambient }), renderIssue({ verdict: "fail", cases: [failCase()], ambientDataState: ambient })]) {
+    assert.match(body, /src\/listing\.ts:12` — if: then \(`\/listing`\) \(declined: needs-unavailable-state\)/);
+    assert.match(body, /src\/listing\.ts:30` — if: else \(`\/listing`\)(?! \(declined)/);
   }
 });
 

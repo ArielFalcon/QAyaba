@@ -597,6 +597,22 @@ test("a declined decision is recorded with its basis and its arm stays untaken i
   assert.equal(r.saved.at(-1)?.gateSignals.branchCoverage?.changed, undefined, "the measurement of a run that measured no branches is as it was");
 });
 
+test("a held run's report lists a declined arm, marked, beside the arms nobody declined", async () => {
+  let r!: Rig;
+  let kept!: ReturnType<typeof keptPass>;
+  r = rig(() => delivered(kept.pass));
+  kept = keptPass(r, () => ({ readable: true, specs: [], rebuttals: [], unrouted: [], placements: [{ declined: { basis: "no-observable-change", contradicted: "its changed code is executable code" } }, {}] }));
+  const arm = (line: number, text: string) => ({ file: "src/list.ts", line, column: 0, kind: "if", arm: text });
+  const objectiveSignal = { measure: async () => ({ status: "fail" as const, ratio: 0.2, uncovered: [], untakenArms: [arm(4, "the else"), arm(7, "the then")] }), blocks: (status: string) => status === "fail" };
+  const published: Array<{ coverageReport?: { untakenArms: unknown[] } }> = [];
+  const publication = { publish: async (input: { coverageReport?: { untakenArms: unknown[] } }) => (published.push(input), { outcome: "held", held: { title: "t", body: "b" } }) };
+  await new RunQaUseCase(r.deps({ objectiveSignal, publication: publication as never, config: { needsReview: false, shadow: false, onFailure: "github-issue", maxRetries: 2, coveragePolicyMode: "enforce" } })).run(INPUT);
+  assert.deepEqual(published.at(-1)?.coverageReport?.untakenArms, [
+    { file: "src/list.ts", line: 4, arm: "the else", declined: { basis: "no-observable-change", contradicted: true } },
+    { file: "src/list.ts", line: 7, arm: "the then" },
+  ]);
+});
+
 test("a run the lead authored alone still regenerates a coverage gap whole, with the gap as one text", async () => {
   const r = rig();
   const objectiveSignal = {

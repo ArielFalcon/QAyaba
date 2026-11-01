@@ -442,8 +442,8 @@ orchestrator holds the basis to the use cases the arm's file seeds as it holds a
 only when every such use case refuses it, never when the file seeds none); a contradicted decline is asked about in the turn's one
 re-ask, and what the lead keeps stands, recorded as contradicted. A declined finding goes to no flow (no revision turn, no maintenance
 flow, no flow opened for the use case its file seeds) and is not counted unrouted; when no finding is left to route the step ends on
-its existing empty outcome. The arm stays in the measurement and the grader inputs, and the record marks the decision with its basis
-(`branchCases.decisions[].declined`, `corrections.declined`). What no flow takes
+its existing empty outcome. The arm stays in the measurement, the grader inputs and the PR or Issue, marked with its basis
+(`branchCases.decisions[].declined`, `corrections.declined`, the held report's arm line). What no flow takes
 gets a maintenance flow or stays unrouted, as above, and is not regenerated; the turn's findings are told apart by their position, never by their text, and
 the lead can hand a finding that cites no flow to any flow by its number. A finding that cites no spec belongs to the one flow whose
 spec its text names as a whole path; one that names several is the lead's to place. A correction hands back the source of every

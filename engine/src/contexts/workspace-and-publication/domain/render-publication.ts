@@ -133,11 +133,16 @@ export interface CoverageReportView {
   ratio: number | null;
   minRatio?: number;
   uncovered: ReadonlyArray<{ file: string; lines: readonly number[] }>;
-  untakenArms: ReadonlyArray<{ file: string; line: number; arm: string }>;
+  /* An arm the lead declined stays listed with the basis it gave, and whether the run's facts contradicted it. */
+  untakenArms: ReadonlyArray<{ file: string; line: number; arm: string; declined?: { basis: string; contradicted?: boolean } }>;
 }
 
 const MAX_COVERAGE_FILES = 50;
 const MAX_LINES_PER_FILE = 20;
+
+/* How a listing marks an arm the lead declined: the basis it gave, and that the run's facts contradicted it when they did. */
+const declinedNote = (declined: { basis: string; contradicted?: boolean } | undefined, bound: Bound): string =>
+  declined ? ` (declined: ${bound(declined.basis, CAP_NAME)}${declined.contradicted ? ", contradicted by the run's facts" : ""})` : "";
 
 /* The coverage report as a section of its own: why the work was held and where the suite leaves the change unrun. Empty when there is no report. */
 function renderCoverageSection(report: CoverageReportView | undefined, bound: Bound): string {
@@ -154,7 +159,7 @@ function renderCoverageSection(report: CoverageReportView | undefined, bound: Bo
   const arms = report.untakenArms.slice(0, MAX_ITEMS);
   if (arms.length > 0) {
     const cut = report.untakenArms.length - arms.length;
-    blocks.push(`Arms of the changed code no test took:\n${arms.map((a) => `- \`${bound(a.file, CAP_FLOW)}:${a.line}\` — ${bound(a.arm, CAP_NAME)}`).join("\n")}${cut > 0 ? `\n- …and ${cut} more arm(s) omitted` : ""}`);
+    blocks.push(`Arms of the changed code no test took:\n${arms.map((a) => `- \`${bound(a.file, CAP_FLOW)}:${a.line}\` — ${bound(a.arm, CAP_NAME)}${declinedNote(a.declined, bound)}`).join("\n")}${cut > 0 ? `\n- …and ${cut} more arm(s) omitted` : ""}`);
   }
   return blocks.join("\n\n");
 }
@@ -214,7 +219,7 @@ function renderDefectsSection(defects: readonly DefectFact[] | undefined, bound:
 /* The passing cases that checked a page only as DEV served it confirmed empty, and the arms of the changed code on those pages that no test took, as the run recorded them. */
 export interface AmbientDataStateView {
   pins: readonly AmbientDataPin[];
-  arms: ReadonlyArray<{ file: string; line: number; arm: string; pages: readonly string[] }>;
+  arms: ReadonlyArray<{ file: string; line: number; arm: string; pages: readonly string[]; declined?: { basis: string; contradicted?: boolean } }>;
 }
 
 /* The pinned cases and the untaken arms on their pages as a section of their own: a pass that cannot tell DEV's lack of data from the change, and the change's code DEV's data never took there. Empty when no case is pinned. A record for the reader, never a gate. */
@@ -224,7 +229,7 @@ function renderAmbientDataStateSection(view: AmbientDataStateView | undefined, b
   const pages = (list: readonly string[]): string => list.map((page) => `\`${bound(page, CAP_FLOW)}\``).join(", ");
   const blocks = [`**Checked only as DEV served it** (these cases ran on the page as it loaded, before any step of their own, either on a page the run read as a confirmed empty state or asserting the result count the run read there: the pass cannot tell DEV's data of the moment from the change; a signal, not a gate):\n${pins.map((pin) => `- \`${bound(pin.file, CAP_FLOW)}\` › ${bound(pin.test, CAP_NAME)} — ${ambientPinReads(pin).map((read) => `\`${bound(read, CAP_FLOW)}\``).join(", ")}`).join("\n")}`];
   const arms = (view?.arms ?? []).slice(0, MAX_ITEMS);
-  if (arms.length > 0) blocks.push(`Arms of the changed code on those pages no test took (DEV may lack the data that takes them):\n${arms.map((a) => `- \`${bound(a.file, CAP_FLOW)}:${a.line}\` — ${bound(a.arm, CAP_NAME)} (${pages(a.pages)})`).join("\n")}`);
+  if (arms.length > 0) blocks.push(`Arms of the changed code on those pages no test took (DEV may lack the data that takes them):\n${arms.map((a) => `- \`${bound(a.file, CAP_FLOW)}:${a.line}\` — ${bound(a.arm, CAP_NAME)} (${pages(a.pages)})${declinedNote(a.declined, bound)}`).join("\n")}`);
   return blocks.join("\n\n");
 }
 

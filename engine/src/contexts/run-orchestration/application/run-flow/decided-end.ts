@@ -205,7 +205,7 @@ async function publishDecision(state: Readonly<RunState>, ctx: WorkspaceRunConte
       ...(possibleContradictions.length ? { dataContradictions: possibleContradictions } : {}),
       ...(defects?.length ? { defects } : {}),
       /* The cases that checked a page only as DEV served it empty, with the untaken arms on those pages. */
-      ...(ambient ? { ambientDataState: { pins: ambient.pins, arms: ambient.arms } } : {}),
+      ...(ambient ? { ambientDataState: { pins: ambient.pins, arms: ambient.arms.map((arm) => ({ ...arm, ...declinedMarkOf(state, arm) })) } } : {}),
       ...(resolveTested(state)?.length ? { tested: resolveTested(state) } : {}),
     });
   } catch (pubErr) {
@@ -239,6 +239,12 @@ interface Published {
   held?: { title: string; body: string };
 }
 
+/* The mark an arm carries in the PR or Issue when the lead declined its decision: the basis it gave, and whether the run's facts contradicted it. */
+function declinedMarkOf(state: Readonly<RunState>, arm: { file: string; line: number; column: number; kind: string }): { declined?: { basis: string; contradicted?: boolean } } {
+  const declined = state.coverage.declinedArms.find((d) => d.file === arm.file && d.line === arm.line && d.column === arm.column && d.kind === arm.kind);
+  return declined ? { declined: { basis: declined.basis, ...(declined.contradicted ? { contradicted: true } : {}) } } : {};
+}
+
 /* The change-coverage measurement the gate read, in the terms the PR text shows. */
 function coverageReportOf(state: Readonly<RunState>, minRatio: number | undefined) {
   const { coverageRatio, uncovered, untakenArms } = state.coverage;
@@ -246,7 +252,7 @@ function coverageReportOf(state: Readonly<RunState>, minRatio: number | undefine
     ratio: coverageRatio,
     ...(minRatio !== undefined ? { minRatio } : {}),
     uncovered,
-    untakenArms: untakenArms.map((arm) => ({ file: arm.file, line: arm.line, arm: arm.arm })),
+    untakenArms: untakenArms.map((arm) => ({ file: arm.file, line: arm.line, arm: arm.arm, ...declinedMarkOf(state, arm) })),
   };
 }
 

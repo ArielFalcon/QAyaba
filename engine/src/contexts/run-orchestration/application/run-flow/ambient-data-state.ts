@@ -48,7 +48,7 @@ export function ambientPinsOf(state: Readonly<RunState>, ctx: WorkspaceRunContex
 /* The run's pinned cases and the untaken arms of the changed code on their pages, while the measured arms describe the bytes on disk. */
 export interface AmbientRecord {
   pins: AmbientDataPin[];
-  arms: Array<{ file: string; line: number; kind: string; arm: string; pages: string[] }>;
+  arms: Array<{ file: string; line: number; column: number; kind: string; arm: string; pages: string[] }>;
 }
 
 /* The ambient record of the run as it stands, or none when no case is pinned. */

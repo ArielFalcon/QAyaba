@@ -42,7 +42,7 @@ export interface PublicationPort {
       ratio: number | null;
       minRatio?: number;
       uncovered: ReadonlyArray<{ file: string; lines: readonly number[] }>;
-      untakenArms: ReadonlyArray<{ file: string; line: number; arm: string }>;
+      untakenArms: ReadonlyArray<{ file: string; line: number; arm: string; declined?: { basis: string; contradicted?: boolean } }>;
     };
     /** The reviewer's missing cases (findings on arms of the changed code no test ran): shown in the PR or Issue, never a gate. */
     missingCases?: readonly string[];
@@ -55,7 +55,7 @@ export interface PublicationPort {
     /** The passing cases that checked a page only as DEV served it, confirmed empty or asserting the result count read there, and the untaken arms of the changed code on those pages: listed in the PR or Issue, never a gate. */
     ambientDataState?: {
       pins: readonly AmbientDataPin[];
-      arms: ReadonlyArray<{ file: string; line: number; arm: string; pages: readonly string[] }>;
+      arms: ReadonlyArray<{ file: string; line: number; arm: string; pages: readonly string[]; declined?: { basis: string; contradicted?: boolean } }>;
     };
     /**
      * The run's working copy, for the "pr" route's git-write: the adapter reads the mirror, the commit and the target from the
