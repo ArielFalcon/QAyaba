@@ -12,7 +12,7 @@ The orchestrator reads its environment once, in `loadSettings(env)`. An empty va
 | `LISTEN_HOST` | `server.listenHost` | string | `127.0.0.1` | - | Interface the control plane listens on. A bare start listens on loopback only; the container image sets 0.0.0.0. |
 | `QA_TOOLS_PORT` | `server.toolsPort` | integer | `459` | - | TCP port of the agents' tools endpoint (1-65535), a second listener that is never published. |
 | `QA_TOOLS_LISTEN_HOST` | `server.toolsListenHost` | string | - | - | Interface the tools endpoint binds. Unset, it follows LISTEN_HOST and narrows a wildcard to the container's one non-loopback IPv4 address. |
-| `QA_TOOLS_TOKEN` | - | string | - | secret | Service token the agents service authenticates to the tools endpoint with (at least 32 characters; the same value on both services). Unset, a random one is generated for the boot and the tools are refused. |
+| `QA_TOOLS_TOKEN` | - | string | - | secret | Service token the agents service authenticates to the tools endpoint with (at least 32 characters; the same value on both services). Unset, a random one is generated for the boot, the tools are refused, and so is every prompt that asks an agent for its answer through a submit tool. |
 | `NO_COLOR` | `server.noColor` | boolean | - | - | When set to any non-empty value the command-line client prints no ANSI colors. |
 
 ## Authentication

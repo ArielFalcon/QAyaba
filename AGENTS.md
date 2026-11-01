@@ -68,7 +68,7 @@ node --import ./test-setup.mjs --import tsx --test path/to/file.test.ts [--test-
 # files that need a process of their own, each with why (docs/testing-standards.md, "Shared test processes").
 
 # Full CI gate (.github/workflows/ci.yml) — all must stay green:
-npm run typecheck && npm run arch:check && npm run previous-forms:check && npm run seed:lint && npm run embedded:lint && npm run sdk:typecheck && npm run contract:check && npm run settings:check && npm test
+npm run typecheck && npm run arch:check && npm run previous-forms:check && npm run seed:lint && npm run embedded:lint && npm run sdk:typecheck && npm run contract:check && npm run settings:check && npm run submit-contracts:check && npm test
 (cd client && go vet ./... && go test ./...)
 # arch:check has no baseline: the layering rules hold for every file, and the shell's deep imports of context internals are a frozen list
 # (engine/.dependency-cruiser-shell-exceptions.json, 27 entries, ADR-0024) that may only shrink.
@@ -78,6 +78,8 @@ npm run previous-forms:check # banned terms of retired forms and dead file refer
 npm run embedded:lint       # the scripts that run as text in another process (engine/src/**/embedded), typechecked by npm run typecheck (embedded:typecheck)
 npm run settings:gen        # writes docs/settings.md from platform/settings/registry.ts
 npm run settings:check      # fails when docs/settings.md is stale
+npm run submit-contracts:gen   # writes agents/lib/submit-contracts.json (the submit tools' argument schemas) from the contexts' wire schemas
+npm run submit-contracts:check # fails when agents/lib/submit-contracts.json is stale
 npm run mutate -- <preset>  # mutation testing per preset (scripts/mutate.ts)
 npm run sandbox:smoke       # IN the running orchestrator container: proves the execution sandbox holds; the code roots it plants into come from the boot check's layout (`codeRootsOf`) (docs/execution-sandbox.md)
 npm run label -- --run <id> (--show | --name <score> --value <v>) # label one run by hand against the use-case reference set (inside the orchestrator container)
@@ -185,7 +187,7 @@ The RFC that lands a row flips it to **in force** in the same commit.
 | Whether a change needs no test | Agent with facts | A declared `noop` with a reason and zero specs is honored; silence is not a decision (`E-NO-DECISION`) | Invariants, "Honor the explicit no-op" | in force |
 | Whether the lead accepts a flow's spec | Agent with facts, the engine's facts win | An accept of a spec with no `run_spec` pass on its current bytes is sent back; an app defect is never sent back to be made green | Architecture, "Lead and sidekicks" | in force |
 | Whether a reviewer's finding blocks | Agent with facts, the engine verifies | Only a finding whose citation the engine verifies blocks; an answer holding no readable verdict fails closed as a parse miss, never an approval | Architecture, "Lead and sidekicks" | in force |
-| Whether one unreadable entry of a reviewer's answer sinks the answer | Engine | Beside an approval the entry is recorded and the approval stands; a rejection repairs once, then fails closed; a lost entry is loud | [RFC-0006](docs/architecture/rfc/0006-review-answer-crosses-whole.md) | in force |
+| Whether one unreadable entry of a reviewer's answer sinks the answer | Engine | Beside an approval the entry is recorded and the approval stands; a rejection is refused inside the turn with where it went wrong, continued once, then fails closed; a lost entry is loud | [RFC-0006](docs/architecture/rfc/0006-review-answer-crosses-whole.md), [RFC-0018](docs/architecture/rfc/0018-agent-answers-are-submissions.md) | in force |
 | Which verdict a run ends with | Engine | One closed outcome per step, one `finalizeRun`, one failure policy; an agent's answer is an input | Architecture, "The run flow" | in force |
 | Whether a request is a write the spec caused | Engine, from a signal | Cause is measured against a control load, not read from the request's destination | [RFC-0007](docs/architecture/rfc/0007-dev-write-attribution.md) | in force |
 | What makes a run a defect of the app | Engine, from a signal | A defect is a fact the engine verifies, never the shape of a failing test's error: a contradiction the provider's contract does not declare, in the change's reach, ends a run `fail` with no failing test; a green suite never outranks it; the adjudicator's rule on the shape of a value-mismatch failure is a hint (`low`, `break-needs-human`) and only a fact (an attributed 5xx, a runtime error, route availability) earns `high` | [RFC-0017](docs/architecture/rfc/0017-defects-from-verified-facts.md) | in force |
@@ -241,12 +243,11 @@ is the only engine; webhook (`platform/entrypoints/webhook-handler.ts`, wired by
    (the reviewer's reason on the run record and in the log, no PR and no Issue, nothing learned; three in
    a row log an observe-only audit finding). The reviewer's answer crosses to the decision whole: it is read into
    `{ approved, rationale?, findings }`, a finding being `{ text, severity, citation? }` with the severity required and a
-   missing `citation` meaning the agent cited nothing; the engine fills in no field of it. An answer with no readable verdict
-   (cut mid-JSON, say), or a rejection with an entry or field the schema cannot read (an entry with no severity, a plain string, a
+   missing `citation` meaning the agent cited nothing; the engine fills in no field of it. The verdict is the arguments of a `submit_review` call, judged inside the turn: a rejection with an entry or field the schema cannot read (an entry with no severity, a plain string, a
    citation of an unknown kind or with a non-text `ref`, a non-boolean `approved`, `corrections` that is not a list beside a
-   rejection) is first asked once, in the same session and naming what could not be read, to restate it (the contract repair
-   below); an answer still unreadable is a fail-closed parse miss that carries those issues (`qayaba.review.issues` on the
-   decision span). Beside an approval, `corrections` that is not a list is read as none and an entry the schema cannot read is set aside: the approval stands, the readable entries are kept, the loss is recorded in the same attribute, and no repair turn is spent, so an approved green run still publishes. On a run with a plan the reviewer is given, instead of the whole diff, the slice of each
+   rejection) is refused with the path and reason of each and the reviewer corrects it in the same turn; a turn that ends with no accepted call gets one continuation
+   (the submit tools and the continuation, below); a turn still without a verdict is a fail-closed parse miss that carries the last rejection
+   (`qayaba.review.issues` on the decision span), and a turn with no output and no call at all is the unavailable reviewer above. Beside an approval, `corrections` that is not a list is read as none and an entry the schema cannot read is set aside: the approval stands, the readable entries are kept, the loss is recorded in the same attribute, and no continuation is spent, so an approved green run still publishes. On a run with a plan the reviewer is given, instead of the whole diff, the slice of each
    flow under review, every changed file (path, kind, added/removed) and, in full under a heading of its
    own, every part of the diff no flow under review holds (`run-flow/review-change.ts`,
    `reviewer-change-sections.ts`); with nothing assigned, or no plan, it keeps the whole diff. A prompt
@@ -462,6 +463,13 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   of the run (those that name no delegation), calls are capped per run (`DEFAULT_CODE_GRAPH_TOOL_LIMITS`), and the capability is revoked when the run ends. A prompt
   of a `qa-lead` session the run did not grant hides the tools. Calls are spans (`qayaba.tool.codegraph`) and the run log
   counts them.
+- **Submit tools (`submit_*`)** — how a role delivers the answer of a turn (RFC-0018). The tools are in `agents/tool/submit.ts`, their
+  typed arguments are built from `agents/lib/submit-contracts.json` (JSON Schema rendered from each context's wire schema by `npm run
+  submit-contracts:gen`, converted to zod by `agents/lib/submit-schema.mjs`, which refuses a keyword it does not know) and the call is one
+  POST to the same internal listener (`/internal/submit`, `agents/lib/submit-client.mjs`). The orchestrator answers `accepted`, or the
+  errors (a path and a reason each) the model fixes in the same turn. Processes with no tools endpoint (a local `npm run qa` with no service
+  running, `npm run onboard`, the baseline experiment's `--accept-review`) cannot receive an answer: their first prompt that asks for
+  one fails naming `QA_TOOLS_TOKEN`.
 - **Lead and sidekicks (`qa.coordination`)** — the only coordination: every e2e run that generates has the lead return a **plan**
   instead of specs (`LeadPort.plan`, a read-only turn) and each flow authored by an author sidekick (`qa-author`) in parallel. A context run and a login still to be written never coordinate: one author sidekick writes them in the run's working copy (no plan, no `run_spec` budget); the lead never writes tests. `qa.coordination`
   only sets the limits. The lead grounds deterministically (no agent turn), the plan turn's
@@ -516,7 +524,7 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   numbers of their findings, recorded as `window-fit`; surviving mutants join the same gap regeneration as findings on the
   spec that reached them); what no flow takes follows
   the same rule, and once the run's budget of corrections through the lead is spent the findings are recorded unrouted ("lead
-  correction budget spent") and nothing regenerates. The lead's own correction turns never spend the room the flows they order need: the room is the time the deadline allots to the phase the run is in, which already holds back what the later phases need (coordination keeps no reserve of its own), and at the one shared point every caller meets (`correct`) a turn and its re-ask are held to that room less two `MIN_FLOW_MS` (one for the orders to run, one as slack for a turn that ends after its timeout), never above `planBudgetMs`; a turn that cannot leave that is not sent (each finding goes to its default owner, or the first answer stands, on the record); the lead review's repair turn is held by the same rule. The run's acceptance of the round is unchanged. The run releases the pass after the review and in its `finally`. DEV access: every `run_spec` call and authenticated browser action holds its account's lease (`DevLease`, an `AccountLock`
+  correction budget spent") and nothing regenerates. The lead's own correction turns never spend the room the flows they order need: the room is the time the deadline allots to the phase the run is in, which already holds back what the later phases need (coordination keeps no reserve of its own), and at the one shared point every caller meets (`correct`) a turn and its re-ask are held to that room less two `MIN_FLOW_MS` (one for the orders to run, one as slack for a turn that ends after its timeout), never above `planBudgetMs`; a turn that cannot leave that is not sent (each finding goes to its default owner, or the first answer stands, on the record); a lead turn's one continuation carries the same bound and is cut by the deadline's allotment of its purpose. The run's acceptance of the round is unchanged. The run releases the pass after the review and in its `finally`. DEV access: every `run_spec` call and authenticated browser action holds its account's lease (`DevLease`, an `AccountLock`
   that also holds DEV alone; the proxy has no read-only mode, so no two actions overlap).
   Workspaces are removed in a `finally` and swept at boot. `gateSignals.coordination { plan, refusal, flows, delivered,
   incomplete, authoring, review, corrections }`. `docs/lead-sidekicks.md`.
@@ -630,12 +638,16 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   a turn already running. A deadline that expires after a suite ran green on its final bytes degrades the run to publication with the proven suite when no review verdict is required and no enforced coverage gate is left undecided (`deadline-after-proof`); a required review with no verdict, or an `enforce` coverage gate with no measurement kept for the green bytes (none, or one that describes bytes an accepted regeneration replaced), ends the run `E-TIME-BUDGET` instead of publishing past the gate. Every limit that fires (the deadline that ends or degrades a run, the budget generation ends on, the limits turns end on; each a value of the closed set `TURN_LIMITS`) and every fault a run goes on past (`publication-failed`, `deadline-after-proof`) is a typed fact of the run (`RunTraceFacts`: `limits`, `degradations`), recorded where it happens and written on the root span and the run record; the run's note is derived from them. The decision is one fact in one vocabulary (`pr | issue | quarantine | none`, with `shadowed` apart); a stored run reads the facts it never recorded as unknown (docs/observability-design.md, section 4.3). An audit signal, not a lesson: a streak of `E-TIME-BUDGET` ends reaches the process audit alone
   (`observesOperatingSignal`), which logs an observe-only `recurring-time-exhaustion` finding; it never
   folds or changes a rule.
-- **Contract repair** — the re-prompt that only restates a verdict (author or reviewer) runs with tools
-  disabled (`AgentPromptOpts.withoutTools`; OpenCode sends a per-prompt `tools` deny map) and under its own short timeout (`REPAIR_TURN_TIMEOUT_MS`,
-  2 min, further cut to the time left). A repair that outlasts its cap leaves the first answer standing:
-  the generation then ends `no-verdict` (loudly noted) and an unreadable review fails closed. The reviewer's
-  repair names the issues the parser found. A timeout
-  of the first pass or a regeneration is still the integration error it was, unless it is the run deadline.
+- **Submit tools and the continuation** — every agent answer is the arguments of one call of a submit tool (`submit_plan`,
+  `submit_flow_review`, `submit_corrections`, `submit_result`, `submit_specs`, `submit_review`, `submit_profiles`; `agents/tool/submit.ts`),
+  judged by the reader of the context that owns the contract inside the turn (RFC-0018). `submitTurn` (`shared-kernel/submit-turn.ts`) is the
+  one place a caller asks for one: a turn that ends without an accepted call (the model stopped, or its output hit the length limit, which is
+  no longer an `AgentUnavailableError`) gets exactly one continuation in the same session (`AgentPromptOpts.submit`, `submitOnly`, `isRepair`),
+  with every other tool denied by name and the last rejection's errors in its text, under the limits of the first prompt and the time the run
+  deadline allots to its purpose. A continuation the allotment cannot hold ends the turn as it stands, and so does a turn that ran out of steps
+  (`canContinue`). A miss is a typed result (`describeNoSubmission`), never a throw; the caller's fail-closed path records its reason (a plan
+  `no-plan`, a sidekick result `unreadable`, a reviewer parse miss, a generation `no-verdict`; a generator that ends on the refused "no specs, no
+  decision" is still `E-NO-DECISION`). A timeout of the first pass or a regeneration is still the integration error it was, unless it is the run deadline.
 - **Regeneration listing** — a regeneration lists the suite as that turn knows it (the specs
   the suite had before a diff/manual run, plus those this run delivered, each only while its
   file is still there): the specs it must change under "Editable" (all those a signal names;
@@ -817,6 +829,16 @@ test, and the verdict is its last action.
   admits them, names the repos and the workspace, sets the file cap and runs the engine. Never forward a repo, a project, a path or an option
   the agent names, let a term start with `-`, add a free graph query or an action that indexes, deletes or writes, mount the graph store
   into the agents container, or widen the tool beyond `qa-lead`.
+- **A submit tool delivers an answer and nothing else.** The agent calls; the orchestrator holds the contract of the turn the session is in
+  (`SubmissionRegistry`, armed for one prompt by `AgentRuntimeAdapter` and closed when it ends). A call is served only for an armed session,
+  for the agent name the arm names and the tool of that contract, behind `QA_TOOLS_TOKEN`, under the per-session call limit and a 256 KiB body
+  cap; a call after the accepted one is refused. It writes no file, runs nothing and reaches no repository, and the errors it returns are
+  redacted and cut. `agents/opencode.json` grants each role its own submit tools only (the lead its plan, flow-review and corrections tools, the
+  author its result and specs tools, the reviewer its review tool, the proposer its profiles tool, the assistant none), pinned by
+  `agent-tool-surface.test.ts`; a prompt armed with one is denied the other six by name, and the continuation is denied every other tool.
+  Never grant a submit tool to a role that does not deliver its contract, widen one to carry a path or a command, or let a turn that armed none
+  call one. `QA_TOOLS_TOKEN` is required for every run that asks an agent for an answer: without a matching token the engine is handed no
+  registry and the first such prompt fails naming the variable.
 - **Agent-influenced code runs only through the execution launcher**
   (`engine/src/shared-infrastructure/process-sandbox/exec-sandbox.ts`, profiles `offline | suite | login | install`).
   Specs, the e2e project's `tsc`/`eslint`/`playwright --list`/`npm ci`, the login scripts and the DOM capture all start there: the sandbox uid, an environment built from an explicit
@@ -889,7 +911,17 @@ test, and the verdict is its last action.
 - **Logging is redacted at the port.** Production code logs through `LoggerPort` (`appLogger` in the shell, `engineLog` in the engine); the redacting adapter redacts the message and every field before `logJson` writes. A raw `console` call is a test failure (`platform/test-support/no-console.test.ts`). A line's level is what its fact did to the run (`LOG_EFFECT`, `levelOfEffect` in `engine/src/shared-kernel/ports/logger.port.ts`): `error` ended the run or the process, `warn` the run went on past it, `info` nothing left the expected path; a seam that holds a typed outcome takes the level from the module that owns it, and a catch that carries on past a fault takes it from `carryOn`. Every process root (the service, the CLI and every script that runs engine code) installs the redacting logger through `installRedactingProcessLogger()` (`platform/telemetry/redacting-logger.ts`); `platform/composition/process-roots.test.ts` fails for a root without it.
 - **Tempo holds what happened, Loki how it happened.** Logs ship from the port (`platform/telemetry/log-shipper.ts`), never by tapping the console: `warn`/`error` ship, `info` ships only with `{ ship: true }` for a fact no span records, and a per-item line becomes one line. Agent turn bodies (prompt, sections, output) go to Loki only in `full` capture, redacted first, never as span attributes; a failed redaction drops the body (`platform/telemetry/prompt-body-logs.ts`). Coordination events carry structured `qayaba.coordination.*` attributes, not facts held in reason strings.
 - **A run's wall time is explained by spans.** The root `qayaba.run` is the sum of its `qayaba.phase.*` spans (the engine's cursor), its `qayaba.stage.*` spans (`RUN_STAGES` in `shared-kernel/run-step.ts`: the shell's preparation, the sandbox scope opened and closed around the phases, the teardown) and a remainder that must stay near zero; `probe-report` prints that remainder as `unattributed`. New work that runs before the first phase or after the last goes in a stage (`RunTrace.stage` in the shell, `traceStage` in the engine), never in the gap.
-- **Agent output is read through one scanner.** `@kernel/last-json-object` (`closingJsonObject`) takes the object that closes the output: its last top-level object, with nothing after it that opens another brace; the reader checks it against its contract. Nothing takes the first `{`, and no reader takes an earlier object when the closing one does not read (off the contract, not JSON, cut short, or followed by another object): that answer is unreadable and goes through the reader's own repair or fail-closed path. An unreadable sidekick answer is recorded `unreadable`, distinct from `failed`, and fails closed. **An agent's answer crosses whole** (RFC-0006): the coordination's answers (the lead's plan, review, correction and amendment, the sidekick's result) are walked by one reader, `coordination/application/answer-reading.ts`; an entry it cannot read as the contract says (an action outside the contract, a flow or finding that is not one of the turn's, a field of the wrong type) is never read as a default and never skipped in silence: it is recorded (`qayaba.coordination.unreadable_entries`, `gateSignals.coordination.review|corrections|unreadable`), the answer is asked about once in the same session (the lead's session; the sidekick's with its tools off), and what stays unreadable is not acted on.
+- **Agent answers are submissions, not text a scanner finds.** Each role delivers its contract by calling its submit tool; the context that
+  owns the contract judges the arguments inside the turn with the reader it uses to admit the answer, and the tool returns the path and reason of
+  each refusal, so the model corrects while it still holds the context. The first accepted call is the answer and nothing reads the turn's
+  text for one; no contract has a second live channel (RFC-0018). A turn that ends without an accepted call is a typed end with one continuation,
+  then the reader's own fail-closed path; an unreadable sidekick result is recorded `unreadable`, distinct from `failed`. **An agent's answer
+  crosses whole** (RFC-0006): the coordination's answers (the lead's plan, review, correction and amendment, the sidekick's result) are walked by
+  one reader, `coordination/application/answer-reading.ts`; an entry it cannot read as the contract says (an action outside the contract, a
+  field of the wrong type) is never read as a default and never skipped in silence: the contract refuses it inside the turn, and what the
+  admission refuses afterwards (a flow or finding that is not one of the turn's) is recorded (`qayaba.coordination.unreadable_entries`,
+  `gateSignals.coordination.review|corrections|unreadable`) and not acted on. The wire schema of each contract lives in its owning context and
+  renders to the tool's arguments (`npm run submit-contracts:gen`, `agents/lib/submit-contracts.json`).
 - **One settings object.** The shell reads its environment in `loadSettings`; a new variable is a registry entry (`platform/settings/registry.ts`) with a type, default and description, and `npm run settings:gen` regenerates `docs/settings.md`. A secret is marked `secret: true`: it never has a documented default and a dump of the settings shows it as `[set]`.
 - **Everything in English**; comments follow the code implementation standard below (the default is none).
 

@@ -39,7 +39,7 @@ export const SETTINGS_REGISTRY: readonly SettingDef[] = [
   entry({ env: "LISTEN_HOST", key: "listenHost", group: "server", type: "string", default: DEFAULT_LISTEN_HOST, description: "Interface the control plane listens on. A bare start listens on loopback only; the container image sets 0.0.0.0." }),
   entry({ env: "QA_TOOLS_PORT", key: "toolsPort", group: "server", type: "integer", default: String(DEFAULT_TOOLS_PORT), description: "TCP port of the agents' tools endpoint (1-65535), a second listener that is never published." }),
   entry({ env: "QA_TOOLS_LISTEN_HOST", key: "toolsListenHost", group: "server", type: "string", description: "Interface the tools endpoint binds. Unset, it follows LISTEN_HOST and narrows a wildcard to the container's one non-loopback IPv4 address." }),
-  entry({ env: "QA_TOOLS_TOKEN", key: "-", group: "server", type: "string", secret: true, description: "Service token the agents service authenticates to the tools endpoint with (at least 32 characters; the same value on both services). Unset, a random one is generated for the boot and the tools are refused." }),
+  entry({ env: "QA_TOOLS_TOKEN", key: "-", group: "server", type: "string", secret: true, description: "Service token the agents service authenticates to the tools endpoint with (at least 32 characters; the same value on both services). Unset, a random one is generated for the boot, the tools are refused, and so is every prompt that asks an agent for its answer through a submit tool." }),
   entry({ env: "NO_COLOR", key: "noColor", group: "server", type: "boolean", description: "When set to any non-empty value the command-line client prints no ANSI colors." }),
 
   /* auth */

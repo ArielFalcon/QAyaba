@@ -351,7 +351,7 @@ export function wireApp(settingsStore: SettingsStore): WiredApp {
   );
   const toolsPort = settings.server.toolsPort;
   const toolsToken = resolveToolsToken(settings.environment);
-  if (toolsToken.generated) appLogger.warn("QA_TOOLS_TOKEN is not set: no run is granted the run_spec or authenticated browser tools until the same value is set on the orchestrator and agents services");
+  if (toolsToken.generated) appLogger.warn("QA_TOOLS_TOKEN is not set: no run is granted the run_spec, authenticated browser or submit tools, so no agent can deliver an answer, until the same value is set on the orchestrator and agents services");
   /* What every run records of the process around it (its effectiveConfig): the agent runtime, the prompt layers, the tool grants and the operator switches, each read where it is configured. */
   /* Memoised for the process's life: editing a prompt file needs a restart to show in later runs' effectiveConfig (docs/observability-design.md section 14). */
   let staticPromptHash: string | null | undefined;
