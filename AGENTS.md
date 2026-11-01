@@ -1231,20 +1231,25 @@ that catches nothing. The objective signal that breaks the circle is **change-co
   files runs. What the two unmutated re-runs disagree on is the noise floor (a refreshed token, a tile, a chunk, a value DEV changed between runs or
   drifted while the mutants ran) and is never reported: a request or a tree line moved only when neither
   unmutated run showed it and the mutated run did, or both showed it and the mutated run did not (`observed-difference.ts`); without both unmutated
-  observations nothing is said. Only tests that passed in all three runs are compared; how many times a request was made is not compared.
+  observations nothing is said. Only tests that passed in all three runs are compared; how many times a request was made is not compared. Only the
+  app's own requests are compared: the orchestrator classifies each observed request after the strict read with the one kernel classifier
+  (`requestOriginClassifier`, `shared-kernel/observed-requests.ts`, built in `platform/composition` from `resolveRunOrigins` and handed to the
+  oracle), and a request that is not `listed` (third party, counted by host) never makes a survivor `moved`; the seed's recorder is unchanged.
   `survived[].moved` is `{ kind: "moved", requests: { added, removed }, dom: { added, removed }, tests, omitted? }` (at most 10 items a list,
   a line cut at 200 characters), `{ kind: "unmoved", tests }` (the finding says no request and no tree line moved, so what the mutation changes is in neither)
   or `{ kind: "unobserved", reason }` (a re-run left no observation, an unmutated one could not run, or no test passed in all of them: nothing is said).
   `survived[].movedBySpec` is the same per spec file the survivor ran under, over that file's tests alone (absent when a compared test has no known
   spec file): the survivor's finding goes only to the spec files whose own pages moved, each told its own account, and to every spec file that ran it
-  when none moved (`survivorFindings`). The runner reads the files strictly and all or nothing (`test-execution/infrastructure/observation-reader.ts`),
+  when there is no account per file (`survivorFindings`). A survivor the runs found `unmoved` or could not compare (`unobserved`) is recorded in
+  `bundleMutation.survived[]` with its `moved.kind` and routed to no spec (`survivorIsRouted`): it gives no finding and is never re-checked. The runner reads the files strictly and all or nothing (`test-execution/infrastructure/observation-reader.ts`),
   re-derives every request as method + origin + pathname and redacts every line by value and by pattern; the difference holds requests and tree lines of
   the pages and nothing of the mutant. The span counts `qayaba.mutation.survivors_moved|unmoved|unobserved`. The re-check of survivors after a
   regeneration (survivor closure) does not observe.
 - **Survivor closure** (signal, never a gate): a surviving mutant routed to a coverage or branch-case
   regeneration is, once that regeneration is accepted, applied again to the specs it changed among those its
-  finding was routed to (`survivorRoutes`: the specs whose own pages it moved, else every spec that ran it; any
-  changed spec for a survivor no spec ran; not re-run when none of them changed) and judged against the cases
+  finding was routed to (`survivorRoutes`: the specs whose own pages it moved; any
+  changed spec for a survivor no spec ran; not re-run when none of them changed; a survivor routed to no spec because nothing it moved is
+  observable is not re-run and starts no execution, and `routed` counts only the routed ones) and judged against the cases
   their accepted bytes passed (`closeSurvivors`, `survivor-closure.ts`): a regenerated test counts as
   answering its survivor only when that mutant now fails it. The mutant as it ran (served script, edit)
   stays with the orchestrator and never reaches an agent or the record. `gateSignals.survivorClosure

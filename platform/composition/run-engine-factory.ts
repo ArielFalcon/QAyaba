@@ -56,6 +56,7 @@ import { loadContextMapFromDisk } from "@contexts/generation/infrastructure/adap
 import { ContextMapCapturePortAdapter, type ContextMapSave, type ContextMapWrittenThisRun } from "@contexts/generation/infrastructure/adapters/context-map-capture-port.adapter";
 import { Sha } from "@kernel/sha";
 import { assertCommitSha } from "@kernel/git-revision";
+import { requestOriginClassifier } from "@kernel/observed-requests";
 import type { CommitAncestryPort } from "@kernel/ports/commit-ancestry.port";
 import { closedLoopLimitsOf } from "@contexts/agent-tools/application/index";
 import { resolveCoordinationSettings } from "@kernel/coordination";
@@ -855,6 +856,7 @@ export function buildEngineRootDeps(
         undefined,
         countInjectedResponses,
         app.dev.baseUrl,
+        requestOriginClassifier(runOrigins.dev, runOrigins.thirdParty),
       )
     : undefined;
 

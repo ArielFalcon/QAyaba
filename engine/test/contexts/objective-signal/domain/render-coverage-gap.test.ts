@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { UseCaseCandidate } from "@kernel/use-case-candidate.ts";
-import { renderBranchGap, renderCoverageGap, renderSurvivedMutant, renderSurvivedMutants, survivorFindings } from "@contexts/objective-signal/domain/render-coverage-gap.ts";
+import { renderBranchGap, renderCoverageGap, renderSurvivedMutant, renderSurvivedMutants, survivorFindings, survivorRoutes } from "@contexts/objective-signal/domain/render-coverage-gap.ts";
 
 /* Enforce-mode regen's coverage-gap renderer. Expected outputs are hand-written against
    ObjectiveSignalPort.measure()'s return shape — `uncovered?: {file; lines: number[]}[]`, no
@@ -168,20 +168,15 @@ test("a survivor whose pages moved in some of the spec files that reached it is 
   assert.ok(findings[0]!.text.includes(DARK) && findings[0]!.text.includes("flows/map.spec.ts"));
 });
 
-test("a survivor whose pages moved in none of its spec files is a finding for every one of them, each told its own account", () => {
-  const findings = survivorFindings({
-    ...SURVIVOR,
-    specFiles: ["flows/list.spec.ts", "flows/map.spec.ts"],
-    moved: { kind: "unmoved", tests: 2 },
-    movedBySpec: [
-      { spec: "flows/list.spec.ts", moved: { kind: "unmoved", tests: 1 } },
-      { spec: "flows/map.spec.ts", moved: { kind: "unobserved", reason: "no-common-test" } },
-    ],
-  });
+test("a survivor no spec file's pages moved for is recorded and routed to no spec, however many ran it", () => {
+  const unmoved = { ...SURVIVOR, specFiles: ["flows/list.spec.ts", "flows/map.spec.ts"], moved: { kind: "unmoved" as const, tests: 2 }, movedBySpec: [{ spec: "flows/list.spec.ts", moved: { kind: "unmoved" as const, tests: 1 } }, { spec: "flows/map.spec.ts", moved: { kind: "unobserved" as const, reason: "no-common-test" as const } }] };
+  const unobserved = { ...SURVIVOR, specFiles: ["flows/map.spec.ts"], moved: { kind: "unobserved" as const, reason: "baseline" as const } };
 
-  assert.deepEqual(findings.map((f) => f.spec), ["flows/list.spec.ts", "flows/map.spec.ts"]);
-  assert.match(findings[0]!.text, /no observable moved/);
-  assert.doesNotMatch(findings[1]!.text, /no observable moved/, "a file whose tests were not compared is told nothing of the others'");
+  for (const survivor of [unmoved, unobserved]) {
+    assert.deepEqual(survivorRoutes(survivor), []);
+    assert.deepEqual(survivorFindings(survivor), []);
+  }
+  assert.equal(renderSurvivedMutants([unmoved, unobserved]), "");
 });
 
 test("a survivor with no per-file account reaches every spec file that ran it with what moved over all its tests, and one no spec ran is a finding of no spec", () => {

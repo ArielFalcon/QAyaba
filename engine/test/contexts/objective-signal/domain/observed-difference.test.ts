@@ -1,8 +1,12 @@
 /* What a mutation moved: the requests and the accessible tree of the same tests run with and without it, compared per test against two unmutated runs, whose own differences are noise. A fact handed to the author, never a gate. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { diffObservations, MAX_MOVED_ITEMS, movedBySpecFile } from "@contexts/objective-signal/domain/observed-difference.ts";
+import { diffObservations as diffWith, MAX_MOVED_ITEMS, movedBySpecFile } from "@contexts/objective-signal/domain/observed-difference.ts";
+import { requestOriginClassifier } from "@kernel/observed-requests.ts";
 import type { ObservedPage } from "@contexts/objective-signal/domain/observed-page.ts";
+
+const originRole = requestOriginClassifier(["https://dev.example.com", "https://api.maps.example"], ["https://cdn.thirdparty.example"]);
+const diffObservations = (...args: [Parameters<typeof diffWith>[0], Parameters<typeof diffWith>[1], Parameters<typeof diffWith>[2]]) => diffWith(...args, originRole);
 
 const STYLE_LIGHT = "https://api.maps.example/styles/v1/acme/light";
 const STYLE_DARK = "https://api.maps.example/styles/v1/acme/dark";
@@ -129,11 +133,29 @@ test("what moved is told per spec file: each file is compared over its own tests
   const plain = [page(map, [["GET", STYLE_LIGHT]]), page(list, [["GET", "https://dev.example.com/api/places"]])];
   const mutant = [page(map, [["GET", STYLE_DARK]]), page(list, [["GET", "https://dev.example.com/api/places"]])];
 
-  const bySpec = movedBySpecFile(twice(plain), mutant, new Set([map, list]), (name) => files.get(name), ["flows/list.spec.ts", "flows/map.spec.ts", "flows/other.spec.ts"]);
+  const bySpec = movedBySpecFile(twice(plain), mutant, new Set([map, list]), (name) => files.get(name), ["flows/list.spec.ts", "flows/map.spec.ts", "flows/other.spec.ts"], originRole);
 
   assert.deepEqual(bySpec, [
     { spec: "flows/list.spec.ts", moved: { kind: "unmoved", tests: 1 } },
     { spec: "flows/map.spec.ts", moved: { kind: "moved", requests: { added: [`GET ${STYLE_DARK}`], removed: [`GET ${STYLE_LIGHT}`] }, dom: { added: [], removed: [] }, tests: [map] } },
     { spec: "flows/other.spec.ts", moved: { kind: "unobserved", reason: "no-common-test" } },
   ]);
+});
+
+test("a request to a third-party origin or an unreached host the mutation added or removed is not an observable that moved", () => {
+  const name = "a.spec.ts › t";
+  const baseline = [page(name, [["GET", "https://dev.example.com/api/places"], ["GET", "https://cdn.thirdparty.example/lib.js"], ["GET", "https://tracker.example/pixel"]])];
+  const mutant = [page(name, [["GET", "https://dev.example.com/api/places"], ["GET", "https://cdn.thirdparty.example/other.js"]])];
+
+  assert.deepEqual(diffObservations(twice(baseline), mutant, new Set([name])), { kind: "unmoved", tests: 1 });
+});
+
+test("a request to the app's own origin moves a survivor beside third-party ones, which are left out of what moved", () => {
+  const name = "a.spec.ts › t";
+  const baseline = [page(name, [["GET", "https://cdn.thirdparty.example/lib.js"]])];
+  const mutant = [page(name, [["GET", "https://dev.example.com/api/places"], ["GET", "https://cdn.thirdparty.example/other.js"]])];
+
+  const moved = diffObservations(twice(baseline), mutant, new Set([name]));
+
+  assert.deepEqual(moved.kind === "moved" && moved.requests, { added: ["GET https://dev.example.com/api/places"], removed: [] });
 });

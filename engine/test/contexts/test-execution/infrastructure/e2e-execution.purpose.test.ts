@@ -10,6 +10,7 @@ import { ProcessKillAdapter } from "../../../../src/shared-infrastructure/proces
 import { createDefaultE2eCleanupDeps, createDefaultE2eExecuteDeps } from "@contexts/test-execution/infrastructure/e2e-execution.runner.ts";
 import type { ExecPurpose } from "../../../../src/shared-kernel/exec-purpose.ts";
 import { BundleMutationOracleAdapter } from "@contexts/objective-signal/infrastructure/bundle-mutation-oracle.adapter.ts";
+import { requestOriginClassifier } from "@kernel/observed-requests.ts";
 
 interface Spawn { purpose?: ExecPurpose; namespace?: string; commandClass?: string }
 
@@ -99,6 +100,7 @@ test("the oracle's re-runs are labelled by what they edit: a mutant names a scri
       },
       () => 1,
       "https://dev",
+      requestOriginClassifier(["https://dev"]),
     );
     const site = { file: "src/checkout.ts", line: 1, column: 0, operator: "negate condition", script: { url: "https://dev/main.js", sha256: "h" }, edit: { start: 0, end: 1, replacement: "!" }, original: "x" };
 

@@ -2,6 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { BundleMutationOracleAdapter } from "@contexts/objective-signal/infrastructure/bundle-mutation-oracle.adapter.ts";
+import { requestOriginClassifier } from "@kernel/observed-requests.ts";
 import { RERUN_LEFT_OUT_FOR_TIME } from "@contexts/objective-signal/domain/rerun-budget.ts";
 import type { MutantRun } from "@contexts/objective-signal/domain/coverage-collector.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
@@ -45,7 +46,7 @@ function timedRuns(allowanceMs: number) {
 
 test("with time for only part of the pass, the oracle starts no re-run the coverage allowance cannot hold and says how many it left out and why", async () => {
   const timed = timedRuns(2 * TEST_MS + TEST_MS / 2);
-  const oracle = new BundleMutationOracleAdapter(timed.run, () => 1, "https://dev.example", timed.now);
+  const oracle = new BundleMutationOracleAdapter(timed.run, () => 1, "https://dev.example", requestOriginClassifier(["https://dev.example", "https://api.maps.example"]), timed.now);
 
   const result = await oracle.measure([mutant(10), mutant(12)], "/e2e", "run-1", [TEST], { observe: true, budget: { allowance: timed.allowance, cases: finalCases } });
 
@@ -58,7 +59,7 @@ test("with time for only part of the pass, the oracle starts no re-run the cover
 
 test("with no time for any re-run, no mutant is applied and the result still says what was left out", async () => {
   const timed = timedRuns(TEST_MS / 2);
-  const oracle = new BundleMutationOracleAdapter(timed.run, () => 1, "https://dev.example", timed.now);
+  const oracle = new BundleMutationOracleAdapter(timed.run, () => 1, "https://dev.example", requestOriginClassifier(["https://dev.example", "https://api.maps.example"]), timed.now);
 
   const result = await oracle.measure([mutant(10)], "/e2e", "run-1", [TEST], { observe: true, budget: { allowance: timed.allowance, cases: finalCases } });
 
@@ -71,8 +72,8 @@ test("with ample time the pass measures and judges every mutant exactly as it do
   const held = timedRuns(100 * TEST_MS);
   const free = timedRuns(0);
 
-  const withTime = await new BundleMutationOracleAdapter(held.run, () => 1, "https://dev.example", held.now).measure([mutant(10), mutant(12)], "/e2e", "run-1", [TEST], { observe: true, budget: { allowance: held.allowance, cases: finalCases } });
-  const unbounded = await new BundleMutationOracleAdapter(free.run, () => 1, "https://dev.example", free.now).measure([mutant(10), mutant(12)], "/e2e", "run-1", [TEST], { observe: true });
+  const withTime = await new BundleMutationOracleAdapter(held.run, () => 1, "https://dev.example", requestOriginClassifier(["https://dev.example", "https://api.maps.example"]), held.now).measure([mutant(10), mutant(12)], "/e2e", "run-1", [TEST], { observe: true, budget: { allowance: held.allowance, cases: finalCases } });
+  const unbounded = await new BundleMutationOracleAdapter(free.run, () => 1, "https://dev.example", requestOriginClassifier(["https://dev.example", "https://api.maps.example"]), free.now).measure([mutant(10), mutant(12)], "/e2e", "run-1", [TEST], { observe: true });
 
   assert.deepEqual(held.namespaces, ["run-1-obs", "run-1-mut0", "run-1-mut1", "run-1-obs2"]);
   assert.deepEqual(held.namespaces, free.namespaces);
@@ -90,7 +91,7 @@ test("once a re-run of the pass has run, the next ones are estimated from what i
     clock += 3 * TEST_MS;
     return { verdict: "pass", cases: [{ name: TEST, status: "pass" as const, file: SPEC }], observations: [{ name: TEST, requests: [], dom: ["heading: Cart"] }] };
   };
-  const oracle = new BundleMutationOracleAdapter(run, () => 1, "https://dev.example", () => clock);
+  const oracle = new BundleMutationOracleAdapter(run, () => 1, "https://dev.example", requestOriginClassifier(["https://dev.example", "https://api.maps.example"]), () => clock);
 
   const result = await oracle.measure([mutant(10), mutant(12)], "/e2e", "run-1", [TEST], { observe: true, budget: { allowance: () => allowanceMs - clock, cases: finalCases } });
 
@@ -106,7 +107,7 @@ test("a re-run that could not run its tests says nothing of what a re-run costs:
     namespaces.push(namespace);
     return namespace.endsWith("-mut0") ? { verdict: "infra-error", cases: [] } : { verdict: "pass", cases: [{ name: TEST, status: "pass" as const, file: SPEC }] };
   };
-  const oracle = new BundleMutationOracleAdapter(run, () => 1, "https://dev.example", () => 0);
+  const oracle = new BundleMutationOracleAdapter(run, () => 1, "https://dev.example", requestOriginClassifier(["https://dev.example", "https://api.maps.example"]), () => 0);
 
   const result = await oracle.measure([mutant(10), mutant(12)], "/e2e", "run-1", [TEST], { budget: { allowance: () => left.shift() ?? 0, cases: finalCases } });
 

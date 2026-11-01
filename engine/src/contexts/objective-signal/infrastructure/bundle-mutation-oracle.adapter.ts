@@ -5,6 +5,7 @@ import { diffObservations, movedBySpecFile } from "../domain/observed-difference
 import { RERUN_LEFT_OUT_FOR_TIME, rerunEstimateMs, rerunFits, scaledEstimateMs, type MeasuredRerun, type RerunBudget } from "../domain/rerun-budget.ts";
 import type { MeasuredPages, ObservedPage } from "../domain/observed-page.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
+import type { RequestOriginRole } from "@kernel/observed-requests.ts";
 import { engineLog } from "@kernel/ports/process-logger.ts";
 import { InfraError } from "@kernel/domain-error.ts";
 import { redactAndBound } from "../../../shared-infrastructure/redaction/redact-and-bound.ts";
@@ -60,6 +61,8 @@ export class BundleMutationOracleAdapter implements BundleMutationPort {
     private readonly runMutant: RunMutant | undefined,
     private readonly countMutated: CountMutated,
     private readonly baseUrl: string,
+    /* The run's one request origin classifier: only the requests it lists are the app's, and only those can be what a mutation moved. */
+    private readonly originRole: (url: string) => RequestOriginRole,
     /* The clock a re-run's wall time is read from. */
     private readonly now: () => number = () => Date.now(),
   ) {}
@@ -188,9 +191,9 @@ export class BundleMutationOracleAdapter implements BundleMutationPort {
     for (const [i, rerun] of mutated.entries()) {
       const comparable = new Set([...rerun.passed].filter((name) => first.passed.has(name) && second.passed.has(name)));
       const fileOf = (name: string): string | undefined => rerun.files.get(name) ?? first.files.get(name) ?? second.files.get(name);
-      survived[i]!.moved = diffObservations(baseline, rerun.pages, comparable);
+      survived[i]!.moved = diffObservations(baseline, rerun.pages, comparable, this.originRole);
       /* Per file only when every compared test is placed in one: a test no file is known for would vanish from every file's account. */
-      if ([...comparable].every((name) => fileOf(name) !== undefined)) survived[i]!.movedBySpec = movedBySpecFile(baseline, rerun.pages, comparable, fileOf, runs[i]!.specFiles);
+      if ([...comparable].every((name) => fileOf(name) !== undefined)) survived[i]!.movedBySpec = movedBySpecFile(baseline, rerun.pages, comparable, fileOf, runs[i]!.specFiles, this.originRole);
     }
   }
 

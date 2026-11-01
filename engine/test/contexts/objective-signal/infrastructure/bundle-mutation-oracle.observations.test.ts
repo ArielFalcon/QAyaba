@@ -2,6 +2,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { BundleMutationOracleAdapter } from "@contexts/objective-signal/infrastructure/bundle-mutation-oracle.adapter.ts";
+import { survivorFindings } from "@contexts/objective-signal/domain/render-coverage-gap.ts";
+import { requestOriginClassifier } from "@kernel/observed-requests.ts";
 import type { MutantRun } from "@contexts/objective-signal/domain/coverage-collector.ts";
 import type { ObservedPage } from "@contexts/objective-signal/domain/observed-page.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
@@ -63,7 +65,7 @@ const measure = (oracle: BundleMutationOracleAdapter, mutants = [mutant(67)]) =>
 test("a survivor whose re-run requested a different pathname than the unmutated re-run is handed the request that moved", async () => {
   const { calls, run } = fakeRuns({ mutated: [page(TEST, "dark")], plain: [page(TEST, "light")] });
 
-  const result = await measure(new BundleMutationOracleAdapter(run, () => 1, "https://dev.example"));
+  const result = await measure(new BundleMutationOracleAdapter(run, () => 1, "https://dev.example", requestOriginClassifier(["https://dev.example", "https://api.maps.example"])));
 
   assert.deepEqual(result?.survived[0]?.moved, {
     kind: "moved",
@@ -85,7 +87,7 @@ test("what differs between the two unmutated re-runs is noise: a survivor is tol
   const priceChanged = (p: ObservedPage): ObservedPage => ({ ...p, dom: [...p.dom, "text: 12 €"] });
   const { run } = fakeRuns({ mutated: [priceChanged(withToken(page(TEST, "dark")))], plain: [withToken(page(TEST, "light"))], plain2: [priceChanged(page(TEST, "light"))] });
 
-  const result = await measure(new BundleMutationOracleAdapter(run, () => 1, "https://dev.example"));
+  const result = await measure(new BundleMutationOracleAdapter(run, () => 1, "https://dev.example", requestOriginClassifier(["https://dev.example", "https://api.maps.example"])));
 
   assert.deepEqual(result?.survived[0]?.moved, {
     kind: "moved",
@@ -102,7 +104,7 @@ test("a survivor is told what moved per spec file, each over its own tests, besi
   const listPage: ObservedPage = { name: listTest, requests: [{ method: "GET", url: "https://dev.example/api/places", count: 1 }], dom: ["heading: Places"] };
   const { run } = fakeRuns({ mutated: [page(TEST, "dark"), listPage], plain: [page(TEST, "light"), listPage], plainCases: [mapCase(), listCase], mutatedCases: [mapCase(), listCase] });
 
-  const result = await new BundleMutationOracleAdapter(run, () => 1, "https://dev.example").measure([mutant(67, ["flows/list.spec.ts", "flows/map.spec.ts"])], "/e2e", "run-1", [TEST, listTest], { observe: true });
+  const result = await new BundleMutationOracleAdapter(run, () => 1, "https://dev.example", requestOriginClassifier(["https://dev.example", "https://api.maps.example"])).measure([mutant(67, ["flows/list.spec.ts", "flows/map.spec.ts"])], "/e2e", "run-1", [TEST, listTest], { observe: true });
 
   const survivor = result?.survived[0];
   assert.equal(survivor?.moved?.kind, "moved");
@@ -118,26 +120,26 @@ test("a second unmutated re-run that could not run leaves no noise floor: the su
     if (!isUnmutated(m)) return { verdict: "pass", cases: [pass(TEST)], observations: [page(TEST, "dark")] };
     return unmutated++ === 0 ? { verdict: "pass", cases: [pass(TEST)], observations: [page(TEST, "light")] } : { verdict: "infra-error", cases: [] };
   };
-  const result = await measure(new BundleMutationOracleAdapter(run, () => 1, "https://dev.example"));
+  const result = await measure(new BundleMutationOracleAdapter(run, () => 1, "https://dev.example", requestOriginClassifier(["https://dev.example", "https://api.maps.example"])));
   assert.deepEqual(result?.survived[0]?.moved, { kind: "unobserved", reason: "baseline" });
 });
 
 test("a survivor whose pages are the same with and without the mutation is stated as such, with how many tests were compared", async () => {
   const { run } = fakeRuns({ mutated: [page(TEST, "light")], plain: [page(TEST, "light")] });
-  const result = await measure(new BundleMutationOracleAdapter(run, () => 1, "https://dev.example"));
+  const result = await measure(new BundleMutationOracleAdapter(run, () => 1, "https://dev.example", requestOriginClassifier(["https://dev.example", "https://api.maps.example"])));
   assert.deepEqual(result?.survived[0]?.moved, { kind: "unmoved", tests: 1 });
 });
 
 test("the unmutated re-run before the mutants covers every mutant's spec files, the one after them the survivors', and none follows when nothing survived", async () => {
   const both = fakeRuns({ mutated: [page(TEST, "dark")], plain: [page(TEST, "light")] });
-  await measure(new BundleMutationOracleAdapter(both.run, () => 1, "https://dev.example"), [mutant(67), mutant(70, ["flows/map.spec.ts", "flows/list.spec.ts"])]);
+  await measure(new BundleMutationOracleAdapter(both.run, () => 1, "https://dev.example", requestOriginClassifier(["https://dev.example", "https://api.maps.example"])), [mutant(67), mutant(70, ["flows/map.spec.ts", "flows/list.spec.ts"])]);
   assert.deepEqual(both.calls.filter((c) => isUnmutated(c.mutant)).map((c) => [c.namespace, c.specFiles]), [
     ["run-1-obs", ["flows/list.spec.ts", "flows/map.spec.ts"]],
     ["run-1-obs2", ["flows/list.spec.ts", "flows/map.spec.ts"]],
   ]);
 
   const killed = fakeRuns({ mutatedCases: [fail(TEST)], mutated: [page(TEST, "dark")] });
-  const result = await measure(new BundleMutationOracleAdapter(killed.run, () => 1, "https://dev.example"));
+  const result = await measure(new BundleMutationOracleAdapter(killed.run, () => 1, "https://dev.example", requestOriginClassifier(["https://dev.example", "https://api.maps.example"])));
   assert.equal(result?.killed, 1);
   assert.deepEqual(killed.calls.map((c) => c.namespace), ["run-1-obs", "run-1-mut0"], "no survivor, no unmutated re-run after the mutants");
 });
@@ -154,7 +156,7 @@ test("the unmutated re-runs run the tests the mutants ran, and edit no script: b
     return { verdict: "pass", cases: [mutants++ === 0 ? fail(TEST) : pass(TEST)], observations: [page(TEST, "dark")] };
   };
 
-  await measure(new BundleMutationOracleAdapter(run, () => 1, "https://dev.example"), [mutant(67, ["flows/list.spec.ts"], [listTest]), mutant(70, ["flows/map.spec.ts"], [mapTest])]);
+  await measure(new BundleMutationOracleAdapter(run, () => 1, "https://dev.example", requestOriginClassifier(["https://dev.example", "https://api.maps.example"])), [mutant(67, ["flows/list.spec.ts"], [listTest]), mutant(70, ["flows/map.spec.ts"], [mapTest])]);
 
   assert.deepEqual(calls.filter((c) => isUnmutated(c.mutant)).map((c) => [c.namespace, c.specFiles, selection(c.mutant)]), [
     ["run-1-obs", ["flows/list.spec.ts", "flows/map.spec.ts"], { editsScript: false, tests: [listTest, mapTest] }],
@@ -164,7 +166,7 @@ test("the unmutated re-runs run the tests the mutants ran, and edit no script: b
 
 test("a mutant that names no tests ran every test of its spec files, so the unmutated re-runs run them all too", async () => {
   const { calls, run } = fakeRuns({ mutated: [page(TEST, "dark")], plain: [page(TEST, "light")] });
-  await measure(new BundleMutationOracleAdapter(run, () => 1, "https://dev.example"), [mutant(67, ["flows/map.spec.ts"], ["flows-map-spec-ts-x"]), mutant(70)]);
+  await measure(new BundleMutationOracleAdapter(run, () => 1, "https://dev.example", requestOriginClassifier(["https://dev.example", "https://api.maps.example"])), [mutant(67, ["flows/map.spec.ts"], ["flows-map-spec-ts-x"]), mutant(70)]);
   assert.deepEqual(calls.filter((c) => isUnmutated(c.mutant)).map((c) => c.mutant), [undefined, undefined]);
 });
 
@@ -177,7 +179,7 @@ test("a re-run that left no observation, an unmutated re-run that could not run 
   ];
   const kinds: unknown[] = [];
   for (const { run } of cases) {
-    const result = await measure(new BundleMutationOracleAdapter(run, () => 1, "https://dev.example"));
+    const result = await measure(new BundleMutationOracleAdapter(run, () => 1, "https://dev.example", requestOriginClassifier(["https://dev.example", "https://api.maps.example"])));
     assert.equal(result?.applied, 1);
     assert.equal(result?.survived.length, 1);
     kinds.push(result?.survived[0]?.moved);
@@ -192,21 +194,31 @@ test("a re-run that left no observation, an unmutated re-run that could not run 
 
 test("a test that did not pass in the unmutated re-run says nothing of the mutation and is not compared", async () => {
   const { run } = fakeRuns({ mutated: [page(TEST, "dark")], plain: [page(TEST, "light")], plainCases: [fail(TEST)] });
-  const result = await measure(new BundleMutationOracleAdapter(run, () => 1, "https://dev.example"));
+  const result = await measure(new BundleMutationOracleAdapter(run, () => 1, "https://dev.example", requestOriginClassifier(["https://dev.example", "https://api.maps.example"])));
   assert.deepEqual(result?.survived[0]?.moved, { kind: "unobserved", reason: "no-common-test" });
 });
 
 test("what moved holds nothing of the mutant: not the served script, its digest nor the edit", async () => {
   const { run } = fakeRuns({ mutated: [page(TEST, "dark")], plain: [page(TEST, "light")] });
-  const result = await measure(new BundleMutationOracleAdapter(run, () => 1, "https://dev.example"));
+  const result = await measure(new BundleMutationOracleAdapter(run, () => 1, "https://dev.example", requestOriginClassifier(["https://dev.example", "https://api.maps.example"])));
   const recorded = JSON.stringify(result?.survived[0]?.moved);
   for (const secret of [SCRIPT_URL, SCRIPT_SHA, EDIT, "start", "replacement"]) assert.ok(!recorded.includes(secret), secret);
 });
 
 test("a mutation pass that is not asked to observe makes the re-runs it always made and records no difference", async () => {
   const { calls, run } = fakeRuns({ mutated: [page(TEST, "dark")], plain: [page(TEST, "light")] });
-  const result = await new BundleMutationOracleAdapter(run, () => 1, "https://dev.example").measure([mutant(67)], "/e2e", "run-1", [TEST]);
+  const result = await new BundleMutationOracleAdapter(run, () => 1, "https://dev.example", requestOriginClassifier(["https://dev.example", "https://api.maps.example"])).measure([mutant(67)], "/e2e", "run-1", [TEST]);
   assert.equal(calls.length, 1);
   assert.equal(calls[0]?.observe, undefined);
   assert.equal(result?.survived[0] !== undefined && "moved" in result.survived[0], false);
+});
+
+test("a survivor whose re-run only changed requests to a third party is unmoved and has no spec to be routed to", async () => {
+  const outside = (style: string): ObservedPage => ({ name: TEST, requests: [{ method: "GET", url: `https://tiles.thirdparty.example/styles/${style}`, count: 1 }], dom: ["heading: Map"] });
+  const { run } = fakeRuns({ mutated: [outside("dark")], plain: [outside("light")] });
+
+  const result = await measure(new BundleMutationOracleAdapter(run, () => 1, "https://dev.example", requestOriginClassifier(["https://dev.example", "https://tiles.thirdparty.example"], ["https://tiles.thirdparty.example"])));
+
+  assert.deepEqual(result?.survived[0]?.moved, { kind: "unmoved", tests: 1 });
+  assert.deepEqual(survivorFindings(result!.survived[0]!), []);
 });

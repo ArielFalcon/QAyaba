@@ -2,6 +2,7 @@
 import { test, mock } from "node:test";
 import assert from "node:assert/strict";
 import { BundleMutationOracleAdapter } from "@contexts/objective-signal/infrastructure/bundle-mutation-oracle.adapter.ts";
+import { requestOriginClassifier } from "@kernel/observed-requests.ts";
 import type { MutantRun } from "@contexts/objective-signal/domain/coverage-collector.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 
@@ -32,6 +33,7 @@ test("each mutant re-runs its spec files under its own namespace with its edit, 
     },
     () => 1,
     "https://dev.example",
+    requestOriginClassifier(["https://dev.example", "https://api.maps.example"]),
   );
 
   const result = await oracle.measure([mutant(10), mutant(12, ["flows/b.spec.ts"])], "/e2e", "run-1", ["shows missing", "other"]);
@@ -54,7 +56,7 @@ test("a mutant that reached no page, a re-run that could not run, and one that r
     { verdict: "fail", cases: [fail("not-before")], mutated: 1 },
   ];
   let i = 0;
-  const oracle = new BundleMutationOracleAdapter(async () => cases[i]!, () => cases[i++]!.mutated, "https://dev.example");
+  const oracle = new BundleMutationOracleAdapter(async () => cases[i]!, () => cases[i++]!.mutated, "https://dev.example", requestOriginClassifier(["https://dev.example", "https://api.maps.example"]));
 
   assert.equal(await oracle.measure(cases.map((_, n) => mutant(n + 1)), "/e2e", "run", ["t"]), null);
 });
@@ -72,7 +74,7 @@ test("a mutant whose counters could not be read is not judged and is counted apa
       { cases: [pass("a"), pass("b")], mutated: 2 },
     ];
     let i = 0;
-    const oracle = new BundleMutationOracleAdapter(async () => ({ verdict: "fail", cases: reruns[i]!.cases }), () => reruns[i++]!.mutated, "https://dev.example");
+    const oracle = new BundleMutationOracleAdapter(async () => ({ verdict: "fail", cases: reruns[i]!.cases }), () => reruns[i++]!.mutated, "https://dev.example", requestOriginClassifier(["https://dev.example", "https://api.maps.example"]));
 
     const result = await oracle.measure([mutant(1), mutant(2), mutant(3)], "/e2e", "run", ["a", "b"]);
 
@@ -89,7 +91,7 @@ test("a mutant whose counters could not be read is not judged and is counted apa
 });
 
 test("with no mutant judged and one unreadable the result still says so, so the unreadable evidence is never lost to a null", async () => {
-  const oracle = new BundleMutationOracleAdapter(async () => ({ verdict: "fail", cases: [fail("t")] }), () => undefined, "https://dev.example");
+  const oracle = new BundleMutationOracleAdapter(async () => ({ verdict: "fail", cases: [fail("t")] }), () => undefined, "https://dev.example", requestOriginClassifier(["https://dev.example", "https://api.maps.example"]));
 
   assert.deepEqual(await oracle.measure([mutant(1)], "/e2e", "run", ["t"]), { applied: 0, killed: 0, survived: [], unreadable: 1 });
 });
@@ -100,9 +102,9 @@ test("no mutant, no passing test or no DEV address runs nothing", async () => {
     ran++;
     return { verdict: "pass", cases: [] };
   };
-  assert.equal(await new BundleMutationOracleAdapter(run, () => 1, "https://dev.example").measure([], "/e2e", "run", ["t"]), null);
-  assert.equal(await new BundleMutationOracleAdapter(run, () => 1, "https://dev.example").measure([mutant(1)], "/e2e", "run", []), null);
-  assert.equal(await new BundleMutationOracleAdapter(run, () => 1, "").measure([mutant(1)], "/e2e", "run", ["t"]), null);
+  assert.equal(await new BundleMutationOracleAdapter(run, () => 1, "https://dev.example", requestOriginClassifier(["https://dev.example", "https://api.maps.example"])).measure([], "/e2e", "run", ["t"]), null);
+  assert.equal(await new BundleMutationOracleAdapter(run, () => 1, "https://dev.example", requestOriginClassifier(["https://dev.example", "https://api.maps.example"])).measure([mutant(1)], "/e2e", "run", []), null);
+  assert.equal(await new BundleMutationOracleAdapter(run, () => 1, "", requestOriginClassifier(["https://dev.example", "https://api.maps.example"])).measure([mutant(1)], "/e2e", "run", ["t"]), null);
   assert.equal(ran, 0);
 });
 
@@ -111,7 +113,7 @@ test("a surviving mutant keeps the spec files that reached it and the edit it ma
   const m = mutant(5);
   m.site.original = long;
   m.site.edit = { ...m.site.edit, replacement: `!(${long})` };
-  const oracle = new BundleMutationOracleAdapter(async () => ({ verdict: "pass", cases: [pass("t")] }), () => 1, "https://dev.example");
+  const oracle = new BundleMutationOracleAdapter(async () => ({ verdict: "pass", cases: [pass("t")] }), () => 1, "https://dev.example", requestOriginClassifier(["https://dev.example", "https://api.maps.example"]));
 
   const result = await oracle.measure([m], "/e2e", "run", ["t"]);
 
@@ -126,7 +128,7 @@ test("a surviving mutant's edit keeps no part of a credential that straddles the
   const m = mutant(5);
   m.site.original = `token === "${"the page header ".repeat(7).slice(0, 100)}${key}" && ready`;
   m.site.edit = { ...m.site.edit, replacement: `!(${m.site.original})` };
-  const oracle = new BundleMutationOracleAdapter(async () => ({ verdict: "pass", cases: [pass("t")] }), () => 1, "https://dev.example");
+  const oracle = new BundleMutationOracleAdapter(async () => ({ verdict: "pass", cases: [pass("t")] }), () => 1, "https://dev.example", requestOriginClassifier(["https://dev.example", "https://api.maps.example"]));
 
   const [survivor] = (await oracle.measure([m], "/e2e", "run", ["t"]))!.survived;
 
@@ -135,7 +137,7 @@ test("a surviving mutant's edit keeps no part of a credential that straddles the
 
 test("a mutant that names the tests that reached it hands them to the suite's mutation fixture, and one that names none re-runs every test of its spec files", async () => {
   const sent: Array<{ tests?: string[] }> = [];
-  const oracle = new BundleMutationOracleAdapter(async ({ mutant: m }) => (sent.push(JSON.parse(m!)), { verdict: "pass", cases: [pass("t")] }), () => 1, "https://dev.example");
+  const oracle = new BundleMutationOracleAdapter(async ({ mutant: m }) => (sent.push(JSON.parse(m!)), { verdict: "pass", cases: [pass("t")] }), () => 1, "https://dev.example", requestOriginClassifier(["https://dev.example", "https://api.maps.example"]));
 
   await oracle.measure([{ ...mutant(10), tests: ["flows-a-spec-ts-x"] }, mutant(12)], "/e2e", "run", ["t"]);
 

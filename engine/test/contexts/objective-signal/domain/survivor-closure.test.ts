@@ -47,6 +47,17 @@ test("a survivor whose routed specs the regeneration did not change is not re-ru
   assert.deepEqual(rechecks, [{ site: site(5), specFiles: ["flows/a.spec.ts", "flows/b.spec.ts"] }]);
 });
 
+test("a survivor the runs found unmoved or could not compare starts no re-run, whatever the regeneration changed", () => {
+  const unmoved = { ...survived(3, ["flows/a.spec.ts"]), moved: { kind: "unmoved" as const, tests: 1 } };
+  const unobserved = { ...survived(5, ["flows/a.spec.ts"]), moved: { kind: "unobserved" as const, reason: "mutant" as const } };
+  const routed = [{ site: site(3), specFiles: ["flows/a.spec.ts"] }, { site: site(5), specFiles: ["flows/a.spec.ts"] }, { site: site(7), specFiles: ["flows/a.spec.ts"] }];
+
+  const rechecks = survivorRechecks(routed, [unmoved, unobserved, { ...survived(7, ["flows/a.spec.ts"]), moved: MOVED }], ["flows/a.spec.ts"]);
+
+  assert.deepEqual(rechecks, [{ site: site(7), specFiles: ["flows/a.spec.ts"] }]);
+  assert.deepEqual(survivorRechecks(routed.slice(0, 2), [unmoved, unobserved], ["flows/a.spec.ts"]), []);
+});
+
 test("the closure counts the judged survivors, those a test now notices, and lists the rest by place and operator only", () => {
   const closure = survivorClosureOf(3, { applied: 2, killed: 1, survived: [{ file: "src/store.ts", line: 5, operator: "negate condition", original: "x", replacement: "!x", specFiles: ["flows/a.spec.ts"] }] });
 

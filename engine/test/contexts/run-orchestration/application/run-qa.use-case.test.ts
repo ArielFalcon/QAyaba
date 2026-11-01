@@ -41,6 +41,7 @@ import type { ValidationPort, ExecutionPort } from "@contexts/test-execution/app
 import type { CoverageMeasurement, MutationPass, ObjectiveSignalPort } from "@contexts/objective-signal/application/index.ts";
 import { ObjectiveSignalPortAdapter } from "@contexts/objective-signal/infrastructure/adapters/objective-signal-port.adapter.ts";
 import { BundleMutationOracleAdapter } from "@contexts/objective-signal/infrastructure/bundle-mutation-oracle.adapter.ts";
+import { requestOriginClassifier } from "@kernel/observed-requests.ts";
 import { TracedObjectiveSignalPort } from "@contexts/objective-signal/infrastructure/adapters/objective-signal-trace.ts";
 import { DecideCoverageService, assembleChangeCoverage } from "@contexts/objective-signal/application/index.ts";
 import type { PublicationPort } from "@contexts/workspace-and-publication/application/index.ts";
@@ -1626,7 +1627,7 @@ function mutationRig(o: MutationRigOptions = {}) {
     return { verdict: "pass", cases: [pass], observations: [page] };
   };
   /* As in production, the oracle runs no re-run of its own: the run hands it its execution port. */
-  const oracle = new BundleMutationOracleAdapter(undefined, (_dir, namespace) => (o.reachesNoPage || namespace.endsWith("-mut2") ? 0 : 1), "https://dev.example");
+  const oracle = new BundleMutationOracleAdapter(undefined, (_dir, namespace) => (o.reachesNoPage || namespace.endsWith("-mut2") ? 0 : 1), "https://dev.example", requestOriginClassifier(["https://dev.example", "https://api.maps.example"]));
   const port = new ObjectiveSignalPortAdapter(
     { collector, decide: new DecideCoverageService(), mutation: oracle, readSource: () => "if (x) pay();\nif (x) pay();\nif (x) pay();\nif (x) pay();\n" },
     { policy: { mode: o.mode ?? "signal", minRatio: o.minRatio ?? 0.7 }, repoDir: "/nonexistent", assembleChangeCoverage },
@@ -9331,6 +9332,24 @@ test("an accepted regeneration a surviving mutant drove re-applies that mutant t
     assert.deepEqual(savedOutcomes.at(-1)!.gateSignals.survivorClosure, { routed: 1, judged: 1, closed: 1, open: [] });
     assert.ok(!turns[1]!.includes(SURVIVOR_SITE.script.url), "the served script a mutant edits never reaches an agent");
     assert.equal(out.decision.sideEffect, "pr");
+  } finally {
+    real.cleanup();
+  }
+});
+
+test("a surviving mutant whose compared pages did not move is recorded, drives no regeneration and starts no re-run", async () => {
+  const rechecks: unknown[] = [];
+  const { real, turns, savedOutcomes, useCase } = survivorRun(async (...args) => {
+    rechecks.push(args);
+    return { applied: 1, killed: 1, survived: [] };
+  }, { ...SURVIVED, moved: { kind: "unmoved", tests: 1 } });
+  try {
+    await useCase.run({ ...baseInput, runId: "survivor-unmoved" });
+
+    assert.equal(turns.length, 1, "only the first pass: nothing an author can assert on");
+    assert.deepEqual(rechecks, []);
+    assert.deepEqual(savedOutcomes.at(-1)!.gateSignals.bundleMutation?.survived[0]?.moved, { kind: "unmoved", tests: 1 });
+    assert.equal(savedOutcomes.at(-1)!.gateSignals.survivorClosure, undefined);
   } finally {
     real.cleanup();
   }

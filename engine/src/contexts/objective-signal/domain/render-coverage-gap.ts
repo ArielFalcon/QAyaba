@@ -87,19 +87,25 @@ export function renderSurvivedMutant(m: SurvivedMutant, specFile?: string): stri
   return observed ? `${fact}; ${observed}` : fact;
 }
 
-/*
- * The spec files a surviving mutant is routed to: those that ran it whose own pages moved, since a file whose pages show nothing of the
- * mutant has nothing to assert on; when none moved (or there is no account per file), every spec file that ran it; none when no spec
- * file is recorded as running it.
- */
-export function survivorRoutes(m: SurvivedMutant): string[] {
-  const specs = m.specFiles ?? [];
-  const moved = specs.filter((spec) => movedFor(m, spec)?.kind === "moved");
-  return m.movedBySpec && moved.length > 0 ? moved : specs;
+/* Whether a survivor is a fact an author can act on: its pages were not compared, or the app's own requests or tree moved. A survivor the runs compared and found unmoved, or could not compare, has nothing an assertion can depend on and is recorded, never routed. */
+export function survivorIsRouted(m: SurvivedMutant): boolean {
+  return m.moved === undefined || m.moved.kind === "moved";
 }
 
-/* The findings a surviving mutant gives, one per spec file it is routed to, each rendered with that file's own account; with none recorded, one finding of no spec. */
+/*
+ * The spec files a surviving mutant is routed to: those that ran it whose own pages moved, since a file whose pages show nothing of the
+ * mutant has nothing to assert on; every spec file that ran it when there is no account per file; none when no spec file is recorded as
+ * running it, or when the survivor is not routed (`survivorIsRouted`).
+ */
+export function survivorRoutes(m: SurvivedMutant): string[] {
+  if (!survivorIsRouted(m)) return [];
+  const specs = m.specFiles ?? [];
+  return m.movedBySpec ? specs.filter((spec) => movedFor(m, spec)?.kind === "moved") : specs;
+}
+
+/* The findings a surviving mutant gives, one per spec file it is routed to, each rendered with that file's own account; none for a survivor that is not routed; with no spec recorded, one finding of no spec. */
 export function survivorFindings(m: SurvivedMutant): { spec?: string; text: string }[] {
+  if (!survivorIsRouted(m)) return [];
   const routed = survivorRoutes(m);
   if (routed.length === 0) return [{ text: renderSurvivedMutant(m) }];
   return routed.map((spec) => ({ spec, text: renderSurvivedMutant(m, spec) }));
@@ -125,7 +131,8 @@ export function renderObservedDifference(d: ObservedDifference): string {
 
 /* The surviving mutants as one gap text for an author that has no lead to route them; empty when none survived. */
 export function renderSurvivedMutants(survived: readonly SurvivedMutant[]): string {
-  if (survived.length === 0) return "";
-  const lines = survived.map((m) => `- ${renderSurvivedMutant(m, m.specFiles?.join(", "))}`);
+  const routed = survived.filter(survivorIsRouted);
+  if (routed.length === 0) return "";
+  const lines = routed.map((m) => `- ${renderSurvivedMutant(m, m.specFiles?.join(", "))}`);
   return `mutants of the changed code that ran under a test and that no test noticed:\n${lines.join("\n")}`;
 }

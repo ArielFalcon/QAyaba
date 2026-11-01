@@ -2,6 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { BundleMutationOracleAdapter } from "@contexts/objective-signal/infrastructure/bundle-mutation-oracle.adapter.ts";
+import { requestOriginClassifier } from "@kernel/observed-requests.ts";
 import type { MutantRun } from "@contexts/objective-signal/domain/coverage-collector.ts";
 import type { ObservedPage } from "@contexts/objective-signal/domain/observed-page.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
@@ -31,7 +32,7 @@ function runs(mutatedStyle: string) {
 
 test("with the measurement's pages in hand, no observation runs before the mutants, and a survivor is compared with the measurement and the one after", async () => {
   const { namespaces, run } = runs("dark");
-  const oracle = new BundleMutationOracleAdapter(run, () => 1, "https://dev.example");
+  const oracle = new BundleMutationOracleAdapter(run, () => 1, "https://dev.example", requestOriginClassifier(["https://dev.example", "https://api.example"]));
 
   const result = await oracle.measure([mutant([testOfCase(MAP)])], "/e2e", "run-1-measure", [MAP], { observe: true, before: { cases: [pass(MAP, "flows/map.spec.ts")], observations: [page(MAP, "light")] } });
 
@@ -41,7 +42,7 @@ test("with the measurement's pages in hand, no observation runs before the mutan
 
 test("a mutant whose only reaching tests failed under the measurement is not judged, never counted as survived, and its re-run is not spent", async () => {
   const { namespaces, run } = runs("light");
-  const oracle = new BundleMutationOracleAdapter(run, () => 1, "https://dev.example");
+  const oracle = new BundleMutationOracleAdapter(run, () => 1, "https://dev.example", requestOriginClassifier(["https://dev.example", "https://api.example"]));
 
   const result = await oracle.measure([mutant([testOfCase(LIST)], ["flows/list.spec.ts"]), mutant([testOfCase(MAP)])], "/e2e", "run-1-measure", [MAP], { notGreen: [testOfCase(LIST)] });
 
@@ -53,7 +54,7 @@ test("a mutant whose only reaching tests failed under the measurement is not jud
 
 test("a pass whose every mutant was left unjudged for that reason still says so", async () => {
   const { namespaces, run } = runs("light");
-  const oracle = new BundleMutationOracleAdapter(run, () => 1, "https://dev.example");
+  const oracle = new BundleMutationOracleAdapter(run, () => 1, "https://dev.example", requestOriginClassifier(["https://dev.example", "https://api.example"]));
 
   const result = await oracle.measure([mutant([testOfCase(LIST)], ["flows/list.spec.ts"])], "/e2e", "run-1-measure", [MAP], { notGreen: [testOfCase(LIST)] });
 
