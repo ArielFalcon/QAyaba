@@ -55,7 +55,7 @@ Findings are numbered and each number is one finding: cite a finding only by the
 
 When the findings are the independent reviewer's, a finding you hold to be wrong can be rebutted instead, with the evidence the run can check:
 `execution` and a test of this run that passed on the current bytes, or `contract` and the clause that still holds. Findings the run observed
-itself are facts: each one is corrected, none is rebutted.
+itself are facts: each one is corrected, none is rebutted. The change-coverage findings are measurements: the turn states what they ask; you route them.
 
 Answer with this JSON object and nothing else. A finding citing a flow's spec is always sent to it; `findings` adds the numbers of findings that cite no flow, or that you move to it, exactly as the list numbers them.
 

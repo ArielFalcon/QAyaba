@@ -17,8 +17,8 @@
       "directives": 0
     },
     "lead-correction/coverage": {
-      "bytes": 489,
-      "directives": 0
+      "bytes": 677,
+      "directives": 1
     },
     "lead-correction/execution": {
       "bytes": 541,
@@ -71,12 +71,14 @@
   },
   "staticLayers": {
     "qa-author": 26213,
-    "qa-lead": 15279
+    "qa-lead": 15373
   },
   "lastIncrease": {
-    "reason": "T38 (L63): the author is told a page its grounding reads as a confirmed empty state is DEV's data, never to be asserted as it loads",
+    "reason": "coverage origin states its exit (take the arm if reachable, else report) instead of a one-line no-rebuttal rule; qa-lead points at it",
     "budgets": [
-      "static:qa-author"
+      "lead-correction/coverage:bytes",
+      "lead-correction/coverage:directives",
+      "static:qa-lead"
     ]
   }
 }

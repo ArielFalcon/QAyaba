@@ -26,7 +26,8 @@ const MAX_REASON_CHARS = 400;
 /*
  * Where a correction turn's findings come from: the independent reviewer, or the orchestrator's own checks after the flows were
  * authored (the static gate, the execution against DEV, the change-coverage measurement, the pre-execution selector check). Only a
- * reviewer's finding is a judgment the lead may rebut; the others are facts the run observed, and every one of them is corrected.
+ * reviewer's finding is a judgment the lead may rebut; the others are facts the run observed. A fact is corrected, except the
+ * coverage measurement's, which is taken when the page can reach it and is otherwise reported. `ORIGIN_TEXT` states each origin's rule once.
  */
 export const CORRECTION_ORIGIN = {
   REVIEW: "review",
@@ -38,42 +39,63 @@ export const CORRECTION_ORIGIN = {
 } as const;
 export type CorrectionOrigin = (typeof CORRECTION_ORIGIN)[keyof typeof CORRECTION_ORIGIN];
 
-const ORIGIN_TEXT: Record<CorrectionOrigin, { heading: string; lead: string; sidekick: string }> = {
+const OBSERVED_FACTS_RULE = "These are facts the run observed: each one is corrected, none is rebutted.";
+const CORRECT_EACH_FINDING = "Correct your spec for each finding without weakening an assertion.";
+const COVERAGE_RULE = "These are measurements, not demands: take the arm when the page can be brought to that state through the UI against DEV; otherwise change nothing for it and say so in `concerns`. Never force or weaken an assertion; the recount is the disposition of each finding.";
+
+const ORIGIN_TEXT: Record<CorrectionOrigin, { heading: string; lead: string; sidekick: string; leadRule: string; closing: string }> = {
   review: {
     heading: "The reviewer's corrections",
     lead: "The run executed the specs your sidekicks delivered and an independent reviewer judged them. These findings are verified: each one cites a contract clause or an execution of this run.",
     sidekick: "The independent reviewer judged your spec after the run executed it. These findings are verified by the orchestrator:",
+    leadRule: "",
+    closing: "Correct each finding in your spec without weakening an assertion; a finding you hold to be wrong goes in concerns, with the evidence.",
   },
   "static-gate": {
     heading: "The static gate's errors",
     lead: "The orchestrator's static gate (type check, lint, test listing) refused the specs your sidekicks delivered. Each finding is an error it reported.",
     sidekick: "The orchestrator's static gate refused your spec. What it reported:",
+    leadRule: OBSERVED_FACTS_RULE,
+    closing: CORRECT_EACH_FINDING,
   },
   execution: {
     heading: "The run's failing tests",
     lead: "The run executed the specs your sidekicks delivered against DEV and these failed. Each finding is what the execution reported, or a fact the orchestrator found in the failure.",
     sidekick: "The run executed your spec against DEV and it failed. What the orchestrator observed:",
+    leadRule: OBSERVED_FACTS_RULE,
+    closing: CORRECT_EACH_FINDING,
   },
   flaky: {
     heading: "Tests that passed only on retry",
     lead: "The run executed the specs your sidekicks delivered against DEV and these failed their first attempt and passed on retry. Each finding is what the first attempt showed.",
     sidekick: "The run executed your spec against DEV: it failed its first attempt and passed on retry. What the orchestrator observed:",
+    leadRule: OBSERVED_FACTS_RULE,
+    closing: CORRECT_EACH_FINDING,
   },
   coverage: {
     heading: "Changed lines no test exercised",
     lead: "The run passed, but the change-coverage measurement found changed lines that none of the delivered specs exercised.",
     sidekick: "The run passed, but changed lines no test exercised remain. Extend your spec to exercise those of your flow:",
+    leadRule: COVERAGE_RULE,
+    closing: COVERAGE_RULE,
   },
   "pre-exec": {
     heading: "Selectors the page does not have",
     lead: "Before the specs ran, the orchestrator checked their selectors against the pages it captured from DEV. These selectors are not on the page.",
     sidekick: "Before your spec ran, the orchestrator checked its selectors against the page it captured from DEV. These are not on the page:",
+    leadRule: OBSERVED_FACTS_RULE,
+    closing: CORRECT_EACH_FINDING,
   },
 };
 
 /* What the sidekick is told the findings it is sent are. */
 export function correctionPreamble(origin: CorrectionOrigin): string {
   return ORIGIN_TEXT[origin].sidekick;
+}
+
+/* The sentence that ends the sidekick's correction: what the findings of this origin ask of it. */
+export function correctionClosing(origin: CorrectionOrigin): string {
+  return ORIGIN_TEXT[origin].closing;
 }
 
 /* Whether the findings of this origin are a judgment the lead may rebut. */
@@ -177,7 +199,7 @@ export function assembleLeadCorrection(redaction: RedactionPort, flows: readonly
   const text = ORIGIN_TEXT[origin];
   return assembleDefs(
     LEAD_CORRECTION_SECTIONS,
-    { flows, findings, owner: findings.map((finding) => flowOfFinding(finding, flows)), holders: findings.map((finding) => movableAmong(finding, flows)), origin: { heading: text.heading, lead: text.lead, rebuttable: rebuttable(origin) }, scrub: (value) => redaction.redact(value) },
+    { flows, findings, owner: findings.map((finding) => flowOfFinding(finding, flows)), holders: findings.map((finding) => movableAmong(finding, flows)), origin: { heading: text.heading, lead: text.lead, rule: text.leadRule, rebuttable: rebuttable(origin) }, scrub: (value) => redaction.redact(value) },
     { separator: "\n\n", ...(fit ? { fit } : {}) },
   );
 }

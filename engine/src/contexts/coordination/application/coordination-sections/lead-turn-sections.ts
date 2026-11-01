@@ -209,7 +209,7 @@ export interface CorrectionPromptContext {
   /* By position, the flows whose use cases the finding's file seeds when it is more than one: the lead may give the finding to any of them. Empty otherwise. */
   holders: readonly (readonly string[])[];
   /* The origin's heading and lead, and whether its findings are a judgment the lead may rebut. */
-  origin: { heading: string; lead: string; rebuttable: boolean };
+  origin: { heading: string; lead: string; rule: string; rebuttable: boolean };
   scrub(text: string): string;
 }
 
@@ -308,13 +308,13 @@ function unroutedDegrade(ctx: CorrectionPromptContext, render: (detail: FindingD
 export const LEAD_CORRECTION_SECTIONS: readonly PromptSectionDef<CorrectionPromptContext>[] = [
   section({
     id: "correction",
-    priority: 10, stability: "run", reason: "Where the findings come from and whether the lead may rebut them (b18630b1)",
+    priority: 10, stability: "run", reason: "Where the findings come from, whether the lead may rebut them and what each origin asks of the flow (b18630b1; a coverage finding is a measurement, the engine's frame said it was a demand)",
     applies: () => true,
     render: ({ origin }) => ({
       content: [
         `## ${origin.heading}`,
         origin.lead,
-        origin.rebuttable ? "" : "These are facts the run observed: each one is corrected, none is rebutted.",
+        origin.rule,
       ].filter(Boolean).join("\n\n"),
     }),
   }),

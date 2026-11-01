@@ -64,7 +64,7 @@ import { namesTemplatePage } from "@contexts/generation/application/index.ts";
 import type { HarnessFacts } from "@kernel/grounding.ts";
 import type { RedactionPort } from "@kernel/ports/redaction.port.ts";
 import { candidateFlowId, candidateFlowOf, maintenanceFlowId, maintenanceFlowOf, seedsNoCandidate, specNamedBy, uncoveredCandidateOf } from "./maintenance-flow.ts";
-import { CORRECTION_ORIGIN, admitLeadCorrection, correctionPreamble, routeOfFinding, assembleLeadCorrection, assembleRefusedCorrection, type CorrectionOrigin, type CorrectionOrder, type CorrectionRebuttal, type FlowUnderCorrection, type CorrectionFinding } from "./lead-correction.ts";
+import { CORRECTION_ORIGIN, admitLeadCorrection, correctionClosing, correctionPreamble, routeOfFinding, assembleLeadCorrection, assembleRefusedCorrection, type CorrectionOrigin, type CorrectionOrder, type CorrectionRebuttal, type FlowUnderCorrection, type CorrectionFinding } from "./lead-correction.ts";
 
 /* The flow's slice of the Context Pack, as a brief field, or nothing when the pack did not read its pages. */
 const pagesOf = (pack: string | undefined, routes: readonly string[]): { pages: string } | undefined => {
@@ -1310,9 +1310,7 @@ export class LeadSidekicks {
       correctionPreamble(origin),
       ...order.findings.map((finding) => `- ${this.deps.redaction.redact(finding)}`),
       `The lead's instruction: ${order.instruction}`,
-      origin === CORRECTION_ORIGIN.REVIEW
-        ? "Correct each finding in your spec without weakening an assertion; a finding you hold to be wrong goes in concerns, with the evidence."
-        : "Correct your spec for each finding without weakening an assertion.",
+      correctionClosing(origin),
       ...(origin === CORRECTION_ORIGIN.EXECUTION
         ? [`If you hold the test right and the failure the app's or the environment's, change nothing and add to your result \`"testCorrect":{"cause":"app"|"env","reason":"<the evidence>"}\`. The orchestrator checks the claim against this run's evidence; it is never taken on your word.`]
         : []),
