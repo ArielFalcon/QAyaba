@@ -51,6 +51,8 @@ jobs:
       - run: npm run contract:check
       # Catches a platform/settings/registry.ts edit that shipped without rerunning `npm run settings:gen` — see scripts/check-settings-fresh.ts.
       - run: npm run settings:check
+      # Catches a wire schema edit that shipped without rerunning `npm run submit-contracts:gen` — see scripts/check-submit-contracts-fresh.ts.
+      - run: npm run submit-contracts:check
       - run: npm test
       - name: client (Go) — vet + test
         working-directory: client

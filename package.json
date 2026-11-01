@@ -18,6 +18,8 @@
     "contract:check": "tsx scripts/check-contract-fresh.ts",
     "settings:gen": "tsx scripts/gen-settings-docs.ts",
     "settings:check": "tsx scripts/check-settings-fresh.ts",
+    "submit-contracts:gen": "tsx scripts/gen-submit-contracts.ts",
+    "submit-contracts:check": "tsx scripts/check-submit-contracts-fresh.ts",
     "sdk:gen": "openapi-typescript contract/openapi.json -o packages/sdk/src/types.gen.ts",
     "sdk:typecheck": "tsc -p packages/sdk",
     "start": "tsx platform/composition/index.ts",

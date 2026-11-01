@@ -69,3 +69,5 @@ export { readVerdict } from "../domain/verdict-parse.ts";
 export type { FinalVerdict } from "../domain/verdict-parse.ts";
 export { readReviewerVerdict } from "../domain/verdict-validate.ts";
 export type { ReviewerFinding, ReviewerVerdict } from "../domain/verdict-validate.ts";
+export { GENERATOR_VERDICT_WIRE } from "../domain/generator-verdict.contract.ts";
+export { REVIEWER_VERDICT_WIRE } from "../domain/reviewer-verdict.contract.ts";

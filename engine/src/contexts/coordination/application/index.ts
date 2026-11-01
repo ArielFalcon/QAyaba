@@ -91,3 +91,7 @@ export { LeadSidekicks } from "./lead-sidekicks.ts";
 export type { CoordinateResult, CoordinatedPass, FlowCandidates } from "./lead-sidekicks.ts";
 
 export { authorTargetOf, dispatchAuthor, type AuthorRequest, type RunAuthorTarget } from "./author-dispatch.ts";
+export { LEAD_PLAN_WIRE } from "./lead-plan.contract.ts";
+export { LEAD_REVIEW_WIRE } from "./lead-review.contract.ts";
+export { LEAD_CORRECTION_WIRE } from "./lead-correction.contract.ts";
+export { DELEGATION_RESULT_WIRE } from "./delegation-result.contract.ts";
