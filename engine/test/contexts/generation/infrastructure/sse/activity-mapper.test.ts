@@ -127,9 +127,8 @@ test("command.executed → command activity; session.error → agent.error", () 
 test("session.error with an error object is rendered by its name and message, never as [object Object]", () => {
   const out = mapValid({ type: "session.error", properties: { sessionID: "sess_1", error: { name: "APIError", data: { message: "rate limit hit", statusCode: 429 } } } });
   assert.equal(out.length, 1);
-  const first = out[0]!;
-  assert.equal(first.type, "agent.error");
-  const detail = first.type === "agent.error" ? first.detail : "";
+  const detail = (out[0] as { type: string; detail: string }).detail;
+  assert.equal((out[0] as { type: string }).type, "agent.error");
   assert.match(detail, /APIError/);
   assert.match(detail, /rate limit hit/);
   assert.doesNotMatch(detail, /\[object Object\]/);
